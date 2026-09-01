@@ -20,6 +20,7 @@ import {
   fetchActiveBridgePrompts,
   faucet,
   fetchHotKeyHardwareError,
+  getAccountWalletPromptStatus,
   getPendingNotesUsdTotal,
   type PendingNoteValue,
   pollActiveBridgePrompts,
@@ -131,7 +132,7 @@ export const HomePrompts: FC<HomePromptsProps> = ({
   tokenPrices
 }) => {
   const { t } = useTranslation();
-  const { storage, isLoaded, setPromptStatus, dismissPrompt, completePrompt, isPromptPending } =
+  const { storage, isLoaded, setPromptStatus, setAccountPromptStatus, dismissPrompt, completePrompt, isPromptPending } =
     useWalletPromptStorage();
   const [faucetStatusIndicator, setFaucetStatusIndicator] = useState<PromptCardStatus>('idle');
   const [fundDrawerOpen, setFundDrawerOpen] = useState(false);
@@ -196,7 +197,10 @@ export const HomePrompts: FC<HomePromptsProps> = ({
     () => balances.some(token => token.balance > 0) && !hasNoFeeAsset(balances, nativeFaucetId, verificationBaseFee),
     [balances, nativeFaucetId, verificationBaseFee]
   );
-  const faucetStatus = storage.prompts[WalletPromptType.Faucet];
+  // Per account, not wallet-wide: each account funds itself, so one account's
+  // "Fund now" outcome must not hide or complete the prompt on its siblings.
+  // (The seed-phrase prompt stays wallet-wide — there is only one seed.)
+  const faucetStatus = getAccountWalletPromptStatus(storage, account.publicKey, WalletPromptType.Faucet);
   // Dismiss means "not now", not "never again". An account that has run its native
   // balance to zero on a fee-charging chain cannot transact at all, and this prompt
   // is the way out -- so a previous dismissal stops suppressing it. Without the
@@ -310,11 +314,11 @@ export const HomePrompts: FC<HomePromptsProps> = ({
   useEffect(() => {
     if (!isLoaded || balancesLoading) return;
     if (!hasBalance && faucetStatus === undefined) {
-      setPromptStatus(WalletPromptType.Faucet, WalletPromptStatus.Pending);
+      setAccountPromptStatus(account.publicKey, WalletPromptType.Faucet, WalletPromptStatus.Pending);
     } else if (hasBalance && faucetStatus === WalletPromptStatus.Pending) {
-      completePrompt(WalletPromptType.Faucet);
+      setAccountPromptStatus(account.publicKey, WalletPromptType.Faucet, WalletPromptStatus.Completed);
     }
-  }, [balancesLoading, completePrompt, faucetStatus, hasBalance, isLoaded, setPromptStatus]);
+  }, [account.publicKey, balancesLoading, faucetStatus, hasBalance, isLoaded, setAccountPromptStatus]);
 
   // Drives the FundWalletDrawer; doubles as the drawer's onRetry. The drawer
   // owns the success/failure surface now (no auto-idle timer) — it stays up
@@ -326,13 +330,13 @@ export const HomePrompts: FC<HomePromptsProps> = ({
     try {
       await faucet(account.publicKey);
       setFaucetStatusIndicator('success');
-      completePrompt(WalletPromptType.Faucet);
+      setAccountPromptStatus(account.publicKey, WalletPromptType.Faucet, WalletPromptStatus.Completed);
     } catch (error) {
       setFaucetStatusIndicator('failure');
       setFaucetErrorMessage(error instanceof Error ? error.message : String(error));
       console.error('[wallet-prompts] faucet request failed:', error);
     }
-  }, [account.publicKey, completePrompt]);
+  }, [account.publicKey, setAccountPromptStatus]);
 
   // Map the internal indicator onto the drawer's 3-state contract. 'idle' is only
   // the initial pre-funding value; opening always goes through fundWallet (which
@@ -383,7 +387,9 @@ export const HomePrompts: FC<HomePromptsProps> = ({
             // While the account cannot pay a fee this prompt re-arms on every render
             // (see `faucetIsTerminal`), so a dismiss X would write storage, fire haptics
             // and change nothing. Withhold the control rather than ship one that lies.
-            dismissible: cannotPayFee ? false : undefined
+            dismissible: cannotPayFee ? false : undefined,
+            onDismiss: () =>
+              setAccountPromptStatus(account.publicKey, WalletPromptType.Faucet, WalletPromptStatus.Dismissed)
           };
         case WalletPromptType.Bridge:
           return {
@@ -416,6 +422,7 @@ export const HomePrompts: FC<HomePromptsProps> = ({
       // rendered, so a stale value would leave a user who has just run out of MIDEN
       // reading the generic prompt with a dead X.
       cannotPayFee,
+      account.publicKey,
       bridgeTransactions,
       noteRecoveryBody,
       copyHotKeyError,
@@ -426,6 +433,7 @@ export const HomePrompts: FC<HomePromptsProps> = ({
       pendingNoteIds,
       rotateHotKey,
       rotationStatusIndicator,
+      setAccountPromptStatus,
       setPromptStatus,
       t
     ]

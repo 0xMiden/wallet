@@ -52,9 +52,18 @@ export enum WalletPromptStatus {
   Completed = 'completed'
 }
 
+export type WalletPromptStatusMap = Partial<Record<WalletPromptType, WalletPromptStatus>>;
+
 export type WalletPromptStorage = {
   version: 1;
-  prompts: Partial<Record<WalletPromptType, WalletPromptStatus>>;
+  /** Wallet-wide prompts (one seed phrase, one device key, ...). */
+  prompts: WalletPromptStatusMap;
+  /**
+   * Per-account prompts, keyed by the account's public key. The faucet lives
+   * here: funding is something each account does for itself, so completing or
+   * dismissing "Fund now" on one account must not hide it on the others.
+   */
+  accountPrompts: Record<string, WalletPromptStatusMap>;
   pendingNotesDismissedIds: string[];
 };
 
@@ -63,6 +72,7 @@ export const WALLET_PROMPTS_STORAGE_KEY = 'wallet_prompts_v1';
 export const EMPTY_WALLET_PROMPT_STORAGE: WalletPromptStorage = {
   version: 1,
   prompts: {},
+  accountPrompts: {},
   pendingNotesDismissedIds: []
 };
 
@@ -157,28 +167,50 @@ export async function pollActiveBridgePrompts(transactions: ITransaction[]): Pro
   );
 }
 
+function normalizePromptStatusMap(value: unknown): WalletPromptStatusMap {
+  if (!value || typeof value !== 'object') return {};
+  return Object.entries(value).reduce<WalletPromptStatusMap>((acc, [type, status]) => {
+    if (VALID_TYPES.has(type) && typeof status === 'string' && VALID_STATUSES.has(status)) {
+      acc[type as WalletPromptType] = status as WalletPromptStatus;
+    }
+    return acc;
+  }, {});
+}
+
+function normalizeAccountPrompts(value: unknown): WalletPromptStorage['accountPrompts'] {
+  if (!value || typeof value !== 'object') return {};
+  return Object.entries(value).reduce<WalletPromptStorage['accountPrompts']>((acc, [accountId, map]) => {
+    if (accountId.length === 0) return acc;
+    const normalized = normalizePromptStatusMap(map);
+    if (Object.keys(normalized).length > 0) acc[accountId] = normalized;
+    return acc;
+  }, {});
+}
+
 export function normalizeWalletPromptStorage(value: unknown): WalletPromptStorage {
   if (!value || typeof value !== 'object') {
     return EMPTY_WALLET_PROMPT_STORAGE;
   }
 
-  const maybeStorage = value as Partial<WalletPromptStorage>;
-  const prompts = maybeStorage.prompts && typeof maybeStorage.prompts === 'object' ? maybeStorage.prompts : {};
-
   return {
     version: 1,
-    prompts: Object.entries(prompts).reduce<WalletPromptStorage['prompts']>((acc, [type, status]) => {
-      if (VALID_TYPES.has(type) && typeof status === 'string' && VALID_STATUSES.has(status)) {
-        acc[type as WalletPromptType] = status as WalletPromptStatus;
-      }
-      return acc;
-    }, {}),
+    prompts: normalizePromptStatusMap(Reflect.get(value, 'prompts')),
+    accountPrompts: normalizeAccountPrompts(Reflect.get(value, 'accountPrompts')),
     pendingNotesDismissedIds: normalizePendingNotesDismissedIds(Reflect.get(value, 'pendingNotesDismissedIds'))
   };
 }
 
 export function isWalletPromptPending(storage: WalletPromptStorage, type: WalletPromptType): boolean {
   return storage.prompts[type] === WalletPromptStatus.Pending;
+}
+
+/** Status of a per-account prompt; undefined when that account has never touched it. */
+export function getAccountWalletPromptStatus(
+  storage: WalletPromptStorage,
+  accountId: string,
+  type: WalletPromptType
+): WalletPromptStatus | undefined {
+  return storage.accountPrompts[accountId]?.[type];
 }
 
 export async function fetchWalletPromptStorage(): Promise<WalletPromptStorage> {
@@ -196,12 +228,11 @@ export async function setWalletPromptStatus(
 ): Promise<WalletPromptStorage> {
   const storage = await fetchWalletPromptStorage();
   return putWalletPromptStorage({
-    version: 1,
+    ...storage,
     prompts: {
       ...storage.prompts,
       [type]: status
-    },
-    pendingNotesDismissedIds: storage.pendingNotesDismissedIds
+    }
   });
 }
 
@@ -213,12 +244,11 @@ export async function seedWalletPrompt(type: WalletPromptType): Promise<WalletPr
   }
 
   return putWalletPromptStorage({
-    version: 1,
+    ...storage,
     prompts: {
       ...storage.prompts,
       [type]: WalletPromptStatus.Pending
-    },
-    pendingNotesDismissedIds: storage.pendingNotesDismissedIds
+    }
   });
 }
 
@@ -485,7 +515,7 @@ export function useWalletPromptStorage() {
       setStorage(prev => {
         const current = normalizeWalletPromptStorage(prev);
         const next: WalletPromptStorage = {
-          version: 1,
+          ...current,
           prompts: {
             ...current.prompts,
             [type]: status
@@ -497,6 +527,32 @@ export function useWalletPromptStorage() {
         };
         putWalletPromptStorage(next).catch(error => {
           console.warn('[wallet-prompts] failed to persist prompt status:', error);
+          refreshPrompts();
+        });
+        return next;
+      });
+    },
+    [refreshPrompts]
+  );
+
+  // Per-account counterpart of setPromptStatus: touches only that account's
+  // entry, so every other account's view of the same prompt is unaffected.
+  const setAccountPromptStatus = useCallback(
+    (accountId: string, type: WalletPromptType, status: WalletPromptStatus) => {
+      setStorage(prev => {
+        const current = normalizeWalletPromptStorage(prev);
+        const next: WalletPromptStorage = {
+          ...current,
+          accountPrompts: {
+            ...current.accountPrompts,
+            [accountId]: {
+              ...current.accountPrompts[accountId],
+              [type]: status
+            }
+          }
+        };
+        putWalletPromptStorage(next).catch(error => {
+          console.warn('[wallet-prompts] failed to persist account prompt status:', error);
           refreshPrompts();
         });
         return next;
@@ -522,6 +578,7 @@ export function useWalletPromptStorage() {
     isLoaded,
     refreshPrompts,
     setPromptStatus,
+    setAccountPromptStatus,
     dismissPrompt,
     completePrompt,
     isPromptPending

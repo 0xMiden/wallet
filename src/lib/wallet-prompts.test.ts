@@ -6,6 +6,7 @@ import {
   reportGuardianNoteRecoveryProgress
 } from 'lib/guardian-note-recovery-progress';
 import { ITransaction, ITransactionStatus } from 'lib/miden/db/types';
+import { putToStorage } from 'lib/miden/front/storage';
 import { mintFromMidenFaucet } from 'lib/miden-chain/faucet-api';
 
 import {
@@ -20,6 +21,7 @@ import {
   fetchActiveBridgePrompts,
   fetchHotKeyHardwareError,
   fetchWalletPromptStorage,
+  getAccountWalletPromptStatus,
   getPendingNotesUsdTotal,
   isWalletPromptPending,
   normalizeWalletPromptStorage,
@@ -29,7 +31,8 @@ import {
   seedWalletPrompt,
   setWalletPromptStatus,
   useGuardianNoteRecoveryProgress,
-  useWalletPromptStorage
+  useWalletPromptStorage,
+  WALLET_PROMPTS_STORAGE_KEY
 } from './wallet-prompts';
 
 jest.mock('lib/platform', () => ({
@@ -116,8 +119,53 @@ describe('wallet prompts', () => {
     ).toEqual({
       version: 1,
       prompts: { [WalletPromptType.PendingNotes]: WalletPromptStatus.Dismissed },
+      accountPrompts: {},
       pendingNotesDismissedIds: ['note-1', 'note-2']
     });
+  });
+
+  it('normalizes per-account prompt state, dropping unknown types, bad statuses and empty entries', () => {
+    expect(
+      normalizeWalletPromptStorage({
+        version: 1,
+        prompts: {},
+        accountPrompts: {
+          accountA: { faucet: 'completed', unknown: 'pending', verifySeedPhrase: 'bad-status' },
+          accountB: { unknown: 'pending' },
+          '': { faucet: 'pending' },
+          accountC: 'not-an-object'
+        }
+      }).accountPrompts
+    ).toEqual({ accountA: { [WalletPromptType.Faucet]: WalletPromptStatus.Completed } });
+    expect(normalizeWalletPromptStorage({ version: 1, prompts: {}, accountPrompts: 5 }).accountPrompts).toEqual({});
+  });
+
+  it('reads a per-account prompt status without leaking it across accounts', () => {
+    const storage = normalizeWalletPromptStorage({
+      version: 1,
+      prompts: {},
+      accountPrompts: { accountA: { faucet: 'dismissed' } }
+    });
+    expect(getAccountWalletPromptStatus(storage, 'accountA', WalletPromptType.Faucet)).toBe(
+      WalletPromptStatus.Dismissed
+    );
+    expect(getAccountWalletPromptStatus(storage, 'accountB', WalletPromptType.Faucet)).toBeUndefined();
+    expect(getAccountWalletPromptStatus(storage, 'accountA', WalletPromptType.VerifySeedPhrase)).toBeUndefined();
+  });
+
+  it('keeps per-account prompt state when a wallet-wide prompt is written', async () => {
+    await putToStorage(WALLET_PROMPTS_STORAGE_KEY, {
+      version: 1,
+      prompts: {},
+      accountPrompts: { accountA: { faucet: 'completed' } }
+    });
+
+    await seedWalletPrompt(WalletPromptType.VerifySeedPhrase);
+    await setWalletPromptStatus(WalletPromptType.VerifySeedPhrase, WalletPromptStatus.Dismissed);
+
+    const storage = await fetchWalletPromptStorage();
+    expect(storage.prompts[WalletPromptType.VerifySeedPhrase]).toBe(WalletPromptStatus.Dismissed);
+    expect(storage.accountPrompts).toEqual({ accountA: { [WalletPromptType.Faucet]: WalletPromptStatus.Completed } });
   });
 
   it('calculates the aggregate pending-note USD value across token decimals and prices', () => {
@@ -344,12 +392,74 @@ describe('wallet prompts', () => {
     expect(result.current.storage).toEqual({
       version: 1,
       prompts: { [WalletPromptType.PendingNotes]: WalletPromptStatus.Dismissed },
+      accountPrompts: {},
       pendingNotesDismissedIds: ['note-1', 'note-2']
     });
 
     await waitFor(async () => {
       expect(await fetchWalletPromptStorage()).toEqual(result.current.storage);
     });
+  });
+
+  it('stores a per-account prompt status for that account alone and persists it', async () => {
+    const { result } = renderHook(() => useWalletPromptStorage());
+    // Let the mount-time load land first, or it overwrites the writes below.
+    await waitFor(() => expect(result.current.isLoaded).toBe(true));
+
+    act(() => {
+      result.current.setAccountPromptStatus('accountA', WalletPromptType.Faucet, WalletPromptStatus.Completed);
+    });
+    act(() => {
+      result.current.setAccountPromptStatus('accountB', WalletPromptType.Faucet, WalletPromptStatus.Pending);
+    });
+
+    expect(result.current.storage.accountPrompts).toEqual({
+      accountA: { [WalletPromptType.Faucet]: WalletPromptStatus.Completed },
+      accountB: { [WalletPromptType.Faucet]: WalletPromptStatus.Pending }
+    });
+    // The wallet-wide map is untouched — the seed-phrase prompt is not per account.
+    expect(result.current.storage.prompts).toEqual({});
+
+    await waitFor(async () => {
+      expect(await fetchWalletPromptStorage()).toEqual(result.current.storage);
+    });
+
+    // Re-writing one account leaves the other exactly as it was.
+    act(() => {
+      result.current.setAccountPromptStatus('accountA', WalletPromptType.Faucet, WalletPromptStatus.Dismissed);
+    });
+    expect(result.current.storage.accountPrompts).toEqual({
+      accountA: { [WalletPromptType.Faucet]: WalletPromptStatus.Dismissed },
+      accountB: { [WalletPromptType.Faucet]: WalletPromptStatus.Pending }
+    });
+  });
+
+  it('warns and refreshes when per-account persistence fails', async () => {
+    const { result } = renderHook(() => useWalletPromptStorage());
+    await waitFor(() => expect(result.current.isLoaded).toBe(true));
+
+    const setItemSpy = jest.spyOn(Storage.prototype, 'setItem').mockImplementationOnce(() => {
+      throw new Error('storage full');
+    });
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    act(() => {
+      result.current.setAccountPromptStatus('accountA', WalletPromptType.Faucet, WalletPromptStatus.Completed);
+    });
+
+    await waitFor(() => {
+      expect(warnSpy).toHaveBeenCalledWith(
+        '[wallet-prompts] failed to persist account prompt status:',
+        expect.any(Error)
+      );
+    });
+    // Refreshed from storage, which never received the write.
+    await waitFor(() => {
+      expect(result.current.storage.accountPrompts).toEqual({});
+    });
+
+    setItemSpy.mockRestore();
+    warnSpy.mockRestore();
   });
 
   it('refreshes hook state on demand', async () => {
