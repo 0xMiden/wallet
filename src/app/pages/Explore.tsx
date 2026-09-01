@@ -18,6 +18,7 @@ import {
 } from 'lib/miden/activity';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata, useMidenContext } from 'lib/miden/front';
 import type { TokenBalanceData } from 'lib/miden/front';
+import { excludeAutoManagedNotes } from 'lib/miden/front/auto-managed-notes';
 import { useClaimableNotes } from 'lib/miden/front/claimable-notes';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import { clearNoteReceivedNotification } from 'lib/mobile/native-notifications';
@@ -92,6 +93,15 @@ const Explore: FC = () => {
   const hasAutoConsumableNotes = useMemo(() => {
     return midenNotes.length > 0;
   }, [midenNotes]);
+
+  // What the "You have Pending Notes" card may ask the user to act on: the notes
+  // this page (and the SW / NativeNoteAutoConsumeManager) will NOT claim for them.
+  // Feeding it the raw list surfaced a card — and a USD total — for native notes
+  // that were already being auto-consumed (#811).
+  const manuallyClaimableNotes = useMemo(
+    () => excludeAutoManagedNotes(claimableNotes, midenFaucetId, shouldAutoConsume),
+    [claimableNotes, midenFaucetId, shouldAutoConsume]
+  );
 
   const autoConsumeMidenNotes = useCallback(async () => {
     if (!shouldAutoConsume || !hasAutoConsumableNotes) {
@@ -293,7 +303,7 @@ const Explore: FC = () => {
             onSearchChange={setSearch}
             account={account}
             balancesLoading={balancesLoading}
-            claimableNotes={claimableNotes}
+            claimableNotes={manuallyClaimableNotes}
           />
         </div>
       </div>

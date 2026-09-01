@@ -2452,6 +2452,10 @@
     "message": "Что меняется сейчас",
     "englishSource": "What changes now"
   },
+  "guardianSwitchSetupIncompleteTitle": {
+    "message": "Настройка не завершена.",
+    "englishSource": "Setup unfinished."
+  },
   "guardianSwitchUnconfirmedHeading": {
     "message": "Смена Guardian отправлена",
     "englishSource": "Guardian switch submitted"
@@ -2475,10 +2479,6 @@
   "guardianSwitchUnconfirmedInfo1": {
     "message": "После подтверждения смены ончейн новый Guardian будет совместно подписывать каждую транзакцию, а прежний Guardian больше не сможет подписывать за ваш аккаунт.",
     "englishSource": "Once the switch is confirmed on chain, your new Guardian co-signs every transaction and your old Guardian can no longer co-sign for your account."
-  },
-  "guardianSwitchSetupIncompleteTitle": {
-    "message": "Настройка не завершена.",
-    "englishSource": "Setup unfinished."
   },
   "guardianSwitchEndpointNotSavedBody": {
     "message": "Смена подтверждена в блокчейне, но этому устройству не удалось сохранить адрес нового Guardian. Кошелёк проверяет это автоматически и при необходимости предложит ввести его снова — это не начнёт новую смену. Если подсказка не появится, обратитесь в службу поддержки.",
@@ -2572,6 +2572,10 @@
     "message": "Ваш адрес guardian был сменён, и нам не удалось идентифицировать нового оператора. Введите его URL-адрес, чтобы восстановить соединение.",
     "englishSource": "Your guardian was switched and we couldn't identify the new operator. Enter its URL to reconnect."
   },
+  "guardianUrlMismatch": {
+    "message": "Этот оператор не совпадает с кодом операции в цепочке блоков (guardian) вашего счёта.",
+    "englishSource": "That operator doesn't match your account's on-chain guardian."
+  },
   "guardianUrlUnreachable": {
     "message": "Не удалось связаться с этим оператором. Проверьте URL-адрес и подключение, затем повторите попытку.",
     "englishSource": "Couldn't reach that operator. Check the URL and your connection, then try again."
@@ -2579,10 +2583,6 @@
   "guardianUrlNoOnChainGuardian": {
     "message": "У этого аккаунта пока нет ончейн-Guardian, с которым можно было бы сверить адрес.",
     "englishSource": "This account has no on-chain guardian to verify against yet."
-  },
-  "guardianUrlMismatch": {
-    "message": "Этот оператор не совпадает с кодом операции в цепочке блоков (guardian) вашего счёта.",
-    "englishSource": "That operator doesn't match your account's on-chain guardian."
   },
   "connectivityGuardianTitle": {
     "message": "Guardian недоступно",
