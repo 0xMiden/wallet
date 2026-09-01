@@ -23,8 +23,8 @@ crate-type = ["cdylib"]
 # version number) makes the prover reject valid transactions with "procedure
 # with root digest … could not be found".
 #
-# The wallet is on @miden-sdk/miden-sdk 0.16.0-rc.4, whose Cargo.lock resolves
-# miden-client to 0.16.0-rc.2 — the pin below. CI enforces the invariant via
+# The wallet is on @miden-sdk/miden-sdk 0.16.0-rc.5, whose Cargo.lock resolves
+# miden-client to 0.16.0-rc.3 — the pin below. CI enforces the invariant via
 # scripts/check-native-prover-pin.mjs (#594): a pin↔SDK mismatch that isn't a
 # documented exemption fails the build. Bump this in lockstep with the wallet's
 # @miden-sdk/miden-sdk version (and rebuild the committed binaries); only defer a
@@ -33,7 +33,7 @@ crate-type = ["cdylib"]
 # (miden-protocol/miden-tx 0.16.0-rc.4 → 0.16.0-rc.6, Miden VM 0.29.1).
 # `concurrent` cascades rayon-backed parallel proving through miden-tx →
 # miden-prover.
-miden-client = { version = "=0.16.0-rc.2", default-features = false, features = ["std", "concurrent"] }
+miden-client = { version = "=0.16.0-rc.3", default-features = false, features = ["std", "concurrent"] }
 
 # JNI binding crate. Only depended on here because this lib is
 # Android-Java-specific; the canonical miden-mobile-prover crate (in

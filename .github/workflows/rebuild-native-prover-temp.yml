@@ -1,0 +1,49 @@
+name: Rebuild native prover (temporary)
+
+on:
+  push:
+    branches:
+      - refactor/history-details-root-polling-next
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.96.1
+        with:
+          targets: aarch64-linux-android,x86_64-linux-android
+      - name: Install Android NDK and cargo-ndk
+        run: |
+          yes | sdkmanager 'ndk;28.0.13004108'
+          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/28.0.13004108" >> "$GITHUB_ENV"
+          cargo install cargo-ndk --locked
+      - name: Rebuild Android prover
+        run: packages/native-prover/scripts/build-android.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-prover-android
+          path: packages/native-prover/android/src/main/jniLibs
+          if-no-files-found: error
+
+  ios:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: 0xMiden/web-sdk
+          ref: v0.16.0-rc.5
+          path: web-sdk
+      - uses: dtolnay/rust-toolchain@1.96.1
+        with:
+          targets: aarch64-apple-ios,aarch64-apple-ios-sim
+      - name: Rebuild iOS prover
+        run: packages/native-prover/scripts/build-ios.sh "$GITHUB_WORKSPACE/web-sdk"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-prover-ios
+          path: |
+            packages/native-prover/ios/MidenMobileProver.xcframework/ios-arm64/libmiden_mobile_prover.a
+            packages/native-prover/ios/MidenMobileProver.xcframework/ios-arm64-simulator/libmiden_mobile_prover.a
+          if-no-files-found: error
