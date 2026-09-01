@@ -12,7 +12,9 @@ import { Loader } from './Loader';
 export enum ButtonVariant {
   Primary = 'primary',
   Secondary = 'secondary',
-  Ghost = 'ghost'
+  Ghost = 'ghost',
+  /** Destructive primary (block, delete). Same chrome as Primary on the negative status colour. */
+  Danger = 'danger'
 }
 
 export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
@@ -58,6 +60,17 @@ const propsPerButtonVariant = {
     disabledBackgroundColor: 'bg-gray-50',
     iconColor: 'black',
     border: 'border border-border-button'
+  },
+  [ButtonVariant.Danger]: {
+    color: 'text-pure-white',
+    fontWeight: 'font-bold',
+    disabledColor: 'text-heading-gray',
+    disabledFontWeight: 'font-semibold',
+    backgroundColor: 'bg-status-negative focus:bg-status-negative',
+    hoverBackgroundColor: 'hover:bg-status-negative/90',
+    disabledBackgroundColor: 'bg-surface-inactive',
+    iconColor: 'white',
+    border: ''
   }
 };
 

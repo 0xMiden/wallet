@@ -7,9 +7,9 @@ import { useAppEnv } from 'app/env';
 import { deriveNoteClaimState, NoteClaimState } from 'app/hooks/noteClaimState';
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
-import { ReactComponent as EyeOpenIcon } from 'app/icons/eye-open.svg';
 import { Icon, IconName } from 'app/icons/v2';
 import { formatDate } from 'app/templates/history/transactionUtils';
+import { MarkAsSpamDrawer } from 'app/templates/MarkAsSpamDrawer';
 import { Button, ButtonVariant } from 'components/Button';
 import { SyncWaveBackground } from 'components/SyncWaveBackground';
 import { TokenLogo } from 'components/TokenLogo';
@@ -17,6 +17,8 @@ import { formatBigInt, formatUsd } from 'lib/i18n/numbers';
 import { initiateConsumeTransaction, requestSWTransactionProcessing } from 'lib/miden/activity';
 import { isWorthClaiming } from 'lib/miden/fees/spendable';
 import { AssetMetadata } from 'lib/miden/front';
+import { useNoteSpamState } from 'lib/miden/front/note-spam';
+import { SpamAction } from 'lib/miden/note-spam';
 import { ConsumableNote, NoteTypeEnum } from 'lib/miden/types';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isExtension } from 'lib/platform';
@@ -24,8 +26,12 @@ import { getTokenPrice } from 'lib/prices';
 import type { TokenPrices } from 'lib/prices';
 import { WalletAccount } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
+import { useLongPress } from 'lib/ui/useLongPress';
 import { navigate } from 'lib/woozie';
 import { truncateAddress } from 'utils/string';
+
+import { NoteContextMenu } from './NoteContextMenu';
+import { SpamUndoBanner } from './SpamUndoBanner';
 
 export type NoteWithMetadata = NonNullable<ConsumableNote & { metadata: AssetMetadata }>;
 
@@ -75,6 +81,34 @@ export const PendingTab: React.FC<PendingTabProps> = ({
   const tokenPrices = useWalletStore(s => s.tokenPrices);
   const [selectedFaucetId, setSelectedFaucetId] = useState<string | null>(null);
 
+  // Hide / block flow. The store applies the action optimistically, so the row is
+  // gone in this render; the banner offers a one-tap Undo for a few seconds and
+  // the spam bin keeps the action reversible after that.
+  const spam = useNoteSpamState();
+  const [undoAction, setUndoAction] = useState<SpamAction | null>(null);
+
+  const handleSpamAction = useCallback(
+    (action: SpamAction) => {
+      setUndoAction(action);
+      spam.run(action).catch(err => console.error('[PendingTab] spam action failed:', err));
+    },
+    [spam]
+  );
+
+  const handleUndo = useCallback(() => {
+    if (!undoAction) return;
+    setUndoAction(null);
+    spam.undo(undoAction).catch(err => console.error('[PendingTab] spam undo failed:', err));
+  }, [spam, undoAction]);
+
+  const dismissUndo = useCallback(() => setUndoAction(null), []);
+
+  const banner = (
+    <div className="px-6">
+      <SpamUndoBanner action={undoAction} onUndo={handleUndo} onDismiss={dismissUndo} />
+    </div>
+  );
+
   const groupedNotes = useMemo(() => {
     const groups = new Map<string, AssetNoteGroup>();
     for (const note of safeClaimableNotes) {
@@ -122,31 +156,38 @@ export const PendingTab: React.FC<PendingTabProps> = ({
 
   if (selectedGroup) {
     return (
-      <AssetPendingDetail
-        group={selectedGroup}
-        tokenPrices={tokenPrices}
-        account={account}
-        isDelegatedProvingEnabled={isDelegatedProvingEnabled}
-        claimingNoteIds={claimingNoteIds}
-        retriableNoteIds={retriableNoteIds}
-        invalidNoteIds={invalidNoteIds}
-        checkingNoteIds={checkingNoteIds}
-        onClaimingStateChange={onClaimingStateChange}
-        onClaimGroup={onClaimGroup}
-      />
+      <>
+        {banner}
+        <AssetPendingDetail
+          group={selectedGroup}
+          tokenPrices={tokenPrices}
+          account={account}
+          isDelegatedProvingEnabled={isDelegatedProvingEnabled}
+          claimingNoteIds={claimingNoteIds}
+          retriableNoteIds={retriableNoteIds}
+          invalidNoteIds={invalidNoteIds}
+          checkingNoteIds={checkingNoteIds}
+          onClaimingStateChange={onClaimingStateChange}
+          onClaimGroup={onClaimGroup}
+          onSpamAction={handleSpamAction}
+        />
+      </>
     );
   }
 
   return (
-    <PendingSummary
-      groupedNotes={groupedNotes}
-      tokenPrices={tokenPrices}
-      unclaimedNotesCount={unclaimedNotesCount}
-      retriableNoteIds={retriableNoteIds}
-      invalidNoteIds={invalidNoteIds}
-      onSelectGroup={handleSelectGroup}
-      onClaimAll={onClaimAll}
-    />
+    <>
+      {banner}
+      <PendingSummary
+        groupedNotes={groupedNotes}
+        tokenPrices={tokenPrices}
+        unclaimedNotesCount={unclaimedNotesCount}
+        retriableNoteIds={retriableNoteIds}
+        invalidNoteIds={invalidNoteIds}
+        onSelectGroup={handleSelectGroup}
+        onClaimAll={onClaimAll}
+      />
+    </>
   );
 };
 
@@ -353,6 +394,7 @@ interface AssetPendingDetailProps {
   checkingNoteIds: Set<string>;
   onClaimingStateChange: (noteId: string, isClaiming: boolean) => void;
   onClaimGroup?: (faucetId: string) => void;
+  onSpamAction: (action: SpamAction) => void;
 }
 
 const AssetPendingDetail: React.FC<AssetPendingDetailProps> = ({
@@ -365,13 +407,37 @@ const AssetPendingDetail: React.FC<AssetPendingDetailProps> = ({
   invalidNoteIds,
   checkingNoteIds,
   onClaimingStateChange,
-  onClaimGroup
+  onClaimGroup,
+  onSpamAction
 }) => {
   const { t } = useTranslation();
   const { metadata, faucetId, notes, totalAmount } = group;
   const symbol = metadata?.symbol || 'UNKNOWN';
   const name = metadata?.name || symbol;
   const decimals = metadata?.decimals ?? 6;
+
+  const midenFaucetId = useMidenFaucetId();
+  const contacts = useWalletStore(s => s.settings?.contacts);
+  const contactNameByAddress = useMemo(() => {
+    const names = new Map<string, string>();
+    for (const contact of contacts ?? []) names.set(contact.address, contact.name);
+    return names;
+  }, [contacts]);
+
+  // The note whose "Mark as spam?" sheet is open. Kept as the last note (not
+  // cleared on close) so the sheet's contents don't blank while it animates out.
+  const [spamNote, setSpamNote] = useState<NoteWithMetadata | null>(null);
+  const [spamSheetOpen, setSpamSheetOpen] = useState(false);
+
+  const openSpamSheet = useCallback((note: NoteWithMetadata) => {
+    setSpamNote(note);
+    setSpamSheetOpen(true);
+  }, []);
+
+  const hideNote = useCallback(
+    (note: NoteWithMetadata) => onSpamAction({ kind: 'hide-note', noteId: note.id }),
+    [onSpamAction]
+  );
 
   const formattedAmount = groupNumber(formatBigInt(totalAmount, decimals));
   const numericAmount = Number(formatBigInt(totalAmount, decimals));
@@ -408,8 +474,8 @@ const AssetPendingDetail: React.FC<AssetPendingDetailProps> = ({
             {t('pendingTabApproxUsd', { value: formatUsd(usdValue) })}
           </div>
 
-          <div className="mt-5 w-full">
-            {notes.map((note, index) => (
+          <div className="mt-5 flex w-full flex-col gap-3">
+            {notes.map(note => (
               <DetailNoteRow
                 key={note.id}
                 note={note}
@@ -422,11 +488,24 @@ const AssetPendingDetail: React.FC<AssetPendingDetailProps> = ({
                   checkingNoteIds
                 })}
                 onClaimingStateChange={onClaimingStateChange}
-                showDivider={index !== notes.length - 1}
+                senderName={contactNameByAddress.get(note.senderAddress)}
+                onHide={hideNote}
+                onMarkSpam={openSpamSheet}
               />
             ))}
           </div>
+
+          <p className="mt-4 text-center font-heading text-sm font-semibold text-heading-gray">
+            {t('pressAndHoldForOptions')}
+          </p>
         </div>
+        <MarkAsSpamDrawer
+          open={spamSheetOpen}
+          onOpenChange={setSpamSheetOpen}
+          note={spamNote}
+          isNativeFaucet={midenFaucetId !== null && spamNote?.faucetId === midenFaucetId}
+          onConfirm={onSpamAction}
+        />
         {onClaimGroup && (
           <button
             data-testid="claim-group-button"
@@ -447,34 +526,6 @@ const AssetPendingDetail: React.FC<AssetPendingDetailProps> = ({
   );
 };
 
-/** Design-provided padlock glyph for private notes; inherits `currentColor`. */
-const PrivateLockIcon: React.FC<{ className?: string }> = ({ className }) => (
-  <svg className={className} viewBox="0 0 23 28" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden>
-    <path
-      d="M4.17676 12.1703V8.60738C4.17676 4.17777 6.96934 1 11.2064 1C15.4434 1 18.236 4.17777 18.236 8.60738V12.1703"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    />
-    <path
-      d="M17.6592 12.3633H4.75554C2.68141 12.3633 1 14.0447 1 16.1188V23.2447C1 25.3189 2.68141 27.0003 4.75554 27.0003H17.6592C19.7333 27.0003 21.4148 25.3189 21.4148 23.2447V16.1188C21.4148 14.0447 19.7333 12.3633 17.6592 12.3633Z"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    />
-    <path
-      d="M11.2073 20.7409C12.1115 20.7409 12.8444 20.0079 12.8444 19.1038C12.8444 18.1997 12.1115 17.4668 11.2073 17.4668C10.3032 17.4668 9.57031 18.1997 9.57031 19.1038C9.57031 20.0079 10.3032 20.7409 11.2073 20.7409Z"
-      fill="currentColor"
-    />
-    <path
-      d="M12.2669 21.1266C12.2669 20.5416 11.7927 20.0674 11.2077 20.0674C10.6227 20.0674 10.1484 20.5416 10.1484 21.1266V22.6674C10.1484 23.2524 10.6227 23.7266 11.2077 23.7266C11.7927 23.7266 12.2669 23.2524 12.2669 22.6674V21.1266Z"
-      fill="currentColor"
-    />
-  </svg>
-);
-
 interface DetailNoteRowProps {
   note: NoteWithMetadata;
   account: WalletAccount;
@@ -482,22 +533,36 @@ interface DetailNoteRowProps {
   /** Parent-derived state from the four claim id-sets (see deriveNoteClaimState). */
   claimState?: NoteClaimState;
   onClaimingStateChange?: (noteId: string, isClaiming: boolean) => void;
-  showDivider: boolean;
+  /** Contact name for the sender, shown in place of the truncated address when known. */
+  senderName?: string;
+  onHide: (note: NoteWithMetadata) => void;
+  onMarkSpam: (note: NoteWithMetadata) => void;
 }
 
+/**
+ * One pending note as a four-cell card: sender · visibility · amount · Claim.
+ * Press-and-hold (or right-click / Shift+F10) opens the note menu; the Claim
+ * button is excluded from the hold so a finger resting on it still just claims.
+ */
 const DetailNoteRow: React.FC<DetailNoteRowProps> = ({
   note,
   account,
   isDelegatedProvingEnabled,
   claimState = 'pending',
   onClaimingStateChange,
-  showDivider
+  senderName,
+  onHide,
+  onMarkSpam
 }) => {
   const { t } = useTranslation();
   const tokenPrices = useWalletStore(s => s.tokenPrices);
   const [isLoading, setIsLoading] = useState(note.isBeingClaimed || false);
   const [error, setError] = useState<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const rowRef = useRef<HTMLDivElement>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const openMenu = useCallback(() => setMenuOpen(true), []);
+  const { bind: longPressBind } = useLongPress({ onLongPress: openMenu, disabled: menuOpen });
 
   // Fold this row's local claim attempt into the parent-derived state: an
   // in-flight local claim reads as consuming; a local claim error reads as
@@ -560,68 +625,90 @@ const DetailNoteRow: React.FC<DetailNoteRowProps> = ({
     }
   }, [account, isDelegatedProvingEnabled, note, t]);
 
+  const copySender = useCallback(() => {
+    if (!note.senderAddress) return;
+    navigator.clipboard.writeText(note.senderAddress).catch(err => console.warn('Copy sender failed:', err));
+  }, [note.senderAddress]);
+
   const { metadata } = note;
   const decimals = metadata?.decimals ?? 6;
   const formattedAmount = formatBigInt(BigInt(note.amount), decimals);
   const symbol = metadata?.symbol || 'UNKNOWN';
   const { price } = getTokenPrice(tokenPrices, symbol);
   const usdValue = Number(formattedAmount) * price;
-  const senderDisplay = note.senderAddress ? truncateAddress(note.senderAddress, false, 8, 4) : t('unknown');
+  const senderDisplay =
+    senderName ?? (note.senderAddress ? truncateAddress(note.senderAddress, false, 8, 4) : t('unknown'));
   const isPublic = note.type === NoteTypeEnum.Public || note.type === 'unknown';
 
   return (
     <div
+      ref={rowRef}
       data-testid="detail-note-row"
+      aria-haspopup="menu"
+      aria-expanded={menuOpen}
+      tabIndex={0}
       className={classNames(
-        'relative w-full',
-        showDivider && 'border-b border-rule-default',
+        'relative w-full overflow-hidden rounded-2xl border border-border-card bg-white',
+        'focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600',
+        menuOpen && 'ring-2 ring-primary-500/40',
         (isRetriable || isFailed) && 'bg-red-500/10'
       )}
+      // No iOS press-and-hold callout on the card: the hold belongs to the menu.
+      style={{ WebkitTouchCallout: 'none' }}
+      {...longPressBind}
     >
       <SyncWaveBackground isSyncing={showSpinner} className="rounded-none" />
-      <div className="flex items-center gap-3 py-3.5 relative z-10">
-        <div className="flex min-w-0 flex-1 flex-col gap-1 font-heading text-heading-gray">
-          <div className="flex items-end gap-1.5">
-            <span data-testid="detail-note-amount" className="inline-flex items-end gap-1.5">
-              <span className="text-xl font-extrabold leading-none text-receive-green">{formattedAmount}</span>
-              <span className="text-sm font-bold leading-none">{symbol}</span>
-            </span>
-            <span className="text-[13px] font-medium leading-none opacity-50">
-              {t('pendingTabApproxUsd', { value: formatUsd(usdValue) })}
-            </span>
-          </div>
-          <div className="flex min-w-0 items-center gap-1.5 text-[13px] leading-tight">
-            <span className="font-medium lowercase opacity-50">{t('from')}</span>
-            <span className="min-w-0 truncate font-bold">{senderDisplay}</span>
-            <span className="font-medium opacity-40">·</span>
-            {isPublic ? (
-              <EyeOpenIcon className="w-3 h-3 shrink-0 [&_path]:fill-current" />
-            ) : (
-              <PrivateLockIcon className="w-2.5 h-3 shrink-0" />
-            )}
-            <span className="font-bold">{t(isPublic ? 'public' : 'private')}</span>
-          </div>
+      <div className="relative z-10 flex items-stretch divide-x divide-border-card">
+        <div className="flex min-w-0 flex-1 items-center gap-2.5 bg-tx-received px-3 py-3">
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-pure-white text-tx-received">
+            <Icon name={IconName.ArrowDown} size="xs" fill="currentColor" className="rotate-45" />
+          </span>
+          <span className="flex min-w-0 flex-col font-heading text-heading-gray">
+            <span className="text-sm font-bold leading-tight">{t('received')}</span>
+            <span className="truncate text-xs font-semibold leading-tight opacity-80">{senderDisplay}</span>
+          </span>
         </div>
 
-        {showButton ? (
-          <Button
-            data-testid="claim-button"
-            className="w-auto shrink-0 px-4 h-8 text-sm leading-none"
-            variant={ButtonVariant.Primary}
-            onClick={handleClaim}
-            title={isRetriable ? t('retry') : t('claim')}
-          />
-        ) : (
-          <div className="w-20 h-8 shrink-0" />
-        )}
+        <div className="flex shrink-0 items-center px-2.5">
+          <span className="inline-flex items-center gap-1 rounded-full bg-surface-interactive px-2.5 py-1 font-heading text-xs font-medium text-text-muted">
+            {!isPublic && <Icon name={IconName.EyeOff} size="xs" fill="currentColor" className="w-3! h-3!" />}
+            {t(isPublic ? 'public' : 'shielded')}
+          </span>
+        </div>
+
+        <div className="flex shrink-0 flex-col items-center justify-center px-2.5 font-heading">
+          <span data-testid="detail-note-amount" className="inline-flex items-baseline gap-1">
+            <span className="text-base font-extrabold leading-none text-receive-green">{formattedAmount}</span>
+            <span className="text-sm font-bold leading-none text-heading-gray">{symbol}</span>
+          </span>
+          <span className="mt-1 text-[11px] font-medium leading-none text-heading-gray opacity-50">
+            {t('pendingTabApproxUsd', { value: formatUsd(usdValue) })}
+          </span>
+        </div>
+
+        {/* Presses that start on the Claim button never arm the hold (see useLongPress). */}
+        <div className="flex shrink-0 items-center px-2.5" data-longpress-ignore="">
+          {showButton ? (
+            <Button
+              data-testid="claim-button"
+              className="w-auto shrink-0 px-4 h-8 text-sm leading-none"
+              variant={ButtonVariant.Primary}
+              onClick={handleClaim}
+              title={isRetriable ? t('retry') : t('claim')}
+            />
+          ) : (
+            <div className="w-16 h-8 shrink-0" />
+          )}
+        </div>
       </div>
+
       {(isRetriable || isFailed) && (
-        <div className="relative z-10 -mt-1 pb-3 text-xs text-red-500">
+        <div className="relative z-10 border-t border-border-card px-3 py-2 text-xs text-red-500">
           {isRetriable ? t('noteClaimFailedRetry') : t('noteUnavailable')}
         </div>
       )}
       {note.recallableAtMs !== undefined && (
-        <div className="relative z-10 -mt-1 mb-3.5 flex items-center gap-2 rounded-10 bg-yellow-300 dark:bg-yellow-600/25 px-2.5 py-1.5">
+        <div className="relative z-10 flex items-center gap-2 border-t border-border-card bg-yellow-300 dark:bg-yellow-600/25 px-3 py-1.5">
           <Icon
             name={IconName.Time}
             className="w-3! h-3! shrink-0 text-yellow-800 dark:text-yellow-300 [&_path]:fill-current"
@@ -631,6 +718,17 @@ const DetailNoteRow: React.FC<DetailNoteRowProps> = ({
           </span>
         </div>
       )}
+
+      <NoteContextMenu
+        open={menuOpen}
+        onOpenChange={setMenuOpen}
+        anchorEl={rowRef.current}
+        canClaim={showButton}
+        onClaim={handleClaim}
+        onHide={() => onHide(note)}
+        onCopySender={copySender}
+        onMarkSpam={() => onMarkSpam(note)}
+      />
     </div>
   );
 };

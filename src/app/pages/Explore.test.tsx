@@ -194,6 +194,12 @@ jest.mock('lib/settings/helpers', () => ({
   isDelegateProofEnabled: () => mockDelegateProof
 }));
 
+// No spam-blocked assets in these fixtures; the filter is a pass-through.
+jest.mock('lib/miden/front/note-spam', () => ({
+  useNoteSpamState: () => ({ sets: { hidden: new Set(), faucets: new Set(), senders: new Set() } }),
+  filterBlockedBalances: (balances: unknown[]) => balances
+}));
+
 jest.mock('lib/store', () => ({
   useWalletStore: (selector: (s: any) => unknown) => selector({ tokenPrices: mockTokenPrices })
 }));

@@ -5,6 +5,7 @@ import classNames from 'clsx';
 import CSSTransition from 'react-transition-group/CSSTransition';
 
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
+import { filterBlockedBalances, useNoteSpamState } from 'lib/miden/front/note-spam';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { getTokenPrice } from 'lib/prices';
 import { useWalletStore } from 'lib/store';
@@ -18,6 +19,7 @@ const Balance = memo<BalanceProps>(({ children }) => {
   const allTokensBaseMetadata = useAllTokensBaseMetadata();
   const { data: allTokenBalances = [] } = useAllBalances(account.publicKey, allTokensBaseMetadata);
   const tokenPrices = useWalletStore(s => s.tokenPrices);
+  const { sets: spamSets } = useNoteSpamState();
 
   return useMemo(() => {
     // A token whose decimals were never resolved contributes a `balance` that was
@@ -26,7 +28,8 @@ const Balance = memo<BalanceProps>(({ children }) => {
     // partly wrong — it makes it meaningless, and unlike a single row there is no
     // way for the user to see which asset spoiled it. Leaving such an asset out
     // understates the total; including it can invent one.
-    const totalFiat = allTokenBalances.reduce((sum, token) => {
+    // Blocked (spam) assets are left out too, so the total matches the token list.
+    const totalFiat = filterBlockedBalances(allTokenBalances, spamSets).reduce((sum, token) => {
       if (!hasKnownScale(token.metadata)) return sum;
       const { price } = getTokenPrice(tokenPrices, token.metadata.symbol);
       return sum + token.balance * price;
@@ -49,7 +52,7 @@ const Balance = memo<BalanceProps>(({ children }) => {
         })}
       </CSSTransition>
     );
-  }, [children, allTokenBalances, tokenPrices]);
+  }, [children, allTokenBalances, tokenPrices, spamSets]);
 });
 
 export default Balance;

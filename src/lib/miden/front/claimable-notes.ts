@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef } from 'react';
 
 import { getUncompletedTransactions } from 'lib/miden/activity';
 import { getQuarantinedNoteIds } from 'lib/miden/note-quarantine';
+import { isNoteSpam, NoteSpamSets, SpamClassifiableNote } from 'lib/miden/note-spam';
 import { isExtension, isIOS } from 'lib/platform';
 import { SerializedConsumableNote, SyncData, WalletMessageType } from 'lib/shared/types';
 import { getIntercom, useWalletStore } from 'lib/store';
@@ -12,6 +13,7 @@ import { midenClientProxy } from '../back/miden-client-proxy';
 import { toNoteTypeString } from '../helpers';
 import { AssetMetadata, MIDEN_METADATA } from '../metadata';
 import { onNotesRefresh } from './note-refresh';
+import { useNoteSpamState } from './note-spam';
 import { isSyncFused, noteNonEvictionSyncFailure, noteSyncSuccess, noteSyncWatchdogEviction } from './sync-fuse';
 import type { ConsumableNoteDto } from '../sdk/consumable-notes';
 import { assertWasmHoldCurrent, runWhenClientIdle, withWasmClientLock } from '../sdk/miden-client';
@@ -423,10 +425,60 @@ function useLocalClaimableNotes(publicAddress: string, enabled: boolean) {
 
 // -------------------- Dispatch hook --------------------
 
-export function useClaimableNotes(publicAddress: string, enabled: boolean = true) {
+export interface ClaimableNotesOptions {
+  /**
+   * Return spam-listed notes too. Only the spam bin wants this; every other
+   * consumer — the pending list, the unclaimed badges, the note toast and both
+   * auto-consume paths — gets the filtered list, so a blocked sender's note is
+   * never shown, counted, announced or claimed on the user's behalf.
+   */
+  includeSpam?: boolean;
+}
+
+const hasAnySpam = (sets: NoteSpamSets): boolean =>
+  sets.hidden.size > 0 || sets.faucets.size > 0 || sets.senders.size > 0;
+
+function withoutSpam<T extends SpamClassifiableNote | null | undefined>(
+  notes: T[] | undefined,
+  sets: NoteSpamSets
+): T[] | undefined {
+  if (!notes || !hasAnySpam(sets)) return notes;
+  return notes.filter(note => note == null || !isNoteSpam(note, sets));
+}
+
+export function useClaimableNotes(publicAddress: string, enabled: boolean = true, options: ClaimableNotesOptions = {}) {
   const extensionMode = isExtension();
   // Both hooks always called (React rules), but only the active one does work
   const extensionResult = useExtensionClaimableNotes(publicAddress, enabled && extensionMode);
   const localResult = useLocalClaimableNotes(publicAddress, enabled && !extensionMode);
-  return extensionMode ? extensionResult : localResult;
+  const result = extensionMode ? extensionResult : localResult;
+
+  // Spam is filtered HERE, after either source, because this is the one hook every
+  // consumer goes through. The predicate reads synchronous store state, so a hide
+  // (and its Undo) re-partitions in the same render with no refetch.
+  const { sets } = useNoteSpamState();
+  const includeSpam = options.includeSpam === true;
+  const rawData = result.data;
+  const data = useMemo(() => (includeSpam ? rawData : withoutSpam(rawData, sets)), [includeSpam, rawData, sets]);
+
+  return { ...result, data };
+}
+
+/** The unfiltered read, partitioned — for the spam bin, which lists what the filter hides. */
+export function useClaimableNotesWithSpam(publicAddress: string, enabled: boolean = true) {
+  const { data, isLoading, mutate } = useClaimableNotes(publicAddress, enabled, { includeSpam: true });
+  const { sets } = useNoteSpamState();
+
+  const partitioned = useMemo(() => {
+    const visible: NonNullable<typeof data>[number][] = [];
+    const spam: NonNullable<typeof data>[number][] = [];
+    for (const note of data ?? []) {
+      if (note == null) continue;
+      if (isNoteSpam(note, sets)) spam.push(note);
+      else visible.push(note);
+    }
+    return { visible, spam };
+  }, [data, sets]);
+
+  return { ...partitioned, isLoading, mutate };
 }

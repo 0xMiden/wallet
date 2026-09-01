@@ -3,6 +3,7 @@ import { AllowedPrivateData, PrivateDataPermission } from '@miden-sdk/miden-wall
 import { ExchangeRateRecord, FiatCurrencyOption } from 'lib/fiat-currency';
 import { TokenBalanceData } from 'lib/miden/front/balance';
 import { AssetMetadata } from 'lib/miden/metadata';
+import { NoteSpamState, SpamAction, SpamEntryKind } from 'lib/miden/note-spam';
 import { MidenDAppSessions, MidenNetwork, MidenState } from 'lib/miden/types';
 import { type TokenPrices } from 'lib/prices/binance';
 import {
@@ -42,6 +43,17 @@ export interface BalancesSlice {
  */
 export interface AssetsSlice {
   assetsMetadata: Record<string, AssetMetadata>;
+}
+
+/**
+ * Note spam list (hidden notes, blocked assets, blocked senders). Mirrors the
+ * persisted state in `lib/miden/note-spam.ts` so every claimable-notes consumer
+ * can filter synchronously and a hide/Undo is a single render.
+ */
+export interface NoteSpamSlice {
+  noteSpam: NoteSpamState;
+  /** False until the first read from storage settled — consumers filter with the empty state until then. */
+  noteSpamLoaded: boolean;
 }
 
 /**
@@ -209,6 +221,19 @@ export interface AssetActions {
   fetchAssetMetadata: (assetId: string) => Promise<AssetMetadata | null>;
 }
 
+export interface NoteSpamActions {
+  /** Hydrates `noteSpam` from storage once; later calls are no-ops. */
+  loadNoteSpam: () => Promise<void>;
+  /** Adopts a state pushed from another realm (extension storage change event). */
+  setNoteSpam: (state: NoteSpamState) => void;
+  /** Applies a hide/block optimistically, persists it, rolls back on failure. */
+  runNoteSpamAction: (action: SpamAction) => Promise<void>;
+  /** Exact inverse of `runNoteSpamAction` (Undo). */
+  undoNoteSpamAction: (action: SpamAction) => Promise<void>;
+  /** Restores a note / unblocks an asset or sender from the spam bin. */
+  removeNoteSpamEntry: (kind: SpamEntryKind, value: string) => Promise<void>;
+}
+
 /**
  * Fiat currency actions
  */
@@ -285,6 +310,7 @@ export interface WalletStore
     WalletSlice,
     BalancesSlice,
     AssetsSlice,
+    NoteSpamSlice,
     UISlice,
     FiatCurrencySlice,
     SyncSlice,
@@ -294,6 +320,7 @@ export interface WalletStore
     WalletActions,
     BalanceActions,
     AssetActions,
+    NoteSpamActions,
     FiatCurrencyActions,
     SyncActions,
     TransactionUiActions,

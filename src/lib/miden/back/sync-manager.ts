@@ -5,6 +5,7 @@ import { classifySyncError, isLikelyNetworkError } from 'lib/miden/activity/conn
 import { clearReachabilityIssues, markConnectivityIssue } from 'lib/miden/activity/connectivity-state';
 import { isWorthClaiming, totalClaimableAmount } from 'lib/miden/fees/spendable';
 import { getQuarantinedNoteIds } from 'lib/miden/note-quarantine';
+import { getNoteSpamState, isNoteSpam, toNoteSpamSets } from 'lib/miden/note-spam';
 import {
   computeSyncBackoffMs,
   FUSED_SYNC_PROBE_INTERVAL_MS,
@@ -541,6 +542,15 @@ async function runSync(force: boolean): Promise<void> {
       // once the popup has mirrored the user's REAL settings (areBackgroundSettingsMirrored),
       // so we never act on read-miss defaults for a user who opted out of auto-consume or
       // remote proving (the frontend still covers the app-open case in the meantime).
+      // The user's spam list (note-spam.ts). Notes on it are still WRITTEN to
+      // miden_sync_data below — the spam bin lists them from there, and a failed
+      // read here (which yields the empty state) must never silently un-hide
+      // anything — but they are neither auto-consumed nor announced: those are
+      // the two places the harm is, and both tolerate one stale lap. Read outside
+      // the WASM hold, so no liveness re-check is needed around it.
+      const spamSets = toNoteSpamSets(await getNoteSpamState());
+      const spamNoteIds = parsedNotes.filter(n => isNoteSpam(n, spamSets)).map(n => n.id);
+
       let nativeAutoConsumeNotes: ConsumableNote[] = [];
       // Hoisted alongside the notes because the enqueue below needs it too: isolation
       // gives a note its own transaction, and only the fee can say whether that note is
@@ -569,7 +579,11 @@ async function runSync(force: boolean): Promise<void> {
             // needs the fee unless there is something to claim, and the overwhelmingly
             // common case is nothing to claim.
             const candidates = parsedNotes.filter(
-              n => n.faucetId === nativeFaucetId && !n.swapOrder && !notesBeingClaimed.has(n.id)
+              n =>
+                n.faucetId === nativeFaucetId &&
+                !n.swapOrder &&
+                !notesBeingClaimed.has(n.id) &&
+                !isNoteSpam(n, spamSets)
             );
             // A claim worth no more than its own fee costs the user money to collect.
             // This pass is unattended, so the wallet must not do that on their behalf;
@@ -602,9 +616,12 @@ async function runSync(force: boolean): Promise<void> {
         console.warn('[native-auto-consume] eligibility check failed', err);
       }
 
+      // Spam ids join this set so they fall out of `newIds`: a note from a blocked
+      // sender must not raise a "note received" notification either.
       const managedAutoConsumeIds = new Set([
         ...parsedNotes.filter(n => n.swapOrder && n.swapOrder.autoConsume !== false).map(n => n.id),
-        ...nativeAutoConsumeNotes.map(n => n.id)
+        ...nativeAutoConsumeNotes.map(n => n.id),
+        ...spamNoteIds
       ]);
       const newIds = (await mergeAndPersistSeenNoteIds(parsedNotes.map(n => n.id))).filter(
         id => !managedAutoConsumeIds.has(id)

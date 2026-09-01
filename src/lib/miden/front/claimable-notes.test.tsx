@@ -29,13 +29,29 @@ _g.__cnTest = {
     extensionClaimingNoteIds: new Set<string>(),
     assetsMetadata: {} as Record<string, any>,
     setExtensionClaimableNotes: jest.fn(),
-    setAssetsMetadata: jest.fn()
+    setAssetsMetadata: jest.fn(),
+    // Note-spam slice (see lib/miden/note-spam.ts); tests set the lists directly.
+    noteSpam: { hiddenNoteIds: [], blockedFaucetIds: [], blockedSenders: [] } as any,
+    noteSpamLoaded: true,
+    loadNoteSpam: jest.fn(async () => undefined),
+    setNoteSpam: jest.fn(),
+    runNoteSpamAction: jest.fn(async () => undefined),
+    undoNoteSpamAction: jest.fn(async () => undefined),
+    removeNoteSpamEntry: jest.fn(async () => undefined)
   }
 };
 
 jest.mock('lib/platform', () => ({
   isExtension: () => (globalThis as any).__cnTest.isExtension,
   isIOS: () => (globalThis as any).__cnTest.isIOS
+}));
+
+// The note-spam hook follows its storage key across extension realms through
+// `browser.storage.onChanged`, which this harness's webextension-polyfill mock does
+// not provide. Cross-realm propagation is not under test here.
+jest.mock('lib/miden/front/storage', () => ({
+  ...jest.requireActual('lib/miden/front/storage'),
+  onStorageChanged: () => () => {}
 }));
 
 jest.mock('lib/store', () => {
@@ -139,7 +155,7 @@ jest.mock('./assets', () => ({
   })
 }));
 
-import { useClaimableNotes } from './claimable-notes';
+import { useClaimableNotes, useClaimableNotesWithSpam } from './claimable-notes';
 
 beforeEach(() => {
   _g.__cnTest.isExtension = false;
@@ -151,6 +167,7 @@ beforeEach(() => {
   _g.__cnTest.walletState.extensionClaimableNotes = null;
   _g.__cnTest.walletState.extensionClaimingNoteIds = new Set();
   _g.__cnTest.walletState.assetsMetadata = {};
+  _g.__cnTest.walletState.noteSpam = { hiddenNoteIds: [], blockedFaucetIds: [], blockedSenders: [] };
   _g.__cnTest.intercomRequest.mockReset().mockResolvedValue(undefined);
   _g.__cnTest.metadataCache = {};
   _g.__cnTest.fetchMetadata = jest.fn(async () => ({ base: { decimals: 6, symbol: 'X', name: 'X' } }));
@@ -161,6 +178,68 @@ beforeEach(() => {
   mockGetMidenClient.mockReset().mockResolvedValue({});
   // Default proxy read: return the fixture DTO list; individual tests override.
   _g.__cnTest.proxyGetConsumableNotes = jest.fn(async () => _g.__cnTest.consumableNotes);
+});
+
+describe('useClaimableNotes — spam filtering at the dispatch point', () => {
+  const metadata = { decimals: 6, symbol: 'TOK', name: 'Token' };
+  const serialized = (id: string, faucetId: string, senderAddress: string) => ({
+    id,
+    faucetId,
+    amountBaseUnits: '100',
+    senderAddress,
+    noteType: 'public',
+    metadata
+  });
+
+  beforeEach(() => {
+    _g.__cnTest.isExtension = true;
+    (globalThis as any).chrome = {
+      storage: { local: { get: jest.fn((key: string, cb: any) => cb({ [key]: undefined })) } }
+    };
+    _g.__cnTest.walletState.extensionClaimableNotes = [
+      serialized('plain', 'f1', 's1'),
+      serialized('bad-faucet', 'f-spam', 's1'),
+      serialized('bad-sender', 'f1', 's-spam'),
+      serialized('hidden', 'f1', 's1')
+    ];
+    _g.__cnTest.walletState.noteSpam = {
+      hiddenNoteIds: [{ value: 'hidden', at: 1 }],
+      blockedFaucetIds: [{ value: 'f-spam', at: 1 }],
+      blockedSenders: [{ value: 's-spam', at: 1 }]
+    };
+  });
+
+  afterEach(() => {
+    delete (globalThis as any).chrome;
+  });
+
+  it('hides notes on the spam list from the default read', () => {
+    const { result } = renderHook(() => useClaimableNotes('pk-1'));
+    expect(result.current.data?.map(n => n.id)).toEqual(['plain']);
+  });
+
+  it('returns everything with includeSpam', () => {
+    const { result } = renderHook(() => useClaimableNotes('pk-1', true, { includeSpam: true }));
+    expect(result.current.data?.map(n => n.id)).toEqual(['plain', 'bad-faucet', 'bad-sender', 'hidden']);
+  });
+
+  it('useClaimableNotesWithSpam partitions visible vs spam', () => {
+    const { result } = renderHook(() => useClaimableNotesWithSpam('pk-1'));
+    expect(result.current.visible.map(n => n.id)).toEqual(['plain']);
+    expect(result.current.spam.map(n => n.id).sort()).toEqual(['bad-faucet', 'bad-sender', 'hidden']);
+  });
+
+  it('re-partitions when the spam state changes, without touching the data source', () => {
+    const { result, rerender } = renderHook(() => useClaimableNotes('pk-1'));
+    expect(result.current.data?.map(n => n.id)).toEqual(['plain']);
+    const setCalls = _g.__cnTest.walletState.setExtensionClaimableNotes.mock.calls.length;
+
+    _g.__cnTest.walletState.noteSpam = { hiddenNoteIds: [], blockedFaucetIds: [], blockedSenders: [] };
+    rerender();
+
+    expect(result.current.data?.map(n => n.id)).toEqual(['plain', 'bad-faucet', 'bad-sender', 'hidden']);
+    expect(_g.__cnTest.walletState.setExtensionClaimableNotes.mock.calls.length).toBe(setCalls);
+  });
 });
 
 describe('useClaimableNotes (extension mode)', () => {

@@ -35,6 +35,7 @@ import PendingNotes from './pages/PendingNotes';
 import ResetRequired from './pages/ResetRequired';
 import RotateGuardian from './pages/RotateGuardian';
 import RotateGuardianReview from './pages/RotateGuardianReview';
+import SpamNotes from './pages/SpamNotes';
 import TokenDetail from './pages/TokenDetail';
 import { resolveRootView } from './root-view';
 import { HistoryDetails } from './templates/history/HistoryDetails';
@@ -187,6 +188,14 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
       <TabLayout>
         <Receive />
       </TabLayout>
+    ))
+  ],
+  [
+    '/pending-notes/spam',
+    onlyReady(() => (
+      <FullScreenPage>
+        <SpamNotes />
+      </FullScreenPage>
     ))
   ],
   [

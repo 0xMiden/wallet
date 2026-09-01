@@ -38,6 +38,13 @@ jest.mock('lib/miden/note-quarantine', () => ({
   getQuarantinedNoteIds: () => mockGetQuarantinedNoteIds()
 }));
 
+const emptySpamState = (): NoteSpamState => ({ hiddenNoteIds: [], blockedFaucetIds: [], blockedSenders: [] });
+const mockGetNoteSpamState = jest.fn(async () => emptySpamState());
+jest.mock('lib/miden/note-spam', () => ({
+  ...jest.requireActual('lib/miden/note-spam'),
+  getNoteSpamState: () => mockGetNoteSpamState()
+}));
+
 const mockFetchTokenMetadata = jest.fn();
 jest.mock('lib/miden/metadata', () => ({
   fetchTokenMetadata: (...args: unknown[]) => mockFetchTokenMetadata(...args)
@@ -187,6 +194,7 @@ import {
   MAX_CONSECUTIVE_WATCHDOG_EVICTIONS,
   MAX_SYNC_BACKOFF_MS
 } from 'lib/miden/sync-backoff';
+import { NoteSpamState } from 'lib/miden/note-spam';
 import { WalletMessageType } from 'lib/shared/types';
 
 import { computeSyncBackoffMs, doSync, setupSyncManager } from './sync-manager';
@@ -1252,6 +1260,36 @@ describe('doSync — native-note auto-consume', () => {
     await doSync();
 
     expect(mockInitiateConsumeBatch).not.toHaveBeenCalled();
+  });
+
+  it('neither auto-consumes nor announces a note on the spam list, but still writes it to sync data', async () => {
+    mockIsAutoConsumeAsync.mockResolvedValue(true);
+    mockGetFaucetIdSetting.mockResolvedValue('native-faucet');
+    mockGetNoteSpamState.mockResolvedValueOnce({
+      hiddenNoteIds: [],
+      blockedFaucetIds: [],
+      blockedSenders: [{ value: 'spammer', at: 1 }]
+    });
+    mockClient.getConsumableNoteDtos.mockResolvedValueOnce([
+      fakeNote({ id: 'spam-note', faucetId: 'native-faucet', senderId: 'spammer' }),
+      fakeNote({ id: 'good-note', faucetId: 'native-faucet' })
+    ]);
+    // Both notes are new this lap; neither should reach the notification —
+    // good-note because it is auto-consumed, spam-note because it is spam.
+    mockMergeAndPersistSeenNoteIds.mockResolvedValueOnce(['spam-note', 'good-note']);
+    mockHasClients.mockReturnValue(false);
+    (globalThis as any).chrome.notifications = { create: jest.fn() };
+
+    await doSync();
+
+    expect(mockInitiateConsumeBatch).toHaveBeenCalledTimes(1);
+    const consumed = (mockInitiateConsumeBatch.mock.calls[0]![1] as { id: string }[]).map(n => n.id);
+    expect(consumed).toEqual(['good-note']);
+    expect((globalThis as any).chrome.notifications.create).not.toHaveBeenCalled();
+    // The spam bin lists hidden notes from this write, so the spam note stays in it.
+    const call = mockStorageSet.mock.calls.find(c => 'miden_cached_consumable_notes' in c[0]);
+    const cached = call?.[0]?.miden_cached_consumable_notes as Array<{ id: string }>;
+    expect(cached.map(n => n.id).sort()).toEqual(['good-note', 'spam-note']);
   });
 
   it('suppresses the "click to claim" notification for a native note it is auto-consuming', async () => {

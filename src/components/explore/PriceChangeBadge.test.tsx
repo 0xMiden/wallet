@@ -32,6 +32,12 @@ jest.mock('lib/miden/front', () => ({
 // The only store slice read is `tokenPrices`; run the real selector against a
 // controllable state object so per-test prices flow straight through.
 let mockTokenPrices: Record<string, { price?: number; change24h?: number }> = {};
+// No spam-blocked assets in these fixtures; the filter is a pass-through.
+jest.mock('lib/miden/front/note-spam', () => ({
+  useNoteSpamState: () => ({ sets: { hidden: new Set(), faucets: new Set(), senders: new Set() } }),
+  filterBlockedBalances: (balances: unknown[]) => balances
+}));
+
 jest.mock('lib/store', () => ({
   useWalletStore: (selector: (state: { tokenPrices: typeof mockTokenPrices }) => unknown) =>
     selector({ tokenPrices: mockTokenPrices })

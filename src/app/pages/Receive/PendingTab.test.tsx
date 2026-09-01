@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 
 import { PendingTab, NoteWithMetadata } from './PendingTab';
 
@@ -27,8 +27,39 @@ jest.mock('app/env', () => ({
 }));
 
 jest.mock('lib/store', () => ({
-  useWalletStore: (selector: (s: { tokenPrices: unknown }) => unknown) => selector({ tokenPrices: {} })
+  useWalletStore: (selector: (s: { tokenPrices: unknown; settings: undefined }) => unknown) =>
+    selector({ tokenPrices: {}, settings: undefined })
 }));
+
+const mockSpamRun = jest.fn(async () => undefined);
+const mockSpamUndo = jest.fn(async () => undefined);
+jest.mock('lib/miden/front/note-spam', () => ({
+  useNoteSpamState: () => ({
+    state: { hiddenNoteIds: [], blockedFaucetIds: [], blockedSenders: [] },
+    sets: { hidden: new Set(), faucets: new Set(), senders: new Set() },
+    loaded: true,
+    isBlockedFaucet: () => false,
+    run: mockSpamRun,
+    undo: mockSpamUndo,
+    remove: jest.fn()
+  })
+}));
+
+// Render the sheet inline so its buttons are reachable without vaul's portal/animation.
+jest.mock('lib/ui/drawer', () => {
+  const passthrough =
+    (testId: string) =>
+    ({ children }: { children?: React.ReactNode }) => <div data-testid={testId}>{children}</div>;
+  return {
+    Drawer: ({ open, children }: { open: boolean; children?: React.ReactNode }) =>
+      open ? <div data-testid="drawer">{children}</div> : null,
+    DrawerContent: passthrough('drawer-content'),
+    DrawerHeader: passthrough('drawer-header'),
+    DrawerFooter: passthrough('drawer-footer'),
+    DrawerTitle: passthrough('drawer-title'),
+    DrawerDescription: passthrough('drawer-description')
+  };
+});
 
 jest.mock('lib/prices', () => ({
   getTokenPrice: () => ({ price: 0 })
@@ -45,7 +76,8 @@ jest.mock('lib/miden/activity', () => ({
 }));
 
 jest.mock('lib/mobile/haptics', () => ({
-  hapticLight: jest.fn()
+  hapticLight: jest.fn(),
+  hapticMedium: jest.fn()
 }));
 
 jest.mock('lib/platform', () => ({
@@ -67,7 +99,7 @@ jest.mock('components/SyncWaveBackground', () => ({
 }));
 
 jest.mock('components/Button', () => ({
-  ButtonVariant: { Primary: 'primary', Secondary: 'secondary', Ghost: 'ghost' },
+  ButtonVariant: { Primary: 'primary', Secondary: 'secondary', Ghost: 'ghost', Danger: 'danger' },
   Button: ({ title, onClick, ...props }: { title?: string; onClick?: () => void }) => (
     <button data-testid={(props as Record<string, string>)['data-testid']} onClick={onClick}>
       {title}
@@ -150,6 +182,121 @@ describe('PendingTab — dust notes', () => {
 
     expect(screen.queryByText('notWorthClaiming')).not.toBeInTheDocument();
     mockNativeFaucetId = NATIVE_FAUCET;
+  });
+});
+
+// jsdom has no PointerEvent; without a constructor RTL drops `isPrimary` /
+// `pointerType` / `clientX`, which the long-press hook reads. See useLongPress.test.
+class PointerEventPolyfill extends MouseEvent {
+  readonly isPrimary: boolean;
+  readonly pointerType: string;
+  constructor(type: string, init: MouseEventInit & { isPrimary?: boolean; pointerType?: string } = {}) {
+    super(type, init);
+    this.isPrimary = init.isPrimary ?? true;
+    this.pointerType = init.pointerType ?? 'touch';
+  }
+}
+beforeAll(() => {
+  if (!('PointerEvent' in window)) {
+    Object.defineProperty(window, 'PointerEvent', { value: PointerEventPolyfill, configurable: true });
+  }
+});
+
+beforeEach(() => {
+  mockSpamRun.mockClear();
+  mockSpamUndo.mockClear();
+});
+
+describe('PendingTab — press-and-hold note menu + spam flow', () => {
+  it('opens the note menu on press-and-hold, but not for a hold that starts on the Claim button', () => {
+    jest.useFakeTimers();
+    try {
+      renderTab({ safeClaimableNotes: [makeNote('a')] });
+      openDetail();
+      const row = screen.getByTestId('detail-note-row');
+
+      fireEvent.pointerDown(within(row).getByTestId('claim-button'), { clientX: 5, clientY: 5 });
+      act(() => {
+        jest.advanceTimersByTime(600);
+      });
+      expect(screen.queryByTestId('note-context-menu')).not.toBeInTheDocument();
+
+      fireEvent.pointerDown(row, { clientX: 5, clientY: 5 });
+      act(() => {
+        jest.advanceTimersByTime(600);
+      });
+      expect(screen.getByTestId('note-context-menu')).toBeInTheDocument();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('right-click opens the menu with claim / hide / copy / spam items', () => {
+    renderTab({ safeClaimableNotes: [makeNote('a')] });
+    openDetail();
+    fireEvent.contextMenu(screen.getByTestId('detail-note-row'));
+
+    const menu = screen.getByTestId('note-context-menu');
+    expect(within(menu).getByTestId('note-menu-claim')).toHaveTextContent('noteMenuClaim');
+    expect(within(menu).getByTestId('note-menu-hide')).toHaveTextContent('noteMenuHide');
+    expect(within(menu).getByTestId('note-menu-copy')).toHaveTextContent('noteMenuCopySender');
+    expect(within(menu).getByTestId('note-menu-spam')).toHaveTextContent('noteMenuMarkSpam');
+  });
+
+  it('omits "Claim note" for a note that is already being consumed', () => {
+    renderTab({ safeClaimableNotes: [makeNote('a')], claimingNoteIds: new Set(['a']) });
+    openDetail();
+    fireEvent.contextMenu(screen.getByTestId('detail-note-row'));
+
+    expect(screen.queryByTestId('note-menu-claim')).not.toBeInTheDocument();
+    expect(screen.getByTestId('note-menu-hide')).toBeInTheDocument();
+  });
+
+  it('"Just hide this note" runs a hide-note action and shows an Undo banner that reverts it', () => {
+    renderTab({ safeClaimableNotes: [makeNote('a')] });
+    openDetail();
+    fireEvent.contextMenu(screen.getByTestId('detail-note-row'));
+    fireEvent.click(screen.getByTestId('note-menu-hide'));
+
+    expect(mockSpamRun).toHaveBeenCalledWith({ kind: 'hide-note', noteId: 'a' });
+    const banner = screen.getByTestId('spam-undo-banner');
+    expect(banner).toHaveTextContent('spamBannerNoteHidden');
+
+    fireEvent.click(within(banner).getByTestId('spam-undo-button'));
+    expect(mockSpamUndo).toHaveBeenCalledWith({ kind: 'hide-note', noteId: 'a' });
+  });
+
+  it('"Mark as spam" opens the sheet with block-asset / block-sender-and-asset / cancel', () => {
+    renderTab({ safeClaimableNotes: [makeNote('a')] });
+    openDetail();
+    fireEvent.contextMenu(screen.getByTestId('detail-note-row'));
+    fireEvent.click(screen.getByTestId('note-menu-spam'));
+
+    expect(screen.getByTestId('spam-block-asset')).toBeInTheDocument();
+    expect(screen.getByTestId('spam-block-sender-and-asset')).toBeInTheDocument();
+    expect(screen.getByTestId('spam-cancel')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('spam-block-asset'));
+    expect(mockSpamRun).toHaveBeenCalledWith({ kind: 'block-faucet', faucetId: 'faucet1' });
+    expect(screen.getByTestId('spam-undo-banner')).toHaveTextContent('spamBannerAssetBlocked');
+  });
+
+  it('offers only "Block sender" for a note of the native MIDEN faucet', () => {
+    renderTab({ safeClaimableNotes: [makeNote('a', { faucetId: 'native-faucet' })] });
+    openDetail();
+    fireEvent.contextMenu(screen.getByTestId('detail-note-row'));
+    fireEvent.click(screen.getByTestId('note-menu-spam'));
+
+    expect(screen.getByTestId('spam-block-sender')).toBeInTheDocument();
+    expect(screen.queryByTestId('spam-block-asset')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('spam-block-sender-and-asset')).not.toBeInTheDocument();
+  });
+
+  it('renders the press-and-hold hint under the list and the visibility pill per note', () => {
+    renderTab({ safeClaimableNotes: [makeNote('a', { type: 'private' as never })] });
+    openDetail();
+    expect(screen.getByText('pressAndHoldForOptions')).toBeInTheDocument();
+    expect(within(screen.getByTestId('detail-note-row')).getByText('shielded')).toBeInTheDocument();
   });
 });
 

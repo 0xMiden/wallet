@@ -23,6 +23,7 @@ import { useAccount, useAllBalances, useAllTokensBaseMetadata, useMidenContext }
 import type { TokenBalanceData } from 'lib/miden/front';
 import { useClaimableNotes } from 'lib/miden/front/claimable-notes';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
+import { filterBlockedBalances, useNoteSpamState } from 'lib/miden/front/note-spam';
 import { clearNoteReceivedNotification } from 'lib/mobile/native-notifications';
 import { isExtension, isMobile } from 'lib/platform';
 import { getTokenPrice } from 'lib/prices';
@@ -68,6 +69,13 @@ const Explore: FC = () => {
     mutate: mutateBalances
   } = useAllBalances(account.publicKey, allTokensBaseMetadata);
   const tokenPrices = useWalletStore(s => s.tokenPrices);
+  // Assets the user blocked as spam stay claimable-invisible AND leave the token
+  // list; the portfolio total (Balance.tsx) drops them by the same rule.
+  const { sets: spamSets } = useNoteSpamState();
+  const visibleTokenBalances = useMemo(
+    () => filterBlockedBalances(allTokenBalances, spamSets),
+    [allTokenBalances, spamSets]
+  );
 
   const { data: claimableNotes, mutate: mutateClaimableNotes } = useClaimableNotes(account.publicKey);
   const isDelegatedProvingEnabled = isDelegateProofEnabled();
@@ -218,7 +226,7 @@ const Explore: FC = () => {
   }, []);
 
   const filteredTokens = useMemo(() => {
-    const sorted = [...allTokenBalances].sort((a, b) => {
+    const sorted = [...visibleTokenBalances].sort((a, b) => {
       const aIsNative = a.tokenId === midenFaucetId;
       const bIsNative = b.tokenId === midenFaucetId;
       if (aIsNative !== bIsNative) return aIsNative ? -1 : 1;
@@ -232,7 +240,7 @@ const Explore: FC = () => {
     return sorted.filter(
       asset => asset.metadata.symbol.toLowerCase().includes(query) || asset.metadata.name?.toLowerCase().includes(query)
     );
-  }, [allTokenBalances, midenFaucetId, search, tokenPrices]);
+  }, [visibleTokenBalances, midenFaucetId, search, tokenPrices]);
 
   const refreshExplore = useCallback(async () => {
     if (isRefreshing) return;
@@ -340,7 +348,7 @@ const Explore: FC = () => {
           <HomeOverview
             address={address}
             tokenPrices={tokenPrices}
-            balances={allTokenBalances}
+            balances={visibleTokenBalances}
             filteredTokens={filteredTokens}
             search={search}
             onSearchChange={setSearch}

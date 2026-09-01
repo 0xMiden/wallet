@@ -36,6 +36,11 @@ jest.mock('app/pages/Receive/PendingTab', () => ({
   PendingTab: () => <div data-testid="pending-tab" />
 }));
 
+let mockSpamNotes: Array<{ id: string }> = [];
+jest.mock('lib/miden/front/claimable-notes', () => ({
+  useClaimableNotesWithSpam: () => ({ visible: [], spam: mockSpamNotes, isLoading: false, mutate: jest.fn() })
+}));
+
 jest.mock('app/hooks/useClaimNotes', () => ({
   useClaimNotes: () => ({
     safeClaimableNotes: [],
@@ -57,6 +62,25 @@ describe('PendingNotes back affordance', () => {
     mockGoBack.mockClear();
     mockNavigate.mockClear();
     mockHistoryPosition = 0;
+  });
+
+  it('renders the spam-bin button with a count of the notes the spam list is hiding', () => {
+    mockSpamNotes = [{ id: 'a' }, { id: 'b' }];
+    render(<PendingNotes />);
+
+    const bin = screen.getByTestId('spam-bin-button');
+    expect(bin).toHaveAttribute('aria-label', 'spamBinAriaLabel');
+    expect(screen.getByTestId('spam-bin-count')).toHaveTextContent('2');
+
+    fireEvent.click(bin);
+    expect(mockNavigate).toHaveBeenCalledWith('/pending-notes/spam');
+    mockSpamNotes = [];
+  });
+
+  it('keeps the spam-bin button (without a count) when nothing is hidden', () => {
+    render(<PendingNotes />);
+    expect(screen.getByTestId('spam-bin-button')).toBeInTheDocument();
+    expect(screen.queryByTestId('spam-bin-count')).not.toBeInTheDocument();
   });
 
   it('pops history when there is a previous screen to return to', () => {

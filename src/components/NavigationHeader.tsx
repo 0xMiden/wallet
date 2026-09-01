@@ -1,4 +1,4 @@
-import React, { HTMLAttributes, useEffect, useRef } from 'react';
+import React, { HTMLAttributes, ReactNode, useEffect, useRef } from 'react';
 
 import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
@@ -31,6 +31,12 @@ export interface NavigationHeaderProps extends HTMLAttributes<HTMLDivElement> {
    * new screen is never named.
    */
   focusTitleOnMount?: boolean;
+  /**
+   * A trailing control (e.g. the pending-notes spam-bin button). Renders on the
+   * right, before the close button when both are given; the caller owns its
+   * accessible name and sizing.
+   */
+  rightAction?: ReactNode;
 }
 
 export const NavigationHeader: React.FC<NavigationHeaderProps> = ({
@@ -42,6 +48,7 @@ export const NavigationHeader: React.FC<NavigationHeaderProps> = ({
   variant = 'default',
   titleAlign = 'center',
   focusTitleOnMount = false,
+  rightAction,
   ...props
 }) => {
   const { t } = useTranslation();
@@ -114,6 +121,7 @@ export const NavigationHeader: React.FC<NavigationHeaderProps> = ({
             <div className="flex-1" />
           )}
         </div>
+        {rightAction ? <div className="shrink-0 flex items-center text-black">{rightAction}</div> : null}
         {onClose ? (
           // CircleButton defaults its icon fill to a literal `black`, which is
           // invisible against the dark app background; currentColor hands the

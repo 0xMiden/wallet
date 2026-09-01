@@ -6,6 +6,16 @@ import { createIntercomClient, IIntercomClient } from 'lib/intercom/client';
 import { clearPersistedSeenNoteIds, persistSeenNoteIds } from 'lib/miden/back/note-checker-storage';
 import { setTestSyncPaused } from 'lib/miden/front/test-sync-pause';
 import { fetchTokenMetadata } from 'lib/miden/metadata';
+import {
+  applySpamAction,
+  applySpamActionToState,
+  EMPTY_NOTE_SPAM_STATE,
+  getNoteSpamState,
+  removeSpamEntry,
+  removeSpamEntryFromState,
+  revertSpamAction,
+  revertSpamActionFromState
+} from 'lib/miden/note-spam';
 import { installSwapTestHooks } from 'lib/miden/swap/test-hooks';
 import { MidenMessageType, MidenState } from 'lib/miden/types';
 import { isExtension } from 'lib/platform';
@@ -65,6 +75,10 @@ export const useWalletStore = create<WalletStore>()(
 
     // Initial assets state
     assetsMetadata: {},
+
+    // Initial note-spam state (hydrated by loadNoteSpam)
+    noteSpam: EMPTY_NOTE_SPAM_STATE,
+    noteSpamLoaded: false,
 
     // Initial UI state
     selectedNetworkId: null,
@@ -612,6 +626,53 @@ export const useWalletStore = create<WalletStore>()(
       set(state => ({
         assetsMetadata: { ...state.assetsMetadata, ...metadata }
       }));
+    },
+
+    // Note-spam actions. Every mutator is optimistic: the pure transform runs on
+    // the in-memory state first (so the row disappears in the same render), the
+    // persisted result replaces it when the write settles, and a storage failure
+    // rolls back to the snapshot.
+    loadNoteSpam: async () => {
+      if (get().noteSpamLoaded) return;
+      const state = await getNoteSpamState();
+      set({ noteSpam: state, noteSpamLoaded: true });
+    },
+
+    setNoteSpam: state => {
+      set({ noteSpam: state, noteSpamLoaded: true });
+    },
+
+    runNoteSpamAction: async action => {
+      const prev = get().noteSpam;
+      set({ noteSpam: applySpamActionToState(prev, action) });
+      try {
+        set({ noteSpam: await applySpamAction(action) });
+      } catch (error) {
+        set({ noteSpam: prev });
+        throw error;
+      }
+    },
+
+    undoNoteSpamAction: async action => {
+      const prev = get().noteSpam;
+      set({ noteSpam: revertSpamActionFromState(prev, action) });
+      try {
+        set({ noteSpam: await revertSpamAction(action) });
+      } catch (error) {
+        set({ noteSpam: prev });
+        throw error;
+      }
+    },
+
+    removeNoteSpamEntry: async (kind, value) => {
+      const prev = get().noteSpam;
+      set({ noteSpam: removeSpamEntryFromState(prev, kind, value) });
+      try {
+        set({ noteSpam: await removeSpamEntry(kind, value) });
+      } catch (error) {
+        set({ noteSpam: prev });
+        throw error;
+      }
     },
 
     fetchAssetMetadata: async assetId => {
