@@ -1012,5 +1012,14 @@
   "activityGroupEmptyDescription": "Once you transact with someone or use an app, it shows up here.",
   "activityGroupNoTransactions": "Nothing here yet — only something to claim.",
   "activityDapp": "App",
-  "activityContact": "Contact"
+  "activityContact": "Contact",
+  "activityBridgeGroup": "Bridge",
+  "activityWalletGroup": "Wallet",
+  "activityWalletGroupSubtitle": "Account security and recovery",
+  "activityActionWaiting": "Waiting for you",
+  "activityActionCount": "$count$ waiting",
+  "activityFilterAll": "All",
+  "activityFilterPeople": "People",
+  "activityFilterApps": "Apps",
+  "earn": "Earn"
 }

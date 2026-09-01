@@ -2,13 +2,13 @@ import React, { FC, useRef } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
+import { useActionableActivity } from 'app/hooks/useActionableActivity';
 import { useBackWithFallback } from 'app/hooks/useBackWithFallback';
 import { groupActivity } from 'app/templates/history/activity-grouping';
 import History from 'app/templates/history/History';
 import HistoryView from 'app/templates/history/HistoryView';
 import { NavigationHeader } from 'components/NavigationHeader';
 import { useAccount } from 'lib/miden/front';
-import { useClaimableNotes } from 'lib/miden/front/claimable-notes';
 import { useFilteredContacts } from 'lib/miden/front/use-filtered-contacts.hook';
 import { navigate } from 'lib/woozie';
 
@@ -29,7 +29,7 @@ const ActivityGroupDetail: FC<ActivityGroupDetailProps> = ({ groupId }) => {
   const { t } = useTranslation();
   const account = useAccount();
   const { allContacts } = useFilteredContacts();
-  const { data: claimableNotes } = useClaimableNotes(account.publicKey);
+  const { actions } = useActionableActivity();
   const scrollParentRef = useRef<HTMLDivElement>(null);
   const handleBack = useBackWithFallback('/history');
 
@@ -46,8 +46,13 @@ const ActivityGroupDetail: FC<ActivityGroupDetailProps> = ({ groupId }) => {
           renderEntries={(entries, { initialLoading }) => {
             const group = groupActivity(entries, {
               contacts: allContacts,
-              protocolNames: { swap: t('swap') },
-              pendingClaims: (claimableNotes ?? []).map(note => ({ id: note.id, senderAddress: note.senderAddress }))
+              protocolNames: {
+                swap: t('swap'),
+                earn: t('earn'),
+                bridge: t('activityBridgeGroup'),
+                faucet: t('faucetRequest')
+              },
+              actions
             }).find(candidate => candidate.id === decodedId);
 
             const title = !group ? t('activity') : group.kind === 'unknown' ? t('activityUnknownGroup') : group.name;

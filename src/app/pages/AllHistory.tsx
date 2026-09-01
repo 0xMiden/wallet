@@ -3,6 +3,7 @@ import React, { FC, useEffect, useMemo, useRef, useState } from 'react';
 import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
+import { useActionableActivity } from 'app/hooks/useActionableActivity';
 import { Icon, IconName } from 'app/icons/v2';
 import { groupActivity } from 'app/templates/history/activity-grouping';
 import ActivityGroupList from 'app/templates/history/ActivityGroupList';
@@ -35,6 +36,7 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
   const [infoDrawerOpen, setInfoDrawerOpen] = useState(false);
   const view = useActivityView();
   const { allContacts } = useFilteredContacts();
+  const { actions } = useActionableActivity();
 
   useEffect(() => {
     let cancelled = false;
@@ -190,14 +192,16 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
                     <ActivityGroupList
                       groups={groupActivity(entries, {
                         contacts: allContacts,
-                        protocolNames: { swap: t('swap') },
-                        // Claims are not history entries — an unclaimed note has
-                        // no transaction — so they are folded in separately and
-                        // can bring a group into existence on their own.
-                        pendingClaims: (claimableNotes ?? []).map(note => ({
-                          id: note.id,
-                          senderAddress: note.senderAddress
-                        }))
+                        protocolNames: {
+                          swap: t('swap'),
+                          earn: t('earn'),
+                          bridge: t('activityBridgeGroup'),
+                          faucet: t('faucetRequest')
+                        },
+                        // Not history entries: an unclaimed transfer has no
+                        // transaction, so an action can bring a group into
+                        // existence on its own.
+                        actions
                       })}
                       onOpenGroup={group => navigate(`/history/group/${encodeURIComponent(group.id)}`)}
                     />

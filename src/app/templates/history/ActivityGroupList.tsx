@@ -65,7 +65,7 @@ export const ActivityGroupList: FC<ActivityGroupListProps> = ({ groups, onOpenGr
                 // rather than as a generic dApp.
                 group.protocol === 'swap' ? (
                   <Icon name={IconName.Convert} className="w-5 h-5" fill="currentColor" />
-                ) : group.kind === 'dapp' ? (
+                ) : group.kind === 'app' ? (
                   <Icon name={IconName.Apps} className="w-5 h-5" />
                 ) : isUnknown ? (
                   <Icon name={IconName.Users} className="w-5 h-5" />

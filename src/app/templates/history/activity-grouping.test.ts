@@ -1,6 +1,6 @@
 import { truncateAddress } from 'utils/string';
 
-import { groupActivity, UNKNOWN_GROUP_ID } from './activity-grouping';
+import { groupActivity, UNKNOWN_GROUP_ID, WALLET_GROUP_ID } from './activity-grouping';
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
 
 const ALICE = 'mtst1apfq9x7k2m4n6p8r0t2v4w6y8z1b3d5f7h9j';
@@ -65,7 +65,7 @@ describe('groupActivity — grouping', () => {
       contacts: [{ address: ALICE, name: 'Alice' }]
     });
 
-    expect(group!.kind).toBe('dapp');
+    expect(group!.kind).toBe('app');
     expect(group!.name).toBe('DEX');
   });
 });
@@ -113,17 +113,17 @@ describe('groupActivity — ordering', () => {
   });
 });
 
-describe('groupActivity — pending claims', () => {
+describe('groupActivity — actions', () => {
   it('counts a pending claim against its sender group', () => {
     const [group] = groupActivity([entry({ key: 'a1', timestamp: 1, secondaryAddress: ALICE })], {
-      pendingClaims: [{ id: 'n1', senderAddress: ALICE }]
+      actions: [{ groupId: `contact:${ALICE}` }]
     });
 
     expect(group!.pendingCount).toBe(1);
   });
 
   it('creates a group for a claim from someone with no transaction history', () => {
-    const groups = groupActivity([], { pendingClaims: [{ id: 'n1', senderAddress: BOB }] });
+    const groups = groupActivity([], { actions: [{ groupId: `contact:${BOB}` }] });
 
     expect(groups).toHaveLength(1);
     expect(groups[0]!.address).toBe(BOB);
@@ -132,7 +132,7 @@ describe('groupActivity — pending claims', () => {
   });
 
   it('files a claim with no sender under the unknown group', () => {
-    const groups = groupActivity([], { pendingClaims: [{ id: 'n1' }] });
+    const groups = groupActivity([], { actions: [{ groupId: UNKNOWN_GROUP_ID }] });
 
     expect(groups[0]!.id).toBe(UNKNOWN_GROUP_ID);
     expect(groups[0]!.pendingCount).toBe(1);
@@ -160,7 +160,7 @@ describe('groupActivity — in-protocol flows', () => {
     const [group] = groupActivity([swap({ key: 's1', timestamp: 1 })], { protocolNames: { swap: 'Swap' } });
 
     expect(group!.id).toBe('protocol:swap');
-    expect(group!.kind).toBe('dapp');
+    expect(group!.kind).toBe('app');
     expect(group!.protocol).toBe('swap');
     expect(group!.name).toBe('Swap');
   });
@@ -209,5 +209,141 @@ describe('groupActivity — in-protocol flows', () => {
     const [group] = groupActivity([swap({ key: 's1', timestamp: 1 })]);
 
     expect(group!.name).toBe('swap');
+  });
+});
+
+describe('groupActivity — wallet-native flows are not people', () => {
+  // Each of these used to be mis-filed: earn under the Epoch allocator address,
+  // bridges under an EVM 0x address that can never match the address book, and
+  // the self-maintenance types under `unknown`.
+  const at = (over: Partial<IHistoryEntry> & { key: string; timestamp: number }) => entry(over);
+
+  it('files an earn deposit under Earn, not under the allocator address', () => {
+    const ALLOCATOR = 'mtst1allocatorxxxxxxxxxxxxxxxxxxxxxxxxxxx';
+    const [group] = groupActivity(
+      [at({ key: 'e1', timestamp: 1, txType: 'earn-deposit', secondaryAddress: ALLOCATOR })],
+      {
+        protocolNames: { earn: 'Earn' }
+      }
+    );
+
+    expect(group!.protocol).toBe('earn');
+    expect(group!.address).toBeUndefined();
+    expect(group!.name).toBe('Earn');
+  });
+
+  it('files an earn withdrawal alongside it rather than in unknown', () => {
+    const groups = groupActivity([
+      at({ key: 'e1', timestamp: 2, txType: 'earn-deposit' }),
+      at({ key: 'e2', timestamp: 1, txType: 'earn-withdraw' })
+    ]);
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0]!.protocol).toBe('earn');
+  });
+
+  it('files a bridge send under Bridge, not under its EVM address', () => {
+    const [group] = groupActivity(
+      [
+        at({
+          key: 'b1',
+          timestamp: 1,
+          txType: 'bridged-send',
+          secondaryAddress: '0xabc0000000000000000000000000000000000000'
+        })
+      ],
+      { protocolNames: { bridge: 'Bridge' } }
+    );
+
+    expect(group!.protocol).toBe('bridge');
+    expect(group!.kind).toBe('app');
+    expect(group!.address).toBeUndefined();
+  });
+
+  it('files a bridge receive with it rather than in unknown', () => {
+    const groups = groupActivity([
+      at({ key: 'b1', timestamp: 2, txType: 'bridged-send', secondaryAddress: '0xabc' }),
+      at({ key: 'b2', timestamp: 1, txType: 'bridged-receive' })
+    ]);
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0]!.protocol).toBe('bridge');
+  });
+
+  it('puts wallet self-maintenance in its own group, not unknown', () => {
+    const groups = groupActivity([
+      at({ key: 'g1', timestamp: 3, txType: 'switch-guardian' }),
+      at({ key: 'g2', timestamp: 2, txType: 'replace-hot-key' }),
+      at({ key: 'g3', timestamp: 1, txType: 'update-procedure-threshold' })
+    ]);
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0]!.id).toBe(WALLET_GROUP_ID);
+    expect(groups[0]!.kind).toBe('wallet');
+    expect(groups[0]!.entries).toHaveLength(3);
+  });
+
+  it('leaves unknown holding only genuinely unattributable entries', () => {
+    const groups = groupActivity([
+      at({ key: 'g1', timestamp: 4, txType: 'switch-guardian' }),
+      at({ key: 'e1', timestamp: 3, txType: 'earn-deposit' }),
+      at({ key: 'b1', timestamp: 2, txType: 'bridged-receive' }),
+      at({ key: 'x1', timestamp: 1 })
+    ]);
+
+    const unknown = groups.find(g => g.id === UNKNOWN_GROUP_ID)!;
+    expect(unknown.entries.map(e => e.key)).toEqual(['x1']);
+  });
+});
+
+describe('groupActivity — ranking by what needs doing', () => {
+  it('puts a group with an action above a more recent settled one', () => {
+    const groups = groupActivity([entry({ key: 'recent', timestamp: 9_999, secondaryAddress: BOB })], {
+      actions: [{ groupId: `contact:${ALICE}` }]
+    });
+
+    expect(groups.map(g => g.address)).toEqual([ALICE, BOB]);
+  });
+
+  it('puts a deadline-bound action above an open-ended one, soonest first', () => {
+    const groups = groupActivity([], {
+      actions: [
+        { groupId: `contact:${ALICE}` },
+        { groupId: `contact:${BOB}`, deadlineAt: 5_000 },
+        { groupId: UNKNOWN_GROUP_ID, deadlineAt: 1_000 }
+      ]
+    });
+
+    expect(groups.map(g => g.id)).toEqual([UNKNOWN_GROUP_ID, `contact:${BOB}`, `contact:${ALICE}`]);
+  });
+
+  it('records the soonest deadline when a group has several', () => {
+    const [group] = groupActivity([], {
+      actions: [
+        { groupId: `contact:${ALICE}`, deadlineAt: 900 },
+        { groupId: `contact:${ALICE}`, deadlineAt: 100 }
+      ]
+    });
+
+    expect(group!.pendingCount).toBe(2);
+    expect(group!.nextDeadlineAt).toBe(100);
+  });
+
+  it('sorts wallet self-maintenance last', () => {
+    const groups = groupActivity([
+      entry({ key: 'g1', timestamp: 9_999, txType: 'switch-guardian' }),
+      entry({ key: 'a1', timestamp: 1, secondaryAddress: ALICE })
+    ]);
+
+    expect(groups.map(g => g.id)).toEqual([`contact:${ALICE}`, WALLET_GROUP_ID]);
+  });
+
+  it('ranks an in-flight group above a settled one', () => {
+    const groups = groupActivity([
+      entry({ key: 'settled', timestamp: 9_999, secondaryAddress: BOB }),
+      entry({ key: 'pending', timestamp: 1, secondaryAddress: ALICE, type: HistoryEntryType.PendingTransaction })
+    ]);
+
+    expect(groups.map(g => g.address)).toEqual([ALICE, BOB]);
   });
 });

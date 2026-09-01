@@ -1,49 +1,89 @@
-import { ITransactionType } from 'lib/miden/db/types';
+import { ITransactionStatus, ITransactionType } from 'lib/miden/db/types';
 import { truncateAddress } from 'utils/string';
 
-import { IHistoryEntry } from './IHistoryEntry';
+import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
+import { isFaucetRequest } from './transactionUtils';
 
 /**
- * What a group represents. `unknown` is deliberately a first-class kind rather
- * than a dumping ground we hide: an entry the wallet cannot attribute still has
- * to be reachable, so it gets a real row instead of being filtered out.
- */
-export type ActivityGroupKind = 'contact' | 'dapp' | 'unknown';
-
-/**
- * A first-party flow the wallet itself runs, identified from the transaction's
- * own `txType` rather than from any recorded dApp identity.
+ * What a group represents.
  *
- * This is the one kind of app attribution available today that needs no new
- * persisted metadata and cannot be spoofed by a restored backup: an
- * in-protocol swap is a swap because the wallet built it as one. Extend the
- * map below to give Earn or the bridges their own group.
+ * `unknown` is a first-class kind rather than a bucket we hide — an entry the
+ * wallet cannot attribute still has to be reachable. But it must stay *small*:
+ * everything the wallet can name (a protocol, a self-maintenance operation)
+ * gets named, so `unknown` means "we couldn't tell" and never "we never asked".
  */
-export type ActivityProtocol = 'swap';
+export type ActivityGroupKind = 'contact' | 'app' | 'wallet' | 'unknown';
+
+/**
+ * A first-party flow, identified from the transaction's own `txType` rather
+ * than from any recorded app identity.
+ *
+ * This is the only app attribution available today that needs no new persisted
+ * metadata and cannot be spoofed by a restored backup: a swap is a swap because
+ * the wallet built it as one.
+ */
+export type ActivityProtocol = 'swap' | 'earn' | 'bridge' | 'faucet';
 
 const PROTOCOL_BY_TX_TYPE: Partial<Record<ITransactionType, ActivityProtocol>> = {
-  swap: 'swap'
+  swap: 'swap',
+  // Earn's counterparty is the Epoch *allocator* account, and `earn-withdraw`
+  // has no counterparty at all — so without this, deposits file under an opaque
+  // address and withdrawals fall into `unknown`.
+  'earn-deposit': 'earn',
+  'earn-withdraw': 'earn',
+  // A bridge send's `secondaryAddress` is an EVM `0x` address that can never
+  // match the address book; a bridge receive has none.
+  'bridged-send': 'bridge',
+  'bridged-receive': 'bridge'
 };
+
+/**
+ * Wallet self-maintenance: securing the account, rotating a key, changing
+ * guardian. These carry no counterparty by construction and are not a
+ * relationship, so they get their own de-emphasised group instead of diluting
+ * `unknown`.
+ */
+const WALLET_TX_TYPES: ReadonlySet<ITransactionType> = new Set<ITransactionType>([
+  'switch-guardian',
+  'replace-hot-key',
+  'update-procedure-threshold'
+]);
+
+export const UNKNOWN_GROUP_ID = 'unknown';
+export const WALLET_GROUP_ID = 'wallet';
+
+/** Something the user has to do, and when it stops being possible. */
+export interface ActivityAction {
+  /** Groups by the same key the entries use. */
+  groupId: string;
+  /**
+   * Epoch ms after which the action lapses — a note returning to its sender,
+   * for instance. Absent for open-ended actions.
+   */
+  deadlineAt?: number;
+}
 
 export interface ActivityGroup {
   /**
-   * Canonical grouping key — a Miden address for `contact`, an origin for
-   * `dapp`, the literal `'unknown'` otherwise. Stable across renders so the
-   * row can be keyed and routed by it.
+   * Canonical grouping key — `contact:<address>`, `protocol:<name>`,
+   * `dapp:<origin>`, or the `wallet` / `unknown` literals. Stable across
+   * renders so the row can be keyed and routed by it.
    */
   id: string;
   kind: ActivityGroupKind;
-  /** Address-book name, dApp name, or a shortened address. Never a raw guess. */
+  /** Address-book name, protocol name, or a shortened address. Never a guess. */
   name: string;
   /** Present only for `contact`; the full address behind `name`. */
   address?: string;
-  /** Set when the group is a first-party protocol flow, e.g. the in-protocol DEX. */
+  /** Set when the group is a first-party protocol flow. */
   protocol?: ActivityProtocol;
   entries: IHistoryEntry[];
-  /** Timestamp of the newest entry, i.e. what the list sorts on. */
+  /** Timestamp of the newest entry — the row's relative time. */
   latestAt: number;
-  /** Entries in this group that still need the user to claim something. */
+  /** How many things in this group the user must act on. */
   pendingCount: number;
+  /** Soonest deadline among those actions, if any. Drives urgency ranking. */
+  nextDeadlineAt?: number;
 }
 
 export interface ActivityGroupingSources {
@@ -51,37 +91,70 @@ export interface ActivityGroupingSources {
   contacts?: Array<{ address: string; name: string }>;
   /**
    * Durable dApp attribution, keyed by the transaction key. Empty today — no
-   * transaction persists an originating dApp (see `ITransaction`), so nothing
-   * produces `dapp` groups from real history yet. Supplied explicitly rather
+   * transaction persists an originating dApp — and supplied explicitly rather
    * than inferred, so a name can never come from an untrusted transaction field.
    */
   dappByEntryKey?: Record<string, { origin: string; name: string }>;
   /**
-   * Notes the user still has to claim, from `useClaimableNotes`. These are NOT
-   * history entries — a note nobody has claimed yet has no transaction — so
-   * they are folded in separately and can bring a group into existence on
-   * their own. That is the point: a first-time sender's claim has to be
-   * actionable before any transaction for it exists.
+   * Everything the user must act on, already filtered for auto-consume and
+   * in-flight claims by `useActionableActivity`. Not history entries: an
+   * unclaimed note has no transaction, so an action can bring a group into
+   * existence on its own.
    */
-  pendingClaims?: Array<{ id: string; senderAddress?: string }>;
-  /**
-   * Display names for the first-party protocol groups. Passed in rather than
-   * looked up here so this module stays free of i18n and of React.
-   */
+  actions?: readonly ActivityAction[];
+  /** Display names for protocol groups — passed in to keep this module i18n-free. */
   protocolNames?: Partial<Record<ActivityProtocol, string>>;
 }
 
-export const UNKNOWN_GROUP_ID = 'unknown';
+/** Stable key for the group an entry belongs to. Chosen once, so no entry is double-counted. */
+export function groupIdForEntry(entry: IHistoryEntry, dapp?: { origin: string }, protocol?: ActivityProtocol): string {
+  if (dapp) return `dapp:${dapp.origin}`;
+  if (protocol) return `protocol:${protocol}`;
+  if (WALLET_TX_TYPES.has(entry.txType)) return WALLET_GROUP_ID;
+  if (entry.secondaryAddress) return `contact:${entry.secondaryAddress}`;
+  return UNKNOWN_GROUP_ID;
+}
+
+/** The group key a counterparty address belongs to. Used to attach actions. */
+export function groupIdForAddress(address?: string): string {
+  return address ? `contact:${address}` : UNKNOWN_GROUP_ID;
+}
+
+function protocolOf(entry: IHistoryEntry): ActivityProtocol | undefined {
+  // A faucet request is an ordinary `consume` whose sender happens to be the
+  // faucet, so it is detected rather than typed.
+  if (isFaucetRequest(entry)) return 'faucet';
+  return PROTOCOL_BY_TX_TYPE[entry.txType];
+}
+
+function isInFlight(entry: IHistoryEntry): boolean {
+  return (
+    entry.type === HistoryEntryType.PendingTransaction ||
+    entry.type === HistoryEntryType.ProcessingTransaction ||
+    entry.status === ITransactionStatus.Queued ||
+    entry.status === ITransactionStatus.GeneratingTransaction
+  );
+}
+
+/**
+ * Rank tier — lower sorts first. A chat list orders purely by recency because
+ * every message is equal; here they are not, so what needs doing outranks what
+ * happened last.
+ */
+function tierOf(group: ActivityGroup): number {
+  if (group.pendingCount > 0) return group.nextDeadlineAt !== undefined ? 0 : 1;
+  if (group.entries.some(isInFlight)) return 2;
+  return group.kind === 'wallet' ? 4 : 3;
+}
 
 /**
  * Fold a flat, already-ordered history into one row per counterparty.
  *
- * Precedence is dApp, then protocol, then contact. An entry attributed to an
+ * Precedence is dApp → protocol → wallet → contact. An entry attributed to an
  * app is *about* that app, and its counterparty address is an implementation
- * detail — a swap's counterparty is the matching order, not a person, so
- * filing it under an address would invent a relationship that does not exist.
- * Every entry lands in exactly one group: the key is chosen once, here, so no
- * entry can be double-counted.
+ * detail: a swap's counterparty is the matching order and an earn deposit's is
+ * the Epoch allocator, so filing either under an address would invent a
+ * relationship the user never had.
  */
 export function groupActivity(
   entries: readonly IHistoryEntry[],
@@ -92,85 +165,83 @@ export function groupActivity(
 
   const groups = new Map<string, ActivityGroup>();
 
+  const nameForContact = (address: string) =>
+    // A saved name, or the address itself shortened. Never a name carried on the
+    // transaction — those are attacker-authorable on a restored row.
+    contactByAddress.get(address) ?? truncateAddress(address, true, 8);
+
   for (const entry of entries) {
     const dapp = dappByEntryKey[entry.key];
-    const counterparty = entry.secondaryAddress;
-
-    let id: string;
-    let kind: ActivityGroupKind;
-    let name: string;
-    let address: string | undefined;
-    // Describes the GROUP, not the entry: a swap that a real dApp claimed is
-    // that dApp's, so this stays unset and the row shows the dApp instead.
-    let protocol: ActivityProtocol | undefined;
-
-    const entryProtocol = PROTOCOL_BY_TX_TYPE[entry.txType];
-
-    if (dapp) {
-      id = `dapp:${dapp.origin}`;
-      kind = 'dapp';
-      name = dapp.name;
-    } else if (entryProtocol) {
-      id = `protocol:${entryProtocol}`;
-      kind = 'dapp';
-      name = sources.protocolNames?.[entryProtocol] ?? entryProtocol;
-      protocol = entryProtocol;
-    } else if (counterparty) {
-      id = `contact:${counterparty}`;
-      kind = 'contact';
-      address = counterparty;
-      // A saved name, or the address itself shortened. Never a name carried on
-      // the transaction — those are attacker-authorable on a restored row.
-      name = contactByAddress.get(counterparty) ?? truncateAddress(counterparty, true, 8);
-    } else {
-      id = UNKNOWN_GROUP_ID;
-      kind = 'unknown';
-      name = '';
-    }
+    const protocol = dapp ? undefined : protocolOf(entry);
+    const id = groupIdForEntry(entry, dapp, protocol);
 
     const existing = groups.get(id);
     if (existing) {
       existing.entries.push(entry);
       existing.latestAt = Math.max(existing.latestAt, entry.timestamp);
-    } else {
-      groups.set(id, {
-        id,
-        kind,
-        name,
-        address,
-        protocol,
-        entries: [entry],
-        latestAt: entry.timestamp,
-        pendingCount: 0
-      });
+      continue;
+    }
+
+    const kind: ActivityGroupKind =
+      dapp || protocol ? 'app' : id === WALLET_GROUP_ID ? 'wallet' : id === UNKNOWN_GROUP_ID ? 'unknown' : 'contact';
+
+    groups.set(id, {
+      id,
+      kind,
+      name: dapp
+        ? dapp.name
+        : protocol
+          ? (sources.protocolNames?.[protocol] ?? protocol)
+          : kind === 'contact' && entry.secondaryAddress
+            ? nameForContact(entry.secondaryAddress)
+            : '',
+      address: kind === 'contact' ? entry.secondaryAddress : undefined,
+      protocol,
+      entries: [entry],
+      latestAt: entry.timestamp,
+      pendingCount: 0
+    });
+  }
+
+  // Actions second, so something you must do surfaces even with no transaction
+  // behind it yet — a first-time sender's transfer has to be actionable before
+  // any row for it exists.
+  for (const action of sources.actions ?? []) {
+    const existing = groups.get(action.groupId);
+    const target =
+      existing ??
+      (() => {
+        const address = action.groupId.startsWith('contact:') ? action.groupId.slice('contact:'.length) : undefined;
+        const created: ActivityGroup = {
+          id: action.groupId,
+          kind: address ? 'contact' : action.groupId === UNKNOWN_GROUP_ID ? 'unknown' : 'app',
+          name: address ? nameForContact(address) : '',
+          address,
+          entries: [],
+          // Nothing to date it by; ranking puts it up top on the action instead.
+          latestAt: 0,
+          pendingCount: 0
+        };
+        groups.set(action.groupId, created);
+        return created;
+      })();
+
+    target.pendingCount += 1;
+    if (action.deadlineAt !== undefined) {
+      target.nextDeadlineAt =
+        target.nextDeadlineAt === undefined ? action.deadlineAt : Math.min(target.nextDeadlineAt, action.deadlineAt);
     }
   }
 
-  // Pending claims second, so a claim from someone with no transaction history
-  // still surfaces as its own actionable row rather than vanishing.
-  for (const claim of sources.pendingClaims ?? []) {
-    const sender = claim.senderAddress;
-    const id = sender ? `contact:${sender}` : UNKNOWN_GROUP_ID;
-    const existing = groups.get(id);
-    if (existing) {
-      existing.pendingCount += 1;
-    } else {
-      groups.set(id, {
-        id,
-        kind: sender ? 'contact' : 'unknown',
-        name: sender ? (contactByAddress.get(sender) ?? truncateAddress(sender, true, 8)) : '',
-        address: sender,
-        entries: [],
-        // No transaction to date it by; sorts last among groups until one lands.
-        latestAt: 0,
-        pendingCount: 1
-      });
-    }
-  }
-
-  // Newest group first; entries inside a group stay newest-first too, which is
-  // the order the flat feed already hands us.
   return Array.from(groups.values())
     .map(group => ({ ...group, entries: [...group.entries].sort((a, b) => b.timestamp - a.timestamp) }))
-    .sort((a, b) => b.latestAt - a.latestAt);
+    .sort((a, b) => {
+      const tier = tierOf(a) - tierOf(b);
+      if (tier !== 0) return tier;
+      // Soonest deadline first inside the urgent tier.
+      if (a.nextDeadlineAt !== undefined && b.nextDeadlineAt !== undefined && a.nextDeadlineAt !== b.nextDeadlineAt) {
+        return a.nextDeadlineAt - b.nextDeadlineAt;
+      }
+      return b.latestAt - a.latestAt;
+    });
 }
