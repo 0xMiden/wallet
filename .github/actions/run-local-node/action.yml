@@ -142,18 +142,26 @@ runs:
     # Assert the chain came up with the fee that was asked for. Without this the single
     # most consequential property of the run is invisible: a suite that believes it is
     # proving fee behaviour passes on a fee-free chain and reports green.
-    # The harness defaults to $HOME/miden/miden-client/target/test-node/data/accounts, which
-    # only resolves on a checkout that happens to live at that path; on a runner the clone is
-    # under RUNNER_TEMP, so every suite on a fee-charging chain fails with "no funder wallets
-    # were found". Same directory, correct base.
-    #
-    # Not <clone>/data/funders: importFunders() needs native_faucet.mac alongside the
-    # wallet_*.mac files (the CLI has no token-symbol entry for MIDEN, so the funding asset has
-    # to be named by faucet id), and start-test-node.sh copies only the wallets there.
-    # data/accounts is the one directory holding both.
-    - name: Export the funder wallet directory
+    # importFunders() reads wallet_*.mac AND native_faucet.mac from ONE directory: it imports
+    # the faucet to learn its id, because the CLI has no token-symbol entry for MIDEN and the
+    # funding asset must be named by id. start-test-node.sh splits them — wallets land in
+    # <clone>/data/funders, the faucet in <clone>/data — and no single directory has both, so
+    # assemble one. The harness's own default ($HOME/miden/miden-client/...) only ever resolved
+    # on a checkout that happened to sit at that path.
+    - name: Assemble the funder wallet directory
       shell: bash
-      run: echo "MIDEN_E2E_FUNDER_DIR=${{ runner.temp }}/miden-client/target/test-node/data/accounts" >> "$GITHUB_ENV"
+      run: |
+        set -euo pipefail
+        clone="${{ runner.temp }}/miden-client"
+        dir="${{ runner.temp }}/e2e-funders"
+        rm -rf "$dir"; mkdir -p -m 700 "$dir"
+        # These carry spendable keys; keep them owner-only as the node wrote them.
+        cp -p "$clone"/data/funders/wallet_*.mac "$dir/"
+        cp -p "$clone"/data/native_faucet.mac "$dir/"
+        n=$(ls "$dir"/wallet_*.mac | wc -l | tr -d ' ')
+        [ "$n" -gt 0 ] || { echo "::error::no funder wallets were exposed by the node"; exit 1; }
+        echo "assembled $n funder wallet(s) + native_faucet.mac in $dir"
+        echo "MIDEN_E2E_FUNDER_DIR=$dir" >> "$GITHUB_ENV"
 
     - name: Verify genesis fee parameters
       shell: bash
