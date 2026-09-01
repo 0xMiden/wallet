@@ -304,7 +304,12 @@ runs:
         import re, sys
         path, url, sha, origin = sys.argv[1:5]
         # All five live in the one protocol repo, so one rev pins them coherently.
-        crates = ['miden-protocol', 'miden-standards', 'miden-tx', 'miden-tx-batch', 'miden-block-prover']
+        # miden-agglayer is in the protocol repo too and is a normal dep of miden-client.
+        # Omitting it leaves it resolving miden-standards from the registry, so the graph
+        # carries BOTH the patched rc.8 and a published rc.6 and the auth_tx procedure
+        # roots still disagree — observed exactly that on wallet #806.
+        crates = ['miden-protocol', 'miden-standards', 'miden-tx', 'miden-tx-batch',
+                  'miden-block-prover', 'miden-agglayer']
         w = max(len(c) for c in crates)
         patched = [f'{c:<{w}} = {{ git = "{url}", rev = "{sha}" }}' for c in crates]
         head = [
@@ -344,9 +349,25 @@ runs:
           # Pre-resolve the patched entries into Cargo.lock. Best-effort: cargo
           # re-resolves a changed [patch] table on the next build regardless, and
           # a crate absent from this graph is not an error.
-          ( cd "$SDK_DIR" && for c in miden-protocol miden-standards miden-tx miden-tx-batch miden-block-prover; do
+          ( cd "$SDK_DIR" && for c in miden-protocol miden-standards miden-tx miden-tx-batch miden-block-prover miden-agglayer; do
               cargo update -p "$c" >/dev/null 2>&1 || true
             done )
+
+          # A patch that only PARTLY applies is silent: cargo emits no warning and just
+          # resolves a registry copy alongside the git one, so every build step stays green
+          # while the account-component procedure roots disagree. That is exactly how a
+          # missing miden-agglayer cost a full CI round here. Assert one source per crate.
+          ( cd "$SDK_DIR" && cargo metadata --format-version 1 >/dev/null 2>&1 || true )
+          dupes=""
+          for c in miden-protocol miden-standards miden-tx miden-tx-batch miden-block-prover miden-agglayer; do
+            n=$(grep -c "^name = \"$c\"$" "$SDK_DIR/Cargo.lock" 2>/dev/null || echo 0)
+            if [ "${n:-0}" -gt 1 ]; then dupes="$dupes $c($n)"; fi
+          done
+          if [ -n "$dupes" ]; then
+            echo "::error title=inject-linked-web-sdk-pr::protocol patch applied only partly; these resolve to more than one source:${dupes}. The build would mix protocol versions and the account procedure roots would not match."
+            exit 1
+          fi
+          echo "protocol patch verified: one source per crate"
         fi
         echo "::endgroup::"
 
