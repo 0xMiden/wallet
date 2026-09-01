@@ -149,7 +149,31 @@ runs:
         echo "state=${state}" >> "$GITHUB_OUTPUT"
         echo "merged=${merged}" >> "$GITHUB_OUTPUT"
 
-    - if: steps.parse.outputs.patched == 'true'
+    # WHY THREE STEPS AND NOT ONE.
+    #
+    # GitHub caps a single `run:` block at 21000 characters of RAW INDENTED
+    # source — it counts the YAML text, not the dedented script a YAML parser
+    # hands back — and it enforces the cap at TEMPLATE PARSE TIME. One
+    # oversized block therefore fails the entire action with
+    #   "The template is not valid ... Exceeded max expression length 21000"
+    # before a single line runs, taking every job that uses the action red at
+    # once and pointing at a line number instead of at a size problem. This
+    # body grew past the cap and did exactly that to 14 jobs on wallet #806.
+    #
+    # The split follows the seam the work already had — clone, then resolve the
+    # linked PR's own nested markers, then build — so the ordering constraint
+    # is unchanged: the nested markers must be applied AFTER the clone (they
+    # rewrite $SDK_DIR/Cargo.toml) and BEFORE the build (they decide what it
+    # compiles against). Composite steps run in file order, so file order is
+    # the whole mechanism holding that invariant now; do not reorder them.
+    #
+    # Steps share no shell variables, so SDK_DIR is re-derived in each one. It
+    # is a pure function of RUNNER_TEMP, so the three spellings cannot drift.
+    # The env: block is repeated verbatim rather than trimmed per step: these
+    # lines used to run with all of it in scope, and keeping it identical is
+    # what makes "same behaviour, fewer characters per block" checkable by eye.
+    - name: Clone the linked web-sdk PR head
+      if: steps.parse.outputs.patched == 'true'
       shell: bash
       env:
         REPO: ${{ steps.parse.outputs.repo }}
@@ -184,6 +208,26 @@ runs:
         git -C "$SDK_DIR" fetch --depth 1 origin "${HEAD_SHA}"
         git -C "$SDK_DIR" checkout --detach FETCH_HEAD
         echo "::endgroup::"
+
+    - name: Apply the linked web-sdk PR's own nested Client / Protocol markers
+      if: steps.parse.outputs.patched == 'true'
+      shell: bash
+      env:
+        REPO: ${{ steps.parse.outputs.repo }}
+        NUM: ${{ steps.parse.outputs.num }}
+        HEAD_OWNER: ${{ steps.parse.outputs.head_owner }}
+        HEAD_REPO: ${{ steps.parse.outputs.head_repo }}
+        HEAD_REF: ${{ steps.parse.outputs.head_ref }}
+        HEAD_SHA: ${{ steps.parse.outputs.head_sha }}
+        MERGED: ${{ steps.parse.outputs.merged }}
+        GH_TOKEN: ${{ inputs.github-token }}
+      run: |
+        set -euo pipefail
+
+        # Same runner-local path the clone step used. Steps don't share shell
+        # variables and this one is a pure function of RUNNER_TEMP, so it is
+        # re-derived rather than handed over through $GITHUB_ENV.
+        SDK_DIR="${RUNNER_TEMP:-/tmp}/web-sdk-pr"
 
         # COMPOSE WITH WEB-SDK'S OWN LINKED-DEPENDENCY MARKERS.
         #
@@ -354,6 +398,26 @@ runs:
             done )
         fi
         echo "::endgroup::"
+
+    - name: Build the linked web-sdk and point the wallet at it
+      if: steps.parse.outputs.patched == 'true'
+      shell: bash
+      env:
+        REPO: ${{ steps.parse.outputs.repo }}
+        NUM: ${{ steps.parse.outputs.num }}
+        HEAD_OWNER: ${{ steps.parse.outputs.head_owner }}
+        HEAD_REPO: ${{ steps.parse.outputs.head_repo }}
+        HEAD_REF: ${{ steps.parse.outputs.head_ref }}
+        HEAD_SHA: ${{ steps.parse.outputs.head_sha }}
+        MERGED: ${{ steps.parse.outputs.merged }}
+        GH_TOKEN: ${{ inputs.github-token }}
+      run: |
+        set -euo pipefail
+
+        # Same runner-local path the clone step used. Steps don't share shell
+        # variables and this one is a pure function of RUNNER_TEMP, so it is
+        # re-derived rather than handed over through $GITHUB_ENV.
+        SDK_DIR="${RUNNER_TEMP:-/tmp}/web-sdk-pr"
 
         # Pre-install the SDK's pinned Rust toolchain BEFORE the first
         # cargo invocation. The wallet's CI runners are Node-only and
@@ -649,9 +713,9 @@ runs:
         header: linked-web-sdk-pr
         delete: true
 
-    # Its own step: the injection step above is 20.6k characters and GitHub caps a single
-    # `run:` at 21000, so anything further added there fails the whole action at parse time
-    # with "Exceeded max expression length" — which reads like a syntax error, not a size one.
+    # Its own step because of the same 21000-character run-block cap described above:
+    # folded back into the build step it would fail the whole action at parse time with
+    # "Exceeded max expression length" — which reads like a syntax error, not a size one.
     #
     # A partly-applied patch is silent: cargo emits no warning and simply resolves a registry
     # copy alongside the git one, so every step stays green while the account-component
