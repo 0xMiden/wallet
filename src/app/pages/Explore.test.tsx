@@ -325,6 +325,19 @@ describe('Explore', () => {
       expect(screen.getByTestId('home-prompts')).toHaveAttribute('data-note-count', '1');
       expect(screen.getByTestId('home-prompts')).toHaveAttribute('data-price-symbols', 'MIDEN');
     });
+
+    it('keeps notes the page itself auto-consumes out of home prompts (#811)', async () => {
+      mockAutoConsume = true;
+      mockClaimableNotes = [
+        makeNote('auto', 'faucet-native'),
+        makeNote('manual', 'other-faucet'),
+        makeNote('manual-swap', 'faucet-native', false, { autoConsume: false })
+      ];
+
+      await renderExplore();
+
+      expect(screen.getByTestId('home-prompts')).toHaveAttribute('data-note-count', '2');
+    });
   });
 
   describe('hex-address redirect', () => {

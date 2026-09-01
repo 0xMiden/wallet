@@ -38,6 +38,16 @@ jest.mock('./claimable-notes', () => ({
   })
 }));
 
+// `useManuallyClaimableNotes` drops native notes the wallet auto-consumes (#811);
+// default to a known native faucet with auto-consume ON so the exclusion is live.
+jest.mock('app/hooks/useMidenFaucetId', () => ({
+  __esModule: true,
+  default: () => 'faucet-native'
+}));
+jest.mock('lib/settings/helpers', () => ({
+  isAutoConsumeEnabled: () => true
+}));
+
 const mockGetPersistedSeenNoteIds = jest.fn();
 const mockPersistSeenNoteIds = jest.fn();
 jest.mock('lib/miden/back/note-checker-storage', () => ({
@@ -78,6 +88,28 @@ describe('useNoteToastMonitor', () => {
     renderHook(() => useNoteToastMonitor('pk-1'));
     await waitFor(() => {
       expect(mockGetPersistedSeenNoteIds).toHaveBeenCalled();
+    });
+  });
+
+  it('never raises a toast for a native note the wallet auto-consumes (#811)', async () => {
+    _g.__noteToastTest.claimableNotes = [];
+    const { rerender } = renderHook(() => useNoteToastMonitor('pk-1'));
+    // The address effect re-arms the first-fetch seed after mount, so the next
+    // fetch is seeded silently too; burn it before the fetch under test.
+    _g.__noteToastTest.claimableNotes = [{ id: 'seeded', faucetId: 'faucet-other' }];
+    rerender();
+
+    _g.__noteToastTest.claimableNotes = [
+      { id: 'seeded', faucetId: 'faucet-other' },
+      { id: 'auto', faucetId: 'faucet-native' },
+      { id: 'manual', faucetId: 'faucet-other' }
+    ];
+    rerender();
+
+    // The store diffs against seenNoteIds itself; what matters is that the
+    // auto-consumed native note never reaches it.
+    await waitFor(() => {
+      expect(mockCheckForNewNotes).toHaveBeenCalledWith(['seeded', 'manual']);
     });
   });
 
