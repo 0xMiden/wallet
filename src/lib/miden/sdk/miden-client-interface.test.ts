@@ -2465,4 +2465,262 @@ describe('MidenClientInterface', () => {
     ]);
     expect(terminate).toHaveBeenCalledTimes(1);
   });
+
+  describe('recoverGuardianAccountsBySeed', () => {
+    interface FakeMatch {
+      state: { stateJson: { data: string } };
+    }
+
+    // A match's on-chain state arrives base64-encoded; the scan decodes it and
+    // hands the bytes to Account.deserialize. Round-tripping a readable marker
+    // through both keeps the adopted account id assertable.
+    const encodeState = (marker: string): FakeMatch => ({
+      state: { stateJson: { data: Buffer.from(marker, 'utf8').toString('base64') } }
+    });
+
+    interface RecoverHarness {
+      client: MidenClientInterfaceType;
+      recoverByKey: jest.Mock;
+      insertGuardianAccountMonotonically: jest.Mock;
+      registerGuardianOrigin: jest.Mock;
+      keystoreInsert: jest.Mock;
+      deriveColdSeed: jest.Mock;
+      lockLabels: (string | undefined)[];
+      multisigClientArgs: unknown[][];
+    }
+
+    /**
+     * Wires the whole guardian-scan dependency surface: the dynamic
+     * `@openzeppelin/miden-multisig-client` import, the statically-imported
+     * WASM lock, guardian adopt helper and origin registration, plus the SDK
+     * `AuthSecretKey`/`Account` constructors the scan drives per index.
+     *
+     * `matchesByIndex` is keyed by HD index — the deriveColdSeed stub records
+     * which index the scan is on, and the faked `recoverByKey` answers for it.
+     */
+    async function setupRecovery(
+      matchesByIndex: Map<number, FakeMatch[]>,
+      onIndex?: (hdIndex: number, harness: { markPoisoned: () => void }) => void
+    ): Promise<RecoverHarness> {
+      const lockLabels: (string | undefined)[] = [];
+      const multisigClientArgs: unknown[][] = [];
+      let currentIndex = -1;
+
+      const insertGuardianAccountMonotonically = jest.fn(async () => {});
+      const registerGuardianOrigin = jest.fn();
+      const keystoreInsert = jest.fn(async () => {});
+      const recoverByKey = jest.fn(async () => matchesByIndex.get(currentIndex) ?? []);
+
+      jest.doMock('@openzeppelin/miden-multisig-client', () => ({
+        MultisigClient: class {
+          recoverByKey = recoverByKey;
+          constructor(...args: unknown[]) {
+            multisigClientArgs.push(args);
+          }
+        },
+        EcdsaSigner: class {
+          constructor(..._args: unknown[]) {}
+        }
+      }));
+      jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+        ...jest.requireActual('../../../../__mocks__/wasmMock.js'),
+        AuthSecretKey: {
+          // `publicKey().serialize()` is a 0x-prefix-tagged encoding; the scan
+          // drops the leading byte, so prepend one the assertions can ignore.
+          ecdsaWithRNG: jest.fn((seed: Uint8Array) => ({
+            publicKey: () => ({ serialize: () => new Uint8Array([0xff, ...seed]) }),
+            serialize: () => new Uint8Array(seed)
+          }))
+        },
+        Account: {
+          deserialize: jest.fn((bytes: Uint8Array) => ({
+            id: () => Buffer.from(bytes).toString('utf8')
+          }))
+        }
+      }));
+      jest.doMock('./miden-client', () => ({
+        withWasmClientLock: jest.fn(async (operation: () => Promise<unknown>, options?: { label?: string }) => {
+          lockLabels.push(options?.label);
+          return operation();
+        }),
+        getCurrentWasmLockHold: jest.fn(() => undefined),
+        withWasmLockWatchdogPaused: jest.fn((operation: () => Promise<unknown>) => operation()),
+        yieldWasmClientLock: jest.fn((operation: () => Promise<unknown>) => operation())
+      }));
+      jest.doMock('../guardian/account', () => ({
+        insertGuardianAccountMonotonically,
+        createGuardianAccount: jest.fn()
+      }));
+      jest.doMock('../guardian/native-http', () => ({ registerGuardianOrigin }));
+      jest.doMock('./helpers', () => ({
+        ...jest.requireActual('./helpers'),
+        getBech32AddressFromAccountId: (accountId: unknown) => `bech32(${String(accountId)})`
+      }));
+      jest.doMock('lib/miden-chain/effective-endpoints', () => ({
+        getEffectiveNetworkName: () => 'testnet',
+        getEffectiveRpcUrl: () => 'https://rpc.example',
+        getEffectiveProverUrl: () => undefined,
+        getEffectiveNoteTransportUrl: () => undefined
+      }));
+      jest.doMock('lib/miden/activity/connectivity-state', () => ({
+        markConnectivityIssue: jest.fn(),
+        clearConnectivityIssue: jest.fn()
+      }));
+
+      const fakeMidenClient = buildFakeMidenClient({ keystore: { insert: keystoreInsert } });
+      const { MidenClientInterface } = await import('./miden-client-interface');
+      const client: MidenClientInterfaceType = Reflect.apply(MidenClientInterface.fromClient, MidenClientInterface, [
+        fakeMidenClient,
+        'testnet'
+      ]);
+
+      const deriveColdSeed = jest.fn((hdIndex: number) => {
+        currentIndex = hdIndex;
+        onIndex?.(hdIndex, { markPoisoned: () => client.markPoisoned() });
+        return new Uint8Array([hdIndex]);
+      });
+
+      return {
+        client,
+        recoverByKey,
+        insertGuardianAccountMonotonically,
+        registerGuardianOrigin,
+        keystoreInsert,
+        deriveColdSeed,
+        lockLabels,
+        multisigClientArgs
+      };
+    }
+
+    // jest.doMock survives resetModules, so every module this describe stubs is
+    // explicitly released — otherwise a later test in the file inherits the
+    // faked WASM lock and guardian helpers.
+    afterEach(() => {
+      jest.dontMock('@openzeppelin/miden-multisig-client');
+      jest.dontMock('@miden-sdk/miden-sdk/lazy');
+      jest.dontMock('./miden-client');
+      jest.dontMock('../guardian/account');
+      jest.dontMock('../guardian/native-http');
+      jest.dontMock('./helpers');
+    });
+
+    it('stops at the gap limit and reports the frontier it actually reached', async () => {
+      const harness = await setupRecovery(new Map());
+
+      const outcome = await harness.client.recoverGuardianAccountsBySeed(
+        harness.deriveColdSeed,
+        'https://guardian.example',
+        { startIndex: 0, endIndex: 5, gapLimit: 2 }
+      );
+
+      // Two consecutive empty indices hit the limit, so the window's remaining
+      // three indices are never probed and the frontier stops at 2.
+      expect(outcome).toEqual({ hits: [], scannedTo: 2 });
+      expect(harness.recoverByKey).toHaveBeenCalledTimes(2);
+      expect(harness.deriveColdSeed.mock.calls.map(call => call[0])).toEqual([0, 1]);
+      expect(harness.registerGuardianOrigin).toHaveBeenCalledWith('https://guardian.example');
+      // The lookup client is scoped to the caller's operator + effective RPC.
+      expect(harness.multisigClientArgs[0]?.[1]).toEqual({
+        guardianEndpoint: 'https://guardian.example',
+        midenRpcEndpoint: 'https://rpc.example'
+      });
+    });
+
+    it('walks the whole window in exhaustive mode (no gap limit)', async () => {
+      const harness = await setupRecovery(new Map());
+
+      const outcome = await harness.client.recoverGuardianAccountsBySeed(
+        harness.deriveColdSeed,
+        'https://guardian.example',
+        { startIndex: 0, endIndex: 5 }
+      );
+
+      expect(outcome).toEqual({ hits: [], scannedTo: 5 });
+      expect(harness.recoverByKey).toHaveBeenCalledTimes(5);
+      expect(harness.deriveColdSeed.mock.calls.map(call => call[0])).toEqual([0, 1, 2, 3, 4]);
+    });
+
+    it('respects startIndex and never probes below it', async () => {
+      const harness = await setupRecovery(new Map());
+
+      const outcome = await harness.client.recoverGuardianAccountsBySeed(
+        harness.deriveColdSeed,
+        'https://guardian.example',
+        { startIndex: 3, endIndex: 5 }
+      );
+
+      expect(outcome).toEqual({ hits: [], scannedTo: 5 });
+      expect(harness.deriveColdSeed.mock.calls.map(call => call[0])).toEqual([3, 4]);
+    });
+
+    it('adopts a hit after a miss, resetting the consecutive-miss counter', async () => {
+      const harness = await setupRecovery(new Map([[1, [encodeState('acct-one')]]]));
+
+      const outcome = await harness.client.recoverGuardianAccountsBySeed(
+        harness.deriveColdSeed,
+        'https://guardian.example',
+        { startIndex: 0, endIndex: 3, gapLimit: 2 }
+      );
+
+      // Index 0 misses, index 1 hits (resetting the counter), index 2 misses —
+      // one miss on each side of the hit never reaches the limit of 2, so the
+      // scan runs the whole window.
+      expect(outcome).toEqual({
+        hits: [
+          {
+            accountId: 'bech32(acct-one)',
+            hdIndex: 1,
+            coldPublicKey: '01',
+            coldSecretKeyHex: '01'
+          }
+        ],
+        scannedTo: 3
+      });
+      expect(harness.recoverByKey).toHaveBeenCalledTimes(3);
+      // Adoption runs under the WASM mutex with an identifiable hold label.
+      expect(harness.lockLabels).toEqual(['guardian-account-scan']);
+      expect(harness.insertGuardianAccountMonotonically).toHaveBeenCalledTimes(1);
+      expect(harness.keystoreInsert).toHaveBeenCalledTimes(1);
+      expect(harness.keystoreInsert.mock.calls[0]?.[0]).toBe('acct-one');
+    });
+
+    it('pushes one recovered entry per match when an index yields several', async () => {
+      const harness = await setupRecovery(new Map([[0, [encodeState('acct-a'), encodeState('acct-b')]]]));
+
+      const outcome = await harness.client.recoverGuardianAccountsBySeed(
+        harness.deriveColdSeed,
+        'https://guardian.example',
+        { startIndex: 0, endIndex: 1, gapLimit: 2 }
+      );
+
+      expect(outcome).toEqual({
+        hits: [
+          { accountId: 'bech32(acct-a)', hdIndex: 0, coldPublicKey: '00', coldSecretKeyHex: '00' },
+          { accountId: 'bech32(acct-b)', hdIndex: 0, coldPublicKey: '00', coldSecretKeyHex: '00' }
+        ],
+        scannedTo: 1
+      });
+      expect(harness.lockLabels).toEqual(['guardian-account-scan', 'guardian-account-scan']);
+      expect(harness.insertGuardianAccountMonotonically).toHaveBeenCalledTimes(2);
+      expect(harness.keystoreInsert).toHaveBeenCalledTimes(2);
+    });
+
+    it('throws at the next index when the client is replaced mid-scan', async () => {
+      // Poison the interface while index 0 is in flight; the guard at the top
+      // of index 1 must refuse to keep driving the dead client (#775).
+      const harness = await setupRecovery(new Map(), (hdIndex, { markPoisoned }) => {
+        if (hdIndex === 0) markPoisoned();
+      });
+
+      await expect(
+        harness.client.recoverGuardianAccountsBySeed(harness.deriveColdSeed, 'https://guardian.example', {
+          startIndex: 0,
+          endIndex: 5
+        })
+      ).rejects.toThrow('The Miden client was replaced while scanning for Guardian accounts — please try again.');
+
+      // Index 0 completed before the poison took effect; index 1 never probed.
+      expect(harness.recoverByKey).toHaveBeenCalledTimes(1);
+    });
+  });
 });

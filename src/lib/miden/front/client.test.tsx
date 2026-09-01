@@ -6,6 +6,8 @@ import { createRoot } from 'react-dom/client';
 import { act } from 'react-dom/test-utils';
 
 import { WalletMessageType, WalletStatus } from 'lib/shared/types';
+import { useWalletStore } from 'lib/store';
+import { WalletType } from 'screens/onboarding/types';
 
 import { MidenContextProvider, useMidenContext } from './client';
 
@@ -136,6 +138,67 @@ const FullActionProbe: React.FC = () => {
 
   return <div data-ready={ctx.ready} />;
 };
+
+// ── Account wrappers: createAccount / scanForAccounts forward to the store ──
+// The store actions are replaced on the live store so the assertions are about
+// the wrapper's forwarding, not about the intercom round trip underneath.
+const AccountActionProbe: React.FC<{ onResult: (found: unknown) => void }> = ({ onResult }) => {
+  const ctx = useMidenContext();
+
+  React.useEffect(() => {
+    ctx.createAccount(WalletType.Guardian, 'Savings', 'https://guardian.example');
+    ctx.scanForAccounts(7, 'https://guardian.example').then(onResult);
+    // Runs once — the wrappers are useCallback-stable and re-running would
+    // double-count the forwarding assertions below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  return <div />;
+};
+
+describe('useMidenContext — account wrappers', () => {
+  // The store is a module singleton shared with the rest of this file, so the
+  // stubbed actions have to be handed back afterwards. `status` is deliberately
+  // left alone: the probes mounted by the other tests in this file re-run their
+  // effects on every store change and would loop if the wallet flipped to Ready.
+  const originalActions = {
+    createAccount: useWalletStore.getState().createAccount,
+    scanForAccounts: useWalletStore.getState().scanForAccounts
+  };
+
+  afterEach(() => {
+    useWalletStore.setState(originalActions);
+  });
+
+  it('forwards all three createAccount args and returns scanForAccounts result', async () => {
+    const storeCreateAccount = jest.fn(async () => {});
+    const found = [{ publicKey: 'pk2', name: 'Account 2', isPublic: true, type: WalletType.OnChain, hdIndex: 1 }];
+    const storeScanForAccounts = jest.fn(async () => found);
+    useWalletStore.setState({
+      createAccount: storeCreateAccount,
+      scanForAccounts: storeScanForAccounts
+    });
+
+    const onResult = jest.fn();
+    const container = document.createElement('div');
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(
+        <Suspense fallback={null}>
+          <MidenContextProvider>
+            <AccountActionProbe onResult={onResult} />
+          </MidenContextProvider>
+        </Suspense>
+      );
+    });
+
+    expect(storeCreateAccount).toHaveBeenCalledWith(WalletType.Guardian, 'Savings', 'https://guardian.example');
+    expect(storeScanForAccounts).toHaveBeenCalledWith(7, 'https://guardian.example');
+    expect(onResult).toHaveBeenCalledWith(found);
+
+    await act(async () => root.unmount());
+  });
+});
 
 describe('useMidenContext — full callback coverage', () => {
   it('runs every exposed wrapper callback at least once', async () => {

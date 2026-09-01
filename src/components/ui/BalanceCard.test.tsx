@@ -17,15 +17,24 @@ jest.mock('app/icons/v2', () => ({
     <span data-testid="icon" data-name={name} className={className} />
   ),
   IconName: {
+    Add: 'Add',
+    ChevronDown: 'ChevronDown',
     CopyNew: 'CopyNew',
     MidenLogo: 'MidenLogo',
     SettingsNew: 'SettingsNew'
   }
 }));
 
+// `text` is CopyButton's own prop (the clipboard payload) and must not reach the
+// DOM; everything else (aria-label, className) is forwarded so the button stays
+// addressable by role+name.
 jest.mock('app/atoms/CopyButton', () => ({
   __esModule: true,
-  default: ({ children }: { children: React.ReactNode }) => <button type="button">{children}</button>
+  default: ({ children, text, ...rest }: { children: React.ReactNode; text?: string }) => (
+    <button type="button" data-copy-text={text} {...rest}>
+      {children}
+    </button>
+  )
 }));
 
 jest.mock('lib/mobile/haptics', () => ({
@@ -228,6 +237,69 @@ describe('BalanceCard states, delta, and interactions', () => {
     render(<BalanceCard accountNumber="mtst1aqg...940z" accountType={accountType} amount="$123.45" />);
 
     expect(screen.getByText(labelKey)).toBeTruthy();
+  });
+
+  it('renders the plain copy-button account label when onSwitch is absent', () => {
+    render(<BalanceCard accountNumber="mtst1aqg...940z" amount="$123.45" />);
+
+    expect(screen.queryByRole('button', { name: 'switchAccount' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'copy' })).toBeNull();
+    expect(screen.getByText('balanceCardAccount')).toBeTruthy();
+  });
+
+  it('renders the switch chip with the account name and a separate copy button when onSwitch is set', () => {
+    render(
+      <BalanceCard
+        accountNumber="mtst1aqg...940z"
+        accountId="mtst1aqgfullaccountid940z"
+        accountName="Savings"
+        amount="$123.45"
+        onSwitch={jest.fn()}
+      />
+    );
+
+    const chip = screen.getByRole('button', { name: 'switchAccount' });
+    expect(chip.textContent).toBe('balanceCardAccountChip');
+    expect(chip.querySelector('[data-name="ChevronDown"]')).not.toBeNull();
+
+    const copyButton = screen.getByRole('button', { name: 'copy' });
+    expect(copyButton.getAttribute('data-copy-text')).toBe('mtst1aqgfullaccountid940z');
+    expect(copyButton.querySelector('[data-name="CopyNew"]')).not.toBeNull();
+  });
+
+  it('falls back to the address-only label when onSwitch is set without an account name', () => {
+    render(<BalanceCard accountNumber="mtst1aqg...940z" amount="$123.45" onSwitch={jest.fn()} />);
+
+    expect(screen.getByRole('button', { name: 'switchAccount' }).textContent).toBe('balanceCardAccount');
+  });
+
+  it('fires haptic feedback and onSwitch when the account chip is clicked', () => {
+    const onSwitch = jest.fn();
+    render(<BalanceCard accountNumber="mtst1aqg...940z" amount="$123.45" onSwitch={onSwitch} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'switchAccount' }));
+
+    expect(onSwitch).toHaveBeenCalledTimes(1);
+    expect(hapticLight).toHaveBeenCalledTimes(1);
+  });
+
+  it('fires haptic feedback and onAdd when the add button is clicked', () => {
+    const onAdd = jest.fn();
+    render(<BalanceCard accountNumber="mtst1aqg...940z" amount="$123.45" onAdd={onAdd} />);
+
+    const addButton = screen.getByRole('button', { name: 'addAccount' });
+    expect(addButton.querySelector('[data-name="Add"]')?.className).toContain('text-card-slate-deep');
+
+    fireEvent.click(addButton);
+
+    expect(onAdd).toHaveBeenCalledTimes(1);
+    expect(hapticLight).toHaveBeenCalledTimes(1);
+  });
+
+  it('omits the add button when onAdd is not provided', () => {
+    render(<BalanceCard accountNumber="mtst1aqg...940z" amount="$123.45" />);
+
+    expect(screen.queryByRole('button', { name: 'addAccount' })).toBeNull();
   });
 
   it('observes row and text and disconnects on unmount when ResizeObserver exists', () => {
