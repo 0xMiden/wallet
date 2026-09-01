@@ -2452,6 +2452,10 @@
     "message": "현재 변경 사항",
     "englishSource": "What changes now"
   },
+  "guardianSwitchSetupIncompleteTitle": {
+    "message": "설정이 완료되지 않았습니다.",
+    "englishSource": "Setup unfinished."
+  },
   "guardianSwitchUnconfirmedHeading": {
     "message": "Guardian 변경을 제출했습니다",
     "englishSource": "Guardian switch submitted"
@@ -2475,10 +2479,6 @@
   "guardianSwitchUnconfirmedInfo1": {
     "message": "변경이 온체인에서 확인되면 새 Guardian이 모든 트랜잭션에 공동 서명하며, 이전 Guardian은 더 이상 계정에 공동 서명할 수 없습니다.",
     "englishSource": "Once the switch is confirmed on chain, your new Guardian co-signs every transaction and your old Guardian can no longer co-sign for your account."
-  },
-  "guardianSwitchSetupIncompleteTitle": {
-    "message": "설정이 완료되지 않았습니다.",
-    "englishSource": "Setup unfinished."
   },
   "guardianSwitchEndpointNotSavedBody": {
     "message": "전환은 온체인에서 확인되었지만 이 기기에서 새 Guardian의 주소를 저장하지 못했습니다. 지갑이 이를 자동으로 확인하고 필요하면 다시 입력하라는 안내를 표시합니다. 이로 인해 다른 전환이 시작되지는 않습니다. 안내가 표시되지 않으면 지원팀에 문의하세요.",
@@ -2572,6 +2572,10 @@
     "message": "guardian가 변경되었으며, 새로운 운영자를 확인할 수 없었습니다. URL을 입력하여 다시 연결하십시오.",
     "englishSource": "Your guardian was switched and we couldn't identify the new operator. Enter its URL to reconnect."
   },
+  "guardianUrlMismatch": {
+    "message": "해당 운영자는 귀하의 계정 온체인 주소(guardian)와 일치하지 않습니다.",
+    "englishSource": "That operator doesn't match your account's on-chain guardian."
+  },
   "guardianUrlUnreachable": {
     "message": "해당 운영자에 연결할 수 없습니다. URL과 네트워크 연결을 확인한 후 다시 시도하세요.",
     "englishSource": "Couldn't reach that operator. Check the URL and your connection, then try again."
@@ -2579,10 +2583,6 @@
   "guardianUrlNoOnChainGuardian": {
     "message": "이 계정에는 아직 대조할 온체인 Guardian이 없습니다.",
     "englishSource": "This account has no on-chain guardian to verify against yet."
-  },
-  "guardianUrlMismatch": {
-    "message": "해당 운영자는 귀하의 계정 온체인 주소(guardian)와 일치하지 않습니다.",
-    "englishSource": "That operator doesn't match your account's on-chain guardian."
   },
   "connectivityGuardianTitle": {
     "message": "Guardian 접근 불가",

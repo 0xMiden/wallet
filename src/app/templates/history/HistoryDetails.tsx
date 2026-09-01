@@ -14,8 +14,6 @@ import { NavigationHeader } from 'components/NavigationHeader';
 import { getAdaptiveDecimalPlaces, toAdaptiveFixed } from 'lib/i18n/numbers';
 import {
   cancelTransactionById,
-  getSwapSettlementNotes,
-  getTransactionById,
   isCancellableTransaction,
   isRequeueableTransaction,
   isUnverifiableSendRetryError,
@@ -23,10 +21,6 @@ import {
   requestSWTransactionProcessing,
   requeueFailedTransaction,
   retryEarnWithdrawReceive,
-  trackOrderId,
-  SwapOrderState,
-  SwapOrderTracking,
-  SwapSettlementNotes,
   USER_CANCELLED_TRANSACTION_REASON
 } from 'lib/miden/activity';
 import {
@@ -43,6 +37,7 @@ import {
 import { useAllAccounts, useAccount } from 'lib/miden/front';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
+import { useSwapOrderTrackingStore } from 'lib/miden/swap/order-tracking-store';
 import { getSwapTokenByFaucetId } from 'lib/miden/swap/tokens';
 import { getExplorerAccountUrl, getExplorerTxUrl } from 'lib/miden-chain/constants';
 import { hapticLight } from 'lib/mobile/haptics';
@@ -56,12 +51,13 @@ import {
   TransactionSummaryBadge,
   useTransactionSummaryBadgeContent
 } from 'screens/generating-transaction/TransactionSummaryBadge';
+import { useTransactionRow } from 'screens/generating-transaction/useTransactionRow';
 
 import AddressChip from '../AddressChip';
 import HashChip from '../HashChip';
 import { BridgeClaimSection } from './BridgeClaimSection';
 import { DetailCard, DetailRow, ExternalLinkValue, StatusPill } from './DetailCard';
-import { IHistoryEntry } from './IHistoryEntry';
+import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
 import { SwapDetail } from './SwapDetail';
 import { deriveSwapReceipt } from './swapReceipt';
 import { TransactionFailureCard } from './TransactionFailureCard';
@@ -79,38 +75,14 @@ import {
   isBridgeInEntry,
   swapSettlementOf
 } from './transactionUtils';
+import { useSwapSettlementNotes } from './useSwapSettlementNotes';
 
 const SEPOLIA_ADDRESS_URL = (addr: string) => `https://sepolia.etherscan.io/address/${addr}`;
 const SEPOLIA_TX_URL = (hash: string) => `https://sepolia.etherscan.io/tx/${hash}`;
 
-const isHexEvmAddress = (value: string | undefined): value is `0x${string}` =>
-  value !== undefined && /^0x[0-9a-fA-F]{40}$/.test(value);
-
 interface HistoryDetailsProps {
   transactionId: string;
 }
-
-const settlementCount = (notes: SwapSettlementNotes | null): number =>
-  notes === null ? -1 : notes.settled.length + notes.reclaimed.length;
-
-/**
- * Identifies WHAT a settlement read saw, not just how much. A row's `amount` can
- * arrive later than its note ids (the reaper completes a consume without
- * stamping one, and a partially attributed row reports none at all), so counting
- * notes alone left a receipt showing "—" for a fill whose amount a later read
- * had resolved.
- */
-const settlementSignature = (notes: SwapSettlementNotes): string =>
-  [...notes.settledTransactions, ...notes.reclaimedTransactions]
-    .map(consume => `${consume.id}:${consume.noteIds.join('|')}:${consume.amount ?? ''}:${consume.faucetId ?? ''}`)
-    .join(';');
-
-const sameTracking = (a: SwapOrderTracking | null, b: SwapOrderTracking): boolean =>
-  a !== null &&
-  a.state === b.state &&
-  a.currentDepth === b.currentDepth &&
-  a.remainingOffered === b.remainingOffered &&
-  a.remainingRequested === b.remainingRequested;
 
 /** Requested-token display info for the swap order tracking card. */
 interface RequestedTokenInfo {
@@ -254,46 +226,6 @@ function formatFiatDisplayAmount(
   return t('historyDetailsFiatApprox', { amount: `$${toAdaptiveFixed(fiatAmount)}` });
 }
 
-/**
- * Whether a settlement consume may still be recorded for this order, and so
- * whether the receipt should keep scanning for one. Every read is an UNINDEXED
- * scan of the transactions table, and on mobile and desktop this screen stays
- * mounted in the background, which is what makes the negative cases matter.
- *
- * Yes while the order is open, while the lineage is still being established
- * (`trackOrderId` returns null for a while after placement, and the poll backs
- * off and retries), and once it has gone terminal with the wallet about to claim
- * the notes itself. No for a terminal order whose notes only the user can claim,
- * for one whose notes are already listed, and for an order whose lineage the
- * poll gave up on — that last one is the ordinary shape of a restored history.
- *
- * Deliberately says nothing about expiry. An order may carry an `expirySeconds`
- * longer than any deadline this poll could set, so the watch is keyed off the
- * lineage's terminal transition instead, which arrives whenever expiry does.
- */
-const shouldWatchSettlement = ({
-  lineageState,
-  lineageAbandoned,
-  settlementFound,
-  autoConsume,
-  settlementGrace
-}: {
-  lineageState: SwapOrderState | null;
-  lineageAbandoned: boolean;
-  settlementFound: boolean;
-  autoConsume: boolean;
-  settlementGrace: boolean;
-}): boolean => {
-  if (settlementGrace) return true;
-  if (lineageState === 'active') return true;
-  // Still establishing the lineage, or gave up on it. Watch only while nothing
-  // has been recorded yet: `setOrderId` commits before the notes read and before
-  // the row, so an already-settled receipt would otherwise open a scan in the
-  // gap before the first lineage answer arrives.
-  if (lineageState === null) return !settlementFound && !lineageAbandoned;
-  return !settlementFound && autoConsume;
-};
-
 // A "Claim All" consumes every claimable note at once, so this list is bounded
 // only by how many notes the user had waiting -- unbounded in practice. Render a
 // screenful and put the rest behind a tap.
@@ -366,10 +298,13 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   const allAccounts = useAllAccounts();
   const account = useAccount();
   const tokenPrices = useWalletStore(s => s.tokenPrices);
+  // The transaction row is push-driven. Status changes and metadata patches
+  // written by the app-root watchers re-render this view without page polling.
+  const { row, loaded } = useTransactionRow(transactionId);
   const [entry, setEntry] = useState<IHistoryEntry | null>(null);
   const [transaction, setTransaction] = useState<ITransaction | undefined>();
   const transactionSummaryBadgeContent = useTransactionSummaryBadgeContent(transaction);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const [deriveError, setDeriveError] = useState<string | null>(null);
   const [isCancelling, setIsCancelling] = useState(false);
   const [cancelError, setCancelError] = useState<string | null>(null);
   const [isRetrying, setIsRetrying] = useState(false);
@@ -381,53 +316,40 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   const [requestedToken, setRequestedToken] = useState<RequestedTokenInfo | null>(null);
   const [swapAutoConsume, setSwapAutoConsume] = useState(true);
   const [swapExpiresAt, setSwapExpiresAt] = useState<number | null>(null);
-  const [swapTracking, setSwapTracking] = useState<SwapOrderTracking | null>(null);
-  const [trackingLoading, setTrackingLoading] = useState(false);
-  /** The lineage poll ran out of retries; the order's state is now unknowable. */
-  const [lineageAbandoned, setLineageAbandoned] = useState(false);
-  // Notes claimed by this order's settlement consumes. Those consume rows are
-  // suppressed in the history list (the swap row is the order's single trace),
-  // so this page is where their notes stay visible.
-  const [settlementNotes, setSettlementNotes] = useState<SwapSettlementNotes | null>(null);
-  // Read by the lineage poll to decide whether a stale 'active' is still worth
-  // chasing. A ref, not a dep: making it one would restart the poll — and its
-  // backoff — the moment the settlement it is racing arrives.
-  const settlementFoundRef = useRef(false);
-  // Whether this page has ever watched settlement in motion, which is what
-  // separates "settlement is landing while we watch" from "this receipt was
-  // already complete when it was opened". State rather than a ref because the
-  // poll decision below reads it: a ref write does not re-render, so the watch
-  // it is meant to extend would already have been torn down.
-  const [watchedUnsettled, setWatchedUnsettled] = useState(false);
-  const baselineNoteCountRef = useRef<number | null>(null);
   // Smart Withdraw metadata (market, position owner, intent nonce, phase) for the details card.
   const [earnWithdraw, setEarnWithdraw] = useState<IEarnWithdrawExtraInputs | null>(null);
-  // Guards the earn-withdraw delivery poller so it is (re)started at most once per
-  // intent nonce, even though the reload loop re-runs the effect as the row advances.
-  const withdrawPollNonceRef = useRef<string | null>(null);
-  // Smart Deposit (open-position) metadata for the details card + intent polling.
+  // Smart Deposit (open-position) metadata for the details card.
   const [earnDeposit, setEarnDeposit] = useState<IEarnDepositExtraInputs | null>(null);
-  const depositPollNonceRef = useRef<string | null>(null);
-  const loadGenerationRef = useRef(0);
-  const loadTransaction = useCallback(
-    async ({ readSettlement = true }: { readSettlement?: boolean } = {}) => {
-      // Six call sites drive this, one of them a fixed 3s interval that does not
-      // wait for the previous run, and it awaits three times before writing nine
-      // pieces of state. Without a generation stamp an older snapshot resolving
-      // late overwrites a newer one wholesale: the receipt visibly regresses from
-      // Confirmed back to Pending, `setOrderId(null)` tears down the tracking
-      // poller mid-flight, and the settlement rows the poller published are
-      // replaced by the empty read that started before the consume landed.
-      const generation = ++loadGenerationRef.current;
-      const superseded = () => loadGenerationRef.current !== generation;
+
+  // Dexie emits the row again after any transactions-table write. Cache faucet
+  // metadata so those re-derives stay local and do not refetch.
+  const tokenMetadataCache = useRef(new Map<string, Awaited<ReturnType<typeof getTokenMetadata>>>());
+  const getCachedTokenMetadata = useCallback(async (faucetId: string) => {
+    const cache = tokenMetadataCache.current;
+    if (cache.has(faucetId)) return cache.get(faucetId);
+    const metadata = await getTokenMetadata(faucetId);
+    cache.set(faucetId, metadata);
+    return metadata;
+  }, []);
+
+  useEffect(() => {
+    if (!row) {
+      if (loaded) {
+        setEntry(null);
+        setTransaction(undefined);
+      }
+      return;
+    }
+
+    const tx = row;
+    let cancelled = false;
+
+    const derive = async () => {
       try {
-        setLoadError(null);
-        const tx = await getTransactionById(transactionId);
-        const tokenMetadata = tx.faucetId ? await getTokenMetadata(tx.faucetId) : undefined;
-        console.log('Loaded transaction for HistoryDetails:', tx, tokenMetadata);
-        // Bridge metadata (route/provider, EVM destination, per-route status) lives
-        // on `extraInputs`; without it the detail view can't tell Fast (Epoch) from
-        // Slow (Agglayer) and defaults every bridge to the Slow route.
+        setDeriveError(null);
+        const tokenMetadata = tx.faucetId ? await getCachedTokenMetadata(tx.faucetId) : undefined;
+        if (cancelled) return;
+
         const bridge: IBridgedSendExtraInputs | undefined = tx.type === 'bridged-send' ? tx.extraInputs : undefined;
         const bridgeReceive: IBridgedReceiveExtraInputs | undefined =
           tx.type === 'bridged-receive' ? tx.extraInputs : undefined;
@@ -437,56 +359,32 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           tx.type === 'earn-deposit' ? tx.extraInputs : undefined;
         const guardianSwitchExtra: ISwitchGuardianExtraInputs | undefined =
           tx.type === 'switch-guardian' ? tx.extraInputs : undefined;
-        // Source side (USDC) while in flight, destination side once the bridged
-        // note was consumed — identical rule to the activity row.
         const earnWithdrawFields = earnWithdrawExtra
           ? earnWithdrawAmountFields(earnWithdrawExtra, tx.amount, tokenMetadata)
           : undefined;
-        // The DEX faucets are usually absent from assetsMetadata, so the generic
-        // `getTokenMetadata` above resolves a swap's OFFERED side to Unknown at 6
-        // decimals — which misscales the receipt hero, since the registry tokens
-        // are 8-decimal. Resolve the offered side through the swap registry the
-        // same way the requested side is resolved below; the swap hero used to get
-        // this from `TransactionSummaryBadge`, which resolves both sides.
         const offeredSwapToken = tx.type === 'swap' ? getSwapTokenByFaucetId(tx.faucetId) : undefined;
-        const historyEntry = {
+        const historyEntry: IHistoryEntry = {
           address: tx.accountId,
-          // Carried onto the entry even though today's guards read the raw row:
-          // `IHistoryEntry` declares this field FOR this view, and an entry that
-          // silently omits it makes every future `entry.restoredFromBackup`
-          // check read `undefined` and pass. That exact omission is how two
-          // earlier rounds shipped guards that never ran.
           restoredFromBackup: tx.restoredFromBackup === true,
           key: `completed-${tx.id}`,
           timestamp: tx.completedAt ?? tx.initiatedAt,
-          message: tx.displayMessage,
+          message: tx.displayMessage ?? '',
+          type: HistoryEntryType.CompletedTransaction,
           status: tx.status,
           transactionIcon: tx.displayIcon,
           amount: earnWithdrawFields
             ? earnWithdrawFields.amount
-            : // The swap registry carries its own decimals, so a registry hit is
-              // always scalable. Otherwise the faucet must have resolved to real
-              // metadata — the unknown-token placeholder's 6 decimals are a guess,
-              // and converting by them renders an 18-decimal token a trillion times
-              // too large. The asset is still named by `token` below.
-              tx.amount !== undefined && (offeredSwapToken !== undefined || hasKnownScale(tokenMetadata))
+            : tx.amount !== undefined && (offeredSwapToken !== undefined || hasKnownScale(tokenMetadata))
               ? formatAmount(tx.amount, offeredSwapToken?.decimals ?? tokenMetadata?.decimals)
               : undefined,
           token: earnWithdrawFields ? earnWithdrawFields.token : (offeredSwapToken?.symbol ?? tokenMetadata?.symbol),
           earnWithdrawPhase: earnWithdrawExtra?.phase,
           earnDepositStatus: earnDepositExtra?.epochStatus,
           secondaryAddress: tx.secondaryAccountId,
-          // Read by the Retry gate's double-send guard: its ABSENCE proves the row
-          // never left the queue, so its failure is unambiguously pre-submit.
           processingStartedAt: tx.processingStartedAt,
           txId: tx.id,
           noteType: tx.noteType,
           noteId: tx.outputNoteIds?.[0],
-          // Only a COMPLETED claim has consumed anything. `noteIds` is stamped at
-          // queue time, so without the status gate a queued, in-flight or failed
-          // claim renders a "Consumed" list of notes that are still sitting
-          // claimable — the same reason the note type alone does not open the
-          // card (see `hasNoteData`).
           consumedNoteIds:
             tx.type === 'consume' && tx.status === ITransactionStatus.Completed
               ? (tx.noteIds ?? (tx.noteId ? [tx.noteId] : undefined))
@@ -512,9 +410,6 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           bridgeFillTxHash: bridge?.fillTxHash,
           bridgeFillChainId: bridge?.fillChainId,
           bridgeEpochStatus: bridge?.epochStatus,
-          // Without this the "Reclaim funds" button never renders for ANY user:
-          // it is gated on a non-null reclaim height, and this is the only entry
-          // that reaches `BridgeClaimSection`.
           bridgeReclaimHeight: bridge?.reclaimHeight,
           bridgeInProvider: bridgeReceive?.provider,
           bridgeInSourceAddress: bridgeReceive?.sourceAddress,
@@ -525,22 +420,14 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           bridgeInOutputAmount: bridgeReceive?.outputAmount,
           bridgeInOutputSymbol: bridgeReceive?.outputSymbol,
           bridgeInMidenNoteId: bridgeReceive?.midenNoteId
-        } as IHistoryEntry;
+        };
 
         if (tx.type === 'swap') {
-          // Partial on purpose: rows persisted before each optional field was
-          // introduced are still read here, and the required pair can be missing
-          // on the oldest of them.
           const extra: Partial<ISwapExtraInputs> = tx.extraInputs ?? {};
-          // The DEX faucets are usually absent from assetsMetadata, where
-          // getTokenMetadata falls back to the Unknown placeholder and its
-          // decimals, so resolve via the swap-token registry first. Resolve it
-          // before an order id exists as well, so queued and failed swaps still
-          // have a complete receipt hero.
           const swapToken = getSwapTokenByFaucetId(extra.requestedFaucetId);
           const requestedMeta =
-            !swapToken && extra.requestedFaucetId ? await getTokenMetadata(extra.requestedFaucetId) : undefined;
-          if (superseded()) return;
+            !swapToken && extra.requestedFaucetId ? await getCachedTokenMetadata(extra.requestedFaucetId) : undefined;
+          if (cancelled) return;
           setRequestedToken({
             amount: extra.requestedAmount,
             decimals: swapToken?.decimals ?? requestedMeta?.decimals,
@@ -551,73 +438,32 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           setSwapAutoConsume(extra.autoConsume ?? true);
           setSwapExpiresAt(extra.expiresAt ?? null);
           setOrderId(extra.orderId ?? null);
+        } else {
+          setRequestedToken(null);
+          setSwapAutoConsume(true);
+          setSwapExpiresAt(null);
+          setOrderId(null);
         }
-
-        // `readSettlement: false` for callers that only want the ROW back, so a
-        // repeating one does not quietly outspend the settlement scan budget the
-        // poller below is so careful about: each read is an unindexed scan of the
-        // whole transactions table.
-        if (tx.type === 'swap' && readSettlement) {
-          // Ancillary to the receipt rather than the point of it, so its failure is
-          // contained here. Sharing the outer catch meant one failed Dexie scan
-          // replaced an otherwise complete receipt with a full-screen error — and
-          // permanently, since the load effect is gated on `!loadError` and that
-          // error branch offers no retry.
-          try {
-            const notes = await getSwapSettlementNotes(tx.id);
-            // Settlement only ever accumulates, so treat it as monotonic: this load
-            // may have queried the table before a consume was written while the
-            // poller's later result is already on screen. Guarding only against an
-            // EMPTY read was not enough — a snapshot with one of two consumes, from
-            // a write in flight or a sync rewriting rows, is just as stale, and it
-            // took a fill row back off the screen for good, since the poller only
-            // publishes counts above what it last saw.
-            if (!superseded()) {
-              setSettlementNotes(previous => (settlementCount(notes) < settlementCount(previous) ? previous : notes));
-            }
-          } catch (error) {
-            console.error('[HistoryDetails] Failed to read swap settlement notes:', {
-              transactionId: tx.id,
-              error
-            });
-          }
-        }
-
-        if (superseded()) return;
 
         setEarnWithdraw(earnWithdrawExtra ?? null);
         setEarnDeposit(earnDepositExtra ?? null);
-
         setTransaction(tx);
         setEntry(historyEntry);
       } catch (error) {
-        console.error('[HistoryDetails] Failed to load transaction:', { transactionId, error });
-        // The success path is generation-guarded but this was not, so a stale
-        // rejection could replace a newer, already-rendered receipt with the error
-        // screen — and since the load effect is gated on `!loadError`, that screen
-        // was permanent until the user navigated away.
-        if (superseded()) return;
-        setLoadError(error instanceof Error ? error.message : t('historyDetailsLoadError'));
+        console.error('[HistoryDetails] Failed to derive transaction view:', { transactionId, error });
+        if (!cancelled) {
+          setDeriveError(error instanceof Error ? error.message : t('historyDetailsLoadError'));
+        }
       }
-    },
-    [transactionId, setEntry, t]
-  );
+    };
 
-  useEffect(() => {
-    if (!entry && !loadError) loadTransaction();
-  }, [loadTransaction, entry, loadError]);
+    derive();
+    return () => {
+      cancelled = true;
+    };
+  }, [getCachedTokenMetadata, loaded, row, t, transactionId]);
 
-  // A detail page can be opened while proving/submission is still in progress.
-  // Keep reloading until the Miden transaction reaches a terminal state so a
-  // bridge failure replaces Pending without requiring the user to leave.
-  useEffect(() => {
-    if (entry?.status !== ITransactionStatus.Queued && entry?.status !== ITransactionStatus.GeneratingTransaction) {
-      return;
-    }
-
-    const timer = setInterval(() => void loadTransaction(), 3000);
-    return () => clearInterval(timer);
-  }, [entry?.status, loadTransaction]);
+  const loadError = deriveError ?? (loaded && !row ? t('historyDetailsLoadError') : null);
 
   const handleCancel = useCallback(async () => {
     setIsCancelling(true);
@@ -625,21 +471,14 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
 
     try {
       await cancelTransactionById(transactionId, USER_CANCELLED_TRANSACTION_REASON);
-      await loadTransaction();
     } catch (error) {
       console.error('[HistoryDetails] Failed to cancel transaction:', error);
       setCancelError(error instanceof Error ? error.message : t('smthWentWrong'));
     } finally {
       setIsCancelling(false);
     }
-  }, [loadTransaction, t, transactionId]);
+  }, [t, transactionId]);
 
-  // Retry a failed transaction by re-queueing it through the FIFO loop, then
-  // hand off to the generating-transaction page which observes the row (and,
-  // on mobile/desktop, drives the loop). A failed Smart Withdraw has no Miden
-  // row to replay — the whole withdrawal is resubmitted as a BRAND NEW Epoch
-  // intent (fresh nonce) reusing this same row, so the page just reloads it in
-  // place rather than navigating.
   const handleRetry = useCallback(
     async (acknowledgeUnverifiedSend = false) => {
       if (!entry) return;
@@ -649,251 +488,41 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
       try {
         if (entry.txType === 'earn-withdraw') {
           await retryEarnWithdrawReceive(transactionId);
-          await loadTransaction();
         } else {
           await requeueFailedTransaction(transactionId, { acknowledgeUnverifiedSend });
           requestSWTransactionProcessing();
           navigate(`/generating-transaction/${encodeURIComponent(transactionId)}`);
-          return; // navigating away — leave the spinner as-is
+          return;
         }
       } catch (error) {
         console.error('[HistoryDetails] Failed to retry transaction:', error);
         setRetryError(error instanceof Error ? error.message : t('smthWentWrong'));
-        // See the same branch in `GeneratingTransaction`: the wallet cannot tell
-        // whether this send landed, so it asks the one party who can.
         setNeedsSendAcknowledgement(isUnverifiableSendRetryError(error));
       } finally {
         setIsRetrying(false);
       }
     },
-    [entry, loadTransaction, t, transactionId]
+    [entry, t, transactionId]
   );
 
-  // The initiating context's background poller may be gone (extension popup closed),
-  // so this page (re)starts the delivery poller AND reloads the row on an interval —
-  // the `received` flip lands via auto-consume tagging, not the poller, so a reload
-  // loop is what surfaces it. Runs only while the phase is non-terminal.
-  const withdrawPhase = earnWithdraw?.phase;
-  const withdrawNonce = earnWithdraw?.withdrawIntentNonce;
-  const withdrawOwner = earnWithdraw?.evmOwner;
+  // Swap lineage polling lives at the app root. This screen consumes the latest
+  // store value and asks a parked order to refresh when opened.
+  const orderKey = orderId == null ? undefined : String(orderId);
+  const trackingEntry = useSwapOrderTrackingStore(state =>
+    orderKey === undefined ? undefined : state.entries[orderKey]
+  );
+  const swapTracking = trackingEntry?.tracking ?? null;
+  const trackingLoading =
+    orderKey !== undefined && transaction?.restoredFromBackup !== true && (trackingEntry?.loading ?? true);
   useEffect(() => {
-    if (entry?.txType !== 'earn-withdraw') return;
-    // The reconciler that settles restored rows runs once per session from the
-    // Explore mount, so opening this page first would otherwise start the poll
-    // against the dump's owner and nonce. It also uses an allow-list of phases
-    // while this effect uses a deny-list, so a phase it does not recognise
-    // reaches here even after it has run.
-    if (transaction?.restoredFromBackup) return;
-    if (withdrawPhase === 'received' || withdrawPhase === 'failed' || withdrawPhase === undefined) return;
+    if (orderKey === undefined || transaction?.restoredFromBackup === true) return;
+    useSwapOrderTrackingStore.getState().requestRefresh(orderKey);
+  }, [orderKey, transaction?.restoredFromBackup]);
 
-    let cancelled = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const POLL_INTERVAL_MS = 3000;
+  // Settlement consumes are Dexie-backed too, so liveQuery replaces the old
+  // bounded interval and updates the receipt whenever a consume row changes.
+  const settlementNotes = useSwapSettlementNotes(transaction?.type === 'swap' ? transaction.id : undefined);
 
-    // Kick a delivery poller at most once per nonce — it advances the Dexie row
-    // even if no other context is running one. Idempotent if one already is.
-    if (withdrawNonce && isHexEvmAddress(withdrawOwner) && withdrawPollNonceRef.current !== withdrawNonce) {
-      const sponsorAddress = withdrawOwner;
-      const nonce = withdrawNonce;
-      withdrawPollNonceRef.current = nonce;
-      import('lib/epoch')
-        .then(({ pollEarnWithdrawDelivery }) =>
-          pollEarnWithdrawDelivery({ sponsorAddress, nonce, txId: transactionId })
-        )
-        .catch(err => console.warn('[earn-withdraw] detail-page poll start failed', err));
-    }
-
-    const tick = async () => {
-      await loadTransaction();
-      if (!cancelled) timer = setTimeout(tick, POLL_INTERVAL_MS);
-    };
-    timer = setTimeout(tick, POLL_INTERVAL_MS);
-
-    return () => {
-      cancelled = true;
-      if (timer) clearTimeout(timer);
-    };
-  }, [
-    entry?.txType,
-    withdrawPhase,
-    withdrawNonce,
-    withdrawOwner,
-    transactionId,
-    transaction?.restoredFromBackup,
-    loadTransaction
-  ]);
-
-  // Drive a live lending-leg status on a Smart Deposit's detail page. The
-  // initiating context started `pollEarnIntentStatus`, but it dies with that
-  // context (popup closed / app restart), so this page (re)starts it — once per
-  // nonce — and reloads the row on an interval until `epochStatus` settles.
-  // Only meaningful once the Miden collateral note actually landed (Completed).
-  const depositStatus = earnDeposit?.epochStatus;
-  const depositNonce = earnDeposit?.intentNonce;
-  const depositOwner = earnDeposit?.evmRecipient;
-  useEffect(() => {
-    if (entry?.txType !== 'earn-deposit') return;
-    // `reconcileEarnDeposits` skips restored rows rather than settling them, so
-    // nothing else stops this: it would poll Epoch every 3s, up to 100 times,
-    // for a sponsor address and nonce the backup's author chose.
-    if (transaction?.restoredFromBackup) return;
-    if (entry.status !== ITransactionStatus.Completed) return;
-    if (depositStatus === 'confirmed' || depositStatus === 'failed') return;
-    if (!depositNonce || !isHexEvmAddress(depositOwner)) return;
-
-    let cancelled = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const POLL_INTERVAL_MS = 3000;
-
-    if (depositPollNonceRef.current !== depositNonce) {
-      const sponsorAddress = depositOwner;
-      const nonce = depositNonce;
-      depositPollNonceRef.current = nonce;
-      import('lib/epoch')
-        .then(({ pollEarnIntentStatus }) => pollEarnIntentStatus({ sponsorAddress, nonce, txId: transactionId }))
-        .catch(err => console.warn('[earn-deposit] detail-page poll start failed', err));
-    }
-
-    const tick = async () => {
-      await loadTransaction();
-      if (!cancelled) timer = setTimeout(tick, POLL_INTERVAL_MS);
-    };
-    timer = setTimeout(tick, POLL_INTERVAL_MS);
-
-    return () => {
-      cancelled = true;
-      if (timer) clearTimeout(timer);
-    };
-  }, [
-    entry?.txType,
-    entry?.status,
-    depositStatus,
-    depositNonce,
-    depositOwner,
-    transactionId,
-    transaction?.restoredFromBackup,
-    loadTransaction
-  ]);
-
-  // Poll the swap order lineage until it reaches a terminal state (filled or
-  // reclaimed). The orderId is persisted on the swap tx; the live lineage is
-  // fetched via `trackOrderId`. Each poll takes the WASM client lock, so a
-  // `null`/error result (not-yet-trackable or an order this client can't
-  // resolve) backs off exponentially and gives up after a cap, rather than
-  // hammering the lock every 3s forever. A genuinely `active` order resets the
-  // backoff and keeps a steady watch at the base interval.
-  useEffect(() => {
-    if (orderId == null) return;
-    // A restored row's order id came from the backup file, not from an order
-    // this wallet placed. Polling it takes the WASM lock every 2s to track a
-    // stranger's order — the same reason the earn and bridge pollers on this
-    // page refuse a restored row.
-    if (transaction?.restoredFromBackup) return;
-    // Capture the non-null id in a const so the narrowing survives into the
-    // hoisted `poll` declaration below (a function declaration wouldn't inherit
-    // the `orderId != null` guard otherwise).
-    const trackedOrderId = orderId;
-    let cancelled = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const BASE_INTERVAL_MS = 2000;
-    const MAX_INTERVAL_MS = 30_000;
-    const MAX_UNRESOLVED_POLLS = 20;
-    // Grace polls for a lineage still reporting 'active' after this wallet has
-    // already observed the settlement consume (~30s).
-    const MAX_STALE_ACTIVE_POLLS = 15;
-    let unresolved = 0;
-    let staleActive = 0;
-
-    // Exponential backoff for unresolved polls, capped; give up after the cap.
-    const scheduleUnresolvedRetry = () => {
-      unresolved += 1;
-      if (!cancelled && unresolved < MAX_UNRESOLVED_POLLS) {
-        const delay = Math.min(BASE_INTERVAL_MS * 2 ** (unresolved - 1), MAX_INTERVAL_MS);
-        timer = setTimeout(poll, delay);
-        return;
-      }
-      // The screen reads "Not available" from the first unresolved poll onward,
-      // so it looks the same while retrying, after giving up, and when there was
-      // no order to track at all. Without this, the one moment worth knowing
-      // about — the wallet stopped trying — left no trace anywhere.
-      if (!cancelled) {
-        setLineageAbandoned(true);
-        console.warn('[HistoryDetails] Gave up tracking swap order lineage:', {
-          transactionId,
-          orderId: trackedOrderId,
-          attempts: unresolved
-        });
-      }
-    };
-
-    // Only the FIRST attempt counts as "loading". `trackingLoading` gates both
-    // the status word and whether a whole row exists in the notes list, so
-    // toggling it on every backoff retry made that row mount and unmount ~20
-    // times over the retry schedule, reflowing everything under it. After one
-    // answer we know the state; a retry is not new information.
-    let firstAttempt = true;
-    let resolvedOnce = false;
-
-    async function poll() {
-      if (cancelled) return;
-      if (firstAttempt) setTrackingLoading(true);
-      try {
-        const result = await trackOrderId(trackedOrderId);
-        if (cancelled) return;
-        if (result === null) {
-          // Not yet trackable / not found — back off and eventually give up.
-          // Never published over a state already known: `trackOrderId` answers
-          // null for a transient sync hole as well as for an untrackable order,
-          // and retracting a live 'active' to "Not available" also unmounted the
-          // pending row and the progress bar, then re-animated the bar from zero
-          // when the next poll succeeded.
-          if (!resolvedOnce) setSwapTracking(null);
-          scheduleUnresolvedRetry();
-        } else {
-          resolvedOnce = true;
-          // Each poll allocates a fresh object, which React cannot bail out of,
-          // so an order sitting at 'active' re-rendered the whole receipt every
-          // couple of seconds for nothing.
-          setSwapTracking(previous => (sameTracking(previous, result) ? previous : result));
-
-          if (result.state === 'active') {
-            // Live and resolving; steady watch until a terminal state.
-            unresolved = 0;
-            // ...unless this wallet has already seen the settlement consume land.
-            // The lineage is then only being asked to catch up, and every poll
-            // takes the app-wide WASM lock. On mobile and desktop the screen
-            // stays mounted in the background, so an order whose lineage never
-            // leaves 'active' would hold that lock every 2s for as long as the
-            // app runs.
-            staleActive = settlementFoundRef.current ? staleActive + 1 : 0;
-            if (staleActive <= MAX_STALE_ACTIVE_POLLS) {
-              timer = setTimeout(poll, BASE_INTERVAL_MS);
-            }
-          }
-          // filled / reclaimed → terminal, stop polling.
-        }
-      } catch (error) {
-        console.error('[HistoryDetails] Failed to track swap order:', error);
-        if (!cancelled) scheduleUnresolvedRetry();
-      } finally {
-        if (firstAttempt) {
-          firstAttempt = false;
-          if (!cancelled) setTrackingLoading(false);
-        }
-      }
-    }
-
-    poll();
-
-    return () => {
-      cancelled = true;
-      if (timer) clearTimeout(timer);
-    };
-  }, [orderId, transactionId, transaction?.restoredFromBackup]);
-
-  // Everything the receipt asserts about the order — how it stands, how much of
-  // it filled, whether the user still has notes to claim — resolved in one pure
-  // pass so those answers cannot contradict each other. See `swapReceipt.ts`.
   const receipt = deriveSwapReceipt({
     requestedAmount: requestedToken?.amount,
     requestedFaucetId: requestedToken?.faucetId,
@@ -902,155 +531,6 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
     autoConsume: swapAutoConsume,
     expiresAt: swapExpiresAt
   });
-  const { settlementFound } = receipt;
-  settlementFoundRef.current = settlementFound;
-  const lineageState = swapTracking?.state ?? null;
-  const lineageTerminal = lineageState !== null && lineageState !== 'active';
-  const settlementConfirmedByLineage = settlementFound && lineageTerminal;
-  const transactionRowId = transaction?.id ?? null;
-  const observedNoteCount = (settlementNotes?.settled.length ?? 0) + (settlementNotes?.reclaimed.length ?? 0);
-  // What the first read saw, so that "settlement landed while the user watched"
-  // can be told apart from "this receipt was already settled when it opened".
-  useEffect(() => {
-    if (settlementNotes !== null && baselineNoteCountRef.current === null) {
-      baselineNoteCountRef.current = observedNoteCount;
-    }
-  }, [settlementNotes, observedNoteCount]);
-  const settlementLandedWhileOpen =
-    baselineNoteCountRef.current !== null && observedNoteCount > baselineNoteCountRef.current;
-  // A terminal order can still GAIN notes: settlement bundles whatever synced
-  // this tick, so a payback that syncs a moment later arrives in a second
-  // consume. Only a page that watched something happen earns the grace period
-  // for that tail — the alternative reading, "terminal but no local notes yet",
-  // also describes every manual-claim and restored-history receipt, which must
-  // not each pay for a three-minute scan. Two things count as watching: a
-  // lineage seen 'active', and settlement seen growing under us, which is the
-  // only evidence available on a receipt opened AFTER the order went terminal
-  // but before its consumes finished landing. Latches on, never off.
-  useEffect(() => {
-    if (lineageState === 'active' || settlementLandedWhileOpen) setWatchedUnsettled(true);
-  }, [lineageState, settlementLandedWhileOpen]);
-  const settlementGrace = settlementConfirmedByLineage && watchedUnsettled;
-  const watchSettlement = shouldWatchSettlement({
-    lineageState,
-    lineageAbandoned,
-    settlementFound,
-    autoConsume: swapAutoConsume,
-    settlementGrace
-  });
-
-  // Settlement can land while this page is open (auto-consume runs on the
-  // background sync's own cadence), and the lineage poll above stops at a
-  // terminal state — usually just *before* the settlement consume completes. So
-  // watch for the notes separately. Each read is an UNINDEXED scan of the
-  // transactions table, which is what makes the question of when to stop worth
-  // the care above.
-  useEffect(() => {
-    if (orderId == null || !transactionRowId) return;
-    if (!watchSettlement) return;
-    const swapTxId = transactionRowId;
-    const POLL_INTERVAL_MS = 2000;
-    // Enough to cover the default 120s expiry plus the consume's proving. While
-    // the order is still open the budget follows its own expiry instead, because
-    // `expirySeconds` is per-row: a five-minute order left open used to lose
-    // every consume that landed after the fixed cap. Once the order is terminal
-    // and something has been seen, only a short tail remains — room for a
-    // sibling consume, not a standing scan.
-    const DEFAULT_MAX_POLLS = 90;
-    const untilExpiry =
-      lineageState === 'active' && swapExpiresAt !== null
-        ? Math.ceil((swapExpiresAt * 1000 - Date.now()) / POLL_INTERVAL_MS) + 30
-        : 0;
-    const MAX_POLLS = settlementGrace ? 5 : Math.max(DEFAULT_MAX_POLLS, untilExpiry);
-    let polls = 0;
-    let cancelled = false;
-    let inFlight = false;
-    let loggedFailure = false;
-    let seenSignature = settlementNotes === null ? null : settlementSignature(settlementNotes);
-
-    const timer = setInterval(async () => {
-      // `getSwapSettlementNotes` is an unindexed scan of the transactions table;
-      // on a large history one read can outlast the interval, and overlapping
-      // scans would queue up behind each other.
-      if (inFlight) return;
-      polls += 1;
-      if (polls > MAX_POLLS) {
-        clearInterval(timer);
-        return;
-      }
-      inFlight = true;
-      try {
-        const notes = await getSwapSettlementNotes(swapTxId);
-        // Publish anything that reads differently, not merely anything longer.
-        // Counting notes meant a row whose `amount` resolved on a later read —
-        // routine, since the reaper completes a consume without stamping one —
-        // never reached the screen, leaving a receipt stuck on "—" for a fill it
-        // could now state. Identical reads are still dropped: re-setting them
-        // would re-render the whole receipt every 2s on a fresh identity.
-        const signature = settlementSignature(notes);
-        if (!cancelled && signature !== seenSignature) {
-          seenSignature = signature;
-          setSettlementNotes(previous => (settlementCount(notes) < settlementCount(previous) ? previous : notes));
-        }
-      } catch (error) {
-        // Same reasoning as the lineage poll: this ticks every 2s for up to 90
-        // attempts, so a persistently failing scan would print 90 identical
-        // lines with nothing in them to identify the order.
-        if (!loggedFailure) {
-          loggedFailure = true;
-          console.error('[HistoryDetails] Failed to read swap settlement notes:', { swapTxId, orderId, error });
-        }
-      } finally {
-        inFlight = false;
-      }
-    }, POLL_INTERVAL_MS);
-
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-    };
-    // `settlementNotes` is the poll's starting baseline, deliberately not a
-    // trigger: including it would restart the interval on every new note, which
-    // also resets the poll budget. The row id is the dependency rather than the
-    // row itself for the same reason — Dexie hands back a new object on every
-    // reload, and depending on it meant a receipt that reloads never reached its
-    // cap at all.
-    // `lineageState` IS a trigger even though the predicate may not change with
-    // it: an order that outlived this poll's budget while active has to get a
-    // fresh one when its lineage finally reports terminal.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [orderId, watchSettlement, settlementGrace, lineageState, swapExpiresAt, transactionRowId]);
-
-  // The hero pill reads the persisted settlement stamp, so that one order cannot
-  // say "Pending" in the history list and "Confirmed" on its own receipt. But
-  // the stamp is written by the background reconcile a tick or two after the
-  // consume completes, and a completed swap has no reload interval — so a
-  // receipt open across its own settlement kept a "Pending" pill above a
-  // section already listing the fill. Re-read the row until the stamp agrees
-  // with what this page can see. Self-limiting: the condition clears as soon as
-  // it lands, and the cap covers a stamp that never does.
-  useEffect(() => {
-    if (!settlementLandedWhileOpen || entry?.swapSettlement !== 'pending') return;
-    const MAX_REREADS = 20;
-    let reads = 0;
-    const timer = setInterval(() => {
-      reads += 1;
-      if (reads > MAX_REREADS) {
-        clearInterval(timer);
-        console.warn('[HistoryDetails] Swap settled locally but the row never carried a stamp:', {
-          transactionId,
-          orderId: orderId?.toString()
-        });
-        return;
-      }
-      // Only the row's stamp is wanted here; the settlement rows this is
-      // reacting to are already on screen, and re-scanning for them 20 times
-      // would spend seven times the tail budget the poller allows itself.
-      void loadTransaction({ readSettlement: false });
-    }, 3000);
-
-    return () => clearInterval(timer);
-  }, [settlementLandedWhileOpen, entry?.swapSettlement, loadTransaction, transactionId, orderId]);
 
   // For a bridge the sender is always the Miden account; the EVM destination is
   // shown in the BridgeClaimSection (with the right explorer link), so the Miden
@@ -1549,11 +1029,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                 <div className="mt-6">
                   <SectionDivider color={sectionDividerColor} />
                 </div>
-                <BridgeClaimSection
-                  entry={entry}
-                  restoredFromBackup={transaction?.restoredFromBackup === true}
-                  onUpdated={loadTransaction}
-                />
+                <BridgeClaimSection entry={entry} restoredFromBackup={transaction?.restoredFromBackup === true} />
               </>
             )}
 
