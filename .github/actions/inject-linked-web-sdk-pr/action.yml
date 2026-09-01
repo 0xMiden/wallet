@@ -83,15 +83,6 @@ runs:
       run: |
         set -euo pipefail
 
-        # Breadcrumb for .github/actions/run-local-node, which pins the local node +
-        # remote prover to the SAME protocol rev this action pins the SDK to (handed
-        # over through $GITHUB_ENV further down). run-local-node has to tell "no linked
-        # Protocol PR" apart from "this action has not run yet in this job" — an absent
-        # env var means both, and the second one silently produces a stock node, which
-        # is exactly the version-skew bug the handover exists to prevent. Written before
-        # any early exit, because it records that this action RAN, not what it decided.
-        echo "MIDEN_LINKED_SDK_INJECTION_RAN=1" >> "$GITHUB_ENV"
-
         # Skip on push / schedule / workflow_dispatch.
         if [ "$EVENT_NAME" != "pull_request" ] && [ "$EVENT_NAME" != "pull_request_target" ]; then
           echo "patched=false" >> "$GITHUB_OUTPUT"
@@ -352,20 +343,6 @@ runs:
           fi
           IFS=$'\t' read -r p_owner p_repo p_ref p_sha <<< "$protocol_meta"
           echo "Pinning the SDK's protocol crates to ${p_owner}/${p_repo}@${p_sha:0:8} (from ${protocol_repo}#${protocol_num})"
-
-          # Hand the SAME rev to run-local-node so the node + remote prover are built
-          # from it too. ONE source of truth on purpose: a second pin in versions.env
-          # would drift, and the skew is invisible until a transaction fails. A
-          # guarded-multisig account built in the browser links miden::standards::fee
-          # DYNAMICALLY, so the fee MASM is not inlined into the account code and the
-          # HOST supplies it at execution time — a host on a different protocol rev
-          # rejects the account's own procedure root ("procedure with root digest ...
-          # could not be found") on both the remote prover and the node.
-          {
-            echo "MIDEN_LINKED_PROTOCOL_URL=https://github.com/${p_owner}/${p_repo}.git"
-            echo "MIDEN_LINKED_PROTOCOL_REV=${p_sha}"
-            echo "MIDEN_LINKED_PROTOCOL_ORIGIN=${protocol_repo}#${protocol_num}"
-          } >> "$GITHUB_ENV"
 
           python3 - "$SDK_DIR/Cargo.toml" "https://github.com/${p_owner}/${p_repo}.git" "${p_sha}" "${protocol_repo}#${protocol_num}" <<'PYEOF'
         import re, sys
