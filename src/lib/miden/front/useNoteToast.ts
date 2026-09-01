@@ -4,17 +4,22 @@ import { getPersistedSeenNoteIds, persistSeenNoteIds } from 'lib/miden/back/note
 import { isExtension } from 'lib/platform';
 import { useWalletStore } from 'lib/store';
 
-import { useClaimableNotes } from './claimable-notes';
+import { useManuallyClaimableNotes } from './auto-managed-notes';
 
 /**
  * Hook that monitors for new claimable notes and shows toast notifications.
  * Active on both mobile and extension platforms.
  *
+ * Only notes the user has to claim by hand count: a note the wallet is about
+ * to auto-consume would otherwise raise a "tap to claim" notification that is
+ * stale the moment it fires (#811) — the same exclusion the service worker
+ * applies to its background push in `sync-manager.ts`.
+ *
  * @param publicAddress - The account's public address to monitor notes for
  * @param enabled - Whether to enable monitoring (default: true)
  */
 export function useNoteToastMonitor(publicAddress: string, enabled: boolean = true) {
-  const { data: claimableNotes } = useClaimableNotes(publicAddress, enabled);
+  const { data: claimableNotes } = useManuallyClaimableNotes(publicAddress, enabled);
   const checkForNewNotes = useWalletStore(state => state.checkForNewNotes);
   const isFirstFetch = useRef(true);
   const hydratedFromStorage = useRef(false);

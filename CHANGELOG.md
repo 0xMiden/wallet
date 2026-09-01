@@ -6,6 +6,7 @@
 
 - [FIX][ci] Every ubuntu job now drops Google's Chrome apt repository before touching apt. Nothing installs Chrome from apt, yet its CDN served a mismatched package index for over an hour and failed every Playwright, xvfb and local-node install with `Hash Sum mismatch`.
 - [FIX][e2e] The testnet E2E harness now funds every new account from the public faucet before its first transaction, as it already did on devnet; testnet moved to the fee-charging 0.16 node and unfunded mints failed inside the kernel.
+- [FIX][all] **Notes the wallet auto-consumes no longer raise a claim prompt (#811, #459).** The home "You have Pending Notes" card, the received-note notification and the Activity red dot read the raw claimable list, so a native MIDEN note that auto-consume was already claiming still asked the user to act — and after a recovery that resurrected spent notes (#742) the card never cleared. All three now share the service worker's push rule (`useManuallyClaimableNotes`): native notes are excluded while auto-consume is on; a native swap note whose per-order auto-consume is off stays a manual claim. The Pending Notes page deliberately keeps the full list so a failing auto-consume stays visible and retriable.
 
 ## 1.16.0 (2026-09-09)
 
