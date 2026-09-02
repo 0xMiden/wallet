@@ -380,6 +380,30 @@ describe('PendingTab — DetailNoteRow treatment (#456)', () => {
 
     const row = screen.getByTestId('detail-note-row');
     expect(within(row).queryByTestId('claim-button')).not.toBeInTheDocument();
-    expect(within(row).getByTestId('sync-wave')).toHaveAttribute('data-syncing', 'true');
+  });
+});
+
+describe('PendingTab — summary row dismiss (x) opens the asset-wide spam sheet', () => {
+  it('shows an x on a non-native asset row that opens the sheet with "Block this asset" only', () => {
+    renderTab({ safeClaimableNotes: [makeNote('a'), makeNote('b')] });
+
+    fireEvent.click(screen.getByTestId('pending-asset-spam-button'));
+
+    expect(screen.getByTestId('spam-block-asset')).toBeInTheDocument();
+    expect(screen.queryByTestId('spam-block-sender-and-asset')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('spam-block-sender')).not.toBeInTheDocument();
+    // Still on the summary: the x must not navigate into the detail view.
+    expect(screen.queryByTestId('detail-note-row')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('spam-block-asset'));
+    expect(mockSpamRun).toHaveBeenCalledWith({ kind: 'block-faucet', faucetId: 'faucet1' });
+    expect(screen.getByTestId('spam-undo-banner')).toHaveTextContent('spamBannerAssetBlocked');
+  });
+
+  it('renders no x on the native MIDEN row, which can never be blocked', () => {
+    renderTab({ safeClaimableNotes: [makeNote('a', { faucetId: NATIVE_FAUCET })] });
+
+    expect(screen.getByTestId('pending-asset-row')).toBeInTheDocument();
+    expect(screen.queryByTestId('pending-asset-spam-button')).not.toBeInTheDocument();
   });
 });

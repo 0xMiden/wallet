@@ -106,3 +106,19 @@ describe('MarkAsSpamDrawer', () => {
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 });
+
+describe('MarkAsSpamDrawer — asset scope', () => {
+  it('offers only block-asset and cancel, and describes the whole group', () => {
+    const { onConfirm } = renderDrawer({ scope: 'asset', noteCount: 3 });
+
+    expect(screen.getByText('markAsSpamAssetBody')).toBeInTheDocument();
+    expect(screen.getByText('asset')).toBeInTheDocument();
+    expect(screen.queryByText('sender')).not.toBeInTheDocument();
+    expect(screen.getByTestId('spam-block-asset')).toBeInTheDocument();
+    expect(screen.queryByTestId('spam-block-sender-and-asset')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('spam-block-sender')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('spam-block-asset'));
+    expect(onConfirm).toHaveBeenCalledWith({ kind: 'block-faucet', faucetId: 'faucet-a' });
+  });
+});

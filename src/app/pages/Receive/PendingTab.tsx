@@ -11,7 +11,6 @@ import { Icon, IconName } from 'app/icons/v2';
 import { formatDate } from 'app/templates/history/transactionUtils';
 import { MarkAsSpamDrawer } from 'app/templates/MarkAsSpamDrawer';
 import { Button, ButtonVariant } from 'components/Button';
-import { SyncWaveBackground } from 'components/SyncWaveBackground';
 import { TokenLogo } from 'components/TokenLogo';
 import { formatBigInt, formatUsd } from 'lib/i18n/numbers';
 import { initiateConsumeTransaction, requestSWTransactionProcessing } from 'lib/miden/activity';
@@ -186,6 +185,7 @@ export const PendingTab: React.FC<PendingTabProps> = ({
         invalidNoteIds={invalidNoteIds}
         onSelectGroup={handleSelectGroup}
         onClaimAll={onClaimAll}
+        onSpamAction={handleSpamAction}
       />
     </>
   );
@@ -199,6 +199,7 @@ interface PendingSummaryProps {
   invalidNoteIds: Set<string>;
   onSelectGroup: (faucetId: string) => void;
   onClaimAll: () => void;
+  onSpamAction: (action: SpamAction) => void;
 }
 
 const PendingSummary: React.FC<PendingSummaryProps> = ({
@@ -208,11 +209,40 @@ const PendingSummary: React.FC<PendingSummaryProps> = ({
   retriableNoteIds,
   invalidNoteIds,
   onSelectGroup,
-  onClaimAll
+  onClaimAll,
+  onSpamAction
 }) => {
   const verificationBaseFee = useVerificationBaseFee();
   const nativeFaucetId = useMidenFaucetId();
   const { t } = useTranslation();
+
+  // The asset group whose "Mark as spam?" sheet is open. Kept as the last group
+  // (not cleared on close) so the sheet's contents don't blank while it animates
+  // out — same shape as the per-note sheet in AssetPendingDetail.
+  const [spamGroup, setSpamGroup] = useState<AssetNoteGroup | null>(null);
+  const [spamSheetOpen, setSpamSheetOpen] = useState(false);
+
+  const openSpamSheet = useCallback((group: AssetNoteGroup) => {
+    hapticLight();
+    setSpamGroup(group);
+    setSpamSheetOpen(true);
+  }, []);
+
+  // The sheet is per-note; for a whole group it needs only the faucet, the
+  // total and the metadata, so the group is presented as one note carrying its
+  // total. The sender is not meaningful for a group and is never read in
+  // `asset` scope.
+  const spamGroupAsNote = useMemo(
+    () =>
+      spamGroup && {
+        id: spamGroup.faucetId,
+        faucetId: spamGroup.faucetId,
+        senderAddress: '',
+        amount: spamGroup.totalAmount.toString(),
+        metadata: spamGroup.metadata
+      },
+    [spamGroup]
+  );
 
   const totals: { totalUsd: number; notesCount: number; assetsCount: number } = useMemo(() => {
     let totalUsd = 0;
@@ -283,9 +313,22 @@ const PendingSummary: React.FC<PendingSummaryProps> = ({
               }
               showDivider={index !== groupedNotes.length - 1}
               onClick={() => onSelectGroup(group.faucetId)}
+              // The native faucet can never be blocked (it would hide every MIDEN
+              // note and fight auto-consume), so its row gets no dismiss affordance.
+              onMarkSpam={group.faucetId === nativeFaucetId ? undefined : () => openSpamSheet(group)}
             />
           ))}
         </div>
+
+        <MarkAsSpamDrawer
+          open={spamSheetOpen}
+          onOpenChange={setSpamSheetOpen}
+          note={spamGroupAsNote}
+          isNativeFaucet={false}
+          scope="asset"
+          noteCount={spamGroup?.notes.length ?? 0}
+          onConfirm={onSpamAction}
+        />
 
         {unclaimedNotesCount > 0 && (
           <div className="flex justify-center mt-auto pt-4 pb-2">
@@ -312,6 +355,8 @@ interface AssetSummaryRowProps {
   invalidNoteIds: Set<string>;
   showDivider: boolean;
   onClick: () => void;
+  /** Opens the "Mark as spam?" sheet for the whole group. Absent for the native faucet. */
+  onMarkSpam?: () => void;
 }
 
 const AssetSummaryRow: React.FC<AssetSummaryRowProps> = ({
@@ -321,7 +366,8 @@ const AssetSummaryRow: React.FC<AssetSummaryRowProps> = ({
   retriableNoteIds,
   invalidNoteIds,
   showDivider,
-  onClick
+  onClick,
+  onMarkSpam
 }) => {
   const { t } = useTranslation();
   const { metadata, notes, totalAmount } = group;
@@ -336,50 +382,70 @@ const AssetSummaryRow: React.FC<AssetSummaryRowProps> = ({
   // of the neutral incoming-count pill.
   const needsAttentionCount = notes.filter(n => retriableNoteIds.has(n.id) || invalidNoteIds.has(n.id)).length;
 
+  // The row is one native <button>, so the dismiss control cannot live inside it
+  // (nested buttons are invalid). It sits as a sibling, aligned with the amount
+  // column, and the row's right padding makes room for it.
   return (
-    <button
-      data-testid="pending-asset-row"
-      type="button"
-      onClick={onClick}
-      className={classNames('w-full py-4 text-left', showDivider && 'border-b border-rule-default')}
-    >
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-3 min-w-0">
-          <TokenLogo symbol={symbol} size="md" />
-          <span className="text-lg font-heading font-extrabold text-heading-gray dark:text-pure-white leading-tight truncate">
-            {metadata?.name || symbol}
-          </span>
+    <div className={classNames('relative w-full', showDivider && 'border-b border-rule-default')}>
+      <button
+        data-testid="pending-asset-row"
+        type="button"
+        onClick={onClick}
+        className={classNames('w-full py-4 text-left', onMarkSpam && 'pr-9')}
+      >
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <TokenLogo symbol={symbol} size="md" />
+            <span className="text-lg font-heading font-extrabold text-heading-gray dark:text-pure-white leading-tight truncate">
+              {metadata?.name || symbol}
+            </span>
+          </div>
+          <div className="flex flex-col items-end shrink-0">
+            <span
+              data-testid="pending-asset-amount"
+              className="font-heading text-base font-bold text-heading-gray leading-tight"
+            >
+              {formattedTotal} {symbol}
+            </span>
+            <span className="font-heading text-sm text-black opacity-50 leading-tight">
+              {t('pendingTabApproxUsd', { value: formatUsd(usdValue) })}
+            </span>
+          </div>
         </div>
-        <div className="flex flex-col items-end shrink-0">
-          <span
-            data-testid="pending-asset-amount"
-            className="font-heading text-base font-bold text-heading-gray leading-tight"
-          >
-            {formattedTotal} {symbol}
-          </span>
-          <span className="font-heading text-sm text-black opacity-50 leading-tight">
-            {t('pendingTabApproxUsd', { value: formatUsd(usdValue) })}
-          </span>
-        </div>
-      </div>
-      {notWorthClaiming && (
-        // Auto-consume skips this group, so say why rather than leaving it to sit
-        // there unexplained. Claiming stays available: the call is the user's, the
-        // wallet just will not spend their money on it unprompted.
-        <div className="mt-3 w-full text-center text-sm font-heading text-black opacity-50">
-          {t('notWorthClaiming')}
-        </div>
+        {notWorthClaiming && (
+          // Auto-consume skips this group, so say why rather than leaving it to sit
+          // there unexplained. Claiming stays available: the call is the user's, the
+          // wallet just will not spend their money on it unprompted.
+          <div className="mt-3 w-full text-center text-sm font-heading text-black opacity-50">
+            {t('notWorthClaiming')}
+          </div>
+        )}
+        {needsAttentionCount > 0 ? (
+          <div className="mt-3 w-full rounded-full bg-red-500/10 py-2 text-center text-base font-heading font-semibold text-red-500">
+            {t('notesUnresolved', { count: needsAttentionCount })}
+          </div>
+        ) : (
+          <div className="mt-3 w-full rounded-full bg-surface-interactive py-2 text-center text-base font-heading font-semibold text-black opacity-60">
+            {t('incomingTransfersCount', { count: notes.length })}
+          </div>
+        )}
+      </button>
+      {onMarkSpam && (
+        <button
+          data-testid="pending-asset-spam-button"
+          type="button"
+          aria-label={t('markAssetAsSpam', { asset: metadata?.name || symbol })}
+          onClick={onMarkSpam}
+          className={classNames(
+            'absolute right-0 top-4 flex h-7 w-7 items-center justify-center rounded-full',
+            'text-heading-gray opacity-50 hover:opacity-100 transition-opacity',
+            'focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600'
+          )}
+        >
+          <Icon name={IconName.Close} size="xs" fill="currentColor" className="w-3.5! h-3.5!" />
+        </button>
       )}
-      {needsAttentionCount > 0 ? (
-        <div className="mt-3 w-full rounded-full bg-red-500/10 py-2 text-center text-base font-heading font-semibold text-red-500">
-          {t('notesUnresolved', { count: needsAttentionCount })}
-        </div>
-      ) : (
-        <div className="mt-3 w-full rounded-full bg-surface-interactive py-2 text-center text-base font-heading font-semibold text-black opacity-60">
-          {t('incomingTransfersCount', { count: notes.length })}
-        </div>
-      )}
-    </button>
+    </div>
   );
 };
 
@@ -576,7 +642,6 @@ const DetailNoteRow: React.FC<DetailNoteRowProps> = ({
           ? 'retriable'
           : 'pending';
 
-  const showSpinner = rowState === 'consuming';
   const isRetriable = rowState === 'retriable';
   const isFailed = rowState === 'failed';
   // Terminal-invalid notes get no Retry/Claim affordance; everything else that
@@ -657,14 +722,10 @@ const DetailNoteRow: React.FC<DetailNoteRowProps> = ({
       style={{ WebkitTouchCallout: 'none' }}
       {...longPressBind}
     >
-      <SyncWaveBackground isSyncing={showSpinner} className="rounded-none" />
       <div className="relative z-10 flex items-stretch divide-x divide-border-card">
         <div className="flex min-w-0 flex-1 items-center gap-2.5 bg-tx-received px-3 py-3">
-          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-pure-white text-tx-received">
-            <Icon name={IconName.ArrowDown} size="xs" fill="currentColor" className="rotate-45" />
-          </span>
           <span className="flex min-w-0 flex-col font-heading text-heading-gray">
-            <span className="text-sm font-bold leading-tight">{t('received')}</span>
+            <span className="text-sm font-bold leading-tight">{t('From')}</span>
             <span className="truncate text-xs font-semibold leading-tight opacity-80">{senderDisplay}</span>
           </span>
         </div>
