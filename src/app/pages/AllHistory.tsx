@@ -106,30 +106,40 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
       {/* Notes the wallet gave up importing automatically (#788 follow-up) —
           possibly the only copy of the funds, so surfaced where the user looks
           for their incoming activity, with the manual drain the dead-letter
-          store's contract assumes. Renders nothing while the store is empty. */}
+          store's contract assumes. Renders nothing while the store is empty.
+          Shown in BOTH views: it is a fact about the account, not a lens on the
+          list, so switching to groups must not hide it. */}
       <DeadletteredNotesNotice className="shrink-0 mx-4 mt-3" />
 
-      <div className="shrink-0 px-4 py-3 flex items-center gap-2 overflow-x-auto no-scrollbar">
-        {filters.map(f => {
-          const isActive = f.id === filter;
-          return (
-            <button
-              key={f.id}
-              type="button"
-              aria-pressed={isActive}
-              onClick={() => handleFilterTap(f.id)}
-              className={classNames(
-                'px-6 py-3 rounded-full font-heading text-sm leading-[100%] font-medium transition-colors',
-                isActive
-                  ? 'bg-accent-primary text-pure-white font-semibold'
-                  : 'bg-white text-text-primary-token border border-rule-strong'
-              )}
-            >
-              {f.label}
-            </button>
-          );
-        })}
-      </div>
+      {/*
+        Sent / Received / Faucet describe a single transaction's direction, so
+        they only mean something against the chronological feed. A group is a
+        counterparty, not a direction — most groups hold both — so filtering the
+        group list by "Sent" would hide rows on a property they don't have.
+      */}
+      {view === 'time' && (
+        <div className="shrink-0 px-4 py-3 flex items-center gap-2 overflow-x-auto no-scrollbar">
+          {filters.map(f => {
+            const isActive = f.id === filter;
+            return (
+              <button
+                key={f.id}
+                type="button"
+                aria-pressed={isActive}
+                onClick={() => handleFilterTap(f.id)}
+                className={classNames(
+                  'px-6 py-3 rounded-full font-heading text-sm leading-[100%] font-medium transition-colors',
+                  isActive
+                    ? 'bg-accent-primary text-pure-white font-semibold'
+                    : 'bg-white text-text-primary-token border border-rule-strong'
+                )}
+              >
+                {f.label}
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       <div className="shrink-0 px-4">
         <SearchInput value={search} onChange={setSearch} placeholder={t('searchByNameOrSymbol')} />
@@ -185,7 +195,11 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
             centerEmptyState={true}
             scrollParentRef={scrollParentRef}
             searchQuery={search}
-            filter={filter}
+            // The chips are hidden in grouped view, so the filter must not
+            // apply there either — an invisible control silently hiding rows is
+            // worse than no control. The choice is kept, not reset, so
+            // toggling back to the feed restores what the user picked.
+            filter={view === 'time' ? filter : 'all'}
             renderEntries={
               view === 'group'
                 ? entries => (
