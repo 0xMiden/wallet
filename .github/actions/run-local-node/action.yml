@@ -283,14 +283,29 @@ runs:
     # build, breaks the cycle — the compile is what's expensive and it has
     # already succeeded, whatever the specs go on to do.
     #
+    # ONLY `install/` IS CACHED, not the whole of target/test-node. The directory holds
+    # three things (start-test-node.sh: CACHE=target/test-node, BUILD=$CACHE/build,
+    # DATA=$CACHE/data) and the other two are never read back:
+    #   build/ is cargo's --target-dir. On a cache HIT the install step below is skipped
+    #     and the script's own node_binaries_installed() consults only install/.crates.toml
+    #     and install/bin, so nothing ever reads those intermediates; on a MISS cargo
+    #     recreates them. They were pure upload.
+    #   data/ is the RUNNING chain -- the save step sits after "Build + start node", so the
+    #     archive was being taken over validator/sequencer/ntx-builder databases mid-write.
+    #     The script `rm -rf "$DATA"` on every run, so a restored copy is deleted unread.
+    # Measured on wallet #806: whole-tree entries ran 1.23-1.28 GB each, and five of them
+    # put the repo over the 10 GB cache limit, evicting other PRs' caches. The key says
+    # `install` rather than `build` so an old whole-tree archive can never be unpacked
+    # under the narrower path (it would land as install/install/bin and read as a hit).
+    #
     # The protocol rev is in the key, not just in the build: without it a stock
     # node restores over a patched one and the whole pin is a no-op that looks green.
     - name: Restore node build
       id: node_cache
       uses: actions/cache/restore@v4
       with:
-        path: ${{ runner.temp }}/miden-client/target/test-node
-        key: local-node-build-${{ steps.pins.outputs.rev }}-fee${{ inputs.verification-base-fee }}${{ steps.protocol.outputs.cache_suffix }}-rust1.96.1
+        path: ${{ runner.temp }}/miden-client/target/test-node/install
+        key: local-node-install-${{ steps.pins.outputs.rev }}-fee${{ inputs.verification-base-fee }}${{ steps.protocol.outputs.cache_suffix }}-rust1.96.1
     # Fails in ~2 min instead of after the ~36 min cold build. NOT skipped on a cache
     # hit: the node binaries are restored, but gen-genesis is not — start-test-node.sh
     # rebuilds it every run from the miden-client workspace, whose target/release is
@@ -590,8 +605,8 @@ runs:
       if: steps.node_cache.outputs.cache-hit != 'true'
       uses: actions/cache/save@v4
       with:
-        path: ${{ runner.temp }}/miden-client/target/test-node
-        key: local-node-build-${{ steps.pins.outputs.rev }}-fee${{ inputs.verification-base-fee }}${{ steps.protocol.outputs.cache_suffix }}-rust1.96.1
+        path: ${{ runner.temp }}/miden-client/target/test-node/install
+        key: local-node-install-${{ steps.pins.outputs.rev }}-fee${{ inputs.verification-base-fee }}${{ steps.protocol.outputs.cache_suffix }}-rust1.96.1
     # start-test-node.sh fails with "a node service exited; see <dir>/logs" and then
     # exits, so the logs it points at are discarded with the runner. That turns any
     # bring-up failure into an unactionable red X — dump them here instead.

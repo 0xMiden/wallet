@@ -1,7 +1,7 @@
 name: Warm E2E node-build cache
 
 # The pr-e2e-* workflows build the local 0.16 node from source and cache it under the
-# key `local-node-build-<rev>` (see .github/actions/run-local-node). A `pull_request`
+# key `local-node-install-<rev>` (see .github/actions/run-local-node). A `pull_request`
 # run only ever SAVES to that PR branch's cache scope, never to `next` — so every brand
 # new PR's first run misses the cache, recompiles the node (~28 min), and the full
 # local-e2e suite then trips its timeout before it can finish.
@@ -11,6 +11,15 @@ name: Warm E2E node-build cache
 # cold rebuild. It only actually recompiles when the node rev (versions.env) or the
 # action changes; otherwise the action restores the existing cache and this run is a
 # fast no-op. Ongoing PR restore activity keeps the entry from evicting between bumps.
+#
+# LIMIT, while the linked-Protocol-PR pinning is in place: this job runs on `push`, and a
+# push carries no PR body, so inject-linked-web-sdk-pr never runs and
+# MIDEN_LINKED_PROTOCOL_REV is never set. run-local-node therefore takes its UNPINNED path
+# and warms `local-node-install-<rev>-fee<fee>-rust<v>`. A PR that declares a Protocol PR
+# restores `...-fee<fee>-proto<sha>-rust<v>` instead — a key this job cannot produce — so
+# such a PR is cold no matter how warm the base branch is, and goes cold again on every new
+# commit to the linked protocol PR (the rev is that PR's head sha). Scaffolding: it ends
+# when the protocol change is released and the pinning comes out.
 on:
   push:
     branches: [next, main]
@@ -44,10 +53,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.96.1
-      # We only want the cache side effect — the action's actions/cache step saves the
-      # built node (target/test-node) as a job post-step regardless of this step's
-      # outcome. Actually starting the node is irrelevant to warming and is occasionally
-      # flaky (a service can exit during startup), so don't let it fail the warm job.
+      # We only want the cache side effect. The action now saves INLINE (a split
+      # actions/cache restore+save, not a post step), from a step placed after node
+      # bring-up, so `continue-on-error` still has to hold: bring-up is occasionally
+      # flaky (a service can exit during startup) and a hard failure here would abort
+      # the composite action before its save step and warm nothing.
       - name: Build + cache the local 0.16 node
         uses: ./.github/actions/run-local-node
         with:

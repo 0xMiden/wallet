@@ -241,7 +241,7 @@ jobs:
       # (two per PR, Linux + macOS) they exhausted the repo's 10 GB budget and
       # LRU-evicted each other before the same PR ran again. Every entry we
       # measured had `last_accessed_at == created_at`: written once, never read.
-      # The cost was not just the waste — they evicted `local-node-build-*`,
+      # The cost was not just the waste — they evicted `local-node-install-*`,
       # which is worth ~36 min per E2E job, so every E2E run rebuilt the node
       # from source. `yarn install` takes ~90-140s either way; the save step
       # alone cost 13-130s per job.
