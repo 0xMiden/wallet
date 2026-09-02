@@ -39,15 +39,13 @@ permissions:
 jobs:
   warm:
     name: warm-node-cache
-    # The one job in this repo that is pure compile — it runs no specs and waits on
-    # nothing — so it is the only place a bigger runner buys real time: measured
-    # ubuntu-latest = 4 cores / 15 GB against warp-ubuntu-latest-x64-8x = 8 cores /
-    # 31 GB, on a cold node build documented at ~36 min against a 60 min timeout.
-    # The six pr-e2e-* callers of run-local-node stay on ubuntu-latest deliberately:
-    # they spend most of their wall clock waiting on the chain and on Playwright, so
-    # cores would be paid for and not used. NOTE: the wallet used no Warp runners at
-    # all before this — this job is the first, and the label has to stay available to
-    # this repo for the workflow to be schedulable.
+    # Pure compile — it runs no specs and waits on nothing — so a bigger runner buys
+    # the most time here: measured ubuntu-latest = 4 cores / 15 GB against
+    # warp-ubuntu-latest-x64-8x = 8 cores / 31 GB, on a cold node build documented at
+    # ~36 min against a 60 min timeout. The pr-e2e-* callers of run-local-node moved to
+    # the same label afterwards; they spend most of their wall clock waiting on the
+    # chain and on Playwright, so the cores buy them far less than they buy this job.
+    # The label has to stay available to this repo for the workflow to be schedulable.
     runs-on: warp-ubuntu-latest-x64-8x
     timeout-minutes: 60
     steps:
