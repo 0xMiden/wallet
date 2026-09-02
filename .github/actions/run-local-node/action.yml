@@ -12,6 +12,12 @@ description: >
   against that same protocol rev. Without it the SDK and the host disagree about the MASM a
   guarded account links dynamically, and every guardian spec fails on a procedure root the
   host has never seen. No marker, no patch, and the cache key is unchanged.
+
+  THE NODE IS ONLY HALF OF IT. miden-client-cli executes and proves transactions CLIENT-SIDE, so
+  it needs the same protocol rev; patching only the node leaves the funder-side CLI on the
+  published crates and every chain call then dies with a bare `x assert` that the harness
+  misreports as a drained chain. .github/actions/install-miden-client-cli is that other half: it
+  reads the same MIDEN_LINKED_PROTOCOL_REV and must run in the same job.
 inputs:
   verification-base-fee:
     description: >

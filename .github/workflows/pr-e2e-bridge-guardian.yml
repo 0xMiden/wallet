@@ -101,16 +101,13 @@ jobs:
       - name: Run Install
         uses: ./.github/actions/yarn-install
       - name: Pre-install miden-client-cli (off the per-test clock)
-        run: |
-          # Pre-install the pinned rev so the harness's `miden-client --version`
-          # check short-circuits (the lazy auto-install's ~7min compile blows the
-          # 300s per-test timeout). Skip when the cargo cache restored it.
-          if ! command -v miden-client >/dev/null 2>&1; then
-            url=$(node -e "process.stdout.write(require('./package.json').midenClientCliGit.url)")
-            rev=$(node -e "process.stdout.write(require('./package.json').midenClientCliGit.rev)")
-            cargo install miden-client-cli --git "$url" --rev "$rev" --locked
-          fi
-          miden-client --version
+        # The harness auto-installs the CLI lazily on first use, but that ~7min compile
+        # blows the 300s per-test timeout, so it is pre-installed here. The action also
+        # rebuilds it against a linked Protocol PR when the PR carries one: the CLI
+        # EXECUTES AND PROVES transactions client-side, so an unpatched one dies inside
+        # its own local execution with a bare `x assert` that the harness misreports as
+        # a drained chain. No marker, no rebuild, and nothing about this step changes.
+        uses: ./.github/actions/install-miden-client-cli
       - name: Start local 0.16 node (validator + sequencer + ntx-builder + prover)
         uses: ./.github/actions/run-local-node
         with:

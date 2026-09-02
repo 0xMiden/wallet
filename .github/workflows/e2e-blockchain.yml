@@ -114,32 +114,12 @@ jobs:
       # compile happens in its own step, not inside Playwright's 5-min
       # per-test timeout. `cargo install` is a no-op on warm cache.
       - name: Install miden-client-cli
-        shell: bash
-        run: |
-          # Decoupled from the JS SDK version — read the CLI pin from
-          # package.json. `midenClientCliGit` ({url, rev}) takes precedence
-          # over `midenClientCliVersion` and is used while the target
-          # miden-client line is unreleased on crates.io (the 0.15 series
-          # ships from the repo's `next` branch only). See
-          # playwright/e2e/helpers/miden-cli.ts for the matching local-dev
-          # path.
-          GIT_URL=$(node -p "require('./package.json').midenClientCliGit?.url ?? ''")
-          GIT_REV=$(node -p "require('./package.json').midenClientCliGit?.rev ?? ''")
-          VERSION=$(node -p "require('./package.json').midenClientCliVersion")
-          if [[ -z "$GIT_URL" && (-z "$VERSION" || "$VERSION" == "undefined") ]]; then
-            echo "::error::neither midenClientCliGit nor midenClientCliVersion present in package.json"
-            exit 1
-          fi
-          if [[ -x "$HOME/.cargo/bin/miden-client" ]]; then
-            echo "miden-client already present from cache:"
-            "$HOME/.cargo/bin/miden-client" --version || true
-          elif [[ -n "$GIT_URL" ]]; then
-            echo "Installing miden-client-cli from ${GIT_URL}@${GIT_REV:0:8}..."
-            cargo install miden-client-cli --git "$GIT_URL" --rev "$GIT_REV" --locked
-          else
-            echo "Installing miden-client-cli@${VERSION}..."
-            cargo install miden-client-cli --version "$VERSION"
-          fi
+        # Reads the CLI pin (midenClientCliGit, else midenClientCliVersion) from
+        # package.json — the same resolution playwright/e2e/helpers/miden-cli.ts does —
+        # and skips the ~7 min compile when the cache above already restored the binary.
+        # It also rebuilds the CLI against a linked Protocol PR when the PR carries one;
+        # no marker (as here) means the published pin, exactly as before.
+        uses: ./.github/actions/install-miden-client-cli
 
       - name: Install xvfb
         # The azure apt mirror intermittently blackholes: runs have stalled ~57 min
@@ -202,32 +182,12 @@ jobs:
         run: yarn install --frozen-lockfile
 
       - name: Install miden-client-cli
-        shell: bash
-        run: |
-          # Decoupled from the JS SDK version — read the CLI pin from
-          # package.json. `midenClientCliGit` ({url, rev}) takes precedence
-          # over `midenClientCliVersion` and is used while the target
-          # miden-client line is unreleased on crates.io (the 0.15 series
-          # ships from the repo's `next` branch only). See
-          # playwright/e2e/helpers/miden-cli.ts for the matching local-dev
-          # path.
-          GIT_URL=$(node -p "require('./package.json').midenClientCliGit?.url ?? ''")
-          GIT_REV=$(node -p "require('./package.json').midenClientCliGit?.rev ?? ''")
-          VERSION=$(node -p "require('./package.json').midenClientCliVersion")
-          if [[ -z "$GIT_URL" && (-z "$VERSION" || "$VERSION" == "undefined") ]]; then
-            echo "::error::neither midenClientCliGit nor midenClientCliVersion present in package.json"
-            exit 1
-          fi
-          if [[ -x "$HOME/.cargo/bin/miden-client" ]]; then
-            echo "miden-client already present from cache:"
-            "$HOME/.cargo/bin/miden-client" --version || true
-          elif [[ -n "$GIT_URL" ]]; then
-            echo "Installing miden-client-cli from ${GIT_URL}@${GIT_REV:0:8}..."
-            cargo install miden-client-cli --git "$GIT_URL" --rev "$GIT_REV" --locked
-          else
-            echo "Installing miden-client-cli@${VERSION}..."
-            cargo install miden-client-cli --version "$VERSION"
-          fi
+        # Reads the CLI pin (midenClientCliGit, else midenClientCliVersion) from
+        # package.json — the same resolution playwright/e2e/helpers/miden-cli.ts does —
+        # and skips the ~7 min compile when the cache above already restored the binary.
+        # It also rebuilds the CLI against a linked Protocol PR when the PR carries one;
+        # no marker (as here) means the published pin, exactly as before.
+        uses: ./.github/actions/install-miden-client-cli
 
       - name: Install xvfb
         # The azure apt mirror intermittently blackholes: runs have stalled ~57 min
@@ -359,25 +319,12 @@ jobs:
         run: yarn install --frozen-lockfile
 
       - name: Install miden-client-cli
-        shell: bash
-        run: |
-          GIT_URL=$(node -p "require('./package.json').midenClientCliGit?.url ?? ''")
-          GIT_REV=$(node -p "require('./package.json').midenClientCliGit?.rev ?? ''")
-          VERSION=$(node -p "require('./package.json').midenClientCliVersion")
-          if [[ -z "$GIT_URL" && (-z "$VERSION" || "$VERSION" == "undefined") ]]; then
-            echo "::error::neither midenClientCliGit nor midenClientCliVersion present in package.json"
-            exit 1
-          fi
-          if [[ -x "$HOME/.cargo/bin/miden-client" ]]; then
-            echo "miden-client already present from cache:"
-            "$HOME/.cargo/bin/miden-client" --version || true
-          elif [[ -n "$GIT_URL" ]]; then
-            echo "Installing miden-client-cli from ${GIT_URL}@${GIT_REV:0:8}..."
-            cargo install miden-client-cli --git "$GIT_URL" --rev "$GIT_REV" --locked
-          else
-            echo "Installing miden-client-cli@${VERSION}..."
-            cargo install miden-client-cli --version "$VERSION"
-          fi
+        # Reads the CLI pin (midenClientCliGit, else midenClientCliVersion) from
+        # package.json — the same resolution playwright/e2e/helpers/miden-cli.ts does —
+        # and skips the ~7 min compile when the cache above already restored the binary.
+        # It also rebuilds the CLI against a linked Protocol PR when the PR carries one;
+        # no marker (as here) means the published pin, exactly as before.
+        uses: ./.github/actions/install-miden-client-cli
 
       - name: Install xvfb
         # The azure apt mirror intermittently blackholes: runs have stalled ~57 min
@@ -444,25 +391,12 @@ jobs:
         run: yarn install --frozen-lockfile
 
       - name: Install miden-client-cli
-        shell: bash
-        run: |
-          GIT_URL=$(node -p "require('./package.json').midenClientCliGit?.url ?? ''")
-          GIT_REV=$(node -p "require('./package.json').midenClientCliGit?.rev ?? ''")
-          VERSION=$(node -p "require('./package.json').midenClientCliVersion")
-          if [[ -z "$GIT_URL" && (-z "$VERSION" || "$VERSION" == "undefined") ]]; then
-            echo "::error::neither midenClientCliGit nor midenClientCliVersion present in package.json"
-            exit 1
-          fi
-          if [[ -x "$HOME/.cargo/bin/miden-client" ]]; then
-            echo "miden-client already present from cache:"
-            "$HOME/.cargo/bin/miden-client" --version || true
-          elif [[ -n "$GIT_URL" ]]; then
-            echo "Installing miden-client-cli from ${GIT_URL}@${GIT_REV:0:8}..."
-            cargo install miden-client-cli --git "$GIT_URL" --rev "$GIT_REV" --locked
-          else
-            echo "Installing miden-client-cli@${VERSION}..."
-            cargo install miden-client-cli --version "$VERSION"
-          fi
+        # Reads the CLI pin (midenClientCliGit, else midenClientCliVersion) from
+        # package.json — the same resolution playwright/e2e/helpers/miden-cli.ts does —
+        # and skips the ~7 min compile when the cache above already restored the binary.
+        # It also rebuilds the CLI against a linked Protocol PR when the PR carries one;
+        # no marker (as here) means the published pin, exactly as before.
+        uses: ./.github/actions/install-miden-client-cli
 
       - name: Install xvfb
         # The azure apt mirror intermittently blackholes: runs have stalled ~57 min
@@ -589,32 +523,12 @@ jobs:
         run: yarn install --frozen-lockfile
 
       - name: Install miden-client-cli
-        shell: bash
-        run: |
-          # Decoupled from the JS SDK version — read the CLI pin from
-          # package.json. `midenClientCliGit` ({url, rev}) takes precedence
-          # over `midenClientCliVersion` and is used while the target
-          # miden-client line is unreleased on crates.io (the 0.15 series
-          # ships from the repo's `next` branch only). See
-          # playwright/e2e/helpers/miden-cli.ts for the matching local-dev
-          # path.
-          GIT_URL=$(node -p "require('./package.json').midenClientCliGit?.url ?? ''")
-          GIT_REV=$(node -p "require('./package.json').midenClientCliGit?.rev ?? ''")
-          VERSION=$(node -p "require('./package.json').midenClientCliVersion")
-          if [[ -z "$GIT_URL" && (-z "$VERSION" || "$VERSION" == "undefined") ]]; then
-            echo "::error::neither midenClientCliGit nor midenClientCliVersion present in package.json"
-            exit 1
-          fi
-          if [[ -x "$HOME/.cargo/bin/miden-client" ]]; then
-            echo "miden-client already present from cache:"
-            "$HOME/.cargo/bin/miden-client" --version || true
-          elif [[ -n "$GIT_URL" ]]; then
-            echo "Installing miden-client-cli from ${GIT_URL}@${GIT_REV:0:8}..."
-            cargo install miden-client-cli --git "$GIT_URL" --rev "$GIT_REV" --locked
-          else
-            echo "Installing miden-client-cli@${VERSION}..."
-            cargo install miden-client-cli --version "$VERSION"
-          fi
+        # Reads the CLI pin (midenClientCliGit, else midenClientCliVersion) from
+        # package.json — the same resolution playwright/e2e/helpers/miden-cli.ts does —
+        # and skips the ~7 min compile when the cache above already restored the binary.
+        # It also rebuilds the CLI against a linked Protocol PR when the PR carries one;
+        # no marker (as here) means the published pin, exactly as before.
+        uses: ./.github/actions/install-miden-client-cli
 
       # CDP bridge (appium-remote-debugger) requires Simulator.app GUI to be
       # running — headless simctl boots don't expose webinspectord. Ignore
@@ -802,32 +716,12 @@ jobs:
         run: yarn install --frozen-lockfile
 
       - name: Install miden-client-cli
-        shell: bash
-        run: |
-          # Decoupled from the JS SDK version — read the CLI pin from
-          # package.json. `midenClientCliGit` ({url, rev}) takes precedence
-          # over `midenClientCliVersion` and is used while the target
-          # miden-client line is unreleased on crates.io (the 0.15 series
-          # ships from the repo's `next` branch only). See
-          # playwright/e2e/helpers/miden-cli.ts for the matching local-dev
-          # path.
-          GIT_URL=$(node -p "require('./package.json').midenClientCliGit?.url ?? ''")
-          GIT_REV=$(node -p "require('./package.json').midenClientCliGit?.rev ?? ''")
-          VERSION=$(node -p "require('./package.json').midenClientCliVersion")
-          if [[ -z "$GIT_URL" && (-z "$VERSION" || "$VERSION" == "undefined") ]]; then
-            echo "::error::neither midenClientCliGit nor midenClientCliVersion present in package.json"
-            exit 1
-          fi
-          if [[ -x "$HOME/.cargo/bin/miden-client" ]]; then
-            echo "miden-client already present from cache:"
-            "$HOME/.cargo/bin/miden-client" --version || true
-          elif [[ -n "$GIT_URL" ]]; then
-            echo "Installing miden-client-cli from ${GIT_URL}@${GIT_REV:0:8}..."
-            cargo install miden-client-cli --git "$GIT_URL" --rev "$GIT_REV" --locked
-          else
-            echo "Installing miden-client-cli@${VERSION}..."
-            cargo install miden-client-cli --version "$VERSION"
-          fi
+        # Reads the CLI pin (midenClientCliGit, else midenClientCliVersion) from
+        # package.json — the same resolution playwright/e2e/helpers/miden-cli.ts does —
+        # and skips the ~7 min compile when the cache above already restored the binary.
+        # It also rebuilds the CLI against a linked Protocol PR when the PR carries one;
+        # no marker (as here) means the published pin, exactly as before.
+        uses: ./.github/actions/install-miden-client-cli
 
       - name: Launch Simulator.app
         run: open -a Simulator || true
@@ -1068,32 +962,12 @@ jobs:
         run: yarn install --frozen-lockfile
 
       - name: Install miden-client-cli
-        shell: bash
-        run: |
-          # Decoupled from the JS SDK version — read the CLI pin from
-          # package.json. `midenClientCliGit` ({url, rev}) takes precedence
-          # over `midenClientCliVersion` and is used while the target
-          # miden-client line is unreleased on crates.io (the 0.15 series
-          # ships from the repo's `next` branch only). See
-          # playwright/e2e/helpers/miden-cli.ts for the matching local-dev
-          # path.
-          GIT_URL=$(node -p "require('./package.json').midenClientCliGit?.url ?? ''")
-          GIT_REV=$(node -p "require('./package.json').midenClientCliGit?.rev ?? ''")
-          VERSION=$(node -p "require('./package.json').midenClientCliVersion")
-          if [[ -z "$GIT_URL" && (-z "$VERSION" || "$VERSION" == "undefined") ]]; then
-            echo "::error::neither midenClientCliGit nor midenClientCliVersion present in package.json"
-            exit 1
-          fi
-          if [[ -x "$HOME/.cargo/bin/miden-client" ]]; then
-            echo "miden-client already present from cache:"
-            "$HOME/.cargo/bin/miden-client" --version || true
-          elif [[ -n "$GIT_URL" ]]; then
-            echo "Installing miden-client-cli from ${GIT_URL}@${GIT_REV:0:8}..."
-            cargo install miden-client-cli --git "$GIT_URL" --rev "$GIT_REV" --locked
-          else
-            echo "Installing miden-client-cli@${VERSION}..."
-            cargo install miden-client-cli --version "$VERSION"
-          fi
+        # Reads the CLI pin (midenClientCliGit, else midenClientCliVersion) from
+        # package.json — the same resolution playwright/e2e/helpers/miden-cli.ts does —
+        # and skips the ~7 min compile when the cache above already restored the binary.
+        # It also rebuilds the CLI against a linked Protocol PR when the PR carries one;
+        # no marker (as here) means the published pin, exactly as before.
+        uses: ./.github/actions/install-miden-client-cli
 
       # CDP bridge (appium-remote-debugger) requires Simulator.app GUI to be
       # running — headless simctl boots don't expose webinspectord. Ignore
@@ -1279,32 +1153,12 @@ jobs:
         run: yarn install --frozen-lockfile
 
       - name: Install miden-client-cli
-        shell: bash
-        run: |
-          # Decoupled from the JS SDK version — read the CLI pin from
-          # package.json. `midenClientCliGit` ({url, rev}) takes precedence
-          # over `midenClientCliVersion` and is used while the target
-          # miden-client line is unreleased on crates.io (the 0.15 series
-          # ships from the repo's `next` branch only). See
-          # playwright/e2e/helpers/miden-cli.ts for the matching local-dev
-          # path.
-          GIT_URL=$(node -p "require('./package.json').midenClientCliGit?.url ?? ''")
-          GIT_REV=$(node -p "require('./package.json').midenClientCliGit?.rev ?? ''")
-          VERSION=$(node -p "require('./package.json').midenClientCliVersion")
-          if [[ -z "$GIT_URL" && (-z "$VERSION" || "$VERSION" == "undefined") ]]; then
-            echo "::error::neither midenClientCliGit nor midenClientCliVersion present in package.json"
-            exit 1
-          fi
-          if [[ -x "$HOME/.cargo/bin/miden-client" ]]; then
-            echo "miden-client already present from cache:"
-            "$HOME/.cargo/bin/miden-client" --version || true
-          elif [[ -n "$GIT_URL" ]]; then
-            echo "Installing miden-client-cli from ${GIT_URL}@${GIT_REV:0:8}..."
-            cargo install miden-client-cli --git "$GIT_URL" --rev "$GIT_REV" --locked
-          else
-            echo "Installing miden-client-cli@${VERSION}..."
-            cargo install miden-client-cli --version "$VERSION"
-          fi
+        # Reads the CLI pin (midenClientCliGit, else midenClientCliVersion) from
+        # package.json — the same resolution playwright/e2e/helpers/miden-cli.ts does —
+        # and skips the ~7 min compile when the cache above already restored the binary.
+        # It also rebuilds the CLI against a linked Protocol PR when the PR carries one;
+        # no marker (as here) means the published pin, exactly as before.
+        uses: ./.github/actions/install-miden-client-cli
 
       - name: Launch Simulator.app
         run: open -a Simulator || true

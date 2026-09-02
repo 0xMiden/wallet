@@ -83,13 +83,11 @@ jobs:
           key: ${{ steps.cargo_cache_key.outputs.key }}
       - name: Build miden-client-cli
         if: steps.cache.outputs.cache-hit != 'true'
-        run: |
-          if ! command -v miden-client >/dev/null 2>&1; then
-            url=$(node -p "require('./package.json').midenClientCliGit.url")
-            rev=$(node -p "require('./package.json').midenClientCliGit.rev")
-            cargo install miden-client-cli --git "$url" --rev "$rev" --locked
-          fi
-          miden-client --version
+        # This job warms the SHARED cache on main, where no PR body and so no linked
+        # Protocol PR exists: the action's published-pin path, i.e. what this step
+        # already did. A PR that needs the CLI rebuilt against a protocol rev gets its
+        # own cache inside the action rather than a patched binary in the shared one.
+        uses: ./.github/actions/install-miden-client-cli
       - name: Build note-transport
         if: steps.cache.outputs.cache-hit != 'true'
         env:

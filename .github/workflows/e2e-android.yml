@@ -173,16 +173,13 @@ jobs:
           key: ${{ steps.cargo_cache_key.outputs.key }}
 
       - name: Pre-install miden-client-cli (off the per-test clock)
-        run: |
-          # Skip when the cargo cache already restored it (else `cargo install`
-          # errors "binary already exists"); the key pins the rev, so a present
-          # binary is guaranteed to be the right one.
-          if ! command -v miden-client >/dev/null 2>&1; then
-            url=$(node -e "process.stdout.write(require('./package.json').midenClientCliGit.url)")
-            rev=$(node -e "process.stdout.write(require('./package.json').midenClientCliGit.rev)")
-            cargo install miden-client-cli --git "$url" --rev "$rev" --locked
-          fi
-          miden-client --version
+        # The harness auto-installs the CLI lazily on first use, but that ~7min compile
+        # blows the 300s per-test timeout, so it is pre-installed here. The action also
+        # rebuilds it against a linked Protocol PR when the PR carries one: the CLI
+        # EXECUTES AND PROVES transactions client-side, so an unpatched one dies inside
+        # its own local execution with a bare `x assert` that the harness misreports as
+        # a drained chain. No marker, no rebuild, and nothing about this step changes.
+        uses: ./.github/actions/install-miden-client-cli
 
       - name: Build debug APK
         run: yarn test:e2e:android:build
