@@ -125,7 +125,7 @@ jobs:
         uses: ./.github/actions/run-local-node
         with:
           # Guarded accounts pay the fee from inside their auth procedure, which is what
-          # protocol#3765 adds to the guarded-multisig component. Verified locally: 49/49.
+          # protocol#3786 adds to the guarded-multisig component. Verified locally: 49/49.
           verification-base-fee: '10000'
       - name: Wait for node RPC
         working-directory: playwright/e2e/local-stack

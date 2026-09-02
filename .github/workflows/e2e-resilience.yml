@@ -87,7 +87,7 @@ jobs:
       - name: Start local 0.16 node (validator + sequencer + ntx-builder + prover)
         uses: ./.github/actions/run-local-node
         with:
-          # Fault injection against guarded accounts, which pay fees via protocol#3765.
+          # Fault injection against guarded accounts, which pay fees via protocol#3786.
           # Fees also change what a failure looks like, which is the point of this suite.
           verification-base-fee: '10000'
       - name: Wait for node RPC + prover
