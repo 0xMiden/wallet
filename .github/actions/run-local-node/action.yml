@@ -64,8 +64,12 @@ runs:
         # runner started failing with `could not read Username for 'https://github.com'`, which
         # git reports when the server declines the request rather than when the repo is private.
         auth="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')"
-        git -c http.extraheader="AUTHORIZATION: basic $auth" \
-          clone --filter=blob:none "${{ steps.pins.outputs.repo }}" "${{ runner.temp }}/miden-client"
+        # `clone -c` (not `git -c ... clone`) persists the header into the NEW repo. With
+        # --filter=blob:none the clone is partial, so git lazily fetches missing blobs from the
+        # promisor remote afterwards using the cloned repo's own config; a header set only on the
+        # clone process authenticates the clone and then those fetches fail.
+        git clone -c http.extraheader="AUTHORIZATION: basic $auth" \
+          --filter=blob:none "${{ steps.pins.outputs.repo }}" "${{ runner.temp }}/miden-client"
         git -C "${{ runner.temp }}/miden-client" checkout "${{ steps.pins.outputs.rev }}"
     # THE NODE AND THE SDK MUST SHARE ONE PROTOCOL REV.
     #
