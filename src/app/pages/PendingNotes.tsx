@@ -1,4 +1,4 @@
-import React, { FC } from 'react';
+import React, { FC, useCallback, useState } from 'react';
 
 import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
@@ -36,6 +36,36 @@ const PendingNotes: FC = () => {
 
   const spamCount = spam.length;
 
+  // The bin belongs to the asset list, not to one asset's detail view: there it
+  // would sit next to a specific token while acting on everything.
+  const [inAssetDetail, setInAssetDetail] = useState(false);
+  const handleSelectedGroupChange = useCallback((faucetId: string | null) => setInAssetDetail(faucetId !== null), []);
+
+  // On the list it is always shown, even at zero: blocked assets and senders
+  // live behind it and can only be un-blocked from the bin.
+  const spamBin = (
+    <span className="relative inline-flex">
+      <CircleButton
+        data-testid="spam-bin-button"
+        aria-label={t('spamBinAriaLabel', { count: spamCount })}
+        icon={IconName.Bin}
+        onClick={() => navigate('/pending-notes/spam')}
+        className="w-11 h-11 bg-gray-25 text-black"
+        size="sm"
+        color="currentColor"
+      />
+      {spamCount > 0 && (
+        <span
+          aria-hidden
+          data-testid="spam-bin-count"
+          className="absolute -top-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-status-negative px-1 font-heading text-[10px] font-bold leading-none text-pure-white"
+        >
+          {spamCount}
+        </span>
+      )}
+    </span>
+  );
+
   return (
     <div className={classNames(containerClass, 'mx-auto overflow-hidden flex flex-col bg-app-bg')}>
       <NavigationHeader
@@ -43,30 +73,7 @@ const PendingNotes: FC = () => {
         onBack={handleBack}
         variant="prominent"
         titleAlign="left"
-        rightAction={
-          // Always shown, even at zero: blocked assets and senders live behind it
-          // and can only be un-blocked from the bin.
-          <span className="relative inline-flex">
-            <CircleButton
-              data-testid="spam-bin-button"
-              aria-label={t('spamBinAriaLabel', { count: spamCount })}
-              icon={IconName.Bin}
-              onClick={() => navigate('/pending-notes/spam')}
-              className="w-11 h-11 bg-gray-25 text-black"
-              size="sm"
-              color="currentColor"
-            />
-            {spamCount > 0 && (
-              <span
-                aria-hidden
-                data-testid="spam-bin-count"
-                className="absolute -top-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-status-negative px-1 font-heading text-[10px] font-bold leading-none text-pure-white"
-              >
-                {spamCount}
-              </span>
-            )}
-          </span>
-        }
+        rightAction={inAssetDetail ? undefined : spamBin}
       />
       <PendingTab
         safeClaimableNotes={claim.safeClaimableNotes}
@@ -80,6 +87,7 @@ const PendingNotes: FC = () => {
         onClaimingStateChange={claim.handleClaimingStateChange}
         onClaimAll={claim.handleClaimAll}
         onClaimGroup={claim.handleClaimGroup}
+        onSelectedGroupChange={handleSelectedGroupChange}
       />
     </div>
   );

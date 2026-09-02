@@ -33,7 +33,14 @@ jest.mock('app/env', () => ({
 }));
 
 jest.mock('app/pages/Receive/PendingTab', () => ({
-  PendingTab: () => <div data-testid="pending-tab" />
+  // Exposes the list <-> detail transition the real tab reports, so the page's
+  // header behaviour can be driven without rendering the tab.
+  PendingTab: ({ onSelectedGroupChange }: { onSelectedGroupChange?: (faucetId: string | null) => void }) => (
+    <div data-testid="pending-tab">
+      <button data-testid="enter-detail" onClick={() => onSelectedGroupChange?.('faucet-a')} />
+      <button data-testid="leave-detail" onClick={() => onSelectedGroupChange?.(null)} />
+    </div>
+  )
 }));
 
 let mockSpamNotes: Array<{ id: string }> = [];
@@ -75,6 +82,17 @@ describe('PendingNotes back affordance', () => {
     fireEvent.click(bin);
     expect(mockNavigate).toHaveBeenCalledWith('/pending-notes/spam');
     mockSpamNotes = [];
+  });
+
+  it("offers the spam bin on the asset list only, not inside one asset's detail view", () => {
+    render(<PendingNotes />);
+    expect(screen.getByTestId('spam-bin-button')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('enter-detail'));
+    expect(screen.queryByTestId('spam-bin-button')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('leave-detail'));
+    expect(screen.getByTestId('spam-bin-button')).toBeInTheDocument();
   });
 
   it('keeps the spam-bin button (without a count) when nothing is hidden', () => {

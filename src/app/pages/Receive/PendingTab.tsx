@@ -53,6 +53,12 @@ interface PendingTabProps {
   onClaimingStateChange: (noteId: string, isClaiming: boolean) => void;
   onClaimAll: () => void;
   onClaimGroup?: (faucetId: string) => void;
+  /**
+   * Fires when the tab moves between the asset list (`null`) and one asset's
+   * detail (its faucet id), so the page can tailor its header — the spam bin is
+   * only offered on the list.
+   */
+  onSelectedGroupChange?: (faucetId: string | null) => void;
 }
 
 const groupNumber = (value: string): string => {
@@ -74,7 +80,8 @@ export const PendingTab: React.FC<PendingTabProps> = ({
   checkingNoteIds,
   onClaimingStateChange,
   onClaimAll,
-  onClaimGroup
+  onClaimGroup,
+  onSelectedGroupChange
 }) => {
   const { registerBackHandler } = useAppEnv();
   const tokenPrices = useWalletStore(s => s.tokenPrices);
@@ -137,6 +144,13 @@ export const PendingTab: React.FC<PendingTabProps> = ({
       setSelectedFaucetId(null);
     }
   }, [selectedFaucetId, selectedGroup]);
+
+  // Report the effective view, not the raw selection: a selected group that has
+  // just emptied is on its way back to the list (see the reset above).
+  const effectiveFaucetId = selectedGroup ? selectedFaucetId : null;
+  useEffect(() => {
+    onSelectedGroupChange?.(effectiveFaucetId);
+  }, [effectiveFaucetId, onSelectedGroupChange]);
 
   const handleSelectGroup = useCallback((faucetId: string) => {
     hapticLight();

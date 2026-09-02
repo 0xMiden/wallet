@@ -407,3 +407,14 @@ describe('PendingTab — summary row dismiss (x) opens the asset-wide spam sheet
     expect(screen.queryByTestId('pending-asset-spam-button')).not.toBeInTheDocument();
   });
 });
+
+describe('PendingTab — reports the list <-> detail transition', () => {
+  it('fires onSelectedGroupChange with null on the list and the faucet id once a group is opened', () => {
+    const onSelectedGroupChange = jest.fn();
+    renderTab({ safeClaimableNotes: [makeNote('a')], onSelectedGroupChange });
+
+    expect(onSelectedGroupChange).toHaveBeenLastCalledWith(null);
+    openDetail();
+    expect(onSelectedGroupChange).toHaveBeenLastCalledWith('faucet1');
+  });
+});
