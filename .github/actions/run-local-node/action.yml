@@ -55,10 +55,17 @@ runs:
       run: sudo apt-get update && sudo apt-get install -y --no-install-recommends protobuf-compiler clang cmake
     - name: Checkout miden-client (test-node infra)
       shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
       run: |
         set -euo pipefail
         rm -rf "${{ runner.temp }}/miden-client"
-        git clone --filter=blob:none "${{ steps.pins.outputs.repo }}" "${{ runner.temp }}/miden-client"
+        # Authenticated even though the repo is public: an anonymous filtered clone from the
+        # runner started failing with `could not read Username for 'https://github.com'`, which
+        # git reports when the server declines the request rather than when the repo is private.
+        auth="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')"
+        git -c http.extraheader="AUTHORIZATION: basic $auth" \
+          clone --filter=blob:none "${{ steps.pins.outputs.repo }}" "${{ runner.temp }}/miden-client"
         git -C "${{ runner.temp }}/miden-client" checkout "${{ steps.pins.outputs.rev }}"
     # THE NODE AND THE SDK MUST SHARE ONE PROTOCOL REV.
     #
