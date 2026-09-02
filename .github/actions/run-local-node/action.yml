@@ -6,6 +6,12 @@ description: >
   DB, and starts validator + sequencer + ntx-builder + prover, leaving them running
   (--background). The published ghcr node images lag the node the SDK is built against, so the
   node is compiled from source rather than pulled.
+
+  When the PR carries a linked Protocol PR (resolved by inject-linked-web-sdk-pr, which must
+  run EARLIER in the same job), the node, the remote prover and gen-genesis are all built
+  against that same protocol rev. Without it the SDK and the host disagree about the MASM a
+  guarded account links dynamically, and every guardian spec fails on a procedure root the
+  host has never seen. No marker, no patch, and the cache key is unchanged.
 inputs:
   verification-base-fee:
     description: >
@@ -16,6 +22,18 @@ inputs:
       cannot yet run against fees, and say why at the call site.
     required: false
     default: '10000'
+  require-sdk-injection:
+    description: >
+      Fail when this action runs on a `pull_request` and
+      .github/actions/inject-linked-web-sdk-pr has NOT already run in the same job.
+      That ordering is the whole handover: the injection resolves the linked
+      Protocol PR and exports the rev, and this action pins the node + prover to it.
+      Reversed, the export lands too late, the node builds against its own published
+      protocol crates, and the resulting skew shows up only as an unrelated-looking
+      "procedure with root digest ... could not be found" mid-suite. Set to 'false'
+      only for a PR-triggered job that deliberately runs no injection.
+    required: false
+    default: 'true'
 runs:
   using: composite
   steps:
@@ -36,6 +54,218 @@ runs:
         rm -rf "${{ runner.temp }}/miden-client"
         git clone --filter=blob:none "${{ steps.pins.outputs.repo }}" "${{ runner.temp }}/miden-client"
         git -C "${{ runner.temp }}/miden-client" checkout "${{ steps.pins.outputs.rev }}"
+    # THE NODE AND THE SDK MUST SHARE ONE PROTOCOL REV.
+    #
+    # A guarded-multisig account built in the browser links `miden::standards::fee`
+    # DYNAMICALLY: the fee MASM is not inlined into the account code, so the HOST
+    # supplies it at execution time. Rewrite that MASM (protocol#3786 did) and the
+    # account's procedure root is one the old host has never seen. One transaction then
+    # fails at four hops: the SDK executes it locally fine, the remote prover rejects
+    # "procedure with root digest 0x... could not be found", the SDK re-proves locally
+    # fine, and the node rejects the identical proven tx on re-execution with the same
+    # digest. Plain singlesig accounts are self-contained and unaffected, which is why
+    # the local and earn suites stay green on the very same stack while every guardian
+    # spec fails — and why this reads as a product bug rather than a build-config one.
+    #
+    # The rev is NOT configured here. inject-linked-web-sdk-pr already resolved it from
+    # the linked web-sdk PR's own `Protocol PR:` marker and exported it; a second pin in
+    # versions.env would be a second source of truth, and the two would drift silently.
+    #
+    # A [patch.crates-io] ALONE IS NOT ENOUGH, and this is what an earlier attempt got
+    # wrong: cargo substitutes a patch only where the patched version SATISFIES the
+    # requirement, and the node pins the protocol layer with EXACT `=0.16.0-rc.N` reqs.
+    # An exact pin is unsatisfiable by any other version, so the patch was recorded
+    # "not used in the crate graph" — a warning, exit 0 — and the node quietly built
+    # against its published crates. The node source is therefore cloned here and those
+    # six reqs are rewritten to the version the patch provides BEFORE the patch is
+    # applied. That in turn means the binaries are installed from the clone rather than
+    # from crates.io, which is what the install step below does.
+    - name: Pin the node's protocol crates to the linked Protocol PR
+      id: protocol
+      shell: bash
+      env:
+        REQUIRE_INJECTION: ${{ inputs.require-sdk-injection }}
+      run: |
+        set -euo pipefail
+        clone="${{ runner.temp }}/miden-client"
+        rev="${MIDEN_LINKED_PROTOCOL_REV:-}"
+        url="${MIDEN_LINKED_PROTOCOL_URL:-https://github.com/0xMiden/protocol.git}"
+        origin="${MIDEN_LINKED_PROTOCOL_ORIGIN:-a linked Protocol PR}"
+        # The protocol workspace's own crates, all eight. The six the node pins exactly
+        # are a subset; miden-agglayer and miden-protocol-build-utils are reached
+        # transitively. Leaving ANY of them on the registry re-imports the published
+        # protocol under a patched one: omitting miden-agglayer put two miden-standards
+        # versions in the graph on wallet #806, and the procedure roots still disagreed.
+        PROTO_CRATES="miden-protocol miden-standards miden-tx miden-tx-batch miden-block-prover miden-agglayer miden-testing miden-protocol-build-utils"
+        # The subset the node's own Cargo.toml pins with `version = "=<exact>"`.
+        NODE_PINNED="miden-block-prover miden-protocol miden-standards miden-testing miden-tx miden-tx-batch"
+
+        if [ -z "$rev" ]; then
+          # Absent means either "no linked Protocol PR" or "the injection has not run in
+          # this job yet". Only the breadcrumb tells them apart, and conflating them is
+          # how a stock node ships under a patched SDK without a single red step.
+          if [ "${GITHUB_EVENT_NAME:-}" = "pull_request" ] \
+             && [ -z "${MIDEN_LINKED_SDK_INJECTION_RAN:-}" ] \
+             && [ "$REQUIRE_INJECTION" = "true" ]; then
+            echo "::error title=run-local-node::inject-linked-web-sdk-pr has not run in this job."
+            echo "::error::Move the 'Inject linked web-sdk PR' step ABOVE this one, or pass require-sdk-injection: 'false' if this job deliberately runs no injection."
+            exit 1
+          fi
+          # No suffix, so the cache key stays byte-identical to the unpatched one and a
+          # warm node build is not thrown away by merely adding this step.
+          {
+            echo "rev=none"
+            echo "cache_suffix="
+            echo "cargo_home=${CARGO_HOME:-$HOME/.cargo}"
+            echo "node_dir="
+            echo "node_url="
+            echo "node_rev="
+            echo "proto_ver="
+          } >> "$GITHUB_OUTPUT"
+          echo "No linked Protocol PR; the node builds against the protocol crates its own lockfile pins."
+          exit 0
+        fi
+
+        # Pin by rev, never by branch: linked branches are deleted on merge, and a moving
+        # ref would also make the cache key below meaningless.
+        if ! printf '%s' "$rev" | grep -qE '^[0-9a-f]{40}$'; then
+          echo "::error title=run-local-node::MIDEN_LINKED_PROTOCOL_REV='$rev' is not a 40-hex commit sha."
+          exit 1
+        fi
+
+        # The version the patch PROVIDES, read from the protocol itself rather than
+        # configured: it is what the node's exact reqs have to be rewritten to, and a
+        # hardcoded "0.16.0-rc.8" here would be a third place to drift. Single-commit
+        # fetch — the whole history is not wanted, and a PR head sha is fetchable by sha.
+        pdir="${{ runner.temp }}/protocol-version-probe"
+        rm -rf "$pdir"; mkdir -p "$pdir"
+        git -C "$pdir" init -q
+        git -C "$pdir" remote add origin "$url"
+        # A bare-sha fetch is what GitHub serves for a PR head; fall back to fetching the
+        # refs when a host refuses it, rather than reporting the version as unreadable.
+        git -C "$pdir" fetch -q --depth 1 origin "$rev" \
+          || git -C "$pdir" fetch -q --filter=blob:none origin
+        proto_ver=$(git -C "$pdir" cat-file -p "${rev}:Cargo.toml" \
+          | sed -n 's/^version[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
+        if ! printf '%s' "$proto_ver" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$'; then
+          echo "::error title=run-local-node::could not read [workspace.package] version from ${url}@${rev} Cargo.toml (got '${proto_ver}')."
+          exit 1
+        fi
+        echo "protocol ${url}@${rev:0:8} provides version ${proto_ver}"
+
+        # The node source start-test-node.sh would have installed from crates.io. Its own
+        # --print-rev is the single place that decides it, so ask it rather than re-deriving.
+        node_rev=$("$clone/scripts/start-test-node.sh" --print-rev)
+        [ -n "$node_rev" ] || {
+          echo "::error title=run-local-node::start-test-node.sh --print-rev printed nothing; the node source cannot be identified."
+          exit 1
+        }
+        node_url=$(sed -n 's|^source = "git+\(https://github.com/0xMiden/node[^"?#]*\).*|\1|p' "$clone/Cargo.lock" | head -1)
+        node_url="${node_url:-https://github.com/0xMiden/node.git}"
+        ndir="${{ runner.temp }}/miden-node-pin"
+        rm -rf "$ndir"; mkdir -p "$ndir"
+        git -C "$ndir" init -q
+        git -C "$ndir" remote add origin "$node_url"
+        git -C "$ndir" fetch -q --depth 1 origin "$node_rev"
+        git -C "$ndir" checkout -q FETCH_HEAD
+        echo "node source ${node_url} @ ${node_rev} cloned to $ndir"
+
+        # THE STEP THE FIRST ATTEMPT WAS MISSING. Each rewrite is guarded on the exact
+        # line it is about to replace, because a sed that matches nothing succeeds
+        # silently and would hand back a node still demanding the published crates.
+        f="$ndir/Cargo.toml"
+        for c in $NODE_PINNED; do
+          pat="^${c}[[:space:]]*=.*version[[:space:]]*=[[:space:]]*\"=[^\"]*\""
+          line=$(grep -m1 -E "$pat" "$f" || true)
+          if [ -z "$line" ]; then
+            echo "::error title=run-local-node::${node_url}@${node_rev} Cargo.toml has no line matching '${pat}'."
+            echo "::error::The node no longer pins ${c} exactly, or the manifest was reformatted. Re-check the rewrite below before trusting the patch."
+            exit 1
+          fi
+          grep -qF -- "$line" "$f" || {
+            echo "::error title=run-local-node::guard failed for the fixed string '${line}' in $f."
+            exit 1
+          }
+          sed -i -E "s|^(${c}[[:space:]]*=.*version[[:space:]]*=[[:space:]]*\")=[^\"]*\"|\1=${proto_ver}\"|" "$f"
+          grep -qE "^${c}[[:space:]]*=.*version[[:space:]]*=[[:space:]]*\"=${proto_ver}\"" "$f" || {
+            echo "::error title=run-local-node::rewriting ${c} to =${proto_ver} did not take; the line is still '$(grep -m1 -E "^${c}[[:space:]]*=" "$f")'."
+            exit 1
+          }
+        done
+        # Nothing in the protocol family may still demand a version the patch cannot
+        # supply — that is precisely the state that turns the patch into a warning.
+        left=""
+        for c in $PROTO_CRATES; do
+          if grep -qE "^${c}[[:space:]]*=.*version[[:space:]]*=[[:space:]]*\"=" "$f" \
+             && ! grep -qE "^${c}[[:space:]]*=.*version[[:space:]]*=[[:space:]]*\"=${proto_ver}\"" "$f"; then
+            left="$left $c"
+          fi
+        done
+        [ -z "$left" ] || {
+          echo "::error title=run-local-node::exact protocol pins survive the rewrite at another version:${left}"
+          exit 1
+        }
+        echo "::group::$f (protocol requirements)"
+        grep -nE "^(${PROTO_CRATES// /|})[[:space:]]*=" "$f" || true
+        echo "::endgroup::"
+
+        # CARGO_HOME, not <clone>/.cargo/config.toml. `cargo install <crate>` builds an
+        # EPHEMERAL workspace with no directory context, so it never reads the cwd config
+        # hierarchy — verified: a deliberately broken patch in ./.cargo/config.toml is
+        # ignored and the install succeeds, while the same patch in $CARGO_HOME/config.toml
+        # fails it. One config also covers both resolves that matter: the node clone's, and
+        # the miden-client clone's, which is where gen-genesis is built from. Scoped to a
+        # private CARGO_HOME so the patch reaches ONLY those: the note-transport build later
+        # in the job runs `cargo build --locked`, which errors outright on a config patch it
+        # has to resolve around.
+        ch="${{ runner.temp }}/node-cargo-home"
+        rm -rf "$ch"; mkdir -p "$ch"
+        # NO symlinks into this CARGO_HOME, for either registry/ or git/. miden-standards'
+        # build script assembles a MASM workspace from inside its own source directory, and the
+        # loader canonicalises member paths: under a symlinked prefix they no longer share the
+        # workspace root and it dies with "workspace members must be located within the workspace
+        # root". Seen first via git/ (the patched rc.8 checkout) and then, after symlinking only
+        # registry/, via a registry-sourced miden-standards rc.4 pulled in transitively -- same
+        # error, different path. The cost is a cold crates.io fetch for the node build; the
+        # correctness is worth more than the cache.
+        {
+          echo "# Generated by .github/actions/run-local-node. Runner-local; never committed."
+          echo "# Pins the node, the remote prover and gen-genesis to the protocol rev the"
+          echo "# wallet's SDK is built against (${origin}), so the MASM the host supplies"
+          echo "# at execution time hashes to the roots the browser-built accounts carry."
+          echo "[patch.crates-io]"
+          for c in $PROTO_CRATES; do
+            printf '%-26s = { git = "%s", rev = "%s" }\n' "$c" "$url" "$rev"
+          done
+        } > "$ch/config.toml"
+        echo "::group::$ch/config.toml"; cat "$ch/config.toml"; echo "::endgroup::"
+
+        # `cargo install --locked` does not fail on a patch it cannot honour — it
+        # SILENTLY resolves the packaged lockfile and ignores the patch entirely
+        # (verified: exit 0, patched crate never compiled). The install step below does
+        # not go through this line at all, but strip it anyway: if the script's own
+        # "already installed" check ever stops recognising what we installed, this is
+        # the line that would rebuild a stock node behind our back.
+        f="$clone/scripts/start-test-node.sh"
+        needle='cargo install --locked --root'
+        grep -qF -- "$needle" "$f" || {
+          echo "::error title=run-local-node::start-test-node.sh no longer contains '$needle' — the --locked strip matched nothing, so the protocol patch would be silently ignored."
+          exit 1
+        }
+        sed -i "s|$needle|cargo install --root|" "$f"
+        grep -n 'cargo install --root' "$f" || true
+
+        {
+          echo "rev=$rev"
+          echo "url=$url"
+          echo "cache_suffix=-proto$rev"
+          echo "cargo_home=$ch"
+          echo "node_dir=$ndir"
+          echo "node_url=$node_url"
+          echo "node_rev=$node_rev"
+          echo "proto_ver=$proto_ver"
+        } >> "$GITHUB_OUTPUT"
+        echo "Node protocol crates pinned to ${url} @ ${rev} (from ${origin})."
     # Split restore/save rather than `actions/cache`. That action saves from a
     # POST step, and GitHub skips post steps once the job has failed — so the
     # cache could only ever be written by a fully green run. This node takes
@@ -46,12 +276,141 @@ runs:
     # thing preventing it from being populated. Saving here, straight after the
     # build, breaks the cycle — the compile is what's expensive and it has
     # already succeeded, whatever the specs go on to do.
+    #
+    # The protocol rev is in the key, not just in the build: without it a stock
+    # node restores over a patched one and the whole pin is a no-op that looks green.
     - name: Restore node build
       id: node_cache
       uses: actions/cache/restore@v4
       with:
         path: ${{ runner.temp }}/miden-client/target/test-node
-        key: local-node-build-${{ steps.pins.outputs.rev }}-fee${{ inputs.verification-base-fee }}-rust1.96.1
+        key: local-node-build-${{ steps.pins.outputs.rev }}-fee${{ inputs.verification-base-fee }}${{ steps.protocol.outputs.cache_suffix }}-rust1.96.1
+    # Fails in ~2 min instead of after the ~36 min cold build. NOT skipped on a cache
+    # hit: the node binaries are restored, but gen-genesis is not — start-test-node.sh
+    # rebuilds it every run from the miden-client workspace, whose target/release is
+    # outside the cached path. Skipping this there would leave that lockfile on the
+    # published crates, and the chain would start from genesis produced by one protocol
+    # rev and run binaries built from another.
+    - name: Verify the protocol patch resolves
+      if: steps.protocol.outputs.rev != 'none'
+      shell: bash
+      env:
+        CARGO_HOME: ${{ steps.protocol.outputs.cargo_home }}
+        REV: ${{ steps.protocol.outputs.rev }}
+        NODE_DIR: ${{ steps.protocol.outputs.node_dir }}
+      run: |
+        set -euo pipefail
+        crates="miden-protocol miden-standards miden-tx miden-tx-batch miden-block-prover miden-agglayer miden-testing miden-protocol-build-utils"
+        specs=""; for c in $crates; do specs="$specs -p $c"; done
+        # BOTH workspaces, because two different builds have to end up on the same rev:
+        # the node clone produces the four binaries, and the miden-client clone produces
+        # gen-genesis (`cargo build -p test-node-genesis`), i.e. the genesis the chain
+        # starts from. A patched node on stock genesis is still a skewed stack.
+        for ws in "$NODE_DIR" "${{ runner.temp }}/miden-client"; do
+          echo "::group::resolve $ws"
+          cd "$ws"
+          # Resolving rewrites Cargo.lock, which is the artifact worth asserting on.
+          # An unused [patch] is a WARNING with exit 0, so the command succeeding proves
+          # nothing on its own.
+          # `cargo update -p` FIRST, not just a resolve. cargo does a minimal-change resolve, so a
+          # [patch] whose version differs from the locked one is recorded as UNUSED until the crate
+          # is explicitly updated -- cargo says so itself: "If the patch has a different version
+          # from what is locked in the Cargo.lock file, run `cargo update` to use the new version."
+          # Without this every patched run fails the assertion below with the crates at x2: the
+          # registry entry plus the git one.
+          log="${{ runner.temp }}/resolve-$(basename "$ws").log"
+          cargo update $specs 2>&1 | tee "$log"
+          cargo metadata --format-version 1 2>>"$log" >/dev/null
+          echo "::endgroup::"
+          if grep -q 'was not used in the crate graph' "$log"; then
+            echo "::error title=run-local-node::cargo reports an UNUSED [patch.crates-io] entry in $ws:"
+            grep -n 'was not used in the crate graph' "$log" | sed 's/^/::error::  /'
+            echo "::error::An unused patch is a warning with exit 0. It means a requirement the patch cannot satisfy (an exact '=' pin) survived, so this workspace resolves the PUBLISHED protocol crates."
+            exit 1
+          fi
+          bad=""
+          for c in $crates; do
+            # -xF, not a regex: the crate name is embedded in quotes and a hand-escaped
+            # pattern here is exactly the kind of thing that silently matches nothing.
+            key=$(printf 'name = "%s"' "$c")
+            n=$(grep -cxF "$key" Cargo.lock || true)
+            if [ "${n:-0}" -ne 1 ]; then bad="$bad $c(x${n:-0})"; continue; fi
+            src=$(grep -A2 -xF "$key" Cargo.lock | sed -n 's/^source = "\(.*\)"$/\1/p')
+            case "$src" in
+              *"#$REV") ;;
+              *) bad="$bad $c[${src:-<no source>}]" ;;
+            esac
+          done
+          if [ -n "$bad" ]; then
+            echo "::error title=run-local-node::the protocol [patch.crates-io] did not take in $ws:${bad}"
+            echo "::error::Two entries for a crate means the graph carries BOTH the patched and a published copy; a registry source means the patch was never applied. Either way the node would run a different protocol rev from the SDK."
+            exit 1
+          fi
+          echo "protocol patch resolves in $ws: all 8 crates at $REV"
+        done
+    # start-test-node.sh installs the node from crates.io, where the manifest's exact
+    # protocol pins cannot be rewritten. Install from the clone that HAS been rewritten
+    # instead, into the very paths the script uses ($CACHE/install, $CACHE/build), so its
+    # own "already installed" check finds them and it never reaches for crates.io.
+    - name: Install the node binaries from the pinned node source
+      if: steps.protocol.outputs.rev != 'none' && steps.node_cache.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        CARGO_HOME: ${{ steps.protocol.outputs.cargo_home }}
+        NODE_DIR: ${{ steps.protocol.outputs.node_dir }}
+        NODE_URL: ${{ steps.protocol.outputs.node_url }}
+        NODE_REV: ${{ steps.protocol.outputs.node_rev }}
+      run: |
+        set -euo pipefail
+        clone="${{ runner.temp }}/miden-client"
+        install="$clone/target/test-node/install"
+        build="$clone/target/test-node/build"
+        mkdir -p "$install" "$build"
+        cd "$NODE_DIR"
+        # Same four binaries, same profile overrides, as start-test-node.sh's own install.
+        for spec in bin/node:miden-node bin/validator:miden-validator \
+                    bin/ntx-builder:miden-ntx-builder bin/remote-prover:miden-remote-prover; do
+          p="${spec%%:*}"; b="${spec##*:}"
+          echo "::group::cargo install $b (from $NODE_DIR/$p)"
+          CARGO_PROFILE_RELEASE_DEBUG=false CARGO_PROFILE_RELEASE_STRIP=symbols \
+            cargo install --path "$p" --bin "$b" --root "$install" --target-dir "$build" --force
+          echo "::endgroup::"
+        done
+        # `.crates.toml` is how start-test-node.sh decides whether to install, and it
+        # compares against the source its own Cargo.lock names — `(registry+` for a
+        # crates.io pin, a trailing `#<rev>)` for a git one — whereas a --path install
+        # records `(path+file://...)`. Left alone the script would reinstall all four
+        # from that source, UNPATCHED, over the top of these. Rewriting the recorded
+        # source to the one the script expects is what makes its own check honest about
+        # what is on disk; the expectation is DERIVED from the same lockfile the script
+        # reads rather than assumed, and then asserted, because getting it wrong is
+        # silent — the script would simply install a stock node again.
+        meta="$install/.crates.toml"
+        needle='(path+file://'
+        grep -qF -- "$needle" "$meta" || {
+          echo "::error title=run-local-node::$meta contains no '$needle' entry, so the --path installs did not register; the script would reinstall the node from its own pinned source."
+          exit 1
+        }
+        if grep -q '^source = "git+https://github.com/0xMiden/node' "$clone/Cargo.lock"; then
+          src="git+${NODE_URL}?rev=${NODE_REV}#${NODE_REV}"
+          want="#${NODE_REV})"
+        else
+          nodever=$(awk -F'"' '/^name = "miden-node-proto-build"$/ { getline; print $2; exit }' "$clone/Cargo.lock")
+          [ -n "$nodever" ] || { echo "::error title=run-local-node::no miden-node-proto-build version in $clone/Cargo.lock"; exit 1; }
+          src="registry+https://github.com/rust-lang/crates.io-index"
+          want=" $nodever (registry+"
+        fi
+        sed -i "s|(path+file://[^)]*)|($src)|g" "$meta"
+        for b in miden-validator miden-node miden-ntx-builder miden-remote-prover; do
+          [ -x "$install/bin/$b" ] || { echo "::error title=run-local-node::$b was not installed to $install/bin"; exit 1; }
+          grep -F -- "\"$b " "$meta" | grep -qF -- "$want" || {
+            echo "::error title=run-local-node::$meta does not record $b the way start-test-node.sh looks it up (expected to contain '$want')."
+            echo "::error::$(grep -F -- "\"$b " "$meta" || echo '<no entry>')"
+            echo "::error::The script's cached-binaries check would fail and it would reinstall an unpatched node."
+            exit 1
+          }
+        done
+        echo "::group::$meta"; cat "$meta"; echo "::endgroup::"
     - name: Patch prover port 50051 -> 50052
       shell: bash
       # The wallet's localnet remote-prover endpoint is :50052 (the guardian binds :50051);
@@ -118,6 +477,10 @@ runs:
         # The name start-test-node.sh actually reads; MIDEN_TEST_NODE_VERIFICATION_BASE_FEE
         # is read by nothing, so the requested fee never reached genesis.
         MIDEN_VERIFICATION_BASE_FEE: ${{ inputs.verification-base-fee }}
+        # Carries the [patch.crates-io] into the gen-genesis build, so genesis is
+        # generated by the same protocol rev the chain runs.
+        # Resolves to the runner's own ~/.cargo when nothing is pinned, i.e. a no-op.
+        CARGO_HOME: ${{ steps.protocol.outputs.cargo_home }}
       run: |
         cd "${{ runner.temp }}/miden-client"
         # Retried because bring-up has a startup race we do not own. The script
@@ -139,6 +502,45 @@ runs:
         done
         echo "::error::node bring-up failed after 3 attempts"
         exit 1
+    # Direct evidence about the binaries that are now RUNNING, not about a resolve that
+    # happened next to them: cargo writes, for every compiled unit, the absolute path of
+    # every source file it read. A protocol crate under registry/src means the patch
+    # missed that unit. This also covers the cache-hit path, where no install runs at all
+    # and the dep-info restored with the build is the only record of its provenance.
+    - name: Verify the node binaries carry the linked protocol rev
+      if: steps.protocol.outputs.rev != 'none'
+      shell: bash
+      env:
+        REV: ${{ steps.protocol.outputs.rev }}
+      run: |
+        set -euo pipefail
+        deps="${{ runner.temp }}/miden-client/target/test-node/build/release/deps"
+        names='miden-protocol|miden-standards|miden-tx|miden-tx-batch|miden-block-prover|miden-agglayer'
+        if ! compgen -G "$deps/*.d" >/dev/null; then
+          echo "::error title=run-local-node::no dep-info under $deps, so what the node binaries were compiled from cannot be established. Refusing to report a node that may be running published protocol crates."
+          exit 1
+        fi
+        # xargs, not a glob: this directory holds thousands of files.
+        scan() { find "$deps" -name '*.d' -print0 | xargs -0 grep -hoE "$1" | sort -u; }
+        stray=$(scan "registry/src/[^/]+/($names)-[0-9][^/]*" || true)
+        if [ -n "$stray" ]; then
+          echo "::error title=run-local-node::the node binaries were compiled against PUBLISHED protocol crates despite the patch:"
+          printf '::error::  %s\n' $stray
+          exit 1
+        fi
+        ids=$(scan "git/checkouts/[^/]+/[0-9a-f]+/(crates/)?($names)/" \
+              | sed -E 's#git/checkouts/[^/]+/([0-9a-f]+)/.*#\1#' | sort -u || true)
+        if [ -z "$ids" ]; then
+          echo "::error title=run-local-node::no git-sourced protocol crate in the node build; the patch never reached the install."
+          exit 1
+        fi
+        for id in $ids; do
+          case "$REV" in
+            "$id"*) ;;
+            *) echo "::error title=run-local-node::node compiled protocol sources from git checkout '$id', which is not a prefix of the pinned rev $REV"; exit 1 ;;
+          esac
+        done
+        echo "node binaries built from protocol @ $REV (git checkouts: $ids)"
     # Assert the chain came up with the fee that was asked for. Without this the single
     # most consequential property of the run is invisible: a suite that believes it is
     # proving fee behaviour passes on a fee-free chain and reports green.
@@ -183,7 +585,7 @@ runs:
       uses: actions/cache/save@v4
       with:
         path: ${{ runner.temp }}/miden-client/target/test-node
-        key: local-node-build-${{ steps.pins.outputs.rev }}-fee${{ inputs.verification-base-fee }}-rust1.96.1
+        key: local-node-build-${{ steps.pins.outputs.rev }}-fee${{ inputs.verification-base-fee }}${{ steps.protocol.outputs.cache_suffix }}-rust1.96.1
     # start-test-node.sh fails with "a node service exited; see <dir>/logs" and then
     # exits, so the logs it points at are discarded with the runner. That turns any
     # bring-up failure into an unactionable red X — dump them here instead.
