@@ -1,6 +1,6 @@
 import { truncateAddress } from 'utils/string';
 
-import { groupActivity, UNKNOWN_GROUP_ID, WALLET_GROUP_ID } from './activity-grouping';
+import { UNKNOWN_GROUP_ID, WALLET_GROUP_ID, groupActivity, groupIdForAddress } from './activity-grouping';
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
 
 const ALICE = 'mtst1apfq9x7k2m4n6p8r0t2v4w6y8z1b3d5f7h9j';
@@ -345,5 +345,29 @@ describe('groupActivity — ranking by what needs doing', () => {
     ]);
 
     expect(groups.map(g => g.address)).toEqual([ALICE, BOB]);
+  });
+});
+
+/**
+ * `handleClaimActivityGroup` scopes its batch with exactly this mapping, so a
+ * Claim tapped inside one conversation can only ever consume the notes that
+ * conversation counted. These are the properties that has to rest on.
+ */
+describe('groupIdForAddress — the claim scope', () => {
+  it('never puts two different senders in the same group', () => {
+    expect(groupIdForAddress(ALICE)).not.toBe(groupIdForAddress(BOB));
+  });
+
+  it('files a sender-less note under the unattributed group rather than dropping it', () => {
+    // Otherwise the one group that exists *because* we could not attribute it
+    // would be the one group with no way to act.
+    expect(groupIdForAddress(undefined)).toBe(UNKNOWN_GROUP_ID);
+    expect(groupIdForAddress('')).toBe(UNKNOWN_GROUP_ID);
+  });
+
+  it('agrees with the id an entry from the same counterparty gets', () => {
+    const [group] = groupActivity([entry({ key: 'a1', timestamp: 1, secondaryAddress: ALICE })]);
+
+    expect(groupIdForAddress(ALICE)).toBe(group!.id);
   });
 });
