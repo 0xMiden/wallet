@@ -4460,5 +4460,103 @@
   "devEndpointResetConfirm": {
     "message": "这将永久删除该钱包，包括您的密钥和交易记录。您需要使用恢复短语才能将其恢复。",
     "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
+  },
+  "activityGroupedView": {
+    "message": "分组",
+    "englishSource": "Grouped"
+  },
+  "activityTimeView": {
+    "message": "按时间排序",
+    "englishSource": "By time"
+  },
+  "activityViewByGroup": {
+    "message": "按联系人或应用分组",
+    "englishSource": "Group by contact or app"
+  },
+  "activityViewByTime": {
+    "message": "按最新排序",
+    "englishSource": "Show newest first"
+  },
+  "activityUnknownGroup": {
+    "message": "其他活动",
+    "englishSource": "Other activity"
+  },
+  "activityUnknownGroupSubtitle": {
+    "message": "未记录发件人或收件人",
+    "englishSource": "No sender or recipient recorded"
+  },
+  "activityGroupPendingClaims": {
+    "message": "$count$ 申领",
+    "englishSource": "$count$ to claim",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "activityGroupEmpty": {
+    "message": "尚无分组活动",
+    "englishSource": "No grouped activity yet"
+  },
+  "activityGroupEmptyDescription": {
+    "message": "一旦您与他人进行交易或使用应用程序，相关记录都会显示在此处。",
+    "englishSource": "Once you transact with someone or use an app, it shows up here."
+  },
+  "activityGroupNoTransactions": {
+    "message": "目前此处尚无内容——只有待领取的资产。",
+    "englishSource": "Nothing here yet — only something to claim."
+  },
+  "activityDapp": {
+    "message": "App",
+    "englishSource": "App"
+  },
+  "activityContact": {
+    "message": "联系",
+    "englishSource": "Contact"
+  },
+  "activityBridgeGroup": {
+    "message": "桥接",
+    "englishSource": "Bridge"
+  },
+  "activityWalletGroup": {
+    "message": "钱包",
+    "englishSource": "Wallet"
+  },
+  "activityWalletGroupSubtitle": {
+    "message": "账户安全与恢复",
+    "englishSource": "Account security and recovery"
+  },
+  "activityActionWaiting": {
+    "message": "期待您的到来",
+    "englishSource": "Waiting for you"
+  },
+  "activityActionCount": {
+    "message": "$count$ 等待",
+    "englishSource": "$count$ waiting",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "activityFilterAll": {
+    "message": "全部",
+    "englishSource": "All"
+  },
+  "activityFilterPeople": {
+    "message": "人物",
+    "englishSource": "People"
+  },
+  "activityFilterApps": {
+    "message": "应用程序",
+    "englishSource": "Apps"
+  },
+  "earn": {
+    "message": "赚取",
+    "englishSource": "Earn"
+  },
+  "yesterday": {
+    "message": "昨天",
+    "englishSource": "Yesterday"
   }
 }
