@@ -45,7 +45,7 @@ concurrency:
 jobs:
   stress-conservation:
     name: Stress + balance conservation (localnet)
-    runs-on: ubuntu-latest
+    runs-on: warp-ubuntu-latest-x64-8x
     # Stack bring-up + CLI + extension build (~20 min cold) plus the run itself.
     timeout-minutes: 90
     env:

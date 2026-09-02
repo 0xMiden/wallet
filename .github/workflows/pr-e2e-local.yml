@@ -28,7 +28,7 @@ jobs:
             specs: "playwright/e2e/tests/send-private.spec.ts playwright/e2e/tests/recall-reclaim.spec.ts"
     name: local-e2e (chrome)${{ matrix.name_suffix }}
     # 2 vCPUs is adequate here — see the measurements in pr-e2e-earn.yml.
-    runs-on: ubuntu-latest
+    runs-on: warp-ubuntu-latest-x64-8x
     # Cold-cache runs compile the local 0.16 node from source (~28m) + miden-client-cli
     # (~8m) + note-transport (~5m) before any spec runs; warm-cache runs are ~20m. The
     # node-build cache is warmed on `next` (warm-node-cache.yml) so PRs branch off a

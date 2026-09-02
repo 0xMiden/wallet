@@ -26,7 +26,7 @@ jobs:
     # here was wrong: at this log level the prover emits only the
     # `Generated execution traces` INFO line, and it emitted one for each request
     # INCLUDING the two that succeeded.
-    runs-on: ubuntu-latest
+    runs-on: warp-ubuntu-latest-x64-8x
     # 120 rather than 60/75: while this branch carries `Client PR:` / `Web SDK PR:` /
     # `Guardian PR:` markers, the suite builds the miden-client CLI and the node from
     # source. That is a cold cargo build the pin-keyed cache cannot serve until one run

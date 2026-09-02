@@ -34,7 +34,7 @@ jobs:
   guardian-lifecycle-e2e:
     name: guardian-lifecycle-e2e (chrome)
     # 2 vCPUs is adequate here — see the measurements in pr-e2e-earn.yml.
-    runs-on: ubuntu-latest
+    runs-on: warp-ubuntu-latest-x64-8x
     # Stress scenarios (kill/reopen, guardian-fault injection, A->B->A repeat)
     # are heavier than the Tier-2 happy-path spec; sized like the other
     # dedicated single-purpose e2e jobs (swap/earn/bridge-guardian) rather

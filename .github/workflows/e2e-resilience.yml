@@ -25,7 +25,7 @@ permissions:
 jobs:
   resilience-chrome:
     name: infra-resilience-e2e (chrome)
-    runs-on: ubuntu-latest
+    runs-on: warp-ubuntu-latest-x64-8x
     # Cold-cache runs compile miden-client-cli (~8m) + note-transport (~5m);
     # warm-cache runs are ~20m. The fault suite adds guardian bring-up + more
     # specs, so 60m gives headroom over pr-e2e-local's 45m.

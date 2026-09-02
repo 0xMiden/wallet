@@ -67,7 +67,7 @@ concurrency:
 jobs:
   android-e2e:
     name: Android E2E (${{ github.event.inputs.network || 'testnet' }})
-    runs-on: ubuntu-latest
+    runs-on: warp-ubuntu-latest-x64-8x
     # Two emulator boots + an APK assemble + a live-chain spec.
     timeout-minutes: 60
     env:

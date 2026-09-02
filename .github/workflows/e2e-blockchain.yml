@@ -83,7 +83,7 @@ jobs:
     # below knows. workflow_dispatch still runs it; closing #797 reverts.
     if: >-
       ${{ github.event_name == 'workflow_dispatch' && (inputs.network == 'both' || inputs.network == 'devnet') }}
-    runs-on: ubuntu-latest
+    runs-on: warp-ubuntu-latest-x64-8x
     timeout-minutes: 60
     env:
       E2E_NETWORK: devnet
@@ -179,7 +179,7 @@ jobs:
     if: >-
       ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main')
       || (github.event_name == 'workflow_dispatch' && (inputs.network == 'both' || inputs.network == 'testnet')) }}
-    runs-on: ubuntu-latest
+    runs-on: warp-ubuntu-latest-x64-8x
     timeout-minutes: 60
     env:
       E2E_NETWORK: testnet
@@ -335,7 +335,7 @@ jobs:
     # how the un-quarantine gets verified when closing #797.
     if: >-
       ${{ github.event_name == 'workflow_dispatch' && (inputs.network == 'both' || inputs.network == 'devnet') }}
-    runs-on: ubuntu-latest
+    runs-on: warp-ubuntu-latest-x64-8x
     timeout-minutes: 60
     env:
       E2E_NETWORK: devnet
@@ -420,7 +420,7 @@ jobs:
     if: >-
       ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main')
       || (github.event_name == 'workflow_dispatch' && (inputs.network == 'both' || inputs.network == 'testnet')) }}
-    runs-on: ubuntu-latest
+    runs-on: warp-ubuntu-latest-x64-8x
     timeout-minutes: 60
     env:
       E2E_NETWORK: testnet

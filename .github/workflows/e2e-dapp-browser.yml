@@ -175,7 +175,7 @@ jobs:
 
   android-dapp-browser:
     name: dApp Browser (Android)
-    runs-on: ubuntu-latest
+    runs-on: warp-ubuntu-latest-x64-8x
     timeout-minutes: 60
     env:
       E2E_NETWORK: testnet

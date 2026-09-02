@@ -20,7 +20,7 @@ jobs:
   bridge-guardian-e2e:
     name: bridge-guardian-e2e (chrome)
     # 2 vCPUs is adequate here — see the measurements in pr-e2e-earn.yml.
-    runs-on: ubuntu-latest
+    runs-on: warp-ubuntu-latest-x64-8x
     # 120 rather than 60/75: while this branch carries `Client PR:` / `Web SDK PR:` /
     # `Guardian PR:` markers, the suite builds the miden-client CLI and the node from
     # source. That is a cold cargo build the pin-keyed cache cannot serve until one run
