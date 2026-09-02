@@ -118,7 +118,7 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
         group list by "Sent" would hide rows on a property they don't have.
       */}
       {view === 'time' && (
-        <div className="shrink-0 px-4 py-3 flex items-center gap-2 overflow-x-auto no-scrollbar">
+        <div className="shrink-0 px-4 pt-3 flex items-center gap-2 overflow-x-auto no-scrollbar">
           {filters.map(f => {
             const isActive = f.id === filter;
             return (
@@ -141,8 +141,13 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
         </div>
       )}
 
-      <div className="shrink-0 px-4">
-        <SearchInput value={search} onChange={setSearch} placeholder={t('searchByNameOrSymbol')} />
+      {/*
+        Own vertical rhythm rather than inheriting the chip row's bottom padding —
+        that coupling left the field flush against the header rule the moment the
+        chips stopped rendering in grouped view.
+      */}
+      <div className="shrink-0 px-4 pt-3 pb-1">
+        <SearchInput size="sm" value={search} onChange={setSearch} placeholder={t('searchByNameOrSymbol')} />
       </div>
 
       {pendingNotesCount > 0 && (
