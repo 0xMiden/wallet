@@ -8,6 +8,7 @@ import { CardItem } from 'components/CardItem';
 import { hapticLight } from 'lib/mobile/haptics';
 
 import { ActivityGroup } from './activity-grouping';
+import { formatRelativeDay } from './transactionUtils';
 
 /**
  * The glyph that stands in for a group with no identicon behind it.
@@ -43,6 +44,28 @@ function glyphForGroup(group: ActivityGroup): IconName | undefined {
       return IconName.Users;
     default:
       return undefined;
+  }
+}
+
+/**
+ * Tile accent, taken from the same variables the chronological feed paints on
+ * its transaction glyphs — a swap group and a swap row should read as the same
+ * thing seen two ways, not as two unrelated palettes.
+ *
+ * The synthetic kinds stay neutral: they are containers, not activity, and
+ * colouring them would give them a weight the ranking deliberately denies them.
+ */
+function tileAccentForGroup(group: ActivityGroup): string {
+  switch (group.protocol) {
+    case 'swap':
+      return 'var(--tx-swap)';
+    case 'earn':
+    case 'bridge':
+      return 'var(--tx-earn)';
+    case 'faucet':
+      return 'var(--tx-faucet)';
+    default:
+      return '#9E9E9E';
   }
 }
 
@@ -109,8 +132,20 @@ export const ActivityGroupList: FC<ActivityGroupListProps> = ({ groups, onOpenGr
               title={title}
               subtitle={subtitle}
               iconLeft={
+                // A tile rather than a bare glyph: contact rows carry an
+                // identicon square, so an uncontained outline icon beside them
+                // reads as a different kind of list item entirely. Tinted rather
+                // than saturated, because these glyphs ship with their own
+                // colours — `convert.svg` is stroked in the very lavender a
+                // saturated swap tile would use, so a white-glyph treatment
+                // renders it invisible against its own background.
                 glyph ? (
-                  <Icon name={glyph} className="w-5 h-5" fill="currentColor" />
+                  <div
+                    className="w-8.5 h-8.5 rounded-10 flex items-center justify-center"
+                    style={{ backgroundColor: `color-mix(in srgb, ${tileAccentForGroup(group)} 20%, transparent)` }}
+                  >
+                    <Icon name={glyph} className="w-4.5 h-4.5 text-heading-gray" fill="currentColor" />
+                  </div>
                 ) : (
                   <Avatar size="md" identiconPublicKey={group.address} />
                 )
@@ -125,6 +160,10 @@ export const ActivityGroupList: FC<ActivityGroupListProps> = ({ groups, onOpenGr
                   </span>
                 ) : undefined
               }
+              // Every row terminates in something, so the eye has a right edge
+              // to track. `latestAt` is 0 for a group that exists only because
+              // of an outstanding action — there is no event to date it by yet.
+              subtitleRight={group.latestAt > 0 ? formatRelativeDay(group.latestAt, t('yesterday')) : undefined}
               onClick={() => {
                 hapticLight();
                 onOpenGroup(group);
