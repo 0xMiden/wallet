@@ -173,7 +173,7 @@ async function fetchTransactionsAsHistoryEntries(
   tokenId?: string
 ): Promise<IHistoryEntry[]> {
   const transactions = await getCompletedTransactions(address, offset, limit, true, tokenId);
-  const visibleTransactions = await suppressLinkedConsumes(transactions);
+  const visibleTransactions = await suppressLinkedConsumes(suppressSupersededFailedConsumes(transactions));
   const entries = visibleTransactions.map(async tx => {
     const isCancelled = isUserCancelledTransaction(tx.error);
     const updateMessageForFailed = isCancelled
@@ -330,6 +330,27 @@ async function suppressLinkedConsumes<T extends ITransaction>(transactions: T[])
     const linkedId = linkedPrimaryTxId(tx);
     return !(linkedId && suppressingIds.has(linkedId));
   });
+}
+
+function suppressSupersededFailedConsumes<T extends ITransaction>(transactions: T[]): T[] {
+  const completedConsumeNoteIds = new Set<string>();
+  for (const tx of transactions) {
+    if (tx.type !== 'consume' || tx.status !== ITransactionStatus.Completed) continue;
+    for (const noteId of consumeNoteIds(tx)) {
+      completedConsumeNoteIds.add(noteId);
+    }
+  }
+
+  if (completedConsumeNoteIds.size === 0) return transactions;
+
+  return transactions.filter(tx => {
+    if (tx.type !== 'consume' || tx.status !== ITransactionStatus.Failed) return true;
+    return consumeNoteIds(tx).every(noteId => !completedConsumeNoteIds.has(noteId));
+  });
+}
+
+function consumeNoteIds(tx: ITransaction): string[] {
+  return tx.noteIds ?? (tx.noteId ? [tx.noteId] : (tx.inputNoteIds ?? []));
 }
 
 /**

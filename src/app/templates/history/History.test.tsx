@@ -363,6 +363,58 @@ describe('History', () => {
     await waitFor(() => expect(view.getAttribute('data-initial-loading')).toBe('false'));
   });
 
+  it('hides failed consume rows once the same note was later consumed successfully', async () => {
+    mockGetCompletedTransactions.mockImplementation(async (_addr: string, offset?: number) =>
+      offset === undefined
+        ? [
+            {
+              id: 'failed-receive',
+              status: STATUS.Failed,
+              displayMessage: 'Failed',
+              displayIcon: 'FAILED',
+              faucetId: 'fa1',
+              type: 'consume',
+              amount: 100n,
+              completedAt: 1000,
+              noteId: 'note-a',
+              noteIds: ['note-a']
+            },
+            {
+              id: 'received',
+              status: STATUS.Completed,
+              displayMessage: 'Received',
+              displayIcon: 'RECEIVE',
+              faucetId: 'fa1',
+              type: 'consume',
+              amount: 100n,
+              completedAt: 2000,
+              noteId: 'note-a',
+              noteIds: ['note-a']
+            },
+            {
+              id: 'still-failed',
+              status: STATUS.Failed,
+              displayMessage: 'Failed',
+              displayIcon: 'FAILED',
+              faucetId: 'fa1',
+              type: 'consume',
+              amount: 50n,
+              completedAt: 900,
+              noteId: 'note-b',
+              noteIds: ['note-b']
+            }
+          ]
+        : []
+    );
+    mockGetUncompletedTransactions.mockResolvedValue([]);
+
+    await renderHistory();
+
+    await waitFor(() => expect(entryKeys()).toEqual(['completed-received', 'completed-still-failed']));
+    expect(screen.queryByText(/completed-failed-receive/)).toBeNull();
+    expect(screen.getByText(/completed-still-failed\|Transaction failed/)).toBeTruthy();
+  });
+
   it('filters by searchQuery across message, token and secondaryAddress (case-insensitive), skipping blank queries', async () => {
     const { rerender } = await renderHistory();
     const doRerender = async (props: Record<string, unknown>) => {
