@@ -155,6 +155,8 @@ jobs:
           done
           exit 1
       - name: Start note-transport
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: playwright/e2e/local-stack/run-note-transport.sh
       - name: Build extension (localnet)
         # E2E_NETWORK=localhost bakes MIDEN_NETWORK=localhost AND (always, per

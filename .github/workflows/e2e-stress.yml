@@ -128,6 +128,8 @@ jobs:
       # so `create_wallets` timed out with accountCount: 0 on both wallets,
       # before a single stress iteration.
       - name: Start note-transport
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: playwright/e2e/local-stack/run-note-transport.sh
       - name: Build extension
         run: yarn test:e2e:blockchain:build

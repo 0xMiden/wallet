@@ -142,6 +142,8 @@ jobs:
         # `--note-transport-endpoint` from the localhost env. Without this service
         # the minted collateral never reaches the wallet balance and funding hangs.
         # (Guardian co-signer is still omitted — earn needs no co-signing.)
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: playwright/e2e/local-stack/run-note-transport.sh
       - name: Build extension (localnet)
         run: yarn test:e2e:blockchain:build

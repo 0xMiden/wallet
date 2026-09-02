@@ -138,6 +138,8 @@ jobs:
       - name: Start note-transport
         # The CLI-minted token + the P2IDE collateral note reach / are discovered
         # by the wallet through the note-transport relay; without it funding hangs.
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: playwright/e2e/local-stack/run-note-transport.sh
       - name: Build extension (localnet)
         run: yarn test:e2e:blockchain:build
