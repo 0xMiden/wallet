@@ -26,6 +26,8 @@ import { ReviewTransaction } from 'screens/send-flow/ReviewTransaction';
 import { SendFlow } from 'screens/send-flow/SendManager';
 import { SwapFlow } from 'screens/swap-flow/SwapManager';
 
+import AddAccountGuardian from './pages/AddAccountGuardian';
+import AddAccountPrivateRisk from './pages/AddAccountPrivateRisk';
 import AllHistory from './pages/AllHistory';
 import BridgeDeposit from './pages/BridgeDeposit';
 import Browser from './pages/Browser';
@@ -194,6 +196,22 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
     onlyReady(() => (
       <FullScreenPage>
         <PendingNotes />
+      </FullScreenPage>
+    ))
+  ],
+  [
+    '/add-account/guardian',
+    onlyReady(() => (
+      <FullScreenPage>
+        <AddAccountGuardian />
+      </FullScreenPage>
+    ))
+  ],
+  [
+    '/add-account/private',
+    onlyReady(() => (
+      <FullScreenPage>
+        <AddAccountPrivateRisk />
       </FullScreenPage>
     ))
   ],

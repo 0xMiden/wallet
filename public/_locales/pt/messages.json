@@ -824,6 +824,10 @@
     "message": "Editar nome da conta",
     "englishSource": "Edit Account Name"
   },
+  "invalidAccountName": {
+    "message": "Use de 1 a 16 caracteres, não comece com espaço ou hífen e escolha um nome exclusivo.",
+    "englishSource": "Use 1–16 characters, don't start with a space or hyphen, and choose a unique name."
+  },
   "delegate": {
     "message": "Delegado",
     "englishSource": "Delegate"
@@ -2958,6 +2962,84 @@
     "message": "Use uma URL personalizada do tipo Guardian",
     "englishSource": "Use a custom Guardian URL"
   },
+  "guardianEndpointStepTitle": {
+    "message": "Você usa um “Guardian”?",
+    "englishSource": "Do you use a Guardian?"
+  },
+  "guardianEndpointStepDescription": {
+    "message": "Contas públicas são sempre restauradas a partir da rede. Se alguma de suas contas for mantida pelguardian, confirme o operador para que possamos restaurá-la também.",
+    "englishSource": "Public accounts are always restored from the network. If any of your accounts are guardian-backed, confirm the operator so we can restore those too."
+  },
+  "noGuardianSkip": {
+    "message": "Eu não uso um Guardian",
+    "englishSource": "I don't use a Guardian"
+  },
+  "noAccountsFoundForSeed": {
+    "message": "Não foram encontradas contas para este endereço seed phrase. Verifique o endereço seed phrase e o operador guardian e tente novamente.",
+    "englishSource": "No accounts were found for this seed phrase. Check the seed phrase and the guardian operator, then try again."
+  },
+  "recoveredAccountsTitle": {
+    "message": "Contas recuperadas",
+    "englishSource": "Recovered Accounts"
+  },
+  "recoveredAccountsSubtitle": {
+    "message": "Encontramos uma ou mais cont$count$ para seu endereço seed phrase. Contas locais totalmente privadas não deixam rastros na cadeia de blocos e não podem ser descobertas.",
+    "englishSource": "We found $count$ account(s) for your seed phrase. Fully private local accounts have no on-chain footprint and can't be discovered.",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "accountBadgePublic": {
+    "message": "Público",
+    "englishSource": "Public"
+  },
+  "accountBadgeGuardian": {
+    "message": "Guardian",
+    "englishSource": "Guardian"
+  },
+  "accountBadgePrivate": {
+    "message": "Privado",
+    "englishSource": "Private"
+  },
+  "iHaveMoreAccounts": {
+    "message": "Tenho mais contas",
+    "englishSource": "I have more accounts"
+  },
+  "howManyMoreAccounts": {
+    "message": "Quantos outros ainda devemos procurar?",
+    "englishSource": "How many more should we search for?"
+  },
+  "searchForAccounts": {
+    "message": "Pesquisar",
+    "englishSource": "Search"
+  },
+  "scanningForAccounts": {
+    "message": "Pesquisando contas…",
+    "englishSource": "Searching for accounts…"
+  },
+  "noAdditionalAccountsFound": {
+    "message": "Nenhuma conta adicional foi encontrada.",
+    "englishSource": "No additional accounts were found."
+  },
+  "foundAdditionalAccounts": {
+    "message": "Encontrada(s) uma(s) conta(s) adicional(is) n$count$.",
+    "englishSource": "Found $count$ additional account(s).",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "restoreExistingAccount": {
+    "message": "Restaurar conta existente",
+    "englishSource": "Restore existing account"
+  },
+  "restoreExistingAccountDescription": {
+    "message": "Pesquise na rede e no seu guardian para encontrar mais contas deste seed phrase",
+    "englishSource": "Search the network and your guardian for more accounts from this seed phrase"
+  },
   "default": {
     "message": "Padrão",
     "englishSource": "Default"
@@ -3301,6 +3383,90 @@
   "addAccountComingSoon": {
     "message": "Adicionar conta (em breve)",
     "englishSource": "Add Account (Coming Soon)"
+  },
+  "switchAccount": {
+    "message": "Trocar de conta",
+    "englishSource": "Switch account"
+  },
+  "balanceCardAccountChip": {
+    "message": "$name$ · $number$",
+    "englishSource": "$name$ · $number$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      },
+      "number": {
+        "content": "$2"
+      }
+    }
+  },
+  "accountTypePrivate": {
+    "message": "Privado",
+    "englishSource": "Private"
+  },
+  "accountTypePrivateDescription": {
+    "message": "Saldos e atividades permanecem fora da blockchain, visíveis apenas para você",
+    "englishSource": "Balances and activity stay off-chain, visible only to you"
+  },
+  "accountTypePublic": {
+    "message": "Público",
+    "englishSource": "Public"
+  },
+  "accountTypePublicDescription": {
+    "message": "O estado da conta fica na blockchain e é visível publicamente",
+    "englishSource": "Account state lives on-chain and is publicly visible"
+  },
+  "accountTypeGuardian": {
+    "message": "Guardian - privado lastreado",
+    "englishSource": "Guardian-backed private"
+  },
+  "accountTypeGuardianDescription": {
+    "message": "Conta privada coassinada por um operador do Guardian para recuperação",
+    "englishSource": "Private account co-signed by a Guardian operator for recovery"
+  },
+  "iUnderstand": {
+    "message": "Entendi",
+    "englishSource": "I understand"
+  },
+  "useGuardianInstead": {
+    "message": "Use um “Guardian” em vez disso",
+    "englishSource": "Use a Guardian instead"
+  },
+  "localRiskStepCounter": {
+    "message": "$current$ de $total$",
+    "englishSource": "$current$ of $total$",
+    "placeholders": {
+      "current": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      }
+    }
+  },
+  "localRiskStep1Title": {
+    "message": "Esta conta existe apenas neste dispositivo",
+    "englishSource": "This account lives only on this device"
+  },
+  "localRiskStep1Body": {
+    "message": "Se você perder este dispositivo ou excluir o aplicativo, a Miden não poderá recuperar o estado privado desta conta.",
+    "englishSource": "If you lose this device or delete the app, Miden cannot recover this account's private state."
+  },
+  "localRiskStep2Title": {
+    "message": "Sua conta “seed phrase” não é suficiente",
+    "englishSource": "Your seed phrase is not enough"
+  },
+  "localRiskStep2Body": {
+    "message": "Uma conta totalmente local não pode ser restaurada apenas a partir do seu seed phrase. Seu estado existe apenas neste dispositivo — seus fundos estariam perdidos permanentemente, mesmo que o seed phrase estivesse salvo.",
+    "englishSource": "A fully local account cannot be restored from your seed phrase alone. Its state exists only on this device — your funds would be permanently lost even with the seed phrase saved."
+  },
+  "localRiskStep3Title": {
+    "message": "Ninguém pode ajudá-lo a recuperá-lo",
+    "englishSource": "No one can help you recover it"
+  },
+  "localRiskStep3Body": {
+    "message": "Não há nenhum co-signatário Guardian para esta conta. Ninguém — incluindo a Miden — pode restaurar o acesso caso este dispositivo seja perdido.",
+    "englishSource": "There is no Guardian co-signer for this account. No one — including Miden — can restore access if this device is gone."
   },
   "faucetIdUpdated": {
     "message": "Faucet ID atualizado",

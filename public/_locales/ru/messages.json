@@ -824,6 +824,10 @@
     "message": "Изменить название учетной записи",
     "englishSource": "Edit Account Name"
   },
+  "invalidAccountName": {
+    "message": "Используйте от 1 до 16 символов, не начинайте с пробела или дефиса и выбирайте уникальное имя.",
+    "englishSource": "Use 1–16 characters, don't start with a space or hyphen, and choose a unique name."
+  },
   "delegate": {
     "message": "Делегат",
     "englishSource": "Delegate"
@@ -2958,6 +2962,84 @@
     "message": "Используйте настраиваемый URL-адрес Guardian",
     "englishSource": "Use a custom Guardian URL"
   },
+  "guardianEndpointStepTitle": {
+    "message": "Используете ли вы «Guardian»?",
+    "englishSource": "Do you use a Guardian?"
+  },
+  "guardianEndpointStepDescription": {
+    "message": "Публичные счета всегда восстанавливаются из сети. Если какие-либо из ваших счетов обеспечены токенами guardian, подтвердите оператора, чтобы мы могли восстановить и их.",
+    "englishSource": "Public accounts are always restored from the network. If any of your accounts are guardian-backed, confirm the operator so we can restore those too."
+  },
+  "noGuardianSkip": {
+    "message": "Я не использую Guardian",
+    "englishSource": "I don't use a Guardian"
+  },
+  "noAccountsFoundForSeed": {
+    "message": "Учетных записей для этого адреса seed phrase не найдено. Проверьте адрес seed phrase и оператора guardian, затем попробуйте ещё раз.",
+    "englishSource": "No accounts were found for this seed phrase. Check the seed phrase and the guardian operator, then try again."
+  },
+  "recoveredAccountsTitle": {
+    "message": "Восстановленные учетные записи",
+    "englishSource": "Recovered Accounts"
+  },
+  "recoveredAccountsSubtitle": {
+    "message": "Мы обнаружили один или несколько счетов $count$ для вашего адреса seed phrase. Полностью приватные локальные счета не оставляют следов в цепочке блоков и не могут быть обнаружены.",
+    "englishSource": "We found $count$ account(s) for your seed phrase. Fully private local accounts have no on-chain footprint and can't be discovered.",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "accountBadgePublic": {
+    "message": "Публичный",
+    "englishSource": "Public"
+  },
+  "accountBadgeGuardian": {
+    "message": "Guardian",
+    "englishSource": "Guardian"
+  },
+  "accountBadgePrivate": {
+    "message": "Частное",
+    "englishSource": "Private"
+  },
+  "iHaveMoreAccounts": {
+    "message": "У меня есть ещё несколько счетов",
+    "englishSource": "I have more accounts"
+  },
+  "howManyMoreAccounts": {
+    "message": "Сколько ещё таких терминов нам следует найти?",
+    "englishSource": "How many more should we search for?"
+  },
+  "searchForAccounts": {
+    "message": "Поиск",
+    "englishSource": "Search"
+  },
+  "scanningForAccounts": {
+    "message": "Поиск счетов…",
+    "englishSource": "Searching for accounts…"
+  },
+  "noAdditionalAccountsFound": {
+    "message": "Дополнительных учетных записей не обнаружено.",
+    "englishSource": "No additional accounts were found."
+  },
+  "foundAdditionalAccounts": {
+    "message": "Обнаружено $count$ дополнительный(ые) счёт(а).",
+    "englishSource": "Found $count$ additional account(s).",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "restoreExistingAccount": {
+    "message": "Восстановить существующий аккаунт",
+    "englishSource": "Restore existing account"
+  },
+  "restoreExistingAccountDescription": {
+    "message": "Проведите поиск в сети и на сайте guardian, чтобы найти другие аккаунты этого пользователя seed phrase",
+    "englishSource": "Search the network and your guardian for more accounts from this seed phrase"
+  },
   "default": {
     "message": "По умолчанию",
     "englishSource": "Default"
@@ -3301,6 +3383,90 @@
   "addAccountComingSoon": {
     "message": "Добавить аккаунт (скоро будет доступно)",
     "englishSource": "Add Account (Coming Soon)"
+  },
+  "switchAccount": {
+    "message": "Сменить аккаунт",
+    "englishSource": "Switch account"
+  },
+  "balanceCardAccountChip": {
+    "message": "$name$ · $number$",
+    "englishSource": "$name$ · $number$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      },
+      "number": {
+        "content": "$2"
+      }
+    }
+  },
+  "accountTypePrivate": {
+    "message": "Частное",
+    "englishSource": "Private"
+  },
+  "accountTypePrivateDescription": {
+    "message": "Балансы и операция остаются вне цепочки и видны только вам",
+    "englishSource": "Balances and activity stay off-chain, visible only to you"
+  },
+  "accountTypePublic": {
+    "message": "Публичный",
+    "englishSource": "Public"
+  },
+  "accountTypePublicDescription": {
+    "message": "Состояние счёта хранится в цепочке и доступно для общего просмотра",
+    "englishSource": "Account state lives on-chain and is publicly visible"
+  },
+  "accountTypeGuardian": {
+    "message": "Guardian -поддержанный частный",
+    "englishSource": "Guardian-backed private"
+  },
+  "accountTypeGuardianDescription": {
+    "message": "Личный аккаунт, соподписанный оператором Guardian для восстановления доступа",
+    "englishSource": "Private account co-signed by a Guardian operator for recovery"
+  },
+  "iUnderstand": {
+    "message": "Я понимаю",
+    "englishSource": "I understand"
+  },
+  "useGuardianInstead": {
+    "message": "Вместо этого используйте «Guardian»",
+    "englishSource": "Use a Guardian instead"
+  },
+  "localRiskStepCounter": {
+    "message": "$current$ $total$",
+    "englishSource": "$current$ of $total$",
+    "placeholders": {
+      "current": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      }
+    }
+  },
+  "localRiskStep1Title": {
+    "message": "Эта учетная запись существует только на этом устройстве",
+    "englishSource": "This account lives only on this device"
+  },
+  "localRiskStep1Body": {
+    "message": "Если вы потеряете это устройство или удалите приложение, Miden не сможет восстановить конфиденциальные данные этой учетной записи.",
+    "englishSource": "If you lose this device or delete the app, Miden cannot recover this account's private state."
+  },
+  "localRiskStep2Title": {
+    "message": "Вашего адреса seed phrase недостаточно",
+    "englishSource": "Your seed phrase is not enough"
+  },
+  "localRiskStep2Body": {
+    "message": "Полностью локальную учетную запись невозможно восстановить только с помощью файла seed phrase. Её состояние существует исключительно на этом устройстве — ваши средства будут безвозвратно утрачены, даже если файл seed phrase сохранен.",
+    "englishSource": "A fully local account cannot be restored from your seed phrase alone. Its state exists only on this device — your funds would be permanently lost even with the seed phrase saved."
+  },
+  "localRiskStep3Title": {
+    "message": "Никто не сможет помочь вам вернуть их",
+    "englishSource": "No one can help you recover it"
+  },
+  "localRiskStep3Body": {
+    "message": "Для этого аккаунта нет соавтора с адресом Guardian. Никто — включая Miden — не сможет восстановить доступ, если это устройство будет утеряно.",
+    "englishSource": "There is no Guardian co-signer for this account. No one — including Miden — can restore access if this device is gone."
   },
   "faucetIdUpdated": {
     "message": "Faucet Идентификатор обновлен",

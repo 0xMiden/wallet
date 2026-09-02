@@ -134,9 +134,10 @@ const tokenPrices = {
 };
 
 const makePromptState = (overrides: Record<string, unknown> = {}) => ({
-  storage: { version: 1, prompts: {}, pendingNotesDismissedIds: [] },
+  storage: { version: 1, prompts: {}, accountPrompts: {}, pendingNotesDismissedIds: [] },
   isLoaded: true,
   setPromptStatus: jest.fn(),
+  setAccountPromptStatus: jest.fn(),
   dismissPrompt: jest.fn(),
   completePrompt: jest.fn(),
   isPromptPending: (type: WalletPromptType) => type === WalletPromptType.VerifySeedPhrase,
@@ -162,6 +163,7 @@ describe('HomePrompts', () => {
         storage: {
           version: 1,
           prompts: { [WalletPromptType.Bridge]: WalletPromptStatus.Pending },
+          accountPrompts: {},
           pendingNotesDismissedIds: []
         },
         isPromptPending: (type: WalletPromptType) => type === WalletPromptType.Bridge
@@ -205,7 +207,97 @@ describe('HomePrompts', () => {
       'faucetPromptTitle',
       'verifySeedPhrasePromptTitle'
     ]);
-    expect(promptState.setPromptStatus).toHaveBeenCalledWith(WalletPromptType.Faucet, WalletPromptStatus.Pending);
+    // Seeded on the ACCOUNT, not the wallet: funding is per account.
+    expect(promptState.setAccountPromptStatus).toHaveBeenCalledWith(
+      'accountA',
+      WalletPromptType.Faucet,
+      WalletPromptStatus.Pending
+    );
+    expect(promptState.setPromptStatus).not.toHaveBeenCalled();
+  });
+
+  it('shows the faucet for a sibling account even after another account completed it', () => {
+    // Regression: the faucet status used to live in the wallet-wide map, so
+    // funding account A hid "Fund now" for every account added afterwards.
+    const promptState = makePromptState({
+      storage: {
+        version: 1,
+        prompts: {},
+        accountPrompts: { accountA: { [WalletPromptType.Faucet]: WalletPromptStatus.Completed } },
+        pendingNotesDismissedIds: []
+      }
+    });
+    mockUseWalletPromptStorage.mockReturnValue(promptState);
+    const siblingAccount = { ...account, publicKey: 'accountB', name: 'Account B' };
+
+    render(
+      <HomePrompts
+        account={siblingAccount}
+        balances={zeroBalance}
+        balancesLoading={false}
+        claimableNotes={[]}
+        tokenPrices={{}}
+      />
+    );
+
+    expect(screen.getByText('faucetPromptTitle')).toBeInTheDocument();
+    expect(promptState.setAccountPromptStatus).toHaveBeenCalledWith(
+      'accountB',
+      WalletPromptType.Faucet,
+      WalletPromptStatus.Pending
+    );
+  });
+
+  it('ignores a legacy wallet-wide faucet status', () => {
+    // Pre-multi-account storage recorded the faucet under `prompts`; that entry
+    // no longer says anything about THIS account.
+    const promptState = makePromptState({
+      storage: {
+        version: 1,
+        prompts: { [WalletPromptType.Faucet]: WalletPromptStatus.Completed },
+        accountPrompts: {},
+        pendingNotesDismissedIds: []
+      }
+    });
+    mockUseWalletPromptStorage.mockReturnValue(promptState);
+
+    render(
+      <HomePrompts
+        account={account}
+        balances={zeroBalance}
+        balancesLoading={false}
+        claimableNotes={[]}
+        tokenPrices={{}}
+      />
+    );
+
+    expect(screen.getByText('faucetPromptTitle')).toBeInTheDocument();
+  });
+
+  it('hides the faucet for an account that dismissed or completed it', () => {
+    for (const status of [WalletPromptStatus.Dismissed, WalletPromptStatus.Completed]) {
+      mockUseWalletPromptStorage.mockReturnValue(
+        makePromptState({
+          storage: {
+            version: 1,
+            prompts: {},
+            accountPrompts: { accountA: { [WalletPromptType.Faucet]: status } },
+            pendingNotesDismissedIds: []
+          }
+        })
+      );
+      const { unmount } = render(
+        <HomePrompts
+          account={account}
+          balances={zeroBalance}
+          balancesLoading={false}
+          claimableNotes={[]}
+          tokenPrices={{}}
+        />
+      );
+      expect(screen.queryByText('faucetPromptTitle')).not.toBeInTheDocument();
+      unmount();
+    }
   });
 
   it('re-offers a dismissed faucet prompt once the account can no longer pay a fee', () => {
@@ -217,7 +309,8 @@ describe('HomePrompts', () => {
       makePromptState({
         storage: {
           version: 1,
-          prompts: { [WalletPromptType.Faucet]: WalletPromptStatus.Dismissed },
+          prompts: {},
+          accountPrompts: { accountA: { [WalletPromptType.Faucet]: WalletPromptStatus.Dismissed } },
           pendingNotesDismissedIds: []
         }
       })
@@ -238,6 +331,7 @@ describe('HomePrompts', () => {
     // Holding USDC is not the same as being funded: the fee comes out of the
     // native balance, so this account cannot transact and needs the faucet.
     mockBaseFee = 10000;
+    mockUseWalletPromptStorage.mockReturnValue(makePromptState());
     render(
       <HomePrompts
         account={account}
@@ -256,13 +350,14 @@ describe('HomePrompts', () => {
   });
 
   it('does not show the faucet while balances load or when the account has funds', () => {
-    const completePrompt = jest.fn();
+    const setAccountPromptStatus = jest.fn();
     mockUseWalletPromptStorage.mockReturnValue(
       makePromptState({
-        completePrompt,
+        setAccountPromptStatus,
         storage: {
           version: 1,
-          prompts: { [WalletPromptType.Faucet]: WalletPromptStatus.Pending },
+          prompts: {},
+          accountPrompts: { accountA: { [WalletPromptType.Faucet]: WalletPromptStatus.Pending } },
           pendingNotesDismissedIds: []
         }
       })
@@ -283,12 +378,16 @@ describe('HomePrompts', () => {
       />
     );
     expect(screen.queryByText('faucetPromptTitle')).not.toBeInTheDocument();
-    expect(completePrompt).toHaveBeenCalledWith(WalletPromptType.Faucet);
+    expect(setAccountPromptStatus).toHaveBeenCalledWith(
+      'accountA',
+      WalletPromptType.Faucet,
+      WalletPromptStatus.Completed
+    );
   });
 
   it('opens the funding drawer, funds, and completes from the faucet button', async () => {
-    const completePrompt = jest.fn();
-    mockUseWalletPromptStorage.mockReturnValue(makePromptState({ completePrompt }));
+    const setAccountPromptStatus = jest.fn();
+    mockUseWalletPromptStorage.mockReturnValue(makePromptState({ setAccountPromptStatus }));
 
     render(
       <HomePrompts
@@ -307,7 +406,12 @@ describe('HomePrompts', () => {
     await waitFor(() => expect(mockFaucet).toHaveBeenCalledWith('accountA'));
     expect(mockFaucet).toHaveBeenCalledTimes(1);
     await waitFor(() => expect(drawer).toHaveAttribute('data-state', 'success'));
-    expect(completePrompt).toHaveBeenCalledWith(WalletPromptType.Faucet);
+    // Completes for THIS account only — a sibling's "Fund now" stays put.
+    expect(setAccountPromptStatus).toHaveBeenCalledWith(
+      'accountA',
+      WalletPromptType.Faucet,
+      WalletPromptStatus.Completed
+    );
 
     // Done closes the drawer.
     fireEvent.click(screen.getByTestId('fund-drawer-done'));
@@ -460,9 +564,10 @@ describe('HomePrompts', () => {
     expect(mockFaucet).not.toHaveBeenCalled();
   });
 
-  it('dismisses the faucet prompt without calling the faucet', () => {
+  it('dismisses the faucet prompt for this account only, without calling the faucet', () => {
     const dismissPrompt = jest.fn();
-    mockUseWalletPromptStorage.mockReturnValue(makePromptState({ dismissPrompt }));
+    const setAccountPromptStatus = jest.fn();
+    mockUseWalletPromptStorage.mockReturnValue(makePromptState({ dismissPrompt, setAccountPromptStatus }));
 
     render(
       <HomePrompts
@@ -475,7 +580,12 @@ describe('HomePrompts', () => {
     );
     fireEvent.click(screen.getByRole('button', { name: 'dismiss-faucetPromptTitle' }));
 
-    expect(dismissPrompt).toHaveBeenCalledWith(WalletPromptType.Faucet);
+    expect(setAccountPromptStatus).toHaveBeenCalledWith(
+      'accountA',
+      WalletPromptType.Faucet,
+      WalletPromptStatus.Dismissed
+    );
+    expect(dismissPrompt).not.toHaveBeenCalled();
     expect(mockFaucet).not.toHaveBeenCalled();
   });
 
@@ -535,6 +645,7 @@ describe('HomePrompts', () => {
         storage: {
           version: 1,
           prompts: { [WalletPromptType.PendingNotes]: WalletPromptStatus.Dismissed },
+          accountPrompts: {},
           pendingNotesDismissedIds: ['note-1', 'note-2']
         },
         isPromptPending: () => false
@@ -561,6 +672,7 @@ describe('HomePrompts', () => {
         storage: {
           version: 1,
           prompts: { [WalletPromptType.PendingNotes]: WalletPromptStatus.Dismissed },
+          accountPrompts: {},
           pendingNotesDismissedIds: ['old-note']
         },
         isPromptPending: () => false
@@ -588,6 +700,7 @@ describe('HomePrompts', () => {
         storage: {
           version: 1,
           prompts: { [WalletPromptType.PendingNotes]: WalletPromptStatus.Dismissed },
+          accountPrompts: {},
           pendingNotesDismissedIds: ['note-1']
         },
         isPromptPending: () => false
@@ -617,6 +730,7 @@ describe('HomePrompts', () => {
         storage: {
           version: 1,
           prompts: { [WalletPromptType.Bridge]: WalletPromptStatus.Pending },
+          accountPrompts: {},
           pendingNotesDismissedIds: []
         },
         isPromptPending: (type: WalletPromptType) => type === WalletPromptType.Bridge
@@ -648,6 +762,7 @@ describe('HomePrompts', () => {
         storage: {
           version: 1,
           prompts: { [WalletPromptType.Bridge]: WalletPromptStatus.Pending },
+          accountPrompts: {},
           pendingNotesDismissedIds: []
         },
         isPromptPending: (type: WalletPromptType) => type === WalletPromptType.Bridge
@@ -678,6 +793,7 @@ describe('HomePrompts', () => {
         storage: {
           version: 1,
           prompts: { [WalletPromptType.Bridge]: WalletPromptStatus.Pending },
+          accountPrompts: {},
           pendingNotesDismissedIds: []
         },
         isPromptPending: (type: WalletPromptType) => type === WalletPromptType.Bridge
@@ -710,6 +826,7 @@ describe('HomePrompts', () => {
         storage: {
           version: 1,
           prompts: { [WalletPromptType.HotKeyHardwareUnavailable]: WalletPromptStatus.Pending },
+          accountPrompts: {},
           pendingNotesDismissedIds: []
         },
         isPromptPending: (type: WalletPromptType) => type === WalletPromptType.HotKeyHardwareUnavailable
@@ -745,6 +862,7 @@ describe('HomePrompts', () => {
         storage: {
           version: 1,
           prompts: { [WalletPromptType.HotKeyRotationNeeded]: WalletPromptStatus.Pending },
+          accountPrompts: {},
           pendingNotesDismissedIds: []
         },
         isPromptPending: (type: WalletPromptType) => type === WalletPromptType.HotKeyRotationNeeded
@@ -780,6 +898,7 @@ describe('HomePrompts', () => {
         storage: {
           version: 1,
           prompts: { [WalletPromptType.HotKeyRotationNeeded]: WalletPromptStatus.Pending },
+          accountPrompts: {},
           pendingNotesDismissedIds: []
         },
         isPromptPending: (type: WalletPromptType) => type === WalletPromptType.HotKeyRotationNeeded
@@ -815,6 +934,7 @@ describe('HomePrompts', () => {
         storage: {
           version: 1,
           prompts: { [WalletPromptType.HotKeyHardwareUnavailable]: WalletPromptStatus.Pending },
+          accountPrompts: {},
           pendingNotesDismissedIds: []
         },
         isPromptPending: (type: WalletPromptType) => type === WalletPromptType.HotKeyHardwareUnavailable

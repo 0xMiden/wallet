@@ -107,11 +107,18 @@ const Welcome: FC = () => {
   const [biometricAttempts, setBiometricAttempts] = useState(0);
   const [biometricError, setBiometricError] = useState<string | null>(null);
   const [guardianLookupError, setGuardianLookupError] = useState(false);
+  // Recovered-accounts overview state (post-registration import step).
+  const [isScanning, setIsScanning] = useState(false);
+  const [scanError, setScanError] = useState<string | null>(null);
+  const [lastScanFoundNone, setLastScanFoundNone] = useState(false);
   // Tracks which protection screen the user came through; needed so ChooseGuardian
   // back navigation and the create-password→confirmation routing pick the right
   // origin without colliding with the legacy create flow.
   const [protectionMethod, setProtectionMethod] = useState<'passcode' | 'biometric' | 'password' | null>(null);
-  const { registerWallet } = useMidenContext();
+  const { registerWallet, scanForAccounts } = useMidenContext();
+  // Live list for the recovered-accounts overview — the store re-syncs after
+  // every scan, so the screen updates itself as accounts are appended.
+  const accounts = useWalletStore(s => s.accounts);
   const { trackEvent } = useAnalytics();
   // Guardian auto-detection (issue #418): kicked off in the background the
   // moment a seed phrase is submitted, so it is usually already resolved by the
@@ -414,13 +421,12 @@ const Welcome: FC = () => {
         if (seedPhrase) startGuardianProbe(seedPhrase);
         break;
       case 'import-select-recovery-method':
-        setWalletType(action.payload.walletType);
-        // Capture the resolved endpoint for a Guardian import so register() can
-        // thread it explicitly; leave it undefined for a public (non-guardian)
-        // recovery so no endpoint is bound.
-        setGuardianEndpoint(
-          action.payload.walletType === WalletType.Guardian ? action.payload.guardianEndpoint : undefined
-        );
+        // The restore scans BOTH public and guardian accounts in one pass, so
+        // walletType is no longer a recovery choice — it only selects what a
+        // zero-found restore creates fresh (guardian-backed when an operator
+        // was chosen, public otherwise).
+        setWalletType(action.payload.guardianEndpoint ? WalletType.Guardian : WalletType.OnChain);
+        setGuardianEndpoint(action.payload.guardianEndpoint);
         setGuardianLookupError(false);
         navigate('/#confirmation');
         break;
@@ -438,14 +444,18 @@ const Welcome: FC = () => {
           await waitForReadyState(syncFromBackend);
           setIsLoading(false);
           eventCategory = AnalyticsEventCategory.FormSubmit;
-          // Recovery/import completes in this classic handler (the Create flow
-          // takes the auto-create effect above). Hand off to the side panel just
-          // like Create does, instead of always entering in-tab (#428).
-          navigate(postOnboardingRoute());
+          // Imports pause on the recovered-accounts overview (what was found +
+          // "I have more accounts") before entering; Create hands off to the
+          // side panel / home exactly as before (#428).
+          navigate(onboardingType === OnboardingType.Import ? '/#recovered-accounts' : postOnboardingRoute());
         } catch (error) {
           console.error('[Welcome] Confirmation flow failed:', error);
           setIsLoading(false);
-          if (onboardingType === OnboardingType.Import && walletType === WalletType.Guardian) {
+          if (onboardingType === OnboardingType.Import) {
+            // Covers both the guardian lookup failure and the widened
+            // "no accounts found for this seed" abort — bounce back to the
+            // guardian-endpoint step, which surfaces the error and lets the
+            // user fix the operator or retry.
             setGuardianLookupError(true);
             navigate('/#import-select-recovery-method');
           } else if (password === '__HARDWARE_ONLY__') {
@@ -455,6 +465,22 @@ const Welcome: FC = () => {
             setBiometricError(error instanceof Error ? error.message : 'Biometric authentication failed');
           }
         }
+        break;
+      case 'scan-more-accounts':
+        setIsScanning(true);
+        setScanError(null);
+        setLastScanFoundNone(false);
+        try {
+          const found = await scanForAccounts(action.payload.count, guardianEndpoint);
+          setLastScanFoundNone(found.length === 0);
+        } catch (error) {
+          setScanError(error instanceof Error ? error.message : String(error));
+        } finally {
+          setIsScanning(false);
+        }
+        break;
+      case 'recovered-accounts-continue':
+        navigate(postOnboardingRoute());
         break;
       case 'switch-to-password':
         // User chose to use password after biometric failures
@@ -576,6 +602,16 @@ const Welcome: FC = () => {
           setStep(OnboardingStep.Confirmation);
         }
         break;
+      case '#recovered-accounts':
+        // A reload here loses the in-memory flow, but the vault already exists
+        // (this step only follows a successful registration) — enter the wallet
+        // instead of restarting onboarding.
+        if (!password) {
+          navigate(postOnboardingRoute());
+        } else {
+          setStep(OnboardingStep.RecoveredAccounts);
+        }
+        break;
       default:
         break;
     }
@@ -590,6 +626,11 @@ const Welcome: FC = () => {
     // On confirmation/loading screen, don't allow back
     if (step === OnboardingStep.Confirmation && isLoading) {
       return true; // Consume but don't navigate
+    }
+    // The overview is terminal — the wallet already exists, so there is
+    // nothing to go back to. Continue is the only way forward.
+    if (step === OnboardingStep.RecoveredAccounts) {
+      return true;
     }
     // Trigger the onboarding back action
     onAction({ id: 'back' });
@@ -613,6 +654,10 @@ const Welcome: FC = () => {
           guardianLookupError={guardianLookupError}
           guardianProbe={guardianProbeState}
           confirmCreating={sidePanelHandoff && confirmPhase === 'creating'}
+          recoveredAccounts={accounts}
+          isScanning={isScanning}
+          scanError={scanError}
+          lastScanFoundNone={lastScanFoundNone}
           onBiometricChange={setUseBiometric}
           onAction={onAction}
         />

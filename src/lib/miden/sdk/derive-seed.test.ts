@@ -68,6 +68,54 @@ beforeEach(() => {
   jest.mocked(mnemonicToSeedSync).mockClear();
 });
 
+describe('globalThis.Buffer polyfill guard', () => {
+  const isCompleteBuffer = (candidate: unknown) =>
+    typeof candidate === 'function' &&
+    typeof Reflect.get(candidate, 'from') === 'function' &&
+    typeof Reflect.get(candidate, 'alloc') === 'function' &&
+    typeof Reflect.get(candidate, 'allocUnsafe') === 'function';
+
+  it('leaves a complete global Buffer alone', () => {
+    // Node/jest already install a complete Buffer, so a plain re-import must
+    // not warn and must not touch the global.
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const before = Reflect.get(globalThis, 'Buffer');
+    try {
+      jest.isolateModules(() => {
+        require('./derive-seed');
+      });
+      expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining('[derive-seed]'));
+      expect(Reflect.get(globalThis, 'Buffer')).toBe(before);
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it('repairs a partial global Buffer on import', () => {
+    // `@demox-labs/aleo-hd-key` calls the bare global `Buffer.allocUnsafe`, so
+    // a realm whose entry file claimed `globalThis.Buffer` with a partial shim
+    // breaks every derivation. Simulate that first-comer.
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const originalBuffer = Reflect.get(globalThis, 'Buffer');
+    Reflect.set(globalThis, 'Buffer', { from: () => undefined });
+
+    try {
+      expect(isCompleteBuffer(Reflect.get(globalThis, 'Buffer'))).toBe(false);
+
+      jest.isolateModules(() => {
+        require('./derive-seed');
+      });
+
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('[derive-seed] globalThis.Buffer is missing'));
+      // The module installed a real implementation over the partial shim.
+      expect(isCompleteBuffer(Reflect.get(globalThis, 'Buffer'))).toBe(true);
+    } finally {
+      Reflect.set(globalThis, 'Buffer', originalBuffer);
+      warnSpy.mockRestore();
+    }
+  });
+});
+
 describe('walletTypeIndex', () => {
   it('namespaces each wallet type to its own BIP-44 account branch', () => {
     expect(walletTypeIndex(WalletType.OnChain)).toBe(0);

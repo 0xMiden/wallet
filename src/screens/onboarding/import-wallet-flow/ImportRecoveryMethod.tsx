@@ -1,18 +1,16 @@
 import React, { useEffect, useMemo, useState } from 'react';
 
-import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
-import { Button } from 'components/Button';
+import { Button, ButtonVariant } from 'components/Button';
 import { Input } from 'components/Input';
 import { DEFAULT_NETWORK, GUARDIAN_OPTIONS, getGuardianOptionsForNetwork } from 'lib/miden-chain/constants';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isValidGuardianUrl, sanitizeGuardianUrl } from 'lib/settings/helpers';
-import { Badge } from 'lib/ui/badge';
 import { cn } from 'lib/ui/util';
 
-import { GuardianProbeState, WalletType } from '../types';
+import { GuardianProbeState } from '../types';
 
 /**
  * How long the "detecting your guardian" state stays modal before the manual
@@ -27,7 +25,10 @@ export interface ImportRecoveryMethodScreenProps {
   /** Guardian auto-detection progress. Omitted => classic manual picker. */
   probe?: GuardianProbeState;
   onRetryProbe?: () => void;
-  onSubmit: (payload: { walletType: WalletType; guardianEndpoint?: string }) => void;
+  // Restore scans public accounts unconditionally and guardian accounts
+  // against the submitted endpoint; an empty payload means the user has no
+  // guardian (skip).
+  onSubmit: (payload: { guardianEndpoint?: string }) => void;
 }
 
 export const ImportRecoveryMethodScreen: React.FC<ImportRecoveryMethodScreenProps> = ({
@@ -38,7 +39,6 @@ export const ImportRecoveryMethodScreen: React.FC<ImportRecoveryMethodScreenProp
 }) => {
   const { t } = useTranslation();
 
-  const [selected, setSelected] = useState<WalletType>(WalletType.Guardian);
   const [endpointInput, setEndpointInput] = useState<string>(GUARDIAN_OPTIONS[0]!.endpoint.get(DEFAULT_NETWORK)!);
   const [isCustomizing, setIsCustomizing] = useState(false);
   const [dirty, setDirty] = useState(false);
@@ -71,32 +71,21 @@ export const ImportRecoveryMethodScreen: React.FC<ImportRecoveryMethodScreenProp
     return () => clearTimeout(timer);
   }, [isProbing]);
 
-  const showError = Boolean(isError) && !dirty && selected === WalletType.Guardian;
+  const showError = Boolean(isError) && !dirty;
 
   const sanitizedEndpoint = sanitizeGuardianUrl(endpointInput);
-  const canContinue =
-    selected === WalletType.OnChain ||
-    // While probing, only a user who explicitly picked an endpoint (via the
-    // escape hatch) may continue — their choice wins and the probe is ignored.
-    (selected === WalletType.Guardian && isValidGuardianUrl(sanitizedEndpoint) && (!isProbing || userOverrodeEndpoint));
+  // While probing, only a user who explicitly picked an endpoint (via the
+  // escape hatch) may continue — their choice wins and the probe is ignored.
+  const canContinue = isValidGuardianUrl(sanitizedEndpoint) && (!isProbing || userOverrodeEndpoint);
 
   const handleContinue = () => {
-    if (selected === WalletType.OnChain) {
-      onSubmit({ walletType: WalletType.OnChain });
-      return;
-    }
-    onSubmit({ walletType: WalletType.Guardian, guardianEndpoint: sanitizedEndpoint });
+    hapticLight();
+    onSubmit({ guardianEndpoint: sanitizedEndpoint });
   };
 
-  const handleSelectGuardian = () => {
-    setSelected(WalletType.Guardian);
-    setDirty(true);
-  };
-
-  const handleSelectOnChain = () => {
-    setSelected(WalletType.OnChain);
-    setDirty(true);
-    setIsCustomizing(false);
+  const handleSkipGuardian = () => {
+    hapticLight();
+    onSubmit({});
   };
 
   const handleToggleCustom = () => {
@@ -130,25 +119,6 @@ export const ImportRecoveryMethodScreen: React.FC<ImportRecoveryMethodScreenProp
       return detected.endpoint;
     }
   }, [detected]);
-
-  const options = useMemo(
-    () => [
-      {
-        id: WalletType.Guardian,
-        title: t('importViaGuardian'),
-        description: t('importViaGuardianDescription'),
-        isDefault: true,
-        onSelect: handleSelectGuardian
-      },
-      {
-        id: WalletType.OnChain,
-        title: t('importPublicAccount'),
-        description: t('importPublicAccountDescription'),
-        onSelect: handleSelectOnChain
-      }
-    ],
-    [t]
-  );
 
   // The preset grid + endpoint readout + URL input. Always on for the classic
   // (no-probe / no-match) screen; behind the "use a custom one instead"
@@ -291,43 +261,17 @@ export const ImportRecoveryMethodScreen: React.FC<ImportRecoveryMethodScreenProp
       data-testid="import-recovery-method"
     >
       <div className="flex flex-col items-center gap-2">
-        <h1 className="font-semibold text-2xl lh-title">{t('importRecoveryMethodTitle')}</h1>
-        <p className="text-xs text-center lh-title px-4">{t('chooseRecoveryMethodDescription')}</p>
+        <h1 className="font-semibold text-2xl lh-title">{t('guardianEndpointStepTitle')}</h1>
+        <p className="text-xs text-center lh-title px-4">{t('guardianEndpointStepDescription')}</p>
       </div>
 
       <div className="flex flex-col w-full">
-        {options.map(option => {
-          const isSelected = selected === option.id;
-          const isGuardian = option.id === WalletType.Guardian;
-          return (
-            <div
-              key={option.id}
-              className={classNames('flex flex-col p-4 rounded-lg cursor-pointer bg-white mb-2', {
-                'opacity-50': !isSelected
-              })}
-              onClick={option.onSelect}
-            >
-              <div className="flex flex-row justify-between items-center">
-                <div className="flex items-center gap-2">
-                  <h2 className="font-medium text-base">{option.title}</h2>
-                  {option.isDefault && (
-                    <Badge variant={'default'} className="bg-primary-500 text-white">
-                      {t('default')}
-                    </Badge>
-                  )}
-                </div>
-              </div>
-              <p className="text-grey-600 text-sm">{option.description}</p>
-
-              {isGuardian && isSelected && (
-                <div className="mt-4 flex flex-col gap-2" onClick={e => e.stopPropagation()}>
-                  {renderGuardianBody()}
-                  {showError && <p className="text-red-500 text-xs mt-1">{t('guardianAccountNotFound')}</p>}
-                </div>
-              )}
-            </div>
-          );
-        })}
+        <div className="flex flex-col p-4 rounded-lg bg-white mb-2">
+          <div className="flex flex-col gap-2">
+            {renderGuardianBody()}
+            {showError && <p className="text-red-500 text-xs mt-1">{t('noAccountsFoundForSeed')}</p>}
+          </div>
+        </div>
       </div>
 
       <div className="flex flex-col gap-2 self-center w-full mt-auto">
@@ -336,6 +280,13 @@ export const ImportRecoveryMethodScreen: React.FC<ImportRecoveryMethodScreenProp
           title={t('continue')}
           onClick={handleContinue}
           disabled={!canContinue}
+          className="text-base"
+        />
+        <Button
+          data-testid="recovery-method-skip-guardian"
+          title={t('noGuardianSkip')}
+          variant={ButtonVariant.Secondary}
+          onClick={handleSkipGuardian}
           className="text-base"
         />
       </div>

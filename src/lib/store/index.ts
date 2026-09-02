@@ -172,11 +172,12 @@ export const useWalletStore = create<WalletStore>()(
     },
 
     // Account actions
-    createAccount: async (walletType, name) => {
+    createAccount: async (walletType, name, guardianEndpoint) => {
       const res = await request({
         type: WalletMessageType.CreateAccountRequest,
         walletType,
-        name
+        name,
+        guardianEndpoint
       });
       assertResponse(res.type === WalletMessageType.CreateAccountResponse);
 
@@ -187,6 +188,23 @@ export const useWalletStore = create<WalletStore>()(
       const stateRes = await request({ type: WalletMessageType.GetStateRequest });
       assertResponse(stateRes.type === WalletMessageType.GetStateResponse);
       get().syncFromBackend(stateRes.state);
+    },
+
+    scanForAccounts: async (additionalCount, guardianEndpoint) => {
+      const res = await request({
+        type: WalletMessageType.ScanForAccountsRequest,
+        additionalCount,
+        guardianEndpoint
+      });
+      assertResponse(res.type === WalletMessageType.ScanForAccountsResponse);
+
+      // Same stale-broadcast race as createAccount: pull fresh state so the
+      // recovered-accounts overview reads the appended list immediately.
+      const stateRes = await request({ type: WalletMessageType.GetStateRequest });
+      assertResponse(stateRes.type === WalletMessageType.GetStateResponse);
+      get().syncFromBackend(stateRes.state);
+
+      return res.found;
     },
 
     updateCurrentAccount: async accountPublicKey => {

@@ -38,6 +38,9 @@ export interface ChooseGuardianScreenProps {
   // Submission error from the caller, rendered above the Continue button so it
   // stays inside this screen's scroll container.
   error?: string | null;
+  // Caller-driven busy state for slow submits (e.g. add-account creates the
+  // Guardian account in place): spinner on Continue, re-taps ignored.
+  submitLoading?: boolean;
 }
 
 export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
@@ -49,7 +52,8 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
   hideHeader = false,
   allowCustomEndpoint = false,
   showNoGuardianOption = false,
-  error = null
+  error = null,
+  submitLoading = false
 }) => {
   const { t } = useTranslation();
   const [isInfoOpen, setIsInfoOpen] = useState(false);
@@ -325,6 +329,8 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
             data-testid="choose-guardian-continue"
             title={submitLabel ?? t('continue')}
             onClick={handleContinue}
+            isLoading={submitLoading}
+            disabled={submitLoading}
           />
         </div>
       </div>

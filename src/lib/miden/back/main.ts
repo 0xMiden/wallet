@@ -489,8 +489,12 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
       await Actions.lock();
       return { type: WalletMessageType.LockResponse };
     case WalletMessageType.CreateAccountRequest:
-      await Actions.createHDAccount(req.walletType, req.name);
+      await Actions.createHDAccount(req.walletType, req.name, req.guardianEndpoint);
       return { type: WalletMessageType.CreateAccountResponse };
+    case WalletMessageType.ScanForAccountsRequest: {
+      const found = await Actions.scanForAccounts(req.additionalCount, req.guardianEndpoint);
+      return { type: WalletMessageType.ScanForAccountsResponse, found: found ?? [] };
+    }
     // case WalletMessageType.DecryptCiphertextsRequest:
     //   const texts = await Actions.decryptCiphertexts(req.accPublicKey, req.ciphertexts);
     //   return { type: WalletMessageType.DecryptCiphertextsResponse, texts: texts };

@@ -50,8 +50,9 @@ import { EcdsaSigner } from '@openzeppelin/miden-multisig-client';
 import { Buffer } from 'buffer';
 
 import { registerGuardianOrigin } from 'lib/miden/guardian/native-http';
-import { DEFAULT_NETWORK, getGuardianOptionsForNetwork } from 'lib/miden-chain/constants';
+import { getGuardianOptionsForNetwork } from 'lib/miden-chain/constants';
 import type { MIDEN_NETWORK_NAME, ResolvedGuardianOption } from 'lib/miden-chain/constants';
+import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { sanitizeGuardianUrl } from 'lib/settings/helpers';
 
 /** One operator that answered the probe with at least one account. */
@@ -341,7 +342,10 @@ async function runPooled<TItem, TResult>(
 }
 
 function resolveTargets(options: GuardianDiscoveryOptions): ProbeTarget[] {
-  const known = getGuardianOptionsForNetwork(options.network ?? DEFAULT_NETWORK);
+  // The EFFECTIVE network, not the build-baked DEFAULT_NETWORK: a dev-settings
+  // endpoint override repoints the whole wallet at another network, and probing
+  // the baked network's operators would silently ask the wrong guardians.
+  const known = getGuardianOptionsForNetwork(options.network ?? getEffectiveNetworkName());
   if (!options.endpoints) {
     return known.map(option => ({ endpoint: sanitizeGuardianUrl(option.endpoint), option }));
   }
@@ -372,6 +376,14 @@ export async function discoverGuardianForSeed(
 
   const targets = resolveTargets(options);
   const probedEndpoints = targets.map(target => target.endpoint);
+  console.log(
+    '[guardian/discover] probing',
+    probedEndpoints.length,
+    'endpoint(s) on network',
+    options.network ?? getEffectiveNetworkName(),
+    '— hd indices 0..' + (maxHdIndex - 1) + ':',
+    probedEndpoints
+  );
   for (const endpoint of probedEndpoints) {
     // Built-ins are pre-seeded for the mobile CORS bypass; register defensively
     // so an overridden/custom endpoint also routes through native HTTP.
@@ -400,11 +412,22 @@ export async function discoverGuardianForSeed(
       // Retry the lookup too, not just getState: a transient lookup failure of
       // the CURRENT operator drops it from `matches` entirely, leaving a stale
       // operator as a lone match that `selectBest` would auto-pick.
+      console.log(
+        `[guardian/discover] lookup at ${target.endpoint} (hdIndex ${hdIndex})`,
+        'key commitment:',
+        signer.commitment
+      );
       const lookup: LookupResponse = await attemptWithRetries(
         () => client.lookupAccountByKeyCommitment(signer.commitment),
         timeoutMs,
         `guardian lookup at ${target.endpoint}`,
         signal
+      );
+      console.log(
+        `[guardian/discover] lookup at ${target.endpoint} (hdIndex ${hdIndex}) answered with`,
+        lookup?.accounts?.length ?? 0,
+        'account(s):',
+        (lookup?.accounts ?? []).map(a => a.accountId)
       );
 
       const hits: ProbeHit[] = [];
@@ -428,6 +451,10 @@ export async function discoverGuardianForSeed(
         } catch {
           // Already logged per-attempt by attemptWithRetries; nonce stays unknown.
         }
+        console.log(
+          `[guardian/discover] state for ${account.accountId} at ${target.endpoint}:`,
+          state ? `fetched (updatedAt ${state.updatedAt ?? 'unset'})` : 'FAILED — nonce stays unknown'
+        );
         hits.push({ endpoint: target.endpoint, hdIndex, accountId: account.accountId, state });
       }
       return hits;
@@ -446,6 +473,7 @@ export async function discoverGuardianForSeed(
     const { endpoint } = tasks[index]!.target;
     if (result.status === 'rejected') {
       const { reason, message } = classifyProbeError(result.reason);
+      console.warn(`[guardian/discover] endpoint ${endpoint} FAILED (${reason}):`, message);
       // One entry per endpoint, not per HD index — the user cares about the
       // operator, not the derivation index that happened to fail first.
       if (!failures.some(failure => failure.endpoint === endpoint)) {
@@ -480,5 +508,17 @@ export async function discoverGuardianForSeed(
 
   matches.sort((a, b) => compareMatches(a, b, probedEndpoints));
 
-  return { best: selectBest(matches), matches, probedEndpoints, failures };
+  const best = selectBest(matches);
+  console.log(
+    '[guardian/discover] result:',
+    matches.length,
+    'match(es)',
+    matches.map(m => ({ endpoint: m.endpoint, accountIds: m.accountIds, nonce: m.nonce?.toString() ?? 'unknown' })),
+    '| failures:',
+    failures.length,
+    '| best:',
+    best?.endpoint ?? '(none — falling back to manual picker)'
+  );
+
+  return { best, matches, probedEndpoints, failures };
 }

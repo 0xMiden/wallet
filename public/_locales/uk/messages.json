@@ -824,6 +824,10 @@
     "message": "Редагувати назву облікового запису",
     "englishSource": "Edit Account Name"
   },
+  "invalidAccountName": {
+    "message": "Використовуйте 1–16 символів, не починайте з пробілу чи дефіса та обирайте унікальну назву.",
+    "englishSource": "Use 1–16 characters, don't start with a space or hyphen, and choose a unique name."
+  },
   "delegate": {
     "message": "Делегат",
     "englishSource": "Delegate"
@@ -2958,6 +2962,84 @@
     "message": "Використовуйте власний URL-адресу Guardian",
     "englishSource": "Use a custom Guardian URL"
   },
+  "guardianEndpointStepTitle": {
+    "message": "Чи використовуєте ви «Guardian»?",
+    "englishSource": "Do you use a Guardian?"
+  },
+  "guardianEndpointStepDescription": {
+    "message": "Публічні рахунки завжди відновлюються з мережі. Якщо будь-який із ваших рахунків забезпечений токенами guardian, підтвердьте оператора, щоб ми могли відновити й ці рахунки.",
+    "englishSource": "Public accounts are always restored from the network. If any of your accounts are guardian-backed, confirm the operator so we can restore those too."
+  },
+  "noGuardianSkip": {
+    "message": "Я не користуюся Guardian",
+    "englishSource": "I don't use a Guardian"
+  },
+  "noAccountsFoundForSeed": {
+    "message": "Не знайдено жодних облікових записів для цього seed phrase. Перевірте seed phrase та оператора guardian, а потім спробуйте ще раз.",
+    "englishSource": "No accounts were found for this seed phrase. Check the seed phrase and the guardian operator, then try again."
+  },
+  "recoveredAccountsTitle": {
+    "message": "Відновлені облікові записи",
+    "englishSource": "Recovered Accounts"
+  },
+  "recoveredAccountsSubtitle": {
+    "message": "Ми знайшли $count$ обліковий запис (записи) для вашого seed phrase. Повністю приватні локальні облікові записи не залишають слідів у ланцюгу блоків і не можуть бути виявлені.",
+    "englishSource": "We found $count$ account(s) for your seed phrase. Fully private local accounts have no on-chain footprint and can't be discovered.",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "accountBadgePublic": {
+    "message": "Публічне",
+    "englishSource": "Public"
+  },
+  "accountBadgeGuardian": {
+    "message": "Guardian",
+    "englishSource": "Guardian"
+  },
+  "accountBadgePrivate": {
+    "message": "Приватне",
+    "englishSource": "Private"
+  },
+  "iHaveMoreAccounts": {
+    "message": "У мене є ще рахунки",
+    "englishSource": "I have more accounts"
+  },
+  "howManyMoreAccounts": {
+    "message": "Скільки ще таких термінів нам слід знайти?",
+    "englishSource": "How many more should we search for?"
+  },
+  "searchForAccounts": {
+    "message": "Пошук",
+    "englishSource": "Search"
+  },
+  "scanningForAccounts": {
+    "message": "Пошук рахунків…",
+    "englishSource": "Searching for accounts…"
+  },
+  "noAdditionalAccountsFound": {
+    "message": "Додаткових облікових записів не виявлено.",
+    "englishSource": "No additional accounts were found."
+  },
+  "foundAdditionalAccounts": {
+    "message": "Виявлено $count$ додаткових рахунків.",
+    "englishSource": "Found $count$ additional account(s).",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "restoreExistingAccount": {
+    "message": "Відновити існуючий обліковий запис",
+    "englishSource": "Restore existing account"
+  },
+  "restoreExistingAccountDescription": {
+    "message": "Здійсніть пошук у мережі та на вашому guardian, щоб знайти інші акаунти з цього seed phrase",
+    "englishSource": "Search the network and your guardian for more accounts from this seed phrase"
+  },
   "default": {
     "message": "За замовчуванням",
     "englishSource": "Default"
@@ -3301,6 +3383,90 @@
   "addAccountComingSoon": {
     "message": "Додати обліковий запис (скоро)",
     "englishSource": "Add Account (Coming Soon)"
+  },
+  "switchAccount": {
+    "message": "Перейти на інший рахунок",
+    "englishSource": "Switch account"
+  },
+  "balanceCardAccountChip": {
+    "message": "$name$ · $number$",
+    "englishSource": "$name$ · $number$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      },
+      "number": {
+        "content": "$2"
+      }
+    }
+  },
+  "accountTypePrivate": {
+    "message": "Приватне",
+    "englishSource": "Private"
+  },
+  "accountTypePrivateDescription": {
+    "message": "Залишки та активність залишаються поза ланцюгом і видимі лише вам",
+    "englishSource": "Balances and activity stay off-chain, visible only to you"
+  },
+  "accountTypePublic": {
+    "message": "Публічне",
+    "englishSource": "Public"
+  },
+  "accountTypePublicDescription": {
+    "message": "Стан рахунку зберігається в ланцюжку і є загальнодоступним",
+    "englishSource": "Account state lives on-chain and is publicly visible"
+  },
+  "accountTypeGuardian": {
+    "message": "Guardian приватний, забезпечений",
+    "englishSource": "Guardian-backed private"
+  },
+  "accountTypeGuardianDescription": {
+    "message": "Приватний обліковий запис, підписаний спільно з оператором Guardian для відновлення доступу",
+    "englishSource": "Private account co-signed by a Guardian operator for recovery"
+  },
+  "iUnderstand": {
+    "message": "Я розумію",
+    "englishSource": "I understand"
+  },
+  "useGuardianInstead": {
+    "message": "Замість цього використовуйте «Guardian»",
+    "englishSource": "Use a Guardian instead"
+  },
+  "localRiskStepCounter": {
+    "message": "$current$ $total$",
+    "englishSource": "$current$ of $total$",
+    "placeholders": {
+      "current": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      }
+    }
+  },
+  "localRiskStep1Title": {
+    "message": "Цей обліковий запис існує лише на цьому пристрої",
+    "englishSource": "This account lives only on this device"
+  },
+  "localRiskStep1Body": {
+    "message": "Якщо ви загубите цей пристрій або видалите додаток, Miden не зможе відновити приватний стан цього облікового запису.",
+    "englishSource": "If you lose this device or delete the app, Miden cannot recover this account's private state."
+  },
+  "localRiskStep2Title": {
+    "message": "Вашого «seed phrase» недостатньо",
+    "englishSource": "Your seed phrase is not enough"
+  },
+  "localRiskStep2Body": {
+    "message": "Повністю локальний обліковий запис неможливо відновити лише за допомогою файлу seed phrase. Його стан існує лише на цьому пристрої — ваші кошти будуть назавжди втрачені, навіть якщо файл seed phrase збережено.",
+    "englishSource": "A fully local account cannot be restored from your seed phrase alone. Its state exists only on this device — your funds would be permanently lost even with the seed phrase saved."
+  },
+  "localRiskStep3Title": {
+    "message": "Ніхто не може допомогти вам їх повернути",
+    "englishSource": "No one can help you recover it"
+  },
+  "localRiskStep3Body": {
+    "message": "Для цього облікового запису немає співпідписувача за адресою Guardian. Ніхто — включаючи Miden — не зможе відновити доступ, якщо цей пристрій буде втрачено.",
+    "englishSource": "There is no Guardian co-signer for this account. No one — including Miden — can restore access if this device is gone."
   },
   "faucetIdUpdated": {
     "message": "Faucet Оновлено ідентифікатор",

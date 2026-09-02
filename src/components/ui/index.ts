@@ -1,6 +1,9 @@
 export { AccountsDrawer } from './AccountsDrawer';
 export type { AccountsDrawerProps } from './AccountsDrawer';
 
+export { AddAccountDrawer } from './AddAccountDrawer';
+export type { AddAccountDrawerProps } from './AddAccountDrawer';
+
 export { BalanceCard } from './BalanceCard';
 export type { BalanceCardProps, BalanceDeltaDirection } from './BalanceCard';
 

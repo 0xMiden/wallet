@@ -824,6 +824,10 @@
     "message": "Hesap Adını Düzenle",
     "englishSource": "Edit Account Name"
   },
+  "invalidAccountName": {
+    "message": "1–16 karakter kullanın, boşluk veya tire ile başlamayın ve benzersiz bir isim seçin.",
+    "englishSource": "Use 1–16 characters, don't start with a space or hyphen, and choose a unique name."
+  },
   "delegate": {
     "message": "Temsilci",
     "englishSource": "Delegate"
@@ -2958,6 +2962,84 @@
     "message": "Guardian'da özel bir URL kullanın",
     "englishSource": "Use a custom Guardian URL"
   },
+  "guardianEndpointStepTitle": {
+    "message": "Guardian kullanıyor musunuz?",
+    "englishSource": "Do you use a Guardian?"
+  },
+  "guardianEndpointStepDescription": {
+    "message": "Halka açık hesaplar her zaman ağdan geri yüklenir. Hesaplarınızdan herhangi birguardian'ın desteğindeyse, operatörü teyit edin ki biz de bunları geri yükleyebilelim.",
+    "englishSource": "Public accounts are always restored from the network. If any of your accounts are guardian-backed, confirm the operator so we can restore those too."
+  },
+  "noGuardianSkip": {
+    "message": "Guardian kullanmıyorum",
+    "englishSource": "I don't use a Guardian"
+  },
+  "noAccountsFoundForSeed": {
+    "message": "seed phrase için hiçbir hesap bulunamadı. seed phrase ve guardian operatörünü kontrol edin, ardından tekrar deneyin.",
+    "englishSource": "No accounts were found for this seed phrase. Check the seed phrase and the guardian operator, then try again."
+  },
+  "recoveredAccountsTitle": {
+    "message": "Geri Kazanılan Hesaplar",
+    "englishSource": "Recovered Accounts"
+  },
+  "recoveredAccountsSubtitle": {
+    "message": "seed phrase adresiniz için $count$ hesap(lar) bulduk. Tamamen özel yerel hesapların zincir üzerinde izi yoktur ve tespit edilemezler.",
+    "englishSource": "We found $count$ account(s) for your seed phrase. Fully private local accounts have no on-chain footprint and can't be discovered.",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "accountBadgePublic": {
+    "message": "Genel",
+    "englishSource": "Public"
+  },
+  "accountBadgeGuardian": {
+    "message": "Guardian",
+    "englishSource": "Guardian"
+  },
+  "accountBadgePrivate": {
+    "message": "Özel",
+    "englishSource": "Private"
+  },
+  "iHaveMoreAccounts": {
+    "message": "Daha fazla hesabım var",
+    "englishSource": "I have more accounts"
+  },
+  "howManyMoreAccounts": {
+    "message": "Daha kaç tane daha aramalıyız?",
+    "englishSource": "How many more should we search for?"
+  },
+  "searchForAccounts": {
+    "message": "Arama",
+    "englishSource": "Search"
+  },
+  "scanningForAccounts": {
+    "message": "Hesaplar aranıyor…",
+    "englishSource": "Searching for accounts…"
+  },
+  "noAdditionalAccountsFound": {
+    "message": "Başka hesap bulunamadı.",
+    "englishSource": "No additional accounts were found."
+  },
+  "foundAdditionalAccounts": {
+    "message": "$count$'te ek hesap(lar) bulundu.",
+    "englishSource": "Found $count$ additional account(s).",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "restoreExistingAccount": {
+    "message": "Mevcut hesabı geri yükle",
+    "englishSource": "Restore existing account"
+  },
+  "restoreExistingAccountDescription": {
+    "message": "Ağda ve guardian adresinde arama yaparak bu seed phrase adresinden daha fazla hesap bulabilirsiniz.",
+    "englishSource": "Search the network and your guardian for more accounts from this seed phrase"
+  },
   "default": {
     "message": "Varsayılan",
     "englishSource": "Default"
@@ -3301,6 +3383,90 @@
   "addAccountComingSoon": {
     "message": "Hesap Ekle (Yakında)",
     "englishSource": "Add Account (Coming Soon)"
+  },
+  "switchAccount": {
+    "message": "Hesap değiştir",
+    "englishSource": "Switch account"
+  },
+  "balanceCardAccountChip": {
+    "message": "$name$ · $number$",
+    "englishSource": "$name$ · $number$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      },
+      "number": {
+        "content": "$2"
+      }
+    }
+  },
+  "accountTypePrivate": {
+    "message": "Özel",
+    "englishSource": "Private"
+  },
+  "accountTypePrivateDescription": {
+    "message": "Bakiyeler ve işlemler zincir dışında kalır ve yalnızca siz tarafından görülebilir",
+    "englishSource": "Balances and activity stay off-chain, visible only to you"
+  },
+  "accountTypePublic": {
+    "message": "Genel",
+    "englishSource": "Public"
+  },
+  "accountTypePublicDescription": {
+    "message": "Hesap durumu blok zincirinde bulunur ve herkese açıktır",
+    "englishSource": "Account state lives on-chain and is publicly visible"
+  },
+  "accountTypeGuardian": {
+    "message": "Guardian -destekli özel",
+    "englishSource": "Guardian-backed private"
+  },
+  "accountTypeGuardianDescription": {
+    "message": "Guardian operatörü tarafından kurtarma amacıyla ortak imzalanmış özel hesap",
+    "englishSource": "Private account co-signed by a Guardian operator for recovery"
+  },
+  "iUnderstand": {
+    "message": "Anladım",
+    "englishSource": "I understand"
+  },
+  "useGuardianInstead": {
+    "message": "Bunun yerine \"Guardian\" kullanın",
+    "englishSource": "Use a Guardian instead"
+  },
+  "localRiskStepCounter": {
+    "message": "$current$ $total$",
+    "englishSource": "$current$ of $total$",
+    "placeholders": {
+      "current": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      }
+    }
+  },
+  "localRiskStep1Title": {
+    "message": "Bu hesap yalnızca bu cihazda bulunur",
+    "englishSource": "This account lives only on this device"
+  },
+  "localRiskStep1Body": {
+    "message": "Bu cihazı kaybederseniz veya uygulamayı silerseniz, Miden bu hesabın özel durumunu geri getiremez.",
+    "englishSource": "If you lose this device or delete the app, Miden cannot recover this account's private state."
+  },
+  "localRiskStep2Title": {
+    "message": "seed phrase'ınız yeterli değildir",
+    "englishSource": "Your seed phrase is not enough"
+  },
+  "localRiskStep2Body": {
+    "message": "Tamamen yerel bir hesap, yalnızca seed phrase adresinden geri yüklenemez. Hesabınızın durumu yalnızca bu cihazda mevcuttur — seed phrase dosyası kaydedilmiş olsa bile fonlarınız kalıcı olarak kaybolur.",
+    "englishSource": "A fully local account cannot be restored from your seed phrase alone. Its state exists only on this device — your funds would be permanently lost even with the seed phrase saved."
+  },
+  "localRiskStep3Title": {
+    "message": "Kimse bunu geri almanıza yardımcı olamaz",
+    "englishSource": "No one can help you recover it"
+  },
+  "localRiskStep3Body": {
+    "message": "Bu hesap için Guardian adresinden bir ortak imza sahibi yoktur. Bu cihaz kaybolursa, Miden dahil hiç kimse erişimi geri getiremez.",
+    "englishSource": "There is no Guardian co-signer for this account. No one — including Miden — can restore access if this device is gone."
   },
   "faucetIdUpdated": {
     "message": "Faucet Kimlik Güncellendi",
