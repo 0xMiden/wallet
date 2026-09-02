@@ -9,6 +9,43 @@ import { hapticLight } from 'lib/mobile/haptics';
 
 import { ActivityGroup } from './activity-grouping';
 
+/**
+ * The glyph that stands in for a group with no identicon behind it.
+ *
+ * `undefined` means "this group has a real address", and the row falls back to
+ * its identicon — the only avatar in the product derived from the counterparty
+ * itself rather than chosen by us.
+ *
+ * Every first-party flow gets the same glyph the rest of the wallet already
+ * uses for it (Swap's Convert, Earn, Bridge's CrossChain, the faucet's tap), so
+ * a group reads as the thing it is instead of as a generic app.
+ */
+function glyphForGroup(group: ActivityGroup): IconName | undefined {
+  switch (group.protocol) {
+    case 'swap':
+      return IconName.Convert;
+    case 'earn':
+      return IconName.Earn;
+    case 'bridge':
+      return IconName.CrossChain;
+    case 'faucet':
+      return IconName.Faucet;
+  }
+
+  switch (group.kind) {
+    // Guardian switches and key rotations: the wallet securing itself. A lock
+    // rather than a person, because there is no counterparty here at all.
+    case 'wallet':
+      return IconName.Lock;
+    case 'app':
+      return IconName.Apps;
+    case 'unknown':
+      return IconName.Users;
+    default:
+      return undefined;
+  }
+}
+
 interface ActivityGroupListProps {
   groups: ActivityGroup[];
   onOpenGroup: (group: ActivityGroup) => void;
@@ -41,12 +78,24 @@ export const ActivityGroupList: FC<ActivityGroupListProps> = ({ groups, onOpenGr
   return (
     <ul className="flex flex-col gap-2">
       {groups.map(group => {
-        const isUnknown = group.kind === 'unknown';
-        const title = isUnknown ? t('activityUnknownGroup') : group.name;
+        const glyph = glyphForGroup(group);
         const latest = group.entries[0];
-        const subtitle = isUnknown
-          ? t('activityUnknownGroupSubtitle')
-          : (latest?.message ?? t('activityGroupNoTransactions'));
+
+        // `contact` and `app` groups name themselves — from the address book,
+        // the address, or the protocol. The two synthetic kinds have no name of
+        // their own, so they get a localized one here rather than rendering an
+        // empty title with the last event floating up into its place.
+        const named = group.kind === 'unknown' || group.kind === 'wallet';
+        const title = !named
+          ? group.name
+          : group.kind === 'unknown'
+            ? t('activityUnknownGroup')
+            : t('activityWalletGroup');
+        const subtitle = !named
+          ? (latest?.message ?? t('activityGroupNoTransactions'))
+          : group.kind === 'unknown'
+            ? t('activityUnknownGroupSubtitle')
+            : t('activityWalletGroupSubtitle');
 
         return (
           <li key={group.id}>
@@ -60,15 +109,8 @@ export const ActivityGroupList: FC<ActivityGroupListProps> = ({ groups, onOpenGr
               title={title}
               subtitle={subtitle}
               iconLeft={
-                // The in-protocol DEX gets its own glyph — the same one the
-                // Swap action uses — so a swap group reads as the app it is
-                // rather than as a generic dApp.
-                group.protocol === 'swap' ? (
-                  <Icon name={IconName.Convert} className="w-5 h-5" fill="currentColor" />
-                ) : group.kind === 'app' ? (
-                  <Icon name={IconName.Apps} className="w-5 h-5" />
-                ) : isUnknown ? (
-                  <Icon name={IconName.Users} className="w-5 h-5" />
+                glyph ? (
+                  <Icon name={glyph} className="w-5 h-5" fill="currentColor" />
                 ) : (
                   <Avatar size="md" identiconPublicKey={group.address} />
                 )
