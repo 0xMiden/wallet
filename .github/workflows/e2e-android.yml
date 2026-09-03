@@ -135,6 +135,12 @@ jobs:
       - name: Install dependencies
         run: yarn install --frozen-lockfile
 
+      # Pinned exact, matching every other E2E workflow: this job builds
+      # miden-client-cli from source, and the cache key below names the rustc
+      # version, so leaving it to the runner image's default made that key a
+      # claim nothing enforced.
+      - uses: dtolnay/rust-toolchain@1.98.0
+
       # Same shared cache + pre-install every other E2E workflow uses. Without
       # it the harness compiles miden-client-cli lazily on FIRST USE — i.e.
       # inside the test — and the ~9 minutes of cargo build ate the 15-minute
