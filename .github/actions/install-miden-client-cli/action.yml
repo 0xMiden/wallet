@@ -302,6 +302,12 @@ runs:
         # NO --locked: it is incompatible with [patch.crates-io] by construction — the patch
         # rewrites Cargo.lock and --locked then refuses. Installing from the rewritten clone is
         # what makes the patch reachable at all, exactly as run-local-node installs the node.
+        # The clone vendors a rust-toolchain.toml pinning the channel the CLI was released
+        # against, and rustup honours it over the toolchain the workflow installed. That pin
+        # predates the protocol crates we just patched in: rc.9 needs 1.98, the vendored file
+        # says 1.96, and the build dies with "rustc 1.96.1 is not supported by the following
+        # packages". Drop it so the workflow's pin applies to the source we have rewritten.
+        rm -f "$src/rust-toolchain.toml" "$src/rust-toolchain"
         rm -rf "$ROOT"; mkdir -p "$ROOT"
         echo "::group::cargo install miden-client (from $src/bin/miden-cli)"
         CARGO_PROFILE_RELEASE_DEBUG=false \
