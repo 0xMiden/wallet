@@ -591,7 +591,7 @@ export class MultisigService {
         {
           signatureScheme: 'ecdsa',
           midenRpcEndpoint: getEffectiveRpcUrl(),
-          feeFaucetId: accountRefToSdk(nativeFaucetId)
+          feeFaucetId: accountRefToSdk(nativeFaucetId).toString()
         }
       );
       assertWasmHoldCurrent(hold, 'replace-hot-key: after the update-signers request build');

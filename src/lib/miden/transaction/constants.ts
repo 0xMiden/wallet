@@ -41,19 +41,25 @@ export const USER_CANCELLED_TRANSACTION_REASON = 'Transaction was cancelled by u
  * inject that -- the auth-arg slot belongs to the multisig -- so the request has
  * to carry it, and a request built elsewhere may not.
  *
- * The flows that produce request bytes before any fee-auth code runs -- Epoch
+ * The flows that produce request bytes before any proposal is created -- Epoch
  * bridged-send and earn-deposit (`buildEpochCollateralRequestBytes`), AggLayer
- * bridged-send (`initiateB2AggBridge`), the swap's PSWAP note
- * (`buildPswapCreateRequest`) and a dApp `execute` -- are now annotated after the
- * fact by `ensureFeeAuthOnRequestBytes`. That became possible when the SDK gained
- * `TransactionRequest.withAuthArg`, which sets the arg on a FINISHED request; the
- * earlier attempt had to rebuild, and could not, because the request's readers do
- * not cover input notes or the script and `serialize()` is not canonical, so a
- * rebuild could neither carry everything forward nor prove that it did.
+ * bridged-send (`initiateB2AggBridge`) and the swap's PSWAP note
+ * (`buildPswapCreateRequest`) -- commit the conversion info at BUILD time, each
+ * taking it as a `feeAuth` argument resolved by `resolveBuildTimeFeeAuth`.
  *
- * So this message now means the annotation did not take. `ensureFeeAuthOnRequestBytes`
- * passes bytes through rather than failing on several conditions, any of which
- * lands here -- bytes it could not deserialize, a chain read that failed, a base
+ * It has to be the build, not the finished request: the SDK exposes only a getter
+ * for the auth arg on `TransactionRequest`, deliberately, because miden-client keeps
+ * it mutually exclusive with the fee conversion salt and enforces that on the builder.
+ * A finished request also cannot be rebuilt into one -- its readers cover neither
+ * input notes nor the script, and `serialize()` is not canonical, so a rebuild could
+ * neither carry everything forward nor prove that it did.
+ *
+ * A dApp `execute` is the one flow whose bytes the wallet does not build, so it
+ * commits nothing and cannot pay a fee on a fee-charging chain.
+ *
+ * So this message means no conversion info reached the kernel. `resolveBuildTimeFeeAuth`
+ * returns nothing rather than failing on several conditions, any of which
+ lands here -- bytes it could not deserialize, a chain read that failed, a base
  * fee still cached as 0 from a previous genesis at the same endpoint, or a request
  * that already carried an auth arg set for some other purpose. Not an exhaustive
  * list, and the module is the place to read for the current one.

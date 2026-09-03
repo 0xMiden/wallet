@@ -387,7 +387,7 @@ export const createDirectSwitchGuardianRequest = async (
     // verification base fee is non-zero. This path arrived with the offline-rotation
     // work after the fee paths were swept, so it was never given the option.
     const { request, salt } = await buildUpdateGuardianTransactionRequest(webClient, newGuardianPubkey, {
-      feeFaucetId: accountRefToSdk(await getNativeAssetId()),
+      feeFaucetId: accountRefToSdk(await getNativeAssetId()).toString(),
       signatureScheme: 'ecdsa',
       midenRpcEndpoint: getEffectiveRpcUrl()
     });
@@ -488,7 +488,7 @@ export const createDirectSwitchGuardianRequest = async (
     // Same fee-conversion-info requirement as the build above; the rebuild must
     // reproduce the SAME auth args or the summary will not match what was signed.
     const { request: rebuilt } = await buildUpdateGuardianTransactionRequest(webClient, newGuardianPubkey, {
-      feeFaucetId: accountRefToSdk(await getNativeAssetId()),
+      feeFaucetId: accountRefToSdk(await getNativeAssetId()).toString(),
       salt: Word.fromHex(ensureHexPrefix(built.saltHex)),
       signatureAdviceMap,
       signatureScheme: 'ecdsa',

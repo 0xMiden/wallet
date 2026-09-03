@@ -138,10 +138,10 @@
     "@epoch-protocol/epoch-intents-sdk": "1.0.38",
     "@floating-ui/react": "^0.27.16",
     "@hookform/resolvers": "^3.9.0",
-    "@miden-sdk/miden-sdk": "0.16.0-rc.6",
-    "@miden-sdk/miden-wallet-adapter-base": "0.16.0-rc.6",
-    "@miden-sdk/miden-wallet-adapter-miden": "0.16.0-rc.6",
-    "@miden-sdk/react": "0.16.0-rc.6",
+    "@miden-sdk/miden-sdk": "0.16.0-rc.7",
+    "@miden-sdk/miden-wallet-adapter-base": "0.16.0-rc.7",
+    "@miden-sdk/miden-wallet-adapter-miden": "0.16.0-rc.7",
+    "@miden-sdk/react": "0.16.0-rc.7",
     "@miden/dapp-browser": "link:./packages/dapp-browser",
     "@miden/native-prover": "link:./packages/native-prover",
     "@newhighsco/storybook-addon-svgr": "^2.0.7",
@@ -339,8 +339,8 @@
     ]
   },
   "resolutions": {
-    "@miden-sdk/miden-sdk": "0.16.0-rc.6",
-    "@miden-sdk/react": "0.16.0-rc.6",
+    "@miden-sdk/miden-sdk": "0.16.0-rc.7",
+    "@miden-sdk/react": "0.16.0-rc.7",
     "strip-ansi": "6.0.1",
     "webpack": "^5",
     "**/@types/react": "18.2.76",
@@ -365,7 +365,7 @@
     "**/brace-expansion": "^2.0.3",
     "**/minimatch": "^9.0.7",
     "**/tar": "^6.2.1",
-    "**/@miden-sdk/miden-sdk": "0.16.0-rc.6"
+    "**/@miden-sdk/miden-sdk": "0.16.0-rc.7"
   },
   "packageManager": "yarn@1.22.22+sha512.a6b2f7906b721bba3d67d4aff083df04dad64c399707841b7acf00f6b133b7ac24255f2652fa22ae3534329dc6180534e98d17432037ff6fd140556e2bb3137e"
 }

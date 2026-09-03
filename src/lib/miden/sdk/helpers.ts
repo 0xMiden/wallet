@@ -263,7 +263,7 @@ export function buildSendTransactionRequest(
   // it owns, but a multisig account's auth arg is the multisig's, so a request built
   // here for a Guardian proposal has to carry it explicitly.
   //
-  // Set as a plain auth arg + advice map, NOT via the SDK's `withFeeConversionInfo`.
+  // Set as a plain auth arg + advice map, NOT via the SDK's `withFeeConversionSalt`.
   // That method additionally flags the request as declaring conversion info, which makes
   // the client classify the account's auth component before executing -- and a guarded
   // multisig built by the JS package carries procedure roots the client cannot match
@@ -320,7 +320,8 @@ export function buildPswapCreateRequest(
   creatorAccount: Account | undefined,
   reference: TransactionRequest,
   offeredFaucetRef: string,
-  offeredAmount: bigint
+  offeredAmount: bigint,
+  feeAuth?: { authArg: Word; adviceMap?: AdviceMap }
 ): TransactionRequest {
   const referenceNote = reference.expectedOutputOwnNotes()[0];
   if (!referenceNote) {
@@ -335,5 +336,15 @@ export function buildPswapCreateRequest(
     referenceNote.recipient(),
     referenceNote.attachments()
   );
-  return new TransactionRequestBuilder().withOwnOutputNotes(new NoteArray([note])).build();
+  let builder = new TransactionRequestBuilder().withOwnOutputNotes(new NoteArray([note]));
+  // The fee conversion info this request must carry; see `resolveBuildTimeFeeAuth`.
+  // Attached here rather than to the finished request: the SDK exposes no auth-arg
+  // setter on `TransactionRequest`, only on the builder.
+  if (feeAuth !== undefined) {
+    builder = builder.withAuthArg(feeAuth.authArg);
+    if (feeAuth.adviceMap !== undefined) {
+      builder = builder.extendAdviceMap(feeAuth.adviceMap);
+    }
+  }
+  return builder.build();
 }

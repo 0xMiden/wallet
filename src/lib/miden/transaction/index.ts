@@ -58,7 +58,7 @@ import {
 } from './complete';
 import { TRANSACTION_EXPIRED_ERROR } from './constants';
 import { getAllUncompletedTransactions, getTransactionsInProgress } from './get';
-import { ensureFeeAuthOnRequestBytes } from './guardian-fee-auth';
+import { resolveBuildTimeFeeAuth } from './guardian-fee-auth';
 import {
   isGuardianCanonicalizationError,
   isGuardianUnauthorizedExecutionError,
@@ -1417,7 +1417,7 @@ export const generateTransaction = async (
         // colliding when an auth arg is already present, and the commitment built here is the
         // same shape it would have built. Persisted because the commitment carries a fresh salt;
         // the annotation is idempotent.
-        const annotated = await ensureFeeAuthOnRequestBytes(transaction.requestBytes);
+        const annotated = transaction.requestBytes;
         if (annotated !== transaction.requestBytes) {
           transaction.requestBytes = annotated;
           await Repo.transactions.where({ id: transaction.id }).modify(t => {
@@ -1440,7 +1440,7 @@ export const generateTransaction = async (
       // carries bytes the wallet did not build, so if anything ever does need the auth arg
       // attached post-hoc it is this one. For the wallet's own accounts the client still
       // injects, so this pre-empts rather than repairs.
-      const executeBytes = await ensureFeeAuthOnRequestBytes(transaction.requestBytes!);
+      const executeBytes = transaction.requestBytes!;
       if (executeBytes !== transaction.requestBytes) {
         transaction.requestBytes = executeBytes;
         await Repo.transactions.where({ id: transaction.id }).modify(t => {
@@ -1535,7 +1535,7 @@ const ensureGuardianRecallableSendRequestBytes = async (
     // Persisted when it changes, because the commitment carries a fresh salt and
     // `prepareCustomExecution` re-derives it from whatever bytes it is given. The annotation is
     // idempotent, so repeat calls return the same request.
-    const annotated = await ensureFeeAuthOnRequestBytes(transaction.requestBytes);
+    const annotated = transaction.requestBytes;
     if (annotated !== transaction.requestBytes) {
       transaction.requestBytes = annotated;
       await Repo.transactions.where({ id: transaction.id }).modify(t => {
@@ -1568,7 +1568,7 @@ const ensureGuardianRecallableSendRequestBytes = async (
   // `accountRefToSdk`, not the raw id: the wallet's native-asset id is bech32 and the
   // helper parses a bare string as HEX, rejecting it with "expected hex data to have
   // length 32 ... found 49". The shared resolver accepts both forms.
-  const feeAuth = resolveAuthArg(feeSalt, accountRefToSdk(feeFaucetId));
+  const feeAuth = resolveAuthArg(feeSalt, accountRefToSdk(feeFaucetId).toString());
   const requestBytes = await withWasmClientLock(async hold => {
     // `freshSync` (Epoch bridge + earn collateral): the solver's allocator
     // validates the note's REMAINING reclaim window against its own (later) chain
@@ -2380,7 +2380,7 @@ const generateGuardianTransaction = async (
       } else {
         // Agglayer: preview the pre-built request into a custom multisig proposal.
         // AggLayer route: also pre-built at initiate time, so it needs the same annotation.
-        const aggBytes = await ensureFeeAuthOnRequestBytes(bridgeTx.requestBytes!);
+        const aggBytes = bridgeTx.requestBytes!;
         if (aggBytes !== bridgeTx.requestBytes) {
           transaction.requestBytes = aggBytes;
           await Repo.transactions.where({ id: transaction.id }).modify(t => {
@@ -2449,6 +2449,9 @@ const generateGuardianTransaction = async (
       // process restart reuses the same request instead of registering a
       // second, divergent proposal.
       if (!transaction.requestBytes) {
+        // Resolved BEFORE the lock: the reads drive their own RpcClient through the
+        // WASM module and re-entering it under the client lock traps.
+        const swapFeeAuth = await resolveBuildTimeFeeAuth();
         const requestBytes = await withWasmClientLock(async hold => {
           // The offered asset has to carry the vault key of the slot it is
           // actually held in — the callback flag is part of that key, and the
@@ -2490,7 +2493,8 @@ const generateGuardianTransaction = async (
               creatorAccount ?? undefined,
               tr,
               swapTx.faucetId,
-              BigInt(swapTx.amount)
+              BigInt(swapTx.amount),
+              swapFeeAuth
             ).serialize();
           } finally {
             client.terminate();
@@ -2511,7 +2515,7 @@ const generateGuardianTransaction = async (
       // request. Annotate BEFORE the proposal and persist, because the commitment carries a
       // fresh salt and `prepareCustomExecution` re-derives it from whatever bytes it is given,
       // so proposal creation and execution must see the identical request.
-      const swapBytes = await ensureFeeAuthOnRequestBytes(transaction.requestBytes!);
+      const swapBytes = transaction.requestBytes!;
       if (swapBytes !== transaction.requestBytes) {
         transaction.requestBytes = swapBytes;
         await Repo.transactions.where({ id: transaction.id }).modify(t => {
@@ -2547,7 +2551,7 @@ const generateGuardianTransaction = async (
       // A dApp's request is built outside the wallet and cannot be rebuilt, so its fee auth has
       // to be attached to the finished bytes. Persisted back so the execution below reproduces
       // the same commitment.
-      const dappBytes = await ensureFeeAuthOnRequestBytes(requestBytes);
+      const dappBytes = requestBytes;
       if (dappBytes !== requestBytes) {
         transaction.requestBytes = dappBytes;
         await Repo.transactions.where({ id: transaction.id }).modify(t => {

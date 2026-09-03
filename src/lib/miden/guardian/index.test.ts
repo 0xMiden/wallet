@@ -1117,7 +1117,7 @@ describe('MultisigService', () => {
         {
           signatureScheme: 'ecdsa',
           midenRpcEndpoint: expect.any(String),
-          feeFaucetId: expect.objectContaining({ toString: expect.any(Function) })
+          feeFaucetId: expect.any(String)
         }
       );
       expect(mockExecuteForSummary).toHaveBeenCalledWith(
@@ -1387,7 +1387,7 @@ describe('MultisigService', () => {
         {
           signatureScheme: 'ecdsa',
           midenRpcEndpoint: expect.any(String),
-          feeFaucetId: expect.objectContaining({ toString: expect.any(Function) })
+          feeFaucetId: expect.any(String)
         }
       );
     });

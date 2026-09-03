@@ -18,6 +18,7 @@ import {
 import type { GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
 import { accountIdStringToSdk, getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
 import { assertWasmHoldCurrent, withWasmClientLock } from 'lib/miden/sdk/miden-client';
+import { resolveBuildTimeFeeAuth } from 'lib/miden/transaction/guardian-fee-auth';
 import { isExtension } from 'lib/platform';
 
 import { MIDEN_BRIDGE_ID, getAgglayerFaucetId } from './constant';
@@ -90,6 +91,9 @@ export async function initiateB2AggBridge(args: {
   // compares it verbatim against the bech32 id of the token whose history is
   // open. Storing hex here made the row render as "Unknown" with the 6-decimal
   // metadata fallback and dropped it out of that token's history entirely.
+  // Resolved BEFORE the client lock: on a cache miss this drives its own RpcClient
+  // through the WASM module, and re-entering it under the lock traps.
+  const feeAuth = await resolveBuildTimeFeeAuth();
   const { requestBytes, faucetBech32 } = await withWasmClientLock(async hold => {
     const note = await createB2AggNote(amount, destinationAddress, senderPublicKey, destinationNetwork);
     // The awaited note build parks (the lazy SDK load can be the long one), and
@@ -101,7 +105,16 @@ export async function initiateB2AggBridge(args: {
     // BEFORE `initiateBridgedSendTransaction` queues a row, since a queued row
     // would hand the abandoned request to the processor as a fresh write.
     assertWasmHoldCurrent(hold, 'before the bridge request build');
-    const request = new TransactionRequestBuilder().withOwnOutputNotes(new NoteArray([note])).build();
+    // Attached at BUILD time: the SDK exposes no auth-arg setter on a finished
+    // `TransactionRequest`, only on the builder. See `resolveBuildTimeFeeAuth`.
+    let builder = new TransactionRequestBuilder().withOwnOutputNotes(new NoteArray([note]));
+    if (feeAuth !== undefined) {
+      builder = builder.withAuthArg(feeAuth.authArg);
+      if (feeAuth.adviceMap !== undefined) {
+        builder = builder.extendAdviceMap(feeAuth.adviceMap);
+      }
+    }
+    const request = builder.build();
     const serialisedReq = request.serialize();
     console.log('Got the serialised transaction request', serialisedReq);
     try {

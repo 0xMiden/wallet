@@ -164,7 +164,7 @@ jest.mock('../sdk/miden-client', () => {
 // fee conversion info into the request's auth args. Mocked to a fixed id so the
 // argument assertions below can pin that it is actually passed through.
 // The Guardian custom-proposal build commits fee conversion info as a plain auth arg,
-// using the package's own helper rather than the SDK's `withFeeConversionInfo` (which
+// using the package's own helper rather than the SDK's `withFeeConversionSalt` (which
 // would flag the request and make miden-client reject a guarded account it cannot
 // classify). Mocked to fixed handles so the argument assertions can pin it through.
 jest.mock('@openzeppelin/miden-multisig-client', () => ({
@@ -181,11 +181,12 @@ jest.mock('lib/miden-chain/native-asset', () => ({
 // Without a mock the real module runs, cannot deserialize under `wasmMock` (which has no
 // `TransactionRequest`) and takes its own passthrough -- indistinguishable from working, and
 // the reason moving the swap's annotation back inside its build branch left this suite green.
-// Tests that care override the return so annotated bytes are observable.
+// The fee conversion info a request is BUILT with. Tests that care assert it reached
+// the producer; the rest only need it to resolve.
 // eslint-disable-next-line no-var
-var mockEnsureFeeAuthOnRequestBytes = jest.fn(async (bytes: Uint8Array) => bytes);
+var mockResolveBuildTimeFeeAuth = jest.fn(async () => ({ authArg: 'AUTH_ARG', adviceMap: 'ADVICE' }));
 jest.mock('./guardian-fee-auth', () => ({
-  ensureFeeAuthOnRequestBytes: (...args: [Uint8Array]) => mockEnsureFeeAuthOnRequestBytes(...args)
+  resolveBuildTimeFeeAuth: () => mockResolveBuildTimeFeeAuth()
 }));
 
 jest.mock('lib/intercom', () => ({
@@ -850,8 +851,8 @@ describe('generateTransaction — Guardian routing', () => {
     mockBuildPswapCreateRequest.mockReset();
     // Same reason as the reset below: keep the passthrough default so a test that does not
     // care sees the bytes it built, and so a `mockResolvedValueOnce` cannot leak forward.
-    mockEnsureFeeAuthOnRequestBytes.mockReset();
-    mockEnsureFeeAuthOnRequestBytes.mockImplementation(async (bytes: Uint8Array) => bytes);
+    mockResolveBuildTimeFeeAuth.mockReset();
+    mockResolveBuildTimeFeeAuth.mockResolvedValue({ authArg: 'AUTH_ARG', adviceMap: 'ADVICE' });
     // #784: `clearAllMocks` clears CALLS but keeps implementations, so reset
     // this one and give it an echoing default. Without a default, a test that
     // sets `metadata.chainAnchor` but forgets `mockReturnValue` would decode to
@@ -1524,7 +1525,12 @@ describe('generateTransaction — Guardian routing', () => {
 
     // The creator's vault, by canonical id, handed to the rewrite verbatim.
     expect(getAccount).toHaveBeenCalledWith('sdk-guardian-acc');
-    expect(mockBuildPswapCreateRequest).toHaveBeenCalledWith(creatorAccount, reference, 'offered-faucet', 1000n);
+    // The fee auth is threaded into the BUILD; there is no auth-arg setter on a finished
+    // request, so a swap that is not built with it can never acquire it.
+    expect(mockBuildPswapCreateRequest).toHaveBeenCalledWith(creatorAccount, reference, 'offered-faucet', 1000n, {
+      authArg: 'AUTH_ARG',
+      adviceMap: 'ADVICE'
+    });
     // One builder call: each draws a fresh serial number, which IS the order id,
     // so building one request to inspect and another to propose would register a
     // different order than the one the wallet tracks.
@@ -1548,10 +1554,9 @@ describe('generateTransaction — Guardian routing', () => {
    * Deliberately seeded WITH `requestBytes` — the sibling test above starts from `undefined`
    * and so exercises the build branch whichever side of the `if` the annotation sits on.
    */
-  it('Guardian swap annotates request bytes the row already carried, not just freshly built ones', async () => {
+  it('Guardian swap reuses bytes the row already carried verbatim, since the fee auth is committed at build time', async () => {
     const txId = 'guardian-swap-preexisting-bytes';
     const existingBytes = new Uint8Array([21, 22, 23]);
-    const annotatedBytes = new Uint8Array([31, 32, 33]);
     const transaction = Object.assign(new Transaction('guardian-acc', new Uint8Array()), {
       id: txId,
       type: 'swap',
@@ -1562,8 +1567,6 @@ describe('generateTransaction — Guardian routing', () => {
       delegateTransaction: false
     });
     txStore.push({ ...transaction, status: ITransactionStatus.Queued });
-
-    mockEnsureFeeAuthOnRequestBytes.mockResolvedValueOnce(annotatedBytes);
 
     const multisigService = {
       createCustomProposal: jest.fn(async () => ({ id: 'swap-proposal' })),
@@ -1590,17 +1593,21 @@ describe('generateTransaction — Guardian routing', () => {
       makeGuardianProvider(true)
     );
 
-    // It was asked to annotate the bytes the row already held...
-    expect(mockEnsureFeeAuthOnRequestBytes).toHaveBeenCalledWith(existingBytes);
-    // ...the request that never got rebuilt, so nothing else could have supplied them...
+    // A row that already holds bytes is NOT rebuilt -- the PSWAP serial number is the order
+    // id, so a rebuild would issue a different order.
     expect(mockBuildPswapCreateRequest).not.toHaveBeenCalled();
-    // ...and the ANNOTATED bytes are what get persisted, proposed and replayed for signing.
-    // All three matter: the commitment carries a fresh salt and `prepareCustomExecution`
-    // re-derives it from whatever bytes it is given, so a mismatch between any two of these
-    // is rejected at execution time.
-    expect(txStore.find(row => row.id === txId)?.requestBytes).toBe(annotatedBytes);
-    expect(multisigService.createCustomProposal).toHaveBeenCalledWith(annotatedBytes, 'swap');
-    expect(multisigService.signAndCreateTransactionRequest).toHaveBeenCalledWith('swap-proposal', annotatedBytes);
+    // The same bytes are what get persisted, proposed and replayed for signing. All three
+    // matter: the commitment carries a fresh salt and `prepareCustomExecution` re-derives it
+    // from whatever bytes it is given, so a mismatch between any two is rejected at execution.
+    expect(txStore.find(row => row.id === txId)?.requestBytes).toBe(existingBytes);
+    expect(multisigService.createCustomProposal).toHaveBeenCalledWith(existingBytes, 'swap');
+    expect(multisigService.signAndCreateTransactionRequest).toHaveBeenCalledWith('swap-proposal', existingBytes);
+    // DELIBERATE GAP. Bytes are committed with fee conversion info when they are BUILT, so a
+    // row reaching here already carries it and needs no second pass. The SDK exposes no
+    // auth-arg setter on a finished request, so bytes that arrived WITHOUT it -- only possible
+    // from a build that predates build-time commitment -- cannot acquire it here and will fail
+    // on a fee-charging chain. There is no such persisted row today; if that changes, the row
+    // has to be re-queued rather than annotated.
   });
 
   it('Guardian Epoch bridged-send builds a public recallable P2IDE custom proposal (the allocator rejects a plain P2ID)', async () => {

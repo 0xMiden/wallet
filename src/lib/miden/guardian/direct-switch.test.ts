@@ -117,7 +117,10 @@ jest.mock('lib/miden-chain/native-asset', () => ({
 // which this suite's SDK mock does not provide. The module's other exports stay real.
 jest.mock('lib/miden/sdk/helpers', () => ({
   ...jest.requireActual('lib/miden/sdk/helpers'),
-  accountRefToSdk: jest.fn((ref: string) => ({ __feeFaucetRef: ref }))
+  // Models the real helper's contract: it takes any account ref (bech32 or hex) and the
+  // caller reads HEX off it. `feeFaucetId` is a hex string, so a fake without a real
+  // `toString` would silently yield '[object Object]' and assert nothing.
+  accountRefToSdk: jest.fn((ref: string) => ({ toString: () => `0xhex(${ref})` }))
 }));
 
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
@@ -475,7 +478,7 @@ describe('createDirectSwitchGuardianRequest', () => {
     await createDirectSwitchGuardianRequest(walletAccount(), 'https://new.guardian.test', signWord);
 
     const [summaryBuild, rebuild] = mockedMultisigClient.buildUpdateGuardianTransactionRequest.mock.calls;
-    const feeFaucetId = { __feeFaucetRef: 'mtst1aqmat9m63ctdsgz6xcyzpuprpulwk9vg_qruqqypuyph' };
+    const feeFaucetId = '0xhex(mtst1aqmat9m63ctdsgz6xcyzpuprpulwk9vg_qruqqypuyph)';
     expect(summaryBuild[2]).toEqual({
       signatureScheme: 'ecdsa',
       midenRpcEndpoint: 'https://rpc.test',
