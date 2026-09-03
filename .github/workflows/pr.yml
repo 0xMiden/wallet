@@ -40,6 +40,10 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      # The linked-PR injection posts a sticky status comment. Declaring permissions at all
+      # replaces the defaults, so this job loses the pull-requests scope every other job
+      # still gets implicitly, and that comment fails with "Resource not accessible".
+      pull-requests: write
     steps:
       - name: Check Out Code
         uses: actions/checkout@v3
