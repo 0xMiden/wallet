@@ -316,7 +316,7 @@ runs:
       uses: actions/cache/restore@v4
       with:
         path: ${{ runner.temp }}/miden-client/target/test-node/install
-        key: local-node-install-${{ steps.pins.outputs.rev }}-fee${{ inputs.verification-base-fee }}${{ steps.protocol.outputs.cache_suffix }}-rust1.96.1
+        key: local-node-install-${{ steps.pins.outputs.rev }}-fee${{ inputs.verification-base-fee }}${{ steps.protocol.outputs.cache_suffix }}-rust1.98.0
     # Fails in ~2 min instead of after the ~36 min cold build. NOT skipped on a cache
     # hit: the node binaries are restored, but gen-genesis is not — start-test-node.sh
     # rebuilds it every run from the miden-client workspace, whose target/release is
@@ -617,7 +617,7 @@ runs:
       uses: actions/cache/save@v4
       with:
         path: ${{ runner.temp }}/miden-client/target/test-node/install
-        key: local-node-install-${{ steps.pins.outputs.rev }}-fee${{ inputs.verification-base-fee }}${{ steps.protocol.outputs.cache_suffix }}-rust1.96.1
+        key: local-node-install-${{ steps.pins.outputs.rev }}-fee${{ inputs.verification-base-fee }}${{ steps.protocol.outputs.cache_suffix }}-rust1.98.0
     # start-test-node.sh fails with "a node service exited; see <dir>/logs" and then
     # exits, so the logs it points at are discarded with the runner. That turns any
     # bring-up failure into an unactionable red X — dump them here instead.

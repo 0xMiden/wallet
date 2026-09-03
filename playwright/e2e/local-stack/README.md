@@ -28,7 +28,7 @@ those files currently say; when they disagree, the files win.
 
 ## Prerequisites
 
-- `cargo` + `rustc` (CI pins 1.96.1) — for building the node, the CLI and note-transport
+- `cargo` + `rustc` (CI pins 1.98.0) — for building the node, the CLI and note-transport
 - `protobuf-compiler`, `clang`, `cmake` — node build deps
 - `nc` (netcat) — for the port-readiness wait in `run-note-transport.sh`
 - Docker with Compose v2 (`docker compose`) — only for the optional Tier-2 guardian profile
