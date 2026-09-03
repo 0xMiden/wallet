@@ -128,6 +128,7 @@ runs:
       if: steps.pins.outputs.proto_rev != 'none' && steps.cli_cache.outputs.cache-hit != 'true'
       shell: bash
       env:
+        GH_TOKEN: ${{ github.token }}
         GIT_URL: ${{ steps.pins.outputs.git_url }}
         GIT_REV: ${{ steps.pins.outputs.git_rev }}
         PROTO_URL: ${{ steps.pins.outputs.proto_url }}
@@ -135,6 +136,7 @@ runs:
         ROOT: ${{ steps.pins.outputs.root }}
       run: |
         set -euo pipefail
+        AUTH_HDR="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')"
         # The protocol workspace's own crates. Only the ones actually in the CLI's lockfile are
         # patched: an entry for a crate outside the graph is reported "not used in the crate
         # graph", which is the very warning the resolve check below treats as fatal.
@@ -149,6 +151,11 @@ runs:
         rm -rf "$src"; mkdir -p "$src"
         git -C "$src" init -q
         git -C "$src" remote add origin "$GIT_URL"
+        # Authenticate: anonymous fetches from the runner started failing with
+        # `could not read Username for 'https://github.com'`, which git reports when the server
+        # declines the request, not only for private repos. Set on the repo so the lazy blob
+        # fetches a --filter=blob:none clone makes later inherit it.
+        git -C "$src" config http.extraheader "AUTHORIZATION: basic $AUTH_HDR"
         # A bare-sha fetch is what GitHub serves for a reachable commit; fall back to fetching the
         # refs when a host refuses it, rather than reporting the CLI source as unfetchable.
         if git -C "$src" fetch -q --depth 1 origin "$GIT_REV"; then
@@ -166,6 +173,7 @@ runs:
         rm -rf "$pdir"; mkdir -p "$pdir"
         git -C "$pdir" init -q
         git -C "$pdir" remote add origin "$PROTO_URL"
+        git -C "$pdir" config http.extraheader "AUTHORIZATION: basic $AUTH_HDR"
         git -C "$pdir" fetch -q --depth 1 origin "$REV" \
           || git -C "$pdir" fetch -q --filter=blob:none origin
         proto_ver=$(git -C "$pdir" cat-file -p "${REV}:Cargo.toml" \
