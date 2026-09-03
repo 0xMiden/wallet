@@ -2548,17 +2548,12 @@ const generateGuardianTransaction = async (
         throw new Error('Request Bytes not available for custom transaction');
       }
       service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
-      // A dApp's request is built outside the wallet and cannot be rebuilt, so its fee auth has
-      // to be attached to the finished bytes. Persisted back so the execution below reproduces
-      // the same commitment.
-      const dappBytes = requestBytes;
-      if (dappBytes !== requestBytes) {
-        transaction.requestBytes = dappBytes;
-        await Repo.transactions.where({ id: transaction.id }).modify(t => {
-          t.requestBytes = dappBytes;
-        });
-      }
-      proposalResult = await withGuardianConflictRetry(() => service.createCustomProposal(dappBytes));
+      // A dApp builds this request itself and the wallet only ever sees finished bytes, so
+      // unlike every other custom-proposal path there is no builder here to commit fee
+      // conversion info on. The SDK exposes no auth-arg setter on a finished request, so on a
+      // guarded account and a fee-charging chain this aborts in `fee::pay_fee`. Committing it
+      // has to happen where the request is built, i.e. dApp-side.
+      proposalResult = await withGuardianConflictRetry(() => service.createCustomProposal(requestBytes));
       break;
     }
   }
