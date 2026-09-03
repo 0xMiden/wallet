@@ -123,6 +123,8 @@ jobs:
           docker compose --env-file versions.env -f docker-compose.local.yml logs --no-color guardian guardian-b | tail -120
           exit 1
       - name: Start note-transport
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: playwright/e2e/local-stack/run-note-transport.sh
       - name: Build extension (localnet)
         run: E2E_NETWORK=localhost yarn test:e2e:blockchain:build

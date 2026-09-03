@@ -92,6 +92,7 @@ jobs:
         if: steps.cache.outputs.cache-hit != 'true'
         env:
           NOTE_TRANSPORT_BUILD_ONLY: '1'
+          GH_TOKEN: ${{ github.token }}
         run: playwright/e2e/local-stack/run-note-transport.sh
       - name: Report
         run: |

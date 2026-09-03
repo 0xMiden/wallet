@@ -143,6 +143,11 @@ runs:
         mkdir -p "$GUARDIAN_DIR"
         git -C "$GUARDIAN_DIR" init -q
         git -C "$GUARDIAN_DIR" remote add origin "https://github.com/${HEAD_OWNER}/${HEAD_REPO}.git"
+        # Authenticate the fetch. These repos are public, but anonymous fetches from the runner
+        # started failing with `could not read Username for 'https://github.com'`, which git
+        # reports when the server declines the request rather than only for private repos.
+        git -C "$GUARDIAN_DIR" config http.extraheader \
+          "AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')"
         git -C "$GUARDIAN_DIR" fetch --depth 1 origin "${HEAD_SHA}"
         git -C "$GUARDIAN_DIR" checkout --detach FETCH_HEAD
         echo "::endgroup::"
