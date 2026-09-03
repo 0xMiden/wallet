@@ -260,11 +260,26 @@ runs:
         echo "::group::resolve $src"
         cargo update $specs 2>&1 | tee "$log"
         echo "::endgroup::"
-        if grep -q 'was not used in the crate graph' "$log"; then
-          echo "::error title=install-miden-client-cli::cargo reports an UNUSED [patch.crates-io] entry:"
+        # An unused patch is only a problem for the crates that actually carry the fee MASM: if one
+        # of those resolves to the published version, every chain call fails with a bare `x assert`.
+        # The others are legitimately absent from the binary's graph - miden-testing is a
+        # dev-dependency and miden-block-prover is not reachable from the CLI - so cargo reporting
+        # their patch as unused is expected, not a failure. Being present in Cargo.lock does not
+        # mean being in the crate graph for this build.
+        CRITICAL_PATCHES="miden-protocol miden-standards miden-tx"
+        unused_critical=""
+        for c in $CRITICAL_PATCHES; do
+          grep -q "patch \`${c} v.*was not used in the crate graph" "$log" && unused_critical="$unused_critical $c"
+        done
+        if [ -n "$unused_critical" ]; then
+          echo "::error title=install-miden-client-cli::a fee-carrying crate's [patch.crates-io] entry went UNUSED:${unused_critical}"
           grep -n 'was not used in the crate graph' "$log" | sed 's/^/::error::  /'
-          echo "::error::It means a requirement the patch cannot satisfy survived, so the CLI would resolve the PUBLISHED protocol crates and fail every chain call with a bare 'x assert'."
+          echo "::error::That crate resolves to the PUBLISHED version, so the CLI fails every chain call with a bare 'x assert'."
           exit 1
+        fi
+        if grep -q 'was not used in the crate graph' "$log"; then
+          echo "::notice title=install-miden-client-cli::non-critical patches unused (expected - not in the binary's graph):"
+          grep -o "patch \`[a-z-]* " "$log" | sed 's/^/::notice::  /'
         fi
         bad=""
         for c in $patched; do
