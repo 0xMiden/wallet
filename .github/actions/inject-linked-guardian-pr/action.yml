@@ -18,11 +18,13 @@ description: >
 
   Mirrors `inject-linked-web-sdk-pr`; it is deliberately the same shape so
   the two read alike. The differences are all simplifications: the multisig
-  client is plain TypeScript, so there is no Rust toolchain to pre-install,
-  no wasm target, and no second package to build. Its `packages/miden-
-  multisig-client` directory carries its own pnpm-lock.yaml and every
-  dependency it needs is published, so a plain `pnpm install` there is
-  enough — the rest of the guardian repo is not built.
+  client is plain TypeScript, so there is no Rust toolchain to pre-install and
+  no wasm target. It installs at the guardian `packages/` workspace root rather
+  than inside the one package: that package depends on its sibling
+  `@openzeppelin/guardian-client`, and a version bump moves both together, so
+  resolving the sibling from the registry breaks on every guardian PR that
+  raises the version before publishing. The workspace links it from the same
+  checkout instead. Nothing else in the guardian repo is built.
 
 inputs:
   github-token:
@@ -157,34 +159,28 @@ runs:
           exit 1
         fi
 
-        # The package is self-contained: its own pnpm-lock.yaml, and every
-        # dependency published. Nothing else in the guardian repo is built.
-        echo "::group::Install @openzeppelin/miden-multisig-client deps"
-        cd "$GUARDIAN_DIR/$PKG_SUBDIR"
-        if command -v corepack >/dev/null 2>&1; then
-          corepack enable >/dev/null 2>&1 || true
-          PNPM="corepack pnpm"
-        elif command -v pnpm >/dev/null 2>&1; then
-          PNPM="pnpm"
-        else
-          npm install -g pnpm@9 >/dev/null
-          PNPM="pnpm"
-        fi
-        # Not --frozen-lockfile: the lockfile is resolved against the guardian
-        # branch's own dep set, and a wallet runner may carry a different npm
-        # registry mirror. A drifted lockfile should not fail the wallet's CI.
+        # Installed at the WORKSPACE ROOT, not inside the package. The package
+        # depends on its sibling `@openzeppelin/guardian-client` by registry range,
+        # and guardian bumps both together — so on any PR that raises the version
+        # before publishing, that range names a version npm does not have yet and a
+        # standalone install dies with ERR_PNPM_NO_MATCHING_VERSION. The workspace
+        # links the sibling from this same checkout, which is what guardian's own CI
+        # does too.
+        echo "::group::Install the guardian packages workspace"
+        cd "$GUARDIAN_DIR/packages"
+        # Not `npm ci`: the lockfile is resolved against the guardian branch's own dep
+        # set and a wallet runner may carry a different registry mirror, so a drifted
+        # lockfile must not fail the wallet's CI.
         #
-        # --ignore-scripts because pnpm 10 makes an ignored dependency build script a
-        # HARD error (ERR_PNPM_IGNORED_BUILDS, seen here on esbuild), and this package
-        # does not need any of them: its build is `generate:masm && tsc`, which reads
-        # sources and emits dist/. Skipping dependency lifecycle scripts does not affect
-        # `pnpm run build` below, which is invoked explicitly. Verified locally: install
-        # succeeds, dist/index.js is produced, and the exports the wallet needs are in it.
-        $PNPM install --no-frozen-lockfile --ignore-scripts
+        # --ignore-scripts skips dependency lifecycle scripts, which this build does not
+        # need: it is `tsc` over sources. The builds below are invoked explicitly.
+        npm install --no-audit --no-fund --ignore-scripts
         echo "::endgroup::"
 
+        # guardian-client first: miden-multisig-client imports its generated dist.
         echo "::group::Build @openzeppelin/miden-multisig-client"
-        $PNPM run build
+        npm run build -w @openzeppelin/guardian-client
+        npm run build -w @openzeppelin/miden-multisig-client
         echo "::endgroup::"
 
         if [ ! -f "$GUARDIAN_DIR/$PKG_SUBDIR/dist/index.js" ]; then
@@ -195,7 +191,9 @@ runs:
         # DROP THE BUILD-TIME node_modules BEFORE THE WALLET INSTALLS THIS.
         #
         # A `file:` dep is COPIED wholesale, nested node_modules included, and the wallet's
-        # yarn then resolves imports against that copied tree instead of its own. pnpm's
+        # yarn then resolves imports against that copied tree instead of its own. The
+        # workspace install puts deps at `packages/node_modules`, outside the copied
+        # subtree, so this is now a guard rather than the fix it once was. pnpm's
         # layout is not flat: here it gives @noble/curves@1.9.7 a v1 @noble/hashes while the
         # package itself takes the ^2.0.1 it declares. Copy that in and the two collapse —
         # curves resolves against v2, which exports `./utils.js` and not `./utils`, and the
