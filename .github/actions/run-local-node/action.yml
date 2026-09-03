@@ -102,8 +102,14 @@ runs:
       shell: bash
       env:
         REQUIRE_INJECTION: ${{ inputs.require-sdk-injection }}
+        GH_TOKEN: ${{ github.token }}
       run: |
         set -euo pipefail
+        # Both fetches below reach private org repos, and `git init` + `remote add` starts
+        # with no credentials -- an unauthenticated fetch fails with "could not read Username
+        # for 'https://github.com'", the same failure the clone earlier already carries a
+        # header for.
+        auth="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')"
         clone="${{ runner.temp }}/miden-client"
         rev="${MIDEN_LINKED_PROTOCOL_REV:-}"
         url="${MIDEN_LINKED_PROTOCOL_URL:-https://github.com/0xMiden/protocol.git}"
@@ -158,6 +164,7 @@ runs:
         rm -rf "$pdir"; mkdir -p "$pdir"
         git -C "$pdir" init -q
         git -C "$pdir" remote add origin "$url"
+        git -C "$pdir" config http.extraheader "AUTHORIZATION: basic $auth"
         # A bare-sha fetch is what GitHub serves for a PR head; fall back to fetching the
         # refs when a host refuses it, rather than reporting the version as unreadable.
         git -C "$pdir" fetch -q --depth 1 origin "$rev" \
@@ -183,6 +190,7 @@ runs:
         rm -rf "$ndir"; mkdir -p "$ndir"
         git -C "$ndir" init -q
         git -C "$ndir" remote add origin "$node_url"
+        git -C "$ndir" config http.extraheader "AUTHORIZATION: basic $auth"
         git -C "$ndir" fetch -q --depth 1 origin "$node_rev"
         git -C "$ndir" checkout -q FETCH_HEAD
         echo "node source ${node_url} @ ${node_rev} cloned to $ndir"
