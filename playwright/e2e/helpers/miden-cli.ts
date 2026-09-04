@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import type { CLIRunner } from '../harness/cli-runner';
+import { mintFromPublicFaucet, publicFaucetApiUrl } from './public-faucet';
 import type { CLIInvocation, EnvironmentConfig } from '../harness/types';
 
 /**
@@ -367,61 +368,10 @@ export class MidenCli {
       throw new Error(`Created a faucet but could not parse its id from: ${created.stdout}`);
     }
 
-    const funders = await this.importFunders();
-    if (funders[0] === undefined) {
-      throw new Error(
-        `This chain charges a transaction fee, so accounts must be funded before they can ` +
-          `transact, but no funder wallets were found in ${MidenCli.funderDir()}. Bring the local ` +
-          `stack up with MIDEN_TEST_NODE_VERIFICATION_BASE_FEE set, or point MIDEN_E2E_FUNDER_DIR ` +
-          `at a directory of funded wallet_N.mac files.`
-      );
-    }
-    if (!this.nativeFaucetId) {
-      throw new Error('Could not determine the native fee faucet id; cannot fund the new account');
-    }
-    // The funder's state has to be current or the transaction fails resolving foreign account
-    // inputs. `--force` skips the interactive confirmation, which would otherwise hang the run.
-    // The funder is shared across the specs in a run, so its on-chain state moves underneath this
-    // client. A submission built against a stale view is rejected by the node with `initial account
-    // commitment ... does not match the current commitment`; re-syncing and rebuilding is the
-    // recovery, so retry rather than fail the spec.
-    // Try EVERY funder, exactly as `fundAccountForFees` already does. A genesis funder holds a
-    // fixed balance and a long-lived local chain drains the first one -- when that happened here the
-    // failure was a bare `cli::client_error`/`asset error` naming only `funders[0]`, which reads like
-    // a CLI fault rather than an empty wallet, and it took out every suite that deploys a faucet.
-    // The stale-commitment retry stays INSIDE the per-funder loop: a stale view is worth retrying
-    // against the same funder, an empty vault never is.
-    const failures: string[] = [];
-    let sent: CLIInvocation | undefined;
-    /** Which funder actually paid, so a later failure can name it. */
-    let payingFunder: string | undefined;
-    for (const funder of funders) {
-      for (let attempt = 1; attempt <= 4; attempt++) {
-        await this.sync();
-        sent = await this.run(
-          `transfer --sender ${funder} --target ${newId} ` +
-            `--asset ${FUNDING_MIDEN}::${this.nativeFaucetId} --note-type public --force`,
-          { timeoutMs: 180_000 }
-        );
-        if (sent.exitCode === 0) break;
-        const stale = /invalid request|stale|nonce|does not match the current commitment/i.test(sent.stderr);
-        if (!stale || attempt === 4) break;
-        await new Promise(r => setTimeout(r, 2_000 * attempt));
-      }
-      if (sent?.exitCode === 0) {
-        payingFunder = funder;
-        break;
-      }
-      failures.push(`${funder}: ${sent?.stderr.trim().slice(0, 200) ?? 'no output'}`);
-    }
-    if (!sent || sent.exitCode !== 0) {
-      throw new Error(
-        `Could not fund faucet ${newId} from any of ${funders.length} genesis funder(s). If they all ` +
-          `report an empty vault, the local chain has been drained by repeated runs and needs ` +
-          `re-genesising: restart the node with MIDEN_TEST_NODE_VERIFICATION_BASE_FEE set.\n  ` +
-          failures.join('\n  ')
-      );
-    }
+    // Genesis funders on a local stack, the chain's public faucet on devnet; either way this
+    // only SENDS the note. Consuming it below is what funds the vault -- and for this still-
+    // undeployed faucet, that consumption is also its deploy.
+    const fundedBy = await this.sendNativeFundingNote(newId);
 
     // The funding note only becomes consumable once it is committed in a block, and
     // `consume-notes` exits 0 when it finds nothing to consume -- so a single attempt can report
@@ -440,7 +390,7 @@ export class MidenCli {
     }
     if (!funded) {
       throw new Error(
-        `Faucet ${newId} never received its funding note from ${payingFunder}; its vault still holds ` +
+        `Faucet ${newId} never received its funding note from ${fundedBy}; its vault still holds ` +
           `none of the fee asset after 10 attempts. Last consume-notes output: ` +
           `${consumed?.stderr || consumed?.stdout || 'no output'}`
       );
@@ -463,10 +413,71 @@ export class MidenCli {
    * kernel assertion code that says nothing about the cause.
    */
   async chainCharges(): Promise<boolean> {
-    if (!this.chainChargesFees && (await this.importFunders()).length > 0) {
+    if (!this.chainChargesFees && (this.env.chargesFees || (await this.importFunders()).length > 0)) {
       this.chainChargesFees = true;
     }
     return this.chainChargesFees;
+  }
+
+  /**
+   * Sends `target` a note carrying the native fee asset, from whichever source this chain
+   * offers, and returns a label naming the source for error messages.
+   *
+   * Local stacks have genesis funder wallets; a public chain does not, and until this
+   * existed the harness simply could not fund anything on devnet. The public faucet is the
+   * chain's own native-asset faucet there, so its grant is spendable on fees.
+   *
+   * Only SENDS. The caller consumes the note, which is what actually moves the asset into
+   * the vault -- and, for an undeployed account, doubles as the deploy.
+   */
+  private async sendNativeFundingNote(target: string): Promise<string> {
+    const funders = await this.importFunders();
+
+    if (funders.length > 0) {
+      if (!this.nativeFaucetId) {
+        throw new Error('Could not determine the native fee faucet id; cannot fund from a genesis funder');
+      }
+      const failures: string[] = [];
+      for (const funder of funders) {
+        // A funder's on-chain state moves under us across specs; a submission built on a
+        // stale view is rejected by name, and re-syncing is the recovery. An empty vault
+        // never is, so that falls through to the next funder.
+        for (let attempt = 1; attempt <= 4; attempt++) {
+          await this.sync();
+          const sent = await this.run(
+            `transfer --sender ${funder} --target ${target} ` +
+              `--asset ${FUNDING_MIDEN}::${this.nativeFaucetId} --note-type public --force`,
+            { timeoutMs: 180_000 }
+          );
+          if (sent.exitCode === 0) return `genesis funder ${funder}`;
+          const stale = /invalid request|stale|nonce|does not match the current commitment/i.test(sent.stderr);
+          if (!stale || attempt === 4) {
+            failures.push(`${funder}: ${sent.stderr.trim().slice(0, 200)}`);
+            break;
+          }
+          await new Promise(r => setTimeout(r, 2_000 * attempt));
+        }
+      }
+      throw new Error(
+        `Could not fund ${target} from any of ${funders.length} genesis funder(s). If they all report ` +
+          `an empty vault, the local chain has been drained and needs re-genesising: restart the node ` +
+          `with MIDEN_TEST_NODE_VERIFICATION_BASE_FEE set.\n  ` +
+          failures.join('\n  ')
+      );
+    }
+
+    const faucetApi = publicFaucetApiUrl(this.env.name);
+    if (!faucetApi) {
+      throw new Error(
+        `This chain charges a transaction fee, so ${target} must hold the native asset before it can ` +
+          `transact, but ${this.env.name} has neither genesis funder wallets (looked in ` +
+          `${MidenCli.funderDir()}) nor a public faucet. Bring the local stack up with ` +
+          `MIDEN_TEST_NODE_VERIFICATION_BASE_FEE set, or point MIDEN_E2E_FUNDER_DIR at funded ` +
+          `wallet_N.mac files.`
+      );
+    }
+    await mintFromPublicFaucet(faucetApi, target);
+    return `public faucet ${faucetApi}`;
   }
 
   async fundAccountForFees(accountId: string): Promise<void> {
@@ -483,47 +494,30 @@ export class MidenCli {
     // Genesis funder wallets are the direct signal: `start-test-node.sh` only writes them
     // when MIDEN_TEST_NODE_VERIFICATION_BASE_FEE is non-zero, so their presence means the
     // chain charges, with no faucet deployment needed to find out.
-    if (!this.chainChargesFees && (await this.importFunders()).length > 0) {
+    if (!this.chainChargesFees && (this.env.chargesFees || (await this.importFunders()).length > 0)) {
       this.chainChargesFees = true;
     }
     if (!this.chainChargesFees) {
       return;
     }
-    const funders = await this.importFunders();
-    if (funders.length === 0 || !this.nativeFaucetId) {
-      throw new Error(
-        `This chain charges a transaction fee, so ${accountId} must hold the native asset before ` +
-          `it can transact, but no genesis funder is available to send it any.`
-      );
-    }
-    await this.sync();
+    // One source or the other -- genesis funders locally, the chain's public faucet on a
+    // public chain. `sendNativeFundingNote` raises a source-specific error if neither exists.
+    await this.sendNativeFundingNote(accountId);
 
-    // Try EVERY funder, not just the first. Each genesis funder holds a fixed balance, and a
-    // long session drains one: repeated suite runs at FUNDING_MIDEN per account add up, and
-    // every transfer also costs the funder its own fee. Draining the only funder surfaced as
-    // a bare `cli::client_error`, which reads like a CLI bug rather than an empty wallet, and
-    // took out every spec that funded after it.
-    const failures: string[] = [];
+    // The note is only spendable once committed, and `consume-notes` exits 0 having found
+    // nothing -- so poll the vault rather than trusting the exit code. Otherwise the failure
+    // resurfaces later as an unpayable fee, a long way from its cause.
     let funded = false;
-    for (const funder of funders) {
-      const sent = await this.run(
-        `transfer --sender ${funder} --target ${accountId} ` +
-          `--asset ${FUNDING_MIDEN}::${this.nativeFaucetId} --note-type public --force`,
-        { timeoutMs: 180_000 }
-      );
-      if (sent.exitCode === 0) {
-        funded = true;
-        break;
+    for (let attempt = 1; attempt <= 10 && !funded; attempt++) {
+      await this.sync();
+      await this.run(`consume-notes --account ${accountId} --force`, { timeoutMs: 180_000 });
+      funded = await this.holdsFeeAsset(accountId);
+      if (!funded) {
+        await new Promise(r => setTimeout(r, 3_000));
       }
-      failures.push(`${funder}: ${sent.stderr.trim().slice(0, 200)}`);
     }
     if (!funded) {
-      throw new Error(
-        `Could not send ${accountId} its fee funding from any of ${funders.length} genesis funder(s). ` +
-          `If they all report an empty vault, the local chain has been drained by repeated runs and ` +
-          `needs re-genesising: restart the node with MIDEN_TEST_NODE_VERIFICATION_BASE_FEE set.\n  ` +
-          failures.join('\n  ')
-      );
+      throw new Error(`${accountId} never received its fee funding; its vault still holds no native asset`);
     }
     this.fundedForFees.add(accountId);
     await this.sync();
