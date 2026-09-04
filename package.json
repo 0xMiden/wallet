@@ -5,11 +5,7 @@
   "engines": {
     "node": ">=22.0.0"
   },
-  "midenClientCliVersion": "0.16.0-rc.3",
-  "midenClientCliGit": {
-    "url": "https://github.com/0xMiden/rust-sdk",
-    "rev": "4fec7b2209e4a10b1ad1b7a00208ea851de555ca"
-  },
+  "midenClientCliVersion": "0.16.0-rc.5",
   "scripts": {
     "postinstall": "rimraf node_modules/@miden-sdk/react/node_modules node_modules/@openzeppelin/miden-multisig-client/node_modules/@miden-sdk && patch-package",
     "start": "yarn watch:src",
