@@ -6,6 +6,7 @@ import { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 
 import { ActivitySpinner } from 'app/atoms/ActivitySpinner';
+import { useNetworkFeeEstimate } from 'app/hooks/useNetworkFeeEstimate';
 import { Icon, IconName } from 'app/icons/v2';
 import PageLayout from 'app/layouts/PageLayout';
 import { Button, ButtonVariant } from 'components/Button';
@@ -29,6 +30,7 @@ import {
   SwapSettlementNotes,
   USER_CANCELLED_TRANSACTION_REASON
 } from 'lib/miden/activity';
+import { feeTextFromTransaction } from 'lib/miden/activity/fee';
 import {
   IBridgedReceiveExtraInputs,
   IBridgedSendExtraInputs,
@@ -41,10 +43,12 @@ import {
   ISwitchGuardianExtraInputs
 } from 'lib/miden/db/types';
 import { useAllAccounts, useAccount } from 'lib/miden/front';
+import { MIDEN_METADATA } from 'lib/miden/metadata/defaults';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
 import { getSwapTokenByFaucetId } from 'lib/miden/swap/tokens';
 import { getExplorerAccountUrl, getExplorerTxUrl } from 'lib/miden-chain/constants';
+import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
 import { hapticLight } from 'lib/mobile/haptics';
 import { getTokenPrice } from 'lib/prices';
 import type { TokenPrices } from 'lib/prices';
@@ -363,6 +367,7 @@ const AccountDisplay: FC<{
 
 export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   const { t } = useTranslation();
+  const maxNetworkFee = useNetworkFeeEstimate();
   const allAccounts = useAllAccounts();
   const account = useAccount();
   const tokenPrices = useWalletStore(s => s.tokenPrices);
@@ -424,6 +429,40 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
         setLoadError(null);
         const tx = await getTransactionById(transactionId);
         const tokenMetadata = tx.faucetId ? await getTokenMetadata(tx.faucetId) : undefined;
+        // Resolved the same way as any other amount on this page, which for the native
+        // fee faucet means MIDEN's `decimals` -- `getTokenMetadata` short-circuits the
+        // native id to `MIDEN_METADATA`. That is deliberately NOT swapped for the
+        // chain-discovered native scale here: `fetchBalances` scales every native figure
+        // in the wallet by the same constant, so reading the fee off the chain alone
+        // would leave one number on the screen measured differently from the balance
+        // above it. If the native scale ever needs to come from the chain, it has to
+        // change in `fetchBalances` first, for all of them at once.
+        //
+        // Only for a row that actually recorded a fee: rows predating fees, and every
+        // row on a zero-fee chain, render no fee line at all, so resolving metadata for
+        // them would be a wasted round trip.
+        const resolvedFeeMetadata =
+          tx.feeAmount !== undefined && tx.feeFaucetId ? await getTokenMetadata(tx.feeFaucetId) : undefined;
+        // A fee faucet that is neither native nor resolved has no honest scale, so the
+        // line is suppressed rather than formatted by the placeholder's guessed 6 --
+        // which would display one asset's quantity as another's. The receipt, given the
+        // same row, renders nothing too, so the two surfaces agree.
+        //
+        // The native fallback is not redundant with the short-circuit above, because
+        // the two disagree under one configuration: `getTokenMetadata` short-circuits
+        // on `getFaucetIdSetting()`, which honours the Developer Settings faucet-id
+        // OVERRIDE, while the chain's real fee faucet is what the row records. With an
+        // override set the fee faucet misses the short-circuit, and if its record is
+        // absent or in the unresolved-faucet backoff it lands on the placeholder and
+        // the fee line disappears. `MIDEN_METADATA` rather than the chain-discovered
+        // scale, for the reason above: consistency with every other native figure.
+        const feeIsNative = tx.feeFaucetId !== undefined && tx.feeFaucetId === getNativeAssetIdSync();
+        const feeMetadata =
+          resolvedFeeMetadata !== undefined && hasKnownScale(resolvedFeeMetadata)
+            ? resolvedFeeMetadata
+            : feeIsNative
+              ? MIDEN_METADATA
+              : undefined;
         console.log('Loaded transaction for HistoryDetails:', tx, tokenMetadata);
         // Bridge metadata (route/provider, EVM destination, per-route status) lives
         // on `extraInputs`; without it the detail view can't tell Fast (Epoch) from
@@ -491,6 +530,9 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
             tx.type === 'consume' && tx.status === ITransactionStatus.Completed
               ? (tx.noteIds ?? (tx.noteId ? [tx.noteId] : undefined))
               : undefined,
+          // Present only on rows recorded since fees were charged, and only on chains
+          // that charge -- older rows simply render no fee line.
+          fee: feeMetadata ? feeTextFromTransaction(tx, feeMetadata.decimals, feeMetadata.symbol) : undefined,
           externalTxId: tx.transactionId,
           swapSettlement: swapSettlementOf(tx),
           faucetId: tx.faucetId,
@@ -1272,6 +1314,12 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                     </DetailRow>
                   )}
 
+                  {entry.fee && (
+                    <DetailRow label={t('networkFee')}>
+                      <span className="text-sm text-heading-gray font-medium">{entry.fee}</span>
+                    </DetailRow>
+                  )}
+
                   {entry.externalTxId && (
                     <DetailRow label={t('txIdLabel')} isLast={isGuardianSwitch} testId="history-detail-tx-id">
                       <ExternalLinkValue
@@ -1654,6 +1702,14 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
               <p data-testid="history-retry-error" className="mb-2 text-center text-sm text-status-negative">
                 {retryError}
               </p>
+            )}
+            {maxNetworkFee && (
+              // Requeues as a NEW transaction paying a NEW fee, on one tap with no
+              // review step. The recorded `networkFee` row above is what the failed
+              // attempt already paid, not a bound on what this retry will cost.
+              <div className="mb-2 text-center text-xs text-heading-gray">
+                {t('networkFeeMax')} · {maxNetworkFee}
+              </div>
             )}
             <Button
               data-testid="history-retry-button"

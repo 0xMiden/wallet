@@ -2,6 +2,7 @@ import {
   Account,
   AccountId,
   Address,
+  Felt,
   FungibleAsset,
   Note,
   NoteArray,
@@ -9,7 +10,8 @@ import {
   NoteAttachment,
   NoteType,
   TransactionRequest,
-  TransactionRequestBuilder
+  TransactionRequestBuilder,
+  Word
 } from '@miden-sdk/miden-sdk/lazy';
 
 import { getNetworkId } from 'lib/miden-chain/constants';
@@ -201,6 +203,19 @@ export function resolveHeldFungibleAsset(
 }
 
 /**
+ * A fresh salt for a fee-conversion commitment.
+ *
+ * Four field elements from the CSPRNG, each masked to 63 bits so it is always below the
+ * field modulus (2^64 - 2^32 + 1) without rejection sampling -- the commitment only needs
+ * the salt to be unpredictable and non-repeating.
+ */
+export function randomFeeSalt(): Word {
+  const raw = new BigUint64Array(4);
+  crypto.getRandomValues(raw);
+  return Word.newFromFelts(Array.from(raw, v => new Felt(v & 0x7fff_ffff_ffff_ffffn)));
+}
+
+/**
  * The single request builder for every P2ID/P2IDE wallet send: resolves the
  * outgoing asset from the sender's vault (callback flag included, see
  * `resolveHeldFungibleAsset`) and wraps it in a P2ID note — P2IDE when a
@@ -232,7 +247,8 @@ export function buildSendTransactionRequest(
   faucetRef: string,
   amount: bigint,
   noteType: NoteType,
-  reclaimAfter?: number
+  reclaimAfter?: number,
+  feeSalt?: Word
 ): TransactionRequest {
   const asset = resolveHeldFungibleAsset(senderAccount, faucetRef, amount);
   const assets = new NoteAssets([asset]);
@@ -240,7 +256,25 @@ export function buildSendTransactionRequest(
     reclaimAfter != null
       ? Note.createP2IDENote(sender, recipient, assets, reclaimAfter, null, noteType, new NoteAttachment())
       : Note.createP2IDNote(sender, recipient, assets, noteType, new NoteAttachment());
-  return new TransactionRequestBuilder().withOwnOutputNotes(new NoteArray([note])).build();
+  let builder = new TransactionRequestBuilder().withOwnOutputNotes(new NoteArray([note]));
+  // Since protocol 0.16 `fee::pay_fee` reads the fee faucet and rate from the AUTH ARGS
+  // and aborts without them. Declaring the salt is all this has to do: miden-client
+  // derives the native 1/1 conversion info from the execution reference header -- for a
+  // proposal, its chain anchor -- and commits `hash(CONVERSION_INFO || SALT)` into the
+  // auth arg itself. The salt survives serialization, so a request handed to GUARDIAN and
+  // rebuilt by a co-signer commits the same word.
+  //
+  // This built the commitment by hand until guardian 0.17.0-rc.3. A guarded multisig
+  // assembled from locally compiled MASM carried procedure roots miden-client could not
+  // match, and it will not commit for an account it cannot classify; setting the auth arg
+  // directly bypassed classification. Guardian now builds those accounts from the upstream
+  // component, so the client classifies them and owns this. Accounts deployed BEFORE that
+  // change still cannot be classified, and a declared salt against one is a hard
+  // `FeeConversionInfoUnsupported` -- hence the drain-and-upgrade note on that release.
+  if (feeSalt !== undefined) {
+    builder = builder.withFeeConversionSalt(feeSalt);
+  }
+  return builder.build();
 }
 
 /**
@@ -283,7 +317,8 @@ export function buildPswapCreateRequest(
   creatorAccount: Account | undefined,
   reference: TransactionRequest,
   offeredFaucetRef: string,
-  offeredAmount: bigint
+  offeredAmount: bigint,
+  feeSalt?: Word
 ): TransactionRequest {
   const referenceNote = reference.expectedOutputOwnNotes()[0];
   if (!referenceNote) {
@@ -298,5 +333,12 @@ export function buildPswapCreateRequest(
     referenceNote.recipient(),
     referenceNote.attachments()
   );
-  return new TransactionRequestBuilder().withOwnOutputNotes(new NoteArray([note])).build();
+  let builder = new TransactionRequestBuilder().withOwnOutputNotes(new NoteArray([note]));
+  // The salt this request declares; miden-client commits the conversion info from it.
+  // Attached here rather than to the finished request: the SDK exposes no auth-arg
+  // setter on `TransactionRequest`, only on the builder.
+  if (feeSalt !== undefined) {
+    builder = builder.withFeeConversionSalt(feeSalt);
+  }
+  return builder.build();
 }

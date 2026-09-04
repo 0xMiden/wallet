@@ -388,8 +388,8 @@
     "englishSource": "Collateral"
   },
   "earnCollateralValue": {
-    "message": "Miden P2IDE (gazsız)",
-    "englishSource": "Miden P2IDE (gasless)"
+    "message": "Miden P2IDE",
+    "englishSource": "Miden P2IDE"
   },
   "earnDepositRoute": {
     "message": "Miden -> $protocol$ ($network$)",
@@ -2452,6 +2452,10 @@
     "message": "Şu anda neler değişiyor",
     "englishSource": "What changes now"
   },
+  "guardianSwitchSetupIncompleteTitle": {
+    "message": "Kurulum tamamlanmadı.",
+    "englishSource": "Setup unfinished."
+  },
   "guardianSwitchUnconfirmedHeading": {
     "message": "Guardian değişikliği gönderildi",
     "englishSource": "Guardian switch submitted"
@@ -2475,10 +2479,6 @@
   "guardianSwitchUnconfirmedInfo1": {
     "message": "Değişiklik zincir üzerinde onaylandığında yeni Guardian'ınız her işlemi birlikte imzalar ve eski Guardian'ınız hesabınız için artık birlikte imzalayamaz.",
     "englishSource": "Once the switch is confirmed on chain, your new Guardian co-signs every transaction and your old Guardian can no longer co-sign for your account."
-  },
-  "guardianSwitchSetupIncompleteTitle": {
-    "message": "Kurulum tamamlanmadı.",
-    "englishSource": "Setup unfinished."
   },
   "guardianSwitchEndpointNotSavedBody": {
     "message": "Değişiklik zincir üzerinde onaylandı, ancak bu cihaz yeni Guardian'ın adresini kaydedemedi. Cüzdan bunu otomatik olarak kontrol eder ve gerekirse adresi yeniden girmenizi ister; bu, başka bir değişiklik başlatmaz. İstem görünmezse destek ekibiyle iletişime geçin.",
@@ -2572,6 +2572,10 @@
     "message": "guardian'unuz değiştirildi ve yeni operatörü tanımlayamadık. Yeniden bağlanmak için URL'sini girin.",
     "englishSource": "Your guardian was switched and we couldn't identify the new operator. Enter its URL to reconnect."
   },
+  "guardianUrlMismatch": {
+    "message": "Bu operatör, hesabınızın zincir üzerindeki guardian adresiyle eşleşmiyor.",
+    "englishSource": "That operator doesn't match your account's on-chain guardian."
+  },
   "guardianUrlUnreachable": {
     "message": "Bu operatöre ulaşılamadı. URL'yi ve bağlantınızı kontrol edip tekrar deneyin.",
     "englishSource": "Couldn't reach that operator. Check the URL and your connection, then try again."
@@ -2579,10 +2583,6 @@
   "guardianUrlNoOnChainGuardian": {
     "message": "Bu hesabın henüz doğrulama yapılabilecek bir zincir üstü Guardian'ı yok.",
     "englishSource": "This account has no on-chain guardian to verify against yet."
-  },
-  "guardianUrlMismatch": {
-    "message": "Bu operatör, hesabınızın zincir üzerindeki guardian adresiyle eşleşmiyor.",
-    "englishSource": "That operator doesn't match your account's on-chain guardian."
   },
   "connectivityGuardianTitle": {
     "message": "Guardian erişilemez",
@@ -2676,6 +2676,38 @@
     "message": "Kendi adresinize gönderim yapamazsınız",
     "englishSource": "You can't send to your own address"
   },
+  "networkFee": {
+    "message": "Network Fee",
+    "englishSource": "Network Fee"
+  },
+  "networkFeeMax": {
+    "message": "Maksimum ağ ücreti",
+    "englishSource": "Max network fee"
+  },
+  "networkFeeEstimateNote": {
+    "message": "Kesin ücret, işleme göre değişir ve genellikle daha düşüktür. Ödediğiniz tutarı makbuzda görebilirsiniz.",
+    "englishSource": "The exact fee depends on the transaction and is usually lower. You will see what you paid on the receipt."
+  },
+  "feeReserveBlocksSend": {
+    "message": "MIDEN'iniz ağ ücreti için ayrılmıştır. Göndermek için daha fazla MIDEN alın.",
+    "englishSource": "Your MIDEN is reserved for the network fee. Receive more MIDEN to send."
+  },
+  "notWorthClaiming": {
+    "message": "Worth less than the network fee to claim",
+    "englishSource": "Worth less than the network fee to claim"
+  },
+  "feeChargedPerClaim": {
+    "message": "Her talep kendi ücretini öder. Bunları toplu olarak talep ettiğinizde tek bir ücret ödenir.",
+    "englishSource": "Each claim pays its own fee. Claiming them together pays one."
+  },
+  "feeChargedPerAsset": {
+    "message": "Talep edilen her varlık için bir kez ücret alınır.",
+    "englishSource": "Charged once per asset claimed."
+  },
+  "insufficientFeeAsset": {
+    "message": "Ağ ücretini ödemek için MIDEN'e ihtiyacınız var. Devam etmek için biraz MIDEN alın.",
+    "englishSource": "You need MIDEN to pay the network fee. Receive some MIDEN to continue."
+  },
   "amountMustBeLessThanBalance": {
     "message": "Tutar, bakiyeden az olmalıdır",
     "englishSource": "Amount must be less than balance"
@@ -2685,8 +2717,8 @@
     "englishSource": "Auto Consume MIDEN notes"
   },
   "autoConsumeSettingsDescription": {
-    "message": "Gelen MIDEN'leri notes otomatik olarak bakiyenize ekler — \"Talep Et\"e dokunmakla aynı işlevi görür. Bu işlem, paranızı harcamaz veya herhangi bir ücret eklemez.",
-    "englishSource": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't spend your funds or add any fee."
+    "message": "Gelen MIDEN'leri notes otomatik olarak bakiyenize ekler — \"Talep Et\" düğmesine dokunmakla aynıdır. Kendiniz \"Talep Et\" düğmesine dokunmaktan daha sık talep etmez veya daha fazla ücret gerektirmez.",
+    "englishSource": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't claim any more often, or cost any more in fees, than tapping Claim yourself."
   },
   "encryptedWalletFileExporting": {
     "message": "Cüzdan dosyanız oluşturuluyor…",
@@ -4062,8 +4094,8 @@
     }
   },
   "noFee": {
-    "message": "Ücret alınmaz",
-    "englishSource": "No fee"
+    "message": "Köprü ücreti yoktur",
+    "englishSource": "No bridge fee"
   },
   "fastArrival": {
     "message": "~30 sn",

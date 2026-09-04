@@ -40,6 +40,10 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      # The linked-PR injection posts a sticky status comment. Declaring permissions at all
+      # replaces the defaults, so this job loses the pull-requests scope every other job
+      # still gets implicitly, and that comment fails with "Resource not accessible".
+      pull-requests: write
     steps:
       - name: Check Out Code
         uses: actions/checkout@v3
@@ -92,6 +96,8 @@ jobs:
         uses: ./.github/actions/inject-linked-web-sdk-pr
         with:
           comment: 'true'
+      - name: Inject linked guardian PR
+        uses: ./.github/actions/inject-linked-guardian-pr
 
       - name: Run Install
         uses: ./.github/actions/yarn-install
@@ -146,6 +152,13 @@ jobs:
       # jobs just need the package.json mutation, not the comment.
       - name: Inject linked web-sdk PR
         uses: ./.github/actions/inject-linked-web-sdk-pr
+        with:
+          # This job runs playwright/tests/mock-web-client.spec.ts, which imports the SDK under
+          # node and so needs the napi binary the published package supplies through its platform
+          # optionalDependencies; a `file:` source build has none.
+          build-node-module: 'true'
+      - name: Inject linked guardian PR
+        uses: ./.github/actions/inject-linked-guardian-pr
 
       - name: Run Install
         uses: ./.github/actions/yarn-install
@@ -203,6 +216,8 @@ jobs:
 
       - name: Inject linked web-sdk PR
         uses: ./.github/actions/inject-linked-web-sdk-pr
+      - name: Inject linked guardian PR
+        uses: ./.github/actions/inject-linked-guardian-pr
 
       - name: Run Install
         uses: ./.github/actions/yarn-install
@@ -230,7 +245,7 @@ jobs:
       # (two per PR, Linux + macOS) they exhausted the repo's 10 GB budget and
       # LRU-evicted each other before the same PR ran again. Every entry we
       # measured had `last_accessed_at == created_at`: written once, never read.
-      # The cost was not just the waste — they evicted `local-node-build-*`,
+      # The cost was not just the waste — they evicted `local-node-install-*`,
       # which is worth ~36 min per E2E job, so every E2E run rebuilt the node
       # from source. `yarn install` takes ~90-140s either way; the save step
       # alone cost 13-130s per job.
@@ -241,15 +256,22 @@ jobs:
 
       - name: Inject linked web-sdk PR
         uses: ./.github/actions/inject-linked-web-sdk-pr
+      - name: Inject linked guardian PR
+        uses: ./.github/actions/inject-linked-guardian-pr
 
       - name: Install dependencies
-        # When the inject action has rewritten package.json, --frozen-lockfile
+        # When an inject action has rewritten package.json, --frozen-lockfile
         # would fail because yarn.lock no longer matches the new file: deps.
-        # Skip the frozen flag conditionally: if the action patched, fall
+        # Skip the frozen flag conditionally: if either action patched, fall
         # back to a normal install which will update yarn.lock in-place.
-        # On runs without a Web SDK PR marker, --frozen-lockfile stays on.
+        # BOTH injections have to be tested here. The guardian one rewrites
+        # @openzeppelin/miden-multisig-client to a file: dep exactly as the
+        # web-sdk one does, and was only ever tolerated because a Web SDK PR
+        # marker happened to sit alongside it. Dropping that marker while
+        # keeping Guardian PR: sent this branch straight into --frozen-lockfile.
         run: |
-          if [ -f .linked-web-sdk-pr.json ] || grep -qE '"@miden-sdk/(miden-sdk|react)":[[:space:]]*"file:' package.json; then
+          if [ -f .linked-web-sdk-pr.json ] \
+             || grep -qE '"(@miden-sdk/(miden-sdk|react)|@openzeppelin/miden-multisig-client)":[[:space:]]*"file:' package.json; then
             yarn install
           else
             yarn install --frozen-lockfile

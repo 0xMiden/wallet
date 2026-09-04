@@ -61,6 +61,10 @@ const mockCreateB2AggNote = jest.fn((...args: unknown[]): unknown => {
 });
 
 jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
+  // `randomFeeSalt` builds the declared fee-conversion salt from these; it used to run
+  // inside the (mocked-away) fee-auth helper, so the SDK mock never needed them.
+  Felt: jest.fn((v: any) => ({ v })),
+  Word: { newFromFelts: jest.fn((felts: any) => ({ kind: 'word', felts })) },
   AccountId: { fromHex: (hex: string) => ({ hex }) },
   Address: {
     fromAccountId: (accountId: { hex: string }) => ({ toBech32: (net: string) => `${net}1${accountId.hex.slice(2)}` }),
@@ -74,6 +78,9 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
   TransactionRequest: { deserialize: jest.fn() },
   TransactionRequestBuilder: class {
     withOwnOutputNotes() {
+      return this;
+    }
+    withFeeConversionSalt() {
       return this;
     }
     build() {

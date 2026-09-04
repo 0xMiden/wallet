@@ -5,6 +5,9 @@ import { useTranslation } from 'react-i18next';
 
 import { useAppEnv } from 'app/env';
 import { deriveNoteClaimState, NoteClaimState } from 'app/hooks/noteClaimState';
+import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
+import { useNetworkFeeEstimate } from 'app/hooks/useNetworkFeeEstimate';
+import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
 import { ReactComponent as EyeOpenIcon } from 'app/icons/eye-open.svg';
 import { Icon, IconName } from 'app/icons/v2';
 import { formatDate } from 'app/templates/history/transactionUtils';
@@ -13,6 +16,7 @@ import { SyncWaveBackground } from 'components/SyncWaveBackground';
 import { TokenLogo } from 'components/TokenLogo';
 import { formatBigInt, formatUsd } from 'lib/i18n/numbers';
 import { initiateConsumeTransaction, requestSWTransactionProcessing } from 'lib/miden/activity';
+import { isWorthClaiming } from 'lib/miden/fees/spendable';
 import { AssetMetadata } from 'lib/miden/front';
 import { ConsumableNote, NoteTypeEnum } from 'lib/miden/types';
 import { hapticLight } from 'lib/mobile/haptics';
@@ -70,6 +74,10 @@ export const PendingTab: React.FC<PendingTabProps> = ({
 }) => {
   const { registerBackHandler } = useAppEnv();
   const tokenPrices = useWalletStore(s => s.tokenPrices);
+  // Same pair `PendingSummary` resolves, so the detail view can judge the group it is
+  // showing rather than being told nothing about it.
+  const verificationBaseFee = useVerificationBaseFee();
+  const nativeFaucetId = useMidenFaucetId();
   const [selectedFaucetId, setSelectedFaucetId] = useState<string | null>(null);
 
   const groupedNotes = useMemo(() => {
@@ -120,6 +128,11 @@ export const PendingTab: React.FC<PendingTabProps> = ({
   if (selectedGroup) {
     return (
       <AssetPendingDetail
+        notWorthClaiming={
+          nativeFaucetId !== null &&
+          selectedGroup.faucetId === nativeFaucetId &&
+          !isWorthClaiming(selectedGroup.totalAmount, verificationBaseFee)
+        }
         group={selectedGroup}
         tokenPrices={tokenPrices}
         account={account}
@@ -166,6 +179,9 @@ const PendingSummary: React.FC<PendingSummaryProps> = ({
   onSelectGroup,
   onClaimAll
 }) => {
+  const verificationBaseFee = useVerificationBaseFee();
+  const maxNetworkFee = useNetworkFeeEstimate();
+  const nativeFaucetId = useMidenFaucetId();
   const { t } = useTranslation();
 
   const totals: { totalUsd: number; notesCount: number; assetsCount: number } = useMemo(() => {
@@ -223,6 +239,18 @@ const PendingSummary: React.FC<PendingSummaryProps> = ({
               tokenPrices={tokenPrices}
               retriableNoteIds={retriableNoteIds}
               invalidNoteIds={invalidNoteIds}
+              // NATIVE groups only. The fee is quoted in the native asset's base units,
+              // so comparing another asset's base units against it compares two
+              // different currencies: a perfectly valuable token group was labelled
+              // "not worth claiming" purely because its raw base-unit total happened to
+              // be a small number. Auto-consume never touches non-native notes either,
+              // so the label's premise does not hold for them. Judging a token group
+              // properly needs a price conversion, which is a separate feature.
+              notWorthClaiming={
+                nativeFaucetId !== null &&
+                group.faucetId === nativeFaucetId &&
+                !isWorthClaiming(group.totalAmount, verificationBaseFee)
+              }
               showDivider={index !== groupedNotes.length - 1}
               onClick={() => onSelectGroup(group.faucetId)}
             />
@@ -230,7 +258,23 @@ const PendingSummary: React.FC<PendingSummaryProps> = ({
         </div>
 
         {unclaimedNotesCount > 0 && (
-          <div className="flex justify-center mt-auto pt-4 pb-2">
+          <div className="flex flex-col items-center mt-auto pt-4 pb-2">
+            {/* Claiming submits immediately -- there is no review step between this
+                button and the transaction -- so this is the only place the cost can be
+                stated before the user commits. Label and amount are separate nodes so
+                no placeholder-only string has to survive translation. */}
+            {maxNetworkFee && (
+              <div className="mb-2 text-center text-xs text-heading-gray">
+                <div>
+                  {t('networkFeeMax')} · {maxNetworkFee}
+                </div>
+                {/* Claim All submits one transaction PER FAUCET (useClaimNotes.ts), so the
+                    bound above is one transaction's ceiling and the true maximum is that
+                    times the asset count. Say so rather than quoting a single figure over
+                    a button that submits several. */}
+                {totals.assetsCount > 1 && <div className="mt-0.5">{t('feeChargedPerAsset')}</div>}
+              </div>
+            )}
             <Button
               data-testid="claim-all-button"
               className="w-full"
@@ -246,6 +290,8 @@ const PendingSummary: React.FC<PendingSummaryProps> = ({
 };
 
 interface AssetSummaryRowProps {
+  /** True when the group's total is worth no more than the fee to claim it. */
+  notWorthClaiming?: boolean;
   group: AssetNoteGroup;
   tokenPrices: TokenPrices;
   retriableNoteIds: Set<string>;
@@ -255,6 +301,7 @@ interface AssetSummaryRowProps {
 }
 
 const AssetSummaryRow: React.FC<AssetSummaryRowProps> = ({
+  notWorthClaiming,
   group,
   tokenPrices,
   retriableNoteIds,
@@ -301,6 +348,14 @@ const AssetSummaryRow: React.FC<AssetSummaryRowProps> = ({
           </span>
         </div>
       </div>
+      {notWorthClaiming && (
+        // Auto-consume skips this group, so say why rather than leaving it to sit
+        // there unexplained. Claiming stays available: the call is the user's, the
+        // wallet just will not spend their money on it unprompted.
+        <div className="mt-3 w-full text-center text-sm font-heading text-black opacity-50">
+          {t('notWorthClaiming')}
+        </div>
+      )}
       {needsAttentionCount > 0 ? (
         <div className="mt-3 w-full rounded-full bg-red-500/10 py-2 text-center text-base font-heading font-semibold text-red-500">
           {t('notesUnresolved', { count: needsAttentionCount })}
@@ -325,6 +380,14 @@ interface AssetPendingDetailProps {
   checkingNoteIds: Set<string>;
   onClaimingStateChange: (noteId: string, isClaiming: boolean) => void;
   onClaimGroup?: (faucetId: string) => void;
+  /**
+   * Whether claiming this group costs more than it credits. Computed by the caller,
+   * which already resolves the native faucet and the base fee — the same value the
+   * collapsed summary row shows. Passed down because THIS is the screen with the
+   * Claim buttons: showing the warning only on the row the user taps through means
+   * it is gone at the moment they decide.
+   */
+  notWorthClaiming?: boolean;
 }
 
 const AssetPendingDetail: React.FC<AssetPendingDetailProps> = ({
@@ -337,9 +400,11 @@ const AssetPendingDetail: React.FC<AssetPendingDetailProps> = ({
   invalidNoteIds,
   checkingNoteIds,
   onClaimingStateChange,
-  onClaimGroup
+  onClaimGroup,
+  notWorthClaiming = false
 }) => {
   const { t } = useTranslation();
+  const maxNetworkFee = useNetworkFeeEstimate();
   const { metadata, faucetId, notes, totalAmount } = group;
   const symbol = metadata?.symbol || 'UNKNOWN';
   const name = metadata?.name || symbol;
@@ -360,61 +425,91 @@ const AssetPendingDetail: React.FC<AssetPendingDetailProps> = ({
   }, [canClaimAllGroup, faucetId, onClaimGroup]);
 
   return (
-    <div className="flex-1 min-h-0 overflow-y-auto">
-      <div className="w-full mx-auto pt-6 px-6 flex flex-col min-h-full">
-        <div className="flex flex-col items-center flex-1">
-          <div className="inline-flex items-center px-3 py-1 rounded-5 bg-surface-interactive text-[10px] font-bold tracking-[0.08em] uppercase text-text-primary-token">
-            <span>{name}</span>
-            <span className="mx-2 text-heading-gray">•</span>
-            <span>{t('incomingCount', { count: notes.length })}</span>
+    <div className="flex flex-1 min-h-0 flex-col">
+      <div className="flex-1 min-h-0 overflow-y-auto">
+        {notWorthClaiming && (
+          // The verdict belongs on the screen with the Claim buttons, not only on the row
+          // the user tapped to get here. Claiming stays enabled: the wallet declines to
+          // spend their money unprompted, it does not refuse the choice.
+          <div className="mb-3 w-full text-center text-sm font-heading text-black opacity-50">
+            {t('notWorthClaiming')}
           </div>
+        )}
+        <div className="w-full mx-auto pt-6 px-6 flex flex-col">
+          <div className="flex flex-col items-center">
+            <div className="inline-flex items-center px-3 py-1 rounded-5 bg-surface-interactive text-[10px] font-bold tracking-[0.08em] uppercase text-text-primary-token">
+              <span>{name}</span>
+              <span className="mx-2 text-heading-gray">•</span>
+              <span>{t('incomingCount', { count: notes.length })}</span>
+            </div>
 
-          <div className="mt-4 flex items-end gap-2 leading-none">
-            <span className="font-heading text-[44px] font-extrabold text-text-primary-token leading-none tracking-tight">
-              {formattedAmount}
-            </span>
-            <span className="font-heading text-base font-bold text-heading-gray pb-1">{symbol}</span>
-          </div>
+            <div className="mt-4 flex items-end gap-2 leading-none">
+              <span className="font-heading text-[44px] font-extrabold text-text-primary-token leading-none tracking-tight">
+                {formattedAmount}
+              </span>
+              <span className="font-heading text-base font-bold text-heading-gray pb-1">{symbol}</span>
+            </div>
 
-          <div className="font-heading mt-2 text-sm text-heading-gray">
-            {t('pendingTabApproxUsd', { value: formatUsd(usdValue) })}
-          </div>
+            <div className="font-heading mt-2 text-sm text-heading-gray">
+              {t('pendingTabApproxUsd', { value: formatUsd(usdValue) })}
+            </div>
 
-          <div className="mt-5 w-full">
-            {notes.map((note, index) => (
-              <DetailNoteRow
-                key={note.id}
-                note={note}
-                account={account}
-                isDelegatedProvingEnabled={isDelegatedProvingEnabled}
-                claimState={deriveNoteClaimState(note, {
-                  retriableNoteIds,
-                  invalidNoteIds,
-                  claimingNoteIds,
-                  checkingNoteIds
-                })}
-                onClaimingStateChange={onClaimingStateChange}
-                showDivider={index !== notes.length - 1}
-              />
-            ))}
+            <div className="mt-5 w-full">
+              {notes.map((note, index) => (
+                <DetailNoteRow
+                  key={note.id}
+                  note={note}
+                  account={account}
+                  isDelegatedProvingEnabled={isDelegatedProvingEnabled}
+                  claimState={deriveNoteClaimState(note, {
+                    retriableNoteIds,
+                    invalidNoteIds,
+                    claimingNoteIds,
+                    checkingNoteIds
+                  })}
+                  onClaimingStateChange={onClaimingStateChange}
+                  showDivider={index !== notes.length - 1}
+                />
+              ))}
+            </div>
           </div>
         </div>
-        {onClaimGroup && (
+      </div>
+      {onClaimGroup && (
+        // Footer, deliberately OUTSIDE the scroller above. Every per-note Claim button
+        // in the list submits its own transaction and pays its own fee, so the cost
+        // statement has to stay on screen while those buttons are reachable -- when it
+        // sat after the list, a screenful of notes hid it. It also means the group
+        // button no longer has to be scrolled to.
+        <div className="w-full mx-auto shrink-0 px-6 pb-4 pt-3">
+          {maxNetworkFee && (
+            <div className="mb-2 text-center text-xs text-heading-gray">
+              <div>
+                {t('networkFeeMax')} · {maxNetworkFee}
+              </div>
+              {/* The number is identical for every button on this screen; what differs is
+                  how many times it is charged. The group button consumes all of this
+                  faucet's notes in one transaction, so it pays once; claiming the rows
+                  one at a time pays once each. Repeating the amount per row would say
+                  the opposite. */}
+              {notes.length > 1 && <div className="mt-0.5">{t('feeChargedPerClaim')}</div>}
+            </div>
+          )}
           <button
             data-testid="claim-group-button"
             type="button"
             onClick={handleClaimGroup}
             disabled={!canClaimAllGroup}
             className={classNames(
-              'mt-4 w-full rounded-2xl bg-surface-interactive py-3.5 text-base font-bold text-accent-primary',
+              'w-full rounded-2xl bg-surface-interactive py-3.5 text-base font-bold text-accent-primary',
               'hover:bg-grey-50 transition-colors',
               !canClaimAllGroup && 'opacity-50 cursor-not-allowed'
             )}
           >
             {t('claimAllProgress', { unclaimed: unclaimedInGroup.length, total: notes.length })}
           </button>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 };

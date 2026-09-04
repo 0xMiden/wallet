@@ -1,13 +1,22 @@
 import { ConsumableNote, NoteTypeEnum } from '../types';
 import {
   BridgedReceiveTransaction,
+  BridgedSendTransaction,
   ConsumeTransaction,
   EarnDepositTransaction,
   EarnWithdrawTransaction,
   formatTransactionStatus,
+  IBridgedSendNoteParams,
+  IBridgeProvider,
+  ITransaction,
   ITransactionStatus,
+  nextQueuedSeq,
+  ReplaceHotKeyTransaction,
   SendTransaction,
-  Transaction
+  SwapTransaction,
+  SwitchGuardianTransaction,
+  Transaction,
+  UpdateProcedureThresholdTransaction
 } from './types';
 
 describe('transaction models', () => {
@@ -267,5 +276,86 @@ describe('transaction models', () => {
     const tx = new SendTransaction('acc', BigInt(5), 'recip', 'faucet', NoteTypeEnum.Private);
     expect(tx.extraInputs.recallBlocks).toBeUndefined();
     expect(tx.delegateTransaction).toBeUndefined();
+  });
+});
+
+describe('queuedSeq — FIFO tie-break', () => {
+  it('is strictly increasing even when the clock does not advance', () => {
+    // The whole point. `initiatedAt` is whole SECONDS, so rows queued in the same
+    // second tie and a stable sort then falls back to Dexie's primary-key order over
+    // random `uuid()`s -- silently randomizing any deliberate enqueue order. Claim All
+    // depends on that order: it queues the native-asset group first so the claim that
+    // funds the vault runs before the claims that must pay a fee out of it.
+    //
+    // `Date.now()` alone is not sufficient, because consecutive Dexie transactions can
+    // commit inside one millisecond.
+    const frozen = jest.spyOn(Date, 'now').mockReturnValue(1_700_000_000_000);
+    try {
+      const seqs = [nextQueuedSeq(), nextQueuedSeq(), nextQueuedSeq()];
+      expect(seqs[1]!).toBeGreaterThan(seqs[0]!);
+      expect(seqs[2]!).toBeGreaterThan(seqs[1]!);
+    } finally {
+      frozen.mockRestore();
+    }
+  });
+
+  it('stamps every queued row, in creation order', () => {
+    const claimable: ConsumableNote[] = [
+      { id: 'n1', faucetId: 'faucet', amount: '1', isBeingClaimed: false } as ConsumableNote
+    ];
+    const first = new ConsumeTransaction('acc', claimable, false);
+    const second = new SendTransaction('acc', BigInt(1), 'recip', 'faucet', NoteTypeEnum.Public);
+    const third = new Transaction('acc', new Uint8Array([1]));
+
+    expect(first.queuedSeq).toBeDefined();
+    expect(second.queuedSeq!).toBeGreaterThan(first.queuedSeq!);
+    expect(third.queuedSeq!).toBeGreaterThan(second.queuedSeq!);
+  });
+
+  it('stamps EVERY row type that enters the queue', () => {
+    // Enumerated rather than spot-checked: two constructors were missed when the field
+    // was added, and an unstamped row sorts as 0 -- i.e. ahead of every stamped row in
+    // its second, the opposite of the FIFO this field exists to establish. The `?? 0`
+    // fallback is only correct for rows written BEFORE the field existed.
+    const bridgedSendParams: IBridgedSendNoteParams = {
+      recipientId: 'recip',
+      noteType: NoteTypeEnum.Public,
+      recallBlocks: 100
+    };
+    const rows: ITransaction[] = [
+      new Transaction('acc', new Uint8Array([1])),
+      new SendTransaction('acc', BigInt(1), 'recip', 'faucet', NoteTypeEnum.Public),
+      new ConsumeTransaction(
+        'acc',
+        [{ id: 'n1', faucetId: 'f', amount: '1', isBeingClaimed: false } as ConsumableNote],
+        false
+      ),
+      new SwapTransaction('acc', 'faucet', BigInt(1), 'faucet-b', BigInt(1), false),
+      new BridgedSendTransaction('acc', BigInt(1), '0xdest', 1, 'AGGLAYER' as IBridgeProvider, 'faucet'),
+      new BridgedReceiveTransaction('acc', BigInt(1), 'faucet', 'AGGLAYER' as IBridgeProvider, '0xsrc', '1', 'USDC'),
+      new EarnDepositTransaction('acc', BigInt(1), '0xevm', 'MARKET', 'faucet', bridgedSendParams),
+      new SwitchGuardianTransaction('acc', 'https://guardian.example'),
+      new ReplaceHotKeyTransaction('acc'),
+      new UpdateProcedureThresholdTransaction('acc', 'update_guardian', 2)
+    ];
+
+    const unstamped = rows
+      .filter(row => row.status === ITransactionStatus.Queued && row.queuedSeq === undefined)
+      .map(row => row.constructor.name);
+    expect(unstamped).toEqual([]);
+  });
+
+  it('sorts rows that predate the field ahead of stamped ones in the same second', () => {
+    // Legacy rows carry no `queuedSeq`; treated as 0 they sort first, which is true of
+    // them. Mirrors the comparator in the processing loop.
+    const rows = [
+      { initiatedAt: 10, queuedSeq: 1_700_000_000_000 },
+      { initiatedAt: 10, queuedSeq: undefined },
+      { initiatedAt: 9, queuedSeq: undefined }
+    ];
+    rows.sort((a, b) => a.initiatedAt - b.initiatedAt || (a.queuedSeq ?? 0) - (b.queuedSeq ?? 0));
+
+    expect(rows.map(r => r.initiatedAt)).toEqual([9, 10, 10]);
+    expect(rows[1]!.queuedSeq).toBeUndefined();
   });
 });

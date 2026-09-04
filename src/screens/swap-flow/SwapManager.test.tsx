@@ -59,6 +59,10 @@ const mockNavigate = jest.fn();
 // ---------------------------------------------------------------------------
 
 // `react-i18next` — echo the key back so we can assert against raw keys.
+let mockBaseFee = 0;
+jest.mock('app/hooks/useVerificationBaseFee', () => ({ __esModule: true, default: () => mockBaseFee }));
+let mockNativeFaucetId: string | null = 'MIDEN-ID';
+jest.mock('app/hooks/useMidenFaucetId', () => ({ __esModule: true, default: () => mockNativeFaucetId }));
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
 }));
@@ -200,6 +204,8 @@ const renderFlow = () => render(<SwapFlow />);
 beforeEach(() => {
   jest.clearAllMocks();
 
+  mockBaseFee = 0;
+  mockNativeFaucetId = 'MIDEN-ID';
   mockRenderedRoutes = [{ name: 'SwapAmounts' }, { name: 'ReviewSwap' }];
   mockNav = { navigateTo: jest.fn(), goBack: jest.fn(), cardStack: [{ name: 'SwapAmounts' }] };
   mockBackHandler = null;
@@ -316,6 +322,44 @@ describe('SwapFlow / SwapManager', () => {
       mockAllBalancesReturn = { data: mockBalanceData };
       renderFlow();
       expect(screen.getByTestId('sa-offer-balance')).toHaveTextContent('0');
+    });
+  });
+
+  describe('fee reserve on a NATIVE offer', () => {
+    // The fee comes out of this account's own vault, so offering the entire native
+    // balance is accepted and then fails in the epilogue on its own fee -- AFTER the
+    // user signed. Send already reserves for this; swap quoted and enforced the raw
+    // balance, so the same signed-then-failed outcome was still reachable here.
+    // Reserve = baseFee * FEE_RESERVE_MULTIPLE / 10^decimals = 10000*30/1e8 = 0.003.
+    it('holds back the fee reserve from the offerable balance', () => {
+      mockNativeFaucetId = 'bech32-faucet-A';
+      mockBaseFee = 10000;
+      mockBalanceData = [{ tokenId: 'bech32-faucet-A', balance: 100 }];
+      mockAllBalancesReturn = { data: mockBalanceData };
+      renderFlow();
+      // Quoted "Available" must equal what the validation enforces, or Max overshoots.
+      expect(screen.getByTestId('sa-offer-balance')).toHaveTextContent('99.997');
+    });
+
+    it('leaves a NON-NATIVE offer at its full balance', () => {
+      // Its fee is paid in a different asset, so nothing needs holding back.
+      mockNativeFaucetId = 'MIDEN-ID';
+      mockBaseFee = 10000;
+      mockBalanceData = [{ tokenId: 'bech32-faucet-A', balance: 100 }];
+      mockAllBalancesReturn = { data: mockBalanceData };
+      renderFlow();
+      expect(screen.getByTestId('sa-offer-balance')).toHaveTextContent('100');
+    });
+
+    it('leaves the full balance on a zero-fee chain', () => {
+      // `maxSendableNative` fails open, so a chain that charges nothing -- and the
+      // window before discovery lands -- keeps the whole balance offerable.
+      mockNativeFaucetId = 'bech32-faucet-A';
+      mockBaseFee = 0;
+      mockBalanceData = [{ tokenId: 'bech32-faucet-A', balance: 100 }];
+      mockAllBalancesReturn = { data: mockBalanceData };
+      renderFlow();
+      expect(screen.getByTestId('sa-offer-balance')).toHaveTextContent('100');
     });
   });
 

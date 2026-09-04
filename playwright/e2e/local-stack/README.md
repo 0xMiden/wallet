@@ -13,8 +13,8 @@ those files currently say; when they disagree, the files win.
 |---|---|---|
 | `miden-node` / `miden-validator` / `miden-ntx-builder` / `miden-remote-prover` | built from **miden-client `v0.16.0-rc.1`** (`efebb6a7`) | `NODE_SRC_REPO` / `NODE_SRC_REF` in `versions.env` |
 | `note-transport-service` | `v0.5.0-rc.1` | `NOTE_TRANSPORT_REF` in `versions.env` |
-| `miden-client-cli` | `0.16.0-rc.1` (rev `efebb6a7`) | `package.json` `midenClientCliVersion` / `midenClientCliGit.rev` |
-| `guardian` (Tier-2) | `v0.16.0` | `GUARDIAN_IMAGE_TAG` in `versions.env` |
+| `miden-client-cli` | `0.16.0-rc.3` (rev `4fec7b22`) | `package.json` `midenClientCliVersion` / `midenClientCliGit.rev` |
+| `guardian` (Tier-2) | `v0.17.0-rc.3` | `GUARDIAN_IMAGE_TAG` in `versions.env` |
 
 > **No node image tag.** The published `ghcr.io/0xmiden/*` node images lag the node the SDK is
 > built against, so the node is **compiled and run from source** — miden-client's
@@ -22,13 +22,14 @@ those files currently say; when they disagree, the files win.
 
 > **Keep `GUARDIAN_IMAGE_TAG` in lockstep with the client.** The guardian server image and
 > `@openzeppelin/miden-multisig-client` in `package.json` have to agree on the MASM procedure
-> roots, and the guardian's version line is independent of Miden's — `v0.17.0-rc.1` is the first
-> guardian release built against Miden 0.16. Bumping one without the other still installs and
-> starts cleanly; it fails at runtime on procedure-root mismatch.
+> roots, and the guardian's version line is independent of Miden's — `v0.17.0-rc.3` is the first
+> release whose guarded accounts come from the upstream `AuthGuardedMultisig` component, which is
+> what lets miden-client classify them and commit their fee conversion info. Bumping one without
+> the other still installs and starts cleanly; it fails at runtime on procedure-root mismatch.
 
 ## Prerequisites
 
-- `cargo` + `rustc` (CI pins 1.96.1) — for building the node, the CLI and note-transport
+- `cargo` + `rustc` (CI pins 1.98.0) — for building the node, the CLI and note-transport
 - `protobuf-compiler`, `clang`, `cmake` — node build deps
 - `nc` (netcat) — for the port-readiness wait in `run-note-transport.sh`
 - Docker with Compose v2 (`docker compose`) — only for the optional Tier-2 guardian profile

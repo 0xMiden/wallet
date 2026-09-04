@@ -388,8 +388,8 @@
     "englishSource": "Collateral"
   },
   "earnCollateralValue": {
-    "message": "Miden P2IDE (gasless)",
-    "englishSource": "Miden P2IDE (gasless)"
+    "message": "Miden P2IDE",
+    "englishSource": "Miden P2IDE"
   },
   "earnDepositRoute": {
     "message": "Miden -> $protocol$ ($network$)",
@@ -2452,6 +2452,10 @@
     "message": "What changes now",
     "englishSource": "What changes now"
   },
+  "guardianSwitchSetupIncompleteTitle": {
+    "message": "Setup unfinished.",
+    "englishSource": "Setup unfinished."
+  },
   "guardianSwitchUnconfirmedHeading": {
     "message": "Guardian switch submitted",
     "englishSource": "Guardian switch submitted"
@@ -2475,10 +2479,6 @@
   "guardianSwitchUnconfirmedInfo1": {
     "message": "Once the switch is confirmed on chain, your new Guardian co-signs every transaction and your old Guardian can no longer co-sign for your account.",
     "englishSource": "Once the switch is confirmed on chain, your new Guardian co-signs every transaction and your old Guardian can no longer co-sign for your account."
-  },
-  "guardianSwitchSetupIncompleteTitle": {
-    "message": "Setup unfinished.",
-    "englishSource": "Setup unfinished."
   },
   "guardianSwitchEndpointNotSavedBody": {
     "message": "The switch is confirmed on chain, but this device couldn't save the new Guardian's address. The wallet checks for this automatically and will prompt you to re-enter it if needed — this won't start another switch. If no prompt appears, contact support.",
@@ -2572,6 +2572,10 @@
     "message": "Your guardian was switched and we couldn't identify the new operator. Enter its URL to reconnect.",
     "englishSource": "Your guardian was switched and we couldn't identify the new operator. Enter its URL to reconnect."
   },
+  "guardianUrlMismatch": {
+    "message": "That operator doesn't match your account's on-chain guardian.",
+    "englishSource": "That operator doesn't match your account's on-chain guardian."
+  },
   "guardianUrlUnreachable": {
     "message": "Couldn't reach that operator. Check the URL and your connection, then try again.",
     "englishSource": "Couldn't reach that operator. Check the URL and your connection, then try again."
@@ -2579,10 +2583,6 @@
   "guardianUrlNoOnChainGuardian": {
     "message": "This account has no on-chain guardian to verify against yet.",
     "englishSource": "This account has no on-chain guardian to verify against yet."
-  },
-  "guardianUrlMismatch": {
-    "message": "That operator doesn't match your account's on-chain guardian.",
-    "englishSource": "That operator doesn't match your account's on-chain guardian."
   },
   "connectivityGuardianTitle": {
     "message": "Guardian unreachable",
@@ -2676,6 +2676,38 @@
     "message": "You can't send to your own address",
     "englishSource": "You can't send to your own address"
   },
+  "networkFee": {
+    "message": "Network Fee",
+    "englishSource": "Network Fee"
+  },
+  "networkFeeMax": {
+    "message": "Max network fee",
+    "englishSource": "Max network fee"
+  },
+  "networkFeeEstimateNote": {
+    "message": "The exact fee depends on the transaction and is usually lower. You will see what you paid on the receipt.",
+    "englishSource": "The exact fee depends on the transaction and is usually lower. You will see what you paid on the receipt."
+  },
+  "feeReserveBlocksSend": {
+    "message": "Your MIDEN is reserved for the network fee. Receive more MIDEN to send.",
+    "englishSource": "Your MIDEN is reserved for the network fee. Receive more MIDEN to send."
+  },
+  "notWorthClaiming": {
+    "message": "Worth less than the network fee to claim",
+    "englishSource": "Worth less than the network fee to claim"
+  },
+  "feeChargedPerClaim": {
+    "message": "Each claim pays its own fee. Claiming them together pays one.",
+    "englishSource": "Each claim pays its own fee. Claiming them together pays one."
+  },
+  "feeChargedPerAsset": {
+    "message": "Charged once per asset claimed.",
+    "englishSource": "Charged once per asset claimed."
+  },
+  "insufficientFeeAsset": {
+    "message": "You need MIDEN to pay the network fee. Receive some MIDEN to continue.",
+    "englishSource": "You need MIDEN to pay the network fee. Receive some MIDEN to continue."
+  },
   "amountMustBeLessThanBalance": {
     "message": "Amount must be less than balance",
     "englishSource": "Amount must be less than balance"
@@ -2685,8 +2717,8 @@
     "englishSource": "Auto Consume MIDEN notes"
   },
   "autoConsumeSettingsDescription": {
-    "message": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't spend your funds or add any fee.",
-    "englishSource": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't spend your funds or add any fee."
+    "message": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't claim any more often, or cost any more in fees, than tapping Claim yourself.",
+    "englishSource": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't claim any more often, or cost any more in fees, than tapping Claim yourself."
   },
   "encryptedWalletFileExporting": {
     "message": "Creating your wallet file…",
@@ -4062,8 +4094,8 @@
     }
   },
   "noFee": {
-    "message": "No fee",
-    "englishSource": "No fee"
+    "message": "No bridge fee",
+    "englishSource": "No bridge fee"
   },
   "fastArrival": {
     "message": "~30 sec",

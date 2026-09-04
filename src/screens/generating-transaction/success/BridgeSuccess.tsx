@@ -36,7 +36,9 @@ export const BridgeSuccess: FC<BridgeSuccessProps> = ({
   bridgedInputs
 }) => {
   const { t } = useTranslation();
-  const { amountText } = useReceiptAmount(transaction);
+  // A bridged send pays a network fee on the Miden side like any other send, and
+  // `complete.ts` records it on the row -- it was simply never read here.
+  const { amountText, feeText } = useReceiptAmount(transaction);
   const destinationAddress = bridgedInputs.destinationAddress ?? transaction?.secondaryAccountId;
   const recipient = destinationAddress ? truncateAddress(destinationAddress, false, 8, 8) : undefined;
 
@@ -45,12 +47,13 @@ export const BridgeSuccess: FC<BridgeSuccessProps> = ({
       buildReceiptRows(t, {
         destinationAddress,
         amountText,
+        feeText,
         txHash,
         onViewExplorer,
         route: bridgeSpeedLabel(t, bridgedInputs.provider),
         routeSub: bridgeRouteValue(t, bridgedInputs.provider)
       }),
-    [amountText, bridgedInputs.provider, destinationAddress, onViewExplorer, t, txHash]
+    [amountText, bridgedInputs.provider, destinationAddress, feeText, onViewExplorer, t, txHash]
   );
 
   return (

@@ -2,6 +2,7 @@ import { getEnvironmentConfig } from '../config/environments';
 import { expect, test } from '../fixtures/two-wallets';
 import { assertClaimed } from '../helpers/assertions';
 import { pendingNoteTotal, vaultBalance, waitForPendingNoteTotal, waitForVaultBalance } from '../helpers/balance-truth';
+import { ensureFeeFunded } from '../helpers/fee-funding';
 
 // Primary guardian operator for the selected network (E2E_NETWORK): the local
 // container on localhost, the real OpenZeppelin operator on testnet/devnet.
@@ -247,7 +248,15 @@ test.describe('Guardian recovery - real UI journey', () => {
       address = created.address;
       seed = created.seedPhrase.join(' ');
 
-      await midenCli.init();
+      // Fund for fees and claim it BEFORE the fixture note is minted. The recovery below
+      // ends in a hot-key rotation, which on a fee-charging chain is a real transaction
+      // paid from this account's own vault -- and this spec deliberately claims nothing
+      // afterwards, so a funding note minted later would sit pending like the fixture note
+      // and leave the vault empty. Doing it first means the only claimable note at this
+      // point is the native one, so the fixture note's "still unconsumed" premise below is
+      // untouched.
+      await ensureFeeFunded(midenCli, walletA, address);
+
       const faucetId = await midenCli.createFaucet();
       await midenCli.mint(faucetId, address, PENDING_RECOVERY_BASE_UNITS, 'public');
       await midenCli.sync();

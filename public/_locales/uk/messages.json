@@ -388,8 +388,8 @@
     "englishSource": "Collateral"
   },
   "earnCollateralValue": {
-    "message": "Miden P2IDE (безгазовий)",
-    "englishSource": "Miden P2IDE (gasless)"
+    "message": "Miden P2IDE",
+    "englishSource": "Miden P2IDE"
   },
   "earnDepositRoute": {
     "message": "Miden -> $protocol$ ($network$)",
@@ -2452,6 +2452,10 @@
     "message": "Що змінилося зараз",
     "englishSource": "What changes now"
   },
+  "guardianSwitchSetupIncompleteTitle": {
+    "message": "Налаштування не завершено.",
+    "englishSource": "Setup unfinished."
+  },
   "guardianSwitchUnconfirmedHeading": {
     "message": "Зміну Guardian надіслано",
     "englishSource": "Guardian switch submitted"
@@ -2475,10 +2479,6 @@
   "guardianSwitchUnconfirmedInfo1": {
     "message": "Щойно зміну буде підтверджено ончейн, новий Guardian співпідписуватиме кожну транзакцію, а попередній Guardian більше не зможе підписувати за ваш обліковий запис.",
     "englishSource": "Once the switch is confirmed on chain, your new Guardian co-signs every transaction and your old Guardian can no longer co-sign for your account."
-  },
-  "guardianSwitchSetupIncompleteTitle": {
-    "message": "Налаштування не завершено.",
-    "englishSource": "Setup unfinished."
   },
   "guardianSwitchEndpointNotSavedBody": {
     "message": "Зміну підтверджено в мережі, але цей пристрій не зміг зберегти адресу нового Guardian. Гаманець автоматично перевіряє це й за потреби попросить ввести її знову — це не почне нову зміну. Якщо запит не з’явиться, зверніться до служби підтримки.",
@@ -2572,6 +2572,10 @@
     "message": "Ваш сервер guardian був замінений, і нам не вдалося ідентифікувати нового оператора. Введіть його URL-адресу, щоб відновити з’єднання.",
     "englishSource": "Your guardian was switched and we couldn't identify the new operator. Enter its URL to reconnect."
   },
+  "guardianUrlMismatch": {
+    "message": "Цей оператор не збігається з ланцюговим ідентифікатором вашого облікового запису (guardian).",
+    "englishSource": "That operator doesn't match your account's on-chain guardian."
+  },
   "guardianUrlUnreachable": {
     "message": "Не вдалося зв'язатися з цим оператором. Перевірте URL-адресу та з'єднання, а потім спробуйте ще раз.",
     "englishSource": "Couldn't reach that operator. Check the URL and your connection, then try again."
@@ -2579,10 +2583,6 @@
   "guardianUrlNoOnChainGuardian": {
     "message": "Цей обліковий запис ще не має ончейн-Guardian, з яким можна звірити адресу.",
     "englishSource": "This account has no on-chain guardian to verify against yet."
-  },
-  "guardianUrlMismatch": {
-    "message": "Цей оператор не збігається з ланцюговим ідентифікатором вашого облікового запису (guardian).",
-    "englishSource": "That operator doesn't match your account's on-chain guardian."
   },
   "connectivityGuardianTitle": {
     "message": "Guardian недоступний",
@@ -2676,6 +2676,38 @@
     "message": "Не можна відправляти на власну адресу",
     "englishSource": "You can't send to your own address"
   },
+  "networkFee": {
+    "message": "Network Fee",
+    "englishSource": "Network Fee"
+  },
+  "networkFeeMax": {
+    "message": "Максимальна комісія мережі",
+    "englishSource": "Max network fee"
+  },
+  "networkFeeEstimateNote": {
+    "message": "Точна комісія залежить від транзакції та зазвичай є нижчою. Суму, яку ви сплатили, ви побачите у квитанції.",
+    "englishSource": "The exact fee depends on the transaction and is usually lower. You will see what you paid on the receipt."
+  },
+  "feeReserveBlocksSend": {
+    "message": "Ваші MIDEN зарезервовані для оплати мережевої комісії. Отримайте більше MIDEN, щоб здійснити переказ.",
+    "englishSource": "Your MIDEN is reserved for the network fee. Receive more MIDEN to send."
+  },
+  "notWorthClaiming": {
+    "message": "Worth less than the network fee to claim",
+    "englishSource": "Worth less than the network fee to claim"
+  },
+  "feeChargedPerClaim": {
+    "message": "За кожну вимогу сплачується окрема комісія. При одночасному вимаганні всіх вимог сплачується лише одна комісія.",
+    "englishSource": "Each claim pays its own fee. Claiming them together pays one."
+  },
+  "feeChargedPerAsset": {
+    "message": "Стягується один раз за кожен актив, на який подано заявку.",
+    "englishSource": "Charged once per asset claimed."
+  },
+  "insufficientFeeAsset": {
+    "message": "Для сплати комісії мережі вам потрібен MIDEN. Отримайте трохи MIDEN, щоб продовжити.",
+    "englishSource": "You need MIDEN to pay the network fee. Receive some MIDEN to continue."
+  },
   "amountMustBeLessThanBalance": {
     "message": "Сума повинна бути меншою за залишок на рахунку",
     "englishSource": "Amount must be less than balance"
@@ -2685,8 +2717,8 @@
     "englishSource": "Auto Consume MIDEN notes"
   },
   "autoConsumeSettingsDescription": {
-    "message": "Автоматично зараховує надходження MIDEN notes на ваш баланс — так само, як при натисканні кнопки «Отримати». Це не витрачає ваші кошти та не додає жодних комісій.",
-    "englishSource": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't spend your funds or add any fee."
+    "message": "Автоматично зараховує надходження MIDEN notes на ваш баланс — так само, як і натискання кнопки «Отримати». Це не відбувається частіше і не коштує більше комісій, ніж коли ви натискаєте кнопку «Отримати» самостійно.",
+    "englishSource": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't claim any more often, or cost any more in fees, than tapping Claim yourself."
   },
   "encryptedWalletFileExporting": {
     "message": "Створення файлу вашого гаманця…",
@@ -4062,8 +4094,8 @@
     }
   },
   "noFee": {
-    "message": "Без комісії",
-    "englishSource": "No fee"
+    "message": "Комісія за переказ відсутня",
+    "englishSource": "No bridge fee"
   },
   "fastArrival": {
     "message": "~30 секунд",

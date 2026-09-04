@@ -29,7 +29,15 @@ for candidate in miden-note-transport-node miden-note-transport-node-bin; do
 done
 
 if [ -z "$cached" ]; then
-  rm -rf "$work"; git clone --depth 1 --branch "$NOTE_TRANSPORT_REF" "$NOTE_TRANSPORT_REPO" "$work"
+  rm -rf "$work"
+  # Authenticate when a token is available: an anonymous clone from a CI runner started failing
+  # with `could not read Username for 'https://github.com'`, which git reports when the server
+  # declines the request, not only when a repo is private. Falls back to anonymous locally.
+  clone_cfg=()
+  if [ -n "${GH_TOKEN:-}" ]; then
+    clone_cfg=(-c "http.extraheader=AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')")
+  fi
+  git clone "${clone_cfg[@]}" --depth 1 --branch "$NOTE_TRANSPORT_REF" "$NOTE_TRANSPORT_REPO" "$work"
   bin_name="$(bin_name_for "$work")"
   ( cd "$work" && cargo build --release --locked --bin "$bin_name" )
   cached="$work/target/release/$bin_name"

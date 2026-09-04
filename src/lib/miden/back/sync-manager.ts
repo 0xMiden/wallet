@@ -3,6 +3,7 @@ import browser from 'webextension-polyfill';
 import { getMessage } from 'lib/i18n';
 import { classifySyncError, isLikelyNetworkError } from 'lib/miden/activity/connectivity-classify';
 import { clearReachabilityIssues, markConnectivityIssue } from 'lib/miden/activity/connectivity-state';
+import { isWorthClaiming, totalClaimableAmount } from 'lib/miden/fees/spendable';
 import { getQuarantinedNoteIds } from 'lib/miden/note-quarantine';
 import {
   computeSyncBackoffMs,
@@ -11,6 +12,7 @@ import {
   MAX_CONSECUTIVE_WATCHDOG_EVICTIONS,
   monotonicNowMs
 } from 'lib/miden/sync-backoff';
+import { getVerificationBaseFee } from 'lib/miden-chain/native-asset';
 import {
   areBackgroundSettingsMirrored,
   isAutoConsumeEnabledAsync,
@@ -31,7 +33,8 @@ import { getCurrentWasmLockHold, getMidenClient, withWasmClientLock } from '../s
 import { isSyncWatchdogEviction, WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 import { classifySwapOrderNotes, localSwapOrders } from '../swap/classification';
 import { reconcileSwapOrderNotes } from '../swap/settlement';
-import { initiateConsumeTransaction } from '../transaction/initiate';
+import { getUncompletedTransactions } from '../transaction/get';
+import { initiateConsumeNotesTransaction, initiateConsumeTransaction } from '../transaction/initiate';
 import { sweepNoteDeliveries } from '../transaction/note-delivery-sweep';
 import { ConsumableNote, NoteTypeEnum } from '../types';
 
@@ -539,16 +542,50 @@ async function runSync(force: boolean): Promise<void> {
       // so we never act on read-miss defaults for a user who opted out of auto-consume or
       // remote proving (the frontend still covers the app-open case in the meantime).
       let nativeAutoConsumeNotes: ConsumableNote[] = [];
+      // Hoisted alongside the notes because the enqueue below needs it too: isolation
+      // gives a note its own transaction, and only the fee can say whether that note is
+      // worth one on its own. See `initiateConsumeNotesTransaction`.
+      let nativeAutoConsumeBaseFee: number | null = null;
       try {
         if ((await areBackgroundSettingsMirrored()) && (await isAutoConsumeEnabledAsync())) {
           const nativeFaucetId = await getFaucetIdSetting();
           if (nativeFaucetId) {
-            nativeAutoConsumeNotes = parsedNotes.flatMap(n => {
-              if (n.faucetId !== nativeFaucetId || n.swapOrder) return [];
-              const type: ConsumableNote['type'] =
-                n.noteType === NoteTypeEnum.Public || n.noteType === NoteTypeEnum.Private ? n.noteType : 'unknown';
-              return [
-                {
+            // Notes already covered by an uncompleted consume row are excluded BEFORE
+            // the value check, because the enqueue below drops exactly those at its
+            // dedup gate -- so counting them measured a set larger than the one that
+            // gets claimed. Chain-sync lag keeps a consumed note visible for a lap or
+            // two, which makes this the steady state rather than an edge case: a lone
+            // newly-arrived dust note rode in on the in-flight batch's value and was
+            // then claimed by itself for a full fee.
+            const notesBeingClaimed = new Set(
+              (await getUncompletedTransactions(accountPubKey))
+                .filter(tx => tx.type === 'consume')
+                .flatMap(tx => tx.noteIds ?? (tx.noteId != null ? [tx.noteId] : []))
+            );
+            // Faucet filter FIRST, and BEFORE the fee is read. `getVerificationBaseFee`
+            // returns a cached value instantly but falls through to an RPC round trip
+            // while the fee is still unknown -- which against a parked node is every
+            // lap, for the full timeout, on the sync critical path. Nothing downstream
+            // needs the fee unless there is something to claim, and the overwhelmingly
+            // common case is nothing to claim.
+            const candidates = parsedNotes.filter(
+              n => n.faucetId === nativeFaucetId && !n.swapOrder && !notesBeingClaimed.has(n.id)
+            );
+            // A claim worth no more than its own fee costs the user money to collect.
+            // This pass is unattended, so the wallet must not do that on their behalf;
+            // `isWorthClaiming` fails open on an unknown fee. Measured on the BATCH
+            // TOTAL because these are claimed as one transaction paying one fee (see the
+            // batch call below) -- judged per note, twenty notes worth 5x the base fee
+            // each were all refused despite totalling 100x.
+            nativeAutoConsumeBaseFee = candidates.length > 0 ? await getVerificationBaseFee() : null;
+            if (
+              candidates.length > 0 &&
+              isWorthClaiming(totalClaimableAmount(candidates.map(n => n.amountBaseUnits)), nativeAutoConsumeBaseFee)
+            ) {
+              nativeAutoConsumeNotes = candidates.map(n => {
+                const type: ConsumableNote['type'] =
+                  n.noteType === NoteTypeEnum.Public || n.noteType === NoteTypeEnum.Private ? n.noteType : 'unknown';
+                return {
                   id: n.id,
                   faucetId: n.faucetId,
                   amount: n.amountBaseUnits,
@@ -556,9 +593,9 @@ async function runSync(force: boolean): Promise<void> {
                   isBeingClaimed: false,
                   type,
                   swapOrder: undefined
-                }
-              ];
-            });
+                };
+              });
+            }
           }
         }
       } catch (err) {
@@ -658,24 +695,38 @@ async function runSync(force: boolean): Promise<void> {
       }
 
       // Enqueue the native-note auto-consume computed above (after swap so swap-managed
-      // native notes are already excluded by the `!swapOrder` filter). ONE consume tx
-      // PER NOTE (mirroring the Home-page consumer), NOT a batch: a Miden tx is atomic,
-      // so batching lets a single un-consumable note fail the whole tx and — because the
-      // #215 backoff gate keys on the shared row's noteIds — throttle its healthy
-      // batch-mates (and the frontend consumer) too. Per-note isolates failures. Dedup +
-      // backoff live inside initiateConsumeTransaction, so a repeated ~30s tick never
-      // spawns duplicate rows. Proving follows the user's delegated/local setting via the
-      // SW-readable mirror — like every other proving path in the wallet.
+      // native notes are already excluded by the `!swapOrder` filter). ONE consume tx for
+      // the whole batch, matching the Home-page consumer — see the note below on why the
+      // batch is preferred and what the per-note fallback does. Dedup + backoff live
+      // inside the initiate helpers, so a repeated ~30s tick never spawns duplicate rows.
+      // Proving follows the user's delegated/local setting via the SW-readable mirror —
+      // like every other proving path in the wallet.
       if (nativeAutoConsumeNotes.length > 0) {
         try {
           const delegate = await isDelegateProofEnabledAsync();
-          for (const note of nativeAutoConsumeNotes) {
-            // Per-note try/catch so one note's enqueue failure can't skip its mates or the
-            // processing kick below — matching the per-note isolation intent above.
-            try {
-              await initiateConsumeTransaction(accountPubKey, note, delegate);
-            } catch (noteErr) {
-              console.warn('[native-auto-consume] enqueue failed for note', note.id, noteErr);
+          // ONE transaction for the batch: each consume pays its own fee, so a backlog
+          // claimed note-by-note charges N fees for what settles in one. A Miden tx is
+          // atomic, so a single un-consumable note fails the whole batch; the LAST
+          // argument isolates it on the following enqueue, so it cannot drag its healthy
+          // mates into the shared row's #215 backoff. NOT the catch below -- this call is
+          // a queue write and the real failure happens later, at generation time.
+          try {
+            await initiateConsumeNotesTransaction(
+              accountPubKey,
+              nativeAutoConsumeNotes,
+              delegate,
+              false,
+              true,
+              nativeAutoConsumeBaseFee
+            );
+          } catch (batchErr) {
+            console.warn('[native-auto-consume] batch enqueue failed, falling back to per-note enqueue', batchErr);
+            for (const note of nativeAutoConsumeNotes) {
+              try {
+                await initiateConsumeTransaction(accountPubKey, note, delegate);
+              } catch (noteErr) {
+                console.warn('[native-auto-consume] enqueue failed for note', note.id, noteErr);
+              }
             }
           }
           const { startTransactionProcessing } = await import('./transaction-processor');

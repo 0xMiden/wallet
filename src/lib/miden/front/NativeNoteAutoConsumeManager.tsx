@@ -1,6 +1,8 @@
 import { useEffect, useRef } from 'react';
 
 import { getFaucetIdSetting } from 'lib/miden/assets';
+import { isWorthClaiming, totalClaimableAmount } from 'lib/miden/fees/spendable';
+import { getVerificationBaseFee } from 'lib/miden-chain/native-asset';
 import { clearNoteReceivedNotification } from 'lib/mobile/native-notifications';
 import { isExtension } from 'lib/platform';
 import { isAutoConsumeEnabled, isDelegateProofEnabled } from 'lib/settings/helpers';
@@ -49,23 +51,47 @@ export function NativeNoteAutoConsumeManager(): null {
       try {
         const nativeFaucetId = await getFaucetIdSetting();
         if (disposed || !nativeFaucetId) return;
+        // A claim worth no more than its own fee makes the balance go DOWN. This runs
+        // unattended, so the wallet must not collect on the user's behalf at a loss;
+        // `isWorthClaiming` fails open on an unknown fee.
+        const baseFee = await getVerificationBaseFee();
+        if (disposed) return;
         const nativeNotes: ConsumableNote[] = notes.filter(
           n => n.faucetId === nativeFaucetId && !n.swapOrder && !n.isBeingClaimed
         );
         if (nativeNotes.length === 0) return;
-        const { initiateConsumeTransaction, startBackgroundTransactionProcessing, getUncompletedTransactions } =
-          await import('../transaction');
+        // Value check on the BATCH TOTAL, not per note: these are claimed as ONE
+        // transaction paying one fee (see below), so the total is what must clear it.
+        // Per note, a backlog of individually-marginal notes was refused in full.
+        if (!isWorthClaiming(totalClaimableAmount(nativeNotes.map(n => n.amount)), baseFee)) return;
+        const {
+          initiateConsumeTransaction,
+          initiateConsumeNotesTransaction,
+          startBackgroundTransactionProcessing,
+          getUncompletedTransactions
+        } = await import('../transaction');
         const delegate = isDelegateProofEnabled();
-        // One consume tx PER NOTE (mirroring Explore), not a batch: a Miden tx is atomic,
-        // so batching lets one un-consumable note fail the whole tx and throttle its
-        // healthy mates via the shared row's #215 backoff. Per-note isolates failures —
-        // including at enqueue: a per-note try/catch keeps one note's failure from
-        // skipping its mates.
-        for (const note of nativeNotes) {
-          try {
-            await initiateConsumeTransaction(publicKey, note, delegate);
-          } catch (noteErr) {
-            console.warn('[native-auto-consume] enqueue failed for note', note.id, noteErr);
+        // ONE transaction for the whole batch: every consume pays its own fee, so
+        // claiming a backlog note-by-note charges the user N fees for what the chain
+        // will settle for one.
+        //
+        // A Miden tx is atomic, so a single un-consumable note fails the batch, and the
+        // backoff gate counts that shared row once per note id it carries -- so without
+        // isolation one poison note drags its healthy mates into the same doubling
+        // backoff, the regression the previous per-note-always design existed to avoid.
+        // The LAST argument is what isolates it, on the next enqueue after the batch row
+        // fails. NOT this catch: the call is a queue write, and an un-consumable note
+        // fails much later at generation time, so the catch only sees a DB error.
+        try {
+          await initiateConsumeNotesTransaction(publicKey, nativeNotes, delegate, false, true, baseFee);
+        } catch (batchErr) {
+          console.warn('[native-auto-consume] batch enqueue failed, falling back to per-note enqueue', batchErr);
+          for (const note of nativeNotes) {
+            try {
+              await initiateConsumeTransaction(publicKey, note, delegate);
+            } catch (noteErr) {
+              console.warn('[native-auto-consume] enqueue failed for note', note.id, noteErr);
+            }
           }
         }
         // This route-independent consumer is the one that fires when the user is

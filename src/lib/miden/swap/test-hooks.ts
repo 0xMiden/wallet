@@ -6,6 +6,7 @@ import { getMidenClient } from 'lib/miden/sdk/miden-client';
 import { remoteProver } from 'lib/miden/sdk/miden-client-interface';
 
 import { _setSwapTokensForTest, type SwapToken } from './tokens';
+import { TX_FEE_NOTE_TAG } from '../activity/fee-notes';
 
 const LINEAGE_STATE = ['active', 'filled', 'reclaimed'] as const;
 
@@ -94,7 +95,15 @@ export function installSwapConsumeHooks(signCallback: SwapSignCallback): void {
           id: safe(() => r.id().toString()).slice(0, 14),
           fullId: safe(() => r.id().toString()),
           tag: safe(() => r.metadata().tag().asU32()),
-          noteType: safe(() => r.metadata().noteType())
+          // Labelled at the PRODUCER because the harness cannot reach `partitionFeeNote`:
+          // `__TEST_PSWAP_ORDER_INFO__` flattens the SDK records into plain JSON inside the
+          // service worker, so by the time playwright sees them the note objects are gone.
+          // Without this, every helper that returns ONE note is guessing on a fee chain.
+          isFee: safe(() => r.metadata().tag().asU32()) === String(TX_FEE_NOTE_TAG),
+          noteType: safe(() => r.metadata().noteType()),
+          // The PSWAP order id, so a caller can tell the swap note apart from
+          // the fee note the account also emits on a fee-charging chain.
+          orderId: orderIdOf(r)
         }))
       };
     } catch (e) {

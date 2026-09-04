@@ -33,7 +33,7 @@ crate-type = ["cdylib"]
 # (miden-protocol/miden-tx 0.16.0-rc.4 → 0.16.0-rc.6, Miden VM 0.29.1).
 # `concurrent` cascades rayon-backed parallel proving through miden-tx →
 # miden-prover.
-miden-client = { version = "=0.16.0-rc.2", default-features = false, features = ["std", "concurrent"] }
+miden-client = { version = "=0.16.0-rc.4", default-features = false, features = ["std", "concurrent"] }
 
 # JNI binding crate. Only depended on here because this lib is
 # Android-Java-specific; the canonical miden-mobile-prover crate (in

@@ -54,6 +54,8 @@ interface EarnDepositView {
   stage?: string;
   epochStatus?: string;
   displayMessage?: string;
+  error?: string;
+  rawError?: string;
 }
 
 test.describe('earn: deposit happy path', () => {
@@ -227,6 +229,13 @@ test.describe('earn: deposit happy path', () => {
               ).__TEST_EARN_DEPOSIT_STATE__(id),
             txId
           )) as EarnDepositView | null;
+          // Carry the REASON. `epochStatus: 'failed'` is written both by a genuinely failed Epoch
+          // leg and by `intent.error` on the submit path, so the bare value cannot say which --
+          // and the allocator here is a fake programmed to succeed, so "failed" alone pointed at
+          // the wrong subsystem entirely.
+          if (row?.epochStatus === 'failed') {
+            return `failed: ${row.rawError ?? row.error ?? 'no error recorded on the row'}`;
+          }
           return row?.epochStatus ?? null;
         },
         { timeout: 180_000, intervals: [3000] }

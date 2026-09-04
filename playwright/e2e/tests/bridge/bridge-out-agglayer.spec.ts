@@ -26,6 +26,17 @@ import { newEvmDestination } from '../../helpers/sepolia';
 test.describe('bridge-out Miden to EVM (Slow AggLayer)', () => {
   test.describe.configure({ mode: 'serial' });
 
+  // The header's "requires public Miden testnet" was prose only, so this ran against a local
+  // chain and spent six minutes failing deep in the kernel with
+  //   before_foreign_load -> account 0xa22ec1... not found at block N
+  // because the real AggLayer bridge account it loads as a FOREIGN account exists only on
+  // testnet. That reads like a wallet bug and is not one. `e2e-bridge.yml` runs this suite with
+  // E2E_NETWORK=testnet; nothing else should.
+  test.skip(
+    (process.env.E2E_NETWORK ?? 'testnet') !== 'testnet',
+    'needs public Miden testnet: the AggLayer bridge account is loaded as a foreign account and does not exist on a local chain'
+  );
+
   const TOKEN_SYMBOL = 'AGG';
   const BRIDGE_AMOUNT = '1';
 
@@ -55,6 +66,13 @@ test.describe('bridge-out Miden to EVM (Slow AggLayer)', () => {
       .poll(
         async () => {
           const row = (await readBridgedSendRows(walletA.page)).find(r => r.extraInputs?.provider === 'agglayer');
+          // Carry the REASON in the polled value. `.poll().toBe(2)` can only report the value it
+          // saw, so a Failed row otherwise surfaces as a bare `Received: 3` -- a status code with
+          // no cause, which is exactly what made the last bridge failure need a code read to
+          // diagnose. Returning the error here puts it straight in the assertion message.
+          if (row?.status === 3) {
+            return `Failed(3): ${row.rawError ?? row.error ?? 'no error recorded on the row'}`;
+          }
           return row?.status ?? null;
         },
         { timeout: 300_000, intervals: [3000] }

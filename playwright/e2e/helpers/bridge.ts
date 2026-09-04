@@ -209,6 +209,10 @@ export async function bridgeOutSlow(wallet: Wallet, opts: BridgeOutSlowOptions):
 export interface BridgedSendRow {
   /** ITransactionStatus: Queued=0, GeneratingTransaction=1, Completed=2, Failed=3. */
   status: number;
+  /** User-facing failure reason on a Failed row. */
+  error?: string;
+  /** The underlying failure, before any friendly rewrite -- the one worth reading. */
+  rawError?: string;
   displayMessage?: string;
   transactionId?: string;
   outputNoteIds?: string[];
@@ -306,6 +310,11 @@ export async function readBridgedSendRows(page: Page): Promise<BridgedSendRow[]>
         status?: number;
         displayMessage?: string;
         transactionId?: string;
+        // Carried so a Failed row can say WHY. Without these a bridge failure reads as a bare
+        // `Expected: 2 / Received: 3` -- a status code with no cause attached, which is what made
+        // the non-guardian fee-auth gap take a code read rather than a log read to find.
+        error?: string;
+        rawError?: string;
         outputNoteIds?: string[];
         extraInputs?: {
           intentNonce?: string;
@@ -325,6 +334,8 @@ export async function readBridgedSendRows(page: Page): Promise<BridgedSendRow[]>
           status: t.status ?? -1,
           displayMessage: t.displayMessage,
           transactionId: t.transactionId,
+          error: t.error,
+          rawError: t.rawError,
           outputNoteIds: t.outputNoteIds,
           extraInputs: t.extraInputs
         }));

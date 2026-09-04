@@ -1,5 +1,6 @@
 import { expect, type Page } from '@playwright/test';
 
+import { readTransactionRows } from './history';
 import type { IdbDumpSource } from './idb-dump';
 import { dumpProveTelemetry } from '../harness/prove-telemetry-probe';
 import { suspendScreenCapture } from '../harness/screen-capture';
@@ -171,13 +172,15 @@ export interface ChromeWalletPageApi extends WalletPage, IdbDumpSource {
    */
   createGuardianWallet(guardianUrl: string, password?: string): Promise<{ address: string; seedPhrase: string[] }>;
   /** Fast, non-invasive balance + pending-notes + outgoing-tx snapshot. */
-  quickBalanceSnapshot(): Promise<{
+  quickBalanceSnapshot(opts?: { symbol?: string }): Promise<{
     balance: number;
     pendingNotes: Array<{ id: string; amount: number; faucetId: string }>;
     pendingSum: number;
     totalReportable: number;
     pendingTxCount: number;
     latestTxId?: string;
+    /** Rows a SYMBOL scope dropped for having no metadata — see the implementation. */
+    unidentified: number;
     error?: string;
   }>;
   /**
@@ -743,72 +746,94 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
    * need an authoritative total (e.g. a conservation assertion) must call
    * refreshBalances() first — unlike getBalance(), which refreshes internally.
    */
-  async quickBalanceSnapshot(): Promise<{
+  async quickBalanceSnapshot(opts?: { symbol?: string }): Promise<{
     balance: number;
     pendingNotes: Array<{ id: string; amount: number; faucetId: string }>;
     pendingSum: number;
     totalReportable: number;
     pendingTxCount: number;
     latestTxId?: string;
+    /**
+     * Rows a SYMBOL scope excluded because they carry no metadata at all.
+     *
+     * `metadata` is attached only when `fetchTokenMetadata` succeeded (`sync-manager.ts`
+     * swallows the failure), so a symbol filter cannot tell "a different token" from "the
+     * token under test, whose metadata call failed this lap" — it drops both. In a strict
+     * conservation identity that reads as value vanishing. Reported rather than guessed at:
+     * a caller asserting an equality can say "metadata missing" instead of "notes lost".
+     */
+    unidentified: number;
     error?: string;
   }> {
     try {
-      return await this.page.evaluate(async () => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const store = (window as any).__TEST_STORE__;
-        const state = store?.getState?.();
-        let balance = 0;
-        for (const tokenList of Object.values(state?.balances || {}) as unknown[]) {
-          if (!Array.isArray(tokenList)) continue;
-          for (const token of tokenList) {
-            const amount = parseFloat(String(token.amount ?? token.balance ?? '0'));
-            if (amount > 0) balance += amount;
-          }
-        }
-
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const storage = await new Promise<any>(resolve => {
-          chrome.storage.local.get(['miden_sync_data'], resolve);
-        });
-        const notes = storage?.miden_sync_data?.notes ?? [];
-        const pendingNotes: Array<{ id: string; amount: number; faucetId: string }> = [];
-        let pendingSum = 0;
-        for (const note of notes) {
-          const baseUnits = parseInt(String(note.amountBaseUnits ?? '0'), 10);
-          const decimals = note.metadata?.decimals ?? 8;
-          const amount = baseUnits / Math.pow(10, decimals);
-          pendingNotes.push({ id: String(note.id ?? ''), amount, faucetId: String(note.faucetId ?? '') });
-          pendingSum += amount;
-        }
-
-        // Outgoing transaction queue (from Zustand — shape: {[id]: record} or array)
-        let pendingTxCount = 0;
-        let latestTxId: string | undefined;
-        const txs = state?.transactions;
-        if (txs && typeof txs === 'object') {
-          const list = Array.isArray(txs) ? txs : Object.values(txs);
-          pendingTxCount = list.length;
-          // Pick the most recent by timestamp if available
-          let mostRecent: { id?: string; timestamp?: number } | null = null;
-          for (const t of list as Array<{ id?: string; transactionId?: string; timestamp?: number }>) {
-            const id = t.id ?? t.transactionId;
-            const ts = t.timestamp ?? 0;
-            if (!mostRecent || ts > (mostRecent.timestamp ?? 0)) {
-              mostRecent = { id, timestamp: ts };
+      return await this.page.evaluate(
+        async ({ wanted }) => {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const store = (window as any).__TEST_STORE__;
+          const state = store?.getState?.();
+          let balance = 0;
+          let unidentified = 0;
+          for (const tokenList of Object.values(state?.balances || {}) as unknown[]) {
+            if (!Array.isArray(tokenList)) continue;
+            for (const token of tokenList) {
+              // Optional SYMBOL scope. Unscoped this sums every asset the account holds,
+              // which silently includes the native fee asset -- so a caller conserving a
+              // total across a fee-charging chain measures its own fees as missing value.
+              if (wanted && token?.metadata?.symbol === undefined) unidentified++;
+              if (wanted && String(token?.metadata?.symbol ?? '').toLowerCase() !== wanted) continue;
+              const amount = parseFloat(String(token.amount ?? token.balance ?? '0'));
+              if (amount > 0) balance += amount;
             }
           }
-          latestTxId = mostRecent?.id;
-        }
 
-        return {
-          balance,
-          pendingNotes,
-          pendingSum,
-          totalReportable: balance + pendingSum,
-          pendingTxCount,
-          latestTxId
-        };
-      });
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const storage = await new Promise<any>(resolve => {
+            chrome.storage.local.get(['miden_sync_data'], resolve);
+          });
+          const notes = storage?.miden_sync_data?.notes ?? [];
+          const pendingNotes: Array<{ id: string; amount: number; faucetId: string }> = [];
+          let pendingSum = 0;
+          for (const note of notes) {
+            if (wanted && note?.metadata?.symbol === undefined) unidentified++;
+            if (wanted && String(note?.metadata?.symbol ?? '').toLowerCase() !== wanted) continue;
+            const baseUnits = parseInt(String(note.amountBaseUnits ?? '0'), 10);
+            const decimals = note.metadata?.decimals ?? 8;
+            const amount = baseUnits / Math.pow(10, decimals);
+            pendingNotes.push({ id: String(note.id ?? ''), amount, faucetId: String(note.faucetId ?? '') });
+            pendingSum += amount;
+          }
+
+          // Outgoing transaction queue (from Zustand — shape: {[id]: record} or array)
+          let pendingTxCount = 0;
+          let latestTxId: string | undefined;
+          const txs = state?.transactions;
+          if (txs && typeof txs === 'object') {
+            const list = Array.isArray(txs) ? txs : Object.values(txs);
+            pendingTxCount = list.length;
+            // Pick the most recent by timestamp if available
+            let mostRecent: { id?: string; timestamp?: number } | null = null;
+            for (const t of list as Array<{ id?: string; transactionId?: string; timestamp?: number }>) {
+              const id = t.id ?? t.transactionId;
+              const ts = t.timestamp ?? 0;
+              if (!mostRecent || ts > (mostRecent.timestamp ?? 0)) {
+                mostRecent = { id, timestamp: ts };
+              }
+            }
+            latestTxId = mostRecent?.id;
+          }
+
+          return {
+            balance,
+            pendingNotes,
+            pendingSum,
+            totalReportable: balance + pendingSum,
+            pendingTxCount,
+            latestTxId,
+            unidentified
+          };
+        },
+        { wanted: opts?.symbol?.toLowerCase() }
+      );
     } catch (e) {
       return {
         balance: 0,
@@ -816,6 +841,7 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
         pendingSum: 0,
         totalReportable: 0,
         pendingTxCount: 0,
+        unidentified: 0,
         error: e instanceof Error ? e.message : String(e)
       };
     }
@@ -991,8 +1017,24 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
       this.page
         .getByTestId('hot-key-rotation-failed')
         .waitFor({ state: 'visible', timeout: 120_000 })
-        .then(() => {
-          throw new Error('completeHotKeyRotation: rotation reached its terminal-failure surface');
+        .then(async () => {
+          // The gate only says "it failed". The reason is on the row -- and on a
+          // fee-charging chain the reasons differ sharply (an unpayable fee vs a
+          // guardian/register fault), so the bare surface message sends the reader
+          // to the wrong place.
+          const rows = await readTransactionRows(this.page).catch(() => []);
+          const failed = rows
+            .filter(r => r.status === 3)
+            .map(
+              r =>
+                `\n    [${r.type ?? '?'} ${r.id.slice(0, 8)} stage=${r.stage ?? '?'}] ${r.error ?? '(no message)'}` +
+                (r.rawError ? `\n      raw: ${r.rawError}` : '')
+            )
+            .join('');
+          throw new Error(
+            'completeHotKeyRotation: rotation reached its terminal-failure surface' +
+              (failed.length > 0 ? `\n  failed rows:${failed}` : '\n  (no failed transaction rows on this wallet)')
+          );
         })
     ]);
   }
@@ -2208,6 +2250,12 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
               // Read it only together with `status`.
               stage: row.stage,
               error: typeof row.error === 'string' ? row.error.slice(0, 300) : row.error,
+              // `error` is the user-facing copy, which deliberately drops the technical
+              // detail -- "the prover does not recognize part of this transaction" without
+              // naming WHICH procedure root it could not resolve. The wallet keeps the
+              // untouched cause in `rawError` whenever it rewrote the message; a failure
+              // dump that omits it hides the one field that identifies the fault.
+              rawError: typeof row.rawError === 'string' ? row.rawError.slice(0, 600) : undefined,
               errorMessage: typeof row.errorMessage === 'string' ? row.errorMessage.slice(0, 300) : undefined
             }))
         );

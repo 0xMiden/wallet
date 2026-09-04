@@ -136,6 +136,19 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
     // successful sync that puts the fuse out is the thing it stops giving itself the
     // chance to observe (#777).
     clearSyncFuseForEndpointChange();
+    // The native asset and its base fee belong to the node too. The caches drop
+    // themselves on the next read (`invalidateOnEndpointChange`), but dropping them
+    // notifies nobody — and `useVerificationBaseFee` only re-reads when discovery
+    // EMITS. Without a discovery to emit, every mounted screen goes on gating sends and
+    // claims on the previous chain's fee until something else happens to ask. Priming
+    // here is that discovery.
+    //
+    // Imported lazily: `native-asset` reads the effective endpoints, so a static import
+    // adds this screen to that module cycle. Same reason `native-asset` defers its own
+    // `lib/miden/metadata` import.
+    void import('lib/miden-chain/native-asset')
+      .then(({ primeNativeAssetId }) => primeNativeAssetId())
+      .catch(err => console.warn('native-asset prime after endpoint change failed', err));
     // On the extension, the service worker is a separate JS realm with its own
     // module-level override cache and a create-once Miden client singleton, so
     // applyEndpointOverride's write doesn't reach it — nudge it to re-hydrate

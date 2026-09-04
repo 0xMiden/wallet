@@ -739,7 +739,16 @@ describe('sign payload — signingInputs', () => {
     const ts = {
       accountDelta: () => accountDelta,
       inputNotes: () => ({ numNotes: () => 2 }),
-      outputNotes: () => ({ numNotes: () => 3 })
+      // `notes()` as well: summary output notes now go through the fee split, because
+      // `fee::pay_fee` runs in auth BEFORE the summary is built.
+      outputNotes: () => ({
+        numNotes: () => 3,
+        notes: () => [
+          { assets: () => ({ fungibleAssets: () => [] }), metadata: () => ({ tag: () => ({ asU32: () => 0 }) }) },
+          { assets: () => ({ fungibleAssets: () => [] }), metadata: () => ({ tag: () => ({ asU32: () => 0 }) }) },
+          { assets: () => ({ fungibleAssets: () => [] }), metadata: () => ({ tag: () => ({ asU32: () => 0 }) }) }
+        ]
+      })
     };
     return { variantType: SigningInputsType.TransactionSummary, transactionSummaryPayload: () => ts };
   };

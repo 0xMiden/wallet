@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { InputNoteState } from '@miden-sdk/miden-sdk/lazy';
 
+import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import { NoteWithMetadata } from 'app/pages/Receive/PendingTab';
 import {
   getFailedTransactions,
@@ -45,6 +46,7 @@ export interface ClaimNotesState {
  */
 export function useClaimNotes(): ClaimNotesState {
   const account = useAccount();
+  const nativeFaucetId = useMidenFaucetId();
   const address = account.publicKey;
 
   const { data: claimableNotes, mutate: mutateClaimableNotes } = useClaimableNotes(address);
@@ -304,7 +306,17 @@ export function useClaimNotes(): ClaimNotesState {
           }
         }
 
-        for (const groupNotes of byFaucet.values()) {
+        // Native-asset group FIRST. The fee is withdrawn from this account's own vault,
+        // and a consume credits that vault before `pay_fee` takes from it -- so claiming
+        // the native note funds the groups that follow. Attempt a non-native group first
+        // on an empty vault and it fails on the fee, with a native note sitting unclaimed
+        // that would have paid for it. Map order is note-arrival order, so before this the
+        // outcome depended on which note happened to land first.
+        const orderedGroups = [...byFaucet.entries()]
+          .sort(([a], [b]) => Number(b === nativeFaucetId) - Number(a === nativeFaucetId))
+          .map(([, groupNotes]) => groupNotes);
+
+        for (const groupNotes of orderedGroups) {
           const groupNoteIds = groupNotes.map(n => n.id);
           try {
             // User tapped Claim All — bypass the auto-consume backoff gate so
@@ -355,7 +367,12 @@ export function useClaimNotes(): ClaimNotesState {
       isDelegatedProvingEnabled,
       mutateClaimableNotes,
       claimingNoteIds,
-      individualClaimingIds
+      individualClaimingIds,
+      // Read by the native-first ordering above. Omitted, this callback captures the
+      // faucet id from first render -- `null` until discovery resolves -- and the
+      // ordering silently stops preferring the native asset, which is its whole
+      // point: a token note claimed first against an empty vault cannot pay its fee.
+      nativeFaucetId
     ]
   );
 

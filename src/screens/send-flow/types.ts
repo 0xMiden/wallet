@@ -118,8 +118,6 @@ export type UIForm = {
   recipientAddressInput?: string;
   recipientAnsName?: string;
   token?: UIToken;
-  feeAmount: string;
-  feeType: UIFeeType;
 };
 
 export const TransactionTypeNameMapping: Record<UITransactionType, string> = {
@@ -135,27 +133,4 @@ export type UIBalance = {
 export type UIRecords = {
   public: number;
   private: number;
-};
-
-export type UIFees = {
-  MIDEN: {
-    [UITransactionType.Public]: {
-      [UITransactionType.Public]: string;
-      [UITransactionType.Private]: string;
-    };
-    [UITransactionType.Private]: {
-      [UITransactionType.Public]: string;
-      [UITransactionType.Private]: string;
-    };
-  };
-  OTHER: {
-    [UITransactionType.Public]: {
-      [UITransactionType.Public]: string;
-      [UITransactionType.Private]: string;
-    };
-    [UITransactionType.Private]: {
-      [UITransactionType.Public]: string;
-      [UITransactionType.Private]: string;
-    };
-  };
 };

@@ -1,5 +1,6 @@
 import React from 'react';
 
+import BigNumber from 'bignumber.js';
 import clsx from 'clsx';
 import { useTranslation } from 'react-i18next';
 
@@ -59,9 +60,18 @@ export interface SelectAmountProps {
   onSelectNetwork?: () => void;
 }
 
-/** Preserve the usual 4dp limit, expanding for tiny balances, then trim trailing zeros. */
+/**
+ * Preserve the usual 4dp limit, expanding for tiny balances, then trim trailing zeros.
+ *
+ * Rounded DOWN, so the "Available" figure is never larger than the amount the
+ * form will accept. The native token's cap is `balance - fee reserve`, which
+ * makes a long fractional tail the normal case rather than the exception: a
+ * 12.345678 balance caps at 12.045677999…, which rounds to "12.0457" — and a
+ * user who reads that back into the field is over the cap and rejected, with no
+ * Max button to fall back on.
+ */
 function formatBalance(value: number): string {
-  return toAdaptiveFixed(value, 4).replace(/\.?0+$/, '');
+  return toAdaptiveFixed(value, 4, BigNumber.ROUND_DOWN).replace(/\.?0+$/, '');
 }
 
 /** Blue circle used as a placeholder before a token/network is chosen. */

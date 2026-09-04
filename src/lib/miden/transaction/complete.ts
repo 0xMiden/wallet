@@ -9,6 +9,7 @@ import * as Repo from 'lib/miden/repo';
 import { recordNoteDelivery, setTransactionStage, updateTransactionStatus } from './helper';
 import { ensureGuardianProcedureThresholds } from './initiate';
 import { takeAgglayerBridgeInInfo, takeBridgeInInfoForNotes } from '../activity/bridge-in';
+import { feeFieldsFromResult, splitExecutedOutputNotes } from '../activity/fee';
 import { interpretTransactionResult } from '../activity/helpers';
 import { compareAccountIds } from '../activity/utils';
 import { midenClientProxy } from '../back/miden-client-proxy';
@@ -40,7 +41,11 @@ import { NoteTypeEnum } from '../types';
 
 export const completeCustomTransaction = async (transaction: ITransaction, result: TransactionResult) => {
   const executedTx = result.executedTransaction();
-  const outputNotes = executedTx.outputNotes().notes();
+  // Fee note excluded, like the other two paths that walk output notes: the loop below
+  // RELAYS every private note to `transaction.secondaryAccountId`, a recipient named by
+  // the requesting site, so a fee note reaching it would be sent to the user's
+  // counterparty. Consistent with `extractFullNote` and `completeSwapTransaction`.
+  const { userNotes: outputNotes } = splitExecutedOutputNotes(executedTx);
 
   // Every private note this transaction produced. Collected first so the relays
   // below are a flat sequence: the commit wait then happens ONCE, after them,
@@ -170,6 +175,11 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
 
   const updatedTransaction = interpretTransactionResult(transaction, result);
   updatedTransaction.completedAt = Math.floor(Date.now() / 1000); // seconds
+  // `interpretTransactionResult` carries type/amount/notes but no fee fields, so this
+  // route — the `execute` and default transaction types — was the one completion path
+  // that recorded no fee, leaving its history row without the fee line every other
+  // type shows.
+  Object.assign(updatedTransaction, feeFieldsFromResult(result));
   // Set explicitly AFTER interpretTransactionResult: that returns the whole
   // pick-time row, which predates every delivery write above and would otherwise
   // hand back the stale (absent) value.
@@ -234,6 +244,7 @@ export const completeConsumeTransaction = async (id: string, result: Transaction
   const uniformNoteType = noteTypes.every(type => type === firstNoteType) ? firstNoteType : undefined;
 
   await updateTransactionStatus(id, ITransactionStatus.Completed, {
+    ...feeFieldsFromResult(result),
     displayMessage,
     transactionId: executedTransaction.id().toHex(),
     secondaryAccountId,
@@ -317,7 +328,13 @@ export const completeConsumeTransaction = async (id: string, result: Transaction
 
 export const completeSwapTransaction = async (tx: SwapTransaction, result: TransactionResult) => {
   const executedTx = result.executedTransaction();
-  const outputNote = executedTx.outputNotes().notes()[0];
+  // The kernel's fee note is an output note of this transaction too, and the order the
+  // notes come back in is the kernel's business, not ours. Taking index 0 blind means
+  // that on a fee-charging chain the `orderId` below -- the serial number this swap is
+  // tracked by for its entire lineage -- can be read off the FEE note instead of the
+  // PSWAP note, which points settlement at a note that will never be filled.
+  const { userNotes } = splitExecutedOutputNotes(executedTx);
+  const outputNote = userNotes[0];
 
   if (!outputNote) {
     throw new Error('Swap Transaction Failed');
@@ -331,6 +348,7 @@ export const completeSwapTransaction = async (tx: SwapTransaction, result: Trans
   // Completed with the output note ids so the swap shows up in history.
   const completedAt = Math.floor(Date.now() / 1000); // seconds
   await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
+    ...feeFieldsFromResult(result),
     displayMessage: 'Swapped',
     transactionId: executedTx.id().toHex(),
     outputNoteIds: [outputNote.id().toString()],
@@ -482,6 +500,7 @@ export const completeReplaceHotKeyTransaction = async (
     clearGuardianServiceFor(tx.accountId);
 
     await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
+      ...feeFieldsFromResult(result),
       displayMessage: 'Device key rotated',
       completedAt: Math.floor(Date.now() / 1000),
       // Preserve newHotPublicKey (updateTransactionStatus Object.assigns the whole
@@ -520,6 +539,7 @@ export const completeUpdateProcedureThresholdTransaction = async (
 ) => {
   const executedTx = result.executedTransaction();
   await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
+    ...feeFieldsFromResult(result),
     displayMessage: 'Account secured',
     transactionId: executedTx.id().toHex(),
     completedAt: Math.floor(Date.now() / 1000),
@@ -703,6 +723,7 @@ export const completeSwitchGuardianTransaction = async (
     }
 
     await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
+      ...feeFieldsFromResult(result),
       // The Activity list renders this string as the row title, so it is a
       // claim about the chain, not a log line. "Guardian switched" is one the
       // unconfirmed path cannot make — and the receipt's recovery copy used to
@@ -771,9 +792,14 @@ export const completeSwitchGuardianTransaction = async (
 
 const extractFullNote = (result: TransactionResult): Note | undefined => {
   try {
-    const outputNotes = result.executedTransaction().outputNotes().notes();
+    // Excluding the kernel's fee note, which is an output note of this transaction like
+    // any other and whose position among them is the kernel's business. The note this
+    // returns is the one a PRIVATE send RELAYS to its recipient, so picking the fee note
+    // here would hand the transport the wrong note and leave the payment undeliverable
+    // while the row still completed.
+    const { userNotes } = splitExecutedOutputNotes(result.executedTransaction());
 
-    const firstOutput = outputNotes?.[0];
+    const firstOutput = userNotes[0];
     if (!firstOutput) {
       console.error('No output notes found for executed transaction');
       return undefined;
@@ -961,6 +987,7 @@ export const completeSendTransaction = async (tx: SendTransaction, result: Trans
 
   try {
     await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
+      ...feeFieldsFromResult(result),
       // Completed is correct even when the relay failed: the assets have left the
       // account, so Failed would be untrue and would offer a Retry that spends a
       // second time. But it must not read as an unqualified success either.
@@ -986,6 +1013,7 @@ export const completeBridgedSendTransaction = async (tx: BridgedSendTransaction,
   const outputNoteIds = noteId ? [noteId] : [];
 
   await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
+    ...feeFieldsFromResult(result),
     displayMessage: 'Bridged to EVM',
     transactionId: executedTx.id().toHex(),
     outputNoteIds,
@@ -1002,6 +1030,7 @@ export const completeEarnDepositTransaction = async (tx: EarnDepositTransaction,
   const outputNoteIds = noteId ? [noteId] : [];
 
   await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
+    ...feeFieldsFromResult(result),
     displayMessage: 'Deposited to lending',
     transactionId: executedTx.id().toHex(),
     outputNoteIds,

@@ -21,6 +21,8 @@ interface BuildReceiptRowsArgs {
   txHash?: string | null;
   /** When provided, the transaction-id value becomes a button. */
   onViewExplorer?: () => void;
+  /** Formatted "amount symbol" for the network fee this transaction paid. */
+  feeText?: string;
   /** Optional "Route" row value (e.g. "Slow"); bridge sends only. */
   route?: string;
   /** Optional sub-line under the "Route" value (e.g. "Via Epoch"). */
@@ -41,6 +43,7 @@ export const buildReceiptRows = (
     amountText,
     amountLabel,
     noteIds,
+    feeText,
     txHash,
     onViewExplorer,
     route,
@@ -68,6 +71,16 @@ export const buildReceiptRows = (
     rows.push({
       label: amountLabel ?? t('totalPaid', { defaultValue: 'Total Paid' }),
       value: amountText
+    });
+  }
+
+  // After the amount, before the transaction id: the fee is part of what the
+  // transfer cost, not metadata about it. Omitted entirely on a zero-fee chain,
+  // where an empty row would look like a failed read.
+  if (feeText) {
+    rows.push({
+      label: t('networkFee'),
+      value: feeText
     });
   }
 

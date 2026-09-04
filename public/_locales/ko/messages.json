@@ -388,8 +388,8 @@
     "englishSource": "Collateral"
   },
   "earnCollateralValue": {
-    "message": "Miden P2IDE (가스 미사용)",
-    "englishSource": "Miden P2IDE (gasless)"
+    "message": "Miden P2IDE",
+    "englishSource": "Miden P2IDE"
   },
   "earnDepositRoute": {
     "message": "Miden -> $protocol$ ($network$)",
@@ -2452,6 +2452,10 @@
     "message": "현재 변경 사항",
     "englishSource": "What changes now"
   },
+  "guardianSwitchSetupIncompleteTitle": {
+    "message": "설정이 완료되지 않았습니다.",
+    "englishSource": "Setup unfinished."
+  },
   "guardianSwitchUnconfirmedHeading": {
     "message": "Guardian 변경을 제출했습니다",
     "englishSource": "Guardian switch submitted"
@@ -2475,10 +2479,6 @@
   "guardianSwitchUnconfirmedInfo1": {
     "message": "변경이 온체인에서 확인되면 새 Guardian이 모든 트랜잭션에 공동 서명하며, 이전 Guardian은 더 이상 계정에 공동 서명할 수 없습니다.",
     "englishSource": "Once the switch is confirmed on chain, your new Guardian co-signs every transaction and your old Guardian can no longer co-sign for your account."
-  },
-  "guardianSwitchSetupIncompleteTitle": {
-    "message": "설정이 완료되지 않았습니다.",
-    "englishSource": "Setup unfinished."
   },
   "guardianSwitchEndpointNotSavedBody": {
     "message": "전환은 온체인에서 확인되었지만 이 기기에서 새 Guardian의 주소를 저장하지 못했습니다. 지갑이 이를 자동으로 확인하고 필요하면 다시 입력하라는 안내를 표시합니다. 이로 인해 다른 전환이 시작되지는 않습니다. 안내가 표시되지 않으면 지원팀에 문의하세요.",
@@ -2572,6 +2572,10 @@
     "message": "guardian가 변경되었으며, 새로운 운영자를 확인할 수 없었습니다. URL을 입력하여 다시 연결하십시오.",
     "englishSource": "Your guardian was switched and we couldn't identify the new operator. Enter its URL to reconnect."
   },
+  "guardianUrlMismatch": {
+    "message": "해당 운영자는 귀하의 계정 온체인 주소(guardian)와 일치하지 않습니다.",
+    "englishSource": "That operator doesn't match your account's on-chain guardian."
+  },
   "guardianUrlUnreachable": {
     "message": "해당 운영자에 연결할 수 없습니다. URL과 네트워크 연결을 확인한 후 다시 시도하세요.",
     "englishSource": "Couldn't reach that operator. Check the URL and your connection, then try again."
@@ -2579,10 +2583,6 @@
   "guardianUrlNoOnChainGuardian": {
     "message": "이 계정에는 아직 대조할 온체인 Guardian이 없습니다.",
     "englishSource": "This account has no on-chain guardian to verify against yet."
-  },
-  "guardianUrlMismatch": {
-    "message": "해당 운영자는 귀하의 계정 온체인 주소(guardian)와 일치하지 않습니다.",
-    "englishSource": "That operator doesn't match your account's on-chain guardian."
   },
   "connectivityGuardianTitle": {
     "message": "Guardian 접근 불가",
@@ -2676,6 +2676,38 @@
     "message": "자신의 주소로 발송할 수 없습니다.",
     "englishSource": "You can't send to your own address"
   },
+  "networkFee": {
+    "message": "Network Fee",
+    "englishSource": "Network Fee"
+  },
+  "networkFeeMax": {
+    "message": "최대 네트워크 수수료",
+    "englishSource": "Max network fee"
+  },
+  "networkFeeEstimateNote": {
+    "message": "정확한 수수료는 거래에 따라 다르며, 일반적으로 이보다 낮습니다. 지불한 금액은 영수증에서 확인하실 수 있습니다.",
+    "englishSource": "The exact fee depends on the transaction and is usually lower. You will see what you paid on the receipt."
+  },
+  "feeReserveBlocksSend": {
+    "message": "사용자의 MIDEN은 네트워크 수수료로 예약되어 있습니다. 더 많은 MIDEN을 수령하여 송금하십시오.",
+    "englishSource": "Your MIDEN is reserved for the network fee. Receive more MIDEN to send."
+  },
+  "notWorthClaiming": {
+    "message": "Worth less than the network fee to claim",
+    "englishSource": "Worth less than the network fee to claim"
+  },
+  "feeChargedPerClaim": {
+    "message": "각 청구는 별도의 수수료를 지불합니다. 이를 한꺼번에 청구하면 수수료는 한 번만 지불됩니다.",
+    "englishSource": "Each claim pays its own fee. Claiming them together pays one."
+  },
+  "feeChargedPerAsset": {
+    "message": "청구한 자산당 1회 요금이 부과됩니다.",
+    "englishSource": "Charged once per asset claimed."
+  },
+  "insufficientFeeAsset": {
+    "message": "네트워크 수수료를 지불하려면 MIDEN이 필요합니다. 계속 진행하려면 MIDEN을 일부 받으세요.",
+    "englishSource": "You need MIDEN to pay the network fee. Receive some MIDEN to continue."
+  },
   "amountMustBeLessThanBalance": {
     "message": "금액은 잔액보다 적어야 합니다.",
     "englishSource": "Amount must be less than balance"
@@ -2685,8 +2717,8 @@
     "englishSource": "Auto Consume MIDEN notes"
   },
   "autoConsumeSettingsDescription": {
-    "message": "수신된 MIDENnotes을 잔액에 자동으로 청구합니다 — ‘Claim’을 탭하는 것과 동일합니다. 이 과정에서 자금이 지출되거나 수수료가 추가되지 않습니다.",
-    "englishSource": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't spend your funds or add any fee."
+    "message": "수신된 MIDENnotes을 잔액으로 자동 청구합니다 — ‘Claim’을 탭하는 것과 동일합니다. 직접 ‘Claim’을 탭하는 것보다 더 자주 청구되거나 수수료가 더 많이 발생하는 것은 아닙니다.",
+    "englishSource": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't claim any more often, or cost any more in fees, than tapping Claim yourself."
   },
   "encryptedWalletFileExporting": {
     "message": "지갑 파일 생성 중…",
@@ -4062,8 +4094,8 @@
     }
   },
   "noFee": {
-    "message": "수수료 없음",
-    "englishSource": "No fee"
+    "message": "브리지 수수료 없음",
+    "englishSource": "No bridge fee"
   },
   "fastArrival": {
     "message": "약 30초",

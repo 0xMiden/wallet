@@ -34,12 +34,19 @@ jobs:
   guardian-lifecycle-e2e:
     name: guardian-lifecycle-e2e (chrome)
     # 2 vCPUs is adequate here — see the measurements in pr-e2e-earn.yml.
-    runs-on: ubuntu-latest
+    runs-on: warp-ubuntu-latest-x64-8x
     # Stress scenarios (kill/reopen, guardian-fault injection, A->B->A repeat)
     # are heavier than the Tier-2 happy-path spec; sized like the other
     # dedicated single-purpose e2e jobs (swap/earn/bridge-guardian) rather
     # than pr-e2e-local.yml's 45m. Revisit once real spec timings exist.
-    timeout-minutes: 60
+    # 120 rather than 60/75: while this branch carries `Client PR:` / `Web SDK PR:` /
+    # `Guardian PR:` markers, the suite builds the miden-client CLI and the node from
+    # source. That is a cold cargo build the pin-keyed cache cannot serve until one run
+    # finishes and populates ~/.cargo/bin — and every run was timing out first, so the
+    # cache stayed empty and every run stayed cold. Observed: 15 min for the wallet build
+    # plus 59 min of client build still unfinished at the 75-minute mark. The ceiling only
+    # binds on a cold build; a warm run is unaffected by raising it.
+    timeout-minutes: 120
     env:
       E2E_NETWORK: localhost
       MIDEN_NTX_AUTH: e2e-ntx-secret
@@ -55,7 +62,7 @@ jobs:
       # Pinned exact (NOT @stable): a required gate must not drift with upstream
       # rustc -- a newer stable can reject the pinned older CLI/transport crates and
       # go red on unrelated PRs. Bump this deliberately (and the cache key below).
-      - uses: dtolnay/rust-toolchain@1.96.1
+      - uses: dtolnay/rust-toolchain@1.98.0
       # The cargo cache is SHARED by every E2E workflow and warmed on main
       # (.github/workflows/warm-e2e-cargo-cache.yml), so a PR restores it instead
       # of spending ~12 min rebuilding binaries that are byte-identical across
@@ -81,7 +88,7 @@ jobs:
           # key and letting a note-transport bump reuse a stale binary.
           [ -n "$nts_src" ] || { echo "::error::no NOTE_TRANSPORT_* pins in versions.env"; exit 1; }
           nts=$(printf '%s' "$nts_src" | sha256sum | cut -c1-16)
-          echo "key=miden-e2e-cargo-v2-rust1.96.1-$nts-$pins" >> "$GITHUB_OUTPUT"
+          echo "key=miden-e2e-cargo-v2-rust1.98.0-$nts-$pins" >> "$GITHUB_OUTPUT"
       - name: Cache cargo (cli + note-transport)
         uses: actions/cache@v4
         with:
@@ -92,23 +99,34 @@ jobs:
           # rustc pin is in the key so a toolchain bump forces a clean rebuild
           # (a binary built with a different rustc must not be reused).
           key: ${{ steps.cargo_cache_key.outputs.key }}
-      - run: yarn install --frozen-lockfile
+      # These suites drive a real extension build, so they need the same unreleased
+      # dependencies the compile surfaces do: the fee APIs from the linked web-sdk PR and
+      # `resolveAuthArg` from the linked guardian PR. Without them the suite builds against
+      # the published packages and fails on missing exports — which reads as a product
+      # failure rather than an unshipped dependency. Both are no-ops when the PR body
+      # carries no marker.
+      - name: Inject linked web-sdk PR
+        uses: ./.github/actions/inject-linked-web-sdk-pr
+      - name: Inject linked guardian PR
+        uses: ./.github/actions/inject-linked-guardian-pr
+      # Plain `yarn install`: the injections rewrite package.json to `file:` deps, which the
+      # committed lockfile cannot match, so `--frozen-lockfile` would fail by construction.
+      - name: Run Install
+        uses: ./.github/actions/yarn-install
       - name: Pre-install miden-client-cli (off the per-test clock)
-        run: |
-          # The harness auto-installs the CLI lazily on first use, but that ~7min
-          # compile blows the 300s per-test timeout. Pre-install the SAME pinned
-          # rev here so the harness's `miden-client --version` check short-circuits.
-          # Skip when the cargo cache already restored it (else `cargo install`
-          # errors "binary already exists"). The cache key hashes package.json, so
-          # a present binary is guaranteed to be the pinned rev.
-          if ! command -v miden-client >/dev/null 2>&1; then
-            url=$(node -e "process.stdout.write(require('./package.json').midenClientCliGit.url)")
-            rev=$(node -e "process.stdout.write(require('./package.json').midenClientCliGit.rev)")
-            cargo install miden-client-cli --git "$url" --rev "$rev" --locked
-          fi
-          miden-client --version
+        # The harness auto-installs the CLI lazily on first use, but that ~7min compile
+        # blows the 300s per-test timeout, so it is pre-installed here. The action also
+        # rebuilds it against a linked Protocol PR when the PR carries one: the CLI
+        # EXECUTES AND PROVES transactions client-side, so an unpatched one dies inside
+        # its own local execution with a bare `x assert` that the harness misreports as
+        # a drained chain. No marker, no rebuild, and nothing about this step changes.
+        uses: ./.github/actions/install-miden-client-cli
       - name: Start local 0.16 node (validator + sequencer + ntx-builder + prover)
         uses: ./.github/actions/run-local-node
+        with:
+          # Guarded accounts pay the fee from inside their auth procedure, which is what
+          # protocol#3786 adds to the guarded-multisig component. Verified locally: 49/49.
+          verification-base-fee: '10000'
       - name: Wait for node RPC
         working-directory: playwright/e2e/local-stack
         run: |
@@ -137,6 +155,8 @@ jobs:
           done
           exit 1
       - name: Start note-transport
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: playwright/e2e/local-stack/run-note-transport.sh
       - name: Build extension (localnet)
         # E2E_NETWORK=localhost bakes MIDEN_NETWORK=localhost AND (always, per

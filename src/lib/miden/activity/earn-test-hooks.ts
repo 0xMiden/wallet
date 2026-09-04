@@ -32,6 +32,14 @@ interface LatestEarnDeposit {
   stage?: ITransaction['stage'];
   epochStatus?: IEarnDepositExtraInputs['epochStatus'];
   displayMessage?: string;
+  /**
+   * Why the row failed. `epochStatus: 'failed'` is written from two very different places -- a
+   * genuinely failed Epoch leg, and `intent.error` on the submit path -- so without the reason
+   * the two are indistinguishable from the harness. That is what made an earn failure read as an
+   * allocator problem while the allocator was a fake programmed to succeed.
+   */
+  error?: string;
+  rawError?: string;
 }
 
 declare global {
@@ -55,7 +63,9 @@ function toDepositView(row: ITransaction): LatestEarnDeposit {
     status: row.status,
     stage: row.stage,
     epochStatus: inputs?.epochStatus,
-    displayMessage: row.displayMessage
+    displayMessage: row.displayMessage,
+    error: row.error,
+    rawError: row.rawError
   };
 }
 
@@ -107,6 +117,23 @@ export function installEarnTestHooks(): void {
         return felts;
       }
     }
+    // Nothing matched. To the fake allocator `null` reads as "note not found on-chain", which
+    // points at the chain rather than at this lookup -- so say what was actually scanned.
+    const seen: string[] = [];
+    for (const row of rows) {
+      try {
+        const req = TransactionRequest.deserialize(row.requestBytes!);
+        for (const n of req.expectedOutputOwnNotes()) {
+          seen.push(`${row.type}:${normalizeNoteId(n.id().toString())}`);
+        }
+      } catch {
+        seen.push(`${row.type}:<undeserializable>`);
+      }
+    }
+    console.warn('[earn-hook] no persisted request carries note', wanted, {
+      rowsScanned: rows.length,
+      noteIdsSeen: seen
+    });
     return null;
   };
 }

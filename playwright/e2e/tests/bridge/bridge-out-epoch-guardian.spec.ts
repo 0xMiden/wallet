@@ -1,6 +1,7 @@
 import { expect, test } from '../../fixtures/two-wallets';
 import { bridgeOutFast, fundBridgeToken, inspectSentNote, readBridgedSendRows } from '../../helpers/bridge';
 import { FakeEpochAllocator } from '../../helpers/fake-epoch-allocator';
+import { readTransactionRows } from '../../helpers/history';
 import { newEvmDestination } from '../../helpers/sepolia';
 import { swOf } from '../../helpers/swap';
 import { AnvilInstance } from '../../ios/helpers/anvil';
@@ -102,12 +103,32 @@ test.describe('bridge-out Fast (Epoch) from a Guardian account', () => {
 
     // Miden leg: the guardian bridged-send row reaches Completed once the note
     // commits (guardian co-sign → prove → submit → completeBridgedSendTransaction).
-    await expect
-      .poll(async () => (await readBridgedSendRows(walletA.page)).find(r => r.status === COMPLETED)?.status ?? null, {
-        timeout: 300_000,
-        intervals: [3000]
-      })
-      .toBe(COMPLETED);
+    try {
+      await expect
+        .poll(async () => (await readBridgedSendRows(walletA.page)).find(r => r.status === COMPLETED)?.status ?? null, {
+          timeout: 300_000,
+          intervals: [3000]
+        })
+        .toBe(COMPLETED);
+    } catch (pollError) {
+      // "never reached Completed" is a symptom; the reason is on the row. Otherwise this reads
+      // as `Expected 2, Received null` after a five-minute timeout, which says nothing about
+      // why -- on a fee-charging chain that is usually an unpayable fee, and the kernel error
+      // naming it is already persisted.
+      const rows = await readTransactionRows(walletA.page).catch(() => []);
+      const failed = rows
+        .filter(r => r.status === 3)
+        .map(
+          r =>
+            `\n    [${r.type ?? '?'} ${r.id.slice(0, 8)} stage=${r.stage ?? '?'}] ${r.error ?? '(no message)'}` +
+            (r.rawError ? `\n      raw: ${r.rawError}` : '')
+        )
+        .join('');
+      throw new Error(
+        `${(pollError as Error).message}\n  bridged send never reached Completed.` +
+          (failed.length > 0 ? `\n  failed rows:${failed}` : '\n  (no failed rows on this wallet)')
+      );
+    }
 
     const [row] = await readBridgedSendRows(walletA.page);
     expect(row?.extraInputs?.provider, 'Fast route uses the epoch provider').toBe('epoch');

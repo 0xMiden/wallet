@@ -1,5 +1,6 @@
 import { expect, type Page } from '@playwright/test';
 
+import { readTransactionRows } from './history';
 import type { MidenCli } from './miden-cli';
 import type { ChromeWalletPageApi } from './wallet-page';
 import type { TimelineRecorder } from '../harness/timeline-recorder';
@@ -160,15 +161,35 @@ export async function createSwapOrder(maker: Wallet, opts: CreateOrderOptions): 
   await page.waitForURL(/generating-transaction/, { timeout: 60_000 });
 
   let orderId = '';
-  await expect
-    .poll(
-      async () => {
-        orderId = (await readSwapOrderIds(page)).find(id => !before.has(id)) ?? '';
-        return orderId;
-      },
-      { timeout: 90_000, intervals: [3000] }
-    )
-    .not.toBe('');
+  try {
+    await expect
+      .poll(
+        async () => {
+          orderId = (await readSwapOrderIds(page)).find(id => !before.has(id)) ?? '';
+          return orderId;
+        },
+        { timeout: 90_000, intervals: [3000] }
+      )
+      .not.toBe('');
+  } catch (pollError) {
+    // "No new order id" is a symptom; the reason is on the transaction row. Without this the
+    // failure reads as a bare timeout on a predicate, which says nothing about WHY the swap
+    // never completed -- on a fee-charging chain that is usually an unpayable fee, and the
+    // kernel error naming it is already persisted.
+    const rows = await readTransactionRows(page).catch(() => []);
+    const failed = rows
+      .filter(r => r.status === 3)
+      .map(
+        r =>
+          `\n    [${r.type ?? '?'} ${r.id.slice(0, 8)} stage=${r.stage ?? '?'}] ${r.error ?? '(no message)'}` +
+          (r.rawError ? `\n      raw: ${r.rawError}` : '')
+      )
+      .join('');
+    throw new Error(
+      `${(pollError as Error).message}\n  swap never produced a new order id.` +
+        (failed.length > 0 ? `\n  failed rows:${failed}` : '\n  (no failed transaction rows on this wallet)')
+    );
+  }
   return orderId;
 }
 
@@ -200,17 +221,27 @@ async function readSwapOrderIds(page: Page): Promise<string[]> {
 /** Raw sent-note info for the maker (id + tag + noteType per output note). */
 async function readMakerSent(
   maker: Wallet
-): Promise<Array<{ id?: string; fullId?: string; tag?: string; noteType?: string }>> {
+): Promise<
+  Array<{ id?: string; fullId?: string; tag?: string; noteType?: string; orderId?: string; isFee?: boolean }>
+> {
   const info = (await swOf(maker).evaluate(() =>
     (globalThis as unknown as { __TEST_PSWAP_ORDER_INFO__: () => unknown }).__TEST_PSWAP_ORDER_INFO__()
-  )) as { sent?: Array<{ id?: string; fullId?: string; tag?: string; noteType?: string }> };
+  )) as {
+    sent?: Array<{ id?: string; fullId?: string; tag?: string; noteType?: string; orderId?: string; isFee?: boolean }>;
+  };
   return info?.sent ?? [];
 }
 
 /** The maker's swap note id (full hex). Single-order specs have exactly one sent note. */
-export async function readMakerNoteId(maker: Wallet): Promise<string | undefined> {
+export async function readMakerNoteId(maker: Wallet, orderId: string): Promise<string | undefined> {
   const sent = await readMakerSent(maker);
-  return sent.find(s => s.fullId && s.fullId !== '?')?.fullId;
+  // A discriminator is REQUIRED, not optional. A fee-charging chain makes the maker's create
+  // transaction emit a fee note alongside the swap note, so "the first sent note" is a coin
+  // flip — and handing the fee note to the taker fails PSWAP's script-root check with an error
+  // that points at the note script rather than at the selection. The optional-with-positional-
+  // fallback shape this replaced would have silently reintroduced exactly that whenever a
+  // caller omitted the id, which is how the bug arrived the first time.
+  return sent.filter(s => s.fullId && s.fullId !== '?' && !s.isFee).find(s => s.orderId === orderId)?.fullId;
 }
 
 /**
@@ -243,7 +274,9 @@ export async function exportMakerNote(maker: Wallet, noteId: string, timeoutMs =
 
 /** The maker's own note tag (the taker discovers by this; buildSwapTag can't reproduce it). */
 export async function readMakerTag(maker: Wallet): Promise<string | undefined> {
-  return (await readMakerSent(maker))[0]?.tag;
+  // Index 0 of the raw list is the kernel's fee note whenever it ordered that one first,
+  // and subscribing the taker to the FEE tag discovers nothing.
+  return (await readMakerSent(maker)).filter(s => !s.isFee)[0]?.tag;
 }
 
 /**
@@ -252,7 +285,10 @@ export async function readMakerTag(maker: Wallet): Promise<string | undefined> {
  * every tag to be sure the swap note is among the synced notes.
  */
 export async function readMakerTags(maker: Wallet): Promise<string[]> {
-  const tags = (await readMakerSent(maker)).map(s => s.tag).filter((t): t is string => !!t && t !== '?');
+  const tags = (await readMakerSent(maker))
+    .filter(s => !s.isFee)
+    .map(s => s.tag)
+    .filter((t): t is string => !!t && t !== '?');
   return [...new Set(tags)];
 }
 
@@ -297,8 +333,13 @@ export interface FillResult {
 export async function fillSwapOrder(o: FillSwapOptions): Promise<FillResult> {
   let noteFileHex = o.noteFileHex;
   if (!noteFileHex && o.maker) {
-    const noteId = await readMakerNoteId(o.maker);
-    if (!noteId) throw new Error('fillSwapOrder: maker has no exportable swap note');
+    const noteId = await readMakerNoteId(o.maker, o.orderId);
+    if (!noteId) {
+      const sent = await readMakerSent(o.maker);
+      throw new Error(
+        `fillSwapOrder: maker has no sent note carrying order id ${o.orderId}; sent notes were ${JSON.stringify(sent)}`
+      );
+    }
     noteFileHex = await exportMakerNote(o.maker, noteId);
   }
   return swOf(o.taker).evaluate(

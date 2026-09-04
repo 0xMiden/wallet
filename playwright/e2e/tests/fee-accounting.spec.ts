@@ -1,0 +1,278 @@
+import { expect, test } from '../fixtures/two-wallets';
+import {
+  listVaultAssets,
+  toBaseUnits,
+  vaultBalance,
+  waitForPendingNoteTotal,
+  waitForVaultBalance,
+  walletDiscoveredBaseFee,
+  walletDiscoveredNativeFaucetId
+} from '../helpers/balance-truth';
+import { ensureFeeFunded } from '../helpers/fee-funding';
+import { readTransactionRows } from '../helpers/history';
+
+// Proof that a transaction fee is taken from the RIGHT ACCOUNT, in the RIGHT ASSET,
+// at the RIGHT TIME. The rest of the suite cannot show this: every other money
+// assertion is scoped to a non-native symbol (TST, SWPA, COLLATERAL), so the fee --
+// charged in the native asset -- is out of frame by construction. Two of them were
+// additionally loosened from `==` to `>=` with "a fee may also leave the account",
+// which passes for a fee of zero, a fee of 100x, and a fee charged to someone else.
+//
+// The leverage this spec uses: the harness's faucet mints a NON-NATIVE token while
+// the fee is paid in the NATIVE one. Two different assets means neither assertion
+// needs to tolerate the other, so both can be exact equalities:
+//
+//     A's TST   drops by EXACTLY the amount sent      (the transfer)
+//     A's MIDEN drops by EXACTLY the fee on the row   (the fee)
+//     B's MIDEN does not move at all                  (who paid)
+//
+// On protocol 0.16 the fee is NOT forced to be the native asset: `fee::pay_fee`
+// takes the faucet id and conversion rate from caller-supplied auth args, and only
+// `no_auth` / `network_account` read them from the reference block. Paying natively
+// at a 1:1 rate is therefore a property of THIS WALLET, and is asserted here rather
+// than assumed -- a wallet that named another of its own fungible assets, or an
+// inflated rate, would still transfer correctly and would pass every other spec.
+const TOKEN = 'TST';
+// Keyed by SYMBOL, not faucet id: the store's balances projection carries
+// `{ metadata: { symbol, decimals }, balance }` and no faucet id at all, so a
+// faucet-keyed lookup silently matches nothing and every delta below would be
+// computed against a default of 0. The guard in `snapshot_before_send` is what
+// makes that failure loud rather than a vacuous pass.
+const NATIVE = 'MIDEN';
+const TOKEN_DECIMALS = 8;
+const MINT_BASE_UNITS = 100_000_000_000n;
+const SEND_AMOUNT = '500';
+const SEND_BASE_UNITS = toBaseUnits(SEND_AMOUNT, TOKEN_DECIMALS);
+
+test.describe('Fee accounting', () => {
+  test.describe.configure({ mode: 'serial' });
+
+  test('a send charges the sender, in the native asset, for exactly the fee it records', async ({
+    walletA,
+    walletB,
+    midenCli,
+    steps,
+    timeline
+  }) => {
+    test.setTimeout(900_000);
+    let addressA: string;
+    let addressB: string;
+
+    await steps.step('create_wallets', async () => {
+      addressA = (await walletA.createNewWallet()).address;
+      addressB = (await walletB.createNewWallet()).address;
+    });
+
+    await steps.step('deploy_and_fund', async () => {
+      await midenCli.init();
+      const faucetId = await midenCli.createFaucet();
+      await midenCli.mint(faucetId, addressA!, Number(MINT_BASE_UNITS), 'public');
+      await midenCli.sync();
+    });
+
+    await steps.step('claim_wallet_a', async () => {
+      await waitForPendingNoteTotal(walletA.page, TOKEN, MINT_BASE_UNITS, {
+        timeoutMs: 120_000,
+        decimals: TOKEN_DECIMALS
+      });
+      await walletA.claimAllNotes(120_000);
+      await waitForVaultBalance(walletA.page, TOKEN, MINT_BASE_UNITS, {
+        timeoutMs: 120_000,
+        decimals: TOKEN_DECIMALS
+      });
+    });
+
+    await steps.step('fund_wallet_b_for_fees', async () => {
+      // Assertion 6 below ("the recipient did not pay for the sender's transaction")
+      // needs B to hold a NON-ZERO native balance to hold constant. Wallet A is
+      // funded as a side effect of being minted to (`mint` calls
+      // `fundAccountForFees`), but B is only ever a recipient, so it held 0n before
+      // and 0n after and the assertion compared 0n to 0n -- a regression that
+      // charged the fee to the recipient would have passed it.
+      //
+      // B claims the funding note here and makes no transaction afterwards (the
+      // send credits it a PENDING token note the spec never claims), so its native
+      // balance is genuinely expected to be unchanged. A no-op on a zero-fee chain,
+      // which returns before assertion 6 anyway.
+      await ensureFeeFunded(midenCli, walletB, addressB!);
+    });
+
+    // Read the chain's fee from the WALLET's own discovery, not from the harness's
+    // knowledge of how the node was genesised. That makes this spec self-describing
+    // on any chain, and it doubles as an assertion that fee discovery works: a
+    // wallet that never learned the base fee cannot reserve for one either.
+    let baseFee: number | null = null;
+    let nativeFaucetId: string | null = null;
+    let nativeBefore = 0n;
+    let nativeBeforeB = 0n;
+    let tokenBefore = 0n;
+
+    await steps.step('snapshot_before_send', async () => {
+      baseFee = await walletDiscoveredBaseFee(walletA.page);
+      expect(
+        baseFee,
+        'the wallet never discovered the chain verification_base_fee; fee reserving and fee display ' +
+          'both depend on it, so this is a real failure and not a property of the chain'
+      ).not.toBeNull();
+
+      nativeFaucetId = await walletDiscoveredNativeFaucetId(walletA.page);
+      expect(
+        nativeFaucetId,
+        'the wallet never discovered the chain native/fee faucet id; the fee asset cannot be identified without it'
+      ).not.toBeNull();
+      nativeBefore = await vaultBalance(walletA.page, NATIVE);
+      nativeBeforeB = await vaultBalance(walletB.page, NATIVE);
+      tokenBefore = await vaultBalance(walletA.page, TOKEN);
+
+      // PRECONDITION on the fixture, not the transfer under test. The rule bans `> 0` as a
+      // stand-in for an exact transfer check; here there is no expected amount to assert (the
+      // funding note's size is the harness's business) and the only question is whether the
+      // baseline is real. Every exact assertion in this spec is a delta AGAINST this value, so
+      // a silent 0n here is what would make THEM unfalsifiable — this line stops that.
+      // eslint-disable-next-line no-unfalsifiable-balance-assertion -- fixture precondition
+      expect(
+        nativeBefore,
+        `wallet A holds no ${NATIVE} balance — the lookup found nothing, so the fee deltas below ` +
+          'would compare against a default of 0 and mean nothing. ' +
+          `Rows the store actually holds: ${JSON.stringify(await listVaultAssets(walletA.page))}`
+      ).toBeGreaterThan(0n);
+
+      timeline.emit({
+        category: 'blockchain_state',
+        severity: 'info',
+        message: `pre-send: baseFee=${baseFee} nativeA=${nativeBefore} nativeB=${nativeBeforeB} ${TOKEN}A=${tokenBefore}`
+      });
+    });
+
+    await steps.step('send_a_to_b', async () => {
+      await walletA.sendTokens({
+        recipientAddress: addressB!,
+        amount: SEND_AMOUNT,
+        tokenSymbol: TOKEN,
+        isPrivate: false
+      });
+      await waitForPendingNoteTotal(walletB.page, TOKEN, SEND_BASE_UNITS, {
+        timeoutMs: 180_000,
+        decimals: TOKEN_DECIMALS,
+        diagnoseFrom: walletA.page
+      });
+    });
+
+    await steps.step('assert_fee_accounting', async () => {
+      // Which branch ran has to survive into the RESULT, not just a timeline event.
+      // This spec passes on a zero-fee chain too (asserting the zero case), so a bare
+      // green tells you nothing about whether fee behaviour was exercised -- and
+      // "the fee suite is green" is exactly the sentence someone will repeat.
+      test.info().annotations.push({
+        type: baseFee === 0 ? 'fee-assertions-NOT-exercised' : 'fee-assertions-exercised',
+        description: `verification_base_fee=${baseFee}`
+      });
+      const rows = await readTransactionRows(walletA.page);
+      const send = rows.find(r => r.type === 'send' && r.status === 2);
+      expect(send, 'no completed send row on wallet A').toBeDefined();
+
+      if (baseFee === 0) {
+        // A zero-fee chain is a legitimate configuration (testnet runs one), but a
+        // spec that passed here silently would be indistinguishable from one that
+        // proved something. Assert the zero case explicitly and SAY it was not
+        // exercised, so a green run cannot be mistaken for evidence about fees.
+        timeline.emit({
+          category: 'blockchain_state',
+          severity: 'warn',
+          message:
+            'verification_base_fee is 0: no fee is charged on this chain, so the fee assertions ' +
+            'below were NOT exercised. This run is not evidence that fees work.'
+        });
+        // Branches on the CHAIN'S configured base fee, read before the test ran, not on
+        // anything the code under test produced — that is the distinction the rule polices.
+        // The branch is annotated into the result above, so a green run on a zero-fee chain
+        // cannot be mistaken for evidence about fees.
+        // eslint-disable-next-line no-conditional-expect -- run-mode flag, not a behaviour check
+        expect(send!.feeAmount, 'a zero-fee chain must not record a fee').toBeUndefined();
+        // eslint-disable-next-line no-conditional-expect -- same run-mode branch as above
+        expect(await vaultBalance(walletA.page, NATIVE), 'a zero-fee chain must not move the native balance').toBe(
+          nativeBefore
+        );
+        return;
+      }
+
+      // 1. The wallet recorded a fee at all. Without this every assertion below is
+      //    vacuous, and the fee column in history is decoration.
+      expect(send!.feeAmount, 'completed send recorded no fee on a fee-charging chain').toBeDefined();
+      const feePaid = BigInt(send!.feeAmount!);
+      // Not a balance, and not the assertion doing the work: the exact floor is asserted two
+      // lines down against the chain's own `verification_base_fee`. This one only separates
+      // "recorded zero" from "recorded something too small", so the failure names which.
+      // eslint-disable-next-line no-unfalsifiable-balance-assertion -- diagnostic split, exact floor below
+      expect(feePaid, 'a fee-charging chain must charge more than nothing').toBeGreaterThan(0n);
+
+      // 2. The fee is at least one base fee. The kernel charges
+      //    `base * (ilog2(cycles + margin) + 1)`, so the base is a hard floor and a
+      //    fee below it means the amount came from somewhere other than the chain.
+      expect(feePaid, `fee ${feePaid} is below one verification_base_fee (${baseFee})`).toBeGreaterThanOrEqual(
+        BigInt(baseFee!)
+      );
+
+      // 3. RIGHT ASSET. Paid in the native asset, not some other fungible the caller
+      //    could have named through the auth args.
+      //
+      //    Now a DIRECT id comparison. This used to assert only `toBeTruthy()`, on the
+      //    grounds that the row stored `String(AccountId)` (canonical hex) while the
+      //    wallet caches the native id as bech32, so the two could never compare equal.
+      //    That encoding split was itself the bug -- the receipt resolves the fee token
+      //    by the same string equality and so never rendered a fee line at all -- and
+      //    the row now records bech32 like every other faucet id in the wallet. With
+      //    that fixed, the property can be asserted directly rather than inferred from
+      //    the balance deltas below, which cannot distinguish the native asset from a
+      //    third asset that merely happens not to have moved.
+      expect(send!.feeFaucetId, 'the row records no fee faucet').toBeTruthy();
+      // `nativeFaucetId` was captured in snapshot_before_send, which already asserted
+      // the wallet discovered it.
+      expect(
+        send!.feeFaucetId,
+        `the fee was recorded against ${send!.feeFaucetId}, not the native faucet ${nativeFaucetId}`
+      ).toBe(nativeFaucetId);
+
+      // 4. RIGHT ACCOUNT, and exactly the recorded amount. This is the assertion the
+      //    rest of the suite cannot make: the sender's NATIVE balance falls by the
+      //    fee, while its TOKEN balance falls by the transfer, independently.
+      const nativeAfter = await vaultBalance(walletA.page, NATIVE);
+      expect(
+        nativeBefore - nativeAfter,
+        `sender's native balance moved by ${nativeBefore - nativeAfter} but the row records a fee of ${feePaid}`
+      ).toBe(feePaid);
+
+      // 5. The transfer itself, now EXACT. Nothing here needs to tolerate a fee: the
+      //    fee left a different asset entirely.
+      const tokenAfter = await vaultBalance(walletA.page, TOKEN);
+      expect(tokenBefore - tokenAfter, 'the transfer debit must be exactly the amount sent').toBe(SEND_BASE_UNITS);
+
+      // 6. The recipient did not pay for the sender's transaction. The kernel asserts
+      //    the fee leaves the native (acting) account, but that is the property under
+      //    test -- assert it observably rather than trusting it.
+      //
+      //    The non-zero guard is what makes the equality mean something: with B
+      //    unfunded this compared 0n to 0n and could not fail, so a regression that
+      //    debited the recipient would still have gone green.
+      // The rule's own argument, applied one level up: the EXACT assertion that FOLLOWS this
+      // one (B's native balance is unchanged) is what cannot fail when B holds nothing,
+      // because 0n equals 0n. Guarding it here is what makes it falsifiable.
+      // eslint-disable-next-line no-unfalsifiable-balance-assertion -- guards the exact check below
+      expect(
+        nativeBeforeB,
+        'wallet B holds no native balance, so the assertion below would compare 0n to 0n and prove nothing; ' +
+          'fund_wallet_b_for_fees should have credited it'
+      ).toBeGreaterThan(0n);
+      expect(
+        await vaultBalance(walletB.page, NATIVE),
+        "recipient's native balance moved during a send it did not make"
+      ).toBe(nativeBeforeB);
+
+      timeline.emit({
+        category: 'blockchain_state',
+        severity: 'info',
+        message: `fee proven: paid=${feePaid} base=${baseFee} faucet=${send!.feeFaucetId} nativeDelta=${nativeBefore - nativeAfter}`
+      });
+    });
+  });
+});

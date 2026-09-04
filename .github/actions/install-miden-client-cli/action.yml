@@ -1,0 +1,389 @@
+name: Install miden-client-cli
+description: >
+  Install the pinned miden-client-cli, and — when the PR carries a linked Protocol PR — build it
+  against that protocol rev instead of the published crates its own lockfile names.
+
+  THE CLI EXECUTES AND PROVES TRANSACTIONS CLIENT-SIDE, so it needs the same protocol MASM the
+  node host does. Patching only the node (.github/actions/run-local-node) leaves the funder-side
+  CLI on the published crates, and every `miden-client` chain call then dies inside its OWN local
+  execution with a bare:
+      0x<account>: Error: cli::client_error
+            x assert
+  The harness reports that as "the local chain has been drained and needs re-genesising", which is
+  WRONG here and sends you re-genesising for hours: fresh funders get fresh ids and the identical
+  assert.
+
+  A stale CLI and a patched one BOTH print `miden-client 0.16.0-rc.3`, so no version comparison can
+  tell them apart. The only honest discriminator is a SYMBOL from the patched MASM, which is why
+  the last step greps the installed binary for `assert_fee_bound` rather than running --version.
+
+  With no linked Protocol PR this does what the inline steps it replaced did: a plain
+  `cargo install miden-client-cli --git <url> --rev <rev> --locked` (or `--version` for a crates.io
+  pin) into ~/.cargo/bin, skipped when the caller's own cargo cache already restored it. The caller
+  keeps owning THAT cache; the patched build gets a separate cache of its own, keyed on the
+  protocol rev, and installs to a private root so it can never write a patched binary into the
+  shared one.
+inputs:
+  require-sdk-injection:
+    description: >
+      Fail when this action runs on a `pull_request` and .github/actions/inject-linked-web-sdk-pr
+      has NOT already run in the same job. That ordering is the whole handover: the injection
+      resolves the linked Protocol PR and exports MIDEN_LINKED_PROTOCOL_REV, and this action reads
+      it. Reversed, the export lands too late, an UNPATCHED cli is installed, and the run fails
+      mid-suite with the bare `x assert` above. Same contract, same wording, as run-local-node.
+    required: false
+    default: 'true'
+outputs:
+  protocol-rev:
+    description: The protocol rev the CLI was built against, or 'none' when it was installed at its published pin.
+    value: ${{ steps.pins.outputs.proto_rev }}
+  bin:
+    description: Absolute path of the installed miden-client binary.
+    value: ${{ steps.pins.outputs.bin }}
+runs:
+  using: composite
+  steps:
+    - name: Resolve the CLI pin and the linked protocol rev
+      id: pins
+      shell: bash
+      env:
+        REQUIRE_INJECTION: ${{ inputs.require-sdk-injection }}
+      run: |
+        set -euo pipefail
+        # The CLI pin, from the one place that holds it. `midenClientCliGit` takes precedence over
+        # `midenClientCliVersion`, exactly as playwright/e2e/helpers/miden-cli.ts resolves it.
+        git_url=$(node -p "require('./package.json').midenClientCliGit?.url ?? ''")
+        git_rev=$(node -p "require('./package.json').midenClientCliGit?.rev ?? ''")
+        version=$(node -p "require('./package.json').midenClientCliVersion ?? ''")
+        if [ -z "$git_url" ] && { [ -z "$version" ] || [ "$version" = "undefined" ]; }; then
+          echo "::error title=install-miden-client-cli::neither midenClientCliGit nor midenClientCliVersion present in package.json"
+          exit 1
+        fi
+        rev="${MIDEN_LINKED_PROTOCOL_REV:-}"
+        url="${MIDEN_LINKED_PROTOCOL_URL:-https://github.com/0xMiden/protocol.git}"
+        origin="${MIDEN_LINKED_PROTOCOL_ORIGIN:-a linked Protocol PR}"
+        root="${{ runner.temp }}/miden-cli-install"
+        {
+          echo "git_url=$git_url"
+          echo "git_rev=$git_rev"
+          echo "version=$version"
+          echo "proto_url=$url"
+          echo "proto_origin=$origin"
+          echo "root=$root"
+        } >> "$GITHUB_OUTPUT"
+
+        if [ -z "$rev" ]; then
+          # Absent means either "no linked Protocol PR" or "the injection has not run in this job
+          # yet". Only the breadcrumb tells them apart, and conflating them is how an unpatched CLI
+          # ships alongside a patched node without a single red step.
+          if [ "${GITHUB_EVENT_NAME:-}" = "pull_request" ] \
+             && [ -z "${MIDEN_LINKED_SDK_INJECTION_RAN:-}" ] \
+             && [ "$REQUIRE_INJECTION" = "true" ]; then
+            echo "::error title=install-miden-client-cli::inject-linked-web-sdk-pr has not run in this job."
+            echo "::error::Move the 'Inject linked web-sdk PR' step ABOVE this one, or pass require-sdk-injection: 'false' if this job deliberately runs no injection."
+            exit 1
+          fi
+          {
+            echo "proto_rev=none"
+            echo "cache_key="
+            echo "bin=miden-client"
+          } >> "$GITHUB_OUTPUT"
+          echo "No linked Protocol PR; the CLI installs at its published pin."
+          exit 0
+        fi
+
+        # Pin by rev, never by branch: linked branches are deleted on merge, and a moving ref would
+        # also make the cache key below meaningless.
+        if ! printf '%s' "$rev" | grep -qE '^[0-9a-f]{40}$'; then
+          echo "::error title=install-miden-client-cli::MIDEN_LINKED_PROTOCOL_REV='$rev' is not a 40-hex commit sha."
+          exit 1
+        fi
+        [ -n "$git_url" ] && [ -n "$git_rev" ] || {
+          echo "::error title=install-miden-client-cli::a linked Protocol PR needs a git-pinned CLI (package.json -> midenClientCliGit) to patch; only midenClientCliVersion is set."
+          exit 1
+        }
+        # THE PROTOCOL REV IS IN THE KEY. Without it a stale CLI restores over a patched one and
+        # the whole patch is a no-op that looks green — the exact fake-green this action exists to
+        # prevent. rustc is in it too: a binary built by another toolchain must not be reused.
+        rustc_id=$(rustc --version | sha256sum | cut -c1-8)
+        pins=$(printf '%s|%s|%s|%s' "$git_url" "$git_rev" "$url" "$rev" | sha256sum | cut -c1-16)
+        {
+          echo "proto_rev=$rev"
+          echo "cache_key=miden-client-cli-${{ runner.os }}-rustc$rustc_id-$pins-proto$rev"
+          echo "bin=$root/bin/miden-client"
+        } >> "$GITHUB_OUTPUT"
+        echo "CLI will be built against protocol ${url} @ ${rev} (from ${origin})."
+    # Split restore/save rather than `actions/cache`, for the same reason run-local-node is: the
+    # save half of `actions/cache` is a POST step, and GitHub skips post steps once the job has
+    # failed. A ~7 min compile that only ever gets cached by a fully green run is a compile that
+    # never gets cached at all.
+    - name: Restore the patched CLI
+      id: cli_cache
+      if: steps.pins.outputs.proto_rev != 'none'
+      uses: actions/cache/restore@v4
+      with:
+        path: ${{ steps.pins.outputs.root }}
+        key: ${{ steps.pins.outputs.cache_key }}
+    - name: Build the CLI against the linked Protocol PR
+      if: steps.pins.outputs.proto_rev != 'none' && steps.cli_cache.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        GIT_URL: ${{ steps.pins.outputs.git_url }}
+        GIT_REV: ${{ steps.pins.outputs.git_rev }}
+        PROTO_URL: ${{ steps.pins.outputs.proto_url }}
+        REV: ${{ steps.pins.outputs.proto_rev }}
+        ROOT: ${{ steps.pins.outputs.root }}
+      run: |
+        set -euo pipefail
+        AUTH_HDR="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')"
+        # The protocol workspace's own crates. Only the ones actually in the CLI's lockfile are
+        # patched: an entry for a crate outside the graph is reported "not used in the crate
+        # graph", which is the very warning the resolve check below treats as fatal.
+        PROTO_CRATES="miden-protocol miden-standards miden-tx miden-tx-batch miden-block-prover miden-agglayer miden-testing miden-protocol-build-utils"
+        # The subset the CLI workspace declares with its own version requirement. A caret req on a
+        # LOWER version than the patch provides is satisfied and needs no rewrite, but one on a
+        # HIGHER version is not, and cargo then silently keeps the published crate. Rewriting all
+        # six to the exact version the patch provides removes the question.
+        CLI_PINNED="miden-agglayer miden-protocol miden-standards miden-testing miden-tx miden-tx-batch"
+
+        src="${{ runner.temp }}/miden-cli-src"
+        rm -rf "$src"; mkdir -p "$src"
+        git -C "$src" init -q
+        git -C "$src" remote add origin "$GIT_URL"
+        # Authenticate: anonymous fetches from the runner started failing with
+        # `could not read Username for 'https://github.com'`, which git reports when the server
+        # declines the request, not only for private repos. Set on the repo so the lazy blob
+        # fetches a --filter=blob:none clone makes later inherit it.
+        git -C "$src" config http.extraheader "AUTHORIZATION: basic $AUTH_HDR"
+        # A bare-sha fetch is what GitHub serves for a reachable commit; fall back to fetching the
+        # refs when a host refuses it, rather than reporting the CLI source as unfetchable.
+        if git -C "$src" fetch -q --depth 1 origin "$GIT_REV"; then
+          git -C "$src" checkout -q FETCH_HEAD
+        else
+          git -C "$src" fetch -q --filter=blob:none origin
+          git -C "$src" checkout -q "$GIT_REV"
+        fi
+        echo "miden-client-cli source ${GIT_URL} @ ${GIT_REV} cloned to $src"
+
+        # The version the patch PROVIDES, read from the protocol itself rather than configured: it
+        # is what the CLI's version reqs have to be rewritten to, and a hardcoded "0.16.0-rc.8"
+        # here would be a second place to drift from run-local-node.
+        pdir="${{ runner.temp }}/cli-protocol-version-probe"
+        rm -rf "$pdir"; mkdir -p "$pdir"
+        git -C "$pdir" init -q
+        git -C "$pdir" remote add origin "$PROTO_URL"
+        git -C "$pdir" config http.extraheader "AUTHORIZATION: basic $AUTH_HDR"
+        git -C "$pdir" fetch -q --depth 1 origin "$REV" \
+          || git -C "$pdir" fetch -q --filter=blob:none origin
+        proto_ver=$(git -C "$pdir" cat-file -p "${REV}:Cargo.toml" \
+          | sed -n 's/^version[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
+        if ! printf '%s' "$proto_ver" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$'; then
+          echo "::error title=install-miden-client-cli::could not read [workspace.package] version from ${PROTO_URL}@${REV} Cargo.toml (got '${proto_ver}')."
+          exit 1
+        fi
+        echo "protocol ${PROTO_URL}@${REV:0:8} provides version ${proto_ver}"
+
+        # Each rewrite is guarded on the exact line it is about to replace, because a sed that
+        # matches nothing succeeds silently and would hand back a CLI still demanding the
+        # published crates — i.e. the bug, back, wearing a green check.
+        f="$src/Cargo.toml"
+        for c in $CLI_PINNED; do
+          pat="^${c}[[:space:]]*=.*version[[:space:]]*=[[:space:]]*\"=?[^\"]*\""
+          line=$(grep -m1 -E "$pat" "$f" || true)
+          if [ -z "$line" ]; then
+            echo "::error title=install-miden-client-cli::${GIT_URL}@${GIT_REV} Cargo.toml has no line matching '${pat}'."
+            echo "::error::The CLI workspace no longer declares ${c}, or the manifest was reformatted. Re-check the rewrite below before trusting the patch."
+            exit 1
+          fi
+          grep -qF -- "$line" "$f" || {
+            echo "::error title=install-miden-client-cli::guard failed for the fixed string '${line}' in $f."
+            exit 1
+          }
+          sed -i -E "s|^(${c}[[:space:]]*=.*version[[:space:]]*=[[:space:]]*\")=?[^\"]*\"|\1=${proto_ver}\"|" "$f"
+          grep -qE "^${c}[[:space:]]*=.*version[[:space:]]*=[[:space:]]*\"=${proto_ver}\"" "$f" || {
+            echo "::error title=install-miden-client-cli::rewriting ${c} to =${proto_ver} did not take; the line is still '$(grep -m1 -E "^${c}[[:space:]]*=" "$f")'."
+            exit 1
+          }
+        done
+        left=""
+        for c in $PROTO_CRATES; do
+          if grep -qE "^${c}[[:space:]]*=.*version[[:space:]]*=" "$f" \
+             && ! grep -qE "^${c}[[:space:]]*=.*version[[:space:]]*=[[:space:]]*\"=${proto_ver}\"" "$f"; then
+            left="$left $c"
+          fi
+        done
+        [ -z "$left" ] || {
+          echo "::error title=install-miden-client-cli::protocol version requirements survive the rewrite at another version:${left}"
+          exit 1
+        }
+        echo "::group::$f (protocol requirements)"
+        grep -nE "^(${PROTO_CRATES// /|})[[:space:]]*=" "$f" || true
+        echo "::endgroup::"
+
+        patched=""
+        for c in $PROTO_CRATES; do
+          grep -qxF "name = \"$c\"" "$src/Cargo.lock" && patched="$patched $c"
+        done
+        for c in $CLI_PINNED; do
+          case " $patched " in *" $c "*) ;; *)
+            echo "::error title=install-miden-client-cli::${c} is declared in Cargo.toml but absent from $src/Cargo.lock; the lockfile and the manifest disagree."
+            exit 1 ;;
+          esac
+        done
+        echo "patching:$patched"
+
+        # CARGO_HOME, not <clone>/.cargo/config.toml: `cargo install` builds an ephemeral workspace
+        # and never reads the cwd config hierarchy. Scoped to a PRIVATE CARGO_HOME so the patch
+        # reaches only this build — note-transport's `cargo build --locked` later in the same job
+        # errors outright on a config patch it has to resolve around, and ~/.cargo/bin stays
+        # untouched so the caller's shared cargo cache is never poisoned with a patched binary.
+        ch="${{ runner.temp }}/cli-cargo-home"
+        rm -rf "$ch"; mkdir -p "$ch"
+        {
+          echo "# Generated by .github/actions/install-miden-client-cli. Runner-local; never committed."
+          echo "[patch.crates-io]"
+          for c in $patched; do
+            printf '%-26s = { git = "%s", rev = "%s" }\n' "$c" "$PROTO_URL" "$REV"
+          done
+        } > "$ch/config.toml"
+        echo "::group::$ch/config.toml"; cat "$ch/config.toml"; echo "::endgroup::"
+        export CARGO_HOME="$ch"
+
+        cd "$src"
+        specs=""; for c in $patched; do specs="$specs -p $c"; done
+        # `cargo update -p` FIRST, not just a resolve: cargo does a minimal-change resolve, so a
+        # [patch] whose version differs from the locked one is recorded as UNUSED until the crate
+        # is explicitly updated. An unused patch is a WARNING with exit 0, so the command
+        # succeeding proves nothing on its own — the lockfile it writes is the artifact to assert.
+        log="${{ runner.temp }}/cli-resolve.log"
+        echo "::group::resolve $src"
+        cargo update $specs 2>&1 | tee "$log"
+        echo "::endgroup::"
+        # An unused patch is only a problem for the crates that actually carry the fee MASM: if one
+        # of those resolves to the published version, every chain call fails with a bare `x assert`.
+        # The others are legitimately absent from the binary's graph - miden-testing is a
+        # dev-dependency and miden-block-prover is not reachable from the CLI - so cargo reporting
+        # their patch as unused is expected, not a failure. Being present in Cargo.lock does not
+        # mean being in the crate graph for this build.
+        CRITICAL_PATCHES="miden-protocol miden-standards miden-tx"
+        unused_critical=""
+        for c in $CRITICAL_PATCHES; do
+          grep -q "patch \`${c} v.*was not used in the crate graph" "$log" && unused_critical="$unused_critical $c"
+        done
+        if [ -n "$unused_critical" ]; then
+          echo "::error title=install-miden-client-cli::a fee-carrying crate's [patch.crates-io] entry went UNUSED:${unused_critical}"
+          grep -n 'was not used in the crate graph' "$log" | sed 's/^/::error::  /'
+          echo "::error::That crate resolves to the PUBLISHED version, so the CLI fails every chain call with a bare 'x assert'."
+          exit 1
+        fi
+        if grep -q 'was not used in the crate graph' "$log"; then
+          echo "::notice title=install-miden-client-cli::non-critical patches unused (expected - not in the binary's graph):"
+          grep -o "patch \`[a-z-]* " "$log" | sed 's/^/::notice::  /'
+        fi
+        bad=""
+        for c in $patched; do
+          key=$(printf 'name = "%s"' "$c")
+          n=$(grep -cxF "$key" Cargo.lock || true)
+          if [ "${n:-0}" -ne 1 ]; then bad="$bad $c(x${n:-0})"; continue; fi
+          s=$(grep -A2 -xF "$key" Cargo.lock | sed -n 's/^source = "\(.*\)"$/\1/p')
+          case "$s" in
+            *"#$REV") ;;
+            *) bad="$bad $c[${s:-<no source>}]" ;;
+          esac
+        done
+        if [ -n "$bad" ]; then
+          echo "::error title=install-miden-client-cli::the protocol [patch.crates-io] did not take:${bad}"
+          echo "::error::Two entries for a crate means the graph carries BOTH the patched and a published copy; a registry source means the patch was never applied."
+          exit 1
+        fi
+        echo "protocol patch resolves in $src: all patched crates at $REV"
+
+        # NO --locked: it is incompatible with [patch.crates-io] by construction — the patch
+        # rewrites Cargo.lock and --locked then refuses. Installing from the rewritten clone is
+        # what makes the patch reachable at all, exactly as run-local-node installs the node.
+        # The clone vendors a rust-toolchain.toml pinning the channel the CLI was released
+        # against, and rustup honours it over the toolchain the workflow installed. That pin
+        # predates the protocol crates we just patched in: rc.9 needs 1.98, the vendored file
+        # says 1.96, and the build dies with "rustc 1.96.1 is not supported by the following
+        # packages". Drop it so the workflow's pin applies to the source we have rewritten.
+        rm -f "$src/rust-toolchain.toml" "$src/rust-toolchain"
+        rm -rf "$ROOT"; mkdir -p "$ROOT"
+        echo "::group::cargo install miden-client (from $src/bin/miden-cli)"
+        CARGO_PROFILE_RELEASE_DEBUG=false \
+          cargo install --path bin/miden-cli --bin miden-client \
+            --root "$ROOT" --target-dir "${{ runner.temp }}/miden-cli-build" --force
+        echo "::endgroup::"
+        [ -x "$ROOT/bin/miden-client" ] || {
+          echo "::error title=install-miden-client-cli::miden-client was not installed to $ROOT/bin"
+          exit 1
+        }
+    - name: Save the patched CLI
+      if: steps.pins.outputs.proto_rev != 'none' && steps.cli_cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v4
+      with:
+        path: ${{ steps.pins.outputs.root }}
+        key: ${{ steps.pins.outputs.cache_key }}
+    - name: Install the CLI at its published pin
+      if: steps.pins.outputs.proto_rev == 'none'
+      shell: bash
+      env:
+        GIT_URL: ${{ steps.pins.outputs.git_url }}
+        GIT_REV: ${{ steps.pins.outputs.git_rev }}
+        VERSION: ${{ steps.pins.outputs.version }}
+      run: |
+        set -euo pipefail
+        # Unchanged from the inline steps this replaced. Skip when the caller's cargo cache already
+        # restored the binary (else `cargo install` errors "binary already exists"); those keys pin
+        # the rev, so a present binary is guaranteed to be the pinned one.
+        if command -v miden-client >/dev/null 2>&1; then
+          echo "miden-client already present from the caller's cargo cache."
+        elif [ -n "$GIT_URL" ]; then
+          echo "Installing miden-client-cli from ${GIT_URL}@${GIT_REV:0:8}..."
+          cargo install miden-client-cli --git "$GIT_URL" --rev "$GIT_REV" --locked
+        else
+          echo "Installing miden-client-cli@${VERSION}..."
+          cargo install miden-client-cli --version "$VERSION"
+        fi
+        miden-client --version
+    # THE ONLY CHECK THAT DISCRIMINATES. A stale CLI and a #3786-linked CLI both report
+    # `miden-client 0.16.0-rc.3`, so every version comparison passes on the wrong binary; the
+    # patched MASM's own procedure name does not. Runs on the cache-hit path too — a restored
+    # binary is exactly the thing that could be stale.
+    - name: Verify the CLI carries the linked protocol MASM
+      if: steps.pins.outputs.proto_rev != 'none'
+      shell: bash
+      env:
+        BIN: ${{ steps.pins.outputs.bin }}
+        REV: ${{ steps.pins.outputs.proto_rev }}
+        ROOT: ${{ steps.pins.outputs.root }}
+      run: |
+        set -euo pipefail
+        [ -x "$BIN" ] || { echo "::error title=install-miden-client-cli::no miden-client at $BIN"; exit 1; }
+        # -a, so grep treats the binary as text; -o + wc, so the count is occurrences rather than
+        # lines (a binary has almost none). No `strings`, hence no binutils dependency.
+        # `|| true` on the whole pipeline: a binary with ZERO matches is the case this step
+        # exists to REPORT, and under `set -o pipefail` grep's exit 1 would instead kill the
+        # step with no message at all.
+        n=$(LC_ALL=C grep -aoF assert_fee_bound "$BIN" | wc -l | tr -d ' ' || true)
+        if [ "${n:-0}" -lt 1 ]; then
+          echo "::error title=install-miden-client-cli::the installed miden-client contains NO 'assert_fee_bound', so it was built against the PUBLISHED protocol crates, not ${REV}."
+          echo "::error::The CLI executes and proves transactions client-side, so it will fail every chain call with a bare 'x assert' that the harness misreports as a drained chain."
+          exit 1
+        fi
+        echo "miden-client at $BIN carries the linked protocol MASM ($n x assert_fee_bound)"
+        "$BIN" --version
+        # BOTH handovers, because the two consumers resolve differently and either one landing on
+        # ~/.cargo/bin — which the caller's shared cargo cache may have filled with an UNPATCHED
+        # binary reporting the SAME version string — puts the stale CLI back in the run.
+        #   MIDEN_CLIENT_BIN: resolveCliPath() in playwright/e2e/helpers/miden-cli.ts checks it
+        #     first, ahead of PATH, so this is the one that decides what the specs execute.
+        #   GITHUB_PATH: everything else that shells out to a bare `miden-client`.
+        # Both apply to LATER steps only, which is why every check above addresses $BIN directly.
+        case "$BIN" in
+          *[[:space:]]*)
+            echo "::error title=install-miden-client-cli::the install path '$BIN' contains whitespace; MIDEN_CLIENT_BIN cannot carry it intact."
+            exit 1 ;;
+        esac
+        echo "MIDEN_CLIENT_BIN=$BIN" >> "$GITHUB_ENV"
+        echo "$ROOT/bin" >> "$GITHUB_PATH"

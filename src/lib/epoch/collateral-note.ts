@@ -9,7 +9,7 @@ import {
 } from '@miden-sdk/miden-sdk/lazy';
 
 import { midenClientProxy } from 'lib/miden/back/miden-client-proxy';
-import { accountIdStringToSdk, resolveHeldFungibleAsset } from 'lib/miden/sdk/helpers';
+import { accountIdStringToSdk, randomFeeSalt, resolveHeldFungibleAsset } from 'lib/miden/sdk/helpers';
 import { assertWasmHoldCurrent, withWasmClientLock } from 'lib/miden/sdk/miden-client';
 
 import { getCurrentMidenBlock } from './chain';
@@ -76,6 +76,11 @@ export async function buildEpochCollateralRequestBytes(args: EpochCollateralNote
   // understate the reclaim height. Also ensures the SDK WASM is initialized
   // before the note classes below are constructed.
   const currentBlock = await getCurrentMidenBlock();
+  // A fresh salt per build. miden-client derives the native conversion info from the
+  // anchored block and commits `hash(CONVERSION_INFO || SALT)` itself, so nothing has
+  // to be read off the chain here. The salt is serialized with the request, and these
+  // bytes are persisted and reused, so a rebuild by a co-signer commits the same word.
+  const feeSalt = randomFeeSalt();
   return withWasmClientLock(async hold => {
     // The collateral asset is REMOVED from the sender's vault, so it has to carry
     // the vault key of the slot it is actually held in — the callback flag is part
@@ -110,9 +115,10 @@ export async function buildEpochCollateralRequestBytes(args: EpochCollateralNote
       NoteType.Public,
       attachment
     );
-    return new TransactionRequestBuilder()
-      .withOwnOutputNotes(new NoteArray([note]))
-      .build()
-      .serialize();
+    // Declared at BUILD time: the SDK exposes no setter on a finished `TransactionRequest`,
+    // only on the builder.
+    let builder = new TransactionRequestBuilder().withOwnOutputNotes(new NoteArray([note]));
+    builder = builder.withFeeConversionSalt(feeSalt);
+    return builder.build().serialize();
   });
 }

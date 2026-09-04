@@ -1,5 +1,6 @@
 import { getEnvironmentConfig } from '../../config/environments';
 import { test, expect } from '../../fixtures/two-wallets';
+import { ensureFeeFunded } from '../../helpers/fee-funding';
 
 /**
  * The OUTGOING guardian is fully OFFLINE (connection refused on every
@@ -46,6 +47,7 @@ test.describe('infra resilience — outgoing guardian offline during a switch', 
 
   test('switch-guardian completes via the direct on-chain fallback with the old guardian down', async ({
     walletA,
+    midenCli,
     steps
   }) => {
     test.setTimeout(600_000);
@@ -53,6 +55,11 @@ test.describe('infra resilience — outgoing guardian offline during a switch', 
     await steps.step('create_guardian_wallet', async () => {
       const a = await walletA.createGuardianWallet(GUARDIAN_A_URL);
       expect(a.address).toMatch(/^m[a-z]{1,4}1[a-z0-9]+(_[a-z0-9]+)?$/i);
+      // This spec never mints, so on a fee-charging chain the account has nothing to pay
+      // the switch with: the direct on-chain fallback is a real transaction and
+      // `fee::pay_fee` takes the native asset from this account's own vault. No-op on a
+      // zero-fee chain. Same reason as the sibling transient-5xx spec.
+      await ensureFeeFunded(midenCli, walletA, a.address);
     });
 
     await steps.step(
