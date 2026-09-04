@@ -73,6 +73,10 @@ export const PendingTab: React.FC<PendingTabProps> = ({
 }) => {
   const { registerBackHandler } = useAppEnv();
   const tokenPrices = useWalletStore(s => s.tokenPrices);
+  // Same pair `PendingSummary` resolves, so the detail view can judge the group it is
+  // showing rather than being told nothing about it.
+  const verificationBaseFee = useVerificationBaseFee();
+  const nativeFaucetId = useMidenFaucetId();
   const [selectedFaucetId, setSelectedFaucetId] = useState<string | null>(null);
 
   const groupedNotes = useMemo(() => {
@@ -123,6 +127,11 @@ export const PendingTab: React.FC<PendingTabProps> = ({
   if (selectedGroup) {
     return (
       <AssetPendingDetail
+        notWorthClaiming={
+          nativeFaucetId !== null &&
+          selectedGroup.faucetId === nativeFaucetId &&
+          !isWorthClaiming(selectedGroup.totalAmount, verificationBaseFee)
+        }
         group={selectedGroup}
         tokenPrices={tokenPrices}
         account={account}
@@ -353,6 +362,14 @@ interface AssetPendingDetailProps {
   checkingNoteIds: Set<string>;
   onClaimingStateChange: (noteId: string, isClaiming: boolean) => void;
   onClaimGroup?: (faucetId: string) => void;
+  /**
+   * Whether claiming this group costs more than it credits. Computed by the caller,
+   * which already resolves the native faucet and the base fee — the same value the
+   * collapsed summary row shows. Passed down because THIS is the screen with the
+   * Claim buttons: showing the warning only on the row the user taps through means
+   * it is gone at the moment they decide.
+   */
+  notWorthClaiming?: boolean;
 }
 
 const AssetPendingDetail: React.FC<AssetPendingDetailProps> = ({
@@ -365,7 +382,8 @@ const AssetPendingDetail: React.FC<AssetPendingDetailProps> = ({
   invalidNoteIds,
   checkingNoteIds,
   onClaimingStateChange,
-  onClaimGroup
+  onClaimGroup,
+  notWorthClaiming = false
 }) => {
   const { t } = useTranslation();
   const { metadata, faucetId, notes, totalAmount } = group;
@@ -389,6 +407,14 @@ const AssetPendingDetail: React.FC<AssetPendingDetailProps> = ({
 
   return (
     <div className="flex-1 min-h-0 overflow-y-auto">
+      {notWorthClaiming && (
+        // The verdict belongs on the screen with the Claim buttons, not only on the row
+        // the user tapped to get here. Claiming stays enabled: the wallet declines to
+        // spend their money unprompted, it does not refuse the choice.
+        <div className="mb-3 w-full text-center text-sm font-heading text-black opacity-50">
+          {t('notWorthClaiming')}
+        </div>
+      )}
       <div className="w-full mx-auto pt-6 px-6 flex flex-col min-h-full">
         <div className="flex flex-col items-center flex-1">
           <div className="inline-flex items-center px-3 py-1 rounded-5 bg-surface-interactive text-[10px] font-bold tracking-[0.08em] uppercase text-text-primary-token">

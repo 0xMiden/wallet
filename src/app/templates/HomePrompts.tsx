@@ -32,6 +32,9 @@ import { navigate } from 'lib/woozie';
 
 type PromptCardOverrides = {
   body?: string;
+  // Overrides `definition.dismissible`. `onDismiss: undefined` cannot express this,
+  // because the render falls through to the definition's default dismiss handler.
+  dismissible?: boolean;
   status?: PromptCardStatus;
   onClick?: () => void;
   onAction?: () => void;
@@ -373,7 +376,14 @@ export const HomePrompts: FC<HomePromptsProps> = ({
         case WalletPromptType.Faucet:
           return {
             onAction: fundWallet,
-            actionDisabled: faucetStatusIndicator === 'loading'
+            actionDisabled: faucetStatusIndicator === 'loading',
+            // A user holding tokens but no MIDEN reads "Add tokens" and reasonably
+            // concludes the prompt is not about them. Name the asset that is missing.
+            body: cannotPayFee ? t('insufficientFeeAsset') : undefined,
+            // While the account cannot pay a fee this prompt re-arms on every render
+            // (see `faucetIsTerminal`), so a dismiss X would write storage, fire haptics
+            // and change nothing. Withhold the control rather than ship one that lies.
+            dismissible: cannotPayFee ? false : undefined
           };
         case WalletPromptType.Bridge:
           return {
@@ -402,6 +412,10 @@ export const HomePrompts: FC<HomePromptsProps> = ({
       }
     },
     [
+      // The fee-broke branch changes both the body and whether a dismiss control is
+      // rendered, so a stale value would leave a user who has just run out of MIDEN
+      // reading the generic prompt with a dead X.
+      cannotPayFee,
       bridgeTransactions,
       noteRecoveryBody,
       copyHotKeyError,
@@ -437,7 +451,10 @@ export const HomePrompts: FC<HomePromptsProps> = ({
               onAction={overrides.onAction}
               actionDisabled={overrides.actionDisabled ?? false}
               status={overrides.status}
-              onDismiss={overrides.onDismiss ?? (definition.dismissible ? () => dismissPrompt(type) : undefined)}
+              onDismiss={
+                overrides.onDismiss ??
+                ((overrides.dismissible ?? definition.dismissible) ? () => dismissPrompt(type) : undefined)
+              }
             />
           );
         })}
