@@ -44,8 +44,9 @@ export const USER_CANCELLED_TRANSACTION_REASON = 'Transaction was cancelled by u
  * The flows that produce request bytes before any proposal is created -- Epoch
  * bridged-send and earn-deposit (`buildEpochCollateralRequestBytes`), AggLayer
  * bridged-send (`initiateB2AggBridge`) and the swap's PSWAP note
- * (`buildPswapCreateRequest`) -- commit the conversion info at BUILD time, each
- * taking it as a `feeAuth` argument resolved by `resolveBuildTimeFeeAuth`.
+ * (`buildPswapCreateRequest`) -- declare a fee conversion SALT at BUILD time, each
+ * taking it as a `feeSalt` argument. miden-client derives the native 1/1 conversion
+ * info from the execution reference header and commits it into the auth arg itself.
  *
  * It has to be the build, not the finished request: the SDK exposes only a getter
  * for the auth arg on `TransactionRequest`, deliberately, because miden-client keeps
@@ -57,11 +58,10 @@ export const USER_CANCELLED_TRANSACTION_REASON = 'Transaction was cancelled by u
  * A dApp `execute` is the one flow whose bytes the wallet does not build, so it
  * commits nothing and cannot pay a fee on a fee-charging chain.
  *
- * So this message means no conversion info reached the kernel. `resolveBuildTimeFeeAuth`
- * returns nothing rather than failing on several conditions, any of which
- lands here -- bytes it could not deserialize, a chain read that failed, a base
- * fee still cached as 0 from a previous genesis at the same endpoint, or a request
- * that already carried an auth arg set for some other purpose. Not an exhaustive
+ * So this message means no conversion info reached the kernel. That happens when the
+ * request declared no salt, or when the account's auth component is one miden-client
+ * cannot classify and so declines to commit for -- a guarded multisig deployed before
+ * guardian 0.17.0-rc.3 is exactly that case. Not an exhaustive
  * list, and the module is the place to read for the current one.
  *
  * What they share is that a retry can plausibly help, so the copy does NOT forbid

@@ -5,6 +5,10 @@ import { midenClientProxy } from 'lib/miden/back/miden-client-proxy';
 import { buildEpochCollateralRequestBytes } from './collateral-note';
 
 jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
+  // `randomFeeSalt` builds the declared fee-conversion salt from these; it used to run
+  // inside the (mocked-away) fee-auth helper, so the SDK mock never needed them.
+  Felt: jest.fn((v: any) => ({ v })),
+  Word: { newFromFelts: jest.fn((felts: any) => ({ kind: 'word', felts })) },
   AccountId: {
     fromHex: jest.fn((hex: any) => ({ toString: () => `accountId-${hex}` }))
   },
@@ -34,6 +38,10 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
   TransactionRequestBuilder: jest.fn(function (this: any) {
     this.withOwnOutputNotes = (notes: any) => {
       this.ownOutputNotes = notes;
+      return this;
+    };
+    this.withFeeConversionSalt = (salt: any) => {
+      this.feeSalt = salt;
       return this;
     };
     this.build = () => ({ serialize: () => new Uint8Array([1, 2, 3]) });

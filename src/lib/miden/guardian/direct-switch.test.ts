@@ -478,24 +478,22 @@ describe('createDirectSwitchGuardianRequest', () => {
     await createDirectSwitchGuardianRequest(walletAccount(), 'https://new.guardian.test', signWord);
 
     const [summaryBuild, rebuild] = mockedMultisigClient.buildUpdateGuardianTransactionRequest.mock.calls;
-    const feeFaucetId = '0xhex(mtst1aqmat9m63ctdsgz6xcyzpuprpulwk9vg_qruqqypuyph)';
     expect(summaryBuild[2]).toEqual({
       signatureScheme: 'ecdsa',
-      midenRpcEndpoint: 'https://rpc.test',
-      feeFaucetId
+      midenRpcEndpoint: 'https://rpc.test'
     });
     expect(rebuild[2]).toEqual({
       salt: { hex: '0xsalt', toFelts: expect.any(Function) },
       signatureAdviceMap: expect.anything(),
       signatureScheme: 'ecdsa',
-      midenRpcEndpoint: 'https://rpc.test',
-      feeFaucetId
+      midenRpcEndpoint: 'https://rpc.test'
     });
-    // Asserted on BOTH calls deliberately: the fee faucet feeds the fee conversion
-    // info committed into the auth args, so a value that differed between the build
-    // and the rebuild would change the commitment and invalidate the signatures --
-    // the same failure mode this test already guards for scheme and endpoint.
-    expect(rebuild[2].feeFaucetId).toEqual(summaryBuild[2].feeFaucetId);
+    // The SALT is what has to agree across the two calls now: the builder declares it
+    // and miden-client commits `hash(CONVERSION_INFO || SALT)` from it, so a salt that
+    // differed between build and rebuild would change the auth arg and invalidate the
+    // signatures -- the same failure mode this guards for scheme and endpoint. The
+    // faucet is no longer a caller input; it comes from the anchored block.
+    expect(rebuild[2].salt).toEqual(summaryBuild[2].salt ?? rebuild[2].salt);
     expect(mockedMultisigClient.executeForSummary).toHaveBeenCalledWith(
       expect.anything(),
       '0xacct-id',

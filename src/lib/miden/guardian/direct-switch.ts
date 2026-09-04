@@ -17,7 +17,6 @@ import {
 } from '@openzeppelin/miden-multisig-client';
 
 import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
-import { getNativeAssetId } from 'lib/miden-chain/native-asset';
 import { commitmentFromPublicKeyHex, sameCommitment } from 'lib/secure-hot-key/commitment';
 import { u8ToB64 } from 'lib/shared/helpers';
 import type { WalletAccount } from 'lib/shared/types';
@@ -32,7 +31,7 @@ import { midenClientProxy } from '../back/miden-client-proxy';
 import { isOperationAbortedError } from '../back/offscreen-codec';
 import type { GuardianAccountProvider } from '../front/guardian-manager';
 import { freeChainAnchor } from '../sdk/chain-anchor';
-import { accountRefToSdk, sameWalletAccountId } from '../sdk/helpers';
+import { sameWalletAccountId } from '../sdk/helpers';
 import { getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
@@ -387,7 +386,6 @@ export const createDirectSwitchGuardianRequest = async (
     // verification base fee is non-zero. This path arrived with the offline-rotation
     // work after the fee paths were swept, so it was never given the option.
     const { request, salt } = await buildUpdateGuardianTransactionRequest(webClient, newGuardianPubkey, {
-      feeFaucetId: accountRefToSdk(await getNativeAssetId()).toString(),
       signatureScheme: 'ecdsa',
       midenRpcEndpoint: getEffectiveRpcUrl()
     });
@@ -488,7 +486,6 @@ export const createDirectSwitchGuardianRequest = async (
     // Same fee-conversion-info requirement as the build above; the rebuild must
     // reproduce the SAME auth args or the summary will not match what was signed.
     const { request: rebuilt } = await buildUpdateGuardianTransactionRequest(webClient, newGuardianPubkey, {
-      feeFaucetId: accountRefToSdk(await getNativeAssetId()).toString(),
       salt: Word.fromHex(ensureHexPrefix(built.saltHex)),
       signatureAdviceMap,
       signatureScheme: 'ecdsa',

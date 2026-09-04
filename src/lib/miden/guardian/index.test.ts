@@ -1116,8 +1116,7 @@ describe('MultisigService', () => {
         // verification_base_fee is non-zero.
         {
           signatureScheme: 'ecdsa',
-          midenRpcEndpoint: expect.any(String),
-          feeFaucetId: expect.any(String)
+          midenRpcEndpoint: expect.any(String)
         }
       );
       expect(mockExecuteForSummary).toHaveBeenCalledWith(
@@ -1386,8 +1385,7 @@ describe('MultisigService', () => {
         // verification_base_fee is non-zero.
         {
           signatureScheme: 'ecdsa',
-          midenRpcEndpoint: expect.any(String),
-          feeFaucetId: expect.any(String)
+          midenRpcEndpoint: expect.any(String)
         }
       );
     });

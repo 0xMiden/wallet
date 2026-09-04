@@ -6,7 +6,7 @@ import {
   type TransactionResult,
   WasmWebClient
 } from '@miden-sdk/miden-sdk/lazy';
-import { type Proposal, resolveAuthArg } from '@openzeppelin/miden-multisig-client';
+import { type Proposal } from '@openzeppelin/miden-multisig-client';
 
 import {
   getOrCreateMultisigService,
@@ -32,7 +32,6 @@ import * as Repo from 'lib/miden/repo';
 import { freeChainAnchor } from 'lib/miden/sdk/chain-anchor';
 import { syncUnderBoundedLock } from 'lib/miden/sync-lock';
 import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
-import { getNativeAssetId } from 'lib/miden-chain/native-asset';
 import { isExtension, isMobile } from 'lib/platform';
 import { b64ToU8 } from 'lib/shared/helpers';
 import { logger } from 'shared/logger';
@@ -58,7 +57,6 @@ import {
 } from './complete';
 import { TRANSACTION_EXPIRED_ERROR } from './constants';
 import { getAllUncompletedTransactions, getTransactionsInProgress } from './get';
-import { resolveBuildTimeFeeAuth } from './guardian-fee-auth';
 import {
   isGuardianCanonicalizationError,
   isGuardianUnauthorizedExecutionError,
@@ -1417,16 +1415,9 @@ export const generateTransaction = async (
         // colliding when an auth arg is already present, and the commitment built here is the
         // same shape it would have built. Persisted because the commitment carries a fresh salt;
         // the annotation is idempotent.
-        const annotated = transaction.requestBytes;
-        if (annotated !== transaction.requestBytes) {
-          transaction.requestBytes = annotated;
-          await Repo.transactions.where({ id: transaction.id }).modify(t => {
-            t.requestBytes = annotated;
-          });
-        }
         result = await midenClientProxy.newTransaction(
           transaction.accountId,
-          annotated,
+          transaction.requestBytes,
           transaction.delegateTransaction,
           signCallback
         );
@@ -1535,40 +1526,14 @@ const ensureGuardianRecallableSendRequestBytes = async (
     // Persisted when it changes, because the commitment carries a fresh salt and
     // `prepareCustomExecution` re-derives it from whatever bytes it is given. The annotation is
     // idempotent, so repeat calls return the same request.
-    const annotated = transaction.requestBytes;
-    if (annotated !== transaction.requestBytes) {
-      transaction.requestBytes = annotated;
-      await Repo.transactions.where({ id: transaction.id }).modify(t => {
-        t.requestBytes = annotated;
-      });
-    }
-    return annotated;
+    return transaction.requestBytes;
   }
-  // The chain's fee faucet, committed into the request's auth args below. A Guardian
-  // custom proposal carries the auth arg the request was BUILT with -- the client
-  // cannot inject one, because on a multisig account that slot belongs to the
-  // multisig. Without it `fee::pay_fee` aborts with "paying a non-zero fee requires
-  // conversion info committed via the auth args" and the recallable send dies at
-  // `creating-proposal`, while the plain (typed-proposal) send beside it succeeds.
-  //
-  // Read OUTSIDE `withWasmClientLock`, deliberately. On a cache miss this discovers
-  // the faucet by driving its own `RpcClient` through `ensureSdkWasmReady`, and the
-  // Miden WASM module is single-threaded: doing that while holding the client lock
-  // is a re-entrant use of the same module, which traps as a bare `RuntimeError` and
-  // poisons the client. The value is a genesis-level constant, so reading it before
-  // the lock costs nothing and cannot go stale within one build.
-  const feeFaucetId = await getNativeAssetId();
-  // Prepared here, from the guardian package's own helper, so the request carries a
-  // plain auth arg rather than a request FLAGGED as declaring conversion info. The
-  // flagged form makes the client classify the account's auth component first, and a
-  // guarded multisig built by the JS package pins its own MASM's procedure roots while
-  // the client knows miden_standards' -- so it counts zero auth components and refuses
-  // the request outright. The package's typed proposals take this same route.
+  // A fresh salt per build. miden-client derives the native 1/1 conversion info from
+  // the execution reference header -- for a proposal, its chain anchor -- and commits
+  // `hash(CONVERSION_INFO || SALT)` into the auth arg itself. The salt is serialized
+  // with the request, and these bytes are built once and persisted, so the co-signed
+  // summary reproduces. Rebuilt only when nothing was broadcast; see PRE_SUBMIT_STAGES.
   const feeSalt = randomFeeSalt();
-  // `accountRefToSdk`, not the raw id: the wallet's native-asset id is bech32 and the
-  // helper parses a bare string as HEX, rejecting it with "expected hex data to have
-  // length 32 ... found 49". The shared resolver accepts both forms.
-  const feeAuth = resolveAuthArg(feeSalt, accountRefToSdk(feeFaucetId).toString());
   const requestBytes = await withWasmClientLock(async hold => {
     // `freshSync` (Epoch bridge + earn collateral): the solver's allocator
     // validates the note's REMAINING reclaim window against its own (later) chain
@@ -1643,7 +1608,7 @@ const ensureGuardianRecallableSendRequestBytes = async (
       amount,
       noteType,
       syncHeight + recallBlocks,
-      feeAuth
+      feeSalt
     );
     // Serialization is its own step: a wasm-bindgen panic arrives as a bare
     // `RuntimeError: unreachable`, and the labelled steps INSIDE the builder already
@@ -2451,7 +2416,7 @@ const generateGuardianTransaction = async (
       if (!transaction.requestBytes) {
         // Resolved BEFORE the lock: the reads drive their own RpcClient through the
         // WASM module and re-entering it under the client lock traps.
-        const swapFeeAuth = await resolveBuildTimeFeeAuth();
+        const swapFeeSalt = randomFeeSalt();
         const requestBytes = await withWasmClientLock(async hold => {
           // The offered asset has to carry the vault key of the slot it is
           // actually held in — the callback flag is part of that key, and the
@@ -2494,7 +2459,7 @@ const generateGuardianTransaction = async (
               tr,
               swapTx.faucetId,
               BigInt(swapTx.amount),
-              swapFeeAuth
+              swapFeeSalt
             ).serialize();
           } finally {
             client.terminate();

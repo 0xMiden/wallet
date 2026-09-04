@@ -16,9 +16,8 @@ import {
   waitForTransactionCompletion
 } from 'lib/miden/activity';
 import type { GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
-import { accountIdStringToSdk, getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
+import { accountIdStringToSdk, getBech32AddressFromAccountId, randomFeeSalt } from 'lib/miden/sdk/helpers';
 import { assertWasmHoldCurrent, withWasmClientLock } from 'lib/miden/sdk/miden-client';
-import { resolveBuildTimeFeeAuth } from 'lib/miden/transaction/guardian-fee-auth';
 import { isExtension } from 'lib/platform';
 
 import { MIDEN_BRIDGE_ID, getAgglayerFaucetId } from './constant';
@@ -91,9 +90,11 @@ export async function initiateB2AggBridge(args: {
   // compares it verbatim against the bech32 id of the token whose history is
   // open. Storing hex here made the row render as "Unknown" with the 6-decimal
   // metadata fallback and dropped it out of that token's history entirely.
-  // Resolved BEFORE the client lock: on a cache miss this drives its own RpcClient
-  // through the WASM module, and re-entering it under the lock traps.
-  const feeAuth = await resolveBuildTimeFeeAuth();
+  // A fresh salt per build. miden-client derives the native conversion info from the
+  // anchored block and commits `hash(CONVERSION_INFO || SALT)` itself, so nothing has
+  // to be read off the chain here. The salt is serialized with the request, and these
+  // bytes are persisted and reused, so a rebuild by a co-signer commits the same word.
+  const feeSalt = randomFeeSalt();
   const { requestBytes, faucetBech32 } = await withWasmClientLock(async hold => {
     const note = await createB2AggNote(amount, destinationAddress, senderPublicKey, destinationNetwork);
     // The awaited note build parks (the lazy SDK load can be the long one), and
@@ -105,15 +106,10 @@ export async function initiateB2AggBridge(args: {
     // BEFORE `initiateBridgedSendTransaction` queues a row, since a queued row
     // would hand the abandoned request to the processor as a fresh write.
     assertWasmHoldCurrent(hold, 'before the bridge request build');
-    // Attached at BUILD time: the SDK exposes no auth-arg setter on a finished
-    // `TransactionRequest`, only on the builder. See `resolveBuildTimeFeeAuth`.
+    // Declared at BUILD time: the SDK exposes no setter on a finished `TransactionRequest`,
+    // only on the builder.
     let builder = new TransactionRequestBuilder().withOwnOutputNotes(new NoteArray([note]));
-    if (feeAuth !== undefined) {
-      builder = builder.withAuthArg(feeAuth.authArg);
-      if (feeAuth.adviceMap !== undefined) {
-        builder = builder.extendAdviceMap(feeAuth.adviceMap);
-      }
-    }
+    builder = builder.withFeeConversionSalt(feeSalt);
     const request = builder.build();
     const serialisedReq = request.serialize();
     console.log('Got the serialised transaction request', serialisedReq);
