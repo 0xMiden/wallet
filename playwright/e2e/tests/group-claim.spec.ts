@@ -1,4 +1,5 @@
 import { expect, test } from '../fixtures/two-wallets';
+import { ensureFeeFunded } from '../helpers/fee-funding';
 import { assertClaimed } from '../helpers/assertions';
 import { pendingNoteTotal, vaultBalance, waitForPendingNoteTotal } from '../helpers/balance-truth';
 import {
@@ -93,6 +94,13 @@ test.describe('Pending tab — per-faucet group claim', () => {
     await steps.step('deploy_and_fund', async () => {
       await midenCli.init();
       const faucetId = await midenCli.createFaucet();
+      // Fund and CLAIM the fee asset before minting, so the only notes left pending are the
+      // two below. Funding sends a note drawn on the NATIVE faucet, and this spec asserts the
+      // pending list groups into exactly one asset row -- so a funding note still pending at
+      // that point is a second row and the assertion fails on a true statement about a state
+      // the spec did not intend. Claiming it first is deterministic; claiming afterwards would
+      // drain the two notes the spec exists to group.
+      await ensureFeeFunded(midenCli, walletA, addressA!);
       // Two notes from ONE faucet → a single asset group holding multiple notes,
       // so the group-claim button drains more than one note in a single action,
       // and the summary total is a different number from either note's amount.
