@@ -2680,14 +2680,9 @@
     "message": "Network Fee",
     "englishSource": "Network Fee"
   },
-  "networkFeeUpTo": {
-    "message": "Jusqu’à $amount$",
-    "englishSource": "Up to $amount$",
-    "placeholders": {
-      "amount": {
-        "content": "$1"
-      }
-    }
+  "networkFeeMax": {
+    "message": "Frais de réseau maximaux",
+    "englishSource": "Max network fee"
   },
   "networkFeeEstimateNote": {
     "message": "Le montant exact des frais dépend de la transaction et est généralement inférieur. Le montant que vous avez payé figurera sur le reçu.",

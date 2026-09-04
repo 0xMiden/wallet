@@ -593,6 +593,7 @@
   "midenAddressWrongNetwork": "此地址屬於另一個 Miden 網路",
   "cannotSendToSelf": "您無法寄送至您自己的地址",
   "networkFee": "Network Fee",
+  "networkFeeMax": "最高網路手續費",
   "networkFeeEstimateNote": "實際手續費取決於交易內容，通常會比上述金額更低。您將在收據上看到實際支付的金額。",
   "feeReserveBlocksSend": "您的 MIDEN 已預留作為網路手續費。欲進行轉帳，請先取得更多 MIDEN。",
   "notWorthClaiming": "Worth less than the network fee to claim",

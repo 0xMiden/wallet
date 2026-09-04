@@ -2680,14 +2680,9 @@
     "message": "Network Fee",
     "englishSource": "Network Fee"
   },
-  "networkFeeUpTo": {
-    "message": "$amount$까지",
-    "englishSource": "Up to $amount$",
-    "placeholders": {
-      "amount": {
-        "content": "$1"
-      }
-    }
+  "networkFeeMax": {
+    "message": "최대 네트워크 수수료",
+    "englishSource": "Max network fee"
   },
   "networkFeeEstimateNote": {
     "message": "정확한 수수료는 거래에 따라 다르며, 일반적으로 이보다 낮습니다. 지불한 금액은 영수증에서 확인하실 수 있습니다.",

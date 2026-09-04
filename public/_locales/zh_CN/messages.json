@@ -2680,6 +2680,10 @@
     "message": "Network Fee",
     "englishSource": "Network Fee"
   },
+  "networkFeeMax": {
+    "message": "最高网络手续费",
+    "englishSource": "Max network fee"
+  },
   "networkFeeEstimateNote": {
     "message": "具体手续费取决于交易情况，通常会更低。您将在收据上看到实际支付的金额。",
     "englishSource": "The exact fee depends on the transaction and is usually lower. You will see what you paid on the receipt."

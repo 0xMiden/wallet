@@ -593,7 +593,7 @@
   "midenAddressWrongNetwork": "이 주소는 다른 Miden 네트워크에 속합니다.",
   "cannotSendToSelf": "자신의 주소로 발송할 수 없습니다.",
   "networkFee": "Network Fee",
-  "networkFeeUpTo": "$amount$까지",
+  "networkFeeMax": "최대 네트워크 수수료",
   "networkFeeEstimateNote": "정확한 수수료는 거래에 따라 다르며, 일반적으로 이보다 낮습니다. 지불한 금액은 영수증에서 확인하실 수 있습니다.",
   "feeReserveBlocksSend": "사용자의 MIDEN은 네트워크 수수료로 예약되어 있습니다. 더 많은 MIDEN을 수령하여 송금하십시오.",
   "notWorthClaiming": "Worth less than the network fee to claim",

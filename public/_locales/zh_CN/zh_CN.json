@@ -593,6 +593,7 @@
   "midenAddressWrongNetwork": "该地址属于另一个Miden网络",
   "cannotSendToSelf": "你不能寄到自己的地址",
   "networkFee": "Network Fee",
+  "networkFeeMax": "最高网络手续费",
   "networkFeeEstimateNote": "具体手续费取决于交易情况，通常会更低。您将在收据上看到实际支付的金额。",
   "feeReserveBlocksSend": "您的 MIDEN 将用于支付网络手续费。获得更多 MIDEN 即可进行转账。",
   "notWorthClaiming": "Worth less than the network fee to claim",

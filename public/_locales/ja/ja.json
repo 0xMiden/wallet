@@ -593,7 +593,7 @@
   "midenAddressWrongNetwork": "このアドレスは、別のMidenネットワークに属しています",
   "cannotSendToSelf": "自分の住所宛てには送れません",
   "networkFee": "Network Fee",
-  "networkFeeUpTo": "$amount$まで",
+  "networkFeeMax": "最大ネットワーク手数料",
   "networkFeeEstimateNote": "実際の手数料は取引内容によって異なりますが、通常はこれより低くなります。お支払いいただいた金額は領収書に記載されています。",
   "feeReserveBlocksSend": "お客様のMIDENはネットワーク手数料用に確保されています。送金するには、さらにMIDENを受け取る必要があります。",
   "notWorthClaiming": "Worth less than the network fee to claim",

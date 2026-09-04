@@ -593,7 +593,7 @@
   "midenAddressWrongNetwork": "Ця адреса належить до іншої мережі Miden",
   "cannotSendToSelf": "Не можна відправляти на власну адресу",
   "networkFee": "Network Fee",
-  "networkFeeUpTo": "До $amount$",
+  "networkFeeMax": "Максимальна комісія мережі",
   "networkFeeEstimateNote": "Точна комісія залежить від транзакції та зазвичай є нижчою. Суму, яку ви сплатили, ви побачите у квитанції.",
   "feeReserveBlocksSend": "Ваші MIDEN зарезервовані для оплати мережевої комісії. Отримайте більше MIDEN, щоб здійснити переказ.",
   "notWorthClaiming": "Worth less than the network fee to claim",

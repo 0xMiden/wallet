@@ -593,7 +593,7 @@
   "midenAddressWrongNetwork": "Bu adres, başka bir Miden ağına aittir",
   "cannotSendToSelf": "Kendi adresinize gönderim yapamazsınız",
   "networkFee": "Network Fee",
-  "networkFeeUpTo": "$amount$'a kadar",
+  "networkFeeMax": "Maksimum ağ ücreti",
   "networkFeeEstimateNote": "Kesin ücret, işleme göre değişir ve genellikle daha düşüktür. Ödediğiniz tutarı makbuzda görebilirsiniz.",
   "feeReserveBlocksSend": "MIDEN'iniz ağ ücreti için ayrılmıştır. Göndermek için daha fazla MIDEN alın.",
   "notWorthClaiming": "Worth less than the network fee to claim",

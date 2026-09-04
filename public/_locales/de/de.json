@@ -593,7 +593,7 @@
   "midenAddressWrongNetwork": "Diese Adresse gehört zu einem anderen Miden-Netzwerk",
   "cannotSendToSelf": "Du kannst nicht an deine eigene Adresse senden.",
   "networkFee": "Network Fee",
-  "networkFeeUpTo": "Bis zu $amount$",
+  "networkFeeMax": "Maximale Netzwerkgebühr",
   "networkFeeEstimateNote": "Die genaue Gebühr hängt von der Transaktion ab und ist in der Regel niedriger. Auf dem Beleg sehen Sie, was Sie bezahlt haben.",
   "feeReserveBlocksSend": "Ihr MIDEN ist für die Netzwerkgebühr reserviert. Erhalten Sie mehr MIDEN, um Guthaben zu versenden.",
   "notWorthClaiming": "Worth less than the network fee to claim",
