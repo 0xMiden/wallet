@@ -2,10 +2,11 @@
 
 ## 1.16.0 (TBD)
 
-## 1.16.0-rc.2 (2026-09-04)
 ### Changes
 
 - [CHANGE][ci] **The E2E harness can fund its accounts on a public fee-charging chain.** It could only take the native fee asset from local-stack genesis wallets, which by construction cannot exist on devnet — so since devnet enabled fees every devnet suite died before its first transaction, a fresh account's vault being empty while `pay_fee` withdraws from that vault inside `auth_tx`. Devnet's public faucet IS the chain's native fee-asset faucet (its bech32 id decodes to the `fee_parameters.native_asset_id` the block header reports), so a grant from it is spendable on fees. Both funding sites now go through one source-picking helper: genesis funders where they exist, the public faucet otherwise. The faucet path only sends the note where the recipient is a browser wallet, which claims it itself, and consumes it where the account is CLI-owned — for an undeployed faucet that consumption is also its deploy.
+
+## 1.16.0-rc.2 (2026-09-04)
 
 ### Features
 
