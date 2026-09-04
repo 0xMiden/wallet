@@ -22,9 +22,10 @@ those files currently say; when they disagree, the files win.
 
 > **Keep `GUARDIAN_IMAGE_TAG` in lockstep with the client.** The guardian server image and
 > `@openzeppelin/miden-multisig-client` in `package.json` have to agree on the MASM procedure
-> roots, and the guardian's version line is independent of Miden's — `v0.17.0-rc.1` is the first
-> guardian release built against Miden 0.16. Bumping one without the other still installs and
-> starts cleanly; it fails at runtime on procedure-root mismatch.
+> roots, and the guardian's version line is independent of Miden's — `v0.17.0-rc.3` is the first
+> release whose guarded accounts come from the upstream `AuthGuardedMultisig` component, which is
+> what lets miden-client classify them and commit their fee conversion info. Bumping one without
+> the other still installs and starts cleanly; it fails at runtime on procedure-root mismatch.
 
 ## Prerequisites
 
