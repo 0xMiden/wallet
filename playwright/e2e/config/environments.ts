@@ -33,7 +33,10 @@ const ENVIRONMENTS: Record<string, EnvironmentConfig> = {
     delegateProving: true,
     // OpenZeppelin runs on devnet too; the other operators are testnet-only, so
     // there is no distinct second guardian for switch tests here.
-    guardianUrl: 'https://guardian-stg.openzeppelin.com'
+    guardianUrl: 'https://guardian-stg.openzeppelin.com',
+    // Devnet's 2026-08-27 re-genesis enabled fees; its genesis and tip headers both
+    // report verification_base_fee = 10000. Testnet's header carries none.
+    chargesFees: true
   },
   localhost: {
     name: 'localhost',
