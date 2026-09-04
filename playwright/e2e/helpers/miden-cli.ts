@@ -520,11 +520,19 @@ export class MidenCli {
     if (shown.exitCode !== 0) {
       return false;
     }
-    // The vault renders one row per asset: `| Fungible Asset | MIDEN | 20.000000 |`. Match that
-    // row specifically -- the same output lists storage keys like
-    // `miden::standards::faucets::token_name_0`, and a looser search for the symbol finds one of
-    // those first and reads its trailing digit as the balance.
-    const row = shown.stdout.split('\n').find(line => /fungible asset/i.test(line) && /\bMIDEN\b/.test(line));
+    // The vault renders one row per asset. Which IDENTIFIER lands in the faucet column depends
+    // on whether the CLI knows that faucet's token metadata: the local stack resolves it to the
+    // symbol (`| Fungible Asset | MIDEN | 20.000000 |`), while a public chain prints the raw
+    // faucet id (`| Fungible Asset | 0xb6b0c673850deb71 | 99830000 |`). Matching only the symbol
+    // reported "not funded" forever on devnet against a vault that had in fact just been funded.
+    //
+    // Any positive fungible row is sufficient BECAUSE OF WHO THIS IS ASKED ABOUT: the single
+    // caller is the funding poll for a faucet created moments earlier and still undeployed, so
+    // the grant is the only asset it can hold. Widen the caller set and this needs to identify
+    // the fee asset properly again. Match the ROW, not the whole output: the same listing carries
+    // storage keys like `miden::standards::faucets::token_name_0`, and a looser search finds one
+    // of those first and reads its trailing digit as the balance.
+    const row = shown.stdout.split('\n').find(line => /fungible asset/i.test(line));
     if (row === undefined) {
       return false;
     }
