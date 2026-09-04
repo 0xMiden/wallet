@@ -61,6 +61,14 @@ test.describe('Public Note Send', () => {
     // iOS divergence: claim the received note on wallet B before checking
     // its balance — same reason as claim_notes_wallet_a above.
     await steps.step('claim_notes_wallet_b', async () => {
+      // Wallet B is only ever a RECIPIENT here, so nothing has funded it: `mint` funds its
+      // target as a side effect, and B is never a mint target. The note it is about to claim
+      // carries the test token, not the native asset, and a claim is itself a fee-paying
+      // transaction -- so on a fee-charging chain B fails with the kernel's vault-shortfall
+      // assertion, which names nothing about funding. The Chrome ports never hit this because
+      // they leave B's note pending; the iOS ports claim it.
+      await midenCli.fundAccountForFees(addressB!);
+      await midenCli.sync();
       await walletB.claimAllNotes(180_000, [faucetId!]);
     });
 
