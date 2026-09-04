@@ -321,13 +321,19 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
 
   const descriptionText = useCallback(() => {
     if (transactionComplete && hasErrors) {
-      return t('transactionErrorDescription');
+      // Prefer the row's own error. The pipeline writes prose here for the failures it
+      // can name -- `TRANSACTION_VAULT_SHORTFALL_ERROR` tells the user the shortfall may
+      // be the MIDEN for the network fee rather than the amount sent, which the generic
+      // string cannot. `HistoryDetails` already renders these verbatim. Falls back when
+      // the row carries no message, or carries a raw one from a lower layer.
+      const rowError = activeTransaction?.error ?? completedTransaction?.error;
+      return rowError && rowError.trim().length > 0 ? rowError : t('transactionErrorDescription');
     }
     if (transactionComplete) {
       return t(commitUnconfirmed ? 'transactionSubmittedUnconfirmedDescription' : 'transactionSuccessDescription');
     }
     return t(getStageDescriptionKey(activeStage));
-  }, [transactionComplete, hasErrors, t, activeStage, commitUnconfirmed]);
+  }, [transactionComplete, hasErrors, t, activeStage, commitUnconfirmed, activeTransaction, completedTransaction]);
 
   const dismissalDescription = useMemo(() => {
     if (keepOpen) {

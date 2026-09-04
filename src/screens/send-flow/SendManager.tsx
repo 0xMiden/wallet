@@ -516,7 +516,16 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
       // asset the transaction cannot succeed however small the amount.
       setError('amount', { type: 'manual', message: 'insufficientFeeAsset' });
     } else if (token && parseFloat(amount) > spendableBalance) {
-      setError('amount', { type: 'manual', message: 'amountMustBeLessThanBalance' });
+      // Between one base fee and the 30x reserve the whole native balance is held back,
+      // so `Available` reads 0 and "amount must be less than balance" is true but useless:
+      // the user sees a balance and no amount clears the check. `hasNoFeeAsset` above
+      // refuses only BELOW one base fee, and that asymmetry is deliberate — so name the
+      // reserve here rather than widen the refusal.
+      const reserveHoldsWholeBalance = spendableBalance <= 0 && (token?.balance ?? 0) > 0;
+      setError('amount', {
+        type: 'manual',
+        message: reserveHoldsWholeBalance ? 'feeReserveBlocksSend' : 'amountMustBeLessThanBalance'
+      });
     } else {
       clearErrors('amount');
     }
@@ -720,7 +729,16 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
         // asset the transaction cannot succeed however small the amount.
         setError('amount', { type: 'manual', message: 'insufficientFeeAsset' });
       } else if (token && amount > spendableBalance) {
-        setError('amount', { type: 'manual', message: 'amountMustBeLessThanBalance' });
+        // Between one base fee and the 30x reserve the whole native balance is held back,
+        // so `Available` reads 0 and "amount must be less than balance" is true but useless:
+        // the user sees a balance and no amount clears the check. `hasNoFeeAsset` above
+        // refuses only BELOW one base fee, and that asymmetry is deliberate — so name the
+        // reserve here rather than widen the refusal.
+        const reserveHoldsWholeBalance = spendableBalance <= 0 && (token?.balance ?? 0) > 0;
+        setError('amount', {
+          type: 'manual',
+          message: reserveHoldsWholeBalance ? 'feeReserveBlocksSend' : 'amountMustBeLessThanBalance'
+        });
       } else {
         clearErrors('amount');
       }

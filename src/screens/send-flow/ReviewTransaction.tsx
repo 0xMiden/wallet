@@ -4,6 +4,7 @@ import { addDays, addSeconds, format, formatDistanceToNow } from 'date-fns';
 import { useTranslation } from 'react-i18next';
 
 import { useAppEnv } from 'app/env';
+import { useNetworkFeeEstimate } from 'app/hooks/useNetworkFeeEstimate';
 import { ReviewAmount, ReviewLayout, ReviewRow } from 'components/review';
 import { ScreenHeader } from 'components/ScreenHeader';
 import { initiateB2AggBridge } from 'lib/agglayer/b2agg';
@@ -46,6 +47,7 @@ import { useEpochQuote } from './useEpochQuote';
  */
 export const ReviewTransaction: React.FC = () => {
   const { t } = useTranslation();
+  const networkFee = useNetworkFeeEstimate();
   const { search } = useLocation();
   const { fullPage } = useAppEnv();
   const { publicKey } = useAccount();
@@ -417,6 +419,18 @@ export const ReviewTransaction: React.FC = () => {
               {isBridge ? (bridgeNetworkObj?.name ?? t('ethereum')) : t('miden')}
             </span>
           </ReviewRow>
+
+          {/* The exact fee is `baseFee x (floor(log2(cycles)) + 1)` and cycles are not known until
+              the transaction is proven, so this quotes the upper bound the wallet already reserves
+              against — the same amount the amount step withheld from `Available`. Absent on a
+              zero-fee chain and before discovery; see `useNetworkFeeEstimate`. */}
+          {networkFee && (
+            <ReviewRow
+              label={t('networkFee')}
+              value={t('networkFeeUpTo', { amount: networkFee })}
+              note={t('networkFeeEstimateNote')}
+            />
+          )}
 
           {isBridge ? (
             <>

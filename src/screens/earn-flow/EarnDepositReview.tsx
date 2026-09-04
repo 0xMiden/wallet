@@ -4,6 +4,7 @@ import clsx from 'clsx';
 import { useTranslation } from 'react-i18next';
 import { Area, AreaChart, ReferenceLine, XAxis, YAxis } from 'recharts';
 
+import { useNetworkFeeEstimate } from 'app/hooks/useNetworkFeeEstimate';
 import { Button, ButtonVariant } from 'components/Button';
 import { TokenLogo } from 'components/TokenLogo';
 import { MIDEN_USDC_DECIMALS, openEarnPosition } from 'lib/epoch';
@@ -112,6 +113,7 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
 
 const DepositProjection: FC<{ vault: EarnVault; amount: number }> = ({ vault, amount }) => {
   const { t } = useTranslation();
+  const networkFee = useNetworkFeeEstimate();
   // `apy` is a pre-formatted display string ("2.00%", or "—" while loading).
   const apyFraction = (Number.parseFloat(vault.apy) || 0) / 100;
   const projections = projectionPeriods.map(item => ({
@@ -177,6 +179,9 @@ const DepositProjection: FC<{ vault: EarnVault; amount: number }> = ({ vault, am
           value={t('earnDepositRoute', { protocol: vault.protocol, network: vault.network })}
         />
         <DetailRow label={t('earnEstimatedTime')} value={t('earnEstimatedTimeValue')} />
+        {/* The deposit is a fee-paying Miden transaction: `completeEarnDepositTransaction`
+            records the charge and EarnSuccess renders it on the very next screen. */}
+        {networkFee && <DetailRow label={t('networkFee')} value={t('networkFeeUpTo', { amount: networkFee })} />}
       </div>
     </div>
   );

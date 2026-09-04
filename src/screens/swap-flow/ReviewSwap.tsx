@@ -3,6 +3,7 @@ import React from 'react';
 import { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 
+import { useNetworkFeeEstimate } from 'app/hooks/useNetworkFeeEstimate';
 import { ReviewAmount, ReviewLabel, ReviewLayout, ReviewRow } from 'components/review';
 import { Toggle } from 'components/Toggle';
 import { SOLVER_MARGIN, SwapEta, SwapToken } from 'lib/miden/swap/tokens';
@@ -97,6 +98,7 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
   onSubmit
 }) => {
   const { t } = useTranslation();
+  const networkFee = useNetworkFeeEstimate();
   const divider = <div className="h-0.75 flex-1 bg-[#ECEBE8]" />;
   const rate = formatRate(offerToken.symbol, requestToken.symbol, swapEta?.marketPrice);
 
@@ -133,6 +135,16 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
       secondary={{ label: t('back'), onPress: onGoBack }}
     >
       <ReviewRow label={t('rate')} value={rate} />
+
+      {/* The solver spread below is a DIFFERENT cost; without this row the only fee word on
+          the screen described the provider margin and read as the whole price. */}
+      {networkFee && (
+        <ReviewRow
+          label={t('networkFee')}
+          value={t('networkFeeUpTo', { amount: networkFee })}
+          note={t('networkFeeEstimateNote')}
+        />
+      )}
       {rate && (
         <p className="pt-1 text-xs text-heading-gray">
           {t('swapSolverFeeNote', { percent: `${Math.round(SOLVER_MARGIN * 100)}%` })}
