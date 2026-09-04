@@ -388,8 +388,8 @@
     "englishSource": "Collateral"
   },
   "earnCollateralValue": {
-    "message": "Miden P2IDE (gasless)",
-    "englishSource": "Miden P2IDE (gasless)"
+    "message": "Miden P2IDE",
+    "englishSource": "Miden P2IDE"
   },
   "earnDepositRoute": {
     "message": "Miden -> $protocol$ ($network$)",
@@ -4091,8 +4091,8 @@
     }
   },
   "noFee": {
-    "message": "No fee",
-    "englishSource": "No fee"
+    "message": "No bridge fee",
+    "englishSource": "No bridge fee"
   },
   "fastArrival": {
     "message": "~30 sec",

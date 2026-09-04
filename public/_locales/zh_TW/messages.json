@@ -388,8 +388,8 @@
     "englishSource": "Collateral"
   },
   "earnCollateralValue": {
-    "message": "Miden P2IDE（無氣體）",
-    "englishSource": "Miden P2IDE (gasless)"
+    "message": "Miden P2IDE",
+    "englishSource": "Miden P2IDE"
   },
   "earnDepositRoute": {
     "message": "Miden -> $protocol$ ($network$)",
@@ -2680,6 +2680,14 @@
     "message": "Network Fee",
     "englishSource": "Network Fee"
   },
+  "networkFeeEstimateNote": {
+    "message": "實際手續費取決於交易內容，通常會比上述金額更低。您將在收據上看到實際支付的金額。",
+    "englishSource": "The exact fee depends on the transaction and is usually lower. You will see what you paid on the receipt."
+  },
+  "feeReserveBlocksSend": {
+    "message": "您的 MIDEN 已預留作為網路手續費。欲進行轉帳，請先取得更多 MIDEN。",
+    "englishSource": "Your MIDEN is reserved for the network fee. Receive more MIDEN to send."
+  },
   "notWorthClaiming": {
     "message": "Worth less than the network fee to claim",
     "englishSource": "Worth less than the network fee to claim"
@@ -4074,8 +4082,8 @@
     }
   },
   "noFee": {
-    "message": "免收費用",
-    "englishSource": "No fee"
+    "message": "無橋接手續費",
+    "englishSource": "No bridge fee"
   },
   "fastArrival": {
     "message": "約 30 秒",

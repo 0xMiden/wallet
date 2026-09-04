@@ -388,8 +388,8 @@
     "englishSource": "Collateral"
   },
   "earnCollateralValue": {
-    "message": "Miden P2IDE (bez gazu)",
-    "englishSource": "Miden P2IDE (gasless)"
+    "message": "Miden P2IDE",
+    "englishSource": "Miden P2IDE"
   },
   "earnDepositRoute": {
     "message": "Miden -> $protocol$ ($network$)",
@@ -2680,6 +2680,14 @@
     "message": "Network Fee",
     "englishSource": "Network Fee"
   },
+  "networkFeeEstimateNote": {
+    "message": "Dokładna opłata zależy od transakcji i zazwyczaj jest niższa. Kwotę, którą zapłaciłeś, zobaczysz na potwierdzeniu.",
+    "englishSource": "The exact fee depends on the transaction and is usually lower. You will see what you paid on the receipt."
+  },
+  "feeReserveBlocksSend": {
+    "message": "Twoje MIDEN są zarezerwowane na opłatę sieciową. Otrzymaj więcej MIDEN, aby móc je wysłać.",
+    "englishSource": "Your MIDEN is reserved for the network fee. Receive more MIDEN to send."
+  },
   "notWorthClaiming": {
     "message": "Worth less than the network fee to claim",
     "englishSource": "Worth less than the network fee to claim"
@@ -4074,8 +4082,8 @@
     }
   },
   "noFee": {
-    "message": "Bez opłat",
-    "englishSource": "No fee"
+    "message": "Brak opłaty za most",
+    "englishSource": "No bridge fee"
   },
   "fastArrival": {
     "message": "~30 sek.",

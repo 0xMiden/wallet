@@ -388,8 +388,8 @@
     "englishSource": "Collateral"
   },
   "earnCollateralValue": {
-    "message": "Miden P2IDE (sin gas)",
-    "englishSource": "Miden P2IDE (gasless)"
+    "message": "Miden P2IDE",
+    "englishSource": "Miden P2IDE"
   },
   "earnDepositRoute": {
     "message": "Miden -> $protocol$ ($network$)",
@@ -2680,6 +2680,23 @@
     "message": "Network Fee",
     "englishSource": "Network Fee"
   },
+  "networkFeeUpTo": {
+    "message": "Hasta $amount$",
+    "englishSource": "Up to $amount$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "networkFeeEstimateNote": {
+    "message": "La comisión exacta depende de la transacción y suele ser inferior. En el recibo podrás ver lo que has pagado.",
+    "englishSource": "The exact fee depends on the transaction and is usually lower. You will see what you paid on the receipt."
+  },
+  "feeReserveBlocksSend": {
+    "message": "Tu MIDEN se reserva para la comisión de red. Recibe más MIDEN para poder enviar.",
+    "englishSource": "Your MIDEN is reserved for the network fee. Receive more MIDEN to send."
+  },
   "notWorthClaiming": {
     "message": "Worth less than the network fee to claim",
     "englishSource": "Worth less than the network fee to claim"
@@ -4074,8 +4091,8 @@
     }
   },
   "noFee": {
-    "message": "Sin gastos",
-    "englishSource": "No fee"
+    "message": "Sin comisión por puente",
+    "englishSource": "No bridge fee"
   },
   "fastArrival": {
     "message": "~30 segundos",
