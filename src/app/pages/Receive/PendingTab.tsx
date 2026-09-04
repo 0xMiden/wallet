@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { useAppEnv } from 'app/env';
 import { deriveNoteClaimState, NoteClaimState } from 'app/hooks/noteClaimState';
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
+import { useNetworkFeeEstimate } from 'app/hooks/useNetworkFeeEstimate';
 import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
 import { ReactComponent as EyeOpenIcon } from 'app/icons/eye-open.svg';
 import { Icon, IconName } from 'app/icons/v2';
@@ -179,6 +180,7 @@ const PendingSummary: React.FC<PendingSummaryProps> = ({
   onClaimAll
 }) => {
   const verificationBaseFee = useVerificationBaseFee();
+  const maxNetworkFee = useNetworkFeeEstimate();
   const nativeFaucetId = useMidenFaucetId();
   const { t } = useTranslation();
 
@@ -256,7 +258,16 @@ const PendingSummary: React.FC<PendingSummaryProps> = ({
         </div>
 
         {unclaimedNotesCount > 0 && (
-          <div className="flex justify-center mt-auto pt-4 pb-2">
+          <div className="flex flex-col items-center mt-auto pt-4 pb-2">
+            {/* Claiming submits immediately -- there is no review step between this
+                button and the transaction -- so this is the only place the cost can be
+                stated before the user commits. Label and amount are separate nodes so
+                no placeholder-only string has to survive translation. */}
+            {maxNetworkFee && (
+              <div className="mb-2 text-center text-xs text-heading-gray">
+                {t('networkFeeMax')} · {maxNetworkFee}
+              </div>
+            )}
             <Button
               data-testid="claim-all-button"
               className="w-full"
@@ -386,6 +397,7 @@ const AssetPendingDetail: React.FC<AssetPendingDetailProps> = ({
   notWorthClaiming = false
 }) => {
   const { t } = useTranslation();
+  const maxNetworkFee = useNetworkFeeEstimate();
   const { metadata, faucetId, notes, totalAmount } = group;
   const symbol = metadata?.symbol || 'UNKNOWN';
   const name = metadata?.name || symbol;
@@ -453,6 +465,13 @@ const AssetPendingDetail: React.FC<AssetPendingDetailProps> = ({
             ))}
           </div>
         </div>
+        {onClaimGroup && maxNetworkFee && (
+          // Same reason as Claim All: this button submits with no review step in
+          // between, so the cost has to be stated next to it or nowhere.
+          <div className="mt-4 text-center text-xs text-heading-gray">
+            {t('networkFeeMax')} · {maxNetworkFee}
+          </div>
+        )}
         {onClaimGroup && (
           <button
             data-testid="claim-group-button"
