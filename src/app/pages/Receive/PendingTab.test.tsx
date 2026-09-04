@@ -236,3 +236,63 @@ describe('PendingTab — DetailNoteRow treatment (#456)', () => {
     expect(within(row).getByTestId('sync-wave')).toHaveAttribute('data-syncing', 'true');
   });
 });
+
+describe('PendingTab — fee disclosure on the claim buttons', () => {
+  // Every claim button on these screens submits with NO review step in between, so
+  // this is the only place the cost can be stated before the user commits.
+
+  it('tells the detail screen the fee is charged once per claim when the group holds several notes', () => {
+    // The amount is identical for every button here; what differs is how many times it
+    // is charged. The group button consumes all of one faucet's notes in a single
+    // transaction (one fee); tapping the rows one at a time is one transaction each.
+    // Breaks if the `feeChargedPerClaim` line is dropped from the footer.
+    mockBaseFee = 2000000;
+    renderTab({ safeClaimableNotes: [makeNote('a'), makeNote('b')] });
+    openDetail();
+
+    expect(screen.getByText('feeChargedPerClaim')).toBeInTheDocument();
+  });
+
+  it('omits the per-claim line when the group holds a single note', () => {
+    // "Claiming them together pays one" is meaningless with nothing to group.
+    // Breaks if the `notes.length > 1` gate is removed.
+    mockBaseFee = 2000000;
+    renderTab({ safeClaimableNotes: [makeNote('only')] });
+    openDetail();
+
+    expect(screen.queryByText('feeChargedPerClaim')).not.toBeInTheDocument();
+  });
+
+  it('warns on Claim All that the fee is charged once per asset when several are pending', () => {
+    // Claim All submits one transaction PER FAUCET, so the single-transaction bound
+    // shown above it understates the total by a factor of the asset count.
+    // Breaks if the `feeChargedPerAsset` line is dropped.
+    mockBaseFee = 2000000;
+    renderTab({
+      safeClaimableNotes: [makeNote('a', { faucetId: 'faucet1' }), makeNote('b', { faucetId: 'faucet2' })]
+    });
+
+    expect(screen.getByText('feeChargedPerAsset')).toBeInTheDocument();
+  });
+
+  it('omits the per-asset line when only one asset is pending', () => {
+    // One asset is one transaction, so the bound above the button is already exact.
+    // Breaks if the `totals.assetsCount > 1` gate is removed.
+    mockBaseFee = 2000000;
+    renderTab({ safeClaimableNotes: [makeNote('a'), makeNote('b')] });
+
+    expect(screen.queryByText('feeChargedPerAsset')).not.toBeInTheDocument();
+  });
+
+  it('states no fee at all while the base fee is unknown', () => {
+    // House convention: render nothing rather than 0, "unknown" or a guess. This state
+    // is reachable -- discovery latches a 60s retry cooldown -- and the buttons stay
+    // enabled throughout. Breaks if any `maxNetworkFee &&` guard is removed.
+    mockBaseFee = null;
+    renderTab({ safeClaimableNotes: [makeNote('a'), makeNote('b', { faucetId: 'faucet2' })] });
+
+    expect(screen.queryByText('networkFeeMax')).not.toBeInTheDocument();
+    expect(screen.queryByText('feeChargedPerAsset')).not.toBeInTheDocument();
+    mockBaseFee = 0;
+  });
+});

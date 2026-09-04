@@ -6,6 +6,7 @@ import { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 
 import { ActivitySpinner } from 'app/atoms/ActivitySpinner';
+import { useNetworkFeeEstimate } from 'app/hooks/useNetworkFeeEstimate';
 import { Icon, IconName } from 'app/icons/v2';
 import PageLayout from 'app/layouts/PageLayout';
 import { Button, ButtonVariant } from 'components/Button';
@@ -366,6 +367,7 @@ const AccountDisplay: FC<{
 
 export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   const { t } = useTranslation();
+  const maxNetworkFee = useNetworkFeeEstimate();
   const allAccounts = useAllAccounts();
   const account = useAccount();
   const tokenPrices = useWalletStore(s => s.tokenPrices);
@@ -1700,6 +1702,14 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
               <p data-testid="history-retry-error" className="mb-2 text-center text-sm text-status-negative">
                 {retryError}
               </p>
+            )}
+            {maxNetworkFee && (
+              // Requeues as a NEW transaction paying a NEW fee, on one tap with no
+              // review step. The recorded `networkFee` row above is what the failed
+              // attempt already paid, not a bound on what this retry will cost.
+              <div className="mb-2 text-center text-xs text-heading-gray">
+                {t('networkFeeMax')} · {maxNetworkFee}
+              </div>
             )}
             <Button
               data-testid="history-retry-button"

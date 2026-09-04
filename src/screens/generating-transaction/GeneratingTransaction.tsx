@@ -5,6 +5,7 @@ import React, { FC, useCallback, useEffect, useMemo, useRef, useState } from 're
 import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
+import { useNetworkFeeEstimate } from 'app/hooks/useNetworkFeeEstimate';
 import { Button, ButtonVariant } from 'components/Button';
 import { ScreenHeader } from 'components/ScreenHeader';
 import { useAnalytics } from 'lib/analytics';
@@ -270,6 +271,7 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
 }) => {
   const [showSuccessReceipt, setShowSuccessReceipt] = useState(false);
   const { t } = useTranslation();
+  const maxNetworkFee = useNetworkFeeEstimate();
   const transactionSummaryBadgeContent = useTransactionSummaryBadgeContent(activeTransaction);
 
   // The step set and per-step durations derive only from the account flow and
@@ -422,6 +424,14 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
         {/* #483 — a failed, retryable tx gets a one-tap Retry (requeue / earn
               resubmit) as the primary action; Done demotes to secondary so the
               recovery path is the obvious one. */}
+        {transactionComplete && hasErrors && canRetry && onRetry && maxNetworkFee && (
+          // Retry requeues as a fresh transaction paying a fresh fee. This is the screen
+          // every claim, send and swap lands on when it fails, so it is where the cost
+          // of trying again has to be stated.
+          <div className="-mb-2 text-center text-xs text-heading-gray">
+            {t('networkFeeMax')} · {maxNetworkFee}
+          </div>
+        )}
         {transactionComplete && hasErrors && canRetry && onRetry && (
           <Button
             type="button"
