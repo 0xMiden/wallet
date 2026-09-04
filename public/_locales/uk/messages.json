@@ -2696,6 +2696,14 @@
     "message": "Worth less than the network fee to claim",
     "englishSource": "Worth less than the network fee to claim"
   },
+  "feeChargedPerClaim": {
+    "message": "За кожну вимогу сплачується окрема комісія. При одночасному вимаганні всіх вимог сплачується лише одна комісія.",
+    "englishSource": "Each claim pays its own fee. Claiming them together pays one."
+  },
+  "feeChargedPerAsset": {
+    "message": "Стягується один раз за кожен актив, на який подано заявку.",
+    "englishSource": "Charged once per asset claimed."
+  },
   "insufficientFeeAsset": {
     "message": "Для сплати комісії мережі вам потрібен MIDEN. Отримайте трохи MIDEN, щоб продовжити.",
     "englishSource": "You need MIDEN to pay the network fee. Receive some MIDEN to continue."

@@ -597,6 +597,8 @@
   "networkFeeEstimateNote": "実際の手数料は取引内容によって異なりますが、通常はこれより低くなります。お支払いいただいた金額は領収書に記載されています。",
   "feeReserveBlocksSend": "お客様のMIDENはネットワーク手数料用に確保されています。送金するには、さらにMIDENを受け取る必要があります。",
   "notWorthClaiming": "Worth less than the network fee to claim",
+  "feeChargedPerClaim": "各クレームにはそれぞれ手数料がかかります。まとめて請求する場合は、手数料は1回分のみとなります。",
+  "feeChargedPerAsset": "請求された資産ごとに1回課金されます。",
   "insufficientFeeAsset": "ネットワーク手数料の支払いにMIDENが必要です。続行するには、MIDENを受け取ってください。",
   "amountMustBeLessThanBalance": "金額は残高より少なければなりません",
   "autoConsumeSettings": "Auto Consume MIDEN notes",

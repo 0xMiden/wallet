@@ -597,6 +597,8 @@
   "networkFeeEstimateNote": "Dokładna opłata zależy od transakcji i zazwyczaj jest niższa. Kwotę, którą zapłaciłeś, zobaczysz na potwierdzeniu.",
   "feeReserveBlocksSend": "Twoje MIDEN są zarezerwowane na opłatę sieciową. Otrzymaj więcej MIDEN, aby móc je wysłać.",
   "notWorthClaiming": "Worth less than the network fee to claim",
+  "feeChargedPerClaim": "Każde roszczenie wiąże się z własną opłatą. W przypadku zbiorczego zgłaszania roszczeń opłaca się tylko jedną.",
+  "feeChargedPerAsset": "Opłata pobierana jest raz za każdy odebrany składnik aktywów.",
   "insufficientFeeAsset": "Aby uiścić opłatę sieciową, potrzebujesz MIDEN. Odbierz trochę MIDEN, aby kontynuować.",
   "amountMustBeLessThanBalance": "Kwota musi być mniejsza niż saldo",
   "autoConsumeSettings": "Auto Consume MIDEN notes",

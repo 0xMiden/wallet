@@ -597,6 +597,8 @@
   "networkFeeEstimateNote": "Le montant exact des frais dépend de la transaction et est généralement inférieur. Le montant que vous avez payé figurera sur le reçu.",
   "feeReserveBlocksSend": "Votre MIDEN est réservé aux frais de réseau. Recevez davantage de MIDEN pour effectuer des envois.",
   "notWorthClaiming": "Worth less than the network fee to claim",
+  "feeChargedPerClaim": "Chaque réclamation donne lieu au paiement de ses propres frais. Les réclamer ensemble ne donne lieu qu’au paiement d’une seule fois.",
+  "feeChargedPerAsset": "Facturé une fois par actif réclamé.",
   "insufficientFeeAsset": "Vous avez besoin de MIDEN pour payer les frais de réseau. Recevez des MIDEN pour continuer.",
   "amountMustBeLessThanBalance": "Le montant doit être inférieur au solde",
   "autoConsumeSettings": "Auto Consume MIDEN notes",

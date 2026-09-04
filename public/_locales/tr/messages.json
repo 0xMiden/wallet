@@ -2696,6 +2696,14 @@
     "message": "Worth less than the network fee to claim",
     "englishSource": "Worth less than the network fee to claim"
   },
+  "feeChargedPerClaim": {
+    "message": "Her talep kendi ücretini öder. Bunları toplu olarak talep ettiğinizde tek bir ücret ödenir.",
+    "englishSource": "Each claim pays its own fee. Claiming them together pays one."
+  },
+  "feeChargedPerAsset": {
+    "message": "Talep edilen her varlık için bir kez ücret alınır.",
+    "englishSource": "Charged once per asset claimed."
+  },
   "insufficientFeeAsset": {
     "message": "Ağ ücretini ödemek için MIDEN'e ihtiyacınız var. Devam etmek için biraz MIDEN alın.",
     "englishSource": "You need MIDEN to pay the network fee. Receive some MIDEN to continue."

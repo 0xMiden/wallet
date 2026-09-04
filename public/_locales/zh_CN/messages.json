@@ -2696,6 +2696,14 @@
     "message": "Worth less than the network fee to claim",
     "englishSource": "Worth less than the network fee to claim"
   },
+  "feeChargedPerClaim": {
+    "message": "每笔申领均需支付相应手续费。若合并申领，则仅需支付一次。",
+    "englishSource": "Each claim pays its own fee. Claiming them together pays one."
+  },
+  "feeChargedPerAsset": {
+    "message": "每笔申领的资产仅收取一次费用。",
+    "englishSource": "Charged once per asset claimed."
+  },
   "insufficientFeeAsset": {
     "message": "您需要 MIDEN 来支付网络费用。请获取一定数量的 MIDEN 以继续操作。",
     "englishSource": "You need MIDEN to pay the network fee. Receive some MIDEN to continue."

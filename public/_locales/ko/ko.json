@@ -597,6 +597,8 @@
   "networkFeeEstimateNote": "정확한 수수료는 거래에 따라 다르며, 일반적으로 이보다 낮습니다. 지불한 금액은 영수증에서 확인하실 수 있습니다.",
   "feeReserveBlocksSend": "사용자의 MIDEN은 네트워크 수수료로 예약되어 있습니다. 더 많은 MIDEN을 수령하여 송금하십시오.",
   "notWorthClaiming": "Worth less than the network fee to claim",
+  "feeChargedPerClaim": "각 청구는 별도의 수수료를 지불합니다. 이를 한꺼번에 청구하면 수수료는 한 번만 지불됩니다.",
+  "feeChargedPerAsset": "청구한 자산당 1회 요금이 부과됩니다.",
   "insufficientFeeAsset": "네트워크 수수료를 지불하려면 MIDEN이 필요합니다. 계속 진행하려면 MIDEN을 일부 받으세요.",
   "amountMustBeLessThanBalance": "금액은 잔액보다 적어야 합니다.",
   "autoConsumeSettings": "Auto Consume MIDEN notes",

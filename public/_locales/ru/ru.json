@@ -597,6 +597,8 @@
   "networkFeeEstimateNote": "Точная комиссия зависит от транзакции и, как правило, ниже. Сумма, которую вы заплатили, будет указана в квитанции.",
   "feeReserveBlocksSend": "Ваши MIDEN зарезервированы для оплаты сетевой комиссии. Получите больше MIDEN, чтобы отправить.",
   "notWorthClaiming": "Worth less than the network fee to claim",
+  "feeChargedPerClaim": "За каждое требование взимается отдельная комиссия. При одновременном предъявлении нескольких требований комиссия взимается только одна.",
+  "feeChargedPerAsset": "Взимается один раз за каждый заявленный актив.",
   "insufficientFeeAsset": "Для оплаты сетевой комиссии вам понадобится MIDEN. Получите некоторое количество MIDEN, чтобы продолжить.",
   "amountMustBeLessThanBalance": "Сумма должна быть меньше остатка",
   "autoConsumeSettings": "Auto Consume MIDEN notes",

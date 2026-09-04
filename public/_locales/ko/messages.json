@@ -2696,6 +2696,14 @@
     "message": "Worth less than the network fee to claim",
     "englishSource": "Worth less than the network fee to claim"
   },
+  "feeChargedPerClaim": {
+    "message": "각 청구는 별도의 수수료를 지불합니다. 이를 한꺼번에 청구하면 수수료는 한 번만 지불됩니다.",
+    "englishSource": "Each claim pays its own fee. Claiming them together pays one."
+  },
+  "feeChargedPerAsset": {
+    "message": "청구한 자산당 1회 요금이 부과됩니다.",
+    "englishSource": "Charged once per asset claimed."
+  },
   "insufficientFeeAsset": {
     "message": "네트워크 수수료를 지불하려면 MIDEN이 필요합니다. 계속 진행하려면 MIDEN을 일부 받으세요.",
     "englishSource": "You need MIDEN to pay the network fee. Receive some MIDEN to continue."

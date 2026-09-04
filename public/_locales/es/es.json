@@ -597,6 +597,8 @@
   "networkFeeEstimateNote": "La comisión exacta depende de la transacción y suele ser inferior. En el recibo podrás ver lo que has pagado.",
   "feeReserveBlocksSend": "Tu MIDEN se reserva para la comisión de red. Recibe más MIDEN para poder enviar.",
   "notWorthClaiming": "Worth less than the network fee to claim",
+  "feeChargedPerClaim": "Cada reclamación paga su propia comisión. Si se reclaman juntas, solo se paga una.",
+  "feeChargedPerAsset": "Se cobra una vez por cada activo reclamado.",
   "insufficientFeeAsset": "Necesitas MIDEN para pagar la comisión de red. Obtén algo de MIDEN para continuar.",
   "amountMustBeLessThanBalance": "El importe debe ser inferior al saldo",
   "autoConsumeSettings": "Auto Consume MIDEN notes",

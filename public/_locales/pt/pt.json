@@ -597,6 +597,8 @@
   "networkFeeEstimateNote": "A taxa exata depende da transação e geralmente é menor. Você verá o valor pago no recibo.",
   "feeReserveBlocksSend": "Seu MIDEN é reservado para a taxa de rede. Receba mais MIDEN para enviar.",
   "notWorthClaiming": "Worth less than the network fee to claim",
+  "feeChargedPerClaim": "Cada reivindicação paga sua própria taxa. Reivindicá-las juntas implica o pagamento de uma única taxa.",
+  "feeChargedPerAsset": "Cobrado uma vez por ativo reivindicado.",
   "insufficientFeeAsset": "Você precisa de MIDEN para pagar a taxa de rede. Receba alguns MIDEN para continuar.",
   "amountMustBeLessThanBalance": "O valor deve ser inferior ao saldo",
   "autoConsumeSettings": "Auto Consume MIDEN notes",

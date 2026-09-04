@@ -2696,6 +2696,14 @@
     "message": "Worth less than the network fee to claim",
     "englishSource": "Worth less than the network fee to claim"
   },
+  "feeChargedPerClaim": {
+    "message": "Chaque réclamation donne lieu au paiement de ses propres frais. Les réclamer ensemble ne donne lieu qu’au paiement d’une seule fois.",
+    "englishSource": "Each claim pays its own fee. Claiming them together pays one."
+  },
+  "feeChargedPerAsset": {
+    "message": "Facturé une fois par actif réclamé.",
+    "englishSource": "Charged once per asset claimed."
+  },
   "insufficientFeeAsset": {
     "message": "Vous avez besoin de MIDEN pour payer les frais de réseau. Recevez des MIDEN pour continuer.",
     "englishSource": "You need MIDEN to pay the network fee. Receive some MIDEN to continue."

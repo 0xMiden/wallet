@@ -597,6 +597,8 @@
   "networkFeeEstimateNote": "Kesin ücret, işleme göre değişir ve genellikle daha düşüktür. Ödediğiniz tutarı makbuzda görebilirsiniz.",
   "feeReserveBlocksSend": "MIDEN'iniz ağ ücreti için ayrılmıştır. Göndermek için daha fazla MIDEN alın.",
   "notWorthClaiming": "Worth less than the network fee to claim",
+  "feeChargedPerClaim": "Her talep kendi ücretini öder. Bunları toplu olarak talep ettiğinizde tek bir ücret ödenir.",
+  "feeChargedPerAsset": "Talep edilen her varlık için bir kez ücret alınır.",
   "insufficientFeeAsset": "Ağ ücretini ödemek için MIDEN'e ihtiyacınız var. Devam etmek için biraz MIDEN alın.",
   "amountMustBeLessThanBalance": "Tutar, bakiyeden az olmalıdır",
   "autoConsumeSettings": "Auto Consume MIDEN notes",

@@ -597,6 +597,8 @@
   "networkFeeEstimateNote": "具体手续费取决于交易情况，通常会更低。您将在收据上看到实际支付的金额。",
   "feeReserveBlocksSend": "您的 MIDEN 将用于支付网络手续费。获得更多 MIDEN 即可进行转账。",
   "notWorthClaiming": "Worth less than the network fee to claim",
+  "feeChargedPerClaim": "每笔申领均需支付相应手续费。若合并申领，则仅需支付一次。",
+  "feeChargedPerAsset": "每笔申领的资产仅收取一次费用。",
   "insufficientFeeAsset": "您需要 MIDEN 来支付网络费用。请获取一定数量的 MIDEN 以继续操作。",
   "amountMustBeLessThanBalance": "金额必须小于余额",
   "autoConsumeSettings": "Auto Consume MIDEN notes",
