@@ -500,25 +500,12 @@ export class MidenCli {
     if (!this.chainChargesFees) {
       return;
     }
-    // One source or the other -- genesis funders locally, the chain's public faucet on a
-    // public chain. `sendNativeFundingNote` raises a source-specific error if neither exists.
+    // Only SENDS. These targets are the BROWSER wallets, which the CLI does not own and
+    // cannot consume for -- the wallet claims the note itself through auto-consume. (The
+    // faucet path in `createFaucet` is the opposite case: that account IS CLI-owned, so it
+    // consumes there, and the consumption doubles as its deploy.)
     await this.sendNativeFundingNote(accountId);
 
-    // The note is only spendable once committed, and `consume-notes` exits 0 having found
-    // nothing -- so poll the vault rather than trusting the exit code. Otherwise the failure
-    // resurfaces later as an unpayable fee, a long way from its cause.
-    let funded = false;
-    for (let attempt = 1; attempt <= 10 && !funded; attempt++) {
-      await this.sync();
-      await this.run(`consume-notes --account ${accountId} --force`, { timeoutMs: 180_000 });
-      funded = await this.holdsFeeAsset(accountId);
-      if (!funded) {
-        await new Promise(r => setTimeout(r, 3_000));
-      }
-    }
-    if (!funded) {
-      throw new Error(`${accountId} never received its fee funding; its vault still holds no native asset`);
-    }
     this.fundedForFees.add(accountId);
     await this.sync();
   }
