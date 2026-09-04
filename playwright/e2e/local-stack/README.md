@@ -13,7 +13,7 @@ those files currently say; when they disagree, the files win.
 |---|---|---|
 | `miden-node` / `miden-validator` / `miden-ntx-builder` / `miden-remote-prover` | built from **miden-client `v0.16.0-rc.1`** (`efebb6a7`) | `NODE_SRC_REPO` / `NODE_SRC_REF` in `versions.env` |
 | `note-transport-service` | `v0.5.0-rc.1` | `NOTE_TRANSPORT_REF` in `versions.env` |
-| `miden-client-cli` | `0.16.0-rc.5` (crates.io) | `package.json` `midenClientCliVersion` |
+| `miden-client-cli` | `0.16.0-rc.3` (rev `4fec7b22`) | `package.json` `midenClientCliVersion` / `midenClientCliGit.rev` |
 | `guardian` (Tier-2) | `v0.17.0-rc.3` | `GUARDIAN_IMAGE_TAG` in `versions.env` |
 
 > **No node image tag.** The published `ghcr.io/0xmiden/*` node images lag the node the SDK is
