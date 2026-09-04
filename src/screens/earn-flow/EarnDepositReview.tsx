@@ -181,7 +181,7 @@ const DepositProjection: FC<{ vault: EarnVault; amount: number }> = ({ vault, am
         <DetailRow label={t('earnEstimatedTime')} value={t('earnEstimatedTimeValue')} />
         {/* The deposit is a fee-paying Miden transaction: `completeEarnDepositTransaction`
             records the charge and EarnSuccess renders it on the very next screen. */}
-        {networkFee && <DetailRow label={t('networkFee')} value={t('networkFeeUpTo', { amount: networkFee })} />}
+        {networkFee && <DetailRow label={t('networkFeeMax')} value={networkFee} />}
       </div>
     </div>
   );

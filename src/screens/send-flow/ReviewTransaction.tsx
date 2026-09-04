@@ -424,13 +424,7 @@ export const ReviewTransaction: React.FC = () => {
               the transaction is proven, so this quotes the upper bound the wallet already reserves
               against — the same amount the amount step withheld from `Available`. Absent on a
               zero-fee chain and before discovery; see `useNetworkFeeEstimate`. */}
-          {networkFee && (
-            <ReviewRow
-              label={t('networkFee')}
-              value={t('networkFeeUpTo', { amount: networkFee })}
-              note={t('networkFeeEstimateNote')}
-            />
-          )}
+          {networkFee && <ReviewRow label={t('networkFeeMax')} value={networkFee} note={t('networkFeeEstimateNote')} />}
 
           {isBridge ? (
             <>

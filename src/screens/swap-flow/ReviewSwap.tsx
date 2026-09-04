@@ -138,13 +138,7 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
 
       {/* The solver spread below is a DIFFERENT cost; without this row the only fee word on
           the screen described the provider margin and read as the whole price. */}
-      {networkFee && (
-        <ReviewRow
-          label={t('networkFee')}
-          value={t('networkFeeUpTo', { amount: networkFee })}
-          note={t('networkFeeEstimateNote')}
-        />
-      )}
+      {networkFee && <ReviewRow label={t('networkFeeMax')} value={networkFee} note={t('networkFeeEstimateNote')} />}
       {rate && (
         <p className="pt-1 text-xs text-heading-gray">
           {t('swapSolverFeeNote', { percent: `${Math.round(SOLVER_MARGIN * 100)}%` })}
