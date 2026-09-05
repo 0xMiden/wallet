@@ -210,18 +210,10 @@ describe('lib/store/types', () => {
     });
 
     it('ExtensionSyncSlice supports null and populated claimable notes', () => {
-      const empty: ExtensionSyncSlice = {
-        extensionClaimableNotes: null,
-        extensionClaimingNoteIds: new Set<string>()
-      };
-      const populated: ExtensionSyncSlice = {
-        extensionClaimableNotes: [],
-        extensionClaimingNoteIds: new Set<string>(['n1'])
-      };
+      const empty: ExtensionSyncSlice = { extensionClaimableNotes: null };
+      const populated: ExtensionSyncSlice = { extensionClaimableNotes: [] };
       expect(empty.extensionClaimableNotes).toBeNull();
-      expect(empty.extensionClaimingNoteIds.size).toBe(0);
       expect(populated.extensionClaimableNotes).toEqual([]);
-      expect(populated.extensionClaimingNoteIds.has('n1')).toBe(true);
     });
   });
 
@@ -391,21 +383,13 @@ describe('lib/store/types', () => {
 
     it('ExtensionSyncActions declares claiming-note controls', () => {
       const actions = {
-        setExtensionClaimableNotes: jest.fn(),
-        addExtensionClaimingNoteId: jest.fn(),
-        removeExtensionClaimingNoteIds: jest.fn(),
-        clearExtensionClaimingNoteIds: jest.fn()
+        setExtensionClaimableNotes: jest.fn()
       } as unknown as ExtensionSyncActions;
-      expectAllFunctions(actions as unknown as Record<string, unknown>, [
-        'setExtensionClaimableNotes',
-        'addExtensionClaimingNoteId',
-        'removeExtensionClaimingNoteIds',
-        'clearExtensionClaimingNoteIds'
-      ]);
+      expectAllFunctions(actions as unknown as Record<string, unknown>, ['setExtensionClaimableNotes']);
 
       // Exercise a representative signature so the contract is not merely structural.
-      actions.addExtensionClaimingNoteId('n1');
-      expect(actions.addExtensionClaimingNoteId).toHaveBeenCalledWith('n1');
+      actions.setExtensionClaimableNotes([]);
+      expect(actions.setExtensionClaimableNotes).toHaveBeenCalledWith([]);
     });
 
     it('NoteToastActions declares toast controls', () => {

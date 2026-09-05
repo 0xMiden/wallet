@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { getUncompletedTransactions } from 'lib/miden/activity';
 import { getQuarantinedNoteIds } from 'lib/miden/note-quarantine';
@@ -11,6 +11,7 @@ import { isMidenFaucet } from '../assets';
 import { midenClientProxy } from '../back/miden-client-proxy';
 import { toNoteTypeString } from '../helpers';
 import { AssetMetadata, MIDEN_METADATA } from '../metadata';
+import { claimingTxIdByNoteId } from './claiming-tx-map';
 import { onNotesRefresh } from './note-refresh';
 import { isSyncFused, noteNonEvictionSyncFailure, noteSyncSuccess, noteSyncWatchdogEviction } from './sync-fuse';
 import type { ConsumableNoteDto } from '../sdk/consumable-notes';
@@ -40,6 +41,7 @@ type ParsedNote = {
   amountBaseUnits: string;
   senderAddress: string;
   isBeingClaimed: boolean;
+  claimingTxId?: string;
   type: NoteTypeEnum | 'unknown';
   swapOrder?: SwapOrderNoteMetadata;
   recallableAtMs?: number;
@@ -49,7 +51,7 @@ type ParsedNote = {
 
 function parseNotes(
   rawNotes: ConsumableNoteDto[],
-  notesBeingClaimed: Set<string>,
+  notesBeingClaimed: ReadonlyMap<string, string>,
   swapOrders: Map<string, SwapOrderNoteMetadata> = new Map()
 ): ParsedNote[] {
   const parsed: ParsedNote[] = [];
@@ -75,6 +77,7 @@ function parseNotes(
       amountBaseUnits: firstAsset.amount,
       senderAddress: note.senderAccountId ?? '',
       isBeingClaimed: notesBeingClaimed.has(noteId),
+      claimingTxId: notesBeingClaimed.get(noteId),
       type: kind,
       swapOrder: swapOrders.get(noteId),
       recallableAtMs: note.recallableAtMs
@@ -129,6 +132,7 @@ function attachMetadataToNotes(
       metadata: metadataByFaucetId[n.faucetId]!,
       senderAddress: n.senderAddress,
       isBeingClaimed: n.isBeingClaimed,
+      claimingTxId: n.claimingTxId,
       type: n.type,
       swapOrder: n.swapOrder,
       recallableAtMs: n.recallableAtMs
@@ -191,11 +195,7 @@ async function fetchNotesFromLocalClient(
   }
 
   const uncompletedTxs = await getUncompletedTransactions(publicAddress);
-  const notesBeingClaimed = new Set(
-    uncompletedTxs
-      .filter(tx => tx.type === 'consume')
-      .flatMap(tx => tx.noteIds ?? (tx.noteId != null ? [tx.noteId] : []))
-  );
+  const notesBeingClaimed = claimingTxIdByNoteId(uncompletedTxs);
 
   // Per-order PSWAP lineage inside classifySwapOrderNotes routes through the proxy
   // (issue #260, slice 7a); the caller lock still serializes the flag-OFF inline
@@ -245,7 +245,7 @@ async function fetchNotesFromLocalClient(
 
 function useExtensionClaimableNotes(publicAddress: string, enabled: boolean) {
   const extensionNotes = useWalletStore(s => s.extensionClaimableNotes);
-  const extensionClaimingNoteIds = useWalletStore(s => s.extensionClaimingNoteIds);
+  const [claimingTxIds, setClaimingTxIds] = useState<ReadonlyMap<string, string>>(new Map());
   const assetsMetadata = useWalletStore(s => s.assetsMetadata);
 
   // Poll chrome.storage.local for notes on mount + every 3s.
@@ -287,6 +287,35 @@ function useExtensionClaimableNotes(publicAddress: string, enabled: boolean) {
     return () => clearInterval(timer);
   }, [enabled, publicAddress]);
 
+  // The popup and the service worker share an origin, so they share this Dexie: an
+  // in-flight consume is visible here as a row, with no broadcast needed. Reading the
+  // row is what mobile and desktop already do, and unlike the broadcast it also covers
+  // a consume that FAILED -- that row leaves Queued/GeneratingTransaction, so the note
+  // becomes claimable again instead of staying hidden. Polled on the same 3s cadence as
+  // the sync read above so both gates move together.
+  useEffect(() => {
+    if (!enabled) return;
+    let cancelled = false;
+
+    const readClaiming = () => {
+      getUncompletedTransactions(publicAddress)
+        .then(txs => {
+          if (!cancelled) setClaimingTxIds(claimingTxIdByNoteId(txs));
+        })
+        .catch(() => {
+          // A failed read leaves the previous gate in place: better a stale gate for one
+          // tick than a Claim button that reappears under a live consume.
+        });
+    };
+
+    readClaiming();
+    const claimingTimer = setInterval(readClaiming, 3_000);
+    return () => {
+      cancelled = true;
+      clearInterval(claimingTimer);
+    };
+  }, [enabled, publicAddress]);
+
   // Map serialized notes to ConsumableNote with metadata
   const computedData = useMemo(() => {
     if (!enabled || extensionNotes === null) return undefined;
@@ -300,12 +329,13 @@ function useExtensionClaimableNotes(publicAddress: string, enabled: boolean) {
         amount: n.amountBaseUnits,
         metadata: (n.metadata as AssetMetadata) || assetsMetadata[n.faucetId],
         senderAddress: n.senderAddress,
-        isBeingClaimed: extensionClaimingNoteIds.has(n.id),
+        isBeingClaimed: claimingTxIds.has(n.id),
+        claimingTxId: claimingTxIds.get(n.id),
         type: (n.noteType as NoteTypeEnum | 'unknown') ?? 'unknown',
         swapOrder: n.swapOrder ? { ...n.swapOrder, autoConsume: n.swapOrder.autoConsume ?? true } : undefined,
         recallableAtMs: n.recallableAtMs
       }));
-  }, [enabled, extensionNotes, extensionClaimingNoteIds, assetsMetadata]);
+  }, [enabled, extensionNotes, claimingTxIds, assetsMetadata]);
 
   const mutate = useCallback(() => {
     // Trigger a SyncRequest to get fresh data

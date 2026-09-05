@@ -355,10 +355,11 @@ export function useClaimNotes(): ClaimNotesState {
           navigate(`/generating-transaction-full/${encodeURIComponent(batchTxId)}`);
         }
       } finally {
-        if (!isExtension()) {
-          setClaimingNoteIds(new Set());
-        }
-        // On extension, keep claimingNoteIds set — they'll be cleared when notes disappear from sync.
+        // The live consume row is the gate on every platform now (`claimingTxIdByNoteId`), and
+        // it exists from the moment the row is enqueued. This local set no longer has to be held
+        // open on extension to keep the button hidden -- and holding it was what made a FAILED
+        // batch claim unrecoverable, since nothing else ever cleared it.
+        setClaimingNoteIds(new Set());
       }
     },
     [

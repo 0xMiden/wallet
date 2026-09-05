@@ -8,10 +8,7 @@ import { resolveGuardianEndpoint } from 'lib/miden/guardian/account';
 import { GuardianRotationInProgressError } from 'lib/miden/guardian/rotation-in-progress';
 import * as Repo from 'lib/miden/repo';
 import { isNoteTransportConfigured } from 'lib/miden-chain/effective-endpoints';
-import { isExtension } from 'lib/platform';
 import { sanitizeGuardianUrl } from 'lib/settings/helpers';
-import { WalletMessageType } from 'lib/shared/types';
-import { getIntercom } from 'lib/store';
 import { WalletType } from 'screens/onboarding/types';
 
 import { queueNoteImport } from '../activity/notes';
@@ -188,7 +185,7 @@ export const initiateConsumeNotesTransaction = async (
     throw new Error('initiateConsumeNotesTransaction requires at least one note');
   }
 
-  const { committedId, queuedNoteIds } = await Repo.db.transaction('rw', Repo.transactions, async () => {
+  const { committedId } = await Repo.db.transaction('rw', Repo.transactions, async () => {
     const queueable: ConsumableNote[] = [];
     // Notes that have already lost a shared batch row and so must not join another.
     const isolate: ConsumableNote[] = [];
@@ -330,16 +327,6 @@ export const initiateConsumeNotesTransaction = async (
       queuedNoteIds: [...isolate, ...queueable].map(n => n.id)
     };
   });
-
-  // Only broadcast NoteClaimStarted for notes WE actually queued —
-  // duplicate broadcasts for the same note are a no-op but wasteful.
-  if (queuedNoteIds.length > 0 && isExtension()) {
-    for (const noteId of queuedNoteIds) {
-      getIntercom()
-        .request({ type: WalletMessageType.NoteClaimStarted, noteId })
-        .catch(() => {});
-    }
-  }
 
   return committedId;
 };

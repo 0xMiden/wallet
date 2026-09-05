@@ -251,7 +251,6 @@ export interface ExtensionSyncSlice {
   /** Claimable notes pushed from service worker (null = not yet received) */
   extensionClaimableNotes: SerializedConsumableNote[] | null;
   /** Note IDs being claimed (optimistic, cleared on each SyncCompleted) */
-  extensionClaimingNoteIds: Set<string>;
 }
 
 /**
@@ -259,10 +258,7 @@ export interface ExtensionSyncSlice {
  */
 export interface ExtensionSyncActions {
   setExtensionClaimableNotes: (notes: SerializedConsumableNote[]) => void;
-  addExtensionClaimingNoteId: (noteId: string) => void;
   /** Remove specific note IDs from the claiming set (e.g. those no longer consumable). */
-  removeExtensionClaimingNoteIds: (noteIds: string[]) => void;
-  clearExtensionClaimingNoteIds: () => void;
 }
 
 /**

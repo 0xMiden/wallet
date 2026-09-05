@@ -562,7 +562,10 @@ const DetailNoteRow: React.FC<DetailNoteRowProps> = ({
 }) => {
   const { t } = useTranslation();
   const tokenPrices = useWalletStore(s => s.tokenPrices);
-  const [isLoading, setIsLoading] = useState(note.isBeingClaimed || false);
+  // Purely "this row's own claim is in flight". The gated look for a note being claimed
+  // elsewhere arrives via `claimState`, derived from `note.isBeingClaimed` -- seeding it here
+  // too took a mount-time snapshot that never followed the note back to claimable.
+  const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
 
@@ -621,9 +624,11 @@ const DetailNoteRow: React.FC<DetailNoteRowProps> = ({
       setError(t('failedToClaimNote'));
       console.error('Error claiming note:', err);
     } finally {
-      if (!isExtension()) {
-        setIsLoading(false);
-      }
+      // Same reason as the batch set in `useClaimNotes`: `note.isBeingClaimed` now comes from
+      // the live consume row, so this row-local latch no longer has to stay on to keep the
+      // spinner up on extension. Latching it also survived the gate clearing, so the button
+      // stayed gone until the row was unmounted and remounted.
+      setIsLoading(false);
     }
   }, [account, isDelegatedProvingEnabled, note, t]);
 
@@ -677,6 +682,17 @@ const DetailNoteRow: React.FC<DetailNoteRowProps> = ({
             variant={ButtonVariant.Primary}
             onClick={handleClaim}
             title={isRetriable ? t('retry') : t('claim')}
+          />
+        ) : showSpinner && note.claimingTxId ? (
+          // A note being consumed keeps a labelled control instead of unmounting to a blank
+          // spacer, so the wait is legible -- and the control is a live destination: it opens
+          // that consume's own progress screen, which already renders per-step rows and timings.
+          <Button
+            data-testid="claiming-status-button"
+            className="w-auto shrink-0 px-4 h-8 text-sm leading-none"
+            variant={ButtonVariant.Secondary}
+            onClick={() => navigate(`/generating-transaction-full/${encodeURIComponent(note.claimingTxId!)}`)}
+            title={t('claiming')}
           />
         ) : (
           <div className="w-20 h-8 shrink-0" />
