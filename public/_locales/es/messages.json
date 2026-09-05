@@ -4460,5 +4460,103 @@
   "devEndpointResetConfirm": {
     "message": "Esto borrará definitivamente esta cartera, incluidas tus claves y tu historial de transacciones. Necesitarás tu frase de recuperación para restaurarla.",
     "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
+  },
+  "activityGroupedView": {
+    "message": "Agrupadas",
+    "englishSource": "Grouped"
+  },
+  "activityTimeView": {
+    "message": "Por tiempo",
+    "englishSource": "By time"
+  },
+  "activityViewByGroup": {
+    "message": "Agrupar por contacto o aplicación",
+    "englishSource": "Group by contact or app"
+  },
+  "activityViewByTime": {
+    "message": "Mostrar primero los más recientes",
+    "englishSource": "Show newest first"
+  },
+  "activityUnknownGroup": {
+    "message": "Otras actividades",
+    "englishSource": "Other activity"
+  },
+  "activityUnknownGroupSubtitle": {
+    "message": "No se registra ni el remitente ni el destinatario",
+    "englishSource": "No sender or recipient recorded"
+  },
+  "activityGroupPendingClaims": {
+    "message": "$count$ reclamar",
+    "englishSource": "$count$ to claim",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "activityGroupEmpty": {
+    "message": "Aún no hay actividades agrupadas",
+    "englishSource": "No grouped activity yet"
+  },
+  "activityGroupEmptyDescription": {
+    "message": "En cuanto realices una transacción con alguien o utilices una aplicación, aparecerá aquí.",
+    "englishSource": "Once you transact with someone or use an app, it shows up here."
+  },
+  "activityGroupNoTransactions": {
+    "message": "Aquí todavía no hay nada, solo algo que reclamar.",
+    "englishSource": "Nothing here yet — only something to claim."
+  },
+  "activityDapp": {
+    "message": "Aplicación",
+    "englishSource": "App"
+  },
+  "activityContact": {
+    "message": "Contacto",
+    "englishSource": "Contact"
+  },
+  "activityBridgeGroup": {
+    "message": "Puente",
+    "englishSource": "Bridge"
+  },
+  "activityWalletGroup": {
+    "message": "Cartera",
+    "englishSource": "Wallet"
+  },
+  "activityWalletGroupSubtitle": {
+    "message": "Seguridad y recuperación de la cuenta",
+    "englishSource": "Account security and recovery"
+  },
+  "activityActionWaiting": {
+    "message": "Te esperamos",
+    "englishSource": "Waiting for you"
+  },
+  "activityActionCount": {
+    "message": "$count$ en espera",
+    "englishSource": "$count$ waiting",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "activityFilterAll": {
+    "message": "Todo",
+    "englishSource": "All"
+  },
+  "activityFilterPeople": {
+    "message": "Personas",
+    "englishSource": "People"
+  },
+  "activityFilterApps": {
+    "message": "Aplicaciones",
+    "englishSource": "Apps"
+  },
+  "earn": {
+    "message": "Ganar",
+    "englishSource": "Earn"
+  },
+  "yesterday": {
+    "message": "Ayer",
+    "englishSource": "Yesterday"
   }
 }

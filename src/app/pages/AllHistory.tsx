@@ -3,7 +3,10 @@ import React, { FC, useEffect, useMemo, useRef, useState } from 'react';
 import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
+import { useActionableActivity } from 'app/hooks/useActionableActivity';
 import { Icon, IconName } from 'app/icons/v2';
+import { groupActivity } from 'app/templates/history/activity-grouping';
+import ActivityGroupList from 'app/templates/history/ActivityGroupList';
 import History from 'app/templates/history/History';
 import PendingNotesInfoDrawer from 'app/templates/PendingNotesInfoDrawer';
 import { DeadletteredNotesNotice } from 'components/DeadletteredNotesNotice';
@@ -11,7 +14,9 @@ import { SearchInput, TabHeader } from 'components/ui';
 import { reconcileAgglayerBridgedReceives } from 'lib/miden/activity';
 import { useAccount } from 'lib/miden/front';
 import { useClaimableNotes } from 'lib/miden/front/claimable-notes';
+import { useFilteredContacts } from 'lib/miden/front/use-filtered-contacts.hook';
 import { hapticLight, hapticSelection } from 'lib/mobile/haptics';
+import { setActivityView, useActivityView } from 'lib/settings/activity-view';
 import { navigate } from 'lib/woozie';
 
 type AllHistoryProps = {
@@ -29,6 +34,9 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<FilterId>('all');
   const [infoDrawerOpen, setInfoDrawerOpen] = useState(false);
+  const view = useActivityView();
+  const { allContacts } = useFilteredContacts();
+  const { actions } = useActionableActivity();
 
   useEffect(() => {
     let cancelled = false;
@@ -70,40 +78,76 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
     setFilter(id);
   };
 
+  // Persisted, not component state: opening a group unmounts this page, so a
+  // local flag would drop the user back into the time feed on return.
+  const toggleView = () => {
+    hapticSelection();
+    setActivityView(view === 'time' ? 'group' : 'time');
+  };
+
   return (
     <div className="flex-1 flex flex-col min-h-0 bg-app-bg">
-      <TabHeader title={t('activity')} />
+      <TabHeader
+        title={t('activity')}
+        actions={
+          <button
+            type="button"
+            data-testid="activity-view-toggle"
+            aria-pressed={view === 'group'}
+            aria-label={view === 'time' ? t('activityViewByGroup') : t('activityViewByTime')}
+            onClick={toggleView}
+            className="flex items-center justify-center w-9 h-9 rounded-full bg-gray-25 text-text-primary-token"
+          >
+            <Icon name={view === 'time' ? IconName.Users : IconName.Time} className="w-4 h-4" fill="currentColor" />
+          </button>
+        }
+      />
 
       {/* Notes the wallet gave up importing automatically (#788 follow-up) —
           possibly the only copy of the funds, so surfaced where the user looks
           for their incoming activity, with the manual drain the dead-letter
-          store's contract assumes. Renders nothing while the store is empty. */}
+          store's contract assumes. Renders nothing while the store is empty.
+          Shown in BOTH views: it is a fact about the account, not a lens on the
+          list, so switching to groups must not hide it. */}
       <DeadletteredNotesNotice className="shrink-0 mx-4 mt-3" />
 
-      <div className="shrink-0 px-4 py-3 flex items-center gap-2 overflow-x-auto no-scrollbar">
-        {filters.map(f => {
-          const isActive = f.id === filter;
-          return (
-            <button
-              key={f.id}
-              type="button"
-              aria-pressed={isActive}
-              onClick={() => handleFilterTap(f.id)}
-              className={classNames(
-                'px-6 py-3 rounded-full font-heading text-sm leading-[100%] font-medium transition-colors',
-                isActive
-                  ? 'bg-accent-primary text-pure-white font-semibold'
-                  : 'bg-white text-text-primary-token border border-rule-strong'
-              )}
-            >
-              {f.label}
-            </button>
-          );
-        })}
-      </div>
+      {/*
+        Sent / Received / Faucet describe a single transaction's direction, so
+        they only mean something against the chronological feed. A group is a
+        counterparty, not a direction — most groups hold both — so filtering the
+        group list by "Sent" would hide rows on a property they don't have.
+      */}
+      {view === 'time' && (
+        <div className="shrink-0 px-4 pt-3 flex items-center gap-2 overflow-x-auto no-scrollbar">
+          {filters.map(f => {
+            const isActive = f.id === filter;
+            return (
+              <button
+                key={f.id}
+                type="button"
+                aria-pressed={isActive}
+                onClick={() => handleFilterTap(f.id)}
+                className={classNames(
+                  'px-6 py-3 rounded-full font-heading text-sm leading-[100%] font-medium transition-colors',
+                  isActive
+                    ? 'bg-accent-primary text-pure-white font-semibold'
+                    : 'bg-white text-text-primary-token border border-rule-strong'
+                )}
+              >
+                {f.label}
+              </button>
+            );
+          })}
+        </div>
+      )}
 
-      <div className="shrink-0 px-4">
-        <SearchInput value={search} onChange={setSearch} placeholder={t('searchByNameOrSymbol')} />
+      {/*
+        Own vertical rhythm rather than inheriting the chip row's bottom padding —
+        that coupling left the field flush against the header rule the moment the
+        chips stopped rendering in grouped view.
+      */}
+      <div className="shrink-0 px-4 pt-3 pb-1">
+        <SearchInput size="sm" value={search} onChange={setSearch} placeholder={t('searchByNameOrSymbol')} />
       </div>
 
       {pendingNotesCount > 0 && (
@@ -156,7 +200,33 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
             centerEmptyState={true}
             scrollParentRef={scrollParentRef}
             searchQuery={search}
-            filter={filter}
+            // The chips are hidden in grouped view, so the filter must not
+            // apply there either — an invisible control silently hiding rows is
+            // worse than no control. The choice is kept, not reset, so
+            // toggling back to the feed restores what the user picked.
+            filter={view === 'time' ? filter : 'all'}
+            renderEntries={
+              view === 'group'
+                ? entries => (
+                    <ActivityGroupList
+                      groups={groupActivity(entries, {
+                        contacts: allContacts,
+                        protocolNames: {
+                          swap: t('swap'),
+                          earn: t('earn'),
+                          bridge: t('activityBridgeGroup'),
+                          faucet: t('faucetRequest')
+                        },
+                        // Not history entries: an unclaimed transfer has no
+                        // transaction, so an action can bring a group into
+                        // existence on its own.
+                        actions
+                      })}
+                      onOpenGroup={group => navigate(`/history/group/${encodeURIComponent(group.id)}`)}
+                    />
+                  )
+                : undefined
+            }
           />
         </div>
       </div>

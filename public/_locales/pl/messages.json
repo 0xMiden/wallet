@@ -4460,5 +4460,103 @@
   "devEndpointResetConfirm": {
     "message": "Spowoduje to trwałe usunięcie tego portfela, w tym kluczy i historii transakcji. Aby go przywrócić, potrzebna będzie fraza odzyskiwania.",
     "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
+  },
+  "activityGroupedView": {
+    "message": "Pogrupowane",
+    "englishSource": "Grouped"
+  },
+  "activityTimeView": {
+    "message": "Według czasu",
+    "englishSource": "By time"
+  },
+  "activityViewByGroup": {
+    "message": "Grupuj według kontaktu lub aplikacji",
+    "englishSource": "Group by contact or app"
+  },
+  "activityViewByTime": {
+    "message": "Pokaż najnowsze najpierw",
+    "englishSource": "Show newest first"
+  },
+  "activityUnknownGroup": {
+    "message": "Inne działania",
+    "englishSource": "Other activity"
+  },
+  "activityUnknownGroupSubtitle": {
+    "message": "Nie odnotowano nadawcy ani odbiorcy",
+    "englishSource": "No sender or recipient recorded"
+  },
+  "activityGroupPendingClaims": {
+    "message": "$count$ aby odebrać",
+    "englishSource": "$count$ to claim",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "activityGroupEmpty": {
+    "message": "Brak zgrupowanych działań",
+    "englishSource": "No grouped activity yet"
+  },
+  "activityGroupEmptyDescription": {
+    "message": "Gdy dokonasz transakcji z kimś lub skorzystasz z aplikacji, pojawi się to tutaj.",
+    "englishSource": "Once you transact with someone or use an app, it shows up here."
+  },
+  "activityGroupNoTransactions": {
+    "message": "Na razie tu nic nie ma — jest tylko coś do odebrania.",
+    "englishSource": "Nothing here yet — only something to claim."
+  },
+  "activityDapp": {
+    "message": "Aplikacja",
+    "englishSource": "App"
+  },
+  "activityContact": {
+    "message": "Kontakt",
+    "englishSource": "Contact"
+  },
+  "activityBridgeGroup": {
+    "message": "Most",
+    "englishSource": "Bridge"
+  },
+  "activityWalletGroup": {
+    "message": "Portfel",
+    "englishSource": "Wallet"
+  },
+  "activityWalletGroupSubtitle": {
+    "message": "Bezpieczeństwo konta i odzyskiwanie dostępu",
+    "englishSource": "Account security and recovery"
+  },
+  "activityActionWaiting": {
+    "message": "Czekamy na Ciebie",
+    "englishSource": "Waiting for you"
+  },
+  "activityActionCount": {
+    "message": "$count$ oczekiwanie",
+    "englishSource": "$count$ waiting",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "activityFilterAll": {
+    "message": "Wszystkie",
+    "englishSource": "All"
+  },
+  "activityFilterPeople": {
+    "message": "Ludzie",
+    "englishSource": "People"
+  },
+  "activityFilterApps": {
+    "message": "Aplikacje",
+    "englishSource": "Apps"
+  },
+  "earn": {
+    "message": "Zarabiaj",
+    "englishSource": "Earn"
+  },
+  "yesterday": {
+    "message": "Wczoraj",
+    "englishSource": "Yesterday"
   }
 }

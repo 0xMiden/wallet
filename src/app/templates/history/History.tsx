@@ -48,10 +48,28 @@ type HistoryProps = {
   tokenId?: string;
   searchQuery?: string;
   filter?: 'all' | 'sent' | 'received' | 'faucet';
+  /**
+   * Render the fetched entries yourself instead of the default chronological
+   * list. A render prop rather than a callback so the grouped Activity view can
+   * reuse this component's fetching, paging and filtering verbatim — one data
+   * path, two presentations — without a render-time side effect.
+   */
+  renderEntries?: (entries: IHistoryEntry[], state: { initialLoading: boolean }) => React.ReactNode;
 };
 
 const History = memo<HistoryProps>(
-  ({ address, className, numItems, scrollParentRef, fullHistory, centerEmptyState, tokenId, searchQuery, filter }) => {
+  ({
+    address,
+    className,
+    numItems,
+    scrollParentRef,
+    fullHistory,
+    centerEmptyState,
+    tokenId,
+    searchQuery,
+    filter,
+    renderEntries
+  }) => {
     const safeStateKey = useMemo(() => ['history', address, tokenId].join('_'), [address, tokenId]);
     const [isLoading, setIsLoading] = useState(false);
     const [hasMore, setHasMore] = useState(true);
@@ -212,6 +230,10 @@ const History = memo<HistoryProps>(
     if (numItems) {
       const maxIndex = Math.min(numItems, entries.length);
       entries = entries.slice(0, maxIndex);
+    }
+
+    if (renderEntries) {
+      return <>{renderEntries(entries ?? [], { initialLoading: transactionsLoading })}</>;
     }
 
     return (
