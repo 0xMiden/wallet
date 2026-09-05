@@ -132,7 +132,7 @@ const Welcome: FC = () => {
    * onboarding: every failure that is not Import+Guardian or hardware-only was
    * console.error'd and nothing else, so the screen looked idle and the button
    * looked dead. A wallet that cannot reach a compatible node fails here, and
-   * "nothing happened" is indistinguishable from "still working" (#810).
+   * "nothing happened" is indistinguishable from "still working".
    */
   const [registrationError, setRegistrationError] = useState<string | null>(null);
   // Tracks which protection screen the user came through; needed so ChooseGuardian
