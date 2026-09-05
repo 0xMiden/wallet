@@ -212,8 +212,14 @@ describe('useClaimableNotes (extension mode)', () => {
     // Better a stale gate for one tick than a Claim button that reappears under a live
     // consume: a failed read must not be read as "nothing is being claimed".
     _g.__cnTest.walletState.extensionClaimableNotes = [
-      { id: 'n1', faucetId: 'f1', amountBaseUnits: '100', senderAddress: 's1', noteType: 'public',
-        metadata: { decimals: 6, symbol: 'TOK', name: 'Token' } }
+      {
+        id: 'n1',
+        faucetId: 'f1',
+        amountBaseUnits: '100',
+        senderAddress: 's1',
+        noteType: 'public',
+        metadata: { decimals: 6, symbol: 'TOK', name: 'Token' }
+      }
     ];
     _g.__cnTest.uncompletedTxsError = true;
 
