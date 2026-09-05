@@ -4267,5 +4267,9 @@
   "devEndpointResetConfirm": {
     "message": "Isso apaga definitivamente esta carteira, incluindo suas chaves e seu histórico de transações. Você precisará da sua frase de recuperação para restaurá-la.",
     "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
+  },
+  "walletSetupDidNotComplete": {
+    "message": "Sua carteira foi criada, mas não concluiu a inicialização. Verifique sua conexão e tente novamente.",
+    "englishSource": "Your wallet was created but did not finish starting up. Check your connection and try again."
   }
 }

@@ -4267,5 +4267,9 @@
   "devEndpointResetConfirm": {
     "message": "Dadurch wird diese Wallet dauerhaft gelöscht, einschließlich Ihrer Schlüssel und Ihrer Transaktionshistorie. Um sie wiederherzustellen, benötigen Sie Ihre Wiederherstellungsphrase.",
     "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
+  },
+  "walletSetupDidNotComplete": {
+    "message": "Ihre Wallet wurde erstellt, der Startvorgang wurde jedoch nicht abgeschlossen. Überprüfen Sie Ihre Verbindung und versuchen Sie es erneut.",
+    "englishSource": "Your wallet was created but did not finish starting up. Check your connection and try again."
   }
 }
