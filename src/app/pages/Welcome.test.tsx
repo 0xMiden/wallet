@@ -661,10 +661,12 @@ describe('Welcome — confirmation / register', () => {
     expect(mockFlowProps.current.biometricError).toBe('Biometric authentication failed');
   });
 
-  it('throws inside register when the seed phrase is missing (neither catch branch)', async () => {
+  it('surfaces a create-path failure that matches neither dedicated branch (#810)', async () => {
     // Mobile create flow commits a password but no seed (passcode never ran),
     // so register() throws "Missing password or seed phrase" and the catch
-    // falls through both the guardian and hardware-only branches.
+    // falls through both the guardian and hardware-only branches. That used to
+    // mean NOTHING reached the screen: the spinner stopped, no message
+    // appeared, and the button looked dead.
     mockIsMobileFn.mockReturnValue(true);
     await renderWelcome();
     await dispatch({ id: 'choose-protection' }); // onboardingType = Create
@@ -676,6 +678,38 @@ describe('Welcome — confirmation / register', () => {
     expect(mockFlowProps.current.guardianLookupError).toBe(false);
     // navigation home never happened because register threw.
     expect(mockNavigate).not.toHaveBeenCalledWith('/');
+    // ...and the user is told why.
+    expect(mockFlowProps.current.recoveryError).toContain('Missing password or seed phrase');
+  });
+
+  it('reports the underlying message verbatim so a tester can report it', async () => {
+    // Onboarding fails on node/protocol mismatch, and the raw text is the only
+    // thing that says which. A friendly rewrite would erase the diagnosis.
+    mockRegisterWallet.mockRejectedValue(new Error('procedure with root digest 0xabc could not be found'));
+    await renderWelcome();
+    await dispatch({ id: 'setup-passcode-submit', payload: '123456' });
+    await dispatch({ id: 'confirmation' });
+    expect(mockFlowProps.current.recoveryError).toBe('procedure with root digest 0xabc could not be found');
+  });
+
+  it('describes a non-Error throw rather than rendering [object Object]', async () => {
+    mockRegisterWallet.mockRejectedValue('plain string boom');
+    await renderWelcome();
+    await dispatch({ id: 'setup-passcode-submit', payload: '123456' });
+    await dispatch({ id: 'confirmation' });
+    expect(mockFlowProps.current.recoveryError).toBe('plain string boom');
+  });
+
+  it('clears a previous failure when the user retries', async () => {
+    mockRegisterWallet.mockRejectedValueOnce(new Error('first boom'));
+    await renderWelcome();
+    await dispatch({ id: 'setup-passcode-submit', payload: '123456' });
+    await dispatch({ id: 'confirmation' });
+    expect(mockFlowProps.current.recoveryError).toBe('first boom');
+
+    mockFetchState.mockResolvedValue({ status: READY, accounts: [{}] });
+    await dispatch({ id: 'confirmation' });
+    expect(mockFlowProps.current.recoveryError).toBeNull();
   });
 });
 
@@ -711,7 +745,7 @@ describe('Welcome — waitForReadyState resilience', () => {
     }
   });
 
-  it('gives up after the maximum number of attempts and still navigates home', async () => {
+  it('stays put and explains itself when Ready never arrives (#810)', async () => {
     jest.useFakeTimers();
     try {
       // Never reaches Ready; also omits `accounts` to exercise the optional chain.
@@ -724,16 +758,21 @@ describe('Welcome — waitForReadyState resilience', () => {
       await act(async () => {
         pending = mockFlowProps.current.onAction({ id: 'confirmation' });
       });
-      // 10 attempts × 100ms backoff.
+      // 50 attempts × 100ms backoff.
       await act(async () => {
-        await jest.advanceTimersByTimeAsync(100 * 12);
+        await jest.advanceTimersByTimeAsync(100 * 55);
       });
       await act(async () => {
         await pending;
       });
 
-      expect(mockFetchState.mock.calls.length).toBeGreaterThanOrEqual(10);
-      expect(mockNavigate).toHaveBeenCalledWith('/');
+      expect(mockFetchState.mock.calls.length).toBeGreaterThanOrEqual(50);
+      // Navigating a not-ready wallet home sends `resolveRootView` straight back
+      // to Welcome, dropping the user at the start of onboarding with a wallet
+      // that may already exist. Stay, and say what happened.
+      expect(mockNavigate).not.toHaveBeenCalledWith('/');
+      expect(mockFlowProps.current.recoveryError).toBeTruthy();
+      expect(mockFlowProps.current.isLoading).toBe(false);
     } finally {
       jest.useRealTimers();
     }
@@ -942,6 +981,9 @@ describe('Welcome — side-panel handoff', () => {
     expect(mockNavigate).not.toHaveBeenCalledWith('/finish-side-panel');
     // confirmPhase reverted to 'failed' → confirmCreating is false again.
     expect(mockFlowProps.current.confirmCreating).toBe(false);
+    // The spinner stops either way; without a reason on screen the user has no
+    // cause to believe a second tap would do anything different.
+    expect(mockFlowProps.current.recoveryError).toBe('creation failed');
   });
 
   it('does not auto-create hardware-only wallets (deferred to a tap)', async () => {
