@@ -236,6 +236,14 @@ test.describe('Fee accounting', () => {
       // 4. RIGHT ACCOUNT, and exactly the recorded amount. This is the assertion the
       //    rest of the suite cannot make: the sender's NATIVE balance falls by the
       //    fee, while its TOKEN balance falls by the transfer, independently.
+      // `vaultBalance` is a single read of the wallet's Zustand store, and that store is fed by
+      // AutoSync on an interval -- it does not update synchronously when the send completes. Read
+      // straight after the send and the pre-fee balance is still there, so the delta is 0 and the
+      // assertion below fails claiming no fee was charged. Settle first: wait for the balance the
+      // recorded fee implies. A fee that is genuinely never charged, or charged in the wrong
+      // amount, still fails -- the wait times out and reports expected vs actual -- so this bounds
+      // the race without being able to mask the bug the assertion exists to catch.
+      await waitForVaultBalance(walletA.page, NATIVE, nativeBefore - feePaid, { timeoutMs: 120_000 });
       const nativeAfter = await vaultBalance(walletA.page, NATIVE);
       expect(
         nativeBefore - nativeAfter,
