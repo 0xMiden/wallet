@@ -29,6 +29,8 @@ export interface ConsumableNote {
   amount: string;
   senderAddress: string;
   isBeingClaimed: boolean;
+  /** When `isBeingClaimed`, the id of the consume transaction claiming it, for linking to its progress. */
+  claimingTxId?: string;
   type: NoteType | 'unknown';
   swapOrder?: SwapOrderNoteMetadata;
   /** Estimated epoch ms when the sender can reclaim this P2IDE note; absent for non-recallable notes. */

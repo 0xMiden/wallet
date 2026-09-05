@@ -26,7 +26,6 @@ _g.__cnTest = {
   lastFetchData: undefined as any,
   walletState: {
     extensionClaimableNotes: null as any,
-    extensionClaimingNoteIds: new Set<string>(),
     assetsMetadata: {} as Record<string, any>,
     setExtensionClaimableNotes: jest.fn(),
     setAssetsMetadata: jest.fn()
@@ -108,7 +107,10 @@ jest.mock('../back/miden-client-proxy', () => ({
 }));
 
 jest.mock('lib/miden/activity', () => ({
-  getUncompletedTransactions: async () => (globalThis as any).__cnTest.uncompletedTxs
+  getUncompletedTransactions: async () => {
+    if ((globalThis as any).__cnTest.uncompletedTxsError) throw new Error('dexie unavailable');
+    return (globalThis as any).__cnTest.uncompletedTxs;
+  }
 }));
 
 jest.mock('lib/miden/note-quarantine', () => ({
@@ -166,6 +168,7 @@ beforeEach(() => {
 describe('useClaimableNotes (extension mode)', () => {
   beforeEach(() => {
     _g.__cnTest.isExtension = true;
+    _g.__cnTest.uncompletedTxsError = false;
     (globalThis as any).chrome = {
       storage: {
         local: {
@@ -184,6 +187,71 @@ describe('useClaimableNotes (extension mode)', () => {
   it('returns isLoading when no notes have been received yet', () => {
     const { result } = renderHook(() => useClaimableNotes('pk-1'));
     expect(result.current.isLoading).toBe(true);
+  });
+
+  it('gates a note that has a live consume row, and points at that row', async () => {
+    _g.__cnTest.walletState.extensionClaimableNotes = [
+      {
+        id: 'n1',
+        faucetId: 'f1',
+        amountBaseUnits: '100',
+        senderAddress: 's1',
+        noteType: 'public',
+        metadata: { decimals: 6, symbol: 'TOK', name: 'Token' }
+      }
+    ];
+    _g.__cnTest.uncompletedTxs = [{ id: 'tx-9', type: 'consume', noteIds: ['n1'] }];
+
+    const { result } = renderHook(() => useClaimableNotes('pk-1'));
+
+    await waitFor(() => expect(result.current.data?.[0]?.isBeingClaimed).toBe(true));
+    expect(result.current.data?.[0]?.claimingTxId).toBe('tx-9');
+  });
+
+  it('keeps the previous gate when the consume-row read fails', async () => {
+    // Better a stale gate for one tick than a Claim button that reappears under a live
+    // consume: a failed read must not be read as "nothing is being claimed".
+    _g.__cnTest.walletState.extensionClaimableNotes = [
+      {
+        id: 'n1',
+        faucetId: 'f1',
+        amountBaseUnits: '100',
+        senderAddress: 's1',
+        noteType: 'public',
+        metadata: { decimals: 6, symbol: 'TOK', name: 'Token' }
+      }
+    ];
+    _g.__cnTest.uncompletedTxsError = true;
+
+    const { result } = renderHook(() => useClaimableNotes('pk-1'));
+
+    await waitFor(() => expect(result.current.data).toHaveLength(1));
+    expect(result.current.data?.[0]?.isBeingClaimed).toBe(false);
+    _g.__cnTest.uncompletedTxsError = false;
+  });
+
+  it('un-gates a note once no consume row is in flight for it', async () => {
+    // A row leaving Queued/GeneratingTransaction is reported by omission from
+    // `getUncompletedTransactions` -- and that includes a consume that FAILED. The broadcast
+    // gate this replaced had no path back from a failure: the note stays consumable, so the
+    // note-gone clear never fired and the Claim button did not return.
+    _g.__cnTest.walletState.extensionClaimableNotes = [
+      {
+        id: 'n1',
+        faucetId: 'f1',
+        amountBaseUnits: '100',
+        senderAddress: 's1',
+        noteType: 'public',
+        metadata: { decimals: 6, symbol: 'TOK', name: 'Token' }
+      }
+    ];
+    _g.__cnTest.uncompletedTxs = [];
+
+    const { result } = renderHook(() => useClaimableNotes('pk-1'));
+
+    await waitFor(() => expect(result.current.data).toHaveLength(1));
+    expect(result.current.data?.[0]?.isBeingClaimed).toBe(false);
+    expect(result.current.data?.[0]?.claimingTxId).toBeUndefined();
   });
 
   it('maps notes from the wallet store when present', () => {
