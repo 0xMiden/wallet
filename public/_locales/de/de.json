@@ -598,7 +598,7 @@
   "feeReserveBlocksSend": "Ihr MIDEN ist für die Netzwerkgebühr reserviert. Erhalten Sie mehr MIDEN, um Guthaben zu versenden.",
   "notWorthClaiming": "Worth less than the network fee to claim",
   "feeChargedPerClaim": "Für jeden Anspruch fällt eine eigene Gebühr an. Werden sie gemeinsam geltend gemacht, fällt nur eine Gebühr an.",
-  "feeChargedPerAsset": "Die Gebühr wird einmal pro beansprchter Anlage erhoben.",
+  "feeChargedPerAsset": "Die Gebühr wird einmal pro beanspruchter Anlage erhoben.",
   "insufficientFeeAsset": "Sie benötigen MIDEN, um die Netzwerkgebühr zu bezahlen. Erhalten Sie etwas MIDEN, um fortzufahren.",
   "amountMustBeLessThanBalance": "Der Betrag muss geringer sein als der Kontostand.",
   "autoConsumeSettings": "Auto Consume MIDEN notes",

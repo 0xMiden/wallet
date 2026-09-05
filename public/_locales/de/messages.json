@@ -2701,7 +2701,7 @@
     "englishSource": "Each claim pays its own fee. Claiming them together pays one."
   },
   "feeChargedPerAsset": {
-    "message": "Die Gebühr wird einmal pro beansprchter Anlage erhoben.",
+    "message": "Die Gebühr wird einmal pro beanspruchter Anlage erhoben.",
     "englishSource": "Charged once per asset claimed."
   },
   "insufficientFeeAsset": {

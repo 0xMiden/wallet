@@ -508,13 +508,18 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
   // Without this, an over-balance amount could reach Review with Confirm
   // still enabled.
   useEffect(() => {
+    // Checked BEFORE the empty-amount guard, deliberately. The fee comes out of this
+    // account's own vault, so with no native asset nothing is sendable -- and that is
+    // already true before the user types. Withholding it until an amount existed made them
+    // compose a whole send and only then learn it could never submit; swap and earn deposit
+    // both say so on mount, and this was the screen that did not.
+    if (hasNoFeeAsset(balanceData ?? [], nativeFaucetId, verificationBaseFee)) {
+      setError('amount', { type: 'manual', message: 'insufficientFeeAsset' });
+      return;
+    }
     if (!amount) return;
     if (!validations.amount.isValidSync(amount)) {
       setError('amount', { type: 'manual', message: 'invalidAmount' });
-    } else if (hasNoFeeAsset(balanceData ?? [], nativeFaucetId, verificationBaseFee)) {
-      // The fee is taken from this account's own vault, so with no native
-      // asset the transaction cannot succeed however small the amount.
-      setError('amount', { type: 'manual', message: 'insufficientFeeAsset' });
     } else if (token && parseFloat(amount) > spendableBalance) {
       // Between one base fee and the 30x reserve the whole native balance is held back,
       // so `Available` reads 0 and "amount must be less than balance" is true but useless:
