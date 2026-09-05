@@ -431,6 +431,16 @@ export class MidenCli {
    * the vault -- and, for an undeployed account, doubles as the deploy.
    */
   private async sendNativeFundingNote(target: string): Promise<string> {
+    // A chain with its own public faucet is the authority on its native asset. Genesis funder
+    // wallets exist only for a chain we genesised ourselves, and they are files on disk carrying no
+    // network tag -- so a devnet run on a machine that once ran localnet would otherwise spend
+    // localnet funders on devnet, where those accounts do not exist and every transfer fails.
+    const faucetApi = publicFaucetApiUrl(this.env.name);
+    if (faucetApi) {
+      await mintFromPublicFaucet(faucetApi, target);
+      return `public faucet ${faucetApi}`;
+    }
+
     const funders = await this.importFunders();
 
     if (funders.length > 0) {
@@ -466,18 +476,13 @@ export class MidenCli {
       );
     }
 
-    const faucetApi = publicFaucetApiUrl(this.env.name);
-    if (!faucetApi) {
-      throw new Error(
-        `This chain charges a transaction fee, so ${target} must hold the native asset before it can ` +
-          `transact, but ${this.env.name} has neither genesis funder wallets (looked in ` +
-          `${MidenCli.funderDir()}) nor a public faucet. Bring the local stack up with ` +
-          `MIDEN_TEST_NODE_VERIFICATION_BASE_FEE set, or point MIDEN_E2E_FUNDER_DIR at funded ` +
-          `wallet_N.mac files.`
-      );
-    }
-    await mintFromPublicFaucet(faucetApi, target);
-    return `public faucet ${faucetApi}`;
+    throw new Error(
+      `This chain charges a transaction fee, so ${target} must hold the native asset before it can ` +
+        `transact, but ${this.env.name} has neither genesis funder wallets (looked in ` +
+        `${MidenCli.funderDir()}) nor a public faucet. Bring the local stack up with ` +
+        `MIDEN_TEST_NODE_VERIFICATION_BASE_FEE set, or point MIDEN_E2E_FUNDER_DIR at funded ` +
+        `wallet_N.mac files.`
+    );
   }
 
   async fundAccountForFees(accountId: string): Promise<void> {
