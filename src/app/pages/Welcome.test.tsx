@@ -661,7 +661,7 @@ describe('Welcome — confirmation / register', () => {
     expect(mockFlowProps.current.biometricError).toBe('Biometric authentication failed');
   });
 
-  it('surfaces a create-path failure that matches neither dedicated branch (#810)', async () => {
+  it('surfaces a create-path failure that matches neither dedicated branch', async () => {
     // Mobile create flow commits a password but no seed (passcode never ran),
     // so register() throws "Missing password or seed phrase" and the catch
     // falls through both the guardian and hardware-only branches. That used to
@@ -745,7 +745,7 @@ describe('Welcome — waitForReadyState resilience', () => {
     }
   });
 
-  it('stays put and explains itself when Ready never arrives (#810)', async () => {
+  it('stays put and explains itself when Ready never arrives', async () => {
     jest.useFakeTimers();
     try {
       // Never reaches Ready; also omits `accounts` to exercise the optional chain.
