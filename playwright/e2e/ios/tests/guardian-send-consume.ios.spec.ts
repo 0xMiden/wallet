@@ -61,7 +61,7 @@ test.describe('Guardian account - consume + send', () => {
     await steps.step(
       'verify_balance_guardian_a',
       async () => {
-        const balance = await walletA.waitForBalanceAbove(0, 180_000, timeline);
+        const balance = await walletA.waitForBalanceAbove(0, 180_000, timeline, 'TST');
         expect(balance).toBeGreaterThan(0);
       },
       {
@@ -114,7 +114,7 @@ test.describe('Guardian account - consume + send', () => {
     await steps.step(
       'verify_receipt_wallet_b',
       async () => {
-        const balance = await walletB.waitForBalanceAbove(0, 180_000, timeline);
+        const balance = await walletB.waitForBalanceAbove(0, 180_000, timeline, 'TST');
         expect(balance).toBeGreaterThan(0);
       },
       {

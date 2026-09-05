@@ -495,7 +495,7 @@ export class IosWalletPage implements WalletPage {
    * Read balances from the Zustand store. Unlike Chrome, mobile has no
    * `chrome.storage.local` fallback — sync data lives only in the store.
    */
-  async getBalance(_tokenSymbol?: string): Promise<number> {
+  async getBalance(tokenSymbol?: string): Promise<number> {
     await this.navigateHome();
     await sleep(1_000);
     // Reads consumed balances from the Zustand store. useSyncTrigger updates
@@ -508,10 +508,16 @@ export class IosWalletPage implements WalletPage {
     // platforms auto-consume ONLY notes from the well-known MIDEN faucet;
     // E2E tests use a CUSTOM faucet, so iOS specs need to call
     // claimAllNotes() before waiting on a positive balance.
+    // `tokenSymbol` is honoured, and on a fee-charging chain it MATTERS: the wallet now also
+    // holds the native asset it was funded with, so an unfiltered total goes positive as soon
+    // as THAT lands. A spec that waits on it and then acts on the test token opened its send
+    // before the test token existed, and failed on a missing `send-token-<SYM>` row.
+    const wanted = tokenSymbol === undefined ? '' : tokenSymbol.toUpperCase();
     return this.cdp.eval<number>(
       `var s = window.__TEST_STORE__; ` +
         `if (!s) return 0; ` +
         `var st = s.getState(); ` +
+        `var want = ${JSON.stringify(wanted)}; ` +
         `var total = 0; ` +
         `var balances = st.balances || {}; ` +
         `for (var k in balances) { ` +
@@ -519,6 +525,10 @@ export class IosWalletPage implements WalletPage {
         `  if (!Array.isArray(list)) continue; ` +
         `  for (var i = 0; i < list.length; i++) { ` +
         `    var t = list[i]; ` +
+        `    if (want) { ` +
+        `      var sym = (t.metadata && t.metadata.symbol) ? String(t.metadata.symbol).toUpperCase() : ''; ` +
+        `      if (sym !== want) continue; ` +
+        `    } ` +
         `    var amt = parseFloat(String(t.amount != null ? t.amount : (t.balance != null ? t.balance : '0'))); ` +
         `    if (amt > 0) total += amt; ` +
         `  } ` +
