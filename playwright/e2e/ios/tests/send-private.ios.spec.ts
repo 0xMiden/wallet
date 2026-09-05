@@ -35,7 +35,7 @@ test.describe('Private Note Send', () => {
     });
 
     await steps.step('sync_wallet_a', async () => {
-      const balance = await walletA.waitForBalanceAbove(0, 120_000, timeline);
+      const balance = await walletA.waitForBalanceAbove(0, 120_000, timeline, 'TST');
       expect(balance).toBeGreaterThan(0);
     });
 
@@ -75,7 +75,7 @@ test.describe('Private Note Send', () => {
       async () => {
         // Private notes are delivered via the note transport layer.
         // Wallet B syncs and discovers the private note automatically.
-        const balance = await walletB.waitForBalanceAbove(0, 180_000, timeline);
+        const balance = await walletB.waitForBalanceAbove(0, 180_000, timeline, 'TST');
         expect(balance).toBeGreaterThan(0);
       },
       {
