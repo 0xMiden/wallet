@@ -31,16 +31,12 @@ name: E2E Blockchain
 # `workflow_dispatch` still takes a network argument for ad-hoc runs, so either
 # network can be exercised from either branch by hand.
 #
-# KNOWN (#797, mostly closed): devnet's 2026-08-27 re-genesis enabled transaction fees,
-# and for a week no released tooling could transact against it. That is fixed — the wallet
-# pays the fee on every path, and the harness funds its accounts from the chain's own
-# public faucet, which IS devnet's native fee-asset faucet. Chrome E2E, Chrome Guardian
-# and Mobile Guardian all pass against devnet and gate on push again.
-#
-# Mobile E2E remains off the push arm, for a DIFFERENT reason: send-public.ios fails on a
-# UI selector rather than anything fee-related (see the note on that job). Its gate still
-# carves out the neither-ran shape; the other three no longer do, so a missing run there
-# is a real bug again.
+# (#797, CLOSED) Devnet's 2026-08-27 re-genesis enabled transaction fees, and for a week no
+# released tooling could transact against it, so all four devnet suites were taken off the
+# push arm. All four are back: the wallet pays the fee on every path, and the harness funds
+# its accounts from the chain's own public faucet, which IS devnet's native fee-asset faucet.
+# Nothing here carves out a neither-ran shape any more -- a devnet suite that does not run is
+# a real bug again.
 
 on:
   push:
@@ -469,7 +465,8 @@ jobs:
     # genesis is transactable now that the harness funds accounts from the chain's own
     # public faucet, so a failure here is a real one.
     if: >-
-      ${{ github.event_name == 'workflow_dispatch' && (inputs.network == 'both' || inputs.network == 'devnet') }}
+      ${{ (github.event_name == 'push' && github.ref == 'refs/heads/next')
+      || (github.event_name == 'workflow_dispatch' && (inputs.network == 'both' || inputs.network == 'devnet')) }}
     # macos-26 matches build-mobile.yml — required for iOS 26 SDK symbols
     # used by dapp-browser's WKWebViewController. The -xlarge size is the
     # DEDICATED Apple-Silicon larger runner (2x vCPU/RAM, no noisy-neighbour
@@ -884,13 +881,6 @@ jobs:
             fi
           done
           if [[ "$ran" -eq 0 ]]; then
-            # QUARANTINE CARVE-OUT (#797) — same as the Chrome E2E gate.
-            DEVNET_QUARANTINED=true
-            if [[ "$DEVNET_QUARANTINED" == "true" ]]; then
-              echo "Mobile E2E: devnet suite is QUARANTINED (#797) — passing without it. This is a"
-              echo "known coverage gap on next, not a green suite."
-              exit 0
-            fi
             echo "Mobile E2E: neither network ran — check the branch gating on the jobs."
             exit 1
           fi
@@ -905,13 +895,10 @@ jobs:
   # gate) so a guardian outage never blocks the standard mobile gate.
   mobile-guardian-devnet:
     name: Mobile Guardian E2E (devnet)
-    # STILL QUARANTINED (#797) — but NOT for the original reason. Fee tooling works here:
-    # a devnet run of this suite now completes mint-and-balance, multi-account, multi-claim
-    # and send-private with zero funding failures and zero vault-shortfall assertions.
-    # What fails is send-public.ios, whose `send-token-TST` selector does not appear within
-    # 30s, and whose retries degrade into the app not reaching onboarding at all — a UI/
-    # simulator-stability problem, not a fee one. Kept off the push arm until that is fixed,
-    # so the other three suites can gate honestly. workflow_dispatch still runs it.
+    # Runs on push to next again (#797 closed): the last suite to come back. Its balance
+    # wait used to gate on the SUM of every asset, which a fee-charging chain made
+    # ambiguous -- the native funding balance landed first and the send opened before the
+    # test token existed. The wait names its token now.
     if: >-
       ${{ (github.event_name == 'push' && github.ref == 'refs/heads/next')
       || (github.event_name == 'workflow_dispatch' && (inputs.network == 'both' || inputs.network == 'devnet')) }}
