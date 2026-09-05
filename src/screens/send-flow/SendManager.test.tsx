@@ -782,6 +782,24 @@ describe('amount entry', () => {
     expect(screen.getByTestId('sa-valid')).toHaveTextContent('false');
   });
 
+  it('says so before any amount is typed, not after the send is composed', () => {
+    // The blocker used to wait for an amount, so a token-only holder filled in a recipient
+    // and an amount before learning nothing was sendable. Nothing about that verdict depends
+    // on the amount -- swap and earn deposit both say it on mount. Breaks if the check moves
+    // back below the empty-amount guard.
+    mockBaseFee = 10000;
+    useAllBalancesMock.mockReturnValue({
+      data: [
+        { tokenId: 'T1', metadata: { symbol: 'TKN', decimals: 2 }, balance: 50, fiatPrice: 1 },
+        { tokenId: 'MIDEN-ID', metadata: { symbol: 'MIDEN', decimals: 6 }, balance: 0, fiatPrice: 1 }
+      ]
+    });
+    renderAmountStep();
+    selectToken();
+
+    expect(screen.getByTestId('sa-error')).toHaveTextContent('insufficientFeeAsset');
+  });
+
   it('does not block on a chain that charges no fee', () => {
     mockBaseFee = 0;
     useAllBalancesMock.mockReturnValue({

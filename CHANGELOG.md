@@ -4,6 +4,8 @@
 
 ### Changes
 
+- [CHANGE][all] **Send says the account cannot pay a fee before you type an amount.** The check ran only once an amount existed, so someone holding tokens but no MIDEN picked a recipient, picked a token and typed a figure before learning nothing was sendable — a verdict that never depended on the amount. Swap and earn deposit already said so on mount; send now does too. The German translation of the per-asset fee line is also corrected (`beansprchter` → `beanspruchter`).
+
 - [CHANGE][ci] **All four devnet E2E suites gate on push again — #797 is closed.** Mobile E2E was the last one out, and its remaining failure was not about fees at all: the iOS balance wait summed every asset, so on a fee-charging chain it went positive on the native funding balance and the spec opened its send before the test token existed. With the wait scoped to its token, a devnet run passes 7/7 iOS specs. No gate carves out a neither-ran shape now, so a devnet suite that fails to run is a real bug rather than an expected silence.
 
 - [CHANGE][ci] **The iOS balance wait gates on the token the spec is about to use.** `getBalance` took a token symbol and ignored it, summing every asset instead. That was unambiguous while a test wallet held only the test token — but on a fee-charging chain it also holds the native asset it was funded with, and that lands FIRST because claiming it is what pays for everything else. So the wait went positive on the funding balance, the spec opened its send before the test token existed, and it failed on a missing `send-token-TST` row. The symbol is now honoured, and every iOS balance wait names TST.
