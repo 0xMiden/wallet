@@ -4267,5 +4267,9 @@
   "devEndpointResetConfirm": {
     "message": "Bu işlem, anahtarlarınız ve işlem geçmişiniz dahil olmak üzere bu cüzdanı kalıcı olarak siler. Cüzdanı geri yüklemek için kurtarma ifadesine ihtiyacınız olacak.",
     "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
+  },
+  "walletSetupDidNotComplete": {
+    "message": "Cüzdanınız oluşturuldu ancak başlatma işlemi tamamlanmadı. Bağlantınızı kontrol edin ve tekrar deneyin.",
+    "englishSource": "Your wallet was created but did not finish starting up. Check your connection and try again."
   }
 }
