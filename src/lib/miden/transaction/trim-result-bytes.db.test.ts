@@ -119,6 +119,23 @@ describe('trimCompletedResultBytes', () => {
     expect(RESULT_BYTES_RETENTION_MS).toBeGreaterThan(WAIT_FOR_TX_TIMEOUT);
   });
 
+  it('drains rows that share one completedAt second', async () => {
+    // Every other fixture here gives each row a distinct second (AGED + i), which production does
+    // not guarantee: completion writers stamp whole seconds, so ties are normal. A selection that
+    // resumed by timestamp would either skip the rest of an oversized equal-second bucket or
+    // re-read it forever; this pins that the pass drains a tie group.
+    const tied = Array.from({ length: TRIM_BATCH_SIZE + 20 }, (_, i) => ({
+      ...(row(i) as unknown as Record<string, unknown>),
+      completedAt: AGED
+    })) as unknown as ITransaction[];
+    await Repo.transactions.bulkPut(tied);
+
+    await pass();
+    await pass();
+
+    expect(await blobsLeft()).toBe(0);
+  });
+
   it('is throttled between passes', async () => {
     // Asserted under a load the UNGATED path has NOT already exhausted: with TRIM_BATCH_SIZE+50
     // rows the first pass leaves 50 behind, so an un-throttled second pass would take them and

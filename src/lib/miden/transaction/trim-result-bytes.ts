@@ -96,9 +96,14 @@ export const selectRowsToTrim = (rows: readonly ITransaction[], now: number): IT
 export const TRIM_BATCH_SIZE = 200;
 
 /**
- * Floor between passes. The reaper is called from both the processing loop and the sync tick, and
- * the sync tick is frequent — without this, every tick would walk up to `TRIM_BATCH_SIZE` indexed
- * rows to discover there is nothing to do.
+ * Floor between passes. The reaper is called from the processing loop and from both sync ticks,
+ * and those are frequent — without this, every tick would walk the index to discover there is
+ * nothing to do.
+ *
+ * It bounds the cadence WITHIN a realm's lifetime, not absolutely: `lastTrimAt` is module state,
+ * and Chrome destroys the extension service worker when idle, so a fresh worker starts at 0 and
+ * pays a pass on its first sync. That is the reason the scan must stay out of the write
+ * transaction rather than merely being rate-limited.
  */
 export const TRIM_MIN_INTERVAL_MS = 5 * 60 * 1000;
 
@@ -139,16 +144,32 @@ export const trimCompletedResultBytes = async (now: number = Date.now()): Promis
 const runTrimPass = async (now: number): Promise<number> => {
   const cutoffSeconds = Math.floor((now - RESULT_BYTES_RETENTION_MS) / 1000);
 
-  let trimmed = 0;
-  await Repo.transactions
+  // Two steps, and the split is the point: the SELECT runs in its own readonly transaction, and
+  // only the chosen ids are carried into the write.
+  //
+  // `.modify()` alone opens ONE readwrite transaction and materializes the range inside it, and
+  // because `.filter()` forces the cursor to load values, that scan deserializes every row it
+  // walks — including the ~237 KB blobs of rows it will skip — while holding a write lock on
+  // `transactions`. The processing loop awaits this pass before picking up queued work, so a long
+  // scan delayed the wallet's own transactions.
+  const ids = await Repo.transactions
     .where('completedAt')
     .below(cutoffSeconds)
     .filter(tx => isTrimmable(tx, cutoffSeconds))
     .limit(TRIM_BATCH_SIZE)
+    .primaryKeys();
+
+  if (ids.length === 0) return 0;
+
+  let trimmed = 0;
+  await Repo.transactions
+    .where('id')
+    .anyOf(ids)
     .modify((tx, ref) => {
+      // Re-checked INSIDE the write: the select above ran in a different transaction, so a
+      // concurrent writer may have touched the row since. This is also what keeps passes in two
+      // realms safe against each other — each keeps its own `lastTrimAt`, so they do not coalesce.
       // `false`, not a bare return — dexie re-puts an unchanged deep clone for any other value.
-      // The filter above already selected this row, outside the write transaction; this is the
-      // re-check that makes the decision inside it.
       if (!isTrimmable(tx, cutoffSeconds)) return false;
       // Delete rather than assign undefined: dexie treats an assigned `undefined` as "no change"
       // in `modify`, so the blob would survive.
@@ -156,5 +177,6 @@ const runTrimPass = async (now: number): Promise<number> => {
       trimmed++;
       return undefined;
     });
+
   return trimmed;
 };
