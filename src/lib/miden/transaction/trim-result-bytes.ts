@@ -94,52 +94,75 @@ const isTrimmable = (tx: ITransaction, cutoffSeconds: number): boolean => {
 export const TRIM_BATCH_SIZE = 200;
 
 /**
- * Floor between passes. The reaper is called from the processing loop and from both sync ticks,
- * and those are frequent — without this, every tick would walk the index to discover there is
- * nothing to do.
+ * Floor between passes once the range is EXHAUSTED. A pass that stopped at a cap does not take it:
+ * there is more to do, so the next caller continues the drain rather than waiting this out.
  *
- * It bounds the cadence WITHIN a realm's lifetime, not absolutely: `lastTrimAt` is module state,
- * and Chrome destroys the extension service worker when idle, so a fresh worker starts at 0 and
- * pays a pass on its first sync. That is the reason the scan must stay out of the write
- * transaction rather than merely being rate-limited.
+ * It bounds the cadence within a realm's lifetime, not absolutely: the deadline below is module
+ * state, and Chrome destroys the extension service worker when idle, so a fresh worker starts at 0
+ * and pays a pass on its first sync.
  */
 export const TRIM_MIN_INTERVAL_MS = 5 * 60 * 1000;
 
-let lastTrimAt = 0;
+/**
+ * Floor after a FAILED pass — shorter, because a transient failure should be retried soon. Without
+ * it a persistently failing store (an over-quota wallet, which is exactly this module's
+ * population) would re-run the whole value-loading select at each caller's own cadence, ~3 s.
+ */
+export const TRIM_FAILURE_RETRY_MS = 30 * 1000;
+
+/**
+ * The earliest `now` at which another pass may start. ONE variable, so each outcome is one
+ * assignment and there is no back-dated arithmetic between two floors.
+ */
+let nextTrimAllowedAt = 0;
+
 /**
  * The pass currently running, so overlapping callers coalesce onto it instead of starting a second
- * sweep. There are three: `generateTransactionsLoop` awaits this, while the extension sync tick and
- * the mobile/desktop idle tick fire it and forget. Stamping `lastTrimAt` up front used to serialize
- * them as a side effect — but that also meant a FAILED pass burned the whole five-minute window, so
- * the stamp moved to the success path and the coalescing had to become explicit. Mirrors the
- * in-flight sync coalescing in `sync-manager.ts`.
+ * sweep. Both sync drivers fire it and forget, so without this the extension alarm and a UI tick
+ * could run two passes at once. Mirrors the in-flight sync coalescing in `sync-manager.ts`.
  */
 let inFlight: Promise<number> | null = null;
 
 /** Test seam: the throttle is module state, so a suite must be able to rewind it. */
 export const __resetTrimThrottleForTests = () => {
-  lastTrimAt = 0;
+  nextTrimAllowedAt = 0;
   inFlight = null;
 };
 
 export const trimCompletedResultBytes = async (now: number = Date.now()): Promise<number> => {
   if (inFlight) return inFlight;
-  if (now - lastTrimAt < TRIM_MIN_INTERVAL_MS) return 0;
+  if (now < nextTrimAllowedAt) return 0;
 
   const pass = runTrimPass(now);
-  inFlight = pass;
+  // The derived promise is what a concurrent caller adopts, so it must carry the rejection — but
+  // when nobody adopts it, an unattached rejected promise is an unhandled rejection. The `catch`
+  // below only marks it handled; the real handling is this function's own try/catch, and an
+  // adopting caller still sees the rejection through its own await.
+  inFlight = pass.then(r => r.trimmed);
+  inFlight.catch(() => {});
   try {
-    const trimmed = await pass;
-    // Stamped only once the write has settled: a transient failure must be retried on the next
-    // lap, not silently deferred for five minutes.
-    lastTrimAt = now;
+    const { trimmed, exhausted } = await pass;
+    // Exhaustion is REPORTED by the pass, never inferred from the row count: with a byte cap on
+    // the write, a short pass can also mean "stopped early while rows remain", and treating that
+    // as idle would park the rest of a backlog for the full interval.
+    if (exhausted) nextTrimAllowedAt = now + TRIM_MIN_INTERVAL_MS;
     return trimmed;
+  } catch (err) {
+    // A failure must not be free to retry at the callers' cadence, nor burn the whole interval.
+    nextTrimAllowedAt = now + TRIM_FAILURE_RETRY_MS;
+    throw err;
   } finally {
     inFlight = null;
   }
 };
 
-const runTrimPass = async (now: number): Promise<number> => {
+interface TrimPassResult {
+  trimmed: number;
+  /** True only when the select reached the end of the range — not when it stopped at a cap. */
+  exhausted: boolean;
+}
+
+const runTrimPass = async (now: number): Promise<TrimPassResult> => {
   const cutoffSeconds = Math.floor((now - RESULT_BYTES_RETENTION_MS) / 1000);
 
   // Two steps, and the split is the point: the SELECT runs in its own readonly transaction, and
@@ -157,7 +180,9 @@ const runTrimPass = async (now: number): Promise<number> => {
     .limit(TRIM_BATCH_SIZE)
     .primaryKeys();
 
-  if (ids.length === 0) return 0;
+  // Fewer ids than the cap means the cursor reached the end of the range.
+  const exhausted = ids.length < TRIM_BATCH_SIZE;
+  if (ids.length === 0) return { trimmed: 0, exhausted: true };
 
   let trimmed = 0;
   await Repo.transactions
@@ -176,5 +201,5 @@ const runTrimPass = async (now: number): Promise<number> => {
       return undefined;
     });
 
-  return trimmed;
+  return { trimmed, exhausted };
 };

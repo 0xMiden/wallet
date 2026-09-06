@@ -13,6 +13,7 @@ import {
   __resetTrimThrottleForTests,
   RESULT_BYTES_RETENTION_MS,
   TRIM_BATCH_SIZE,
+  TRIM_FAILURE_RETRY_MS,
   trimCompletedResultBytes,
   WAIT_FOR_TX_TIMEOUT
 } from './trim-result-bytes';
@@ -170,49 +171,48 @@ describe('trimCompletedResultBytes', () => {
     expect((await Repo.transactions.get('one-older'))?.resultBytes).toBeUndefined();
   });
 
-  it('is throttled between passes', async () => {
-    // Asserted under a load the UNGATED path has NOT already exhausted: with TRIM_BATCH_SIZE+50
-    // rows the first pass leaves 50 behind, so an un-throttled second pass would take them and
-    // both assertions would fail. The previous shape seeded 10 rows, which the first pass drained
-    // completely — after which a second pass returns 0 whether or not the throttle exists.
-    // Asserting store state as well as the return value matters for the same reason: 0 is also
-    // what "nothing left to do" looks like.
+  it('throttles only after the range is exhausted', async () => {
+    // A SHORT pass means nothing is left, so the floor applies. Asserted under a load the ungated
+    // path has not already drained — without the throttle the second call would take the other 50.
     const n = TRIM_BATCH_SIZE + 50;
     await Repo.transactions.bulkPut(Array.from({ length: n }, (_, i) => row(i)));
+    const t0 = Date.now();
 
     __resetTrimThrottleForTests();
-    expect(await trimCompletedResultBytes()).toBe(TRIM_BATCH_SIZE);
-
-    // no reset: the immediate second call must not run a pass
-    expect(await trimCompletedResultBytes()).toBe(0);
-    expect(await blobsLeft()).toBe(50);
-  });
-});
-
-describe('trimCompletedResultBytes throttle and single-flight', () => {
-  it('coalesces two overlapping callers onto one pass', async () => {
-    // Not merely "the second returns 0": that is what a serialising throttle does. Both callers
-    // must see the SAME pass, so both observe its count.
-    await Repo.transactions.bulkPut(Array.from({ length: 10 }, (_, i) => row(i)));
-    __resetTrimThrottleForTests();
-
-    const [a, b] = await Promise.all([trimCompletedResultBytes(), trimCompletedResultBytes()]);
-
-    expect([a, b]).toEqual([10, 10]);
+    expect(await trimCompletedResultBytes(t0)).toBe(TRIM_BATCH_SIZE); // full batch: no stamp
+    expect(await trimCompletedResultBytes(t0)).toBe(50); // continues at the SAME now
+    expect(await trimCompletedResultBytes(t0)).toBe(0); // exhausted: now throttled
     expect(await blobsLeft()).toBe(0);
   });
 
-  it('does not burn the window when a pass fails', async () => {
-    await Repo.transactions.bulkPut(Array.from({ length: 5 }, (_, i) => row(i)));
+  it('does not park a backlog behind the interval after a full batch', async () => {
+    // The drain rate is the point: stamping after a full batch made a 456-row backlog take one
+    // batch per five minutes.
+    await Repo.transactions.bulkPut(Array.from({ length: TRIM_BATCH_SIZE + 10 }, (_, i) => row(i)));
+    const t0 = Date.now();
+
     __resetTrimThrottleForTests();
-    const spy = jest.spyOn(Repo.transactions, 'where').mockImplementationOnce(() => {
+    await trimCompletedResultBytes(t0);
+
+    expect(await trimCompletedResultBytes(t0)).toBe(10);
+  });
+
+  it('backs a failed pass off for the retry floor, not for the full interval', async () => {
+    // The failure must be PERSISTENT: with a single throw the retry succeeds on a short pass, and
+    // that success stamps the ordinary floor — which passes even with no failure throttle at all.
+    await Repo.transactions.bulkPut(Array.from({ length: 5 }, (_, i) => row(i)));
+    const t0 = Date.now();
+    __resetTrimThrottleForTests();
+    const spy = jest.spyOn(Repo.transactions, 'where').mockImplementation(() => {
       throw new Error('indexeddb unavailable');
     });
 
-    await expect(trimCompletedResultBytes()).rejects.toThrow('indexeddb unavailable');
-    spy.mockRestore();
+    await expect(trimCompletedResultBytes(t0)).rejects.toThrow('indexeddb unavailable');
+    // still failing, still inside the retry floor: must not reach the store again
+    await expect(trimCompletedResultBytes(t0 + TRIM_FAILURE_RETRY_MS - 1)).resolves.toBe(0);
 
-    // No reset: a pre-stamped throttle would swallow this retry and return 0.
-    expect(await trimCompletedResultBytes()).toBe(5);
+    spy.mockRestore();
+    // at the retry boundary it runs again
+    expect(await trimCompletedResultBytes(t0 + TRIM_FAILURE_RETRY_MS)).toBe(5);
   });
 });
