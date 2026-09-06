@@ -113,7 +113,7 @@ describe('trimCompletedResultBytes', () => {
     expect(await blobsLeft()).toBe(0);
   });
 
-  it('keeps the retention window longer than the awaiting caller\'s own timeout', () => {
+  it("keeps the retention window longer than the awaiting caller's own timeout", () => {
     // The inequality is what lets the reaper delete resultBytes without racing that read. Against
     // the real exported constants, so shortening either one fails here.
     expect(RESULT_BYTES_RETENTION_MS).toBeGreaterThan(WAIT_FOR_TX_TIMEOUT);

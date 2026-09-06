@@ -67,7 +67,6 @@ const isTrimmable = (tx: ITransaction, cutoffSeconds: number): boolean => {
   return tx.completedAt != null && tx.completedAt < cutoffSeconds;
 };
 
-
 /**
  * Releases `resultBytes` on every eligible row. Returns how many rows were actually trimmed —
  * counted here rather than taken from `modify`'s return, which is dexie's SCANNED-key count. With
