@@ -79,6 +79,7 @@ function DrawerContent({
   hideHandle = true,
   onPointerDownOutside,
   forceMount,
+  style,
   ...props
 }: DrawerContentProps) {
   const { open } = useContext(DrawerContext);
@@ -87,7 +88,9 @@ function DrawerContent({
   // user makes at the control it is uncovering -- and a tap landing back on the sheet could
   // re-pick a row that is already leaving. Once dismissed it is a purely visual artifact, so it
   // stops taking pointer events. Not a `className`: callers override `overlayClassName` and
-  // `className` freely, and this must not be something a caller can accidentally style away.
+  // `className` freely, and this must not be something a caller can accidentally style away --
+  // hence the guard is spread LAST over any caller `style`, which would otherwise clobber it via
+  // the trailing `{...props}`.
   const inertWhileClosing = open ? undefined : ({ pointerEvents: 'none' } as const);
 
   return (
@@ -100,7 +103,7 @@ function DrawerContent({
         data-slot="drawer-content"
         aria-describedby={undefined}
         forceMount={forceMount}
-        style={inertWhileClosing}
+        style={{ ...style, ...inertWhileClosing }}
         className={cn(
           // pb: the sheet is fixed to the viewport bottom, so body's safe-area /
           // keyboard padding (mobile.html) doesn't reach it — pad past the

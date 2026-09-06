@@ -61,5 +61,10 @@ describe('Drawer', () => {
     const closingContent = screen.getByRole('dialog', { name: 'Pick a token' });
     expect(closingContent.style.pointerEvents).toBe('none');
     expect(closingContent.getAttribute('data-state')).toBe('closed');
+
+    // The overlay matters more than the sheet: it is the `fixed inset-0` layer actually covering
+    // the button being tapped.
+    const overlay = document.querySelector('[data-vaul-overlay]') as HTMLElement | null;
+    expect(overlay?.style.pointerEvents).toBe('none');
   });
 });
