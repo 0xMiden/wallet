@@ -36,6 +36,7 @@ import { reconcileSwapOrderNotes } from '../swap/settlement';
 import { getUncompletedTransactions } from '../transaction/get';
 import { initiateConsumeNotesTransaction, initiateConsumeTransaction } from '../transaction/initiate';
 import { sweepNoteDeliveries } from '../transaction/note-delivery-sweep';
+import { trimCompletedResultBytes } from '../transaction/trim-result-bytes';
 import { ConsumableNote, NoteTypeEnum } from '../types';
 
 // `init_vault` is the ESM module factory for `./vault`, injected by Vite's
@@ -248,6 +249,10 @@ async function runSync(force: boolean): Promise<void> {
       // don't touch `prover` — that's a separate service with separate
       // health and is owned by withProverFallback.
       clearReachabilityIssues();
+      // Reclaim finished transactions' result blobs. Here as well as in the processing loop
+      // because the loop is work-driven: a wallet used heavily and then left idle would otherwise
+      // keep everything its last active period wrote. Self-throttled, so this tick is cheap.
+      void trimCompletedResultBytes().catch(err => console.warn('[sync] resultBytes trim failed:', err));
     } catch (err) {
       consecutiveSyncFailures++;
       // The FUSE (#777), same rule and constants as the mobile/desktop loop, because

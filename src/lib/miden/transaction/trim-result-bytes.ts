@@ -44,33 +44,64 @@ const stillNeedsResult = (tx: ITransaction): boolean => {
  * `completedAt`/`initiatedAt` are whole SECONDS (see the sort in `get.ts`), while `now` is
  * epoch ms — hence the divide rather than a bare subtraction.
  */
+const isTrimmable = (tx: ITransaction, cutoffSeconds: number): boolean => {
+  if (tx.status !== ITransactionStatus.Completed) return false;
+  if (!tx.resultBytes) return false;
+  if (stillNeedsResult(tx)) return false;
+  // A row completed by a path that never stamped `completedAt` still ages out, via the
+  // timestamp every row has.
+  const finishedAt = tx.completedAt ?? tx.initiatedAt;
+  return finishedAt != null && finishedAt <= cutoffSeconds;
+};
+
 export const selectRowsToTrim = (rows: readonly ITransaction[], now: number): ITransaction[] => {
   const cutoffSeconds = Math.floor((now - RESULT_BYTES_RETENTION_MS) / 1000);
-
-  return rows.filter(tx => {
-    if (tx.status !== ITransactionStatus.Completed) return false;
-    if (!tx.resultBytes) return false;
-    if (stillNeedsResult(tx)) return false;
-    // A row completed by a path that never stamped `completedAt` still ages out, via the
-    // timestamp every row has.
-    const finishedAt = tx.completedAt ?? tx.initiatedAt;
-    return finishedAt != null && finishedAt <= cutoffSeconds;
-  });
+  return rows.filter(tx => isTrimmable(tx, cutoffSeconds));
 };
 
 /**
  * Releases `resultBytes` on every eligible row. Returns how many rows were trimmed.
  *
- * Runs in the processing loop's reaper block, which is work-driven — it only turns when there is
- * a transaction to process. That is the right cadence here rather than a defect: rows accumulate
- * only through activity, so trimming rides the same activity that creates them, and an idle
- * wallet neither grows nor needs sweeping.
+ * `.modify()` rather than read-then-`bulkPut`: the row is re-read inside the write transaction and
+ * only this one field is touched. A blind put of a snapshot taken before the write would clobber a
+ * concurrent update — `sweepNoteDeliveries` runs outside the processing loop's lock and stamps
+ * `noteDelivery`/`relayAttempts` on exactly these Completed rows, so a put would revert a delivered
+ * private note to "pending" and spend another relay attempt on it.
+ *
+ * Bounded per pass so a first sweep over a large store cannot hold the write transaction for long;
+ * whatever it does not reach is picked up on the next lap. Driven off the `completedAt` index so
+ * the scan does not walk the whole table.
  */
-export const trimCompletedResultBytes = async (now: number = Date.now()): Promise<number> => {
-  const completed = await Repo.transactions.filter(rec => rec.status === ITransactionStatus.Completed).toArray();
-  const stale = selectRowsToTrim(completed, now);
-  if (stale.length === 0) return 0;
+export const TRIM_BATCH_SIZE = 200;
 
-  await Repo.transactions.bulkPut(stale.map(tx => ({ ...tx, resultBytes: undefined })));
-  return stale.length;
+/**
+ * Floor between passes. The reaper is called from both the processing loop and the sync tick, and
+ * the sync tick is frequent — without this, every tick would walk up to `TRIM_BATCH_SIZE` indexed
+ * rows to discover there is nothing to do.
+ */
+export const TRIM_MIN_INTERVAL_MS = 5 * 60 * 1000;
+
+let lastTrimAt = 0;
+
+/** Test seam: the throttle is module state, so a suite must be able to rewind it. */
+export const __resetTrimThrottleForTests = () => {
+  lastTrimAt = 0;
+};
+
+export const trimCompletedResultBytes = async (now: number = Date.now()): Promise<number> => {
+  if (now - lastTrimAt < TRIM_MIN_INTERVAL_MS) return 0;
+  lastTrimAt = now;
+
+  const cutoffSeconds = Math.floor((now - RESULT_BYTES_RETENTION_MS) / 1000);
+
+  return Repo.transactions
+    .where('completedAt')
+    .below(cutoffSeconds)
+    .limit(TRIM_BATCH_SIZE)
+    .modify((tx, ref) => {
+      if (!isTrimmable(tx, cutoffSeconds)) return;
+      // Delete rather than assign undefined: dexie treats an assigned `undefined` as "no change"
+      // in `modify`, so the blob would survive.
+      delete ref.value.resultBytes;
+    });
 };
