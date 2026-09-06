@@ -1318,7 +1318,6 @@ describe('doSync — native-note auto-consume', () => {
   });
 });
 
-
 describe('doSync drives the resultBytes reaper', () => {
   // This is what makes it safe to have deleted the third driver (generateTransactionsLoop):
   // the extension's only periodic driver is this one, and it must reach the reaper even on the
