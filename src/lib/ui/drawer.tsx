@@ -78,16 +78,29 @@ function DrawerContent({
   children,
   hideHandle = true,
   onPointerDownOutside,
+  forceMount,
   ...props
 }: DrawerContentProps) {
+  const { open } = useContext(DrawerContext);
+  // The sheet animates out over 500ms (vaul's TRANSITIONS.DURATION) and stays mounted for all of
+  // it, with a `fixed inset-0` overlay. Left hit-testable, that departing layer eats the tap a
+  // user makes at the control it is uncovering -- and a tap landing back on the sheet could
+  // re-pick a row that is already leaving. Once dismissed it is a purely visual artifact, so it
+  // stops taking pointer events. Not a `className`: callers override `overlayClassName` and
+  // `className` freely, and this must not be something a caller can accidentally style away.
+  const inertWhileClosing = open ? undefined : ({ pointerEvents: 'none' } as const);
+
   return (
-    <VaulDrawer.Portal>
+    <VaulDrawer.Portal forceMount={forceMount}>
       <VaulDrawer.Overlay
+        style={inertWhileClosing}
         className={cn('fixed inset-0 z-50 bg-black/30 backdrop-blur-sm dark:bg-black/50', overlayClassName)}
       />
       <VaulDrawer.Content
         data-slot="drawer-content"
         aria-describedby={undefined}
+        forceMount={forceMount}
+        style={inertWhileClosing}
         className={cn(
           // pb: the sheet is fixed to the viewport bottom, so body's safe-area /
           // keyboard padding (mobile.html) doesn't reach it — pad past the
