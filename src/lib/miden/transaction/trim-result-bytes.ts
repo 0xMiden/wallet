@@ -60,7 +60,10 @@ export const selectRowsToTrim = (rows: readonly ITransaction[], now: number): IT
 };
 
 /**
- * Releases `resultBytes` on every eligible row. Returns how many rows were trimmed.
+ * Releases `resultBytes` on every eligible row. Returns how many rows were actually trimmed —
+ * counted here rather than taken from `modify`'s return, which is dexie's SCANNED-key count. With
+ * the filter below the two coincide, so no test can tell them apart; the explicit counter is kept
+ * so the contract stays true if the filter is ever moved or removed.
  *
  * `.modify()` rather than read-then-`bulkPut`: the row is re-read inside the write transaction and
  * only this one field is touched. A blind put of a snapshot taken before the write would clobber a
@@ -68,9 +71,17 @@ export const selectRowsToTrim = (rows: readonly ITransaction[], now: number): IT
  * `noteDelivery`/`relayAttempts` on exactly these Completed rows, so a put would revert a delivered
  * private note to "pending" and spend another relay attempt on it.
  *
- * Bounded per pass so a first sweep over a large store cannot hold the write transaction for long;
- * whatever it does not reach is picked up on the next lap. Driven off the `completedAt` index so
- * the scan does not walk the whole table.
+ * The bound counts ELIGIBLE rows, not index entries, and that distinction is the whole correctness
+ * of this function. Trimming deletes `resultBytes` and leaves `completedAt` alone, so a trimmed row
+ * stays in `where('completedAt').below(cutoff)` forever. A bare `.limit()` over that range therefore
+ * re-selects the same oldest N rows on every pass — measured: 250 eligible rows went 200 trimmed,
+ * then 0, then 0, leaving 50 blobs stranded permanently. `.filter()` ahead of `.limit()` fixes it
+ * because dexie's replay filter only decrements on rows that passed the predicate.
+ *
+ * Dropping the limit is NOT the alternative: `Collection.modify` opens ONE write transaction,
+ * materializes the whole range with `primaryKeys()`, and recurses its chunks on that same
+ * transaction — `modifyChunkSize` bounds mutation size, not transaction lifetime — so an unbounded
+ * sweep would hold a write transaction across the entire 108 MB store.
  */
 export const TRIM_BATCH_SIZE = 200;
 
@@ -94,14 +105,21 @@ export const trimCompletedResultBytes = async (now: number = Date.now()): Promis
 
   const cutoffSeconds = Math.floor((now - RESULT_BYTES_RETENTION_MS) / 1000);
 
-  return Repo.transactions
+  let trimmed = 0;
+  await Repo.transactions
     .where('completedAt')
     .below(cutoffSeconds)
+    .filter(tx => isTrimmable(tx, cutoffSeconds))
     .limit(TRIM_BATCH_SIZE)
     .modify((tx, ref) => {
-      if (!isTrimmable(tx, cutoffSeconds)) return;
+      // `false`, not a bare return — dexie re-puts an unchanged deep clone for any other value.
+      // The filter above already selected this row, outside the write transaction; this is the
+      // re-check that makes the decision inside it.
+      if (!isTrimmable(tx, cutoffSeconds)) return false;
       // Delete rather than assign undefined: dexie treats an assigned `undefined` as "no change"
       // in `modify`, so the blob would survive.
       delete ref.value.resultBytes;
+      trimmed++;
     });
+  return trimmed;
 };
