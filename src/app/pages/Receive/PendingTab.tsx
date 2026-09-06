@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
@@ -15,14 +15,9 @@ import { Button, ButtonVariant } from 'components/Button';
 import { SyncWaveBackground } from 'components/SyncWaveBackground';
 import { TokenLogo } from 'components/TokenLogo';
 import { formatBigInt, formatUsd } from 'lib/i18n/numbers';
-import {
-  initiateConsumeTransaction,
-  requestSWTransactionProcessing,
-  startBackgroundTransactionProcessing
-} from 'lib/miden/activity';
+import { initiateConsumeTransaction, requestSWTransactionProcessing } from 'lib/miden/activity';
 import { isWorthClaiming } from 'lib/miden/fees/spendable';
-import { AssetMetadata, useMidenContext } from 'lib/miden/front';
-import { zustandProvider } from 'lib/miden/front/guardian-sync';
+import { AssetMetadata } from 'lib/miden/front';
 import { ConsumableNote, NoteTypeEnum } from 'lib/miden/types';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isExtension } from 'lib/platform';
@@ -592,12 +587,12 @@ const DetailNoteRow: React.FC<DetailNoteRowProps> = ({
 }) => {
   const { t } = useTranslation();
   const tokenPrices = useWalletStore(s => s.tokenPrices);
-  const { signTransaction } = useMidenContext();
   // Purely "this row's own claim is in flight". The gated look for a note being claimed
   // elsewhere arrives via `claimState`, derived from `note.isBeingClaimed` -- seeding it here
   // too took a mount-time snapshot that never followed the note back to claimable.
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   // Fold this row's local claim attempt into the parent-derived state: an
   // in-flight local claim reads as consuming; a local claim error reads as
@@ -622,25 +617,39 @@ const DetailNoteRow: React.FC<DetailNoteRowProps> = ({
     onClaimingStateChange?.(note.id, isLoading);
   }, [isLoading, note.id, onClaimingStateChange]);
 
+  useEffect(() => {
+    return () => {
+      abortControllerRef.current?.abort();
+    };
+  }, []);
+
   const handleClaim = useCallback(async () => {
     setError(null);
     setIsLoading(true);
     hapticLight();
+
+    abortControllerRef.current?.abort();
+    abortControllerRef.current = new AbortController();
+    const signal = abortControllerRef.current.signal;
 
     try {
       // Explicit user tap (Claim / Retry) — bypass the auto-consume backoff gate
       // so a retry after a failure always queues a fresh attempt.
       const id = await initiateConsumeTransaction(account.publicKey, note, isDelegatedProvingEnabled, true);
 
-      // Same reasoning as the batch claim in `useClaimNotes`: claiming reports progress on this
-      // row rather than hijacking the screen. Off-extension the progress page's interval used to
-      // be the only thing driving the FIFO loop from here, so the driver is not optional.
-      if (id) {
-        if (isExtension()) {
-          requestSWTransactionProcessing();
-        } else {
-          startBackgroundTransactionProcessing(signTransaction, false, zustandProvider);
-        }
+      if (isExtension()) {
+        requestSWTransactionProcessing();
+      }
+
+      // A SINGLE-note claim still goes to the progress screen, deliberately. That screen is
+      // addressed by one transaction id, which is exactly what this is -- so it renders a true
+      // receipt (sender, total consumed, note ids, fee, explorer link) and its own interval keeps
+      // driving the queue off-extension. Claim All is the case it cannot represent: that queues
+      // one consume PER FAUCET and only the first id survives, so the screen would assert a
+      // confident, wrong receipt while the other faucets were still queued or already failed.
+      // See `useClaimNotes.claimNotesBatch`, which is where the navigation was removed.
+      if (!signal.aborted) {
+        navigate(`/generating-transaction-full/${encodeURIComponent(id)}`);
       }
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') return;
@@ -653,7 +662,7 @@ const DetailNoteRow: React.FC<DetailNoteRowProps> = ({
       // stayed gone until the row was unmounted and remounted.
       setIsLoading(false);
     }
-  }, [account, isDelegatedProvingEnabled, note, signTransaction, t]);
+  }, [account, isDelegatedProvingEnabled, note, t]);
 
   const { metadata } = note;
   const decimals = metadata?.decimals ?? 6;
