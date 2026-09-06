@@ -102,16 +102,40 @@ export const TRIM_BATCH_SIZE = 200;
 export const TRIM_MIN_INTERVAL_MS = 5 * 60 * 1000;
 
 let lastTrimAt = 0;
+/**
+ * The pass currently running, so overlapping callers coalesce onto it instead of starting a second
+ * sweep. There are three: `generateTransactionsLoop` awaits this, while the extension sync tick and
+ * the mobile/desktop idle tick fire it and forget. Stamping `lastTrimAt` up front used to serialize
+ * them as a side effect — but that also meant a FAILED pass burned the whole five-minute window, so
+ * the stamp moved to the success path and the coalescing had to become explicit. Mirrors the
+ * in-flight sync coalescing in `sync-manager.ts`.
+ */
+let inFlight: Promise<number> | null = null;
 
 /** Test seam: the throttle is module state, so a suite must be able to rewind it. */
 export const __resetTrimThrottleForTests = () => {
   lastTrimAt = 0;
+  inFlight = null;
 };
 
 export const trimCompletedResultBytes = async (now: number = Date.now()): Promise<number> => {
+  if (inFlight) return inFlight;
   if (now - lastTrimAt < TRIM_MIN_INTERVAL_MS) return 0;
-  lastTrimAt = now;
 
+  const pass = runTrimPass(now);
+  inFlight = pass;
+  try {
+    const trimmed = await pass;
+    // Stamped only once the write has settled: a transient failure must be retried on the next
+    // lap, not silently deferred for five minutes.
+    lastTrimAt = now;
+    return trimmed;
+  } finally {
+    inFlight = null;
+  }
+};
+
+const runTrimPass = async (now: number): Promise<number> => {
   const cutoffSeconds = Math.floor((now - RESULT_BYTES_RETENTION_MS) / 1000);
 
   let trimmed = 0;

@@ -116,3 +116,31 @@ describe('trimCompletedResultBytes', () => {
     expect(await trimCompletedResultBytes()).toBe(0);
   });
 });
+
+describe('trimCompletedResultBytes throttle and single-flight', () => {
+  it('coalesces two overlapping callers onto one pass', async () => {
+    // Not merely "the second returns 0": that is what a serialising throttle does. Both callers
+    // must see the SAME pass, so both observe its count.
+    await Repo.transactions.bulkPut(Array.from({ length: 10 }, (_, i) => row(i)));
+    __resetTrimThrottleForTests();
+
+    const [a, b] = await Promise.all([trimCompletedResultBytes(), trimCompletedResultBytes()]);
+
+    expect([a, b]).toEqual([10, 10]);
+    expect(await blobsLeft()).toBe(0);
+  });
+
+  it('does not burn the window when a pass fails', async () => {
+    await Repo.transactions.bulkPut(Array.from({ length: 5 }, (_, i) => row(i)));
+    __resetTrimThrottleForTests();
+    const spy = jest.spyOn(Repo.transactions, 'where').mockImplementationOnce(() => {
+      throw new Error('indexeddb unavailable');
+    });
+
+    await expect(trimCompletedResultBytes()).rejects.toThrow('indexeddb unavailable');
+    spy.mockRestore();
+
+    // No reset: a pre-stamped throttle would swallow this retry and return 0.
+    expect(await trimCompletedResultBytes()).toBe(5);
+  });
+});
