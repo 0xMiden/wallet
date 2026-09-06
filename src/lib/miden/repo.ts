@@ -52,7 +52,11 @@ db.version(1.3)
       .table<any, string>(Table.Transactions)
       .toCollection()
       .modify(t => {
-        if (t.type !== 'bridge') return;
+        // `false`, not a bare return — dexie re-puts an unchanged deep clone for anything else, so
+        // a bare return here rewrote EVERY transaction row, `resultBytes` blobs included, inside
+        // the versionchange transaction on the critical path of `db.open()`. Same rule as
+        // `setTransactionStage` and `markCancelledInFlight` in transaction/helper.ts.
+        if (t.type !== 'bridge') return false;
         const prev = t.extraInputs ?? {};
         t.type = 'bridged-send';
         t.extraInputs = {
@@ -89,9 +93,9 @@ db.version(1.4)
       .table<any, string>(Table.Transactions)
       .toCollection()
       .modify(t => {
-        if (t.type === 'consume' && t.noteId && !Array.isArray(t.noteIds)) {
-          t.noteIds = [t.noteId];
-        }
+        // `false` on the declining path, for the same reason as v1.3 above.
+        if (t.type !== 'consume' || !t.noteId || Array.isArray(t.noteIds)) return false;
+        t.noteIds = [t.noteId];
       });
   });
 
