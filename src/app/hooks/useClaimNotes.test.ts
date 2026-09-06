@@ -300,4 +300,32 @@ describe('useClaimNotes failed-note check (#456)', () => {
     await waitFor(() => expect(mockGetFailedTransactions.mock.calls.length).toBeGreaterThan(callsBefore));
     expect(result.current.retriableNoteIds.has('a')).toBe(true); // NOT wiped
   });
+
+  it('re-checks for a failed consume after claiming, for a failure faster than the gate renders', async () => {
+    // Offline claim: the row goes Queued -> Failed in well under the 3s claimable-notes poll, so
+    // `isBeingClaimed` is never true in any sampled render and the claiming signature never moves.
+    // Without a post-claim re-check the failure is invisible to a user who now stays on this list.
+    jest.useFakeTimers({ doNotFake: ['nextTick', 'queueMicrotask'] });
+    try {
+      const notes = [note('n-miden', 'faucet-miden')];
+      mockUseClaimableNotes.mockReturnValue({ data: notes, mutate: jest.fn().mockResolvedValue(notes) });
+      mockInitiateConsume.mockResolvedValueOnce('tx-miden');
+
+      const { result } = renderHook(() => useClaimNotes());
+      await waitFor(() => expect(mockGetFailedTransactions).toHaveBeenCalled());
+
+      await act(async () => {
+        await result.current.handleClaimAll();
+      });
+
+      const afterClaim = mockGetFailedTransactions.mock.calls.length;
+      await act(async () => {
+        jest.advanceTimersByTime(11_000);
+      });
+
+      expect(mockGetFailedTransactions.mock.calls.length).toBeGreaterThan(afterClaim);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
 });

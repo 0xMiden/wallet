@@ -289,14 +289,29 @@ const PendingSummary: React.FC<PendingSummaryProps> = ({
                 {totals.assetsCount > 1 && <div className="mt-0.5">{t('feeChargedPerAsset')}</div>}
               </div>
             )}
-            <Button
-              data-testid="claim-all-button"
-              className="w-full"
-              variant={ButtonVariant.Primary}
-              disabled={unclaimedNotesCount === 0}
-              onClick={onClaimAll}
-              title={unclaimedNotesCount === 0 ? t('claiming') : t('claimAll')}
-            />
+            {/* Two ids on purpose: `claim-all-button` keeps meaning "an actionable Claim All",
+                which is the contract the E2E helper reads — it treats that id being visible as
+                permission to click, and a disabled button under it would make the helper click a
+                control it cannot action. The in-flight state gets its own id, the same split #834
+                made for the row's control. */}
+            {unclaimedNotesCount > 0 ? (
+              <Button
+                data-testid="claim-all-button"
+                className="w-full"
+                variant={ButtonVariant.Primary}
+                onClick={onClaimAll}
+                title={t('claimAll')}
+              />
+            ) : (
+              <Button
+                data-testid="claim-all-status"
+                className="w-full"
+                variant={ButtonVariant.Primary}
+                disabled
+                isLoading
+                title={t('claiming')}
+              />
+            )}
           </div>
         )}
       </div>

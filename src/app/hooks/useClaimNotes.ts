@@ -21,6 +21,16 @@ import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { WalletAccount, WalletMessageType } from 'lib/shared/types';
 import { getIntercom } from 'lib/store';
 
+/**
+ * When to re-check for a failed consume after queueing one, in ms.
+ *
+ * A consume can fail FASTER than the gate can render it: an offline send goes Queued → Failed in
+ * well under the 3s claimable-notes poll, so `isBeingClaimed` is never true in any sampled render,
+ * `claimingSignature` never moves, and the failure would be invisible to a user who — now that
+ * claiming does not navigate away — is sitting on this list waiting. These cover that window.
+ */
+const POST_CLAIM_RECHECK_MS = [1_000, 4_000, 10_000];
+
 export interface ClaimNotesState {
   account: WalletAccount;
   safeClaimableNotes: NoteWithMetadata[];
@@ -234,6 +244,13 @@ export function useClaimNotes(): ClaimNotesState {
     [safeClaimableNotes]
   );
   const hasShownInitialSpinner = useRef(false);
+  const [postClaimTick, setPostClaimTick] = useState(0);
+
+  useEffect(() => {
+    if (postClaimTick === 0) return;
+    const timers = POST_CLAIM_RECHECK_MS.map(ms => setTimeout(() => runFailedNotesCheck(false), ms));
+    return () => timers.forEach(clearTimeout);
+  }, [postClaimTick, runFailedNotesCheck]);
 
   useEffect(() => {
     const showSpinner = !hasShownInitialSpinner.current && safeClaimableNotesRef.current.length > 0;
@@ -361,6 +378,11 @@ export function useClaimNotes(): ClaimNotesState {
         // below is not optional: off-extension, the progress page's own interval was the only
         // thing turning the FIFO loop in this path, so without this a claim sits Queued forever.
         // Same shape as Explore's auto-consume, which has always claimed without navigating.
+        // Watch for a consume that fails faster than the gate can render (see
+        // POST_CLAIM_RECHECK_MS). Fires whether or not anything queued: a queue-time throw is
+        // already recorded above, but a row that queues and then fails immediately is not.
+        setPostClaimTick(tick => tick + 1);
+
         if (batchTxId) {
           if (isExtension()) {
             requestSWTransactionProcessing();

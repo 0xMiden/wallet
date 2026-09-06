@@ -308,9 +308,12 @@ describe('PendingTab — the summary while a claim is in flight', () => {
       unclaimedNotesCount: 0
     });
 
-    const button = screen.getByTestId('claim-all-button');
-    expect(button).toBeDisabled();
-    expect(button).toHaveTextContent('claiming');
+    // Its own id: the E2E helper treats a visible `claim-all-button` as permission to click, so
+    // a disabled button under that id would make it click a control it cannot action.
+    expect(screen.queryByTestId('claim-all-button')).not.toBeInTheDocument();
+    const status = screen.getByTestId('claim-all-status');
+    expect(status).toBeDisabled();
+    expect(status).toHaveTextContent('claiming');
   });
 
   it('offers Claim All again once a note is claimable', () => {
@@ -319,11 +322,13 @@ describe('PendingTab — the summary while a claim is in flight', () => {
     const button = screen.getByTestId('claim-all-button');
     expect(button).not.toBeDisabled();
     expect(button).toHaveTextContent('claimAll');
+    expect(screen.queryByTestId('claim-all-status')).not.toBeInTheDocument();
   });
 
   it('renders no claim control when there is nothing pending and nothing in flight', () => {
     renderTab({ safeClaimableNotes: [], unclaimedNotesCount: 0 });
 
     expect(screen.queryByTestId('claim-all-button')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('claim-all-status')).not.toBeInTheDocument();
   });
 });
