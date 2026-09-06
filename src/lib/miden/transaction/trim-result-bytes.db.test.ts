@@ -108,12 +108,21 @@ describe('trimCompletedResultBytes', () => {
   });
 
   it('is throttled between passes', async () => {
-    await Repo.transactions.bulkPut(Array.from({ length: 10 }, (_, i) => row(i)));
+    // Asserted under a load the UNGATED path has NOT already exhausted: with TRIM_BATCH_SIZE+50
+    // rows the first pass leaves 50 behind, so an un-throttled second pass would take them and
+    // both assertions would fail. The previous shape seeded 10 rows, which the first pass drained
+    // completely — after which a second pass returns 0 whether or not the throttle exists.
+    // Asserting store state as well as the return value matters for the same reason: 0 is also
+    // what "nothing left to do" looks like.
+    const n = TRIM_BATCH_SIZE + 50;
+    await Repo.transactions.bulkPut(Array.from({ length: n }, (_, i) => row(i)));
 
     __resetTrimThrottleForTests();
-    expect(await trimCompletedResultBytes()).toBe(10);
+    expect(await trimCompletedResultBytes()).toBe(TRIM_BATCH_SIZE);
+
     // no reset: the immediate second call must not run a pass
     expect(await trimCompletedResultBytes()).toBe(0);
+    expect(await blobsLeft()).toBe(50);
   });
 });
 
