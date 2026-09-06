@@ -6,7 +6,14 @@ export enum Table {
   Transactions = 'transactions'
 }
 
-export const db = new Dexie('TridentMain');
+// `modifyChunkSize` caps how many records dexie's `modify` materialises at once (`getMany` +
+// `deepClone` per chunk). It defaults to 200, which is also the reaper's batch size, so one trim
+// held ~200 x ~237 KB of result blobs resident inside a single write transaction. Capping the
+// chunk bounds that without changing how many rows a pass selects — the reaper's drain rate is
+// governed by its own batch size, and tuning one constant from two directions is how these two
+// concerns collide. It applies to every `modify` on this database, including the schema upgrades
+// below, which walk the whole table.
+export const db = new Dexie('TridentMain', { modifyChunkSize: 25 });
 
 db.version(1)
   .stores({

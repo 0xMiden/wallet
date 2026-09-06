@@ -118,8 +118,8 @@ let nextTrimAllowedAt = 0;
 
 /**
  * The pass currently running, so overlapping callers coalesce onto it instead of starting a second
- * sweep. Both sync drivers fire it and forget, so without this the extension alarm and a UI tick
- * could run two passes at once. Mirrors the in-flight sync coalescing in `sync-manager.ts`.
+ * sweep. Both drivers fire it and forget, so without this the extension alarm and a UI tick could run
+ * two passes at once. Mirrors the in-flight sync coalescing in `sync-manager.ts`.
  */
 let inFlight: Promise<number> | null = null;
 

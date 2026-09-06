@@ -180,6 +180,11 @@ jest.mock('../transaction/note-delivery-sweep', () => ({
   sweepNoteDeliveries: () => mockSweepNoteDeliveries()
 }));
 
+const mockTrimResultBytes = jest.fn(async () => 0);
+jest.mock('../transaction/trim-result-bytes', () => ({
+  trimCompletedResultBytes: () => mockTrimResultBytes()
+}));
+
 // ── Imports under test ─────────────────────────────────────────────
 
 import {
@@ -1310,5 +1315,32 @@ describe('doSync — native-note auto-consume', () => {
 
     await expect(doSync()).resolves.toBeUndefined();
     expect(mockInitiateConsumeBatch).toHaveBeenCalled(); // the rejecting path WAS exercised
+  });
+});
+
+
+describe('doSync drives the resultBytes reaper', () => {
+  // This is what makes it safe to have deleted the third driver (generateTransactionsLoop):
+  // the extension's only periodic driver is this one, and it must reach the reaper even on the
+  // laps where it does no network work at all.
+  beforeEach(() => {
+    mockTrimResultBytes.mockClear();
+  });
+
+  it('runs the reaper on a normal lap', async () => {
+    await doSync();
+
+    expect(mockTrimResultBytes).toHaveBeenCalled();
+  });
+
+  it('runs the reaper even when the lap is short-circuited before any sync work', async () => {
+    // doSync coalesces onto an in-flight pass and returns early; the reaper is pure local Dexie
+    // maintenance and must not be gated behind that, or an extension whose node is unreachable
+    // would never reclaim a byte.
+    const first = doSync();
+    const second = doSync();
+    await Promise.all([first, second]);
+
+    expect(mockTrimResultBytes).toHaveBeenCalledTimes(2);
   });
 });

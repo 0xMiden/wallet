@@ -136,6 +136,11 @@ jest.mock('lib/miden/activity/connectivity-classify', () => ({
 }));
 
 const mockRequestNotesRefresh = jest.fn();
+const mockTrimResultBytes = jest.fn(async () => 0);
+jest.mock('lib/miden/transaction/trim-result-bytes', () => ({
+  trimCompletedResultBytes: () => mockTrimResultBytes()
+}));
+
 jest.mock('./note-refresh', () => ({
   requestNotesRefresh: () => mockRequestNotesRefresh()
 }));
@@ -340,6 +345,21 @@ describe('useSyncTrigger', () => {
 
     await flush();
     expect(mockSyncState).not.toHaveBeenCalled();
+    unmount();
+  });
+
+  it('mobile/desktop: runs the resultBytes reaper even on a lap the sync guards skip', async () => {
+    // This is what makes it safe to have deleted the third driver (generateTransactionsLoop):
+    // mobile and desktop have no other periodic driver, and the reaper is pure local Dexie
+    // maintenance — the generating-transaction guard exists to keep a SYNC off the WASM lock, and
+    // has no bearing on reclaiming storage.
+    window.location.hash = '#/generating-transaction-full';
+
+    const { unmount } = render(<HookHost />);
+
+    await flush();
+    expect(mockSyncState).not.toHaveBeenCalled();
+    expect(mockTrimResultBytes).toHaveBeenCalled();
     unmount();
   });
 
