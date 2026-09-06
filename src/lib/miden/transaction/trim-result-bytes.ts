@@ -16,41 +16,43 @@ export { WAIT_FOR_TX_TIMEOUT };
  *
  * Two constraints shape this, and both rule out the obvious "null it the moment the row completes":
  *
- *  1. `waitForTransactionCompletion` IS the public dApp API (`window.miden.waitForTransaction`).
- *     It observes the row until it reads `Completed` and only THEN deserializes `resultBytes`, so
- *     clearing the field in the same write would race it and answer "Transaction completed without
- *     a transaction result". The retention window below is what keeps that read safe.
- *  2. Nothing else needs a carve-out: every other caller of `waitForTransactionCompletion` reads
- *     `outputNoteIds` off the row afterwards, which this never touches.
+ *  1. `waitForTransactionCompletion` IS the public dApp API (`window.miden.waitForTransaction`),
+ *     and it reads `resultBytes` inside the FIRST liveQuery emission carrying `Completed` — for a
+ *     row that is already Completed, that is one microtask after subscribing. So the retention
+ *     window is not protection against a race; it is a TTL on that API. A subscription that starts
+ *     within `RESULT_BYTES_RETENTION_MS` of `completedAt` gets the full answer; one that starts
+ *     later gets `errorMessage`. Clearing the field at completion would have made the TTL zero.
+ *  2. No type needs a carve-out. The in-repo callers all block on that helper immediately after
+ *     initiating, so they read far inside the window — `epoch/earn-note.ts` and
+ *     `epoch/miden-note.ts` then re-read `outputNoteIds` (never touched here), and
+ *     `agglayer/b2agg/index.ts` uses the wait's own `txHash`.
  *
  * Trimming opportunistically rather than in a migration is deliberate: a schema migration would
  * rewrite up to 108 MB inside the IndexedDB `versionchange` transaction during `db.open()`, on the
  * critical path of every wallet open, with an unopenable database if it were interrupted. This
  * reclaims the same bytes with no schema change and no one-way step. It also reaches rows that
  * already exist, which is the other thing a forward-only fix would miss.
+ *
+ * There used to be a type-based carve-out for `earn-deposit` and epoch `bridged-send`, on the
+ * theory that their callers consume the result after completion. They do not, and it had no upper
+ * bound — so those rows kept ~237 KB forever, which is this module's own bug in the population
+ * most likely to hit it.
+ *
+ * `RESULT_BYTES_RETENTION_MS` is kept comfortably above `WAIT_FOR_TX_TIMEOUT` as a design margin,
+ * not as a correctness condition: the timeout bounds how long one wait may LAST, and never when
+ * the blob is read.
  */
 export const RESULT_BYTES_RETENTION_MS = 10 * 60 * 1000;
 
-/**
- * The window MUST stay strictly greater than the awaiting caller's own timeout. That inequality is
- * the whole reason no reader can be raced: `waitForTransactionCompletion` gives up after
- * `WAIT_FOR_TX_TIMEOUT` and its callers then read only `outputNoteIds`, which this never touches.
- *
- * There used to be a type-based carve-out here for `earn-deposit` and epoch `bridged-send`,
- * on the theory that their callers consume the result after completion. They do not: both
- * (`epoch/earn-note.ts`, `epoch/miden-note.ts`) await that same helper and then re-read
- * `outputNoteIds`. The carve-out had no upper bound, so those rows kept ~237 KB forever — the
- * unbounded growth this module exists to stop, in the population most likely to hit it.
- */
+const isTerminal = (tx: ITransaction): boolean =>
+  tx.status === ITransactionStatus.Completed || tx.status === ITransactionStatus.Failed;
+
 /**
  * The rows whose `resultBytes` can be released.
  *
  * `completedAt` is whole SECONDS (see the sort in `get.ts`), while `now` is epoch ms — hence the
- * divide rather than a bare subtraction.
+ * divide where the cutoff is computed, rather than a bare subtraction.
  */
-const isTerminal = (tx: ITransaction): boolean =>
-  tx.status === ITransactionStatus.Completed || tx.status === ITransactionStatus.Failed;
-
 const isTrimmable = (tx: ITransaction, cutoffSeconds: number): boolean => {
   // BOTH terminal states, not just Completed. `waitForTransactionCompletion` answers a Failed row
   // from `tx.error` and never touches its bytes, and two paths do leave bytes on a Failed row:

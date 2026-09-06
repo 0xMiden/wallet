@@ -16,9 +16,9 @@ export const bridgeProviderOf = (tx: Pick<ITransaction, 'type' | 'extraInputs'>)
 /**
  * How long `waitForTransactionCompletion` waits before giving up (`helper.ts`).
  *
- * Here rather than beside its only user because `trim-result-bytes` must import it too, and
+ * Here rather than beside its only user because `trim-result-bytes` imports it too, and
  * `helper.ts`'s module scope pulls the SDK, the miden client and the fee-note reader — the weight
- * this leaf exists to keep out. The reaper's retention window MUST stay strictly greater than this:
- * that inequality is what lets it delete `resultBytes` without racing the awaiting read.
+ * this leaf exists to keep out. What the reaper does with it is documented there, in the module
+ * that owns the retention window; stating it in both places is how the two drift.
  */
 export const WAIT_FOR_TX_TIMEOUT = 5 * 60_000;

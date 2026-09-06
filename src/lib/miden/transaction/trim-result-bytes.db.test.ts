@@ -115,8 +115,9 @@ describe('trimCompletedResultBytes', () => {
   });
 
   it("keeps the retention window longer than the awaiting caller's own timeout", () => {
-    // The inequality is what lets the reaper delete resultBytes without racing that read. Against
-    // the real exported constants, so shortening either one fails here.
+    // A design margin, not a correctness condition: the timeout bounds how long one wait may LAST,
+    // never when the blob is read (the waiter reads on its first Completed emission). Pinned
+    // against the real exported constants so shrinking either one has to be deliberate.
     expect(RESULT_BYTES_RETENTION_MS).toBeGreaterThan(WAIT_FOR_TX_TIMEOUT);
   });
 
@@ -156,8 +157,11 @@ describe('trimCompletedResultBytes', () => {
   });
 
   it('treats the cutoff second as outside the window, matching the query exactly', async () => {
-    // The predicate and the dexie range are one rule. `.below()` is upper-open, so a row stamped
-    // at precisely the cutoff second must NOT be trimmed; one second older must be.
+    // Pins the COMPOSED selector's effective cutoff — and only that. Making the query inclusive
+    // alone leaves this green (the predicate still declines), and making the predicate inclusive
+    // alone leaves it green too (the query never selects the row); only changing both fails. So
+    // this cannot claim to protect the agreement between the two, and neither half alone is
+    // observable — which is also why the drift it was written for was harmless.
     const now = Date.now();
     const cutoff = Math.floor((now - RESULT_BYTES_RETENTION_MS) / 1000);
     await Repo.transactions.bulkPut([
@@ -169,6 +173,39 @@ describe('trimCompletedResultBytes', () => {
     expect(await trimCompletedResultBytes(now)).toBe(1);
     expect((await Repo.transactions.get('at-cutoff'))?.resultBytes).toBeDefined();
     expect((await Repo.transactions.get('one-older'))?.resultBytes).toBeUndefined();
+  });
+
+  it('leaves the public wait answerable inside the window and degraded after a trim', async () => {
+    // The TTL, asserted end to end rather than argued in a comment. A subscription starting inside
+    // the window still gets the full answer; once the reaper has run, the same call degrades.
+    const now = Date.now();
+    const inWindow = Math.floor((now - RESULT_BYTES_RETENTION_MS / 2) / 1000);
+    await Repo.transactions.bulkPut([row(1, { id: 'fresh', completedAt: inWindow } as Partial<ITransaction>)]);
+
+    __resetTrimThrottleForTests();
+    expect(await trimCompletedResultBytes(now)).toBe(0);
+    expect((await Repo.transactions.get('fresh'))?.resultBytes).toBeDefined();
+
+    // ...and once it ages past the window, the blob is gone and the wait can only degrade.
+    const later = now + RESULT_BYTES_RETENTION_MS;
+    __resetTrimThrottleForTests();
+    expect(await trimCompletedResultBytes(later)).toBe(1);
+    expect((await Repo.transactions.get('fresh'))?.resultBytes).toBeUndefined();
+  });
+
+  it('never trims a row that carries no completedAt', async () => {
+    // Pins the INDEX behaviour the module relies on — IndexedDB omits records whose index key is
+    // undefined, so the query never reaches this row. It does not pin the predicate's lack of an
+    // `?? initiatedAt` fallback: restoring that fallback leaves this green, because the row never
+    // reaches the predicate either way. That is why deleting the fallback was safe, and it is the
+    // most this test can honestly claim.
+    await Repo.transactions.bulkPut([
+      row(1, { id: 'no-ts', completedAt: undefined, initiatedAt: AGED } as Partial<ITransaction>)
+    ]);
+
+    __resetTrimThrottleForTests();
+    expect(await trimCompletedResultBytes()).toBe(0);
+    expect((await Repo.transactions.get('no-ts'))?.resultBytes).toBeDefined();
   });
 
   it('throttles only after the range is exhausted', async () => {
