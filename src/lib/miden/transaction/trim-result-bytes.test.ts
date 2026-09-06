@@ -29,13 +29,13 @@ describe('selectRowsToTrim', () => {
     expect(selectRowsToTrim([row({ id: 'b', completedAt: recent })], NOW)).toEqual([]);
   });
 
-  it('spares earn-deposit, whose caller reads the result back off the finished row', () => {
-    expect(selectRowsToTrim([row({ id: 'c', type: 'earn-deposit' })], NOW)).toEqual([]);
+  it('trims earn-deposit: its caller awaits the wait helper, then reads outputNoteIds', () => {
+    expect(selectRowsToTrim([row({ id: 'c', type: 'earn-deposit' })], NOW).map(r => r.id)).toEqual(['c']);
   });
 
-  it('spares an epoch bridged-send for the same reason', () => {
+  it('trims an epoch bridged-send for the same reason', () => {
     const bridged = row({ id: 'd', type: 'bridged-send', extraInputs: { provider: 'epoch' } });
-    expect(selectRowsToTrim([bridged], NOW)).toEqual([]);
+    expect(selectRowsToTrim([bridged], NOW).map(r => r.id)).toEqual(['d']);
   });
 
   it('trims a bridged-send from a provider that does not await the result (agglayer)', () => {

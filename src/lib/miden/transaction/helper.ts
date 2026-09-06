@@ -4,6 +4,7 @@ import { liveQuery } from 'dexie';
 import * as Repo from 'lib/miden/repo';
 import { u8ToB64 } from 'lib/shared/helpers';
 
+import { WAIT_FOR_TX_TIMEOUT } from './bridge-provider';
 import { type SignCallbackReason } from './sign-callback';
 import { splitExecutedOutputNotes } from '../activity/fee-notes';
 import {
@@ -512,8 +513,6 @@ export const waitForConsumeTx = async (id: string, signal?: AbortSignal): Promis
     });
   });
 };
-
-const WAIT_FOR_TX_TIMEOUT = 5 * 60_000; // 5 minutes
 
 export const waitForTransactionCompletion = async (transactionId: string) => {
   return new Promise<TransactionOutput>(resolve => {

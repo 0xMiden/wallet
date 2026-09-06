@@ -2,7 +2,9 @@ import { ITransactionStatus } from 'lib/miden/db/types';
 import type { ITransaction } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 
-import { bridgeProviderOf } from './bridge-provider';
+import { WAIT_FOR_TX_TIMEOUT } from './bridge-provider';
+
+export { WAIT_FOR_TX_TIMEOUT };
 
 /**
  * Reclaims the `resultBytes` blob from long-finished transaction rows.
@@ -18,8 +20,8 @@ import { bridgeProviderOf } from './bridge-provider';
  *     It observes the row until it reads `Completed` and only THEN deserializes `resultBytes`, so
  *     clearing the field in the same write would race it and answer "Transaction completed without
  *     a transaction result". The retention window below is what keeps that read safe.
- *  2. `earn-deposit` and epoch `bridged-send` rows are completed BEFORE their caller has consumed
- *     the result — that is what `isResultAwaitingRow` in `index.ts` exists for. Those keep it.
+ *  2. Nothing else needs a carve-out: every other caller of `waitForTransactionCompletion` reads
+ *     `outputNoteIds` off the row afterwards, which this never touches.
  *
  * Trimming opportunistically rather than in a migration is deliberate: a schema migration would
  * rewrite up to 108 MB inside the IndexedDB `versionchange` transaction during `db.open()`, on the
@@ -29,15 +31,17 @@ import { bridgeProviderOf } from './bridge-provider';
  */
 export const RESULT_BYTES_RETENTION_MS = 10 * 60 * 1000;
 
-/** Bridge providers whose callers read the result back off the finished row. */
-const RESULT_AWAITING_BRIDGE_PROVIDER = 'epoch';
-
-const stillNeedsResult = (tx: ITransaction): boolean => {
-  if (tx.type === 'earn-deposit') return true;
-  if (tx.type === 'bridged-send') return bridgeProviderOf(tx) === RESULT_AWAITING_BRIDGE_PROVIDER;
-  return false;
-};
-
+/**
+ * The window MUST stay strictly greater than the awaiting caller's own timeout. That inequality is
+ * the whole reason no reader can be raced: `waitForTransactionCompletion` gives up after
+ * `WAIT_FOR_TX_TIMEOUT` and its callers then read only `outputNoteIds`, which this never touches.
+ *
+ * There used to be a type-based carve-out here for `earn-deposit` and epoch `bridged-send`,
+ * on the theory that their callers consume the result after completion. They do not: both
+ * (`epoch/earn-note.ts`, `epoch/miden-note.ts`) await that same helper and then re-read
+ * `outputNoteIds`. The carve-out had no upper bound, so those rows kept ~237 KB forever — the
+ * unbounded growth this module exists to stop, in the population most likely to hit it.
+ */
 /**
  * The rows whose `resultBytes` can be released. Pure, so the policy is testable without a store.
  *
@@ -55,9 +59,6 @@ const isTrimmable = (tx: ITransaction, cutoffSeconds: number): boolean => {
   // stamp `completedAt`, so the index reaches them — a Completed-only rule pinned them forever.
   if (!isTerminal(tx)) return false;
   if (!tx.resultBytes) return false;
-  // The exemption is about the awaiting CALLER, so it only holds while the row is Completed:
-  // nothing is waiting on the result of a transaction that failed.
-  if (tx.status === ITransactionStatus.Completed && stillNeedsResult(tx)) return false;
   // No `?? initiatedAt` fallback: the only production path here is `where('completedAt')`, and
   // IndexedDB omits records whose index key is undefined, so a row without one is unreachable.
   return tx.completedAt != null && tx.completedAt <= cutoffSeconds;

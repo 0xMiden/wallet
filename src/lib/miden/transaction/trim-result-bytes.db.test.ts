@@ -13,7 +13,8 @@ import {
   __resetTrimThrottleForTests,
   RESULT_BYTES_RETENTION_MS,
   TRIM_BATCH_SIZE,
-  trimCompletedResultBytes
+  trimCompletedResultBytes,
+  WAIT_FOR_TX_TIMEOUT
 } from './trim-result-bytes';
 
 const AGED = Math.floor((Date.now() - RESULT_BYTES_RETENTION_MS) / 1000) - 3600;
@@ -98,13 +99,24 @@ describe('trimCompletedResultBytes', () => {
     expect(await blobsLeft()).toBe(0);
   });
 
-  it('still spares a Completed epoch bridged-send, whose caller reads the result back', async () => {
+  it('reclaims aged earn-deposit and epoch bridged-send rows too', async () => {
+    // These were exempt on the theory that their callers consume the result after completion.
+    // Both await waitForTransactionCompletion (which gives up after WAIT_FOR_TX_TIMEOUT, half the
+    // retention window) and then re-read outputNoteIds, which this never touches — so the
+    // exemption bought nothing and pinned ~237 KB per row forever.
     await Repo.transactions.bulkPut([
-      row(1, { type: 'bridged-send', extraInputs: { provider: 'epoch' } } as Partial<ITransaction>)
+      row(1, { type: 'earn-deposit' }),
+      row(2, { type: 'bridged-send', extraInputs: { provider: 'epoch' } } as Partial<ITransaction>)
     ]);
 
-    expect(await pass()).toBe(0);
-    expect(await blobsLeft()).toBe(1);
+    expect(await pass()).toBe(2);
+    expect(await blobsLeft()).toBe(0);
+  });
+
+  it('keeps the retention window longer than the awaiting caller\'s own timeout', () => {
+    // The inequality is what lets the reaper delete resultBytes without racing that read. Against
+    // the real exported constants, so shortening either one fails here.
+    expect(RESULT_BYTES_RETENTION_MS).toBeGreaterThan(WAIT_FOR_TX_TIMEOUT);
   });
 
   it('is throttled between passes', async () => {
