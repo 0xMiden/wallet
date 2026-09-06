@@ -147,11 +147,14 @@ export const PendingTab: React.FC<PendingTabProps> = ({
     );
   }
 
+  const claimingCount = safeClaimableNotes.filter(n => n.isBeingClaimed).length;
+
   return (
     <PendingSummary
       groupedNotes={groupedNotes}
       tokenPrices={tokenPrices}
       unclaimedNotesCount={unclaimedNotesCount}
+      claimingCount={claimingCount}
       retriableNoteIds={retriableNoteIds}
       invalidNoteIds={invalidNoteIds}
       onSelectGroup={handleSelectGroup}
@@ -161,6 +164,8 @@ export const PendingTab: React.FC<PendingTabProps> = ({
 };
 
 interface PendingSummaryProps {
+  /** Notes with a live consume behind them; they have already left `unclaimedNotesCount`. */
+  claimingCount: number;
   groupedNotes: AssetNoteGroup[];
   tokenPrices: TokenPrices;
   unclaimedNotesCount: number;
@@ -174,6 +179,7 @@ const PendingSummary: React.FC<PendingSummaryProps> = ({
   groupedNotes,
   tokenPrices,
   unclaimedNotesCount,
+  claimingCount,
   retriableNoteIds,
   invalidNoteIds,
   onSelectGroup,
@@ -257,13 +263,16 @@ const PendingSummary: React.FC<PendingSummaryProps> = ({
           ))}
         </div>
 
-        {unclaimedNotesCount > 0 && (
+        {/* Claiming does not navigate away any more, so this block is where progress is
+            reported. Every note being claimed has already dropped out of `unclaimedNotesCount`,
+            so gating on that alone made the CTA vanish the moment the user tapped it. */}
+        {(unclaimedNotesCount > 0 || claimingCount > 0) && (
           <div className="flex flex-col items-center mt-auto pt-4 pb-2">
             {/* Claiming submits immediately -- there is no review step between this
                 button and the transaction -- so this is the only place the cost can be
                 stated before the user commits. Label and amount are separate nodes so
                 no placeholder-only string has to survive translation. */}
-            {maxNetworkFee && (
+            {maxNetworkFee && unclaimedNotesCount > 0 && (
               <div className="mb-2 text-center text-xs text-heading-gray">
                 <div>
                   {t('networkFeeMax')} · {maxNetworkFee}
@@ -275,13 +284,29 @@ const PendingSummary: React.FC<PendingSummaryProps> = ({
                 {totals.assetsCount > 1 && <div className="mt-0.5">{t('feeChargedPerAsset')}</div>}
               </div>
             )}
-            <Button
-              data-testid="claim-all-button"
-              className="w-full"
-              variant={ButtonVariant.Primary}
-              onClick={onClaimAll}
-              title={t('claimAll')}
-            />
+            {/* Two ids on purpose: `claim-all-button` keeps meaning "an actionable Claim All",
+                which is the contract the E2E helper reads — it treats that id being visible as
+                permission to click, and a disabled button under it would make the helper click a
+                control it cannot action. The in-flight state gets its own id, the same split #834
+                made for the row's control. */}
+            {unclaimedNotesCount > 0 ? (
+              <Button
+                data-testid="claim-all-button"
+                className="w-full"
+                variant={ButtonVariant.Primary}
+                onClick={onClaimAll}
+                title={t('claimAll')}
+              />
+            ) : (
+              <Button
+                data-testid="claim-all-status"
+                className="w-full"
+                variant={ButtonVariant.Primary}
+                disabled
+                isLoading
+                title={t('claiming')}
+              />
+            )}
           </div>
         )}
       </div>
@@ -616,6 +641,13 @@ const DetailNoteRow: React.FC<DetailNoteRowProps> = ({
         requestSWTransactionProcessing();
       }
 
+      // A SINGLE-note claim still goes to the progress screen, deliberately. That screen is
+      // addressed by one transaction id, which is exactly what this is -- so it renders a true
+      // receipt (sender, total consumed, note ids, fee, explorer link) and its own interval keeps
+      // driving the queue off-extension. Claim All is the case it cannot represent: that queues
+      // one consume PER FAUCET and only the first id survives, so the screen would assert a
+      // confident, wrong receipt while the other faucets were still queued or already failed.
+      // See `useClaimNotes.claimNotesBatch`, which is where the navigation was removed.
       if (!signal.aborted) {
         navigate(`/generating-transaction-full/${encodeURIComponent(id)}`);
       }
