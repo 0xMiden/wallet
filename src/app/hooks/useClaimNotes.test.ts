@@ -12,10 +12,13 @@ const mockGetInputNoteDetails = jest.fn();
 const mockInitiateConsume = jest.fn();
 
 jest.mock('app/hooks/useMidenFaucetId', () => ({ __esModule: true, default: () => 'faucet-miden' }));
+const mockRequestSW = jest.fn();
+const mockStartBackground = jest.fn();
 jest.mock('lib/miden/activity', () => ({
   getFailedTransactions: (...args: unknown[]) => mockGetFailedTransactions(...args),
   initiateConsumeNotesTransaction: (...args: unknown[]) => mockInitiateConsume(...args),
-  requestSWTransactionProcessing: jest.fn(),
+  requestSWTransactionProcessing: (...args: unknown[]) => mockRequestSW(...args),
+  startBackgroundTransactionProcessing: (...args: unknown[]) => mockStartBackground(...args),
   verifyStuckTransactionsFromNode: jest.fn().mockResolvedValue(0)
 }));
 
@@ -30,9 +33,13 @@ jest.mock('lib/miden/sdk/miden-client', () => ({
 }));
 
 const mockUseAccount = jest.fn(() => ({ publicKey: 'mtst1account' }));
+const mockSignTransaction = jest.fn();
 jest.mock('lib/miden/front', () => ({
-  useAccount: () => mockUseAccount()
+  useAccount: () => mockUseAccount(),
+  useMidenContext: () => ({ signTransaction: mockSignTransaction })
 }));
+
+jest.mock('lib/miden/front/guardian-sync', () => ({ zustandProvider: { kind: 'zustand' } }));
 
 const mockUseClaimableNotes = jest.fn();
 jest.mock('lib/miden/front/claimable-notes', () => ({
@@ -218,8 +225,11 @@ describe('useClaimNotes failed-note check (#456)', () => {
     expect(mockInitiateConsume).toHaveBeenCalledTimes(2);
     expect(queuedNoteIds(0)).toEqual(['n-miden', 'n-miden-2']);
     expect(queuedNoteIds(1)).toEqual(['n-usdc']);
-    // The progress screen follows the first queued transaction.
-    expect(mockNavigate).toHaveBeenCalledWith('/generating-transaction-full/tx-miden');
+    // Claiming no longer hijacks the screen: the user stays on Pending Notes and the row
+    // reports progress in place. Off-extension the queue needs a driver, since the progress
+    // page's own interval used to be the only thing turning the FIFO loop in this path.
+    expect(mockNavigate).not.toHaveBeenCalled();
+    expect(mockStartBackground).toHaveBeenCalledWith(mockSignTransaction, false, { kind: 'zustand' });
   });
 
   it('still queues a SINGLE transaction when every pending note shares one faucet', async () => {

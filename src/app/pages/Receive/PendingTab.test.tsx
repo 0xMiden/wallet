@@ -68,8 +68,8 @@ jest.mock('components/SyncWaveBackground', () => ({
 
 jest.mock('components/Button', () => ({
   ButtonVariant: { Primary: 'primary', Secondary: 'secondary', Ghost: 'ghost' },
-  Button: ({ title, onClick, ...props }: { title?: string; onClick?: () => void }) => (
-    <button data-testid={(props as Record<string, string>)['data-testid']} onClick={onClick}>
+  Button: ({ title, onClick, disabled, ...props }: { title?: string; onClick?: () => void; disabled?: boolean }) => (
+    <button data-testid={(props as Record<string, string>)['data-testid']} onClick={onClick} disabled={disabled}>
       {title}
     </button>
   )
@@ -294,5 +294,36 @@ describe('PendingTab — fee disclosure on the claim buttons', () => {
     expect(screen.queryByText('networkFeeMax')).not.toBeInTheDocument();
     expect(screen.queryByText('feeChargedPerAsset')).not.toBeInTheDocument();
     mockBaseFee = 0;
+  });
+});
+
+describe('PendingTab — the summary while a claim is in flight', () => {
+  // Claiming no longer navigates away, so this screen has to say what is happening. Every note
+  // being claimed drops out of `unclaimedNotesCount` (useClaimNotes filters `isBeingClaimed`),
+  // so gating the CTA on that count alone left the user tapping "Claim All" and watching the
+  // button vanish with nothing in its place.
+  it('keeps a control and reports progress when every note is being claimed', () => {
+    renderTab({
+      safeClaimableNotes: [makeNote('n1', { isBeingClaimed: true })],
+      unclaimedNotesCount: 0
+    });
+
+    const button = screen.getByTestId('claim-all-button');
+    expect(button).toBeDisabled();
+    expect(button).toHaveTextContent('claiming');
+  });
+
+  it('offers Claim All again once a note is claimable', () => {
+    renderTab({ safeClaimableNotes: [makeNote('n1')], unclaimedNotesCount: 1 });
+
+    const button = screen.getByTestId('claim-all-button');
+    expect(button).not.toBeDisabled();
+    expect(button).toHaveTextContent('claimAll');
+  });
+
+  it('renders no claim control when there is nothing pending and nothing in flight', () => {
+    renderTab({ safeClaimableNotes: [], unclaimedNotesCount: 0 });
+
+    expect(screen.queryByTestId('claim-all-button')).not.toBeInTheDocument();
   });
 });

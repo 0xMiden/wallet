@@ -8,17 +8,18 @@ import {
   getFailedTransactions,
   initiateConsumeNotesTransaction,
   requestSWTransactionProcessing,
+  startBackgroundTransactionProcessing,
   verifyStuckTransactionsFromNode
 } from 'lib/miden/activity';
 import { midenClientProxy } from 'lib/miden/back/miden-client-proxy';
-import { useAccount } from 'lib/miden/front';
+import { useAccount, useMidenContext } from 'lib/miden/front';
 import { useClaimableNotes } from 'lib/miden/front/claimable-notes';
+import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import { assertWasmHoldCurrent, withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import { isExtension } from 'lib/platform';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { WalletAccount, WalletMessageType } from 'lib/shared/types';
 import { getIntercom } from 'lib/store';
-import { navigate } from 'lib/woozie';
 
 export interface ClaimNotesState {
   account: WalletAccount;
@@ -46,6 +47,7 @@ export interface ClaimNotesState {
  */
 export function useClaimNotes(): ClaimNotesState {
   const account = useAccount();
+  const { signTransaction } = useMidenContext();
   const nativeFaucetId = useMidenFaucetId();
   const address = account.publicKey;
 
@@ -62,7 +64,6 @@ export function useClaimNotes(): ClaimNotesState {
   const [retriableNoteIds, setRetriableNoteIds] = useState<Set<string>>(new Set());
   const [invalidNoteIds, setInvalidNoteIds] = useState<Set<string>>(new Set());
   const [checkingNoteIds, setCheckingNoteIds] = useState<Set<string>>(new Set());
-  const claimAllAbortRef = useRef<AbortController | null>(null);
   // Ids that failed synchronously at claim-queue time. `initiateConsumeNotesTransaction`
   // queues inside a Dexie rw-transaction, so a throw rolls back without persisting a
   // Failed row — `getFailedTransactions` can never re-surface them. Held additively in
@@ -91,12 +92,6 @@ export function useClaimNotes(): ClaimNotesState {
   const unclaimedNotes = safeClaimableNotes.filter(
     n => !n.isBeingClaimed && !claimingNoteIds.has(n.id) && !individualClaimingIds.has(n.id)
   );
-
-  useEffect(() => {
-    return () => {
-      claimAllAbortRef.current?.abort();
-    };
-  }, []);
 
   // Poll for stuck transactions and verify their state from the node.
   // On extension, skip — the SW handles stuck transaction cleanup via generateTransactionsLoop.
@@ -223,13 +218,28 @@ export function useClaimNotes(): ClaimNotesState {
         .join(','),
     [safeClaimableNotes]
   );
+  // Which notes currently have a live consume behind them. A consume that FAILS leaves
+  // Queued/GeneratingTransaction, so `isBeingClaimed` flips back to false while the note stays
+  // claimable and its id never changes -- meaning `claimableSignature` does NOT move. Without
+  // this second signature the row would quietly revert from "Claiming…" to "Claim" with no
+  // error, which is exactly the #456 silent-failure regression, and now reachable without
+  // leaving the page because claiming no longer navigates away.
+  const claimingSignature = useMemo(
+    () =>
+      safeClaimableNotes
+        .filter(n => n.isBeingClaimed)
+        .map(n => n.id)
+        .sort()
+        .join(','),
+    [safeClaimableNotes]
+  );
   const hasShownInitialSpinner = useRef(false);
 
   useEffect(() => {
     const showSpinner = !hasShownInitialSpinner.current && safeClaimableNotesRef.current.length > 0;
     if (showSpinner) hasShownInitialSpinner.current = true;
     runFailedNotesCheck(showSpinner);
-  }, [claimableSignature, runFailedNotesCheck]);
+  }, [claimableSignature, claimingSignature, runFailedNotesCheck]);
 
   // Also re-check when the user returns to the tab: a consume may have failed
   // (or a note gone terminal) while the page was backgrounded. Never shows the
@@ -249,10 +259,6 @@ export function useClaimNotes(): ClaimNotesState {
 
   const claimNotesBatch = useCallback(
     async (filter?: (note: NoteWithMetadata) => boolean) => {
-      claimAllAbortRef.current?.abort();
-      claimAllAbortRef.current = new AbortController();
-      const signal = claimAllAbortRef.current.signal;
-
       // Refresh the claimable notes list before queueing to avoid race conditions
       // with auto-consume (Explore page may have already started claiming some notes).
       const freshNotes = await mutateClaimableNotes();
@@ -345,14 +351,22 @@ export function useClaimNotes(): ClaimNotesState {
           }
         }
 
-        if (isExtension()) {
-          // On extension: fire-and-forget — SW handles processing.
-          // Keep the Claim All action disabled until sync removes the queued notes.
-          requestSWTransactionProcessing();
-        }
-
-        if (batchTxId && !signal.aborted) {
-          navigate(`/generating-transaction-full/${encodeURIComponent(batchTxId)}`);
+        // Claiming does NOT navigate. It used to push the full-screen progress route, which
+        // stranded the user: the consume finishes in ~2s but the page stays, and a note arriving
+        // meanwhile is invisible there because that page watches one row by id. The pending row
+        // reports progress in place instead (its "Claiming…" control is still a way IN to the
+        // progress screen when the user wants it).
+        //
+        // Removing the navigation removes a load-bearing side effect, which is why the driver
+        // below is not optional: off-extension, the progress page's own interval was the only
+        // thing turning the FIFO loop in this path, so without this a claim sits Queued forever.
+        // Same shape as Explore's auto-consume, which has always claimed without navigating.
+        if (batchTxId) {
+          if (isExtension()) {
+            requestSWTransactionProcessing();
+          } else {
+            startBackgroundTransactionProcessing(signTransaction, false, zustandProvider);
+          }
         }
       } finally {
         // The live consume row is the gate on every platform now (`claimingTxIdByNoteId`), and
@@ -367,6 +381,7 @@ export function useClaimNotes(): ClaimNotesState {
       account.publicKey,
       isDelegatedProvingEnabled,
       mutateClaimableNotes,
+      signTransaction,
       claimingNoteIds,
       individualClaimingIds,
       // Read by the native-first ordering above. Omitted, this callback captures the

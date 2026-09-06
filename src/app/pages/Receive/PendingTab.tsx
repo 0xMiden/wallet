@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
@@ -15,9 +15,14 @@ import { Button, ButtonVariant } from 'components/Button';
 import { SyncWaveBackground } from 'components/SyncWaveBackground';
 import { TokenLogo } from 'components/TokenLogo';
 import { formatBigInt, formatUsd } from 'lib/i18n/numbers';
-import { initiateConsumeTransaction, requestSWTransactionProcessing } from 'lib/miden/activity';
+import {
+  initiateConsumeTransaction,
+  requestSWTransactionProcessing,
+  startBackgroundTransactionProcessing
+} from 'lib/miden/activity';
 import { isWorthClaiming } from 'lib/miden/fees/spendable';
-import { AssetMetadata } from 'lib/miden/front';
+import { AssetMetadata, useMidenContext } from 'lib/miden/front';
+import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import { ConsumableNote, NoteTypeEnum } from 'lib/miden/types';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isExtension } from 'lib/platform';
@@ -147,11 +152,14 @@ export const PendingTab: React.FC<PendingTabProps> = ({
     );
   }
 
+  const claimingCount = safeClaimableNotes.filter(n => n.isBeingClaimed).length;
+
   return (
     <PendingSummary
       groupedNotes={groupedNotes}
       tokenPrices={tokenPrices}
       unclaimedNotesCount={unclaimedNotesCount}
+      claimingCount={claimingCount}
       retriableNoteIds={retriableNoteIds}
       invalidNoteIds={invalidNoteIds}
       onSelectGroup={handleSelectGroup}
@@ -161,6 +169,8 @@ export const PendingTab: React.FC<PendingTabProps> = ({
 };
 
 interface PendingSummaryProps {
+  /** Notes with a live consume behind them; they have already left `unclaimedNotesCount`. */
+  claimingCount: number;
   groupedNotes: AssetNoteGroup[];
   tokenPrices: TokenPrices;
   unclaimedNotesCount: number;
@@ -174,6 +184,7 @@ const PendingSummary: React.FC<PendingSummaryProps> = ({
   groupedNotes,
   tokenPrices,
   unclaimedNotesCount,
+  claimingCount,
   retriableNoteIds,
   invalidNoteIds,
   onSelectGroup,
@@ -257,13 +268,16 @@ const PendingSummary: React.FC<PendingSummaryProps> = ({
           ))}
         </div>
 
-        {unclaimedNotesCount > 0 && (
+        {/* Claiming does not navigate away any more, so this block is where progress is
+            reported. Every note being claimed has already dropped out of `unclaimedNotesCount`,
+            so gating on that alone made the CTA vanish the moment the user tapped it. */}
+        {(unclaimedNotesCount > 0 || claimingCount > 0) && (
           <div className="flex flex-col items-center mt-auto pt-4 pb-2">
             {/* Claiming submits immediately -- there is no review step between this
                 button and the transaction -- so this is the only place the cost can be
                 stated before the user commits. Label and amount are separate nodes so
                 no placeholder-only string has to survive translation. */}
-            {maxNetworkFee && (
+            {maxNetworkFee && unclaimedNotesCount > 0 && (
               <div className="mb-2 text-center text-xs text-heading-gray">
                 <div>
                   {t('networkFeeMax')} · {maxNetworkFee}
@@ -279,8 +293,9 @@ const PendingSummary: React.FC<PendingSummaryProps> = ({
               data-testid="claim-all-button"
               className="w-full"
               variant={ButtonVariant.Primary}
+              disabled={unclaimedNotesCount === 0}
               onClick={onClaimAll}
-              title={t('claimAll')}
+              title={unclaimedNotesCount === 0 ? t('claiming') : t('claimAll')}
             />
           </div>
         )}
@@ -562,12 +577,12 @@ const DetailNoteRow: React.FC<DetailNoteRowProps> = ({
 }) => {
   const { t } = useTranslation();
   const tokenPrices = useWalletStore(s => s.tokenPrices);
+  const { signTransaction } = useMidenContext();
   // Purely "this row's own claim is in flight". The gated look for a note being claimed
   // elsewhere arrives via `claimState`, derived from `note.isBeingClaimed` -- seeding it here
   // too took a mount-time snapshot that never followed the note back to claimable.
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const abortControllerRef = useRef<AbortController | null>(null);
 
   // Fold this row's local claim attempt into the parent-derived state: an
   // in-flight local claim reads as consuming; a local claim error reads as
@@ -592,32 +607,25 @@ const DetailNoteRow: React.FC<DetailNoteRowProps> = ({
     onClaimingStateChange?.(note.id, isLoading);
   }, [isLoading, note.id, onClaimingStateChange]);
 
-  useEffect(() => {
-    return () => {
-      abortControllerRef.current?.abort();
-    };
-  }, []);
-
   const handleClaim = useCallback(async () => {
     setError(null);
     setIsLoading(true);
     hapticLight();
-
-    abortControllerRef.current?.abort();
-    abortControllerRef.current = new AbortController();
-    const signal = abortControllerRef.current.signal;
 
     try {
       // Explicit user tap (Claim / Retry) — bypass the auto-consume backoff gate
       // so a retry after a failure always queues a fresh attempt.
       const id = await initiateConsumeTransaction(account.publicKey, note, isDelegatedProvingEnabled, true);
 
-      if (isExtension()) {
-        requestSWTransactionProcessing();
-      }
-
-      if (!signal.aborted) {
-        navigate(`/generating-transaction-full/${encodeURIComponent(id)}`);
+      // Same reasoning as the batch claim in `useClaimNotes`: claiming reports progress on this
+      // row rather than hijacking the screen. Off-extension the progress page's interval used to
+      // be the only thing driving the FIFO loop from here, so the driver is not optional.
+      if (id) {
+        if (isExtension()) {
+          requestSWTransactionProcessing();
+        } else {
+          startBackgroundTransactionProcessing(signTransaction, false, zustandProvider);
+        }
       }
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') return;
@@ -630,7 +638,7 @@ const DetailNoteRow: React.FC<DetailNoteRowProps> = ({
       // stayed gone until the row was unmounted and remounted.
       setIsLoading(false);
     }
-  }, [account, isDelegatedProvingEnabled, note, t]);
+  }, [account, isDelegatedProvingEnabled, note, signTransaction, t]);
 
   const { metadata } = note;
   const decimals = metadata?.decimals ?? 6;
