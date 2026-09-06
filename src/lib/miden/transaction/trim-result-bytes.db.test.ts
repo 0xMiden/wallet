@@ -136,6 +136,40 @@ describe('trimCompletedResultBytes', () => {
     expect(await blobsLeft()).toBe(0);
   });
 
+  it('spares a row still inside the retention window', async () => {
+    const recent = Math.floor(Date.now() / 1000) - 30;
+    await Repo.transactions.bulkPut([row(1, { completedAt: recent, initiatedAt: recent })]);
+
+    expect(await pass()).toBe(0);
+    expect(await blobsLeft()).toBe(1);
+  });
+
+  it('ignores rows that are not terminal, and rows already trimmed', async () => {
+    await Repo.transactions.bulkPut([
+      row(1, { status: ITransactionStatus.Queued }),
+      row(2, { status: ITransactionStatus.GeneratingTransaction }),
+      row(3, { resultBytes: undefined })
+    ]);
+
+    expect(await pass()).toBe(0);
+  });
+
+  it('treats the cutoff second as outside the window, matching the query exactly', async () => {
+    // The predicate and the dexie range are one rule. `.below()` is upper-open, so a row stamped
+    // at precisely the cutoff second must NOT be trimmed; one second older must be.
+    const now = Date.now();
+    const cutoff = Math.floor((now - RESULT_BYTES_RETENTION_MS) / 1000);
+    await Repo.transactions.bulkPut([
+      row(1, { id: 'at-cutoff', completedAt: cutoff } as Partial<ITransaction>),
+      row(2, { id: 'one-older', completedAt: cutoff - 1 } as Partial<ITransaction>)
+    ]);
+
+    __resetTrimThrottleForTests();
+    expect(await trimCompletedResultBytes(now)).toBe(1);
+    expect((await Repo.transactions.get('at-cutoff'))?.resultBytes).toBeDefined();
+    expect((await Repo.transactions.get('one-older'))?.resultBytes).toBeUndefined();
+  });
+
   it('is throttled between passes', async () => {
     // Asserted under a load the UNGATED path has NOT already exhausted: with TRIM_BATCH_SIZE+50
     // rows the first pass leaves 50 behind, so an un-throttled second pass would take them and

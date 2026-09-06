@@ -43,7 +43,7 @@ export const RESULT_BYTES_RETENTION_MS = 10 * 60 * 1000;
  * unbounded growth this module exists to stop, in the population most likely to hit it.
  */
 /**
- * The rows whose `resultBytes` can be released. Pure, so the policy is testable without a store.
+ * The rows whose `resultBytes` can be released.
  *
  * `completedAt` is whole SECONDS (see the sort in `get.ts`), while `now` is epoch ms — hence the
  * divide rather than a bare subtraction.
@@ -61,13 +61,12 @@ const isTrimmable = (tx: ITransaction, cutoffSeconds: number): boolean => {
   if (!tx.resultBytes) return false;
   // No `?? initiatedAt` fallback: the only production path here is `where('completedAt')`, and
   // IndexedDB omits records whose index key is undefined, so a row without one is unreachable.
-  return tx.completedAt != null && tx.completedAt <= cutoffSeconds;
+  // `<`, matching the query's `.below()` (upper-open) exactly. These are ONE rule: a row at
+  // precisely the cutoff second used to be trimmable by the predicate and unreachable by the
+  // query.
+  return tx.completedAt != null && tx.completedAt < cutoffSeconds;
 };
 
-export const selectRowsToTrim = (rows: readonly ITransaction[], now: number): ITransaction[] => {
-  const cutoffSeconds = Math.floor((now - RESULT_BYTES_RETENTION_MS) / 1000);
-  return rows.filter(tx => isTrimmable(tx, cutoffSeconds));
-};
 
 /**
  * Releases `resultBytes` on every eligible row. Returns how many rows were actually trimmed —
