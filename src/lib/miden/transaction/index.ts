@@ -67,6 +67,7 @@ import {
   updateTransactionStatus
 } from './helper';
 import { bridgeProviderOf } from './retry';
+import { trimCompletedResultBytes } from './trim-result-bytes';
 import { markConnectivityIssue } from '../activity/connectivity-state';
 import { importAllNotes } from '../activity/notes';
 import { compareAccountIds } from '../activity/utils';
@@ -2958,6 +2959,13 @@ export const generateTransactionsLoop = async (
 ): Promise<boolean | void> => {
   await cancelStuckTransactions();
   await cancelStaleQueuedTransactions();
+  // Reclaim the ~237 KB `resultBytes` blob from long-finished rows. Isolated because a store
+  // that cannot be trimmed must not stop the lap from processing transactions.
+  try {
+    await trimCompletedResultBytes();
+  } catch (err) {
+    console.warn('[transactions] resultBytes trim failed:', err);
+  }
 
   // Import any notes needed for queued transactions.
   //
