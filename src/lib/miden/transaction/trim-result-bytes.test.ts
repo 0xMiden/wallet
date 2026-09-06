@@ -48,5 +48,4 @@ describe('selectRowsToTrim', () => {
     const already = row({ id: 'g', resultBytes: undefined });
     expect(selectRowsToTrim([queued, already], NOW)).toEqual([]);
   });
-
 });

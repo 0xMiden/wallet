@@ -1,11 +1,11 @@
 import * as Repo from 'lib/miden/repo';
 
+import { bridgeProviderOf } from './bridge-provider';
 import { pipelineMayStillBeRunning, verifySendLanded } from './cancel';
 import { TRANSACTION_RETRY_UNSAFE_ERROR, isSubmitOutcomeUnknown } from './constants';
 import { completeVerifiedLandedTransaction } from './helper';
 import {
   IBridgeProvider,
-  IBridgedSendExtraInputs,
   IEarnWithdrawExtraInputs,
   ITransaction,
   ITransactionIcon,
@@ -71,12 +71,7 @@ const REQUEUEABLE_TYPES: ITransactionType[] = ['send', 'consume', 'swap', 'bridg
 /** `bridged-send` route whose failed row must NOT be re-queued (see above). */
 const NON_REQUEUEABLE_BRIDGE_PROVIDER: IBridgeProvider = 'epoch';
 
-/** Reads `provider` off a `bridged-send` row; `undefined` for every other type. */
-export const bridgeProviderOf = (tx: Pick<ITransaction, 'type' | 'extraInputs'>): IBridgeProvider | undefined => {
-  if (tx.type !== 'bridged-send') return undefined;
-  const extra: IBridgedSendExtraInputs | undefined = tx.extraInputs;
-  return extra?.provider;
-};
+export { bridgeProviderOf } from './bridge-provider';
 
 /** Pre-failure display icon per type (mirrors the Transaction subclass constructors). */
 const ICON_BY_TYPE: Partial<Record<ITransactionType, ITransactionIcon>> = {
