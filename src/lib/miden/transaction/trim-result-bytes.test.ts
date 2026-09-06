@@ -38,8 +38,8 @@ describe('selectRowsToTrim', () => {
     expect(selectRowsToTrim([bridged], NOW)).toEqual([]);
   });
 
-  it('trims a bridged-send from a provider that does not await the result', () => {
-    const bridged = row({ id: 'e', type: 'bridged-send', extraInputs: { provider: 'across' } });
+  it('trims a bridged-send from a provider that does not await the result (agglayer)', () => {
+    const bridged = row({ id: 'e', type: 'bridged-send', extraInputs: { provider: 'agglayer' } });
     expect(selectRowsToTrim([bridged], NOW).map(r => r.id)).toEqual(['e']);
   });
 
@@ -49,8 +49,4 @@ describe('selectRowsToTrim', () => {
     expect(selectRowsToTrim([queued, already], NOW)).toEqual([]);
   });
 
-  it('falls back to initiatedAt when a completed row carries no completedAt', () => {
-    const noCompletedAt = row({ id: 'h', completedAt: undefined, initiatedAt: old });
-    expect(selectRowsToTrim([noCompletedAt], NOW).map(r => r.id)).toEqual(['h']);
-  });
 });

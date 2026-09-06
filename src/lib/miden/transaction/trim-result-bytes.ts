@@ -41,17 +41,26 @@ const stillNeedsResult = (tx: ITransaction): boolean => {
 /**
  * The rows whose `resultBytes` can be released. Pure, so the policy is testable without a store.
  *
- * `completedAt`/`initiatedAt` are whole SECONDS (see the sort in `get.ts`), while `now` is
- * epoch ms — hence the divide rather than a bare subtraction.
+ * `completedAt` is whole SECONDS (see the sort in `get.ts`), while `now` is epoch ms — hence the
+ * divide rather than a bare subtraction.
  */
+const isTerminal = (tx: ITransaction): boolean =>
+  tx.status === ITransactionStatus.Completed || tx.status === ITransactionStatus.Failed;
+
 const isTrimmable = (tx: ITransaction, cutoffSeconds: number): boolean => {
-  if (tx.status !== ITransactionStatus.Completed) return false;
+  // BOTH terminal states, not just Completed. `waitForTransactionCompletion` answers a Failed row
+  // from `tx.error` and never touches its bytes, and two paths do leave bytes on a Failed row:
+  // the replace-hot-key failure branch writes `resultBytes` as it marks the row Failed, and
+  // `markBridgedSendFailed` demotes an already-Completed Epoch row without clearing them. Both
+  // stamp `completedAt`, so the index reaches them — a Completed-only rule pinned them forever.
+  if (!isTerminal(tx)) return false;
   if (!tx.resultBytes) return false;
-  if (stillNeedsResult(tx)) return false;
-  // A row completed by a path that never stamped `completedAt` still ages out, via the
-  // timestamp every row has.
-  const finishedAt = tx.completedAt ?? tx.initiatedAt;
-  return finishedAt != null && finishedAt <= cutoffSeconds;
+  // The exemption is about the awaiting CALLER, so it only holds while the row is Completed:
+  // nothing is waiting on the result of a transaction that failed.
+  if (tx.status === ITransactionStatus.Completed && stillNeedsResult(tx)) return false;
+  // No `?? initiatedAt` fallback: the only production path here is `where('completedAt')`, and
+  // IndexedDB omits records whose index key is undefined, so a row without one is unreachable.
+  return tx.completedAt != null && tx.completedAt <= cutoffSeconds;
 };
 
 export const selectRowsToTrim = (rows: readonly ITransaction[], now: number): ITransaction[] => {

@@ -81,6 +81,32 @@ describe('trimCompletedResultBytes', () => {
     expect(await blobsLeft()).toBe(0);
   });
 
+  it('reclaims a Failed row that kept its result bytes', async () => {
+    // The replace-hot-key failure branch writes resultBytes while marking the row Failed, and
+    // markBridgedSendFailed demotes a Completed Epoch row without clearing them. Both stamp
+    // completedAt, so the index reaches them; a Completed-only predicate pinned them forever.
+    await Repo.transactions.bulkPut([
+      row(1, { status: ITransactionStatus.Failed, type: 'replace-hot-key', error: 'rotate failed' }),
+      row(2, {
+        status: ITransactionStatus.Failed,
+        type: 'bridged-send',
+        extraInputs: { provider: 'epoch' }
+      } as Partial<ITransaction>)
+    ]);
+
+    expect(await pass()).toBe(2);
+    expect(await blobsLeft()).toBe(0);
+  });
+
+  it('still spares a Completed epoch bridged-send, whose caller reads the result back', async () => {
+    await Repo.transactions.bulkPut([
+      row(1, { type: 'bridged-send', extraInputs: { provider: 'epoch' } } as Partial<ITransaction>)
+    ]);
+
+    expect(await pass()).toBe(0);
+    expect(await blobsLeft()).toBe(1);
+  });
+
   it('is throttled between passes', async () => {
     await Repo.transactions.bulkPut(Array.from({ length: 10 }, (_, i) => row(i)));
 
