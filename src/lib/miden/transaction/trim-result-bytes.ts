@@ -1,6 +1,5 @@
 import { ITransactionStatus } from 'lib/miden/db/types';
 import type { ITransaction } from 'lib/miden/db/types';
-
 import * as Repo from 'lib/miden/repo';
 
 import { bridgeProviderOf } from './retry';
