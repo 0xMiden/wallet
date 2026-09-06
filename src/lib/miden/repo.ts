@@ -68,6 +68,7 @@ db.version(1.3)
           // still need an L1 claim; anything else never reached that point.
           claimStatus: t.status === 2 ? 'pending' : 'not-applicable'
         };
+        return undefined;
       });
   });
 
@@ -96,6 +97,7 @@ db.version(1.4)
         // `false` on the declining path, for the same reason as v1.3 above.
         if (t.type !== 'consume' || !t.noteId || Array.isArray(t.noteIds)) return false;
         t.noteIds = [t.noteId];
+        return undefined;
       });
   });
 

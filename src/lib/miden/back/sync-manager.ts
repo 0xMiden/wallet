@@ -156,6 +156,17 @@ async function getVault() {
 }
 
 export function doSync(force = false): Promise<void> {
+  // Reclaim finished transactions' result blobs. Here as well as in the processing loop because
+  // that loop is work-driven: a wallet used heavily and then left idle would otherwise keep
+  // everything its last active period wrote.
+  //
+  // Ahead of every early return below, and deliberately not inside `runSync`: this is pure local
+  // Dexie maintenance with no network dependency and no WASM lock, so neither the in-flight
+  // coalescing, nor the circuit breaker, nor the #777 fuse — which can hold this realm off the
+  // node for 30 minutes at a time — has any business gating it. Self-throttled and fire-and-forget,
+  // so it can neither slow a sync nor fail one.
+  void trimCompletedResultBytes().catch(err => console.warn('[sync] resultBytes trim failed:', err));
+
   if (inFlight) {
     if (!force) return inFlight;
     if (!queuedForcedSync) {
@@ -249,10 +260,6 @@ async function runSync(force: boolean): Promise<void> {
       // don't touch `prover` — that's a separate service with separate
       // health and is owned by withProverFallback.
       clearReachabilityIssues();
-      // Reclaim finished transactions' result blobs. Here as well as in the processing loop
-      // because the loop is work-driven: a wallet used heavily and then left idle would otherwise
-      // keep everything its last active period wrote. Self-throttled, so this tick is cheap.
-      void trimCompletedResultBytes().catch(err => console.warn('[sync] resultBytes trim failed:', err));
     } catch (err) {
       consecutiveSyncFailures++;
       // The FUSE (#777), same rule and constants as the mobile/desktop loop, because

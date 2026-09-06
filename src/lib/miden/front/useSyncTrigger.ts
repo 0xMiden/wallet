@@ -15,6 +15,7 @@ import {
   MAX_SYNC_BACKOFF_MS,
   monotonicNowMs
 } from 'lib/miden/sync-backoff';
+import { trimCompletedResultBytes } from 'lib/miden/transaction/trim-result-bytes';
 import { isExtension } from 'lib/platform';
 import { WalletMessageType, WalletStatus } from 'lib/shared/types';
 import { getIntercom, useWalletStore } from 'lib/store';
@@ -149,6 +150,17 @@ export function useSyncTrigger() {
 
       isRunning = true;
       try {
+        // Reclaim finished transactions' result blobs. This realm's only other driver is the
+        // work-driven transaction loop, which stops as soon as the queue empties — so on mobile
+        // and desktop an idle wallet would otherwise never trim at all, though the behaviour is
+        // shipped for every platform.
+        //
+        // Ahead of the guards below and outside the WASM lock on purpose: it is pure local Dexie
+        // maintenance, so the generating-transaction route, the send flow and the #777 fuse have
+        // no business gating it. Self-throttled and fire-and-forget — it can neither slow a sync
+        // nor fail one.
+        void trimCompletedResultBytes().catch(err => console.warn('[sync] resultBytes trim failed:', err));
+
         // Same guards the old AutoSync had: skip (don't wait for the lock) when
         // a tx is being generated, to avoid queuing sync behind a long prove.
         const onGeneratingTxPage =

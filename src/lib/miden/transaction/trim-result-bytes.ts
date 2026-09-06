@@ -153,6 +153,7 @@ const runTrimPass = async (now: number): Promise<number> => {
       // in `modify`, so the blob would survive.
       delete ref.value.resultBytes;
       trimmed++;
+      return undefined;
     });
   return trimmed;
 };
