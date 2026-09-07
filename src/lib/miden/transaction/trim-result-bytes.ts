@@ -53,8 +53,10 @@ const isTrimmable = (tx: ITransaction, cutoffSeconds: number): boolean => {
   // BOTH terminal states, not just Completed. `waitForTransactionCompletion` answers a Failed row
   // from `tx.error` and never touches its bytes, and two paths do leave bytes on a Failed row:
   // the replace-hot-key failure branch writes `resultBytes` as it marks the row Failed, and
-  // `markBridgedSendFailed` demotes an already-Completed Epoch row without clearing them. Both
-  // stamp `completedAt`, so the index reaches them — a Completed-only rule pinned them forever.
+  // `markBridgedSendFailed` demotes an already-Completed Epoch row without clearing them. The
+  // index reaches both, by different routes: the first stamps `completedAt` as it fails, and the
+  // demoted row keeps the one its earlier Completed write left — `markBridgedSendFailed` stamps
+  // none. A Completed-only rule pinned both forever.
   if (!isTerminal(tx)) return false;
   if (!tx.resultBytes) return false;
   // No `?? initiatedAt` fallback: the only production path here is `where('completedAt')`, and
@@ -191,8 +193,8 @@ const runTrimPass = async (now: number): Promise<TrimPassResult> => {
   // `.modify()` alone opens ONE readwrite transaction and materializes the range inside it, and
   // because `.filter()` forces the cursor to load values, that scan deserializes every row it
   // walks — including the ~237 KB blobs of rows it will skip — while holding a write lock on
-  // `transactions`. The processing loop awaits this pass before picking up queued work, so a long
-  // scan delayed the wallet's own transactions.
+  // `transactions`. Nothing awaits this pass any more — both drivers fire and forget — but the
+  // wallet's own writes still queue behind a readwrite transaction held open for the whole scan.
   const ids = await Repo.transactions
     .where('completedAt')
     .below(cutoffSeconds)
