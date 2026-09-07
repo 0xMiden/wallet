@@ -344,7 +344,10 @@ export const completeVerifiedLandedTransaction = async (
   otherValues: Partial<ITransaction> = {}
 ): Promise<void> => {
   await Repo.transactions.where({ id }).modify(tx => {
-    if (tx.status !== ITransactionStatus.Failed) return;
+    // `false`, not a bare return — dexie re-puts the deep clone for any other value. The row
+    // declined here is an already-Completed one, i.e. exactly the row still carrying the ~237 KB
+    // `resultBytes`, and `useTransactionRow` observes this table.
+    if (tx.status !== ITransactionStatus.Failed) return false;
     Object.assign(tx, otherValues);
     tx.status = ITransactionStatus.Completed;
     tx.stage = 'complete';
@@ -352,6 +355,7 @@ export const completeVerifiedLandedTransaction = async (
     // completed transaction with an error on it.
     tx.error = undefined;
     tx.rawError = undefined;
+    return undefined;
   });
 };
 

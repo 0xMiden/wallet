@@ -314,11 +314,13 @@ export const completeConsumeTransaction = async (id: string, result: Transaction
     if (settle) {
       const stampedAt = Math.floor(Date.now() / 1000);
       await Repo.transactions.where({ id: settle.swapOrderTxId }).modify(tx => {
-        if (tx.type !== 'swap') return;
+        // `false`, not a bare return — dexie re-puts the deep clone for any other value.
+        if (tx.type !== 'swap') return false;
         tx.extraInputs = {
           ...(tx.extraInputs ?? {}),
           ...(settle.swapSettleKind === 'reclaim' ? { reclaimedAt: stampedAt } : { settledAt: stampedAt })
         };
+        return undefined;
       });
     }
   } catch (err) {
@@ -1113,11 +1115,13 @@ export const updateEarnWithdrawPhase = async (
     const inputs: IEarnWithdrawExtraInputs = tx.extraInputs;
     if (!canAdvanceEarnWithdrawPhase(inputs.phase, phase)) {
       console.warn(`[earn-withdraw] refusing phase downgrade ${inputs.phase} -> ${phase} on ${id}`);
-      return;
+      // `false`, not a bare return — dexie re-puts the deep clone for any other value.
+      return false;
     }
     tx.extraInputs = { ...inputs, phase, ...(extra ?? {}) };
     if (amount !== undefined) tx.amount = amount;
     if (phase === 'failed' && extra?.error) tx.error = extra.error;
+    return undefined;
   });
 };
 
