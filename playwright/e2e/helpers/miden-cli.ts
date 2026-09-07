@@ -153,7 +153,7 @@ export function resolveCliPath(): string {
     } catch (err: any) {
       throw new Error(
         `Failed to install miden-client-cli from ${gitPin.url}@${gitPin.rev}. ` +
-          `Ensure the Rust toolchain is installed (https://rustup.rs). Error: ${err.message}`
+          `${cargoInstallHint(String(err.stderr ?? '') + String(err.message ?? ''))} Error: ${err.message}`
       );
     }
     return 'miden-client';
@@ -179,11 +179,31 @@ export function resolveCliPath(): string {
   } catch (err: any) {
     throw new Error(
       `Failed to install miden-client-cli@${version} from crates.io. ` +
-        `Ensure the Rust toolchain is installed (https://rustup.rs). Error: ${err.message}`
+        `${cargoInstallHint(String(err.stderr ?? '') + String(err.message ?? ''))} Error: ${err.message}`
     );
   }
 
   return 'miden-client';
+}
+
+/**
+ * Turns a `cargo install` failure into something actionable.
+ *
+ * The MSRV case is called out because the generic advice is actively wrong for it: the toolchain
+ * IS installed, it is just older than the crate needs, and "install Rust" sends you to fix
+ * something that is not broken. miden-client raised its MSRV to 1.98 in 0.16.0-rc.4, so any
+ * machine on an older stable fails here rather than at anything to do with the wallet.
+ */
+function cargoInstallHint(stderr: string): string {
+  const msrv = stderr.match(/requires rustc ([\d.]+) or newer, while the currently active rustc version is ([\d.]+)/);
+  if (msrv) {
+    return (
+      `The Rust toolchain is too old: this build needs rustc ${msrv[1]} but ${msrv[2]} is active. ` +
+      `Run \`rustup update stable\`, or install just that toolchain with ` +
+      `\`rustup toolchain install ${msrv[1]}\` and re-run with it selected.`
+    );
+  }
+  return 'Ensure the Rust toolchain is installed (https://rustup.rs).';
 }
 
 /**
@@ -295,6 +315,9 @@ export class MidenCli {
   private nativeFaucetId?: string;
   /** Set once a deployment has failed for want of a fee, which is how the chain reveals it charges. */
   private chainChargesFees = false;
+
+  /** Faucets this run has repaired after a surprise fee, so a second failure is not swallowed. */
+  private readonly mintFundedFaucets = new Set<string>();
   private readonly fundedForFees = new Set<string>();
 
   private static funderDir(): string {
@@ -346,32 +369,21 @@ export class MidenCli {
    * the one that consumes a note carrying the native fee asset, because the credit is applied to
    * the vault before `pay_fee` withdraws from it.
    */
-  private async createFaucetFunded(tomlPath: string): Promise<CLIInvocation> {
-    // `basic-wallet` is composed in deliberately. The fungible faucet component exports
-    // `mint_and_send`, `receive_and_burn` and metadata accessors, but NOT `receive_asset` -- so a
-    // plain faucet cannot consume a P2ID note at all, and the funding transfer aborts with
-    // `account procedure ... is not in the account procedure index map`. Since genesis has no way
-    // to give a faucet a starting balance either (`[[fungible_faucet]]` takes no `assets`, only
-    // `[[wallet]]` does), a fee-charging chain leaves a plain faucet permanently unable to
-    // transact: empty vault, no fee, no way to receive one. Adding the wallet component gives it
-    // `receive_asset` so it can be funded like any other account.
-    const created = await this.run(
-      `new-account --account-type public -p basic-fungible-faucet -p basic-wallet ` +
-        `--init-storage-data-path ${tomlPath}`,
-      { timeoutMs: 180_000 }
-    );
-    if (created.exitCode !== 0) {
-      throw new Error(`Failed to create faucet (undeployed): ${created.stderr}`);
-    }
-    const newId = created.parsed?.accountId ?? created.stdout.match(/account\s+-s\s+(\S+)/)?.[1];
-    if (!newId) {
-      throw new Error(`Created a faucet but could not parse its id from: ${created.stdout}`);
-    }
-
-    // Genesis funders on a local stack, the chain's public faucet on devnet; either way this
-    // only SENDS the note. Consuming it below is what funds the vault -- and for this still-
-    // undeployed faucet, that consumption is also its deploy.
-    const fundedBy = await this.sendNativeFundingNote(newId);
+  /**
+   * Funds a CLI-owned account and, in doing so, deploys it.
+   *
+   * The deploy is the point: an account's nonce goes 0 -> 1 on its first transaction, and
+   * consuming the funding note IS that transaction. This replaces the CLI's `--deploy`, which was
+   * removed in 0.16.0-rc.4 and only ever submitted an empty transaction to the same end.
+   *
+   * Only for accounts this client owns. A browser wallet is funded by `fundAccountForFees`, which
+   * merely sends the note — the extension claims it, and that claim is its own first transaction.
+   */
+  private async fundAndDeploy(accountId: string): Promise<void> {
+    // Genesis funders on a local stack, the chain's public faucet on devnet; either way this only
+    // SENDS the note. Consuming it below is what funds the vault -- and, for a still-undeployed
+    // account, that consumption is also its deploy.
+    const fundedBy = await this.sendNativeFundingNote(accountId);
 
     // The funding note only becomes consumable once it is committed in a block, and
     // `consume-notes` exits 0 when it finds nothing to consume -- so a single attempt can report
@@ -382,20 +394,19 @@ export class MidenCli {
     let funded = false;
     for (let attempt = 1; attempt <= 10 && !funded; attempt++) {
       await this.sync();
-      consumed = await this.run(`consume-notes --account ${newId} --force`, { timeoutMs: 180_000 });
-      funded = await this.holdsFeeAsset(newId);
+      consumed = await this.run(`consume-notes --account ${accountId} --force`, { timeoutMs: 180_000 });
+      funded = await this.holdsFeeAsset(accountId);
       if (!funded) {
         await new Promise(r => setTimeout(r, 3_000));
       }
     }
     if (!funded) {
       throw new Error(
-        `Faucet ${newId} never received its funding note from ${fundedBy}; its vault still holds ` +
-          `none of the fee asset after 10 attempts. Last consume-notes output: ` +
+        `Account ${accountId} never received its funding note from ${fundedBy}; its vault still ` +
+          `holds none of the fee asset after 10 attempts. Last consume-notes output: ` +
           `${consumed?.stderr || consumed?.stdout || 'no output'}`
       );
     }
-    return created;
   }
 
   /**
@@ -555,16 +566,22 @@ export class MidenCli {
     const tomlPath = path.join(this.workDir, 'faucet-init.toml');
     fs.writeFileSync(tomlPath, faucetInitToml(symbol, decimals, maxSupply));
 
-    // On a fee-charging chain a brand-new account cannot pay for its own deployment: its vault is
-    // empty and `pay_fee` withdraws before anything else runs. So create it locally, fund it from a
-    // genesis funder, and let the funding note's consumption be the transaction that deploys it —
-    // note credit lands before the fee is taken, so that first transaction settles its own fee.
-    // Where no fee is charged the account can deploy itself and this is the original one-shot path.
+    // No `--deploy`: the CLI dropped that flag in 0.16.0-rc.4 (miden-client e7fcd9986). It only
+    // ever submitted an empty transaction, because the nonce going 0 -> 1 is what deploys an
+    // account — so ANY first transaction deploys it, and this harness has two of them already: the
+    // consumption of a funding note (fee-charging chains) or the faucet's first mint (everywhere
+    // else). Nothing replaced the flag; `exec` runs a program without submitting and `call` is
+    // read-only, so there is no bare-deploy command to switch to.
+    //
+    // `basic-wallet` is composed in unconditionally, even where no fee is charged. The fungible
+    // faucet component exports `mint_and_send` and `receive_and_burn` but NOT `receive_asset`, so
+    // a plain faucet cannot consume a P2ID note at all. If this chain turns out to charge after
+    // all — the case `--deploy` used to reveal by failing — funding is the only repair available,
+    // and a faucet created without this component could not be funded.
     const createArgs =
       `new-account --account-type public ` +
-      `-p basic-fungible-faucet ` +
-      `--init-storage-data-path ${tomlPath} ` +
-      `--deploy`;
+      `-p basic-fungible-faucet -p basic-wallet ` +
+      `--init-storage-data-path ${tomlPath}`;
 
     const maxAttempts = 5;
     let lastErr = '';
@@ -585,18 +602,10 @@ export class MidenCli {
       await new Promise(r => setTimeout(r, backoffMs));
     }
 
+    // Creating no longer submits anything, so it cannot fail for want of a fee — the unfunded-fee
+    // arm that used to live here moved to `mint`, which is now the faucet's first transaction.
     if (!createResult || createResult.exitCode !== 0) {
-      if (!MidenCli.isUnfundedFeeError(lastErr)) {
-        throw new Error(`Failed to create faucet: ${lastErr}`);
-      }
-      // Remember this for every later account: once one deployment has failed this way, the chain
-      // is known to charge, and recipients have to be funded before they can transact at all.
-      this.chainChargesFees = true;
-      // The chain charges a fee and this account has nothing to pay it with. Create it without
-      // deploying, fund it from a genesis funder, and let the consumption of that funding note be
-      // its first transaction — note credit lands in the vault before `pay_fee` withdraws from it,
-      // so that transaction settles its own fee.
-      createResult = await this.createFaucetFunded(tomlPath);
+      throw new Error(`Failed to create faucet: ${lastErr}`);
     }
 
     // Parse account ID from stdout
@@ -615,6 +624,14 @@ export class MidenCli {
 
     this.faucets.set(symbol, id);
     this.lastFaucetId = id;
+
+    // Where the chain is known to charge, deploy it now by funding it: an undeployed faucet with an
+    // empty vault cannot mint, because `pay_fee` withdraws before anything else runs. Consuming the
+    // funding note is that first transaction, and note credit lands before the fee is taken, so it
+    // settles its own. Where nothing is charged this is skipped and the first mint does the deploy.
+    if (await this.chainCharges()) {
+      await this.fundAndDeploy(id);
+    }
 
     // Sync to confirm deployment
     await this.sync();
@@ -661,6 +678,27 @@ export class MidenCli {
         return { txId, noteId };
       }
       lastErr = result.stderr;
+
+      // The self-correcting fee signal, which used to live on `--deploy`'s failure. Creating an
+      // account submits nothing now, so a chain that charges unexpectedly first reveals it HERE:
+      // the mint is the faucet's own first transaction, and an undeployed faucet with an empty
+      // vault cannot pay for it. Fund the faucet (which deploys it) and let the retry mint.
+      //
+      // Guarded on `mintFundedFaucets` rather than on the flag, because a chain we already knew
+      // charges has funded this faucet at creation — a second unfunded-fee error there is a real
+      // failure, not a signal, and retrying it forever would hide it.
+      if (MidenCli.isUnfundedFeeError(lastErr) && !this.mintFundedFaucets.has(faucetId)) {
+        this.mintFundedFaucets.add(faucetId);
+        // eslint-disable-next-line no-console
+        console.log(
+          `[miden-cli] mint hit an unfunded fee on faucet ${faucetId}; this chain charges after ` +
+            `all. Funding it (which deploys it) and retrying.`
+        );
+        this.chainChargesFees = true;
+        await this.fundAndDeploy(faucetId);
+        continue;
+      }
+
       const transient = isTransientCliError(lastErr);
       if (!transient || attempt === maxAttempts) break;
       const backoffMs = Math.min(30_000, 1_000 * 2 ** (attempt - 1));

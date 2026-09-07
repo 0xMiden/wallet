@@ -79,7 +79,7 @@ All services on `ubuntu-latest`, one Linux bridge network, brought up with
 | node / validator / sequencer / ntx-builder | 57291 (RPC) | `ghcr.io/0xmiden/miden-{node,validator,ntx-builder}` @ **exact `v0.15.0`** | Retag bare names or `image:` override. Genesis auto-bootstraps. Sequencer↔ntx **shared auth header** (`--rpc.network-tx-auth-header-value == --rpc.auth-header-value`). |
 | remote tx-prover | 50051 | `ghcr.io/0xmiden/miden-remote-prover` @ `v0.15.0` | `--kind=transaction --capacity=16` (avoids "proof queue full" under concurrency). Add `ports: ["127.0.0.1:50051:50051"]` override (base compose only publishes 57291). |
 | note-transport | 57292 | build-from-source `0xMiden/note-transport-service` | `miden-note-transport-node-bin`, `:memory:` sqlite, no flags. **Cache the build.** Do NOT use its docker-compose (grafana squats on :3000). |
-| faucet | — | **none** | Harness deploys a `TST` faucet via `miden-client new-account -p basic-fungible-faucet --deploy` and mints via CLI. `:8080` is UI-only, never touched. |
+| faucet | — | **none** | Harness creates a `TST` faucet via `miden-client new-account -p basic-fungible-faucet -p basic-wallet` and mints via CLI. There is no explicit deploy step: `--deploy` was removed in client 0.16.0-rc.4, and an account deploys on its first transaction anyway — the funding-note consumption where fees are charged, the first mint where they are not. `:8080` is UI-only, never touched. |
 
 The Chrome extension is built for `localnet` (post-§4 fix); the wallet's
 `guardian_url_setting` / endpoint overrides already let the harness point it at
