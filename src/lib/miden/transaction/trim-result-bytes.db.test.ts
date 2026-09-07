@@ -365,6 +365,28 @@ describe('trimCompletedResultBytes', () => {
     expect(await trimCompletedResultBytes()).toBeGreaterThan(0);
   });
 
+  it('does not select a row until one second past the nominal window', async () => {
+    // The exact half of the TTL. `completedAt` is whole seconds and the cutoff floors, so
+    // eligibility cannot begin until the next whole second — a full second later than the window
+    // the module advertises. That slack is what makes the deferred-first-read race improbable
+    // rather than impossible, so it is worth pinning rather than leaving to arithmetic.
+    const completedAtMs = 1_700_000_000_000;
+    const completedAt = Math.floor(completedAtMs / 1000);
+    await Repo.transactions.bulkPut([
+      row(1, { id: 'edge', completedAt, initiatedAt: completedAt } as Partial<ITransaction>)
+    ]);
+
+    // exactly at the nominal window: not yet selectable
+    __resetTrimThrottleForTests();
+    expect(await trimCompletedResultBytes(completedAtMs + RESULT_BYTES_RETENTION_MS)).toBe(0);
+    // one millisecond short of the real boundary: still not selectable
+    __resetTrimThrottleForTests();
+    expect(await trimCompletedResultBytes(completedAtMs + RESULT_BYTES_RETENTION_MS + 999)).toBe(0);
+    // and at the boundary itself
+    __resetTrimThrottleForTests();
+    expect(await trimCompletedResultBytes(completedAtMs + RESULT_BYTES_RETENTION_MS + 1000)).toBe(1);
+  });
+
   it('coalesces two overlapping callers onto one pass', async () => {
     // Both drivers fire and forget, so on the extension the miden-sync alarm and the popup's 3s
     // SyncRequest can overlap. Asserting the SECOND CALL'S COUNT is what discriminates: blobsLeft

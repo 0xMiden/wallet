@@ -13,11 +13,23 @@ import * as Repo from 'lib/miden/repo';
  * Two constraints shape this, and both rule out the obvious "null it the moment the row completes":
  *
  *  1. `waitForTransactionCompletion` IS the public dApp API (`window.miden.waitForTransaction`),
- *     and it reads `resultBytes` inside the FIRST liveQuery emission carrying `Completed` — for a
- *     row that is already Completed, that is one microtask after subscribing. So the retention
- *     window is not protection against a race; it is a TTL on that API. A subscription that starts
- *     within `RESULT_BYTES_RETENTION_MS` of `completedAt` gets the full answer; one that starts
- *     later gets `errorMessage`. Clearing the field at completion would have made the TTL zero.
+ *     and it reads `resultBytes` on the FIRST liveQuery emission carrying `Completed`. So the
+ *     window is not protection against a race; it is a TTL on that API, and clearing the field at
+ *     completion would have made that TTL zero.
+ *
+ *     The TTL has an exact half and an approximate half, and they are worth separating because
+ *     four earlier versions of this comment stated the approximate half as a guarantee.
+ *
+ *     EXACT, and pinned by a test: a row becomes selectable at
+ *     `(completedAt + RESULT_BYTES_RETENTION_MS / 1000 + 1) * 1000`, one second later than the
+ *     nominal window. `completedAt` is whole seconds and the cutoff floors, so the comparison
+ *     `completedAt < floor((now - RETENTION) / 1000)` cannot be true until the next whole second.
+ *
+ *     APPROXIMATE: "the caller subscribed inside the window" is not itself a guarantee. dexie
+ *     defers liveQuery's first read with `setTimeout(doQuery, 0)`, so subscribing does not snapshot
+ *     the row. A subscriber that starts inside the window but whose first read is delayed past the
+ *     boundary can still find the blob gone. The second of slack above is what makes that
+ *     improbable rather than impossible — it needs the event loop starved for longer than that.
  *  2. No type needs a carve-out. The in-repo callers all block on that helper immediately after
  *     initiating, so they read far inside the window — `epoch/earn-note.ts` and
  *     `epoch/miden-note.ts` then re-read `outputNoteIds` (never touched here), and
