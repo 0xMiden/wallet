@@ -154,8 +154,11 @@ export function useSyncTrigger() {
         // for it, so removing this call stops those platforms reclaiming anything at all.
         //
         // Ahead of the guards below and outside the WASM lock on purpose: it is pure local Dexie
-        // maintenance, so the generating-transaction route, the send flow and the #777 fuse have
-        // no business gating it. Self-throttled and fire-and-forget, so a sync never awaits it and
+        // maintenance, so the generating-transaction route and the send flow have no business
+        // gating it — this placement escapes those. It does NOT escape the fuse or the breaker:
+        // both feed the delay that schedules this run at all, so on a fused realm the reaper's
+        // cadence stretches with the sync's. That is stated as a cost in trim-result-bytes, and
+        // this comment used to claim the opposite. Fire-and-forget, so a sync never awaits it and
         // a trim failure never fails one — though the select does run on this thread and this
         // IndexedDB connection, so it is not free.
         void trimCompletedResultBytes().catch(err => console.warn(`${TRIM_LOG_TAG} pass failed:`, err));

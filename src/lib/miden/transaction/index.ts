@@ -2958,6 +2958,7 @@ export const generateTransactionsLoop = async (
 ): Promise<boolean | void> => {
   await cancelStuckTransactions();
   await cancelStaleQueuedTransactions();
+
   // Import any notes needed for queued transactions.
   //
   // Isolated from the rest of the lap by its OWN try/catch, which is the point.

@@ -4,8 +4,8 @@ import { pipelineMayStillBeRunning, verifySendLanded } from './cancel';
 import { TRANSACTION_RETRY_UNSAFE_ERROR, isSubmitOutcomeUnknown } from './constants';
 import { completeVerifiedLandedTransaction } from './helper';
 import {
-  IBridgedSendExtraInputs,
   IBridgeProvider,
+  IBridgedSendExtraInputs,
   IEarnWithdrawExtraInputs,
   ITransaction,
   ITransactionIcon,

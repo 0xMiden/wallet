@@ -80,28 +80,8 @@ const isTrimmable = (tx: ITransaction, cutoffSeconds: number): boolean => {
 };
 
 /**
- * Releases `resultBytes` on every eligible row. Returns how many rows were actually trimmed —
- * counted here rather than taken from `modify`'s return, which is dexie's SCANNED-key count. With
- * the filter below the two coincide, so no test can tell them apart; the explicit counter is kept
- * so the contract stays true if the filter is ever moved or removed.
- *
- * `.modify()` rather than read-then-`bulkPut`: the row is re-read inside the write transaction and
- * only this one field is touched. A blind put of a snapshot taken before the write would clobber a
- * concurrent update — `sweepNoteDeliveries` runs outside the processing loop's lock and stamps
- * `noteDelivery`/`relayAttempts` on exactly these Completed rows, so a put would revert a delivered
- * private note to "pending" and spend another relay attempt on it.
- *
- * The bound counts ELIGIBLE rows, not index entries, and that distinction is the whole correctness
- * of this function. Trimming deletes `resultBytes` and leaves `completedAt` alone, so a trimmed row
- * stays in `where('completedAt').below(cutoff)` forever. A bare `.limit()` over that range therefore
- * re-selects the same oldest N rows on every pass — measured: 250 eligible rows went 200 trimmed,
- * then 0, then 0, leaving 50 blobs stranded permanently. `.filter()` ahead of `.limit()` fixes it
- * because dexie's replay filter only decrements on rows that passed the predicate.
- *
- * Dropping the limit is NOT the alternative: `Collection.modify` opens ONE write transaction,
- * materializes the whole range with `primaryKeys()`, and recurses its chunks on that same
- * transaction — `modifyChunkSize` bounds mutation size, not transaction lifetime — so an unbounded
- * sweep would hold a write transaction across the entire 108 MB store.
+ * Rows a single pass may trim. Bounds ELIGIBLE rows, not index entries — see `runTrimPass`, where
+ * that distinction is the function's whole correctness.
  */
 export const TRIM_BATCH_SIZE = 200;
 
@@ -196,6 +176,30 @@ interface TrimPassResult {
   exhausted: boolean;
 }
 
+/**
+ * Releases `resultBytes` on every eligible row. Returns how many rows were actually trimmed —
+ * counted here rather than taken from `modify`'s return, which is dexie's SCANNED-key count. With
+ * the filter below the two coincide, so no test can tell them apart; the explicit counter is kept
+ * so the contract stays true if the filter is ever moved or removed.
+ *
+ * `.modify()` rather than read-then-`bulkPut`: the row is re-read inside the write transaction and
+ * only this one field is touched. A blind put of a snapshot taken before the write would clobber a
+ * concurrent update — `sweepNoteDeliveries` runs outside the processing loop's lock and stamps
+ * `noteDelivery`/`relayAttempts` on exactly these Completed rows, so a put would revert a delivered
+ * private note to "pending" and spend another relay attempt on it.
+ *
+ * The bound counts ELIGIBLE rows, not index entries, and that distinction is the whole correctness
+ * of this function. Trimming deletes `resultBytes` and leaves `completedAt` alone, so a trimmed row
+ * stays in `where('completedAt').below(cutoff)` forever. A bare `.limit()` over that range therefore
+ * re-selects the same oldest N rows on every pass — measured: 250 eligible rows went 200 trimmed,
+ * then 0, then 0, leaving 50 blobs stranded permanently. `.filter()` ahead of `.limit()` fixes it
+ * because dexie's replay filter only decrements on rows that passed the predicate.
+ *
+ * Dropping the limit is NOT the alternative: `Collection.modify` opens ONE write transaction,
+ * materializes the whole range with `primaryKeys()`, and recurses its chunks on that same
+ * transaction — `modifyChunkSize` bounds mutation size, not transaction lifetime — so an unbounded
+ * sweep would hold a write transaction across the entire 108 MB store.
+ */
 const runTrimPass = async (now: number): Promise<TrimPassResult> => {
   const cutoffSeconds = Math.floor((now - RESULT_BYTES_RETENTION_MS) / 1000);
 
