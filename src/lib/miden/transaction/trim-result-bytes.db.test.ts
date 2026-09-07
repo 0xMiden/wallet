@@ -173,8 +173,14 @@ describe('trimCompletedResultBytes', () => {
 
     __resetTrimThrottleForTests();
     expect(await trimCompletedResultBytes(now)).toBe(1);
-    expect((await Repo.transactions.get('at-cutoff'))?.resultBytes).toBeDefined();
-    expect((await Repo.transactions.get('one-older'))?.resultBytes).toBeUndefined();
+    const atCutoff = await Repo.transactions.get('at-cutoff');
+    const oneOlder = await Repo.transactions.get('one-older');
+    // Both rows must still EXIST — `?.resultBytes === undefined` is equally true of a deleted row,
+    // so without these a regression that removed history rows would read as a correct trim.
+    expect(atCutoff).toBeDefined();
+    expect(oneOlder).toBeDefined();
+    expect(atCutoff?.resultBytes).toBeDefined();
+    expect(oneOlder?.resultBytes).toBeUndefined();
   });
 
   it('clears the blob only once a row ages past the window, leaving the row itself intact', async () => {

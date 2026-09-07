@@ -348,6 +348,18 @@ describe('useSyncTrigger', () => {
     unmount();
   });
 
+  it('mobile/desktop: runs the resultBytes reaper on an ordinary tick', async () => {
+    // The companion to the guard-skip case below. Without this, inverting the call site to
+    // `if (onGeneratingTxPage) trim()` would still pass — the reaper would run only on the one lap
+    // it is least needed and never on the idle path this driver exists for.
+    const { unmount } = render(<HookHost />);
+
+    await flush();
+    expect(mockSyncState).toHaveBeenCalled();
+    expect(mockTrimResultBytes).toHaveBeenCalled();
+    unmount();
+  });
+
   it('mobile/desktop: runs the resultBytes reaper even on a lap the sync guards skip', async () => {
     // This is what makes it safe to have deleted the third driver (generateTransactionsLoop):
     // mobile and desktop have no other periodic driver, and the reaper is pure local Dexie
