@@ -117,10 +117,8 @@ test.describe('Fullpage UI', () => {
     await expect(page.getByRole('button', { name: /open wallet/i })).toBeVisible({ timeout: 30000 });
   });
 
-  test('onboarding import reports when the seed has no recoverable account', async ({
-    extensionContext,
-    extensionId
-  }) => {
+  test('onboarding import provisions a wallet on the mock network', async ({ extensionContext, extensionId }) => {
+    test.setTimeout(90_000);
     const fullpageUrl = `chrome-extension://${extensionId}/fullpage.html`;
     const page = await extensionContext.newPage();
 
@@ -158,11 +156,21 @@ test.describe('Fullpage UI', () => {
     // assert the container testid instead of the text.
     await expect(page.getByTestId('onboarding-confirmation')).toBeVisible({ timeout: 30000 });
 
-    // This deterministic mnemonic has no account on the mocked network. Import
-    // must return to the recovery-method step and explain that nothing was found.
+    // The mock client has no chain history to recover, so registration creates
+    // the public fallback account. Wait for the confirmation route to leave —
+    // that only happens after registration finishes — then verify the account
+    // through the wallet's Receive surface.
     await page.getByTestId('onboarding-confirmation-submit').click();
-    await expect(page.getByTestId('import-recovery-method')).toBeVisible({ timeout: 30000 });
-    await expect(page.getByText(/no accounts were found for this seed phrase/i)).toBeVisible();
+    await page.waitForURL(url => !url.hash.includes('confirmation'), { timeout: 60_000 });
+    const recoveredAccounts = page.getByTestId('recovered-accounts');
+    if (await recoveredAccounts.isVisible()) {
+      await page.getByTestId('recovered-accounts-continue').click();
+    }
+
+    await page.goto(`${fullpageUrl}#/receive`, { waitUntil: 'domcontentloaded' });
+    const address = page.getByTestId('receive-address-full');
+    await address.waitFor({ state: 'attached', timeout: 30_000 });
+    await expect(address).not.toHaveText('');
   });
 
   test('import seed phrase enforces valid words before continue', async ({ extensionContext, extensionId }) => {
