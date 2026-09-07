@@ -2417,7 +2417,9 @@ describe('Multi-account recovery (seed scan)', () => {
 
     const accounts = await vault.createHDAccount(WalletType.Guardian);
 
-    expect(mockResolveGuardianEndpoint).toHaveBeenCalledWith(expect.objectContaining({ publicKey: 'guardian-existing' }));
+    expect(mockResolveGuardianEndpoint).toHaveBeenCalledWith(
+      expect.objectContaining({ publicKey: 'guardian-existing' })
+    );
     expect(mockMidenClient.createGuardianMidenWallet).toHaveBeenCalledWith(
       expect.any(Uint8Array),
       'https://sibling-op.example'

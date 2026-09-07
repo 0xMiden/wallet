@@ -77,10 +77,7 @@ jest.mock('screens/onboarding/common/ChooseGuardian', () => ({
       data-submit-loading={String(Boolean(submitLoading))}
     >
       {error ? <span role="alert">{error}</span> : null}
-      <button
-        data-testid="pick-guardian"
-        onClick={() => onSubmit({ guardianId: 'g', guardianEndpoint: 'https://g' })}
-      >
+      <button data-testid="pick-guardian" onClick={() => onSubmit({ guardianId: 'g', guardianEndpoint: 'https://g' })}>
         pick
       </button>
     </div>

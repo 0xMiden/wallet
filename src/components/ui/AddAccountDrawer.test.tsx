@@ -71,11 +71,12 @@ jest.mock('lib/mobile/useMobileBackHandler', () => ({
 // Both shapes are used by the component: the hook-with-selector for
 // `ownMnemonic`, and `getState()` for the before/after account-key diff.
 jest.mock('lib/store', () => ({
-  useWalletStore: Object.assign(<Selected,>(selector: (state: MockWalletState) => Selected): Selected =>
-    selector(mockWalletState),
-  {
-    getState: () => mockWalletState
-  })
+  useWalletStore: Object.assign(
+    <Selected,>(selector: (state: MockWalletState) => Selected): Selected => selector(mockWalletState),
+    {
+      getState: () => mockWalletState
+    }
+  )
 }));
 
 jest.mock('lib/ui/drawer', () => ({

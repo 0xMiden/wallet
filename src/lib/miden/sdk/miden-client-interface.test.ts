@@ -2518,9 +2518,7 @@ describe('MidenClientInterface', () => {
             multisigClientArgs.push(args);
           }
         },
-        EcdsaSigner: class {
-          constructor(..._args: unknown[]) {}
-        }
+        EcdsaSigner: class {}
       }));
       jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
         ...jest.requireActual('../../../../__mocks__/wasmMock.js'),
