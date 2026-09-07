@@ -163,8 +163,7 @@ export async function completeSeedImportOnboarding(page: Page, fullpageUrl: stri
   await page.getByRole('button', { name: /continue/i }).click({ timeout: ACTION_TIMEOUT });
 
   await page.getByTestId('import-recovery-method').waitFor({ timeout: timeoutMs });
-  await page.getByText(/import public account/i).click({ timeout: ACTION_TIMEOUT });
-  await page.getByRole('button', { name: /continue/i }).click({ timeout: ACTION_TIMEOUT });
+  await page.getByTestId('recovery-method-skip-guardian').click({ timeout: ACTION_TIMEOUT });
 
   await page.getByTestId('onboarding-confirmation').waitFor({ timeout: timeoutMs });
   await page.getByTestId('onboarding-confirmation-submit').click({ timeout: ACTION_TIMEOUT });

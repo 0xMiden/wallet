@@ -150,10 +150,9 @@ test.describe('Fullpage UI', () => {
     await page.locator('input[placeholder="Enter password again"]').first().fill('Password123!');
     await page.getByRole('button', { name: /continue/i }).click();
 
-    // Import-recovery-method step — pick "Import public account".
+    // This fixture has no Guardian account, so continue with public-account recovery only.
     await page.getByTestId('import-recovery-method').waitFor({ timeout: 15000 });
-    await page.getByText(/import public account/i).click();
-    await page.getByRole('button', { name: /continue/i }).click();
+    await page.getByTestId('recovery-method-skip-guardian').click();
 
     // Confirmation: the "Your Wallet is ready" heading is split by <Trans>, so
     // assert the container testid instead of the text.
