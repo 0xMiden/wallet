@@ -64,13 +64,18 @@ describe('transactions upgrades', () => {
     await repo!.db.open();
     const rows = await repo!.transactions.toArray();
     const byId = Object.fromEntries(rows.map(r => [r.id, r]));
+    const get = (id: string) => {
+      const r = byId[id];
+      if (!r) throw new Error(`row ${id} missing after upgrade`);
+      return r;
+    };
 
     // WHICH rows were written...
     expect(written.sort()).toEqual(['bridge-bare', 'bridge-full', 'consume-1']);
 
     // ...and WHAT they became. Without these, deleting either upgrade body still passes.
-    expect(byId['bridge-bare'].type).toBe('bridged-send');
-    expect(byId['bridge-bare'].extraInputs).toMatchObject({
+    expect(get('bridge-bare').type).toBe('bridged-send');
+    expect(get('bridge-bare').extraInputs).toMatchObject({
       provider: 'agglayer',
       destinationAddress: '',
       destinationNetwork: 0,
@@ -79,18 +84,18 @@ describe('transactions upgrades', () => {
     });
     // The populated side. `destinationAddress` is read as a PAIR with `claimStatus` by the L1
     // claim prompt, so losing the `prev.` here would silently strand every migrated legacy claim.
-    expect(byId['bridge-full'].extraInputs).toMatchObject({
+    expect(get('bridge-full').extraInputs).toMatchObject({
       provider: 'agglayer',
       destinationAddress: '0xdead',
       destinationNetwork: 7,
       sourceFaucetId: 'faucet-1',
       claimStatus: 'not-applicable'
     });
-    expect(byId['consume-1'].noteIds).toEqual(['note-1']);
-    expect(byId['consume-done'].noteIds).toEqual(['note-2']);
-    expect(byId['consume-bare'].noteIds).toBeUndefined();
+    expect(get('consume-1').noteIds).toEqual(['note-1']);
+    expect(get('consume-done').noteIds).toEqual(['note-2']);
+    expect(get('consume-bare').noteIds).toBeUndefined();
     // The blobs the whole PR is about must survive a migration untouched.
-    expect(byId['send-1'].resultBytes).toBeDefined();
+    expect(get('send-1').resultBytes).toBeDefined();
 
     repo!.db.close();
     await Dexie.delete(DB_NAME);

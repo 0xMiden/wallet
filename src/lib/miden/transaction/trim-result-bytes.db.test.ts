@@ -10,7 +10,7 @@ import { ITransactionStatus } from 'lib/miden/db/types';
 import type { ITransaction } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 
-import { WAIT_FOR_TX_TIMEOUT } from './bridge-provider';
+import { WAIT_FOR_TX_TIMEOUT } from './helper';
 import {
   __resetTrimThrottleForTests,
   RESULT_BYTES_RETENTION_MS,
@@ -319,26 +319,31 @@ describe('trimCompletedResultBytes', () => {
     __resetTrimThrottleForTests();
 
     // Make one selected row ineligible between primaryKeys() and modify.
+    // Dexie's query builders are overloaded, so the wrapper is typed through one alias rather
+    // than casting at each link. Test-side only: every call delegates to the real collection.
+    type Chain = {
+      below: (v: number) => Chain;
+      filter: (f: never) => Chain;
+      limit: (k: number) => Chain;
+      primaryKeys: () => Promise<string[]>;
+    };
     const realWhere = Repo.transactions.where.bind(Repo.transactions);
     const spy = jest.spyOn(Repo.transactions, 'where').mockImplementationOnce(index => {
-      const collection = realWhere(index as string);
+      const collection = realWhere(index as never) as unknown as Chain;
       const below = collection.below.bind(collection);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (collection as any).below = (v: unknown) => {
-        const c = below(v as never);
+      collection.below = (v: number) => {
+        const c = below(v);
         const filter = c.filter.bind(c);
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (c as any).filter = (fn: never) => {
+        c.filter = (fn: never) => {
           const lc = filter(fn);
           const limit = lc.limit.bind(lc);
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          (lc as any).limit = (k: number) => {
+          lc.limit = (k: number) => {
             const kc = limit(k);
             const pk = kc.primaryKeys.bind(kc);
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            (kc as any).primaryKeys = async () => {
+            kc.primaryKeys = async () => {
               const ids = await pk();
-              await Repo.transactions.update(ids[0] as string, { status: ITransactionStatus.Queued });
+              const first = ids[0];
+              if (first) await Repo.transactions.update(first, { status: ITransactionStatus.Queued });
               return ids;
             };
             return kc;
@@ -347,7 +352,7 @@ describe('trimCompletedResultBytes', () => {
         };
         return c;
       };
-      return collection;
+      return collection as unknown as ReturnType<typeof realWhere>;
     });
 
     const trimmed = await trimCompletedResultBytes();
