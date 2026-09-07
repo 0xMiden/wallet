@@ -130,50 +130,29 @@ export async function clickConfirmAction(popup: Page, testId: string, timeoutMs 
 }
 
 /**
- * Runs the wallet's real seed-import onboarding to the "Open wallet" handoff,
- * which is gated on the store reaching Ready — i.e. on the vault being created
- * and unlocked in the service worker. That unlocked vault is the precondition
- * for every dApp approval (`withUnlocked` in `dapp.ts`), so specs must not skip
- * it. Mirrors `playwright/tests/popup-smoke.spec.ts`.
+ * Provisions a chainless wallet through the build-gated E2E bypass and waits
+ * for the store to reach Ready. An unlocked vault is the precondition for every
+ * dApp approval (`withUnlocked` in `dapp.ts`).
  *
  * Every navigation, fill and click carries an explicit timeout — see
  * {@link ACTION_TIMEOUT}. A wedged step must name itself, not silently consume
  * the caller's whole budget.
  */
-export async function completeSeedImportOnboarding(page: Page, fullpageUrl: string, timeoutMs = 30_000): Promise<void> {
-  await page.goto(fullpageUrl, { waitUntil: 'domcontentloaded', timeout: timeoutMs });
-
-  await page.getByTestId('onboarding-welcome').waitFor({ timeout: timeoutMs });
-  await page.locator('#import-link').click({ timeout: ACTION_TIMEOUT });
-  await page.getByTestId('import-seed-phrase').waitFor({ timeout: timeoutMs });
-
-  const words = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about'.split(
-    ' '
-  );
-  for (let i = 0; i < words.length; i++) {
-    await page.locator(`#seed-phrase-input-${i}`).fill(words[i]!, { timeout: ACTION_TIMEOUT });
-  }
-  await page.getByRole('button', { name: /continue/i }).click({ timeout: ACTION_TIMEOUT });
-
-  await page.locator('input[placeholder="Enter password"]').first().fill('Password123!', { timeout: ACTION_TIMEOUT });
-  await page
-    .locator('input[placeholder="Enter password again"]')
-    .first()
-    .fill('Password123!', { timeout: ACTION_TIMEOUT });
-  await page.getByRole('button', { name: /continue/i }).click({ timeout: ACTION_TIMEOUT });
-
-  await page.getByTestId('import-recovery-method').waitFor({ timeout: timeoutMs });
-  await page.getByTestId('recovery-method-skip-guardian').click({ timeout: ACTION_TIMEOUT });
-
+export async function completeWalletOnboarding(page: Page, fullpageUrl: string, timeoutMs = 30_000): Promise<void> {
+  const url = `${fullpageUrl}?__test_skip_onboarding=1&password=Password123!`;
+  await page.goto(url, { waitUntil: 'domcontentloaded', timeout: timeoutMs });
   await page.getByTestId('onboarding-confirmation').waitFor({ timeout: timeoutMs });
   await page.getByTestId('onboarding-confirmation-submit').click({ timeout: ACTION_TIMEOUT });
-
-  await page.getByTestId('recovered-accounts').waitFor({ timeout: timeoutMs });
-  await page.getByTestId('recovered-accounts-continue').click({ timeout: ACTION_TIMEOUT });
-
-  // "Open wallet" only renders once the store is Ready — deliberately NOT
-  // clicked: it hands off to the Chrome side panel and closes this tab.
-  await page.getByRole('button', { name: /open wallet/i }).waitFor({ state: 'visible', timeout: timeoutMs });
+  await page.waitForFunction(
+    () => {
+      const store = (
+        window as unknown as { __TEST_STORE__?: { getState(): { currentAccount?: { publicKey?: string } } } }
+      ).__TEST_STORE__;
+      return Boolean(store?.getState?.().currentAccount?.publicKey);
+    },
+    undefined,
+    { timeout: timeoutMs }
+  );
 }
 
 /**

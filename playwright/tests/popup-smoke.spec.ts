@@ -117,7 +117,7 @@ test.describe('Fullpage UI', () => {
     await expect(page.getByRole('button', { name: /open wallet/i })).toBeVisible({ timeout: 30000 });
   });
 
-  test('onboarding import flow completes and hands off to the side panel', async ({
+  test('onboarding import reports when the seed has no recoverable account', async ({
     extensionContext,
     extensionId
   }) => {
@@ -158,16 +158,11 @@ test.describe('Fullpage UI', () => {
     // assert the container testid instead of the text.
     await expect(page.getByTestId('onboarding-confirmation')).toBeVisible({ timeout: 30000 });
 
-    // Complete onboarding. Recovery now hands off to the Chrome side panel just
-    // like first-run create (#428): the wallet becomes Ready in the background and
-    // the "Open wallet" handoff screen appears (rather than the classic in-tab
-    // Explore page). The in-tab path still applies to non-extension / E2E builds
-    // and is covered by the Welcome/ForgotPassword unit tests.
+    // This deterministic mnemonic has no account on the mocked network. Import
+    // must return to the recovery-method step and explain that nothing was found.
     await page.getByTestId('onboarding-confirmation-submit').click();
-    await expect(page.getByTestId('recovered-accounts')).toBeVisible({ timeout: 30000 });
-    await page.getByTestId('recovered-accounts-continue').click();
-    await expect(page.getByText(/your wallet is ready/i)).toBeVisible({ timeout: 30000 });
-    await expect(page.getByRole('button', { name: /open wallet/i })).toBeVisible({ timeout: 30000 });
+    await expect(page.getByTestId('import-recovery-method')).toBeVisible({ timeout: 30000 });
+    await expect(page.getByText(/no accounts were found for this seed phrase/i)).toBeVisible();
   });
 
   test('import seed phrase enforces valid words before continue', async ({ extensionContext, extensionId }) => {
