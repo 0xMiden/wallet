@@ -114,6 +114,9 @@ export const TRIM_MIN_INTERVAL_MS = 5 * 60 * 1000;
  */
 export const TRIM_FAILURE_RETRY_MS = 30 * 1000;
 
+/** One tag for both realms — the module produced the line, not the driver that happened to call. */
+export const TRIM_LOG_TAG = '[resultBytesTrim]';
+
 /**
  * The earliest `now` at which another pass may start. ONE variable, so each outcome is one
  * assignment and there is no back-dated arithmetic between two floors.
@@ -146,6 +149,18 @@ export const trimCompletedResultBytes = async (now: number = Date.now()): Promis
   inFlight.catch(() => {});
   try {
     const { trimmed, exhausted } = await pass;
+    // Reported here, inside the module, so it is once per PASS. Both drivers fire and forget and
+    // each attaches its own handler, so logging at the call sites would repeat one pass's outcome
+    // once per overlapping caller.
+    if (trimmed > 0) {
+      console.info(`${TRIM_LOG_TAG} released ${trimmed} result blob(s)`);
+    } else if (!exhausted) {
+      // The stall signature, and the reason this log exists: rows were selected and none could be
+      // released. That is what the original bug looked like — a full batch selected every pass,
+      // every row already trimmed, nothing reclaimed — and it was indistinguishable from a healthy
+      // idle tick until this line.
+      console.warn(`${TRIM_LOG_TAG} selected rows but released none — the reaper may be stalled`);
+    }
     // Exhaustion is REPORTED by the pass, not inferred by the caller from the trimmed count: the
     // in-write `isTrimmable` re-check can decline a row the select chose, so `trimmed` may fall
     // short of a full batch on a pass that did NOT reach the end of the range. Treating that as

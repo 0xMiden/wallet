@@ -182,6 +182,9 @@ jest.mock('../transaction/note-delivery-sweep', () => ({
 
 const mockTrimResultBytes = jest.fn(async () => 0);
 jest.mock('../transaction/trim-result-bytes', () => ({
+  // The tag has to be mirrored: the driver logs with it, so a mock that omits it makes the
+  // production line read "undefined pass failed:" and no assertion would notice.
+  TRIM_LOG_TAG: '[resultBytesTrim]',
   trimCompletedResultBytes: () => mockTrimResultBytes()
 }));
 
@@ -1330,6 +1333,20 @@ describe('doSync drives the resultBytes reaper', () => {
     await doSync();
 
     expect(mockTrimResultBytes).toHaveBeenCalled();
+  });
+
+  it('survives a failing reaper and logs it', async () => {
+    // The .catch at the call site runs in no other test — both suites mock the reaper as a
+    // never-rejecting jest.fn — so dropping it would leave an unhandled rejection in the service
+    // worker with nothing red.
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    mockTrimResultBytes.mockRejectedValueOnce(new Error('indexeddb unavailable'));
+
+    await expect(doSync()).resolves.toBeUndefined();
+    await Promise.resolve();
+
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('[resultBytesTrim]'), expect.anything());
+    warn.mockRestore();
   });
 
   it('runs the reaper even when the lap is short-circuited before any sync work', async () => {

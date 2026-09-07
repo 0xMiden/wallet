@@ -36,7 +36,7 @@ import { reconcileSwapOrderNotes } from '../swap/settlement';
 import { getUncompletedTransactions } from '../transaction/get';
 import { initiateConsumeNotesTransaction, initiateConsumeTransaction } from '../transaction/initiate';
 import { sweepNoteDeliveries } from '../transaction/note-delivery-sweep';
-import { trimCompletedResultBytes } from '../transaction/trim-result-bytes';
+import { TRIM_LOG_TAG, trimCompletedResultBytes } from '../transaction/trim-result-bytes';
 import { ConsumableNote, NoteTypeEnum } from '../types';
 
 // `init_vault` is the ESM module factory for `./vault`, injected by Vite's
@@ -165,7 +165,7 @@ export function doSync(force = false): Promise<void> {
   // coalescing, nor the circuit breaker, nor the #777 fuse — which can hold this realm off the
   // node for 30 minutes at a time — has any business gating it. Self-throttled and fire-and-forget,
   // so it can neither slow a sync nor fail one.
-  void trimCompletedResultBytes().catch(err => console.warn('[sync] resultBytes trim failed:', err));
+  void trimCompletedResultBytes().catch(err => console.warn(`${TRIM_LOG_TAG} pass failed:`, err));
 
   if (inFlight) {
     if (!force) return inFlight;

@@ -260,6 +260,51 @@ describe('trimCompletedResultBytes', () => {
     expect(await trimCompletedResultBytes(t0)).toBe(10);
   });
 
+  it('reports the stall signature — rows selected, none released', async () => {
+    // The original bug in one line: a full batch selected on every pass, every row already
+    // trimmed, nothing reclaimed. Before this warning it was indistinguishable from a healthy
+    // idle tick, which is why it shipped.
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    // TRIM_BATCH_SIZE already-trimmed rows: the select fills a batch, the write releases nothing.
+    await Repo.transactions.bulkPut(
+      Array.from({ length: TRIM_BATCH_SIZE }, (_, i) => row(i, { resultBytes: undefined }))
+    );
+    __resetTrimThrottleForTests();
+
+    // ...with one eligible row behind them so the select returns a FULL batch.
+    await Repo.transactions.bulkPut([row(1, { id: 'eligible', completedAt: AGED } as Partial<ITransaction>)]);
+    const spy = jest.spyOn(Repo.transactions, 'where').mockImplementationOnce(
+      () =>
+        ({
+          below: () => ({
+            filter: () => ({
+              limit: () => ({
+                primaryKeys: async () =>
+                  Array.from({ length: TRIM_BATCH_SIZE }, (_, i) => `tx-${String(i).padStart(5, '0')}`)
+              })
+            })
+          })
+        }) as unknown as ReturnType<typeof Repo.transactions.where>
+    );
+
+    await trimCompletedResultBytes();
+
+    spy.mockRestore();
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('may be stalled'));
+    warn.mockRestore();
+  });
+
+  it('reports progress when a pass releases blobs', async () => {
+    const info = jest.spyOn(console, 'info').mockImplementation(() => {});
+    await Repo.transactions.bulkPut(Array.from({ length: 3 }, (_, i) => row(i)));
+    __resetTrimThrottleForTests();
+
+    await trimCompletedResultBytes();
+
+    expect(info).toHaveBeenCalledWith(expect.stringContaining('released 3'));
+    info.mockRestore();
+  });
+
   it('coalesces two overlapping callers onto one pass', async () => {
     // Both drivers fire and forget, so on the extension the miden-sync alarm and the popup's 3s
     // SyncRequest can overlap. Asserting the SECOND CALL'S COUNT is what discriminates: blobsLeft
