@@ -356,6 +356,28 @@ describe('useSyncTrigger', () => {
     unmount();
   });
 
+  it('mobile/desktop: does not wait for the reaper', async () => {
+    // The fire-and-forget property, which no other test can see: a reaper that RESOLVES leaves
+    // `void` and `await` indistinguishable, and the failing case is equally blind because
+    // runTrimTick swallows. A pass that never settles is the only shape that separates them —
+    // under `await runTrimTick()` the tick would block here and syncState would never run.
+    // (The extension side needs no equivalent: doSync is not async, so `await` cannot compile.)
+    let release: (() => void) | undefined;
+    mockTrimResultBytes.mockImplementationOnce(
+      () =>
+        new Promise<number>(resolve => {
+          release = () => resolve(0);
+        })
+    );
+
+    const { unmount } = render(<HookHost />);
+    await flush();
+
+    expect(mockSyncState).toHaveBeenCalled();
+    release?.();
+    unmount();
+  });
+
   it('mobile/desktop: survives a failing reaper', async () => {
     // As on the extension: the reaper reports its own failures, and what this driver must
     // guarantee is that a failing pass does not fail the tick.
