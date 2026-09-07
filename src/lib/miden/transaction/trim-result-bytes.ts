@@ -2,10 +2,6 @@ import { ITransactionStatus } from 'lib/miden/db/types';
 import type { ITransaction } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 
-import { WAIT_FOR_TX_TIMEOUT } from './bridge-provider';
-
-export { WAIT_FOR_TX_TIMEOUT };
-
 /**
  * Reclaims the `resultBytes` blob from long-finished transaction rows.
  *
@@ -96,8 +92,14 @@ const isTrimmable = (tx: ITransaction, cutoffSeconds: number): boolean => {
 export const TRIM_BATCH_SIZE = 200;
 
 /**
- * Floor between passes once the range is EXHAUSTED. A pass that stopped at a cap does not take it:
- * there is more to do, so the next caller continues the drain rather than waiting this out.
+ * Floor between passes once the range is EXHAUSTED. A pass that ended short of the range does not
+ * take it, so the next CALL continues the drain — one bounded pass per caller, like
+ * `sweepNoteDeliveries`, rather than a loop or a self-scheduled follow-up.
+ *
+ * How fast a backlog clears therefore depends on the driver. On the extension the miden-sync alarm
+ * is clamped to a minute, so roughly a batch a minute; on mobile and desktop a lit #777 fuse can
+ * push the next tick out to `FUSED_SYNC_PROBE_INTERVAL_MS`, and a large backlog then takes tens of
+ * minutes. That is accepted: this is maintenance behind transactions that have already landed.
  *
  * It bounds the cadence within a realm's lifetime, not absolutely: the deadline below is module
  * state, and Chrome destroys the extension service worker when idle, so a fresh worker starts at 0
@@ -144,9 +146,10 @@ export const trimCompletedResultBytes = async (now: number = Date.now()): Promis
   inFlight.catch(() => {});
   try {
     const { trimmed, exhausted } = await pass;
-    // Exhaustion is REPORTED by the pass, never inferred from the row count: with a byte cap on
-    // the write, a short pass can also mean "stopped early while rows remain", and treating that
-    // as idle would park the rest of a backlog for the full interval.
+    // Exhaustion is REPORTED by the pass, not inferred by the caller from the trimmed count: the
+    // in-write `isTrimmable` re-check can decline a row the select chose, so `trimmed` may fall
+    // short of a full batch on a pass that did NOT reach the end of the range. Treating that as
+    // idle would park the rest of a backlog for the full interval.
     if (exhausted) nextTrimAllowedAt = now + TRIM_MIN_INTERVAL_MS;
     return trimmed;
   } catch (err) {
@@ -193,11 +196,13 @@ const runTrimPass = async (now: number): Promise<TrimPassResult> => {
     .modify((tx, ref) => {
       // Re-checked INSIDE the write: the select above ran in a different transaction, so a
       // concurrent writer may have touched the row since. This is also what keeps passes in two
-      // realms safe against each other — each keeps its own `lastTrimAt`, so they do not coalesce.
+      // realms safe against each other — each keeps its own deadline, so they do not coalesce.
       // `false`, not a bare return — dexie re-puts an unchanged deep clone for any other value.
       if (!isTrimmable(tx, cutoffSeconds)) return false;
-      // Delete rather than assign undefined: dexie treats an assigned `undefined` as "no change"
-      // in `modify`, so the blob would survive.
+      // `delete`, not `ref.value.resultBytes = undefined`. Both release the blob — dexie re-puts
+      // whatever the callback leaves, so an assigned `undefined` is written and the bytes go — but
+      // `delete` also removes the key, so a trimmed row carries no dead field. That is the whole
+      // difference, and the db suite asserts it rather than leaving it to this comment.
       delete ref.value.resultBytes;
       trimmed++;
       return undefined;

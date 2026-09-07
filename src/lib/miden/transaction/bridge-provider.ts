@@ -4,8 +4,9 @@ import type { IBridgedSendExtraInputs, IBridgeProvider, ITransaction } from 'lib
  * Reads `provider` off a `bridged-send` row; `undefined` for every other type.
  *
  * A leaf on purpose. This lived in `retry.ts`, whose import graph reaches the whole transaction
- * pipeline and, through it, modules that call `isExtension()` at module scope. Any leaf that needs
- * only this predicate — `trim-result-bytes` does — had to drag all of that in to get it.
+ * pipeline and, through it, modules that call `isExtension()` at module scope — so any module
+ * wanting just this predicate, or just the timeout below, had to drag all of that in. Its
+ * importers are `retry.ts` (which re-exports it), `index.ts` and `trim-result-bytes.ts`.
  */
 export const bridgeProviderOf = (tx: Pick<ITransaction, 'type' | 'extraInputs'>): IBridgeProvider | undefined => {
   if (tx.type !== 'bridged-send') return undefined;

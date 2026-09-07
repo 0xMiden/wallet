@@ -1,22 +1,23 @@
 /**
  * Database-level coverage for the reaper itself.
  *
- * The pure-predicate suite next door cannot see any of this: every assertion in it would still
- * pass with the dexie query, the bound and the delete removed entirely. These tests drive
- * `trimCompletedResultBytes` against fake-indexeddb, which is what the P0 stall needed.
+ * These drive `trimCompletedResultBytes` against fake-indexeddb. The module's first suite tested
+ * only a pure predicate, so every assertion in it survived deleting the dexie query, the bound and
+ * the delete — which is how the stall shipped. Each test here names one production edit that makes
+ * it fail, and each of those has been checked individually by mutation.
  */
 import { ITransactionStatus } from 'lib/miden/db/types';
 import type { ITransaction } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 
+import { WAIT_FOR_TX_TIMEOUT } from './bridge-provider';
 import {
   __resetTrimThrottleForTests,
   RESULT_BYTES_RETENTION_MS,
   TRIM_BATCH_SIZE,
   TRIM_FAILURE_RETRY_MS,
   TRIM_MIN_INTERVAL_MS,
-  trimCompletedResultBytes,
-  WAIT_FOR_TX_TIMEOUT
+  trimCompletedResultBytes
 } from './trim-result-bytes';
 
 const AGED = Math.floor((Date.now() - RESULT_BYTES_RETENTION_MS) / 1000) - 3600;

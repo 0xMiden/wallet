@@ -150,15 +150,14 @@ export function useSyncTrigger() {
 
       isRunning = true;
       try {
-        // Reclaim finished transactions' result blobs. This realm's only other driver is the
-        // work-driven transaction loop, which stops as soon as the queue empties — so on mobile
-        // and desktop an idle wallet would otherwise never trim at all, though the behaviour is
-        // shipped for every platform.
+        // Reclaim finished transactions' result blobs. This is mobile and desktop's ONLY driver
+        // for it, so removing this call stops those platforms reclaiming anything at all.
         //
         // Ahead of the guards below and outside the WASM lock on purpose: it is pure local Dexie
         // maintenance, so the generating-transaction route, the send flow and the #777 fuse have
-        // no business gating it. Self-throttled and fire-and-forget — it can neither slow a sync
-        // nor fail one.
+        // no business gating it. Self-throttled and fire-and-forget, so a sync never awaits it and
+        // a trim failure never fails one — though the select does run on this thread and this
+        // IndexedDB connection, so it is not free.
         void trimCompletedResultBytes().catch(err => console.warn('[sync] resultBytes trim failed:', err));
 
         // Same guards the old AutoSync had: skip (don't wait for the lock) when
