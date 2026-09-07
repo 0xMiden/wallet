@@ -182,10 +182,15 @@ jest.mock('../transaction/note-delivery-sweep', () => ({
 
 const mockTrimResultBytes = jest.fn(async () => 0);
 jest.mock('../transaction/trim-result-bytes', () => ({
-  // The tag has to be mirrored: the driver logs with it, so a mock that omits it makes the
-  // production line read "undefined pass failed:" and no assertion would notice.
-  TRIM_LOG_TAG: '[resultBytesTrim]',
-  trimCompletedResultBytes: () => mockTrimResultBytes()
+  // Mirrors the real contract: runTrimTick never rejects — the module reports its own failures —
+  // which is what lets both drivers call it with a bare `void` and no handler.
+  runTrimTick: async () => {
+    try {
+      await mockTrimResultBytes();
+    } catch {
+      /* swallowed, as the real one does */
+    }
+  }
 }));
 
 // ── Imports under test ─────────────────────────────────────────────
@@ -1335,18 +1340,15 @@ describe('doSync drives the resultBytes reaper', () => {
     expect(mockTrimResultBytes).toHaveBeenCalled();
   });
 
-  it('survives a failing reaper and logs it', async () => {
-    // The .catch at the call site runs in no other test — both suites mock the reaper as a
-    // never-rejecting jest.fn — so dropping it would leave an unhandled rejection in the service
-    // worker with nothing red.
-    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+  it('survives a failing reaper', async () => {
+    // The reaper reports its own failures now, so there is nothing for this driver to log — what
+    // must hold is that a failing pass cannot fail the lap. Dropping `void` here (awaiting it)
+    // would break this.
     mockTrimResultBytes.mockRejectedValueOnce(new Error('indexeddb unavailable'));
 
     await expect(doSync()).resolves.toBeUndefined();
-    await Promise.resolve();
 
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('[resultBytesTrim]'), expect.anything());
-    warn.mockRestore();
+    expect(mockTrimResultBytes).toHaveBeenCalled();
   });
 
   it('runs the reaper even when the lap is short-circuited before any sync work', async () => {

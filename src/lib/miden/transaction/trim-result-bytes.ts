@@ -90,10 +90,20 @@ export const TRIM_BATCH_SIZE = 200;
  * take it, so the next CALL continues the drain — one bounded pass per caller, like
  * `sweepNoteDeliveries`, rather than a loop or a self-scheduled follow-up.
  *
- * How fast a backlog clears therefore depends on the driver. On the extension the miden-sync alarm
- * is clamped to a minute, so roughly a batch a minute; on mobile and desktop a lit #777 fuse can
- * push the next tick out to `FUSED_SYNC_PROBE_INTERVAL_MS`, and a large backlog then takes tens of
- * minutes. That is accepted: this is maintenance behind transactions that have already landed.
+ * How fast a backlog clears depends on the driver, and on the extension there are two: the
+ * `miden-sync` alarm floors the rate at about a pass a minute when nothing is open, but an open
+ * popup or side panel drives `SyncRequest` every `SYNC_INTERVAL_MS` (3 s) into the same `doSync`,
+ * so the real rate there is ~20x the alarm's. On mobile and desktop a lit #777 fuse pushes the next
+ * tick out to `FUSED_SYNC_PROBE_INTERVAL_MS`, and a large backlog then takes tens of minutes.
+ *
+ * The cost per pass is not small, and it is not bounded by `TRIM_BATCH_SIZE`: the bound is on rows
+ * WRITTEN, while the select walks — and deserializes — every already-trimmed row ahead of the next
+ * eligible one, because trimming leaves `completedAt` in place. Draining a backlog of N rows
+ * therefore costs on the order of N²/(2 * TRIM_BATCH_SIZE) row visits, and once drained, every
+ * exhausted pass still walks all N. That is accepted rather than fixed: the cure is an index on a
+ * marker the reaper clears, and IndexedDB omits records whose index key is undefined, so every row
+ * written before that field existed would be invisible to it — leaving exactly the backlog this
+ * module exists to reclaim. Backfilling them is the whole-table rewrite the design avoids.
  *
  * It bounds the cadence within a realm's lifetime, not absolutely: the deadline below is module
  * state, and Chrome destroys the extension service worker when idle, so a fresh worker starts at 0
@@ -108,8 +118,8 @@ export const TRIM_MIN_INTERVAL_MS = 5 * 60 * 1000;
  */
 export const TRIM_FAILURE_RETRY_MS = 30 * 1000;
 
-/** One tag for both realms — the module produced the line, not the driver that happened to call. */
-export const TRIM_LOG_TAG = '[resultBytesTrim]';
+/** One tag for every line this module emits. Not exported: nothing outside it logs on its behalf. */
+const TRIM_LOG_TAG = '[resultBytesTrim]';
 
 /**
  * The earliest `now` at which another pass may start. ONE variable, so each outcome is one
@@ -164,9 +174,27 @@ export const trimCompletedResultBytes = async (now: number = Date.now()): Promis
   } catch (err) {
     // A failure must not be free to retry at the callers' cadence, nor burn the whole interval.
     nextTrimAllowedAt = now + TRIM_FAILURE_RETRY_MS;
+    // Logged HERE, not at the call sites, for the same reason the two outcomes above are: only the
+    // originating caller reaches this catch — adopters returned at the `inFlight` guard — so one
+    // failed pass produces one line. The drivers used to log it themselves, and two overlapping
+    // callers then reported the same failure twice.
+    console.warn(`${TRIM_LOG_TAG} pass failed:`, err);
     throw err;
   } finally {
     inFlight = null;
+  }
+};
+
+/**
+ * What a driver calls. `trimCompletedResultBytes` still rejects, because the coalescing contract
+ * needs an adopting caller to see the failure — but the module has already reported it, so a driver
+ * has nothing to add and nothing to handle.
+ */
+export const runTrimTick = async (): Promise<void> => {
+  try {
+    await trimCompletedResultBytes();
+  } catch {
+    // Reported once per pass inside the module.
   }
 };
 

@@ -17,6 +17,7 @@ import {
   TRIM_BATCH_SIZE,
   TRIM_FAILURE_RETRY_MS,
   TRIM_MIN_INTERVAL_MS,
+  runTrimTick,
   trimCompletedResultBytes
 } from './trim-result-bytes';
 
@@ -385,6 +386,40 @@ describe('trimCompletedResultBytes', () => {
     // and at the boundary itself
     __resetTrimThrottleForTests();
     expect(await trimCompletedResultBytes(completedAtMs + RESULT_BYTES_RETENTION_MS + 1000)).toBe(1);
+  });
+
+  it('reports one failed pass once, however many callers adopted it', async () => {
+    // The module logs its own failures for the same reason it logs the other two outcomes: only
+    // the originating caller reaches that catch. When the drivers each logged instead, two
+    // overlapping ticks reported one failure twice — measured, before this moved.
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    await Repo.transactions.bulkPut([row(1)]);
+    __resetTrimThrottleForTests();
+    const spy = jest.spyOn(Repo.transactions, 'where').mockImplementation(() => {
+      throw new Error('indexeddb unavailable');
+    });
+
+    await Promise.all([runTrimTick(), runTrimTick()]);
+
+    spy.mockRestore();
+    expect(warn.mock.calls.filter(c => String(c[0]).includes('pass failed')).length).toBe(1);
+    warn.mockRestore();
+  });
+
+  it('runTrimTick never rejects, which is what lets the drivers call it bare', async () => {
+    // Both drivers are `void runTrimTick();` with no handler. That is only safe because this
+    // resolves on failure; if it ever rethrew, each driver would leak an unhandled rejection.
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    await Repo.transactions.bulkPut([row(1)]);
+    __resetTrimThrottleForTests();
+    const spy = jest.spyOn(Repo.transactions, 'where').mockImplementation(() => {
+      throw new Error('indexeddb unavailable');
+    });
+
+    await expect(runTrimTick()).resolves.toBeUndefined();
+
+    spy.mockRestore();
+    warn.mockRestore();
   });
 
   it('coalesces two overlapping callers onto one pass', async () => {

@@ -15,7 +15,7 @@ import {
   MAX_SYNC_BACKOFF_MS,
   monotonicNowMs
 } from 'lib/miden/sync-backoff';
-import { TRIM_LOG_TAG, trimCompletedResultBytes } from 'lib/miden/transaction/trim-result-bytes';
+import { runTrimTick } from 'lib/miden/transaction/trim-result-bytes';
 import { isExtension } from 'lib/platform';
 import { WalletMessageType, WalletStatus } from 'lib/shared/types';
 import { getIntercom, useWalletStore } from 'lib/store';
@@ -161,7 +161,7 @@ export function useSyncTrigger() {
         // this comment used to claim the opposite. Fire-and-forget, so a sync never awaits it and
         // a trim failure never fails one — though the select does run on this thread and this
         // IndexedDB connection, so it is not free.
-        void trimCompletedResultBytes().catch(err => console.warn(`${TRIM_LOG_TAG} pass failed:`, err));
+        void runTrimTick();
 
         // Same guards the old AutoSync had: skip (don't wait for the lock) when
         // a tx is being generated, to avoid queuing sync behind a long prove.

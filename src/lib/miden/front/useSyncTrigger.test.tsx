@@ -138,8 +138,15 @@ jest.mock('lib/miden/activity/connectivity-classify', () => ({
 const mockRequestNotesRefresh = jest.fn();
 const mockTrimResultBytes = jest.fn(async () => 0);
 jest.mock('lib/miden/transaction/trim-result-bytes', () => ({
-  TRIM_LOG_TAG: '[resultBytesTrim]',
-  trimCompletedResultBytes: () => mockTrimResultBytes()
+  // Mirrors the real contract: runTrimTick never rejects — the module reports its own failures —
+  // which is what lets both drivers call it with a bare `void` and no handler.
+  runTrimTick: async () => {
+    try {
+      await mockTrimResultBytes();
+    } catch {
+      /* swallowed, as the real one does */
+    }
+  }
 }));
 
 jest.mock('./note-refresh', () => ({
@@ -349,18 +356,16 @@ describe('useSyncTrigger', () => {
     unmount();
   });
 
-  it('mobile/desktop: survives a failing reaper and logs it', async () => {
-    // Same gap as the extension side: without this, dropping the .catch leaves an unhandled
-    // rejection on the mobile tick and nothing turns red.
-    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+  it('mobile/desktop: survives a failing reaper', async () => {
+    // As on the extension: the reaper reports its own failures, and what this driver must
+    // guarantee is that a failing pass does not fail the tick.
     mockTrimResultBytes.mockRejectedValueOnce(new Error('indexeddb unavailable'));
 
     const { unmount } = render(<HookHost />);
     await flush();
 
     expect(mockSyncState).toHaveBeenCalled();
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('[resultBytesTrim]'), expect.anything());
-    warn.mockRestore();
+    expect(mockTrimResultBytes).toHaveBeenCalled();
     unmount();
   });
 
