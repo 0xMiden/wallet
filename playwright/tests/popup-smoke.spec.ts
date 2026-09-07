@@ -164,6 +164,8 @@ test.describe('Fullpage UI', () => {
     // Explore page). The in-tab path still applies to non-extension / E2E builds
     // and is covered by the Welcome/ForgotPassword unit tests.
     await page.getByTestId('onboarding-confirmation-submit').click();
+    await expect(page.getByTestId('recovered-accounts')).toBeVisible({ timeout: 30000 });
+    await page.getByTestId('recovered-accounts-continue').click();
     await expect(page.getByText(/your wallet is ready/i)).toBeVisible({ timeout: 30000 });
     await expect(page.getByRole('button', { name: /open wallet/i })).toBeVisible({ timeout: 30000 });
   });

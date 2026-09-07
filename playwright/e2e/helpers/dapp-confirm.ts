@@ -168,6 +168,9 @@ export async function completeSeedImportOnboarding(page: Page, fullpageUrl: stri
   await page.getByTestId('onboarding-confirmation').waitFor({ timeout: timeoutMs });
   await page.getByTestId('onboarding-confirmation-submit').click({ timeout: ACTION_TIMEOUT });
 
+  await page.getByTestId('recovered-accounts').waitFor({ timeout: timeoutMs });
+  await page.getByTestId('recovered-accounts-continue').click({ timeout: ACTION_TIMEOUT });
+
   // "Open wallet" only renders once the store is Ready — deliberately NOT
   // clicked: it hands off to the Chrome side panel and closes this tab.
   await page.getByRole('button', { name: /open wallet/i }).waitFor({ state: 'visible', timeout: timeoutMs });
