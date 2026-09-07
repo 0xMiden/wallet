@@ -52,11 +52,14 @@ async function repairSettlementStamp(order: SwapOrder): Promise<void> {
   if (!settle) return;
   const stampedAt = settle.completedAt ?? Math.floor(Date.now() / 1000);
   await Repo.transactions.where({ id: order.id }).modify(tx => {
-    if (!isSwapTransaction(tx)) return;
+    // `false`, not a bare return — dexie re-puts the deep clone for any other value, and this
+    // runs off the sync tick, so a bare return rewrites the row on every cadence.
+    if (!isSwapTransaction(tx)) return false;
     tx.extraInputs = {
       ...tx.extraInputs,
       ...(settle.extraInputs?.swapSettleKind === 'reclaim' ? { reclaimedAt: stampedAt } : { settledAt: stampedAt })
     };
+    return undefined;
   });
 }
 
@@ -108,8 +111,11 @@ export async function reconcileSwapOrderNotes(
       // subsequent consume uses only notes still consumable after sync; retries
       // remain idempotent through consume-note deduplication.
       await Repo.transactions.where({ id: order.id }).modify(tx => {
-        if (!isSwapTransaction(tx)) return;
+        // `false`, not a bare return — dexie re-puts the deep clone for any other value, and this
+        // runs off the sync tick, so a bare return rewrites the row on every cadence.
+        if (!isSwapTransaction(tx)) return false;
         tx.extraInputs = { ...tx.extraInputs, expiryTriggeredAt: nowSeconds };
+        return undefined;
       });
     }
 
@@ -172,12 +178,14 @@ export async function reconcileSwapOrderNotes(
       // idempotent. Swap-managed notes never reach manual claim paths, so a
       // consume covering them is always a settlement consume.
       await Repo.transactions.where({ id: txId }).modify(tx => {
-        if (tx.type !== 'consume') return;
+        // `false`, not a bare return — see above; same sync-tick cadence.
+        if (tx.type !== 'consume') return false;
         tx.extraInputs = {
           ...(tx.extraInputs ?? {}),
           swapOrderTxId: order.id,
           swapSettleKind: hasPayback ? 'settle' : 'reclaim'
         };
+        return undefined;
       });
       queuedTransactionIds.push(txId);
     }

@@ -343,7 +343,10 @@ export const completeVerifiedLandedTransaction = async (
   otherValues: Partial<ITransaction> = {}
 ): Promise<void> => {
   await Repo.transactions.where({ id }).modify(tx => {
-    if (tx.status !== ITransactionStatus.Failed) return;
+    // `false`, not a bare return — dexie re-puts the deep clone for any other value. The row
+    // declined here is an already-Completed one, i.e. exactly the row still carrying the ~237 KB
+    // `resultBytes`, and `useTransactionRow` observes this table.
+    if (tx.status !== ITransactionStatus.Failed) return false;
     Object.assign(tx, otherValues);
     tx.status = ITransactionStatus.Completed;
     tx.stage = 'complete';
@@ -351,6 +354,7 @@ export const completeVerifiedLandedTransaction = async (
     // completed transaction with an error on it.
     tx.error = undefined;
     tx.rawError = undefined;
+    return undefined;
   });
 };
 
@@ -513,7 +517,11 @@ export const waitForConsumeTx = async (id: string, signal?: AbortSignal): Promis
   });
 };
 
-const WAIT_FOR_TX_TIMEOUT = 5 * 60_000; // 5 minutes
+/**
+ * How long a single wait may last. Note this bounds the wait's DURATION, not when it reads the
+ * row: an already-Completed row is read on the first emission, so this never gates the reaper.
+ */
+export const WAIT_FOR_TX_TIMEOUT = 5 * 60_000;
 
 export const waitForTransactionCompletion = async (transactionId: string) => {
   return new Promise<TransactionOutput>(resolve => {
