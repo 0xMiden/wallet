@@ -305,6 +305,61 @@ describe('trimCompletedResultBytes', () => {
     info.mockRestore();
   });
 
+  it('re-checks inside the write, and still reports the range as unexhausted', async () => {
+    // The select and the write run in DIFFERENT transactions, so a row chosen by the select can
+    // stop being eligible before the write sees it. The in-write re-check is the whole safety
+    // argument for that split — and no other test makes the two disagree, so deleting the re-check
+    // outright passes the rest of the suite.
+    //
+    // The fixture size is load-bearing: with fewer than TRIM_BATCH_SIZE eligible rows the select
+    // returns a short batch and `exhausted` is true whatever the writer does, so the second
+    // assertion would fail against CORRECT code.
+    const n = TRIM_BATCH_SIZE + 20;
+    await Repo.transactions.bulkPut(Array.from({ length: n }, (_, i) => row(i)));
+    __resetTrimThrottleForTests();
+
+    // Make one selected row ineligible between primaryKeys() and modify.
+    const realWhere = Repo.transactions.where.bind(Repo.transactions);
+    const spy = jest.spyOn(Repo.transactions, 'where').mockImplementationOnce(index => {
+      const collection = realWhere(index as string);
+      const below = collection.below.bind(collection);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (collection as any).below = (v: unknown) => {
+        const c = below(v as never);
+        const filter = c.filter.bind(c);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (c as any).filter = (fn: never) => {
+          const lc = filter(fn);
+          const limit = lc.limit.bind(lc);
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (lc as any).limit = (k: number) => {
+            const kc = limit(k);
+            const pk = kc.primaryKeys.bind(kc);
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            (kc as any).primaryKeys = async () => {
+              const ids = await pk();
+              await Repo.transactions.update(ids[0] as string, { status: ITransactionStatus.Queued });
+              return ids;
+            };
+            return kc;
+          };
+          return lc;
+        };
+        return c;
+      };
+      return collection;
+    });
+
+    const trimmed = await trimCompletedResultBytes();
+    spy.mockRestore();
+
+    // One selected row was declined inside the write...
+    expect(trimmed).toBe(TRIM_BATCH_SIZE - 1);
+    // ...but the range was NOT exhausted, so the floor must not have been stamped. Inferring
+    // exhaustion from `trimmed < TRIM_BATCH_SIZE` would park the remaining rows for the interval.
+    expect(await trimCompletedResultBytes()).toBeGreaterThan(0);
+  });
+
   it('coalesces two overlapping callers onto one pass', async () => {
     // Both drivers fire and forget, so on the extension the miden-sync alarm and the popup's 3s
     // SyncRequest can overlap. Asserting the SECOND CALL'S COUNT is what discriminates: blobsLeft
