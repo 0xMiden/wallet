@@ -14,6 +14,7 @@ import {
   RESULT_BYTES_RETENTION_MS,
   TRIM_BATCH_SIZE,
   TRIM_FAILURE_RETRY_MS,
+  TRIM_MIN_INTERVAL_MS,
   trimCompletedResultBytes,
   WAIT_FOR_TX_TIMEOUT
 } from './trim-result-bytes';
@@ -175,9 +176,15 @@ describe('trimCompletedResultBytes', () => {
     expect((await Repo.transactions.get('one-older'))?.resultBytes).toBeUndefined();
   });
 
-  it('leaves the public wait answerable inside the window and degraded after a trim', async () => {
-    // The TTL, asserted end to end rather than argued in a comment. A subscription starting inside
-    // the window still gets the full answer; once the reaper has run, the same call degrades.
+  it('clears the blob only once a row ages past the window, leaving the row itself intact', async () => {
+    // Storage only, and named for it. Driving the real `waitForTransactionCompletion` here would
+    // need TransactionResult.deserialize stubbed (jest maps the SDK to a mock without it),
+    // splitExecutedOutputNotes mocked, a transactionId on the fixture and a dexie liveQuery mock —
+    // and deleting that helper's missing-bytes arm would STILL degrade via its catch. Its coverage
+    // lives in transactions.branches.test.ts. What this pins is the window's effect on the store.
+    //
+    // The row assertion is load-bearing: `?.resultBytes === undefined` is equally true of a row
+    // that was DELETED, so without it a regression that wiped history would pass.
     const now = Date.now();
     const inWindow = Math.floor((now - RESULT_BYTES_RETENTION_MS / 2) / 1000);
     await Repo.transactions.bulkPut([row(1, { id: 'fresh', completedAt: inWindow } as Partial<ITransaction>)]);
@@ -190,7 +197,11 @@ describe('trimCompletedResultBytes', () => {
     const later = now + RESULT_BYTES_RETENTION_MS;
     __resetTrimThrottleForTests();
     expect(await trimCompletedResultBytes(later)).toBe(1);
-    expect((await Repo.transactions.get('fresh'))?.resultBytes).toBeUndefined();
+    const trimmedRow = await Repo.transactions.get('fresh');
+    expect(trimmedRow).toBeDefined();
+    expect(trimmedRow?.resultBytes).toBeUndefined();
+    // `delete`, not an assigned undefined: both release the blob, and this pins the stored shape.
+    expect('resultBytes' in trimmedRow!).toBe(false);
   });
 
   it('never trims a row that carries no completedAt', async () => {
@@ -218,8 +229,16 @@ describe('trimCompletedResultBytes', () => {
     __resetTrimThrottleForTests();
     expect(await trimCompletedResultBytes(t0)).toBe(TRIM_BATCH_SIZE); // full batch: no stamp
     expect(await trimCompletedResultBytes(t0)).toBe(50); // continues at the SAME now
-    expect(await trimCompletedResultBytes(t0)).toBe(0); // exhausted: now throttled
     expect(await blobsLeft()).toBe(0);
+
+    // A fresh eligible row, so a third call returning 0 means THROTTLED rather than "nothing left"
+    // — the distinction the previous version of this test could not make.
+    await Repo.transactions.bulkPut([row(1, { id: 'late-arrival', completedAt: AGED } as Partial<ITransaction>)]);
+    expect(await trimCompletedResultBytes(t0)).toBe(0);
+    expect(await blobsLeft()).toBe(1);
+
+    // ...and the floor lifts exactly at the interval.
+    expect(await trimCompletedResultBytes(t0 + TRIM_MIN_INTERVAL_MS)).toBe(1);
   });
 
   it('does not park a backlog behind the interval after a full batch', async () => {
@@ -232,6 +251,37 @@ describe('trimCompletedResultBytes', () => {
     await trimCompletedResultBytes(t0);
 
     expect(await trimCompletedResultBytes(t0)).toBe(10);
+  });
+
+  it('coalesces two overlapping callers onto one pass', async () => {
+    // Both drivers fire and forget, so on the extension the miden-sync alarm and the popup's 3s
+    // SyncRequest can overlap. Asserting the SECOND CALL'S COUNT is what discriminates: blobsLeft
+    // reaches 0 with or without coalescing, so a store assertion cannot see the mutant.
+    await Repo.transactions.bulkPut(Array.from({ length: 10 }, (_, i) => row(i)));
+    __resetTrimThrottleForTests();
+
+    const [a, b] = await Promise.all([trimCompletedResultBytes(), trimCompletedResultBytes()]);
+
+    expect([a, b]).toEqual([10, 10]);
+  });
+
+  it('hands the failure to a caller that adopted the in-flight pass', async () => {
+    // The adopting caller must see the rejection, not a silently resolved 0 — otherwise a failing
+    // store looks healthy to whichever driver arrived second, which is the population this module
+    // targets.
+    await Repo.transactions.bulkPut(Array.from({ length: 5 }, (_, i) => row(i)));
+    __resetTrimThrottleForTests();
+    const spy = jest.spyOn(Repo.transactions, 'where').mockImplementation(() => {
+      throw new Error('indexeddb unavailable');
+    });
+
+    const first = trimCompletedResultBytes();
+    const second = trimCompletedResultBytes();
+
+    await expect(first).rejects.toThrow('indexeddb unavailable');
+    await expect(second).rejects.toThrow('indexeddb unavailable');
+    expect(spy).toHaveBeenCalledTimes(1);
+    spy.mockRestore();
   });
 
   it('backs a failed pass off for the retry floor, not for the full interval', async () => {
