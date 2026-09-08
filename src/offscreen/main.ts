@@ -245,7 +245,25 @@ async function init() {
   }
   const initThreadPool = (sdk as any).initThreadPool;
   if (typeof initThreadPool === 'function') {
-    const threads = navigator.hardwareConcurrency ?? 4;
+    // Reserve two cores above an 8-core machine rather than spawning one rayon
+    // thread per logical core. The pool is not the only thing running: this
+    // document's own main thread and the browser compositor need to run too, and
+    // on Apple Silicon `hardwareConcurrency` counts efficiency cores, which are
+    // ~2-3x slower than the performance cores. rayon splits work evenly, so an
+    // E-core chunk becomes the critical path the whole proof waits on.
+    //
+    // Measured with the web-sdk proving benchmark (single-sig ECDSA consume, MT
+    // dist, quiet machine, 4P+6E / hardwareConcurrency=10), median of 6 reps:
+    //   4 threads  5932 ms
+    //   8 threads  5815 ms   <- best
+    //   10 threads 6399 ms   (+10.0%; every sample slower than every 8-thread one)
+    // Confirmed end-to-end on a guarded devnet consume in this extension:
+    // 11523 ms -> ~10540 ms (-8.5%).
+    //
+    // Only >8 is capped: nothing at or below 8 was measured to benefit, and
+    // shrinking a small pool risks losing real parallelism.
+    const cores = navigator.hardwareConcurrency ?? 4;
+    const threads = cores > 8 ? cores - 2 : cores;
     const t = performance.now();
     await initThreadPool(threads);
     console.log(`${TAG} initThreadPool(${threads}) took ${(performance.now() - t).toFixed(0)}ms`);

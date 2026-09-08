@@ -586,6 +586,29 @@ describe('offscreen/main — startup / init()', () => {
     expect(G.chrome.runtime.sendMessage).toHaveBeenCalledWith({ type: 'OFFSCREEN_READY' });
   });
 
+  // Above 8 cores, two are reserved for this document's main thread and the
+  // browser compositor. On Apple Silicon `hardwareConcurrency` also counts the
+  // efficiency cores, and a rayon chunk landing on one becomes the critical path:
+  // measured 6399ms at 10 threads vs 5815ms at 8 on a 4P+6E machine.
+  it.each([
+    [10, 8],
+    [12, 10],
+    [16, 14]
+  ])('reserves two cores when hardwareConcurrency is %i', async (hwc, expected) => {
+    resetControl();
+    await loadModule({ hwc });
+    expect(G.__off.initThreadPool).toHaveBeenCalledWith(expected);
+  });
+
+  it.each([
+    [4, 4],
+    [8, 8]
+  ])('leaves a %i-core machine uncapped', async (hwc, expected) => {
+    resetControl();
+    await loadModule({ hwc });
+    expect(G.__off.initThreadPool).toHaveBeenCalledWith(expected);
+  });
+
   it('defaults to 4 threads when navigator.hardwareConcurrency is undefined', async () => {
     await loadModule({ hwc: undefined });
     expect(G.__off.initThreadPool).toHaveBeenCalledWith(4);
