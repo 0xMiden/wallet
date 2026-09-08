@@ -28,6 +28,7 @@ import Explore from './Explore';
 let mockFaucetId: string | null = 'faucet-native';
 let mockAccount: { publicKey: string } = { publicKey: 'mtst1account' };
 let mockAllBalances: any;
+let mockBalancesLoading = false;
 let mockClaimableNotes: any;
 let mockIsExtension = true;
 let mockIsMobile = true;
@@ -104,14 +105,16 @@ jest.mock('components/ui', () => ({
     accountNumber,
     accountId,
     amount,
-    onMore
+    onMore,
+    state
   }: {
     accountNumber: string;
     accountId: string;
     amount: string;
     onMore: () => void;
+    state?: string;
   }) => (
-    <div data-testid="balance-card">
+    <div data-testid="balance-card" data-state={state}>
       <span data-testid="balance-account-number">{accountNumber}</span>
       <span data-testid="balance-account-id">{accountId}</span>
       <span data-testid="balance-amount">{amount}</span>
@@ -167,7 +170,11 @@ jest.mock('lib/epoch', () => ({
 
 jest.mock('lib/miden/front', () => ({
   useAccount: () => mockAccount,
-  useAllBalances: () => ({ data: mockAllBalances, mutate: mockMutateBalances }),
+  useAllBalances: () => ({
+    data: mockAllBalances,
+    isLoading: mockBalancesLoading,
+    mutate: mockMutateBalances
+  }),
   useAllTokensBaseMetadata: () => ({}),
   useMidenContext: () => ({ signTransaction: mockSignTransaction })
 }));
@@ -237,6 +244,7 @@ describe('Explore', () => {
     mockFaucetId = 'faucet-native';
     mockAccount = { publicKey: 'mtst1account' };
     mockAllBalances = [];
+    mockBalancesLoading = false;
     mockClaimableNotes = undefined;
     mockIsExtension = true;
     mockIsMobile = true;
@@ -287,6 +295,16 @@ describe('Explore', () => {
       await renderExplore();
 
       expect(screen.getByTestId('balance-amount')).toHaveTextContent('$—');
+    });
+
+    it('keeps the balance card loading until the first balance read completes', async () => {
+      mockAllBalances = [makeToken('faucet-native', 'MIDEN', 'Miden', 0)];
+      mockBalancesLoading = true;
+      mockTokenPrices = { MIDEN: { price: 1, change24h: 0, percentageChange24h: 0 } };
+
+      await renderExplore();
+
+      expect(screen.getByTestId('balance-card')).toHaveAttribute('data-state', 'loading');
     });
 
     it('keeps the native asset first and orders the remaining assets by descending fiat value', async () => {
