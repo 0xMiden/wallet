@@ -552,11 +552,11 @@ describe('offscreen/main — startup / init()', () => {
     await loadModule({ coi: true, hwc: 8 });
 
     expect(G.__off.getWasmOrThrow).toHaveBeenCalledTimes(1);
-    expect(G.__off.initThreadPool).toHaveBeenCalledWith(8);
+    expect(G.__off.initThreadPool).toHaveBeenCalledWith(6);
     // COI on → no SharedArrayBuffer warning.
     expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining('crossOriginIsolated=false'));
     // Timing + loaded log fired, plus the ready signal to the SW.
-    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('initThreadPool(8) took'));
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('initThreadPool(6) took'));
     expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('loaded'));
     expect(G.chrome.runtime.sendMessage).toHaveBeenCalledWith({ type: 'OFFSCREEN_READY' });
     // Message listener registered.
@@ -582,27 +582,27 @@ describe('offscreen/main — startup / init()', () => {
     await loadModule({ coi: false });
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('crossOriginIsolated=false'));
     // Still brings up the pool and signals ready.
-    expect(G.__off.initThreadPool).toHaveBeenCalledWith(8);
+    expect(G.__off.initThreadPool).toHaveBeenCalledWith(6);
     expect(G.chrome.runtime.sendMessage).toHaveBeenCalledWith({ type: 'OFFSCREEN_READY' });
   });
 
-  // Above 8 cores, two are reserved for this document's main thread and the
-  // browser compositor. On Apple Silicon `hardwareConcurrency` also counts the
-  // efficiency cores, and a rayon chunk landing on one becomes the critical path:
-  // measured 6399ms at 10 threads vs 5815ms at 8 on a 4P+6E machine.
+  // Scaling saturates at the performance-core count and goes negative beyond it:
+  // on a 4P+6E machine, 6 threads was 5386-5524ms while 8 was 5742-5860ms and 10
+  // was 6424ms. See the table in main.ts for the full sweep.
   it.each([
-    [10, 8],
-    [12, 10],
-    [16, 14]
-  ])('reserves two cores when hardwareConcurrency is %i', async (hwc, expected) => {
+    [8, 6],
+    [10, 6],
+    [16, 6]
+  ])('caps the pool at 6 when hardwareConcurrency is %i', async (hwc, expected) => {
     resetControl();
     await loadModule({ hwc });
     expect(G.__off.initThreadPool).toHaveBeenCalledWith(expected);
   });
 
   it.each([
+    [2, 2],
     [4, 4],
-    [8, 8]
+    [6, 6]
   ])('leaves a %i-core machine uncapped', async (hwc, expected) => {
     resetControl();
     await loadModule({ hwc });

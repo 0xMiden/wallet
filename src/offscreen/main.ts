@@ -245,25 +245,29 @@ async function init() {
   }
   const initThreadPool = (sdk as any).initThreadPool;
   if (typeof initThreadPool === 'function') {
-    // Reserve two cores above an 8-core machine rather than spawning one rayon
-    // thread per logical core. The pool is not the only thing running: this
-    // document's own main thread and the browser compositor need to run too, and
-    // on Apple Silicon `hardwareConcurrency` counts efficiency cores, which are
-    // ~2-3x slower than the performance cores. rayon splits work evenly, so an
-    // E-core chunk becomes the critical path the whole proof waits on.
+    // Cap the rayon pool at 6 threads. Spawning one per logical core is
+    // counter-productive: the pool competes with this document's own main thread
+    // and the browser compositor, and on Apple Silicon `hardwareConcurrency`
+    // counts efficiency cores that are ~2-3x slower than the performance ones.
+    // rayon splits work evenly, so a chunk landing on an E-core becomes the
+    // critical path the whole proof waits on.
     //
-    // Measured with the web-sdk proving benchmark (single-sig ECDSA consume, MT
-    // dist, quiet machine, 4P+6E / hardwareConcurrency=10), median of 6 reps:
-    //   4 threads  5932 ms
-    //   8 threads  5815 ms   <- best
-    //   10 threads 6399 ms   (+10.0%; every sample slower than every 8-thread one)
-    // Confirmed end-to-end on a guarded devnet consume in this extension:
-    // 11523 ms -> ~10540 ms (-8.5%).
+    // Measured, web-sdk proving benchmark (single-sig ECDSA consume, MT dist,
+    // quiet machine, 4P+6E so hardwareConcurrency = 10), three sweeps:
+    //    threads   2      4      6      8      10
+    //    ms      7280   5428   5386   5802   6424   (sweep 1)
+    //                   5530   5524   5860          (sweep 2)
+    //                   5367   5401   5742          (sweep 3)
+    // 4 and 6 are indistinguishable (ranges overlap); 8 is consistently worse
+    // with no overlap; 10 is ~19% worse than 6. Scaling saturates at the
+    // performance-core count and goes NEGATIVE beyond it.
     //
-    // Only >8 is capped: nothing at or below 8 was measured to benefit, and
-    // shrinking a small pool risks losing real parallelism.
+    // 6 rather than 4 because the error is asymmetric — too high measurably
+    // hurts, too low costs nothing here — and 6 leaves headroom on machines with
+    // more fast cores. CAVEAT: this curve is from ONE heterogeneous machine. A
+    // homogeneous many-core desktop is untested and might prefer more.
     const cores = navigator.hardwareConcurrency ?? 4;
-    const threads = cores > 8 ? cores - 2 : cores;
+    const threads = Math.min(cores, 6);
     const t = performance.now();
     await initThreadPool(threads);
     console.log(`${TAG} initThreadPool(${threads}) took ${(performance.now() - t).toFixed(0)}ms`);
