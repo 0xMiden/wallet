@@ -1,14 +1,15 @@
 import React, { FC, useEffect, useRef } from 'react';
 
 import classNames from 'clsx';
-import { motion } from 'framer-motion';
+import { motion, useReducedMotion } from 'framer-motion';
 
 import { useAppEnv } from 'app/env';
 import { useHasUnclaimedNotes } from 'app/hooks/useHasUnclaimedNotes';
 import { Icon, IconName } from 'app/icons/v2';
 import HomeSwipeContainer from 'app/layouts/HomeSwipeContainer';
 import { BottomNav, SegmentedActionBar } from 'components/ui';
-import { springs } from 'lib/animation';
+import { springs, useMotion } from 'lib/animation';
+import { pageAppearance } from 'lib/animation/page-appearance';
 import { isSwapEnabled } from 'lib/feature-flags';
 import { hapticSelection } from 'lib/mobile/haptics';
 import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
@@ -74,10 +75,21 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
   // (the effect below updates it AFTER commit). That's exactly what we need
   // to decide whether the incoming page should slide in.
   const prevPathname = prevPathnameRef.current;
-  const skipSlideIn =
-    isExtension() ||
-    (isMobile() && isReturningFromWebview()) ||
-    (prevPathname !== null && HOME_GROUP_ROUTES.has(prevPathname) && HOME_GROUP_ROUTES.has(pathname));
+  const reduce = useReducedMotion();
+  const appearance = useMotion(pageAppearance);
+  const homeNavigation =
+    prevPathname !== null && HOME_GROUP_ROUTES.has(prevPathname) && HOME_GROUP_ROUTES.has(pathname);
+  const appear = isMobile() && !reduce && !isReturningFromWebview() && !homeNavigation;
+  const skipSlideIn = isExtension() || isMobile() || homeNavigation;
+  let initial: false | { opacity: number; x?: string } = false;
+  switch (true) {
+    case appear:
+      initial = { opacity: 0 };
+      break;
+    case !skipSlideIn:
+      initial = { x: '8%', opacity: 0.5 };
+      break;
+  }
 
   useEffect(() => {
     prevPathnameRef.current = pathname;
@@ -177,6 +189,17 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
           ? { height: '640px', width: '600px' }
           : { height: '600px', width: '360px' };
 
+  const actionBar = showActionBar && (
+    <div className="shrink-0 relative z-10">
+      <SegmentedActionBar
+        items={actionItems}
+        activeId={activeAction}
+        onChange={handleActionChange}
+        layoutId="tab-layout-action-fill"
+      />
+    </div>
+  );
+
   return (
     <div
       // Mobile clips horizontally only (`clip` keeps overflow-y visible) so
@@ -189,26 +212,10 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
       )}
       style={containerStyles}
     >
-      {/* Top action bar — sits outside the animated content tree so it
-          stays fixed across intra-home-group navigations. */}
-      {showActionBar && (
-        <div className="shrink-0 relative z-10">
-          <SegmentedActionBar
-            items={actionItems}
-            activeId={activeAction}
-            onChange={handleActionChange}
-            layoutId="tab-layout-action-fill"
-          />
-        </div>
-      )}
+      {!isMobile() && actionBar}
 
-      {/* Animated content. For home-group routes we mount the
-          HomeSwipeContainer once (a five-page horizontal carousel) and let it
-          drive intra-group transitions via drag — pathname is just the
-          source of truth for which page is centered. For other routes
-          (Browser, Activity, etc.) we still slide each new page in via
-          framer. The motion.div is keyed by group so the carousel doesn't
-          remount when only the centered page changes. */}
+      {/* Keep the mobile page bounds fixed when the Home action bar appears.
+          The Home group keeps one key, so its swipe pages stay mounted. */}
       <div className="flex-1 min-h-0 relative">
         <motion.div
           key={showActionBar ? 'home-group' : pathname}
@@ -217,11 +224,12 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
           // actually claim the remaining height. Without this their list
           // collapses to 0 and transactions appear missing.
           className="absolute inset-0 overflow-hidden flex flex-col"
-          initial={skipSlideIn ? false : { x: '8%', opacity: 0.5 }}
-          animate={{ x: 0, opacity: 1 }}
-          transition={springs.standard}
+          initial={initial}
+          animate={isMobile() ? { opacity: 1 } : { x: 0, opacity: 1 }}
+          transition={isMobile() ? appearance : springs.standard}
         >
-          {showActionBar ? <HomeSwipeContainer /> : children}
+          {isMobile() && actionBar}
+          <div className="flex-1 min-h-0 flex flex-col">{showActionBar ? <HomeSwipeContainer /> : children}</div>
         </motion.div>
       </div>
 

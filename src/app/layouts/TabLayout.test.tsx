@@ -1,6 +1,7 @@
 import React from 'react';
 
 import { render, screen, fireEvent } from '@testing-library/react';
+import type { Transition } from 'framer-motion';
 
 import { hapticSelection } from 'lib/mobile/haptics';
 import { navigate } from 'lib/woozie';
@@ -62,7 +63,8 @@ jest.mock('lib/mobile/useKeyboardVisible', () => ({
 
 // `springs` is animation config only; the value is irrelevant to behaviour.
 jest.mock('lib/animation', () => ({
-  springs: { standard: { type: 'spring' } }
+  springs: { standard: { type: 'spring' } },
+  useMotion: (transition: Transition) => transition
 }));
 
 // Icons are SVG re-exports; render nothing but expose the enum keys the layout
@@ -91,6 +93,7 @@ jest.mock('app/layouts/HomeSwipeContainer', () => ({
 // framer-motion's `motion.div` — forward props onto a plain div and surface the
 // `initial` prop (false = slide-in skipped, object = slide-in) for assertions.
 jest.mock('framer-motion', () => ({
+  useReducedMotion: () => false,
   motion: {
     div: React.forwardRef(({ children, initial, animate, transition, ...props }: any, ref: any) => (
       <div ref={ref} data-testid="motion-div" data-initial={JSON.stringify(initial)} {...props}>
@@ -422,12 +425,12 @@ describe('TabLayout — slide-in animation (skipSlideIn)', () => {
     expect(initialOf()).toBe('false');
   });
 
-  it('still slides in on mobile when NOT returning from a webview', () => {
+  it('shows mobile tab pages with opacity only', () => {
     mockPlatform.isMobile = true;
     mockReturning.value = false;
     mockLocation.pathname = '/history';
     renderLayout();
-    expect(initialOf()).toBe(JSON.stringify({ x: '8%', opacity: 0.5 }));
+    expect(initialOf()).toBe(JSON.stringify({ opacity: 0 }));
   });
 
   it('skips the slide-in for intra-home-group navigations (prev + next both home-group)', () => {
@@ -458,6 +461,34 @@ describe('TabLayout — slide-in animation (skipSlideIn)', () => {
 });
 
 describe('TabLayout — footer scaffolding', () => {
+  it('keeps the mobile header inside the page fade and keeps one navbar across tab changes', () => {
+    mockPlatform.isMobile = true;
+    mockLocation.pathname = '/';
+    const { rerender } = renderLayout();
+    const navbar = screen.getByTestId('bottom-nav');
+    const homePage = screen.getByTestId('motion-div');
+    expect(homePage).toContainElement(screen.getByTestId('action-bar'));
+    expect(homePage).not.toContainElement(navbar);
+
+    mockLocation.pathname = '/history';
+    rerender(
+      <TabLayout>
+        <div data-testid="child-content" />
+      </TabLayout>
+    );
+    expect(screen.getByTestId('bottom-nav')).toBe(navbar);
+    expect(screen.queryByTestId('action-bar')).not.toBeInTheDocument();
+
+    mockLocation.pathname = '/';
+    rerender(
+      <TabLayout>
+        <div data-testid="child-content" />
+      </TabLayout>
+    );
+    expect(screen.getByTestId('bottom-nav')).toBe(navbar);
+    expect(screen.getByTestId('motion-div')).toContainElement(screen.getByTestId('action-bar'));
+  });
+
   it('exposes the tabbar footer measurement hook for the dApp bubble host', () => {
     const { container } = renderLayout();
     expect(container.querySelector('[data-tabbar-footer="true"]')).toBeInTheDocument();
