@@ -268,21 +268,6 @@ export class MidenCli {
    * Deploy a new fungible faucet account.
    * Returns the faucet account ID.
    */
-  /**
-   * Whether a CLI failure is the chain telling us the account cannot pay its own fee.
-   *
-   * The CLI exposes no way to read `verification_base_fee`, so the harness cannot ask the chain
-   * up front whether it charges. Detecting it from the failure instead is self-correcting: a
-   * chain that starts charging is handled without a harness change, and one that does not never
-   * takes the funding path at all. Both shapes are the same underlying condition — the vault
-   * cannot cover the fee `pay_fee` withdraws before anything else runs.
-   */
-  private static isUnfundedFeeError(stderr: string): boolean {
-    return (
-      /amount of the asset in the vault is less/i.test(stderr) ||
-      /conversion info committed via the auth args/i.test(stderr)
-    );
-  }
 
   /**
    * Imports the genesis funder wallets so this client can spend from them.
