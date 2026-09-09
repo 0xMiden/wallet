@@ -7,7 +7,7 @@ import { HistoryAction } from 'lib/woozie/history';
 import { LocationState, useLocation } from 'lib/woozie/location';
 
 import FullScreenPage from './FullScreenPage';
-import MobilePageLayers, { usePageSlideComplete } from './MobilePageLayers';
+import MobilePageLayers from './MobilePageLayers';
 
 const mockMotion = { reduce: false };
 
@@ -54,27 +54,17 @@ afterEach(() => {
   setReturningFromWebview(false);
 });
 
-function ControlledSlide() {
-  const complete = usePageSlideComplete();
-  return <button onClick={complete}>Complete slide</button>;
-}
-
-it('waits for the incoming completion signal even when the slide takes longer', async () => {
+it('keeps the covered page mounted for as long as the slide page is present', async () => {
   const { container, rerender } = render(view('/history'));
-  rerender(
-    <MobilePageLayers location={location('/settings')} pageKey="/settings" slide>
-      <ControlledSlide />
-    </MobilePageLayers>
-  );
+  rerender(view('/settings', true));
   await act(async () => {
-    await new Promise(resolve => setTimeout(resolve, 400));
+    await new Promise(resolve => setTimeout(resolve, 600));
   });
   expect(container.querySelector('[data-page-layer="/history"]')).toBeInTheDocument();
-  fireEvent.click(screen.getByRole('button', { name: 'Complete slide' }));
-  await waitFor(() => expect(container.querySelector('[data-page-layer="/history"]')).not.toBeInTheDocument());
+  expect(container.querySelector('[data-page-layer="/settings"]')).toBeInTheDocument();
 });
 
-it('keeps the original page under the slide, then releases it', async () => {
+it('keeps the original page under the slide and reveals the same instance on pop', async () => {
   const { container, rerender } = render(view('/history'));
   fireEvent.click(screen.getByRole('button'));
   rerender(view('/history-details/one', true));
@@ -86,9 +76,18 @@ it('keeps the original page under the slide, then releases it', async () => {
   expect(previous).toHaveStyle({ zIndex: '1', pointerEvents: 'none' });
   expect(screen.getByRole('button')).toHaveTextContent('/history-details/one count 0');
   expect(document.body).not.toHaveAttribute('data-hide-navbar');
-
-  await waitFor(() => expect(previous).not.toBeInTheDocument());
   await waitFor(() => expect(document.body).toHaveAttribute('data-hide-navbar'));
+
+  rerender(view('/history'));
+  const revealed = container.querySelector('[data-page-layer="/history"]');
+  expect(revealed).toBe(previous);
+  expect(revealed).toHaveTextContent('/history count 1');
+  expect(revealed).not.toHaveAttribute('inert');
+  expect(revealed).toHaveStyle({ zIndex: '2', pointerEvents: 'auto' });
+  expect(document.body).not.toHaveAttribute('data-hide-navbar');
+  const leaving = container.querySelector('[data-page-layer="/history-details/one"]');
+  expect(leaving).toHaveStyle({ zIndex: '3' });
+  await waitFor(() => expect(leaving).not.toBeInTheDocument());
 });
 
 it('keeps one tab layout when only the selected tab changes', () => {

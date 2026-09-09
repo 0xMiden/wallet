@@ -6,10 +6,7 @@ import { useMotion } from 'lib/animation';
 import { pageAppearance, pageSlideEntrance } from 'lib/animation/page-appearance';
 import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
 import { isReturningFromWebview } from 'lib/mobile/webview-state';
-import { isMobile } from 'lib/platform';
 import { PropsWithChildren } from 'lib/props-with-children';
-
-import { usePageSlideComplete } from './MobilePageLayers';
 
 export interface FullScreenPageProps extends PropsWithChildren {
   entrance?: 'fade' | 'slide';
@@ -18,11 +15,11 @@ export interface FullScreenPageProps extends PropsWithChildren {
 const FullScreenPage: FC<FullScreenPageProps> = ({ children, entrance = 'fade' }) => {
   const present = useIsPresent();
   const reduce = useReducedMotion();
-  const appear = isMobile() && !reduce && !isReturningFromWebview();
+  const appear = !reduce && !isReturningFromWebview();
   const slide = appear && entrance === 'slide';
   const [entered, setEntered] = useState(false);
-  const completeSlide = usePageSlideComplete();
-  // Keep the previous tab's navbar visible under the incoming page.
+  // Keep the previous tab's navbar visible under the incoming page, and give
+  // it back the moment this page starts to slide out.
   useHideNavbarWhileOpen(present && (!slide || entered));
   const transition = useMotion(slide ? pageSlideEntrance : pageAppearance);
   let initial: false | TargetAndTransition = false;
@@ -41,10 +38,7 @@ const FullScreenPage: FC<FullScreenPageProps> = ({ children, entrance = 'fade' }
       initial={initial}
       animate={slide ? { x: 0, opacity: 1 } : { opacity: 1 }}
       transition={transition}
-      onAnimationComplete={() => {
-        setEntered(true);
-        completeSlide?.();
-      }}
+      onAnimationComplete={() => setEntered(true)}
     >
       {children}
     </motion.div>

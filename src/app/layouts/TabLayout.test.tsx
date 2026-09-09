@@ -401,23 +401,17 @@ describe('TabLayout — bottom nav footer padding', () => {
   });
 });
 
-describe('TabLayout — slide-in animation (skipSlideIn)', () => {
+describe('TabLayout — mount fade and tab panes', () => {
   const initialOf = () => screen.getByTestId('motion-div').getAttribute('data-initial');
+  const paneOf = (id: string) => document.querySelector(`[data-tab-pane="${id}"]`);
 
-  it('slides the incoming page in by default (first render, non-home target)', () => {
+  it('fades the layout in once on mount', () => {
     mockLocation.pathname = '/history';
     renderLayout();
-    expect(initialOf()).toBe(JSON.stringify({ x: '8%', opacity: 0.5 }));
+    expect(initialOf()).toBe(JSON.stringify({ opacity: 0 }));
   });
 
-  it('skips the slide-in on the extension', () => {
-    mockPlatform.isExtension = true;
-    mockLocation.pathname = '/history';
-    renderLayout();
-    expect(initialOf()).toBe('false');
-  });
-
-  it('skips the slide-in when returning from a webview on mobile', () => {
+  it('skips the fade when returning from a webview on mobile', () => {
     mockPlatform.isMobile = true;
     mockReturning.value = true;
     mockLocation.pathname = '/history';
@@ -425,50 +419,61 @@ describe('TabLayout — slide-in animation (skipSlideIn)', () => {
     expect(initialOf()).toBe('false');
   });
 
-  it('shows mobile tab pages with opacity only', () => {
-    mockPlatform.isMobile = true;
-    mockReturning.value = false;
-    mockLocation.pathname = '/history';
-    renderLayout();
-    expect(initialOf()).toBe(JSON.stringify({ opacity: 0 }));
-  });
-
-  it('skips the slide-in for intra-home-group navigations (prev + next both home-group)', () => {
+  it('keeps one fade wrapper across a tab change instead of remounting it', () => {
     mockLocation.pathname = '/';
     const { rerender } = renderLayout();
-    // After commit the effect stored '/' as the previous path; navigate within
-    // the home group and the incoming page should not slide.
-    mockLocation.pathname = '/send';
-    rerender(<TabLayout>{<div data-testid="child-content" />}</TabLayout>);
-    expect(initialOf()).toBe('false');
-  });
-
-  it('slides in when the previous path was outside the home group', () => {
+    const wrapper = screen.getByTestId('motion-div');
     mockLocation.pathname = '/history';
-    const { rerender } = renderLayout();
-    mockLocation.pathname = '/send';
     rerender(<TabLayout>{<div data-testid="child-content" />}</TabLayout>);
-    expect(initialOf()).toBe(JSON.stringify({ x: '8%', opacity: 0.5 }));
+    expect(screen.getByTestId('motion-div')).toBe(wrapper);
   });
 
-  it('slides in when navigating from a home-group route out to a non-home route', () => {
+  it('keeps a visited tab mounted but hidden and inert while another tab is active', () => {
     mockLocation.pathname = '/';
     const { rerender } = renderLayout();
+    const homeSwipe = screen.getByTestId('home-swipe');
+
     mockLocation.pathname = '/history';
     rerender(<TabLayout>{<div data-testid="child-content" />}</TabLayout>);
-    expect(initialOf()).toBe(JSON.stringify({ x: '8%', opacity: 0.5 }));
+    expect(screen.getByTestId('home-swipe')).toBe(homeSwipe);
+    const homePane = paneOf('home');
+    expect(homePane).toContainElement(screen.getByTestId('action-bar'));
+    expect(homePane).toHaveStyle({ visibility: 'hidden' });
+    expect(homePane).toHaveAttribute('inert');
+    expect(homePane).toHaveAttribute('aria-hidden', 'true');
+    const activityPane = paneOf('activity');
+    expect(activityPane).toContainElement(screen.getByTestId('child-content'));
+    expect(activityPane).toHaveStyle({ visibility: 'visible' });
+    expect(activityPane).not.toHaveAttribute('inert');
+
+    mockLocation.pathname = '/';
+    rerender(<TabLayout>{<div data-testid="child-content" />}</TabLayout>);
+    expect(screen.getByTestId('home-swipe')).toBe(homeSwipe);
+    expect(paneOf('home')).toHaveStyle({ visibility: 'visible' });
+    expect(paneOf('activity')).toHaveStyle({ visibility: 'hidden' });
+  });
+
+  it('refreshes the active tab content on every render', () => {
+    mockLocation.pathname = '/history';
+    const { rerender } = renderLayout(<div data-testid="child-content">one</div>);
+    rerender(
+      <TabLayout>
+        <div data-testid="child-content">two</div>
+      </TabLayout>
+    );
+    expect(screen.getByTestId('child-content')).toHaveTextContent('two');
   });
 });
 
 describe('TabLayout — footer scaffolding', () => {
-  it('keeps the mobile header inside the page fade and keeps one navbar across tab changes', () => {
+  it('keeps the action bar inside the home pane and one navbar across tab changes', () => {
     mockPlatform.isMobile = true;
     mockLocation.pathname = '/';
     const { rerender } = renderLayout();
     const navbar = screen.getByTestId('bottom-nav');
-    const homePage = screen.getByTestId('motion-div');
-    expect(homePage).toContainElement(screen.getByTestId('action-bar'));
-    expect(homePage).not.toContainElement(navbar);
+    const wrapper = screen.getByTestId('motion-div');
+    expect(wrapper).toContainElement(screen.getByTestId('action-bar'));
+    expect(wrapper).not.toContainElement(navbar);
 
     mockLocation.pathname = '/history';
     rerender(
@@ -477,16 +482,8 @@ describe('TabLayout — footer scaffolding', () => {
       </TabLayout>
     );
     expect(screen.getByTestId('bottom-nav')).toBe(navbar);
-    expect(screen.queryByTestId('action-bar')).not.toBeInTheDocument();
-
-    mockLocation.pathname = '/';
-    rerender(
-      <TabLayout>
-        <div data-testid="child-content" />
-      </TabLayout>
-    );
-    expect(screen.getByTestId('bottom-nav')).toBe(navbar);
-    expect(screen.getByTestId('motion-div')).toContainElement(screen.getByTestId('action-bar'));
+    expect(document.querySelector('[data-tab-pane="home"]')).toHaveStyle({ visibility: 'hidden' });
+    expect(document.querySelector('[data-tab-pane="activity"]')).not.toContainElement(screen.getByTestId('action-bar'));
   });
 
   it('exposes the tabbar footer measurement hook for the dApp bubble host', () => {
