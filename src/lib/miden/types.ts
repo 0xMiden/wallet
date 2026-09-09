@@ -35,6 +35,8 @@ export interface ConsumableNote {
   swapOrder?: SwapOrderNoteMetadata;
   /** Estimated epoch ms when the sender can reclaim this P2IDE note; absent for non-recallable notes. */
   recallableAtMs?: number;
+  /** Note inclusion time, in Unix seconds. */
+  receivedAt?: number;
 }
 
 export interface SwapOrderNoteMetadata {

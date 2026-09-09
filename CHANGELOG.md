@@ -2,6 +2,10 @@
 
 ## 1.16.1 (TBD)
 
+### Changes
+
+- [CHANGE][all] Activity redesign: every transaction row and pending transfer is its own bordered card, with the Accept and Reject controls as the card's bottom edge and no divider lines. A Pending filter chip lists only unclaimed transfers, with a Claim All button that queues one consume per faucet, native asset first, and marks every card as claiming on tap on all platforms. The pending-claims carousel is removed. A slide page that pops back onto another slide page now slides out instead of staying parked under it.
+
 ### Fixes
 
 - [FIX][ci] Every ubuntu job now drops Google's Chrome apt repository before touching apt. Nothing installs Chrome from apt, yet its CDN served a mismatched package index for over an hour and failed every Playwright, xvfb and local-node install with `Hash Sum mismatch`.

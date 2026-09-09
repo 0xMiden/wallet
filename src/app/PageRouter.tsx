@@ -13,7 +13,6 @@ import Unlock from 'app/pages/Unlock';
 import Welcome from 'app/pages/Welcome';
 import { isBridgeDepositEnabled, isSwapEnabled } from 'lib/feature-flags';
 import { useMidenContext } from 'lib/miden/front';
-import { isMobile } from 'lib/platform';
 import * as Woozie from 'lib/woozie';
 import DeveloperSettings from 'screens/developer-settings/DeveloperSettings';
 import EarnDepositAmount from 'screens/earn-flow/EarnDepositAmount';
@@ -396,7 +395,7 @@ const PageRouter: FC = () => {
   const page = useMemo(() => Woozie.Router.resolve(ROUTE_MAP, pathname, ctx), [pathname, ctx]);
 
   // Locking must remove all wallet pages without waiting for an animation.
-  if (!isMobile() || !ctx.ready || ctx.locked || !ctx.hydrated) return page;
+  if (!ctx.ready || ctx.locked || !ctx.hydrated) return page;
 
   const tabPage = React.isValidElement(page) && page.type === TabLayout;
   const slide =

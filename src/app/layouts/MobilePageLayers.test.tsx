@@ -90,6 +90,24 @@ it('keeps the original page under the slide and reveals the same instance on pop
   await waitFor(() => expect(leaving).not.toBeInTheDocument());
 });
 
+it('slides a popped slide page out instead of parking it under the page beneath', async () => {
+  const { container, rerender } = render(view('/'));
+  rerender(view('/settings', true));
+  rerender(view('/settings/general', true));
+  await act(async () => {
+    await new Promise(resolve => setTimeout(resolve, 600));
+  });
+
+  rerender(view('/settings', true));
+  const popped = container.querySelector('[data-page-layer="/settings/general"]');
+  expect(popped).toHaveStyle({ zIndex: '3' });
+  const home = container.querySelector('[data-page-layer="/"]');
+  expect(home).toHaveAttribute('inert');
+  await waitFor(() => expect(popped).toHaveStyle({ transform: 'translateX(100%)' }));
+  expect(home).toHaveStyle({ transform: 'translateX(-24%)' });
+  expect(container.querySelector('[data-page-layer="/settings"]')).toHaveStyle({ zIndex: '2' });
+});
+
 it('keeps one tab layout when only the selected tab changes', () => {
   const { container, rerender } = render(view('/', false, 'tabs'));
   fireEvent.click(screen.getByRole('button'));

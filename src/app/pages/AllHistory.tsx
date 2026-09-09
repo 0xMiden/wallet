@@ -1,34 +1,25 @@
-import React, { FC, useEffect, useMemo, useRef, useState } from 'react';
+import React, { FC, useEffect, useMemo, useState } from 'react';
 
 import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
-import { Icon, IconName } from 'app/icons/v2';
-import History from 'app/templates/history/History';
-import PendingNotesInfoDrawer from 'app/templates/PendingNotesInfoDrawer';
+import { ActivityPendingHistory } from 'app/templates/history/ActivityPendingHistory';
+import type { ActivityFilter } from 'app/templates/history/History';
 import { DeadletteredNotesNotice } from 'components/DeadletteredNotesNotice';
 import { SearchInput, TabHeader } from 'components/ui';
 import { reconcileAgglayerBridgedReceives } from 'lib/miden/activity';
 import { useAccount } from 'lib/miden/front';
-import { useClaimableNotes } from 'lib/miden/front/claimable-notes';
-import { hapticLight, hapticSelection } from 'lib/mobile/haptics';
-import { navigate } from 'lib/woozie';
+import { hapticSelection } from 'lib/mobile/haptics';
 
 type AllHistoryProps = {
   programId?: string | null;
 };
 
-type FilterId = 'all' | 'sent' | 'received' | 'faucet';
-
 const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
   const { t } = useTranslation();
   const account = useAccount();
-  const { data: claimableNotes } = useClaimableNotes(account.publicKey);
-  const pendingNotesCount = claimableNotes?.length ?? 0;
-  const scrollParentRef = useRef<HTMLDivElement>(null);
   const [search, setSearch] = useState('');
-  const [filter, setFilter] = useState<FilterId>('all');
-  const [infoDrawerOpen, setInfoDrawerOpen] = useState(false);
+  const [filter, setFilter] = useState<ActivityFilter>('all');
 
   useEffect(() => {
     let cancelled = false;
@@ -46,7 +37,7 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
       }
     };
 
-    void poll();
+    poll();
     const timer = setInterval(poll, 8_000);
     return () => {
       cancelled = true;
@@ -54,9 +45,10 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
     };
   }, []);
 
-  const filters = useMemo<Array<{ id: FilterId; label: string }>>(
+  const filters = useMemo<Array<{ id: ActivityFilter; label: string }>>(
     () => [
       { id: 'all', label: t('all') },
+      { id: 'pending', label: t('pending') },
       { id: 'sent', label: t('sent') },
       { id: 'received', label: t('received') },
       { id: 'faucet', label: t('faucet') }
@@ -64,7 +56,7 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
     [t]
   );
 
-  const handleFilterTap = (id: FilterId) => {
+  const handleFilterTap = (id: ActivityFilter) => {
     if (id === filter) return;
     hapticSelection();
     setFilter(id);
@@ -106,60 +98,7 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
         <SearchInput value={search} onChange={setSearch} placeholder={t('searchByNameOrSymbol')} />
       </div>
 
-      {pendingNotesCount > 0 && (
-        <div className="shrink-0 px-4 pt-4 pb-4 border-b-4 border-[#827C7C33]">
-          <div className="flex items-center gap-1.5 mb-2">
-            <h2 className="font-heading text-sm font-extrabold text-heading-gray dark:text-pure-white">
-              {t('pendingNotes')}
-            </h2>
-            <button
-              type="button"
-              aria-label={t('whatArePendingNotes')}
-              onClick={() => {
-                hapticLight();
-                setInfoDrawerOpen(true);
-              }}
-              className="flex items-center justify-center text-heading-gray dark:text-pure-white"
-            >
-              <Icon name={IconName.InformationFill} className="w-4! h-4!" fill="currentColor" />
-            </button>
-          </div>
-          <button
-            type="button"
-            onClick={() => {
-              hapticLight();
-              navigate('/pending-notes');
-            }}
-            className="w-full text-left rounded-2xl bg-gray-25 py-3 px-4"
-          >
-            <div className="flex items-center gap-1">
-              <span className="font-heading text-base font-extrabold text-heading-gray dark:text-pure-white">
-                {t('consumeYourNotes')}
-              </span>
-              <span className="rounded-full bg-accent-primary w-12 h-4 flex items-center justify-center text-xs font-bold font-heading text-pure-white">
-                {pendingNotesCount}
-              </span>
-            </div>
-            <p className="text-sm text-heading-gray font-heading font-semibold">{t('consumeYourNotesDescription')}</p>
-          </button>
-        </div>
-      )}
-
-      <PendingNotesInfoDrawer open={infoDrawerOpen} onOpenChange={setInfoDrawerOpen} notesCount={pendingNotesCount} />
-
-      <div ref={scrollParentRef} className="flex-1 min-h-0 overflow-y-auto pb-28">
-        <div className="px-4">
-          <History
-            address={account.publicKey}
-            programId={programId}
-            fullHistory={true}
-            centerEmptyState={true}
-            scrollParentRef={scrollParentRef}
-            searchQuery={search}
-            filter={filter}
-          />
-        </div>
-      </div>
+      <ActivityPendingHistory key={account.publicKey} search={search} filter={filter} programId={programId} />
     </div>
   );
 };

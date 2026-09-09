@@ -22,6 +22,7 @@ import { navigate } from 'lib/woozie';
 
 export interface ClaimNotesState {
   account: WalletAccount;
+  isFetchingNotes: boolean;
   safeClaimableNotes: NoteWithMetadata[];
   unclaimedNotes: NoteWithMetadata[];
   isDelegatedProvingEnabled: boolean;
@@ -49,7 +50,7 @@ export function useClaimNotes(): ClaimNotesState {
   const nativeFaucetId = useMidenFaucetId();
   const address = account.publicKey;
 
-  const { data: claimableNotes, mutate: mutateClaimableNotes } = useClaimableNotes(address);
+  const { data: claimableNotes, mutate: mutateClaimableNotes, isLoading, isValidating } = useClaimableNotes(address);
   const isDelegatedProvingEnabled = isDelegateProofEnabled();
 
   const safeClaimableNotes = useMemo(
@@ -391,6 +392,7 @@ export function useClaimNotes(): ClaimNotesState {
 
   return {
     account,
+    isFetchingNotes: Boolean(isLoading || isValidating),
     safeClaimableNotes,
     unclaimedNotes,
     isDelegatedProvingEnabled,
