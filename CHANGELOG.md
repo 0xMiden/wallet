@@ -1,6 +1,10 @@
 # Changelog
 
-## 1.16.1 (TBD)
+## 1.17.0 (TBD)
+
+### Changes
+
+- [CHORE][all] `next` is now the 1.17.0 line; the 0.16 line continues on `main` as 1.16.x.
 
 ## 1.16.0 (2026-09-09)
 
