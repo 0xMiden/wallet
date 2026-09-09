@@ -6,6 +6,10 @@
 
 - [CHORE][all] `next` is now the 1.17.0 line; the 0.16 line continues on `main` as 1.16.x.
 
+### Fixes
+
+- [FIX][e2e] The testnet E2E harness now funds every new account from the public faucet before its first transaction, as it already did on devnet; testnet moved to the fee-charging 0.16 node and unfunded mints failed inside the kernel.
+
 ## 1.16.0 (2026-09-09)
 
 ### Features

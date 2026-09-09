@@ -19,7 +19,10 @@ const ENVIRONMENTS: Record<string, EnvironmentConfig> = {
     // GUARDIAN_OPTIONS). OpenZeppelin is the default/primary; Koda is a distinct
     // second operator for switch tests.
     guardianUrl: 'https://guardian.openzeppelin.com',
-    guardianUrlB: 'https://guardian-testnet.kodax.com'
+    guardianUrlB: 'https://guardian-testnet.kodax.com',
+    // Testnet moved to the fee-charging 0.16 node on 2026-09-09: mint from the public faucet
+    // before the first transaction, exactly as devnet does, or the kernel rejects the fee.
+    chargesFees: true
   },
   devnet: {
     name: 'devnet',
