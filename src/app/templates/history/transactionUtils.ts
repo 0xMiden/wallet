@@ -337,6 +337,31 @@ export const TRANSACTION_COLORS = {
   faucet: '#891DB1'
 } as const;
 
+/**
+ * A chat-list timestamp: precise while it is still today, then a word, then a
+ * date. Kept separate from `formatDate` — a full "dd MMM yyyy, HH:mm" is right
+ * on a detail row but far too heavy for a list where every row carries one.
+ *
+ * Takes the "Yesterday" label rather than translating, so this module stays
+ * i18n-free like the rest of the history helpers.
+ */
+export const formatRelativeDay = (timestamp: number, yesterdayLabel: string): string => {
+  const date = new Date(timestamp * 1000);
+  if (isNaN(date.getTime())) return '';
+
+  const now = new Date();
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const ms = date.getTime();
+  const locale = getDateFnsLocale();
+
+  if (ms >= startOfToday) return format(date, 'HH:mm', { locale });
+  if (ms >= startOfToday - 86_400_000) return yesterdayLabel;
+  // Drop the year while it is redundant; a list of mostly-recent rows reads
+  // better without "2026" repeated down the right edge.
+  if (date.getFullYear() === now.getFullYear()) return format(date, 'd MMM', { locale });
+  return format(date, 'd MMM yyyy', { locale });
+};
+
 export const formatDate = (timestamp: number | string): string => {
   let date: Date;
 

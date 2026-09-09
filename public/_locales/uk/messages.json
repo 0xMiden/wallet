@@ -4460,5 +4460,103 @@
   "devEndpointResetConfirm": {
     "message": "Це призведе до остаточного видалення цього гаманця, включаючи ваші ключі та історію транзакцій. Для його відновлення вам знадобиться фраза відновлення.",
     "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
+  },
+  "activityGroupedView": {
+    "message": "Згруповано",
+    "englishSource": "Grouped"
+  },
+  "activityTimeView": {
+    "message": "За часом",
+    "englishSource": "By time"
+  },
+  "activityViewByGroup": {
+    "message": "Групувати за контактом або додатком",
+    "englishSource": "Group by contact or app"
+  },
+  "activityViewByTime": {
+    "message": "Показати спочатку найновіші",
+    "englishSource": "Show newest first"
+  },
+  "activityUnknownGroup": {
+    "message": "Інша діяльність",
+    "englishSource": "Other activity"
+  },
+  "activityUnknownGroupSubtitle": {
+    "message": "Відправник та одержувач не фіксуються",
+    "englishSource": "No sender or recipient recorded"
+  },
+  "activityGroupPendingClaims": {
+    "message": "$count$ отримати",
+    "englishSource": "$count$ to claim",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "activityGroupEmpty": {
+    "message": "Поки що немає згрупованих дій",
+    "englishSource": "No grouped activity yet"
+  },
+  "activityGroupEmptyDescription": {
+    "message": "Як тільки ви здійсните транзакцію з кимось або скористаєтеся додатком, це відобразиться тут.",
+    "englishSource": "Once you transact with someone or use an app, it shows up here."
+  },
+  "activityGroupNoTransactions": {
+    "message": "Поки що тут нічого немає — лише те, що можна отримати.",
+    "englishSource": "Nothing here yet — only something to claim."
+  },
+  "activityDapp": {
+    "message": "Додаток",
+    "englishSource": "App"
+  },
+  "activityContact": {
+    "message": "Контакти",
+    "englishSource": "Contact"
+  },
+  "activityBridgeGroup": {
+    "message": "Міст",
+    "englishSource": "Bridge"
+  },
+  "activityWalletGroup": {
+    "message": "Гаманець",
+    "englishSource": "Wallet"
+  },
+  "activityWalletGroupSubtitle": {
+    "message": "Безпека та відновлення облікового запису",
+    "englishSource": "Account security and recovery"
+  },
+  "activityActionWaiting": {
+    "message": "Чекаємо на вас",
+    "englishSource": "Waiting for you"
+  },
+  "activityActionCount": {
+    "message": "$count$ очікування",
+    "englishSource": "$count$ waiting",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "activityFilterAll": {
+    "message": "Усі",
+    "englishSource": "All"
+  },
+  "activityFilterPeople": {
+    "message": "Люди",
+    "englishSource": "People"
+  },
+  "activityFilterApps": {
+    "message": "Додатки",
+    "englishSource": "Apps"
+  },
+  "earn": {
+    "message": "Заробляти",
+    "englishSource": "Earn"
+  },
+  "yesterday": {
+    "message": "Вчора",
+    "englishSource": "Yesterday"
   }
 }

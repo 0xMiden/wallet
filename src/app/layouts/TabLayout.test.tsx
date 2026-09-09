@@ -49,8 +49,11 @@ jest.mock('app/env', () => ({
   useAppEnv: () => ({ fullPage: mockEnv.fullPage, sidePanel: mockEnv.sidePanel })
 }));
 
-jest.mock('app/hooks/useHasUnclaimedNotes', () => ({
-  useHasUnclaimedNotes: () => mockHasUnclaimed.value
+// The Activity dot now reads the unified actionable selector. Mocked here so
+// this suite stays about layout — the real hook pulls in claimable notes,
+// settings and the chain's native-asset lookup.
+jest.mock('app/hooks/useActionableActivity', () => ({
+  useActionableActivity: () => ({ actions: [], hasAny: mockHasUnclaimed.value })
 }));
 
 // Mobile soft-keyboard visibility. Driven by mock state so the hide-navbar

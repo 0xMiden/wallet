@@ -26,6 +26,7 @@ import { ReviewTransaction } from 'screens/send-flow/ReviewTransaction';
 import { SendFlow } from 'screens/send-flow/SendManager';
 import { SwapFlow } from 'screens/swap-flow/SwapManager';
 
+import ActivityGroupDetail from './pages/ActivityGroupDetail';
 import AllHistory from './pages/AllHistory';
 import BridgeDeposit from './pages/BridgeDeposit';
 import Browser from './pages/Browser';
@@ -143,6 +144,17 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
           return <Welcome />;
       }
     }
+  ],
+  // Placed ahead of `/history/:programId?`: that pattern only matches one
+  // segment, but keeping the more specific route first makes the precedence
+  // explicit rather than incidental.
+  [
+    '/history/group/:groupId',
+    onlyReady(({ groupId }) => (
+      <TabLayout>
+        <ActivityGroupDetail groupId={groupId ?? ''} />
+      </TabLayout>
+    ))
   ],
   [
     '/history/:programId?',

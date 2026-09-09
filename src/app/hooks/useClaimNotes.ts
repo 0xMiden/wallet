@@ -4,6 +4,7 @@ import { InputNoteState } from '@miden-sdk/miden-sdk/lazy';
 
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import { NoteWithMetadata } from 'app/pages/Receive/PendingTab';
+import { groupIdForAddress } from 'app/templates/history/activity-grouping';
 import {
   getFailedTransactions,
   initiateConsumeNotesTransaction,
@@ -34,6 +35,8 @@ export interface ClaimNotesState {
   handleClaimingStateChange: (noteId: string, isClaiming: boolean) => void;
   handleClaimAll: () => Promise<void>;
   handleClaimGroup: (faucetId: string) => Promise<void>;
+  /** Claim only what is waiting inside one Activity group. */
+  handleClaimActivityGroup: (groupId: string) => Promise<void>;
 }
 
 /**
@@ -389,6 +392,24 @@ export function useClaimNotes(): ClaimNotesState {
     [claimNotesBatch]
   );
 
+  /**
+   * Claim everything waiting inside one Activity group — what the grouped
+   * Activity detail page acts on. Same batch primitive as the per-asset claim,
+   * scoped by group instead of faucet, so claiming from one conversation cannot
+   * sweep up notes belonging to anyone else.
+   *
+   * Scoped through `groupIdForAddress`, the same mapping that put the note in
+   * that group: the button can only ever claim exactly the notes the row
+   * counted. A sender-less note lands in the unattributed group here too, so
+   * that group stays actionable rather than being a dead end.
+   */
+  const handleClaimActivityGroup = useCallback(
+    async (groupId: string) => {
+      await claimNotesBatch(n => groupIdForAddress(n.senderAddress || undefined) === groupId);
+    },
+    [claimNotesBatch]
+  );
+
   return {
     account,
     safeClaimableNotes,
@@ -400,6 +421,7 @@ export function useClaimNotes(): ClaimNotesState {
     checkingNoteIds,
     handleClaimingStateChange,
     handleClaimAll,
-    handleClaimGroup
+    handleClaimGroup,
+    handleClaimActivityGroup
   };
 }

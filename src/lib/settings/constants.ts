@@ -35,3 +35,6 @@ export const DEFAULT_THEME: ThemeSetting = 'system';
  * key needs a "re-enter your guardian URL" user flow (out of scope).
  */
 export const GUARDIAN_URL_STORAGE_KEY = 'guardian_url_setting';
+
+/** Which lens the Activity root last showed — `time` or `group`. */
+export const ACTIVITY_VIEW_STORAGE_KEY = 'activity_view_setting';

@@ -4460,5 +4460,103 @@
   "devEndpointResetConfirm": {
     "message": "Bu işlem, anahtarlarınız ve işlem geçmişiniz dahil olmak üzere bu cüzdanı kalıcı olarak siler. Cüzdanı geri yüklemek için kurtarma ifadesine ihtiyacınız olacak.",
     "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
+  },
+  "activityGroupedView": {
+    "message": "Gruplandırılmış",
+    "englishSource": "Grouped"
+  },
+  "activityTimeView": {
+    "message": "Zamana göre",
+    "englishSource": "By time"
+  },
+  "activityViewByGroup": {
+    "message": "Kişiye veya uygulamaya göre gruplandır",
+    "englishSource": "Group by contact or app"
+  },
+  "activityViewByTime": {
+    "message": "En yenilerini önce göster",
+    "englishSource": "Show newest first"
+  },
+  "activityUnknownGroup": {
+    "message": "Diğer faaliyetler",
+    "englishSource": "Other activity"
+  },
+  "activityUnknownGroupSubtitle": {
+    "message": "Gönderen veya alıcı kaydedilmemiştir",
+    "englishSource": "No sender or recipient recorded"
+  },
+  "activityGroupPendingClaims": {
+    "message": "$count$ talep etmek",
+    "englishSource": "$count$ to claim",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "activityGroupEmpty": {
+    "message": "Henüz gruplandırılmış bir etkinlik yok",
+    "englishSource": "No grouped activity yet"
+  },
+  "activityGroupEmptyDescription": {
+    "message": "Biriyle işlem yaptığınızda veya bir uygulamayı kullandığınızda, bu işlem burada görünür.",
+    "englishSource": "Once you transact with someone or use an app, it shows up here."
+  },
+  "activityGroupNoTransactions": {
+    "message": "Henüz burada bir şey yok — sadece talep edilecek bir şey var.",
+    "englishSource": "Nothing here yet — only something to claim."
+  },
+  "activityDapp": {
+    "message": "Uygulama",
+    "englishSource": "App"
+  },
+  "activityContact": {
+    "message": "İletişim",
+    "englishSource": "Contact"
+  },
+  "activityBridgeGroup": {
+    "message": "Köprü",
+    "englishSource": "Bridge"
+  },
+  "activityWalletGroup": {
+    "message": "Cüzdan",
+    "englishSource": "Wallet"
+  },
+  "activityWalletGroupSubtitle": {
+    "message": "Hesap güvenliği ve kurtarma",
+    "englishSource": "Account security and recovery"
+  },
+  "activityActionWaiting": {
+    "message": "Sizi bekliyoruz",
+    "englishSource": "Waiting for you"
+  },
+  "activityActionCount": {
+    "message": "$count$ beklemede",
+    "englishSource": "$count$ waiting",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "activityFilterAll": {
+    "message": "Tüm",
+    "englishSource": "All"
+  },
+  "activityFilterPeople": {
+    "message": "Kişiler",
+    "englishSource": "People"
+  },
+  "activityFilterApps": {
+    "message": "Uygulamalar",
+    "englishSource": "Apps"
+  },
+  "earn": {
+    "message": "Kazanın",
+    "englishSource": "Earn"
+  },
+  "yesterday": {
+    "message": "Dün",
+    "englishSource": "Yesterday"
   }
 }

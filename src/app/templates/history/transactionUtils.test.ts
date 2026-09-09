@@ -7,11 +7,12 @@ import { formatAmount } from 'lib/shared/format';
 
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
 import {
+  EARN_DEPOSIT_STATUS_LABEL_KEY,
+  EARN_WITHDRAW_STATUS_LABEL_KEY,
+  TRANSACTION_COLORS,
   bridgeInRowDisplay,
   bridgeRowDisplay,
   bridgeStatusOf,
-  EARN_DEPOSIT_STATUS_LABEL_KEY,
-  EARN_WITHDRAW_STATUS_LABEL_KEY,
   earnDepositSettlementOf,
   earnWithdrawAmountFields,
   earnWithdrawToneOf,
@@ -19,14 +20,14 @@ import {
   formatBridgeOutputAmount,
   formatDate,
   formatEarnWithdrawAmount,
+  formatRelativeDay,
   isBridgeInEntry,
   isCompletedTransaction,
   isEarnWithdrawEntry,
   isFaucetRequest,
   resolveConsumeExtraAmounts,
   resolveSwapHistoryFields,
-  swapSettlementOf,
-  TRANSACTION_COLORS
+  swapSettlementOf
 } from './transactionUtils';
 
 // `lib/i18n` drags in the full i18next runtime. The unit under test only needs
@@ -727,5 +728,45 @@ describe('earn deposit settlement helpers', () => {
       confirmed: 'confirmed',
       failed: 'failed'
     });
+  });
+});
+
+describe('formatRelativeDay', () => {
+  // A relative formatter is only testable against a known "now" — without a
+  // fixed clock every assertion here would drift with the calendar.
+  const NOW = new Date(2026, 5, 15, 12, 0, 0);
+  const at = (d: Date) => Math.floor(d.getTime() / 1000);
+
+  // Per-test, not `beforeAll`: the global `afterEach` in jest.setup.js calls
+  // `useRealTimers()`, so a clock pinned once would only survive the first case.
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.setSystemTime(NOW);
+  });
+
+  it('shows a clock time while the event is still today', () => {
+    expect(formatRelativeDay(at(new Date(2026, 5, 15, 14, 5)), 'Yesterday')).toBe('14:05');
+  });
+
+  it('still counts as today just after midnight', () => {
+    expect(formatRelativeDay(at(new Date(2026, 5, 15, 0, 1)), 'Yesterday')).toBe('00:01');
+  });
+
+  it('degrades to the supplied word for yesterday', () => {
+    expect(formatRelativeDay(at(new Date(2026, 5, 14, 9, 0)), 'Yesterday')).toBe('Yesterday');
+  });
+
+  it('drops the year for an earlier day in the same year', () => {
+    // A list of mostly-recent rows reads better without the year repeated down
+    // the right edge.
+    expect(formatRelativeDay(at(new Date(2026, 0, 15, 9, 0)), 'Yesterday')).toBe('15 Jan');
+  });
+
+  it('keeps the year once the date is from an earlier one', () => {
+    expect(formatRelativeDay(at(new Date(2025, 0, 15, 9, 0)), 'Yesterday')).toBe('15 Jan 2025');
+  });
+
+  it('returns empty rather than "Invalid Date" for a broken timestamp', () => {
+    expect(formatRelativeDay(NaN, 'Yesterday')).toBe('');
   });
 });

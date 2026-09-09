@@ -4,7 +4,7 @@ import classNames from 'clsx';
 import { motion } from 'framer-motion';
 
 import { useAppEnv } from 'app/env';
-import { useHasUnclaimedNotes } from 'app/hooks/useHasUnclaimedNotes';
+import { useActionableActivity } from 'app/hooks/useActionableActivity';
 import { Icon, IconName } from 'app/icons/v2';
 import HomeSwipeContainer from 'app/layouts/HomeSwipeContainer';
 import { BottomNav, SegmentedActionBar } from 'components/ui';
@@ -61,7 +61,9 @@ function activeActionFromPath(pathname: string): string {
 const TabLayout: FC<PropsWithChildren> = ({ children }) => {
   const { fullPage, sidePanel } = useAppEnv();
   const { pathname } = useLocation();
-  const hasUnclaimedNotes = useHasUnclaimedNotes();
+  // "You have something to do", not "a note exists": auto-consumed and
+  // already-claiming notes are excluded (see useActionableActivity).
+  const { hasAny: hasActionableActivity } = useActionableActivity();
   const prevPathnameRef = useRef<string | null>(null);
 
   // Hide the floating BottomNav whenever the mobile soft keyboard is up —
@@ -104,7 +106,7 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
       id: 'activity',
       label: 'Activity',
       icon: <Icon name={IconName.Activity} className="w-6 h-6" />,
-      showDot: hasUnclaimedNotes
+      showDot: hasActionableActivity
     }
   ];
 

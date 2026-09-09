@@ -4460,5 +4460,103 @@
   "devEndpointResetConfirm": {
     "message": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it.",
     "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
+  },
+  "activityGroupedView": {
+    "message": "Grouped",
+    "englishSource": "Grouped"
+  },
+  "activityTimeView": {
+    "message": "By time",
+    "englishSource": "By time"
+  },
+  "activityViewByGroup": {
+    "message": "Group by contact or app",
+    "englishSource": "Group by contact or app"
+  },
+  "activityViewByTime": {
+    "message": "Show newest first",
+    "englishSource": "Show newest first"
+  },
+  "activityUnknownGroup": {
+    "message": "Other activity",
+    "englishSource": "Other activity"
+  },
+  "activityUnknownGroupSubtitle": {
+    "message": "No sender or recipient recorded",
+    "englishSource": "No sender or recipient recorded"
+  },
+  "activityGroupPendingClaims": {
+    "message": "$count$ to claim",
+    "englishSource": "$count$ to claim",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "activityGroupEmpty": {
+    "message": "No grouped activity yet",
+    "englishSource": "No grouped activity yet"
+  },
+  "activityGroupEmptyDescription": {
+    "message": "Once you transact with someone or use an app, it shows up here.",
+    "englishSource": "Once you transact with someone or use an app, it shows up here."
+  },
+  "activityGroupNoTransactions": {
+    "message": "Nothing here yet — only something to claim.",
+    "englishSource": "Nothing here yet — only something to claim."
+  },
+  "activityDapp": {
+    "message": "App",
+    "englishSource": "App"
+  },
+  "activityContact": {
+    "message": "Contact",
+    "englishSource": "Contact"
+  },
+  "activityBridgeGroup": {
+    "message": "Bridge",
+    "englishSource": "Bridge"
+  },
+  "activityWalletGroup": {
+    "message": "Wallet",
+    "englishSource": "Wallet"
+  },
+  "activityWalletGroupSubtitle": {
+    "message": "Account security and recovery",
+    "englishSource": "Account security and recovery"
+  },
+  "activityActionWaiting": {
+    "message": "Waiting for you",
+    "englishSource": "Waiting for you"
+  },
+  "activityActionCount": {
+    "message": "$count$ waiting",
+    "englishSource": "$count$ waiting",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "activityFilterAll": {
+    "message": "All",
+    "englishSource": "All"
+  },
+  "activityFilterPeople": {
+    "message": "People",
+    "englishSource": "People"
+  },
+  "activityFilterApps": {
+    "message": "Apps",
+    "englishSource": "Apps"
+  },
+  "earn": {
+    "message": "Earn",
+    "englishSource": "Earn"
+  },
+  "yesterday": {
+    "message": "Yesterday",
+    "englishSource": "Yesterday"
   }
 }

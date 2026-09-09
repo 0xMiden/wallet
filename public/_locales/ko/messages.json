@@ -4460,5 +4460,103 @@
   "devEndpointResetConfirm": {
     "message": "이렇게 하면 키와 거래 내역을 포함한 이 지갑의 모든 데이터가 영구적으로 삭제됩니다. 지갑을 복원하려면 복구 문구가 필요합니다.",
     "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
+  },
+  "activityGroupedView": {
+    "message": "그룹화됨",
+    "englishSource": "Grouped"
+  },
+  "activityTimeView": {
+    "message": "시간별",
+    "englishSource": "By time"
+  },
+  "activityViewByGroup": {
+    "message": "연락처 또는 앱별로 그룹화",
+    "englishSource": "Group by contact or app"
+  },
+  "activityViewByTime": {
+    "message": "최신순으로 표시",
+    "englishSource": "Show newest first"
+  },
+  "activityUnknownGroup": {
+    "message": "기타 활동",
+    "englishSource": "Other activity"
+  },
+  "activityUnknownGroupSubtitle": {
+    "message": "발신자나 수신자가 기록되지 않음",
+    "englishSource": "No sender or recipient recorded"
+  },
+  "activityGroupPendingClaims": {
+    "message": "$count$ 청구하기",
+    "englishSource": "$count$ to claim",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "activityGroupEmpty": {
+    "message": "아직 그룹화된 활동 없음",
+    "englishSource": "No grouped activity yet"
+  },
+  "activityGroupEmptyDescription": {
+    "message": "다른 사람과 거래를 하거나 앱을 사용하면 해당 내역이 여기에 표시됩니다.",
+    "englishSource": "Once you transact with someone or use an app, it shows up here."
+  },
+  "activityGroupNoTransactions": {
+    "message": "아직 여기에는 아무것도 없습니다 — 단지 수령해야 할 항목만 있을 뿐입니다.",
+    "englishSource": "Nothing here yet — only something to claim."
+  },
+  "activityDapp": {
+    "message": "앱",
+    "englishSource": "App"
+  },
+  "activityContact": {
+    "message": "문의",
+    "englishSource": "Contact"
+  },
+  "activityBridgeGroup": {
+    "message": "브리지",
+    "englishSource": "Bridge"
+  },
+  "activityWalletGroup": {
+    "message": "지갑",
+    "englishSource": "Wallet"
+  },
+  "activityWalletGroupSubtitle": {
+    "message": "계정 보안 및 복구",
+    "englishSource": "Account security and recovery"
+  },
+  "activityActionWaiting": {
+    "message": "여러분을 기다립니다",
+    "englishSource": "Waiting for you"
+  },
+  "activityActionCount": {
+    "message": "$count$ 대기 중",
+    "englishSource": "$count$ waiting",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "activityFilterAll": {
+    "message": "모두",
+    "englishSource": "All"
+  },
+  "activityFilterPeople": {
+    "message": "사람들",
+    "englishSource": "People"
+  },
+  "activityFilterApps": {
+    "message": "앱",
+    "englishSource": "Apps"
+  },
+  "earn": {
+    "message": "수익 창출",
+    "englishSource": "Earn"
+  },
+  "yesterday": {
+    "message": "어제",
+    "englishSource": "Yesterday"
   }
 }

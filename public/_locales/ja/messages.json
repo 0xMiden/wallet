@@ -4460,5 +4460,103 @@
   "devEndpointResetConfirm": {
     "message": "この操作を行うと、このウォレットはキーや取引履歴を含めて完全に消去されます。復元するには、リカバリーフレーズが必要になります。",
     "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
+  },
+  "activityGroupedView": {
+    "message": "グループ化",
+    "englishSource": "Grouped"
+  },
+  "activityTimeView": {
+    "message": "時間順",
+    "englishSource": "By time"
+  },
+  "activityViewByGroup": {
+    "message": "連絡先またはアプリごとにグループ化",
+    "englishSource": "Group by contact or app"
+  },
+  "activityViewByTime": {
+    "message": "新しい順に表示",
+    "englishSource": "Show newest first"
+  },
+  "activityUnknownGroup": {
+    "message": "その他の活動",
+    "englishSource": "Other activity"
+  },
+  "activityUnknownGroupSubtitle": {
+    "message": "送信者や受取人の記録はありません",
+    "englishSource": "No sender or recipient recorded"
+  },
+  "activityGroupPendingClaims": {
+    "message": "$count$ 請求する",
+    "englishSource": "$count$ to claim",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "activityGroupEmpty": {
+    "message": "まだグループ化されたアクティビティはありません",
+    "englishSource": "No grouped activity yet"
+  },
+  "activityGroupEmptyDescription": {
+    "message": "誰かと取引を行ったり、アプリを利用したりすると、その履歴がここに表示されます。",
+    "englishSource": "Once you transact with someone or use an app, it shows up here."
+  },
+  "activityGroupNoTransactions": {
+    "message": "ここにはまだ何もありません — 受け取るべきものがあるだけです。",
+    "englishSource": "Nothing here yet — only something to claim."
+  },
+  "activityDapp": {
+    "message": "アプリ",
+    "englishSource": "App"
+  },
+  "activityContact": {
+    "message": "お問い合わせ",
+    "englishSource": "Contact"
+  },
+  "activityBridgeGroup": {
+    "message": "ブリッジ",
+    "englishSource": "Bridge"
+  },
+  "activityWalletGroup": {
+    "message": "ウォレット",
+    "englishSource": "Wallet"
+  },
+  "activityWalletGroupSubtitle": {
+    "message": "アカウントのセキュリティと復旧",
+    "englishSource": "Account security and recovery"
+  },
+  "activityActionWaiting": {
+    "message": "お待ちしております",
+    "englishSource": "Waiting for you"
+  },
+  "activityActionCount": {
+    "message": "$count$ 待機中",
+    "englishSource": "$count$ waiting",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "activityFilterAll": {
+    "message": "すべて",
+    "englishSource": "All"
+  },
+  "activityFilterPeople": {
+    "message": "人々",
+    "englishSource": "People"
+  },
+  "activityFilterApps": {
+    "message": "アプリ",
+    "englishSource": "Apps"
+  },
+  "earn": {
+    "message": "収益",
+    "englishSource": "Earn"
+  },
+  "yesterday": {
+    "message": "昨日",
+    "englishSource": "Yesterday"
   }
 }

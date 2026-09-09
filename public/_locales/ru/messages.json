@@ -4460,5 +4460,103 @@
   "devEndpointResetConfirm": {
     "message": "Это приведёт к окончательному удалению данного кошелька, включая ваши ключи и историю транзакций. Для его восстановления вам понадобится фраза восстановления.",
     "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
+  },
+  "activityGroupedView": {
+    "message": "Сгруппировано",
+    "englishSource": "Grouped"
+  },
+  "activityTimeView": {
+    "message": "По времени",
+    "englishSource": "By time"
+  },
+  "activityViewByGroup": {
+    "message": "Группировка по контактам или приложениям",
+    "englishSource": "Group by contact or app"
+  },
+  "activityViewByTime": {
+    "message": "Показать сначала самые новые",
+    "englishSource": "Show newest first"
+  },
+  "activityUnknownGroup": {
+    "message": "Другая деятельность",
+    "englishSource": "Other activity"
+  },
+  "activityUnknownGroupSubtitle": {
+    "message": "Отправитель и получатель не фиксируются",
+    "englishSource": "No sender or recipient recorded"
+  },
+  "activityGroupPendingClaims": {
+    "message": "$count$ получить",
+    "englishSource": "$count$ to claim",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "activityGroupEmpty": {
+    "message": "Группированных действий пока нет",
+    "englishSource": "No grouped activity yet"
+  },
+  "activityGroupEmptyDescription": {
+    "message": "Как только вы совершаете транзакцию с кем-либо или используете приложение, это отображается здесь.",
+    "englishSource": "Once you transact with someone or use an app, it shows up here."
+  },
+  "activityGroupNoTransactions": {
+    "message": "Здесь пока ничего нет — только то, что можно получить.",
+    "englishSource": "Nothing here yet — only something to claim."
+  },
+  "activityDapp": {
+    "message": "Приложение",
+    "englishSource": "App"
+  },
+  "activityContact": {
+    "message": "Контакты",
+    "englishSource": "Contact"
+  },
+  "activityBridgeGroup": {
+    "message": "Бридж",
+    "englishSource": "Bridge"
+  },
+  "activityWalletGroup": {
+    "message": "Кошелек",
+    "englishSource": "Wallet"
+  },
+  "activityWalletGroupSubtitle": {
+    "message": "Безопасность и восстановление учетной записи",
+    "englishSource": "Account security and recovery"
+  },
+  "activityActionWaiting": {
+    "message": "Ждем вас",
+    "englishSource": "Waiting for you"
+  },
+  "activityActionCount": {
+    "message": "$count$ ожидание",
+    "englishSource": "$count$ waiting",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "activityFilterAll": {
+    "message": "Все",
+    "englishSource": "All"
+  },
+  "activityFilterPeople": {
+    "message": "Люди",
+    "englishSource": "People"
+  },
+  "activityFilterApps": {
+    "message": "Приложения",
+    "englishSource": "Apps"
+  },
+  "earn": {
+    "message": "Зарабатывать",
+    "englishSource": "Earn"
+  },
+  "yesterday": {
+    "message": "Вчера",
+    "englishSource": "Yesterday"
   }
 }

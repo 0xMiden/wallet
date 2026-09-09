@@ -21,6 +21,13 @@ jest.mock('components/DeadletteredNotesNotice', () => ({
 
 // The red-dot indicator and the pending-notes banner are driven by this hook;
 // each test controls its return value via the mocked implementation below.
+// Activity's grouped view resolves names from the address book. The real hook
+// reads settings off the store and throws when they are absent, which is a
+// state the app cannot reach behind `onlyReady` but the test harness can.
+jest.mock('lib/miden/front/use-filtered-contacts.hook', () => ({
+  useFilteredContacts: () => ({ contacts: [], allContacts: [] })
+}));
+
 jest.mock('lib/miden/front/claimable-notes', () => ({
   useClaimableNotes: jest.fn()
 }));
