@@ -133,6 +133,8 @@ jobs:
         run: playwright/e2e/local-stack/run-note-transport.sh
       - name: Build extension
         run: yarn test:e2e:blockchain:build
+      - name: Drop Google's Chrome apt repository
+        uses: ./.github/actions/apt-drop-google-chrome-repo
       # See the e2e workflows: `--with-deps` shells out to apt and the browser
       # download itself has wedged for hours. Cap it so a stall fails fast.
       - name: Install Playwright Browsers

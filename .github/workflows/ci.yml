@@ -65,6 +65,9 @@ jobs:
         env:
           MIDEN_USE_MOCK_CLIENT: 'true'
 
+      - name: Drop Google's Chrome apt repository
+        uses: ./.github/actions/apt-drop-google-chrome-repo
+
       - name: Install Playwright Browsers
         # `--with-deps` shells out to apt, and the browser download itself has
         # wedged for 2h18m. Cap it so a stall fails fast instead of eating the job.

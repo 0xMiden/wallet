@@ -128,6 +128,8 @@ jobs:
         run: playwright/e2e/local-stack/run-note-transport.sh
       - name: Build extension (localnet)
         run: E2E_NETWORK=localhost yarn test:e2e:blockchain:build
+      - name: Drop Google's Chrome apt repository
+        uses: ./.github/actions/apt-drop-google-chrome-repo
       - name: Install xvfb
         # The azure apt mirror intermittently blackholes: runs have stalled ~57 min
         # inside `apt-get update`, been killed by the job cap, and produced no test
