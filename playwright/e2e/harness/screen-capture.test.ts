@@ -38,6 +38,44 @@ describe('startScreenPoll', () => {
     expect(grabs).toEqual(['/out/screen-001-a-wallet-a.png', '/out/screen-002-b-wallet-a.png']);
     jest.useRealTimers();
   });
+
+  it('keeps a single read in flight when reads outlast the interval', async () => {
+    jest.useFakeTimers();
+    let inFlight = 0;
+    let maxInFlight = 0;
+    let reads = 0;
+    let release: (() => void) | undefined;
+    const poll = startScreenPoll({
+      intervalMs: 100,
+      read: async () => {
+        reads++;
+        inFlight++;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        await new Promise<void>(resolve => {
+          release = resolve;
+        });
+        inFlight--;
+        return null;
+      },
+      grab: async () => undefined,
+      dir: '/out',
+      label: 'A'
+    });
+
+    // Ten intervals pass while the first read is still outstanding.
+    await jest.advanceTimersByTimeAsync(1_000);
+    expect(reads).toBe(1);
+    expect(maxInFlight).toBe(1);
+
+    release?.();
+    await jest.advanceTimersByTimeAsync(100);
+    expect(reads).toBe(2);
+    expect(maxInFlight).toBe(1);
+
+    poll.stop();
+    release?.();
+    jest.useRealTimers();
+  });
 });
 
 /** Only the two members `suspendScreenCapture` touches. */
