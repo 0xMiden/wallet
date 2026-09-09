@@ -1000,5 +1000,22 @@
   "devEndpointResetDefaults": "Auf Standardwerte zurücksetzen",
   "devEndpointResetAndReonboard": "Auf Standardwerte zurücksetzen und erneut einrichten",
   "devEndpointsRow": "Netzwerkendpunkte",
-  "devEndpointResetConfirm": "Dadurch wird diese Wallet dauerhaft gelöscht, einschließlich Ihrer Schlüssel und Ihrer Transaktionshistorie. Um sie wiederherzustellen, benötigen Sie Ihre Wiederherstellungsphrase."
+  "devEndpointResetConfirm": "Dadurch wird diese Wallet dauerhaft gelöscht, einschließlich Ihrer Schlüssel und Ihrer Transaktionshistorie. Um sie wiederherzustellen, benötigen Sie Ihre Wiederherstellungsphrase.",
+  "activityAcceptTransfer": "Überweisung akzeptieren",
+  "activityRejectTransfer": "Ablehnen",
+  "activityCheckingTransfer": "Wird überprüft…",
+  "activityTransferClaimed": "Geltend gemacht",
+  "activityClaimedOn": "Beansprucht am",
+  "activityReceivedOn": "Erhalten am",
+  "activityNotYetAccepted": "Noch nicht akzeptiert – bitte prüfen und akzeptieren, um diese Gelder einzufordern.",
+  "acceptAll": "Alle akzeptieren",
+  "activitySearch": "Suchaktivität",
+  "activityTransferAccepted": "Überweisung akzeptiert",
+  "activityTransferDetails": "Details",
+  "activityRejectExplanation": "Diese Überweisung in „Aktivität“ auf diesem Gerät ausblenden? Dadurch werden keine Gelder an den Absender zurücküberwiesen und die „note“ wird nicht gelöscht. Sie können ausgeblendete Überweisungen in „Aktivität“ wiederherstellen.",
+  "activityClaimFee": "Maximale Netzwerkgebühr pro akzeptierter Überweisung: $fee$",
+  "activityHiddenNotesError": "Versteckte Überweisungen konnten nicht gespeichert werden. Bitte versuchen Sie es erneut.",
+  "activityPendingTransfersInList": "Eingehende Überweisungen",
+  "activityManagePendingNotes": "notes verwalten",
+  "activityDateUnavailable": "Datum nicht verfügbar"
 }

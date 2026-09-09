@@ -1000,5 +1000,22 @@
   "devEndpointResetDefaults": "Reset to defaults",
   "devEndpointResetAndReonboard": "Reset to defaults & re-onboard",
   "devEndpointsRow": "Network endpoints",
-  "devEndpointResetConfirm": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
+  "devEndpointResetConfirm": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it.",
+  "activityAcceptTransfer": "Accept Transfer",
+  "activityRejectTransfer": "Decline",
+  "activityCheckingTransfer": "Checking…",
+  "activityTransferClaimed": "Claimed",
+  "activityClaimedOn": "Claimed on",
+  "activityReceivedOn": "Received on",
+  "activityNotYetAccepted": "Not yet accepted — review and accept to claim these funds.",
+  "acceptAll": "Accept All",
+  "activitySearch": "Search activity",
+  "activityTransferAccepted": "Transfer accepted",
+  "activityTransferDetails": "Details",
+  "activityRejectExplanation": "Hide this transfer from Activity on this device? This does not return funds to the sender or delete the note. You can restore hidden transfers in Activity.",
+  "activityClaimFee": "Maximum network fee per accepted transfer: $fee$",
+  "activityHiddenNotesError": "Could not save hidden transfers. Please try again.",
+  "activityPendingTransfersInList": "Incoming transfers",
+  "activityManagePendingNotes": "Manage notes",
+  "activityDateUnavailable": "Date unavailable"
 }

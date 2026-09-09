@@ -4460,5 +4460,78 @@
   "devEndpointResetConfirm": {
     "message": "Це призведе до остаточного видалення цього гаманця, включаючи ваші ключі та історію транзакцій. Для його відновлення вам знадобиться фраза відновлення.",
     "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
+  },
+  "activityAcceptTransfer": {
+    "message": "Прийняти переказ",
+    "englishSource": "Accept Transfer"
+  },
+  "activityRejectTransfer": {
+    "message": "Відхилити",
+    "englishSource": "Decline"
+  },
+  "activityCheckingTransfer": {
+    "message": "Перевіряю…",
+    "englishSource": "Checking…"
+  },
+  "activityTransferClaimed": {
+    "message": "Отримано",
+    "englishSource": "Claimed"
+  },
+  "activityClaimedOn": {
+    "message": "Отримано",
+    "englishSource": "Claimed on"
+  },
+  "activityReceivedOn": {
+    "message": "Отримано",
+    "englishSource": "Received on"
+  },
+  "activityNotYetAccepted": {
+    "message": "Ще не прийнято — перегляньте та прийміть, щоб отримати ці кошти.",
+    "englishSource": "Not yet accepted — review and accept to claim these funds."
+  },
+  "acceptAll": {
+    "message": "Прийняти все",
+    "englishSource": "Accept All"
+  },
+  "activitySearch": {
+    "message": "Активність пошуку",
+    "englishSource": "Search activity"
+  },
+  "activityTransferAccepted": {
+    "message": "Переказ прийнято",
+    "englishSource": "Transfer accepted"
+  },
+  "activityTransferDetails": {
+    "message": "Деталі",
+    "englishSource": "Details"
+  },
+  "activityRejectExplanation": {
+    "message": "Приховати цей переказ у розділі «Активність» на цьому пристрої? Це не повертає кошти відправнику та не видаляє запис «note». Ви можете відновити приховані перекази в розділі «Активність».",
+    "englishSource": "Hide this transfer from Activity on this device? This does not return funds to the sender or delete the note. You can restore hidden transfers in Activity."
+  },
+  "activityClaimFee": {
+    "message": "Максимальна комісія мережі за кожен прийнятий переказ: $fee$",
+    "englishSource": "Maximum network fee per accepted transfer: $fee$",
+    "placeholders": {
+      "fee": {
+        "content": "$1"
+      }
+    }
+  },
+  "activityHiddenNotesError": {
+    "message": "Не вдалося зберегти приховані перекази. Спробуйте ще раз.",
+    "englishSource": "Could not save hidden transfers. Please try again."
+  },
+  "activityPendingTransfersInList": {
+    "message": "Вхідні перекази",
+    "englishSource": "Incoming transfers"
+  },
+  "activityManagePendingNotes": {
+    "message": "Управління «notes»",
+    "englishSource": "Manage notes"
+  },
+  "activityDateUnavailable": {
+    "message": "Дата недоступна",
+    "englishSource": "Date unavailable"
   }
 }

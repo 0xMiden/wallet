@@ -1000,5 +1000,22 @@
   "devEndpointResetDefaults": "기본값으로 재설정",
   "devEndpointResetAndReonboard": "기본값으로 재설정 및 재등록",
   "devEndpointsRow": "네트워크 엔드포인트",
-  "devEndpointResetConfirm": "이렇게 하면 키와 거래 내역을 포함한 이 지갑의 모든 데이터가 영구적으로 삭제됩니다. 지갑을 복원하려면 복구 문구가 필요합니다."
+  "devEndpointResetConfirm": "이렇게 하면 키와 거래 내역을 포함한 이 지갑의 모든 데이터가 영구적으로 삭제됩니다. 지갑을 복원하려면 복구 문구가 필요합니다.",
+  "activityAcceptTransfer": "이체 수락",
+  "activityRejectTransfer": "거절",
+  "activityCheckingTransfer": "확인 중…",
+  "activityTransferClaimed": "청구됨",
+  "activityClaimedOn": "청구일:",
+  "activityReceivedOn": "수신일:",
+  "activityNotYetAccepted": "아직 승인되지 않았습니다 — 검토 후 승인하여 해당 자금을 청구하십시오.",
+  "acceptAll": "모두 수락",
+  "activitySearch": "검색 활동",
+  "activityTransferAccepted": "이체 승인됨",
+  "activityTransferDetails": "상세 정보",
+  "activityRejectExplanation": "이 기기의 ‘활동’에서 이 전송 내역을 숨기시겠습니까? 이 작업을 수행해도 자금이 발신자에게 반환되거나 ‘note’가 삭제되지는 않습니다. ‘활동’에서 숨겨진 전송 내역을 복원할 수 있습니다.",
+  "activityClaimFee": "승인된 이체 건당 최대 네트워크 수수료: $fee$",
+  "activityHiddenNotesError": "숨겨진 전송 내역을 저장할 수 없습니다. 다시 시도해 주십시오.",
+  "activityPendingTransfersInList": "입금",
+  "activityManagePendingNotes": "notes 관리",
+  "activityDateUnavailable": "날짜 미확인"
 }

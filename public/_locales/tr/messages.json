@@ -4460,5 +4460,78 @@
   "devEndpointResetConfirm": {
     "message": "Bu işlem, anahtarlarınız ve işlem geçmişiniz dahil olmak üzere bu cüzdanı kalıcı olarak siler. Cüzdanı geri yüklemek için kurtarma ifadesine ihtiyacınız olacak.",
     "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
+  },
+  "activityAcceptTransfer": {
+    "message": "Aktarımı Kabul Et",
+    "englishSource": "Accept Transfer"
+  },
+  "activityRejectTransfer": {
+    "message": "Reddet",
+    "englishSource": "Decline"
+  },
+  "activityCheckingTransfer": {
+    "message": "Kontrol ediliyor…",
+    "englishSource": "Checking…"
+  },
+  "activityTransferClaimed": {
+    "message": "Talep Edildi",
+    "englishSource": "Claimed"
+  },
+  "activityClaimedOn": {
+    "message": "Talep edildi",
+    "englishSource": "Claimed on"
+  },
+  "activityReceivedOn": {
+    "message": "Alındığı tarih:",
+    "englishSource": "Received on"
+  },
+  "activityNotYetAccepted": {
+    "message": "Henüz kabul edilmedi — bu fonları talep etmek için inceleyin ve kabul edin.",
+    "englishSource": "Not yet accepted — review and accept to claim these funds."
+  },
+  "acceptAll": {
+    "message": "Tümünü Kabul Et",
+    "englishSource": "Accept All"
+  },
+  "activitySearch": {
+    "message": "Arama etkinliği",
+    "englishSource": "Search activity"
+  },
+  "activityTransferAccepted": {
+    "message": "Transfer kabul edildi",
+    "englishSource": "Transfer accepted"
+  },
+  "activityTransferDetails": {
+    "message": "Ayrıntılar",
+    "englishSource": "Details"
+  },
+  "activityRejectExplanation": {
+    "message": "Bu aktarımı bu cihazdaki Etkinlik bölümünden gizlemek ister misiniz? Bu işlem, parayı gönderene iade etmez veya note adresini silmez. Gizlenen aktarımları Etkinlik bölümünden geri yükleyebilirsiniz.",
+    "englishSource": "Hide this transfer from Activity on this device? This does not return funds to the sender or delete the note. You can restore hidden transfers in Activity."
+  },
+  "activityClaimFee": {
+    "message": "Kabul edilen her transfer için maksimum ağ ücreti: $fee$",
+    "englishSource": "Maximum network fee per accepted transfer: $fee$",
+    "placeholders": {
+      "fee": {
+        "content": "$1"
+      }
+    }
+  },
+  "activityHiddenNotesError": {
+    "message": "Gizli transferler kaydedilemedi. Lütfen tekrar deneyin.",
+    "englishSource": "Could not save hidden transfers. Please try again."
+  },
+  "activityPendingTransfersInList": {
+    "message": "Gelen transferler",
+    "englishSource": "Incoming transfers"
+  },
+  "activityManagePendingNotes": {
+    "message": "notes'i yönetin",
+    "englishSource": "Manage notes"
+  },
+  "activityDateUnavailable": {
+    "message": "Tarih mevcut değil",
+    "englishSource": "Date unavailable"
   }
 }

@@ -1000,5 +1000,22 @@
   "devEndpointResetDefaults": "Varsayılan ayarlara sıfırla",
   "devEndpointResetAndReonboard": "Varsayılan ayarlara sıfırla ve yeniden kaydet",
   "devEndpointsRow": "Ağ uç noktaları",
-  "devEndpointResetConfirm": "Bu işlem, anahtarlarınız ve işlem geçmişiniz dahil olmak üzere bu cüzdanı kalıcı olarak siler. Cüzdanı geri yüklemek için kurtarma ifadesine ihtiyacınız olacak."
+  "devEndpointResetConfirm": "Bu işlem, anahtarlarınız ve işlem geçmişiniz dahil olmak üzere bu cüzdanı kalıcı olarak siler. Cüzdanı geri yüklemek için kurtarma ifadesine ihtiyacınız olacak.",
+  "activityAcceptTransfer": "Aktarımı Kabul Et",
+  "activityRejectTransfer": "Reddet",
+  "activityCheckingTransfer": "Kontrol ediliyor…",
+  "activityTransferClaimed": "Talep Edildi",
+  "activityClaimedOn": "Talep edildi",
+  "activityReceivedOn": "Alındığı tarih:",
+  "activityNotYetAccepted": "Henüz kabul edilmedi — bu fonları talep etmek için inceleyin ve kabul edin.",
+  "acceptAll": "Tümünü Kabul Et",
+  "activitySearch": "Arama etkinliği",
+  "activityTransferAccepted": "Transfer kabul edildi",
+  "activityTransferDetails": "Ayrıntılar",
+  "activityRejectExplanation": "Bu aktarımı bu cihazdaki Etkinlik bölümünden gizlemek ister misiniz? Bu işlem, parayı gönderene iade etmez veya note adresini silmez. Gizlenen aktarımları Etkinlik bölümünden geri yükleyebilirsiniz.",
+  "activityClaimFee": "Kabul edilen her transfer için maksimum ağ ücreti: $fee$",
+  "activityHiddenNotesError": "Gizli transferler kaydedilemedi. Lütfen tekrar deneyin.",
+  "activityPendingTransfersInList": "Gelen transferler",
+  "activityManagePendingNotes": "notes'i yönetin",
+  "activityDateUnavailable": "Tarih mevcut değil"
 }

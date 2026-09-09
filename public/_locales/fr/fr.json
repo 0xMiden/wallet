@@ -1000,5 +1000,22 @@
   "devEndpointResetDefaults": "Rétablir les paramètres par défaut",
   "devEndpointResetAndReonboard": "Réinitialisation aux paramètres par défaut et nouvelle configuration",
   "devEndpointsRow": "Terminaisons réseau",
-  "devEndpointResetConfirm": "Cette opération efface définitivement ce portefeuille, y compris vos clés et l'historique de vos transactions. Vous aurez besoin de votre phrase de récupération pour le restaurer."
+  "devEndpointResetConfirm": "Cette opération efface définitivement ce portefeuille, y compris vos clés et l'historique de vos transactions. Vous aurez besoin de votre phrase de récupération pour le restaurer.",
+  "activityAcceptTransfer": "Accepter le transfert",
+  "activityRejectTransfer": "Refuser",
+  "activityCheckingTransfer": "Vérification en cours…",
+  "activityTransferClaimed": "Réclamé",
+  "activityClaimedOn": "Réclamé le",
+  "activityReceivedOn": "Reçu le",
+  "activityNotYetAccepted": "Pas encore acceptées — examinez-les et acceptez-les pour réclamer ces fonds.",
+  "acceptAll": "Tout accepter",
+  "activitySearch": "Activité de recherche",
+  "activityTransferAccepted": "Transfert accepté",
+  "activityTransferDetails": "Détails",
+  "activityRejectExplanation": "Masquer ce transfert dans l’historique d’activité sur cet appareil ? Cela ne restitue pas les fonds à l’expéditeur et ne supprime pas l’note. Vous pouvez restaurer les transferts masqués dans l’historique d’activité.",
+  "activityClaimFee": "Frais de réseau maximaux par transfert accepté : $fee$",
+  "activityHiddenNotesError": "Impossible d'enregistrer les transferts masqués. Veuillez réessayer.",
+  "activityPendingTransfersInList": "Virements entrants",
+  "activityManagePendingNotes": "Gérer l’notes",
+  "activityDateUnavailable": "Date indisponible"
 }

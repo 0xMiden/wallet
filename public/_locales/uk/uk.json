@@ -1000,5 +1000,22 @@
   "devEndpointResetDefaults": "Скинути до заводських налаштувань",
   "devEndpointResetAndReonboard": "Скинути налаштування до заводських та пройти реєстрацію заново",
   "devEndpointsRow": "Кінцеві точки мережі",
-  "devEndpointResetConfirm": "Це призведе до остаточного видалення цього гаманця, включаючи ваші ключі та історію транзакцій. Для його відновлення вам знадобиться фраза відновлення."
+  "devEndpointResetConfirm": "Це призведе до остаточного видалення цього гаманця, включаючи ваші ключі та історію транзакцій. Для його відновлення вам знадобиться фраза відновлення.",
+  "activityAcceptTransfer": "Прийняти переказ",
+  "activityRejectTransfer": "Відхилити",
+  "activityCheckingTransfer": "Перевіряю…",
+  "activityTransferClaimed": "Отримано",
+  "activityClaimedOn": "Отримано",
+  "activityReceivedOn": "Отримано",
+  "activityNotYetAccepted": "Ще не прийнято — перегляньте та прийміть, щоб отримати ці кошти.",
+  "acceptAll": "Прийняти все",
+  "activitySearch": "Активність пошуку",
+  "activityTransferAccepted": "Переказ прийнято",
+  "activityTransferDetails": "Деталі",
+  "activityRejectExplanation": "Приховати цей переказ у розділі «Активність» на цьому пристрої? Це не повертає кошти відправнику та не видаляє запис «note». Ви можете відновити приховані перекази в розділі «Активність».",
+  "activityClaimFee": "Максимальна комісія мережі за кожен прийнятий переказ: $fee$",
+  "activityHiddenNotesError": "Не вдалося зберегти приховані перекази. Спробуйте ще раз.",
+  "activityPendingTransfersInList": "Вхідні перекази",
+  "activityManagePendingNotes": "Управління «notes»",
+  "activityDateUnavailable": "Дата недоступна"
 }

@@ -1000,5 +1000,22 @@
   "devEndpointResetDefaults": "デフォルト設定に戻す",
   "devEndpointResetAndReonboard": "デフォルト設定にリセットして、オンボーディングをやり直す",
   "devEndpointsRow": "ネットワークエンドポイント",
-  "devEndpointResetConfirm": "この操作を行うと、このウォレットはキーや取引履歴を含めて完全に消去されます。復元するには、リカバリーフレーズが必要になります。"
+  "devEndpointResetConfirm": "この操作を行うと、このウォレットはキーや取引履歴を含めて完全に消去されます。復元するには、リカバリーフレーズが必要になります。",
+  "activityAcceptTransfer": "送金を受け入れる",
+  "activityRejectTransfer": "拒否",
+  "activityCheckingTransfer": "確認中…",
+  "activityTransferClaimed": "請求済み",
+  "activityClaimedOn": "請求日：",
+  "activityReceivedOn": "受信日時：",
+  "activityNotYetAccepted": "まだ承認されていません。確認して承認し、これらの資金を受け取ってください。",
+  "acceptAll": "すべて承諾",
+  "activitySearch": "検索履歴",
+  "activityTransferAccepted": "送金受理済み",
+  "activityTransferDetails": "詳細",
+  "activityRejectExplanation": "このデバイス上の「アクティビティ」からこの送金を非表示にしますか？ これにより、送金者に資金が返還されたり、noteが削除されたりすることはありません。「アクティビティ」では、非表示にした送金を復元することができます。",
+  "activityClaimFee": "承認された転送1件あたりの最大ネットワーク手数料：$fee$",
+  "activityHiddenNotesError": "非公開の送金を保存できませんでした。もう一度お試しください。",
+  "activityPendingTransfersInList": "着金",
+  "activityManagePendingNotes": "notesの管理",
+  "activityDateUnavailable": "日付不明"
 }

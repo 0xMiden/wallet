@@ -1000,5 +1000,22 @@
   "devEndpointResetDefaults": "Сброс настроек до значений по умолчанию",
   "devEndpointResetAndReonboard": "Сброс настроек до значений по умолчанию и повторная регистрация",
   "devEndpointsRow": "Сетевые конечные точки",
-  "devEndpointResetConfirm": "Это приведёт к окончательному удалению данного кошелька, включая ваши ключи и историю транзакций. Для его восстановления вам понадобится фраза восстановления."
+  "devEndpointResetConfirm": "Это приведёт к окончательному удалению данного кошелька, включая ваши ключи и историю транзакций. Для его восстановления вам понадобится фраза восстановления.",
+  "activityAcceptTransfer": "Принять перевод",
+  "activityRejectTransfer": "Отклонить",
+  "activityCheckingTransfer": "Проверка…",
+  "activityTransferClaimed": "Получено",
+  "activityClaimedOn": "Заявлено на",
+  "activityReceivedOn": "Получено",
+  "activityNotYetAccepted": "Ещё не принято — проверьте и примите, чтобы получить эти средства.",
+  "acceptAll": "Принять всё",
+  "activitySearch": "Активность поиска",
+  "activityTransferAccepted": "Перевод принят",
+  "activityTransferDetails": "Подробности",
+  "activityRejectExplanation": "Скрыть этот перевод из раздела «Активность» на этом устройстве? Это не приводит к возврату средств отправителю и не удаляет запись «note». Вы можете восстановить скрытые переводы в разделе «Активность».",
+  "activityClaimFee": "Максимальная сетевая комиссия за один принятый перевод: $fee$",
+  "activityHiddenNotesError": "Не удалось сохранить скрытые переводы. Пожалуйста, попробуйте ещё раз.",
+  "activityPendingTransfersInList": "Входящие переводы",
+  "activityManagePendingNotes": "Управление notes",
+  "activityDateUnavailable": "Дата отсутствует"
 }
