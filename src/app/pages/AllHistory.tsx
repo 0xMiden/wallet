@@ -3,10 +3,11 @@ import React, { FC, useEffect, useMemo, useState } from 'react';
 import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
+import { IconName } from 'app/icons/v2';
 import { ActivityPendingHistory } from 'app/templates/history/ActivityPendingHistory';
 import type { ActivityFilter } from 'app/templates/history/History';
 import { DeadletteredNotesNotice } from 'components/DeadletteredNotesNotice';
-import { SearchInput, TabHeader } from 'components/ui';
+import { TabHeader, TabHeaderAction } from 'components/ui';
 import { reconcileAgglayerBridgedReceives } from 'lib/miden/activity';
 import { useAccount } from 'lib/miden/front';
 import { hapticSelection } from 'lib/mobile/haptics';
@@ -20,6 +21,7 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
   const account = useAccount();
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<ActivityFilter>('all');
+  const [searchOpen, setSearchOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -56,6 +58,15 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
     [t]
   );
 
+  // The search button in the header shows and hides the search field. A
+  // closed field also clears the query, so the list goes back to the full set.
+  const toggleSearch = () => {
+    setSearchOpen(open => {
+      if (open) setSearch('');
+      return !open;
+    });
+  };
+
   const handleFilterTap = (id: ActivityFilter) => {
     if (id === filter) return;
     hapticSelection();
@@ -64,7 +75,19 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
 
   return (
     <div className="flex-1 flex flex-col min-h-0 bg-app-bg">
-      <TabHeader title={t('activity')} />
+      <TabHeader
+        title={t('activity')}
+        hideSettings
+        search={{ open: searchOpen, value: search, onChange: setSearch, placeholder: t('searchByNameOrSymbol') }}
+        actions={
+          <TabHeaderAction
+            label={t('activitySearch')}
+            icon={IconName.Search}
+            active={searchOpen}
+            onClick={toggleSearch}
+          />
+        }
+      />
 
       {/* Notes the wallet gave up importing automatically (#788 follow-up) —
           possibly the only copy of the funds, so surfaced where the user looks
@@ -92,10 +115,6 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
             </button>
           );
         })}
-      </div>
-
-      <div className="shrink-0 px-4">
-        <SearchInput value={search} onChange={setSearch} placeholder={t('searchByNameOrSymbol')} />
       </div>
 
       <ActivityPendingHistory key={account.publicKey} search={search} filter={filter} programId={programId} />

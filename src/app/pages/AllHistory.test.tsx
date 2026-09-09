@@ -22,28 +22,32 @@ jest.mock('components/DeadletteredNotesNotice', () => ({
 // AllHistory consumes, preserving the props under test (title/actions and
 // value/onChange/placeholder).
 jest.mock('components/ui', () => ({
-  TabHeader: ({ title, actions }: { title: string; actions?: React.ReactNode }) => (
+  TabHeaderAction: ({ label, active, onClick }: { label: string; active?: boolean; onClick: () => void }) => (
+    <button type="button" aria-label={label} aria-pressed={active} onClick={onClick} />
+  ),
+  TabHeader: ({
+    title,
+    actions,
+    search
+  }: {
+    title: string;
+    actions?: React.ReactNode;
+    search?: { open: boolean; value: string; onChange: (value: string) => void; placeholder: string };
+  }) => (
     <header data-testid="tab-header">
-      <h1>{title}</h1>
+      {search?.open ? (
+        <input
+          data-testid="search-input"
+          aria-label={search.placeholder}
+          placeholder={search.placeholder}
+          value={search.value}
+          onChange={e => search.onChange(e.target.value)}
+        />
+      ) : (
+        <h1>{title}</h1>
+      )}
       <div data-testid="tab-header-actions">{actions}</div>
     </header>
-  ),
-  SearchInput: ({
-    value,
-    onChange,
-    placeholder
-  }: {
-    value: string;
-    onChange: (value: string) => void;
-    placeholder?: string;
-  }) => (
-    <input
-      data-testid="search-input"
-      aria-label={placeholder}
-      placeholder={placeholder}
-      value={value}
-      onChange={e => onChange(e.target.value)}
-    />
   )
 }));
 
@@ -98,7 +102,9 @@ describe('AllHistory', () => {
       expect(getFilterButton(label)).toBeTruthy();
     }
 
-    // Search placeholder comes from the i18n key.
+    // The search field is closed until the header's search button opens it.
+    expect(screen.queryByPlaceholderText('searchByNameOrSymbol')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'activitySearch' }));
     expect(screen.getByPlaceholderText('searchByNameOrSymbol')).toBeTruthy();
   });
 
@@ -161,8 +167,18 @@ describe('AllHistory', () => {
     expect(hapticSelection).toHaveBeenCalledTimes(1);
   });
 
+  it('clears the query when the search field closes', () => {
+    render(<AllHistory />);
+    fireEvent.click(screen.getByRole('button', { name: 'activitySearch' }));
+    fireEvent.change(screen.getByTestId('search-input'), { target: { value: 'usdc' } });
+    expect(getHistory().getAttribute('data-search-query')).toBe('usdc');
+    fireEvent.click(screen.getByRole('button', { name: 'activitySearch' }));
+    expect(getHistory().getAttribute('data-search-query')).toBe('');
+  });
+
   it('propagates the search query to History as the user types', () => {
     render(<AllHistory />);
+    fireEvent.click(screen.getByRole('button', { name: 'activitySearch' }));
 
     fireEvent.change(screen.getByTestId('search-input'), { target: { value: 'usdc' } });
 

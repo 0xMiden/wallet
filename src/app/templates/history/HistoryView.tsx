@@ -429,7 +429,7 @@ const HistoryView = memo<HistoryViewProps>(
     const list = (
       <div data-testid="history-view" className="flex flex-col">
         {dateGroups.map(([dateMs, dateEntries], index) => (
-          <div key={dateMs} className={classNames('flex flex-col gap-2 py-3', index === 0 && 'pt-4')}>
+          <div key={dateMs} className={classNames('flex flex-col gap-3 py-3', index === 0 && 'pt-4')}>
             {dateMs === -1 ? (
               <span className="font-heading font-extrabold text-heading-gray text-base">
                 {t('activityDateUnavailable')}
@@ -437,7 +437,7 @@ const HistoryView = memo<HistoryViewProps>(
             ) : (
               <DateSeparator dateMs={dateMs} />
             )}
-            <div className="flex flex-col gap-2">
+            <div className="flex flex-col gap-3">
               {dateEntries.map(entry => {
                 if (entry.pendingActivity && renderPendingItem) {
                   return (

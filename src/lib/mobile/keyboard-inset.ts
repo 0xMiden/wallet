@@ -70,9 +70,16 @@ export async function initKeyboardInset(): Promise<void> {
       return;
     }
     setTimeout(() => {
-      if (document.activeElement === target) {
-        target.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-      }
+      if (document.activeElement !== target) return;
+      // A field that is already on screen (the header search, a top form row)
+      // must not move: the smooth scroll shows as a second jump after the
+      // keyboard inset has settled.
+      const rect = target.getBoundingClientRect();
+      const viewport = window.visualViewport;
+      const top = viewport ? viewport.offsetTop : 0;
+      const bottom = viewport ? viewport.offsetTop + viewport.height : window.innerHeight;
+      if (rect.top >= top && rect.bottom <= bottom) return;
+      target.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     }, 300);
   });
 }

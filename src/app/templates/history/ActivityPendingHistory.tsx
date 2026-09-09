@@ -7,7 +7,7 @@ import { useActivityClaims } from 'app/hooks/useActivityClaims';
 import { useActivityHiddenNotes } from 'app/hooks/useActivityHiddenNotes';
 import { useNetworkFeeEstimate } from 'app/hooks/useNetworkFeeEstimate';
 import type { NoteWithMetadata } from 'app/pages/Receive/PendingTab';
-import { Button, ButtonVariant } from 'components/Button';
+import { Button } from 'components/Button';
 import { durations, useMotion } from 'lib/animation';
 import { useConfirm } from 'lib/ui/dialog';
 
@@ -54,7 +54,7 @@ export const ActivityPendingHistory = ({ search, filter, programId }: ActivityPe
   const pendingCount = shown.filter(item => item.status !== 'claimed').length;
   // Claim All on the Pending tab takes every listed note that can be accepted.
   const claimableNotes = listItems
-    .filter(item => item.status === 'pending' || item.status === 'failed')
+    .filter(item => (item.status === 'pending' || item.status === 'failed') && item.note.fromCache !== true)
     .map(item => item.note);
   const claimingCount = listItems.filter(item => item.status === 'claiming').length;
   const excludedTransactions = useMemo(
@@ -92,7 +92,7 @@ export const ActivityPendingHistory = ({ search, filter, programId }: ActivityPe
         <div className="shrink-0 px-4 pt-3">
           <Button
             className="max-w-none"
-            title={claimingCount > 0 && claimableNotes.length === 0 ? t('claiming') : t('claimAll')}
+            title={claimingCount > 0 && claimableNotes.length === 0 ? t('claiming') : t('acceptAll')}
             disabled={claimableNotes.length === 0}
             isLoading={claimingCount > 0 && claimableNotes.length === 0}
             onClick={() => acceptMany(claimableNotes)}
@@ -100,27 +100,15 @@ export const ActivityPendingHistory = ({ search, filter, programId }: ActivityPe
         </div>
       )}
 
-      {pendingCount > 0 && maxFee && (
-        <p className="shrink-0 px-4 pt-2 text-xs text-text-secondary-token">{t('activityClaimFee', { fee: maxFee })}</p>
-      )}
-      {hidden.ids.size > 0 && (
-        <div className="shrink-0 px-4 flex items-center justify-between gap-2 text-xs text-text-secondary-token">
-          <span>{t('activityRejectedHidden')}</span>
-          <Button
-            variant={ButtonVariant.Secondary}
-            className="w-auto text-xs px-3 py-2"
-            title={t('activityRestoreTransfers')}
-            onClick={hidden.restore}
-          />
-        </div>
-      )}
-      {hidden.failed && (
-        <p role="alert" className="px-4 py-2 text-xs text-status-negative">
-          {t('activityHiddenNotesError')}
-        </p>
-      )}
-
       <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto pb-28">
+        {pendingCount > 0 && maxFee && (
+          <p className="px-4 pt-2 text-xs text-text-secondary-token">{t('activityClaimFee', { fee: maxFee })}</p>
+        )}
+        {hidden.failed && (
+          <p role="alert" className="px-4 py-2 text-xs text-status-negative">
+            {t('activityHiddenNotesError')}
+          </p>
+        )}
         <div className="px-4">
           <History
             address={account.publicKey}

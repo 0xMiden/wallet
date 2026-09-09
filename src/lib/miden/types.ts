@@ -37,6 +37,13 @@ export interface ConsumableNote {
   recallableAtMs?: number;
   /** Note inclusion time, in Unix seconds. */
   receivedAt?: number;
+  /**
+   * Set when the entry comes from the persisted last-known list (mobile/desktop
+   * cache-first render) and no live read has confirmed it yet. Such an entry is
+   * safe to DISPLAY but must never START a claim: the note can already be spent,
+   * consumed or recalled. Every claim gate drops entries carrying this flag.
+   */
+  fromCache?: boolean;
 }
 
 export interface SwapOrderNoteMetadata {

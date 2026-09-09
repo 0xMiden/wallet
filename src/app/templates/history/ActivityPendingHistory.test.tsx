@@ -86,15 +86,20 @@ beforeEach(() => {
   mockConfirm.mockResolvedValue(true);
 });
 
-it('requires confirmation before hiding a transfer and supports restore', async () => {
+function expandCard(noteId: string): HTMLElement {
+  const card = screen.getByTestId('timeline').querySelector(`[data-pending-note-id="${noteId}"]`);
+  if (!(card instanceof HTMLElement)) throw new Error(`Missing card ${noteId}`);
+  fireEvent.click(within(card).getByRole('button', { expanded: false }));
+  return card;
+}
+
+it('requires confirmation before hiding a transfer', async () => {
   mockHidden.ids = new Set(['third']);
   render(<ActivityPendingHistory search="" filter="all" />);
-  const list = within(screen.getByTestId('timeline'));
-  fireEvent.click(list.getAllByRole('button', { name: 'activityRejectTransfer' })[0]!);
+  const card = expandCard('first');
+  fireEvent.click(within(card).getByRole('button', { name: 'activityRejectTransfer' }));
   await waitFor(() => expect(mockHide).toHaveBeenCalledWith('first'));
   expect(mockConfirm).toHaveBeenCalledWith({ title: 'activityRejectTransfer', children: 'activityRejectExplanation' });
-  fireEvent.click(screen.getByRole('button', { name: 'activityRestoreTransfers' }));
-  expect(mockRestore).toHaveBeenCalledTimes(1);
 });
 
 it('hides pending notes when the activity filter excludes incoming transfers', () => {
@@ -102,16 +107,32 @@ it('hides pending notes when the activity filter excludes incoming transfers', (
   expect(screen.getByTestId('timeline')).toBeEmptyDOMElement();
 });
 
-it('shows Claim All on the pending tab and claims every listed note that can be accepted', () => {
+it('shows Accept All on the pending tab and claims every listed note that can be accepted', () => {
   const [, , claimed] = mockItems;
   if (!claimed) throw new Error('Missing note fixtures');
   claimed.status = 'claimed';
   const { rerender } = render(<ActivityPendingHistory search="" filter="all" />);
-  expect(screen.queryByRole('button', { name: 'claimAll' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'acceptAll' })).not.toBeInTheDocument();
   rerender(<ActivityPendingHistory search="" filter="pending" />);
-  fireEvent.click(screen.getByRole('button', { name: 'claimAll' }));
+  fireEvent.click(screen.getByRole('button', { name: 'acceptAll' }));
   expect(mockAcceptMany).toHaveBeenCalledTimes(1);
   expect(mockAcceptMany.mock.calls[0]?.[0].map((note: { id: string }) => note.id)).toEqual(['first', 'second']);
+});
+
+it('opens the same details and footer for a pending and a claimed note', () => {
+  const [, , claimed] = mockItems;
+  if (!claimed) throw new Error('Missing note fixtures');
+  claimed.status = 'claimed';
+  claimed.txId = 'tx-claimed';
+  render(<ActivityPendingHistory search="" filter="all" />);
+  const pendingCard = expandCard('first');
+  expect(within(pendingCard).getByText('activityNotYetAccepted')).toBeInTheDocument();
+  expect(within(pendingCard).getByRole('button', { name: 'activityAcceptTransfer' })).toBeInTheDocument();
+  const claimedCard = expandCard('third');
+  expect(within(claimedCard).getByText('activityTransferAccepted')).toBeInTheDocument();
+  expect(within(claimedCard).getByRole('button', { name: 'activityTransferDetails' })).toBeInTheDocument();
+  expect(within(claimedCard).queryByRole('button', { name: 'activityAcceptTransfer' })).not.toBeInTheDocument();
+  delete claimed.txId;
 });
 
 it('lists only unclaimed notes under the pending filter', () => {
@@ -144,11 +165,9 @@ it('uses the full action area for the claim spinner', () => {
   if (!claiming) throw new Error('Missing note fixture');
   claiming.status = 'claiming';
   render(<ActivityPendingHistory search="" filter="all" />);
-  const timeline = screen.getByTestId('timeline');
-  const card = timeline.querySelector('[data-pending-note-id="first"]');
-  if (!(card instanceof HTMLElement)) throw new Error('Missing claiming card');
+  const card = expandCard('first');
   expect(within(card).queryByRole('button', { name: 'activityRejectTransfer' })).not.toBeInTheDocument();
-  expect(within(card).getAllByRole('button')).toHaveLength(1);
+  expect(within(card).getAllByRole('button')).toHaveLength(2);
   expect(within(card).getByTestId('claim-spinner')).toBeInTheDocument();
   expect(within(card).queryByText('claiming')).not.toBeInTheDocument();
 });

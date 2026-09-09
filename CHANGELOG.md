@@ -4,7 +4,8 @@
 
 ### Changes
 
-- [CHANGE][all] Activity redesign: every transaction row and pending transfer is its own bordered card, with the Accept and Reject controls as the card's bottom edge and no divider lines. A Pending filter chip lists only unclaimed transfers, with a Claim All button that queues one consume per faucet, native asset first, and marks every card as claiming on tap on all platforms. The pending-claims carousel is removed. A slide page that pops back onto another slide page now slides out instead of staying parked under it.
+- [CHANGE][mobile] On mobile and desktop the pending transfers list renders the last known list for the account immediately, instead of staying empty for several seconds while the first note read waits for the wallet lock. The list is stored per account, in a fixed newest-first order so a refresh never reshuffles the cards, and is replaced by the live read as soon as it lands. An entry that no live read has confirmed is shown but can never start a claim, and an account whose notes were all claimed stores an empty list, so claimed notes do not reappear on the next launch.
+- [CHANGE][all] Activity redesign: every transaction row and pending transfer is its own bordered card with no divider lines. A pending transfer folds open from its header to show From, Amount and Received on, with Decline and Accept Transfer always visible as the card's bottom edge; a claimed transfer opens the same way with a Details button. The Pending filter chip lists only unclaimed transfers, with an Accept All button that queues one consume per faucet, native asset first, and marks every card as claiming on tap on all platforms. Search moved into the header behind a search button and opens in place of the title, so the list does not move. The pending-claims carousel and the hidden-transfers notice are removed. A slide page that pops back onto another slide page now slides out instead of staying parked under it.
 
 ### Fixes
 

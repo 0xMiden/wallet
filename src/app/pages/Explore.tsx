@@ -96,8 +96,10 @@ const Explore: FC = () => {
     // during chain-sync lag, so counting it inflated the total: a lone newly-arrived
     // dust note rode in on the in-flight batch's value and was claimed alone for a full
     // fee. `NativeNoteAutoConsumeManager` has always filtered in this order.
+    // `fromCache` entries come from the last-known list and no live read has confirmed
+    // them yet; this consumer runs unprompted, so it must never act on one.
     const candidates = claimableNotes.filter(
-      note => note!.faucetId === midenFaucetId && !note!.swapOrder && !note!.isBeingClaimed
+      note => note!.faucetId === midenFaucetId && !note!.swapOrder && !note!.isBeingClaimed && !note!.fromCache
     );
     // A claim worth no more than its own fee costs the user money, and this consumer
     // runs without asking. Measured on the BATCH TOTAL because these are claimed as one

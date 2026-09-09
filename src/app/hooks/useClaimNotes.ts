@@ -89,8 +89,10 @@ export function useClaimNotes(): ClaimNotesState {
   // - IndexedDB (isBeingClaimed) - from previous sessions or after tx queued
   // - Claim All operation (claimingNoteIds) - current batch operation
   // - Individual claim (individualClaimingIds) - user clicked single Claim button
+  // - the cache-first list (fromCache) — an entry no live read has confirmed yet is
+  //   shown, never claimed: it may already be spent, consumed or recalled.
   const unclaimedNotes = safeClaimableNotes.filter(
-    n => !n.isBeingClaimed && !claimingNoteIds.has(n.id) && !individualClaimingIds.has(n.id)
+    n => !n.fromCache && !n.isBeingClaimed && !claimingNoteIds.has(n.id) && !individualClaimingIds.has(n.id)
   );
 
   useEffect(() => {
@@ -259,7 +261,8 @@ export function useClaimNotes(): ClaimNotesState {
       const freshNotes = await mutateClaimableNotes();
       let freshUnclaimedNotes = freshNotes
         ? freshNotes.filter(
-            n => n && !n.isBeingClaimed && !claimingNoteIds.has(n.id) && !individualClaimingIds.has(n.id)
+            n =>
+              n && !n.fromCache && !n.isBeingClaimed && !claimingNoteIds.has(n.id) && !individualClaimingIds.has(n.id)
           )
         : unclaimedNotes;
 

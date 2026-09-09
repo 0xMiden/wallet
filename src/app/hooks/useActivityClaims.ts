@@ -27,6 +27,10 @@ export function useActivityClaims() {
   const [attempts, setAttempts] = useState<ReadonlyMap<string, PendingActivityItem>>(new Map());
   const busy = useRef(new Set<string>());
   const mounted = useRef(true);
+  // A note with no stored receive date gets the time it was first listed here
+  // and keeps it. Without a fixed date the row sits in the "date unavailable"
+  // group and jumps into a dated group when the stored date lands later.
+  const firstSeenAt = useRef(new Map<string, number>());
 
   useEffect(() => {
     mounted.current = true;
@@ -109,8 +113,14 @@ export function useActivityClaims() {
           status = 'failed';
           break;
       }
+      let receivedAt = note.receivedAt ?? storedDates.get(note.id);
+      if (receivedAt === undefined) {
+        const seen = firstSeenAt.current.get(note.id) ?? Math.floor(Date.now() / 1000);
+        firstSeenAt.current.set(note.id, seen);
+        receivedAt = seen;
+      }
       result.set(note.id, {
-        note: { ...note, receivedAt: note.receivedAt ?? storedDates.get(note.id) },
+        note: { ...note, receivedAt },
         status,
         txId: note.claimingTxId
       });
@@ -134,6 +144,9 @@ export function useActivityClaims() {
   ]);
 
   const accept = async (note: NoteWithMetadata) => {
+    // A cache-first entry is displayed before any live read has confirmed it, so it
+    // cannot start a claim. The live read replaces it within one poll lap.
+    if (note.fromCache) return;
     const item = items.find(candidate => candidate.note.id === note.id);
     if (!item || (item.status !== 'pending' && item.status !== 'failed') || busy.current.has(note.id)) return;
     busy.current.add(note.id);
@@ -169,6 +182,8 @@ export function useActivityClaims() {
   // credits the vault that the fee of the next group is paid from.
   const acceptMany = async (notes: readonly NoteWithMetadata[]) => {
     const accepted = notes.filter(note => {
+      // Same gate as `accept`: unconfirmed cache entries are never claimed.
+      if (note.fromCache) return false;
       const item = items.find(candidate => candidate.note.id === note.id);
       return (
         item !== undefined && (item.status === 'pending' || item.status === 'failed') && !busy.current.has(note.id)

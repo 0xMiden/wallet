@@ -415,7 +415,9 @@ const AssetPendingDetail: React.FC<AssetPendingDetailProps> = ({
   const { price } = getTokenPrice(tokenPrices, symbol);
   const usdValue = numericAmount * price;
 
-  const unclaimedInGroup = notes.filter(n => !n.isBeingClaimed && !claimingNoteIds.has(n.id));
+  // `fromCache` notes come from the last-known list and are not confirmed yet: they show,
+  // but they cannot be claimed until the live read replaces them.
+  const unclaimedInGroup = notes.filter(n => !n.fromCache && !n.isBeingClaimed && !claimingNoteIds.has(n.id));
   const canClaimAllGroup = unclaimedInGroup.length > 0;
 
   const handleClaimGroup = useCallback(() => {
@@ -599,6 +601,8 @@ const DetailNoteRow: React.FC<DetailNoteRowProps> = ({
   }, []);
 
   const handleClaim = useCallback(async () => {
+    // Cache-first entry: shown, never claimed until a live read confirms it.
+    if (note.fromCache) return;
     setError(null);
     setIsLoading(true);
     hapticLight();
