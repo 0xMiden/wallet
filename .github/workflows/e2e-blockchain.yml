@@ -117,6 +117,9 @@ jobs:
         # no marker (as here) means the published pin, exactly as before.
         uses: ./.github/actions/install-miden-client-cli
 
+      - name: Drop Google's Chrome apt repository
+        uses: ./.github/actions/apt-drop-google-chrome-repo
+
       - name: Install xvfb
         # The azure apt mirror intermittently blackholes: runs have stalled ~57 min
         # inside `apt-get update`, been killed by the job cap, and produced no test
@@ -184,6 +187,9 @@ jobs:
         # It also rebuilds the CLI against a linked Protocol PR when the PR carries one;
         # no marker (as here) means the published pin, exactly as before.
         uses: ./.github/actions/install-miden-client-cli
+
+      - name: Drop Google's Chrome apt repository
+        uses: ./.github/actions/apt-drop-google-chrome-repo
 
       - name: Install xvfb
         # The azure apt mirror intermittently blackholes: runs have stalled ~57 min
@@ -311,6 +317,9 @@ jobs:
         # no marker (as here) means the published pin, exactly as before.
         uses: ./.github/actions/install-miden-client-cli
 
+      - name: Drop Google's Chrome apt repository
+        uses: ./.github/actions/apt-drop-google-chrome-repo
+
       - name: Install xvfb
         # The azure apt mirror intermittently blackholes: runs have stalled ~57 min
         # inside `apt-get update`, been killed by the job cap, and produced no test
@@ -382,6 +391,9 @@ jobs:
         # It also rebuilds the CLI against a linked Protocol PR when the PR carries one;
         # no marker (as here) means the published pin, exactly as before.
         uses: ./.github/actions/install-miden-client-cli
+
+      - name: Drop Google's Chrome apt repository
+        uses: ./.github/actions/apt-drop-google-chrome-repo
 
       - name: Install xvfb
         # The azure apt mirror intermittently blackholes: runs have stalled ~57 min

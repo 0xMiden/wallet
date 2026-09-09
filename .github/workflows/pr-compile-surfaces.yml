@@ -83,6 +83,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
+      - name: Drop Google's Chrome apt repository
+        uses: ./.github/actions/apt-drop-google-chrome-repo
       # Tauri's system deps on Linux. The desktop app ships for macOS, but the
       # Rust in src-tauri is what this gate is checking and it compiles here far
       # cheaper than on a macOS runner.
