@@ -306,6 +306,24 @@ function deserializeNoteFileOrNote(noteBytes: Uint8Array): NoteFile {
 export class MidenClientInterface {
   client: MidenClient;
   network: string;
+  /**
+   * The ONE raw client this interface reads consumability through, built on
+   * first use and kept for the interface's lifetime (issue #868). It used to be
+   * a throwaway per call: `WasmWebClient.createClient` per claimable-notes lap,
+   * `terminate()` in a `finally`. But the SDK's `terminate()` releases nothing
+   * for a client built without a worker (it forwards to a worker shim that has
+   * no worker), so every lap left one wasm-bindgen client unfreed and one
+   * IndexedDB connection open, two a minute for as long as the wallet stayed
+   * open — measured, and the extension renderer died of OOM after 55 hours of
+   * that. A reader per interface bounds it to one, released with the interface.
+   */
+  private reader: Promise<WasmWebClient> | undefined;
+  /**
+   * Serialises reader use. The per-call clients were trivially safe to use
+   * concurrently; the shared one is a single wasm-bindgen object, and two
+   * overlapping calls on it would trip the SDK's aliasing guard.
+   */
+  private readerQueue: Promise<unknown> = Promise.resolve();
 
   private constructor(client: MidenClient, network: string, liveness: ClientLiveness = { disposed: false }) {
     this.client = client;
@@ -381,6 +399,44 @@ export class MidenClientInterface {
   free() {
     this.liveness.disposed = true;
     this.client.terminate();
+    this.releaseReader();
+  }
+
+  private releaseReader(): void {
+    const reader = this.reader;
+    this.reader = undefined;
+    if (!reader) return;
+    // `terminate()` is the SDK's release API; for an in-realm client it is a
+    // no-op today (web-sdk #377), which is exactly why the reader is shared
+    // rather than rebuilt per call. A failed build has nothing to release.
+    reader.then(r => r.terminate()).catch(() => undefined);
+  }
+
+  /**
+   * Runs `fn` against the shared raw reader, building it on first use. A build
+   * that fails leaves no reader behind, so the next call retries rather than
+   * re-throwing a stale rejection forever.
+   */
+  private withReader<T>(fn: (reader: WasmWebClient) => Promise<T>): Promise<T> {
+    const run = async (): Promise<T> => {
+      if (!this.reader) {
+        this.reader = WasmWebClient.createClient(
+          getEffectiveRpcUrl(),
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          false
+        ).catch(err => {
+          this.reader = undefined;
+          throw err;
+        });
+      }
+      return fn(await this.reader);
+    };
+    const turn = this.readerQueue.then(run, run);
+    this.readerQueue = turn.catch(() => undefined);
+    return turn;
   }
 
   /**
@@ -1110,10 +1166,11 @@ export class MidenClientInterface {
     // by design and passes this filter — self-sends (where auto-consume would
     // claim the note right back) are blocked at the send-flow entry instead.
     //
-    // Reads through a transient raw WasmWebClient (same IndexedDB store as
+    // Reads through the interface's raw reader client (same IndexedDB store as
     // the main client, separate WASM object so it can't trip the
     // single-threaded aliasing guard) — the SDK wrapper exposes no
-    // consumability-annotated listing.
+    // consumability-annotated listing. One reader per interface, not one per
+    // call: see the `reader` field for the leak the per-call version caused.
     //
     // `useWorker` is pinned to `false` (the SDK's 6th positional parameter; its
     // default is `true`). It must be explicit because this line runs in TWO
@@ -1121,25 +1178,15 @@ export class MidenClientInterface {
     // takes the in-realm path, but the offscreen document — where this now runs
     // whenever MIDEN_USE_OFFSCREEN_CLIENT is on, which is the Chrome default for
     // the SW bundle — IS a real document, so the default would spawn a Web Worker
-    // and a SECOND multi-threaded WASM instance inside the offscreen doc on every
-    // sync tick, claimable-notes refresh and dApp note query, then tear it down.
+    // and a SECOND multi-threaded WASM instance inside the offscreen doc.
     // `useWorker:false` still yields a DISTINCT wasm-bindgen client object, so the
-    // aliasing protection this transient read relies on is unchanged; it just
-    // stops paying for a worker + WASM instantiation per call.
+    // aliasing protection this read relies on is unchanged.
     if (this.network === 'mock') {
       return await this.client.notes.listAvailable({ account: accountId });
     }
     const wasm = await getWasmOrThrow();
     const syncHeight = await this.client.getSyncHeight();
-    const inner = await WasmWebClient.createClient(
-      getEffectiveRpcUrl(),
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      false
-    );
-    try {
+    return this.withReader(async inner => {
       const records: ConsumableNoteRecord[] = await inner.getConsumableNotes(resolveAccountId(wasm, accountId));
       return records
         .filter(record => {
@@ -1154,9 +1201,7 @@ export class MidenClientInterface {
           return gatedUntil === undefined || gatedUntil <= syncHeight;
         })
         .map(record => record.inputNoteRecord());
-    } finally {
-      inner.terminate();
-    }
+    });
   }
 
   async sendTransaction(

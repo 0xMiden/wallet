@@ -2327,7 +2327,7 @@ describe('MidenClientInterface', () => {
   // Keep this module-mock-backed case last: jest.doMock registrations survive
   // jest.resetModules(), and this deliberately narrow SDK surface must not
   // replace the richer mocks used by the tests above.
-  it('filters notes gated beyond the sync height and terminates the transient client', async () => {
+  it('filters notes gated beyond the sync height through ONE reader client, released only by free()', async () => {
     const currentlyConsumable = { id: 'currently-consumable' };
     const ungated = { id: 'ungated' };
     const futureGated = { id: 'future-gated' };
@@ -2379,6 +2379,12 @@ describe('MidenClientInterface', () => {
     ]);
 
     await expect(client.getConsumableNotes('mtst1account')).resolves.toEqual([currentlyConsumable, ungated]);
+    // A second read reuses the reader: the per-call client this replaced leaked
+    // one IndexedDB connection per lap because the SDK's terminate() releases
+    // nothing for an in-realm client (#868).
+    await expect(client.getConsumableNotes('mtst1account')).resolves.toEqual([currentlyConsumable, ungated]);
+    expect(createClient).toHaveBeenCalledTimes(1);
+    expect(terminate).not.toHaveBeenCalled();
     // The trailing `false` is `useWorker` (the SDK's 6th positional parameter, which
     // defaults to TRUE). It has to be explicit: this read runs in the offscreen
     // document whenever MIDEN_USE_OFFSCREEN_CLIENT is on — the Chrome default for the
@@ -2390,6 +2396,8 @@ describe('MidenClientInterface', () => {
     expect(createClient).toHaveBeenCalledWith('https://rpc.example', undefined, undefined, undefined, undefined, false);
     expect(fromBech32).toHaveBeenCalledWith('mtst1account');
     expect(getConsumableNotes).toHaveBeenCalledWith({ accountId: 'mtst1account' });
+    client.free();
+    await Promise.resolve();
     expect(terminate).toHaveBeenCalledTimes(1);
   });
 
@@ -2463,6 +2471,60 @@ describe('MidenClientInterface', () => {
         swapAttachment: null
       }
     ]);
+    // The reader is shared for the interface's lifetime; only free() releases it.
+    expect(terminate).not.toHaveBeenCalled();
+    client.free();
+    await Promise.resolve();
     expect(terminate).toHaveBeenCalledTimes(1);
+  });
+
+  // Last on purpose: it registers its own narrow SDK doMock, and doMock registrations
+  // survive jest.resetModules(), so nothing may run after it.
+  it('serialises overlapping consumability reads on the shared reader and retries a failed build', async () => {
+    const order: string[] = [];
+    let release: (() => void) | undefined;
+    const getConsumableNotes = jest
+      .fn()
+      .mockImplementationOnce(async () => {
+        order.push('first-start');
+        await new Promise<void>(resolve => {
+          release = resolve;
+        });
+        order.push('first-end');
+        return [];
+      })
+      .mockImplementationOnce(async () => {
+        order.push('second');
+        return [];
+      });
+    const createClient = jest
+      .fn()
+      .mockRejectedValueOnce(new Error('rpc down'))
+      .mockImplementation(async () => ({ getConsumableNotes, terminate: jest.fn() }));
+    jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+      NoteType: { Private: 0, Public: 1 },
+      ...jest.requireActual('../../../../__mocks__/wasmMock.js'),
+      getWasmOrThrow: jest.fn(async () => ({
+        AccountId: { fromBech32: (id: string) => ({ id }), fromHex: jest.fn() }
+      })),
+      WasmWebClient: { createClient }
+    }));
+    const fakeMidenClient = buildFakeMidenClient({ getSyncHeight: jest.fn(async () => 10) });
+    const { MidenClientInterface } = await import('./miden-client-interface');
+    const client: MidenClientInterfaceType = Reflect.apply(MidenClientInterface.fromClient, MidenClientInterface, [
+      fakeMidenClient,
+      'testnet'
+    ]);
+    // The first build fails; the interface must not cache that rejection.
+    await expect(client.getConsumableNotes('mtst1account')).rejects.toThrow('rpc down');
+    const first = client.getConsumableNotes('mtst1account');
+    const second = client.getConsumableNotes('mtst1account');
+    await new Promise(resolve => setTimeout(resolve, 0));
+    // The second read must wait for the first to finish on the shared object.
+    expect(order).toEqual(['first-start']);
+    release?.();
+    await Promise.all([first, second]);
+    expect(order).toEqual(['first-start', 'first-end', 'second']);
+    expect(createClient).toHaveBeenCalledTimes(2);
   });
 });
