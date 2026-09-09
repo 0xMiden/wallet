@@ -555,48 +555,26 @@ export class MidenCli {
     const tomlPath = path.join(this.workDir, 'faucet-init.toml');
     fs.writeFileSync(tomlPath, faucetInitToml(symbol, decimals, maxSupply));
 
-    // On a fee-charging chain a brand-new account cannot pay for its own deployment: its vault is
-    // empty and `pay_fee` withdraws before anything else runs. So create it locally, fund it from a
-    // genesis funder, and let the funding note's consumption be the transaction that deploys it —
-    // note credit lands before the fee is taken, so that first transaction settles its own fee.
-    // Where no fee is charged the account can deploy itself and this is the original one-shot path.
-    const createArgs =
-      `new-account --account-type public ` +
-      `-p basic-fungible-faucet ` +
-      `--init-storage-data-path ${tomlPath} ` +
-      `--deploy`;
-
-    const maxAttempts = 5;
-    let lastErr = '';
-    let createResult: CLIInvocation | undefined;
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      createResult = await this.run(createArgs, { timeoutMs: 180_000 });
-      if (createResult.exitCode === 0) {
-        break;
-      }
-      lastErr = createResult.stderr;
-      const transient = isTransientCliError(lastErr);
-      if (!transient || attempt === maxAttempts) break;
-      const backoffMs = Math.min(30_000, 1_000 * 2 ** (attempt - 1));
-      // eslint-disable-next-line no-console
-      console.log(
-        `[miden-cli] createFaucet attempt ${attempt}/${maxAttempts} transient RPC failure, retrying in ${backoffMs}ms`
-      );
-      await new Promise(r => setTimeout(r, backoffMs));
-    }
-
-    if (!createResult || createResult.exitCode !== 0) {
-      if (!MidenCli.isUnfundedFeeError(lastErr)) {
-        throw new Error(`Failed to create faucet: ${lastErr}`);
-      }
-      // Remember this for every later account: once one deployment has failed this way, the chain
-      // is known to charge, and recipients have to be funded before they can transact at all.
+    // Since miden-client-cli 0.16.0 `new-account` never deploys: the `--deploy` flag was removed
+    // because the empty transaction it submitted cannot pay its own fee. An account is deployed by
+    // its FIRST transaction instead. On a fee-charging chain that transaction has to be one whose
+    // note credit lands before `pay_fee` withdraws, so the faucet is created locally, funded from a
+    // genesis funder, and deployed by consuming that funding note. Where no fee is charged the
+    // faucet's first mint deploys it, so it is simply created and returned.
+    if (!this.chainChargesFees && (this.env.chargesFees || (await this.importFunders()).length > 0)) {
       this.chainChargesFees = true;
-      // The chain charges a fee and this account has nothing to pay it with. Create it without
-      // deploying, fund it from a genesis funder, and let the consumption of that funding note be
-      // its first transaction — note credit lands in the vault before `pay_fee` withdraws from it,
-      // so that transaction settles its own fee.
+    }
+    let createResult: CLIInvocation;
+    if (this.chainChargesFees) {
       createResult = await this.createFaucetFunded(tomlPath);
+    } else {
+      createResult = await this.run(
+        `new-account --account-type public -p basic-fungible-faucet --init-storage-data-path ${tomlPath}`,
+        { timeoutMs: 180_000 }
+      );
+      if (createResult.exitCode !== 0) {
+        throw new Error(`Failed to create faucet: ${createResult.stderr}`);
+      }
     }
 
     // Parse account ID from stdout
