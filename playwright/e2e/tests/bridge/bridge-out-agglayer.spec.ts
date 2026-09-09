@@ -1,5 +1,8 @@
+import { MIDEN_BRIDGE_ID } from '../../../../src/lib/agglayer/b2agg/constant';
+import { getEnvironmentConfig } from '../../config/environments';
 import { expect, test } from '../../fixtures/two-wallets';
 import { bridgeOutSlow, fundBridgeToken, readBridgedSendRows } from '../../helpers/bridge';
+import { nodeVersionFromPackageJson, probePublicAccountState } from '../../helpers/node-account-probe';
 import { newEvmDestination } from '../../helpers/sepolia';
 
 /**
@@ -48,6 +51,19 @@ test.describe('bridge-out Miden to EVM (Slow AggLayer)', () => {
     midenCli,
     timeline
   }) => {
+    // The bridge account is 100% external infra: after the 2026-09 testnet reset it was simply
+    // absent (the node answered `not found at block N` to the wallet's foreign-account fetch), and
+    // a spec that fails on that is reporting the AggLayer deployment, not the wallet. Ask the node
+    // the same question the transaction will, and skip only on a definite "absent"; a probe that
+    // cannot decide lets the spec run so no real regression hides behind it.
+    const { rpcUrl } = getEnvironmentConfig();
+    const bridge = await probePublicAccountState(rpcUrl, MIDEN_BRIDGE_ID, nodeVersionFromPackageJson());
+    test.skip(
+      bridge.state === 'absent',
+      `the AggLayer bridge account ${MIDEN_BRIDGE_ID} has no state on ${rpcUrl} (${bridge.detail}); ` +
+        'the bridge has to be redeployed there before this spec can mean anything'
+    );
+
     await walletA.createNewWallet();
     const { faucetHex } = await fundBridgeToken(midenCli, walletA, { symbol: TOKEN_SYMBOL, decimals: 6 }, timeline);
 
