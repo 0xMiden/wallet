@@ -1,0 +1,19 @@
+name: Drop Google's Chrome apt repository
+description: >
+  Removes the google-chrome apt source that the ubuntu runner image ships, so
+  `apt-get update` - and everything that shells out to it: Playwright's
+  `--with-deps`, the xvfb install, the local node's build deps - stops depending
+  on Google's CDN. Nothing in this repo installs Chrome from apt (Playwright
+  brings its own Chromium and browser-actions/setup-chrome downloads Chrome
+  directly), yet on 2026-09-09 that repository served a Packages.gz whose hash
+  did not match its Release file for over an hour, and every ubuntu job on both
+  branches died at apt with `Hash Sum mismatch` (exit 100) while the tree was
+  fine. A mirror we never read from must not be able to fail a job. No-op off
+  Linux, so the macOS jobs can share the same step list.
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        [ "$RUNNER_OS" = Linux ] || exit 0
+        sudo rm -f /etc/apt/sources.list.d/google-chrome*.list /etc/apt/sources.list.d/google-chrome*.sources
