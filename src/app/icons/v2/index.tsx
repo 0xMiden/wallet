@@ -47,6 +47,7 @@ import { ReactComponent as Copy } from './copy.svg';
 import { ReactComponent as CrossChain } from './cross-chain.svg';
 import { ReactComponent as Download } from './download.svg';
 import { ReactComponent as Earn } from './earn.svg';
+import { ReactComponent as Edit } from './edit.svg';
 import { ReactComponent as Explore } from './explore.svg';
 import { ReactComponent as EyeOff } from './eye-off.svg';
 import { ReactComponent as Eye } from './eye.svg';
@@ -144,6 +145,7 @@ export enum IconName {
   CopyNew = 'copy-new',
   CrossChain = 'cross-chain',
   Download = 'download',
+  Edit = 'edit',
   Earn = 'earn',
   Explore = 'explore',
   EyeOff = 'eye-off',
@@ -290,6 +292,8 @@ const IconSwitch = (props: IconProps) => {
       return <CrossChain {...props} />;
     case IconName.Download:
       return <Download {...props} />;
+    case IconName.Edit:
+      return <Edit {...props} />;
     case IconName.Earn:
       return <Earn {...props} />;
     case IconName.Explore:

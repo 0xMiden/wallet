@@ -171,6 +171,14 @@ jest.mock('./pages/AllHistory', () => ({
     <div data-testid="all-history" data-program-id={programId ?? ''} />
   )
 }));
+jest.mock('./pages/AddAccountGuardian', () => ({
+  __esModule: true,
+  default: () => <div data-testid="add-account-guardian" />
+}));
+jest.mock('./pages/AddAccountPrivateRisk', () => ({
+  __esModule: true,
+  default: () => <div data-testid="add-account-private-risk" />
+}));
 jest.mock('./pages/Browser', () => ({ __esModule: true, default: () => <div data-testid="browser" /> }));
 jest.mock('./pages/ForgotPassword/ForgotPassword', () => ({
   __esModule: true,
@@ -409,6 +417,30 @@ describe('app/PageRouter — ready tab & full-screen routes', () => {
   it('/pending-notes renders PendingNotes inside FullScreenPage', () => {
     renderAt('/pending-notes', ready);
     expect(screen.getByTestId('full-screen-page')).toContainElement(screen.getByTestId('pending'));
+  });
+
+  it('/add-account/guardian renders AddAccountGuardian inside FullScreenPage', () => {
+    renderAt('/add-account/guardian', ready);
+    expect(screen.getByTestId('full-screen-page')).toContainElement(screen.getByTestId('add-account-guardian'));
+  });
+
+  it('/add-account/guardian SKIPs to the final Redirect when the wallet is not ready', () => {
+    resolveRootViewMock.mockReturnValueOnce('app');
+    renderAt('/add-account/guardian', { ready: false, locked: false, hydrated: true });
+    expect(screen.queryByTestId('add-account-guardian')).not.toBeInTheDocument();
+    expect(screen.getByTestId('redirect')).toHaveAttribute('data-to', '/');
+  });
+
+  it('/add-account/private renders AddAccountPrivateRisk inside FullScreenPage', () => {
+    renderAt('/add-account/private', ready);
+    expect(screen.getByTestId('full-screen-page')).toContainElement(screen.getByTestId('add-account-private-risk'));
+  });
+
+  it('/add-account/private SKIPs to the final Redirect when the wallet is not ready', () => {
+    resolveRootViewMock.mockReturnValueOnce('app');
+    renderAt('/add-account/private', { ready: false, locked: false, hydrated: true });
+    expect(screen.queryByTestId('add-account-private-risk')).not.toBeInTheDocument();
+    expect(screen.getByTestId('redirect')).toHaveAttribute('data-to', '/');
   });
 
   it('/history-details/:transactionId passes the id into HistoryDetails', () => {

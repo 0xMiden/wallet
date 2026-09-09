@@ -235,7 +235,7 @@ export function getCurrentAccount() {
   });
 }
 
-export function createHDAccount(walletType: WalletType, name?: string) {
+export function createHDAccount(walletType: WalletType, name?: string, guardianEndpoint?: string) {
   // Serialize on the accounts write queue, for the same reason `importAccount`
   // does: `vault.createHDAccount` reads the accounts list, does seconds of WASM
   // work, then writes the list back. Anything else doing a read-modify-write of
@@ -250,8 +250,23 @@ export function createHDAccount(walletType: WalletType, name?: string) {
         }
       }
 
-      const accounts = await vault.createHDAccount(walletType, name);
+      const accounts = await vault.createHDAccount(walletType, name, guardianEndpoint);
       accountsUpdated({ accounts });
+    })
+  );
+}
+
+export function scanForAccounts(additionalCount: number, guardianEndpoint?: string) {
+  // Serialized on the accounts write queue for the same read-modify-write
+  // reason as `createHDAccount`: the scan reads the accounts list, does
+  // seconds of network/WASM work, then appends to it.
+  return withUnlocked(({ vault }) =>
+    getAccountsWriteQueue().add(async () => {
+      const { found, accounts } = await vault.scanForMoreAccounts(additionalCount, guardianEndpoint);
+      if (found.length > 0) {
+        accountsUpdated({ accounts });
+      }
+      return found;
     })
   );
 }

@@ -181,6 +181,7 @@ jest.mock('lib/miden/back/actions', () => ({
   unlock: jest.fn(),
   lock: jest.fn(),
   createHDAccount: jest.fn(),
+  scanForAccounts: jest.fn(async () => []),
   updateCurrentAccount: jest.fn(),
   revealMnemonic: jest.fn(),
   revealPrivateKey: jest.fn(),
@@ -541,8 +542,20 @@ describe('processRequest', () => {
       walletType: 'OnChain',
       name: 'My Account'
     });
-    expect(Actions.createHDAccount).toHaveBeenCalledWith('OnChain', 'My Account');
+    expect(Actions.createHDAccount).toHaveBeenCalledWith('OnChain', 'My Account', undefined);
     expect(res.type).toBe(WalletMessageType.CreateAccountResponse);
+  });
+
+  it('ScanForAccountsRequest forwards the count + endpoint and returns the found accounts', async () => {
+    (Actions.scanForAccounts as jest.Mock).mockResolvedValue([{ publicKey: 'pk-new' }]);
+    const res = await dispatch({
+      type: WalletMessageType.ScanForAccountsRequest,
+      additionalCount: 5,
+      guardianEndpoint: 'https://guardian.example'
+    });
+    expect(Actions.scanForAccounts).toHaveBeenCalledWith(5, 'https://guardian.example');
+    expect(res.type).toBe(WalletMessageType.ScanForAccountsResponse);
+    expect(res.found).toEqual([{ publicKey: 'pk-new' }]);
   });
 
   it('UpdateCurrentAccountRequest forwards the public key', async () => {

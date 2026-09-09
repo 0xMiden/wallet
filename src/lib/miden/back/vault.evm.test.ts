@@ -1,14 +1,15 @@
 /**
  * Wallet-derived EVM identity tests for `lib/miden/back/vault.ts`:
  *   - `Vault.spawn` stamps `evmAddress` + persists the encrypted leaf key
- *   - `createHDAccount` stamps the next address index
- *   - `backfillEvmAddresses` is idempotent and skips imported accounts
+ *   - `createHDAccount` reuses the wallet address
+ *   - `backfillEvmAddresses` migrates every account to one wallet address
  *   - `signEvm` round-trips (message / typed-data digest / transaction)
  *     recover to the stamped address
  *   - rejection branches surface as PublicError
  *
  * Derivation vectors are the standard Hardhat/Anvil test mnemonic:
- * m/44'/60'/0'/0/0 → 0xf39F…2266, m/44'/60'/0'/0/1 → 0x7099…79C8.
+ * m/44'/60'/0'/0/0 → 0xf39F…2266. EVM_ADDR_1 is retained as a legacy
+ * per-account address and transaction destination test vector.
  */
 
 import {
@@ -21,7 +22,7 @@ import {
   stringToHex
 } from 'viem';
 import type { TransactionSerializedEIP1559 } from 'viem';
-import { privateKeyToAccount } from 'viem/accounts';
+import { mnemonicToAccount, privateKeyToAccount } from 'viem/accounts';
 
 import * as Passworder from 'lib/miden/passworder';
 import { WalletAccount } from 'lib/shared/types';
@@ -195,25 +196,49 @@ describe('Vault.spawn: EVM identity stamping', () => {
 });
 
 describe('Vault.createHDAccount: EVM identity stamping', () => {
-  it('stamps the next address index for the new account', async () => {
+  it('reuses the wallet address for a new Miden account', async () => {
     const vault = await seedVault([hdAccount('acc-pub-key-1', 0, EVM_ADDR_0)]);
     mockCreateMidenWallet.mockResolvedValueOnce('acc-pub-key-2');
 
     const accounts = await vault.createHDAccount(WalletType.OnChain);
     const created = accounts.find(acc => acc.publicKey === 'acc-pub-key-2');
     expect(created?.hdIndex).toBe(1);
-    expect(created?.evmAddress).toBe(EVM_ADDR_1);
+    expect(created?.evmAddress).toBe(EVM_ADDR_0);
+  });
+
+  it('falls back to the first HD account when no account reproduces the stored address', async () => {
+    // EVM_ADDR_1 is the addressIndex-1 derivation, but the only account sits at
+    // hdIndex 0 — so the stored address is unreproducible (a rotated or
+    // foreign-stamped wallet) and the resolver must fall through to the first
+    // HD account rather than keep an address it holds no key for.
+    const vault = await seedVault([hdAccount('acc-pub-key-1', 0, EVM_ADDR_1)]);
+    mockCreateMidenWallet.mockResolvedValueOnce('acc-pub-key-2');
+
+    const accounts = await vault.createHDAccount(WalletType.OnChain);
+
+    expect(accounts.map(account => account.evmAddress)).toEqual([EVM_ADDR_0, EVM_ADDR_0]);
+
+    // The key persisted alongside it is the one that actually signs for it.
+    const vaultKey = (vault as any).vaultKey as CryptoKey;
+    const privateKeyHex = await fetchAndDecryptOneWithLegacyFallBack<`0x${string}`>(
+      keys.accEvmSecretKey(EVM_ADDR_0),
+      vaultKey
+    );
+    expect(privateKeyToAccount(privateKeyHex).address).toBe(EVM_ADDR_0);
   });
 });
 
 describe('Vault.backfillEvmAddresses', () => {
-  it('stamps missing addresses, skips imported accounts, and is idempotent', async () => {
-    const vault = await seedVault([hdAccount('acc-pub-key-1', 0), { ...hdAccount('acc-imported', -1), hdIndex: -1 }]);
+  it('normalizes missing, legacy, and imported accounts to one address and is idempotent', async () => {
+    const vault = await seedVault([
+      hdAccount('acc-pub-key-1', 0),
+      hdAccount('acc-pub-key-2', 1, EVM_ADDR_1),
+      { ...hdAccount('acc-imported', -1), hdIndex: -1 }
+    ]);
 
     await vault.backfillEvmAddresses();
     const first = await vault.fetchAccounts();
-    expect(first.find(acc => acc.publicKey === 'acc-pub-key-1')!.evmAddress).toBe(EVM_ADDR_0);
-    expect(first.find(acc => acc.publicKey === 'acc-imported')!.evmAddress).toBeUndefined();
+    expect(first.map(account => account.evmAddress)).toEqual([EVM_ADDR_1, EVM_ADDR_1, EVM_ADDR_1]);
 
     await vault.backfillEvmAddresses();
     const second = await vault.fetchAccounts();
@@ -226,19 +251,55 @@ describe('Vault.backfillEvmAddresses', () => {
     const accounts = await vault.fetchAccounts();
     expect(accounts[0]!.evmAddress).toBeUndefined();
   });
+
+  it.each([
+    { walletType: WalletType.OffChain, accountIndex: 1 },
+    { walletType: WalletType.Guardian, accountIndex: 2 }
+  ])('preserves the original $walletType wallet EVM owner when consolidating accounts', async testCase => {
+    const ownerAddress = mnemonicToAccount(TEST_MNEMONIC, {
+      accountIndex: testCase.accountIndex,
+      addressIndex: 0
+    }).address;
+    const originalAccount: WalletAccount = {
+      ...hdAccount('acc-original-1', 0, ownerAddress),
+      isPublic: false,
+      type: testCase.walletType
+    };
+    const vault = await seedVault([originalAccount, hdAccount('acc-public-1', 0, EVM_ADDR_0)]);
+
+    await vault.backfillEvmAddresses();
+
+    const accounts = await vault.fetchAccounts();
+    expect(accounts.map(account => account.evmAddress)).toEqual([ownerAddress, ownerAddress]);
+    const signature = await vault.signEvm('acc-public-1', {
+      op: 'message',
+      messageHex: stringToHex('preserve owner')
+    });
+    const recovered = await recoverMessageAddress({ message: 'preserve owner', signature });
+    expect(recovered).toBe(ownerAddress);
+  });
 });
 
 describe('Vault.signEvm round-trips', () => {
   let vault: Vault;
 
   beforeEach(async () => {
-    vault = await seedVault([hdAccount('acc-pub-key-1', 0)]);
+    vault = await seedVault([hdAccount('acc-pub-key-1', 0), { ...hdAccount('acc-imported', -1), hdIndex: -1 }]);
     await vault.backfillEvmAddresses();
   });
 
   it('message: recovers the stamped address', async () => {
     const signature = await vault.signEvm('acc-pub-key-1', { op: 'message', messageHex: stringToHex('hello miden') });
     const recovered = await recoverMessageAddress({ message: 'hello miden', signature });
+    expect(recovered).toBe(EVM_ADDR_0);
+  });
+
+  it('uses the same wallet key when another Miden account authorizes signing', async () => {
+    const signature = await vault.signEvm('acc-imported', {
+      op: 'message',
+      messageHex: stringToHex('same wallet')
+    });
+    const recovered = await recoverMessageAddress({ message: 'same wallet', signature });
     expect(recovered).toBe(EVM_ADDR_0);
   });
 
@@ -280,8 +341,8 @@ describe('Vault.signEvm rejections', () => {
     await expect(vault.signEvm('acc-unknown', { op: 'message', messageHex: '0x01' })).rejects.toThrow(PublicError);
   });
 
-  it('rejects an account without an EVM address (imported)', async () => {
-    const vault = await seedVault([{ ...hdAccount('acc-imported', -1), hdIndex: -1 }]);
+  it('rejects an account without an EVM address when the vault has no mnemonic', async () => {
+    const vault = await seedVault([{ ...hdAccount('acc-imported', -1), hdIndex: -1 }], '');
     await expect(vault.signEvm('acc-imported', { op: 'message', messageHex: '0x01' })).rejects.toThrow(PublicError);
   });
 

@@ -412,6 +412,14 @@ export class IosWalletPage implements WalletPage {
     // The old "Get started" text is gone; the button is now keyed by testid.
     await this.click('[data-testid="onboarding-confirmation-submit"]');
 
+    // A seed import pauses on the recovered-accounts overview (multi-account
+    // recovery) before entering the wallet — acknowledge it. Create flows
+    // never render it.
+    if (seed && seed.length > 0) {
+      await this.pollForSelector('[data-testid="recovered-accounts"]', readyTimeoutMs);
+      await this.click('[data-testid="recovered-accounts-continue"]');
+    }
+
     // Wait for store status === Ready (numeric 2 in the Zustand enum).
     await this.pollForCondition(
       `var s = window.__TEST_STORE__; ` +

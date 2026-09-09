@@ -2,6 +2,10 @@
 
 ## 1.16.1 (TBD)
 
+### Features
+
+- [FEATURE][all] **Wallets can create, recover, rename, and switch between multiple accounts.** The home balance card opens an account switcher with each account's name, privacy model, cached balance, address, and persistent card color. New public, private, and Guardian-backed accounts share the wallet's existing EVM identity, while seed recovery scans all public and Guardian-backed account indices with a gap limit, presents every recovered account for confirmation, and supports extending the scan or restoring another account later. Account-specific state now stays isolated, including the faucet prompt, so funding or dismissing it for one account does not hide it for another.
+
 ### Fixes
 
 - [FIX][ci] Every ubuntu job now drops Google's Chrome apt repository before touching apt. Nothing installs Chrome from apt, yet its CDN served a mismatched package index for over an hour and failed every Playwright, xvfb and local-node install with `Hash Sum mismatch`.

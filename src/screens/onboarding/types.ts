@@ -41,6 +41,7 @@ export enum OnboardingStep {
   SelectRecoveryMethod = 'select-recovery-method',
   ChooseGuardian = 'choose-guardian',
   ImportSelectRecoveryMethod = 'import-select-recovery-method',
+  RecoveredAccounts = 'recovered-accounts',
   Confirmation = 'confirmation'
 }
 export type OnboardingActionId =
@@ -66,7 +67,9 @@ export type OnboardingActionId =
   | 'import-select-recovery-method'
   | 'confirmation'
   | 'retry-guardian-probe'
-  | 'import-from-seed';
+  | 'import-from-seed'
+  | 'scan-more-accounts'
+  | 'recovered-accounts-continue';
 
 export type CreateWalletAction = {
   id: 'create-wallet';
@@ -141,7 +144,20 @@ export type ChooseGuardianAction = {
 
 export type ImportSelectRecoveryMethodAction = {
   id: 'import-select-recovery-method';
-  payload: { walletType: WalletType; guardianEndpoint?: string };
+  // Restore scans BOTH public and guardian accounts in one pass, so this step
+  // no longer picks an exclusive wallet type — it only carries the guardian
+  // operator to scan against (absent = user skipped the guardian step).
+  payload: { guardianEndpoint?: string };
+};
+
+/** "I have more accounts": extend the recovery scan by `count` HD indices. */
+export type ScanMoreAccountsAction = {
+  id: 'scan-more-accounts';
+  payload: { count: number };
+};
+
+export type RecoveredAccountsContinueAction = {
+  id: 'recovered-accounts-continue';
 };
 
 export type ConfirmationAction = {
@@ -190,6 +206,8 @@ export type OnboardingAction =
   | SelectRecoveryMethodAction
   | ChooseGuardianAction
   | ImportSelectRecoveryMethodAction
+  | ScanMoreAccountsAction
+  | RecoveredAccountsContinueAction
   | ConfirmationAction
   | ImportSeedPhraseSubmitAction
   | BackAction

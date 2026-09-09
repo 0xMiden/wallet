@@ -117,10 +117,8 @@ test.describe('Fullpage UI', () => {
     await expect(page.getByRole('button', { name: /open wallet/i })).toBeVisible({ timeout: 30000 });
   });
 
-  test('onboarding import flow completes and hands off to the side panel', async ({
-    extensionContext,
-    extensionId
-  }) => {
+  test('onboarding import provisions a wallet on the mock network', async ({ extensionContext, extensionId }) => {
+    test.setTimeout(90_000);
     const fullpageUrl = `chrome-extension://${extensionId}/fullpage.html`;
     const page = await extensionContext.newPage();
 
@@ -150,23 +148,29 @@ test.describe('Fullpage UI', () => {
     await page.locator('input[placeholder="Enter password again"]').first().fill('Password123!');
     await page.getByRole('button', { name: /continue/i }).click();
 
-    // Import-recovery-method step — pick "Import public account".
+    // This fixture has no Guardian account, so continue with public-account recovery only.
     await page.getByTestId('import-recovery-method').waitFor({ timeout: 15000 });
-    await page.getByText(/import public account/i).click();
-    await page.getByRole('button', { name: /continue/i }).click();
+    await page.getByTestId('recovery-method-skip-guardian').click();
 
     // Confirmation: the "Your Wallet is ready" heading is split by <Trans>, so
     // assert the container testid instead of the text.
     await expect(page.getByTestId('onboarding-confirmation')).toBeVisible({ timeout: 30000 });
 
-    // Complete onboarding. Recovery now hands off to the Chrome side panel just
-    // like first-run create (#428): the wallet becomes Ready in the background and
-    // the "Open wallet" handoff screen appears (rather than the classic in-tab
-    // Explore page). The in-tab path still applies to non-extension / E2E builds
-    // and is covered by the Welcome/ForgotPassword unit tests.
+    // The mock client has no chain history to recover, so registration creates
+    // the public fallback account. Wait for the confirmation route to leave —
+    // that only happens after registration finishes — then verify the account
+    // through the wallet's Receive surface.
     await page.getByTestId('onboarding-confirmation-submit').click();
-    await expect(page.getByText(/your wallet is ready/i)).toBeVisible({ timeout: 30000 });
-    await expect(page.getByRole('button', { name: /open wallet/i })).toBeVisible({ timeout: 30000 });
+    await page.waitForURL(url => !url.hash.includes('confirmation'), { timeout: 60_000 });
+    const recoveredAccounts = page.getByTestId('recovered-accounts');
+    if (await recoveredAccounts.isVisible()) {
+      await page.getByTestId('recovered-accounts-continue').click();
+    }
+
+    await page.goto(`${fullpageUrl}#/receive`, { waitUntil: 'domcontentloaded' });
+    const address = page.getByTestId('receive-address-full');
+    await address.waitFor({ state: 'attached', timeout: 30_000 });
+    await expect(address).not.toHaveText('');
   });
 
   test('import seed phrase enforces valid words before continue', async ({ extensionContext, extensionId }) => {

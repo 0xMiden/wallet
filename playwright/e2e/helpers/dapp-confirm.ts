@@ -130,17 +130,17 @@ export async function clickConfirmAction(popup: Page, testId: string, timeoutMs 
 }
 
 /**
- * Runs the wallet's real seed-import onboarding to the "Open wallet" handoff,
- * which is gated on the store reaching Ready — i.e. on the vault being created
- * and unlocked in the service worker. That unlocked vault is the precondition
- * for every dApp approval (`withUnlocked` in `dapp.ts`), so specs must not skip
- * it. Mirrors `playwright/tests/popup-smoke.spec.ts`.
+ * Runs the wallet's real seed-import onboarding until registration has left the
+ * confirmation route. The PR smoke build deliberately does not include the
+ * E2E-only URL bypass, so this helper must keep exercising the user-visible
+ * flow. An unlocked vault is the precondition for every dApp approval
+ * (`withUnlocked` in `dapp.ts`).
  *
  * Every navigation, fill and click carries an explicit timeout — see
  * {@link ACTION_TIMEOUT}. A wedged step must name itself, not silently consume
  * the caller's whole budget.
  */
-export async function completeSeedImportOnboarding(page: Page, fullpageUrl: string, timeoutMs = 30_000): Promise<void> {
+export async function completeWalletOnboarding(page: Page, fullpageUrl: string, timeoutMs = 30_000): Promise<void> {
   await page.goto(fullpageUrl, { waitUntil: 'domcontentloaded', timeout: timeoutMs });
 
   await page.getByTestId('onboarding-welcome').waitFor({ timeout: timeoutMs });
@@ -163,15 +163,19 @@ export async function completeSeedImportOnboarding(page: Page, fullpageUrl: stri
   await page.getByRole('button', { name: /continue/i }).click({ timeout: ACTION_TIMEOUT });
 
   await page.getByTestId('import-recovery-method').waitFor({ timeout: timeoutMs });
-  await page.getByText(/import public account/i).click({ timeout: ACTION_TIMEOUT });
-  await page.getByRole('button', { name: /continue/i }).click({ timeout: ACTION_TIMEOUT });
+  await page.getByTestId('recovery-method-skip-guardian').click({ timeout: ACTION_TIMEOUT });
 
   await page.getByTestId('onboarding-confirmation').waitFor({ timeout: timeoutMs });
   await page.getByTestId('onboarding-confirmation-submit').click({ timeout: ACTION_TIMEOUT });
 
-  // "Open wallet" only renders once the store is Ready — deliberately NOT
-  // clicked: it hands off to the Chrome side panel and closes this tab.
-  await page.getByRole('button', { name: /open wallet/i }).waitFor({ state: 'visible', timeout: timeoutMs });
+  // Registration is complete before this route changes. Multi-account recovery
+  // may pause on its overview; acknowledge it when present. Other extension
+  // configurations can land on the side-panel handoff or directly at home.
+  await page.waitForURL(url => !url.hash.includes('confirmation'), { timeout: timeoutMs });
+  const recoveredAccounts = page.getByTestId('recovered-accounts');
+  if (await recoveredAccounts.isVisible()) {
+    await page.getByTestId('recovered-accounts-continue').click({ timeout: ACTION_TIMEOUT });
+  }
 }
 
 /**

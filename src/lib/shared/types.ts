@@ -31,6 +31,8 @@ export enum WalletMessageType {
   LockResponse = 'LOCK_RESPONSE',
   CreateAccountRequest = 'CREATE_ACCOUNT_REQUEST',
   CreateAccountResponse = 'CREATE_ACCOUNT_RESPONSE',
+  ScanForAccountsRequest = 'SCAN_FOR_ACCOUNTS_REQUEST',
+  ScanForAccountsResponse = 'SCAN_FOR_ACCOUNTS_RESPONSE',
   UpdateCurrentAccountRequest = 'UPDATE_CURRENT_ACCOUNT_REQUEST',
   UpdateCurrentAccountResponse = 'UPDATE_CURRENT_ACCOUNT_RESPONSE',
   RevealPublicKeyRequest = 'REVEAL_PUBLIC_KEY_REQUEST',
@@ -475,13 +477,14 @@ export interface WalletAccount {
    */
   authScheme?: AuthScheme;
   /**
-   * Wallet-derived EVM address (BIP-44 m/44'/60'/0'/0/{hdIndex}), used as the
-   * Epoch lending position owner. Stamped at account creation and backfilled
-   * on unlock. Absent on imported accounts (hdIndex -1) and on records written
-   * before this field existed (until the unlock backfill runs). Public data —
-   * the matching private key lives AES-GCM-encrypted under the vault key at
+   * Wallet-wide EVM address, mirrored onto every Miden account for frontend
+   * account selection and used as the Epoch lending position owner. Existing
+   * wallets retain the EVM identity originally derived for their first Miden
+   * account; later accounts reuse it. Public data — the single matching private
+   * key lives AES-GCM-encrypted under the vault key at
    * `accevmsecretkey_<address>` and is only ever decrypted transiently per
-   * signing operation.
+   * signing operation. Absent only when a keyless encrypted-file import
+   * supplied no mnemonic.
    */
   evmAddress?: string;
 }
@@ -546,10 +549,31 @@ export interface CreateAccountRequest extends WalletMessageBase {
   type: WalletMessageType.CreateAccountRequest;
   walletType: WalletType;
   name?: string;
+  // Guardian operator endpoint chosen in the add-account flow's Choose-Guardian
+  // step. Only meaningful for WalletType.Guardian; when absent the vault binds
+  // to an existing Guardian sibling's endpoint (or the network default).
+  guardianEndpoint?: string;
 }
 
 export interface CreateAccountResponse extends WalletMessageBase {
   type: WalletMessageType.CreateAccountResponse;
+}
+
+export interface ScanForAccountsRequest extends WalletMessageBase {
+  type: WalletMessageType.ScanForAccountsRequest;
+  // How many additional HD indices to examine past the current scan frontier,
+  // per scannable type (public always; guardian when an endpoint resolves).
+  additionalCount: number;
+  // Optional guardian operator to scan against; when absent the vault sources
+  // the endpoint from an existing Guardian sibling account.
+  guardianEndpoint?: string;
+}
+
+export interface ScanForAccountsResponse extends WalletMessageBase {
+  type: WalletMessageType.ScanForAccountsResponse;
+  // Newly discovered accounts only — the full list arrives via the
+  // accountsUpdated broadcast / GetState.
+  found: WalletAccount[];
 }
 
 export interface UpdateCurrentAccountRequest extends WalletMessageBase {
@@ -1045,6 +1069,7 @@ export type WalletRequest =
   | UnlockRequest
   | LockRequest
   | CreateAccountRequest
+  | ScanForAccountsRequest
   | UpdateCurrentAccountRequest
   | RevealPublicKeyRequest
   | RevealViewKeyRequest
@@ -1110,6 +1135,7 @@ export type WalletResponse =
   | UnlockResponse
   | LockResponse
   | CreateAccountResponse
+  | ScanForAccountsResponse
   | UpdateCurrentAccountResponse
   | RevealPublicKeyResponse
   | RevealViewKeyResponse

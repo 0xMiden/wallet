@@ -21,6 +21,7 @@ import {
   getAllDAppSessions,
   getCurrentAccount,
   createHDAccount,
+  scanForAccounts,
   processDApp,
   init,
   isDAppEnabled,
@@ -45,6 +46,7 @@ const mockVault = {
   setCurrentAccount: jest.fn(),
   isOwnMnemonic: jest.fn(),
   createHDAccount: jest.fn(),
+  scanForMoreAccounts: jest.fn(),
   editAccountName: jest.fn(),
   updateSettings: jest.fn(),
   signTransaction: jest.fn(),
@@ -669,7 +671,7 @@ describe('actions', () => {
 
       await createHDAccount(WalletType.OnChain);
 
-      expect(mockVault.createHDAccount).toHaveBeenCalledWith(WalletType.OnChain, undefined);
+      expect(mockVault.createHDAccount).toHaveBeenCalledWith(WalletType.OnChain, undefined, undefined);
       expect(mockAccountsUpdated).toHaveBeenCalledWith({ accounts });
     });
 
@@ -679,7 +681,7 @@ describe('actions', () => {
 
       await createHDAccount(WalletType.OnChain, '  MyWallet  ');
 
-      expect(mockVault.createHDAccount).toHaveBeenCalledWith(WalletType.OnChain, 'MyWallet');
+      expect(mockVault.createHDAccount).toHaveBeenCalledWith(WalletType.OnChain, 'MyWallet', undefined);
       expect(mockAccountsUpdated).toHaveBeenCalledWith({ accounts });
     });
 
@@ -687,6 +689,38 @@ describe('actions', () => {
       const longName = 'a'.repeat(17);
 
       await expect(createHDAccount(WalletType.OnChain, longName)).rejects.toThrow('Invalid name');
+    });
+  });
+
+  describe('scanForAccounts', () => {
+    it('scans for more accounts, broadcasts the appended list, and returns what it found', async () => {
+      const found = [{ publicKey: 'pk2', name: 'Account 2' }];
+      const accounts = [{ publicKey: 'pk1', name: 'Account 1' }, ...found];
+      mockVault.scanForMoreAccounts.mockResolvedValueOnce({ found, accounts });
+
+      const result = await scanForAccounts(5, 'https://guardian.example');
+
+      expect(mockVault.scanForMoreAccounts).toHaveBeenCalledWith(5, 'https://guardian.example');
+      expect(mockAccountsUpdated).toHaveBeenCalledWith({ accounts });
+      expect(result).toEqual(found);
+    });
+
+    it('passes an undefined guardian endpoint through when none is given', async () => {
+      mockVault.scanForMoreAccounts.mockResolvedValueOnce({ found: [], accounts: [] });
+
+      await scanForAccounts(3);
+
+      expect(mockVault.scanForMoreAccounts).toHaveBeenCalledWith(3, undefined);
+    });
+
+    it('does not broadcast accountsUpdated when the scan found nothing', async () => {
+      const accounts = [{ publicKey: 'pk1', name: 'Account 1' }];
+      mockVault.scanForMoreAccounts.mockResolvedValueOnce({ found: [], accounts });
+
+      const result = await scanForAccounts(5);
+
+      expect(mockAccountsUpdated).not.toHaveBeenCalled();
+      expect(result).toEqual([]);
     });
   });
 

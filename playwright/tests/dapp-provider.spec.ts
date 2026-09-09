@@ -4,7 +4,7 @@ import {
   CONFIRM_TESTID,
   FIXTURE_DAPP_ORIGIN,
   clickConfirmAction,
-  completeSeedImportOnboarding,
+  completeWalletOnboarding,
   loadMidenSdk,
   openFixtureDapp,
   readQueuedTransactions,
@@ -207,9 +207,8 @@ test.describe('dApp provider', () => {
    * wait below, otherwise a stuck step reports a bare "Test timeout" instead of
    * the wait's own diagnostic, which is the whole point of bounding them:
    *
-   *   onboarding                380s  (see `completeSeedImportOnboarding`:
-   *                                    goto 30 + 5 screen waits at 30
-   *                                    + 14 fills and 6 clicks at 10)
+   *   onboarding                100s  (see `completeWalletOnboarding`:
+   *                                    goto 30 + 2 waits at 30 + click 10)
    *   readWalletAddress          40s  (goto 20 + attached 20)
    *   openFixtureDapp            60s  (goto 30 + provider injection 30)
    *   connect popup + form       35s  (20 + 15)
@@ -220,7 +219,7 @@ test.describe('dApp provider', () => {
    *   approve click              15s
    *   queued-row poll            20s
    *                            -----
-   *                             660s
+   *                             380s
    *
    * Playwright's `actionTimeout`/`navigationTimeout` both default to 0 (no
    * limit) and this config sets neither, so the helper bounds each of its own
@@ -234,7 +233,7 @@ test.describe('dApp provider', () => {
 
     const fullpageUrl = `chrome-extension://${extensionId}/fullpage.html`;
     const walletPage = await extensionContext.newPage();
-    await completeSeedImportOnboarding(walletPage, fullpageUrl);
+    await completeWalletOnboarding(walletPage, fullpageUrl);
 
     const walletAddress = await readWalletAddress(walletPage, fullpageUrl, 20_000);
     const dapp = await openFixtureDapp(extensionContext);
@@ -367,7 +366,7 @@ test.describe('dApp provider', () => {
 
     const fullpageUrl = `chrome-extension://${extensionId}/fullpage.html`;
     const walletPage = await extensionContext.newPage();
-    await completeSeedImportOnboarding(walletPage, fullpageUrl);
+    await completeWalletOnboarding(walletPage, fullpageUrl);
 
     // Ground truth for every address this test compares. Without it the three
     // address comparisons below would each be `provider.address` against

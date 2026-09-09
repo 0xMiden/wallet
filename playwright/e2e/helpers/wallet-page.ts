@@ -993,7 +993,8 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
       .waitFor({ timeout: 30_000 });
     await this.page.getByTestId('recovery-method-continue').click();
 
-    // Confirmation: submit runs register() (isImport=true, walletType=Guardian).
+    // Confirmation: submit runs register() (isImport=true; the scan restores
+    // public AND guardian accounts in one pass).
     await this.page.getByTestId('onboarding-confirmation').waitFor({ timeout: 30_000 });
     await this.page.getByTestId('onboarding-confirmation-submit').click();
 

@@ -325,14 +325,14 @@ test.describe('Forgot password — destructive in-place reset', () => {
         // negative substring check would also pass on '', 'undefined', and on
         // `DEFAULT_ERROR_MESSAGE` ('Unexpected error occured'), i.e. on every
         // degradation short of a literal stringified object. The text is
-        // `miden-client-interface.ts`'s own, thrown when the HD scan hits
-        // RECOVERY_GAP_LIMIT with nothing found — exactly what this mnemonic
-        // produces. A different message here means a different failure happened
-        // and the test is not testing what it claims.
+        // `Vault.spawn`'s combined public + Guardian recovery miss, thrown when
+        // the HD scan hits RECOVERY_GAP_LIMIT with nothing found — exactly what
+        // this mnemonic produces. A different message here means a different
+        // failure happened and the test is not testing what it claims.
         expect(
           reason,
           'after an irreversible wipe the screen must name the failure — this text is all the user gets'
-        ).toContain('No Guardian accounts found');
+        ).toContain('No accounts were found for this seed phrase');
       },
       { screenshotWallets: [{ target: walletA.page, label: 'A' }] }
     );

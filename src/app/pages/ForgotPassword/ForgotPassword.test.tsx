@@ -47,10 +47,18 @@ jest.mock('screens/onboarding/navigator', () => ({
   }
 }));
 
+const mockScanForAccounts = jest.fn<Promise<unknown[]>, unknown[]>();
 jest.mock('lib/miden/front', () => ({
   useMidenContext: () => ({
-    registerWallet: mockRegisterWallet
+    registerWallet: mockRegisterWallet,
+    scanForAccounts: (...args: unknown[]) => mockScanForAccounts(...args)
   })
+}));
+
+// Accounts list the recovered-accounts overview renders (store re-syncs after every scan).
+const mockStoreAccounts = [{ publicKey: 'mtst1recovered' }];
+jest.mock('lib/store', () => ({
+  useWalletStore: (selector: (s: { accounts: unknown[] }) => unknown) => selector({ accounts: mockStoreAccounts })
 }));
 
 jest.mock('lib/miden/reset', () => ({
@@ -373,9 +381,9 @@ describe('ForgotPassword', () => {
     await dispatch({ id: 'create-password-submit', payload: { password: 'pw2' } });
     await dispatch({ id: 'confirmation' });
 
-    // No probe result was set for this test, so detection yields undefined and
-    // the endpoint threaded into registerWallet is undefined (backend then falls
-    // back to the stored / default endpoint).
+    // The recovery-method step was never submitted, so no endpoint is threaded
+    // (the backend then runs its best-effort guardian scan against the stored /
+    // default endpoint) and the fresh-wallet fallback type stays Guardian.
     expect(mockRegisterWallet).toHaveBeenCalledWith(WalletType.Guardian, 'pw2', 'fmt:seed words here', true, undefined);
   });
 
@@ -393,19 +401,19 @@ describe('ForgotPassword', () => {
     expect(flow(container).getAttribute('data-step')).toBe(OnboardingStep.ImportSelectRecoveryMethod);
   });
 
-  it('Import flow: a non-guardian recovery registers that wallet type with NO endpoint', async () => {
+  it('Import flow: skipping the guardian step threads NO endpoint and falls back to a public wallet type', async () => {
     mockProbeStart.mockResolvedValue(PROBED_RESULT);
 
     renderPage();
     await dispatch({ id: 'select-import-type' });
     await dispatch({ id: 'import-seed-phrase-submit', payload: 'seed words here' });
     await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
-    await dispatch({ id: 'import-select-recovery-method', payload: { walletType: WalletType.OnChain } });
+    await dispatch({ id: 'import-select-recovery-method', payload: {} });
     await dispatch({ id: 'confirmation' });
 
-    // The selected type reaches Vault.spawn, which derives from that namespace and
-    // skips the Guardian lookup entirely. A detected guardian endpoint must NOT be
-    // bound to a non-guardian recovery.
+    // "Skip" is an explicit "I have no guardian": the background probe's winner
+    // must NOT be silently adopted, and a zero-found restore creates a public
+    // wallet rather than a guardian-backed one.
     expect(mockRegisterWallet).toHaveBeenCalledWith(WalletType.OnChain, 'pw', 'fmt:seed words here', true, undefined);
   });
 
@@ -418,7 +426,7 @@ describe('ForgotPassword', () => {
     await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
     await dispatch({
       id: 'import-select-recovery-method',
-      payload: { walletType: WalletType.Guardian, guardianEndpoint: 'https://chosen.example.com' }
+      payload: { guardianEndpoint: 'https://chosen.example.com' }
     });
     await dispatch({ id: 'confirmation' });
 
@@ -440,7 +448,7 @@ describe('ForgotPassword', () => {
     expect(flow(container).getAttribute('data-step')).toBe(OnboardingStep.Confirmation);
   });
 
-  it('confirmation (Import flow): threads the probed guardian endpoint into registerWallet', async () => {
+  it('confirmation (Import flow): the probe only prefills the recovery-method step, never registerWallet', async () => {
     mockProbeStart.mockResolvedValue(PROBED_RESULT);
 
     renderPage();
@@ -450,23 +458,130 @@ describe('ForgotPassword', () => {
     await dispatch({ id: 'confirmation' });
 
     expect(mockProbeStart).toHaveBeenCalledWith(['seed', 'words', 'here']);
-    // Stage 1 of #408: the detected endpoint is threaded explicitly into
-    // registerWallet rather than written to the global GUARDIAN_URL_STORAGE_KEY.
+    // Stage 1 of #408: nothing is written to the global GUARDIAN_URL_STORAGE_KEY.
     expect(mockPutToStorage).not.toHaveBeenCalled();
-    expect(mockRegisterWallet).toHaveBeenCalledWith(
-      WalletType.Guardian,
-      'pw',
-      'fmt:seed words here',
-      true,
-      'https://probed.example.com'
-    );
+    // The submitted recovery-method payload is the single source of truth: with
+    // no submission there is no silent probe-result fallback.
+    expect(mockRegisterWallet).toHaveBeenCalledWith(WalletType.Guardian, 'pw', 'fmt:seed words here', true, undefined);
 
-    // clearClientStorage still runs before registerWallet. The probe result lives
-    // in memory (a ref), so the wipe can't clobber it — no storage-write ordering
-    // constraint is needed anymore.
+    // clearClientStorage still runs before registerWallet.
     const clearedAt = mockClearClientStorage.mock.invocationCallOrder[0]!;
     const registeredAt = mockRegisterWallet.mock.invocationCallOrder[0]!;
     expect(clearedAt).toBeLessThan(registeredAt);
+  });
+
+  // -------------------------------------------------------------------------
+  // Recovered-accounts overview (post-registration import step)
+  // -------------------------------------------------------------------------
+  async function importToConfirmation(endpoint?: string) {
+    const utils = renderPage();
+    await dispatch({ id: 'select-import-type' });
+    await dispatch({ id: 'import-seed-phrase-submit', payload: 'seed words here' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    await dispatch({ id: 'import-select-recovery-method', payload: { guardianEndpoint: endpoint } });
+    return utils;
+  }
+
+  it('Import flow: a successful restore pauses on the recovered-accounts overview instead of entering', async () => {
+    const { container } = await importToConfirmation('https://chosen.example.com');
+    await dispatch({ id: 'confirmation' });
+
+    expect(mockNavigate).not.toHaveBeenCalled();
+    expect(flow(container).getAttribute('data-step')).toBe(OnboardingStep.RecoveredAccounts);
+    expect(captured.props?.recoveredAccounts).toBe(mockStoreAccounts);
+    expect(captured.props?.isScanning).toBe(false);
+    expect(captured.props?.scanError).toBeNull();
+    expect(captured.props?.lastScanFoundNone).toBe(false);
+  });
+
+  it('Create (reset) flow: a successful registration still enters the wallet directly', async () => {
+    renderPage();
+    await dispatch({ id: 'create-wallet' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'secret' } });
+    await dispatch({ id: 'confirmation' });
+    expect(mockNavigate).toHaveBeenCalledWith('/');
+  });
+
+  it('scan-more-accounts forwards the count and chosen endpoint and reports a found-none scan', async () => {
+    mockScanForAccounts.mockResolvedValue([]);
+    await importToConfirmation('https://chosen.example.com');
+    await dispatch({ id: 'confirmation' });
+
+    await dispatch({ id: 'scan-more-accounts', payload: { count: 5 } });
+    expect(mockScanForAccounts).toHaveBeenCalledWith(5, 'https://chosen.example.com');
+    expect(captured.props?.lastScanFoundNone).toBe(true);
+    expect(captured.props?.isScanning).toBe(false);
+    expect(captured.props?.scanError).toBeNull();
+  });
+
+  it('scan-more-accounts clears the found-none flag once accounts turn up', async () => {
+    mockScanForAccounts.mockResolvedValueOnce([]).mockResolvedValueOnce([{ publicKey: 'mtst1new' }]);
+    await importToConfirmation();
+    await dispatch({ id: 'confirmation' });
+
+    await dispatch({ id: 'scan-more-accounts', payload: { count: 5 } });
+    expect(captured.props?.lastScanFoundNone).toBe(true);
+    await dispatch({ id: 'scan-more-accounts', payload: { count: 5 } });
+    expect(mockScanForAccounts).toHaveBeenLastCalledWith(5, undefined);
+    expect(captured.props?.lastScanFoundNone).toBe(false);
+  });
+
+  it('scan-more-accounts surfaces an Error message and a stringified non-Error', async () => {
+    mockScanForAccounts.mockRejectedValueOnce(new Error('node unreachable')).mockRejectedValueOnce('nope');
+    await importToConfirmation('https://chosen.example.com');
+    await dispatch({ id: 'confirmation' });
+
+    await dispatch({ id: 'scan-more-accounts', payload: { count: 5 } });
+    expect(captured.props?.scanError).toBe('node unreachable');
+    expect(captured.props?.isScanning).toBe(false);
+
+    await dispatch({ id: 'scan-more-accounts', payload: { count: 5 } });
+    expect(captured.props?.scanError).toBe('nope');
+  });
+
+  it('marks the overview as scanning while a scan is pending', async () => {
+    let release!: (found: unknown[]) => void;
+    mockScanForAccounts.mockImplementation(
+      () =>
+        new Promise<unknown[]>(res => {
+          release = res;
+        })
+    );
+    await importToConfirmation('https://chosen.example.com');
+    await dispatch({ id: 'confirmation' });
+
+    await act(async () => {
+      captured.onAction!({ id: 'scan-more-accounts', payload: { count: 5 } });
+    });
+    expect(captured.props?.isScanning).toBe(true);
+
+    await act(async () => {
+      release([]);
+    });
+    expect(captured.props?.isScanning).toBe(false);
+  });
+
+  it('recovered-accounts-continue enters the wallet via the post-onboarding route', async () => {
+    mockPostOnboardingRoute.mockReturnValue('/finish-side-panel');
+    await importToConfirmation('https://chosen.example.com');
+    await dispatch({ id: 'confirmation' });
+    expect(mockNavigate).not.toHaveBeenCalled();
+
+    await dispatch({ id: 'recovered-accounts-continue' });
+    expect(mockNavigate).toHaveBeenCalledWith('/finish-side-panel');
+  });
+
+  it('mobile back on the recovered-accounts overview is consumed without leaving', async () => {
+    const { container } = await importToConfirmation('https://chosen.example.com');
+    await dispatch({ id: 'confirmation' });
+
+    let result!: boolean | void;
+    await act(async () => {
+      result = captured.backHandler!();
+    });
+    expect(result).toBe(true);
+    expect(mockNavigate).not.toHaveBeenCalled();
+    expect(flow(container).getAttribute('data-step')).toBe(OnboardingStep.RecoveredAccounts);
   });
 
   it('confirmation (Create flow after an abandoned import): never adopts the abandoned probe', async () => {
