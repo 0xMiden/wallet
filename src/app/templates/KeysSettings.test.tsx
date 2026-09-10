@@ -53,7 +53,7 @@ jest.mock('lib/mobile/haptics', () => ({
 // Store: KeysSettings calls `useWalletStore(selector)` once per derived value,
 // so the mock simply applies each selector to a per-test `mockState`.
 const mockState: {
-  currentAccount: { type?: WalletType; hotPublicKey?: string } | undefined;
+  currentAccount: { type?: WalletType; hotPublicKey?: string; coldPublicKey?: string } | undefined;
   seedPhraseStatus?: SeedPhraseStatus;
 } = {
   currentAccount: undefined
@@ -79,7 +79,7 @@ describe('KeysSettings — row visibility', () => {
     'hides private key reveal with seed status %s and keeps Guardian actions',
     status => {
       mockState.seedPhraseStatus = status;
-      mockState.currentAccount = { type: WalletType.Guardian, hotPublicKey: 'hot-key' };
+      mockState.currentAccount = { type: WalletType.Guardian, hotPublicKey: 'hot-key', coldPublicKey: 'cold-key' };
       render(<KeysSettings />);
 
       expect(screen.queryByText('revealPrivateKey')).not.toBeInTheDocument();
@@ -111,7 +111,7 @@ describe('KeysSettings — row visibility', () => {
   });
 
   it('renders all three rows plus the guardian section for a guardian with an activated hot key', () => {
-    mockState.currentAccount = { type: WalletType.Guardian, hotPublicKey: 'hot_pk_1' };
+    mockState.currentAccount = { type: WalletType.Guardian, hotPublicKey: 'hot_pk_1', coldPublicKey: 'cold_pk_1' };
 
     render(<KeysSettings />);
 
@@ -130,7 +130,7 @@ describe('KeysSettings — row visibility', () => {
   });
 
   it('hides the reveal-hot-key row for a guardian without an activated hot key but keeps rotate-guardian and the guardian section', () => {
-    mockState.currentAccount = { type: WalletType.Guardian };
+    mockState.currentAccount = { type: WalletType.Guardian, coldPublicKey: 'cold_pk_1' };
 
     render(<KeysSettings />);
 
@@ -142,6 +142,31 @@ describe('KeysSettings — row visibility', () => {
 
     expect(screen.getByTestId('guardian-replace-hot-key')).toBeInTheDocument();
     expect(screen.getAllByRole('button')).toHaveLength(2);
+  });
+
+  // Hot-key-only import: a Guardian account with no coldPublicKey. Everyday
+  // key management stays; the cold-signed recovery actions (rotate guardian,
+  // replace hot key) hide, replaced by a one-line explanation — offering them
+  // would dead-end in a seed prompt that must reject (hdIndex is -1).
+  it('hides the recovery actions and explains why for a guardian without a cold key', () => {
+    mockState.seedPhraseStatus = 'unavailable';
+    mockState.currentAccount = { type: WalletType.Guardian, hotPublicKey: 'hot_pk_1' };
+
+    render(<KeysSettings />);
+
+    expect(screen.getByText('revealHotKey')).toBeInTheDocument();
+    expect(screen.queryByText('rotateGuardian')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('guardian-replace-hot-key')).not.toBeInTheDocument();
+    expect(document.querySelector('hr')).toBeNull();
+    expect(screen.getByText('recoveryActionsRequireRecoveryKey')).toBeInTheDocument();
+  });
+
+  it('shows no cold-key explanation for a guardian that has one', () => {
+    mockState.currentAccount = { type: WalletType.Guardian, hotPublicKey: 'hot_pk_1', coldPublicKey: 'cold_pk_1' };
+
+    render(<KeysSettings />);
+
+    expect(screen.queryByText('recoveryActionsRequireRecoveryKey')).not.toBeInTheDocument();
   });
 
   it('does not reveal the hot-key row for a non-guardian even when a hot public key is present', () => {
@@ -189,7 +214,7 @@ describe('KeysSettings — openPage', () => {
   });
 
   it('navigates to each guardian row path with its own target', () => {
-    mockState.currentAccount = { type: WalletType.Guardian, hotPublicKey: 'hot_pk_1' };
+    mockState.currentAccount = { type: WalletType.Guardian, hotPublicKey: 'hot_pk_1', coldPublicKey: 'cold_pk_1' };
 
     render(<KeysSettings />);
 

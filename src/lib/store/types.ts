@@ -135,6 +135,11 @@ export interface WalletActions {
     ownMnemonic: boolean,
     guardianEndpoint?: string
   ) => Promise<void>;
+  registerWalletFromHotKey: (
+    password: string | undefined,
+    hotKeyHex: string,
+    guardianEndpoint?: string
+  ) => Promise<void>;
   importWalletFromClient: (
     password: string | undefined,
     mnemonic: string,

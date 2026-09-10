@@ -526,3 +526,29 @@ describe('ImportRecoveryMethodScreen — guardian auto-detection', () => {
     expect(onSubmit).toHaveBeenCalledWith({ walletType: WalletType.OnChain });
   });
 });
+
+describe('guardianOnly (hot-key import)', () => {
+  it('hides the public-account option and keeps Guardian selected', () => {
+    renderScreen({ guardianOnly: true });
+
+    expect(screen.getByText('importViaGuardian')).toBeInTheDocument();
+    expect(screen.queryByText('importPublicAccount')).not.toBeInTheDocument();
+  });
+
+  it('submits a Guardian payload with the picked endpoint', () => {
+    const { onSubmit } = renderScreen({ guardianOnly: true });
+
+    fireEvent.click(continueButton());
+
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({ walletType: WalletType.Guardian, guardianEndpoint: expect.any(String) })
+    );
+  });
+
+  it('still renders both options without the flag', () => {
+    renderScreen();
+
+    expect(screen.getByText('importViaGuardian')).toBeInTheDocument();
+    expect(screen.getByText('importPublicAccount')).toBeInTheDocument();
+  });
+});

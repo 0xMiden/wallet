@@ -35,6 +35,7 @@ export enum OnboardingStep {
   BackupSeedPhrase = 'backup-seed-phrase',
   VerifySeedPhrase = 'verify-seed-phrase',
   ImportFromSeed = 'import-from-seed',
+  ImportFromKey = 'import-from-key',
   CreatePassword = 'create-password',
   BiometricSetup = 'biometric-setup',
   SelectTransactionType = 'select-transaction-type',
@@ -66,7 +67,9 @@ export type OnboardingActionId =
   | 'import-select-recovery-method'
   | 'confirmation'
   | 'retry-guardian-probe'
-  | 'import-from-seed';
+  | 'import-from-seed'
+  | 'import-with-key'
+  | 'import-hot-key-submit';
 
 export type CreateWalletAction = {
   id: 'create-wallet';
@@ -104,6 +107,17 @@ export type SelectImportTypeAction = {
 
 export type ImportFromSeedAction = {
   id: 'import-from-seed';
+};
+
+/** Switch the import flow from seed-phrase entry to hot-key paste. */
+export type ImportWithKeyAction = {
+  id: 'import-with-key';
+};
+
+/** Submit the pasted hot key (normalized hex) from the key-paste screen. */
+export type ImportHotKeySubmitAction = {
+  id: 'import-hot-key-submit';
+  payload: string;
 };
 
 export type BackupSeedPhraseAction = {
@@ -194,6 +208,8 @@ export type OnboardingAction =
   | ImportSeedPhraseSubmitAction
   | BackAction
   | ImportFromSeedAction
+  | ImportWithKeyAction
+  | ImportHotKeySubmitAction
   | RetryGuardianProbeAction
   | SwitchToPasswordAction;
 

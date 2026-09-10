@@ -24,6 +24,12 @@ export interface ImportSeedPhraseScreenProps {
   wordslist: string[];
   isError?: boolean;
   onSubmit?: (seedPhrase: string) => void;
+  /**
+   * When set, renders the "Import with key instead" link below the word grid
+   * (the seed-less Guardian import). Left unset by the non-onboarding hosts
+   * (RecoverySeedPrompt), which renders no link.
+   */
+  onImportWithKey?: () => void;
 }
 
 export const ImportSeedPhraseScreen: React.FC<ImportSeedPhraseScreenProps> = ({
@@ -33,7 +39,8 @@ export const ImportSeedPhraseScreen: React.FC<ImportSeedPhraseScreenProps> = ({
   submitting = false,
   wordslist,
   isError: isErrorProp,
-  onSubmit
+  onSubmit,
+  onImportWithKey
 }) => {
   const { t } = useTranslation();
   const [seedPhrase, setSeedPhrase] = useState<string[]>(Array.from({ length: PHRASE_LENGTH }, () => ''));
@@ -121,6 +128,16 @@ export const ImportSeedPhraseScreen: React.FC<ImportSeedPhraseScreenProps> = ({
             />
           ))}
         </div>
+      )}
+      {onImportWithKey && (
+        <button
+          type="button"
+          data-testid="import-with-key-link"
+          onClick={onImportWithKey}
+          className="mt-4 text-sm text-primary-500 font-medium cursor-pointer"
+        >
+          {t('importWithKeyInstead')}
+        </button>
       )}
       {isError && <p className="text-red-500 text-xs mt-4">{t('importSeedPhraseError')}</p>}
       {isChecksumError && <p className="text-red-500 text-xs mt-4">{t('justValidPreGeneratedMnemonic')}</p>}

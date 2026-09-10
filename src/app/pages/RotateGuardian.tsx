@@ -8,12 +8,17 @@ import PageLayout from 'app/layouts/PageLayout';
 import { NavigationHeader } from 'components/NavigationHeader';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { sanitizeGuardianUrl } from 'lib/settings/helpers';
-import { navigate } from 'lib/woozie';
+import { useWalletStore } from 'lib/store';
+import { Redirect, navigate } from 'lib/woozie';
 import { ChooseGuardianScreen } from 'screens/onboarding/common/ChooseGuardian';
 
 const RotateGuardian: FC = () => {
   const { t } = useTranslation();
   const { endpoint: currentEndpoint } = useCurrentGuardianEndpoint();
+  // A guardian switch is cold-signed; a hot-key-only import has no cold key
+  // and no seed to re-derive one, so direct navigation here would dead-end in
+  // a seed prompt that must reject. Keys Settings hides its entry row too.
+  const hasColdKey = useWalletStore(s => Boolean(s.currentAccount?.coldPublicKey));
   const [error, setError] = useState<string | null>(null);
   // Both entry points into the picker are Settings pages (Guardian Settings and
   // Keys), so a cold load belongs back in Settings rather than at the wallet home.
@@ -45,6 +50,10 @@ const RotateGuardian: FC = () => {
     },
     [currentEndpoint, t]
   );
+
+  if (!hasColdKey) {
+    return <Redirect to="/settings" />;
+  }
 
   return (
     <PageLayout hideToolbar>

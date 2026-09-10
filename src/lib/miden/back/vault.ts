@@ -849,6 +849,148 @@ export class Vault {
     });
   }
 
+  /**
+   * Spawn a wallet from a pasted Guardian HOT secret key — the seed-less
+   * import flow. No mnemonic exists or is generated: `mnemonicStrgKey` is
+   * never written, so `fetchSeedPhraseStatus()` reports 'unavailable' and
+   * every seed-derived capability (HD account creation, seed / private-key /
+   * guardian-keys reveals, cold-signed recovery actions) stays gated off by
+   * the existing seed-status checks. Unlike seed recovery the pasted key IS a
+   * working hot key, so the account is immediately signable and
+   * `requiresHotKeyRotation` stays unset — rotation would need the cold key
+   * this wallet does not have.
+   */
+  static async spawnFromHotKey(
+    password: string | undefined,
+    hotKeyHex: string,
+    guardianEndpoint?: string
+  ): Promise<Vault> {
+    return withError('Failed to import wallet from key', async (): Promise<Vault> => {
+      const vaultKeyBytes = Passworder.generateVaultKey();
+      const vaultKey = await Passworder.importVaultKey(vaultKeyBytes);
+
+      // Validate + canonicalize the pasted key BEFORE the storage wipe or any
+      // network work, so a junk paste can never destroy an existing wallet.
+      // Static AuthSecretKey ops only, but taken under the WASM lock like every
+      // other key-material block in the vault.
+      const { deserializeHotSecretKey } = await import('../guardian/hot-key-import');
+      const { hotPublicKey, hotSecretKeyHex } = await withWasmClientLock(async () => {
+        let secretKey: AuthSecretKey;
+        try {
+          secretKey = deserializeHotSecretKey(hotKeyHex);
+        } catch {
+          throw new PublicError(getMessage('importHotKeyInvalid'));
+        }
+        try {
+          // Guardian hot keys are always ECDSA under the 3-key model; a Falcon
+          // blob that happens to deserialize is some other key pasted by mistake.
+          if (detectAuthScheme(secretKey) !== 'ecdsa') {
+            throw new PublicError(getMessage('importHotKeyWrongScheme'));
+          }
+          const publicKey = secretKey.publicKey();
+          try {
+            return {
+              hotPublicKey: Buffer.from(publicKey.serialize().slice(1)).toString('hex'),
+              hotSecretKeyHex: Buffer.from(secretKey.serialize()).toString('hex')
+            };
+          } finally {
+            publicKey.free();
+          }
+        } finally {
+          secretKey.free();
+        }
+      });
+
+      // Same pre-wipe snapshot + wipe as `spawn` (see the comments there).
+      const legacyGlobalGuardianUrl = await fetchFromStorage<string>(GUARDIAN_URL_STORAGE_KEY);
+      await clearStorage();
+
+      // Same security-model branch as `spawn`: hardware-only when the user
+      // chose biometrics, password otherwise — and fail loudly rather than
+      // encrypt the vault key under an empty string.
+      const useHardwareOnly = !password;
+      const hardwareAvailable = await isHardwareSecurityAvailableForVault();
+      if (useHardwareOnly && hardwareAvailable) {
+        const hardwareSetupSuccess = await setupHardwareProtector(vaultKeyBytes);
+        if (!hardwareSetupSuccess) {
+          throw new PublicError('Hardware security setup failed. Please try again.');
+        }
+      } else {
+        if (!password) {
+          throw new PublicError('Password is required for password-based vault protection');
+        }
+        const passwordProtectedVaultKey = await Passworder.encryptVaultKeyWithPassword(vaultKeyBytes, password);
+        await savePlain(VAULT_KEY_PASSWORD_STORAGE_KEY, passwordProtectedVaultKey);
+      }
+
+      const options: MidenClientCreateOptions = {
+        insertKeyCallback: insertKeyCallbackWrapper(vaultKey)
+      };
+      let midenClient = await getMidenClient(options);
+      // Same re-resolve pattern as `spawn` (#775): the guardian lookup parks on
+      // the network and lock recovery can dispose the singleton meanwhile.
+      const liveClient = async () => {
+        if (midenClient.isDisposed) midenClient = await getMidenClient(options);
+        return midenClient;
+      };
+
+      const resolvedGuardianEndpoint =
+        guardianEndpoint ?? (legacyGlobalGuardianUrl || getEffectiveDefaultGuardianEndpoint());
+      // Runs OUTSIDE the outer WASM lock — the orchestrator locks granularly
+      // per op, and its lookup reasons ("no account for this key", "this is the
+      // recovery key") are the only actionable strings the user has left after
+      // the wipe above, so promote them to PublicError past `withError`.
+      const recovered = await (await liveClient())
+        .recoverGuardianAccountByHotKey(hotSecretKeyHex, resolvedGuardianEndpoint)
+        .catch((err: unknown) => {
+          if (err instanceof PublicError) throw err;
+          throw new PublicError(err instanceof Error ? err.message : String(err));
+        });
+
+      const initialAccounts: WalletAccount[] = recovered.map(
+        (r, idx): WalletAccount => ({
+          publicKey: r.accountId,
+          name: getMessage('defaultAccountName', { accountNumber: String(idx + 1) }),
+          isPublic: false,
+          type: WalletType.Guardian,
+          hdIndex: -1,
+          authScheme: NEW_ACCOUNT_AUTH_SCHEME,
+          hotPublicKey: r.hotPublicKey,
+          guardianEndpoint: resolvedGuardianEndpoint,
+          guardianNoteRecoveryPending: true
+          // Deliberately ABSENT: coldPublicKey (not derivable without the
+          // seed; its absence is the "no recovery capability" marker the UI
+          // gates on), requiresHotKeyRotation (see the method doc), evmAddress
+          // (mnemonic-derived).
+        })
+      );
+
+      await encryptAndSaveMany(
+        [
+          [checkStrgKey, generateCheck()],
+          ...recovered.map(r => [accPubKeyStrgKey(r.accountId), r.accountId] as [string, string]),
+          [accountsStrgKey, initialAccounts]
+        ],
+        vaultKey
+      );
+      // Persist the pasted hot key in the `persistNewHotKey` shape. The plain
+      // serialized-hex blob routes signWord → secureHotKey's JS fallback on
+      // every platform, mobile included — a pasted key cannot be SE/StrongBox
+      // wrapped retroactively.
+      await encryptAndSaveMany(
+        [
+          [accAuthPubKeyStrgKey(hotPublicKey), hotPublicKey],
+          [accAuthSecretKeyStrgKey(hotPublicKey), hotSecretKeyHex]
+        ],
+        vaultKey
+      );
+      await savePlain(currentAccPubKeyStrgKey, initialAccounts[0]!.publicKey);
+      await savePlain(ownMnemonicStrgKey, true);
+
+      return new Vault(vaultKey);
+    });
+  }
+
   static async spawnFromMidenClient(
     password: string,
     mnemonic: string,

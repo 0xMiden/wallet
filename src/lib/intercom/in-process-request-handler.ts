@@ -44,6 +44,10 @@ export async function processInProcessRequest(req: WalletRequest, label: string)
       );
       return { type: WalletMessageType.NewWalletResponse };
 
+    case WalletMessageType.NewWalletFromHotKeyRequest:
+      await Actions.registerWalletFromHotKey(req.password, req.hotKeyHex, req.guardianEndpoint);
+      return { type: WalletMessageType.NewWalletFromHotKeyResponse };
+
     case WalletMessageType.ImportFromClientRequest:
       await Actions.registerImportedWallet(req.password, req.mnemonic, req.walletAccounts);
       return { type: WalletMessageType.ImportFromClientResponse };

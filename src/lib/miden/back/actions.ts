@@ -182,6 +182,26 @@ export function registerNewWallet(
   });
 }
 
+/** Seed-less Guardian import: spawn a wallet from a pasted HOT secret key. */
+export function registerWalletFromHotKey(password?: string, hotKeyHex?: string, guardianEndpoint?: string) {
+  return withInited(async () => {
+    if (!hotKeyHex) throw new PublicError(getMessage('importHotKeyInvalid'));
+    const vault = await Vault.spawnFromHotKey(password, hotKeyHex, guardianEndpoint);
+    const accounts = await vault.fetchAccounts();
+    const settings = await vault.fetchSettings();
+    const currentAccount = await vault.getCurrentAccount();
+    const ownMnemonicFlag = await vault.isOwnMnemonic();
+    unlocked({
+      vault,
+      accounts,
+      settings,
+      currentAccount,
+      ownMnemonic: ownMnemonicFlag,
+      seedPhraseStatus: await vault.fetchSeedPhraseStatus()
+    });
+  });
+}
+
 export function registerImportedWallet(password?: string, mnemonic?: string, walletAccounts: WalletAccount[] = []) {
   return withInited(async () => {
     // Password may be undefined for hardware-only wallets

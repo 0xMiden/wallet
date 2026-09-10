@@ -23,6 +23,8 @@ export enum WalletMessageType {
   GetStateResponse = 'GET_STATE_RESPONSE',
   NewWalletRequest = 'NEW_WALLET_REQUEST',
   NewWalletResponse = 'NEW_WALLET_RESPONSE',
+  NewWalletFromHotKeyRequest = 'NEW_WALLET_FROM_HOT_KEY_REQUEST',
+  NewWalletFromHotKeyResponse = 'NEW_WALLET_FROM_HOT_KEY_RESPONSE',
   ImportFromClientRequest = 'IMPORT_FROM_CLIENT_REQUEST',
   ImportFromClientResponse = 'IMPORT_FROM_CLIENT_RESPONSE',
   UnlockRequest = 'UNLOCK_REQUEST',
@@ -539,6 +541,25 @@ export interface NewWalletRequest extends WalletMessageBase {
 
 export interface NewWalletResponse extends WalletMessageBase {
   type: WalletMessageType.NewWalletResponse;
+}
+
+/**
+ * Seed-less Guardian import: spawn a wallet from a pasted HOT secret key.
+ * The account is looked up at the guardian by the key's commitment and
+ * adopted; no mnemonic is generated, so the wallet's seed status is
+ * 'unavailable' from birth.
+ */
+export interface NewWalletFromHotKeyRequest extends WalletMessageBase {
+  type: WalletMessageType.NewWalletFromHotKeyRequest;
+  password?: string; // Optional for hardware-only wallets (mobile/desktop with Secure Enclave)
+  /** Pasted hot key hex — raw 64-hex scalar or full serialized AuthSecretKey. */
+  hotKeyHex: string;
+  /** Operator picked/probed in onboarding; the network default when absent. */
+  guardianEndpoint?: string;
+}
+
+export interface NewWalletFromHotKeyResponse extends WalletMessageBase {
+  type: WalletMessageType.NewWalletFromHotKeyResponse;
 }
 
 export interface UnlockRequest extends WalletMessageBase {
@@ -1091,6 +1112,7 @@ export type WalletRequest =
   | AcknowledgeRequest
   | GetStateRequest
   | NewWalletRequest
+  | NewWalletFromHotKeyRequest
   | UnlockRequest
   | LockRequest
   | CreateAccountRequest
@@ -1160,6 +1182,7 @@ export type WalletResponse =
   | LoadingResponse
   | GetStateResponse
   | NewWalletResponse
+  | NewWalletFromHotKeyResponse
   | UnlockResponse
   | LockResponse
   | CreateAccountResponse
