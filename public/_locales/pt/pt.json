@@ -1000,5 +1000,6 @@
   "devEndpointResetDefaults": "Redefinir para os padrões",
   "devEndpointResetAndReonboard": "Redefinir para as configurações padrão e realizar a integração novamente",
   "devEndpointsRow": "Terminais de rede",
-  "devEndpointResetConfirm": "Isso apaga definitivamente esta carteira, incluindo suas chaves e seu histórico de transações. Você precisará da sua frase de recuperação para restaurá-la."
+  "devEndpointResetConfirm": "Isso apaga definitivamente esta carteira, incluindo suas chaves e seu histórico de transações. Você precisará da sua frase de recuperação para restaurá-la.",
+  "walletSetupDidNotComplete": "Sua carteira foi criada, mas não concluiu a inicialização. Verifique sua conexão e tente novamente."
 }
