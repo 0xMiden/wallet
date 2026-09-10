@@ -1938,6 +1938,9 @@ export class Vault {
     }
 
     return withError('Failed to reveal private key', async () => {
+      // The private key comes from the seed phrase. Refuse after removal, as the mnemonic reveal does.
+      if ((await new Vault(vaultKey).fetchSeedPhraseStatus()) !== 'stored')
+        throw new PublicError(getMessage('recoverySeedRequired'));
       const secretKeyHex = await fetchAndDecryptOneWithLegacyFallBack<string>(
         accAuthSecretKeyStrgKey(accountPubKeyCommitment),
         vaultKey

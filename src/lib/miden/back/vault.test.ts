@@ -706,6 +706,15 @@ describe('Vault.revealPrivateKey', () => {
     await seedVault('pw');
     await expect(Vault.revealPrivateKey('acc-pub-key-1', 'pw')).rejects.toThrow(PublicError);
   });
+
+  it('rejects with PublicError after the seed phrase is removed, even when the secret key is still stored', async () => {
+    const vault = await seedVault('pw');
+    const vaultKey = (vault as any).vaultKey as CryptoKey;
+    await encryptAndSaveMany([[keys.accAuthSecretKey('acc-pub-key-1'), 'aabbccdd']], vaultKey);
+    await vault.removeSeedPhrase();
+
+    await expect(Vault.revealPrivateKey('acc-pub-key-1', 'pw')).rejects.toThrow(PublicError);
+  });
 });
 
 describe('Vault.revealHotKey', () => {
