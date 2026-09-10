@@ -357,7 +357,7 @@ it('lets a live checking state take priority over an old failed attempt', async 
     await result.current.accept(note);
   });
 
-  mockClaim.checkingNoteIds.add(note.id);
+  mockClaim.checkingNoteIds = new Set([note.id]);
   rerender();
   expect(result.current.items[0]?.status).toBe('checking');
   log.mockRestore();
