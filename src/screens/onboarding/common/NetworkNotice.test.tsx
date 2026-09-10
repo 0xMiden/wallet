@@ -8,11 +8,6 @@ jest.mock('react-i18next', () => ({
   })
 }));
 
-jest.mock('app/icons/v2', () => ({
-  Icon: ({ name }: { name: string }) => <span data-testid="icon" data-name={name} />,
-  IconName: { CloseCircle: 'close-circle', WarningFill: 'warning-fill', Refresh: 'refresh' }
-}));
-
 jest.mock('components/Button', () => ({
   Button: ({ title, onClick, ...rest }: { title: string; onClick?: () => void; 'data-testid'?: string }) => (
     <button type="button" data-testid={rest['data-testid']} onClick={onClick}>

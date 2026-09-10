@@ -3,7 +3,6 @@ import React from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { ReactComponent as BreadLogo } from 'app/icons/brand/new-bread.svg';
-import { Icon, IconName } from 'app/icons/v2';
 import { Button } from 'components/Button';
 import { isDevnet } from 'utils/brand-colors';
 
@@ -12,15 +11,14 @@ export interface NetworkNoticeScreenProps {
 }
 
 interface NoticeRow {
-  icon: IconName;
   titleKey: string;
   bodyKey: string;
 }
 
 const NOTICE_ROWS: NoticeRow[] = [
-  { icon: IconName.CloseCircle, titleKey: 'networkNoticeNoValueTitle', bodyKey: 'networkNoticeNoValueBody' },
-  { icon: IconName.WarningFill, titleKey: 'networkNoticeNoRealFundsTitle', bodyKey: 'networkNoticeNoRealFundsBody' },
-  { icon: IconName.Refresh, titleKey: 'networkNoticeResetTitle', bodyKey: 'networkNoticeResetBody' }
+  { titleKey: 'networkNoticeNoValueTitle', bodyKey: 'networkNoticeNoValueBody' },
+  { titleKey: 'networkNoticeNoRealFundsTitle', bodyKey: 'networkNoticeNoRealFundsBody' },
+  { titleKey: 'networkNoticeResetTitle', bodyKey: 'networkNoticeResetBody' }
 ];
 
 /**
@@ -51,10 +49,7 @@ export const NetworkNoticeScreen: React.FC<NetworkNoticeScreenProps> = ({ onSubm
 
           <ul className="flex flex-col divide-y divide-rule-default mt-6">
             {NOTICE_ROWS.map(row => (
-              <li key={row.titleKey} className="flex items-start gap-3.5 py-4">
-                <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary-orange-lighter text-primary-orange dark:bg-primary-orange-darker">
-                  <Icon name={row.icon} size="sm" fill="currentColor" />
-                </span>
+              <li key={row.titleKey} className="py-4">
                 <span className="flex flex-col gap-1 min-w-0">
                   <span className="text-[15px] font-semibold leading-5 text-text-primary-token">{t(row.titleKey)}</span>
                   <span className="text-sm leading-5 text-text-secondary-token">{t(row.bodyKey)}</span>
