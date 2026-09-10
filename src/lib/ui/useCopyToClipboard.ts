@@ -8,6 +8,7 @@ export default function useCopyToClipboard<T extends HTMLInputElement | HTMLText
   const [copied, setCopied] = useState(false);
 
   const copiedTimeoutRef = useRef<number>();
+  const copyInFlightRef = useRef(false);
   useEffect(() => {
     if (copied) {
       copiedTimeoutRef.current = window.setTimeout(() => {
@@ -25,15 +26,36 @@ export default function useCopyToClipboard<T extends HTMLInputElement | HTMLText
   }, [copied, setCopied, copyDelay]);
 
   const copy = useCallback(() => {
-    if (copied) return;
+    if (copied || copyInFlightRef.current) return;
 
     const textarea = fieldRef.current;
 
     if (textarea) {
       textarea.focus();
       textarea.select();
-      navigator.clipboard.writeText(textarea.value);
-      setCopied(true);
+      copyInFlightRef.current = true;
+      const writeText = navigator.clipboard?.writeText;
+      if (!writeText) {
+        setCopied(false);
+        copyInFlightRef.current = false;
+        return;
+      }
+
+      try {
+        writeText.call(navigator.clipboard, textarea.value).then(
+          () => {
+            setCopied(true);
+            copyInFlightRef.current = false;
+          },
+          () => {
+            setCopied(false);
+            copyInFlightRef.current = false;
+          }
+        );
+      } catch {
+        setCopied(false);
+        copyInFlightRef.current = false;
+      }
     }
   }, [copied, setCopied]);
 
