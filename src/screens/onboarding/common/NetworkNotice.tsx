@@ -4,22 +4,12 @@ import { useTranslation } from 'react-i18next';
 
 import { Button } from 'components/Button';
 import { NetworkChip } from 'components/NetworkChip';
+import { NetworkNoticeRows } from 'components/NetworkNoticeRows';
 import { isDevnet } from 'utils/brand-colors';
 
 export interface NetworkNoticeScreenProps {
   onSubmit?: () => void;
 }
-
-interface NoticeRow {
-  titleKey: string;
-  bodyKey: string;
-}
-
-const NOTICE_ROWS: NoticeRow[] = [
-  { titleKey: 'networkNoticeNoValueTitle', bodyKey: 'networkNoticeNoValueBody' },
-  { titleKey: 'networkNoticeNoRealFundsTitle', bodyKey: 'networkNoticeNoRealFundsBody' },
-  { titleKey: 'networkNoticeResetTitle', bodyKey: 'networkNoticeResetBody' }
-];
 
 /**
  * Onboarding notice shown after the first tap on Welcome, before the user
@@ -42,16 +32,7 @@ export const NetworkNoticeScreen: React.FC<NetworkNoticeScreenProps> = ({ onSubm
           </h1>
           <p className="text-[15px] leading-[147%] text-text-secondary-token mt-3">{t('networkNoticeBody')}</p>
 
-          <ul className="flex flex-col divide-y divide-rule-default mt-6">
-            {NOTICE_ROWS.map(row => (
-              <li key={row.titleKey} className="py-4">
-                <span className="flex flex-col gap-1 min-w-0">
-                  <span className="text-lg font-semibold leading-5 text-text-primary-token">{t(row.titleKey)}</span>
-                  <span className="text-sm leading-5 text-text-secondary-token">{t(row.bodyKey)}</span>
-                </span>
-              </li>
-            ))}
-          </ul>
+          <NetworkNoticeRows className="flex flex-col divide-y divide-rule-default mt-6" />
         </div>
 
         <div className="w-full flex flex-col items-center pb-6 shrink-0">

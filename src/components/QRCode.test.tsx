@@ -184,6 +184,29 @@ describe('QRCode', () => {
     });
   });
 
+  describe('caption (#875)', () => {
+    it('renders the caption under the modules and omits it when absent', () => {
+      const { container, rerender } = render(<QRCode address={ADDRESS} size={200} caption="Miden Testnet" />);
+      const caption = container.querySelector('[data-testid="qr-code-caption"]');
+      expect(caption).toHaveTextContent('Miden Testnet');
+
+      rerender(<QRCode address={ADDRESS} size={200} />);
+      expect(container.querySelector('[data-testid="qr-code-caption"]')).toBeNull();
+    });
+
+    it('falls back to the raw PNG when the realm cannot compose a captioned image', async () => {
+      // jsdom has no createImageBitmap, which is the guard composeCaptionedPng
+      // checks first, so the share still gets the plain QR instead of nothing.
+      const blob = new Blob(['png-bytes'], { type: 'image/png' });
+      mockGetRawData.mockResolvedValue(blob);
+
+      const ref = React.createRef<QRCodeHandle>();
+      render(<QRCode ref={ref} address={ADDRESS} size={200} caption="Miden Testnet" />);
+
+      expect(await ref.current!.getImageBlob()).toBe(blob);
+    });
+  });
+
   describe('imperative handle: getImageBlob', () => {
     it('resolves to the PNG Blob when getRawData yields a Blob', async () => {
       const blob = new Blob(['png-bytes'], { type: 'image/png' });

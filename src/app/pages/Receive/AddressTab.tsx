@@ -68,6 +68,10 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
     openBridgeDeposit();
   }, [evmAddress, evmConnected, evmOpen, openBridgeDeposit]);
 
+  // The shared text names the network (#875) so a pasted address never loses
+  // its context. The QR image carries the same caption (see `caption` below).
+  const shareText = t('shareAddressText', { network, address });
+
   const handleShare = useCallback(async () => {
     hapticLight();
 
@@ -86,9 +90,9 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
             data: await blobToBase64(qrBlob),
             directory: Directory.Cache
           });
-          await Share.share({ text: address, files: [uri], dialogTitle: t('receive') });
+          await Share.share({ text: shareText, files: [uri], dialogTitle: t('receive') });
         } else {
-          await Share.share({ text: address, dialogTitle: t('receive') });
+          await Share.share({ text: shareText, dialogTitle: t('receive') });
         }
         return;
       }
@@ -96,18 +100,18 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
         if (qrBlob && typeof navigator.canShare === 'function') {
           const file = new File([qrBlob], QR_FILE_NAME, { type: 'image/png' });
           if (navigator.canShare({ files: [file] })) {
-            await navigator.share({ files: [file], text: address });
+            await navigator.share({ files: [file], text: shareText });
             return;
           }
         }
-        await navigator.share({ text: address });
+        await navigator.share({ text: shareText });
         return;
       }
     } catch (e) {
       console.warn('[Receive] share dismissed:', e);
     }
     copy();
-  }, [address, copy, t]);
+  }, [copy, shareText, t]);
 
   return (
     <div
@@ -123,7 +127,7 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
             {address}
           </span>
           <div className="w-full flex flex-col items-center justify-center gap-6">
-            <QRCode ref={qrRef} address={address} size={300} />
+            <QRCode ref={qrRef} address={address} size={300} caption={t('qrNetworkCaption', { network })} />
             <CopyButton
               text={address}
               data-testid="receive-copy-address"
