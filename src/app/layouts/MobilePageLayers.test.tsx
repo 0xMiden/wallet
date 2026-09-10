@@ -116,6 +116,16 @@ it('keeps one tab layout when only the selected tab changes', () => {
   expect(screen.getByRole('button')).toHaveTextContent('/history count 1');
 });
 
+it('keeps the active page in layout flow so fixed-height extension pages size the root', () => {
+  const { container } = render(view('/pending-notes'));
+  const stack = container.firstElementChild;
+  const layer = container.querySelector('[data-page-layer="/pending-notes"]');
+
+  expect(stack).toHaveClass('grid', 'h-full');
+  expect(layer).toHaveClass('relative', 'col-start-1', 'row-start-1');
+  expect(layer).not.toHaveClass('absolute');
+});
+
 it('removes all retained pages immediately when the layer owner unmounts', () => {
   const { container, rerender } = render(view('/history'));
   rerender(view('/settings', true));

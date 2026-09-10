@@ -108,7 +108,7 @@ const PageLayer: FC<PageLayerProps> = ({ layerKey, location, slide, revealed, an
   return (
     <motion.div
       ref={ref}
-      className="absolute inset-0"
+      className="relative col-start-1 row-start-1 min-h-0 min-w-0"
       data-page-layer={location.pathname}
       aria-hidden={!present || undefined}
       style={{ zIndex, pointerEvents: present ? 'auto' : 'none' }}
@@ -164,7 +164,7 @@ const MobilePageLayers: FC<MobilePageLayersProps> = ({ pageKey, slide, location,
   );
 
   return (
-    <div className="relative isolate h-full w-full overflow-x-clip">
+    <div className="relative isolate grid h-full w-full overflow-x-clip">
       <LayerStackContext.Provider value={stack}>
         <AnimatePresence initial={false}>
           <PageLayer
