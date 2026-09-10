@@ -4,6 +4,7 @@
 
 ### Changes
 
+- [CHANGE][all] Miden accounts use registered coin type 5063758 for key derivation. This changes the keys recovered from a phrase and ships with the protocol 0.17 account reset. (#505)
 - [CHORE][all] `next` is now the 1.17.0 line; the 0.16 line continues on `main` as 1.16.x.
 
 ### Fixes

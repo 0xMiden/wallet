@@ -384,7 +384,7 @@ describe('ForgotPassword', () => {
     // namespace, so a user who onboarded with "no guardian" had their wallet
     // wiped by clearClientStorage() and then hit "No Guardian accounts found at
     // this guardian endpoint for this seed" — their OffChain account at
-    // m/44'/0'/1'/0' was never derived or looked up.
+    // m/44'/5063758'/1'/0' was never derived or looked up.
     const { container } = renderPage();
     await dispatch({ id: 'select-import-type' });
     await dispatch({ id: 'import-seed-phrase-submit', payload: 'seed words here' });
