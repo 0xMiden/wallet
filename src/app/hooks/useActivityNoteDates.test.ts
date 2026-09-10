@@ -84,7 +84,7 @@ it('logs a database-list failure without replacing the current dates', async () 
   const { result } = renderHook(() => useActivityNoteDates(['note']));
 
   await waitFor(() =>
-    expect(log).toHaveBeenCalledWith('[activity] Could not read stored note dates', expect.any(Error)),
+    expect(log).toHaveBeenCalledWith('[activity] Could not read stored note dates', expect.any(Error))
   );
   expect(result.current.size).toBe(0);
   names.mockRestore();
