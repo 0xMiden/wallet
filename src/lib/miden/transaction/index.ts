@@ -955,6 +955,41 @@ const assertEarnDepositIntentLive = async (transaction: ITransaction): Promise<v
 export const generateTransaction = async (
   transaction: Transaction,
   signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>,
+  useWorker: boolean = true,
+  guardianProvider: GuardianAccountProvider
+) => {
+  let getAccounts = guardianProvider.getAccounts;
+  if (guardianProvider.prepareRecoveryTransaction) {
+    const preparation = await guardianProvider.prepareRecoveryTransaction(transaction.id);
+    if (!preparation.ready) return;
+    const { coldPublicKey } = preparation;
+    if (coldPublicKey) {
+      // A hot-key-only import stores no cold public key. The seed prompt derived
+      // one for this transaction; hand it to the cold-signing builders in memory
+      // only, for this run, and never write it to the account record.
+      getAccounts = async () =>
+        (await guardianProvider.getAccounts()).map(account =>
+          !account.coldPublicKey && sameWalletAccountId(account.publicKey, transaction.accountId)
+            ? { ...account, coldPublicKey }
+            : account
+        );
+    }
+  }
+  const provider: GuardianAccountProvider = {
+    ...guardianProvider,
+    getAccounts,
+    signWord: (publicKey, wordHex) => guardianProvider.signWord(publicKey, wordHex, transaction.id)
+  };
+  try {
+    await generateTransactionWithProvider(transaction, signCallback, useWorker, provider);
+  } finally {
+    await guardianProvider.releaseRecoveryAuthorization?.(transaction.id);
+  }
+};
+
+const generateTransactionWithProvider = async (
+  transaction: Transaction,
+  signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>,
   _useWorker: boolean = true,
   guardianProvider: GuardianAccountProvider
 ) => {
@@ -3017,7 +3052,9 @@ export const generateTransactionsLoop = async (
   // eligible (backward compatible). If every queued tx is still cooling down there
   // is nothing to do this cycle; MAX_QUEUED_AGE remains the terminal cap.
   const now = Math.floor(Date.now() / 1000);
-  const nextTransaction = queuedTransactions.find(tx => tx.nextEligibleAt === undefined || tx.nextEligibleAt <= now);
+  const nextTransaction = queuedTransactions.find(
+    tx => !tx.awaitingRecoverySeed && (tx.nextEligibleAt === undefined || tx.nextEligibleAt <= now)
+  );
   if (!nextTransaction) return;
 
   // Call safely to cancel transaction and unlock records if something goes wrong

@@ -2,12 +2,19 @@
 
 ## 1.16.1 (TBD)
 
+### Features
+
+- [FEATURE][all] Onboarding import gains a seed-less path: "Import with key instead" accepts a Guardian account's everyday (hot) key, discovers the operator by the key's commitment, and imports the account through the Guardian. Cold-signed recovery actions stay hidden for such accounts.
+- [FEATURE][all] Settings now has an optional seed phrase removal flow. It removes the phrase and Guardian recovery keys from local storage after backup verification. Daily signing keys remain. Guardian recovery actions accept temporary seed input without saving the phrase again. Account creation after removal is not yet supported.
+
 ### Fixes
 
 - [CHORE][all] Every production build now refuses a `node_modules` that does not match `yarn.lock` (`yarn check --integrity`, 30 ms), so a stale checkout can no longer bundle the wrong SDK.
 - [FIX][all] The send screen waits for balances before warning about missing MIDEN for fees and clears that warning when funds arrive. Clearing an amount keeps the input red and Confirm disabled without showing “Invalid amount”.
 - [FIX][ci] Every ubuntu job now drops Google's Chrome apt repository before touching apt. Nothing installs Chrome from apt, yet its CDN served a mismatched package index for over an hour and failed every Playwright, xvfb and local-node install with `Hash Sum mismatch`.
 - [FIX][e2e] The testnet E2E harness now funds every new account from the public faucet before its first transaction, as it already did on devnet; testnet moved to the fee-charging 0.16 node and unfunded mints failed inside the kernel.
+- [FEATURE][all] Guardian rotation and everyday key replacement are now offered on every Guardian account, including one imported from an everyday key only. When the wallet holds no local cold key, the action prompts for the seed phrase, derives the cold key against the account's on-chain cold signer, and keeps it in memory only for that one transaction.
+- [FIX][all] Importing a wallet from an everyday (hot) key no longer fails on a fresh install. The key was parsed before any client had loaded the SDK's WASM module, so the parse threw inside the SDK and was reported as an invalid paste; the import now loads the module first.
 
 ## 1.16.0 (2026-09-09)
 

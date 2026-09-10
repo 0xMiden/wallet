@@ -1065,6 +1065,50 @@
     "message": "ウォレットをインポート",
     "englishSource": "Import Wallet"
   },
+  "importWithKeyInstead": {
+    "message": "代わりにキーを使用してインポートしてください",
+    "englishSource": "Import with key instead"
+  },
+  "importHotKeyTitle": {
+    "message": "キーを使用してインポート",
+    "englishSource": "Import with Key"
+  },
+  "importHotKeyDescription": {
+    "message": "アカウントの日常用（ホット）キーを貼り付けてください。ウォレットは Guardian でアカウントを検索し、seed phrase なしでインポートします。",
+    "englishSource": "Paste your account's everyday (hot) key. The wallet finds your account at your Guardian and imports it without a seed phrase."
+  },
+  "importHotKeyPlaceholder": {
+    "message": "デイリーキー（16進数）",
+    "englishSource": "Everyday key (hex)"
+  },
+  "importHotKeyInvalid": {
+    "message": "日常用キーを64または66文字の16進数で入力してください。",
+    "englishSource": "Enter the everyday key as 64 or 66 hexadecimal characters."
+  },
+  "importHotKeyError": {
+    "message": "このキーではアカウントをインポートできませんでした。",
+    "englishSource": "Could not import an account with this key."
+  },
+  "importHotKeyWrongScheme": {
+    "message": "このキーはサポートされていない方式を使用しています。Guardianアカウントの通常キーを貼り付けてください。",
+    "englishSource": "This key uses an unsupported scheme. Paste the everyday key of a Guardian account."
+  },
+  "importHotKeyNoAccount": {
+    "message": "このキー（Guardian）に対応するGuardianアカウントは見つかりませんでした。",
+    "englishSource": "No Guardian account was found for this key at this Guardian."
+  },
+  "importHotKeyIsRecoveryKey": {
+    "message": "これはリカバリーキーのようです。代わりに日常的に使用するキーを貼り付けてください。",
+    "englishSource": "This looks like your recovery key. Paste the everyday key instead."
+  },
+  "importHotKeyNotActive": {
+    "message": "このキーは、当該アカウントでは無効になりました。現在のデイリーキーを貼り付けてください。",
+    "englishSource": "This key is no longer active for the account. Paste the current everyday key."
+  },
+  "recoveryActionsRequireRecoveryKey": {
+    "message": "Guardian 変更や鍵の置き換えにはリカバリーキーが必要ですが、このデバイスにはそのキーは保存されていません。",
+    "englishSource": "Guardian changes and key replacement need the recovery key, which is not on this device."
+  },
   "revealPrivateKey": {
     "message": "秘密鍵を表示する",
     "englishSource": "Reveal Private Key"
@@ -4460,5 +4504,77 @@
   "devEndpointResetConfirm": {
     "message": "この操作を行うと、このウォレットはキーや取引履歴を含めて完全に消去されます。復元するには、リカバリーフレーズが必要になります。",
     "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
+  },
+  "removeSeedPhrase": {
+    "message": "seed phrase を削除してください",
+    "englishSource": "Remove seed phrase"
+  },
+  "removeSeedPhraseDescription": {
+    "message": "seed phraseを削除する前に、必ず書き留めておいてください。日常的な取引は引き続き行えます。Guardianの変更や日常的なキーの更新を行う際には、seed phraseの入力が必要となります。",
+    "englishSource": "Write down your seed phrase before you remove it. Daily transactions will still work. Guardian changes and everyday key replacement will require you to enter the seed phrase."
+  },
+  "removeSeedPhraseWriteDown": {
+    "message": "すべての単語をこの順序で紙に書き出してください。その紙は、このデバイスとは別の安全な場所に保管してください。",
+    "englishSource": "Write all words on paper in this order. Keep the paper in a safe place outside this device."
+  },
+  "removeSeedPhraseConfirmation": {
+    "message": "これにより、このデバイス上のこのウォレットから、seed phraseおよびGuardianの復元キーが削除されます。紙のバックアップは大切に保管してください。以前に作成されたバックアップは削除されません。",
+    "englishSource": "This removes the seed phrase and Guardian recovery keys from this wallet on this device. Keep your paper backup. Previously made backups are not deleted."
+  },
+  "removeSeedPhraseConfirm": {
+    "message": "このデバイスから削除",
+    "englishSource": "Remove from this device"
+  },
+  "seedPhraseRemoved": {
+    "message": "Seed phrase このデバイスから削除されました",
+    "englishSource": "Seed phrase removed from this device"
+  },
+  "seedPhraseUnavailable": {
+    "message": "このウォレットにはseed phraseは保存されていません。",
+    "englishSource": "There is no seed phrase stored in this wallet."
+  },
+  "seedRemovalIncomplete": {
+    "message": "削除は完了していません。ウォレットを再度アンロックして、リカバリー情報の削除を完了してください。",
+    "englishSource": "Removal is not complete. Unlock the wallet again to finish removing the recovery material."
+  },
+  "seedRemovalFailed": {
+    "message": "seed phraseの削除を完了できませんでした。もう一度試してください。",
+    "englishSource": "Could not finish removing the seed phrase. Try again."
+  },
+  "seedRemovalBusy": {
+    "message": "seed phraseを削除する前に、現在の取引が完了するのを待ってください。",
+    "englishSource": "Wait for the current transactions to finish before removing the seed phrase."
+  },
+  "seedRemovalKeysNotReady": {
+    "message": "seed phraseを取り外す前に、アカウントの復旧と日常的なキーの有効化を完了させてください。",
+    "englishSource": "Finish account recovery and everyday key activation before removing the seed phrase."
+  },
+  "seedRequiredForAccountCreation": {
+    "message": "アカウント作成には、保存済みのseed phraseが必要です。この操作のための一時的なシード入力の機能は、現時点では利用できません。",
+    "englishSource": "Account creation requires a stored seed phrase. Temporary seed input for this action is not yet available."
+  },
+  "recoverySeedRequired": {
+    "message": "この操作を行うには、リカバリーキー（seed phrase）が必要です。",
+    "englishSource": "This action requires your recovery seed phrase."
+  },
+  "recoverySeedRequiredTitle": {
+    "message": "seed phrase を入力してください",
+    "englishSource": "Enter your seed phrase"
+  },
+  "recoverySeedTemporaryDescription": {
+    "message": "ペーパーバックアップをご利用ください。このフレーズはこの操作にのみ使用され、このデバイスには保存されません。",
+    "englishSource": "Use your paper backup. The phrase is used only for this action and is not saved on this device."
+  },
+  "invalidRecoverySeed": {
+    "message": "有効なseed phraseを入力してください。",
+    "englishSource": "Enter a valid seed phrase."
+  },
+  "wrongRecoverySeed": {
+    "message": "この seed phrase は、このアカウントと一致しません。",
+    "englishSource": "This seed phrase does not match this account."
+  },
+  "recoveryActionUnavailable": {
+    "message": "この復旧措置は利用できなくなりました。",
+    "englishSource": "This recovery action is no longer available."
   }
 }

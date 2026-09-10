@@ -13,11 +13,15 @@ const KeysSettings: FC = () => {
   const { t } = useTranslation();
   const currentAccountType = useWalletStore(s => s.currentAccount?.type);
   const currentAccountHotPublicKey = useWalletStore(s => s.currentAccount?.hotPublicKey);
+  const seedPhraseStatus = useWalletStore(s => s.seedPhraseStatus);
+  // Recovery actions (rotate guardian, replace hot key) are cold-signed. An
+  // account with no local cold key (seed removed, or a hot-key-only import)
+  // gets a seed phrase prompt for the one transaction instead of being hidden.
   const isGuardian = currentAccountType === WalletType.Guardian;
   const hasActivatedHotKey = Boolean(currentAccountHotPublicKey);
 
   const rows = [
-    { titleI18nKey: 'revealPrivateKey', path: '/settings/reveal-private-key', show: true },
+    { titleI18nKey: 'revealPrivateKey', path: '/settings/reveal-private-key', show: seedPhraseStatus === 'stored' },
     { titleI18nKey: 'revealHotKey', path: '/settings/reveal-hot-key', show: isGuardian && hasActivatedHotKey },
     { titleI18nKey: 'rotateGuardian', path: '/rotate-guardian', show: isGuardian }
   ].filter(row => row.show);

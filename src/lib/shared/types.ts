@@ -23,6 +23,8 @@ export enum WalletMessageType {
   GetStateResponse = 'GET_STATE_RESPONSE',
   NewWalletRequest = 'NEW_WALLET_REQUEST',
   NewWalletResponse = 'NEW_WALLET_RESPONSE',
+  NewWalletFromHotKeyRequest = 'NEW_WALLET_FROM_HOT_KEY_REQUEST',
+  NewWalletFromHotKeyResponse = 'NEW_WALLET_FROM_HOT_KEY_RESPONSE',
   ImportFromClientRequest = 'IMPORT_FROM_CLIENT_REQUEST',
   ImportFromClientResponse = 'IMPORT_FROM_CLIENT_RESPONSE',
   UnlockRequest = 'UNLOCK_REQUEST',
@@ -45,6 +47,14 @@ export enum WalletMessageType {
   RevealGuardianKeysResponse = 'REVEAL_GUARDIAN_KEYS_RESPONSE',
   RevealMnemonicRequest = 'REVEAL_MNEMONIC_REQUEST',
   RevealMnemonicResponse = 'REVEAL_MNEMONIC_RESPONSE',
+  RemoveSeedPhraseRequest = 'REMOVE_SEED_PHRASE_REQUEST',
+  RemoveSeedPhraseResponse = 'REMOVE_SEED_PHRASE_RESPONSE',
+  ProvideRecoverySeedRequest = 'PROVIDE_RECOVERY_SEED_REQUEST',
+  ProvideRecoverySeedResponse = 'PROVIDE_RECOVERY_SEED_RESPONSE',
+  PrepareRecoveryRequest = 'PREPARE_RECOVERY_REQUEST',
+  PrepareRecoveryResponse = 'PREPARE_RECOVERY_RESPONSE',
+  ReleaseRecoveryRequest = 'RELEASE_RECOVERY_REQUEST',
+  ReleaseRecoveryResponse = 'RELEASE_RECOVERY_RESPONSE',
   RemoveAccountRequest = 'REMOVE_ACCOUNT_REQUEST',
   RemoveAccountResponse = 'REMOVE_ACCOUNT_RESPONSE',
   EditAccountRequest = 'EDIT_ACCOUNT_REQUEST',
@@ -372,7 +382,15 @@ export interface GetStateResponse extends WalletMessageBase {
 }
 
 // TODO: Make generalizable and pull out somewhere
+export type GuardianRecoveryAction =
+  | { type: 'switch-guardian'; accountId: string; newGuardianEndpoint: string }
+  | { type: 'replace-hot-key'; accountId: string }
+  | { type: 'update-procedure-threshold'; accountId: string; procedure: string; threshold: number };
+
+export type SeedPhraseStatus = 'stored' | 'removing' | 'removed' | 'unavailable';
+
 export interface WalletState {
+  seedPhraseStatus?: SeedPhraseStatus;
   status: WalletStatus;
   accounts: WalletAccount[]; // Miden sdk might soon export a type for this
   networks: WalletNetwork[];
@@ -525,6 +543,25 @@ export interface NewWalletResponse extends WalletMessageBase {
   type: WalletMessageType.NewWalletResponse;
 }
 
+/**
+ * Seed-less Guardian import: spawn a wallet from a pasted HOT secret key.
+ * The account is looked up at the guardian by the key's commitment and
+ * adopted; no mnemonic is generated, so the wallet's seed status is
+ * 'unavailable' from birth.
+ */
+export interface NewWalletFromHotKeyRequest extends WalletMessageBase {
+  type: WalletMessageType.NewWalletFromHotKeyRequest;
+  password?: string; // Optional for hardware-only wallets (mobile/desktop with Secure Enclave)
+  /** Pasted hot key hex — raw 64-hex scalar or full serialized AuthSecretKey. */
+  hotKeyHex: string;
+  /** Operator picked/probed in onboarding; the network default when absent. */
+  guardianEndpoint?: string;
+}
+
+export interface NewWalletFromHotKeyResponse extends WalletMessageBase {
+  type: WalletMessageType.NewWalletFromHotKeyResponse;
+}
+
 export interface UnlockRequest extends WalletMessageBase {
   type: WalletMessageType.UnlockRequest;
   password?: string;
@@ -615,6 +652,47 @@ export interface RevealGuardianKeysResponse extends WalletMessageBase {
   coldPrivateKey: string;
   coldPublicKey: string;
   hotPublicKey?: string;
+}
+
+export interface RemoveSeedPhraseRequest extends WalletMessageBase {
+  type: WalletMessageType.RemoveSeedPhraseRequest;
+  password?: string;
+}
+export interface RemoveSeedPhraseResponse extends WalletMessageBase {
+  type: WalletMessageType.RemoveSeedPhraseResponse;
+}
+export interface ProvideRecoverySeedRequest extends WalletMessageBase {
+  type: WalletMessageType.ProvideRecoverySeedRequest;
+  action: GuardianRecoveryAction;
+  transactionId: string;
+  mnemonic: string;
+}
+export interface ProvideRecoverySeedResponse extends WalletMessageBase {
+  type: WalletMessageType.ProvideRecoverySeedResponse;
+}
+export interface PrepareRecoveryRequest extends WalletMessageBase {
+  type: WalletMessageType.PrepareRecoveryRequest;
+  transactionId: string;
+}
+/**
+ * Result of `prepareRecoveryTransaction`. `ready` is false while the pipeline
+ * must wait for the seed prompt. `coldPublicKey` is set when the cold key came
+ * from that prompt rather than from the account record, so the pipeline can
+ * sign with a key that is stored nowhere.
+ */
+export interface RecoveryPreparation {
+  ready: boolean;
+  coldPublicKey?: string;
+}
+export interface PrepareRecoveryResponse extends WalletMessageBase, RecoveryPreparation {
+  type: WalletMessageType.PrepareRecoveryResponse;
+}
+export interface ReleaseRecoveryRequest extends WalletMessageBase {
+  type: WalletMessageType.ReleaseRecoveryRequest;
+  transactionId: string;
+}
+export interface ReleaseRecoveryResponse extends WalletMessageBase {
+  type: WalletMessageType.ReleaseRecoveryResponse;
 }
 
 export interface RevealMnemonicRequest extends WalletMessageBase {
@@ -724,6 +802,7 @@ export interface SignTransactionResponse extends WalletMessageBase {
 }
 
 export interface SignWordRequest extends WalletMessageBase {
+  transactionId?: string;
   type: WalletMessageType.SignWordRequest;
   publicKey: string;
   wordHex: string;
@@ -1042,6 +1121,7 @@ export type WalletRequest =
   | AcknowledgeRequest
   | GetStateRequest
   | NewWalletRequest
+  | NewWalletFromHotKeyRequest
   | UnlockRequest
   | LockRequest
   | CreateAccountRequest
@@ -1051,6 +1131,10 @@ export type WalletRequest =
   | RevealPrivateKeyRequest
   | RevealHotKeyRequest
   | RevealGuardianKeysRequest
+  | RemoveSeedPhraseRequest
+  | ProvideRecoverySeedRequest
+  | PrepareRecoveryRequest
+  | ReleaseRecoveryRequest
   | RevealMnemonicRequest
   | RemoveAccountRequest
   | EditAccountRequest
@@ -1107,6 +1191,7 @@ export type WalletResponse =
   | LoadingResponse
   | GetStateResponse
   | NewWalletResponse
+  | NewWalletFromHotKeyResponse
   | UnlockResponse
   | LockResponse
   | CreateAccountResponse
@@ -1116,6 +1201,10 @@ export type WalletResponse =
   | RevealPrivateKeyResponse
   | RevealHotKeyResponse
   | RevealGuardianKeysResponse
+  | RemoveSeedPhraseResponse
+  | ProvideRecoverySeedResponse
+  | PrepareRecoveryResponse
+  | ReleaseRecoveryResponse
   | RevealMnemonicResponse
   | RemoveAccountResponse
   | EditAccountResponse

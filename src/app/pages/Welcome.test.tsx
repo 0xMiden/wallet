@@ -72,9 +72,11 @@ jest.mock('lib/extension/side-panel-handoff', () => ({
 
 // Miden context + store + intercom sync.
 const mockRegisterWallet = jest.fn();
+const mockRegisterWalletFromHotKey = jest.fn();
 jest.mock('lib/miden/front', () => ({
   useMidenContext: () => ({
-    registerWallet: (...a: any[]) => mockRegisterWallet(...a)
+    registerWallet: (...a: any[]) => mockRegisterWallet(...a),
+    registerWalletFromHotKey: (...a: any[]) => mockRegisterWalletFromHotKey(...a)
   })
 }));
 
@@ -188,6 +190,7 @@ beforeEach(() => {
   mockDesktopHW.mockResolvedValue(false);
   mockBiometricHW.mockResolvedValue(false);
   mockRegisterWallet.mockResolvedValue(undefined);
+  mockRegisterWalletFromHotKey.mockResolvedValue(undefined);
   mockPutToStorage.mockResolvedValue(undefined);
   mockSeedWalletPrompt.mockResolvedValue(undefined);
   mockFetchState.mockResolvedValue({ status: READY, accounts: [{}] });
@@ -1167,5 +1170,117 @@ describe('Welcome — E2E onboarding bypass', () => {
       true, // import → ownMnemonic drives Vault.spawn's recovery branch
       'http://localhost:3001'
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Seed-less Guardian import: the hot-key paste flow.
+// ---------------------------------------------------------------------------
+describe('hot-key import flow', () => {
+  const HOT_KEY_HEX = 'ab'.repeat(32);
+  const ENDPOINT = 'https://guardian.example.com';
+
+  it('routes the import-with-key link to the key screen and renders it', async () => {
+    await renderWelcome();
+    await setHash('#import-from-seed');
+
+    await dispatch({ id: 'import-with-key' });
+    expect(mockNavigate).toHaveBeenCalledWith('/#import-from-key');
+
+    await setHash('#import-from-key');
+    expect(currentStep()).toBe(OnboardingStep.ImportFromKey);
+    // No key submitted yet, so the recovery-method screen is not pinned.
+    expect(mockFlowProps.current.importViaKey).toBe(false);
+  });
+
+  it('key submit goes to the password step on desktop, passcode on mobile, and pins Guardian', async () => {
+    await renderWelcome();
+    await setHash('#import-from-key');
+
+    await dispatch({ id: 'import-hot-key-submit', payload: HOT_KEY_HEX });
+    expect(mockNavigate).toHaveBeenCalledWith('/#create-password');
+    expect(mockFlowProps.current.importViaKey).toBe(true);
+
+    mockIsMobileFn.mockReturnValue(true);
+    await dispatch({ id: 'import-hot-key-submit', payload: HOT_KEY_HEX });
+    expect(mockNavigate).toHaveBeenCalledWith('/#setup-passcode');
+  });
+
+  it('key submit skips the password step entirely when hardware security is available', async () => {
+    mockBiometricHW.mockResolvedValue(true);
+    mockDesktopHW.mockResolvedValue(true);
+    await renderWelcome();
+    await setHash('#import-from-key');
+
+    await dispatch({ id: 'import-hot-key-submit', payload: HOT_KEY_HEX });
+
+    expect(mockNavigate).toHaveBeenCalledWith('/#import-select-recovery-method');
+  });
+
+  it('registers through registerWalletFromHotKey with the picked endpoint — never the seed path', async () => {
+    await renderWelcome();
+    await setHash('#import-from-key');
+    await dispatch({ id: 'import-hot-key-submit', payload: HOT_KEY_HEX });
+    await setHash('#create-password');
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw-1', enableBiometric: false } });
+    expect(mockNavigate).toHaveBeenCalledWith('/#import-select-recovery-method');
+    await setHash('#import-select-recovery-method');
+    await dispatch({
+      id: 'import-select-recovery-method',
+      payload: { walletType: WalletType.Guardian, guardianEndpoint: ENDPOINT }
+    });
+    await setHash('#confirmation');
+
+    await dispatch({ id: 'confirmation' });
+
+    expect(mockRegisterWalletFromHotKey).toHaveBeenCalledWith('pw-1', HOT_KEY_HEX, ENDPOINT);
+    expect(mockRegisterWallet).not.toHaveBeenCalled();
+  });
+
+  it('backs out of the key screen to seed entry, and re-entering seed entry drops the pasted key', async () => {
+    await renderWelcome();
+    await setHash('#import-from-key');
+    await dispatch({ id: 'import-hot-key-submit', payload: HOT_KEY_HEX });
+    expect(mockFlowProps.current.importViaKey).toBe(true);
+
+    await setHash('#import-from-key');
+    await dispatch({ id: 'back' });
+    expect(mockNavigate).toHaveBeenCalledWith('/#import-from-seed');
+
+    // Landing back on seed entry clears the key credential.
+    await setHash('#import-from-seed');
+    expect(mockFlowProps.current.importViaKey).toBe(false);
+  });
+
+  it('backs out of the password step to the KEY screen while a key is the live credential', async () => {
+    await renderWelcome();
+    await setHash('#import-from-key');
+    await dispatch({ id: 'import-hot-key-submit', payload: HOT_KEY_HEX });
+    await setHash('#create-password');
+
+    await dispatch({ id: 'back' });
+
+    expect(mockNavigate).toHaveBeenCalledWith('/#import-from-key');
+  });
+
+  it('a later seed submit replaces the key credential and registers via the seed path', async () => {
+    await renderWelcome();
+    await setHash('#import-from-key');
+    await dispatch({ id: 'import-hot-key-submit', payload: HOT_KEY_HEX });
+
+    await setHash('#import-from-seed');
+    await dispatch({ id: 'import-seed-phrase-submit', payload: 'aa bb cc dd ee ff gg hh ii jj kk ll' });
+    await setHash('#create-password');
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw-1', enableBiometric: false } });
+    await setHash('#import-select-recovery-method');
+    await dispatch({
+      id: 'import-select-recovery-method',
+      payload: { walletType: WalletType.Guardian, guardianEndpoint: ENDPOINT }
+    });
+    await setHash('#confirmation');
+    await dispatch({ id: 'confirmation' });
+
+    expect(mockRegisterWallet).toHaveBeenCalled();
+    expect(mockRegisterWalletFromHotKey).not.toHaveBeenCalled();
   });
 });

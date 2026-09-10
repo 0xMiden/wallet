@@ -15,6 +15,7 @@ import { resolvePublicKeyCommitments } from 'lib/miden/sdk/resolve-public-key-co
 import { useScreenshotGuard } from 'lib/mobile/screenshot-guard';
 import { useHideDappBubblesWhileOpen } from 'lib/mobile/useHideDappBubblesWhileOpen';
 import { isMobile } from 'lib/platform';
+import { useWalletStore } from 'lib/store';
 import useCopyToClipboard from 'lib/ui/useCopyToClipboard';
 
 const SUBMIT_ERROR_TYPE = 'submit-error';
@@ -35,6 +36,15 @@ type GuardianKeysBundle = {
 
 const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
   const { t } = useTranslation();
+  const secretGeneration = useRef(0);
+  const seedStatus = useWalletStore(s => s.seedPhraseStatus);
+  const revealUnavailable = Boolean(seedStatus && seedStatus !== 'stored' && reveal !== 'hot-key');
+  useEffect(
+    () => () => {
+      secretGeneration.current += 1;
+    },
+    [seedStatus]
+  );
   const { revealMnemonic, revealPrivateKey, revealHotKey, revealGuardianKeys } = useMidenContext();
   const account = useAccount();
   const { fieldRef: secretFieldRef } = useCopyToClipboard();
@@ -51,6 +61,12 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
   const passwordValue = watch('password');
   const [secret, setSecret] = useSecretState();
   const [guardianBundle, setGuardianBundle] = useState<GuardianKeysBundle | null>(null);
+  useEffect(() => {
+    if (revealUnavailable) {
+      setSecret(null);
+      setGuardianBundle(null);
+    }
+  }, [revealUnavailable, setSecret]);
   // Block screenshots / screen recordings while raw key material is on screen
   // (#417) — the same protection `RevealSeedPhrase` already has, for material of
   // equal sensitivity: a private key, a Guardian COLD private key (the account's
@@ -126,20 +142,25 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
 
   const onSubmit = useCallback<SubmitHandler<FormData>>(
     async ({ password }) => {
-      if (isSubmitting) return;
+      if (isSubmitting || revealUnavailable) return;
 
       clearErrors('password');
       try {
+        const generation = secretGeneration.current;
+        const setCurrentSecret = (value: string) => {
+          if (generation === secretGeneration.current) setSecret(value);
+        };
         const unlockPassword = hasHardwareProtector ? undefined : password;
         if (reveal === 'private-key') {
           const pubKeyCommitment = await getAccountPublicKeyCommitment(account.publicKey);
-          setSecret(await revealPrivateKey(pubKeyCommitment, unlockPassword));
+          setCurrentSecret(await revealPrivateKey(pubKeyCommitment, unlockPassword));
         } else if (reveal === 'hot-key') {
-          setSecret(await revealHotKey(account.publicKey, unlockPassword));
+          setCurrentSecret(await revealHotKey(account.publicKey, unlockPassword));
         } else if (reveal === 'guardian-keys') {
-          setGuardianBundle(await revealGuardianKeys(account.publicKey, unlockPassword));
+          const bundle = await revealGuardianKeys(account.publicKey, unlockPassword);
+          if (generation === secretGeneration.current) setGuardianBundle(bundle);
         } else {
-          setSecret(await revealMnemonic(unlockPassword));
+          setCurrentSecret(await revealMnemonic(unlockPassword));
         }
       } catch (err: any) {
         console.error(err);
@@ -152,6 +173,7 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
     },
     [
       isSubmitting,
+      revealUnavailable,
       clearErrors,
       setError,
       revealMnemonic,
@@ -366,6 +388,8 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
   ]);
 
   const showButton = !secret && !guardianBundle;
+
+  if (revealUnavailable) return null;
 
   if (hasHardwareProtector === null) {
     return null;

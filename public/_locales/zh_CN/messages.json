@@ -1065,6 +1065,50 @@
     "message": "导入钱包",
     "englishSource": "Import Wallet"
   },
+  "importWithKeyInstead": {
+    "message": "改用密钥导入",
+    "englishSource": "Import with key instead"
+  },
+  "importHotKeyTitle": {
+    "message": "使用密钥导入",
+    "englishSource": "Import with Key"
+  },
+  "importHotKeyDescription": {
+    "message": "粘贴您账户的日常（热）密钥。钱包会根据您的 Guardian 地址查找您的账户，并无需 seed phrase 即可将其导入。",
+    "englishSource": "Paste your account's everyday (hot) key. The wallet finds your account at your Guardian and imports it without a seed phrase."
+  },
+  "importHotKeyPlaceholder": {
+    "message": "日常密钥（十六进制）",
+    "englishSource": "Everyday key (hex)"
+  },
+  "importHotKeyInvalid": {
+    "message": "请将日常密钥输入为 64 或 66 个十六进制字符。",
+    "englishSource": "Enter the everyday key as 64 or 66 hexadecimal characters."
+  },
+  "importHotKeyError": {
+    "message": "无法使用此密钥导入账户。",
+    "englishSource": "Could not import an account with this key."
+  },
+  "importHotKeyWrongScheme": {
+    "message": "此密钥使用的方案不受支持。请粘贴 Guardian 账户的常用密钥。",
+    "englishSource": "This key uses an unsupported scheme. Paste the everyday key of a Guardian account."
+  },
+  "importHotKeyNoAccount": {
+    "message": "在该 Guardian 地址下，未找到与该密钥对应的 Guardian 账户。",
+    "englishSource": "No Guardian account was found for this key at this Guardian."
+  },
+  "importHotKeyIsRecoveryKey": {
+    "message": "这看起来像是您的恢复密钥。请粘贴日常密钥代替。",
+    "englishSource": "This looks like your recovery key. Paste the everyday key instead."
+  },
+  "importHotKeyNotActive": {
+    "message": "该密钥对该账户已失效。请粘贴当前的日常密钥。",
+    "englishSource": "This key is no longer active for the account. Paste the current everyday key."
+  },
+  "recoveryActionsRequireRecoveryKey": {
+    "message": "Guardian 更改和密钥替换需要恢复密钥，而该密钥并不存储在此设备上。",
+    "englishSource": "Guardian changes and key replacement need the recovery key, which is not on this device."
+  },
   "revealPrivateKey": {
     "message": "显示私钥",
     "englishSource": "Reveal Private Key"
@@ -4460,5 +4504,77 @@
   "devEndpointResetConfirm": {
     "message": "这将永久删除该钱包，包括您的密钥和交易记录。您需要使用恢复短语才能将其恢复。",
     "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
+  },
+  "removeSeedPhrase": {
+    "message": "删除 seed phrase",
+    "englishSource": "Remove seed phrase"
+  },
+  "removeSeedPhraseDescription": {
+    "message": "在移除您的 seed phrase 之前，请务必将其记录下来。日常交易仍可正常进行。Guardian 发生变更以及日常密钥更换时，您需要输入 seed phrase。",
+    "englishSource": "Write down your seed phrase before you remove it. Daily transactions will still work. Guardian changes and everyday key replacement will require you to enter the seed phrase."
+  },
+  "removeSeedPhraseWriteDown": {
+    "message": "请按此顺序将所有词语写在纸上。将纸张存放在本设备以外的安全地点。",
+    "englishSource": "Write all words on paper in this order. Keep the paper in a safe place outside this device."
+  },
+  "removeSeedPhraseConfirmation": {
+    "message": "此操作将从该设备上的此钱包中移除 seed phrase 和 Guardian 恢复密钥。请妥善保管您的纸质备份。先前创建的备份不会被删除。",
+    "englishSource": "This removes the seed phrase and Guardian recovery keys from this wallet on this device. Keep your paper backup. Previously made backups are not deleted."
+  },
+  "removeSeedPhraseConfirm": {
+    "message": "从本设备中删除",
+    "englishSource": "Remove from this device"
+  },
+  "seedPhraseRemoved": {
+    "message": "Seed phrase 已从该设备中移除",
+    "englishSource": "Seed phrase removed from this device"
+  },
+  "seedPhraseUnavailable": {
+    "message": "该钱包中未存储任何seed phrase。",
+    "englishSource": "There is no seed phrase stored in this wallet."
+  },
+  "seedRemovalIncomplete": {
+    "message": "删除操作尚未完成。请再次解锁钱包以完成恢复信息的删除。",
+    "englishSource": "Removal is not complete. Unlock the wallet again to finish removing the recovery material."
+  },
+  "seedRemovalFailed": {
+    "message": "无法完成移除 seed phrase。请重试。",
+    "englishSource": "Could not finish removing the seed phrase. Try again."
+  },
+  "seedRemovalBusy": {
+    "message": "请等待当前交易完成后，再移除seed phrase。",
+    "englishSource": "Wait for the current transactions to finish before removing the seed phrase."
+  },
+  "seedRemovalKeysNotReady": {
+    "message": "在移除seed phrase之前，请先完成账户恢复和日常密钥激活。",
+    "englishSource": "Finish account recovery and everyday key activation before removing the seed phrase."
+  },
+  "seedRequiredForAccountCreation": {
+    "message": "创建账户需要存储seed phrase。目前尚不支持为此操作提供临时种子输入。",
+    "englishSource": "Account creation requires a stored seed phrase. Temporary seed input for this action is not yet available."
+  },
+  "recoverySeedRequired": {
+    "message": "此操作需要您输入恢复短语：seed phrase。",
+    "englishSource": "This action requires your recovery seed phrase."
+  },
+  "recoverySeedRequiredTitle": {
+    "message": "请输入您的 seed phrase",
+    "englishSource": "Enter your seed phrase"
+  },
+  "recoverySeedTemporaryDescription": {
+    "message": "请使用您的纸质备份。该助记词仅用于此操作，不会保存在本设备上。",
+    "englishSource": "Use your paper backup. The phrase is used only for this action and is not saved on this device."
+  },
+  "invalidRecoverySeed": {
+    "message": "请输入有效的 seed phrase。",
+    "englishSource": "Enter a valid seed phrase."
+  },
+  "wrongRecoverySeed": {
+    "message": "此 seed phrase 与该账户不匹配。",
+    "englishSource": "This seed phrase does not match this account."
+  },
+  "recoveryActionUnavailable": {
+    "message": "此恢复操作已不可用。",
+    "englishSource": "This recovery action is no longer available."
   }
 }

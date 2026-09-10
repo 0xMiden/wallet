@@ -1681,6 +1681,15 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           </div>
         )}
 
+        {transaction?.awaitingRecoverySeed && transaction.status === ITransactionStatus.Queued && (
+          <div className="shrink-0 py-4">
+            <Button
+              title={t('recoverySeedRequiredTitle')}
+              onClick={() => navigate(`/generating-transaction/${encodeURIComponent(transaction.id)}`)}
+            />
+          </div>
+        )}
+
         {canCancel && (
           <div className="shrink-0 pt-3 pb-4">
             {cancelError && <p className="mb-2 text-center text-sm text-status-negative">{cancelError}</p>}

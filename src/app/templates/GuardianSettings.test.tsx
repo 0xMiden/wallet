@@ -28,6 +28,9 @@ const WALLET_SYNCED_AT = 1_700_000_000_000;
 // so the pill has a fourth state for them. Default to an activated account —
 // the not-connected case sets `mockHotPublicKey` to undefined.
 let mockHotPublicKey: string | undefined = 'hot-1';
+// The rotate CTA is cold-signed, so it renders only for accounts with a cold
+// key. Default present; the hot-key-only-import test clears it.
+let mockColdPublicKey: string | undefined = 'cold-1';
 // The reconciler's verdict on whether the operator this screen NAMES is still the
 // account's on-chain guardian. Default `in-sync`; the drift tests flip it.
 let mockGuardianSyncStatus: string | undefined = 'in-sync';
@@ -35,7 +38,7 @@ jest.mock('lib/store', () => ({
   useWalletStore: (
     selector: (state: {
       lastSyncedAt: number | null;
-      currentAccount: { publicKey: string; hotPublicKey?: string; guardianSyncStatus?: string };
+      currentAccount: { publicKey: string; hotPublicKey?: string; coldPublicKey?: string; guardianSyncStatus?: string };
     }) => unknown
   ) =>
     selector({
@@ -43,6 +46,7 @@ jest.mock('lib/store', () => ({
       currentAccount: {
         publicKey: 'acc-1',
         hotPublicKey: mockHotPublicKey,
+        coldPublicKey: mockColdPublicKey,
         guardianSyncStatus: mockGuardianSyncStatus
       }
     })
@@ -513,4 +517,17 @@ it('nests the section headings under the guardian name rather than beside it', (
   // sit under, which is what a screen reader's heading list shows.
   expect(screen.getByText('about').tagName).toBe('H3');
   expect(screen.getByText('details').tagName).toBe('H3');
+});
+
+// Hot-key-only import: no cold key on the account. The rotate CTA stays
+// offered; the pipeline prompts for the seed phrase for that one transaction.
+it('keeps the rotate CTA for an account with no cold key', () => {
+  mockColdPublicKey = undefined;
+  try {
+    render(<GuardianSettings />);
+
+    expect(screen.getByRole('button', { name: 'rotateGuardian' })).toBeInTheDocument();
+  } finally {
+    mockColdPublicKey = 'cold-1';
+  }
 });

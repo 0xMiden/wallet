@@ -259,6 +259,23 @@ export interface ChromeWalletPageApi extends WalletPage, IdbDumpSource {
    */
   recoverGuardianFromSeed(seed: string, opts: { viaUI: boolean; guardianUrl?: string }): Promise<void>;
   /**
+   * Import a Guardian account with ONLY its hot (everyday) private key — the
+   * seed-less import path. Drives the real screens: Welcome → "Recover your
+   * account" → seed grid → "Import with key instead" link → key paste →
+   * submit → full password step → ImportRecoveryMethod (probe by hot-key
+   * commitment, Guardian pinned) → Continue → Confirmation → submit → home.
+   * Unlike `recoverGuardianFromSeed` this ends WITHOUT a hot-key rotation:
+   * the pasted key IS the working device key, so the gate must never appear.
+   */
+  recoverGuardianFromHotKey(hotKeyHex: string): Promise<void>;
+  /**
+   * Reveal the current Guardian account's hot (everyday) private key through
+   * the real Settings → Keys → Reveal hot key screen, returning the raw
+   * 64-hex scalar the UI shows. Extension builds authenticate with the
+   * onboarding password.
+   */
+  revealHotKey(password?: string): Promise<string>;
+  /**
    * Drive a fresh, not-yet-onboarded wallet from the Welcome screen to the
    * ImportSeedPhrase 12-word grid (Welcome → "Recover your account"),
    * stopping there instead of completing the rest of the recovery journey.
@@ -1001,6 +1018,84 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     // recovered account always carries requiresHotKeyRotation — see
     // HotKeyRotationGate.tsx.
     await this.completeHotKeyRotation();
+  }
+
+  /**
+   * See the interface doc comment (ChromeWalletPageApi).
+   */
+  async recoverGuardianFromHotKey(hotKeyHex: string): Promise<void> {
+    // Welcome → "Recover your account" → seed grid → the seed-less fork.
+    await this.openImportSeedPhraseScreen();
+    await this.page.getByTestId('import-with-key-link').click();
+
+    await this.page.getByTestId('import-hot-key').waitFor({ timeout: 15_000 });
+    await this.page.locator('#hot-key-input').fill(hotKeyHex);
+    await this.page.getByTestId('import-hot-key-submit').click();
+
+    // Extension builds always route through the full password step (no
+    // hardware security off mobile/desktop) — same as the seed path.
+    await this.page.getByTestId('create-password-input').waitFor({ timeout: 15_000 });
+    await this.page.getByTestId('create-password-input').fill(PASSWORD);
+    await this.page.getByTestId('create-password-verify-input').fill(PASSWORD);
+    await this.page.getByTestId('create-password-submit').click();
+
+    // ImportRecoveryMethod, Guardian pinned: wait for the hot-key-commitment
+    // probe to reach a terminal state, then accept the detected/default
+    // endpoint as-is.
+    await this.page
+      .getByTestId('guardian-detected')
+      .or(this.page.getByTestId('guardian-not-detected'))
+      .first()
+      .waitFor({ timeout: 30_000 });
+    await this.page.getByTestId('recovery-method-continue').click();
+
+    await this.page.getByTestId('onboarding-confirmation').waitFor({ timeout: 30_000 });
+    await this.page.getByTestId('onboarding-confirmation-submit').click();
+
+    // The pasted key IS the working hot key: the account must come up ready,
+    // with no rotation gate in the way. Wait for the home surface the same way
+    // createWalletViaBypass does, then assert the gate never mounted.
+    await this.page.waitForFunction(
+      () => {
+        const store = (
+          window as unknown as { __TEST_STORE__?: { getState(): { currentAccount?: { publicKey?: string } } } }
+        ).__TEST_STORE__;
+        const pk = store?.getState?.().currentAccount?.publicKey ?? '';
+        if (/^m[a-z]{1,4}1[a-z0-9]+/i.test(pk)) return true;
+        return !!document.querySelector('[data-testid="explore-page"]');
+      },
+      undefined,
+      { timeout: 120_000 }
+    );
+    await expect(
+      this.page.getByTestId('hot-key-rotation-gate'),
+      'a hot-key import must not trigger the rotation gate — the pasted key is the working device key'
+    ).toHaveCount(0);
+  }
+
+  /**
+   * See the interface doc comment (ChromeWalletPageApi).
+   */
+  async revealHotKey(password: string = PASSWORD): Promise<string> {
+    await this.navigateTo('/settings/reveal-hot-key');
+
+    // Extension vaults are password-protected: RevealSecret renders the
+    // password form (`#reveal-secret-password`) and a single Continue button.
+    const passwordField = this.page.locator('#reveal-secret-password');
+    await passwordField.waitFor({ timeout: 20_000 });
+    await passwordField.fill(password);
+    await this.page.getByRole('button', { name: /continue/i }).click();
+
+    // The revealed secret lands in the readonly `#reveal-secret-secret`
+    // textarea as the raw 64-hex scalar.
+    const secretField = this.page.locator('#reveal-secret-secret');
+    await secretField.waitFor({ timeout: 30_000 });
+    const secret = ((await secretField.inputValue().catch(() => '')) || (await secretField.textContent()) || '').trim();
+    if (!/^[0-9a-f]{64}$/i.test(secret)) {
+      throw new Error(`revealHotKey: expected a 64-hex hot key, got "${secret.slice(0, 80)}"`);
+    }
+    await this.navigateHome();
+    return secret;
   }
 
   /**

@@ -1065,6 +1065,50 @@
     "message": "匯入錢包",
     "englishSource": "Import Wallet"
   },
+  "importWithKeyInstead": {
+    "message": "請改用金鑰匯入",
+    "englishSource": "Import with key instead"
+  },
+  "importHotKeyTitle": {
+    "message": "使用金鑰匯入",
+    "englishSource": "Import with Key"
+  },
+  "importHotKeyDescription": {
+    "message": "貼上您帳戶的日常（熱）金鑰。錢包會根據您的 Guardian 找到您的帳戶，並在無需 seed phrase 的情況下將其匯入。",
+    "englishSource": "Paste your account's everyday (hot) key. The wallet finds your account at your Guardian and imports it without a seed phrase."
+  },
+  "importHotKeyPlaceholder": {
+    "message": "日常金鑰 (十六進位)",
+    "englishSource": "Everyday key (hex)"
+  },
+  "importHotKeyInvalid": {
+    "message": "請以 64 或 66 個十六進位字元輸入日常金鑰。",
+    "englishSource": "Enter the everyday key as 64 or 66 hexadecimal characters."
+  },
+  "importHotKeyError": {
+    "message": "無法使用此金鑰匯入帳戶。",
+    "englishSource": "Could not import an account with this key."
+  },
+  "importHotKeyWrongScheme": {
+    "message": "此金鑰採用了未受支援的方案。請貼上 Guardian 帳戶的日常金鑰。",
+    "englishSource": "This key uses an unsupported scheme. Paste the everyday key of a Guardian account."
+  },
+  "importHotKeyNoAccount": {
+    "message": "在 Guardian 此處，未找到與此金鑰對應的 Guardian 帳戶。",
+    "englishSource": "No Guardian account was found for this key at this Guardian."
+  },
+  "importHotKeyIsRecoveryKey": {
+    "message": "這看起來像是您的恢復金鑰。請改為貼上日常金鑰。",
+    "englishSource": "This looks like your recovery key. Paste the everyday key instead."
+  },
+  "importHotKeyNotActive": {
+    "message": "此金鑰對該帳戶已不再有效。請貼上當前的日常金鑰。",
+    "englishSource": "This key is no longer active for the account. Paste the current everyday key."
+  },
+  "recoveryActionsRequireRecoveryKey": {
+    "message": "Guardian 任何變更或金鑰替換皆需使用復原金鑰，而該金鑰並未儲存於此裝置中。",
+    "englishSource": "Guardian changes and key replacement need the recovery key, which is not on this device."
+  },
   "revealPrivateKey": {
     "message": "顯示私密金鑰",
     "englishSource": "Reveal Private Key"
@@ -4460,5 +4504,77 @@
   "devEndpointResetConfirm": {
     "message": "此操作將永久刪除此錢包，包括您的金鑰和交易紀錄。若要還原錢包，您需要使用您的恢復短語。",
     "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
+  },
+  "removeSeedPhrase": {
+    "message": "移除 seed phrase",
+    "englishSource": "Remove seed phrase"
+  },
+  "removeSeedPhraseDescription": {
+    "message": "在移除您的 seed phrase 之前，請先將其記錄下來。日常交易仍可照常進行。若 Guardian 發生變更，或進行日常金鑰更換時，您將需要輸入 seed phrase。",
+    "englishSource": "Write down your seed phrase before you remove it. Daily transactions will still work. Guardian changes and everyday key replacement will require you to enter the seed phrase."
+  },
+  "removeSeedPhraseWriteDown": {
+    "message": "請將所有詞彙按此順序寫在紙上。將紙張存放在本裝置以外的安全地點。",
+    "englishSource": "Write all words on paper in this order. Keep the paper in a safe place outside this device."
+  },
+  "removeSeedPhraseConfirmation": {
+    "message": "此操作將從本裝置上的此錢包中移除 seed phrase 和 Guardian 恢復金鑰。請妥善保管您的紙本備份。先前建立的備份並不會被刪除。",
+    "englishSource": "This removes the seed phrase and Guardian recovery keys from this wallet on this device. Keep your paper backup. Previously made backups are not deleted."
+  },
+  "removeSeedPhraseConfirm": {
+    "message": "從此裝置中移除",
+    "englishSource": "Remove from this device"
+  },
+  "seedPhraseRemoved": {
+    "message": "Seed phrase 已從此裝置移除",
+    "englishSource": "Seed phrase removed from this device"
+  },
+  "seedPhraseUnavailable": {
+    "message": "此錢包中並未儲存任何seed phrase。",
+    "englishSource": "There is no seed phrase stored in this wallet."
+  },
+  "seedRemovalIncomplete": {
+    "message": "移除尚未完成。請再次解鎖錢包以完成恢復資料的移除。",
+    "englishSource": "Removal is not complete. Unlock the wallet again to finish removing the recovery material."
+  },
+  "seedRemovalFailed": {
+    "message": "無法完成移除 seed phrase。請重新嘗試。",
+    "englishSource": "Could not finish removing the seed phrase. Try again."
+  },
+  "seedRemovalBusy": {
+    "message": "請待當前交易完成後，再移除seed phrase。",
+    "englishSource": "Wait for the current transactions to finish before removing the seed phrase."
+  },
+  "seedRemovalKeysNotReady": {
+    "message": "請在移除seed phrase之前，先完成帳戶恢復及日常金鑰啟用程序。",
+    "englishSource": "Finish account recovery and everyday key activation before removing the seed phrase."
+  },
+  "seedRequiredForAccountCreation": {
+    "message": "建立帳戶需儲存seed phrase。目前尚無法為此操作提供臨時種子輸入。",
+    "englishSource": "Account creation requires a stored seed phrase. Temporary seed input for this action is not yet available."
+  },
+  "recoverySeedRequired": {
+    "message": "此操作需要您輸入恢復密碼：seed phrase。",
+    "englishSource": "This action requires your recovery seed phrase."
+  },
+  "recoverySeedRequiredTitle": {
+    "message": "請輸入您的 seed phrase",
+    "englishSource": "Enter your seed phrase"
+  },
+  "recoverySeedTemporaryDescription": {
+    "message": "請使用您的紙本備份。此短語僅用於此操作，且不會儲存於本裝置中。",
+    "englishSource": "Use your paper backup. The phrase is used only for this action and is not saved on this device."
+  },
+  "invalidRecoverySeed": {
+    "message": "請輸入有效的 seed phrase。",
+    "englishSource": "Enter a valid seed phrase."
+  },
+  "wrongRecoverySeed": {
+    "message": "此 seed phrase 與該帳戶不符。",
+    "englishSource": "This seed phrase does not match this account."
+  },
+  "recoveryActionUnavailable": {
+    "message": "此復原操作已不再可用。",
+    "englishSource": "This recovery action is no longer available."
   }
 }

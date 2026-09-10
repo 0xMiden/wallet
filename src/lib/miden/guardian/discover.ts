@@ -368,6 +368,34 @@ export async function discoverGuardianForSeed(
   deriveColdSeed: (hdIndex: number) => Uint8Array,
   options: GuardianDiscoveryOptions = {}
 ): Promise<GuardianDiscoveryResult> {
+  return discoverGuardianForKeys(hdIndex => AuthSecretKey.ecdsaWithRNG(deriveColdSeed(hdIndex)), options);
+}
+
+/**
+ * Probe every known guardian operator for the account authorized by a pasted
+ * HOT secret key (the seed-less import flow). The guardian lookup is by key
+ * commitment and indexes every registered signer, so the hot commitment finds
+ * the account exactly like the cold one does. A single key has no HD walk —
+ * one probe task per operator.
+ */
+export async function discoverGuardianForHotKey(
+  hotSecretKeyHex: string,
+  options: GuardianDiscoveryOptions = {}
+): Promise<GuardianDiscoveryResult> {
+  const { deserializeHotSecretKey } = await import('./hot-key-import');
+  return discoverGuardianForKeys(() => deserializeHotSecretKey(hotSecretKeyHex), { ...options, maxHdIndex: 1 });
+}
+
+/**
+ * Shared probe body: `makeKey` must return a FRESH `AuthSecretKey` handle per
+ * call (one per task) — sharing a WASM handle across concurrent `sign` calls is
+ * the "recursive use of an object … unsafe aliasing" hazard. The handle is
+ * freed here after the task settles.
+ */
+async function discoverGuardianForKeys(
+  makeKey: (hdIndex: number) => AuthSecretKey,
+  options: GuardianDiscoveryOptions = {}
+): Promise<GuardianDiscoveryResult> {
   const { maxHdIndex = GUARDIAN_PROBE_MAX_HD_INDEX, timeoutMs = GUARDIAN_PROBE_TIMEOUT_MS, signal } = options;
 
   const targets = resolveTargets(options);
@@ -387,13 +415,13 @@ export async function discoverGuardianForSeed(
 
   const settled = await runPooled(tasks, GUARDIAN_PROBE_CONCURRENCY, async ({ target, hdIndex }) => {
     if (signal?.aborted) return [];
-    // One AuthSecretKey + EcdsaSigner PER TASK. `ecdsaWithRNG(seed)` is
+    // One AuthSecretKey + EcdsaSigner PER TASK. Key construction is
     // deterministic, so per-task instances are byte-identical to a shared one —
     // and sharing a WASM handle across concurrent `sign` calls is exactly the
     // "recursive use of an object … unsafe aliasing" hazard.
-    const coldSecretKey = AuthSecretKey.ecdsaWithRNG(deriveColdSeed(hdIndex));
+    const secretKey = makeKey(hdIndex);
     try {
-      const signer = new EcdsaSigner(coldSecretKey);
+      const signer = new EcdsaSigner(secretKey);
       const client = new GuardianHttpClient(target.endpoint);
       client.setSigner(signer);
 
@@ -433,7 +461,7 @@ export async function discoverGuardianForSeed(
       return hits;
     } finally {
       try {
-        coldSecretKey.free();
+        secretKey.free();
       } catch {
         // Already freed / stubbed handle — nothing to release.
       }

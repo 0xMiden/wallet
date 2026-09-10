@@ -1065,6 +1065,50 @@
     "message": "Importar carteira",
     "englishSource": "Import Wallet"
   },
+  "importWithKeyInstead": {
+    "message": "Importe com a chave em vez disso",
+    "englishSource": "Import with key instead"
+  },
+  "importHotKeyTitle": {
+    "message": "Importar com chave",
+    "englishSource": "Import with Key"
+  },
+  "importHotKeyDescription": {
+    "message": "Cole a chave diária (hot) da sua conta. A carteira localiza sua conta no endereço Guardian e a importa sem um endereço de recuperação (seed phrase).",
+    "englishSource": "Paste your account's everyday (hot) key. The wallet finds your account at your Guardian and imports it without a seed phrase."
+  },
+  "importHotKeyPlaceholder": {
+    "message": "Chave diária (hex)",
+    "englishSource": "Everyday key (hex)"
+  },
+  "importHotKeyInvalid": {
+    "message": "Digite a chave diária como 64 ou 66 caracteres hexadecimais.",
+    "englishSource": "Enter the everyday key as 64 or 66 hexadecimal characters."
+  },
+  "importHotKeyError": {
+    "message": "Não foi possível importar uma conta com esta chave.",
+    "englishSource": "Could not import an account with this key."
+  },
+  "importHotKeyWrongScheme": {
+    "message": "Esta chave utiliza um esquema não compatível. Cole a chave de uso diário de uma conta Guardian.",
+    "englishSource": "This key uses an unsupported scheme. Paste the everyday key of a Guardian account."
+  },
+  "importHotKeyNoAccount": {
+    "message": "Nenhuma conta Guardian foi encontrada para esta chave neste endereço Guardian.",
+    "englishSource": "No Guardian account was found for this key at this Guardian."
+  },
+  "importHotKeyIsRecoveryKey": {
+    "message": "Parece que essa é sua chave de recuperação. Cole a chave de uso diário no lugar.",
+    "englishSource": "This looks like your recovery key. Paste the everyday key instead."
+  },
+  "importHotKeyNotActive": {
+    "message": "Esta chave não está mais ativa para a conta. Cole a chave diária atual.",
+    "englishSource": "This key is no longer active for the account. Paste the current everyday key."
+  },
+  "recoveryActionsRequireRecoveryKey": {
+    "message": "Guardian Alterações e substituição de chaves exigem a chave de recuperação, que não está neste dispositivo.",
+    "englishSource": "Guardian changes and key replacement need the recovery key, which is not on this device."
+  },
   "revealPrivateKey": {
     "message": "Revelar a chave privada",
     "englishSource": "Reveal Private Key"
@@ -4460,5 +4504,77 @@
   "devEndpointResetConfirm": {
     "message": "Isso apaga definitivamente esta carteira, incluindo suas chaves e seu histórico de transações. Você precisará da sua frase de recuperação para restaurá-la.",
     "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
+  },
+  "removeSeedPhrase": {
+    "message": "Remova seed phrase",
+    "englishSource": "Remove seed phrase"
+  },
+  "removeSeedPhraseDescription": {
+    "message": "Anote sua frase de recuperação (seed phrase) antes de removê-la. As transações diárias continuarão funcionando. Alterações na chave de recuperação (Guardian) e a substituição diária da chave exigirão que você insira a frase de recuperação (seed phrase).",
+    "englishSource": "Write down your seed phrase before you remove it. Daily transactions will still work. Guardian changes and everyday key replacement will require you to enter the seed phrase."
+  },
+  "removeSeedPhraseWriteDown": {
+    "message": "Escreva todas as palavras no papel nesta ordem. Guarde o papel em um local seguro fora deste dispositivo.",
+    "englishSource": "Write all words on paper in this order. Keep the paper in a safe place outside this device."
+  },
+  "removeSeedPhraseConfirmation": {
+    "message": "Isso remove as chaves de recuperação seed phrase e Guardian desta carteira neste dispositivo. Guarde seu backup em papel. Os backups feitos anteriormente não são excluídos.",
+    "englishSource": "This removes the seed phrase and Guardian recovery keys from this wallet on this device. Keep your paper backup. Previously made backups are not deleted."
+  },
+  "removeSeedPhraseConfirm": {
+    "message": "Remover deste dispositivo",
+    "englishSource": "Remove from this device"
+  },
+  "seedPhraseRemoved": {
+    "message": "Seed phrase removido deste dispositivo",
+    "englishSource": "Seed phrase removed from this device"
+  },
+  "seedPhraseUnavailable": {
+    "message": "Não há nenhum “seed phrase” armazenado nesta carteira.",
+    "englishSource": "There is no seed phrase stored in this wallet."
+  },
+  "seedRemovalIncomplete": {
+    "message": "A remoção não está concluída. Desbloqueie a carteira novamente para concluir a remoção do material de recuperação.",
+    "englishSource": "Removal is not complete. Unlock the wallet again to finish removing the recovery material."
+  },
+  "seedRemovalFailed": {
+    "message": "Não foi possível concluir a remoção do seed phrase. Tente novamente.",
+    "englishSource": "Could not finish removing the seed phrase. Try again."
+  },
+  "seedRemovalBusy": {
+    "message": "Aguarde a conclusão das transações atuais antes de remover o “seed phrase”.",
+    "englishSource": "Wait for the current transactions to finish before removing the seed phrase."
+  },
+  "seedRemovalKeysNotReady": {
+    "message": "Conclua a recuperação da conta e a ativação da chave diária antes de remover o seed phrase.",
+    "englishSource": "Finish account recovery and everyday key activation before removing the seed phrase."
+  },
+  "seedRequiredForAccountCreation": {
+    "message": "A criação de conta requer uma semente de recuperação (seed phrase) armazenada. A inserção de uma semente temporária para essa ação ainda não está disponível.",
+    "englishSource": "Account creation requires a stored seed phrase. Temporary seed input for this action is not yet available."
+  },
+  "recoverySeedRequired": {
+    "message": "Esta ação requer sua chave de recuperação seed phrase.",
+    "englishSource": "This action requires your recovery seed phrase."
+  },
+  "recoverySeedRequiredTitle": {
+    "message": "Insira seu endereço seed phrase",
+    "englishSource": "Enter your seed phrase"
+  },
+  "recoverySeedTemporaryDescription": {
+    "message": "Use seu backup em papel. A frase é usada apenas para essa ação e não é salva neste dispositivo.",
+    "englishSource": "Use your paper backup. The phrase is used only for this action and is not saved on this device."
+  },
+  "invalidRecoverySeed": {
+    "message": "Insira um endereço seed phrase válido.",
+    "englishSource": "Enter a valid seed phrase."
+  },
+  "wrongRecoverySeed": {
+    "message": "Este endereço seed phrase não corresponde a esta conta.",
+    "englishSource": "This seed phrase does not match this account."
+  },
+  "recoveryActionUnavailable": {
+    "message": "Esta ação de recuperação não está mais disponível.",
+    "englishSource": "This recovery action is no longer available."
   }
 }

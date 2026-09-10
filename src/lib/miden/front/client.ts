@@ -50,11 +50,14 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
 
   // Get actions from Zustand store
   const storeRegisterWallet = useWalletStore(s => s.registerWallet);
+  const storeRegisterWalletFromHotKey = useWalletStore(s => s.registerWalletFromHotKey);
   const storeImportWalletFromClient = useWalletStore(s => s.importWalletFromClient);
   const storeUnlock = useWalletStore(s => s.unlock);
   const storeCreateAccount = useWalletStore(s => s.createAccount);
   const storeUpdateCurrentAccount = useWalletStore(s => s.updateCurrentAccount);
   const storeEditAccountName = useWalletStore(s => s.editAccountName);
+  const removeSeedPhrase = useWalletStore(s => s.removeSeedPhrase);
+  const provideRecoverySeed = useWalletStore(s => s.provideRecoverySeed);
   const storeRevealMnemonic = useWalletStore(s => s.revealMnemonic);
   const storeRevealPrivateKey = useWalletStore(s => s.revealPrivateKey);
   const storeRevealHotKey = useWalletStore(s => s.revealHotKey);
@@ -119,6 +122,13 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
       await storeRegisterWallet(walletType, password, mnemonic, ownMnemonic, guardianEndpoint);
     },
     [storeRegisterWallet]
+  );
+
+  const registerWalletFromHotKey = useCallback(
+    async (password: string | undefined, hotKeyHex: string, guardianEndpoint?: string) => {
+      await storeRegisterWalletFromHotKey(password, hotKeyHex, guardianEndpoint);
+    },
+    [storeRegisterWalletFromHotKey]
   );
 
   const importWalletFromClient = useCallback(
@@ -386,6 +396,7 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
 
     // Actions
     registerWallet,
+    registerWalletFromHotKey,
     unlock,
 
     createAccount,
@@ -400,6 +411,8 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
     applyUserGuardianEndpoint,
     startGuardianRecovery,
     revealMnemonic,
+    removeSeedPhrase,
+    provideRecoverySeed,
     removeAccount,
     editAccountName,
     importAccount,

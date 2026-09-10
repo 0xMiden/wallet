@@ -11,10 +11,12 @@ import type { GuardianDiscoveryResult } from './discover';
 import { useGuardianProbe } from './use-guardian-probe';
 
 const mockDiscover = jest.fn();
+const mockDiscoverByHotKey = jest.fn();
 const mockMakeColdSeedDeriver = jest.fn((_mnemonic: string) => (hdIndex: number) => new Uint8Array([hdIndex]));
 
 jest.mock('./discover', () => ({
-  discoverGuardianForSeed: (...args: unknown[]) => mockDiscover(...args)
+  discoverGuardianForSeed: (...args: unknown[]) => mockDiscover(...args),
+  discoverGuardianForHotKey: (...args: unknown[]) => mockDiscoverByHotKey(...args)
 }));
 
 jest.mock('lib/miden/sdk/derive-seed', () => ({
@@ -179,5 +181,97 @@ describe('useGuardianProbe', () => {
         return pending;
       })()
     ).resolves.toBeDefined();
+  });
+});
+
+/**
+ * The hot-key variant rides the same run-token scaffolding as `start`; what
+ * matters is that it drives the key discovery (no seed derivation) and that
+ * the two variants supersede EACH OTHER — a user backing out of the key screen
+ * to re-enter a seed must not see the abandoned key probe publish late.
+ */
+describe('useGuardianProbe.startWithKey', () => {
+  const HOT_KEY_HEX = 'ab'.repeat(32);
+
+  it('probes by key, publishes the result, and never touches seed derivation', async () => {
+    mockDiscoverByHotKey.mockResolvedValue(result('https://guardian.example.com'));
+    const { result: hook } = renderHook(() => useGuardianProbe());
+
+    let started: Promise<GuardianDiscoveryResult | undefined> | undefined;
+    act(() => {
+      started = hook.current.startWithKey(HOT_KEY_HEX);
+    });
+    expect(hook.current.state).toEqual({ status: 'probing' });
+
+    const discovered = await act(async () => started);
+
+    expect(discovered?.best?.endpoint).toBe('https://guardian.example.com');
+    expect(hook.current.state).toEqual({ status: 'done', result: discovered });
+    expect(mockDiscoverByHotKey).toHaveBeenCalledWith(
+      HOT_KEY_HEX,
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
+    );
+    expect(mockMakeColdSeedDeriver).not.toHaveBeenCalled();
+    expect(mockDiscover).not.toHaveBeenCalled();
+  });
+
+  it('reports an error state instead of throwing when the key probe blows up', async () => {
+    mockDiscoverByHotKey.mockRejectedValue(new Error('key probe exploded'));
+    const { result: hook } = renderHook(() => useGuardianProbe());
+
+    const returned = await act(async () => hook.current.startWithKey(HOT_KEY_HEX));
+
+    expect(returned).toBeUndefined();
+    expect(hook.current.state).toEqual({ status: 'error', message: 'key probe exploded' });
+  });
+
+  it('a seed probe started after a key probe supersedes it', async () => {
+    const stale = result('https://stale-key.example.com');
+    const fresh = result('https://fresh-seed.example.com');
+    let releaseKeyProbe: (value: GuardianDiscoveryResult) => void = () => {};
+    mockDiscoverByHotKey.mockImplementation(
+      () => new Promise<GuardianDiscoveryResult>(resolve => (releaseKeyProbe = resolve))
+    );
+    mockDiscover.mockResolvedValue(fresh);
+
+    const { result: hook } = renderHook(() => useGuardianProbe());
+
+    let stalePromise: Promise<GuardianDiscoveryResult | undefined> | undefined;
+    act(() => {
+      stalePromise = hook.current.startWithKey(HOT_KEY_HEX);
+    });
+    await act(async () => {
+      await hook.current.start(WORDS);
+    });
+    expect(hook.current.state).toEqual({ status: 'done', result: fresh });
+
+    const staleResolved = await act(async () => {
+      releaseKeyProbe(stale);
+      return stalePromise;
+    });
+
+    expect(staleResolved).toBeUndefined();
+    expect(hook.current.state).toEqual({ status: 'done', result: fresh });
+  });
+
+  it('aborts the in-flight key probe on reset', async () => {
+    let capturedSignal: AbortSignal | undefined;
+    mockDiscoverByHotKey.mockImplementation((_hex: unknown, options: { signal?: AbortSignal }) => {
+      capturedSignal = options.signal;
+      return new Promise<GuardianDiscoveryResult>(() => {});
+    });
+
+    const { result: hook } = renderHook(() => useGuardianProbe());
+    act(() => {
+      void hook.current.startWithKey(HOT_KEY_HEX);
+    });
+    await waitFor(() => expect(capturedSignal).toBeDefined());
+
+    act(() => {
+      hook.current.reset();
+    });
+
+    expect(hook.current.state).toEqual({ status: 'idle' });
+    expect(capturedSignal?.aborted).toBe(true);
   });
 });

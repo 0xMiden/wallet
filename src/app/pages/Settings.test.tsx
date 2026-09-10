@@ -4,6 +4,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 import { getCurrentLocale } from 'lib/i18n/core';
 import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
+import { SeedPhraseStatus } from 'lib/shared/types';
 import { goBack, navigate } from 'lib/woozie';
 
 import { PRIVACY_POLICY_URL } from '../constants';
@@ -15,7 +16,10 @@ import Settings from './Settings';
 // `mock`-prefixed so jest allows them inside the (hoisted) mock factories.
 // ---------------------------------------------------------------------------
 type MockAccount = { type?: string; hotPublicKey?: string } | undefined;
-const mockWalletState: { currentAccount: MockAccount } = { currentAccount: { type: 'on-chain' } };
+const mockWalletState: { currentAccount: MockAccount; seedPhraseStatus?: SeedPhraseStatus } = {
+  currentAccount: { type: 'on-chain' },
+  seedPhraseStatus: 'stored'
+};
 let mockIsMobile = false;
 let mockHistoryPosition = 1;
 let mockReduceMotion: boolean | null = false;
@@ -251,6 +255,7 @@ beforeEach(() => {
   mockHistoryPosition = 1;
   mockReduceMotion = false;
   mockShowDevEndpoints.value = false;
+  mockWalletState.seedPhraseStatus = 'stored';
   setAccount({ type: 'on-chain' });
   mockGetCurrentLocale.mockReturnValue('en-US');
   document.body.removeAttribute('data-drawer-open');
@@ -263,6 +268,29 @@ afterEach(() => {
 });
 
 describe('Settings page — root menu (non-guardian)', () => {
+  it.each<SeedPhraseStatus | undefined>(['removing', 'removed', 'unavailable', undefined])(
+    'hides recovery phrase settings when seed status is %s',
+    status => {
+      mockWalletState.seedPhraseStatus = status;
+      render(<Settings tabSlug={null} />);
+
+      expect(screen.queryByTestId('menuitem-recoveryPhrase')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('menuitem-removeSeedPhrase')).not.toBeInTheDocument();
+    }
+  );
+
+  it('removes the recovery phrase settings when the seed status changes', () => {
+    const view = render(<Settings tabSlug={null} />);
+    expect(screen.getByTestId('menuitem-recoveryPhrase')).toBeInTheDocument();
+    expect(screen.getByTestId('menuitem-removeSeedPhrase')).toBeInTheDocument();
+
+    mockWalletState.seedPhraseStatus = 'removed';
+    view.rerender(<Settings tabSlug={null} />);
+
+    expect(screen.queryByTestId('menuitem-recoveryPhrase')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('menuitem-removeSeedPhrase')).not.toBeInTheDocument();
+  });
+
   it('renders the settings header and version footer', () => {
     render(<Settings tabSlug={null} />);
 
