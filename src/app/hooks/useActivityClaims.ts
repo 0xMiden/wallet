@@ -40,7 +40,9 @@ export function useActivityClaims() {
   }, []);
 
   useEffect(() => {
-    const pending = [...attempts.values()].filter(item => item.status === 'claiming' && item.txId);
+    const pending = [...attempts.values()].filter(
+      (item): item is PendingActivityItem & { txId: string } => item.status === 'claiming' && Boolean(item.txId)
+    );
     if (pending.length === 0) return;
     let cancelled = false;
     let reading = false;
@@ -50,7 +52,6 @@ export function useActivityClaims() {
       try {
         await Promise.all(
           pending.map(async item => {
-            if (!item.txId) return;
             try {
               const tx = await getTransactionById(item.txId);
               if (cancelled) return;
