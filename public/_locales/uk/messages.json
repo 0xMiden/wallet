@@ -4460,5 +4460,77 @@
   "devEndpointResetConfirm": {
     "message": "Це призведе до остаточного видалення цього гаманця, включаючи ваші ключі та історію транзакцій. Для його відновлення вам знадобиться фраза відновлення.",
     "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
+  },
+  "removeSeedPhrase": {
+    "message": "Видалити seed phrase",
+    "englishSource": "Remove seed phrase"
+  },
+  "removeSeedPhraseDescription": {
+    "message": "Запишіть свій «seed phrase» перед тим, як його видалити. Щоденні транзакції все одно працюватимуть. Зміни «Guardian» та щоденна заміна ключів вимагатимуть введення «seed phrase».",
+    "englishSource": "Write down your seed phrase before you remove it. Daily transactions will still work. Guardian changes and everyday key replacement will require you to enter the seed phrase."
+  },
+  "removeSeedPhraseWriteDown": {
+    "message": "Запишіть усі слова на папері в цьому порядку. Зберігайте папір у безпечному місці поза цим пристроєм.",
+    "englishSource": "Write all words on paper in this order. Keep the paper in a safe place outside this device."
+  },
+  "removeSeedPhraseConfirmation": {
+    "message": "Це видалить ключі відновлення seed phrase та Guardian з цього гаманця на цьому пристрої. Зберігайте свою паперову резервну копію. Раніше створені резервні копії не видаляються.",
+    "englishSource": "This removes the seed phrase and Guardian recovery keys from this wallet on this device. Keep your paper backup. Previously made backups are not deleted."
+  },
+  "removeSeedPhraseConfirm": {
+    "message": "Видалити з цього пристрою",
+    "englishSource": "Remove from this device"
+  },
+  "seedPhraseRemoved": {
+    "message": "Seed phrase видалено з цього пристрою",
+    "englishSource": "Seed phrase removed from this device"
+  },
+  "seedPhraseUnavailable": {
+    "message": "У цьому гаманці не зберігається жодних токенів seed phrase.",
+    "englishSource": "There is no seed phrase stored in this wallet."
+  },
+  "seedRemovalIncomplete": {
+    "message": "Видалення не завершено. Знову розблокуйте гаманець, щоб завершити видалення матеріалів для відновлення.",
+    "englishSource": "Removal is not complete. Unlock the wallet again to finish removing the recovery material."
+  },
+  "seedRemovalFailed": {
+    "message": "Не вдалося завершити видалення seed phrase. Спробуйте ще раз.",
+    "englishSource": "Could not finish removing the seed phrase. Try again."
+  },
+  "seedRemovalBusy": {
+    "message": "Дочекайтеся завершення поточних транзакцій, перш ніж видаляти «seed phrase».",
+    "englishSource": "Wait for the current transactions to finish before removing the seed phrase."
+  },
+  "seedRemovalKeysNotReady": {
+    "message": "Завершіть відновлення облікового запису та щоденну активацію ключа, перш ніж видалити файл «seed phrase».",
+    "englishSource": "Finish account recovery and everyday key activation before removing the seed phrase."
+  },
+  "seedRequiredForAccountCreation": {
+    "message": "Для створення облікового запису необхідне збережене насіння (seed phrase). Тимчасове введення насіння для цієї дії поки що недоступне.",
+    "englishSource": "Account creation requires a stored seed phrase. Temporary seed input for this action is not yet available."
+  },
+  "recoverySeedRequired": {
+    "message": "Для виконання цієї дії необхідний ваш ключ відновлення seed phrase.",
+    "englishSource": "This action requires your recovery seed phrase."
+  },
+  "recoverySeedRequiredTitle": {
+    "message": "Введіть свій seed phrase",
+    "englishSource": "Enter your seed phrase"
+  },
+  "recoverySeedTemporaryDescription": {
+    "message": "Використовуйте паперову резервну копію. Ця фраза використовується виключно для цієї дії та не зберігається на цьому пристрої.",
+    "englishSource": "Use your paper backup. The phrase is used only for this action and is not saved on this device."
+  },
+  "invalidRecoverySeed": {
+    "message": "Введіть дійсний seed phrase.",
+    "englishSource": "Enter a valid seed phrase."
+  },
+  "wrongRecoverySeed": {
+    "message": "Цей seed phrase не відповідає цьому обліковому запису.",
+    "englishSource": "This seed phrase does not match this account."
+  },
+  "recoveryActionUnavailable": {
+    "message": "Ця процедура відновлення більше не доступна.",
+    "englishSource": "This recovery action is no longer available."
   }
 }

@@ -4460,5 +4460,77 @@
   "devEndpointResetConfirm": {
     "message": "Esto borrará definitivamente esta cartera, incluidas tus claves y tu historial de transacciones. Necesitarás tu frase de recuperación para restaurarla.",
     "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
+  },
+  "removeSeedPhrase": {
+    "message": "Elimina seed phrase",
+    "englishSource": "Remove seed phrase"
+  },
+  "removeSeedPhraseDescription": {
+    "message": "Anota tu «seed phrase» antes de eliminarlo. Las transacciones diarias seguirán funcionando. Los cambios en Guardian y la sustitución diaria de claves requerirán que introduzcas el «seed phrase».",
+    "englishSource": "Write down your seed phrase before you remove it. Daily transactions will still work. Guardian changes and everyday key replacement will require you to enter the seed phrase."
+  },
+  "removeSeedPhraseWriteDown": {
+    "message": "Escribe todas las palabras en un papel en este orden. Guarda el papel en un lugar seguro fuera de este dispositivo.",
+    "englishSource": "Write all words on paper in this order. Keep the paper in a safe place outside this device."
+  },
+  "removeSeedPhraseConfirmation": {
+    "message": "Esto elimina las claves de recuperación seed phrase y Guardian de este monedero en este dispositivo. Conserva tu copia de seguridad en papel. Las copias de seguridad realizadas anteriormente no se eliminan.",
+    "englishSource": "This removes the seed phrase and Guardian recovery keys from this wallet on this device. Keep your paper backup. Previously made backups are not deleted."
+  },
+  "removeSeedPhraseConfirm": {
+    "message": "Eliminar de este dispositivo",
+    "englishSource": "Remove from this device"
+  },
+  "seedPhraseRemoved": {
+    "message": "Seed phrase eliminado de este dispositivo",
+    "englishSource": "Seed phrase removed from this device"
+  },
+  "seedPhraseUnavailable": {
+    "message": "En esta cartera no hay ningún «seed phrase» almacenado.",
+    "englishSource": "There is no seed phrase stored in this wallet."
+  },
+  "seedRemovalIncomplete": {
+    "message": "La eliminación no se ha completado. Desbloquea de nuevo el monedero para terminar de eliminar el material de recuperación.",
+    "englishSource": "Removal is not complete. Unlock the wallet again to finish removing the recovery material."
+  },
+  "seedRemovalFailed": {
+    "message": "No se ha podido completar la eliminación de «seed phrase». Inténtalo de nuevo.",
+    "englishSource": "Could not finish removing the seed phrase. Try again."
+  },
+  "seedRemovalBusy": {
+    "message": "Espera a que finalicen las transacciones actuales antes de eliminar el «seed phrase».",
+    "englishSource": "Wait for the current transactions to finish before removing the seed phrase."
+  },
+  "seedRemovalKeysNotReady": {
+    "message": "Finaliza la recuperación de la cuenta y la activación de la clave diaria antes de eliminar el «seed phrase».",
+    "englishSource": "Finish account recovery and everyday key activation before removing the seed phrase."
+  },
+  "seedRequiredForAccountCreation": {
+    "message": "La creación de una cuenta requiere una semilla de recuperacióseed phrase almacenada. Aún no está disponible la introducción de una semilla temporal para esta acción.",
+    "englishSource": "Account creation requires a stored seed phrase. Temporary seed input for this action is not yet available."
+  },
+  "recoverySeedRequired": {
+    "message": "Para realizar esta acción, es necesario introducir tu código de recuperación seed phrase.",
+    "englishSource": "This action requires your recovery seed phrase."
+  },
+  "recoverySeedRequiredTitle": {
+    "message": "Introduce tu seed phrase",
+    "englishSource": "Enter your seed phrase"
+  },
+  "recoverySeedTemporaryDescription": {
+    "message": "Utiliza tu copia de seguridad en papel. La frase solo se utiliza para esta acción y no se guarda en este dispositivo.",
+    "englishSource": "Use your paper backup. The phrase is used only for this action and is not saved on this device."
+  },
+  "invalidRecoverySeed": {
+    "message": "Introduce una dirección válida de seed phrase.",
+    "englishSource": "Enter a valid seed phrase."
+  },
+  "wrongRecoverySeed": {
+    "message": "Este seed phrase no coincide con esta cuenta.",
+    "englishSource": "This seed phrase does not match this account."
+  },
+  "recoveryActionUnavailable": {
+    "message": "Esta acción de recuperación ya no está disponible.",
+    "englishSource": "This recovery action is no longer available."
   }
 }

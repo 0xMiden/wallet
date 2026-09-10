@@ -4460,5 +4460,77 @@
   "devEndpointResetConfirm": {
     "message": "此操作將永久刪除此錢包，包括您的金鑰和交易紀錄。若要還原錢包，您需要使用您的恢復短語。",
     "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
+  },
+  "removeSeedPhrase": {
+    "message": "移除 seed phrase",
+    "englishSource": "Remove seed phrase"
+  },
+  "removeSeedPhraseDescription": {
+    "message": "在移除您的 seed phrase 之前，請先將其記錄下來。日常交易仍可照常進行。若 Guardian 發生變更，或進行日常金鑰更換時，您將需要輸入 seed phrase。",
+    "englishSource": "Write down your seed phrase before you remove it. Daily transactions will still work. Guardian changes and everyday key replacement will require you to enter the seed phrase."
+  },
+  "removeSeedPhraseWriteDown": {
+    "message": "請將所有詞彙按此順序寫在紙上。將紙張存放在本裝置以外的安全地點。",
+    "englishSource": "Write all words on paper in this order. Keep the paper in a safe place outside this device."
+  },
+  "removeSeedPhraseConfirmation": {
+    "message": "此操作將從本裝置上的此錢包中移除 seed phrase 和 Guardian 恢復金鑰。請妥善保管您的紙本備份。先前建立的備份並不會被刪除。",
+    "englishSource": "This removes the seed phrase and Guardian recovery keys from this wallet on this device. Keep your paper backup. Previously made backups are not deleted."
+  },
+  "removeSeedPhraseConfirm": {
+    "message": "從此裝置中移除",
+    "englishSource": "Remove from this device"
+  },
+  "seedPhraseRemoved": {
+    "message": "Seed phrase 已從此裝置移除",
+    "englishSource": "Seed phrase removed from this device"
+  },
+  "seedPhraseUnavailable": {
+    "message": "此錢包中並未儲存任何seed phrase。",
+    "englishSource": "There is no seed phrase stored in this wallet."
+  },
+  "seedRemovalIncomplete": {
+    "message": "移除尚未完成。請再次解鎖錢包以完成恢復資料的移除。",
+    "englishSource": "Removal is not complete. Unlock the wallet again to finish removing the recovery material."
+  },
+  "seedRemovalFailed": {
+    "message": "無法完成移除 seed phrase。請重新嘗試。",
+    "englishSource": "Could not finish removing the seed phrase. Try again."
+  },
+  "seedRemovalBusy": {
+    "message": "請待當前交易完成後，再移除seed phrase。",
+    "englishSource": "Wait for the current transactions to finish before removing the seed phrase."
+  },
+  "seedRemovalKeysNotReady": {
+    "message": "請在移除seed phrase之前，先完成帳戶恢復及日常金鑰啟用程序。",
+    "englishSource": "Finish account recovery and everyday key activation before removing the seed phrase."
+  },
+  "seedRequiredForAccountCreation": {
+    "message": "建立帳戶需儲存seed phrase。目前尚無法為此操作提供臨時種子輸入。",
+    "englishSource": "Account creation requires a stored seed phrase. Temporary seed input for this action is not yet available."
+  },
+  "recoverySeedRequired": {
+    "message": "此操作需要您輸入恢復密碼：seed phrase。",
+    "englishSource": "This action requires your recovery seed phrase."
+  },
+  "recoverySeedRequiredTitle": {
+    "message": "請輸入您的 seed phrase",
+    "englishSource": "Enter your seed phrase"
+  },
+  "recoverySeedTemporaryDescription": {
+    "message": "請使用您的紙本備份。此短語僅用於此操作，且不會儲存於本裝置中。",
+    "englishSource": "Use your paper backup. The phrase is used only for this action and is not saved on this device."
+  },
+  "invalidRecoverySeed": {
+    "message": "請輸入有效的 seed phrase。",
+    "englishSource": "Enter a valid seed phrase."
+  },
+  "wrongRecoverySeed": {
+    "message": "此 seed phrase 與該帳戶不符。",
+    "englishSource": "This seed phrase does not match this account."
+  },
+  "recoveryActionUnavailable": {
+    "message": "此復原操作已不再可用。",
+    "englishSource": "This recovery action is no longer available."
   }
 }
