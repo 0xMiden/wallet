@@ -315,9 +315,7 @@ describe('SendManager rendering', () => {
     mockCardStack = [{ name: SendFlowStep.SelectAmount }];
     renderFlow();
     expect(screen.getByTestId('select-amount')).toBeInTheDocument();
-    expect(screen.getByTestId('sa-footer')).toHaveTextContent(
-      'pt-4 pb-[max(0px,calc(1.5rem-var(--keyboard-height,0px)))]'
-    );
+    expect(screen.getByTestId('sa-footer')).toBeEmptyDOMElement();
     expect(useHideNavbarWhileOpenMock).toHaveBeenCalledWith(true);
   });
 
