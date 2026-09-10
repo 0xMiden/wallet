@@ -90,3 +90,30 @@ it('logs a database-list failure without replacing the current dates', async () 
   names.mockRestore();
   log.mockRestore();
 });
+
+it('returns no dates when IndexedDB is unavailable', async () => {
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'indexedDB');
+  Object.defineProperty(globalThis, 'indexedDB', { configurable: true, value: undefined });
+  try {
+    expect(await readStoredNoteDates(['note'])).toEqual(new Map());
+  } finally {
+    if (descriptor) Object.defineProperty(globalThis, 'indexedDB', descriptor);
+    else Reflect.deleteProperty(globalThis, 'indexedDB');
+  }
+});
+
+it('does not publish stored dates after unmount', async () => {
+  let releaseNames: (names: string[]) => void = () => {};
+  const names = jest.spyOn(Dexie, 'getDatabaseNames').mockImplementationOnce(
+    () =>
+      new Promise<string[]>(resolve => {
+        releaseNames = resolve;
+      })
+  );
+  const { unmount } = renderHook(() => useActivityNoteDates(['note']));
+
+  unmount();
+  await act(async () => releaseNames([]));
+  expect(names).toHaveBeenCalledTimes(1);
+  names.mockRestore();
+});

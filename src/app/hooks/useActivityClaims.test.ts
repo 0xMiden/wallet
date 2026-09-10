@@ -280,3 +280,55 @@ it('filters cached and busy notes from a batch and wakes the extension worker', 
   expect(mockRequest).toHaveBeenCalledTimes(1);
   expect(mockStart).not.toHaveBeenCalled();
 });
+
+it('groups notes from the same faucet and keeps them queued if the worker wake-up fails', async () => {
+  const log = jest.spyOn(console, 'warn').mockImplementation(() => {});
+  const first = { ...note, id: 'first' };
+  const second = { ...note, id: 'second' };
+  mockClaim.safeClaimableNotes = [first, second];
+  mockStart.mockImplementationOnce(() => {
+    throw new Error('Wake-up failed');
+  });
+  const { result } = renderHook(() => useActivityClaims());
+
+  await act(async () => {
+    await result.current.acceptMany([first, second]);
+  });
+  expect(mockQueueMany).toHaveBeenCalledWith('account', [first, second], false, true);
+  expect(result.current.items.map(item => item.status)).toEqual(['claiming', 'claiming']);
+  expect(log).toHaveBeenCalled();
+  log.mockRestore();
+});
+
+it('does not publish a single claim transaction id after unmount', async () => {
+  let releaseQueue: (txId: string) => void = () => {};
+  mockQueue.mockImplementationOnce(
+    () =>
+      new Promise<string>(resolve => {
+        releaseQueue = resolve;
+      })
+  );
+  const { result, unmount } = renderHook(() => useActivityClaims());
+
+  let claim: Promise<void> = Promise.resolve();
+  act(() => {
+    claim = result.current.accept(note);
+  });
+  unmount();
+  await act(async () => {
+    releaseQueue('late-transaction');
+    await claim;
+  });
+  expect(mockStart).toHaveBeenCalledTimes(1);
+});
+
+it('does not replace history when a completed transaction has no note references', async () => {
+  mockRead.mockResolvedValue({ status: 2 });
+  const { result } = renderHook(() => useActivityClaims());
+
+  await act(async () => {
+    await result.current.accept(note);
+  });
+  await waitFor(() => expect(result.current.items[0]?.status).toBe('claimed'));
+  expect(result.current.items[0]?.replaceHistoryRow).toBe(false);
+});

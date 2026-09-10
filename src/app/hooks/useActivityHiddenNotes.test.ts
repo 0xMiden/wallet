@@ -119,3 +119,45 @@ it('ignores save requests until loading completes and while another write is act
     await firstWrite;
   });
 });
+
+it('does not publish a storage read failure after unmount', async () => {
+  const log = jest.spyOn(console, 'warn').mockImplementation(() => {});
+  let rejectRead: (error: Error) => void = () => {};
+  read.mockImplementationOnce(
+    () =>
+      new Promise<string[]>((_resolve, reject) => {
+        rejectRead = reject;
+      })
+  );
+  const { unmount } = renderHook(() => useActivityHiddenNotes('account'));
+
+  unmount();
+  await act(async () => rejectRead(new Error('Late read failure')));
+  expect(log).toHaveBeenCalled();
+  log.mockRestore();
+});
+
+it('does not publish a storage write failure after unmount', async () => {
+  const log = jest.spyOn(console, 'warn').mockImplementation(() => {});
+  let rejectWrite: (error: Error) => void = () => {};
+  write.mockImplementationOnce(
+    () =>
+      new Promise<void>((_resolve, reject) => {
+        rejectWrite = reject;
+      })
+  );
+  const { result, unmount } = renderHook(() => useActivityHiddenNotes('account'));
+  await waitFor(() => expect(result.current.loaded).toBe(true));
+
+  let save: Promise<void> = Promise.resolve();
+  act(() => {
+    save = result.current.hide('new');
+  });
+  unmount();
+  await act(async () => {
+    rejectWrite(new Error('Late write failure'));
+    await save;
+  });
+  expect(log).toHaveBeenCalled();
+  log.mockRestore();
+});
