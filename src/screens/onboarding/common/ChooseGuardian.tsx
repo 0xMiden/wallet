@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import clsx from 'clsx';
 import { useTranslation } from 'react-i18next';
@@ -62,11 +62,14 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
   const options = useMemo(() => getGuardianOptionsForNetwork(), []);
 
   // Liveness ping per provider so an operator that's down right now is marked
-  // offline on its card. Advisory only: an offline card stays selectable — the
-  // outage may be transient, and account creation against it fails loudly with
-  // its own error anyway.
+  // offline on its card. An offline card is NOT selectable: an account created
+  // against a down operator fails deep in the pipeline, after the user has
+  // already backed up a seed phrase and set a password. An endpoint with no
+  // verdict yet stays selectable — blocking on a pending ping would make every
+  // card dead for the first round trip.
   const endpoints = useMemo(() => options.map(o => o.endpoint), [options]);
   const availability = useGuardianAvailability(endpoints);
+  const isOfflineEndpoint = useCallback((endpoint: string) => availability[endpoint] === 'offline', [availability]);
 
   // In the switch context (GuardianSettings passes `currentEndpoint`) pre-select
   // the CURRENT operator, so the user has to deliberately pick a different one to
@@ -89,12 +92,39 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
     if (!userSelectedRef.current) setSelectedId(defaultId);
   }, [defaultId]);
 
+  // The selection Continue will act on. `selectedId` is a stored intent; the
+  // verdicts land AFTER it is set (the map starts empty and re-probes every
+  // 30 s), so an intent can point at a card that has since gone offline.
+  // Derived rather than stored, so a card that comes back online is simply
+  // selected again, and a mid-screen outage cannot submit.
+  //
+  // - Create flow (no `currentEndpoint`): fall to the first online provider —
+  //   the default was only ever "the first one", so the first live one is the
+  //   same rule applied to the cards the user can actually pick.
+  // - Switch flow: fall to NOTHING. The pre-selected card is the operator the
+  //   account is on, and the whole offline-rotation flow starts because that
+  //   operator is down. Picking a replacement for the user would nudge them
+  //   onto an operator by default, which the pre-selection rule exists to
+  //   prevent.
+  const effectiveSelectedId = useMemo(() => {
+    if (selectedId === NO_GUARDIAN_ID) return selectedId;
+    const selected = options.find(o => o.id === selectedId);
+    if (selected && !isOfflineEndpoint(selected.endpoint)) return selected.id;
+    if (currentEndpoint) return '';
+    return options.find(o => !isOfflineEndpoint(o.endpoint))?.id ?? '';
+  }, [selectedId, options, isOfflineEndpoint, currentEndpoint]);
+
   const handleSelect = (id: string) => {
     hapticLight();
     userSelectedRef.current = true;
     setSelectedId(id);
     setIsCustom(false);
   };
+
+  // Continue has something to submit: a custom URL (validated on tap), the
+  // no-guardian sentinel, or an online provider. With every provider offline
+  // the button is dead and each card says why.
+  const canContinue = isCustom || effectiveSelectedId !== '';
 
   const handleContinue = () => {
     // Custom mode first, because it is the mode the SCREEN is in — the cards and
@@ -114,11 +144,13 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
       onSubmit?.({ guardianId: 'custom', guardianEndpoint: sanitized });
       return;
     }
-    if (selectedId === NO_GUARDIAN_ID) {
+    if (effectiveSelectedId === NO_GUARDIAN_ID) {
       onSubmit?.({ guardianId: NO_GUARDIAN_ID, guardianEndpoint: '' });
       return;
     }
-    const selected = options.find(o => o.id === selectedId) ?? options[0];
+    // No `?? options[0]` fallback: an empty `effectiveSelectedId` means every
+    // provider is offline, and the first one is offline too.
+    const selected = options.find(o => o.id === effectiveSelectedId);
     if (!selected) return;
     onSubmit?.({ guardianId: selected.id, guardianEndpoint: selected.endpoint });
   };
@@ -155,10 +187,10 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
             // border AND reported `aria-pressed="true"` while the custom URL was
             // the live choice — telling a screen-reader user, in a
             // machine-readable attribute, that the wrong operator was selected.
-            const isSelected = !isCustom && selectedId === option.id;
+            const isSelected = !isCustom && effectiveSelectedId === option.id;
             const isDefault = option.id === defaultId;
             const isCurrent = currentEndpoint != null && option.endpoint === currentEndpoint;
-            const isOffline = availability[option.endpoint] === 'offline';
+            const isOffline = isOfflineEndpoint(option.endpoint);
             // GUARDIAN_LOGOS is keyed by provider id with no compile-time tie to
             // GUARDIAN_OPTIONS, so the old `GUARDIAN_LOGOS[option.id]!` + destructure
             // threw "Cannot destructure property 'Logo' of undefined" for any option
@@ -188,6 +220,11 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
                 <button
                   type="button"
                   onClick={() => handleSelect(option.id)}
+                  // A down operator cannot be chosen. `disabled` (not a guard in
+                  // the handler) so the card also leaves the tab order and reports
+                  // itself unavailable to assistive tech, in the same attribute
+                  // the offline strip is already read from.
+                  disabled={isOffline}
                   aria-label={cardLabel}
                   // Selection is otherwise conveyed by border colour alone.
                   aria-pressed={isSelected}
@@ -195,7 +232,8 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
                   className={cn(
                     'relative flex h-30.5 w-full flex-col overflow-hidden rounded-[20px] transition-all duration-150',
                     'border-2',
-                    isSelected ? 'border-primary-500 border-4' : 'border-[#E3E3E3] dark:border-grey-800'
+                    isSelected ? 'border-primary-500 border-4' : 'border-[#E3E3E3] dark:border-grey-800',
+                    isOffline && 'cursor-not-allowed'
                   )}
                 >
                   {/* One strip slot, and up to two things to say in it. An offline
@@ -256,10 +294,10 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
             // whose operator name sits in a sibling node. `!isCustom` for the
             // same reason as the provider cards: this must agree with what
             // Continue submits.
-            aria-pressed={!isCustom && selectedId === NO_GUARDIAN_ID}
+            aria-pressed={!isCustom && effectiveSelectedId === NO_GUARDIAN_ID}
             className={cn(
               'mt-4 flex flex-col items-start rounded-[20px] border-2 p-4 text-left transition-all duration-150 shrink-0',
-              !isCustom && selectedId === NO_GUARDIAN_ID
+              !isCustom && effectiveSelectedId === NO_GUARDIAN_ID
                 ? 'border-primary-500 border-4'
                 : 'border-[#E3E3E3] dark:border-grey-800'
             )}
@@ -325,6 +363,7 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
             data-testid="choose-guardian-continue"
             title={submitLabel ?? t('continue')}
             onClick={handleContinue}
+            disabled={!canContinue}
           />
         </div>
       </div>

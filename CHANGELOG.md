@@ -4,6 +4,7 @@
 
 ### Fixes
 
+- [FIX][all] The Guardian picker no longer lets an offline operator be chosen. A card marked Offline is disabled, a default or already-picked card that a later probe finds offline hands the selection to the first online operator (or to nothing in the rotation flow, so the user picks the replacement deliberately), and Continue is disabled while there is no online operator to submit. Before, the card said Offline but still took the tap, and account creation against it failed only after the seed backup and password steps.
 - [FIX][ci] Every ubuntu job now drops Google's Chrome apt repository before touching apt. Nothing installs Chrome from apt, yet its CDN served a mismatched package index for over an hour and failed every Playwright, xvfb and local-node install with `Hash Sum mismatch`.
 - [FIX][e2e] The testnet E2E harness now funds every new account from the public faucet before its first transaction, as it already did on devnet; testnet moved to the fee-charging 0.16 node and unfunded mints failed inside the kernel.
 
