@@ -53,6 +53,35 @@ it('reports a storage read failure and still finishes loading', async () => {
   log.mockRestore();
 });
 
+it('accepts only string ids from an array and treats other payloads as empty', async () => {
+  read.mockResolvedValueOnce(JSON.parse('["kept", 7, null]'));
+  const { result, rerender } = renderHook(({ address }) => useActivityHiddenNotes(address), {
+    initialProps: { address: 'mixed' }
+  });
+  await waitFor(() => expect(result.current.loaded).toBe(true));
+  expect([...result.current.ids]).toEqual(['kept']);
+
+  read.mockResolvedValueOnce(JSON.parse('{"not":"an array"}'));
+  rerender({ address: 'object' });
+  await waitFor(() => expect(read).toHaveBeenCalledWith('activity-hidden-notes:object'));
+  await waitFor(() => expect(result.current.ids.size).toBe(0));
+});
+
+it('does not publish a storage read that settles after unmount', async () => {
+  let releaseRead: (ids: string[]) => void = () => {};
+  read.mockImplementationOnce(
+    () =>
+      new Promise<string[]>(resolve => {
+        releaseRead = resolve;
+      })
+  );
+  const { unmount } = renderHook(() => useActivityHiddenNotes('account'));
+
+  unmount();
+  await act(async () => releaseRead(['late']));
+  expect(write).not.toHaveBeenCalled();
+});
+
 it('ignores save requests until loading completes and while another write is active', async () => {
   let releaseRead: (ids: string[]) => void = () => {};
   read.mockImplementationOnce(

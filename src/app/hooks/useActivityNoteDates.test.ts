@@ -1,6 +1,7 @@
+import { act, renderHook, waitFor } from '@testing-library/react';
 import Dexie from 'dexie';
 
-import { readStoredNoteDates } from './useActivityNoteDates';
+import { readStoredNoteDates, useActivityNoteDates } from './useActivityNoteDates';
 
 it('reads the saved receive date for notes that predate the new sync field', async () => {
   const db = new Dexie('activity-note-date-test');
@@ -46,4 +47,44 @@ it('skips databases without input notes and malformed stored rows', async () => 
     await unrelated.delete();
     await malformed.delete();
   }
+});
+
+it('publishes stored dates through the hook and keeps an unchanged result stable', async () => {
+  const db = new Dexie('activity-note-date-hook-test');
+  const names = jest.spyOn(Dexie, 'getDatabaseNames');
+  db.version(1).stores({ inputNotes: '&noteId' });
+  try {
+    await db.table('inputNotes').put({ noteId: 'hook-note', serializedCreatedAt: '1705316400' });
+    const { result, rerender } = renderHook(({ ids }) => useActivityNoteDates(ids), {
+      initialProps: { ids: ['hook-note'] }
+    });
+    await waitFor(() => expect(result.current.get('hook-note')).toBe(1705316400));
+    const published = result.current;
+    const reads = names.mock.calls.length;
+    rerender({ ids: ['hook-note', 'missing'] });
+    await waitFor(() => expect(names.mock.calls.length).toBeGreaterThan(reads));
+    expect(result.current).toBe(published);
+  } finally {
+    names.mockRestore();
+    await db.delete();
+  }
+});
+
+it('returns an empty stable map for an empty hook query', async () => {
+  const { result } = renderHook(() => useActivityNoteDates([]));
+  const initial = result.current;
+  await act(async () => {});
+  expect(result.current).toBe(initial);
+  expect(result.current.size).toBe(0);
+});
+
+it('logs a database-list failure without replacing the current dates', async () => {
+  const log = jest.spyOn(console, 'warn').mockImplementation(() => {});
+  const names = jest.spyOn(Dexie, 'getDatabaseNames').mockRejectedValueOnce(new Error('IndexedDB unavailable'));
+  const { result } = renderHook(() => useActivityNoteDates(['note']));
+
+  await waitFor(() => expect(log).toHaveBeenCalledWith('[activity] Could not read stored note dates', expect.any(Error)));
+  expect(result.current.size).toBe(0);
+  names.mockRestore();
+  log.mockRestore();
 });
