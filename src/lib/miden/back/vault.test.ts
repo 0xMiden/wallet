@@ -902,7 +902,7 @@ describe('Vault.createHDAccount', () => {
     const seed = Bip39.mnemonicToSeedSync(m);
     expect(seed.length).toBe(64);
     const { derivePath } = require('@demox-labs/aleo-hd-key');
-    const d = derivePath("m/44'/0'/0'/1'", seed.toString('hex'));
+    const d = derivePath("m/44'/5063758'/0'/1'", seed.toString('hex'));
     expect(d.seed.length).toBe(32);
 
     // And run the full HD flow
@@ -1124,7 +1124,7 @@ describe('Vault.spawnFromMidenClient', () => {
   it('skips walletAccount entries with hdIndex < 0 (imported accounts) instead of deriving garbage keys', async () => {
     // Caller passes an imported-account entry matching the miden-client's
     // `pk-1`. Without the `hdIndex < 0` skip, spawnFromMidenClient would
-    // call `deriveClientSeed(type, mnemonic, -1)` → `m/44'/0'/0'/-1'`
+    // call `deriveClientSeed(type, mnemonic, -1)` → `m/44'/5063758'/0'/-1'`
     // and write a mnemonic-derived key over the imported account's
     // real secret. With the skip, keystore.insert is never called for
     // that account.

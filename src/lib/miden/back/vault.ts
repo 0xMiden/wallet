@@ -1889,7 +1889,7 @@ function isValidHex(s: string): boolean {
  * One-time derivation of the wallet's EVM identity for a Miden HD account,
  * at account creation / unlock backfill. BIP-44 Ethereum path
  * m/44'/60'/{walletTypeIndex}'/0/{hdIndex}, deliberately independent of the
- * bls12_377 SLIP-0010 branch used by `deriveClientSeed` (coin type 60 vs 0), so
+ * bls12_377 SLIP-0010 branch used by `deriveClientSeed` (coin type 60 vs 5063758), so
  * the Miden and EVM key families can never collide. The walletTypeIndex segment
  * mirrors getMainDerivationPath: hdIndex is allocated per privacy bucket, so
  * without it an OnChain and an OffChain account at the same bucket index would

@@ -1,12 +1,7 @@
 /**
- * Regression gate for the HD derivation lifted out of `lib/miden/back/vault.ts`
- * so the guardian auto-detect probe can reuse it (issue #418).
- *
- * These vectors are the load-bearing part: the derivation decides which keys —
- * and therefore which accounts — a seed phrase recovers. Changing any byte here
- * silently orphans every existing wallet, so the expectations are pinned to the
- * literal output of the pre-refactor implementation for the BIP-39 test
- * mnemonic, not recomputed from the code under test.
+ * Fixed vectors for Miden coin type 5063758 and the BIP-39 test mnemonic,
+ * independently calculated with Python hashlib/hmac. Any derivation change
+ * changes the keys a phrase recovers.
  *
  * `bip39` is mocked as a pass-through so the memoization in
  * `makeColdSeedDeriver` can be asserted; every value it returns is the real
@@ -32,25 +27,25 @@ const GOLDEN: [WalletType, string[]][] = [
   [
     WalletType.OnChain,
     [
-      '7303bce3fd710072aec3c0b0564f061d3771c3c10a2e023cacdedcf5d2ce6b72',
-      '7932bbdd42852773ef2642e5cc65e0e19e577e433be7e9247b8ee881dfb24190',
-      '48be5f28eb6461028a215f96bf880a82d8b3caa89a9c9c94197e392795f782e7'
+      'f7da87e8f31b13cdcf9f33ea5cdbb30c98fe3dfa3264b5b30414a0a706f21b69',
+      'ae14c27a3b4048e99f5d64afbbf223a55beb131538410370ea65a905fcefa990',
+      'ef4d45ca9a518c359be1fb8821323bc9a0749c0dda06808f7a9cc4fb5168a9af'
     ]
   ],
   [
     WalletType.OffChain,
     [
-      '835fe3da130bac3825f5d0c9526ac400c54f9a5df8f7e9c38219b02cefc1a162',
-      'd8f603ff4fdaedc4ab26fb9ce5b9012a232d7a546f90ab7d956ba3ba5d3c20eb',
-      '0a4bbcdce48cd0191f21426989ba2ebba133527d859f24ba24c5b5a8fb6bfb34'
+      '5b7fe8239812224089db81abf34d8f51202c7bb7568ed7055839362b9710a01e',
+      'bb8ac79584f4a9e181e8defbe775359bee49898edeb5d6b00e4817f29ff656ea',
+      'd6e2114c59cd783dfb5121f1f280c894f3ff74159d934e9d8713b525b4bde4c9'
     ]
   ],
   [
     WalletType.Guardian,
     [
-      '355dc73d10996cfff18a140266c04b4768b27b14483b876b81c7087b4317df72',
-      'ed319149e2f07ad5fd1543a8620ab3e99aa2e8a2d5cfe668ed16d6d5fc232f2d',
-      '145d6c1cfc1674a9b7a841fc20eaeb621b4e6b7fbbe676c9292deccc981d166c'
+      '20b91b26e522c31416d41a0c77ea21cd91f9ed7c96faca6ad6cce9d600a7d5a0',
+      '7f38a42409d09858965d823bb256c4bdcdff426e23f25cd268adec62b8ffb50d',
+      '51f0f61940f75938f1cdf5b6cff5e333233ae3a1c23dce5c5a86090ff4cac442'
     ]
   ]
 ];
@@ -81,14 +76,14 @@ describe('walletTypeIndex', () => {
 });
 
 describe('getMainDerivationPath', () => {
-  it('builds a hardened BIP-44 path namespaced by wallet type', () => {
-    expect(getMainDerivationPath(WalletType.Guardian, 0)).toBe("m/44'/0'/2'/0'");
-    expect(getMainDerivationPath(WalletType.OnChain, 5)).toBe("m/44'/0'/0'/5'");
+  it('builds a hardened path using the Miden coin type and wallet namespace', () => {
+    expect(getMainDerivationPath(WalletType.Guardian, 0)).toBe("m/44'/5063758'/2'/0'");
+    expect(getMainDerivationPath(WalletType.OnChain, 5)).toBe("m/44'/5063758'/0'/5'");
   });
 });
 
 describe('deriveClientSeed', () => {
-  it.each(GOLDEN)('matches the pre-refactor golden vectors for %s', (walletType, expectedPerIndex) => {
+  it.each(GOLDEN)('matches the Miden coin type golden vectors for %s', (walletType, expectedPerIndex) => {
     expectedPerIndex.forEach((expected, hdIndex) => {
       expect(toHex(deriveClientSeed(walletType, MNEMONIC, hdIndex))).toBe(expected);
     });

@@ -30,7 +30,7 @@ export function walletTypeIndex(walletType: WalletType): number {
 }
 
 export function getMainDerivationPath(walletType: WalletType, accIndex: number) {
-  return `m/44'/0'/${walletTypeIndex(walletType)}'/${accIndex}'`;
+  return `m/44'/5063758'/${walletTypeIndex(walletType)}'/${accIndex}'`;
 }
 
 export function deriveClientSeed(walletType: WalletType, mnemonic: string, hdAccIndex: number) {
