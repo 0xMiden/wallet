@@ -8,12 +8,15 @@ import CopyButton from 'app/atoms/CopyButton';
 import FormField from 'app/atoms/FormField';
 import { Icon, IconName } from 'app/icons/v2';
 import EvmConnectModal from 'app/templates/EvmConnectModal';
+import { NetworkChip } from 'components/NetworkChip';
 import { QRCode, type QRCodeHandle } from 'components/QRCode';
+import { TestNetworkWarning } from 'components/TestNetworkWarning';
 import { isBridgeDepositEnabled } from 'lib/feature-flags';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isExtension, isMobile } from 'lib/platform';
 import useCopyToClipboard from 'lib/ui/useCopyToClipboard';
 import { useEvmWalletConnection } from 'lib/walletconnect/useEvmWalletConnection';
+import { isDevnet } from 'utils/brand-colors';
 import { truncateAddress } from 'utils/string';
 
 interface AddressTabProps {
@@ -41,6 +44,7 @@ const blobToBase64 = (blob: Blob): Promise<string> =>
 
 export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit }) => {
   const { t } = useTranslation();
+  const network = isDevnet ? t('devnet') : t('testnet');
   const { fieldRef, copy } = useCopyToClipboard();
   const [evmOpen, setEvmOpen] = useState(false);
   const { address: evmAddress, connected: evmConnected } = useEvmWalletConnection();
@@ -120,6 +124,9 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
             {address}
           </span>
           <div className="w-full flex flex-col items-center justify-center gap-6">
+            {/* Name the receiving network next to the QR code (#875) so a
+                shared address always carries its network context. */}
+            <NetworkChip labelKey="receiveNetworkChip" />
             <QRCode ref={qrRef} address={address} size={300} />
             <CopyButton
               text={address}
@@ -130,6 +137,14 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
                 {truncateAddress(address, false, 16, 8)}
               </span>
             </CopyButton>
+            {/* Test-funds warning sits before the share and bridge actions:
+                the funding decision point named in #875. */}
+            <TestNetworkWarning
+              titleKey="receiveTestFundsTitle"
+              bodyKey="receiveTestFundsBody"
+              values={{ network }}
+              data-testid="receive-test-funds-warning"
+            />
           </div>
           <div className="w-full flex flex-col items-center gap-8 pt-6">
             <button type="button" onClick={handleShare} className="flex items-center gap-4 text-accent-primary">
@@ -151,8 +166,14 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
                 className="flex items-center gap-4 text-accent-primary"
               >
                 <Icon name={IconName.CrossChain} size="lg" className="shrink-0" />
-                <span className="font-heading text-[2.5rem] font-bold leading-none text-heading-gray">
-                  {t('crossChain')}
+                <span className="flex flex-col items-start gap-1">
+                  <span className="font-heading text-[2.5rem] font-bold leading-none text-heading-gray">
+                    {t('crossChain')}
+                  </span>
+                  {/* Name the actual source test network, not a bare "Testnet" (#875). */}
+                  <span className="text-xs font-medium leading-none text-text-tertiary-token">
+                    {t('crossChainFromNetwork', { network: t('ethereumSepolia') })}
+                  </span>
                 </span>
               </button>
             )}

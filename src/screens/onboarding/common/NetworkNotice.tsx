@@ -2,8 +2,8 @@ import React from 'react';
 
 import { useTranslation } from 'react-i18next';
 
-import { ReactComponent as BreadLogo } from 'app/icons/brand/new-bread.svg';
 import { Button } from 'components/Button';
+import { NetworkChip } from 'components/NetworkChip';
 import { isDevnet } from 'utils/brand-colors';
 
 export interface NetworkNoticeScreenProps {
@@ -35,12 +35,7 @@ export const NetworkNoticeScreen: React.FC<NetworkNoticeScreenProps> = ({ onSubm
     <div className="bg-app-bg h-full overflow-y-auto" data-testid="onboarding-network-notice">
       <div className="min-h-full flex flex-col px-6">
         <div className="flex-1 flex flex-col w-full pt-8 pb-6">
-          <div className="inline-flex self-start items-center gap-2 h-8 pl-2 pr-3 rounded-full border border-dashed border-primary-orange-light bg-primary-orange-lighter dark:border-primary-orange-dark dark:bg-primary-orange-darker">
-            <BreadLogo aria-hidden="true" className="size-[18px] shrink-0" />
-            <span className="font-heading text-xs font-bold uppercase tracking-wider text-primary-orange-dark dark:text-primary-orange-light">
-              {t('networkNoticeChip', { network })}
-            </span>
-          </div>
+          <NetworkChip labelKey="networkNoticeChip" className="self-start" />
 
           <h1 className="text-[2.125rem] font-extrabold font-heading text-heading-gray mt-4 leading-[112%] tracking-tight">
             {t('networkModeBanner', { network })}
@@ -51,7 +46,7 @@ export const NetworkNoticeScreen: React.FC<NetworkNoticeScreenProps> = ({ onSubm
             {NOTICE_ROWS.map(row => (
               <li key={row.titleKey} className="py-4">
                 <span className="flex flex-col gap-1 min-w-0">
-                  <span className="text-[15px] font-semibold leading-5 text-text-primary-token">{t(row.titleKey)}</span>
+                  <span className="text-lg font-semibold leading-5 text-text-primary-token">{t(row.titleKey)}</span>
                   <span className="text-sm leading-5 text-text-secondary-token">{t(row.bodyKey)}</span>
                 </span>
               </li>

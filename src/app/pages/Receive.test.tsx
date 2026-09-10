@@ -24,8 +24,10 @@ jest.mock('app/env', () => ({
 
 jest.mock('app/icons/v2', () => ({
   Icon: () => null,
-  IconName: { Add: 'Add', CrossChain: 'CrossChain', Share: 'Share' }
+  IconName: { Add: 'Add', CrossChain: 'CrossChain', Share: 'Share', WarningFill: 'WarningFill' }
 }));
+
+jest.mock('utils/brand-colors', () => ({ isDevnet: false }));
 
 jest.mock('app/templates/EvmConnectModal', () => ({
   __esModule: true,
@@ -125,6 +127,20 @@ describe('Receive - Address', () => {
 
     const full = testContainer.querySelector('[data-testid="receive-address-full"]');
     expect(full?.textContent).toBe('test-account-123');
+  });
+
+  it('names the receiving network and warns about test funds (#875)', async () => {
+    testContainer = document.createElement('div');
+    testRoot = createRoot(testContainer);
+
+    await act(async () => {
+      testRoot!.render(<Receive />);
+    });
+
+    expect(testContainer.querySelector('[data-testid="network-chip"]')?.textContent).toBe('receiveNetworkChip');
+    const warning = testContainer.querySelector('[data-testid="receive-test-funds-warning"]');
+    expect(warning?.textContent).toContain('receiveTestFundsTitle');
+    expect(warning?.textContent).toContain('receiveTestFundsBody');
   });
 
   it('does not render a pending tab switcher', async () => {
