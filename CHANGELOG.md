@@ -5,6 +5,8 @@
 ### Fixes
 
 - [FIX][extension] An open wallet no longer leaks one IndexedDB connection and one WASM client every 30 seconds. The consumability read built a throwaway client per lap and relied on the SDK's `terminate()`, which releases nothing for an in-realm client; after two idle days the extension renderer died of out-of-memory. Each client now keeps one reader for its lifetime and releases it when it is freed.
+- [CHORE][all] Every production build now refuses a `node_modules` that does not match `yarn.lock` (`yarn check --integrity`, 30 ms), so a stale checkout can no longer bundle the wrong SDK.
+- [FIX][all] The send screen waits for balances before warning about missing MIDEN for fees and clears that warning when funds arrive. Clearing an amount keeps the input red and Confirm disabled without showing “Invalid amount”.
 - [FIX][ci] Every ubuntu job now drops Google's Chrome apt repository before touching apt. Nothing installs Chrome from apt, yet its CDN served a mismatched package index for over an hour and failed every Playwright, xvfb and local-node install with `Hash Sum mismatch`.
 - [FIX][e2e] The testnet E2E harness now funds every new account from the public faucet before its first transaction, as it already did on devnet; testnet moved to the fee-charging 0.16 node and unfunded mints failed inside the kernel.
 
