@@ -100,8 +100,12 @@ test.describe('Onboarding — create', () => {
       await expect(page.getByTestId('onboarding-recover-account')).toBeVisible();
     });
 
-    await steps.step('get_started_leads_straight_to_the_password_step', async () => {
+    await steps.step('get_started_shows_the_network_notice_then_the_password_step', async () => {
       await page.getByTestId('onboarding-get-started').click();
+      // The network notice (#875) sits between Welcome and the first create
+      // step so a new user reads that this is a test network before funding.
+      await expect(page.getByTestId('onboarding-network-notice')).toBeVisible({ timeout: 30_000 });
+      await page.getByTestId('onboarding-network-notice-acknowledge').click();
       await expect(page.getByTestId('create-password-input')).toBeVisible({ timeout: 30_000 });
       // Biometric can't work on the extension, so the create flow skips the
       // choose-protection screen entirely (Welcome.tsx:54-65). Pinned here

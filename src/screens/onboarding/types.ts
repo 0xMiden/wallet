@@ -28,6 +28,7 @@ export enum WalletType {
 
 export enum OnboardingStep {
   Welcome = 'welcome',
+  NetworkNotice = 'network-notice',
   SelectWalletType = 'select-wallet-type',
   ChooseProtection = 'choose-protection',
   SetupPasscode = 'setup-passcode',
@@ -46,6 +47,8 @@ export enum OnboardingStep {
 export type OnboardingActionId =
   | 'select-wallet-type'
   | 'select-import-type'
+  | 'network-notice'
+  | 'network-notice-acknowledge'
   | 'choose-protection'
   | 'setup-passcode'
   | 'setup-passcode-submit'
@@ -100,6 +103,19 @@ export type ChooseGuardianSubmitAction = {
 
 export type SelectImportTypeAction = {
   id: 'select-import-type';
+};
+
+/**
+ * Show the network notice before the flow the user picked on Welcome starts.
+ * The payload is the flow to continue with once the user acknowledges.
+ */
+export type NetworkNoticeAction = {
+  id: 'network-notice';
+  payload: OnboardingType;
+};
+
+export type NetworkNoticeAcknowledgeAction = {
+  id: 'network-notice-acknowledge';
 };
 
 export type ImportFromSeedAction = {
@@ -182,6 +198,8 @@ export type OnboardingAction =
   | ChooseGuardianSubmitAction
   | BackupSeedPhraseAction
   | SelectImportTypeAction
+  | NetworkNoticeAction
+  | NetworkNoticeAcknowledgeAction
   | VerifySeedPhraseAction
   | CreatePasswordAction
   | CreatePasswordSubmitAction

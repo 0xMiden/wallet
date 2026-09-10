@@ -368,6 +368,53 @@ describe('Welcome — hash → step routing', () => {
 // onAction — forward navigation branches
 // ===========================================================================
 
+describe('Welcome — network notice (#875)', () => {
+  it('parks the create flow behind the notice and starts it on acknowledge', async () => {
+    mockIsMobileFn.mockReturnValue(false);
+    await renderWelcome();
+    await dispatch({ id: 'network-notice', payload: OnboardingType.Create });
+    expect(mockNavigate).toHaveBeenCalledWith('/#network-notice');
+    expect(mockFlowProps.current.onboardingType).toBeNull();
+    await setHash('#network-notice');
+    expect(currentStep()).toBe(OnboardingStep.NetworkNotice);
+
+    mockNavigate.mockClear();
+    await dispatch({ id: 'network-notice-acknowledge' });
+    expect(mockFlowProps.current.onboardingType).toBe(OnboardingType.Create);
+    expect(mockNavigate).toHaveBeenCalledWith('/#create-password');
+  });
+
+  it('parks the import flow behind the notice and starts it on acknowledge', async () => {
+    await renderWelcome();
+    await dispatch({ id: 'network-notice', payload: OnboardingType.Import });
+    mockNavigate.mockClear();
+    await dispatch({ id: 'network-notice-acknowledge' });
+    expect(mockFlowProps.current.onboardingType).toBe(OnboardingType.Import);
+    expect(mockNavigate).toHaveBeenCalledWith('/#import-from-seed');
+  });
+
+  it('bounces #network-notice to Welcome when the parked flow was lost (reload)', async () => {
+    await renderWelcome();
+    await setHash('#network-notice');
+    expect(mockNavigate).toHaveBeenCalledWith('/');
+    expect(currentStep()).not.toBe(OnboardingStep.NetworkNotice);
+  });
+
+  it('back from the notice returns to Welcome', async () => {
+    await renderWelcome();
+    await dispatch({ id: 'network-notice', payload: OnboardingType.Create });
+    await setHash('#network-notice');
+    mockNavigate.mockClear();
+    await dispatch({ id: 'back' });
+    expect(mockNavigate).toHaveBeenCalledWith('/');
+  });
+
+  it('asks the flow to show the notice', async () => {
+    await renderWelcome();
+    expect(mockFlowProps.current.networkNotice).toBe(true);
+  });
+});
+
 describe('Welcome — onAction forward navigation', () => {
   it('choose-protection routes to the protection step and tracks the event', async () => {
     mockIsMobileFn.mockReturnValue(true);

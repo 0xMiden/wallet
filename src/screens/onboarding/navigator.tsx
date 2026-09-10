@@ -13,6 +13,7 @@ import { ChooseGuardianScreen } from './common/ChooseGuardian';
 import { ChooseProtectionScreen } from './common/ChooseProtection';
 import { ConfirmationScreen } from './common/Confirmation';
 import { CreatePasswordScreen } from './common/CreatePassword';
+import { NetworkNoticeScreen } from './common/NetworkNotice';
 import { SetupBiometricScreen } from './common/SetupBiometric';
 import { SetupPasscodeScreen } from './common/SetupPasscode';
 import { WelcomeScreen } from './common/Welcome';
@@ -46,6 +47,12 @@ export interface OnboardingFlowProps {
   guardianProbe?: GuardianProbeState;
   /** Side panel handoff (Chrome): wallet is being created in the background. */
   confirmCreating?: boolean;
+  /**
+   * Show the network notice between Welcome and the first create or import
+   * step (#875). Off by default so hosts that reuse this flow for other
+   * purposes (forgot password) keep their direct routing.
+   */
+  networkNotice?: boolean;
   onBiometricChange?: (value: boolean) => void;
   onAction?: (action: OnboardingAction) => void;
 }
@@ -97,6 +104,7 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
   recoveryError = null,
   guardianProbe,
   confirmCreating = false,
+  networkNotice = false,
   onBiometricChange,
   onAction
 }) => {
@@ -137,11 +145,19 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
     const onWelcomeAction = (action: 'select-wallet-type' | 'select-import-type') => {
       switch (action) {
         case 'select-wallet-type':
+          if (networkNotice) {
+            onForwardAction?.({ id: 'network-notice', payload: OnboardingType.Create });
+            break;
+          }
           onForwardAction?.({
             id: 'choose-protection'
           });
           break;
         case 'select-import-type':
+          if (networkNotice) {
+            onForwardAction?.({ id: 'network-notice', payload: OnboardingType.Import });
+            break;
+          }
           onForwardAction?.({
             id: 'select-import-type'
           });
@@ -150,6 +166,8 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
           break;
       }
     };
+
+    const onNetworkNoticeSubmit = () => onForwardAction?.({ id: 'network-notice-acknowledge' });
 
     const onBackupSeedPhraseSubmit = () =>
       onForwardAction?.({
@@ -189,6 +207,8 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
     switch (step) {
       case OnboardingStep.Welcome:
         return <WelcomeScreen onSubmit={onWelcomeAction} />;
+      case OnboardingStep.NetworkNotice:
+        return <NetworkNoticeScreen onSubmit={onNetworkNoticeSubmit} />;
       case OnboardingStep.ChooseProtection:
         return <ChooseProtectionScreen onSelectBiometric={onSelectBiometric} onSelectPasscode={onSelectPasscode} />;
       case OnboardingStep.SetupPasscode:
@@ -270,7 +290,8 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
     // Without this the recovery-method screen keeps rendering the first probe
     // state it saw and freezes on "detecting your guardian".
     guardianProbe,
-    confirmCreating
+    confirmCreating,
+    networkNotice
   ]);
 
   const onBack = () => {
@@ -325,6 +346,7 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
           >
             {renderStep()}
             {step !== OnboardingStep.Welcome &&
+              step !== OnboardingStep.NetworkNotice &&
               step !== OnboardingStep.ChooseProtection &&
               step !== OnboardingStep.SetupPasscode &&
               step !== OnboardingStep.SetupBiometric &&

@@ -101,6 +101,7 @@ jest.mock('./common/ChooseProtection', () => ({
   ChooseProtectionScreen: (p: any) => mockScreen('choose-protection')(p)
 }));
 jest.mock('./common/Confirmation', () => ({ ConfirmationScreen: (p: any) => mockScreen('confirmation')(p) }));
+jest.mock('./common/NetworkNotice', () => ({ NetworkNoticeScreen: (p: any) => mockScreen('network-notice')(p) }));
 jest.mock('./common/CreatePassword', () => ({ CreatePasswordScreen: (p: any) => mockScreen('create-password')(p) }));
 jest.mock('./common/SetupBiometric', () => ({ SetupBiometricScreen: (p: any) => mockScreen('setup-biometric')(p) }));
 jest.mock('./common/SetupPasscode', () => ({ SetupPasscodeScreen: (p: any) => mockScreen('setup-passcode')(p) }));
@@ -155,6 +156,7 @@ describe('OnboardingFlow — per-step rendering, header & back-button visibility
   });
 
   const headerNoBack: Array<[OnboardingStep, string]> = [
+    [OnboardingStep.NetworkNotice, 'screen-network-notice'],
     [OnboardingStep.ChooseProtection, 'screen-choose-protection'],
     [OnboardingStep.SetupPasscode, 'screen-setup-passcode'],
     [OnboardingStep.SetupBiometric, 'screen-setup-biometric'],
@@ -211,6 +213,24 @@ describe('OnboardingFlow — action wiring per screen', () => {
     onAction.mockClear();
     act(() => mockCaptured.welcome.onSubmit('nonsense'));
     expect(onAction).not.toHaveBeenCalled();
+  });
+
+  it('Welcome with networkNotice: parks the chosen flow behind the network notice', () => {
+    const onAction = jest.fn();
+    renderFlow({ step: OnboardingStep.Welcome, onAction, networkNotice: true });
+
+    act(() => mockCaptured.welcome.onSubmit('select-wallet-type'));
+    expect(onAction).toHaveBeenLastCalledWith({ id: 'network-notice', payload: OnboardingType.Create });
+
+    act(() => mockCaptured.welcome.onSubmit('select-import-type'));
+    expect(onAction).toHaveBeenLastCalledWith({ id: 'network-notice', payload: OnboardingType.Import });
+  });
+
+  it('NetworkNotice: acknowledging dispatches network-notice-acknowledge', () => {
+    const onAction = jest.fn();
+    renderFlow({ step: OnboardingStep.NetworkNotice, onAction });
+    act(() => mockCaptured['network-notice'].onSubmit());
+    expect(onAction).toHaveBeenLastCalledWith({ id: 'network-notice-acknowledge' });
   });
 
   it('Welcome: does not throw when onAction is omitted (optional chaining)', () => {

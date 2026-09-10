@@ -107,6 +107,9 @@ const Welcome: FC = () => {
   const [biometricAttempts, setBiometricAttempts] = useState(0);
   const [biometricError, setBiometricError] = useState<string | null>(null);
   const [guardianLookupError, setGuardianLookupError] = useState(false);
+  // The flow the user picked on Welcome, parked while the network notice
+  // (#875) is on screen. Acknowledging the notice starts this flow.
+  const [pendingFlow, setPendingFlow] = useState<OnboardingType | null>(null);
   // Tracks which protection screen the user came through; needed so ChooseGuardian
   // back navigation and the create-password→confirmation routing pick the right
   // origin without colliding with the legacy create flow.
@@ -298,13 +301,36 @@ const Welcome: FC = () => {
     let eventCategory = AnalyticsEventCategory.ButtonPress;
     let eventProperties = {};
 
+    const startCreateFlow = () => {
+      setOnboardingType(OnboardingType.Create);
+      // Biometric is unavailable on the extension/desktop, so the
+      // choose-protection screen has only one real option — skip it and go
+      // straight to the full-password step.
+      navigate(protectionStepRoute());
+    };
+    const startImportFlow = () => {
+      // Recovery is seed-phrase only — jump straight to the seed entry screen.
+      setOnboardingType(OnboardingType.Import);
+      navigate('/#import-from-seed');
+    };
+
     switch (action.id) {
+      case 'network-notice':
+        setPendingFlow(action.payload);
+        navigate('/#network-notice');
+        break;
+      case 'network-notice-acknowledge':
+        switch (pendingFlow) {
+          case OnboardingType.Import:
+            startImportFlow();
+            break;
+          default:
+            startCreateFlow();
+            break;
+        }
+        break;
       case 'choose-protection':
-        setOnboardingType(OnboardingType.Create);
-        // Biometric is unavailable on the extension/desktop, so the
-        // choose-protection screen has only one real option — skip it and go
-        // straight to the full-password step.
-        navigate(protectionStepRoute());
+        startCreateFlow();
         break;
       case 'setup-passcode':
         setOnboardingType(OnboardingType.Create);
@@ -368,9 +394,7 @@ const Welcome: FC = () => {
         }
         break;
       case 'select-import-type':
-        // Recovery is seed-phrase only — jump straight to the seed entry screen.
-        setOnboardingType(OnboardingType.Import);
-        navigate('/#import-from-seed');
+        startImportFlow();
         break;
       case 'import-from-seed':
         navigate('/#import-from-seed');
@@ -465,7 +489,11 @@ const Welcome: FC = () => {
         navigate('/#create-password');
         break;
       case 'back':
-        if (step === OnboardingStep.SelectWalletType || step === OnboardingStep.ChooseProtection) {
+        if (
+          step === OnboardingStep.NetworkNotice ||
+          step === OnboardingStep.SelectWalletType ||
+          step === OnboardingStep.ChooseProtection
+        ) {
           navigate('/');
         } else if (step === OnboardingStep.SetupPasscode || step === OnboardingStep.SetupBiometric) {
           if (onboardingType === OnboardingType.Import) {
@@ -513,6 +541,15 @@ const Welcome: FC = () => {
     switch (hash) {
       case '':
         setStep(OnboardingStep.Welcome);
+        break;
+      case '#network-notice':
+        // The parked flow is in-memory only; a reload here has nothing to
+        // continue with, so restart from Welcome.
+        if (pendingFlow === null) {
+          navigate('/');
+          break;
+        }
+        setStep(OnboardingStep.NetworkNotice);
         break;
       case '#select-wallet-type':
         setOnboardingType(OnboardingType.Create);
@@ -579,7 +616,7 @@ const Welcome: FC = () => {
       default:
         break;
     }
-  }, [hash, password, onboardingType, resetGuardianProbe]);
+  }, [hash, password, onboardingType, pendingFlow, resetGuardianProbe]);
 
   // Handle mobile back button/gesture in onboarding flow
   useMobileBackHandler(() => {
@@ -613,6 +650,7 @@ const Welcome: FC = () => {
           guardianLookupError={guardianLookupError}
           guardianProbe={guardianProbeState}
           confirmCreating={sidePanelHandoff && confirmPhase === 'creating'}
+          networkNotice
           onBiometricChange={setUseBiometric}
           onAction={onAction}
         />
