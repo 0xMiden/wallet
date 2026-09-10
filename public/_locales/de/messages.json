@@ -4460,5 +4460,78 @@
   "devEndpointResetConfirm": {
     "message": "Dadurch wird diese Wallet dauerhaft gelöscht, einschließlich Ihrer Schlüssel und Ihrer Transaktionshistorie. Um sie wiederherzustellen, benötigen Sie Ihre Wiederherstellungsphrase.",
     "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
+  },
+  "activityAcceptTransfer": {
+    "message": "Überweisung akzeptieren",
+    "englishSource": "Accept Transfer"
+  },
+  "activityRejectTransfer": {
+    "message": "Ablehnen",
+    "englishSource": "Decline"
+  },
+  "activityCheckingTransfer": {
+    "message": "Wird überprüft…",
+    "englishSource": "Checking…"
+  },
+  "activityTransferClaimed": {
+    "message": "Geltend gemacht",
+    "englishSource": "Claimed"
+  },
+  "activityClaimedOn": {
+    "message": "Beansprucht am",
+    "englishSource": "Claimed on"
+  },
+  "activityReceivedOn": {
+    "message": "Erhalten am",
+    "englishSource": "Received on"
+  },
+  "activityNotYetAccepted": {
+    "message": "Noch nicht akzeptiert – bitte prüfen und akzeptieren, um diese Gelder einzufordern.",
+    "englishSource": "Not yet accepted — review and accept to claim these funds."
+  },
+  "acceptAll": {
+    "message": "Alle akzeptieren",
+    "englishSource": "Accept All"
+  },
+  "activitySearch": {
+    "message": "Suchaktivität",
+    "englishSource": "Search activity"
+  },
+  "activityTransferAccepted": {
+    "message": "Überweisung akzeptiert",
+    "englishSource": "Transfer accepted"
+  },
+  "activityTransferDetails": {
+    "message": "Details",
+    "englishSource": "Details"
+  },
+  "activityRejectExplanation": {
+    "message": "Diese Überweisung in „Aktivität“ auf diesem Gerät ausblenden? Dadurch werden keine Gelder an den Absender zurücküberwiesen und die „note“ wird nicht gelöscht. Sie können ausgeblendete Überweisungen in „Aktivität“ wiederherstellen.",
+    "englishSource": "Hide this transfer from Activity on this device? This does not return funds to the sender or delete the note. You can restore hidden transfers in Activity."
+  },
+  "activityClaimFee": {
+    "message": "Maximale Netzwerkgebühr pro akzeptierter Überweisung: $fee$",
+    "englishSource": "Maximum network fee per accepted transfer: $fee$",
+    "placeholders": {
+      "fee": {
+        "content": "$1"
+      }
+    }
+  },
+  "activityHiddenNotesError": {
+    "message": "Versteckte Überweisungen konnten nicht gespeichert werden. Bitte versuchen Sie es erneut.",
+    "englishSource": "Could not save hidden transfers. Please try again."
+  },
+  "activityPendingTransfersInList": {
+    "message": "Eingehende Überweisungen",
+    "englishSource": "Incoming transfers"
+  },
+  "activityManagePendingNotes": {
+    "message": "notes verwalten",
+    "englishSource": "Manage notes"
+  },
+  "activityDateUnavailable": {
+    "message": "Datum nicht verfügbar",
+    "englishSource": "Date unavailable"
   }
 }

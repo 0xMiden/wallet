@@ -4460,5 +4460,78 @@
   "devEndpointResetConfirm": {
     "message": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it.",
     "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
+  },
+  "activityAcceptTransfer": {
+    "message": "Accept Transfer",
+    "englishSource": "Accept Transfer"
+  },
+  "activityRejectTransfer": {
+    "message": "Decline",
+    "englishSource": "Decline"
+  },
+  "activityCheckingTransfer": {
+    "message": "Checking…",
+    "englishSource": "Checking…"
+  },
+  "activityTransferClaimed": {
+    "message": "Claimed",
+    "englishSource": "Claimed"
+  },
+  "activityClaimedOn": {
+    "message": "Claimed on",
+    "englishSource": "Claimed on"
+  },
+  "activityReceivedOn": {
+    "message": "Received on",
+    "englishSource": "Received on"
+  },
+  "activityNotYetAccepted": {
+    "message": "Not yet accepted — review and accept to claim these funds.",
+    "englishSource": "Not yet accepted — review and accept to claim these funds."
+  },
+  "acceptAll": {
+    "message": "Accept All",
+    "englishSource": "Accept All"
+  },
+  "activitySearch": {
+    "message": "Search activity",
+    "englishSource": "Search activity"
+  },
+  "activityTransferAccepted": {
+    "message": "Transfer accepted",
+    "englishSource": "Transfer accepted"
+  },
+  "activityTransferDetails": {
+    "message": "Details",
+    "englishSource": "Details"
+  },
+  "activityRejectExplanation": {
+    "message": "Hide this transfer from Activity on this device? This does not return funds to the sender or delete the note. You can restore hidden transfers in Activity.",
+    "englishSource": "Hide this transfer from Activity on this device? This does not return funds to the sender or delete the note. You can restore hidden transfers in Activity."
+  },
+  "activityClaimFee": {
+    "message": "Maximum network fee per accepted transfer: $fee$",
+    "englishSource": "Maximum network fee per accepted transfer: $fee$",
+    "placeholders": {
+      "fee": {
+        "content": "$1"
+      }
+    }
+  },
+  "activityHiddenNotesError": {
+    "message": "Could not save hidden transfers. Please try again.",
+    "englishSource": "Could not save hidden transfers. Please try again."
+  },
+  "activityPendingTransfersInList": {
+    "message": "Incoming transfers",
+    "englishSource": "Incoming transfers"
+  },
+  "activityManagePendingNotes": {
+    "message": "Manage notes",
+    "englishSource": "Manage notes"
+  },
+  "activityDateUnavailable": {
+    "message": "Date unavailable",
+    "englishSource": "Date unavailable"
   }
 }

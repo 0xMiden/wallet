@@ -2,7 +2,8 @@ import React, { FC, useLayoutEffect, useMemo } from 'react';
 
 import RootSuspenseFallback from 'app/a11y/RootSuspenseFallback';
 import { OpenInFullPage, useAppEnv } from 'app/env';
-import FullScreenPage from 'app/layouts/FullScreenPage';
+import FullScreenPage, { FullScreenPageProps } from 'app/layouts/FullScreenPage';
+import MobilePageLayers from 'app/layouts/MobilePageLayers';
 import TabLayout from 'app/layouts/TabLayout';
 import Explore from 'app/pages/Explore';
 import OpenSidePanel from 'app/pages/OpenSidePanel';
@@ -167,7 +168,7 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
   [
     '/settings/:tabSlug?',
     onlyReady(({ tabSlug }) => (
-      <FullScreenPage>
+      <FullScreenPage key="settings" entrance="slide">
         <Settings tabSlug={tabSlug} />
       </FullScreenPage>
     ))
@@ -232,7 +233,7 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
     // route change that reconciles in place would therefore keep showing — and
     // keep polling for — the previous transaction indefinitely.
     onlyReady(({ transactionId }) => (
-      <FullScreenPage>
+      <FullScreenPage key={`history-details-${transactionId}`} entrance="slide">
         <HistoryDetails key={transactionId} transactionId={transactionId!} />
       </FullScreenPage>
     ))
@@ -363,7 +364,8 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
 ]);
 
 const PageRouter: FC = () => {
-  const { trigger, pathname } = Woozie.useLocation();
+  const location = Woozie.useLocation();
+  const { trigger, pathname } = location;
 
   // Scroll to top after new location pushed.
   useLayoutEffect(() => {
@@ -390,7 +392,20 @@ const PageRouter: FC = () => {
     [appEnv.popup, appEnv.fullPage, miden]
   );
 
-  return useMemo(() => Woozie.Router.resolve(ROUTE_MAP, pathname, ctx), [pathname, ctx]);
+  const page = useMemo(() => Woozie.Router.resolve(ROUTE_MAP, pathname, ctx), [pathname, ctx]);
+
+  // Locking must remove all wallet pages without waiting for an animation.
+  if (!ctx.ready || ctx.locked || !ctx.hydrated) return page;
+
+  const tabPage = React.isValidElement(page) && page.type === TabLayout;
+  const slide =
+    React.isValidElement<FullScreenPageProps>(page) && page.type === FullScreenPage && page.props.entrance === 'slide';
+
+  return (
+    <MobilePageLayers pageKey={tabPage ? 'tabs' : pathname} slide={slide} location={location}>
+      {page}
+    </MobilePageLayers>
+  );
 };
 
 export default PageRouter;

@@ -1000,5 +1000,22 @@
   "devEndpointResetDefaults": "Przywróć ustawienia domyślne",
   "devEndpointResetAndReonboard": "Przywróć ustawienia domyślne i przeprowadź ponowną konfigurację",
   "devEndpointsRow": "Punkty końcowe sieci",
-  "devEndpointResetConfirm": "Spowoduje to trwałe usunięcie tego portfela, w tym kluczy i historii transakcji. Aby go przywrócić, potrzebna będzie fraza odzyskiwania."
+  "devEndpointResetConfirm": "Spowoduje to trwałe usunięcie tego portfela, w tym kluczy i historii transakcji. Aby go przywrócić, potrzebna będzie fraza odzyskiwania.",
+  "activityAcceptTransfer": "Zaakceptuj transfer",
+  "activityRejectTransfer": "Odrzuć",
+  "activityCheckingTransfer": "Sprawdzam…",
+  "activityTransferClaimed": "Odebrane",
+  "activityClaimedOn": "Odbiór nastąpił w dniu",
+  "activityReceivedOn": "Otrzymano dnia",
+  "activityNotYetAccepted": "Jeszcze nie zaakceptowano — sprawdź i zaakceptuj, aby odebrać te środki.",
+  "acceptAll": "Zaakceptuj wszystko",
+  "activitySearch": "Aktywność wyszukiwania",
+  "activityTransferAccepted": "Przelew zaakceptowany",
+  "activityTransferDetails": "Szczegóły",
+  "activityRejectExplanation": "Czy chcesz ukryć ten transfer w sekcji „Aktywność” na tym urządzeniu? Nie spowoduje to zwrotu środków nadawcy ani usunięcia adresu note. Ukryte transfery można przywrócić w sekcji „Aktywność”.",
+  "activityClaimFee": "Maksymalna opłata sieciowa za każdy zaakceptowany transfer: $fee$",
+  "activityHiddenNotesError": "Nie udało się zapisać ukrytych transferów. Spróbuj ponownie.",
+  "activityPendingTransfersInList": "Przelewy przychodzące",
+  "activityManagePendingNotes": "Zarządzaj notes",
+  "activityDateUnavailable": "Data niedostępna"
 }

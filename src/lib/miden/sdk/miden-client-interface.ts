@@ -306,6 +306,7 @@ function deserializeNoteFileOrNote(noteBytes: Uint8Array): NoteFile {
 export class MidenClientInterface {
   client: MidenClient;
   network: string;
+  private readonly noteBlockDates = new Map<number, number>();
 
   private constructor(client: MidenClient, network: string, liveness: ClientLiveness = { disposed: false }) {
     this.client = client;
@@ -1095,7 +1096,29 @@ export class MidenClientInterface {
     // the transient `inner` client, not this one's RefCell.
     assertLive();
     const syncHeight = await this.client.getSyncHeight();
-    return reduceConsumableNoteRecords(records, syncHeight);
+    const notes = reduceConsumableNoteRecords(records, syncHeight);
+    const missingBlocks = [...new Set(notes.flatMap(note => (note.blockNum === undefined ? [] : [note.blockNum])))]
+      .filter(blockNum => !this.noteBlockDates.has(blockNum))
+      .slice(0, 8);
+    for (const blockNum of missingBlocks) {
+      const rpc = new RpcClient(new Endpoint(getEffectiveRpcUrl()));
+      assertLive();
+      try {
+        const header = await withRpcTimeout(() => rpc.getBlockHeaderByNumber(blockNum), 'pendingNoteDate', {
+          timeoutMs: 3_000,
+          retries: 0
+        });
+        this.noteBlockDates.set(blockNum, header.timestamp());
+      } catch (error) {
+        console.warn('[activity] Could not read the note block date', error);
+        break;
+      }
+    }
+    for (const note of notes) {
+      if (note.blockNum !== undefined) note.receivedAt = this.noteBlockDates.get(note.blockNum);
+    }
+    if (this.noteBlockDates.size > 512) this.noteBlockDates.clear();
+    return notes;
   }
 
   async getConsumableNotes(accountId: string): Promise<InputNoteRecord[]> {

@@ -1000,5 +1000,22 @@
   "devEndpointResetDefaults": "Redefinir para os padrões",
   "devEndpointResetAndReonboard": "Redefinir para as configurações padrão e realizar a integração novamente",
   "devEndpointsRow": "Terminais de rede",
-  "devEndpointResetConfirm": "Isso apaga definitivamente esta carteira, incluindo suas chaves e seu histórico de transações. Você precisará da sua frase de recuperação para restaurá-la."
+  "devEndpointResetConfirm": "Isso apaga definitivamente esta carteira, incluindo suas chaves e seu histórico de transações. Você precisará da sua frase de recuperação para restaurá-la.",
+  "activityAcceptTransfer": "Aceitar transferência",
+  "activityRejectTransfer": "Recusar",
+  "activityCheckingTransfer": "Verificando…",
+  "activityTransferClaimed": "Reivindicado",
+  "activityClaimedOn": "Reivindicado em",
+  "activityReceivedOn": "Recebido em",
+  "activityNotYetAccepted": "Ainda não aceito — analise e aceite para resgatar esses fundos.",
+  "acceptAll": "Aceitar tudo",
+  "activitySearch": "Atividade de pesquisa",
+  "activityTransferAccepted": "Transferência aceita",
+  "activityTransferDetails": "Detalhes",
+  "activityRejectExplanation": "Ocultar esta transferência da seção “Atividade” neste dispositivo? Isso não devolve fundos ao remetente nem exclui o “note”. Você pode restaurar transferências ocultas na seção “Atividade”.",
+  "activityClaimFee": "Taxa máxima de rede por transferência aceita: $fee$",
+  "activityHiddenNotesError": "Não foi possível salvar as transferências ocultas. Tente novamente.",
+  "activityPendingTransfersInList": "Transferências recebidas",
+  "activityManagePendingNotes": "Gerenciar notes",
+  "activityDateUnavailable": "Data indisponível"
 }

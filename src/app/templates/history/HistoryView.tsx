@@ -15,6 +15,7 @@ import { navigate } from 'lib/woozie';
 
 import HistoryItem from './HistoryItem';
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
+import type { PendingActivityItem } from './PendingActivityCard';
 import {
   BRIDGE_STATUS_LABEL_KEY,
   bridgeInRowDisplay,
@@ -38,11 +39,16 @@ type HistoryViewProps = {
   tokenId?: string;
   fullHistory?: boolean;
   centerEmptyState?: boolean;
+  hideEmptyState?: boolean;
+  pendingItems?: PendingActivityItem[];
+  renderPendingItem?: (item: PendingActivityItem) => React.ReactNode;
   className?: string;
 };
 
-function groupEntriesByDate(entries: IHistoryEntry[]): Map<number, IHistoryEntry[]> {
-  const groups = new Map<number, IHistoryEntry[]>();
+type TimelineEntry = IHistoryEntry & { pendingActivity?: PendingActivityItem };
+
+function groupEntriesByDate(entries: TimelineEntry[]): Map<number, TimelineEntry[]> {
+  const groups = new Map<number, TimelineEntry[]>();
   for (const entry of entries) {
     // A timestamp that isn't a usable number yields an Invalid Date, and
     // `DateSeparator` formats the group key with date-fns, which THROWS on one —
@@ -53,7 +59,10 @@ function groupEntriesByDate(entries: IHistoryEntry[]): Map<number, IHistoryEntry
     // first and test THAT, which is the only thing date-fns actually sees.
     const candidate = new Date(entry.timestamp * 1000);
     const d = Number.isFinite(candidate.getTime()) ? candidate : new Date();
-    const key = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+    const key =
+      entry.pendingActivity && !Number.isFinite(candidate.getTime())
+        ? -1
+        : new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
     const existing = groups.get(key);
     if (existing) existing.push(entry);
     else groups.set(key, [entry]);
@@ -349,16 +358,37 @@ const HistoryView = memo<HistoryViewProps>(
     tokenId,
     fullHistory,
     centerEmptyState,
+    hideEmptyState,
+    pendingItems,
+    renderPendingItem,
     className
   }) => {
     const { t } = useTranslation();
-    const noEntries = entries.length === 0;
+    const timeline = useMemo(() => {
+      if (!pendingItems?.length) return entries;
+      const pending: TimelineEntry[] = pendingItems.map(item => ({
+        key: `note-${item.note.id}`,
+        address: '',
+        timestamp: item.note.receivedAt ?? Number.NaN,
+        message: '',
+        type: HistoryEntryType.PendingTransaction,
+        txType: 'consume',
+        pendingActivity: item
+      }));
+      return [...entries, ...pending].sort(
+        (a, b) =>
+          (Number.isFinite(b.timestamp) ? b.timestamp : -Infinity) -
+          (Number.isFinite(a.timestamp) ? a.timestamp : -Infinity)
+      );
+    }, [entries, pendingItems]);
+    const noEntries = timeline.length === 0;
     const noOperationsClass = fullHistory
       ? 'mt-8 items-center text-left text-black'
       : 'm-4 items-start text-left text-black';
-    const groupedEntries = useMemo(() => groupEntriesByDate(entries), [entries]);
+    const groupedEntries = useMemo(() => groupEntriesByDate(timeline), [timeline]);
 
     if (noEntries) {
+      if (hideEmptyState) return null;
       if (initialLoading) return <ActivitySpinner />;
       if (centerEmptyState) {
         return (
@@ -399,19 +429,30 @@ const HistoryView = memo<HistoryViewProps>(
     const list = (
       <div data-testid="history-view" className="flex flex-col">
         {dateGroups.map(([dateMs, dateEntries], index) => (
-          <div
-            key={dateMs}
-            className={classNames('flex flex-col gap-1 py-3 border-b-[#BABABA33] border-b', index === 0 && 'pt-4')}
-          >
-            <DateSeparator dateMs={dateMs} />
-            <div className="flex flex-col divide-y divide-rule-default dark:divide-pure-white">
+          <div key={dateMs} className={classNames('flex flex-col gap-3 py-3', index === 0 && 'pt-4')}>
+            {dateMs === -1 ? (
+              <span className="font-heading font-extrabold text-heading-gray text-base">
+                {t('activityDateUnavailable')}
+              </span>
+            ) : (
+              <DateSeparator dateMs={dateMs} />
+            )}
+            <div className="flex flex-col gap-3">
               {dateEntries.map(entry => {
+                if (entry.pendingActivity && renderPendingItem) {
+                  return (
+                    <div key={entry.key} data-pending-note-id={entry.pendingActivity.note.id}>
+                      {renderPendingItem(entry.pendingActivity)}
+                    </div>
+                  );
+                }
                 const props = buildRowProps(entry, t, tokenId);
                 return (
                   <ActivityRow
                     key={entry.key}
                     entryKey={entry.key}
                     testId="activity-row"
+                    className="rounded-2xl border border-rule-default bg-white px-3"
                     icon={props.icon}
                     iconBg={props.iconBg}
                     title={props.title}

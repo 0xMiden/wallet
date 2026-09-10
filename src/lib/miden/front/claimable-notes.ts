@@ -13,6 +13,7 @@ import { toNoteTypeString } from '../helpers';
 import { AssetMetadata, MIDEN_METADATA } from '../metadata';
 import { claimingTxIdByNoteId } from './claiming-tx-map';
 import { onNotesRefresh } from './note-refresh';
+import { fetchFromStorage, putToStorage } from './storage';
 import { isSyncFused, noteNonEvictionSyncFailure, noteSyncSuccess, noteSyncWatchdogEviction } from './sync-fuse';
 import type { ConsumableNoteDto } from '../sdk/consumable-notes';
 import { assertWasmHoldCurrent, runWhenClientIdle, withWasmClientLock } from '../sdk/miden-client';
@@ -45,6 +46,8 @@ type ParsedNote = {
   type: NoteTypeEnum | 'unknown';
   swapOrder?: SwapOrderNoteMetadata;
   recallableAtMs?: number;
+  /** Note inclusion time, in Unix seconds. */
+  receivedAt?: number;
 };
 
 // -------------------- Pure helpers (no side effects) --------------------
@@ -80,6 +83,7 @@ function parseNotes(
       claimingTxId: notesBeingClaimed.get(noteId),
       type: kind,
       swapOrder: swapOrders.get(noteId),
+      receivedAt: note.receivedAt,
       recallableAtMs: note.recallableAtMs
     });
   }
@@ -135,6 +139,7 @@ function attachMetadataToNotes(
       claimingTxId: n.claimingTxId,
       type: n.type,
       swapOrder: n.swapOrder,
+      receivedAt: n.receivedAt,
       recallableAtMs: n.recallableAtMs
     }));
 }
@@ -241,6 +246,135 @@ async function fetchNotesFromLocalClient(
   return quarantined.size === 0 ? parsed : parsed.filter(n => !quarantined.has(n.id));
 }
 
+// -------------------- Cache-first list (mobile/desktop) --------------------
+
+/** One claimable note as the local hook returns it: the note plus its token metadata. */
+export type ClaimableNoteWithMetadata = ConsumableNote & { metadata: AssetMetadata };
+
+// Storage key style copied from `lib/miden-chain/native-asset.ts` (`<name>:<version>:<scope>`)
+// and written through the same platform key-value helpers, so mobile, desktop and the
+// extension all use one storage layer. The scope is the account public address: the cache
+// is per account, and a key that cannot collide is what keeps one account's notes from
+// ever being served under another.
+const CLAIMABLE_NOTES_CACHE_PREFIX = 'claimable_notes:v1:';
+
+/**
+ * Upper bound on the notes kept per account. A real pending list is a handful of
+ * notes; a few hundred is far above that and keeps the entry small enough to read
+ * on every mount.
+ */
+const MAX_CACHED_CLAIMABLE_NOTES = 300;
+
+function claimableNotesCacheKey(publicAddress: string): string {
+  return `${CLAIMABLE_NOTES_CACHE_PREFIX}${publicAddress}`;
+}
+
+/**
+ * Fixed order for the returned list: newest first, ties broken by note id.
+ *
+ * Applied to BOTH the cached list and the live one, so replacing the cache with the
+ * live read never reshuffles the cards under the user's finger — the WASM read returns
+ * notes in client order, which is not stable between laps.
+ */
+function sortClaimableNotes<T extends { id: string; receivedAt?: number }>(notes: readonly T[]): T[] {
+  return [...notes].sort((a, b) => {
+    const aReceivedAt = a.receivedAt ?? 0;
+    const bReceivedAt = b.receivedAt ?? 0;
+    if (aReceivedAt !== bReceivedAt) return bReceivedAt - aReceivedAt;
+    if (a.id === b.id) return 0;
+    return a.id < b.id ? -1 : 1;
+  });
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+/** Accepts only entries that are plain JSON with the fields the UI reads. */
+function isCachedClaimableNote(value: unknown): value is ClaimableNoteWithMetadata {
+  if (!isRecord(value)) return false;
+  if (typeof value.id !== 'string' || value.id.length === 0) return false;
+  if (typeof value.faucetId !== 'string' || typeof value.amount !== 'string') return false;
+  if (typeof value.senderAddress !== 'string') return false;
+  const metadata = value.metadata;
+  if (!isRecord(metadata)) return false;
+  return typeof metadata.symbol === 'string' && typeof metadata.decimals === 'number';
+}
+
+/**
+ * Last list published per account, in memory.
+ *
+ * Reading the persisted cache is async, so it cannot answer the FIRST render. This map
+ * is what makes a remount (tab switch, page pop) instant, and the storage read below
+ * covers the first mount after launch — one tick, still seconds ahead of the WASM read.
+ */
+const claimableNotesMemCache = new Map<string, ClaimableNoteWithMetadata[]>();
+
+/** Marks every entry as unconfirmed, so no claim gate can act on it. */
+function markFromCache(notes: readonly ClaimableNoteWithMetadata[]): ClaimableNoteWithMetadata[] {
+  return notes.map(note => ({ ...note, fromCache: true }));
+}
+
+/**
+ * Plain-JSON projection: nothing that is not serialisable reaches storage, and the
+ * `fromCache` flag is deliberately NOT written — it says how an entry was READ, and a
+ * stored copy that already carried it would survive a live read that cleared it.
+ * `metadata` is `AssetMetadata`, which is a plain field record, so it is stored whole:
+ * the list has to render its symbols and decimals before the live read lands.
+ */
+function toCachedClaimableNote(note: ClaimableNoteWithMetadata): ClaimableNoteWithMetadata {
+  return {
+    metadata: note.metadata,
+    id: note.id,
+    faucetId: note.faucetId,
+    amount: note.amount,
+    senderAddress: note.senderAddress,
+    isBeingClaimed: note.isBeingClaimed,
+    claimingTxId: note.claimingTxId,
+    type: note.type,
+    swapOrder: note.swapOrder,
+    recallableAtMs: note.recallableAtMs,
+    receivedAt: note.receivedAt
+  };
+}
+
+async function readCachedClaimableNotes(publicAddress: string): Promise<ClaimableNoteWithMetadata[] | null> {
+  const warm = claimableNotesMemCache.get(publicAddress);
+  if (warm) return warm;
+  try {
+    const stored = await fetchFromStorage<unknown>(claimableNotesCacheKey(publicAddress));
+    if (!Array.isArray(stored)) return null;
+    const notes = markFromCache(sortClaimableNotes(stored.filter(isCachedClaimableNote)));
+    claimableNotesMemCache.set(publicAddress, notes);
+    return notes;
+  } catch (err) {
+    console.warn('[claimable-notes] cache read failed', err);
+    return null;
+  }
+}
+
+/**
+ * Records the live list for this account. Always writes, including an EMPTY list:
+ * an account whose notes were all claimed must not see them return on next launch.
+ */
+async function writeCachedClaimableNotes(
+  publicAddress: string,
+  notes: readonly ClaimableNoteWithMetadata[]
+): Promise<void> {
+  const bounded = notes.slice(0, MAX_CACHED_CLAIMABLE_NOTES).map(toCachedClaimableNote);
+  claimableNotesMemCache.set(publicAddress, markFromCache(bounded));
+  try {
+    await putToStorage(claimableNotesCacheKey(publicAddress), bounded);
+  } catch (err) {
+    console.warn('[claimable-notes] cache write failed', err);
+  }
+}
+
+/** Test-only: drops the in-memory half of the cache. */
+export function __resetClaimableNotesCacheForTests(): void {
+  claimableNotesMemCache.clear();
+}
+
 // -------------------- Extension hook (reads from Zustand) --------------------
 
 function useExtensionClaimableNotes(publicAddress: string, enabled: boolean) {
@@ -316,8 +450,11 @@ function useExtensionClaimableNotes(publicAddress: string, enabled: boolean) {
     };
   }, [enabled, publicAddress]);
 
-  // Map serialized notes to ConsumableNote with metadata
-  const computedData = useMemo(() => {
+  // Map serialized notes to ConsumableNote with metadata. Annotated rather than inferred
+  // so both hooks publish the SAME element type: an inferred object literal has no
+  // `fromCache` key at all, and the union of the two hooks then hides the flag from every
+  // consumer of `useClaimableNotes` — including the claim gates that must read it.
+  const computedData = useMemo<ClaimableNoteWithMetadata[] | undefined>(() => {
     if (!enabled || extensionNotes === null) return undefined;
 
     return extensionNotes
@@ -333,6 +470,7 @@ function useExtensionClaimableNotes(publicAddress: string, enabled: boolean) {
         claimingTxId: claimingTxIds.get(n.id),
         type: (n.noteType as NoteTypeEnum | 'unknown') ?? 'unknown',
         swapOrder: n.swapOrder ? { ...n.swapOrder, autoConsume: n.swapOrder.autoConsume ?? true } : undefined,
+        receivedAt: n.receivedAt,
         recallableAtMs: n.recallableAtMs
       }));
   }, [enabled, extensionNotes, claimingTxIds, assetsMetadata]);
@@ -366,6 +504,12 @@ function useLocalClaimableNotes(publicAddress: string, enabled: boolean) {
     lastFetchTime: 'never'
   });
 
+  // Address whose LIVE read has already landed in this mount. Once it has, the
+  // persisted list is stale by definition and publishing it as a fallback would only
+  // cost a render — the storage read and the first live read race on every mount, and
+  // on a warm client the live read frequently wins.
+  const liveLandedForRef = useRef<string | null>(null);
+
   const fetchClaimableNotes = useCallback(async () => {
     const parsedNotes = (await fetchNotesFromLocalClient(publicAddress, debugInfoRef)).filter(
       note => !note.swapOrder || note.swapOrder.autoConsume === false
@@ -394,8 +538,15 @@ function useLocalClaimableNotes(publicAddress: string, enabled: boolean) {
         }
       });
     }
-    // 4) Return notes with available metadata immediately
-    const result = attachMetadataToNotes(parsedNotes, metadataByFaucetId);
+    // 4) Return notes with available metadata immediately, in a fixed order (see
+    // `sortClaimableNotes`) so a refresh cannot reshuffle the cards.
+    const result = sortClaimableNotes(attachMetadataToNotes(parsedNotes, metadataByFaucetId));
+
+    // Publish the live list as the new last-known list for this account. An empty
+    // result is written too, which is what stops claimed notes reappearing on the
+    // next launch.
+    await writeCachedClaimableNotes(publicAddress, result);
+    liveLandedForRef.current = publicAddress;
 
     // Update debug info
     debugInfoRef.current = {
@@ -411,8 +562,53 @@ function useLocalClaimableNotes(publicAddress: string, enabled: boolean) {
     return result;
   }, [publicAddress, allTokensBaseMetadataRef, fetchMetadata, setTokensBaseMetadata]);
 
+  // Cache-first render. The persisted read is async and cannot answer the first
+  // render, so it is done in an effect and handed to SWR as `fallbackData`; the
+  // module-level memory cache (consulted synchronously by the state initialiser)
+  // covers every later mount in the same session. Either way the hook returns
+  // immediately and the live read replaces the list when it lands.
+  const [cachedFallback, setCachedFallback] = useState<{
+    address: string;
+    notes: ClaimableNoteWithMetadata[];
+  } | null>(() => {
+    const warm = claimableNotesMemCache.get(publicAddress);
+    return warm ? { address: publicAddress, notes: warm } : null;
+  });
+
+  useEffect(() => {
+    if (!enabled) return;
+    let cancelled = false;
+    readCachedClaimableNotes(publicAddress)
+      .then(notes => {
+        if (cancelled || !notes) return;
+        // The live read for this account already answered — it is strictly better than
+        // the cache, so do not publish behind it.
+        if (liveLandedForRef.current === publicAddress) return;
+        // Bail out when the state initialiser already took this exact list out of the
+        // memory cache: a remount must not cost a second render for the same data.
+        setCachedFallback(previous =>
+          previous && previous.address === publicAddress && previous.notes === notes
+            ? previous
+            : { address: publicAddress, notes }
+        );
+      })
+      .catch(() => {
+        // A missing cache is the normal first-launch state — fall through to the live read.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [enabled, publicAddress]);
+
+  // The state above still holds the PREVIOUS account for one render after a switch,
+  // so the address is re-checked here: another account's notes are never served.
+  // For the same reason SWR's `keepPreviousData` is deliberately NOT set — it would
+  // serve the old key's data across an account switch, which this cache must not do.
+  const fallbackData = cachedFallback?.address === publicAddress ? cachedFallback.notes : undefined;
+
   const key = enabled ? ['claimable-notes', publicAddress] : null;
   const swrResult = useRetryableSWR(key, enabled ? fetchClaimableNotes : null, {
+    fallbackData,
     revalidateOnFocus: false,
     dedupingInterval: 10_000,
     refreshInterval: 5_000,

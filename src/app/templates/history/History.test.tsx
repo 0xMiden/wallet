@@ -5,6 +5,7 @@ import { render, screen, act, waitFor, cleanup } from '@testing-library/react';
 // Imported AFTER the mocks are registered.
 import History from './History';
 import { HistoryEntryType } from './IHistoryEntry';
+import type { PendingActivityItem } from './PendingActivityCard';
 
 // ---------------------------------------------------------------------------
 // Mock-prefixed collaborators (so the hoisted jest.mock factories may close
@@ -1181,4 +1182,28 @@ describe('History earn entries', () => {
     const entry = mockHistoryViewProps.entries.find((e: any) => e.key === 'pending-EDP');
     expect(entry.earnDepositStatus).toBe('failed');
   });
+});
+
+it('suppresses a consume row represented by its claiming note, but retains a batch with other notes', async () => {
+  mockGetCompletedTransactions.mockResolvedValue([]);
+  mockGetUncompletedTransactions.mockResolvedValue([
+    { id: 'single', status: STATUS.Queued, type: 'consume', noteIds: ['note-one'], initiatedAt: 500 },
+    { id: 'batch', status: STATUS.Queued, type: 'consume', noteIds: ['note-one', 'note-two'], initiatedAt: 600 }
+  ]);
+  const item: PendingActivityItem = {
+    note: {
+      id: 'note-one',
+      faucetId: 'fa1',
+      amount: '100',
+      senderAddress: 'sender',
+      isBeingClaimed: true,
+      type: 'unknown',
+      metadata: { name: 'Token', symbol: 'TOK', decimals: 6 }
+    },
+    status: 'claiming'
+  };
+  await renderHistory({ pendingItems: [item] });
+  expect(entryKeys()).not.toContain('pending-single');
+  expect(entryKeys()).toHaveLength(1);
+  expect(mockHistoryViewProps.entries[0].txId).toBe('batch');
 });

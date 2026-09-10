@@ -56,8 +56,10 @@ export function NativeNoteAutoConsumeManager(): null {
         // `isWorthClaiming` fails open on an unknown fee.
         const baseFee = await getVerificationBaseFee();
         if (disposed) return;
+        // `fromCache` entries are the cache-first list the UI shows before the first live
+        // read lands. They are displayable, not claimable — this pass runs unattended.
         const nativeNotes: ConsumableNote[] = notes.filter(
-          n => n.faucetId === nativeFaucetId && !n.swapOrder && !n.isBeingClaimed
+          n => n.faucetId === nativeFaucetId && !n.swapOrder && !n.isBeingClaimed && !n.fromCache
         );
         if (nativeNotes.length === 0) return;
         // Value check on the BATCH TOTAL, not per note: these are claimed as ONE

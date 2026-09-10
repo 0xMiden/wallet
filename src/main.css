@@ -298,40 +298,6 @@ button,
   display: none;
 }
 
-/**
- * Mobile page slide-in animation
- */
-
-@keyframes mobile-slide-in {
-  from {
-    transform: translateX(8%);
-    opacity: 0.5;
-  }
-  to {
-    transform: translateX(0);
-    opacity: 1;
-  }
-}
-
-.mobile-page-enter {
-  animation: mobile-slide-in 0.15s ease-out both;
-}
-
-@keyframes mobile-fade-in {
-  from {
-    opacity: 0.5;
-  }
-  to {
-    opacity: 1;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .mobile-page-enter {
-    animation: mobile-fade-in 0.15s ease-out both;
-  }
-}
-
 /* Wallet navigation is React-only: BottomNav is mounted inside TabLayout. */
 
 /* Parked-dApp bubble host — default transform is identity, and it

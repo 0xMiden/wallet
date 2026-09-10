@@ -99,7 +99,8 @@ export function createLocationUpdates(to: To, lctn: LocationState): LocationUpda
   }
 }
 
-export const [LocationProvider, useLocation] = constate(() => {
+export const [LocationProvider, useLocation] = constate(({ snapshot }: { snapshot?: LocationState }) => {
   useHistory();
-  return createLocationState();
+  // An outgoing page must keep its own URL until the slide ends.
+  return snapshot ?? createLocationState();
 });

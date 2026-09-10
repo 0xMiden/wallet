@@ -29,6 +29,7 @@ import useSafeState from 'lib/ui/useSafeState';
 
 import HistoryView from './HistoryView';
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
+import type { PendingActivityItem } from './PendingActivityCard';
 import {
   earnWithdrawAmountFields,
   isFaucetRequest as isFaucetEntry,
@@ -45,13 +46,35 @@ type HistoryProps = {
   className?: string;
   fullHistory?: boolean;
   centerEmptyState?: boolean;
+  hideEmptyState?: boolean;
+  pendingItems?: PendingActivityItem[];
+  renderPendingItem?: (item: PendingActivityItem) => React.ReactNode;
+  excludeTransactionIds?: readonly string[];
   tokenId?: string;
   searchQuery?: string;
-  filter?: 'all' | 'sent' | 'received' | 'faucet';
+  filter?: ActivityFilter;
 };
 
+// The chips above the activity list. `pending` shows only the notes that
+// wait for a claim, so it removes every settled history row.
+export type ActivityFilter = 'all' | 'pending' | 'sent' | 'received' | 'faucet';
+
 const History = memo<HistoryProps>(
-  ({ address, className, numItems, scrollParentRef, fullHistory, centerEmptyState, tokenId, searchQuery, filter }) => {
+  ({
+    address,
+    className,
+    numItems,
+    scrollParentRef,
+    fullHistory,
+    centerEmptyState,
+    tokenId,
+    searchQuery,
+    filter,
+    hideEmptyState,
+    excludeTransactionIds,
+    pendingItems,
+    renderPendingItem
+  }) => {
     const safeStateKey = useMemo(() => ['history', address, tokenId].join('_'), [address, tokenId]);
     const [isLoading, setIsLoading] = useState(false);
     const [hasMore, setHasMore] = useState(true);
@@ -178,7 +201,17 @@ const History = memo<HistoryProps>(
       }
     };
 
-    let entries: IHistoryEntry[] = allEntries;
+    const representedNotes = new Set(
+      pendingItems?.filter(item => item.status === 'claiming' || item.status === 'claimed').map(item => item.note.id)
+    );
+    let entries: IHistoryEntry[] = allEntries.filter(entry => {
+      if (entry.txId && excludeTransactionIds?.includes(entry.txId)) return false;
+      return !(
+        entry.txType === 'consume' &&
+        entry.noteIds?.length &&
+        entry.noteIds.every(id => representedNotes.has(id))
+      );
+    });
     if (searchQuery?.trim()) {
       const query = searchQuery.toLowerCase();
       entries = entries.filter(
@@ -196,6 +229,7 @@ const History = memo<HistoryProps>(
       // Failed/cancelled rows lose their directional icon (it becomes FAILED),
       // so the Sent/Received filters fall back to the underlying tx type.
       entries = entries.filter(e => {
+        if (filter === 'pending') return false;
         if (filter === 'sent') {
           return e.transactionIcon === 'SEND' || (e.transactionIcon === 'FAILED' && isSendType(e.txType));
         }
@@ -224,6 +258,9 @@ const History = memo<HistoryProps>(
         tokenId={tokenId}
         fullHistory={fullHistory}
         centerEmptyState={centerEmptyState}
+        hideEmptyState={hideEmptyState}
+        pendingItems={pendingItems}
+        renderPendingItem={renderPendingItem}
         className={className}
       />
     );
@@ -317,6 +354,7 @@ async function fetchTransactionsAsHistoryEntries(
       // Bridge rows have no Miden recipient — surface the EVM destination instead.
       secondaryAddress: bridge?.destinationAddress ?? tx.secondaryAccountId,
       txId: tx.id,
+      noteIds: tx.noteIds ?? (tx.noteId ? [tx.noteId] : []),
       noteType: tx.noteType,
       faucetId: tx.faucetId,
       txType: tx.type,
@@ -391,6 +429,7 @@ async function fetchPendingTransactionsAsHistoryEntries(address: string, tokenId
       // Bridge rows have no Miden recipient — surface the EVM destination instead.
       secondaryAddress: bridge?.destinationAddress ?? tx.secondaryAccountId,
       txId: tx.id,
+      noteIds: tx.noteIds ?? (tx.noteId ? [tx.noteId] : []),
       type: entryType,
       noteType: tx.noteType,
       faucetId: tx.faucetId,

@@ -4460,5 +4460,78 @@
   "devEndpointResetConfirm": {
     "message": "Это приведёт к окончательному удалению данного кошелька, включая ваши ключи и историю транзакций. Для его восстановления вам понадобится фраза восстановления.",
     "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
+  },
+  "activityAcceptTransfer": {
+    "message": "Принять перевод",
+    "englishSource": "Accept Transfer"
+  },
+  "activityRejectTransfer": {
+    "message": "Отклонить",
+    "englishSource": "Decline"
+  },
+  "activityCheckingTransfer": {
+    "message": "Проверка…",
+    "englishSource": "Checking…"
+  },
+  "activityTransferClaimed": {
+    "message": "Получено",
+    "englishSource": "Claimed"
+  },
+  "activityClaimedOn": {
+    "message": "Заявлено на",
+    "englishSource": "Claimed on"
+  },
+  "activityReceivedOn": {
+    "message": "Получено",
+    "englishSource": "Received on"
+  },
+  "activityNotYetAccepted": {
+    "message": "Ещё не принято — проверьте и примите, чтобы получить эти средства.",
+    "englishSource": "Not yet accepted — review and accept to claim these funds."
+  },
+  "acceptAll": {
+    "message": "Принять всё",
+    "englishSource": "Accept All"
+  },
+  "activitySearch": {
+    "message": "Активность поиска",
+    "englishSource": "Search activity"
+  },
+  "activityTransferAccepted": {
+    "message": "Перевод принят",
+    "englishSource": "Transfer accepted"
+  },
+  "activityTransferDetails": {
+    "message": "Подробности",
+    "englishSource": "Details"
+  },
+  "activityRejectExplanation": {
+    "message": "Скрыть этот перевод из раздела «Активность» на этом устройстве? Это не приводит к возврату средств отправителю и не удаляет запись «note». Вы можете восстановить скрытые переводы в разделе «Активность».",
+    "englishSource": "Hide this transfer from Activity on this device? This does not return funds to the sender or delete the note. You can restore hidden transfers in Activity."
+  },
+  "activityClaimFee": {
+    "message": "Максимальная сетевая комиссия за один принятый перевод: $fee$",
+    "englishSource": "Maximum network fee per accepted transfer: $fee$",
+    "placeholders": {
+      "fee": {
+        "content": "$1"
+      }
+    }
+  },
+  "activityHiddenNotesError": {
+    "message": "Не удалось сохранить скрытые переводы. Пожалуйста, попробуйте ещё раз.",
+    "englishSource": "Could not save hidden transfers. Please try again."
+  },
+  "activityPendingTransfersInList": {
+    "message": "Входящие переводы",
+    "englishSource": "Incoming transfers"
+  },
+  "activityManagePendingNotes": {
+    "message": "Управление notes",
+    "englishSource": "Manage notes"
+  },
+  "activityDateUnavailable": {
+    "message": "Дата отсутствует",
+    "englishSource": "Date unavailable"
   }
 }

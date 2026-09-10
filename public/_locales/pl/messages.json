@@ -4460,5 +4460,78 @@
   "devEndpointResetConfirm": {
     "message": "Spowoduje to trwałe usunięcie tego portfela, w tym kluczy i historii transakcji. Aby go przywrócić, potrzebna będzie fraza odzyskiwania.",
     "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
+  },
+  "activityAcceptTransfer": {
+    "message": "Zaakceptuj transfer",
+    "englishSource": "Accept Transfer"
+  },
+  "activityRejectTransfer": {
+    "message": "Odrzuć",
+    "englishSource": "Decline"
+  },
+  "activityCheckingTransfer": {
+    "message": "Sprawdzam…",
+    "englishSource": "Checking…"
+  },
+  "activityTransferClaimed": {
+    "message": "Odebrane",
+    "englishSource": "Claimed"
+  },
+  "activityClaimedOn": {
+    "message": "Odbiór nastąpił w dniu",
+    "englishSource": "Claimed on"
+  },
+  "activityReceivedOn": {
+    "message": "Otrzymano dnia",
+    "englishSource": "Received on"
+  },
+  "activityNotYetAccepted": {
+    "message": "Jeszcze nie zaakceptowano — sprawdź i zaakceptuj, aby odebrać te środki.",
+    "englishSource": "Not yet accepted — review and accept to claim these funds."
+  },
+  "acceptAll": {
+    "message": "Zaakceptuj wszystko",
+    "englishSource": "Accept All"
+  },
+  "activitySearch": {
+    "message": "Aktywność wyszukiwania",
+    "englishSource": "Search activity"
+  },
+  "activityTransferAccepted": {
+    "message": "Przelew zaakceptowany",
+    "englishSource": "Transfer accepted"
+  },
+  "activityTransferDetails": {
+    "message": "Szczegóły",
+    "englishSource": "Details"
+  },
+  "activityRejectExplanation": {
+    "message": "Czy chcesz ukryć ten transfer w sekcji „Aktywność” na tym urządzeniu? Nie spowoduje to zwrotu środków nadawcy ani usunięcia adresu note. Ukryte transfery można przywrócić w sekcji „Aktywność”.",
+    "englishSource": "Hide this transfer from Activity on this device? This does not return funds to the sender or delete the note. You can restore hidden transfers in Activity."
+  },
+  "activityClaimFee": {
+    "message": "Maksymalna opłata sieciowa za każdy zaakceptowany transfer: $fee$",
+    "englishSource": "Maximum network fee per accepted transfer: $fee$",
+    "placeholders": {
+      "fee": {
+        "content": "$1"
+      }
+    }
+  },
+  "activityHiddenNotesError": {
+    "message": "Nie udało się zapisać ukrytych transferów. Spróbuj ponownie.",
+    "englishSource": "Could not save hidden transfers. Please try again."
+  },
+  "activityPendingTransfersInList": {
+    "message": "Przelewy przychodzące",
+    "englishSource": "Incoming transfers"
+  },
+  "activityManagePendingNotes": {
+    "message": "Zarządzaj notes",
+    "englishSource": "Manage notes"
+  },
+  "activityDateUnavailable": {
+    "message": "Data niedostępna",
+    "englishSource": "Date unavailable"
   }
 }
