@@ -38,6 +38,8 @@ yarn test:e2e:mobile:{devnet,testnet}
 
 Node >=22 for Capacitor/Tauri: `source ~/.nvm/nvm.sh && nvm use 22`.
 
+Every production build script (`build:bg/cs/ext/mobile/desktop`, so every `build:*`, `mobile:*` and release path) first runs `yarn check --integrity` and refuses a `node_modules` that does not match `yarn.lock`; it takes 30 ms and exists so a stale checkout can never bundle the wrong SDK. Run `yarn install` and retry.
+
 Lint/format only before commit or when asked — not every build.
 
 ## Version bumps
