@@ -715,12 +715,12 @@ describe('Welcome — confirmation / register', () => {
     expect(mockFlowProps.current.recoveryError).toBe('procedure with root digest 0xabc could not be found');
   });
 
-  it('describes a non-Error throw rather than rendering [object Object]', async () => {
-    mockRegisterWallet.mockRejectedValue('plain string boom');
+  it('describes a structured non-Error throw rather than rendering [object Object]', async () => {
+    mockRegisterWallet.mockRejectedValue({ code: 'registration_failed', stage: 'guardian' });
     await renderWelcome();
     await dispatch({ id: 'setup-passcode-submit', payload: '123456' });
     await dispatch({ id: 'confirmation' });
-    expect(mockFlowProps.current.recoveryError).toBe('plain string boom');
+    expect(mockFlowProps.current.recoveryError).toBe('{"code":"registration_failed","stage":"guardian"}');
   });
 
   it('clears a previous failure when the user retries', async () => {
@@ -781,21 +781,28 @@ describe('Welcome — waitForReadyState resilience', () => {
       await act(async () => {
         pending = mockFlowProps.current.onAction({ id: 'confirmation' });
       });
-      // 50 attempts × 100ms backoff.
+      // Five-second wall-clock budget, regardless of how quickly each read returns.
       await act(async () => {
-        await jest.advanceTimersByTimeAsync(100 * 55);
+        await jest.advanceTimersByTimeAsync(5_500);
       });
       await act(async () => {
         await pending;
       });
 
-      expect(mockFetchState.mock.calls.length).toBeGreaterThanOrEqual(50);
+      expect(mockFetchState.mock.calls.length).toBeGreaterThanOrEqual(45);
       // Navigating a not-ready wallet home sends `resolveRootView` straight back
       // to Welcome, dropping the user at the start of onboarding with a wallet
       // that may already exist. Stay, and say what happened.
       expect(mockNavigate).not.toHaveBeenCalledWith('/');
       expect(mockFlowProps.current.recoveryError).toBeTruthy();
       expect(mockFlowProps.current.isLoading).toBe(false);
+
+      // Registration itself succeeded. Retry only re-reads readiness; running
+      // NewWalletRequest again could wipe the wallet already created above.
+      mockFetchState.mockResolvedValue({ status: READY, accounts: [{}] });
+      await dispatch({ id: 'confirmation' });
+      expect(mockRegisterWallet).toHaveBeenCalledTimes(1);
+      expect(mockNavigate).toHaveBeenCalledWith('/');
     } finally {
       jest.useRealTimers();
     }
@@ -1007,6 +1014,30 @@ describe('Welcome — side-panel handoff', () => {
     // The spinner stops either way; without a reason on screen the user has no
     // cause to believe a second tap would do anything different.
     expect(mockFlowProps.current.recoveryError).toBe('creation failed');
+  });
+
+  it('retries prompt setup without recreating a wallet the auto-create already registered', async () => {
+    mockCanHandoff = true;
+    mockSeedWalletPrompt.mockRejectedValueOnce(new Error('prompt write failed')).mockResolvedValue(undefined);
+    await renderWelcome();
+    await dispatch({ id: 'setup-passcode-submit', payload: '123456' });
+    mockNavigate.mockClear();
+    await setHash('#confirmation');
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(mockRegisterWallet).toHaveBeenCalledTimes(1);
+    expect(mockFlowProps.current.recoveryError).toBe('prompt write failed');
+
+    mockFetchState.mockResolvedValue({ status: READY, accounts: [{}] });
+    await dispatch({ id: 'confirmation' });
+
+    expect(mockRegisterWallet).toHaveBeenCalledTimes(1);
+    expect(mockSeedWalletPrompt).toHaveBeenCalledTimes(2);
+    expect(mockNavigate).toHaveBeenCalledWith('/finish-side-panel');
   });
 
   it('does not auto-create hardware-only wallets (deferred to a tap)', async () => {

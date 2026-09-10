@@ -1,4 +1,4 @@
-import React, { FC, useCallback, useEffect, useMemo, useState } from 'react';
+import React, { FC, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { generateMnemonic } from 'bip39';
 import wordslist from 'bip39/src/wordlists/english.json';
@@ -68,28 +68,47 @@ function protectionStepRoute(): string {
 /**
  * A message the user can act on, from whatever registration threw.
  *
- * Deliberately not a friendly rewrite: onboarding failures here are node,
- * protocol or network problems, and the raw text ("procedure with root digest …
- * could not be found", a gRPC status) is the only thing that tells a tester —
- * or a bug report — which one it was. `select-text` on the render site makes it
- * copyable for exactly that reason.
+ * Deliberately not a friendly rewrite: registration spans hardware protection,
+ * the selected Guardian, wallet storage and the network. The original message
+ * is the only thing that tells a tester — or a bug report — which stage failed.
+ * `select-text` on the render site makes it copyable for exactly that reason.
  */
 function errorToMessage(error: unknown): string {
   if (error instanceof Error && error.message) return error.message;
   if (typeof error === 'string' && error) return error;
-  return String(error ?? 'Unknown error');
+  if (error && typeof error === 'object') {
+    try {
+      const serialized = JSON.stringify(error);
+      if (serialized && serialized !== '{}') return serialized;
+    } catch {
+      // Fall through to the stable user-facing fallback below.
+    }
+  }
+  if (typeof error === 'number' || typeof error === 'boolean') return String(error);
+  return 'Unknown error';
 }
+
+const READY_WAIT_BUDGET_MS = 5_000;
+const READY_POLL_INTERVAL_MS = 100;
 
 /**
  * Wait for the wallet state to become Ready after registration.
  * This ensures the state is fully synced before navigation.
  */
-async function waitForReadyState(syncFromBackend: (state: any) => void, maxAttempts = 50): Promise<boolean> {
-  console.log('[waitForReadyState] Starting, maxAttempts:', maxAttempts);
-  for (let i = 0; i < maxAttempts; i++) {
+async function waitForReadyState(
+  syncFromBackend: (state: any) => void,
+  maxWaitMs = READY_WAIT_BUDGET_MS
+): Promise<boolean> {
+  const deadline = Date.now() + maxWaitMs;
+  let attempt = 0;
+  console.log('[waitForReadyState] Starting, maxWaitMs:', maxWaitMs);
+  while (Date.now() < deadline) {
+    attempt += 1;
     try {
-      console.log('[waitForReadyState] Attempt', i + 1);
-      const state = await fetchStateFromBackend();
+      console.log('[waitForReadyState] Attempt', attempt);
+      // The ordinary state read allows 3s. Hand it only the time left here so
+      // one wedged backend cannot turn this five-second UI budget into minutes.
+      const state = await fetchStateFromBackend(Math.max(1, deadline - Date.now()));
       console.log('[waitForReadyState] Got state:', { status: state.status, hasAccounts: !!state.accounts?.length });
       syncFromBackend(state);
       if (state.status === WalletStatus.Ready) {
@@ -99,9 +118,12 @@ async function waitForReadyState(syncFromBackend: (state: any) => void, maxAttem
     } catch (error) {
       console.warn('[waitForReadyState] Failed to fetch state, retrying...', error);
     }
-    await new Promise(r => setTimeout(r, 100));
+    const remainingMs = deadline - Date.now();
+    if (remainingMs > 0) {
+      await new Promise(r => setTimeout(r, Math.min(READY_POLL_INTERVAL_MS, remainingMs)));
+    }
   }
-  console.warn('[waitForReadyState] Max attempts reached, state still not Ready');
+  console.warn('[waitForReadyState] Time budget reached, state still not Ready');
   return false;
 }
 
@@ -135,6 +157,10 @@ const Welcome: FC = () => {
    * "nothing happened" is indistinguishable from "still working".
    */
   const [registrationError, setRegistrationError] = useState<string | null>(null);
+  // Once NewWalletRequest succeeds, a readiness retry must only re-read state.
+  // Calling registerWallet again can wipe and recreate the wallet that the
+  // first attempt already committed.
+  const registrationCompletedRef = useRef(false);
   // Tracks which protection screen the user came through; needed so ChooseGuardian
   // back navigation and the create-password→confirmation routing pick the right
   // origin without colliding with the legacy create flow.
@@ -270,16 +296,20 @@ const Welcome: FC = () => {
   const register = useCallback(async () => {
     if (password && seedPhrase) {
       const seedPhraseFormatted = formatMnemonic(seedPhrase.join(' '));
-      // For hardware-only wallets, pass undefined as password
-      const actualPassword = password === '__HARDWARE_ONLY__' ? undefined : password;
-      await registerWallet(
-        walletType,
-        actualPassword,
-        seedPhraseFormatted,
-        onboardingType === OnboardingType.Import,
-        guardianEndpoint
-      );
+      if (!registrationCompletedRef.current) {
+        // For hardware-only wallets, pass undefined as password
+        const actualPassword = password === '__HARDWARE_ONLY__' ? undefined : password;
+        await registerWallet(
+          walletType,
+          actualPassword,
+          seedPhraseFormatted,
+          onboardingType === OnboardingType.Import,
+          guardianEndpoint
+        );
+        registrationCompletedRef.current = true;
+      }
       if (onboardingType === OnboardingType.Create) {
+        // Idempotent and intentionally retried separately from wallet creation.
         await seedWalletPrompt(WalletPromptType.VerifySeedPhrase);
       }
     } else {
@@ -331,6 +361,7 @@ const Welcome: FC = () => {
 
     switch (action.id) {
       case 'choose-protection':
+        registrationCompletedRef.current = false;
         setOnboardingType(OnboardingType.Create);
         // Biometric is unavailable on the extension/desktop, so the
         // choose-protection screen has only one real option — skip it and go
@@ -399,6 +430,7 @@ const Welcome: FC = () => {
         }
         break;
       case 'select-import-type':
+        registrationCompletedRef.current = false;
         // Recovery is seed-phrase only — jump straight to the seed entry screen.
         setOnboardingType(OnboardingType.Import);
         navigate('/#import-from-seed');

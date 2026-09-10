@@ -200,10 +200,10 @@ export function useIntercomSync() {
  * Callers that want to keep trying until the SW is ready should wrap this in
  * `retryFetchState` (see above).
  */
-async function fetchStateFromBackend(): Promise<MidenState> {
+async function fetchStateFromBackend(timeoutMs = PER_ATTEMPT_TIMEOUT_MS): Promise<MidenState> {
   const intercom = getIntercom();
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), PER_ATTEMPT_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const res = await intercom.request({ type: WalletMessageType.GetStateRequest }, { signal: controller.signal });
     if (res?.type !== WalletMessageType.GetStateResponse) {
