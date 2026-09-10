@@ -462,7 +462,7 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
 
   // Pre-select token when navigating from token detail page
   const allTokensBaseMetadata = useAllTokensBaseMetadata();
-  const { data: balanceData } = useAllBalances(publicKey, allTokensBaseMetadata);
+  const { data: balanceData, isLoading: balancesLoading } = useAllBalances(publicKey, allTokensBaseMetadata);
   const nativeFaucetId = useMidenFaucetId();
   const verificationBaseFee = useVerificationBaseFee();
   useEffect(() => {
@@ -508,16 +508,18 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
   // Without this, an over-balance amount could reach Review with Confirm
   // still enabled.
   useEffect(() => {
-    // Checked BEFORE the empty-amount guard, deliberately. The fee comes out of this
-    // account's own vault, so with no native asset nothing is sendable -- and that is
-    // already true before the user types. Withholding it until an amount existed made them
-    // compose a whole send and only then learn it could never submit; swap and earn deposit
-    // both say so on mount, and this was the screen that did not.
-    if (hasNoFeeAsset(balanceData ?? [], nativeFaucetId, verificationBaseFee)) {
+    // A resolved fee shortfall matters before typing, but the balance hook's
+    // initial zero is a loading placeholder, not evidence of missing MIDEN.
+    if (!balancesLoading && hasNoFeeAsset(balanceData ?? [], nativeFaucetId, verificationBaseFee)) {
       setError('amount', { type: 'manual', message: 'insufficientFeeAsset' });
       return;
     }
-    if (!amount) return;
+    if (amount === undefined) {
+      // Clear a previous shortfall once funds arrive, even before typing.
+      // A cleared field ('') still follows the invalid-amount path below.
+      if (errors.amount) clearErrors('amount');
+      return;
+    }
     if (!validations.amount.isValidSync(amount)) {
       setError('amount', { type: 'manual', message: 'invalidAmount' });
     } else if (token && parseFloat(amount) > spendableBalance) {
@@ -538,7 +540,7 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
     // asynchronously, so an amount typed before they landed was validated against an
     // empty balance list and an unknown fee and then never re-checked.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, spendableBalance, balanceData, nativeFaucetId, verificationBaseFee]);
+  }, [token, spendableBalance, balanceData, balancesLoading, nativeFaucetId, verificationBaseFee]);
 
   const onAction = useCallback(
     (action: SendFlowAction) => {
@@ -729,7 +731,7 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
       const amount = parseFloat(amountString || '0');
       if (!validations.amount.isValidSync(amountString)) {
         setError('amount', { type: 'manual', message: 'invalidAmount' });
-      } else if (hasNoFeeAsset(balanceData ?? [], nativeFaucetId, verificationBaseFee)) {
+      } else if (!balancesLoading && hasNoFeeAsset(balanceData ?? [], nativeFaucetId, verificationBaseFee)) {
         // The fee is taken from this account's own vault, so with no native
         // asset the transaction cannot succeed however small the amount.
         setError('amount', { type: 'manual', message: 'insufficientFeeAsset' });
@@ -755,11 +757,12 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
       clearErrors,
       // The fee-reserved cap, not the raw balance (see `spendableBalance`).
       spendableBalance,
-      // All three feed the `insufficientFeeAsset` branch above. Omitted, the check
+      // These feed the `insufficientFeeAsset` branch above. Omitted, the check
       // runs against first-render values -- an empty balance list and an unresolved
       // base fee -- so it either blocks a send that can pay its fee or admits one
       // that cannot, and the amount field's error stops tracking reality.
       balanceData,
+      balancesLoading,
       nativeFaucetId,
       verificationBaseFee
     ]
