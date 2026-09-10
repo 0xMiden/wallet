@@ -302,26 +302,42 @@ it('groups notes from the same faucet and keeps them queued if the worker wake-u
   log.mockRestore();
 });
 
-it('does not publish a single claim transaction id after unmount', async () => {
-  let releaseQueue: (txId: string) => void = () => {};
-  mockQueue.mockImplementationOnce(
-    () =>
-      new Promise<string>(resolve => {
-        releaseQueue = resolve;
-      })
-  );
+it('does not publish single claim results after unmount', async () => {
+  const log = jest.spyOn(console, 'error').mockImplementation(() => {});
+  const failed = { ...note, id: 'failed' };
+  mockClaim.safeClaimableNotes = [note, failed];
+  let resolveQueue: (txId: string) => void = () => {};
+  let rejectQueue: (error: Error) => void = () => {};
+  mockQueue
+    .mockImplementationOnce(
+      () =>
+        new Promise<string>(resolve => {
+          resolveQueue = resolve;
+        })
+    )
+    .mockImplementationOnce(
+      () =>
+        new Promise<string>((_resolve, reject) => {
+          rejectQueue = reject;
+        })
+    );
   const { result, unmount } = renderHook(() => useActivityClaims());
 
-  let claim: Promise<void> = Promise.resolve();
+  let successfulClaim: Promise<void> = Promise.resolve();
+  let failedClaim: Promise<void> = Promise.resolve();
   act(() => {
-    claim = result.current.accept(note);
+    successfulClaim = result.current.accept(note);
+    failedClaim = result.current.accept(failed);
   });
   unmount();
   await act(async () => {
-    releaseQueue('late-transaction');
-    await claim;
+    resolveQueue('late-transaction');
+    rejectQueue(new Error('Late queue failure'));
+    await Promise.all([successfulClaim, failedClaim]);
   });
   expect(mockStart).toHaveBeenCalledTimes(1);
+  expect(log).toHaveBeenCalled();
+  log.mockRestore();
 });
 
 it('does not replace history when a completed transaction has no note references', async () => {
