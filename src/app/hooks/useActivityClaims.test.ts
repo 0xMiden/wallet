@@ -23,6 +23,7 @@ const mockDates = new Map<string, number>();
 const mockClaim = {
   account: { publicKey: 'account' },
   safeClaimableNotes: [note],
+  isFetchingNotes: false,
   isDelegatedProvingEnabled: false,
   claimingNoteIds: new Set<string>(),
   checkingNoteIds: new Set<string>(),
@@ -55,6 +56,7 @@ beforeEach(() => {
   mockQueueMany.mockReset();
   mockFlags.extension = false;
   mockClaim.safeClaimableNotes = [note];
+  mockClaim.isFetchingNotes = false;
   mockClaim.isDelegatedProvingEnabled = false;
   mockClaim.claimingNoteIds = new Set();
   mockClaim.checkingNoteIds = new Set();
@@ -331,4 +333,86 @@ it('does not replace history when a completed transaction has no note references
   });
   await waitFor(() => expect(result.current.items[0]?.status).toBe('claimed'));
   expect(result.current.items[0]?.replaceHistoryRow).toBe(false);
+});
+
+it('queues only failed notes when a batch also contains unknown and checking notes', async () => {
+  const checking = { ...note, id: 'checking' };
+  const failed = { ...note, id: 'failed' };
+  mockClaim.safeClaimableNotes = [checking, failed];
+  mockClaim.checkingNoteIds.add(checking.id);
+  mockClaim.retriableNoteIds.add(failed.id);
+  const { result } = renderHook(() => useActivityClaims());
+
+  await act(async () => {
+    await result.current.acceptMany([{ ...note, id: 'unknown' }, checking, failed]);
+  });
+  expect(mockQueueMany).toHaveBeenCalledWith('account', [failed], false, true);
+});
+
+it('lets a live checking state take priority over an old failed attempt', async () => {
+  const log = jest.spyOn(console, 'error').mockImplementation(() => {});
+  mockQueue.mockRejectedValueOnce(new Error('Queue failed'));
+  const { result, rerender } = renderHook(() => useActivityClaims());
+  await act(async () => {
+    await result.current.accept(note);
+  });
+
+  mockClaim.checkingNoteIds.add(note.id);
+  rerender();
+  expect(result.current.items[0]?.status).toBe('checking');
+  log.mockRestore();
+});
+
+it('reports note loading while the live fetch is active', () => {
+  mockClaim.isFetchingNotes = true;
+  const { result } = renderHook(() => useActivityClaims());
+  expect(result.current.isLoadingNotes).toBe(true);
+});
+
+it('does not publish batch results that settle after unmount', async () => {
+  const log = jest.spyOn(console, 'error').mockImplementation(() => {});
+  const first = { ...note, id: 'first', faucetId: 'first-faucet' };
+  const second = { ...note, id: 'second', faucetId: 'second-faucet' };
+  mockClaim.safeClaimableNotes = [first, second];
+  let releaseFirst: (txId: string) => void = () => {};
+  mockQueueMany
+    .mockImplementationOnce(
+      () =>
+        new Promise<string>(resolve => {
+          releaseFirst = resolve;
+        })
+    )
+    .mockRejectedValueOnce(new Error('Late queue failure'));
+  const { result, unmount } = renderHook(() => useActivityClaims());
+
+  let batch: Promise<void> = Promise.resolve();
+  act(() => {
+    batch = result.current.acceptMany([first, second]);
+  });
+  unmount();
+  await act(async () => {
+    releaseFirst('late-transaction');
+    await batch;
+  });
+  expect(mockQueueMany).toHaveBeenCalledTimes(2);
+  expect(mockStart).toHaveBeenCalledTimes(1);
+  log.mockRestore();
+});
+
+it('ignores a claim status read that settles after unmount', async () => {
+  let releaseRead: (transaction: { status: number }) => void = () => {};
+  mockRead.mockImplementationOnce(
+    () =>
+      new Promise<{ status: number }>(resolve => {
+        releaseRead = resolve;
+      })
+  );
+  const { result, unmount } = renderHook(() => useActivityClaims());
+  await act(async () => {
+    await result.current.accept(note);
+  });
+  await waitFor(() => expect(mockRead).toHaveBeenCalled());
+
+  unmount();
+  await act(async () => releaseRead({ status: 2 }));
 });
