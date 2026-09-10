@@ -868,7 +868,6 @@
   "networkNoticeResetTitle": "The network can reset",
   "networkNoticeResetBody": "A reset clears balances and history. Test balances never carry over to Mainnet.",
   "iUnderstand": "I understand",
-  "receiveNetworkChip": "Receiving on Miden $network$",
   "receiveTestFundsTitle": "Test tokens only",
   "receiveTestFundsBody": "Only send Miden $network$ tokens here. Real funds sent to this address cannot be recovered.",
   "crossChainFromNetwork": "from $network$",

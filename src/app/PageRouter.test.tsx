@@ -96,6 +96,9 @@ jest.mock('app/layouts/TabLayout', () => ({
 }));
 
 // Leaf screens — identifiable stubs, echoing any route params they receive.
+jest.mock('components/NetworkModeBanner', () => ({
+  NetworkModeBanner: () => <div data-testid="network-mode-banner" />
+}));
 jest.mock('app/pages/Explore', () => ({ __esModule: true, default: () => <div data-testid="explore" /> }));
 jest.mock('app/pages/OpenSidePanel', () => ({
   __esModule: true,
@@ -224,6 +227,19 @@ beforeEach(() => {
   resolveRootViewMock.mockImplementation(realResolveRootView);
   window.scrollTo = scrollToMock as unknown as typeof window.scrollTo;
   mockSwapEnabled.value = true;
+});
+
+describe('app/PageRouter — network banner (#875)', () => {
+  it('mounts the network banner above every routed page', () => {
+    renderAt('/', { ready: true, hydrated: true });
+    expect(screen.getByTestId('network-mode-banner')).toBeInTheDocument();
+    expect(screen.getByTestId('explore')).toBeInTheDocument();
+  });
+
+  it('mounts the network banner on pre-ready screens too', () => {
+    renderAt('/reset-required');
+    expect(screen.getByTestId('network-mode-banner')).toBeInTheDocument();
+  });
 });
 
 describe('app/PageRouter — pre-ready / special routes', () => {

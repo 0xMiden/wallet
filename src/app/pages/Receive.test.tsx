@@ -129,7 +129,7 @@ describe('Receive - Address', () => {
     expect(full?.textContent).toBe('test-account-123');
   });
 
-  it('names the receiving network and warns about test funds (#875)', async () => {
+  it('warns about test funds before the share and bridge actions (#875)', async () => {
     testContainer = document.createElement('div');
     testRoot = createRoot(testContainer);
 
@@ -137,7 +137,6 @@ describe('Receive - Address', () => {
       testRoot!.render(<Receive />);
     });
 
-    expect(testContainer.querySelector('[data-testid="network-chip"]')?.textContent).toBe('receiveNetworkChip');
     const warning = testContainer.querySelector('[data-testid="receive-test-funds-warning"]');
     expect(warning?.textContent).toContain('receiveTestFundsTitle');
     expect(warning?.textContent).toContain('receiveTestFundsBody');

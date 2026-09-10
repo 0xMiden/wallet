@@ -7,7 +7,6 @@ import { useAppEnv } from 'app/env';
 import { useHasUnclaimedNotes } from 'app/hooks/useHasUnclaimedNotes';
 import { Icon, IconName } from 'app/icons/v2';
 import HomeSwipeContainer from 'app/layouts/HomeSwipeContainer';
-import { NetworkModeBanner } from 'components/NetworkModeBanner';
 import { BottomNav, SegmentedActionBar } from 'components/ui';
 import { springs } from 'lib/animation';
 import { isSwapEnabled } from 'lib/feature-flags';
@@ -176,7 +175,10 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
         ? { height: '100%', width: '100%' }
         : fullPage
           ? { height: '640px', width: '600px' }
-          : { height: '600px', width: '360px' };
+          : // Popup: the body is a fixed 600px, and the router's network banner
+            // (#875) now takes part of it, so fill what remains instead of
+            // hard-coding 600px and clipping the bottom nav.
+            { height: '100%', width: '360px' };
 
   return (
     <div
@@ -194,7 +196,6 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
           stays fixed across intra-home-group navigations. */}
       {showActionBar && (
         <div className="shrink-0 relative z-10">
-          <NetworkModeBanner />
           <SegmentedActionBar
             items={actionItems}
             activeId={activeAction}

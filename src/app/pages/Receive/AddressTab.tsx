@@ -8,7 +8,6 @@ import CopyButton from 'app/atoms/CopyButton';
 import FormField from 'app/atoms/FormField';
 import { Icon, IconName } from 'app/icons/v2';
 import EvmConnectModal from 'app/templates/EvmConnectModal';
-import { NetworkChip } from 'components/NetworkChip';
 import { QRCode, type QRCodeHandle } from 'components/QRCode';
 import { TestNetworkWarning } from 'components/TestNetworkWarning';
 import { isBridgeDepositEnabled } from 'lib/feature-flags';
@@ -124,9 +123,6 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
             {address}
           </span>
           <div className="w-full flex flex-col items-center justify-center gap-6">
-            {/* Name the receiving network next to the QR code (#875) so a
-                shared address always carries its network context. */}
-            <NetworkChip labelKey="receiveNetworkChip" />
             <QRCode ref={qrRef} address={address} size={300} />
             <CopyButton
               text={address}

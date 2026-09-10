@@ -380,7 +380,7 @@ describe('TabLayout — container sizing (containerStyles) & clip class', () => 
 
   it('uses fixed popup dimensions in the extension popup (all flags off)', () => {
     const { container } = renderLayout();
-    expect(getRoot(container)).toHaveStyle({ height: '600px', width: '360px' });
+    expect(getRoot(container)).toHaveStyle({ height: '100%', width: '360px' });
   });
 });
 

@@ -4,9 +4,9 @@
 
 ### Features
 
-- [FEAT][all] The home screen shows a persistent Bread-branded banner that names the network the build runs on ("Miden Testnet", or "Miden Devnet" on devnet builds), so users know they hold test tokens (#875).
+- [FEAT][all] Every screen shows a persistent Bread-branded banner that names the network the build runs on ("Miden Testnet", or "Miden Devnet" on devnet builds), so users know they hold test tokens (#875).
 - [FEAT][all] Onboarding shows a network notice after the first tap on Welcome, before a wallet is created or restored: test tokens have no value, do not send real funds, and the network can reset (#875).
-- [FEAT][all] Receive names the receiving network beside the QR code, warns that only test tokens may be sent to the address, and labels the cross-chain route with its Ethereum Sepolia source (#875).
+- [FEAT][all] Receive warns that only test tokens may be sent to the address and labels the cross-chain route with its Ethereum Sepolia source (#875).
 - [FEAT][all] The EVM wallet connect step warns to connect a test wallet only: create a fresh wallet and fund it with Sepolia ETH, never a wallet that holds real funds (#875).
 
 ### Fixes
