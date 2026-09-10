@@ -519,14 +519,14 @@ it('nests the section headings under the guardian name rather than beside it', (
   expect(screen.getByText('details').tagName).toBe('H3');
 });
 
-// Hot-key-only import: no cold key on the account, so the cold-signed rotate
-// CTA must not be offered — following it could only dead-end.
-it('hides the rotate CTA for an account with no cold key', () => {
+// Hot-key-only import: no cold key on the account. The rotate CTA stays
+// offered; the pipeline prompts for the seed phrase for that one transaction.
+it('keeps the rotate CTA for an account with no cold key', () => {
   mockColdPublicKey = undefined;
   try {
     render(<GuardianSettings />);
 
-    expect(screen.queryByRole('button', { name: 'rotateGuardian' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'rotateGuardian' })).toBeInTheDocument();
   } finally {
     mockColdPublicKey = 'cold-1';
   }

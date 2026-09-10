@@ -72,9 +72,24 @@ export function authorizeRecovery(transaction: ITransaction, publicKey: string, 
 }
 
 export function getRecoveryAuthorization(transaction: ITransaction, publicKey: string): Uint8Array | undefined {
+  // A non-recovery transaction (send, claim, swap) never has an authorization,
+  // and `binding` throws for it. Answer before it is computed.
+  if (!isRecoveryTransaction(transaction)) return undefined;
   const authorization = authorizations.get(transaction.id);
   if (authorization?.binding !== binding(transaction) || authorization.publicKey !== publicKey) return undefined;
   return authorization.secret;
+}
+
+/**
+ * The cold public key the seed prompt derived for this transaction. An account
+ * imported from a hot key only stores no cold public key, so this is the only
+ * place the pipeline can read it from.
+ */
+export function getAuthorizedRecoveryPublicKey(transaction: ITransaction): string | undefined {
+  if (!isRecoveryTransaction(transaction)) return undefined;
+  const authorization = authorizations.get(transaction.id);
+  if (authorization?.binding !== binding(transaction)) return undefined;
+  return authorization.publicKey;
 }
 
 export function beginRecoveryAuthorization(transaction: ITransaction, publicKey: string): boolean {

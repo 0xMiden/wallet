@@ -958,13 +958,26 @@ export const generateTransaction = async (
   useWorker: boolean = true,
   guardianProvider: GuardianAccountProvider
 ) => {
-  if (
-    guardianProvider.prepareRecoveryTransaction &&
-    !(await guardianProvider.prepareRecoveryTransaction(transaction.id))
-  )
-    return;
+  let getAccounts = guardianProvider.getAccounts;
+  if (guardianProvider.prepareRecoveryTransaction) {
+    const preparation = await guardianProvider.prepareRecoveryTransaction(transaction.id);
+    if (!preparation.ready) return;
+    const { coldPublicKey } = preparation;
+    if (coldPublicKey) {
+      // A hot-key-only import stores no cold public key. The seed prompt derived
+      // one for this transaction; hand it to the cold-signing builders in memory
+      // only, for this run, and never write it to the account record.
+      getAccounts = async () =>
+        (await guardianProvider.getAccounts()).map(account =>
+          !account.coldPublicKey && sameWalletAccountId(account.publicKey, transaction.accountId)
+            ? { ...account, coldPublicKey }
+            : account
+        );
+    }
+  }
   const provider: GuardianAccountProvider = {
     ...guardianProvider,
+    getAccounts,
     signWord: (publicKey, wordHex) => guardianProvider.signWord(publicKey, wordHex, transaction.id)
   };
   try {

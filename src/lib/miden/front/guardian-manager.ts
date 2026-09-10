@@ -1,6 +1,6 @@
 import { MultisigService } from 'lib/miden/guardian';
 import { clearGuardianAccountLocks } from 'lib/miden/guardian/serialize';
-import { WalletAccount } from 'lib/shared/types';
+import { RecoveryPreparation, WalletAccount } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
 import { midenClientProxy } from '../back/miden-client-proxy';
@@ -42,7 +42,7 @@ const guardianServiceInflight = new Map<string, InflightEntry>();
  * The Zustand-backed default provider lives in `./guardian-sync.ts` (frontend-only).
  */
 export interface GuardianAccountProvider {
-  prepareRecoveryTransaction?: (transactionId: string) => Promise<boolean>;
+  prepareRecoveryTransaction?: (transactionId: string) => Promise<RecoveryPreparation>;
   releaseRecoveryAuthorization?: (transactionId: string) => Promise<void>;
   getAccounts: () => Promise<WalletAccount[]>;
   getPublicKeyForCommitment: (commitment: string) => Promise<string>;

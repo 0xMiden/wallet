@@ -88,29 +88,11 @@ jest.mock('lib/woozie', () => ({
   HistoryAction: { Push: 'push', Replace: 'replace' }
 }));
 
-// The page gates on the current account's cold key: a hot-key-only import has
-// none, and a cold-signed rotation cannot be offered to it.
-let mockColdPublicKey: string | undefined = 'cold-pk-1';
-jest.mock('lib/store', () => ({
-  useWalletStore: (selector: (s: { currentAccount: { coldPublicKey?: string } }) => unknown) =>
-    selector({ currentAccount: { coldPublicKey: mockColdPublicKey } })
-}));
-
 beforeEach(() => {
   jest.clearAllMocks();
   mockCurrentEndpoint = 'https://old.example';
   mockHistoryPosition = 1;
-  mockColdPublicKey = 'cold-pk-1';
   mobileBackHandler = undefined;
-});
-
-it('redirects to Settings for an account with no cold key (hot-key-only import)', () => {
-  mockColdPublicKey = undefined;
-
-  render(<RotateGuardian />);
-
-  expect(screen.getByTestId('redirect')).toHaveAttribute('data-to', '/settings');
-  expect(screen.queryByTestId('choose-guardian')).not.toBeInTheDocument();
 });
 
 it('hands the picker the endpoint the account is actually on, and allows a custom one', () => {

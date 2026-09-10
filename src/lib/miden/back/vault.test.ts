@@ -2,7 +2,9 @@
 // In-memory storage adapter used by `safe-storage`. Mocked at module scope so
 // the real `safe-storage` code runs but writes/reads go to `memoryStore`.
 // ---------------------------------------------------------------------------
+import { ITransactionType, Transaction } from 'lib/miden/db/types';
 import * as Passworder from 'lib/miden/passworder';
+import * as Repo from 'lib/miden/repo';
 import { WalletAccount } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
@@ -740,6 +742,37 @@ describe('Vault.revealPrivateKey', () => {
     await vault.removeSeedPhrase();
 
     await expect(Vault.revealPrivateKey('acc-pub-key-1', 'pw')).rejects.toThrow(PublicError);
+  });
+});
+
+describe('Vault.signWord', () => {
+  const NON_RECOVERY_TYPES: ITransactionType[] = [
+    'send',
+    'consume',
+    'execute',
+    'bridged-send',
+    'bridged-receive',
+    'earn-deposit',
+    'earn-withdraw',
+    'swap'
+  ];
+
+  it.each(NON_RECOVERY_TYPES)('signs a %s transaction with the hot key when given its id', async type => {
+    const vault = await seedVault('pw', {
+      accounts: [{ publicKey: 'acc-1', name: 'A', isPublic: false, type: WalletType.Guardian }]
+    });
+    const vaultKey = (vault as any).vaultKey as CryptoKey;
+    await encryptAndSaveMany([[keys.accAuthSecretKey('hot-pk'), 'hot-ciphertext']], vaultKey);
+    const signHotDigest = jest.requireMock('lib/secure-hot-key').signHotDigest as jest.Mock;
+    signHotDigest.mockResolvedValueOnce('0xsigned');
+    // Every pipeline hands `signWord` the transaction id. A row of a non-recovery
+    // type must never reach the recovery-authorization binding, which throws for it.
+    const row = new Transaction('acc-1', new Uint8Array());
+    row.type = type;
+    await Repo.transactions.add(row);
+
+    await expect(vault.signWord('hot-pk', '0xabc', row.id)).resolves.toBe('0xsigned');
+    expect(signHotDigest).toHaveBeenCalledWith('hot-ciphertext', '0xabc');
   });
 });
 
@@ -2354,6 +2387,26 @@ describe('seed phrase removal', () => {
 // ---------------------------------------------------------------------------
 describe('Vault.spawnFromHotKey', () => {
   const ENDPOINT = 'https://guardian.example.com';
+
+  it('loads the WASM module before it parses the pasted key', async () => {
+    // Fresh onboarding has no client yet, so nothing else has loaded the lazy
+    // SDK's WASM. A parse before the load throws inside the SDK and is reported
+    // to the user as an invalid paste.
+    const sdk = jest.requireMock('@miden-sdk/miden-sdk/lazy');
+    const order: string[] = [];
+    sdk.getWasmOrThrow.mockImplementationOnce(async () => {
+      order.push('wasm');
+      return {};
+    });
+    mockDeserializeHotSecretKey.mockImplementationOnce((_hex: string) => {
+      order.push('parse');
+      return fakeHotSecretKey() as any;
+    });
+
+    await Vault.spawnFromHotKey('pw', 'beef'.repeat(16), ENDPOINT);
+
+    expect(order).toEqual(['wasm', 'parse']);
+  });
 
   it('adopts the guardian account and persists a hot-key-only wallet', async () => {
     const vault = await Vault.spawnFromHotKey('pw', 'beef'.repeat(16), ENDPOINT);

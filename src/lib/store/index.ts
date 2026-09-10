@@ -268,7 +268,7 @@ export const useWalletStore = create<WalletStore>()(
     prepareRecoveryTransaction: async transactionId => {
       const res = await request({ type: WalletMessageType.PrepareRecoveryRequest, transactionId });
       assertResponse(res.type === WalletMessageType.PrepareRecoveryResponse);
-      return res.ready;
+      return { ready: res.ready, coldPublicKey: res.coldPublicKey };
     },
     releaseRecoveryAuthorization: async transactionId => {
       const res = await request({ type: WalletMessageType.ReleaseRecoveryRequest, transactionId });

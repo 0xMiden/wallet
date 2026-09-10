@@ -1,4 +1,5 @@
 import {
+  ConsumeTransaction,
   ReplaceHotKeyTransaction,
   SwitchGuardianTransaction,
   UpdateProcedureThresholdTransaction
@@ -9,6 +10,7 @@ import {
   beginRecoveryAuthorization,
   clearRecoveryAuthorization,
   clearRecoveryAuthorizations,
+  getAuthorizedRecoveryPublicKey,
   getRecoveryAuthorization,
   isRecoveryTransaction
 } from './recovery-authorization';
@@ -65,6 +67,37 @@ it('clears all keys on lock and clears a replaced permission', () => {
   clearRecoveryAuthorization(transaction.id);
   expect([...second]).toEqual([0]);
   expect(getRecoveryAuthorization(transaction, 'key')).toBeUndefined();
+});
+
+it('answers undefined for a non-recovery transaction instead of throwing', () => {
+  // A claim or send carries a transaction id into `signWord` too. The lookup
+  // must not compute the recovery binding for it, which throws.
+  const claim = new ConsumeTransaction('account', {
+    id: 'note-1',
+    faucetId: 'faucet',
+    amount: '1',
+    senderAddress: 'sender',
+    isBeingClaimed: false,
+    type: 'unknown'
+  });
+  expect(getRecoveryAuthorization(claim, 'hot-key')).toBeUndefined();
+  expect(getAuthorizedRecoveryPublicKey(claim)).toBeUndefined();
+});
+
+it('exposes the authorized public key for the same action only', () => {
+  const transaction = new SwitchGuardianTransaction('account', 'https://guardian.example', false);
+  expect(getAuthorizedRecoveryPublicKey(transaction)).toBeUndefined();
+
+  authorizeRecovery(transaction, 'cold-key', new Uint8Array([1]));
+  expect(getAuthorizedRecoveryPublicKey(transaction)).toBe('cold-key');
+
+  // Same id, different target: the binding no longer matches.
+  const retargeted = new SwitchGuardianTransaction('account', 'https://other.example', false);
+  retargeted.id = transaction.id;
+  expect(getAuthorizedRecoveryPublicKey(retargeted)).toBeUndefined();
+
+  clearRecoveryAuthorization(transaction.id);
+  expect(getAuthorizedRecoveryPublicKey(transaction)).toBeUndefined();
 });
 
 it('supports all three Guardian recovery actions', () => {

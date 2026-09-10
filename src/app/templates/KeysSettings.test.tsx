@@ -144,28 +144,19 @@ describe('KeysSettings — row visibility', () => {
     expect(screen.getAllByRole('button')).toHaveLength(2);
   });
 
-  // Hot-key-only import: a Guardian account with no coldPublicKey. Everyday
-  // key management stays; the cold-signed recovery actions (rotate guardian,
-  // replace hot key) hide, replaced by a one-line explanation — offering them
-  // would dead-end in a seed prompt that must reject (hdIndex is -1).
-  it('hides the recovery actions and explains why for a guardian without a cold key', () => {
+  // Hot-key-only import: a Guardian account with no coldPublicKey and no seed.
+  // The cold-signed recovery actions (rotate guardian, replace hot key) stay
+  // offered: the pipeline prompts for the seed phrase per transaction and
+  // derives the cold key against the on-chain signer without storing it.
+  it('keeps the recovery actions for a guardian without a cold key', () => {
     mockState.seedPhraseStatus = 'unavailable';
     mockState.currentAccount = { type: WalletType.Guardian, hotPublicKey: 'hot_pk_1' };
 
     render(<KeysSettings />);
 
     expect(screen.getByText('revealHotKey')).toBeInTheDocument();
-    expect(screen.queryByText('rotateGuardian')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('guardian-replace-hot-key')).not.toBeInTheDocument();
-    expect(document.querySelector('hr')).toBeNull();
-    expect(screen.getByText('recoveryActionsRequireRecoveryKey')).toBeInTheDocument();
-  });
-
-  it('shows no cold-key explanation for a guardian that has one', () => {
-    mockState.currentAccount = { type: WalletType.Guardian, hotPublicKey: 'hot_pk_1', coldPublicKey: 'cold_pk_1' };
-
-    render(<KeysSettings />);
-
+    expect(screen.getByText('rotateGuardian')).toBeInTheDocument();
+    expect(screen.getByTestId('guardian-replace-hot-key')).toBeInTheDocument();
     expect(screen.queryByText('recoveryActionsRequireRecoveryKey')).not.toBeInTheDocument();
   });
 

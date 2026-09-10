@@ -543,7 +543,7 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
     case WalletMessageType.PrepareRecoveryRequest:
       return {
         type: WalletMessageType.PrepareRecoveryResponse,
-        ready: await Actions.prepareRecoveryTransaction(req.transactionId)
+        ...(await Actions.prepareRecoveryTransaction(req.transactionId))
       };
     case WalletMessageType.ReleaseRecoveryRequest:
       await Actions.releaseRecoveryAuthorization(req.transactionId);

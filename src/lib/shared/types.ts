@@ -674,9 +674,18 @@ export interface PrepareRecoveryRequest extends WalletMessageBase {
   type: WalletMessageType.PrepareRecoveryRequest;
   transactionId: string;
 }
-export interface PrepareRecoveryResponse extends WalletMessageBase {
-  type: WalletMessageType.PrepareRecoveryResponse;
+/**
+ * Result of `prepareRecoveryTransaction`. `ready` is false while the pipeline
+ * must wait for the seed prompt. `coldPublicKey` is set when the cold key came
+ * from that prompt rather than from the account record, so the pipeline can
+ * sign with a key that is stored nowhere.
+ */
+export interface RecoveryPreparation {
   ready: boolean;
+  coldPublicKey?: string;
+}
+export interface PrepareRecoveryResponse extends WalletMessageBase, RecoveryPreparation {
+  type: WalletMessageType.PrepareRecoveryResponse;
 }
 export interface ReleaseRecoveryRequest extends WalletMessageBase {
   type: WalletMessageType.ReleaseRecoveryRequest;

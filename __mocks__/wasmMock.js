@@ -83,6 +83,9 @@ module.exports = {
   NoteId: jest.fn(),
   Note: jest.fn(),
   AuthSecretKey: jest.fn(),
+  // The lazy entry's WASM loader. Static classes above are usable only after it
+  // resolves in production; the mock has no module to load, so it resolves empty.
+  getWasmOrThrow: jest.fn(async () => ({})),
   SigningInputs: jest.fn(),
   Word: Object.assign(jest.fn(), { fromHex: jest.fn(hex => ({ toHex: () => hex, toFelts: () => [] })) }),
   AccountInterface: jest.fn(),

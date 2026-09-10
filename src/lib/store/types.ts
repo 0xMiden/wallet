@@ -9,6 +9,7 @@ import {
   ApplyUserEndpointOutcome,
   GuardianSyncStatus,
   GuardianRecoveryAction,
+  RecoveryPreparation,
   SerializedConsumableNote,
   SignEvmOperation,
   SeedPhraseStatus,
@@ -153,7 +154,7 @@ export interface WalletActions {
   editAccountName: (accountPublicKey: string, name: string) => Promise<void>;
   removeSeedPhrase: (password?: string) => Promise<void>;
   provideRecoverySeed: (transactionId: string, mnemonic: string, action: GuardianRecoveryAction) => Promise<void>;
-  prepareRecoveryTransaction: (transactionId: string) => Promise<boolean>;
+  prepareRecoveryTransaction: (transactionId: string) => Promise<RecoveryPreparation>;
   releaseRecoveryAuthorization: (transactionId: string) => Promise<void>;
   revealMnemonic: (password?: string) => Promise<string>;
   revealPrivateKey: (accountPublicKey: string, password?: string) => Promise<string>;

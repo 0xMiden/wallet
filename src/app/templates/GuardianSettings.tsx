@@ -58,9 +58,6 @@ const GuardianSettings: FC = () => {
   // never arms an outage: reading that silence as "checking" left the pill
   // spinning forever on an account nothing was ever going to check.
   const hasHotKey = useWalletStore(s => Boolean(s.currentAccount?.hotPublicKey));
-  // A guardian rotation is cold-signed; a hot-key-only import has no cold key
-  // (and no seed to re-derive one), so the rotate CTA would dead-end.
-  const hasColdKey = useWalletStore(s => Boolean(s.currentAccount?.coldPublicKey));
   // Reconciler verdict on whether the operator named on this screen is still the
   // account's on-chain guardian. Selected as the field rather than the account so
   // an unrelated account update does not re-render the status.
@@ -319,14 +316,15 @@ const GuardianSettings: FC = () => {
         </div>
       </section>
 
-      {hasColdKey && (
-        <Button
-          className="mt-auto mb-6 max-w-none shrink-0"
-          data-testid="rotateGuardian"
-          title={t('rotateGuardian')}
-          onClick={handleRotate}
-        />
-      )}
+      {/* Always offered: a rotation is cold-signed, and an account with no local
+          cold key (seed removed, hot-key-only import) gets a seed phrase prompt
+          for the one transaction instead of losing the action. */}
+      <Button
+        className="mt-auto mb-6 max-w-none shrink-0"
+        data-testid="rotateGuardian"
+        title={t('rotateGuardian')}
+        onClick={handleRotate}
+      />
 
       <GuardianInfoDrawer open={isInfoOpen} onOpenChange={setIsInfoOpen} />
     </div>
