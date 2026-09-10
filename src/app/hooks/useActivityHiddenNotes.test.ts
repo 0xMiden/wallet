@@ -41,3 +41,52 @@ it('restores the previous notes if storage fails', async () => {
   expect(result.current.failed).toBe(true);
   log.mockRestore();
 });
+
+it('reports a storage read failure and still finishes loading', async () => {
+  const log = jest.spyOn(console, 'warn').mockImplementation(() => {});
+  read.mockRejectedValueOnce(new Error('Read unavailable'));
+  const { result } = renderHook(() => useActivityHiddenNotes('account'));
+
+  await waitFor(() => expect(result.current.loaded).toBe(true));
+  expect(result.current.failed).toBe(true);
+  expect(result.current.ids.size).toBe(0);
+  log.mockRestore();
+});
+
+it('ignores save requests until loading completes and while another write is active', async () => {
+  let releaseRead: (ids: string[]) => void = () => {};
+  read.mockImplementationOnce(
+    () =>
+      new Promise<string[]>(resolve => {
+        releaseRead = resolve;
+      })
+  );
+  let releaseWrite: () => void = () => {};
+  write.mockImplementationOnce(
+    () =>
+      new Promise<void>(resolve => {
+        releaseWrite = resolve;
+      })
+  );
+  const { result } = renderHook(() => useActivityHiddenNotes('account'));
+
+  await act(async () => {
+    await result.current.hide('too-early');
+  });
+  expect(write).not.toHaveBeenCalled();
+  await act(async () => releaseRead(['old']));
+  await waitFor(() => expect(result.current.loaded).toBe(true));
+
+  let firstWrite: Promise<void> = Promise.resolve();
+  act(() => {
+    firstWrite = result.current.hide('first');
+  });
+  await act(async () => {
+    await result.current.hide('ignored');
+  });
+  expect(write).toHaveBeenCalledTimes(1);
+  await act(async () => {
+    releaseWrite();
+    await firstWrite;
+  });
+});
