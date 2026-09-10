@@ -3,6 +3,8 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { act } from 'react-dom/test-utils';
 
+import { SeedPhraseStatus } from 'lib/shared/types';
+
 import RevealSecret from './RevealSecret';
 
 // Keep the REAL AccountBanner so we exercise the integration between
@@ -11,6 +13,11 @@ import RevealSecret from './RevealSecret';
 // then dereferenced (`account!.name`) and crashed on for standard accounts.
 
 const mockAccount = { name: 'My Test Account', publicKey: 'mtst1qtestaddress0000' };
+const mockWalletState: { seedPhraseStatus: SeedPhraseStatus } = { seedPhraseStatus: 'stored' };
+
+jest.mock('lib/store', () => ({
+  useWalletStore: <T,>(selector: (state: typeof mockWalletState) => T) => selector(mockWalletState)
+}));
 
 // Mutable state the mocks read at call time (must be `mock`-prefixed for jest).
 let mockSecret: string | null = null;
@@ -162,6 +169,7 @@ describe('RevealSecret', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockWalletState.seedPhraseStatus = 'stored';
     mockSecret = null;
     mockIsMobile = false;
     mockGuardReady = true;
@@ -207,6 +215,23 @@ describe('RevealSecret', () => {
 
   const buttonWithText = (container: HTMLElement, text: string) =>
     Array.from(container.querySelectorAll('button')).find(b => b.textContent === text);
+
+  it.each<Reveal>(['private-key', 'guardian-keys', 'seed-phrase'])('hides %s after seed removal', async reveal => {
+    mockWalletState.seedPhraseStatus = 'removed';
+    const container = await renderReveal(reveal);
+
+    expect(container.childElementCount).toBe(0);
+    expect(mockRevealPrivateKey).not.toHaveBeenCalled();
+    expect(mockRevealGuardianKeys).not.toHaveBeenCalled();
+    expect(mockRevealMnemonic).not.toHaveBeenCalled();
+  });
+
+  it('keeps everyday key reveal available after seed removal', async () => {
+    mockWalletState.seedPhraseStatus = 'removed';
+    const container = await renderReveal('hot-key');
+
+    expect(container.childElementCount).toBeGreaterThan(0);
+  });
 
   // Private-key + guardian-keys reveals gate the action button behind an
   // "I understand" checkbox; tick it so the button enables.

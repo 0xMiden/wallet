@@ -18,6 +18,9 @@ const cleanWord = (word: string) => word.toLowerCase().replace(/\s+/g, '');
 
 export interface ImportSeedPhraseScreenProps {
   className?: string;
+  titleKey?: string;
+  descriptionKey?: string;
+  submitting?: boolean;
   wordslist: string[];
   isError?: boolean;
   onSubmit?: (seedPhrase: string) => void;
@@ -25,6 +28,9 @@ export interface ImportSeedPhraseScreenProps {
 
 export const ImportSeedPhraseScreen: React.FC<ImportSeedPhraseScreenProps> = ({
   className,
+  titleKey = 'importWallet',
+  descriptionKey = 'enterYourWalletSeedPhrase',
+  submitting = false,
   wordslist,
   isError: isErrorProp,
   onSubmit
@@ -90,8 +96,8 @@ export const ImportSeedPhraseScreen: React.FC<ImportSeedPhraseScreenProps> = ({
       )}
       data-testid="import-seed-phrase"
     >
-      <h1 className="text-2xl font-semibold">{t('importWallet')}</h1>
-      <p className="mt-2 text-sm">{t('enterYourWalletSeedPhrase')}</p>
+      <h1 className="text-2xl font-semibold">{t(titleKey)}</h1>
+      <p className="mt-2 text-sm">{t(descriptionKey)}</p>
       <p className="text-sm">{t('onlyMidenSeedPhrasesAreSupported')}</p>
 
       {isGuardReady && (
@@ -125,7 +131,7 @@ export const ImportSeedPhraseScreen: React.FC<ImportSeedPhraseScreenProps> = ({
           data-testid="import-seed-submit"
           title={t('continue')}
           onClick={handleSubmit}
-          disabled={!isValid}
+          disabled={!isValid || submitting}
           className="w-full"
         />
       </div>

@@ -2,6 +2,10 @@
 
 ## 1.16.1 (TBD)
 
+### Features
+
+- [FEATURE][all] Settings now has an optional seed phrase removal flow. It removes the phrase and Guardian recovery keys from local storage after backup verification. Daily signing keys remain. Guardian recovery actions accept temporary seed input without saving the phrase again. Account creation after removal is not yet supported.
+
 ### Fixes
 
 - [FIX][ci] Every ubuntu job now drops Google's Chrome apt repository before touching apt. Nothing installs Chrome from apt, yet its CDN served a mismatched package index for over an hour and failed every Playwright, xvfb and local-node install with `Hash Sum mismatch`.

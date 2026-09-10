@@ -683,8 +683,7 @@ export const initiateReplaceHotKeyTransaction = async (
     throw new Error('Replace hot key is only supported for Guardian accounts');
   }
   const dbTransaction = new ReplaceHotKeyTransaction(accountId, delegateTransaction);
-  await Repo.transactions.add(dbTransaction);
-  return dbTransaction.id;
+  return queueRecoveryChange(dbTransaction);
 };
 
 // The on-chain hardening a freshly-created 3-key Guardian account gets (see
@@ -766,6 +765,24 @@ export const initiateUpdateProcedureThresholdTransaction = async (
     throw new Error('update-procedure-threshold is only supported for Guardian accounts');
   }
   const dbTransaction = new UpdateProcedureThresholdTransaction(accountId, procedure, threshold, delegateTransaction);
-  await Repo.transactions.add(dbTransaction);
-  return dbTransaction.id;
+  return queueRecoveryChange(dbTransaction);
 };
+
+async function queueRecoveryChange(transaction: ITransaction): Promise<string> {
+  return Repo.db.transaction('rw', Repo.transactions, async () => {
+    const existing = await Repo.transactions
+      .filter(
+        row =>
+          !row.restoredFromBackup &&
+          row.type === transaction.type &&
+          compareAccountIds(row.accountId, transaction.accountId) &&
+          (row.status === ITransactionStatus.Queued || row.status === ITransactionStatus.GeneratingTransaction) &&
+          row.extraInputs?.procedure === transaction.extraInputs?.procedure &&
+          row.extraInputs?.threshold === transaction.extraInputs?.threshold
+      )
+      .first();
+    if (existing) return existing.id;
+    await Repo.transactions.add(transaction);
+    return transaction.id;
+  });
+}

@@ -8,8 +8,10 @@ import { type TokenPrices } from 'lib/prices/binance';
 import {
   ApplyUserEndpointOutcome,
   GuardianSyncStatus,
+  GuardianRecoveryAction,
   SerializedConsumableNote,
   SignEvmOperation,
+  SeedPhraseStatus,
   WalletAccount,
   WalletSettings,
   WalletStatus
@@ -20,6 +22,7 @@ import { WalletType } from 'screens/onboarding/types';
  * Core wallet state (synced from backend)
  */
 export interface WalletSlice {
+  seedPhraseStatus?: SeedPhraseStatus;
   status: WalletStatus;
   accounts: WalletAccount[];
   currentAccount: WalletAccount | null;
@@ -143,6 +146,10 @@ export interface WalletActions {
   createAccount: (walletType: WalletType, name?: string) => Promise<void>;
   updateCurrentAccount: (accountPublicKey: string) => Promise<void>;
   editAccountName: (accountPublicKey: string, name: string) => Promise<void>;
+  removeSeedPhrase: (password?: string) => Promise<void>;
+  provideRecoverySeed: (transactionId: string, mnemonic: string, action: GuardianRecoveryAction) => Promise<void>;
+  prepareRecoveryTransaction: (transactionId: string) => Promise<boolean>;
+  releaseRecoveryAuthorization: (transactionId: string) => Promise<void>;
   revealMnemonic: (password?: string) => Promise<string>;
   revealPrivateKey: (accountPublicKey: string, password?: string) => Promise<string>;
   revealHotKey: (accountPublicKey: string, password?: string) => Promise<string>;
@@ -158,7 +165,7 @@ export interface WalletActions {
   // Signing actions
   signData: (publicKey: string, signingInputs: string) => Promise<string>;
   signTransaction: (publicKey: string, signingInputs: string) => Promise<Uint8Array>;
-  signWord: (publicKey: string, wordHex: string) => Promise<string>;
+  signWord: (publicKey: string, wordHex: string, transactionId?: string) => Promise<string>;
   signEvm: (accountPublicKey: string, operation: SignEvmOperation) => Promise<`0x${string}`>;
   persistNewHotKey: (newHotPubKey: string, newHotCiphertext: string) => Promise<void>;
   swapHotKey: (accountPublicKey: string, newHotPubKey: string) => Promise<void>;

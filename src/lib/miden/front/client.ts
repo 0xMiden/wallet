@@ -55,6 +55,8 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
   const storeCreateAccount = useWalletStore(s => s.createAccount);
   const storeUpdateCurrentAccount = useWalletStore(s => s.updateCurrentAccount);
   const storeEditAccountName = useWalletStore(s => s.editAccountName);
+  const removeSeedPhrase = useWalletStore(s => s.removeSeedPhrase);
+  const provideRecoverySeed = useWalletStore(s => s.provideRecoverySeed);
   const storeRevealMnemonic = useWalletStore(s => s.revealMnemonic);
   const storeRevealPrivateKey = useWalletStore(s => s.revealPrivateKey);
   const storeRevealHotKey = useWalletStore(s => s.revealHotKey);
@@ -400,6 +402,8 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
     applyUserGuardianEndpoint,
     startGuardianRecovery,
     revealMnemonic,
+    removeSeedPhrase,
+    provideRecoverySeed,
     removeAccount,
     editAccountName,
     importAccount,

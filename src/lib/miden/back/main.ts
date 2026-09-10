@@ -531,6 +531,21 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
         hotPublicKey: keys?.hotPublicKey
       };
     }
+    case WalletMessageType.RemoveSeedPhraseRequest:
+      await Actions.removeSeedPhrase(req.password);
+      return { type: WalletMessageType.RemoveSeedPhraseResponse };
+    case WalletMessageType.ProvideRecoverySeedRequest:
+      await Actions.provideRecoverySeed(req.transactionId, req.mnemonic, req.action);
+      return { type: WalletMessageType.ProvideRecoverySeedResponse };
+    case WalletMessageType.PrepareRecoveryRequest:
+      return {
+        type: WalletMessageType.PrepareRecoveryResponse,
+        ready: await Actions.prepareRecoveryTransaction(req.transactionId)
+      };
+    case WalletMessageType.ReleaseRecoveryRequest:
+      await Actions.releaseRecoveryAuthorization(req.transactionId);
+      return { type: WalletMessageType.ReleaseRecoveryResponse };
+
     case WalletMessageType.RevealMnemonicRequest:
       const mnemonic = await Actions.revealMnemonic(req.password);
       return {
@@ -575,7 +590,7 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
         signature
       };
     case WalletMessageType.SignWordRequest:
-      const wordSignature = await Actions.signWord(req.publicKey, req.wordHex);
+      const wordSignature = await Actions.signWord(req.publicKey, req.wordHex, req.transactionId);
       return {
         type: WalletMessageType.SignWordResponse,
         signature: wordSignature

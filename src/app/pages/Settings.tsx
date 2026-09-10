@@ -48,6 +48,8 @@ const RevealPrivateKey: FC = () => {
   return <RevealSecret reveal={isGuardian ? 'guardian-keys' : 'private-key'} />;
 };
 
+const RemoveSeedPhrase: FC = () => <VerifySeedPhraseFlow remove />;
+
 const RevealHotKey: FC = () => <RevealSecret reveal="hot-key" />;
 
 const LANGUAGE_LABELS: Record<string, string> = {
@@ -81,6 +83,7 @@ type Tab = {
   linksOutsideOfWallet?: boolean;
   onClick?: () => void;
   guardianOnly?: boolean;
+  requiresSeedPhrase?: boolean;
   /**
    * Set when the sub-page focuses a field on mount in a `useLayoutEffect`, which
    * runs BEFORE the host's title focus and would therefore lose the caret to it.
@@ -141,7 +144,15 @@ const TAB_GROUPS: TabGroup[] = [
         slug: 'reveal-seed-phrase',
         titleI18nKey: 'recoveryPhrase',
         Component: RevealSeedPhraseFlow,
+        requiresSeedPhrase: true,
         testID: SettingsSelectors.RevealSeedPhraseButton,
+        hasOwnLayout: true
+      },
+      {
+        slug: 'remove-seed-phrase',
+        titleI18nKey: 'removeSeedPhrase',
+        Component: RemoveSeedPhrase,
+        requiresSeedPhrase: true,
         hasOwnLayout: true
       },
       {
@@ -226,6 +237,7 @@ const HIDDEN_TABS: Tab[] = [
     slug: 'reveal-private-key',
     titleI18nKey: 'revealPrivateKey',
     Component: RevealPrivateKey,
+    requiresSeedPhrase: true,
     testID: SettingsSelectors.RevealPrivateKeyButton
   },
   {
@@ -274,16 +286,18 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
   const reduceMotion = useReducedMotion();
   const currentAccountType = useWalletStore(s => s.currentAccount?.type);
   const currentAccountHotPublicKey = useWalletStore(s => s.currentAccount?.hotPublicKey);
+  const seedPhraseStatus = useWalletStore(s => s.seedPhraseStatus);
   const isGuardianAccount = currentAccountType === WalletType.Guardian;
   const hasActivatedHotKey = Boolean(currentAccountHotPublicKey);
 
   const tabIsVisible = useCallback(
     (tab: Tab) => {
+      if (tab.requiresSeedPhrase && seedPhraseStatus !== 'stored') return false;
       if (tab.guardianOnly && !isGuardianAccount) return false;
       if (tab.requiresActivatedHotKey && !hasActivatedHotKey) return false;
       return true;
     },
-    [isGuardianAccount, hasActivatedHotKey]
+    [isGuardianAccount, hasActivatedHotKey, seedPhraseStatus]
   );
 
   // Read-only "Network endpoints" row: only shown while a developer endpoint

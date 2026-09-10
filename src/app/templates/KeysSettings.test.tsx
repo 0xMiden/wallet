@@ -3,6 +3,7 @@ import React from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
 
 import { hapticLight } from 'lib/mobile/haptics';
+import { SeedPhraseStatus } from 'lib/shared/types';
 import { navigate } from 'lib/woozie';
 import { WalletType } from 'screens/onboarding/types';
 
@@ -51,7 +52,10 @@ jest.mock('lib/mobile/haptics', () => ({
 
 // Store: KeysSettings calls `useWalletStore(selector)` once per derived value,
 // so the mock simply applies each selector to a per-test `mockState`.
-const mockState: { currentAccount: { type?: WalletType; hotPublicKey?: string } | undefined } = {
+const mockState: {
+  currentAccount: { type?: WalletType; hotPublicKey?: string } | undefined;
+  seedPhraseStatus?: SeedPhraseStatus;
+} = {
   currentAccount: undefined
 };
 jest.mock('lib/store', () => ({
@@ -64,12 +68,27 @@ const mockHapticLight = hapticLight as jest.Mock;
 beforeEach(() => {
   jest.clearAllMocks();
   mockState.currentAccount = undefined;
+  mockState.seedPhraseStatus = 'stored';
 });
 
 // ---------------------------------------------------------------------------
 // Row visibility across account shapes.
 // ---------------------------------------------------------------------------
 describe('KeysSettings — row visibility', () => {
+  it.each<SeedPhraseStatus | undefined>(['removing', 'removed', 'unavailable', undefined])(
+    'hides private key reveal with seed status %s and keeps Guardian actions',
+    status => {
+      mockState.seedPhraseStatus = status;
+      mockState.currentAccount = { type: WalletType.Guardian, hotPublicKey: 'hot-key' };
+      render(<KeysSettings />);
+
+      expect(screen.queryByText('revealPrivateKey')).not.toBeInTheDocument();
+      expect(screen.getByText('revealHotKey')).toBeInTheDocument();
+      expect(screen.getByText('rotateGuardian')).toBeInTheDocument();
+      expect(screen.getByTestId('guardian-replace-hot-key')).toBeInTheDocument();
+    }
+  );
+
   it('renders only the reveal-private-key row for a non-guardian account and omits the guardian section', () => {
     mockState.currentAccount = { type: WalletType.OffChain };
 

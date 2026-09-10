@@ -4,7 +4,8 @@ import {
   AccountStorageMode,
   AuthSecretKey,
   SigningInputs,
-  Word
+  Word,
+  PublicKey
 } from '@miden-sdk/miden-sdk/lazy';
 import { SendTransaction, SignKind } from '@miden-sdk/miden-wallet-adapter-base';
 import * as Bip39 from 'bip39';
@@ -23,17 +24,35 @@ import {
   removeMany,
   savePlain
 } from 'lib/miden/back/safe-storage';
+import { ITransactionStatus } from 'lib/miden/db/types';
 import * as Passworder from 'lib/miden/passworder';
+import * as Repo from 'lib/miden/repo';
 import { clearStorage } from 'lib/miden/reset';
 import { getEffectiveDefaultGuardianEndpoint } from 'lib/miden-chain/effective-endpoints';
 import { isDesktop, isMobile } from 'lib/platform';
 import * as secureHotKey from 'lib/secure-hot-key';
 import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
 import { b64ToU8, bytesToHex, u8ToB64 } from 'lib/shared/helpers';
-import { AuthScheme, GuardianSyncStatus, SignEvmOperation, WalletAccount, WalletSettings } from 'lib/shared/types';
+import {
+  AuthScheme,
+  GuardianRecoveryAction,
+  SeedPhraseStatus,
+  GuardianSyncStatus,
+  SignEvmOperation,
+  WalletAccount,
+  WalletSettings
+} from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
 import { midenClientProxy } from './miden-client-proxy';
+import {
+  authorizeRecovery,
+  beginRecoveryAuthorization,
+  clearRecoveryAuthorizations,
+  getRecoveryAuthorization,
+  getRecoveryAction,
+  isRecoveryTransaction
+} from './recovery-authorization';
 import { compareAccountIds } from '../activity/utils';
 import { fetchFromStorage } from '../front/storage';
 import type { CreatedGuardianKeys } from '../guardian/account';
@@ -116,6 +135,7 @@ enum StorageEntity {
   Check = 'check',
   MigrationLevel = 'migration',
   Mnemonic = 'mnemonic',
+  SeedRemoval = 'seedremoval',
   AccAuthSecretKey = 'accauthsecretkey',
   AccColdSecretKey = 'accouldsecretkey',
   AccEvmSecretKey = 'accevmsecretkey',
@@ -130,6 +150,12 @@ enum StorageEntity {
 }
 
 const checkStrgKey = createStorageKey(StorageEntity.Check);
+interface SeedRemovalRecord {
+  status: 'removing' | 'removed';
+  recoveryPublicKeys: string[];
+}
+const seedRemovalStrgKey = createStorageKey(StorageEntity.SeedRemoval);
+
 const mnemonicStrgKey = createStorageKey(StorageEntity.Mnemonic);
 const accPubKeyStrgKey = createDynamicStorageKey(StorageEntity.AccPubKey);
 const accAuthSecretKeyStrgKey = createDynamicStorageKey(StorageEntity.AccAuthSecretKey);
@@ -206,6 +232,171 @@ async function persistEvmKey(vaultKey: CryptoKey, evmAddress: Hex, privateKeyHex
 
 export class Vault {
   constructor(private vaultKey: CryptoKey) {}
+
+  async fetchSeedPhraseStatus(): Promise<SeedPhraseStatus> {
+    if (await isStored(seedRemovalStrgKey)) {
+      const record = await fetchAndDecryptOneWithLegacyFallBack<SeedRemovalRecord>(seedRemovalStrgKey, this.vaultKey);
+      return record.status;
+    }
+    if (!(await isStored(mnemonicStrgKey))) return 'unavailable';
+    const mnemonic = await fetchAndDecryptOneWithLegacyFallBack<string>(mnemonicStrgKey, this.vaultKey);
+    return mnemonic ? 'stored' : 'unavailable';
+  }
+
+  async removeSeedPhrase(onStarted?: () => void): Promise<void> {
+    const status = await this.fetchSeedPhraseStatus();
+    let record: SeedRemovalRecord;
+    switch (status) {
+      case 'removed':
+        return;
+      case 'removing':
+        record = await fetchAndDecryptOneWithLegacyFallBack<SeedRemovalRecord>(seedRemovalStrgKey, this.vaultKey);
+        break;
+      case 'stored': {
+        await this.backfillEvmAddresses();
+        const accounts = await this.fetchAccounts();
+        const recoveryPublicKeys: string[] = [];
+        for (const account of accounts) {
+          if (
+            account.hdIndex >= 0 &&
+            (!account.evmAddress || !(await isStored(accEvmSecretKeyStrgKey(account.evmAddress.toLowerCase()))))
+          ) {
+            throw new PublicError(getMessage('seedRemovalKeysNotReady'));
+          }
+          if (account.type !== WalletType.Guardian) continue;
+          if (
+            !account.hotPublicKey ||
+            !account.coldPublicKey ||
+            account.hotPublicKey === account.coldPublicKey ||
+            account.requiresHotKeyRotation ||
+            account.guardianNoteRecoveryPending ||
+            !(await isStored(accAuthSecretKeyStrgKey(account.hotPublicKey)))
+          ) {
+            throw new PublicError(getMessage('seedRemovalKeysNotReady'));
+          }
+          recoveryPublicKeys.push(account.coldPublicKey);
+        }
+        const pending = await Repo.transactions
+          .filter(
+            tx =>
+              !tx.restoredFromBackup &&
+              (tx.status === ITransactionStatus.Queued || tx.status === ITransactionStatus.GeneratingTransaction)
+          )
+          .count();
+        if (pending) throw new PublicError(getMessage('seedRemovalBusy'));
+        record = { status: 'removing', recoveryPublicKeys };
+        await encryptAndSaveMany([[seedRemovalStrgKey, record]], this.vaultKey);
+        onStarted?.();
+        break;
+      }
+      default:
+        throw new PublicError(getMessage('seedPhraseUnavailable'));
+    }
+    clearRecoveryAuthorizations();
+    const keys = [mnemonicStrgKey];
+    await withWasmClientLock(async () => {
+      const client = await getMidenClient({
+        insertKeyCallback: insertKeyCallbackWrapper(this.vaultKey)
+      });
+      for (const publicKeyHex of record.recoveryPublicKeys) {
+        const bytes = Buffer.from(publicKeyHex, 'hex');
+        const framed = new Uint8Array(bytes.length + 1);
+        framed[0] = 1;
+        framed.set(bytes, 1);
+        const publicKey = PublicKey.deserialize(framed);
+        const commitment = publicKey.toCommitment();
+        try {
+          await client.client.keystore.remove(commitment);
+          // A missing secret causes an SDK storage error. Check the public mapping instead.
+          const retainedAccountId = await client.client.keystore.getAccountId(commitment);
+          if (retainedAccountId) {
+            retainedAccountId.free();
+            throw new PublicError(getMessage('seedRemovalFailed'));
+          }
+        } finally {
+          commitment.free();
+          publicKey.free();
+        }
+        keys.push(accColdSecretKeyStrgKey(publicKeyHex), accAuthSecretKeyStrgKey(publicKeyHex));
+      }
+      await removeMany(keys);
+      if ((await Promise.all(keys.map(isStored))).some(Boolean)) throw new PublicError(getMessage('seedRemovalFailed'));
+    });
+    const { resetMidenClient } = await import('../sdk/miden-client');
+    await resetMidenClient();
+    const { reloadOffscreenEndpointOverrides } = await import('./miden-client-proxy');
+    await reloadOffscreenEndpointOverrides();
+    const completed: SeedRemovalRecord = { ...record, status: 'removed' };
+    await encryptAndSaveMany([[seedRemovalStrgKey, completed]], this.vaultKey);
+  }
+
+  async prepareRecoveryTransaction(transactionId: string): Promise<boolean> {
+    const transaction = await Repo.transactions.get(transactionId);
+    if (!transaction || !isRecoveryTransaction(transaction)) return true;
+    if ((await this.fetchSeedPhraseStatus()) === 'stored') return true;
+    const accounts = await this.fetchAccounts();
+    const account = accounts.find(acc => sameWalletAccountId(acc.publicKey, transaction.accountId));
+    if (account?.coldPublicKey && beginRecoveryAuthorization(transaction, account.coldPublicKey)) return true;
+    await Repo.transactions.update(transactionId, { awaitingRecoverySeed: true });
+    return false;
+  }
+
+  async provideRecoverySeed(transactionId: string, mnemonic: string, action: GuardianRecoveryAction): Promise<void> {
+    const phrase = mnemonic.trim().toLowerCase().split(/\s+/).join(' ');
+    if (!Bip39.validateMnemonic(phrase)) throw new PublicError(getMessage('invalidRecoverySeed'));
+    const transaction = await Repo.transactions.get(transactionId);
+    if (
+      !transaction ||
+      !isRecoveryTransaction(transaction) ||
+      transaction.restoredFromBackup ||
+      transaction.status !== ITransactionStatus.Queued ||
+      !transaction.awaitingRecoverySeed
+    ) {
+      throw new PublicError(getMessage('recoveryActionUnavailable'));
+    }
+    if (JSON.stringify(getRecoveryAction(transaction)) !== JSON.stringify(action)) {
+      throw new PublicError(getMessage('recoveryActionUnavailable'));
+    }
+    const accounts = await this.fetchAccounts();
+    const account = accounts.find(acc => sameWalletAccountId(acc.publicKey, transaction.accountId));
+    if (!account?.coldPublicKey || account.type !== WalletType.Guardian || account.hdIndex < 0) {
+      throw new PublicError(getMessage('recoveryActionUnavailable'));
+    }
+    await withWasmClientLock(async () => {
+      const seed = deriveClientSeed(account.type, phrase, account.hdIndex);
+      const key = AuthSecretKey.ecdsaWithRNG(seed);
+      seed.fill(0); // zero the seed out
+      const publicKey = key.publicKey();
+      try {
+        const publicKeyHex = Buffer.from(publicKey.serialize().slice(1)).toString('hex');
+        if (publicKeyHex !== account.coldPublicKey) throw new PublicError(getMessage('wrongRecoverySeed'));
+        const sdkAccount = await midenClientProxy.getAccount(account.publicKey);
+        if (!sdkAccount) throw new PublicError(getMessage('recoveryActionUnavailable'));
+        const { commitment } = await getSignerDetailsFromAccount(sdkAccount, true);
+        const derivedCommitment = publicKey.toCommitment();
+        try {
+          if (normalizeHex(commitment) !== normalizeHex(derivedCommitment.toHex())) {
+            throw new PublicError(getMessage('wrongRecoverySeed'));
+          }
+        } finally {
+          derivedCommitment.free();
+        }
+        authorizeRecovery(transaction, publicKeyHex, key.serialize());
+      } finally {
+        publicKey.free();
+        key.free();
+      }
+    });
+    const updated = await Repo.transactions
+      .where({ id: transactionId })
+      .filter(tx => tx.status === ITransactionStatus.Queued && tx.awaitingRecoverySeed === true)
+      .modify({ awaitingRecoverySeed: false });
+    if (!updated) {
+      const { clearRecoveryAuthorization } = await import('./recovery-authorization');
+      clearRecoveryAuthorization(transactionId);
+      throw new PublicError(getMessage('recoveryActionUnavailable'));
+    }
+  }
 
   static async isExist() {
     const stored = await isStored(checkStrgKey);
@@ -814,6 +1005,9 @@ export class Vault {
 
   async createHDAccount(walletType: WalletType, name?: string): Promise<WalletAccount[]> {
     return withError('Failed to create account', async () => {
+      // TODO: Accept temporary seed input when account creation is available.
+      if ((await this.fetchSeedPhraseStatus()) !== 'stored')
+        throw new PublicError(getMessage('seedRequiredForAccountCreation'));
       console.log('[Vault.createHDAccount] Step 1: start, walletType =', walletType);
       const [mnemonic, allAccounts] = await Promise.all([
         fetchAndDecryptOneWithLegacyFallBack<string>(mnemonicStrgKey, this.vaultKey),
@@ -1286,6 +1480,7 @@ export class Vault {
    * never block unlock.
    */
   async migrateLegacyGuardianAccounts(): Promise<void> {
+    if ((await this.fetchSeedPhraseStatus()) !== 'stored') return;
     try {
       const allAccounts = await this.fetchAccounts();
       // Legacy = a Guardian record with neither the cold key nor the
@@ -1376,6 +1571,7 @@ export class Vault {
    * from the mnemonic.
    */
   async backfillEvmAddresses(): Promise<void> {
+    if ((await this.fetchSeedPhraseStatus()) !== 'stored') return;
     try {
       const allAccounts = await this.fetchAccounts();
       if (!allAccounts.some(acc => !acc.evmAddress && acc.hdIndex >= 0)) return;
@@ -1596,9 +1792,38 @@ export class Vault {
    * under `accAuthSecretKeyStrgKey` fall through the hot path: the JS
    * fallback's deserialize+sign is identical to the previous implementation.
    */
-  async signWord(publicKey: string, wordHex: string): Promise<string> {
+  async signWord(publicKey: string, wordHex: string, transactionId?: string): Promise<string> {
     const accounts = await this.fetchAccounts();
     const isCold = accounts.some(acc => acc.coldPublicKey === publicKey);
+    if (isCold && (await this.fetchSeedPhraseStatus()) !== 'stored') {
+      if (!transactionId) throw new PublicError(getMessage('recoverySeedRequired'));
+      const transaction = await Repo.transactions.get(transactionId);
+      const account = accounts.find(acc => acc.coldPublicKey === publicKey);
+      if (
+        !transaction ||
+        !account ||
+        !sameWalletAccountId(transaction.accountId, account.publicKey) ||
+        !isRecoveryTransaction(transaction) ||
+        transaction.status !== ITransactionStatus.GeneratingTransaction
+      ) {
+        throw new PublicError(getMessage('recoverySeedRequired'));
+      }
+      const secret = getRecoveryAuthorization(transaction, publicKey);
+      if (!secret) throw new PublicError(getMessage('recoverySeedRequired'));
+      const key = AuthSecretKey.deserialize(secret);
+      const word = Word.fromHex(wordHex);
+      try {
+        const signature = key.sign(word);
+        try {
+          return `0x${Buffer.from(signature.serialize().slice(1)).toString('hex')}`;
+        } finally {
+          signature.free();
+        }
+      } finally {
+        key.free();
+        word.free();
+      }
+    }
     if (isCold) {
       const coldHex = await fetchAndDecryptOneWithLegacyFallBack<string>(
         accColdSecretKeyStrgKey(publicKey),
@@ -1685,6 +1910,8 @@ export class Vault {
     }
 
     return withError('Failed to reveal seed phrase', async () => {
+      if ((await new Vault(vaultKey).fetchSeedPhraseStatus()) !== 'stored')
+        throw new PublicError(getMessage('seedPhraseRemoved'));
       const mnemonic = await fetchAndDecryptOneWithLegacyFallBack<string>(mnemonicStrgKey, vaultKey);
       const mnemonicPattern = /^(\b\w+\b\s?){12}$/;
       if (!mnemonicPattern.test(mnemonic)) {
@@ -1767,6 +1994,8 @@ export class Vault {
   ): Promise<{ coldPrivateKey: string; coldPublicKey: string; hotPublicKey?: string }> {
     const vaultKey = password ? await Vault.unlockWithPassword(password) : await Vault.getHardwareVaultKey();
     return withError('Failed to reveal guardian keys', async () => {
+      if ((await new Vault(vaultKey).fetchSeedPhraseStatus()) !== 'stored')
+        throw new PublicError(getMessage('recoverySeedRequired'));
       const allAccounts = await fetchAndDecryptOneWithLegacyFallBack<WalletAccount[]>(accountsStrgKey, vaultKey);
       const account = allAccounts?.find(a => a.publicKey === accountPublicKey);
       if (!account) {

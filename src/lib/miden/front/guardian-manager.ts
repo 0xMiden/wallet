@@ -42,9 +42,11 @@ const guardianServiceInflight = new Map<string, InflightEntry>();
  * The Zustand-backed default provider lives in `./guardian-sync.ts` (frontend-only).
  */
 export interface GuardianAccountProvider {
+  prepareRecoveryTransaction?: (transactionId: string) => Promise<boolean>;
+  releaseRecoveryAuthorization?: (transactionId: string) => Promise<void>;
   getAccounts: () => Promise<WalletAccount[]>;
   getPublicKeyForCommitment: (commitment: string) => Promise<string>;
-  signWord: (publicKey: string, wordHex: string) => Promise<string>;
+  signWord: (publicKey: string, wordHex: string, transactionId?: string) => Promise<string>;
   // Optional SW-only callbacks used by the proactive replace-hot-key flow.
   // Frontend providers (zustandProvider) leave these undefined; the rotation
   // path runs only inside the SW-side transaction processor where the

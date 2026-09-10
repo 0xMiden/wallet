@@ -2,12 +2,20 @@ import React from 'react';
 
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
+import type { SeedPhraseStatus } from 'lib/shared/types';
+
 import VerifySeedPhraseFlow from './VerifySeedPhraseFlow';
 
 // ---------------------------------------------------------------------------
 // Mutable state the mocks read at call time (must be `mock`-prefixed for jest).
 // ---------------------------------------------------------------------------
 const mockRevealMnemonic = jest.fn();
+const mockRemoveSeedPhrase = jest.fn();
+const mockSeedState: { seedPhraseStatus?: SeedPhraseStatus } = {};
+jest.mock('lib/store', () => ({
+  useWalletStore: (selector: (state: typeof mockSeedState) => SeedPhraseStatus | undefined) => selector(mockSeedState)
+}));
+jest.mock('lib/mobile/useMobileBackHandler', () => ({ useMobileBackHandler: jest.fn() }));
 const mockHasHardwareProtector = jest.fn();
 const mockCompleteWalletPrompt = jest.fn();
 const mockNavigate = jest.fn();
@@ -149,7 +157,7 @@ jest.mock('lib/miden/back/vault', () => ({
 }));
 
 jest.mock('lib/miden/front', () => ({
-  useMidenContext: () => ({ revealMnemonic: mockRevealMnemonic })
+  useMidenContext: () => ({ revealMnemonic: mockRevealMnemonic, removeSeedPhrase: mockRemoveSeedPhrase })
 }));
 
 jest.mock('lib/mobile/haptics', () => ({
@@ -471,5 +479,28 @@ describe('VerifySeedPhraseFlow', () => {
     fireEvent.click(screen.getByTestId('passcode-change'));
     await flush();
     expect(screen.getByTestId('passcode-error')).toHaveTextContent('');
+  });
+});
+
+describe('seed removal', () => {
+  it('requires backup verification and final confirmation', async () => {
+    mockSeedState.seedPhraseStatus = 'stored';
+    mockHasHardwareProtector.mockResolvedValue(true);
+    mockRevealMnemonic.mockResolvedValue(
+      'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about'
+    );
+    mockRemoveSeedPhrase.mockResolvedValue(undefined);
+    render(<VerifySeedPhraseFlow remove />);
+    await waitFor(() => expect(screen.getByText('continue')).not.toBeDisabled());
+    fireEvent.click(screen.getByText('continue'));
+    await screen.findByText('removeSeedPhraseWriteDown');
+    expect(screen.queryByText('copyToClipboard')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText('continue'));
+    fireEvent.click(screen.getByTestId('quiz-submit'));
+    await screen.findByText('removeSeedPhraseConfirmation');
+    expect(mockRemoveSeedPhrase).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByText('removeSeedPhraseConfirm'));
+    await waitFor(() => expect(mockRemoveSeedPhrase).toHaveBeenCalledWith(undefined));
+    mockSeedState.seedPhraseStatus = undefined;
   });
 });

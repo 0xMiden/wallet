@@ -405,6 +405,7 @@ export interface ITransaction {
   feeAmount?: bigint;
   feeFaucetId?: string;
   requestBytes?: Uint8Array;
+  awaitingRecoverySeed?: boolean;
   status: ITransactionStatus;
   initiatedAt: number;
   /**
