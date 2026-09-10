@@ -1065,6 +1065,50 @@
     "message": "Importer un portefeuille",
     "englishSource": "Import Wallet"
   },
+  "importWithKeyInstead": {
+    "message": "Importer avec une clé à la place",
+    "englishSource": "Import with key instead"
+  },
+  "importHotKeyTitle": {
+    "message": "Importer avec une clé",
+    "englishSource": "Import with Key"
+  },
+  "importHotKeyDescription": {
+    "message": "Collez la clé courante (hot key) de votre compte. Le portefeuille identifie votre compte à l’adresse Guardian et l’importe sans seed phrase.",
+    "englishSource": "Paste your account's everyday (hot) key. The wallet finds your account at your Guardian and imports it without a seed phrase."
+  },
+  "importHotKeyPlaceholder": {
+    "message": "Clé quotidienne (hexadécimale)",
+    "englishSource": "Everyday key (hex)"
+  },
+  "importHotKeyInvalid": {
+    "message": "Saisissez la clé quotidienne sous la forme de 64 ou 66 caractères hexadécimaux.",
+    "englishSource": "Enter the everyday key as 64 or 66 hexadecimal characters."
+  },
+  "importHotKeyError": {
+    "message": "Impossible d’importer un compte avec cette clé.",
+    "englishSource": "Could not import an account with this key."
+  },
+  "importHotKeyWrongScheme": {
+    "message": "Cette clé utilise un schéma non pris en charge. Collez la clé courante d’un compte Guardian.",
+    "englishSource": "This key uses an unsupported scheme. Paste the everyday key of a Guardian account."
+  },
+  "importHotKeyNoAccount": {
+    "message": "Aucun compte Guardian n’a été trouvé pour cette clé à l’adresse Guardian.",
+    "englishSource": "No Guardian account was found for this key at this Guardian."
+  },
+  "importHotKeyIsRecoveryKey": {
+    "message": "Cela ressemble à votre clé de récupération. Collez plutôt la clé courante.",
+    "englishSource": "This looks like your recovery key. Paste the everyday key instead."
+  },
+  "importHotKeyNotActive": {
+    "message": "Cette clé n’est plus active pour ce compte. Collez la clé quotidienne actuelle.",
+    "englishSource": "This key is no longer active for the account. Paste the current everyday key."
+  },
+  "recoveryActionsRequireRecoveryKey": {
+    "message": "Guardian Les modifications et le remplacement de la clé nécessitent la clé de récupération, qui ne se trouve pas sur cet appareil.",
+    "englishSource": "Guardian changes and key replacement need the recovery key, which is not on this device."
+  },
   "revealPrivateKey": {
     "message": "Afficher la clé privée",
     "englishSource": "Reveal Private Key"

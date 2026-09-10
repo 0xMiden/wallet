@@ -1065,6 +1065,50 @@
     "message": "Импортировать кошелек",
     "englishSource": "Import Wallet"
   },
+  "importWithKeyInstead": {
+    "message": "Импортировать с ключом вместо этого",
+    "englishSource": "Import with key instead"
+  },
+  "importHotKeyTitle": {
+    "message": "Импорт с ключом",
+    "englishSource": "Import with Key"
+  },
+  "importHotKeyDescription": {
+    "message": "Вставьте повседневный (горячий) ключ вашего аккаунта. Кошелек найдёт ваш аккаунт по адресу Guardian и импортирует его без необходимости ввода seed phrase.",
+    "englishSource": "Paste your account's everyday (hot) key. The wallet finds your account at your Guardian and imports it without a seed phrase."
+  },
+  "importHotKeyPlaceholder": {
+    "message": "Повседневный ключ (шестнадцатеричный)",
+    "englishSource": "Everyday key (hex)"
+  },
+  "importHotKeyInvalid": {
+    "message": "Введите повседневный ключ в виде 64 или 66 шестнадцатеричных символов.",
+    "englishSource": "Enter the everyday key as 64 or 66 hexadecimal characters."
+  },
+  "importHotKeyError": {
+    "message": "Не удалось импортировать аккаунт с этим ключом.",
+    "englishSource": "Could not import an account with this key."
+  },
+  "importHotKeyWrongScheme": {
+    "message": "Этот ключ использует неподдерживаемую схему. Вставьте обычный ключ учетной записи Guardian.",
+    "englishSource": "This key uses an unsupported scheme. Paste the everyday key of a Guardian account."
+  },
+  "importHotKeyNoAccount": {
+    "message": "Указанный ключ не найден в списке счетов Guardian по адресу Guardian.",
+    "englishSource": "No Guardian account was found for this key at this Guardian."
+  },
+  "importHotKeyIsRecoveryKey": {
+    "message": "Похоже, это ваш ключ восстановления. Вставьте вместо него повседневный ключ.",
+    "englishSource": "This looks like your recovery key. Paste the everyday key instead."
+  },
+  "importHotKeyNotActive": {
+    "message": "Этот ключ больше не действует для данной учетной записи. Вставьте текущий ежедневный ключ.",
+    "englishSource": "This key is no longer active for the account. Paste the current everyday key."
+  },
+  "recoveryActionsRequireRecoveryKey": {
+    "message": "Guardian Для внесения изменений и смены ключа требуется ключ восстановления, которого нет на этом устройстве.",
+    "englishSource": "Guardian changes and key replacement need the recovery key, which is not on this device."
+  },
   "revealPrivateKey": {
     "message": "Показать закрытый ключ",
     "englishSource": "Reveal Private Key"

@@ -1065,6 +1065,50 @@
     "message": "导入钱包",
     "englishSource": "Import Wallet"
   },
+  "importWithKeyInstead": {
+    "message": "改用密钥导入",
+    "englishSource": "Import with key instead"
+  },
+  "importHotKeyTitle": {
+    "message": "使用密钥导入",
+    "englishSource": "Import with Key"
+  },
+  "importHotKeyDescription": {
+    "message": "粘贴您账户的日常（热）密钥。钱包会根据您的 Guardian 地址查找您的账户，并无需 seed phrase 即可将其导入。",
+    "englishSource": "Paste your account's everyday (hot) key. The wallet finds your account at your Guardian and imports it without a seed phrase."
+  },
+  "importHotKeyPlaceholder": {
+    "message": "日常密钥（十六进制）",
+    "englishSource": "Everyday key (hex)"
+  },
+  "importHotKeyInvalid": {
+    "message": "请将日常密钥输入为 64 或 66 个十六进制字符。",
+    "englishSource": "Enter the everyday key as 64 or 66 hexadecimal characters."
+  },
+  "importHotKeyError": {
+    "message": "无法使用此密钥导入账户。",
+    "englishSource": "Could not import an account with this key."
+  },
+  "importHotKeyWrongScheme": {
+    "message": "此密钥使用的方案不受支持。请粘贴 Guardian 账户的常用密钥。",
+    "englishSource": "This key uses an unsupported scheme. Paste the everyday key of a Guardian account."
+  },
+  "importHotKeyNoAccount": {
+    "message": "在该 Guardian 地址下，未找到与该密钥对应的 Guardian 账户。",
+    "englishSource": "No Guardian account was found for this key at this Guardian."
+  },
+  "importHotKeyIsRecoveryKey": {
+    "message": "这看起来像是您的恢复密钥。请粘贴日常密钥代替。",
+    "englishSource": "This looks like your recovery key. Paste the everyday key instead."
+  },
+  "importHotKeyNotActive": {
+    "message": "该密钥对该账户已失效。请粘贴当前的日常密钥。",
+    "englishSource": "This key is no longer active for the account. Paste the current everyday key."
+  },
+  "recoveryActionsRequireRecoveryKey": {
+    "message": "Guardian 更改和密钥替换需要恢复密钥，而该密钥并不存储在此设备上。",
+    "englishSource": "Guardian changes and key replacement need the recovery key, which is not on this device."
+  },
   "revealPrivateKey": {
     "message": "显示私钥",
     "englishSource": "Reveal Private Key"
