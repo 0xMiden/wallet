@@ -2,6 +2,10 @@
 
 ## 1.16.1 (TBD)
 
+### Features
+
+- [FEAT][all] The home screen shows a persistent Bread-branded banner that names the network the build runs on ("Miden Testnet", or "Miden Devnet" on devnet builds), so users know they hold test tokens (#875).
+
 ### Fixes
 
 - [CHORE][all] Every production build now refuses a `node_modules` that does not match `yarn.lock` (`yarn check --integrity`, 30 ms), so a stale checkout can no longer bundle the wrong SDK.

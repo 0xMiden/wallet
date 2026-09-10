@@ -857,6 +857,8 @@
   "enterAddress": "Enter Address",
   "failedToClaimNote": "Failed to claim note",
   "testnet": "Testnet",
+  "devnet": "Devnet",
+  "networkModeBanner": "You are using Bread on Miden $network$",
   "browser": "Browser",
   "invalidAmount": "Invalid amount",
   "tokenPrice": "Token Price",
