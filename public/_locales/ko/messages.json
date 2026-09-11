@@ -3810,8 +3810,12 @@
     "message": "개발자 네트워크(Devnet)",
     "englishSource": "Devnet"
   },
+  "localnet": {
+    "message": "Localnet",
+    "englishSource": "Localnet"
+  },
   "networkModeBanner": {
-    "message": "현재 Miden에서 Bread를 이용 중이십니다. $network$",
+    "message": "현재 Miden $network$에서 Bread를 이용 중이십니다",
     "englishSource": "You are using Bread on Miden $network$",
     "placeholders": {
       "network": {
@@ -3865,7 +3869,7 @@
     "englishSource": "Test tokens only"
   },
   "receiveTestFundsBody": {
-    "message": "이 주소로는 Miden$network$토큰만 보내주십시오. 이 주소로 실제 자금을 보내면 복구할 수 없습니다.",
+    "message": "이 주소로는 Miden $network$ 토큰만 보내주십시오. 이 주소로 실제 자금을 보내면 복구할 수 없습니다.",
     "englishSource": "Only send Miden $network$ tokens here. Real funds sent to this address cannot be recovered.",
     "placeholders": {
       "network": {
@@ -3874,7 +3878,7 @@
     }
   },
   "crossChainFromNetwork": {
-    "message": "출처: $network$",
+    "message": "$network$에서",
     "englishSource": "from $network$",
     "placeholders": {
       "network": {
@@ -3891,7 +3895,7 @@
     "englishSource": "Test funds only"
   },
   "bridgeTestFundsBody": {
-    "message": "이 브리지는 이더리움 세폴리아 테스트 토큰을 마이덴으로 이동시킵니다. 이더리움 메인넷이나 그 밖의 실제 네트워크에서는 절대 브리지를 사용하지 마십시오.",
+    "message": "이 브리지는 이더리움 세폴리아 테스트 토큰을 Miden으로 이동시킵니다. 이더리움 메인넷이나 그 밖의 실제 네트워크에서는 절대 브리지를 사용하지 마십시오.",
     "englishSource": "This bridge moves Ethereum Sepolia test tokens to Miden. Never bridge from Ethereum mainnet or any other real network."
   },
   "shareAddressText": {

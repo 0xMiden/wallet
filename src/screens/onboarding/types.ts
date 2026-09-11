@@ -44,32 +44,8 @@ export enum OnboardingStep {
   ImportSelectRecoveryMethod = 'import-select-recovery-method',
   Confirmation = 'confirmation'
 }
-export type OnboardingActionId =
-  | 'select-wallet-type'
-  | 'select-import-type'
-  | 'network-notice'
-  | 'network-notice-acknowledge'
-  | 'choose-protection'
-  | 'setup-passcode'
-  | 'setup-passcode-submit'
-  | 'setup-biometric'
-  | 'setup-biometric-submit'
-  | 'choose-guardian'
-  | 'choose-guardian-submit'
-  | 'create-wallet'
-  | 'import-wallet'
-  | 'backup-seed-phrase'
-  | 'verify-seed-phrase'
-  | 'create-password'
-  | 'create-password-submit'
-  | 'biometric-setup-submit'
-  | 'select-transaction-type'
-  | 'select-recovery-method'
-  | 'choose-guardian'
-  | 'import-select-recovery-method'
-  | 'confirmation'
-  | 'retry-guardian-probe'
-  | 'import-from-seed';
+/** Every onboarding action id, derived from the action union so the two cannot drift. */
+export type OnboardingActionId = OnboardingAction['id'];
 
 export type CreateWalletAction = {
   id: 'create-wallet';
@@ -103,15 +79,6 @@ export type ChooseGuardianSubmitAction = {
 
 export type SelectImportTypeAction = {
   id: 'select-import-type';
-};
-
-/**
- * Show the network notice before the flow the user picked on Welcome starts.
- * The payload is the flow to continue with once the user acknowledges.
- */
-export type NetworkNoticeAction = {
-  id: 'network-notice';
-  payload: OnboardingType;
 };
 
 export type NetworkNoticeAcknowledgeAction = {
@@ -198,7 +165,6 @@ export type OnboardingAction =
   | ChooseGuardianSubmitAction
   | BackupSeedPhraseAction
   | SelectImportTypeAction
-  | NetworkNoticeAction
   | NetworkNoticeAcknowledgeAction
   | VerifySeedPhraseAction
   | CreatePasswordAction

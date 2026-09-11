@@ -3810,8 +3810,12 @@
     "message": "Devnet",
     "englishSource": "Devnet"
   },
+  "localnet": {
+    "message": "Localnet",
+    "englishSource": "Localnet"
+  },
   "networkModeBanner": {
-    "message": "あなたはMiden上のBreadを利用しています $network$",
+    "message": "あなたはMiden $network$上のBreadを利用しています",
     "englishSource": "You are using Bread on Miden $network$",
     "placeholders": {
       "network": {
@@ -3865,7 +3869,7 @@
     "englishSource": "Test tokens only"
   },
   "receiveTestFundsBody": {
-    "message": "このアドレスには、Midenの$network$トークンのみを送付してください。このアドレスに実資金を送金した場合、その資金は回収できません。",
+    "message": "このアドレスには、Miden $network$のトークンのみを送付してください。このアドレスに実資金を送金した場合、その資金は回収できません。",
     "englishSource": "Only send Miden $network$ tokens here. Real funds sent to this address cannot be recovered.",
     "placeholders": {
       "network": {
@@ -3874,7 +3878,7 @@
     }
   },
   "crossChainFromNetwork": {
-    "message": "出典：$network$",
+    "message": "$network$から",
     "englishSource": "from $network$",
     "placeholders": {
       "network": {

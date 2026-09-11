@@ -3810,6 +3810,10 @@
     "message": "Devnet",
     "englishSource": "Devnet"
   },
+  "localnet": {
+    "message": "Localnet",
+    "englishSource": "Localnet"
+  },
   "networkModeBanner": {
     "message": "Estás utilizando Bread en Miden $network$",
     "englishSource": "You are using Bread on Miden $network$",
@@ -3857,7 +3861,7 @@
     "englishSource": "A reset clears balances and history. Test balances never carry over to Mainnet."
   },
   "iUnderstand": {
-    "message": "Lo entiendo.",
+    "message": "Lo entiendo",
     "englishSource": "I understand"
   },
   "receiveTestFundsTitle": {

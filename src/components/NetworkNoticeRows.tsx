@@ -2,6 +2,8 @@ import React, { FC } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
+import { cn } from 'lib/ui/util';
+
 interface NoticeRow {
   titleKey: string;
   bodyKey: string;
@@ -22,7 +24,7 @@ export const NetworkNoticeRows: FC<{ className?: string }> = ({ className }) => 
   const { t } = useTranslation();
 
   return (
-    <ul className={className}>
+    <ul className={cn('flex flex-col divide-y divide-rule-default', className)}>
       {NOTICE_ROWS.map(row => (
         <li key={row.titleKey} className="py-4">
           <span className="flex flex-col gap-1 min-w-0">

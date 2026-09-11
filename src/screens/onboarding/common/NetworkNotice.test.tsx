@@ -2,10 +2,17 @@ import React from 'react';
 
 import { fireEvent, render, screen } from '@testing-library/react';
 
+import { NetworkNoticeScreen } from './NetworkNotice';
+
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, params?: Record<string, string>) => (params ? `${key}:${params.network}` : key)
   })
+}));
+
+let mockNetworkKey: 'testnet' | 'devnet' | 'localnet' | null = 'testnet';
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  getTestNetworkNameKey: () => mockNetworkKey
 }));
 
 jest.mock('components/Button', () => ({
@@ -17,13 +24,11 @@ jest.mock('components/Button', () => ({
 }));
 
 describe('NetworkNoticeScreen', () => {
-  afterEach(() => {
-    jest.resetModules();
+  beforeEach(() => {
+    mockNetworkKey = 'testnet';
   });
 
   it('names Testnet, lists the three notices and acknowledges with a primary button', () => {
-    jest.doMock('utils/brand-colors', () => ({ isDevnet: false }));
-    const { NetworkNoticeScreen } = require('./NetworkNotice');
     const onSubmit = jest.fn();
 
     render(<NetworkNoticeScreen onSubmit={onSubmit} />);
@@ -39,12 +44,20 @@ describe('NetworkNoticeScreen', () => {
     expect(onSubmit).toHaveBeenCalledTimes(1);
   });
 
-  it('names Devnet on a devnet build', () => {
-    jest.doMock('utils/brand-colors', () => ({ isDevnet: true }));
-    const { NetworkNoticeScreen } = require('./NetworkNotice');
+  it('names the effective network, e.g. a devnet override', () => {
+    mockNetworkKey = 'devnet';
 
     render(<NetworkNoticeScreen />);
 
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('networkModeBanner:devnet');
+    expect(screen.getByText('networkNoticeChip:devnet')).toBeInTheDocument();
+  });
+
+  it('renders nothing on mainnet', () => {
+    mockNetworkKey = null;
+
+    const { container } = render(<NetworkNoticeScreen />);
+
+    expect(container).toBeEmptyDOMElement();
   });
 });

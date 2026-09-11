@@ -854,6 +854,7 @@
   "failedToClaimNote": "Не удалось получить вознаграждение note",
   "testnet": "Тестовая сеть",
   "devnet": "Devnet",
+  "localnet": "Localnet",
   "networkModeBanner": "Вы используете Bread на Miden $network$",
   "networkNoticeChip": "Miden $network$",
   "networkNoticeBody": "Эта среда предназначена для тестирования. Всё, что у вас здесь находится, представляет собой тестовые токены, не имеющие денежной стоимости.",

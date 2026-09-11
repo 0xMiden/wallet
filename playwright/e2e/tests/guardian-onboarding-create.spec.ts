@@ -14,13 +14,16 @@
  * THE REAL STEP ORDER ON THE EXTENSION (verified in src, not assumed):
  *
  *   Welcome                      `onboarding-welcome`
- *     └ "Get started"            → onAction 'choose-protection' (Welcome.tsx:302-308)
+ *     └ "Get started"            → onAction 'choose-protection' → '/#network-notice'
+ *   Network notice (#875)        `onboarding-network-notice` (test networks only)
+ *     └ "I understand"           → onAction 'network-notice-acknowledge' →
+ *                                  startCreateFlow() → protectionStepRoute()
  *   Create password              `create-password-input`
  *     └ Continue                 → generates the mnemonic + navigates to
- *                                  '/#choose-guardian' (Welcome.tsx:389-404)
+ *                                  '/#choose-guardian' (onAction 'create-password-submit')
  *   Choose guardian              `onboarding-choose-guardian`
  *     └ Continue                 → WalletType.Guardian + '/#confirmation'
- *                                  (Welcome.tsx:345-361)
+ *                                  (onAction 'choose-guardian-submit')
  *   Confirmation                 `onboarding-confirmation`
  *     └ "Open wallet"            → register() → Explore (`explore-page`)
  *
@@ -28,7 +31,7 @@
  * from what the flow LOOKS like it should be:
  *
  *  1. There is no "choose protection" screen here. `biometricProtectionSupported()`
- *     is `isMobile()` (Welcome.tsx:54-56), so on the extension `protectionStepRoute()`
+ *     is `isMobile()`, so on the extension `protectionStepRoute()`
  *     resolves straight to '/#create-password' and `onboarding-choose-protection`
  *     never renders. The spec asserts that skip rather than waiting for a screen
  *     that will never come.
@@ -39,14 +42,16 @@
  *     that navigates there — they are reachable only from `ForgotPassword.tsx`.
  *     The create flow generates the mnemonic silently and NEVER SHOWS IT; the
  *     user is instead nudged afterwards by the `VerifySeedPhrase` wallet prompt
- *     (`seedWalletPrompt`, Welcome.tsx:255) toward `/settings/verify-seed-phrase`.
+ *     (`seedWalletPrompt` in Welcome.tsx) toward `/settings/verify-seed-phrase`.
  *     So there are no `seed-word-N` chips on this journey to capture from.
  *
- *  3. Production can only create GUARDIAN wallets. `choose-guardian-submit`
- *     unconditionally sets `WalletType.Guardian` (Welcome.tsx:345-347), so this
- *     spec exercises the guardian create path and REQUIRES a reachable guardian
- *     at `envConfig.guardianUrl`. (The bypass every other spec uses defaults to
- *     OffChain instead — another reason this path was uncovered.)
+ *  3. The create flow makes GUARDIAN wallets. `choose-guardian-submit` sets
+ *     `WalletType.Guardian` for every guardian choice; its `NO_GUARDIAN_ID` arm
+ *     (OffChain) is offered only while the dev-only Developer Settings
+ *     allowNoGuardian override is on. So this spec exercises the guardian create
+ *     path and REQUIRES a reachable guardian at `envConfig.guardianUrl`. (The
+ *     bypass every other spec uses defaults to OffChain instead, another reason
+ *     this path was uncovered.)
  *
  * WHAT "IT WORKS" MEANS HERE. Screens advancing proves nothing about the wallet
  * that came out the other end, so the tail of the spec funds it for real: the
@@ -108,7 +113,7 @@ test.describe('Onboarding — create', () => {
       await page.getByTestId('onboarding-network-notice-acknowledge').click();
       await expect(page.getByTestId('create-password-input')).toBeVisible({ timeout: 30_000 });
       // Biometric can't work on the extension, so the create flow skips the
-      // choose-protection screen entirely (Welcome.tsx:54-65). Pinned here
+      // choose-protection screen entirely (protectionStepRoute). Pinned here
       // because the alternative failure — that screen rendering with a single
       // dead option — looks fine in a screenshot and dead-ends the user.
       await expect(page.getByTestId('onboarding-choose-protection')).toHaveCount(0);

@@ -4,15 +4,10 @@
 
 ### Features
 
-- [FEAT][all] Every screen shows a persistent Bread-branded banner that names the network the build runs on ("Miden Testnet", or "Miden Devnet" on devnet builds), so users know they hold test tokens (#875).
-- [FEAT][all] Onboarding shows a network notice after the first tap on Welcome, before a wallet is created or restored: test tokens have no value, do not send real funds, and the network can reset (#875).
-- [FEAT][all] Receive warns that only test tokens may be sent to the address and labels the cross-chain route with its Ethereum Sepolia source (#875).
-- [FEAT][all] Tapping the network banner opens a sheet that explains the test environment, the bridge amount form carries its own test-funds warning, and a shared address or QR image now names the network in its text and caption (#875).
-- [FEAT][all] The EVM wallet connect step warns to connect a test wallet only: create a fresh wallet and fund it with Sepolia ETH, never a wallet that holds real funds (#875).
+- [FEAT][all] The popup, full-page, side-panel, mobile and desktop wallet screens and the dApp confirmation popup show a Bread-branded banner naming the network the wallet is on (it follows Developer Settings overrides and hides on mainnet), with a sheet that explains the test environment. Onboarding shows a network notice before a wallet is created or restored; Receive, the EVM wallet connect step and the bridge amount form warn to use test funds only; and a shared address or QR image names the network (#875).
 
 ### Fixes
 
-- [FIX][e2e] The import smoke tests acknowledge the network notice before waiting for the seed phrase form.
 - [CHORE][all] Every production build now refuses a `node_modules` that does not match `yarn.lock` (`yarn check --integrity`, 30 ms), so a stale checkout can no longer bundle the wrong SDK.
 - [FIX][all] The send screen waits for balances before warning about missing MIDEN for fees and clears that warning when funds arrive. Clearing an amount keeps the input red and Confirm disabled without showing “Invalid amount”.
 - [FIX][ci] Every ubuntu job now drops Google's Chrome apt repository before touching apt. Nothing installs Chrome from apt, yet its CDN served a mismatched package index for over an hour and failed every Playwright, xvfb and local-node install with `Hash Sum mismatch`.

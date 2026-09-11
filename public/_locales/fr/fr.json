@@ -854,6 +854,7 @@
   "failedToClaimNote": "Échec de la réclamation note",
   "testnet": "Réseau de test",
   "devnet": "Devnet",
+  "localnet": "Localnet",
   "networkModeBanner": "Vous utilisez Bread sur Miden $network$",
   "networkNoticeChip": "Miden $network$",
   "networkNoticeBody": "Cet environnement est destiné aux tests. Tout ce que vous détenez ici est un jeton de test sans valeur monétaire.",

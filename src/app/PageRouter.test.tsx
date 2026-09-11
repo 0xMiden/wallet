@@ -232,8 +232,8 @@ beforeEach(() => {
 describe('app/PageRouter — network banner (#875)', () => {
   it('mounts the network banner above every routed page', () => {
     renderAt('/', { ready: true, hydrated: true });
-    expect(screen.getByTestId('network-mode-banner')).toBeInTheDocument();
-    expect(screen.getByTestId('explore')).toBeInTheDocument();
+    const banner = screen.getByTestId('network-mode-banner');
+    expect(banner.compareDocumentPosition(screen.getByTestId('explore'))).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
   });
 
   it('mounts the network banner on pre-ready screens too', () => {

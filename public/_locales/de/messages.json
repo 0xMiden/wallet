@@ -3810,6 +3810,10 @@
     "message": "Devnet",
     "englishSource": "Devnet"
   },
+  "localnet": {
+    "message": "Localnet",
+    "englishSource": "Localnet"
+  },
   "networkModeBanner": {
     "message": "Sie nutzen Bread auf Miden $network$",
     "englishSource": "You are using Bread on Miden $network$",
@@ -3865,7 +3869,7 @@
     "englishSource": "Test tokens only"
   },
   "receiveTestFundsBody": {
-    "message": "Senden Sie an diese Adresse ausschließlich Miden-Token ($network$). An diese Adresse gesendete echte Geldbeträge können nicht wiederhergestellt werden.",
+    "message": "Senden Sie an diese Adresse ausschließlich Token von Miden $network$. An diese Adresse gesendete echte Geldbeträge können nicht wiederhergestellt werden.",
     "englishSource": "Only send Miden $network$ tokens here. Real funds sent to this address cannot be recovered.",
     "placeholders": {
       "network": {
@@ -3895,7 +3899,7 @@
     "englishSource": "This bridge moves Ethereum Sepolia test tokens to Miden. Never bridge from Ethereum mainnet or any other real network."
   },
   "shareAddressText": {
-    "message": "Meine Miden-Adresse $network$ (nur Test-Token): $address$",
+    "message": "Meine Adresse auf Miden $network$ (nur Test-Token): $address$",
     "englishSource": "My Miden $network$ address (test tokens only): $address$",
     "placeholders": {
       "network": {

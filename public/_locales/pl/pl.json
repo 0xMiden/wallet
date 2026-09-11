@@ -854,6 +854,7 @@
   "failedToClaimNote": "Nie udało się odebrać note",
   "testnet": "Sieć testowa",
   "devnet": "Devnet",
+  "localnet": "Localnet",
   "networkModeBanner": "Korzystasz z Bread na platformie Miden $network$",
   "networkNoticeChip": "Miden $network$",
   "networkNoticeBody": "To środowisko służy do testowania. Wszystko, co tu posiadasz, to tokeny testowe bez wartości pieniężnej.",

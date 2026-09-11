@@ -3810,6 +3810,10 @@
     "message": "Devnet",
     "englishSource": "Devnet"
   },
+  "localnet": {
+    "message": "Localnet",
+    "englishSource": "Localnet"
+  },
   "networkModeBanner": {
     "message": "Ви користуєтеся сервісом Bread на платформі Miden $network$",
     "englishSource": "You are using Bread on Miden $network$",

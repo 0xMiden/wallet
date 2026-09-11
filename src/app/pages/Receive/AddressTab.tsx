@@ -11,11 +11,11 @@ import EvmConnectModal from 'app/templates/EvmConnectModal';
 import { QRCode, type QRCodeHandle } from 'components/QRCode';
 import { TestNetworkWarning } from 'components/TestNetworkWarning';
 import { isBridgeDepositEnabled } from 'lib/feature-flags';
+import { getTestNetworkNameKey } from 'lib/miden-chain/effective-endpoints';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isExtension, isMobile } from 'lib/platform';
 import useCopyToClipboard from 'lib/ui/useCopyToClipboard';
 import { useEvmWalletConnection } from 'lib/walletconnect/useEvmWalletConnection';
-import { isDevnet } from 'utils/brand-colors';
 import { truncateAddress } from 'utils/string';
 
 interface AddressTabProps {
@@ -43,7 +43,8 @@ const blobToBase64 = (blob: Blob): Promise<string> =>
 
 export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit }) => {
   const { t } = useTranslation();
-  const network = isDevnet ? t('devnet') : t('testnet');
+  const networkKey = getTestNetworkNameKey();
+  const network = networkKey ? t(networkKey) : null;
   const { fieldRef, copy } = useCopyToClipboard();
   const [evmOpen, setEvmOpen] = useState(false);
   const { address: evmAddress, connected: evmConnected } = useEvmWalletConnection();
@@ -70,7 +71,8 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
 
   // The shared text names the network (#875) so a pasted address never loses
   // its context. The QR image carries the same caption (see `caption` below).
-  const shareText = t('shareAddressText', { network, address });
+  // Mainnet has no test network to name, so it shares the bare address.
+  const shareText = network ? t('shareAddressText', { network, address }) : address;
 
   const handleShare = useCallback(async () => {
     hapticLight();
@@ -127,7 +129,12 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
             {address}
           </span>
           <div className="w-full flex flex-col items-center justify-center gap-6">
-            <QRCode ref={qrRef} address={address} size={300} caption={t('qrNetworkCaption', { network })} />
+            <QRCode
+              ref={qrRef}
+              address={address}
+              size={300}
+              caption={network ? t('qrNetworkCaption', { network }) : undefined}
+            />
             <CopyButton
               text={address}
               data-testid="receive-copy-address"
@@ -139,12 +146,14 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
             </CopyButton>
             {/* Test-funds warning sits before the share and bridge actions:
                 the funding decision point named in #875. */}
-            <TestNetworkWarning
-              titleKey="receiveTestFundsTitle"
-              bodyKey="receiveTestFundsBody"
-              values={{ network }}
-              data-testid="receive-test-funds-warning"
-            />
+            {network && (
+              <TestNetworkWarning
+                titleKey="receiveTestFundsTitle"
+                bodyKey="receiveTestFundsBody"
+                values={{ network }}
+                data-testid="receive-test-funds-warning"
+              />
+            )}
           </div>
           <div className="w-full flex flex-col items-center gap-8 pt-6">
             <button type="button" onClick={handleShare} className="flex items-center gap-4 text-accent-primary">

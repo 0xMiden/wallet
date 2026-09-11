@@ -44,6 +44,7 @@ import { getSnapshot, subscribeSnapshots } from 'lib/dapp-browser/snapshot-store
 
 import { DappExpanderOverlay, EXPAND_TOTAL_DURATION_MS } from './DappExpanderOverlay';
 import { CARD_HEIGHT, CARD_STACK_OFFSET, CARD_WIDTH, DappPeekCard } from './DappPeekCard';
+import { resolveTargetRect } from './peek-target-rect';
 
 // Fallback anchor distance from the bottom of the viewport. This
 // accounts for the React BottomNav height plus the iPhone home-indicator
@@ -93,39 +94,6 @@ interface MorphingState {
 // 215ms (of a 390ms total, ~55%) lands the restore call near the point
 // where the expander has covered ~70% of the screen.
 const RESTORE_TRIGGER_DELAY_MS = 215;
-
-// When the live slot rect isn't available (no dApp has been foregrounded
-// this session yet AND nothing is cached), fall back to a computed slot
-// that matches DappActive's layout. This needs three numbers:
-//   - FALLBACK_CAPSULE_HEIGHT (145): safe-area-inset-top (~62) + the
-//     capsule's drag handle + content row (83).
-//   - FALLBACK_BOTTOM_GUTTER (34): safe-area-inset-bottom on devices
-//     with a home indicator. Subtract the bottom safe area directly as
-//     a constant instead of trying to derive it from live CSS.
-// These defaults are iPhone 17-class. Other devices differ slightly
-// but the cache (populated the moment a dApp is foregrounded) covers
-// every case after the first restore.
-const FALLBACK_CAPSULE_HEIGHT = 145;
-const FALLBACK_BOTTOM_GUTTER = 34;
-
-function resolveTargetRect(liveSlotRect: { x: number; y: number; width: number; height: number } | null): {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-} {
-  if (liveSlotRect && liveSlotRect.width > 0 && liveSlotRect.height > 0) {
-    return liveSlotRect;
-  }
-  const vw = window.innerWidth;
-  const vh = window.innerHeight;
-  return {
-    x: 0,
-    y: FALLBACK_CAPSULE_HEIGHT,
-    width: vw,
-    height: vh - FALLBACK_CAPSULE_HEIGHT - FALLBACK_BOTTOM_GUTTER
-  };
-}
 
 export const DappPeekTray: FC = () => {
   const { session: foregroundSession, parkedSessions, restore, close, openSwitcher, slotRect } = useDappBrowser();
@@ -224,7 +192,7 @@ export const DappPeekTray: FC = () => {
       // Prefer the live slot rect (the current foreground dApp's rect,
       // if any) over the cached one (set by a previous foreground) over
       // the pure computed fallback (if neither is available yet).
-      const targetRect = resolveTargetRect(slotRect ?? lastKnownSlotRectRef.current);
+      const targetRect = resolveTargetRect(slotRect, lastKnownSlotRectRef.current);
       setMorphing({
         mode: 'expand',
         session,

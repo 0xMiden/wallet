@@ -3810,8 +3810,12 @@
     "message": "開發網（Devnet）",
     "englishSource": "Devnet"
   },
+  "localnet": {
+    "message": "Localnet",
+    "englishSource": "Localnet"
+  },
   "networkModeBanner": {
-    "message": "您正在 Miden 上使用 Bread $network$",
+    "message": "您正在 Miden $network$ 上使用 Bread",
     "englishSource": "You are using Bread on Miden $network$",
     "placeholders": {
       "network": {

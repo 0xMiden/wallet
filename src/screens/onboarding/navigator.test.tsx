@@ -215,17 +215,6 @@ describe('OnboardingFlow — action wiring per screen', () => {
     expect(onAction).not.toHaveBeenCalled();
   });
 
-  it('Welcome with networkNotice: parks the chosen flow behind the network notice', () => {
-    const onAction = jest.fn();
-    renderFlow({ step: OnboardingStep.Welcome, onAction, networkNotice: true });
-
-    act(() => mockCaptured.welcome.onSubmit('select-wallet-type'));
-    expect(onAction).toHaveBeenLastCalledWith({ id: 'network-notice', payload: OnboardingType.Create });
-
-    act(() => mockCaptured.welcome.onSubmit('select-import-type'));
-    expect(onAction).toHaveBeenLastCalledWith({ id: 'network-notice', payload: OnboardingType.Import });
-  });
-
   it('NetworkNotice: acknowledging dispatches network-notice-acknowledge', () => {
     const onAction = jest.fn();
     renderFlow({ step: OnboardingStep.NetworkNotice, onAction });

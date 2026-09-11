@@ -19,7 +19,8 @@ export interface TestNetworkWarningProps {
 /**
  * Dashed, brand-tinted callout used at every funding decision point (#875):
  * Receive, the EVM wallet connect step and the bridge form. Same look as the
- * network chip so all test-network notices read as one family.
+ * onboarding notice's network pill so all test-network notices read as one
+ * family.
  */
 export const TestNetworkWarning: FC<TestNetworkWarningProps> = ({
   titleKey,

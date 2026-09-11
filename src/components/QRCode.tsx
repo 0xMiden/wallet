@@ -19,7 +19,11 @@ export interface QRCodeProps {
 }
 
 export interface QRCodeHandle {
-  /** Returns the rendered QR (with logo) as a PNG Blob, or null if unavailable. */
+  /**
+   * Returns the rendered QR (with logo) as a PNG Blob, or null if unavailable. With a
+   * `caption` it is the captioned image (a strip under the modules, so taller than
+   * `size`); if composing that fails it falls back to the plain QR.
+   */
   getImageBlob: () => Promise<Blob | null>;
 }
 
@@ -125,7 +129,11 @@ export const QRCode = forwardRef<QRCodeHandle, QRCodeProps>(({ address, size, ca
         if (!(data instanceof Blob)) return null;
         if (!caption) return data;
         try {
-          return (await composeCaptionedPng(data, size, caption, getAccentColor())) ?? data;
+          const composed = await composeCaptionedPng(data, size, caption, getAccentColor());
+          if (composed) return composed;
+          // The shared image loses its network caption here; leave a trace.
+          console.warn('[QRCode] caption compose unavailable, sharing the raw QR');
+          return data;
         } catch (e) {
           console.warn('[QRCode] caption compose failed, sharing the raw QR:', e);
           return data;

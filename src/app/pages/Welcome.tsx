@@ -9,6 +9,7 @@ import { AnalyticsEventCategory, useAnalytics } from 'lib/analytics';
 import { canHandoffToSidePanel, postOnboardingRoute } from 'lib/extension/side-panel-handoff';
 import { useMidenContext } from 'lib/miden/front';
 import { useGuardianProbe } from 'lib/miden/guardian/use-guardian-probe';
+import { getTestNetworkNameKey } from 'lib/miden-chain/effective-endpoints';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isDesktop, isMobile } from 'lib/platform';
 import { WalletStatus } from 'lib/shared/types';
@@ -107,9 +108,6 @@ const Welcome: FC = () => {
   const [biometricAttempts, setBiometricAttempts] = useState(0);
   const [biometricError, setBiometricError] = useState<string | null>(null);
   const [guardianLookupError, setGuardianLookupError] = useState(false);
-  // The flow the user picked on Welcome, parked while the network notice
-  // (#875) is on screen. Acknowledging the notice starts this flow.
-  const [pendingFlow, setPendingFlow] = useState<OnboardingType | null>(null);
   // Tracks which protection screen the user came through; needed so ChooseGuardian
   // back navigation and the create-password→confirmation routing pick the right
   // origin without colliding with the legacy create flow.
@@ -315,22 +313,22 @@ const Welcome: FC = () => {
     };
 
     switch (action.id) {
-      case 'network-notice':
-        setPendingFlow(action.payload);
-        navigate('/#network-notice');
-        break;
       case 'network-notice-acknowledge':
-        switch (pendingFlow) {
-          case OnboardingType.Import:
-            startImportFlow();
-            break;
-          default:
-            startCreateFlow();
-            break;
+        if (onboardingType === OnboardingType.Import) {
+          startImportFlow();
+        } else {
+          startCreateFlow();
         }
         break;
       case 'choose-protection':
-        startCreateFlow();
+        // On a test network the chosen flow waits behind the network notice
+        // (#875); acknowledging the notice starts it.
+        if (getTestNetworkNameKey()) {
+          setOnboardingType(OnboardingType.Create);
+          navigate('/#network-notice');
+        } else {
+          startCreateFlow();
+        }
         break;
       case 'setup-passcode':
         setOnboardingType(OnboardingType.Create);
@@ -394,7 +392,12 @@ const Welcome: FC = () => {
         }
         break;
       case 'select-import-type':
-        startImportFlow();
+        if (getTestNetworkNameKey()) {
+          setOnboardingType(OnboardingType.Import);
+          navigate('/#network-notice');
+        } else {
+          startImportFlow();
+        }
         break;
       case 'import-from-seed':
         navigate('/#import-from-seed');
@@ -543,9 +546,9 @@ const Welcome: FC = () => {
         setStep(OnboardingStep.Welcome);
         break;
       case '#network-notice':
-        // The parked flow is in-memory only; a reload here has nothing to
-        // continue with, so restart from Welcome.
-        if (pendingFlow === null) {
+        // The chosen flow is in-memory only, so a reload here has nothing to
+        // continue with; mainnet has no notice. Either way, restart from Welcome.
+        if (onboardingType === null || !getTestNetworkNameKey()) {
           navigate('/');
           break;
         }
@@ -616,7 +619,7 @@ const Welcome: FC = () => {
       default:
         break;
     }
-  }, [hash, password, onboardingType, pendingFlow, resetGuardianProbe]);
+  }, [hash, password, onboardingType, resetGuardianProbe]);
 
   // Handle mobile back button/gesture in onboarding flow
   useMobileBackHandler(() => {
@@ -650,7 +653,6 @@ const Welcome: FC = () => {
           guardianLookupError={guardianLookupError}
           guardianProbe={guardianProbeState}
           confirmCreating={sidePanelHandoff && confirmPhase === 'creating'}
-          networkNotice
           onBiometricChange={setUseBiometric}
           onAction={onAction}
         />

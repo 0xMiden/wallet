@@ -108,7 +108,7 @@ const HotKeyRotationOverlay: FC<OverlayProps> = ({ accountPublicKey }) => {
   // Swallow hardware/gesture back while the wallet is blocked. Registered by
   // this component (which only mounts while blocking), so it is active exactly
   // when needed and unwinds automatically once the rotation lands.
-  useMobileBackHandler(() => true, []);
+  useMobileBackHandler(() => true, [], { overlay: true });
 
   const beginRotation = useCallback(
     async (adoptExisting: boolean) => {

@@ -858,6 +858,7 @@
   "failedToClaimNote": "Failed to claim note",
   "testnet": "Testnet",
   "devnet": "Devnet",
+  "localnet": "Localnet",
   "networkModeBanner": "You are using Bread on Miden $network$",
   "networkNoticeChip": "Miden $network$",
   "networkNoticeBody": "This environment is for testing. Everything you hold here is a test token with no monetary value.",

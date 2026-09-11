@@ -3810,8 +3810,12 @@
     "message": "Devnet",
     "englishSource": "Devnet"
   },
+  "localnet": {
+    "message": "Localnet",
+    "englishSource": "Localnet"
+  },
   "networkModeBanner": {
-    "message": "Miden'de Bread kullanıyorsunuz $network$",
+    "message": "Bread'i Miden $network$ üzerinde kullanıyorsunuz",
     "englishSource": "You are using Bread on Miden $network$",
     "placeholders": {
       "network": {
@@ -3874,7 +3878,7 @@
     }
   },
   "crossChainFromNetwork": {
-    "message": "$network$ adresinden alınmıştır",
+    "message": "$network$ ağından",
     "englishSource": "from $network$",
     "placeholders": {
       "network": {
