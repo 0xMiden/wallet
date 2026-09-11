@@ -28,9 +28,13 @@ export const BottomNav: FC<BottomNavProps> = ({ items, activeId, onChange, class
 
   return (
     <nav
+      // Gutter and gap are sized so four destinations fit a 375px viewport
+      // without overflowing the pill; the previous `px-13.5 gap-8` was tuned
+      // for three and put min-content at ~470px once Settings joined. Purely a
+      // fit constraint — the visual treatment is owned by #803.
       className={classNames(
-        'flex items-center gap-8 justify-center',
-        'bg-white rounded-3xl px-13.5 py-2',
+        'flex items-center gap-2 justify-center',
+        'bg-white rounded-3xl px-4 py-2',
         'shadow-[0_4px_12px_rgba(0,0,0,0.08),0_12px_40px_rgba(0,0,0,0.15)]',
         className
       )}

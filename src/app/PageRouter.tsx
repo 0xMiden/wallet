@@ -1,4 +1,4 @@
-import React, { FC, useLayoutEffect, useMemo } from 'react';
+import React, { FC, useLayoutEffect, useMemo, useRef } from 'react';
 
 import RootSuspenseFallback from 'app/a11y/RootSuspenseFallback';
 import { OpenInFullPage, useAppEnv } from 'app/env';
@@ -46,6 +46,7 @@ interface RouteContext {
   ready: boolean;
   locked: boolean;
   hydrated: boolean;
+  settingsScrollTop: React.MutableRefObject<number>;
 }
 
 type RouteFactory = Woozie.Router.ResolveResult<RouteContext>;
@@ -163,6 +164,18 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
       <FullScreenPage>
         <DeveloperSettings readOnly />
       </FullScreenPage>
+    ))
+  ],
+  // The Settings ROOT is a primary tab destination, so it renders in TabLayout
+  // with the persistent footer. Exact-matched and placed ahead of the generic
+  // route below, which keeps serving every `/settings/<slug>` sub-page in
+  // FullScreenPage — drilling in and backing out is unchanged.
+  [
+    '/settings',
+    onlyReady((_p, ctx) => (
+      <TabLayout>
+        <Settings rootScrollTop={ctx.settingsScrollTop} />
+      </TabLayout>
     ))
   ],
   [
@@ -379,6 +392,7 @@ const PageRouter: FC = () => {
 
   const appEnv = useAppEnv();
   const miden = useMidenContext();
+  const settingsScrollTop = useRef(0);
 
   const ctx = useMemo<RouteContext>(
     () => ({
@@ -386,7 +400,8 @@ const PageRouter: FC = () => {
       fullPage: appEnv.fullPage,
       ready: miden.ready,
       locked: miden.locked,
-      hydrated: miden.hydrated
+      hydrated: miden.hydrated,
+      settingsScrollTop
     }),
     [appEnv.popup, appEnv.fullPage, miden]
   );

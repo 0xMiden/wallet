@@ -23,13 +23,17 @@ import RevealSeedPhraseFlow from 'app/templates/RevealSeedPhrase';
 import VerifySeedPhraseFlow from 'app/templates/VerifySeedPhraseFlow';
 import { Button, ButtonVariant } from 'components/Button';
 import { NavigationHeader } from 'components/NavigationHeader';
+// Imported from the module rather than the `components/ui` barrel: the barrel
+// pulls in siblings that touch `lib/platform` at module scope, which this
+// page's test suite mocks only partially.
+import { TabHeader } from 'components/ui/TabHeader';
 import { getCurrentLocale } from 'lib/i18n/core';
 import { isEndpointOverrideActive } from 'lib/miden-chain/effective-endpoints';
 import { openExternalUrl } from 'lib/mobile/external-browser';
 import { useHideDappBubblesWhileOpen } from 'lib/mobile/useHideDappBubblesWhileOpen';
 import { isMobile } from 'lib/platform';
 import { useWalletStore } from 'lib/store';
-import { navigate } from 'lib/woozie';
+import { HistoryAction, navigate } from 'lib/woozie';
 import { WalletType } from 'screens/onboarding/types';
 
 import AdvancedSettings from './AdvancedSettings';
@@ -40,6 +44,7 @@ import { FEEDBACK_URL, PRIVACY_POLICY_URL, TERMS_OF_USE_URL } from '../constants
 
 type SettingsProps = {
   tabSlug?: string | null;
+  rootScrollTop?: React.MutableRefObject<number>;
 };
 
 const RevealPrivateKey: FC = () => {
@@ -269,7 +274,7 @@ export async function shouldShowDevEndpointsRow(): Promise<boolean> {
   return isEndpointOverrideActive();
 }
 
-const Settings: FC<SettingsProps> = ({ tabSlug }) => {
+const Settings: FC<SettingsProps> = ({ tabSlug, rootScrollTop: savedRootScrollTop }) => {
   const { t } = useTranslation();
   const reduceMotion = useReducedMotion();
   const currentAccountType = useWalletStore(s => s.currentAccount?.type);
@@ -331,10 +336,17 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
   const handleSubPageBack = useBackWithFallback('/settings');
   const languageLabel = getCurrentLanguageLabel();
   const [showSeedWarning, setShowSeedWarning] = useState(false);
-  // Survives the keyed scroll container below, which remounts per page — see the
-  // comment there. Lives on this component, which stays mounted across the whole
-  // `/settings/:slug` route.
-  const rootScrollTop = useRef(0);
+  // PageRouter owns the root offset because changing between TabLayout and
+  // FullScreenPage remounts Settings. Standalone instances keep a local fallback.
+  const localRootScrollTop = useRef(0);
+  const rootScrollTop = savedRootScrollTop ?? localRootScrollTop;
+  const invalidTab = Boolean(tabSlug) && !activeTab;
+
+  useEffect(() => {
+    // The root menu needs TabLayout's footer. Do not render it inside the
+    // full-screen route when a slug is unknown or unavailable to this account.
+    if (invalidTab) navigate('/settings', HistoryAction.Replace);
+  }, [invalidTab]);
 
   // On mobile, move parked dApp trays out while the seed-warning overlay or a
   // settings sub-page owns the screen. The sub-pages need it for the same
@@ -351,7 +363,7 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
   // Mark Settings as an edge-to-edge page. The list container below
   // adds its own bottom padding so the last item can still scroll above
   // the React BottomNav.
-  const showSettingsRoot = !activeTab;
+  const showSettingsRoot = !tabSlug;
   useEffect(() => {
     if (!isMobile()) return;
     if (showSettingsRoot) {
@@ -376,6 +388,8 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
     setShowSeedWarning(false);
     navigate('/settings/reveal-seed-phrase');
   }, []);
+
+  if (invalidTab) return null;
 
   return (
     <>
@@ -402,27 +416,18 @@ const Settings: FC<SettingsProps> = ({ tabSlug }) => {
           />
         )
       ) : (
-        <NavigationHeader title={t('settings')} onBack={() => navigate('/')} variant="prominent" titleAlign="left" />
+        // Settings root is a primary tab destination, so it wears the same
+        // header as Activity and Explore: a plain title, no back chevron.
+        // Sub-pages above keep NavigationHeader — that back arrow is their only
+        // way out.
+        <TabHeader title={t('settings')} />
       )}
 
-      {/* Keyed so the scroller remounts per page. `/settings` and
-          `/settings/<slug>` are one route, so React reconciled this container
-          instead of replacing it and the offset carried across: opening Language
-          from the bottom of the list landed mid-list, and coming back left
-          Settings wherever Language had been scrolled to. The drawers this
-          replaced never had the problem — they scrolled in their own portal.
-          Keyed on the RESOLVED tab, not the raw slug: an unrecognised slug falls
-          through to the root list, and keying on the slug gave that same list a
-          different identity per bad URL. */}
+      {/* Sibling sub-pages share a layout, so key their scrollers to prevent
+          one page inheriting another's offset. Restore only the root list. */}
       <div
         key={activeTab?.slug ?? 'root'}
-        // The key above is what loses the root list's place: opening a sub-page
-        // unmounts the root scroller, so returning built a fresh one at the top
-        // and a user who opened Language from the bottom of a long list came back
-        // to the top of it. The drawers this replaced kept the list mounted
-        // underneath. So: remember the root offset while it is showing, and put it
-        // back when it remounts. A ref, not state — this must not re-render on
-        // every scroll event, and the value is only ever read during a mount.
+        // A ref avoids re-rendering the page on every scroll event.
         ref={node => {
           if (node && !activeTab) node.scrollTop = rootScrollTop.current;
         }}

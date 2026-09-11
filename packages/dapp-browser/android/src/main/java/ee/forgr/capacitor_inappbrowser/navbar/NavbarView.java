@@ -840,6 +840,11 @@ public final class NavbarView extends FrameLayout {
         navStack.removeAllViews();
         mainButtons.clear();
 
+        // Dynamic weightSum so rows with N buttons distribute correctly.
+        // Matches the secondary row below and iOS's .fillEqually. The
+        // constructor's initial 3 is only a default; leaving it stale made a
+        // fourth destination claim 1/3 of the width and clip off the edge.
+        navStack.setWeightSum((float) items.size());
         for (NavbarState.Item item : items) {
             NavbarButton button = new NavbarButton(getContext());
             boolean isActive = item.id.equals(activeId);

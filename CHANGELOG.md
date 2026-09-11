@@ -5,6 +5,7 @@
 ### Features
 
 - [FEAT][all] The popup, full-page, side-panel, mobile and desktop wallet screens and the dApp confirmation popup show a Bread-branded banner naming the network the wallet is on (it follows Developer Settings overrides and hides on mainnet), with a sheet that explains the test environment. Onboarding shows a network notice before a wallet is created or restored; Receive, the EVM wallet connect step and the bridge amount form warn to use test funds only; and a shared address or QR image names the network (#875).
+- [FEATURE][all] Add Settings to the bottom navigation, alongside Home, Explore and Activity (Explore remains hidden in the extension). Settings subpages keep their full-screen layout and back navigation, and returning restores the list's scroll position. Remove duplicate Settings shortcuts from tab headers, use a pencil for balance-card account options, localize tab labels, and fit four destinations on narrow screens. (#802)
 
 ### Fixes
 
