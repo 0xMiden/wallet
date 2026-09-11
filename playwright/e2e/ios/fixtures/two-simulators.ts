@@ -138,7 +138,21 @@ async function launchSimWalletInstance(
     });
   });
 
-  const walletPage = new IosWalletPage({ cdp, sim, udid, bundleId: BUNDLE_ID });
+  // Dismiss the native notification-permission alert before every screenshot of this wallet (see
+  // system-alerts.ts): initNativeNotifications() raises it when the authenticated shell mounts mid-test,
+  // a SpringBoard alert outside the WebView that CDP can't tap. Gating the page's own screenshot covers
+  // every capture path, the screen poll and DappBrowserDriver's paint assertions alike, so no frame is
+  // shot while it's up. Best-effort; no-op without idb.
+  const alertGate = createNotificationAlertGate(udid, {
+    onLog: message => timeline.emit({ category: 'test_lifecycle', severity: 'info', wallet: label, message })
+  });
+  const walletPage = new IosWalletPage({
+    cdp,
+    sim,
+    udid,
+    bundleId: BUNDLE_ID,
+    beforeCapture: () => alertGate.beforeCapture()
+  });
 
   // Connect idb's companion now, before the screen poll starts, so the first
   // home frame isn't captured while idb is still cold-starting (see warmUpIdb).
@@ -409,17 +423,9 @@ export const test = base.extend<TwoSimulatorFixtures>({
     // socket as the rest of the spec's traffic.
     const screensDir = path.join(steps.outputDir, 'screens');
     const screenPolls = [
-      { label: 'A' as const, walletPage: instanceA.walletPage, cdp: instanceA.cdp, udid: instanceA.udid },
-      { label: 'B' as const, walletPage: instanceB.walletPage, cdp: instanceB.cdp, udid: instanceB.udid }
-    ].map(({ label, walletPage, cdp, udid }) => {
-      // Dismiss the native notification-permission alert before each screenshot
-      // (see system-alerts.ts): initNativeNotifications() raises it when the
-      // authenticated shell mounts mid-test — a SpringBoard alert outside the
-      // WebView that CDP can't tap. Gating the capture (vs a background poll)
-      // means no frame is ever shot while it's up. Best-effort; no-op without idb.
-      const alertGate = createNotificationAlertGate(udid, {
-        onLog: message => timeline.emit({ category: 'test_lifecycle', severity: 'info', wallet: label, message })
-      });
+      { label: 'A' as const, walletPage: instanceA.walletPage, cdp: instanceA.cdp },
+      { label: 'B' as const, walletPage: instanceB.walletPage, cdp: instanceB.cdp }
+    ].map(({ label, walletPage, cdp }) => {
       return startScreenPoll({
         intervalMs: 250,
         read: async () => {
@@ -437,10 +443,8 @@ export const test = base.extend<TwoSimulatorFixtures>({
           );
           return raw ? (JSON.parse(raw) as { key: string; seq: number }) : null;
         },
-        grab: async p => {
-          await alertGate.beforeCapture();
-          await walletPage.screenshot({ path: p });
-        },
+        // walletPage.screenshot() dismisses the notification alert first (launchSimWalletInstance).
+        grab: p => walletPage.screenshot({ path: p }),
         dir: screensDir,
         label
       });
