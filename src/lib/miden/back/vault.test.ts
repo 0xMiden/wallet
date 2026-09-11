@@ -116,9 +116,13 @@ jest.mock('../sdk/miden-client', () => {
       if (hold !== null && hold === currentWasmHold) return;
       throw new WasmClientPoisonedError('watchdog', new Error(`operation abandoned ${where}`));
     },
-    withWasmClientLock: async <T>(fn: (hold: object) => Promise<T>) => {
+    withWasmClientLock: async <T>(fn: (hold: object) => Promise<T>, options?: unknown) => {
       const hold = {};
       currentWasmHold = hold;
+      // The keystore callbacks a hold declares (#878): the insert-key tests invoke
+      // the sink the way the SDK would, and the creation paths assert it was declared.
+      (globalThis as any).__vaultTestLastLockOptions = options;
+      ((globalThis as any).__vaultTestLockOptions ??= []).push(options);
       try {
         return await fn(hold);
       } finally {
@@ -906,11 +910,16 @@ describe('Vault.createHDAccount', () => {
     expect(d.seed.length).toBe(32);
 
     // And run the full HD flow
+    (globalThis as any).__vaultTestLockOptions = [];
     const accounts = await vault.createHDAccount(WalletType.OnChain);
     expect(accounts).toHaveLength(2);
     expect(accounts[1]!.publicKey).toBe('acc-pub-key-2');
     expect(accounts[1]!.name).toMatch(/Account 2/);
     expect(accounts[1]!.isPublic).toBe(true);
+    // The creation hold declares the vault's insert-key sink (#878).
+    expect((globalThis as any).__vaultTestLockOptions).toContainEqual({
+      keystore: { insertKey: expect.any(Function) }
+    });
   });
 
   it('accepts an explicit account name', async () => {
@@ -1114,11 +1123,16 @@ describe('Vault.spawnFromMidenClient', () => {
     // The old code would throw `'Account from Miden Client not found'`;
     // the new code silently `continue`s past the orphan so the restore
     // completes. No keystore insert for the orphan.
+    (globalThis as any).__vaultTestLockOptions = [];
     const vault = await Vault.spawnFromMidenClient('pw', VALID_MNEMONIC, [
       { publicKey: 'pk-owned', name: 'HD 1', isPublic: true, type: WalletType.OnChain, hdIndex: 0 }
     ]);
     expect(vault).toBeInstanceOf(Vault);
     expect(mockKeystoreInsert).not.toHaveBeenCalled();
+    // The restore hold declares the vault's insert-key sink (#878).
+    expect((globalThis as any).__vaultTestLockOptions).toContainEqual({
+      keystore: { insertKey: expect.any(Function) }
+    });
   });
 
   it('skips walletAccount entries with hdIndex < 0 (imported accounts) instead of deriving garbage keys', async () => {
@@ -1328,8 +1342,8 @@ describe('Vault.importAccountFromPrivateKey', () => {
     // Wire the mock client to invoke the callback synchronously when
     // `keystore.insert` is called — mirrors the real WASM behaviour.
     mockKeystoreInsert.mockImplementationOnce(async (_id: any, _secretKey: any) => {
-      const options = mockGetMidenClient.mock.calls[mockGetMidenClient.mock.calls.length - 1]![0];
-      await options.insertKeyCallback(new Uint8Array([0xab, 0xcd]), new Uint8Array([0x11, 0x22, 0x33]));
+      const { keystore } = (globalThis as any).__vaultTestLastLockOptions;
+      await keystore.insertKey(new Uint8Array([0xab, 0xcd]), new Uint8Array([0x11, 0x22, 0x33]));
     });
 
     const vault = await seedVault('pw');
@@ -1377,21 +1391,14 @@ describe('Vault.legacyPasswordUnlock + insertKeyCallback', () => {
     await expect(Vault.setup('wrong-pw')).rejects.toThrow(PublicError);
   });
 
-  it('insertKeyCallback persists a fresh secret key when getMidenClient invokes it during spawn', async () => {
-    // Make the createMidenWallet call invoke the supplied insertKeyCallback
-    // before resolving — that's the path the real WASM client takes.
-    mockGetMidenClient.mockImplementationOnce(async (options: any) => {
-      if (options?.insertKeyCallback) {
-        await options.insertKeyCallback(new Uint8Array([1, 2, 3]), new Uint8Array([4, 5, 6]));
-      }
-      return {
-        createMidenWallet: mockCreateMidenWallet,
-        importPublicMidenWalletFromSeed: mockImportPublicMidenWalletFromSeed,
-        getAccounts: mockGetAccounts,
-        getAccount: mockGetAccount,
-        syncState: mockSyncState,
-        network: 'devnet'
-      } as any;
+  it('the insert-key sink declared on the spawn hold persists a fresh secret key', async () => {
+    // Make the createMidenWallet call invoke the sink the hold declares before
+    // resolving - that's the path the real WASM client takes (#878).
+    const createAsUsual = mockCreateMidenWallet.getMockImplementation()!;
+    mockCreateMidenWallet.mockImplementationOnce(async (...args: [any, Uint8Array]) => {
+      const { keystore } = (globalThis as any).__vaultTestLastLockOptions;
+      await keystore.insertKey(new Uint8Array([1, 2, 3]), new Uint8Array([4, 5, 6]));
+      return createAsUsual(...args);
     });
     const vault = await Vault.spawn(WalletType.OnChain, 'cb-pw');
     expect(vault).toBeInstanceOf(Vault);
@@ -1624,7 +1631,8 @@ describe('Vault hardware branches', () => {
     );
     expect(mockMidenClient.recoverGuardianAccountsBySeed).toHaveBeenCalledWith(
       expect.any(Function),
-      'https://probed-guardian.example'
+      'https://probed-guardian.example',
+      expect.any(Function)
     );
     // createGuardianMidenWallet must NOT run on the recovery path.
     expect(mockMidenClient.createGuardianMidenWallet).not.toHaveBeenCalled();

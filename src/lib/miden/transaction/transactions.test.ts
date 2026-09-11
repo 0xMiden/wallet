@@ -75,6 +75,7 @@ const mockGetMidenClient = jest.fn((): any => ({
 // passthrough hits it.
 jest.mock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-client'));
 jest.mock('../sdk/miden-client', () => ({
+  getLastSignReason: () => undefined,
   getMidenClient: () => mockGetMidenClient(),
   withWasmClientLock: jest.fn((fn: () => Promise<any>) => fn())
 }));
@@ -1445,6 +1446,7 @@ describe('Transaction resilience: network outage recovery (isolated)', () => {
     jest.doMock('lib/miden/repo', () => repoMock);
 
     jest.doMock('../sdk/miden-client', () => ({
+      getLastSignReason: () => undefined,
       getMidenClient: jest.fn(async () => ({
         syncState: mockSyncState,
         newTransaction: mockNewTransaction
@@ -1670,6 +1672,7 @@ describe('completeCustomTransaction (isolated)', () => {
     }));
 
     jest.doMock('../sdk/miden-client', () => ({
+      getLastSignReason: () => undefined,
       getMidenClient: jest.fn()
     }));
 

@@ -1198,7 +1198,7 @@ describe('poisoned client recovery', () => {
   interface IsolatedLockModule {
     withWasmClientLock: typeof withWasmClientLock;
     yieldWasmClientLock: typeof yieldWasmClientLock;
-    getMidenClient: (options?: unknown) => Promise<unknown>;
+    getMidenClient: () => Promise<unknown>;
     resetMidenClient: () => Promise<void>;
     onWasmClientPoisoned: (listener: () => void) => () => void;
     isWasmClientBusy: typeof isWasmClientBusy;
@@ -1628,13 +1628,12 @@ describe('poisoned client recovery', () => {
     expect(free).toHaveBeenCalledTimes(1);
   });
 
-  it('an options refresh while a holder is mid-yield marks the old client, then reclaims it', async () => {
-    // The routine refresh path, not a recovery: `getMidenClient(options)` disposes
-    // whatever is in the with-options slot, and it must not terminate an instance a
-    // suspended flow still holds. Marking alone was the other half — the reference
-    // was dropped with nothing waiting to reclaim it, so this leaked a whole client
-    // per refresh on the highest-frequency path there is.
-    const { mod, free } = await loadIsolated();
+  it('a write taking the lock while a holder is mid-yield shares the client: nothing is marked or freed', async () => {
+    // Before #878 a write rebuilt the with-options client under a yielded holder, so
+    // the old one had to be marked and reclaimed later. Now the write declares its
+    // signer on its own hold and shares the realm's one client.
+    const { mod, free, markPoisoned, create } = await loadIsolated();
+    const first = await mod.getMidenClient();
 
     let releaseYield!: () => void;
     const yieldGate = new Promise<void>(resolve => {
@@ -1643,16 +1642,18 @@ describe('poisoned client recovery', () => {
     const yielded = mod.withWasmClientLock(hold => mod.yieldWasmClientLock(() => yieldGate, hold));
     await jest.advanceTimersByTimeAsync(0);
 
-    await mod.getMidenClient({ rpcUrl: 'https://one.example' });
-    await mod.getMidenClient({ rpcUrl: 'https://two.example' });
-    // The first with-options instance is detached but still reachable by the
-    // suspended flow, so it is marked rather than freed.
+    const second = await mod.withWasmClientLock(() => mod.getMidenClient(), {
+      keystore: { sign: async () => new Uint8Array() }
+    });
+    expect(second).toBe(first);
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(markPoisoned).not.toHaveBeenCalled();
     expect(free).not.toHaveBeenCalled();
 
     releaseYield();
     await jest.advanceTimersByTimeAsync(0);
     await expect(yielded).resolves.toBeUndefined();
-    expect(free).toHaveBeenCalledTimes(1);
+    expect(free).not.toHaveBeenCalled();
   });
 
   it('an endpoint-change reset does not free a client a yielded holder still has in hand', async () => {
@@ -1704,27 +1705,5 @@ describe('poisoned client recovery', () => {
     );
     expect(free).toHaveBeenCalledTimes(1);
     expect(markPoisoned).not.toHaveBeenCalled();
-  });
-
-  it('an options refresh while a holder is mid-yield marks the old client instead of terminating it', async () => {
-    const { mod, free, markPoisoned } = await loadIsolated();
-    await mod.getMidenClient({ useWorker: false });
-
-    let releaseYield!: () => void;
-    const yieldGate = new Promise<void>(resolve => {
-      releaseYield = resolve;
-    });
-    const op = mod.withWasmClientLock(hold => mod.yieldWasmClientLock(() => yieldGate, hold));
-    await jest.advanceTimersByTimeAsync(0);
-
-    // The routine per-call refresh of the with-options slot races the same
-    // suspended flows a trap recovery does — it must not terminate a client a
-    // mid-yield flow still holds.
-    await mod.getMidenClient({ useWorker: false });
-    expect(markPoisoned).toHaveBeenCalledTimes(1);
-    expect(free).not.toHaveBeenCalled();
-
-    releaseYield();
-    await op;
   });
 });

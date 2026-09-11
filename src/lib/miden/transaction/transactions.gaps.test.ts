@@ -111,6 +111,7 @@ jest.mock('../sdk/miden-client', () => {
   // same shape production throws.
   const { WasmClientPoisonedError: PoisonError } = jest.requireActual('../sdk/wasm-client-poison');
   return {
+    getLastSignReason: () => undefined,
     getMidenClient: async () => ({
       syncState: mockSyncState,
       waitForTransactionCommit: mockWaitForCommit,
@@ -1315,21 +1316,23 @@ describe('generateTransaction execute + consume default switch arms', () => {
       serialize: () => new Uint8Array([])
     };
 
-    // Capture the options.signCallback the WASM client receives so we can
+    // Capture the signer the write declares on its lock hold (#878) so we can
     // invoke it with byte buffers — that's the only way to exercise the
-    // hex-encoding wrapper inside generateTransaction (lines 775-779).
+    // hex-encoding wrapper the write hands the SDK keystore.
     let capturedSignCallback: ((pk: Uint8Array, si: Uint8Array) => Promise<Uint8Array>) | null = null;
     const sdk = require('../sdk/miden-client');
     const origGetClient = sdk.getMidenClient;
-    sdk.getMidenClient = async (options?: any) => {
-      if (options?.signCallback) capturedSignCallback = options.signCallback;
-      return {
-        syncState: jest.fn(),
-        newTransaction: jest.fn(async () => fakeResult),
-        waitForTransactionCommit: jest.fn(),
-        sendPrivateNote: jest.fn()
-      };
+    const origLock = sdk.withWasmClientLock;
+    sdk.withWasmClientLock = async (fn: (hold: object) => Promise<unknown>, options?: any) => {
+      if (options?.keystore?.sign) capturedSignCallback = options.keystore.sign;
+      return origLock(fn, options);
     };
+    sdk.getMidenClient = async () => ({
+      syncState: jest.fn(),
+      newTransaction: jest.fn(async () => fakeResult),
+      waitForTransactionCommit: jest.fn(),
+      sendPrivateNote: jest.fn()
+    });
     _gh.__noteTypeForTest = 'public';
     try {
       const userSignCallback = jest.fn(async () => new Uint8Array([0xab, 0xcd]));
@@ -1343,6 +1346,7 @@ describe('generateTransaction execute + consume default switch arms', () => {
       expect(sig).toEqual(new Uint8Array([0xab, 0xcd]));
     } finally {
       sdk.getMidenClient = origGetClient;
+      sdk.withWasmClientLock = origLock;
     }
   });
 

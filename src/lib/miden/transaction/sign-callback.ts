@@ -1,7 +1,7 @@
 // Sign-callback classification (issue #260, slice 5).
 //
-// This is a LEAF module: it depends only on `Buffer` and a type-only import of
-// `MidenClientCreateOptions`. It exists to break an import cycle that Slice 5
+// This is a LEAF module: it depends only on `Buffer`. It exists to break an
+// import cycle that Slice 5
 // would otherwise introduce. The reverse-IPC sign handler (SW-side, in
 // `back/miden-client-proxy.ts`) must classify a failed sign the SAME way the
 // inline path always has (`buildSignCallbackError`). If the classifier lived in
@@ -14,8 +14,6 @@
 // keeps working unchanged.
 
 import { Buffer } from 'buffer';
-
-import type { MidenClientCreateOptions } from '../sdk/miden-client-interface';
 
 /**
  * Stable tags attached to errors the sign callback throws, so the catch
@@ -52,32 +50,31 @@ export function buildSignCallbackError(err: unknown): SignCallbackError {
 }
 
 /**
- * Build the `MidenClientCreateOptions` whose `signCallback` wraps a raw
- * `(publicKeyHex, signingInputsHex)` signer into the byte-shaped SDK keystore
- * callback, tagging any thrown value via {@link buildSignCallbackError}.
+ * Wrap a raw `(publicKeyHex, signingInputsHex)` signer into the byte-shaped SDK
+ * keystore callback a write declares on its lock hold
+ * (`WasmClientLockOptions.keystore.sign`, #878), tagging any thrown value via
+ * {@link buildSignCallbackError}.
  *
  * This is the EXACT wrapper `generateTransaction` has always built inline for
  * the non-guardian write; extracting it (verbatim) means the flag-OFF offscreen
- * write proxy and the inline switch produce byte-identical `options`, and the
+ * write proxy and the inline switch produce byte-identical signers, and the
  * flag-off path stays a no-op vs. production (issue #260, slice 5, design §7.1).
  */
-export function buildSignCallbackOptions(
+export function buildSdkSignCallback(
   signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>
-): MidenClientCreateOptions {
-  return {
-    signCallback: async (publicKey: Uint8Array, signingInputs: Uint8Array) => {
-      const keyString = Buffer.from(publicKey).toString('hex');
-      const signingInputsString = Buffer.from(signingInputs).toString('hex');
-      try {
-        return await signCallback(keyString, signingInputsString);
-      } catch (err) {
-        // The SDK (WebKeyStore) captures the raw thrown value and exposes
-        // it via `midenClient.lastAuthError()`. Attach a stable `reason`
-        // tag so callers that catch the eventual executeTransaction
-        // failure can distinguish "wallet got locked mid-sign" from other
-        // failure modes (user rejection, keystore IO error, etc.).
-        throw buildSignCallbackError(err);
-      }
+): (publicKey: Uint8Array, signingInputs: Uint8Array) => Promise<Uint8Array> {
+  return async (publicKey: Uint8Array, signingInputs: Uint8Array) => {
+    const keyString = Buffer.from(publicKey).toString('hex');
+    const signingInputsString = Buffer.from(signingInputs).toString('hex');
+    try {
+      return await signCallback(keyString, signingInputsString);
+    } catch (err) {
+      // The SDK (WebKeyStore) captures the raw thrown value and exposes
+      // it via `midenClient.lastAuthError()`. Attach a stable `reason`
+      // tag so callers that catch the eventual executeTransaction
+      // failure can distinguish "wallet got locked mid-sign" from other
+      // failure modes (user rejection, keystore IO error, etc.).
+      throw buildSignCallbackError(err);
     }
   };
 }

@@ -1057,6 +1057,75 @@ describe('MidenClientInterface', () => {
       expect(result).toEqual({ accountId: 'guardian-id', keys });
     });
 
+    it('recoverGuardianAccountsBySeed adopts each match under a hold that declares the insert-key sink (#878)', async () => {
+      const insert = jest.fn(async () => undefined);
+      const fakeMidenClient = { ...buildFakeMidenClient(), keystore: { insert } };
+      const lockOptions: unknown[] = [];
+      let lookups = 0;
+      const match = { state: { stateJson: { data: Buffer.from([1, 2, 3]).toString('base64') } } };
+
+      jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+        ...jest.requireActual('../../../../__mocks__/wasmMock.js'),
+        AuthSecretKey: {
+          ecdsaWithRNG: jest.fn(() => ({
+            publicKey: () => ({ serialize: () => new Uint8Array([0, 0xaa, 0xbb]) }),
+            serialize: () => new Uint8Array([0xcc])
+          }))
+        },
+        Account: { deserialize: jest.fn(() => ({ id: () => ({ toString: () => 'recovered-acc' }) })) }
+      }));
+      jest.doMock('./miden-client', () => ({
+        withWasmClientLock: async <T>(fn: (hold: object) => Promise<T>, options?: unknown) => {
+          lockOptions.push(options);
+          return fn({});
+        },
+        yieldWasmClientLock: async <T>(op: () => Promise<T>) => op(),
+        withWasmLockWatchdogPaused: async <T>(op: () => Promise<T>) => op(),
+        getCurrentWasmLockHold: () => null
+      }));
+      jest.doMock('@openzeppelin/miden-multisig-client', () => ({
+        // One match at HD index 0, then misses until the gap limit ends the scan.
+        MultisigClient: class {
+          recoverByKey = jest.fn(async () => (lookups++ === 0 ? [match] : []));
+        },
+        EcdsaSigner: class {}
+      }));
+      jest.doMock('../guardian/account', () => ({
+        createGuardianAccount: jest.fn(),
+        getSignerDetailsFromAccount: jest.fn(),
+        insertGuardianAccountMonotonically: jest.fn(async () => undefined)
+      }));
+      jest.doMock('../guardian/native-http', () => ({ registerGuardianOrigin: jest.fn() }));
+      jest.doMock('./helpers', () => ({
+        getBech32AddressFromAccountId: (id: any) => (typeof id === 'function' ? id().toString() : String(id))
+      }));
+      jest.doMock('lib/miden-chain/effective-endpoints', () => ({
+        getEffectiveNetworkName: () => 'testnet',
+        getEffectiveRpcUrl: () => 'https://rpc.example',
+        getEffectiveProverUrl: () => undefined,
+        getEffectiveNoteTransportUrl: () => undefined
+      }));
+      jest.doMock('lib/miden/activity/connectivity-issues', () => ({ addConnectivityIssue: jest.fn() }));
+
+      const { MidenClientInterface } = await import('./miden-client-interface');
+      const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
+      const insertKey = jest.fn();
+
+      const recovered = await client.recoverGuardianAccountsBySeed(
+        () => new Uint8Array(32),
+        'https://guardian.example',
+        insertKey
+      );
+
+      expect(recovered).toEqual([
+        { accountId: 'recovered-acc', hdIndex: 0, coldPublicKey: 'aabb', coldSecretKeyHex: 'cc' }
+      ]);
+      expect(insert).toHaveBeenCalledTimes(1);
+      // The adoption runs under a hold that declares the vault's sink: the realm's one client routes the
+      // SDK's insert-key call for the cold key to it (#878).
+      expect(lockOptions).toEqual([{ keystore: { insertKey } }]);
+    });
+
     it('getInputNote delegates to client.notes.get and returns its result', async () => {
       const fakeMidenClient = buildFakeMidenClient({
         notes: { get: jest.fn(async () => 'fetched-note') }

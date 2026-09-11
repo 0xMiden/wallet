@@ -10,6 +10,7 @@ import {
   WasmClientPoisonedError,
   bumpWasmClientGeneration
 } from './wasm-client-poison';
+import type { SignCallbackReason } from '../transaction/sign-callback';
 // eslint-disable-next-line import/order -- must load AFTER wasm-client-poison (TDZ safety, see above)
 import { MidenClientInterface, MidenClientCreateOptions } from './miden-client-interface';
 
@@ -200,6 +201,13 @@ interface LockHolder {
    * a convention every call site has to remember.
    */
   normalCeilingMs: number;
+  /**
+   * The SDK keystore callbacks this hold's WASM calls may trigger (#878). The
+   * realm's one client hands the SDK trampolines that route every keystore call
+   * to the CURRENT holder's callbacks, so a write no longer needs a client of its
+   * own: declaring a signer here is what `getMidenClient(options)` used to be.
+   */
+  keystore: HoldKeystore | null;
   /**
    * Who took this hold, for the eviction record. The watchdog fires rarely, in the
    * field, on a device whose console nobody can read live — and by now a dozen
@@ -732,7 +740,7 @@ function startPausedSegment(holder: LockHolder): void {
  * out of range no matter which call site (or which future one) supplies it —
  * see {@link resolveNormalCeilingMs} for what an unchecked value breaks.
  */
-function beginHold(requestedCeilingMs?: number, label?: string): LockHolder {
+function beginHold(requestedCeilingMs?: number, label?: string, keystore?: HoldKeystore): LockHolder {
   let abort!: (err: Error) => void;
   const aborted = new Promise<never>((_, reject) => {
     abort = reject;
@@ -750,6 +758,7 @@ function beginHold(requestedCeilingMs?: number, label?: string): LockHolder {
     pausedGraceUsed: false,
     normalCeilingMs: resolveNormalCeilingMs(requestedCeilingMs),
     label: label ?? null,
+    keystore: keystore ?? null,
     abort,
     aborted
   };
@@ -772,6 +781,7 @@ function beginHold(requestedCeilingMs?: number, label?: string): LockHolder {
     displaced.watchdogTimer = null;
     displaced.abort(new WasmClientPoisonedError('realm-error', new Error('displaced by a second lock holder')));
   }
+  if (keystore?.sign) lastSignReason = undefined;
   armWatchdogFor(holder);
   currentHolder = holder;
   return holder;
@@ -864,10 +874,45 @@ function recoverFromWedgedHolder(holder: LockHolder, reason: 'watchdog' | 'realm
  *
  * The value is CLAMPED, never trusted — see `resolveNormalCeilingMs`.
  */
+/**
+ * The SDK keystore callbacks a lock hold declares (#878): `sign` for a write
+ * (the SDK signs from inside `executeTransaction`), `insertKey` for an account
+ * creation or import (the SDK hands the new secret to the wallet to persist).
+ * Byte-shaped, as the SDK calls them - `buildSdkSignCallback` wraps a raw hex
+ * signer.
+ */
+export interface HoldKeystore {
+  sign?: (publicKey: Uint8Array, signingInputs: Uint8Array) => Promise<Uint8Array>;
+  insertKey?: (key: Uint8Array, secretKey: Uint8Array) => void | Promise<void>;
+}
+
+/**
+ * Why the most recent declared sign callback threw, for the transaction loop's
+ * "defer a locked-mid-sign write instead of failing it" decision (issue #313).
+ * Reset whenever a hold that declares a signer begins, so it can only ever
+ * describe the latest signing hold: the SDK's own `lastAuthError()` clears only
+ * on the next SUCCESSFUL sign, and on a client shared by every write it would
+ * hand one write's locked error to the next write that failed before signing.
+ */
+let lastSignReason: SignCallbackReason | undefined;
+
+export function getLastSignReason(): SignCallbackReason | undefined {
+  return lastSignReason;
+}
+
+function signReasonOf(err: unknown): SignCallbackReason | undefined {
+  const reason = typeof err === 'object' && err !== null && 'reason' in err ? err.reason : undefined;
+  return reason === 'locked' || reason === 'rejected' || reason === 'not_found' || reason === 'internal'
+    ? reason
+    : undefined;
+}
+
 export interface WasmClientLockOptions {
   watchdogMs?: number;
   /** Names this hold in the eviction record — see `LockHolder.label`. */
   label?: string;
+  /** The keystore callbacks this hold's WASM calls may trigger - see `HoldKeystore`. */
+  keystore?: HoldKeystore;
 }
 
 /**
@@ -927,7 +972,7 @@ export async function withWasmClientLock<T>(
   options?: WasmClientLockOptions
 ): Promise<T> {
   await wasmClientMutex.acquire();
-  const holder = beginHold(options?.watchdogMs, options?.label);
+  const holder = beginHold(options?.watchdogMs, options?.label, options?.keystore);
   try {
     const running = operation(holder);
     holder.running = running;
@@ -992,7 +1037,7 @@ export async function tryWithWasmClientLock<T>(
   // busy is the one that most needs one: the window it DOES win is the instant an
   // eviction released the mutex, when the client slot is empty and its own read has
   // to rebuild against the node that just parked (#777).
-  const holder = beginHold(options?.watchdogMs, options?.label);
+  const holder = beginHold(options?.watchdogMs, options?.label, options?.keystore);
   try {
     const running = operation(holder);
     holder.running = running;
@@ -1228,49 +1273,37 @@ export function runWhenClientIdle(operation: () => Promise<void>): void {
 }
 
 /**
- * Singleton manager for MidenClientInterface.
- * Ensures a bounded number of client instances (and underlying web workers) exist at a time.
+ * The realm's one `MidenClientInterface` (#878).
+ *
+ * One slot. A write used to get a client of its own: `getInstanceWithOptions`
+ * disposed and rebuilt on every call so the SDK keystore could carry that
+ * write's sign callback, and in 0.16 nothing releases a client built in this
+ * realm, so every signed write stranded a wasm-bindgen client and an IndexedDB
+ * connection. The keystore callbacks are declared on the LOCK HOLD instead
+ * (`WasmClientLockOptions.keystore`), and this client's SDK keystore holds
+ * trampolines that route each call to the current holder. The client is
+ * replaced only by a generation bump: trap recovery (`poisonAllInstances`) or an
+ * endpoint change (`disposeAllInstances`), never by a write.
  */
 class MidenClientSingleton {
   private instance: MidenClientInterface | null = null;
   private initializingPromise: Promise<MidenClientInterface> | null = null;
 
-  private instanceWithOptions: MidenClientInterface | null = null;
-  private initializingPromiseWithOptions: Promise<MidenClientInterface> | null = null;
-
   /**
-   * Bumped by every dispose, PER SLOT. A creation that was already in flight
-   * captures its own slot's value at its start and refuses to install its
-   * client if it no longer matches — otherwise it would write a client built
-   * before the dispose into the slot the dispose just cleared, handing later
-   * callers exactly the stale instance the dispose existed to get rid of (issue
-   * #775: recovery disposes from a timer / error listener, so a
-   * `getMidenClient()` is likely in flight).
-   *
-   * Two counters, not one, because the slots have unrelated lifetimes:
-   * `getInstanceWithOptions` disposes its own slot on EVERY call (options must
-   * be re-applied), which is routine rather than a recovery. Sharing one counter
-   * let that routine refresh invalidate an unrelated in-flight no-options
-   * create, which then freed a perfectly healthy client, handed the terminated
-   * instance to its caller anyway, and left its memoized promise uncleared.
+   * Bumped by every dispose or poison. A creation that was already in flight
+   * captures the value at its start and refuses to install its client if it no
+   * longer matches - otherwise it would write a client built before the dispose
+   * into the slot the dispose just cleared, handing later callers exactly the
+   * stale instance the dispose existed to get rid of (issue #775: recovery
+   * disposes from a timer / error listener, so a `getMidenClient()` is likely
+   * in flight). The trampolines a build hands the SDK capture the same value, so
+   * a keystore call reaching a retired client is refused rather than routed to
+   * whoever holds the mutex now.
    */
   private generation = 0;
-  private generationWithOptions = 0;
 
-  /**
-   * Get or create the singleton MidenClientInterface instance.
-   * This instance does not specify any options and is never disposed.
-   * On mobile, if instanceWithOptions already exists, return that to avoid
-   * creating multiple clients (which causes OOM from multiple WASM worker instances).
-   */
+  /** Get or create the realm's client; see the class doc for when it is replaced. */
   async getInstance(): Promise<MidenClientInterface> {
-    // On mobile, reuse any existing client to avoid OOM from multiple worker instances
-    /* c8 ignore next 3 -- singleton reuse path, requires prior getInstanceWithOptions call */
-    if (this.instanceWithOptions) {
-      return this.instanceWithOptions;
-    }
-
-    /* c8 ignore next 3 -- singleton cache hit, requires WASM client creation */
     if (this.instance) {
       return this.instance;
     }
@@ -1282,7 +1315,7 @@ class MidenClientSingleton {
     const startedAt = this.generation;
     const creating: Promise<MidenClientInterface> = (async () => {
       try {
-        const client = await MidenClientInterface.create();
+        const client = await MidenClientInterface.create(this.keystoreTrampolines(startedAt));
         // Lost a race with a dispose: this client predates it, so it must not
         // land in the slot. Free it rather than leaking its WASM instance, and
         // still hand it back to THIS caller, whose await began before the
@@ -1315,58 +1348,38 @@ class MidenClientSingleton {
   }
 
   /**
-   * Get or create the singleton MidenClientInterface instance with specified options.
-   * If it already exists, this instance will always be disposed and recreated to ensure option correctness.
+   * The SDK keystore callbacks for a client built at `generationAtBuild`. Each
+   * routes to the callbacks the CURRENT hold declared (`WasmClientLockOptions.keystore`),
+   * which is sound because only the mutex holder runs WASM: a flow suspended
+   * mid-yield is not executing, and an evicted flow's client was marked or
+   * disposed before the mutex was released, so the generation check refuses it
+   * before the routing could hand its sign to the successor's signer. A hold that
+   * declared no callback and triggers one is a programming error, named as such.
    */
-  async getInstanceWithOptions(options: MidenClientCreateOptions): Promise<MidenClientInterface> {
-    if (this.instanceWithOptions) {
-      this.disposeInstanceWithOptions();
-    }
-
-    /* c8 ignore next 3 -- concurrent init dedup, requires WASM client creation */
-    if (this.initializingPromiseWithOptions) {
-      return this.initializingPromiseWithOptions;
-    }
-
-    const startedAt = this.generationWithOptions;
-    const creating: Promise<MidenClientInterface> = (async () => {
-      try {
-        const client = await MidenClientInterface.create(options);
-        // See getInstance: a client built before a dispose must not be
-        // installed afterwards. This slot matters more, because it is the first
-        // await of every signed (guardian) write.
-        if (startedAt !== this.generationWithOptions) {
-          this.freeGuarded(client);
-          return client;
-        }
-        this.instanceWithOptions = client;
-        return client;
-      } finally {
-        // Self-heal a transient startup failure instead of poisoning the
-        // memoized promise (resilience gap 7 — see getInstance above), without
-        // clearing a successor a mid-creation dispose let somebody else install.
-        if (startedAt === this.generationWithOptions) this.initializingPromiseWithOptions = null;
+  private keystoreTrampolines(
+    generationAtBuild: number
+  ): Pick<MidenClientCreateOptions, 'signCallback' | 'insertKeyCallback'> {
+    const declared = <K extends keyof HoldKeystore>(kind: K): NonNullable<HoldKeystore[K]> => {
+      if (generationAtBuild !== this.generation) {
+        throw new WasmClientPoisonedError('watchdog', new Error(`${kind} requested on a replaced WASM client`));
       }
-    })();
-    this.initializingPromiseWithOptions = creating;
-
-    return creating;
-  }
-
-  disposeInstanceWithOptions(): void {
-    this.generationWithOptions++;
-    // Cleared UNCONDITIONALLY, outside the instance guard. A with-options
-    // creation that is still in flight leaves `instanceWithOptions` null, so the
-    // guard below never runs — and the pending promise would then be returned
-    // as-is by the next `getInstanceWithOptions()`, which is either a client
-    // built against the pre-dispose state or, if that creation is the one that
-    // trapped, a promise that never settles: every later signed write would
-    // await it forever, and recovery could not clear it (issue #775).
-    this.initializingPromiseWithOptions = null;
-    if (this.instanceWithOptions) {
-      this.detachOrFree(this.instanceWithOptions);
-      this.instanceWithOptions = null;
-    }
+      const callback = currentHolder?.keystore?.[kind];
+      if (!callback) {
+        throw new Error(`${kind} requested by a WASM call whose lock hold declared no ${kind} callback`);
+      }
+      return callback;
+    };
+    return {
+      signCallback: async (publicKey, signingInputs) => {
+        try {
+          return await declared('sign')(publicKey, signingInputs);
+        } catch (err) {
+          lastSignReason = signReasonOf(err);
+          throw err;
+        }
+      },
+      insertKeyCallback: async (key, secretKey) => declared('insertKey')(key, secretKey)
+    };
   }
 
   /**
@@ -1377,9 +1390,8 @@ class MidenClientSingleton {
    * direct reference, so terminating here would pull the client out from under a
    * flow that may already have submitted. Marking alone was the other half of the
    * bug: the reference was dropped with nothing waiting to reclaim it, so a whole
-   * WASM client (and off mobile its method worker) leaked — and unlike a trap
-   * recovery this runs on the ROUTINE options refresh, i.e. once per
-   * `getMidenClient(options)` call that finds a populated slot.
+   * WASM client (and off mobile its method worker) leaked. Reached by an
+   * endpoint-change reset, which takes the mutex a yielded holder does not hold.
    */
   private detachOrFree(instance: MidenClientInterface): void {
     if (yieldedHolders.size === 0) {
@@ -1413,9 +1425,8 @@ class MidenClientSingleton {
   }
 
   /**
-   * Free every live singleton (the no-options `instance` and the
-   * `instanceWithOptions`), so the next `getInstance()`/`getInstanceWithOptions()`
-   * call recreates the WASM client from scratch. Used when the effective
+   * Free the live singleton, so the next `getInstance()` call recreates the
+   * WASM client from scratch. Used when the effective
    * endpoints (RPC/prover/note-transport) change underneath a long-lived
    * singleton — see `resetMidenClient`.
    *
@@ -1445,7 +1456,6 @@ class MidenClientSingleton {
     // stale creation resolves. Clearing the slot means any `getInstance()` call issued
     // after this reset starts its own fresh creation instead of rejoining the stale one.
     this.initializingPromise = null;
-    this.disposeInstanceWithOptions();
   }
 
   /**
@@ -1474,15 +1484,10 @@ class MidenClientSingleton {
   poisonAllInstances(): MidenClientInterface[] {
     bumpWasmClientGeneration();
     this.generation++;
-    this.generationWithOptions++;
-    const poisoned = [this.instance, this.instanceWithOptions].filter(
-      (client): client is MidenClientInterface => client !== null
-    );
+    const poisoned = this.instance ? [this.instance] : [];
     for (const client of poisoned) client.markPoisoned();
     this.instance = null;
     this.initializingPromise = null;
-    this.instanceWithOptions = null;
-    this.initializingPromiseWithOptions = null;
     return poisoned;
   }
 
@@ -1508,20 +1513,17 @@ const midenClientSingleton = new MidenClientSingleton();
 ensureRealmErrorListener();
 
 /**
- * Convenience function to get the shared MidenClientInterface instance.
- * Use this in your components and modules instead of calling MidenClientInterface.create().
+ * The realm's shared `MidenClientInterface`. Use this instead of
+ * `MidenClientInterface.create()`. A write declares its sign callback on its lock
+ * hold (`WasmClientLockOptions.keystore`), an account creation or import its
+ * insert-key callback; the client itself is never rebuilt for a call (#878).
  */
-export async function getMidenClient(options?: MidenClientCreateOptions): Promise<MidenClientInterface> {
-  if (options) {
-    const client = await midenClientSingleton.getInstanceWithOptions(options);
-    return client;
-  }
-  const client = await midenClientSingleton.getInstance();
-  return client;
+export async function getMidenClient(): Promise<MidenClientInterface> {
+  return midenClientSingleton.getInstance();
 }
 
 /**
- * Dispose every live MidenClientInterface singleton so the next `getMidenClient()`
+ * Dispose the live MidenClientInterface singleton so the next `getMidenClient()`
  * call rebuilds one from scratch against the current effective endpoints
  * (`lib/miden-chain/effective-endpoints`). Use this after the endpoint
  * override changes underneath an already-created client (e.g. the SW's

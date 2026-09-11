@@ -2,7 +2,7 @@ import { buildSwapTag, NoteScript, NoteType } from '@miden-sdk/miden-sdk/lazy';
 
 import { NoteExportType } from 'lib/miden/sdk/constants';
 import { accountIdStringToSdk } from 'lib/miden/sdk/helpers';
-import { getMidenClient } from 'lib/miden/sdk/miden-client';
+import { getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import { remoteProver } from 'lib/miden/sdk/miden-client-interface';
 
 import { _setSwapTokensForTest, type SwapToken } from './tokens';
@@ -30,9 +30,9 @@ const LINEAGE_STATE = ['active', 'filled', 'reclaimed'] as const;
  *    `__TEST_PSWAP_ORDER_INFO__`) — as a solver reads it from the mempool.
  *  - PSWAP notes surface in `notes.list()` (input notes), not
  *    `getConsumableNotes()`.
- *  - Discover on the DEFAULT client (synced singleton); `getMidenClient(opts)`
- *    is a fresh, unsynced client — use it only for the signed fill (by note id,
- *    resolved from the shared store).
+ *  - Discover on the realm's one client; the signed fill takes the WASM lock
+ *    with the vault signer declared on its hold (#878), by note id resolved from
+ *    the shared store.
  */
 
 export interface PswapConsumeArgs {
@@ -169,23 +169,28 @@ export function installSwapConsumeHooks(signCallback: SwapSignCallback): void {
       // block when a tag is subscribed after the fact (a reactive taker misses
       // notes that commit before it subscribes; a live solver subscribes ahead).
       if (a.noteFileHex) {
-        const signMc = await getMidenClient({ signCallback } as any);
-        await signMc.syncState();
-        const importedId = await signMc.importNoteBytes(Buffer.from(a.noteFileHex, 'hex'));
-        await signMc.syncState();
-        const result = await (signMc as unknown as { client: any }).client.transactions.pswapConsume({
-          account: a.accountId,
-          note: importedId,
-          fillAmount: BigInt(a.fillAmount),
-          // Omitting `prover` takes the SDK's default remote prover, whose gRPC
-          // deadline is ~10s — shorter than a fill proof takes on a 2-core CI
-          // runner, so the fill dies with `DeadlineExceeded`. `remoteProver()`
-          // carries `DELEGATED_PROVE_TIMEOUT_MS` instead. Build a fresh one per
-          // call: the SDK consumes a prover, and a reused one silently reverts
-          // to the default.
-          prover: remoteProver()
-        });
-        return { ok: true, txId: String(result?.id?.() ?? result ?? ''), noteId: importedId };
+        return await withWasmClientLock(
+          async () => {
+            const signMc = await getMidenClient();
+            await signMc.syncState();
+            const importedId = await signMc.importNoteBytes(Buffer.from(a.noteFileHex!, 'hex'));
+            await signMc.syncState();
+            const result = await (signMc as unknown as { client: any }).client.transactions.pswapConsume({
+              account: a.accountId,
+              note: importedId,
+              fillAmount: BigInt(a.fillAmount),
+              // Omitting `prover` takes the SDK's default remote prover, whose gRPC
+              // deadline is ~10s — shorter than a fill proof takes on a 2-core CI
+              // runner, so the fill dies with `DeadlineExceeded`. `remoteProver()`
+              // carries `DELEGATED_PROVE_TIMEOUT_MS` instead. Build a fresh one per
+              // call: the SDK consumes a prover, and a reused one silently reverts
+              // to the default.
+              prover: remoteProver()
+            });
+            return { ok: true, txId: String(result?.id?.() ?? result ?? ''), noteId: importedId };
+          },
+          { keystore: { sign: signCallback } }
+        );
       }
 
       // 1. Discover on the synced DEFAULT client: subscribe to the maker's tag,
@@ -233,17 +238,22 @@ export function installSwapConsumeHooks(signCallback: SwapSignCallback): void {
       }
       const noteId = String(note.id().toString());
 
-      // 2. Fill on the vault-signing client, by note id (resolved from the shared store).
-      const signMc = await getMidenClient({ signCallback } as any);
-      await signMc.syncState();
-      const result = await (signMc as unknown as { client: any }).client.transactions.pswapConsume({
-        account: a.accountId,
-        note: noteId,
-        fillAmount: BigInt(a.fillAmount),
-        // Fresh explicit prover, same reason as the deterministic-handoff path above.
-        prover: remoteProver()
-      });
-      return { ok: true, txId: String(result?.id?.() ?? result ?? ''), noteId };
+      // 2. Fill under a hold that declares the vault signer, by note id (resolved from the shared store).
+      return await withWasmClientLock(
+        async () => {
+          const signMc = await getMidenClient();
+          await signMc.syncState();
+          const result = await (signMc as unknown as { client: any }).client.transactions.pswapConsume({
+            account: a.accountId,
+            note: noteId,
+            fillAmount: BigInt(a.fillAmount),
+            // Fresh explicit prover, same reason as the deterministic-handoff path above.
+            prover: remoteProver()
+          });
+          return { ok: true, txId: String(result?.id?.() ?? result ?? ''), noteId };
+        },
+        { keystore: { sign: signCallback } }
+      );
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.stack || e.message : String(e) };
     }
@@ -295,10 +305,17 @@ export function installSwapConsumeHooks(signCallback: SwapSignCallback): void {
 
   (globalThis as any).__TEST_PSWAP_CANCEL__ = async (a: { orderId: string }) => {
     try {
-      const signMc = await getMidenClient({ signCallback } as any);
-      await signMc.syncState();
-      const result = await (signMc as unknown as { client: any }).client.pswap.cancelByOrder({ orderId: a.orderId });
-      return { ok: true, txId: String(result?.id?.() ?? result ?? '') };
+      return await withWasmClientLock(
+        async () => {
+          const signMc = await getMidenClient();
+          await signMc.syncState();
+          const result = await (signMc as unknown as { client: any }).client.pswap.cancelByOrder({
+            orderId: a.orderId
+          });
+          return { ok: true, txId: String(result?.id?.() ?? result ?? '') };
+        },
+        { keystore: { sign: signCallback } }
+      );
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.stack || e.message : String(e) };
     }

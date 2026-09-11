@@ -98,34 +98,37 @@ jest.mock('dexie', () => ({
 const mockSyncState = jest.fn().mockResolvedValue(undefined);
 const mockWaitForTransactionCommit = jest.fn().mockResolvedValue(undefined);
 const mockSendPrivateNote = jest.fn().mockResolvedValue(undefined);
-// Raw WASM client's lastAuthError(), read by readLastAuthReason in the
-// generate-loop catch. Default null = no auth failure recorded.
-const mockLastAuthError = jest.fn((): unknown => null);
+// The lock's record of why the last declared signer failed (#878), read by
+// readLastAuthReason in the generate-loop catch. Default undefined = none.
+const mockLastSignReason = jest.fn((): unknown => undefined);
 // The #260 offscreen client proxy (through which non-guardian send/swap/execute
 // now route their flag-off write) imports getMidenClient / withWasmClientLock via
 // the `lib/...` alias, which jest mocks separately from the relative specifier
 // below; bridge the alias to the same mock so the proxy's flag-off passthrough
-// invokes the wrapped sign callback exactly as the old inline switch did.
+// declares the wrapped signer on its hold exactly as the old inline switch did.
 jest.mock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-client'));
 jest.mock('../sdk/miden-client', () => ({
-  getMidenClient: async (options?: { signCallback?: (pk: Uint8Array, si: Uint8Array) => Promise<Uint8Array> }) => {
-    // Mirror the SDK invoking the wrapped per-tx sign callback so its wrapper
+  getMidenClient: async () => ({
+    syncState: mockSyncState,
+    waitForTransactionCommit: mockWaitForTransactionCommit,
+    sendPrivateNote: mockSendPrivateNote
+  }),
+  getLastSignReason: () => mockLastSignReason(),
+  withWasmClientLock: async <T>(
+    fn: () => Promise<T>,
+    options?: { keystore?: { sign?: (pk: Uint8Array, si: Uint8Array) => Promise<Uint8Array> } }
+  ) => {
+    // Mirror the SDK invoking the signer the hold declares (#878) so its wrapper
     // (and buildSignCallbackError on failure) is exercised through the real path.
-    if (options?.signCallback) {
+    if (options?.keystore?.sign) {
       try {
-        await options.signCallback(new Uint8Array([1]), new Uint8Array([2]));
+        await options.keystore.sign(new Uint8Array([1]), new Uint8Array([2]));
       } catch {
         /* wrapper threw a typed SignCallbackError; the SDK would capture it */
       }
     }
-    return {
-      syncState: mockSyncState,
-      waitForTransactionCommit: mockWaitForTransactionCommit,
-      sendPrivateNote: mockSendPrivateNote,
-      client: { lastAuthError: mockLastAuthError }
-    };
-  },
-  withWasmClientLock: async <T>(fn: () => Promise<T>) => fn()
+    return fn();
+  }
 }));
 
 // Default to non-Guardian so generateTransaction takes the standard
@@ -210,8 +213,8 @@ const stubGuardianProvider = {
 
 beforeEach(() => {
   jest.clearAllMocks();
-  mockLastAuthError.mockReset();
-  mockLastAuthError.mockImplementation((): unknown => null);
+  mockLastSignReason.mockReset();
+  mockLastSignReason.mockImplementation((): unknown => undefined);
   txStore.length = 0;
   _g.__txBrTest.liveQueryCallbacks.length = 0;
 });
@@ -1062,7 +1065,7 @@ describe('generateTransactionsLoop error paths', () => {
       return fn();
     });
     // SDK captured a locked-wallet auth failure during the sign callback.
-    mockLastAuthError.mockReturnValueOnce({ reason: 'locked' });
+    mockLastSignReason.mockReturnValueOnce('locked');
 
     txStore.push({
       id: 'tx-locked',
@@ -1092,7 +1095,7 @@ describe('generateTransactionsLoop error paths', () => {
 
   it('does NOT requeue a lock-recovery eviction that lands alongside a stale locked auth reason (#775)', async () => {
     // The locked-defer branch is reached by an OR: the error looks locked, OR
-    // the client's ambient `lastAuthError()` says 'locked'. The second disjunct
+    // the lock's sign record says 'locked'. The second disjunct
     // never looks at the error at all, so a WasmClientPoisonedError arriving
     // while that ambient reason is set would take the defer path — which
     // requeues the row as a fresh write on the argument that a locked vault is
@@ -1108,7 +1111,7 @@ describe('generateTransactionsLoop error paths', () => {
       if (callCount >= 2) throw new WasmClientPoisonedError('watchdog');
       return fn();
     });
-    mockLastAuthError.mockReturnValueOnce({ reason: 'locked' });
+    mockLastSignReason.mockReturnValueOnce('locked');
 
     txStore.push({
       id: 'tx-poisoned-not-locked',
@@ -1145,7 +1148,7 @@ describe('generateTransactionsLoop error paths', () => {
       if (callCount >= 2) throw new OperationAbortedError('op-1', 'deadline');
       return fn();
     });
-    mockLastAuthError.mockReturnValueOnce({ reason: 'locked' });
+    mockLastSignReason.mockReturnValueOnce('locked');
 
     txStore.push({
       id: 'tx-aborted-not-locked',
@@ -1217,8 +1220,8 @@ describe('generateTransactionsLoop error paths', () => {
   });
 
   it('invokes the wrapped sign callback during dispatch (success path)', async () => {
-    // Default withWasmClientLock runs fn(), so generateTransaction reaches
-    // getMidenClient(options) and the mock invokes the wrapped sign callback.
+    // The mocked withWasmClientLock invokes the signer the hold declares before
+    // running fn(), so generateTransaction's wrapped sign callback is exercised.
     txStore.push({
       id: 'tx-sign-ok',
       type: 'send',
@@ -1314,48 +1317,36 @@ describe('generateTransactionsLoop — head-of-line fairness', () => {
 
 describe('readLastAuthReason', () => {
   it.each(['locked', 'rejected', 'not_found', 'internal'])(
-    "returns the '%s' reason from the SDK's lastAuthError",
+    "returns the '%s' reason the lock recorded for the last declared signer",
     async reason => {
-      mockLastAuthError.mockReturnValueOnce({ reason });
+      mockLastSignReason.mockReturnValueOnce(reason);
       expect(await readLastAuthReason()).toBe(reason);
     }
   );
 
-  it('returns undefined for an unrecognized reason', async () => {
-    mockLastAuthError.mockReturnValueOnce({ reason: 'something-else' });
+  it('returns undefined when no declared signer has failed', async () => {
+    mockLastSignReason.mockReturnValueOnce(undefined);
     expect(await readLastAuthReason()).toBeUndefined();
   });
 
-  it('returns undefined when there is no recorded auth error', async () => {
-    mockLastAuthError.mockReturnValueOnce(null);
-    expect(await readLastAuthReason()).toBeUndefined();
-  });
-
-  it('returns undefined when lastAuthError throws', async () => {
-    mockLastAuthError.mockImplementationOnce(() => {
-      throw new Error('boom');
-    });
-    expect(await readLastAuthReason()).toBeUndefined();
-  });
-
-  // Issue #260 flip-prep #1+#2: under the flag-on offscreen write the SW-inline
-  // client NEVER signed for the op (the sign ran in the offscreen realm), so its
-  // `lastAuthError()` is STALE / another op's — consulting it would DEFER a
-  // genuinely-failed offscreen write forever on a stale 'locked'. The op's locked
-  // signal is carried instead by the op-keyed error tag (`isLockedError(e)`), so
-  // `readLastAuthReason()` must NOT consult the SW client at all under flag-on.
-  it('flag-on: never consults the stale SW-client lastAuthError (returns undefined)', async () => {
+  // Issue #260 flip-prep #1+#2: under the flag-on offscreen write the SW realm
+  // NEVER signed for the op (the sign ran in the offscreen realm), so its sign
+  // record is STALE / another op's - consulting it would DEFER a genuinely-failed
+  // offscreen write forever on a stale 'locked'. The op's locked signal is carried
+  // instead by the op-keyed error tag (`isLockedError(e)`), so
+  // `readLastAuthReason()` must NOT consult the SW record at all under flag-on.
+  it('flag-on: never consults the SW realm sign record (returns undefined)', async () => {
     process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
     jest.resetModules();
     try {
       const { readLastAuthReason: readFlagOn } = await import('./helper');
-      // Seed a STALE 'locked' on the SW client — a genuinely-failed offscreen
+      // Seed a STALE 'locked' in the SW record - a genuinely-failed offscreen
       // write must not be deferred on it.
-      mockLastAuthError.mockReturnValue({ reason: 'locked' });
+      mockLastSignReason.mockReturnValue('locked');
       expect(await readFlagOn()).toBeUndefined();
     } finally {
       delete process.env.MIDEN_USE_OFFSCREEN_CLIENT;
-      mockLastAuthError.mockReturnValue(null);
+      mockLastSignReason.mockReturnValue(undefined);
       jest.resetModules();
     }
   });

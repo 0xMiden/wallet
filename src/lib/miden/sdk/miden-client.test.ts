@@ -368,26 +368,123 @@ describe('getMidenClient singleton', () => {
     });
   });
 
-  it('disposes and recreates when called with options', async () => {
+  // #878: a write declares its signer on its lock hold; the client is never rebuilt for it.
+  const withKeystoreClient = async (
+    run: (mod: typeof import('./miden-client'), create: jest.Mock, free: jest.Mock) => Promise<void>
+  ) => {
     const free = jest.fn();
-    const create = jest.fn().mockResolvedValueOnce({ free }).mockResolvedValueOnce({ free });
-
+    const create = jest.fn(async () => ({ free, markPoisoned: jest.fn() }));
     jest.doMock('./miden-client-interface', () => ({
       MidenClientInterface: class {
         static create = create;
         free = free;
       }
     }));
+    await jest.isolateModulesAsync(async () => {
+      await run(require('./miden-client'), create, free);
+    });
+  };
+  const publicKey = new Uint8Array([1, 2]);
+  const signingInputs = new Uint8Array([3, 4]);
 
-    jest.isolateModules(() => {
-      const { getMidenClient } = require('./miden-client');
-      return Promise.resolve()
-        .then(() => getMidenClient({ seed: new Uint8Array([1]) }))
-        .then(() => getMidenClient({ seed: new Uint8Array([2]) }))
-        .then(() => {
-          expect(create).toHaveBeenCalledTimes(2);
-          expect(free).toHaveBeenCalledTimes(1);
-        });
+  it('keeps one client across signed writes: a hold declares its signer instead of rebuilding the client', async () => {
+    await withKeystoreClient(async ({ getMidenClient, withWasmClientLock }, create, free) => {
+      const first = await withWasmClientLock(() => getMidenClient(), {
+        keystore: { sign: async () => new Uint8Array([1]) }
+      });
+      const second = await withWasmClientLock(() => getMidenClient(), {
+        keystore: { sign: async () => new Uint8Array([2]) }
+      });
+      expect(create).toHaveBeenCalledTimes(1);
+      expect(second).toBe(first);
+      expect(free).not.toHaveBeenCalled();
+    });
+  });
+
+  it('routes the SDK keystore callbacks to the current hold, and refuses a hold that declared none', async () => {
+    await withKeystoreClient(async ({ getMidenClient, withWasmClientLock }, create) => {
+      await getMidenClient();
+      const { signCallback, insertKeyCallback } = create.mock.calls[0]![0];
+      const sign = jest.fn(async () => new Uint8Array([9]));
+      const insertKey = jest.fn();
+      await withWasmClientLock(
+        async () => {
+          await expect(signCallback(publicKey, signingInputs)).resolves.toEqual(new Uint8Array([9]));
+          expect(sign).toHaveBeenCalledWith(publicKey, signingInputs);
+          await insertKeyCallback(publicKey, signingInputs);
+          expect(insertKey).toHaveBeenCalledWith(publicKey, signingInputs);
+        },
+        { keystore: { sign, insertKey } }
+      );
+      // A hold with no declared signer, and no hold at all: a programming error, named as such.
+      await withWasmClientLock(async () => {
+        await expect(signCallback(publicKey, signingInputs)).rejects.toThrow('declared no sign callback');
+      });
+      await expect(signCallback(publicKey, signingInputs)).rejects.toThrow('declared no sign callback');
+      await expect(insertKeyCallback(publicKey, signingInputs)).rejects.toThrow('declared no insertKey callback');
+      expect(sign).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it('records why the declared signer failed, and resets it when the next signing hold begins', async () => {
+    await withKeystoreClient(async ({ getMidenClient, withWasmClientLock, getLastSignReason }, create) => {
+      await getMidenClient();
+      const { signCallback } = create.mock.calls[0]![0];
+      const locked = Object.assign(new Error('Sign callback failed (locked)'), { reason: 'locked' });
+      await withWasmClientLock(
+        async () => {
+          await expect(signCallback(publicKey, signingInputs)).rejects.toBe(locked);
+        },
+        {
+          keystore: {
+            sign: async () => {
+              throw locked;
+            }
+          }
+        }
+      );
+      expect(getLastSignReason()).toBe('locked');
+      // A hold that does not sign leaves the record alone; the next signing hold clears it before it signs.
+      await withWasmClientLock(async () => undefined);
+      expect(getLastSignReason()).toBe('locked');
+      await withWasmClientLock(
+        async () => {
+          expect(getLastSignReason()).toBeUndefined();
+        },
+        { keystore: { sign: async () => new Uint8Array() } }
+      );
+      // An untagged failure records no reason.
+      await withWasmClientLock(
+        async () => {
+          await expect(signCallback(publicKey, signingInputs)).rejects.toThrow('plain');
+        },
+        {
+          keystore: {
+            sign: async () => {
+              throw new Error('plain');
+            }
+          }
+        }
+      );
+      expect(getLastSignReason()).toBeUndefined();
+    });
+  });
+
+  it('refuses a keystore call on a client the singleton has replaced', async () => {
+    await withKeystoreClient(async ({ getMidenClient, withWasmClientLock, resetMidenClient }, create) => {
+      await getMidenClient();
+      const { signCallback } = create.mock.calls[0]![0];
+      await resetMidenClient();
+      const sign = jest.fn(async () => new Uint8Array());
+      await withWasmClientLock(
+        async () => {
+          await expect(signCallback(publicKey, signingInputs)).rejects.toMatchObject({
+            name: 'WasmClientPoisonedError'
+          });
+        },
+        { keystore: { sign } }
+      );
+      expect(sign).not.toHaveBeenCalled();
     });
   });
 
@@ -504,29 +601,6 @@ describe('resetMidenClient', () => {
 
       resolveCreate({ free });
       await Promise.all([firstCall, secondCall]);
-    });
-  });
-
-  it('also frees an instanceWithOptions singleton, if one exists', async () => {
-    const free = jest.fn();
-    const create = jest.fn(async () => ({ free }));
-    jest.doMock('./miden-client-interface', () => ({
-      MidenClientInterface: class {
-        static create = create;
-        free = free;
-      }
-    }));
-
-    await jest.isolateModulesAsync(async () => {
-      const { getMidenClient, resetMidenClient } = require('./miden-client');
-      await getMidenClient({ seed: new Uint8Array([1]) });
-      expect(create).toHaveBeenCalledTimes(1);
-
-      await resetMidenClient();
-      expect(free).toHaveBeenCalledTimes(1);
-
-      await getMidenClient({ seed: new Uint8Array([2]) });
-      expect(create).toHaveBeenCalledTimes(2);
     });
   });
 });

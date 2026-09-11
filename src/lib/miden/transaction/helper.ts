@@ -13,7 +13,7 @@ import {
   ITransactionStatus,
   TransactionOutput
 } from '../db/types';
-import { getMidenClient } from '../sdk/miden-client';
+import { getLastSignReason } from '../sdk/miden-client';
 import { errorMessageParts } from '../sdk/sdk-error-code';
 import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
@@ -31,7 +31,7 @@ const USE_OFFSCREEN_CLIENT = process.env.MIDEN_USE_OFFSCREEN_CLIENT === 'true';
 // cycle (the offscreen write proxy needs the classifier). Re-exporting keeps
 // every existing caller — `import { buildSignCallbackError, ... } from './helper'`
 // / `./index` — unchanged.
-export { buildSignCallbackError, buildSignCallbackOptions, type SignCallbackError } from './sign-callback';
+export { buildSignCallbackError, buildSdkSignCallback, type SignCallbackError } from './sign-callback';
 // `SignCallbackReason` is imported locally (used in `readLastAuthReason`'s
 // return type) and re-exported from that local binding to avoid naming it in
 // two separate re-export statements.
@@ -429,43 +429,26 @@ export const clearCancelledInFlight = async (id: string) => {
 };
 
 /**
- * Reads the last sign-callback failure reason (`locked` / `rejected` / …) from
- * the SW-inline WASM client, used by the transaction loop to DEFER a
- * locked-mid-sign tx instead of Failing it (issue #313 note-loss guard).
+ * The reason the last declared sign callback failed (`locked` / `rejected` / …),
+ * used by the transaction loop to DEFER a locked-mid-sign tx instead of Failing
+ * it (issue #313 note-loss guard).
  *
- * Invariant (issue #260 flip-prep #2): consult the SW client's `lastAuthError()`
- * IFF the SW client actually did the sign — i.e. the FLAG-OFF (inline) write path.
- * Under the flag-ON offscreen write the sign runs in the OFFSCREEN realm and the
- * SDK captures the error on the OFFSCREEN client; the SW-inline client NEVER
- * signed for that op, so its `lastAuthError()` is stale / another op's. Deferring
- * a genuinely-failed offscreen write on that stale slot would leave it Queued
- * FOREVER (never Failed). So under flag-on this returns `undefined` and the loop
- * relies solely on the op-keyed error tag (`isLockedError(e)`, set by
- * `dispatchOffscreenWrite` when the reverse-IPC sign reported 'locked').
+ * Read from the lock's own record (`getLastSignReason`, #878), which resets when
+ * a hold that declares a signer begins, not from the SDK client's
+ * `lastAuthError()`: every write now shares one client, and the SDK's slot clears
+ * only on the next SUCCESSFUL sign, so it would hand one write's locked error to
+ * the next write that failed before it signed.
  *
- * Flag-OFF is byte-identical to before: `USE_OFFSCREEN_CLIENT` is false, the
- * guard below dead-code-eliminates, and this reads the SW client exactly as it
- * always has.
+ * Invariant (issue #260 flip-prep #2): consult this IFF the SW signed - i.e. the
+ * FLAG-OFF (inline) write path. Under the flag-ON offscreen write the sign runs in
+ * the OFFSCREEN realm; the SW never signed for that op, so this returns
+ * `undefined` and the loop relies solely on the op-keyed error tag
+ * (`isLockedError(e)`, set by `dispatchOffscreenWrite` when the reverse-IPC sign
+ * reported 'locked').
  */
 export async function readLastAuthReason(): Promise<SignCallbackReason | undefined> {
-  // Flag-on: the offscreen realm signed, not this SW client — its lastAuthError()
-  // is not authoritative for the failing op. The locked signal (if any) rides the
-  // op-keyed error tag instead.
   if (USE_OFFSCREEN_CLIENT) return undefined;
-  try {
-    const midenClient = await getMidenClient();
-    const rawClient = (midenClient as any).client;
-    if (!rawClient || typeof rawClient.lastAuthError !== 'function') return undefined;
-    const raw = rawClient.lastAuthError();
-    if (!raw || typeof raw !== 'object') return undefined;
-    const reason = (raw as { reason?: unknown }).reason;
-    if (reason === 'locked' || reason === 'rejected' || reason === 'not_found' || reason === 'internal') {
-      return reason;
-    }
-    return undefined;
-  } catch {
-    return undefined;
-  }
+  return getLastSignReason();
 }
 
 // Timeout for waiting on consume transactions (5 minutes)

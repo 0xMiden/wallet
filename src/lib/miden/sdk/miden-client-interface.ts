@@ -52,7 +52,12 @@ import {
   getBech32AddressFromAccountId,
   walletAccountIdToSdk
 } from './helpers';
-import { getCurrentWasmLockHold, withWasmLockWatchdogPaused, yieldWasmClientLock } from './miden-client';
+import {
+  getCurrentWasmLockHold,
+  type HoldKeystore,
+  withWasmLockWatchdogPaused,
+  yieldWasmClientLock
+} from './miden-client';
 import { buildNativeProverCallback } from './native-prover-mobile';
 import { recordProveMarker, recordProveTelemetry } from './prove-telemetry';
 import { isApplyAfterSubmitError } from './sdk-error-code';
@@ -667,10 +672,14 @@ export class MidenClientInterface {
    * @param guardianEndpoint - Operator the lookup is scoped to. Must match
    *   the endpoint the account was originally registered with — account IDs
    *   are content-hash bound to the guardian pubkey baked into storage.
+   * @param insertKey - Where the SDK hands each adopted account's cold secret
+   *   (the vault's insert-key sink); declared on the adoption hold, since the
+   *   realm's one client routes keystore calls to the current hold (#878).
    */
   async recoverGuardianAccountsBySeed(
     deriveColdSeed: (hdIndex: number) => Uint8Array,
-    guardianEndpoint: string
+    guardianEndpoint: string,
+    insertKey: HoldKeystore['insertKey']
   ): Promise<RecoveredGuardianAccount[]> {
     const [{ withWasmClientLock }, { MultisigClient, EcdsaSigner }] = await Promise.all([
       import('../sdk/miden-client'),
@@ -714,15 +723,18 @@ export class MidenClientInterface {
         // Decode the on-chain account state and adopt it locally so subsequent
         // SDK calls (.load, executeForSummary) can resolve the account.
         const accountBytes = new Uint8Array(Buffer.from(state.stateJson.data, 'base64'));
-        const bech32 = await withWasmClientLock(async () => {
-          const acc = Account.deserialize(accountBytes);
-          // The same account matches at more than one HD index, so this runs
-          // twice per recovery; a plain overwrite lets whichever snapshot
-          // arrives last win, including a creation-time one.
-          await insertGuardianAccountMonotonically(this.client, acc);
-          await this.client.keystore.insert(acc.id(), coldSk);
-          return getBech32AddressFromAccountId(acc.id());
-        });
+        const bech32 = await withWasmClientLock(
+          async () => {
+            const acc = Account.deserialize(accountBytes);
+            // The same account matches at more than one HD index, so this runs
+            // twice per recovery; a plain overwrite lets whichever snapshot
+            // arrives last win, including a creation-time one.
+            await insertGuardianAccountMonotonically(this.client, acc);
+            await this.client.keystore.insert(acc.id(), coldSk);
+            return getBech32AddressFromAccountId(acc.id());
+          },
+          { keystore: { insertKey } }
+        );
 
         recovered.push({
           accountId: bech32,
