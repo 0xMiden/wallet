@@ -103,10 +103,14 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
   }, []);
 
   // Hardware back / iOS swipe-back closes the modal as a deny.
-  useMobileBackHandler(() => {
-    handleDeny();
-    return true;
-  }, []);
+  useMobileBackHandler(
+    () => {
+      handleDeny();
+      return true;
+    },
+    [],
+    { overlay: true }
+  );
 
   // PR-7: ESC key deny + Tab key focus trap.
   useEffect(() => {

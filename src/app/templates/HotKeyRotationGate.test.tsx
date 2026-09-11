@@ -3,6 +3,7 @@ import React from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 import { ITransactionStatus } from 'lib/miden/db/types';
+import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import type { WalletAccount } from 'lib/shared/types';
 
 import { HotKeyRotationGate } from './HotKeyRotationGate';
@@ -133,6 +134,15 @@ describe('HotKeyRotationGate', () => {
 
     await waitFor(() => expect(mockInitiate).toHaveBeenCalledTimes(1));
     expect(mockInitiate).toHaveBeenCalledWith('account-1', false, { name: 'zustand-provider' });
+  });
+
+  it('swallows mobile back from the overlay tier while it blocks', async () => {
+    render(<HotKeyRotationGate />);
+
+    expect(useMobileBackHandler).toHaveBeenCalledWith(expect.any(Function), [], { overlay: true });
+    const [handler] = jest.mocked(useMobileBackHandler).mock.calls[0]!;
+    expect(handler()).toBe(true);
+    await waitFor(() => expect(mockInitiate).toHaveBeenCalledTimes(1));
   });
 
   it('adopts an existing pending rotation row instead of initiating a new one', async () => {

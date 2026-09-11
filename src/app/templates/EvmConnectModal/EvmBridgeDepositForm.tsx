@@ -1,5 +1,6 @@
 import React from 'react';
 
+import { TestNetworkWarning } from 'components/TestNetworkWarning';
 import { DEFAULT_BRIDGE_NETWORK, BRIDGE_OUTPUT_TOKEN_SYMBOL } from 'screens/send-flow/bridge-networks';
 import { SelectAmount } from 'screens/send-flow/SelectAmount';
 import { UIToken } from 'screens/send-flow/types';
@@ -49,6 +50,15 @@ export const EvmBridgeDepositForm: React.FC<EvmBridgeDepositFormProps> = ({
       onSelectToken={onSelectToken}
       onSelectNetwork={() => {}}
       onConfirm={onContinue}
-    />
+    >
+      {/* Funding decision point (#875): a wallet that was already connected
+          skips the connect-step warning, so the form carries its own. */}
+      <TestNetworkWarning
+        titleKey="bridgeTestFundsTitle"
+        bodyKey="bridgeTestFundsBody"
+        className="mt-4"
+        data-testid="bridge-test-funds-warning"
+      />
+    </SelectAmount>
   );
 };

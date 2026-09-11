@@ -145,6 +145,8 @@ export async function completeSeedImportOnboarding(page: Page, fullpageUrl: stri
 
   await page.getByTestId('onboarding-welcome').waitFor({ timeout: timeoutMs });
   await page.locator('#import-link').click({ timeout: ACTION_TIMEOUT });
+  // The network notice (#875) precedes the import flow.
+  await page.getByTestId('onboarding-network-notice-acknowledge').click({ timeout: ACTION_TIMEOUT });
   await page.getByTestId('import-seed-phrase').waitFor({ timeout: timeoutMs });
 
   const words = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about'.split(

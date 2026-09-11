@@ -9,6 +9,7 @@ import { AnalyticsEventCategory, useAnalytics } from 'lib/analytics';
 import { canHandoffToSidePanel, postOnboardingRoute } from 'lib/extension/side-panel-handoff';
 import { useMidenContext } from 'lib/miden/front';
 import { useGuardianProbe } from 'lib/miden/guardian/use-guardian-probe';
+import { getTestNetworkNameKey } from 'lib/miden-chain/effective-endpoints';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isDesktop, isMobile } from 'lib/platform';
 import { WalletStatus } from 'lib/shared/types';
@@ -298,13 +299,36 @@ const Welcome: FC = () => {
     let eventCategory = AnalyticsEventCategory.ButtonPress;
     let eventProperties = {};
 
+    const startCreateFlow = () => {
+      setOnboardingType(OnboardingType.Create);
+      // Biometric is unavailable on the extension/desktop, so the
+      // choose-protection screen has only one real option — skip it and go
+      // straight to the full-password step.
+      navigate(protectionStepRoute());
+    };
+    const startImportFlow = () => {
+      // Recovery is seed-phrase only — jump straight to the seed entry screen.
+      setOnboardingType(OnboardingType.Import);
+      navigate('/#import-from-seed');
+    };
+
     switch (action.id) {
+      case 'network-notice-acknowledge':
+        if (onboardingType === OnboardingType.Import) {
+          startImportFlow();
+        } else {
+          startCreateFlow();
+        }
+        break;
       case 'choose-protection':
-        setOnboardingType(OnboardingType.Create);
-        // Biometric is unavailable on the extension/desktop, so the
-        // choose-protection screen has only one real option — skip it and go
-        // straight to the full-password step.
-        navigate(protectionStepRoute());
+        // On a test network the chosen flow waits behind the network notice
+        // (#875); acknowledging the notice starts it.
+        if (getTestNetworkNameKey()) {
+          setOnboardingType(OnboardingType.Create);
+          navigate('/#network-notice');
+        } else {
+          startCreateFlow();
+        }
         break;
       case 'setup-passcode':
         setOnboardingType(OnboardingType.Create);
@@ -368,9 +392,12 @@ const Welcome: FC = () => {
         }
         break;
       case 'select-import-type':
-        // Recovery is seed-phrase only — jump straight to the seed entry screen.
-        setOnboardingType(OnboardingType.Import);
-        navigate('/#import-from-seed');
+        if (getTestNetworkNameKey()) {
+          setOnboardingType(OnboardingType.Import);
+          navigate('/#network-notice');
+        } else {
+          startImportFlow();
+        }
         break;
       case 'import-from-seed':
         navigate('/#import-from-seed');
@@ -465,7 +492,11 @@ const Welcome: FC = () => {
         navigate('/#create-password');
         break;
       case 'back':
-        if (step === OnboardingStep.SelectWalletType || step === OnboardingStep.ChooseProtection) {
+        if (
+          step === OnboardingStep.NetworkNotice ||
+          step === OnboardingStep.SelectWalletType ||
+          step === OnboardingStep.ChooseProtection
+        ) {
           navigate('/');
         } else if (step === OnboardingStep.SetupPasscode || step === OnboardingStep.SetupBiometric) {
           if (onboardingType === OnboardingType.Import) {
@@ -513,6 +544,15 @@ const Welcome: FC = () => {
     switch (hash) {
       case '':
         setStep(OnboardingStep.Welcome);
+        break;
+      case '#network-notice':
+        // The chosen flow is in-memory only, so a reload here has nothing to
+        // continue with; mainnet has no notice. Either way, restart from Welcome.
+        if (onboardingType === null || !getTestNetworkNameKey()) {
+          navigate('/');
+          break;
+        }
+        setStep(OnboardingStep.NetworkNotice);
         break;
       case '#select-wallet-type':
         setOnboardingType(OnboardingType.Create);

@@ -2,6 +2,10 @@
 
 ## 1.16.1 (TBD)
 
+### Features
+
+- [FEAT][all] The popup, full-page, side-panel, mobile and desktop wallet screens and the dApp confirmation popup show a Bread-branded banner naming the network the wallet is on (it follows Developer Settings overrides and hides on mainnet), with a sheet that explains the test environment. Onboarding shows a network notice before a wallet is created or restored; Receive, the EVM wallet connect step and the bridge amount form warn to use test funds only; and a shared address or QR image names the network (#875).
+
 ### Fixes
 
 - [FIX][all] An open wallet no longer leaks an IndexedDB connection and a WASM client on every consumability read. The read built a throwaway client each lap (every sync alarm on the extension, every 5 s claimable-notes poll on mobile and desktop) and relied on the SDK's `terminate()`, which releases nothing for an in-realm client; after two idle days the extension renderer died of out-of-memory. Each realm now keeps one reader and rebuilds it when the client is replaced or the RPC endpoint changes; the guardian swap request build, which leaked a client per swap the same way, uses that reader too.

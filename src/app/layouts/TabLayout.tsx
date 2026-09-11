@@ -175,7 +175,10 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
         ? { height: '100%', width: '100%' }
         : fullPage
           ? { height: '640px', width: '600px' }
-          : { height: '600px', width: '360px' };
+          : // Popup: the body is a fixed 600px, and the router's network banner
+            // (#875) now takes part of it, so fill what remains instead of
+            // hard-coding 600px and clipping the bottom nav.
+            { height: '100%', width: '360px' };
 
   return (
     <div

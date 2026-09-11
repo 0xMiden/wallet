@@ -9,7 +9,9 @@ import FormField from 'app/atoms/FormField';
 import { Icon, IconName } from 'app/icons/v2';
 import EvmConnectModal from 'app/templates/EvmConnectModal';
 import { QRCode, type QRCodeHandle } from 'components/QRCode';
+import { TestNetworkWarning } from 'components/TestNetworkWarning';
 import { isBridgeDepositEnabled } from 'lib/feature-flags';
+import { getTestNetworkNameKey } from 'lib/miden-chain/effective-endpoints';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isExtension, isMobile } from 'lib/platform';
 import useCopyToClipboard from 'lib/ui/useCopyToClipboard';
@@ -41,6 +43,8 @@ const blobToBase64 = (blob: Blob): Promise<string> =>
 
 export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit }) => {
   const { t } = useTranslation();
+  const networkKey = getTestNetworkNameKey();
+  const network = networkKey ? t(networkKey) : null;
   const { fieldRef, copy } = useCopyToClipboard();
   const [evmOpen, setEvmOpen] = useState(false);
   const { address: evmAddress, connected: evmConnected } = useEvmWalletConnection();
@@ -65,6 +69,11 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
     openBridgeDeposit();
   }, [evmAddress, evmConnected, evmOpen, openBridgeDeposit]);
 
+  // The shared text names the network (#875) so a pasted address never loses
+  // its context. The QR image carries the same caption (see `caption` below).
+  // Mainnet has no test network to name, so it shares the bare address.
+  const shareText = network ? t('shareAddressText', { network, address }) : address;
+
   const handleShare = useCallback(async () => {
     hapticLight();
 
@@ -83,9 +92,9 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
             data: await blobToBase64(qrBlob),
             directory: Directory.Cache
           });
-          await Share.share({ text: address, files: [uri], dialogTitle: t('receive') });
+          await Share.share({ text: shareText, files: [uri], dialogTitle: t('receive') });
         } else {
-          await Share.share({ text: address, dialogTitle: t('receive') });
+          await Share.share({ text: shareText, dialogTitle: t('receive') });
         }
         return;
       }
@@ -93,18 +102,18 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
         if (qrBlob && typeof navigator.canShare === 'function') {
           const file = new File([qrBlob], QR_FILE_NAME, { type: 'image/png' });
           if (navigator.canShare({ files: [file] })) {
-            await navigator.share({ files: [file], text: address });
+            await navigator.share({ files: [file], text: shareText });
             return;
           }
         }
-        await navigator.share({ text: address });
+        await navigator.share({ text: shareText });
         return;
       }
     } catch (e) {
       console.warn('[Receive] share dismissed:', e);
     }
     copy();
-  }, [address, copy, t]);
+  }, [copy, shareText, t]);
 
   return (
     <div
@@ -120,7 +129,12 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
             {address}
           </span>
           <div className="w-full flex flex-col items-center justify-center gap-6">
-            <QRCode ref={qrRef} address={address} size={300} />
+            <QRCode
+              ref={qrRef}
+              address={address}
+              size={300}
+              caption={network ? t('qrNetworkCaption', { network }) : undefined}
+            />
             <CopyButton
               text={address}
               data-testid="receive-copy-address"
@@ -130,6 +144,16 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
                 {truncateAddress(address, false, 16, 8)}
               </span>
             </CopyButton>
+            {/* Test-funds warning sits before the share and bridge actions:
+                the funding decision point named in #875. */}
+            {network && (
+              <TestNetworkWarning
+                titleKey="receiveTestFundsTitle"
+                bodyKey="receiveTestFundsBody"
+                values={{ network }}
+                data-testid="receive-test-funds-warning"
+              />
+            )}
           </div>
           <div className="w-full flex flex-col items-center gap-8 pt-6">
             <button type="button" onClick={handleShare} className="flex items-center gap-4 text-accent-primary">
@@ -151,8 +175,14 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
                 className="flex items-center gap-4 text-accent-primary"
               >
                 <Icon name={IconName.CrossChain} size="lg" className="shrink-0" />
-                <span className="font-heading text-[2.5rem] font-bold leading-none text-heading-gray">
-                  {t('crossChain')}
+                <span className="flex flex-col items-start gap-1">
+                  <span className="font-heading text-[2.5rem] font-bold leading-none text-heading-gray">
+                    {t('crossChain')}
+                  </span>
+                  {/* Name the actual source test network, not a bare "Testnet" (#875). */}
+                  <span className="text-xs font-medium leading-none text-text-tertiary-token">
+                    {t('crossChainFromNetwork', { network: t('ethereumSepolia') })}
+                  </span>
                 </span>
               </button>
             )}
