@@ -396,6 +396,12 @@ const HomeOverview: FC<HomeOverviewProps> = ({
             // UX-REVIEW: a dash is the conservative honest choice; a UX owner may
             // prefer a skeleton or an explicit "prices unavailable" affordance.
             amount={Object.keys(tokenPrices).length === 0 ? '$—' : `$${toLocalFormat(balance, { decimalPlaces: 2 })}`}
+            // Until the first balance read succeeds the store has no entry for
+            // this address and `useAllBalances` substitutes a zero placeholder
+            // row. Right after a recovery that read can lose the WASM lock to the
+            // first sync tick for several seconds, so the card must show the
+            // skeleton and not a "$0.00" that reads as lost funds (#844).
+            state={balancesLoading ? 'loading' : 'default'}
             currency="USD"
             delta={{ absolute: '+0.00', percentage: '0.00%', direction: 'positive' }}
             onMore={() => setAccountsOpen(true)}
