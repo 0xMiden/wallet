@@ -4,6 +4,7 @@
 
 ### Fixes
 
+- [FIX][all] An open wallet no longer leaks an IndexedDB connection and a WASM client on every consumability read. The read built a throwaway client each lap (every sync alarm on the extension, every 5 s claimable-notes poll on mobile and desktop) and relied on the SDK's `terminate()`, which releases nothing for an in-realm client; after two idle days the extension renderer died of out-of-memory. Each realm now keeps one reader and rebuilds it when the client is replaced or the RPC endpoint changes; the guardian swap request build, which leaked a client per swap the same way, uses that reader too.
 - [CHORE][all] Every production build now refuses a `node_modules` that does not match `yarn.lock` (`yarn check --integrity`, 30 ms), so a stale checkout can no longer bundle the wrong SDK.
 - [FIX][all] The send screen waits for balances before warning about missing MIDEN for fees and clears that warning when funds arrive. Clearing an amount keeps the input red and Confirm disabled without showing “Invalid amount”.
 - [FIX][ci] Every ubuntu job now drops Google's Chrome apt repository before touching apt. Nothing installs Chrome from apt, yet its CDN served a mismatched package index for over an hour and failed every Playwright, xvfb and local-node install with `Hash Sum mismatch`.

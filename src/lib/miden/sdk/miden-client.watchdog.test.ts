@@ -557,7 +557,18 @@ describe('assertWasmHoldCurrent (#788 follow-up)', () => {
       thrown = e;
     }
     expect(isWasmClientPoisonedError(thrown)).toBe(true);
-    expect(((thrown as Error).cause as Error).message).toContain('after the account read');
+    expect(((thrown as Error).cause as Error).message).toBe('operation abandoned after the account read');
+
+    // A callee with several re-checks forwards its step, which follows the caller's label.
+    let stepped: unknown;
+    try {
+      assertWasmHoldCurrent(capturedHold!, 'inside the claimable-notes read', 'after the reader build');
+    } catch (e) {
+      stepped = e;
+    }
+    expect(((stepped as Error).cause as Error).message).toBe(
+      'operation abandoned inside the claimable-notes read, after the reader build'
+    );
   });
 });
 
