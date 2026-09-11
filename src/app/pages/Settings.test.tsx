@@ -266,8 +266,18 @@ describe('Settings page — root menu (non-guardian)', () => {
   it('renders the settings header and version footer', () => {
     render(<Settings tabSlug={null} />);
 
-    expect(screen.getByTestId('nav-title')).toHaveTextContent('settings');
+    // The root wears the same TabHeader as Activity and Explore — a plain
+    // heading, not the sub-page NavigationHeader.
+    expect(screen.getByRole('heading', { level: 1, name: 'settings' })).toBeInTheDocument();
+    expect(screen.queryByTestId('nav-header')).toBeNull();
     expect(screen.getByText('settingsVersion')).toBeInTheDocument();
+  });
+
+  it('gives the root no back affordance, since it is a tab destination', () => {
+    render(<Settings tabSlug={null} />);
+
+    expect(screen.queryByTestId('nav-back')).toBeNull();
+    expect(mockNavigate).not.toHaveBeenCalled();
   });
 
   it('renders all four group headings', () => {
@@ -399,15 +409,20 @@ describe('Settings page — root menu (non-guardian)', () => {
   });
 
   it('restores the list scroll position when the user comes back from a sub-page', () => {
-    const { rerender } = render(<Settings tabSlug={null} />);
+    const rootScrollTop = { current: 0 };
+    const { unmount } = render(<Settings tabSlug={null} rootScrollTop={rootScrollTop} />);
     const listScroller = document.querySelector<HTMLElement>('.overflow-y-auto');
     if (!listScroller) throw new Error('List scroller did not render');
 
     listScroller.scrollTop = 420;
     fireEvent.scroll(listScroller);
 
-    rerender(<Settings tabSlug="language" />);
-    rerender(<Settings tabSlug={null} />);
+    // Root and sub-pages use different layouts, so Settings itself remounts.
+    unmount();
+    const subpage = render(<Settings tabSlug="language" />);
+    expect(document.querySelector<HTMLElement>('.overflow-y-auto')!.scrollTop).toBe(0);
+    subpage.unmount();
+    render(<Settings tabSlug={null} rootScrollTop={rootScrollTop} />);
 
     // The key that gives each page its own scroller is also what loses the list's
     // place: returning built a fresh one at the top, so a user who opened Language
@@ -475,8 +490,11 @@ describe('Settings page — root menu (non-guardian)', () => {
     render(<Settings tabSlug={null} />);
 
     // Arriving from the wallet home, not from within Settings — stealing focus
-    // here would fight the navigation the user already made.
-    expect(screen.getByTestId('nav-header')).toHaveAttribute('data-focus-title', 'false');
+    // here would fight the navigation the user already made. The root's
+    // TabHeader has no focus-on-mount behaviour at all, so there is nothing to
+    // steal it.
+    expect(screen.queryByTestId('nav-header')).toBeNull();
+    expect(document.activeElement).toBe(document.body);
   });
 
   it('re-announces on a sibling-to-sibling move, where only the title changes', () => {
@@ -491,13 +509,10 @@ describe('Settings page — root menu (non-guardian)', () => {
     expect(screen.getByTestId('nav-title')).toHaveTextContent('generalSettings');
   });
 
-  it('navigates home when the root header back button is pressed', () => {
-    render(<Settings tabSlug={null} />);
-
-    fireEvent.click(screen.getByTestId('nav-back'));
-
-    expect(mockNavigate).toHaveBeenCalledWith('/');
-  });
+  // The root's back-to-home chevron is gone: Settings is a bottom-nav
+  // destination, and tab roots don't carry one (see the tab-destination test
+  // in the root-menu block above). Sub-page back behaviour is unchanged and
+  // still covered below.
 
   it('renders a preference slug as a full-screen page under a navigation header', () => {
     render(<Settings tabSlug="general-settings" />);
@@ -507,10 +522,11 @@ describe('Settings page — root menu (non-guardian)', () => {
     expect(screen.queryByTestId('menuitem-generalSettings')).not.toBeInTheDocument();
   });
 
-  it('renders the root menu for an unknown slug', () => {
+  it('replaces an unknown slug with the Settings root route so the footer is restored', () => {
     render(<Settings tabSlug="does-not-exist" />);
 
-    expect(screen.getByTestId('menuitem-generalSettings')).toBeInTheDocument();
+    expect(mockNavigate).toHaveBeenCalledWith('/settings', 'replace');
+    expect(screen.queryByTestId('menuitem-generalSettings')).not.toBeInTheDocument();
   });
 });
 
@@ -550,9 +566,9 @@ describe('Settings page — guardian account', () => {
     setAccount({ type: 'on-chain' });
     render(<Settings tabSlug="guardian-settings" />);
 
-    // Tab is filtered out → falls back to the root menu.
+    // Redirect out of the full-screen layout to the root's tab layout.
     expect(screen.queryByTestId('guardian-settings-body')).not.toBeInTheDocument();
-    expect(screen.getByTestId('menuitem-generalSettings')).toBeInTheDocument();
+    expect(mockNavigate).toHaveBeenCalledWith('/settings', 'replace');
   });
 });
 
@@ -690,9 +706,8 @@ describe('Settings page — active tab routing', () => {
     setAccount({ type: 'guardian' });
     render(<Settings tabSlug="reveal-hot-key" />);
 
-    // Tab is filtered out → falls back to the root menu.
     expect(screen.queryByTestId('reveal-secret')).not.toBeInTheDocument();
-    expect(screen.getByTestId('menuitem-generalSettings')).toBeInTheDocument();
+    expect(mockNavigate).toHaveBeenCalledWith('/settings', 'replace');
   });
 
   it('does not expose the hot key page for a non-guardian account', () => {
@@ -700,7 +715,7 @@ describe('Settings page — active tab routing', () => {
     render(<Settings tabSlug="reveal-hot-key" />);
 
     expect(screen.queryByTestId('reveal-secret')).not.toBeInTheDocument();
-    expect(screen.getByTestId('menuitem-generalSettings')).toBeInTheDocument();
+    expect(mockNavigate).toHaveBeenCalledWith('/settings', 'replace');
   });
 });
 
