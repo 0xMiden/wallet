@@ -57,6 +57,11 @@ interface IosWalletPageOpts {
   sim: SimulatorControl;
   udid: string;
   bundleId: string;
+  /**
+   * Runs before every screenshot. The fixture passes the notification-alert gate here, so no
+   * capture path shoots a frame while the SpringBoard permission alert is up.
+   */
+  beforeCapture?: () => Promise<void>;
 }
 
 /**
@@ -82,6 +87,7 @@ export class IosWalletPage implements WalletPage {
   readonly bundleId: string;
   private cdp: CdpSession;
   private sim: SimulatorControl;
+  private beforeCapture?: () => Promise<void>;
   private pollStats: PollStats = { pollCount: 0, pollIterations: 0, pollMs: 0, pollSleepMs: 0 };
 
   constructor(opts: IosWalletPageOpts) {
@@ -89,6 +95,7 @@ export class IosWalletPage implements WalletPage {
     this.sim = opts.sim;
     this.udid = opts.udid;
     this.bundleId = opts.bundleId;
+    this.beforeCapture = opts.beforeCapture;
   }
 
   /** Read poll stats snapshot. Includes CdpSession totals too. */
@@ -99,6 +106,7 @@ export class IosWalletPage implements WalletPage {
   // ── Capability surfaces (matches Playwright Page shape) ─────────────────
 
   async screenshot(opts: { path: string }): Promise<void> {
+    await this.beforeCapture?.();
     await this.sim.screenshot(this.udid, opts.path);
   }
 
