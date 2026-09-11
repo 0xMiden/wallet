@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 
 import { EvmBridgeDepositScreen } from 'app/templates/EvmConnectModal/EvmBridgeDepositScreen';
 import { ScreenHeader } from 'components/ScreenHeader';
+import { TestNetworkWarning } from 'components/TestNetworkWarning';
 import { hapticMedium } from 'lib/mobile/haptics';
 import { useWalletStore } from 'lib/store';
 import { Button } from 'lib/ui/button';
@@ -80,6 +81,14 @@ export const BridgeDeposit: React.FC<BridgeDepositProps> = ({ onClose }) => {
       <div className="flex flex-1 flex-col items-center justify-center gap-4 px-6 text-center">
         <h2 className="text-2xl font-semibold text-heading-gray">{t('connectEvmWallet')}</h2>
         <p className="max-w-80 text-sm text-text-tertiary-token">{t('connectEvmWalletDescription')}</p>
+
+        {/* Same warning as the Receive-side connect drawer (#875). */}
+        <TestNetworkWarning
+          titleKey="evmConnectTestWalletTitle"
+          bodyKey="evmConnectTestWalletBody"
+          className="max-w-80"
+          data-testid="evm-connect-test-wallet-warning"
+        />
 
         {status === 'connecting' && <p className="text-sm text-grey-500">{t('preparing')}</p>}
 

@@ -293,9 +293,10 @@ export function getCurrentWasmLockHold(): WasmLockHold | null {
  * stays behind the type as a backstop: an untyped or `as`-cast caller must not
  * be able to reach the fails-open comparison when nothing holds the mutex.
  */
-export function assertWasmHoldCurrent(hold: WasmLockHold, where: string): void {
+export function assertWasmHoldCurrent(hold: WasmLockHold, where: string, step?: string): void {
   if (hold != null && getCurrentWasmLockHold() === hold) return;
-  throw new WasmClientPoisonedError('watchdog', new Error(`operation abandoned ${where}`));
+  // `step` is the callee's own re-check point, forwarded through an AssertLive.
+  throw new WasmClientPoisonedError('watchdog', new Error(`operation abandoned ${where}${step ? `, ${step}` : ''}`));
 }
 
 /**

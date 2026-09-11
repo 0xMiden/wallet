@@ -44,6 +44,7 @@ const mockLocation: { pathname: string; trigger: string | null } = {
 const mockEnv = { popup: false, fullPage: false };
 const mockMiden = { ready: false, locked: false, hydrated: false };
 const mockSwapEnabled = { value: true };
+const mockSettingsProps = jest.fn();
 
 // `lib/woozie` bundles the full history/location stack; keep the real Router so
 // createMap/resolve/SKIP behave exactly as in production, and stub the four
@@ -96,6 +97,9 @@ jest.mock('app/layouts/TabLayout', () => ({
 }));
 
 // Leaf screens — identifiable stubs, echoing any route params they receive.
+jest.mock('components/NetworkModeBanner', () => ({
+  NetworkModeBanner: () => <div data-testid="network-mode-banner" />
+}));
 jest.mock('app/pages/Explore', () => ({ __esModule: true, default: () => <div data-testid="explore" /> }));
 jest.mock('app/pages/OpenSidePanel', () => ({
   __esModule: true,
@@ -112,7 +116,10 @@ jest.mock('app/pages/BridgeDeposit', () => ({
 }));
 jest.mock('app/pages/Settings', () => ({
   __esModule: true,
-  default: ({ tabSlug }: { tabSlug?: string }) => <div data-testid="settings" data-tab-slug={tabSlug ?? ''} />
+  default: (props: { tabSlug?: string; rootScrollTop?: React.MutableRefObject<number> }) => {
+    mockSettingsProps(props);
+    return <div data-testid="settings" data-tab-slug={props.tabSlug ?? ''} />;
+  }
 }));
 jest.mock('app/pages/Unlock', () => ({ __esModule: true, default: () => <div data-testid="unlock" /> }));
 jest.mock('app/pages/Welcome', () => ({ __esModule: true, default: () => <div data-testid="welcome" /> }));
@@ -224,6 +231,19 @@ beforeEach(() => {
   resolveRootViewMock.mockImplementation(realResolveRootView);
   window.scrollTo = scrollToMock as unknown as typeof window.scrollTo;
   mockSwapEnabled.value = true;
+});
+
+describe('app/PageRouter — network banner (#875)', () => {
+  it('mounts the network banner above every routed page', () => {
+    renderAt('/', { ready: true, hydrated: true });
+    const banner = screen.getByTestId('network-mode-banner');
+    expect(banner.compareDocumentPosition(screen.getByTestId('explore'))).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+  });
+
+  it('mounts the network banner on pre-ready screens too', () => {
+    renderAt('/reset-required');
+    expect(screen.getByTestId('network-mode-banner')).toBeInTheDocument();
+  });
 });
 
 describe('app/PageRouter — pre-ready / special routes', () => {
@@ -380,9 +400,36 @@ describe('app/PageRouter — ready tab & full-screen routes', () => {
     expect(el).toHaveAttribute('data-tab-slug', 'general');
   });
 
-  it('/settings renders Settings with no tab slug', () => {
+  // The Settings root is a primary tab destination, so it gets the persistent
+  // footer; its sub-pages keep the FullScreenPage drill-in asserted above.
+  it('/settings renders Settings with no tab slug inside TabLayout', () => {
     renderAt('/settings', ready);
-    expect(screen.getByTestId('settings')).toHaveAttribute('data-tab-slug', '');
+    const el = screen.getByTestId('settings');
+    expect(screen.getByTestId('tab-layout')).toContainElement(el);
+    expect(screen.queryByTestId('full-screen-page')).not.toBeInTheDocument();
+    expect(el).toHaveAttribute('data-tab-slug', '');
+  });
+
+  it('/settings/:tabSlug stays outside TabLayout so sub-pages keep their own layout', () => {
+    renderAt('/settings/general', ready);
+    expect(screen.queryByTestId('tab-layout')).not.toBeInTheDocument();
+  });
+
+  it('retains the root scroll reference across Settings layout changes', () => {
+    const { rerender } = renderAt('/settings', ready);
+    const initialRef = mockSettingsProps.mock.lastCall![0].rootScrollTop;
+    expect(initialRef).toEqual({ current: 0 });
+    initialRef.current = 420;
+
+    mockLocation.pathname = '/settings/language';
+    rerender(<PageRouter />);
+    mockLocation.pathname = '/settings';
+    rerender(<PageRouter />);
+
+    // The page's own restoration is exercised in Settings.test.tsx. This pins
+    // the router contract: its root must receive the same saved ref on return.
+    expect(mockSettingsProps.mock.lastCall![0].rootScrollTop).toBe(initialRef);
+    expect(mockSettingsProps.mock.lastCall![0].rootScrollTop.current).toBe(420);
   });
 
   // Registered ahead of the generic `/settings/:tabSlug?` route above so it

@@ -2,38 +2,18 @@ import React from 'react';
 
 import { fireEvent, render, screen } from '@testing-library/react';
 
-import { hapticLight } from 'lib/mobile/haptics';
 import { navigate } from 'lib/woozie';
 
 import TabHeaderDefault, { TabHeader } from './TabHeader';
 
-jest.mock('react-i18next', () => ({
-  useTranslation: () => ({
-    t: (key: string) => key
-  })
-}));
-
-jest.mock('app/icons/v2', () => ({
-  Icon: ({ name, className, fill }: { name: string; className?: string; fill?: string }) => (
-    <span data-testid="icon" data-name={name} data-classname={className} data-fill={fill} />
-  ),
-  IconName: {
-    Settings: 'Settings'
-  }
-}));
-
-jest.mock('lib/mobile/haptics', () => ({
-  hapticLight: jest.fn()
-}));
-
+// TabHeader no longer navigates anywhere — the settings gear moved to the
+// bottom nav. The spy stays so the regression tests below can prove the header
+// never routes on its own.
 jest.mock('lib/woozie', () => ({
   navigate: jest.fn()
 }));
 
-const mockHapticLight = hapticLight as jest.Mock;
 const mockNavigate = navigate as jest.Mock;
-
-const getSettingsButton = () => screen.getByRole('button', { name: 'settings' });
 
 describe('TabHeader — exports', () => {
   beforeEach(() => {
@@ -86,31 +66,39 @@ describe('TabHeader — structure & title', () => {
   });
 });
 
-describe('TabHeader — settings button & icon', () => {
+describe('TabHeader — no built-in settings affordance', () => {
   beforeEach(() => {
     jest.clearAllMocks();
   });
 
-  it('renders a type="button" settings button labelled from the translation key', () => {
+  it('renders no buttons at all when no actions are supplied', () => {
+    // Settings is a bottom-nav destination now; a gear here would duplicate it
+    // on exactly the screens (Activity, Explore) that show that tab.
     render(<TabHeader title="Activity" />);
 
-    const button = getSettingsButton();
-    expect(button.getAttribute('type')).toBe('button');
-    expect(button.getAttribute('aria-label')).toBe('settings');
-    // The neutral pill styling is applied.
-    expect(button.className).toContain('rounded-full');
-    expect(button.className).toContain('bg-gray-25');
+    expect(screen.queryAllByRole('button')).toHaveLength(0);
   });
 
-  it('renders the Settings icon with its sizing and fill props inside the button', () => {
+  it('renders no settings-labelled control', () => {
     render(<TabHeader title="Activity" />);
 
-    const icon = screen.getByTestId('icon');
-    expect(icon.getAttribute('data-name')).toBe('Settings');
-    expect(icon.getAttribute('data-classname')).toBe('w-4 h-4');
-    expect(icon.getAttribute('data-fill')).toBe('currentColor');
-    // The icon lives inside the settings button.
-    expect(getSettingsButton().contains(icon)).toBe(true);
+    expect(screen.queryByRole('button', { name: /settings/i })).toBeNull();
+    expect(screen.queryByRole('link', { name: /settings/i })).toBeNull();
+  });
+
+  it('omits the actions container entirely when actions is undefined', () => {
+    const { container } = render(<TabHeader title="Activity" />);
+
+    // Only the h1 remains inside the header — no empty flex row left behind.
+    const header = container.querySelector('header')!;
+    expect(header.children).toHaveLength(1);
+    expect(header.children[0]!.tagName).toBe('H1');
+  });
+
+  it('never navigates on render', () => {
+    render(<TabHeader title="Activity" />);
+
+    expect(mockNavigate).not.toHaveBeenCalled();
   });
 });
 
@@ -119,15 +107,7 @@ describe('TabHeader — actions slot', () => {
     jest.clearAllMocks();
   });
 
-  it('renders no extra action content when actions is omitted (only the settings button)', () => {
-    render(<TabHeader title="Activity" />);
-
-    // Just the built-in settings button.
-    expect(screen.getAllByRole('button')).toHaveLength(1);
-    expect(screen.queryByTestId('extra-action')).toBeNull();
-  });
-
-  it('renders caller-supplied actions before the built-in settings button', () => {
+  it('renders a caller-supplied action', () => {
     render(
       <TabHeader
         title="Activity"
@@ -139,14 +119,8 @@ describe('TabHeader — actions slot', () => {
       />
     );
 
-    const buttons = screen.getAllByRole('button');
-    expect(buttons).toHaveLength(2);
-
-    const extra = screen.getByTestId('extra-action');
-    const settings = getSettingsButton();
-    // The extra action is present and ordered before the settings button in the DOM.
-    expect(extra).toBeTruthy();
-    expect(extra.compareDocumentPosition(settings) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getAllByRole('button')).toHaveLength(1);
+    expect(screen.getByTestId('extra-action')).toBeTruthy();
   });
 
   it('accepts multiple action nodes', () => {
@@ -162,47 +136,32 @@ describe('TabHeader — actions slot', () => {
       />
     );
 
-    // Two extra actions + the settings button.
-    expect(screen.getAllByRole('button')).toHaveLength(3);
+    expect(screen.getAllByRole('button')).toHaveLength(2);
     expect(screen.getByRole('button', { name: 'One' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Two' })).toBeTruthy();
   });
-});
 
-describe('TabHeader — settings interaction', () => {
-  beforeEach(() => {
-    jest.clearAllMocks();
+  it('wraps actions in the spaced flex container', () => {
+    const { container } = render(
+      <TabHeader
+        title="Activity"
+        actions={
+          <button type="button" data-testid="extra-action">
+            Extra
+          </button>
+        }
+      />
+    );
+
+    const header = container.querySelector('header')!;
+    const wrapper = header.children[1]!;
+    expect(wrapper.className).toContain('flex');
+    expect(wrapper.className).toContain('items-center');
+    expect(wrapper.className).toContain('gap-2');
+    expect(wrapper.contains(screen.getByTestId('extra-action'))).toBe(true);
   });
 
-  it('fires haptic feedback then navigates to /settings when the settings button is clicked', () => {
-    render(<TabHeader title="Activity" />);
-
-    fireEvent.click(getSettingsButton());
-
-    expect(mockHapticLight).toHaveBeenCalledTimes(1);
-    expect(mockNavigate).toHaveBeenCalledTimes(1);
-    expect(mockNavigate).toHaveBeenCalledWith('/settings');
-  });
-
-  it('invokes haptic feedback before navigating (order matters)', () => {
-    const callOrder: string[] = [];
-    mockHapticLight.mockImplementation(() => callOrder.push('haptic'));
-    mockNavigate.mockImplementation(() => callOrder.push('navigate'));
-
-    render(<TabHeader title="Activity" />);
-    fireEvent.click(getSettingsButton());
-
-    expect(callOrder).toEqual(['haptic', 'navigate']);
-  });
-
-  it('does not fire haptics or navigate on render (only on click)', () => {
-    render(<TabHeader title="Activity" />);
-
-    expect(mockHapticLight).not.toHaveBeenCalled();
-    expect(mockNavigate).not.toHaveBeenCalled();
-  });
-
-  it('clicking a caller-supplied action does not trigger the settings navigation', () => {
+  it('clicking a caller-supplied action runs only that handler and does not navigate', () => {
     const onExtra = jest.fn();
     render(
       <TabHeader
@@ -218,7 +177,6 @@ describe('TabHeader — settings interaction', () => {
     fireEvent.click(screen.getByTestId('extra-action'));
 
     expect(onExtra).toHaveBeenCalledTimes(1);
-    expect(mockHapticLight).not.toHaveBeenCalled();
     expect(mockNavigate).not.toHaveBeenCalled();
   });
 });

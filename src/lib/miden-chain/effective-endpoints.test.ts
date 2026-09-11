@@ -310,3 +310,36 @@ describe('getEffectiveAllowNoGuardian', () => {
     expect(buildDefaultOverrideFor(MIDEN_NETWORK_NAME.DEVNET).allowNoGuardian).toBe(false);
   });
 });
+
+describe('getTestNetworkNameKey', () => {
+  it('names the build network when no override is loaded', () => {
+    const m = loadModule();
+    expect(m.getTestNetworkNameKey()).toBe(DEFAULT_NETWORK === MIDEN_NETWORK_NAME.MAINNET ? null : DEFAULT_NETWORK);
+  });
+
+  it.each([
+    [MIDEN_NETWORK_NAME.TESTNET, 'testnet'],
+    [MIDEN_NETWORK_NAME.DEVNET, 'devnet'],
+    [MIDEN_NETWORK_NAME.LOCALNET, 'localnet'],
+    [MIDEN_NETWORK_NAME.MAINNET, null]
+  ])('follows an override to %s', async (network, expected) => {
+    const m = loadModule();
+    await m.applyEndpointOverride(m.buildDefaultOverrideFor(network));
+    expect(m.getTestNetworkNameKey()).toBe(expected);
+  });
+
+  it('only returns keys the English locale defines', async () => {
+    // Callers translate the result with a dynamic t(key), which key-coverage.test
+    // cannot see, so a missing entry would render the raw key.
+    const en: Record<string, string> = require('../../../public/_locales/en/en.json');
+    const keys: string[] = [];
+    for (const network of Object.values(MIDEN_NETWORK_NAME)) {
+      const m = loadModule();
+      await m.applyEndpointOverride(m.buildDefaultOverrideFor(network));
+      const key = m.getTestNetworkNameKey();
+      if (key !== null) keys.push(key);
+    }
+    expect(keys.sort()).toEqual(['devnet', 'localnet', 'testnet']);
+    expect(keys.filter(key => !(key in en))).toEqual([]);
+  });
+});

@@ -31,6 +31,7 @@ import { isLikelyNetworkError } from 'lib/miden/activity/connectivity-classify';
 import { clearConnectivityIssue, markConnectivityIssue } from 'lib/miden/activity/connectivity-state';
 import { isOffscreenAvailable, proveViaOffscreen } from 'lib/miden/back/offscreen-prover';
 import { getSpeculationManager, type SpeculationParams } from 'lib/miden/back/speculation-manager';
+import { computeSyncBackoffMs, monotonicNowMs } from 'lib/miden/sync-backoff';
 import {
   getEffectiveNetworkName,
   getEffectiveNoteTransportUrl,
@@ -55,6 +56,7 @@ import { getCurrentWasmLockHold, withWasmLockWatchdogPaused, yieldWasmClientLock
 import { buildNativeProverCallback } from './native-prover-mobile';
 import { recordProveMarker, recordProveTelemetry } from './prove-telemetry';
 import { isApplyAfterSubmitError } from './sdk-error-code';
+import { wasmClientGeneration } from './wasm-client-poison';
 import { ConsumeTransaction, ITransactionStage, SendTransaction, SwapTransaction } from '../db/types';
 // Guardian helpers are dynamic-imported inside the methods that use them to avoid
 // a module init cycle: miden-client-interface → guardian/index → sdk/miden-client →
@@ -225,8 +227,12 @@ export interface ClientLiveness {
  * its inline branch, which is the mobile, desktop, Firefox and flag-off route,
  * so leaving the parameter off there would have made this guard reachable only
  * from the offscreen document.
+ *
+ * A callee with more than one re-check passes each one's `step` (named after the
+ * await it follows), and the caller forwards it into its own label, so an
+ * eviction message says which await parked.
  */
-export type AssertLive = () => void;
+export type AssertLive = (step?: string) => void;
 
 const noAssertLive: AssertLive = () => {};
 
@@ -301,6 +307,138 @@ function deserializeNoteFileOrNote(noteBytes: Uint8Array): NoteFile {
     }
     return NoteFile.fromExpectedNote(new NoteDetails(note.assets(), note.recipient()), note.metadata().tag(), 0);
   }
+}
+
+/** The host of an endpoint, for a log line: an RPC URL may carry a key in its path or query. */
+function hostOf(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return '<unparsable endpoint>';
+  }
+}
+
+/** The realm reader slot: see {@link getRealmReaderClient}. */
+type RealmReader = {
+  generation: number;
+  rpcUrl: string;
+  client: Promise<WasmWebClient>;
+  /** Consecutive failed builds for this generation and URL. */
+  failures: number;
+  /** When a failed entry's window ends and the next build may start; unset while pending or built. */
+  retryAtMs?: number;
+  /** Set once this build has produced a reader, which replacing it strands. */
+  built?: true;
+};
+let realmReader: RealmReader | undefined;
+
+/**
+ * The ONE raw reader client each realm uses (issue #868): the consumability
+ * read and the guardian PSWAP request build both go through it.
+ *
+ * It used to be a throwaway per call: `WasmWebClient.createClient` per read and
+ * `terminate()` in a `finally`. The SDK's `terminate()` releases nothing for a
+ * client built without a worker, and 0.16 has no call that closes one (its glue
+ * closes the IndexedDB connection only on a version mismatch), so every read
+ * stranded a wasm-bindgen client and an IndexedDB connection - on each sync alarm
+ * on the extension, on each 5 s claimable-notes poll on mobile and desktop - and
+ * the extension renderer died of OOM after 55 hours. Nothing can release a
+ * reader, so the bound is to stop rebuilding it.
+ *
+ * It is keyed on what makes it stale, not on the MidenClientInterface, which the
+ * inline path rebuilds on every signed write:
+ * - the client generation, bumped by every lock-recovery replacement in this
+ *   realm and by the extension SW's pre-wallet endpoint reset;
+ * - the effective RPC URL, the ONLY rebuild trigger after an endpoint change in
+ *   the offscreen document and on mobile and desktop, none of which bump the
+ *   generation (the SW sees a new URL only at start-up or through a reset
+ *   that bumps it). It is not redundant.
+ * Each successful rebuild strands the previous reader: one per client
+ * replacement or endpoint change, not one per read. A build that fails after
+ * opening its store strands that connection too (the SDK opens the store
+ * before the genesis fetch; an endpoint that does not parse fails before it),
+ * so a failed entry stays in the slot and answers with its error until its
+ * window ends: the sync breaker's backoff for an ordinary failure (30 s
+ * doubling to a 5 min cap) for that generation and URL, never the 30 min
+ * fuse, which is for a call that never answered. Such failures are rare: a
+ * store that already holds genesis builds with no network call, so only a
+ * fresh store with the node unreachable, or an IndexedDB error, gets that far
+ * and fails. A replacement or a repoint builds at once.
+ *
+ * It stays a separate client on purpose. Reading through the main client's
+ * `_withInnerWebClient` would leave an evicted read's window open on the client
+ * a yielded write resumes into, and that write's submit would run inline beside
+ * it - a double borrow.
+ *
+ * Callers hold the realm's WASM lock, as every WASM hold does, and re-check that
+ * hold on BOTH sides of this call: immediately before it (after any earlier
+ * await), because an eviction has already released the lock and bumped the
+ * generation, so a dead flow would otherwise build its successor's reader; and
+ * after it resolves, because the first build can park on a genesis fetch and a
+ * dead flow must not make a WASM call on the reader it acquired. The
+ * guardian PSWAP build does both; getConsumableNotes does both through the
+ * assertLive its caller supplies.
+ */
+export function getRealmReaderClient(): Promise<WasmWebClient> {
+  const generation = wasmClientGeneration();
+  const rpcUrl = getEffectiveRpcUrl();
+  const cached = realmReader;
+  const sameKey = cached !== undefined && cached.generation === generation && cached.rpcUrl === rpcUrl;
+  // A pending or built reader is shared; a failed one answers with its own error until its window ends.
+  if (cached && sameKey && (cached.retryAtMs === undefined || monotonicNowMs() < cached.retryAtMs)) {
+    return cached.client;
+  }
+  // `useWorker` is pinned to `false` (the SDK's 6th positional parameter, default
+  // `true`). Only the MV3 service worker lacks `Worker`: in the offscreen document,
+  // mobile WebViews and the desktop webview the default would spawn a Web Worker
+  // and a SECOND WASM instance. `false` still yields a distinct wasm-bindgen
+  // client object, which is what keeps this read off the main client.
+  const reason = !cached
+    ? 'first build'
+    : sameKey
+      ? 'backoff window ended'
+      : [cached.generation !== generation ? 'client replaced' : '', cached.rpcUrl !== rpcUrl ? 'endpoint changed' : '']
+          .filter(part => part !== '')
+          .join(' and ');
+  console.log(
+    `[realm-reader] building the reader (${reason}) for generation ${generation} at ${hostOf(rpcUrl)}` +
+      (cached
+        ? `${cached.built ? ' - it strands the previous reader' : ' - replacing the previous build'} ` +
+          `(generation ${cached.generation} at ${hostOf(cached.rpcUrl)})`
+        : '')
+  );
+  const entry: RealmReader = {
+    generation,
+    rpcUrl,
+    client: WasmWebClient.createClient(rpcUrl, undefined, undefined, undefined, undefined, false),
+    failures: cached && sameKey ? cached.failures : 0
+  };
+  realmReader = entry;
+  // Registered before any caller awaits, so the window is set by the time one sees the rejection. It stamps only
+  // this entry: a stale build can never touch the reader that replaced it.
+  const where = `for generation ${generation} at ${hostOf(rpcUrl)}`;
+  entry.client.then(
+    () => {
+      entry.built = true;
+      if (entry.failures > 0) {
+        console.log(`[realm-reader] build ${where} succeeded (failed builds before it: ${entry.failures})`);
+      }
+    },
+    (error: unknown) => {
+      entry.failures += 1;
+      const windowMs = computeSyncBackoffMs(entry.failures);
+      entry.retryAtMs = monotonicNowMs() + windowMs;
+      // The stamp is unconditional on purpose: the lookup reads an unstamped entry as pending or built, and a build
+      // whose URL moved away and back before any read is its key's entry again. The window is named only while the
+      // build still governs its key; a replaced build, or one whose generation moved, is rebuilt on the next read.
+      const governs = realmReader === entry && wasmClientGeneration() === generation && getEffectiveRpcUrl() === rpcUrl;
+      const outcome = governs
+        ? `failed (${entry.failures} in a row) - next build in ${Math.round(windowMs / 1000)}s`
+        : 'failed after the reader moved on to another client or endpoint';
+      console.warn(`[realm-reader] build ${where} ${outcome}`, error);
+    }
+  );
+  return entry.client;
 }
 
 export class MidenClientInterface {
@@ -1088,17 +1226,17 @@ export class MidenClientInterface {
    * reach-through the callers used into one shared reducer.
    */
   async getConsumableNoteDtos(accountId: string, assertLive: AssertLive = noAssertLive): Promise<ConsumableNoteDto[]> {
-    const records = await this.getConsumableNotes(accountId);
+    const records = await this.getConsumableNotes(accountId, assertLive);
     // `getSyncHeight` is a second WASM call on the SHARED client following a
     // parking await, so the caller's hold has to still be live before it runs.
     // The reduction below needs no such check: those records were read through
-    // the transient `inner` client, not this one's RefCell.
-    assertLive();
+    // the realm's separate reader client, not this client's RefCell.
+    assertLive('after the listing');
     const syncHeight = await this.client.getSyncHeight();
     return reduceConsumableNoteRecords(records, syncHeight);
   }
 
-  async getConsumableNotes(accountId: string): Promise<InputNoteRecord[]> {
+  async getConsumableNotes(accountId: string, assertLive: AssertLive = noAssertLive): Promise<InputNoteRecord[]> {
     // Use the consumability-annotated listing (raw WebClient) instead of the
     // bare `notes.listAvailable`: a sender-side P2IDE note is "available" but
     // only consumable-as-reclaimer AFTER its reclaim height. The bare listing
@@ -1110,53 +1248,36 @@ export class MidenClientInterface {
     // by design and passes this filter — self-sends (where auto-consume would
     // claim the note right back) are blocked at the send-flow entry instead.
     //
-    // Reads through a transient raw WasmWebClient (same IndexedDB store as
-    // the main client, separate WASM object so it can't trip the
-    // single-threaded aliasing guard) — the SDK wrapper exposes no
-    // consumability-annotated listing.
-    //
-    // `useWorker` is pinned to `false` (the SDK's 6th positional parameter; its
-    // default is `true`). It must be explicit because this line runs in TWO
-    // realms: in the MV3 service worker `Worker` is undefined so the SDK silently
-    // takes the in-realm path, but the offscreen document — where this now runs
-    // whenever MIDEN_USE_OFFSCREEN_CLIENT is on, which is the Chrome default for
-    // the SW bundle — IS a real document, so the default would spawn a Web Worker
-    // and a SECOND multi-threaded WASM instance inside the offscreen doc on every
-    // sync tick, claimable-notes refresh and dApp note query, then tear it down.
-    // `useWorker:false` still yields a DISTINCT wasm-bindgen client object, so the
-    // aliasing protection this transient read relies on is unchanged; it just
-    // stops paying for a worker + WASM instantiation per call.
+    // Reads through the realm's reader client: a separate raw client on the
+    // same IndexedDB store, since the SDK wrapper exposes no
+    // consumability-annotated listing. See `getRealmReaderClient` for why it is
+    // separate, what it is keyed on, and the leak the per-call client caused.
     if (this.network === 'mock') {
       return await this.client.notes.listAvailable({ account: accountId });
     }
     const wasm = await getWasmOrThrow();
     const syncHeight = await this.client.getSyncHeight();
-    const inner = await WasmWebClient.createClient(
-      getEffectiveRpcUrl(),
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      false
-    );
-    try {
-      const records: ConsumableNoteRecord[] = await inner.getConsumableNotes(resolveAccountId(wasm, accountId));
-      return records
-        .filter(record => {
-          // One consumability entry per relevant account; we queried a single
-          // account, so any entry gated on a future block hides the note.
-          // `consumableAfterBlock()` is undefined for consumable-now (and for
-          // never-consumable — those keep the pre-existing behavior).
-          const gatedUntil = record
-            .noteConsumability()
-            .map(entry => entry.consumptionStatus().consumableAfterBlock())
-            .find(after => after !== undefined);
-          return gatedUntil === undefined || gatedUntil <= syncHeight;
-        })
-        .map(record => record.inputNoteRecord());
-    } finally {
-      inner.terminate();
-    }
+    // Re-checked on both sides of the reader lookup. Eviction bumps the client
+    // generation before it releases the mutex, so a dead flow past this point would
+    // reach - or build - its successor's reader; and the first build parks on a
+    // genesis fetch, after which a dead flow must not list through it.
+    assertLive('after the sync-height read');
+    const inner = await getRealmReaderClient();
+    assertLive('after the reader build');
+    const records: ConsumableNoteRecord[] = await inner.getConsumableNotes(resolveAccountId(wasm, accountId));
+    return records
+      .filter(record => {
+        // One consumability entry per relevant account; we queried a single
+        // account, so any entry gated on a future block hides the note.
+        // `consumableAfterBlock()` is undefined for consumable-now (and for
+        // never-consumable - those keep the pre-existing behavior).
+        const gatedUntil = record
+          .noteConsumability()
+          .map(entry => entry.consumptionStatus().consumableAfterBlock())
+          .find(after => after !== undefined);
+        return gatedUntil === undefined || gatedUntil <= syncHeight;
+      })
+      .map(record => record.inputNoteRecord());
   }
 
   async sendTransaction(

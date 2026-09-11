@@ -155,7 +155,7 @@ jest.mock('../sdk/miden-client', () => ({
     getAccount: (id: string) => (globalThis as any).__dappTestMockGetAccount(id),
     getOutputNotes: (id: string) => (globalThis as any).__dappTestMockGetOutputNotes(id),
     getInputNoteDetails: (q: unknown) => (globalThis as any).__dappTestMockGetInputNoteDetails(q),
-    getConsumableNoteDtos: (id: string) => (globalThis as any).__dappTestMockGetConsumableNotes(id),
+    getConsumableNoteDtos: (...a: unknown[]) => (globalThis as any).__dappTestMockGetConsumableNotes(...a),
     importNoteBytes: (b: Uint8Array) => (globalThis as any).__dappTestMockImportNoteBytes(b),
     syncState: () => (globalThis as any).__dappTestMockSyncState(),
     on: jest.fn()
@@ -173,9 +173,9 @@ jest.mock('../sdk/miden-client', () => ({
   // Re-implements the real comparison against this mock's hold, and throws the
   // REAL poison class so dapp.ts's `isWasmClientPoisonedError` routing sees the
   // shape the poison contract promises.
-  assertWasmHoldCurrent: (hold: object | null, where: string): void => {
+  assertWasmHoldCurrent: (hold: object | null, where: string, step?: string): void => {
     if (hold !== null && hold === currentWasmHold) return;
-    throw new WasmClientPoisonedError('watchdog', new Error(`operation abandoned ${where}`));
+    throw new WasmClientPoisonedError('watchdog', new Error(`operation abandoned ${where}${step ? `, ${step}` : ''}`));
   },
   runWhenClientIdle: () => {}
 }));
@@ -1014,7 +1014,7 @@ describe('requestPrivateNotes account scoping', () => {
       privateNotes: [CONNECTED_ACCOUNT_NOTE]
     });
     // Scoped against the SESSION's account, never the request's own field.
-    expect(mockGetConsumableNotes).toHaveBeenCalledWith('miden-account-1');
+    expect(mockGetConsumableNotes).toHaveBeenCalledWith('miden-account-1', expect.any(Function));
   });
 
   it('returns only the connected account notes on the prompted UponRequest permission', async () => {
@@ -1651,5 +1651,60 @@ describe('a watchdog eviction mid-read abandons the dApp flow instead of double-
       } as never)
     ).rejects.toThrow(WasmClientPoisonedError);
     expect(_g.__dappTestMockGetConsumableNotes).not.toHaveBeenCalled();
+  });
+
+  it('requestConsumableNotes (Auto) forwards the reader check that parked into its own read label', async () => {
+    (storageState[STORAGE_KEY] as any)['https://miden.xyz'] = [
+      { ...SESSION, privateDataPermission: 'AUTO', allowedPrivateData: 2 }
+    ];
+    let thrown: unknown;
+    _g.__dappTestMockGetConsumableNotes.mockImplementationOnce(async (...called: unknown[]) => {
+      const assertLive = called[1] as (step?: string) => void;
+      revokeWasmHold();
+      try {
+        assertLive('after the reader build');
+      } catch (e) {
+        thrown = e;
+        throw e;
+      }
+      return [];
+    });
+    await expect(
+      dapp.requestConsumableNotes('https://miden.xyz', {
+        type: MidenDAppMessageType.ConsumableNotesRequest,
+        sourcePublicKey: 'miden-account-1'
+      } as never)
+    ).rejects.toThrow(WasmClientPoisonedError);
+    expect(((thrown as Error).cause as Error).message).toBe(
+      'operation abandoned inside the consumable-notes read, after the reader build'
+    );
+  });
+
+  it('requestPrivateNotes (Auto) forwards the reader check that parked into its own read label', async () => {
+    (storageState[STORAGE_KEY] as any)['https://miden.xyz'] = [
+      { ...SESSION, privateDataPermission: 'AUTO', allowedPrivateData: 65535 }
+    ];
+    let thrown: unknown;
+    _g.__dappTestMockGetConsumableNotes.mockImplementationOnce(async (...called: unknown[]) => {
+      const assertLive = called[1] as (step?: string) => void;
+      revokeWasmHold();
+      try {
+        assertLive('after the reader build');
+      } catch (e) {
+        thrown = e;
+        throw e;
+      }
+      return [];
+    });
+    await expect(
+      dapp.requestPrivateNotes('https://miden.xyz', {
+        type: MidenDAppMessageType.PrivateNotesRequest,
+        sourcePublicKey: 'miden-account-1',
+        notefilterType: 'All'
+      } as never)
+    ).rejects.toThrow(WasmClientPoisonedError);
+    expect(((thrown as Error).cause as Error).message).toBe(
+      'operation abandoned inside the consumable-notes read, after the reader build'
+    );
   });
 });

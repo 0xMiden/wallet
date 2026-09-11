@@ -22,8 +22,8 @@ jest.mock('lib/platform/storage-adapter', () => ({
 }));
 
 // Guards the invariant that the resolver is the single source the client reads from:
-// `MidenClientInterface.create()`, its `MultisigClient` lookup, its raw-WasmWebClient
-// consumable-notes read, `generateTransaction`'s two raw-WasmWebClient reads, and
+// `MidenClientInterface.create()`, its `MultisigClient` lookup, the realm reader client
+// (which serves the consumable-notes read and the guardian PSWAP request build), and
 // `simulateCustomTx` all now call these same getters instead of reading
 // MIDEN_NETWORK_ENDPOINTS/MIDEN_PROVING_ENDPOINTS/getNoteTransportUrl directly, so an
 // override applied here is guaranteed to be what every one of those call sites sees.
