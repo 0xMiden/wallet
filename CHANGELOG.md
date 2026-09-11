@@ -2,8 +2,15 @@
 
 ## 1.16.1 (TBD)
 
+### Features
+
+- [FEAT][all] The popup, full-page, side-panel, mobile and desktop wallet screens and the dApp confirmation popup show a Bread-branded banner naming the network the wallet is on (it follows Developer Settings overrides and hides on mainnet), with a sheet that explains the test environment. Onboarding shows a network notice before a wallet is created or restored; Receive, the EVM wallet connect step and the bridge amount form warn to use test funds only; and a shared address or QR image names the network (#875).
+
 ### Fixes
 
+- [FIX][all] An open wallet no longer leaks an IndexedDB connection and a WASM client on every consumability read. The read built a throwaway client each lap (every sync alarm on the extension, every 5 s claimable-notes poll on mobile and desktop) and relied on the SDK's `terminate()`, which releases nothing for an in-realm client; after two idle days the extension renderer died of out-of-memory. Each realm now keeps one reader and rebuilds it when the client is replaced or the RPC endpoint changes; the guardian swap request build, which leaked a client per swap the same way, uses that reader too.
+- [CHORE][all] Every production build now refuses a `node_modules` that does not match `yarn.lock` (`yarn check --integrity`, 30 ms), so a stale checkout can no longer bundle the wrong SDK.
+- [FIX][all] The send screen waits for balances before warning about missing MIDEN for fees and clears that warning when funds arrive. Clearing an amount keeps the input red and Confirm disabled without showing “Invalid amount”.
 - [FIX][ci] Every ubuntu job now drops Google's Chrome apt repository before touching apt. Nothing installs Chrome from apt, yet its CDN served a mismatched package index for over an hour and failed every Playwright, xvfb and local-node install with `Hash Sum mismatch`.
 - [FIX][e2e] The testnet E2E harness now funds every new account from the public faucet before its first transaction, as it already did on devnet; testnet moved to the fee-charging 0.16 node and unfunded mints failed inside the kernel.
 - [FIX][all] Onboarding registration failures now appear on the confirmation screen with a Retry action instead of leaving the screen idle. If registration succeeds but the wallet does not report Ready within five seconds, Retry checks readiness again without recreating the wallet. (#835)

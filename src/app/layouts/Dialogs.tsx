@@ -23,17 +23,21 @@ const Dialogs: FC = () => {
   }, []);
 
   // Handle mobile back button/gesture to close dialogs
-  useMobileBackHandler(() => {
-    if (confirmParams.isOpen) {
-      dispatchConfirmClose(false);
-      return true;
-    }
-    if (alertParams.isOpen) {
-      dispatchAlertClose();
-      return true;
-    }
-    return false;
-  }, [confirmParams.isOpen, alertParams.isOpen]);
+  useMobileBackHandler(
+    () => {
+      if (confirmParams.isOpen) {
+        dispatchConfirmClose(false);
+        return true;
+      }
+      if (alertParams.isOpen) {
+        dispatchAlertClose();
+        return true;
+      }
+      return false;
+    },
+    [confirmParams.isOpen, alertParams.isOpen],
+    { overlay: true }
+  );
 
   return (
     <>

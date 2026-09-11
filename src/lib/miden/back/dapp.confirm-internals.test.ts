@@ -138,7 +138,7 @@ jest.mock('@miden-sdk/miden-wallet-adapter-base', () => ({
 jest.mock('webextension-polyfill', () => {
   const browser = {
     runtime: {
-      getPlatformInfo: async () => ({ os: 'mac' }),
+      getPlatformInfo: async () => ({ os: _g.__dappConfInternals.os ?? 'mac' }),
       getURL: (path: string) => `ext://${path}`,
       onMessage: { addListener: jest.fn(), removeListener: jest.fn() },
       onInstalled: { addListener: jest.fn(), removeListener: jest.fn() },
@@ -182,6 +182,7 @@ const SESSION = {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  delete _g.__dappConfInternals.os;
   _g.__dappConfInternals.intercomListeners.length = 0;
   _g.__dappConfInternals.onRemovedListeners.length = 0;
   for (const k of Object.keys(_g.__dappConfInternals.storage)) delete _g.__dappConfInternals.storage[k];
@@ -206,6 +207,36 @@ describe('requestConfirm autodecline timeout', () => {
     // Advance past the 120s autodecline timer
     jest.advanceTimersByTime(121_000);
     await expect(p).rejects.toThrow(MidenDAppErrorType.NotGranted);
+  });
+});
+
+describe('requestConfirm popup size', () => {
+  const openConfirm = async () => {
+    const p = dapp.requestSign('https://test.xyz', {
+      type: MidenDAppMessageType.SignRequest,
+      sourcePublicKey: 'a1',
+      sourceAccountId: 'a1',
+      payload: 'aA==',
+      kind: 'word'
+    } as never);
+    p.catch(() => {});
+    await jest.advanceTimersByTimeAsync(0);
+    const browser = (require('webextension-polyfill').default || require('webextension-polyfill')) as any;
+    const options = browser.windows.create.mock.calls.at(-1)?.[0];
+    // Settle the pending request so nothing leaks into the next test.
+    jest.advanceTimersByTime(121_000);
+    await expect(p).rejects.toThrow(MidenDAppErrorType.NotGranted);
+    return options;
+  };
+
+  it('opens the popup 380 x 676 (the height carries the network banner)', async () => {
+    expect(await openConfirm()).toEqual(expect.objectContaining({ type: 'popup', width: 380, height: 676 }));
+  });
+
+  it('adds the Windows frame allowance (396 x 693)', async () => {
+    _g.__dappConfInternals.os = 'win';
+
+    expect(await openConfirm()).toEqual(expect.objectContaining({ type: 'popup', width: 396, height: 693 }));
   });
 });
 

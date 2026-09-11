@@ -91,6 +91,8 @@ jest.mock('../sdk/miden-client', () => ({
       if ((globalThis as any).__cnTest.currentHold === hold) (globalThis as any).__cnTest.currentHold = null;
     }
   },
+  // Records its arguments, so a test can see the step a forwarded check carries.
+  assertWasmHoldCurrent: (...a: unknown[]) => (globalThis as any).__cnTest.assertWasmHoldCurrent(...a),
   runWhenClientIdle: (fn: () => Promise<any>) => mockRunWhenClientIdle(fn)
 }));
 
@@ -163,6 +165,7 @@ beforeEach(() => {
   mockGetMidenClient.mockReset().mockResolvedValue({});
   // Default proxy read: return the fixture DTO list; individual tests override.
   _g.__cnTest.proxyGetConsumableNotes = jest.fn(async () => _g.__cnTest.consumableNotes);
+  _g.__cnTest.assertWasmHoldCurrent = jest.fn();
 });
 
 describe('useClaimableNotes (extension mode)', () => {
@@ -535,6 +538,23 @@ describe('useClaimableNotes (local mode — mobile/desktop)', () => {
     // The fetch rejects → onError fires (covered by the SWR mock).
     await _g.__cnTest.lastFetchPromise;
     expect(_g.__cnTest.proxyGetConsumableNotes).toHaveBeenCalled();
+  });
+
+  it('forwards the reader check that parked into its own read label', async () => {
+    let forwarded: ((step?: string) => void) | undefined;
+    _g.__cnTest.proxyGetConsumableNotes = jest.fn(async (...called: unknown[]) => {
+      forwarded = called[1] as (step?: string) => void;
+      return [];
+    });
+    renderHook(() => useClaimableNotes('pk-1'));
+    await _g.__cnTest.lastFetchPromise;
+    expect(forwarded).toBeDefined();
+    forwarded?.('after the reader build');
+    expect(_g.__cnTest.assertWasmHoldCurrent).toHaveBeenCalledWith(
+      expect.objectContaining({ id: expect.stringMatching(/^cn-hold-/) }),
+      'inside the claimable-notes read',
+      'after the reader build'
+    );
   });
 
   it('bounds and labels BOTH of its WASM holds, not just the note read (#777)', async () => {

@@ -38,11 +38,22 @@ describe('package.json build scripts', () => {
 
   it('never invokes a `yarn <script>` that is not defined', () => {
     // Yarn's own built-in subcommands are not package scripts.
-    const YARN_BUILTINS = new Set(['cache', 'install', 'add', 'remove', 'run', 'why', 'link', 'unlink', 'upgrade']);
+    const YARN_BUILTINS = new Set([
+      'cache',
+      'check',
+      'install',
+      'add',
+      'remove',
+      'run',
+      'why',
+      'link',
+      'unlink',
+      'upgrade'
+    ]);
     const defined = new Set(Object.keys(pkg.scripts));
     const missing: string[] = [];
     for (const [name, cmd] of Object.entries(pkg.scripts)) {
-      for (const match of cmd.matchAll(/yarn ([a-z0-9:_-]+)/g)) {
+      for (const match of cmd.matchAll(/yarn (?:-s |--silent )?([a-z0-9:_-]+)/g)) {
         const referenced = match[1]!;
         if (YARN_BUILTINS.has(referenced)) continue;
         // Anything else that is not defined fails the `&&` chain at runtime —

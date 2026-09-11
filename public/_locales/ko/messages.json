@@ -3806,6 +3806,127 @@
     "message": "테스트넷",
     "englishSource": "Testnet"
   },
+  "devnet": {
+    "message": "개발자 네트워크(Devnet)",
+    "englishSource": "Devnet"
+  },
+  "localnet": {
+    "message": "Localnet",
+    "englishSource": "Localnet"
+  },
+  "networkModeBanner": {
+    "message": "현재 Miden $network$에서 Bread를 이용 중이십니다",
+    "englishSource": "You are using Bread on Miden $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "networkNoticeChip": {
+    "message": "Miden $network$",
+    "englishSource": "Miden $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "networkNoticeBody": {
+    "message": "이 환경은 테스트용입니다. 이곳에서 보유하는 모든 것은 금전적 가치가 없는 테스트 토큰입니다.",
+    "englishSource": "This environment is for testing. Everything you hold here is a test token with no monetary value."
+  },
+  "networkNoticeNoValueTitle": {
+    "message": "테스트 토큰은 화폐가 아닙니다",
+    "englishSource": "Test tokens are not money"
+  },
+  "networkNoticeNoValueBody": {
+    "message": "여기에 표시된 잔액과 가격은 시뮬레이션된 것이며 실제로 환전할 수 없습니다.",
+    "englishSource": "Balances and prices shown here are simulated and cannot be redeemed."
+  },
+  "networkNoticeNoRealFundsTitle": {
+    "message": "실제 자금을 보내지 마십시오",
+    "englishSource": "Do not send real funds"
+  },
+  "networkNoticeNoRealFundsBody": {
+    "message": "실제 네트워크에서 테스트 주소로 전송된 모든 것은 손실됩니다.",
+    "englishSource": "Anything sent from a real network to a test address is lost."
+  },
+  "networkNoticeResetTitle": {
+    "message": "네트워크는 재설정될 수 있습니다",
+    "englishSource": "The network can reset"
+  },
+  "networkNoticeResetBody": {
+    "message": "리셋은 잔액과 내역을 초기화합니다. 테스트망의 잔액은 메인넷으로 이월되지 않습니다.",
+    "englishSource": "A reset clears balances and history. Test balances never carry over to Mainnet."
+  },
+  "iUnderstand": {
+    "message": "알겠습니다",
+    "englishSource": "I understand"
+  },
+  "receiveTestFundsTitle": {
+    "message": "테스트 토큰 전용",
+    "englishSource": "Test tokens only"
+  },
+  "receiveTestFundsBody": {
+    "message": "이 주소로는 Miden $network$ 토큰만 보내주십시오. 이 주소로 실제 자금을 보내면 복구할 수 없습니다.",
+    "englishSource": "Only send Miden $network$ tokens here. Real funds sent to this address cannot be recovered.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "crossChainFromNetwork": {
+    "message": "$network$에서",
+    "englishSource": "from $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "ethereumSepolia": {
+    "message": "이더리움 세폴리아",
+    "englishSource": "Ethereum Sepolia"
+  },
+  "bridgeTestFundsTitle": {
+    "message": "테스트 자금 전용",
+    "englishSource": "Test funds only"
+  },
+  "bridgeTestFundsBody": {
+    "message": "이 브리지는 이더리움 세폴리아 테스트 토큰을 Miden으로 이동시킵니다. 이더리움 메인넷이나 그 밖의 실제 네트워크에서는 절대 브리지를 사용하지 마십시오.",
+    "englishSource": "This bridge moves Ethereum Sepolia test tokens to Miden. Never bridge from Ethereum mainnet or any other real network."
+  },
+  "shareAddressText": {
+    "message": "제 Miden $network$ 주소(테스트 토큰 전용): $address$",
+    "englishSource": "My Miden $network$ address (test tokens only): $address$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      },
+      "address": {
+        "content": "$2"
+      }
+    }
+  },
+  "qrNetworkCaption": {
+    "message": "Miden $network$",
+    "englishSource": "Miden $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "evmConnectTestWalletTitle": {
+    "message": "테스트 지갑만 연결하십시오",
+    "englishSource": "Connect a test wallet only"
+  },
+  "evmConnectTestWalletBody": {
+    "message": "이 브리지는 이더리움 세폴리아(Sepolia)에서 운영됩니다. 실제 자금이 들어 있는 지갑은 연결하지 마십시오. 새로운 지갑을 생성하고 세폴리아 ETH로만 자금을 입금하십시오.",
+    "englishSource": "This bridge runs on Ethereum Sepolia. Do not connect a wallet that holds real funds. Create a fresh wallet and fund it with Sepolia ETH only."
+  },
   "browser": {
     "message": "브라우저",
     "englishSource": "Browser"

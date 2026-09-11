@@ -82,6 +82,7 @@ import { getDappDisplayName } from 'lib/dapp-browser/dapp-session';
 import { captureSnapshot, clearSnapshot, snapshotStoreInternals } from 'lib/dapp-browser/snapshot-store';
 import { type WebViewRect } from 'lib/dapp-browser/webview-rect';
 import { useOverlayScreenKey } from 'lib/e2e/useOverlayScreenKey';
+import { useHideDappBubblesWhileOpen } from 'lib/mobile/useHideDappBubblesWhileOpen';
 import { resetViewportAfterWebview } from 'lib/mobile/viewport-reset';
 import { markReturningFromWebview } from 'lib/mobile/webview-state';
 import { isMobile } from 'lib/platform';
@@ -189,6 +190,11 @@ interface DappBrowserContextValue {
   setSlotRect: (rect: WebViewRect | null) => void;
   /** The most recent slot rect, used by minimize-animation hooks. */
   slotRect: WebViewRect | null;
+  /**
+   * Hold the foreground dApp's native window hidden while a host-WebView overlay
+   * is open above it. Returns the release; a no-op once released.
+   */
+  holdHostOverlay: () => () => void;
 }
 
 const DappBrowserContext = createContext<DappBrowserContextValue | null>(null);
@@ -199,6 +205,17 @@ export function useDappBrowser(): DappBrowserContextValue {
     throw new Error('useDappBrowser must be used inside <DappBrowserProvider>');
   }
   return ctx;
+}
+
+/**
+ * While `open`, hide the foreground dApp's native window (it sits above the
+ * host WebView and would cover a host overlay) and move parked-dApp bubbles
+ * aside. A no-op outside the provider: extension, desktop, confirm window.
+ */
+export function useHideForegroundDappWhileOpen(open: boolean): void {
+  const holdHostOverlay = useContext(DappBrowserContext)?.holdHostOverlay;
+  useEffect(() => (open && holdHostOverlay ? holdHostOverlay() : undefined), [open, holdHostOverlay]);
+  useHideDappBubblesWhileOpen(open);
 }
 
 /**
@@ -242,6 +259,38 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
   // PR-5: card switcher visibility lives in the provider so it survives
   // tab navigation alongside the bubble host.
   const [switcherOpen, setSwitcherOpen] = useState(false);
+
+  // The confirmation modal is rendered here so it survives tab navigation.
+  // PR-4 chunk 8: scope to the foreground session id so a parked dApp's
+  // pending confirmation stays queued until the user surfaces that
+  // session via its bubble. Falling back to undefined when no session is
+  // foregrounded means the modal also picks up the legacy default-slot
+  // request from this platform's non-session callers (faucet-webview,
+  // native notifications). This provider is mounted only on mobile
+  // (`App.tsx`); desktop renders its own `DesktopDappConfirmationModal`
+  // against the same default slot, and the extension uses its popup.
+  const { request, resolve } = useDappConfirmation(foregroundId ?? undefined);
+
+  // Host-WebView overlays that must sit above a foregrounded dApp (the network
+  // banner's sheet); while any holds, the foreground window stays hidden.
+  const [hostOverlays, setHostOverlays] = useState(0);
+  const holdHostOverlay = useCallback(() => {
+    setHostOverlays(n => n + 1);
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      setHostOverlays(n => Math.max(0, n - 1));
+    };
+  }, []);
+
+  // One decision for every path that can show the foreground window (the slot
+  // effect, the switcher close, the visibility effect): a pending confirmation,
+  // the open switcher or a held host overlay keeps it hidden. Mirrored into a
+  // ref during render so effects in this commit read the current value.
+  const foregroundBlocked = !!request || switcherOpen || hostOverlays > 0;
+  const foregroundBlockedRef = useRef(foregroundBlocked);
+  foregroundBlockedRef.current = foregroundBlocked;
   // Snapshot taken at the moment the switcher opens — restored when it
   // closes (unless the user picked a card, in which case the picked
   // session takes the foreground via restore()).
@@ -806,8 +855,12 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       // `setRect(new)` moves it — producing a visible jump at the
       // end of the expand animation. Calling setRect first ensures
       // the webview is already at the target before it appears.
-      void state.instance.setRect(slotRect);
-      void state.instance.setVisible(true);
+      void state.instance.setRect(slotRect).catch(e => console.warn('[DappBrowserProvider] setRect failed:', e));
+      // Blocked: stay hidden; the visibility effect shows it once nothing blocks.
+      if (!foregroundBlockedRef.current)
+        void state.instance
+          .setVisible(true)
+          .catch(e => console.warn('[DappBrowserProvider] setVisible(true) failed:', e));
       // Re-run the injection script on restore so any CSS the wallet
       // wants to layer onto the dApp (currently the navbar bottom
       // padding) reaches sessions that were parked before the most
@@ -815,7 +868,9 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       // page loads, not when setVisible(true) un-parks an instance,
       // so without this the CSS would never refresh on a hot-restored
       // session.
-      void state.instance.executeScript(INJECTION_SCRIPT).catch(() => {});
+      void state.instance
+        .executeScript(INJECTION_SCRIPT)
+        .catch(e => console.warn('[DappBrowserProvider] executeScript failed:', e));
     }
     // openInternal is stable-ish; intentionally not in deps to avoid
     // re-running on every state change.
@@ -914,7 +969,9 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       // Hide all active instances. Parked ones are already hidden.
       sessionStatesRef.current.forEach(s => {
         if (s.status === 'active' && s.instance) {
-          void s.instance.setVisible(false);
+          void s.instance
+            .setVisible(false)
+            .catch(e => console.warn('[DappBrowserProvider] setVisible(false) failed:', e));
         }
       });
     } else {
@@ -924,11 +981,15 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       // call setVisible(true) + setRect once it runs, but we don't
       // need to do anything explicit here — the dependency on
       // switcherOpen is enough to trigger a re-run.
-      if (foregroundIdRef.current && slotRectRef.current) {
+      if (foregroundIdRef.current && slotRectRef.current && !foregroundBlockedRef.current) {
         const state = sessionStatesRef.current.find(s => s.session.id === foregroundIdRef.current);
         if (state?.instance) {
-          void state.instance.setVisible(true);
-          void state.instance.setRect(slotRectRef.current);
+          void state.instance
+            .setVisible(true)
+            .catch(e => console.warn('[DappBrowserProvider] setVisible(true) failed:', e));
+          void state.instance
+            .setRect(slotRectRef.current)
+            .catch(e => console.warn('[DappBrowserProvider] setRect failed:', e));
         }
       }
     }
@@ -1006,7 +1067,8 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       openSwitcher,
       closeSwitcher,
       setSlotRect,
-      slotRect
+      slotRect,
+      holdHostOverlay
     }),
     [
       session,
@@ -1021,20 +1083,10 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       switcherOpen,
       openSwitcher,
       closeSwitcher,
-      slotRect
+      slotRect,
+      holdHostOverlay
     ]
   );
-
-  // The confirmation modal is rendered here so it survives tab navigation.
-  // PR-4 chunk 8: scope to the foreground session id so a parked dApp's
-  // pending confirmation stays queued until the user surfaces that
-  // session via its bubble. Falling back to undefined when no session is
-  // foregrounded means the modal also picks up the legacy default-slot
-  // request from this platform's non-session callers (faucet-webview,
-  // native notifications). This provider is mounted only on mobile
-  // (`App.tsx`); desktop renders its own `DesktopDappConfirmationModal`
-  // against the same default slot, and the extension uses its popup.
-  const { request, resolve } = useDappConfirmation(foregroundId ?? undefined);
 
   // CRITICAL: when a confirmation is pending, hide the foreground dApp's
   // native UIWindow. The confirmation modal is rendered inside the
@@ -1056,17 +1108,27 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
   // This matches the existing switcher-open effect's pattern, just
   // scoped to the single foreground session instead of every active
   // instance.
+  //
+  // foregroundBlocked (above) decides: a held host overlay or the open switcher
+  // hides it the same way, and it is shown again only when nothing blocks.
+  // Keyed on the foreground instance too, so a window created while blocked
+  // (openInternal opens it visible) is hidden as soon as it arrives.
+  const foregroundInstance = sessionStates.find(s => s.session.id === foregroundId)?.instance ?? null;
   useEffect(() => {
     if (!isMobile()) return;
     if (!foregroundId) return;
     const state = sessionStatesRef.current.find(s => s.session.id === foregroundId);
     if (!state?.instance) return;
-    if (request) {
-      void state.instance.setVisible(false).catch(() => {});
+    if (foregroundBlocked) {
+      void state.instance
+        .setVisible(false)
+        .catch(e => console.warn('[DappBrowserProvider] setVisible(false) failed:', e));
     } else {
-      void state.instance.setVisible(true).catch(() => {});
+      void state.instance
+        .setVisible(true)
+        .catch(e => console.warn('[DappBrowserProvider] setVisible(true) failed:', e));
     }
-  }, [request, foregroundId]);
+  }, [foregroundBlocked, foregroundId, foregroundInstance]);
 
   // Read account info for the modal — kept here to avoid prop-drilling
   const currentAccount = useWalletStore(s => s.currentAccount);
