@@ -136,6 +136,13 @@ const mockWithWasmClientLock = jest.fn(async (fn: (hold: object) => Promise<unkn
 const mockWithWasmLockWatchdogPaused = jest.fn(async (fn: () => Promise<unknown>) => fn());
 const mockGetMidenClient = jest.fn();
 const mockCreateWasmWebClient = jest.fn();
+// The guardian PSWAP build takes the realm's reader client; mocking the accessor keeps
+// its module-scoped reader out of these tests (the real module is kept for the rest).
+const mockGetRealmReaderClient = jest.fn();
+jest.mock('../sdk/miden-client-interface', () => ({
+  ...jest.requireActual('../sdk/miden-client-interface'),
+  getRealmReaderClient: (...a: unknown[]) => mockGetRealmReaderClient(...a)
+}));
 // Match the relative path used by transactions.ts so the mock intercepts.
 // The slice-2 offscreen client proxy reads getAccount through the `lib/...` alias
 // of miden-client, which jest mocks separately from the relative specifier below;
@@ -841,6 +848,7 @@ describe('generateTransaction — Guardian routing', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockCreateWasmWebClient.mockReset();
+    mockGetRealmReaderClient.mockReset();
     mockBuildSendTransactionRequest.mockReset();
     mockBuildPswapCreateRequest.mockReset();
     // Same reason as the reset below: keep the passthrough default so a test that does not
@@ -1491,8 +1499,7 @@ describe('generateTransaction — Guardian routing', () => {
     // The reference request the SDK builder returns, to be rewritten.
     const reference = { kind: 'reference-request', serialize: () => new Uint8Array([99]) };
     const newPswapCreateTransactionRequest = jest.fn(async () => reference);
-    const terminate = jest.fn();
-    mockCreateWasmWebClient.mockResolvedValue({ newPswapCreateTransactionRequest, terminate });
+    mockGetRealmReaderClient.mockResolvedValue({ newPswapCreateTransactionRequest });
 
     const multisigService = {
       createCustomProposal: jest.fn(async () => ({ id: 'swap-proposal' })),
@@ -1536,8 +1543,9 @@ describe('generateTransaction — Guardian routing', () => {
     expect(txStore.find(row => row.id === txId)?.requestBytes).toBe(rebuiltBytes);
     expect(multisigService.createCustomProposal).toHaveBeenCalledWith(rebuiltBytes, 'swap');
     expect(multisigService.signAndCreateTransactionRequest).toHaveBeenCalledWith('swap-proposal', rebuiltBytes);
-    // The transient client is always torn down, rewrite or not.
-    expect(terminate).toHaveBeenCalled();
+    // Built through the realm's reader client, never a per-call client (#868's leak class).
+    expect(mockGetRealmReaderClient).toHaveBeenCalledTimes(1);
+    expect(mockCreateWasmWebClient).not.toHaveBeenCalled();
   });
 
   /**

@@ -205,9 +205,9 @@ jest.mock('lib/miden/sdk/miden-client', () => {
     // Re-implements the REAL comparison against this mock's own `currentHold` —
     // a no-op here would satisfy every eviction test below vacuously, because the
     // guards under test could then never fire.
-    assertWasmHoldCurrent: (hold: object | null, where: string): void => {
+    assertWasmHoldCurrent: (hold: object | null, where: string, step?: string): void => {
       if (hold !== null && hold === currentHold) return;
-      throw new PoisonError('watchdog', new Error(`operation abandoned ${where}`));
+      throw new PoisonError('watchdog', new Error(`operation abandoned ${where}${step ? `, ${step}` : ''}`));
     },
     onWasmClientPoisoned: (listener: () => void) => {
       g.__off.poisonedListeners = g.__off.poisonedListeners ?? [];
@@ -945,21 +945,28 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
   // passes a function which never throws satisfies `expect.any(Function)` and
   // guards nothing.
   it.each([
-    ['exportNote', 'clientExportNote', ['note-x', 'Details']],
-    ['getInputNoteDetails', 'clientGetInputNoteDetails', [{ ids: ['0xabc'] }]],
-    ['getConsumableNotes', 'clientGetConsumableNoteDtos', ['mtst1qqaccount']]
+    ['exportNote', 'clientExportNote', ['note-x', 'Details'], undefined, 'in offscreen'],
+    ['getInputNoteDetails', 'clientGetInputNoteDetails', [{ ids: ['0xabc'] }], undefined, 'in offscreen'],
+    // The consumability read names each of its checks; the dispatch forwards that step into its own label.
+    [
+      'getConsumableNotes',
+      'clientGetConsumableNoteDtos',
+      ['mtst1qqaccount'],
+      'after the reader build',
+      'in offscreen getConsumableNotes, after the reader build'
+    ]
   ] as const)(
     '%s: hands the interface a liveness check that refuses after an eviction (#788)',
-    async (method, clientFn, args) => {
+    async (method, clientFn, args, step, expected) => {
       await loadModule();
       const miden: any = await import('lib/miden/sdk/miden-client');
-      let assertLive!: () => void;
+      let assertLive!: (step?: string) => void;
       let releaseRead!: () => void;
       const parkedRead = new Promise<void>(resolve => {
         releaseRead = resolve;
       });
       G.__off[clientFn] = jest.fn(async (...called: unknown[]) => {
-        assertLive = called[called.length - 1] as () => void;
+        assertLive = called[called.length - 1] as (step?: string) => void;
         await parkedRead;
         return [];
       });
@@ -980,14 +987,14 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
       miden.__evictHolder();
       let thrown: unknown;
       try {
-        assertLive();
+        assertLive(step);
       } catch (e) {
         thrown = e;
       }
       // The poison class, so the SW's kill classifiers read it as an abandonment
       // rather than an ordinary failure; the site names itself on the `cause`.
       expect((thrown as Error)?.name).toBe('WasmClientPoisonedError');
-      expect(((thrown as Error).cause as Error).message).toContain('in offscreen');
+      expect(((thrown as Error).cause as Error).message).toContain(expected);
 
       releaseRead();
       await flush();

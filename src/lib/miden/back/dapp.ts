@@ -933,8 +933,8 @@ async function getPrivateNoteDetails(
         assertWasmHoldCurrent(hold, 'after the private-note read');
         const ownNoteIds = new Set(
           (
-            await midenClientProxy.getConsumableNotes(accountId, () =>
-              assertWasmHoldCurrent(hold, 'inside the consumable-notes read, before the sync-height read')
+            await midenClientProxy.getConsumableNotes(accountId, step =>
+              assertWasmHoldCurrent(hold, 'inside the consumable-notes read', step)
             )
           ).flatMap(note => (note.noteId ? [note.noteId] : []))
         );
@@ -1083,8 +1083,8 @@ async function getConsumableNotes(accountId: string): Promise<InputNoteDetails[]
         // reduction ran in the client's realm (offscreen when the flag is on, so
         // it uses the same realm that just ran syncState above — no stale height).
         // The DTO is a strict superset of InputNoteDetails; map it 1:1.
-        const notes = await midenClientProxy.getConsumableNotes(accountId, () =>
-          assertWasmHoldCurrent(hold, 'inside the consumable-notes read, before the sync-height read')
+        const notes = await midenClientProxy.getConsumableNotes(accountId, step =>
+          assertWasmHoldCurrent(hold, 'inside the consumable-notes read', step)
         );
         return notes.flatMap<InputNoteDetails>(note => {
           // Partial (metadata-less) notes have no ID — and, since 0.15
