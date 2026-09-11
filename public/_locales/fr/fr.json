@@ -1022,5 +1022,6 @@
   "devEndpointResetDefaults": "Rétablir les paramètres par défaut",
   "devEndpointResetAndReonboard": "Réinitialisation aux paramètres par défaut et nouvelle configuration",
   "devEndpointsRow": "Terminaisons réseau",
-  "devEndpointResetConfirm": "Cette opération efface définitivement ce portefeuille, y compris vos clés et l'historique de vos transactions. Vous aurez besoin de votre phrase de récupération pour le restaurer."
+  "devEndpointResetConfirm": "Cette opération efface définitivement ce portefeuille, y compris vos clés et l'historique de vos transactions. Vous aurez besoin de votre phrase de récupération pour le restaurer.",
+  "walletSetupDidNotComplete": "Votre portefeuille a été créé mais n’a pas terminé son démarrage. Vérifiez votre connexion et réessayez."
 }

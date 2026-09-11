@@ -1,7 +1,8 @@
-import React, { FC, useCallback, useEffect, useMemo, useState } from 'react';
+import React, { FC, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { generateMnemonic } from 'bip39';
 import wordslist from 'bip39/src/wordlists/english.json';
+import { useTranslation } from 'react-i18next';
 
 import AwaitFonts from 'app/a11y/AwaitFonts';
 import { formatMnemonic } from 'app/defaults';
@@ -66,30 +67,69 @@ function protectionStepRoute(): string {
 }
 
 /**
+ * A message the user can act on, from whatever registration threw.
+ *
+ * Deliberately not a friendly rewrite: registration spans hardware protection,
+ * the selected Guardian, wallet storage and the network. The original message
+ * is the only thing that tells a tester — or a bug report — which stage failed.
+ * `select-text` on the render site makes it copyable for exactly that reason.
+ */
+function errorToMessage(error: unknown): string {
+  if (error instanceof Error && error.message) return error.message;
+  if (typeof error === 'string' && error) return error;
+  if (error && typeof error === 'object') {
+    try {
+      const serialized = JSON.stringify(error);
+      if (serialized && serialized !== '{}') return serialized;
+    } catch {
+      // Fall through to the stable user-facing fallback below.
+    }
+  }
+  if (typeof error === 'number' || typeof error === 'boolean') return String(error);
+  return 'Unknown error';
+}
+
+const READY_WAIT_BUDGET_MS = 5_000;
+const READY_POLL_INTERVAL_MS = 100;
+
+/**
  * Wait for the wallet state to become Ready after registration.
  * This ensures the state is fully synced before navigation.
  */
-async function waitForReadyState(syncFromBackend: (state: any) => void, maxAttempts = 10): Promise<void> {
-  console.log('[waitForReadyState] Starting, maxAttempts:', maxAttempts);
-  for (let i = 0; i < maxAttempts; i++) {
+async function waitForReadyState(
+  syncFromBackend: (state: any) => void,
+  maxWaitMs = READY_WAIT_BUDGET_MS
+): Promise<boolean> {
+  const deadline = Date.now() + maxWaitMs;
+  let attempt = 0;
+  console.log('[waitForReadyState] Starting, maxWaitMs:', maxWaitMs);
+  while (Date.now() < deadline) {
+    attempt += 1;
     try {
-      console.log('[waitForReadyState] Attempt', i + 1);
-      const state = await fetchStateFromBackend();
+      console.log('[waitForReadyState] Attempt', attempt);
+      // The ordinary state read allows 3s. Hand it only the time left here so
+      // one wedged backend cannot turn this five-second UI budget into minutes.
+      const state = await fetchStateFromBackend(Math.max(1, deadline - Date.now()));
       console.log('[waitForReadyState] Got state:', { status: state.status, hasAccounts: !!state.accounts?.length });
       syncFromBackend(state);
       if (state.status === WalletStatus.Ready) {
         console.log('[waitForReadyState] State is Ready, done');
-        return;
+        return true;
       }
     } catch (error) {
       console.warn('[waitForReadyState] Failed to fetch state, retrying...', error);
     }
-    await new Promise(r => setTimeout(r, 100));
+    const remainingMs = deadline - Date.now();
+    if (remainingMs > 0) {
+      await new Promise(r => setTimeout(r, Math.min(READY_POLL_INTERVAL_MS, remainingMs)));
+    }
   }
-  console.warn('[waitForReadyState] Max attempts reached, state still not Ready');
+  console.warn('[waitForReadyState] Time budget reached, state still not Ready');
+  return false;
 }
 
 const Welcome: FC = () => {
+  const { t } = useTranslation();
   const { hash } = useLocation();
   const [step, setStep] = useState(OnboardingStep.Welcome);
   const [seedPhrase, setSeedPhrase] = useState<string[] | null>(null);
@@ -108,6 +148,20 @@ const Welcome: FC = () => {
   const [biometricAttempts, setBiometricAttempts] = useState(0);
   const [biometricError, setBiometricError] = useState<string | null>(null);
   const [guardianLookupError, setGuardianLookupError] = useState(false);
+  /**
+   * A registration failure to show on the confirmation screen.
+   *
+   * The same defect #630 fixed for password recovery was never applied to
+   * onboarding: every failure that is not Import+Guardian or hardware-only was
+   * console.error'd and nothing else, so the screen looked idle and the button
+   * looked dead. A wallet that cannot reach a compatible node fails here, and
+   * "nothing happened" is indistinguishable from "still working".
+   */
+  const [registrationError, setRegistrationError] = useState<string | null>(null);
+  // Once NewWalletRequest succeeds, a readiness retry must only re-read state.
+  // Calling registerWallet again can wipe and recreate the wallet that the
+  // first attempt already committed.
+  const registrationCompletedRef = useRef(false);
   // Tracks which protection screen the user came through; needed so ChooseGuardian
   // back navigation and the create-password→confirmation routing pick the right
   // origin without colliding with the legacy create flow.
@@ -243,16 +297,20 @@ const Welcome: FC = () => {
   const register = useCallback(async () => {
     if (password && seedPhrase) {
       const seedPhraseFormatted = formatMnemonic(seedPhrase.join(' '));
-      // For hardware-only wallets, pass undefined as password
-      const actualPassword = password === '__HARDWARE_ONLY__' ? undefined : password;
-      await registerWallet(
-        walletType,
-        actualPassword,
-        seedPhraseFormatted,
-        onboardingType === OnboardingType.Import,
-        guardianEndpoint
-      );
+      if (!registrationCompletedRef.current) {
+        // For hardware-only wallets, pass undefined as password
+        const actualPassword = password === '__HARDWARE_ONLY__' ? undefined : password;
+        await registerWallet(
+          walletType,
+          actualPassword,
+          seedPhraseFormatted,
+          onboardingType === OnboardingType.Import,
+          guardianEndpoint
+        );
+        registrationCompletedRef.current = true;
+      }
       if (onboardingType === OnboardingType.Create) {
+        // Idempotent and intentionally retried separately from wallet creation.
         await seedWalletPrompt(WalletPromptType.VerifySeedPhrase);
       }
     } else {
@@ -288,8 +346,11 @@ const Welcome: FC = () => {
         navigate('/finish-side-panel');
       } catch (error) {
         // Fall back to the classic click-to-create flow: the confirmation
-        // button reverts to running register() in-tab on the next tap.
+        // button reverts to running register() in-tab on the next tap. Say so —
+        // the spinner stops either way, and without this the screen goes quiet
+        // and the user has no reason to believe a second tap would help.
         console.error('[Welcome] Side panel handoff auto-create failed:', error);
+        setRegistrationError(errorToMessage(error));
         setConfirmPhase('failed');
       }
     })();
@@ -321,6 +382,7 @@ const Welcome: FC = () => {
         }
         break;
       case 'choose-protection':
+        registrationCompletedRef.current = false;
         // On a test network the chosen flow waits behind the network notice
         // (#875); acknowledging the notice starts it.
         if (getTestNetworkNameKey()) {
@@ -392,6 +454,7 @@ const Welcome: FC = () => {
         }
         break;
       case 'select-import-type':
+        registrationCompletedRef.current = false;
         if (getTestNetworkNameKey()) {
           setOnboardingType(OnboardingType.Import);
           navigate('/#network-notice');
@@ -459,11 +522,20 @@ const Welcome: FC = () => {
         try {
           setIsLoading(true);
           setBiometricError(null);
+          setRegistrationError(null);
           await register();
           // Wait for state to be synced before navigating
           // This fixes a race condition where navigation happens before state is Ready
-          await waitForReadyState(syncFromBackend);
+          const becameReady = await waitForReadyState(syncFromBackend);
           setIsLoading(false);
+          if (!becameReady) {
+            // Registration resolved but the wallet never reported Ready. Do NOT
+            // navigate: `resolveRootView` sends a not-ready root back to
+            // Welcome, so the user lands at the start of onboarding with no
+            // idea their wallet may already exist. Stay put and say so.
+            setRegistrationError(t('walletSetupDidNotComplete'));
+            break;
+          }
           eventCategory = AnalyticsEventCategory.FormSubmit;
           // Recovery/import completes in this classic handler (the Create flow
           // takes the auto-create effect above). Hand off to the side panel just
@@ -472,6 +544,9 @@ const Welcome: FC = () => {
         } catch (error) {
           console.error('[Welcome] Confirmation flow failed:', error);
           setIsLoading(false);
+          // Surface it for EVERY path. The two branches below replace this with
+          // their own dedicated UI; anything else previously showed nothing.
+          setRegistrationError(errorToMessage(error));
           if (onboardingType === OnboardingType.Import && walletType === WalletType.Guardian) {
             setGuardianLookupError(true);
             navigate('/#import-select-recovery-method');
@@ -651,6 +726,7 @@ const Welcome: FC = () => {
           biometricAttempts={biometricAttempts}
           biometricError={biometricError}
           guardianLookupError={guardianLookupError}
+          recoveryError={registrationError}
           guardianProbe={guardianProbeState}
           confirmCreating={sidePanelHandoff && confirmPhase === 'creating'}
           onBiometricChange={setUseBiometric}

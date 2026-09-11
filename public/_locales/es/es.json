@@ -1022,5 +1022,6 @@
   "devEndpointResetDefaults": "Restablecer los valores predeterminados",
   "devEndpointResetAndReonboard": "Restablecer la configuración predeterminada y volver a dar de alta",
   "devEndpointsRow": "Terminales de red",
-  "devEndpointResetConfirm": "Esto borrará definitivamente esta cartera, incluidas tus claves y tu historial de transacciones. Necesitarás tu frase de recuperación para restaurarla."
+  "devEndpointResetConfirm": "Esto borrará definitivamente esta cartera, incluidas tus claves y tu historial de transacciones. Necesitarás tu frase de recuperación para restaurarla.",
+  "walletSetupDidNotComplete": "Se ha creado tu monedero, pero no se ha completado la puesta en marcha. Comprueba tu conexión e inténtalo de nuevo."
 }

@@ -1022,5 +1022,6 @@
   "devEndpointResetDefaults": "Varsayılan ayarlara sıfırla",
   "devEndpointResetAndReonboard": "Varsayılan ayarlara sıfırla ve yeniden kaydet",
   "devEndpointsRow": "Ağ uç noktaları",
-  "devEndpointResetConfirm": "Bu işlem, anahtarlarınız ve işlem geçmişiniz dahil olmak üzere bu cüzdanı kalıcı olarak siler. Cüzdanı geri yüklemek için kurtarma ifadesine ihtiyacınız olacak."
+  "devEndpointResetConfirm": "Bu işlem, anahtarlarınız ve işlem geçmişiniz dahil olmak üzere bu cüzdanı kalıcı olarak siler. Cüzdanı geri yüklemek için kurtarma ifadesine ihtiyacınız olacak.",
+  "walletSetupDidNotComplete": "Cüzdanınız oluşturuldu ancak başlatma işlemi tamamlanmadı. Bağlantınızı kontrol edin ve tekrar deneyin."
 }

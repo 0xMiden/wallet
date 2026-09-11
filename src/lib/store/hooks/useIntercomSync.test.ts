@@ -54,6 +54,27 @@ describe('fetchStateFromBackend', () => {
     await expect(fetchStateFromBackend()).rejects.toThrow('Invalid response type');
     expect(intercom.request).toHaveBeenCalledTimes(1);
   });
+
+  it('accepts a smaller caller-owned timeout budget', async () => {
+    jest.useFakeTimers();
+    try {
+      intercom.request.mockImplementation((_payload: unknown, options?: { signal?: AbortSignal }) => {
+        return new Promise((_resolve, reject) => {
+          options?.signal?.addEventListener('abort', () => reject(new Error('aborted')));
+        });
+      });
+
+      const request = fetchStateFromBackend(125);
+      // Attach a handler before advancing timers so the rejected promise is not
+      // reported as unhandled before the assertion below observes it.
+      request.catch(() => undefined);
+      await jest.advanceTimersByTimeAsync(125);
+
+      await expect(request).rejects.toThrow('aborted');
+    } finally {
+      jest.useRealTimers();
+    }
+  });
 });
 
 describe('retryFetchState', () => {

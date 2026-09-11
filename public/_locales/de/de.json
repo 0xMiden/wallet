@@ -1022,5 +1022,6 @@
   "devEndpointResetDefaults": "Auf Standardwerte zurücksetzen",
   "devEndpointResetAndReonboard": "Auf Standardwerte zurücksetzen und erneut einrichten",
   "devEndpointsRow": "Netzwerkendpunkte",
-  "devEndpointResetConfirm": "Dadurch wird diese Wallet dauerhaft gelöscht, einschließlich Ihrer Schlüssel und Ihrer Transaktionshistorie. Um sie wiederherzustellen, benötigen Sie Ihre Wiederherstellungsphrase."
+  "devEndpointResetConfirm": "Dadurch wird diese Wallet dauerhaft gelöscht, einschließlich Ihrer Schlüssel und Ihrer Transaktionshistorie. Um sie wiederherzustellen, benötigen Sie Ihre Wiederherstellungsphrase.",
+  "walletSetupDidNotComplete": "Ihre Wallet wurde erstellt, der Startvorgang wurde jedoch nicht abgeschlossen. Überprüfen Sie Ihre Verbindung und versuchen Sie es erneut."
 }

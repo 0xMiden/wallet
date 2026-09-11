@@ -1022,5 +1022,6 @@
   "devEndpointResetDefaults": "Przywróć ustawienia domyślne",
   "devEndpointResetAndReonboard": "Przywróć ustawienia domyślne i przeprowadź ponowną konfigurację",
   "devEndpointsRow": "Punkty końcowe sieci",
-  "devEndpointResetConfirm": "Spowoduje to trwałe usunięcie tego portfela, w tym kluczy i historii transakcji. Aby go przywrócić, potrzebna będzie fraza odzyskiwania."
+  "devEndpointResetConfirm": "Spowoduje to trwałe usunięcie tego portfela, w tym kluczy i historii transakcji. Aby go przywrócić, potrzebna będzie fraza odzyskiwania.",
+  "walletSetupDidNotComplete": "Twój portfel został utworzony, ale nie zakończył procesu uruchamiania. Sprawdź połączenie i spróbuj ponownie."
 }

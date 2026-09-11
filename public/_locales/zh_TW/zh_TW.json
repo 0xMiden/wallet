@@ -1022,5 +1022,6 @@
   "devEndpointResetDefaults": "重設為預設值",
   "devEndpointResetAndReonboard": "重設為預設值並重新完成註冊流程",
   "devEndpointsRow": "網路端點",
-  "devEndpointResetConfirm": "此操作將永久刪除此錢包，包括您的金鑰和交易紀錄。若要還原錢包，您需要使用您的恢復短語。"
+  "devEndpointResetConfirm": "此操作將永久刪除此錢包，包括您的金鑰和交易紀錄。若要還原錢包，您需要使用您的恢復短語。",
+  "walletSetupDidNotComplete": "您的錢包已建立，但尚未完成啟動。請檢查網路連線並重新嘗試。"
 }
