@@ -55,6 +55,15 @@ describe('AmountInput', () => {
   });
 
   describe('input color state', () => {
+    it('keeps a cleared invalid input red and accessible without an error row', () => {
+      render(<AmountInput value="" invalid helper="Available 200 USDC" data-testid={TESTID} />);
+
+      expect(getInput()).toHaveClass('text-red-500', 'placeholder-red-500');
+      expect(getInput()).toHaveAttribute('aria-invalid', 'true');
+      expect(screen.queryByTestId('icon')).not.toBeInTheDocument();
+      expect(screen.getByText('Available 200 USDC')).toBeInTheDocument();
+    });
+
     it('renders red text/placeholder classes when there is an error', () => {
       render(<AmountInput value="10" error="Too much" data-testid={TESTID} />);
       const input = getInput();

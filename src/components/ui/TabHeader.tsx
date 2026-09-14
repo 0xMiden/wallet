@@ -1,20 +1,16 @@
 import React, { FC, ReactNode } from 'react';
 
 import classNames from 'clsx';
-import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
 import { hapticLight } from 'lib/mobile/haptics';
-import { navigate } from 'lib/woozie';
 
 import { SearchInput } from './SearchInput';
 
 export interface TabHeaderProps {
   title: string;
-  /** Extra action buttons rendered before the built-in settings button. */
+  /** Extra action buttons rendered on the right of the title. */
   actions?: ReactNode;
-  /** Leave out the settings button. The page supplies its own `actions`. */
-  hideSettings?: boolean;
   /**
    * In-header search. While `open`, the field takes the title's place in the
    * same row, so the page below keeps its position.
@@ -53,10 +49,13 @@ export const TabHeaderAction: FC<{ label: string; icon: IconName; active?: boole
 
 /**
  * Header for top-level tab pages (Activity, Explore): page title on the
- * left, a settings button (plus any extra `actions`) on the right.
+ * left, any `actions` on the right.
+ *
+ * The settings gear that used to live here is gone — Settings is a primary
+ * bottom-nav destination now, so a gear on the very screens that show that
+ * tab was a duplicate affordance.
  */
-export const TabHeader: FC<TabHeaderProps> = ({ title, actions, hideSettings = false, search }) => {
-  const { t } = useTranslation();
+export const TabHeader: FC<TabHeaderProps> = ({ title, actions, search }) => {
   const searchOpen = search?.open === true;
 
   return (
@@ -76,12 +75,7 @@ export const TabHeader: FC<TabHeaderProps> = ({ title, actions, hideSettings = f
             {title}
           </h1>
         )}
-        <div className="flex shrink-0 items-center gap-2">
-          {actions}
-          {!hideSettings && (
-            <TabHeaderAction label={t('settings')} icon={IconName.Settings} onClick={() => navigate('/settings')} />
-          )}
-        </div>
+        {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
       </header>
       <div aria-hidden="true" className="shrink-0 mx-4 h-1 rounded-full bg-gray-50" />
     </>

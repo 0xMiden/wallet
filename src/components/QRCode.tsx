@@ -11,15 +11,29 @@ export interface QRCodeProps {
   address: string;
   /** Size of the QR code in pixels */
   size: number;
+  /**
+   * Short label painted under the modules, on screen AND into the exported
+   * PNG, so a shared QR image says which network it belongs to (#875).
+   */
+  caption?: string;
 }
 
 export interface QRCodeHandle {
-  /** Returns the rendered QR (with logo) as a PNG Blob, or null if unavailable. */
+  /**
+   * Returns the rendered QR (with logo) as a PNG Blob, or null if unavailable. With a
+   * `caption` it is the captioned image (a strip under the modules, so taller than
+   * `size`); if composing that fails it falls back to the plain QR.
+   */
   getImageBlob: () => Promise<Blob | null>;
 }
 
 /** Fallback accent color when the CSS variable can't be resolved (matches --accent-primary). */
 const ACCENT_FALLBACK = '#e77537';
+
+/** Height of the caption strip added to the exported PNG, as a fraction of the QR size. */
+const CAPTION_STRIP_RATIO = 0.14;
+/** Caption font size in the exported PNG, as a fraction of the QR size. */
+const CAPTION_FONT_RATIO = 0.055;
 
 const getAccentColor = (): string => {
   if (typeof window === 'undefined') return ACCENT_FALLBACK;
@@ -28,11 +42,40 @@ const getAccentColor = (): string => {
 };
 
 /**
+ * Paint the caption under the raw QR PNG. Returns null when the realm has no
+ * usable canvas (jsdom, some WebViews) so the caller can fall back to the raw
+ * image rather than lose the share.
+ */
+async function composeCaptionedPng(qrPng: Blob, size: number, caption: string, color: string): Promise<Blob | null> {
+  if (typeof document === 'undefined' || typeof createImageBitmap !== 'function') return null;
+  const canvas = document.createElement('canvas');
+  const strip = Math.round(size * CAPTION_STRIP_RATIO);
+  canvas.width = size;
+  canvas.height = size + strip;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+
+  const bitmap = await createImageBitmap(qrPng);
+  ctx.fillStyle = '#FFFFFF';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(bitmap, 0, 0, size, size);
+  bitmap.close();
+
+  ctx.fillStyle = color;
+  ctx.font = `700 ${Math.round(size * CAPTION_FONT_RATIO)}px Nunito, Inter, sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(caption.toUpperCase(), size / 2, size + strip / 2);
+
+  return new Promise(resolve => canvas.toBlob(blob => resolve(blob), 'image/png'));
+}
+
+/**
  * QR code display component for Miden addresses.
  * Renders a styled QR (circular dots, accent-primary color, Miden logo centered)
  * encoding the address in miden:<address> format via qr-code-styling.
  */
-export const QRCode = forwardRef<QRCodeHandle, QRCodeProps>(({ address, size }, ref) => {
+export const QRCode = forwardRef<QRCodeHandle, QRCodeProps>(({ address, size, caption }, ref) => {
   const qrValue = encodeAddress(address);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -83,10 +126,21 @@ export const QRCode = forwardRef<QRCodeHandle, QRCodeProps>(({ address, size }, 
       getImageBlob: async () => {
         const data = await qrCode.getRawData('png');
         // In the browser getRawData resolves to a Blob; guard for the node Buffer path.
-        return data instanceof Blob ? data : null;
+        if (!(data instanceof Blob)) return null;
+        if (!caption) return data;
+        try {
+          const composed = await composeCaptionedPng(data, size, caption, getAccentColor());
+          if (composed) return composed;
+          // The shared image loses its network caption here; leave a trace.
+          console.warn('[QRCode] caption compose unavailable, sharing the raw QR');
+          return data;
+        } catch (e) {
+          console.warn('[QRCode] caption compose failed, sharing the raw QR:', e);
+          return data;
+        }
       }
     }),
-    [qrCode]
+    [caption, qrCode, size]
   );
 
   return (
@@ -103,8 +157,20 @@ export const QRCode = forwardRef<QRCodeHandle, QRCodeProps>(({ address, size }, 
     // payload and the repo has no QR *decoder* (qr-code-styling is an encoder;
     // qrcode/qrcode-generator are transitive-only). It exposes nothing new — the
     // same address already renders in `receive-address-full` and the copy button.
-    <div className="bg-pure-white rounded-10 p-2" data-testid="qr-code" data-qr-payload={paintedValue || undefined}>
+    <div
+      className="flex flex-col items-center bg-pure-white rounded-10 p-2"
+      data-testid="qr-code"
+      data-qr-payload={paintedValue || undefined}
+    >
       <div ref={containerRef} style={{ width: size, height: size }} />
+      {caption && (
+        <span
+          className="pb-2 font-heading text-sm font-bold uppercase tracking-wider text-accent-primary"
+          data-testid="qr-code-caption"
+        >
+          {caption}
+        </span>
+      )}
     </div>
   );
 });

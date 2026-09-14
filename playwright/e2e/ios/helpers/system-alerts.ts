@@ -105,6 +105,8 @@ interface GateOptions {
   maxConsecutiveErrors?: number;
   /** Pause after a successful tap so the alert animates out before the screenshot. */
   settleMs?: number;
+  /** The describe-and-tap step; injectable for tests. Defaults to dismissNotificationPermissionAlert. */
+  dismiss?: (udid: string) => Promise<boolean>;
   /** Optional log sink (defaults to console). */
   onLog?: (message: string) => void;
 }
@@ -131,6 +133,7 @@ export function createNotificationAlertGate(
   const {
     maxConsecutiveErrors = 5,
     settleMs = 250,
+    dismiss = dismissNotificationPermissionAlert,
     // eslint-disable-next-line no-console
     onLog = (message: string): void => console.log(message)
   } = options;
@@ -138,26 +141,39 @@ export function createNotificationAlertGate(
   let dismissed = false;
   let consecutiveErrors = 0;
   let warnedUnavailable = false;
+  let inflight: Promise<void> | null = null;
+
+  const attempt = async (): Promise<void> => {
+    try {
+      const tapped = await dismiss(udid);
+      consecutiveErrors = 0;
+      if (tapped) {
+        dismissed = true;
+        onLog(`[system-alerts] dismissed notification permission alert on ${udid}`);
+        await sleep(settleMs);
+      }
+    } catch (err) {
+      consecutiveErrors += 1;
+      if (!warnedUnavailable) {
+        warnedUnavailable = true;
+        const first = (err as Error).message.split('\n')[0];
+        onLog(`[system-alerts] idb unavailable on ${udid} (${first}); notification alert won't be auto-dismissed`);
+      }
+    }
+  };
 
   return {
-    async beforeCapture(): Promise<void> {
-      if (dismissed || consecutiveErrors >= maxConsecutiveErrors) return;
-      try {
-        const tapped = await dismissNotificationPermissionAlert(udid);
-        consecutiveErrors = 0;
-        if (tapped) {
-          dismissed = true;
-          onLog(`[system-alerts] dismissed notification permission alert on ${udid}`);
-          await sleep(settleMs);
-        }
-      } catch (err) {
-        consecutiveErrors += 1;
-        if (!warnedUnavailable) {
-          warnedUnavailable = true;
-          const first = (err as Error).message.split('\n')[0];
-          onLog(`[system-alerts] idb unavailable on ${udid} (${first}); notification alert won't be auto-dismissed`);
-        }
+    beforeCapture(): Promise<void> {
+      if (dismissed || consecutiveErrors >= maxConsecutiveErrors) return Promise.resolve();
+      // Every capture of a wallet shares one gate (the screen poll and the dApp driver both shoot it),
+      // so an overlapping call joins the dismissal in flight: a second describe-and-tap could land on the
+      // app once the alert has animated out.
+      if (!inflight) {
+        inflight = attempt().finally(() => {
+          inflight = null;
+        });
       }
+      return inflight;
     }
   };
 }

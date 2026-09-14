@@ -414,9 +414,12 @@ async function runSync(force: boolean): Promise<void> {
           // `getAccount` are themselves capable of parking on the inline path, and an
           // eviction during any of them releases the mutex while THIS callback carries on
           // to the next call. One guard at the top only covers the first of five.
-          const stillOurs = (where: string): void => {
+          const stillOurs = (where: string, step?: string): void => {
             if (getCurrentWasmLockHold() === hold) return;
-            throw new WasmClientPoisonedError('watchdog', new Error(`sync note read abandoned ${where}`));
+            throw new WasmClientPoisonedError(
+              'watchdog',
+              new Error(`sync note read abandoned ${where}${step ? `, ${step}` : ''}`)
+            );
           };
           stillOurs('after the client build');
 
@@ -425,8 +428,8 @@ async function runSync(force: boolean): Promise<void> {
           // flag is on, so the gate uses the sync-running realm's height instead of
           // a stale SW-inline one. Swap-order lineage inside classifySwapOrderNotes
           // now routes through the proxy too (slice 7a), so it no longer needs `client`.
-          const rawNotes = await midenClientProxy.getConsumableNotes(accountPubKey, () =>
-            stillOurs('inside the consumable-note read, before the sync-height read')
+          const rawNotes = await midenClientProxy.getConsumableNotes(accountPubKey, step =>
+            stillOurs('inside the consumable-note read', step)
           );
           stillOurs('after the consumable-note read');
           // Notes the pre-confirm dry-run imported to simulate a not-yet-approved

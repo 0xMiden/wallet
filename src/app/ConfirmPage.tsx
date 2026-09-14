@@ -12,6 +12,7 @@ import ErrorBoundary from 'app/ErrorBoundary';
 import ContentContainer from 'app/layouts/ContentContainer';
 import Unlock from 'app/pages/Unlock';
 import { Button, ButtonVariant } from 'components/Button';
+import { NetworkModeBanner } from 'components/NetworkModeBanner';
 import { CustomRpsContext } from 'lib/analytics';
 import { getAllUncompletedTransactions } from 'lib/miden/activity';
 import { ITransactionStatus } from 'lib/miden/db/types';
@@ -49,17 +50,14 @@ const ConfirmPage: FC = () => {
   const { t } = useTranslation();
   const { ready } = useMidenContext();
 
-  return useMemo(
+  const page = useMemo(
     () =>
       ready ? (
-        <ContentContainer
-          padding={false}
-          className={classNames('min-h-screen', 'flex flex-col items-center justify-center bg-app-bg')}
-        >
+        <ContentContainer padding={false} className="flex flex-col items-center justify-center bg-app-bg">
           <ErrorBoundary whileMessage={t('fetchingConfirmationDetails')}>
             <Suspense
               fallback={
-                <div className="flex items-center justify-center h-screen bg-app-bg">
+                <div className="flex flex-1 items-center justify-center bg-app-bg">
                   <div>
                     <Spinner />
                   </div>
@@ -74,6 +72,15 @@ const ConfirmPage: FC = () => {
         <Unlock openForgotPasswordInFullPage={true} />
       ),
     [ready, t]
+  );
+
+  // The network banner (#875) tops the confirm window the way PageRouter tops
+  // every routed page, and dapp.ts sizes the popup for it (CONFIRM_WINDOW_HEIGHT).
+  return (
+    <div className="flex min-h-screen flex-col bg-app-bg">
+      <NetworkModeBanner />
+      {page}
+    </div>
   );
 };
 

@@ -11,7 +11,7 @@ jest.mock('lib/platform', () => ({
 }));
 
 jest.mock('./back-handler', () => ({
-  registerMobileBackHandler: (handler: () => boolean | void) => mockRegisterMobileBackHandler(handler)
+  registerMobileBackHandler: (...args: unknown[]) => mockRegisterMobileBackHandler(...args)
 }));
 
 const mockIsMobile = isMobile as jest.MockedFunction<typeof isMobile>;
@@ -36,7 +36,16 @@ describe('useMobileBackHandler', () => {
 
     renderHook(() => useMobileBackHandler(handler, []));
 
-    expect(mockRegisterMobileBackHandler).toHaveBeenCalledWith(handler);
+    expect(mockRegisterMobileBackHandler).toHaveBeenCalledWith(handler, { overlay: false });
+  });
+
+  it('registers an overlay handler in the overlay tier', () => {
+    mockIsMobile.mockReturnValue(true);
+    const handler = jest.fn(() => true);
+
+    renderHook(() => useMobileBackHandler(handler, [], { overlay: true }));
+
+    expect(mockRegisterMobileBackHandler).toHaveBeenCalledWith(handler, { overlay: true });
   });
 
   it('unregisters handler on unmount', () => {

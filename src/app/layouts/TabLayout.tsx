@@ -2,6 +2,7 @@ import React, { FC, ReactNode, useLayoutEffect, useRef } from 'react';
 
 import classNames from 'clsx';
 import { motion, useReducedMotion } from 'framer-motion';
+import { useTranslation } from 'react-i18next';
 
 import { useAppEnv } from 'app/env';
 import { useHasUnclaimedNotes } from 'app/hooks/useHasUnclaimedNotes';
@@ -26,12 +27,17 @@ import { navigate, useLocation } from 'lib/woozie';
  * The top action bar is mounted when the route is in the "home"
  * tab group (/, /send, /receive, /earn, /swap) so it stays visible across
  * Overview ↔ Send ↔ Receive ↔ Earn ↔ Swap transitions. Other tabs (Explore,
- * Activity) hide it.
+ * Activity, Settings) hide it.
+ *
+ * Only the Settings ROOT (`/settings`) is a tab destination; `/settings/<slug>`
+ * sub-pages keep their FullScreenPage drill-in so back behaviour and history
+ * depth are unchanged (see PageRouter).
  */
 const TAB_ROUTES: Record<string, string> = {
   home: '/',
   explore: '/browser',
-  activity: '/history'
+  activity: '/history',
+  settings: '/settings'
 };
 
 const ACTION_ROUTES: Record<string, string> = {
@@ -81,6 +87,13 @@ function activeTabFromPath(pathname: string): string {
   const segment = pathname.split('/')[1] ?? '';
   if (segment === 'browser') return 'explore';
   if (segment === 'history' || segment === 'activity-details') return 'activity';
+  // Exact, unlike the segment matches above: `/history/:programId` renders
+  // inside this shell, so Activity has sub-paths to stay lit for, whereas the
+  // only Settings route that mounts TabLayout is the bare root — every
+  // `/settings/<slug>` sub-page renders in FullScreenPage (see PageRouter).
+  // Matching the segment here would only ever cover paths that cannot reach
+  // this function.
+  if (pathname === '/settings') return 'settings';
   return 'home';
 }
 
@@ -93,6 +106,7 @@ function activeActionFromPath(pathname: string): string {
 }
 
 const TabLayout: FC<PropsWithChildren> = ({ children }) => {
+  const { t } = useTranslation();
   const { fullPage, sidePanel } = useAppEnv();
   const { pathname } = useLocation();
   const hasUnclaimedNotes = useHasUnclaimedNotes();
@@ -116,7 +130,7 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
   const tabs = [
     {
       id: 'home',
-      label: 'Home',
+      label: t('home'),
       icon: <Icon name={IconName.Home} className="w-6 h-6" fill="currentColor" />
     },
     // Explore tab is a dApp browser surface — extension popup has no use
@@ -126,15 +140,20 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
       : [
           {
             id: 'explore',
-            label: 'Explore',
+            label: t('explore'),
             icon: <Icon name={IconName.Explore} className="w-6 h-6" />
           }
         ]),
     {
       id: 'activity',
-      label: 'Activity',
+      label: t('activity'),
       icon: <Icon name={IconName.Activity} className="w-6 h-6" />,
       showDot: hasUnclaimedNotes
+    },
+    {
+      id: 'settings',
+      label: t('settings'),
+      icon: <Icon name={IconName.Settings} className="w-6 h-6" fill="currentColor" />
     }
   ];
 
@@ -205,7 +224,10 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
         ? { height: '100%', width: '100%' }
         : fullPage
           ? { height: '640px', width: '600px' }
-          : { height: '600px', width: '360px' };
+          : // Popup: the body is a fixed 600px, and the router's network banner
+            // (#875) now takes part of it, so fill what remains instead of
+            // hard-coding 600px and clipping the bottom nav.
+            { height: '100%', width: '360px' };
 
   // The action bar lives inside the Home pane. A tab change swaps whole
   // panes in one frame, so the bar can never shift the content below it.

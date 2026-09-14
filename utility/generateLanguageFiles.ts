@@ -87,10 +87,13 @@ const TECHNICAL_TERM_VARIANTS = [
   'BLOCKCHAIN',
 ];
 
-// A single regex that matches anything DeepL must NOT translate: the technical terms
-// above (word-bounded) and Chrome i18n `$placeholder$` variables.
+// A single regex that matches anything DeepL must NOT translate: "Miden $network$" as one
+// span, the technical terms above (word-bounded) and Chrome i18n `$placeholder$` variables.
+// Protected separately, DeepL moved the placeholder away from the noun it completes
+// ("... 이용 중이십니다. $network$", #875).
 const PROTECT_REGEX = new RegExp(
   '(' +
+    '\\bMiden \\$[a-zA-Z_][a-zA-Z0-9_]*\\$|' +
     TECHNICAL_TERM_VARIANTS.map(t => `\\b${t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).join('|') +
     '|\\$[a-zA-Z_][a-zA-Z0-9_]*\\$' +
     ')',
