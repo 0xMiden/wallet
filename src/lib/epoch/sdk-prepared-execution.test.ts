@@ -39,6 +39,7 @@ const UNDERLYING = '0x2BB4FfD7E2c6D432b697554Efd77fA13bdbefd69';
 const MIDEN_RECIPIENT = '0x0123456789abcdef0123456789abcd';
 const MIDEN_FAUCET = '0x123456789abcdef0123456789abcde';
 const API_BASE = 'https://allocator.invalid';
+const API_ORIGIN = new URL(API_BASE).origin;
 const TEST_CHAIN = {
   ...sepolia,
   rpcUrls: { ...sepolia.rpcUrls, default: { http: ['https://rpc.invalid'] } }
@@ -96,8 +97,9 @@ function installAllocator(events: string[], options: AllocatorOptions = {}) {
   let relayExecuteCount = 0;
   const fetchMock = jest.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = urlOf(input);
-    if (!url.startsWith(API_BASE)) throw new Error(`Unhandled fetch URL: ${url}`);
-    const path = new URL(url).pathname;
+    const requestUrl = new URL(url);
+    if (requestUrl.origin !== API_ORIGIN) throw new Error(`Unhandled fetch URL: ${url}`);
+    const path = requestUrl.pathname;
     events.push(`fetch:${path}`);
     if (path === '/checkIfDepositNeeded' && init?.method === 'POST') {
       quoteCount += 1;
@@ -270,6 +272,19 @@ async function settleAsyncWork(): Promise<void> {
 
 beforeEach(() => {
   jest.clearAllMocks();
+});
+
+test('rejects allocator lookalike origins', async () => {
+  const events: string[] = [];
+  installAllocator(events);
+
+  await expect(
+    globalThis.fetch('https://allocator.invalid.attacker.example/compact', {
+      method: 'POST',
+      body: JSON.stringify({ compact: { nonce: '1' } })
+    })
+  ).rejects.toThrow('Unhandled fetch URL');
+  expect(events).toEqual([]);
 });
 
 test('parks paid sequential execution on immutable exact allocation descriptors', async () => {

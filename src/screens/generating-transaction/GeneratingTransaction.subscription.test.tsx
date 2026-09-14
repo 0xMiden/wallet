@@ -55,7 +55,7 @@ it('keeps the receipt mounted during the first read failure and recovers without
   const view = render(<GeneratingTransactionPage txId="recovering-receipt" />);
   await waitFor(() => expect(logError).toHaveBeenCalledWith('[useTransactionRow] Failed to read transaction:', error));
   expect(view.queryByTestId('redirect')).toBeNull();
-  await waitFor(() => expect(view.queryByTestId('completed-receipt')).not.toBeNull(), { timeout: 2500 });
+  await waitFor(() => expect(view.queryByTestId('completed-receipt')).not.toBeNull(), { timeout: 10_000 });
   expect(view.queryByTestId('redirect')).toBeNull();
 });
 

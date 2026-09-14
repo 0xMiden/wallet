@@ -190,14 +190,21 @@ describe('SwapOrderTrackingManager', () => {
     }
   });
 
-  it('parks an unresolved order after 20 attempts', async () => {
+  it('keeps polling an unresolved order at the capped interval until terminal lineage arrives', async () => {
     mockRows = [swapRow(3n)];
     render(<SwapOrderTrackingManager />);
     await settleMount();
-    await step(600_000);
+
+    for (const delay of [2000, 4000, 8000, 16000, ...Array(15).fill(30_000)]) await step(delay);
     expect(mockTrackSwapOrders).toHaveBeenCalledTimes(20);
-    expect(getSwapOrderSchedule('3').gaveUp).toBe(true);
     expect(useSwapOrderTrackingStore.getState().entries['3']).toEqual({ tracking: null, loading: false });
+
+    const filled: SwapOrderTracking = { ...activeTracking('3'), state: 'filled' };
+    mockTrackSwapOrders.mockResolvedValue(snapshot(filled));
+    await step(30_000);
+    expect(mockTrackSwapOrders).toHaveBeenCalledTimes(21);
+    expect(useSwapOrderTrackingStore.getState().entries['3']).toEqual({ tracking: filled, loading: false });
+    expect(getSwapOrderSchedule('3').terminal).toBe(true);
   });
 
   it.each(['missing', 'error'])('preserves prior tracking on a later %s snapshot', async failure => {
@@ -264,11 +271,10 @@ describe('SwapOrderTrackingManager', () => {
     expect(mockTrackSwapOrders).not.toHaveBeenCalled();
   });
 
-  it('requestSwapOrderRefresh revives a given-up order for the next tick', async () => {
+  it('requestSwapOrderRefresh makes a backed-off order due on the next tick', async () => {
     mockRows = [swapRow(5n)];
     const schedule = getSwapOrderSchedule('5');
-    schedule.gaveUp = true;
-    schedule.unresolved = 20;
+    schedule.unresolved = 5;
     schedule.nextAt = Date.now() + 30_000;
     render(<SwapOrderTrackingManager />);
     await settleMount();
@@ -287,7 +293,7 @@ describe('SwapOrderTrackingManager', () => {
     const unsubscribe = useSwapOrderTrackingStore.subscribe(listener);
     requestSwapOrderRefresh('5');
     unsubscribe();
-    expect(schedule).toEqual({ unresolved: 0, nextAt: 5000, gaveUp: false, terminal: true });
+    expect(schedule).toEqual({ unresolved: 0, nextAt: 5000, terminal: true });
     expect(listener).not.toHaveBeenCalled();
   });
 

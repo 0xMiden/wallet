@@ -6,12 +6,17 @@ import { transactions } from 'lib/miden/repo';
 
 import { useSwapSettlementNotes } from './useSwapSettlementNotes';
 
-jest.mock('lib/miden/activity', () =>
-  jest.requireActual<typeof import('lib/miden/transaction/get')>('lib/miden/transaction/get')
-);
+jest.mock('lib/miden/activity', () => {
+  const actual = jest.requireActual<typeof import('lib/miden/transaction/get')>('lib/miden/transaction/get');
+  return { getSwapSettlementNotes: jest.fn(actual.getSwapSettlementNotes) };
+});
 jest.mock('lib/miden/back/miden-client-proxy', () => ({ midenClientProxy: {} }));
 jest.mock('lib/miden/sdk/miden-client', () => ({}));
 jest.mock('@miden-sdk/miden-sdk/lazy', () => ({ PswapLineageState: {} }));
+
+const mockGetSwapSettlementNotes = jest.mocked(
+  jest.requireMock<typeof import('lib/miden/transaction/get')>('lib/miden/activity').getSwapSettlementNotes
+);
 
 const emptyNotes = {
   settled: [],
@@ -93,6 +98,19 @@ describe('useSwapSettlementNotes', () => {
     );
   });
 
+  it('does not recompute when a different swap receives a settlement row', async () => {
+    const { result } = renderHook(() => useSwapSettlementNotes('swap-1'));
+    await waitFor(() => expect(result.current).toEqual(emptyNotes));
+    mockGetSwapSettlementNotes.mockClear();
+
+    await act(async () => {
+      await transactions.add(consume('unrelated', 'swap-2'));
+      await new Promise(resolve => setTimeout(resolve, 0));
+    });
+
+    expect(mockGetSwapSettlementNotes).not.toHaveBeenCalled();
+  });
+
   it('adds a reclaim when its existing consume becomes completed', async () => {
     await transactions.add(
       consume('reclaim', 'swap-1', {
@@ -133,7 +151,7 @@ describe('useSwapSettlementNotes', () => {
     const { result, rerender } = renderHook(({ id }) => useSwapSettlementNotes(id), { initialProps });
     await waitFor(() => expect(result.current?.settled).toEqual(['note-first']));
 
-    const read = jest.spyOn(transactions, 'filter');
+    const read = jest.spyOn(transactions, 'where');
     rerender({ id: undefined });
     expect(result.current).toBeNull();
     await mutateAndObserve(() => transactions.add(consume('late', 'swap-1')), 2);
@@ -142,7 +160,7 @@ describe('useSwapSettlementNotes', () => {
   });
 
   it('does not subscribe when mounted without an order id', async () => {
-    const read = jest.spyOn(transactions, 'filter');
+    const read = jest.spyOn(transactions, 'where');
     const { result } = renderHook(() => useSwapSettlementNotes(undefined));
 
     await mutateAndObserve(() => transactions.add(consume('first', 'swap-1')), 1);
@@ -153,7 +171,7 @@ describe('useSwapSettlementNotes', () => {
   it('stops reading settlement rows after unmount', async () => {
     const { result, unmount } = renderHook(() => useSwapSettlementNotes('swap-1'));
     await waitFor(() => expect(result.current).toEqual(emptyNotes));
-    const read = jest.spyOn(transactions, 'filter');
+    const read = jest.spyOn(transactions, 'where');
 
     unmount();
     await mutateAndObserve(() => transactions.add(consume('late', 'swap-1')), 1);
@@ -163,7 +181,7 @@ describe('useSwapSettlementNotes', () => {
 
   it('reports a failed database read without publishing settlement notes', async () => {
     const error = new Error('Database read failed');
-    jest.spyOn(transactions, 'filter').mockImplementationOnce(() => {
+    jest.spyOn(transactions, 'where').mockImplementationOnce(() => {
       throw error;
     });
     const logError = jest.spyOn(console, 'error').mockImplementation(() => undefined);

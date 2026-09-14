@@ -26,8 +26,6 @@ export interface SwapOrderSchedule {
   unresolved: number;
   /** Earliest permitted poll time in epoch milliseconds. */
   nextAt: number;
-  /** Retry budget exhausted until requestSwapOrderRefresh is called. */
-  gaveUp: boolean;
   /** Explicit filled or reclaimed lineage was observed. */
   terminal: boolean;
 }
@@ -37,7 +35,7 @@ const schedules = new Map<string, SwapOrderSchedule>();
 export function getSwapOrderSchedule(orderId: string): SwapOrderSchedule {
   let schedule = schedules.get(orderId);
   if (!schedule) {
-    schedule = { unresolved: 0, nextAt: 0, gaveUp: false, terminal: false };
+    schedule = { unresolved: 0, nextAt: 0, terminal: false };
     schedules.set(orderId, schedule);
   }
   return schedule;
@@ -49,7 +47,6 @@ export function requestSwapOrderRefresh(orderId: string): void {
   if (schedule.terminal) return;
   schedule.unresolved = 0;
   schedule.nextAt = 0;
-  schedule.gaveUp = false;
 }
 
 export function clearSwapOrderSchedulesForTests(): void {

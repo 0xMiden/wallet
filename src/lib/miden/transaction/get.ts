@@ -144,12 +144,9 @@ export interface SwapSettlementNotes {
  */
 export const getSwapSettlementNotes = async (swapTxId: string): Promise<SwapSettlementNotes> => {
   const consumes = await Repo.transactions
-    .filter(
-      tx =>
-        tx.type === 'consume' &&
-        tx.status === ITransactionStatus.Completed &&
-        tx.extraInputs?.swapOrderTxId === swapTxId
-    )
+    .where('extraInputs.swapOrderTxId')
+    .equals(swapTxId)
+    .filter(tx => tx.type === 'consume' && tx.status === ITransactionStatus.Completed)
     .toArray();
 
   const settled = new Set<string>();

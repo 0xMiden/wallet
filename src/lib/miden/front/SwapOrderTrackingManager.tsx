@@ -12,12 +12,11 @@ import type { SwapOrderTracking } from '../transaction/get';
 
 const BASE_INTERVAL_MS = 2_000;
 const MAX_INTERVAL_MS = 30_000;
-const MAX_UNRESOLVED_POLLS = 20;
 
 /**
  * Watch live order lineages at the app root using one snapshot per due batch.
  * A payback consume can precede reclaim, so only filled/reclaimed lineage stops
- * tracking permanently. Missing orders back off until the detail page requests a retry.
+ * tracking permanently. Missing orders keep checking with bounded backoff.
  */
 export function SwapOrderTrackingManager(): null {
   const running = useRef(false);
@@ -84,20 +83,15 @@ async function findPollableOrders(): Promise<PollableOrder[]> {
     if (tx.type !== 'swap' || tx.extraInputs?.orderId == null) continue;
     const orderId = String(tx.extraInputs.orderId);
     const schedule = getSwapOrderSchedule(orderId);
-    if (schedule.terminal || schedule.gaveUp) continue;
+    if (schedule.terminal) continue;
     pollable.set(orderId, { orderId, schedule });
   }
   return [...pollable.values()];
 }
 
-function backOff(orderId: string, schedule: SwapOrderSchedule): void {
-  schedule.unresolved += 1;
-  if (schedule.unresolved >= MAX_UNRESOLVED_POLLS) {
-    schedule.gaveUp = true;
-    console.warn('[swap-order-tracking] gave up tracking order', orderId, { attempts: schedule.unresolved });
-  } else {
-    schedule.nextAt = Date.now() + Math.min(BASE_INTERVAL_MS * 2 ** (schedule.unresolved - 1), MAX_INTERVAL_MS);
-  }
+function backOff(schedule: SwapOrderSchedule): void {
+  schedule.unresolved = Math.min(schedule.unresolved + 1, 5);
+  schedule.nextAt = Date.now() + Math.min(BASE_INTERVAL_MS * 2 ** (schedule.unresolved - 1), MAX_INTERVAL_MS);
 }
 
 function publishSnapshot(orders: PollableOrder[], tracking: ReadonlyMap<string, SwapOrderTracking>): void {
@@ -107,7 +101,7 @@ function publishSnapshot(orders: PollableOrder[], tracking: ReadonlyMap<string, 
     const result = tracking.get(orderId);
     updates[orderId] = { tracking: result ?? previous[orderId]?.tracking ?? null, loading: false };
     if (!result) {
-      backOff(orderId, schedule);
+      backOff(schedule);
     } else if (result.state === 'active') {
       schedule.unresolved = 0;
       schedule.nextAt = Date.now() + BASE_INTERVAL_MS;
