@@ -786,6 +786,14 @@
     "message": "Tekrar dene",
     "englishSource": "Retry"
   },
+  "retryEarnDelivery": {
+    "message": "Teslimatı tekrar dene",
+    "englishSource": "Retry delivery"
+  },
+  "withdrawalRecoveryUnavailable": {
+    "message": "Bu para çekme işlemi güvenli bir şekilde yeniden denenemez. Başka bir para çekme işlemi başlatmadan önce durumunu kontrol edin.",
+    "englishSource": "This withdrawal cannot be retried safely. Check its status before starting another withdrawal."
+  },
   "retryAnyway": {
     "message": "Yine de yeniden dene",
     "englishSource": "Retry anyway"
@@ -4457,6 +4465,10 @@
   "withdrawalProcessing": {
     "message": "Para Çekme İşlemi",
     "englishSource": "Processing Withdrawal"
+  },
+  "withdrawalCheckingDescription": {
+    "message": "Para çekme işleminiz kontrol ediliyor. Teslimat onaylanana kadar cüzdanı açık tutun.",
+    "englishSource": "Checking your withdrawal. Keep the wallet open while delivery is confirmed."
   },
   "withdrawalProcessingDescription": {
     "message": "Gaz ücreti gerektirmeyen para çekme niyetini imzalamak ve Epoch’a göndermek. Bu işlem genellikle birkaç saniye sürer.",

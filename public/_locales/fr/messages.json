@@ -786,6 +786,14 @@
     "message": "Réessayer",
     "englishSource": "Retry"
   },
+  "retryEarnDelivery": {
+    "message": "Réessayer la livraison",
+    "englishSource": "Retry delivery"
+  },
+  "withdrawalRecoveryUnavailable": {
+    "message": "Ce retrait ne peut pas être réessayé en toute sécurité. Vérifiez son statut avant de lancer un autre retrait.",
+    "englishSource": "This withdrawal cannot be retried safely. Check its status before starting another withdrawal."
+  },
   "retryAnyway": {
     "message": "Réessayer quand même",
     "englishSource": "Retry anyway"
@@ -4457,6 +4465,10 @@
   "withdrawalProcessing": {
     "message": "Traitement d’un retrait",
     "englishSource": "Processing Withdrawal"
+  },
+  "withdrawalCheckingDescription": {
+    "message": "Vérification de votre retrait. Gardez le portefeuille ouvert jusqu’à la confirmation de la livraison.",
+    "englishSource": "Checking your withdrawal. Keep the wallet open while delivery is confirmed."
   },
   "withdrawalProcessingDescription": {
     "message": "Signature et soumission de l’intention de retrait sans frais de gaz à Epoch. Cela prend généralement quelques secondes.",

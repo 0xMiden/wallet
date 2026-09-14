@@ -786,6 +786,14 @@
     "message": "重試",
     "englishSource": "Retry"
   },
+  "retryEarnDelivery": {
+    "message": "重試交付",
+    "englishSource": "Retry delivery"
+  },
+  "withdrawalRecoveryUnavailable": {
+    "message": "無法安全地重試這筆提領。開始另一筆提領前，請先查看這筆提領的狀態。",
+    "englishSource": "This withdrawal cannot be retried safely. Check its status before starting another withdrawal."
+  },
   "retryAnyway": {
     "message": "仍然重試",
     "englishSource": "Retry anyway"
@@ -4457,6 +4465,10 @@
   "withdrawalProcessing": {
     "message": "處理提領",
     "englishSource": "Processing Withdrawal"
+  },
+  "withdrawalCheckingDescription": {
+    "message": "正在檢查您的提領狀態。請保持錢包開啟，直到確認送達。",
+    "englishSource": "Checking your withdrawal. Keep the wallet open while delivery is confirmed."
   },
   "withdrawalProcessingDescription": {
     "message": "簽署並將免手續費的提領意向提交至 Epoch。此過程通常只需幾秒鐘。",

@@ -115,11 +115,11 @@ it('retains a loaded transaction through a later failed read', async () => {
   await transactions.add(saved);
   const { result } = renderHook(() => useTransactionRow(saved.id));
   await waitFor(() => expect(result.current.row).toEqual(saved));
+  jest.spyOn(transactions, 'where').mockImplementationOnce(() => {
+    throw readError;
+  });
   await act(async () => {
     await transactions.put({ ...saved, displayMessage: 'updated' });
-    jest.spyOn(transactions, 'where').mockImplementationOnce(() => {
-      throw readError;
-    });
   });
   await waitFor(() =>
     expect(console.error).toHaveBeenCalledWith('[useTransactionRow] Failed to read transaction:', readError)

@@ -786,6 +786,14 @@
     "message": "Spróbuj ponownie",
     "englishSource": "Retry"
   },
+  "retryEarnDelivery": {
+    "message": "Ponów dostarczenie",
+    "englishSource": "Retry delivery"
+  },
+  "withdrawalRecoveryUnavailable": {
+    "message": "Nie można bezpiecznie ponowić tej wypłaty. Sprawdź jej status przed rozpoczęciem kolejnej wypłaty.",
+    "englishSource": "This withdrawal cannot be retried safely. Check its status before starting another withdrawal."
+  },
   "retryAnyway": {
     "message": "Ponów mimo to",
     "englishSource": "Retry anyway"
@@ -4457,6 +4465,10 @@
   "withdrawalProcessing": {
     "message": "Przetwarzanie wypłaty",
     "englishSource": "Processing Withdrawal"
+  },
+  "withdrawalCheckingDescription": {
+    "message": "Sprawdzamy Twoją wypłatę. Pozostaw portfel otwarty do czasu potwierdzenia dostarczenia środków.",
+    "englishSource": "Checking your withdrawal. Keep the wallet open while delivery is confirmed."
   },
   "withdrawalProcessingDescription": {
     "message": "Podpisanie i przesłanie do Epoch zgłoszenia zamiaru wypłaty bez opłaty za gaz. Zazwyczaj zajmuje to kilka sekund.",
