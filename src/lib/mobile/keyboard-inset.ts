@@ -16,8 +16,10 @@ import { isIOS, isMobile } from 'lib/platform';
  * sit outside the body padding and consume the var in their own
  * padding-bottom instead; keyboard-adjacent CTA footers (send flow) subtract
  * it from their bottom cushion so the button stays snug against the keyboard.
- * `keyboardWillShow` fires before the native slide with the final height,
- * letting the CSS transition on body padding run in sync with it.
+ * `keyboardWillShow` fires before the native slide with the final height, so
+ * the layout snaps to its final inset once, before the keyboard moves. The
+ * padding is deliberately NOT transitioned: padding is a layout property, and
+ * animating it made WebKit reflow the page tree on every frame of the slide.
  *
  * Android is DELIBERATELY excluded from this compensation: `resize: 'none'` is
  * only a JS-layer setting there — the native window stays ADJUST_RESIZE
