@@ -246,7 +246,7 @@ test.describe('Guardian recovery - real UI journey', () => {
    * no CLI, no claims — the money-movement proof lives in the funded test
    * below; this one exists to fail fast on the flow itself.
    */
-  test('imports the account with only its hot key via real UI — no seed, no rotation', async ({
+  test('imports the account with its hot and EVM keys via real UI — no seed, no rotation', async ({
     walletA,
     walletB,
     steps
@@ -256,23 +256,22 @@ test.describe('Guardian recovery - real UI journey', () => {
     const commitmentA = await guardianCommitment(A);
 
     let addressA: string;
-    let hotKeyHex = '';
+    let keyPairPayload = '';
 
-    await steps.step('create_on_a_and_reveal_hot_key', async () => {
+    await steps.step('create_on_a_and_reveal_key_pair', async () => {
       const created = await walletA.createGuardianWallet(A);
       addressA = created.address;
 
-      // The credential under test: the raw 64-hex hot key off the real
-      // Settings → Keys → Reveal hot key screen — exactly what a user who
-      // exported their everyday key would be pasting.
-      hotKeyHex = await walletA.revealHotKey();
+      // Transfer the separate hot and EVM keys from the real authenticated
+      // QR-first reveal screen through the two manual import fields.
+      keyPairPayload = await walletA.revealHotKey();
       await walletA.assertGuardianAuth(addressA, { signerCount: 2, threshold: 2, guardianCommitment: commitmentA });
     });
 
     await steps.step(
-      'import_on_clean_wallet_with_hot_key_only',
+      'import_on_clean_wallet_with_key_pair',
       async () => {
-        await walletB.recoverGuardianFromHotKey(hotKeyHex);
+        await walletB.recoverGuardianFromHotKey(keyPairPayload);
       },
       { screenshotWallets: [{ target: walletB.page, label: 'B' }] }
     );
@@ -306,10 +305,10 @@ test.describe('Guardian recovery - real UI journey', () => {
     const commitmentA = await guardianCommitment(A);
 
     let addressA: string;
-    let hotKeyHex = '';
+    let keyPairPayload = '';
     let faucetId: string;
 
-    await steps.step('create_and_fund_on_a_reveal_hot_key', async () => {
+    await steps.step('create_and_fund_on_a_reveal_key_pair', async () => {
       const created = await walletA.createGuardianWallet(A);
       addressA = created.address;
 
@@ -333,14 +332,14 @@ test.describe('Guardian recovery - real UI journey', () => {
         decimals: TOKEN_DECIMALS
       });
 
-      hotKeyHex = await walletA.revealHotKey();
+      keyPairPayload = await walletA.revealHotKey();
       await walletA.assertGuardianAuth(addressA, { signerCount: 2, threshold: 2, guardianCommitment: commitmentA });
     });
 
     await steps.step(
-      'import_on_clean_wallet_with_hot_key_only',
+      'import_on_clean_wallet_with_key_pair',
       async () => {
-        await walletB.recoverGuardianFromHotKey(hotKeyHex);
+        await walletB.recoverGuardianFromHotKey(keyPairPayload);
       },
       { screenshotWallets: [{ target: walletB.page, label: 'B' }] }
     );

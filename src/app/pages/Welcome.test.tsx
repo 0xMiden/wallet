@@ -1177,7 +1177,7 @@ describe('Welcome — E2E onboarding bypass', () => {
 // Seed-less Guardian import: the hot-key paste flow.
 // ---------------------------------------------------------------------------
 describe('hot-key import flow', () => {
-  const HOT_KEY_HEX = 'ab'.repeat(32);
+  const HOT_KEY_HEX = 'ab'.repeat(32) + ':' + 'cd'.repeat(32);
   const ENDPOINT = 'https://guardian.example.com';
 
   it('routes the import-with-key link to the key screen and renders it', async () => {

@@ -153,11 +153,11 @@ export const useWalletStore = create<WalletStore>()(
       // State will be synced via StateUpdated notification
     },
 
-    registerWalletFromHotKey: async (password, hotKeyHex, guardianEndpoint) => {
+    registerWalletFromHotKey: async (password, keyPairPayload, guardianEndpoint) => {
       const res = await request({
         type: WalletMessageType.NewWalletFromHotKeyRequest,
         password,
-        hotKeyHex,
+        keyPairPayload,
         guardianEndpoint
       });
       assertResponse(res.type === WalletMessageType.NewWalletFromHotKeyResponse);
@@ -300,7 +300,7 @@ export const useWalletStore = create<WalletStore>()(
         password
       });
       assertResponse(res.type === WalletMessageType.RevealHotKeyResponse);
-      return res.hotPrivateKey;
+      return res.keyPairPayload;
     },
 
     revealGuardianKeys: async (accountPublicKey, password) => {

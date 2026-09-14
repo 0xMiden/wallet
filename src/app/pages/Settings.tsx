@@ -242,7 +242,7 @@ const HIDDEN_TABS: Tab[] = [
   },
   {
     slug: 'reveal-hot-key',
-    titleI18nKey: 'revealHotKey',
+    titleI18nKey: 'revealPrivateKey',
     Component: RevealHotKey,
     testID: SettingsSelectors.RevealHotKeyButton,
     guardianOnly: true,

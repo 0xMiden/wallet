@@ -21,8 +21,11 @@ const KeysSettings: FC = () => {
   const hasActivatedHotKey = Boolean(currentAccountHotPublicKey);
 
   const rows = [
-    { titleI18nKey: 'revealPrivateKey', path: '/settings/reveal-private-key', show: seedPhraseStatus === 'stored' },
-    { titleI18nKey: 'revealHotKey', path: '/settings/reveal-hot-key', show: isGuardian && hasActivatedHotKey },
+    {
+      titleI18nKey: 'revealPrivateKey',
+      path: isGuardian ? '/settings/reveal-hot-key' : '/settings/reveal-private-key',
+      show: isGuardian ? hasActivatedHotKey : seedPhraseStatus === 'stored'
+    },
     { titleI18nKey: 'rotateGuardian', path: '/rotate-guardian', show: isGuardian }
   ].filter(row => row.show);
 

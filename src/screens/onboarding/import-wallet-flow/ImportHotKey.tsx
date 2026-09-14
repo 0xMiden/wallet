@@ -1,27 +1,25 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
-import { Button } from 'components/Button';
+import { Button, ButtonVariant } from 'components/Button';
 import { Input } from 'components/Input';
-import { normalizeHotSecretKeyHex } from 'lib/miden/guardian/hot-key-import';
+import { encodePrivateKeyPair, parsePrivateKeyPair } from 'lib/miden/guardian/private-key-pair';
 import { useScreenshotGuard } from 'lib/mobile/screenshot-guard';
+import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
+import { isMobile } from 'lib/platform';
+import { decodeQrImage } from 'lib/qr/image-decoder';
+import { isScanAvailable, scanQRCode } from 'lib/qr/scanner';
+import { ScanQrDrawer } from 'screens/send-flow/ScanQrDrawer';
 
 export interface ImportHotKeyScreenProps {
   className?: string;
   submitting?: boolean;
   isError?: boolean;
-  onSubmit?: (hotKeyHex: string) => void;
+  onSubmit?: (keyPairPayload: string) => void;
 }
 
-/**
- * Seed-less Guardian import: paste the account's HOT (everyday) private key.
- * Accepts the 64-hex raw scalar the wallet's "Reveal hot key" shows, or the
- * full 66-hex serialized form, with or without a `0x` prefix. Deep validation
- * (deserialize, scheme, guardian lookup) happens in the probe and the vault —
- * this screen only gates Continue on the shape being plausible.
- */
 export const ImportHotKeyScreen: React.FC<ImportHotKeyScreenProps> = ({
   className,
   submitting = false,
@@ -29,62 +27,195 @@ export const ImportHotKeyScreen: React.FC<ImportHotKeyScreenProps> = ({
   onSubmit
 }) => {
   const { t } = useTranslation();
-  const [rawInput, setRawInput] = useState('');
-
-  // Block screenshots/recordings while raw key material is on screen (#417) —
-  // the same guard the seed grid carries; a hot key is signing material of the
-  // same day-to-day sensitivity. isGuardReady is always true off-mobile.
+  const [hotKey, setHotKey] = useState('');
+  const [evmKey, setEvmKey] = useState('');
+  const [manual, setManual] = useState(false);
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [errorKey, setErrorKey] = useState('');
+  const generation = useRef(0);
+  const fileRef = useRef<HTMLInputElement>(null);
   const isGuardReady = useScreenshotGuard();
+  const pair = parsePrivateKeyPair(`${hotKey}:${evmKey}`);
 
-  const normalized = useMemo(() => normalizeHotSecretKeyHex(rawInput), [rawInput]);
-  const isValid = normalized !== null;
-  const showFormatError = rawInput.trim() !== '' && !isValid;
+  useEffect(
+    () => () => {
+      generation.current += 1;
+    },
+    []
+  );
+  useMobileBackHandler(() => {
+    if (!cameraOpen) return false;
+    setCameraOpen(false);
+    return true;
+  }, [cameraOpen]);
 
-  const handleSubmit = useCallback(() => {
-    if (onSubmit && normalized) onSubmit(normalized);
-  }, [onSubmit, normalized]);
+  const acceptPayload = useCallback((payload: string) => {
+    const parsed = parsePrivateKeyPair(payload);
+    setHotKey(parsed?.hotPrivateKey ?? '');
+    setEvmKey(parsed?.evmPrivateKey ?? '');
+    setErrorKey(parsed ? '' : 'importHotKeyInvalid');
+  }, []);
+
+  const scan = async () => {
+    if (!isGuardReady || busy || submitting) return;
+    setErrorKey('');
+    setHotKey('');
+    setEvmKey('');
+    if (!isMobile()) {
+      setCameraOpen(true);
+      return;
+    }
+    const request = ++generation.current;
+    setBusy(true);
+    const result = await scanQRCode(true);
+    if (request !== generation.current) return;
+    setBusy(false);
+    if (result.success && result.address) acceptPayload(result.address);
+    else if (result.errorKey !== 'scanCancelled') setErrorKey(result.errorKey ?? 'noQrCodeFound');
+  };
+
+  const upload = async (file: File) => {
+    const request = ++generation.current;
+    setBusy(true);
+    setErrorKey('');
+    setHotKey('');
+    setEvmKey('');
+    try {
+      const payload = await decodeQrImage(file);
+      if (request === generation.current) acceptPayload(payload);
+    } catch {
+      if (request === generation.current) setErrorKey('invalidQrImage');
+    } finally {
+      if (request === generation.current) setBusy(false);
+    }
+  };
+
+  const toggleManual = () => {
+    generation.current += 1;
+    setBusy(false);
+    setManual(value => !value);
+    setErrorKey('');
+  };
 
   return (
     <div
       className={classNames(
-        'flex-1',
-        'flex flex-col justify-start items-center',
-        'bg-app-bg text-heading-gray px-4 pt-6',
+        'flex-1 min-h-0 overflow-y-auto flex flex-col items-center bg-app-bg text-heading-gray px-4 pt-6',
         className
       )}
       data-testid="import-hot-key"
     >
       <h1 className="text-2xl font-semibold">{t('importHotKeyTitle')}</h1>
       <p className="mt-2 text-sm text-center">{t('importHotKeyDescription')}</p>
-
       {isGuardReady && (
-        <div className="w-full mt-8">
-          <Input
-            id="hot-key-input"
-            value={rawInput}
-            type="password"
-            autoCapitalize="none"
-            autoCorrect="off"
-            spellCheck={false}
-            enterKeyHint="done"
-            placeholder={t('importHotKeyPlaceholder')}
-            onChange={event => setRawInput(event.target.value)}
+        <div className="w-full flex flex-col gap-4 mt-6">
+          {!manual && (
+            <>
+              <Button title={t('scanQrTitle')} onClick={scan} disabled={!isScanAvailable() || busy || submitting} />
+              {!isScanAvailable() && <p className="text-sm text-text-secondary-token">{t('keyCameraUnavailable')}</p>}
+            </>
+          )}
+          <Button
+            title={t('uploadQrImage')}
+            variant={ButtonVariant.Secondary}
+            onClick={() => fileRef.current?.click()}
+            disabled={busy || submitting}
           />
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/*"
+            hidden
+            tabIndex={-1}
+            aria-label={t('uploadQrImage')}
+            disabled={busy || submitting}
+            onChange={event => {
+              const file = event.target.files?.[0];
+              event.target.value = '';
+              if (file) upload(file);
+            }}
+          />
+          <Button
+            title={t(manual ? 'showQrCode' : 'enterKeysManually')}
+            variant={ButtonVariant.Secondary}
+            onClick={toggleManual}
+            disabled={submitting}
+          />
+          {manual && (
+            <>
+              <label htmlFor="hot-key-input">{t('midenHotPrivateKey')}</label>
+              <Input
+                id="hot-key-input"
+                value={hotKey}
+                type="password"
+                autoComplete="off"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                disabled={busy || submitting}
+                onChange={event => {
+                  setHotKey(event.target.value);
+                  setErrorKey('');
+                }}
+              />
+              <label htmlFor="evm-key-input">{t('evmPrivateKey')}</label>
+              <Input
+                id="evm-key-input"
+                value={evmKey}
+                type="password"
+                autoComplete="off"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                disabled={busy || submitting}
+                onChange={event => {
+                  setEvmKey(event.target.value);
+                  setErrorKey('');
+                }}
+              />
+            </>
+          )}
+          {pair && (
+            <p role="status" className="text-sm">
+              {t('privateKeyPairReady')}
+            </p>
+          )}
         </div>
       )}
-      {showFormatError && <p className="text-red-500 text-xs mt-4">{t('importHotKeyInvalid')}</p>}
-      {isErrorProp && <p className="text-red-500 text-xs mt-4">{t('importHotKeyError')}</p>}
-
-      <div className="mt-auto w-full shrink-0 pt-6">
+      {(errorKey || (manual && (hotKey || evmKey) && !pair)) && (
+        <p role="alert" className="text-status-negative text-sm mt-4">
+          {t(errorKey || 'importHotKeyInvalid')}
+        </p>
+      )}
+      {isErrorProp && (
+        <p role="alert" className="text-status-negative text-sm mt-4">
+          {t('importHotKeyError')}
+        </p>
+      )}
+      <div className="mt-auto w-full shrink-0 py-6">
         <Button
-          id="submit-button"
           data-testid="import-hot-key-submit"
           title={t('continue')}
-          onClick={handleSubmit}
-          disabled={!isValid || submitting}
-          className="w-full"
+          disabled={!isGuardReady || !pair || busy || submitting}
+          onClick={() => {
+            if (!pair || busy || submitting) return;
+            generation.current += 1;
+            onSubmit?.(encodePrivateKeyPair(pair));
+            setHotKey('');
+            setEvmKey('');
+          }}
         />
       </div>
+      {isGuardReady && (
+        <ScanQrDrawer
+          open={cameraOpen}
+          rawPayload
+          onOpenChange={setCameraOpen}
+          onDetected={acceptPayload}
+          onError={setErrorKey}
+        />
+      )}
     </div>
   );
 };

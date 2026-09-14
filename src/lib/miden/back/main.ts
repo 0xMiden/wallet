@@ -480,7 +480,7 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
       }
       return { type: WalletMessageType.NewWalletResponse };
     case WalletMessageType.NewWalletFromHotKeyRequest:
-      await Actions.registerWalletFromHotKey(req.password, req.hotKeyHex, req.guardianEndpoint);
+      await Actions.registerWalletFromHotKey(req.password, req.keyPairPayload, req.guardianEndpoint);
       return { type: WalletMessageType.NewWalletFromHotKeyResponse };
     case WalletMessageType.ImportFromClientRequest:
       await Actions.registerImportedWallet(req.password, req.mnemonic, req.walletAccounts);
@@ -519,10 +519,10 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
         privateKey: privateKey ?? ''
       };
     case WalletMessageType.RevealHotKeyRequest: {
-      const hotPrivateKey = await Actions.revealHotKey(req.accountPublicKey, req.password);
+      const keyPairPayload = await Actions.revealHotKey(req.accountPublicKey, req.password);
       return {
         type: WalletMessageType.RevealHotKeyResponse,
-        hotPrivateKey: hotPrivateKey ?? ''
+        keyPairPayload: keyPairPayload ?? ''
       };
     }
     case WalletMessageType.RevealGuardianKeysRequest: {

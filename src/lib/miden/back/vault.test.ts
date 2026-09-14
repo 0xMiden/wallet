@@ -2,6 +2,8 @@
 // In-memory storage adapter used by `safe-storage`. Mocked at module scope so
 // the real `safe-storage` code runs but writes/reads go to `memoryStore`.
 // ---------------------------------------------------------------------------
+import { privateKeyToAccount } from 'viem/accounts';
+
 import { ITransactionType, Transaction } from 'lib/miden/db/types';
 import * as Passworder from 'lib/miden/passworder';
 import * as Repo from 'lib/miden/repo';
@@ -14,6 +16,7 @@ import {
   fetchAndDecryptOneWithLegacyFallBack,
   getPlain,
   isStored,
+  removeMany,
   savePlain
 } from './safe-storage';
 import { Vault } from './vault';
@@ -789,21 +792,25 @@ describe('Vault.revealHotKey', () => {
       type: WalletType.Guardian,
       hdIndex: 0,
       hotPublicKey: 'hot-pub-hex',
-      coldPublicKey: 'cold-pub-hex'
+      coldPublicKey: 'cold-pub-hex',
+      evmAddress: '0xEvm'
     };
     await encryptAndSaveMany(
       [
         [keys.accounts, [account]],
-        [keys.accAuthSecretKey('hot-pub-hex'), 'OPAQUE_CIPHERTEXT']
+        [keys.accAuthSecretKey('hot-pub-hex'), 'OPAQUE_CIPHERTEXT'],
+        [`${ck('accevmsecretkey')}_0xevm`, `0x${'cd'.repeat(32)}`]
       ],
       vaultKey
     );
-    mockRevealHotKey.mockResolvedValueOnce('deadbeef');
+    mockRevealHotKey.mockResolvedValue('ab'.repeat(32));
 
     const secret = await Vault.revealHotKey('guardian-acc-1', 'pw');
 
     expect(mockRevealHotKey).toHaveBeenCalledWith('OPAQUE_CIPHERTEXT');
-    expect(secret).toBe('deadbeef');
+    expect(secret).toBe(`${'ab'.repeat(32)}:${'cd'.repeat(32)}`);
+    await removeMany([keys.mnemonic]);
+    await expect(Vault.revealHotKey('guardian-acc-1', 'pw')).resolves.toBe(secret);
   });
 
   it('rejects when the account is not a Guardian account', async () => {
@@ -2387,6 +2394,20 @@ describe('seed phrase removal', () => {
 // ---------------------------------------------------------------------------
 describe('Vault.spawnFromHotKey', () => {
   const ENDPOINT = 'https://guardian.example.com';
+  const EVM_KEY = `0x${'cd'.repeat(32)}`;
+  const PAIR = `${'beef'.repeat(16)}:${'cd'.repeat(32)}`;
+
+  it('authenticates reveal without a seed and never recreates a missing EVM key', async () => {
+    const vault = await Vault.spawnFromHotKey('pw', PAIR, ENDPOINT);
+    mockRevealHotKey.mockResolvedValue('beef'.repeat(16));
+    await expect(Vault.revealHotKey('guardian-acc-hot', 'wrong')).rejects.toThrow();
+    expect(mockRevealHotKey).not.toHaveBeenCalled();
+    await expect(Vault.revealHotKey('guardian-acc-hot', 'pw')).resolves.toBe(PAIR);
+    const account = (await vault.fetchAccounts())[0]!;
+    await removeMany([`${ck('accevmsecretkey')}_${account.evmAddress?.toLowerCase()}`]);
+    await expect(Vault.revealHotKey('guardian-acc-hot', 'pw')).rejects.toThrow('evmPrivateKeyMissing');
+    expect(await isStored(keys.mnemonic)).toBe(false);
+  });
 
   it('loads the WASM module before it parses the pasted key', async () => {
     // Fresh onboarding has no client yet, so nothing else has loaded the lazy
@@ -2409,7 +2430,7 @@ describe('Vault.spawnFromHotKey', () => {
   });
 
   it('adopts the guardian account and persists a hot-key-only wallet', async () => {
-    const vault = await Vault.spawnFromHotKey('pw', 'beef'.repeat(16), ENDPOINT);
+    const vault = await Vault.spawnFromHotKey('pw', PAIR, ENDPOINT);
 
     // The canonical serialized hex (from the deserialized key, not the raw
     // paste) is what reaches the guardian lookup.
@@ -2431,6 +2452,16 @@ describe('Vault.spawnFromHotKey', () => {
     // No cold key, and no rotation gate — the pasted key IS the working hot key.
     expect(account.coldPublicKey).toBeUndefined();
     expect(account.requiresHotKeyRotation).toBeUndefined();
+    const evmAddress = privateKeyToAccount(`0x${'cd'.repeat(32)}`).address;
+    expect(account.evmAddress).toBe(evmAddress);
+    const protector = await getPlain<string>(keys.vaultKeyPassword);
+    if (!protector) throw new Error('Missing test vault protector');
+    const authenticatedKey = await Passworder.importVaultKey(
+      await Passworder.decryptVaultKeyWithPassword(protector, 'pw')
+    );
+    const storageKey = `${ck('accevmsecretkey')}_${evmAddress.toLowerCase()}`;
+    await expect(fetchAndDecryptOneWithLegacyFallBack<string>(storageKey, authenticatedKey)).resolves.toBe(EVM_KEY);
+    expect(JSON.stringify(memoryStore[storageKey])).not.toContain(EVM_KEY);
 
     // The hot secret is persisted under the accAuthSecretKey slot in its
     // canonical serialized form (signWord's hot path reads exactly this).
@@ -2450,7 +2481,7 @@ describe('Vault.spawnFromHotKey', () => {
   });
 
   it('refuses account creation afterwards (no seed to derive from)', async () => {
-    const vault = await Vault.spawnFromHotKey('pw', 'beef'.repeat(16), ENDPOINT);
+    const vault = await Vault.spawnFromHotKey('pw', PAIR, ENDPOINT);
 
     await expect(vault.createHDAccount(WalletType.Guardian)).rejects.toThrow(PublicError);
   });
@@ -2468,6 +2499,22 @@ describe('Vault.spawnFromHotKey', () => {
     await expect(getPlain('sentinel')).resolves.toBe('still-here');
   });
 
+  it.each([
+    'beef'.repeat(16),
+    `${'beef'.repeat(16)}:`,
+    `${'beef'.repeat(16)}:${'0'.repeat(64)}`,
+    `${'0'.repeat(64)}:${'cd'.repeat(32)}`,
+    `${'beef'.repeat(16)}:fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141`,
+    `${'f'.repeat(64)}:${'cd'.repeat(32)}`,
+    `${PAIR}:extra`
+  ])('rejects an invalid pair before storage or recovery', async payload => {
+    await savePlain('sentinel', 'preserved');
+    await expect(Vault.spawnFromHotKey('pw', payload, ENDPOINT)).rejects.toThrow(PublicError);
+    expect(mockDeserializeHotSecretKey).not.toHaveBeenCalled();
+    expect(mockRecoverGuardianAccountByHotKey).not.toHaveBeenCalled();
+    await expect(getPlain('sentinel')).resolves.toBe('preserved');
+  });
+
   it('rejects a non-ECDSA key (Falcon blob pasted by mistake)', async () => {
     mockDeserializeHotSecretKey.mockImplementation(() => {
       const key = fakeHotSecretKey();
@@ -2477,25 +2524,25 @@ describe('Vault.spawnFromHotKey', () => {
       return key as any;
     });
 
-    await expect(Vault.spawnFromHotKey('pw', 'beef'.repeat(16), ENDPOINT)).rejects.toThrow(PublicError);
+    await expect(Vault.spawnFromHotKey('pw', PAIR, ENDPOINT)).rejects.toThrow(PublicError);
     expect(mockRecoverGuardianAccountByHotKey).not.toHaveBeenCalled();
   });
 
   it('surfaces the guardian lookup reason as a PublicError (no account for this key)', async () => {
     mockRecoverGuardianAccountByHotKey.mockRejectedValue(new Error('No Guardian account was found for this key'));
 
-    await expect(Vault.spawnFromHotKey('pw', 'beef'.repeat(16), ENDPOINT)).rejects.toThrow(
+    await expect(Vault.spawnFromHotKey('pw', PAIR, ENDPOINT)).rejects.toThrow(
       'No Guardian account was found for this key'
     );
   });
 
   it('requires a password when hardware protection is unavailable', async () => {
-    await expect(Vault.spawnFromHotKey(undefined, 'beef'.repeat(16), ENDPOINT)).rejects.toThrow(PublicError);
+    await expect(Vault.spawnFromHotKey(undefined, PAIR, ENDPOINT)).rejects.toThrow(PublicError);
     expect(mockRecoverGuardianAccountByHotKey).not.toHaveBeenCalled();
   });
 
   it('falls back to the network default endpoint when none is passed', async () => {
-    await Vault.spawnFromHotKey('pw', 'beef'.repeat(16));
+    await Vault.spawnFromHotKey('pw', PAIR);
 
     const [, endpoint] = mockRecoverGuardianAccountByHotKey.mock.calls[0]!;
     expect(typeof endpoint).toBe('string');

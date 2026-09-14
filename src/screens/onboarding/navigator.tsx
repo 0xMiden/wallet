@@ -241,7 +241,7 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
       case OnboardingStep.ImportFromKey:
         return (
           <ImportHotKeyScreen
-            onSubmit={hotKeyHex => onForwardAction?.({ id: 'import-hot-key-submit', payload: hotKeyHex })}
+            onSubmit={keyPairPayload => onForwardAction?.({ id: 'import-hot-key-submit', payload: keyPairPayload })}
           />
         );
       case OnboardingStep.CreatePassword:

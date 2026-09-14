@@ -182,11 +182,11 @@ export function registerNewWallet(
   });
 }
 
-/** Seed-less Guardian import: spawn a wallet from a pasted HOT secret key. */
-export function registerWalletFromHotKey(password?: string, hotKeyHex?: string, guardianEndpoint?: string) {
+/** Seed-less Guardian import: spawn from the existing hot:EVM key pair. */
+export function registerWalletFromHotKey(password?: string, keyPairPayload?: string, guardianEndpoint?: string) {
   return withInited(async () => {
-    if (!hotKeyHex) throw new PublicError(getMessage('importHotKeyInvalid'));
-    const vault = await Vault.spawnFromHotKey(password, hotKeyHex, guardianEndpoint);
+    if (!keyPairPayload) throw new PublicError(getMessage('importHotKeyInvalid'));
+    const vault = await Vault.spawnFromHotKey(password, keyPairPayload, guardianEndpoint);
     const accounts = await vault.fetchAccounts();
     const settings = await vault.fetchSettings();
     const currentAccount = await vault.getCurrentAccount();

@@ -138,7 +138,7 @@ export interface WalletActions {
   ) => Promise<void>;
   registerWalletFromHotKey: (
     password: string | undefined,
-    hotKeyHex: string,
+    keyPairPayload: string,
     guardianEndpoint?: string
   ) => Promise<void>;
   importWalletFromClient: (

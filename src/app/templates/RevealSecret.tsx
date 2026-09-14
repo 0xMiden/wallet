@@ -8,6 +8,7 @@ import FormField from 'app/atoms/FormField';
 import AccountBanner from 'app/templates/AccountBanner';
 import { Button, ButtonVariant } from 'components/Button';
 import { PasscodeEntry } from 'components/PasscodeEntry';
+import { PrivateKeyPair } from 'components/PrivateKeyPair';
 import { Vault } from 'lib/miden/back/vault';
 import { useAccount, useSecretState, useMidenContext } from 'lib/miden/front';
 import { getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
@@ -145,8 +146,8 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
       if (isSubmitting || revealUnavailable) return;
 
       clearErrors('password');
+      const generation = secretGeneration.current;
       try {
-        const generation = secretGeneration.current;
         const setCurrentSecret = (value: string) => {
           if (generation === secretGeneration.current) setSecret(value);
         };
@@ -162,12 +163,14 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
         } else {
           setCurrentSecret(await revealMnemonic(unlockPassword));
         }
-      } catch (err: any) {
-        console.error(err);
-
+      } catch (err) {
         // Human delay.
         await new Promise(res => setTimeout(res, 300));
-        setError('password', { type: SUBMIT_ERROR_TYPE, message: err.message });
+        if (generation !== secretGeneration.current) return;
+        setError('password', {
+          type: SUBMIT_ERROR_TYPE,
+          message: err instanceof Error ? err.message : t('smthWentWrong')
+        });
         if (!hasHardwareProtector) focusPasswordField();
       }
     },
@@ -184,7 +187,8 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
       focusPasswordField,
       hasHardwareProtector,
       reveal,
-      account.publicKey
+      account.publicKey,
+      t
     ]
   );
 
@@ -229,7 +233,7 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
 
       case 'hot-key':
         return {
-          name: t('hotPrivateKey'),
+          name: t('privateKey'),
           accountBanner: null,
           attention: null,
           fieldDesc: <div className="text-heading-gray text-sm">{t('revealHotKeyDescription')}</div>
@@ -302,6 +306,7 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
 
     if (secret) {
       if (!isGuardReady) return null;
+      if (reveal === 'hot-key') return <PrivateKeyPair payload={secret} />;
       return (
         <div className="pt-8">
           <FormField
@@ -384,7 +389,8 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
     usePasscodeEntry,
     requiresAcknowledge,
     privateKeyAcknowledged,
-    isSubmitting
+    isSubmitting,
+    reveal
   ]);
 
   const showButton = !secret && !guardianBundle;
@@ -450,7 +456,14 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
   );
 };
 
-export default RevealSecret;
+// Remount before paint when the account or reveal route changes. Cleanup also
+// invalidates requests still waiting for authentication from the old account.
+const AccountRevealSecret: FC<RevealSecretProps> = props => {
+  const account = useAccount();
+  return <RevealSecret key={`${account.publicKey}:${props.reveal}`} {...props} />;
+};
+
+export default AccountRevealSecret;
 
 // Returns the hex-encoded auth public-key commitment for an account.
 // This is the key under which the vault stores the matching secret key —

@@ -1,5 +1,7 @@
 import { expect, type Page } from '@playwright/test';
 
+import { encodePrivateKeyPair, parsePrivateKeyPair } from '../../../src/lib/miden/guardian/private-key-pair';
+
 import { readTransactionRows } from './history';
 import type { IdbDumpSource } from './idb-dump';
 import { dumpProveTelemetry } from '../harness/prove-telemetry-probe';
@@ -259,7 +261,7 @@ export interface ChromeWalletPageApi extends WalletPage, IdbDumpSource {
    */
   recoverGuardianFromSeed(seed: string, opts: { viaUI: boolean; guardianUrl?: string }): Promise<void>;
   /**
-   * Import a Guardian account with ONLY its hot (everyday) private key — the
+   * Import a Guardian account with its hot and EVM private key pair — the
    * seed-less import path. Drives the real screens: Welcome → "Recover your
    * account" → seed grid → "Import with key instead" link → key paste →
    * submit → full password step → ImportRecoveryMethod (probe by hot-key
@@ -267,11 +269,11 @@ export interface ChromeWalletPageApi extends WalletPage, IdbDumpSource {
    * Unlike `recoverGuardianFromSeed` this ends WITHOUT a hot-key rotation:
    * the pasted key IS the working device key, so the gate must never appear.
    */
-  recoverGuardianFromHotKey(hotKeyHex: string): Promise<void>;
+  recoverGuardianFromHotKey(keyPairPayload: string): Promise<void>;
   /**
-   * Reveal the current Guardian account's hot (everyday) private key through
-   * the real Settings → Keys → Reveal hot key screen, returning the raw
-   * 64-hex scalar the UI shows. Extension builds authenticate with the
+   * Reveal the current Guardian account's hot and EVM private keys through
+   * Settings → Keys → Reveal private key, returning the hot:evm payload.
+   * Extension builds authenticate with the
    * onboarding password.
    */
   revealHotKey(password?: string): Promise<string>;
@@ -1023,13 +1025,17 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
   /**
    * See the interface doc comment (ChromeWalletPageApi).
    */
-  async recoverGuardianFromHotKey(hotKeyHex: string): Promise<void> {
+  async recoverGuardianFromHotKey(keyPairPayload: string): Promise<void> {
+    const pair = parsePrivateKeyPair(keyPairPayload);
+    if (!pair) throw new Error('Invalid private key pair');
     // Welcome → "Recover your account" → seed grid → the seed-less fork.
     await this.openImportSeedPhraseScreen();
     await this.page.getByTestId('import-with-key-link').click();
 
     await this.page.getByTestId('import-hot-key').waitFor({ timeout: 15_000 });
-    await this.page.locator('#hot-key-input').fill(hotKeyHex);
+    await this.page.getByRole('button', { name: 'Enter keys manually' }).click();
+    await this.page.locator('#hot-key-input').fill(pair.hotPrivateKey);
+    await this.page.locator('#evm-key-input').fill(pair.evmPrivateKey);
     await this.page.getByTestId('import-hot-key-submit').click();
 
     // Extension builds always route through the full password step (no
@@ -1086,16 +1092,14 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     await passwordField.fill(password);
     await this.page.getByRole('button', { name: /continue/i }).click();
 
-    // The revealed secret lands in the readonly `#reveal-secret-secret`
-    // textarea as the raw 64-hex scalar.
-    const secretField = this.page.locator('#reveal-secret-secret');
-    await secretField.waitFor({ timeout: 30_000 });
-    const secret = ((await secretField.inputValue().catch(() => '')) || (await secretField.textContent()) || '').trim();
-    if (!/^[0-9a-f]{64}$/i.test(secret)) {
-      throw new Error(`revealHotKey: expected a 64-hex hot key, got "${secret.slice(0, 80)}"`);
-    }
+    await this.page.getByRole('img', { name: 'Private keys QR code' }).waitFor({ timeout: 30_000 });
+    await this.page.getByRole('button', { name: 'Show keys as text' }).click();
+    const hot = await this.page.getByLabel('Miden hot private key').inputValue();
+    const evm = await this.page.getByLabel('EVM private key').inputValue();
+    const pair = parsePrivateKeyPair(`${hot}:${evm}`);
+    if (!pair) throw new Error('Reveal did not return a valid private key pair');
     await this.navigateHome();
-    return secret;
+    return encodePrivateKeyPair(pair);
   }
 
   /**

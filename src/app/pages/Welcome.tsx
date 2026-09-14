@@ -8,6 +8,7 @@ import { formatMnemonic } from 'app/defaults';
 import { AnalyticsEventCategory, useAnalytics } from 'lib/analytics';
 import { canHandoffToSidePanel, postOnboardingRoute } from 'lib/extension/side-panel-handoff';
 import { useMidenContext } from 'lib/miden/front';
+import { parsePrivateKeyPair } from 'lib/miden/guardian/private-key-pair';
 import { useGuardianProbe } from 'lib/miden/guardian/use-guardian-probe';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isDesktop, isMobile } from 'lib/platform';
@@ -92,10 +93,10 @@ const Welcome: FC = () => {
   const { hash } = useLocation();
   const [step, setStep] = useState(OnboardingStep.Welcome);
   const [seedPhrase, setSeedPhrase] = useState<string[] | null>(null);
-  // Seed-less Guardian import: the pasted HOT key (normalized hex). Mutually
+  // Seed-less Guardian import: the normalized hot:EVM pair. Mutually
   // exclusive with `seedPhrase` — each submit clears the other, so register()
   // and back-navigation can branch on which credential is live.
-  const [hotKeyHex, setHotKeyHex] = useState<string | null>(null);
+  const [keyPairPayload, setKeyPairPayload] = useState<string | null>(null);
   const [onboardingType, setOnboardingType] = useState<OnboardingType | null>(null);
   const [password, setPassword] = useState<string | null>(null);
   const [walletType, setWalletType] = useState<WalletType>(WalletType.Guardian);
@@ -127,7 +128,7 @@ const Welcome: FC = () => {
   // recovery-method screen) there is nothing to detect — leave the probe prop
   // undefined so that screen renders its classic manual picker rather than an
   // endless spinner.
-  const guardianProbeState = seedPhrase || hotKeyHex ? guardianProbe.state : undefined;
+  const guardianProbeState = seedPhrase || keyPairPayload ? guardianProbe.state : undefined;
   const syncFromBackend = useWalletStore(s => s.syncFromBackend);
 
   // Chrome side panel handoff: create the wallet while the confirmation screen
@@ -246,8 +247,10 @@ const Welcome: FC = () => {
   // Same fire-and-forget shape for the seed-less import: probe the operators by
   // the pasted hot key's commitment.
   const startGuardianProbeWithKey = useCallback(
-    (hotKey: string) => {
-      void guardianProbe.startWithKey(hotKey).then(result => {
+    (payload: string) => {
+      const pair = parsePrivateKeyPair(payload);
+      if (!pair) return;
+      guardianProbe.startWithKey(pair.hotPrivateKey).then(result => {
         if (!result) return;
         trackEvent('guardian-probe', AnalyticsEventCategory.General, {
           method: 'hot-key',
@@ -261,10 +264,10 @@ const Welcome: FC = () => {
   );
 
   const register = useCallback(async () => {
-    if (password && hotKeyHex) {
-      // Seed-less Guardian import: the pasted hot key is the whole credential.
+    if (password && keyPairPayload) {
+      // The pair stays in this onboarding component, never in wallet state.
       const actualPassword = password === '__HARDWARE_ONLY__' ? undefined : password;
-      await registerWalletFromHotKey(actualPassword, hotKeyHex, guardianEndpoint);
+      await registerWalletFromHotKey(actualPassword, keyPairPayload, guardianEndpoint);
       return;
     }
     if (password && seedPhrase) {
@@ -287,7 +290,7 @@ const Welcome: FC = () => {
   }, [
     password,
     seedPhrase,
-    hotKeyHex,
+    keyPairPayload,
     registerWallet,
     registerWalletFromHotKey,
     onboardingType,
@@ -415,7 +418,7 @@ const Welcome: FC = () => {
         navigate('/#import-from-key');
         break;
       case 'import-hot-key-submit':
-        setHotKeyHex(action.payload);
+        setKeyPairPayload(action.payload);
         // Mutually exclusive with the seed credential (see the state comment).
         setSeedPhrase(null);
         startGuardianProbeWithKey(action.payload);
@@ -432,7 +435,7 @@ const Welcome: FC = () => {
         break;
       case 'import-seed-phrase-submit':
         setSeedPhrase(action.payload.split(' '));
-        setHotKeyHex(null);
+        setKeyPairPayload(null);
         // Start guardian auto-detection here rather than on the recovery-method
         // screen: it then runs behind the password/passcode step and is usually
         // already resolved when that screen mounts.
@@ -467,7 +470,7 @@ const Welcome: FC = () => {
         }
         break;
       case 'retry-guardian-probe':
-        if (hotKeyHex) startGuardianProbeWithKey(hotKeyHex);
+        if (keyPairPayload) startGuardianProbeWithKey(keyPairPayload);
         else if (seedPhrase) startGuardianProbe(seedPhrase);
         break;
       case 'import-select-recovery-method':
@@ -526,7 +529,7 @@ const Welcome: FC = () => {
           navigate('/');
         } else if (step === OnboardingStep.SetupPasscode || step === OnboardingStep.SetupBiometric) {
           if (onboardingType === OnboardingType.Import) {
-            navigate(hotKeyHex ? '/#import-from-key' : '/#import-from-seed');
+            navigate(keyPairPayload ? '/#import-from-key' : '/#import-from-seed');
           } else {
             // The choose-protection screen is skipped when biometric is
             // unavailable, so backing out of passcode setup returns to Welcome.
@@ -547,11 +550,11 @@ const Welcome: FC = () => {
             // biometric-without-hardware path lands here from choose-guardian.
             navigate(isMobile() ? '/#choose-guardian' : '/');
           } else {
-            navigate(hotKeyHex ? '/#import-from-key' : '/#import-from-seed');
+            navigate(keyPairPayload ? '/#import-from-key' : '/#import-from-seed');
           }
         } else if (step === OnboardingStep.ImportSelectRecoveryMethod) {
           if (password === '__HARDWARE_ONLY__') {
-            navigate(hotKeyHex ? '/#import-from-key' : '/#import-from-seed');
+            navigate(keyPairPayload ? '/#import-from-key' : '/#import-from-seed');
           } else {
             navigate(isMobile() ? '/#setup-passcode' : '/#create-password');
           }
@@ -612,7 +615,7 @@ const Welcome: FC = () => {
         setStep(OnboardingStep.ImportFromSeed);
         // A pasted key must not survive a switch back to seed entry — the two
         // credentials are mutually exclusive.
-        setHotKeyHex(null);
+        setKeyPairPayload(null);
         // Backing out to seed entry invalidates any detection for the previous
         // phrase — abort it so a stale result can't be shown for a new seed.
         resetGuardianProbe();
@@ -682,7 +685,7 @@ const Welcome: FC = () => {
           guardianLookupError={guardianLookupError}
           guardianProbe={guardianProbeState}
           confirmCreating={sidePanelHandoff && confirmPhase === 'creating'}
-          importViaKey={Boolean(hotKeyHex)}
+          importViaKey={Boolean(keyPairPayload)}
           onBiometricChange={setUseBiometric}
           onAction={onAction}
         />

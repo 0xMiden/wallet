@@ -4,7 +4,7 @@
 
 ### Features
 
-- [FEATURE][all] Onboarding import gains a seed-less path: "Import with key instead" accepts a Guardian account's everyday (hot) key, discovers the operator by the key's commitment, and imports the account through the Guardian. Cold-signed recovery actions stay hidden for such accounts.
+- [FEATURE][all] Guardian private-key export and seed-less import carry the existing Miden hot and EVM keys together as `hot:evm` (two separate 64-character lowercase hex scalars). Authenticated reveal opens a QR first, with separate text fields available. Import supports native/extension camera scanning, local QR image decoding, and manual entry; both scalars are validated before storage changes. The supplied EVM key is encrypted in the vault and restores its address without deriving a new key or seed. Seed-based recovery stays separate; the export does not contain a cold recovery key.
 - [FEATURE][all] Settings now has an optional seed phrase removal flow. It removes the phrase and Guardian recovery keys from local storage after backup verification. Daily signing keys remain. Guardian recovery actions accept temporary seed input without saving the phrase again. Account creation after removal is not yet supported.
 
 ### Fixes

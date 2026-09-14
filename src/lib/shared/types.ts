@@ -552,8 +552,8 @@ export interface NewWalletResponse extends WalletMessageBase {
 export interface NewWalletFromHotKeyRequest extends WalletMessageBase {
   type: WalletMessageType.NewWalletFromHotKeyRequest;
   password?: string; // Optional for hardware-only wallets (mobile/desktop with Secure Enclave)
-  /** Pasted hot key hex — raw 64-hex scalar or full serialized AuthSecretKey. */
-  hotKeyHex: string;
+  /** Two raw scalars in hot:evm order; validated again in the vault. */
+  keyPairPayload: string;
   /** Operator picked/probed in onboarding; the network default when absent. */
   guardianEndpoint?: string;
 }
@@ -638,7 +638,7 @@ export interface RevealHotKeyRequest extends WalletMessageBase {
 
 export interface RevealHotKeyResponse extends WalletMessageBase {
   type: WalletMessageType.RevealHotKeyResponse;
-  hotPrivateKey: string;
+  keyPairPayload: string;
 }
 
 export interface RevealGuardianKeysRequest extends WalletMessageBase {

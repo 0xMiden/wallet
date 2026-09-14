@@ -29,6 +29,13 @@ const mockRevealPrivateKey = jest.fn();
 const mockRevealMnemonic = jest.fn();
 const mockRevealHotKey = jest.fn();
 const mockRevealGuardianKeys = jest.fn();
+jest.mock(
+  'qr-code-styling',
+  () =>
+    class {
+      append() {}
+    }
+);
 const mockGetAccount = jest.fn();
 const mockResolveCommitments = jest.fn();
 let mockIsMobile = false;
@@ -171,6 +178,7 @@ describe('RevealSecret', () => {
     jest.clearAllMocks();
     mockWalletState.seedPhraseStatus = 'stored';
     mockSecret = null;
+    mockAccount.publicKey = 'mtst1qtestaddress0000';
     mockIsMobile = false;
     mockGuardReady = true;
     mockHasHardwareProtector.mockResolvedValue(false);
@@ -555,5 +563,55 @@ describe('RevealSecret', () => {
       testRoot = null;
     });
     expect(mockSetSecret).toHaveBeenCalledWith(null);
+  });
+
+  it('discards a late authenticated reveal when the selected account changes', async () => {
+    mockHasHardwareProtector.mockResolvedValue(true);
+    let finish = (value: string) => {
+      expect(value).toBe('late-secret');
+    };
+    mockRevealHotKey.mockReturnValue(
+      new Promise<string>(resolve => {
+        finish = resolve;
+      })
+    );
+    const container = await renderReveal('hot-key');
+    await act(async () => {
+      buttonWithText(container, 'unlock')?.click();
+    });
+    mockAccount.publicKey = 'different-account';
+    await act(async () => {
+      testRoot?.render(<RevealSecret reveal="hot-key" />);
+    });
+    mockSetSecret.mockClear();
+    await act(async () => {
+      finish('late-secret');
+    });
+    expect(mockSetSecret).not.toHaveBeenCalledWith('late-secret');
+  });
+
+  it('discards a late reveal after unmount', async () => {
+    mockHasHardwareProtector.mockResolvedValue(true);
+    let finish = (value: string) => {
+      expect(value).toBe('late-secret');
+    };
+    mockRevealHotKey.mockReturnValue(
+      new Promise<string>(resolve => {
+        finish = resolve;
+      })
+    );
+    const container = await renderReveal('hot-key');
+    await act(async () => {
+      buttonWithText(container, 'unlock')?.click();
+    });
+    await act(async () => {
+      testRoot?.unmount();
+      testRoot = null;
+    });
+    mockSetSecret.mockClear();
+    await act(async () => {
+      finish('late-secret');
+    });
+    expect(mockSetSecret).not.toHaveBeenCalledWith('late-secret');
   });
 });

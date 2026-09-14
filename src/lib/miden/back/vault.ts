@@ -26,6 +26,7 @@ import {
   savePlain
 } from 'lib/miden/back/safe-storage';
 import { ITransaction, ITransactionStatus } from 'lib/miden/db/types';
+import { encodePrivateKeyPair, parsePrivateKeyPair } from 'lib/miden/guardian/private-key-pair';
 import * as Passworder from 'lib/miden/passworder';
 import * as Repo from 'lib/miden/repo';
 import { clearStorage } from 'lib/miden/reset';
@@ -873,10 +874,10 @@ export class Vault {
   }
 
   /**
-   * Spawn a wallet from a pasted Guardian HOT secret key — the seed-less
+   * Spawn a wallet from existing Guardian hot and EVM private keys — the seed-less
    * import flow. No mnemonic exists or is generated: `mnemonicStrgKey` is
    * never written, so `fetchSeedPhraseStatus()` reports 'unavailable' and
-   * every seed-derived capability (HD account creation, seed / private-key /
+   * every seed-derived capability (HD account creation, seed /
    * guardian-keys reveals) stays gated off by the existing seed-status checks.
    * Cold-signed recovery actions stay available: they prompt for the seed
    * phrase per transaction (`provideRecoverySeed`), which derives the cold key
@@ -888,10 +889,14 @@ export class Vault {
    */
   static async spawnFromHotKey(
     password: string | undefined,
-    hotKeyHex: string,
+    keyPairPayload: string,
     guardianEndpoint?: string
   ): Promise<Vault> {
     return withError('Failed to import wallet from key', async (): Promise<Vault> => {
+      const pair = parsePrivateKeyPair(keyPairPayload);
+      if (!pair) throw new PublicError(getMessage('importHotKeyInvalid'));
+      const evmPrivateKey: Hex = `0x${pair.evmPrivateKey}`;
+      const evmAccount = privateKeyToAccount(evmPrivateKey);
       const vaultKeyBytes = Passworder.generateVaultKey();
       const vaultKey = await Passworder.importVaultKey(vaultKeyBytes);
 
@@ -909,9 +914,8 @@ export class Vault {
       const { hotPublicKey, hotSecretKeyHex } = await withWasmClientLock(async () => {
         let secretKey: AuthSecretKey;
         try {
-          secretKey = deserializeHotSecretKey(hotKeyHex);
-        } catch (err: unknown) {
-          console.error('[Vault.spawnFromHotKey] hot key deserialize failed:', err);
+          secretKey = deserializeHotSecretKey(pair.hotPrivateKey);
+        } catch {
           throw new PublicError(getMessage('importHotKeyInvalid'));
         }
         try {
@@ -990,11 +994,11 @@ export class Vault {
           authScheme: NEW_ACCOUNT_AUTH_SCHEME,
           hotPublicKey: r.hotPublicKey,
           guardianEndpoint: resolvedGuardianEndpoint,
-          guardianNoteRecoveryPending: true
+          guardianNoteRecoveryPending: true,
+          evmAddress: evmAccount.address
           // Deliberately ABSENT: coldPublicKey (not derivable without the
           // seed; its absence is the "no recovery capability" marker the UI
-          // gates on), requiresHotKeyRotation (see the method doc), evmAddress
-          // (mnemonic-derived).
+          // gates on), requiresHotKeyRotation (see the method doc).
         })
       );
 
@@ -1017,6 +1021,7 @@ export class Vault {
         ],
         vaultKey
       );
+      await persistEvmKey(vaultKey, evmAccount.address, evmPrivateKey);
       await savePlain(currentAccPubKeyStrgKey, initialAccounts[0]!.publicKey);
       await savePlain(ownMnemonicStrgKey, true);
 
@@ -2141,7 +2146,7 @@ export class Vault {
    * Reveal the raw secp256k1 hot secret for a 3-key Guardian account. Unwraps
    * the platform-specific ciphertext via the secure-hot-key facade — on mobile
    * this triggers a biometric prompt (the password arg authenticates the vault
-   * BEFORE the SE/StrongBox unwrap fires). Returns 64-char hex.
+   * BEFORE the SE/StrongBox unwrap fires). Returns hot:evm, each raw 64-char hex.
    *
    * Looks up the account by bech32 publicKey (the WalletAccount.publicKey
    * field). Throws on non-Guardian accounts and on Guardian accounts whose
@@ -2165,7 +2170,17 @@ export class Vault {
       if (!ciphertext) {
         throw new PublicError('Hot key ciphertext not found');
       }
-      return await secureHotKey.revealHotKey(ciphertext);
+      const evmPrivateKey = account.evmAddress
+        ? await fetchAndDecryptOneWithLegacyFallBack<string>(
+            accEvmSecretKeyStrgKey(account.evmAddress.toLowerCase()),
+            vaultKey
+          )
+        : null;
+      if (!evmPrivateKey) throw new PublicError(getMessage('evmPrivateKeyMissing'));
+      const hotPrivateKey = await secureHotKey.revealHotKey(ciphertext);
+      const pair = parsePrivateKeyPair(`${hotPrivateKey}:${evmPrivateKey}`);
+      if (!pair) throw new PublicError(getMessage('importHotKeyInvalid'));
+      return encodePrivateKeyPair(pair);
     });
   }
 
