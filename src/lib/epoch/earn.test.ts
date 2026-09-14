@@ -1,7 +1,6 @@
 import { updateEarnDepositStatus } from 'lib/miden/activity';
 import * as Repo from 'lib/miden/repo';
 
-import { deferred, SharedEarnLocks } from './testing/earn-locks';
 import { getCurrentMidenBlock } from './chain';
 import {
   EARN_DESTINATION_CHAIN_ID,
@@ -12,6 +11,7 @@ import {
 } from './earn';
 import { clearPollRegistryForTests, createIntentPollCoordinator } from './poll-registry';
 import { getEpochReadOnlySdk } from './sdk';
+import { deferred, SharedEarnLocks } from './testing/earn-locks';
 
 jest.mock('@epoch-protocol/epoch-intents-sdk', () => ({
   CollateralType: { Miden: 'Miden' },

@@ -1,0 +1,47 @@
+diff --git a/node_modules/@epoch-protocol/epoch-intents-sdk/dist/types.d.ts b/node_modules/@epoch-protocol/epoch-intents-sdk/dist/types.d.ts
+--- a/node_modules/@epoch-protocol/epoch-intents-sdk/dist/types.d.ts
++++ b/node_modules/@epoch-protocol/epoch-intents-sdk/dist/types.d.ts
+@@ -344,3 +344,16 @@ export interface MultiIntentBatch {
+ }
++export interface PreparedAllocation {
++    readonly sponsor: string;
++    readonly nonce: string;
++    readonly expires: string;
++    readonly requestJson: string;
++}
++export interface PreparedExecution {
++    readonly chainId: number;
++    readonly allocations: readonly PreparedAllocation[];
++}
++export type BeforeExecute = (prepared: PreparedExecution) => Promise<void>;
+ export interface SolveMultipleIntentsOptions {
++    /** Called with immutable allocation descriptors after preparation and before execution. */
++    onBeforeExecute?: BeforeExecute;
+     /** Force gasless relay. Default: shouldUseGaslessRelay(walletClient) (local signer). */
+@@ -419,2 +432,4 @@ export interface WithdrawActionParams {
+ export interface ExecuteActionOptions {
++    /** Called with immutable allocation descriptors after preparation and before execution. */
++    onBeforeExecute?: BeforeExecute;
+     /**
+diff --git a/node_modules/@epoch-protocol/epoch-intents-sdk/dist/helpers/withdraw.js b/node_modules/@epoch-protocol/epoch-intents-sdk/dist/helpers/withdraw.js
+--- a/node_modules/@epoch-protocol/epoch-intents-sdk/dist/helpers/withdraw.js
++++ b/node_modules/@epoch-protocol/epoch-intents-sdk/dist/helpers/withdraw.js
+@@ -67,2 +67,3 @@ export async function runWithdrawAction(rt, params) {
+     return rt.solveMultipleIntents(legs, {
++        onBeforeExecute: params.onBeforeExecute,
+         gasless: params.gasless,
+diff --git a/node_modules/@epoch-protocol/epoch-intents-sdk/dist/sdk/multi-intent.js b/node_modules/@epoch-protocol/epoch-intents-sdk/dist/sdk/multi-intent.js
+--- a/node_modules/@epoch-protocol/epoch-intents-sdk/dist/sdk/multi-intent.js
++++ b/node_modules/@epoch-protocol/epoch-intents-sdk/dist/sdk/multi-intent.js
+@@ -199,2 +199,11 @@ export async function solveMultipleIntents(config, intents, deps, opts) {
+     const { calls, allocationRequests } = await buildMultiIntentBatch(config, intents);
++    if (opts?.onBeforeExecute) {
++        const allocations = Object.freeze(allocationRequests.map((request) => Object.freeze({
++            sponsor: request.compact.sponsor,
++            nonce: request.compact.nonce,
++            expires: request.compact.expires,
++            requestJson: JSON.stringify(request),
++        })));
++        await opts.onBeforeExecute(Object.freeze({ chainId, allocations }));
++    }
+     const useGasless = opts?.gasless ?? shouldUseGaslessRelay(config.walletClient);

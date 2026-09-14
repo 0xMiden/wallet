@@ -156,13 +156,21 @@ describe('EarnIntentWatcher', () => {
     expect(mockReconcileEarnWithdrawals).not.toHaveBeenCalled();
   });
 
-  it.each(['restored', 'expired', 'missing nonce', 'missing owner'])(
+  it.each([undefined, '', 'bad', '0x1234'])('ignores an invalid deposit owner %s across ticks', async owner => {
+    mockRows = [depositRow({ evmRecipient: owner })];
+    render(<EarnIntentWatcher />);
+    await settle();
+    await tick();
+    await tick();
+    expect(mockReconcileEarnDeposits).not.toHaveBeenCalled();
+  });
+
+  it.each(['restored', 'missing nonce', 'missing owner'])(
     'admits %s withdrawals despite unrelated or active poll ownership',
     async variant => {
       own(earnWithdrawPollKey(OWNER, 'N2'));
       const row = withdrawRow();
       if (variant === 'restored') row.restoredFromBackup = true;
-      if (variant === 'expired') row.initiatedAt -= 7 * 24 * 60 * 60 + 1;
       if (variant === 'missing nonce' && row.extraInputs) row.extraInputs.withdrawIntentNonce = undefined;
       if (variant === 'missing owner' && row.extraInputs) row.extraInputs.evmOwner = undefined;
       mockRows = [row];
@@ -172,7 +180,7 @@ describe('EarnIntentWatcher', () => {
     }
   );
 
-  it('uses the attempt age and strict TTL boundary rather than a retried row history date', async () => {
+  it('does not treat local age as permission to replace an owned known nonce', async () => {
     own(earnWithdrawPollKey(OWNER, 'N2'));
     const now = Date.now() / 1000;
     jest.setSystemTime(Date.now() + 999);
@@ -182,7 +190,7 @@ describe('EarnIntentWatcher', () => {
     expect(mockReadRows).toHaveBeenCalledTimes(1);
     expect(mockReconcileEarnWithdrawals).not.toHaveBeenCalled();
     await tick();
-    expect(mockReconcileEarnWithdrawals).toHaveBeenCalledTimes(1);
+    expect(mockReconcileEarnWithdrawals).not.toHaveBeenCalled();
   });
 
   it('resumes scanning after the document becomes visible', async () => {

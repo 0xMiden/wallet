@@ -1,6 +1,6 @@
 import type { TransactionResult } from '@miden-sdk/miden-sdk/lazy';
 
-import { SharedEarnLocks, deferred } from 'lib/epoch/__tests__/earn-locks';
+import { SharedEarnLocks, deferred } from 'lib/epoch/testing/earn-locks';
 import { IBridgeInInfo, ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 

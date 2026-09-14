@@ -13,6 +13,7 @@ import PageLayout from 'app/layouts/PageLayout';
 import { Button, ButtonVariant } from 'components/Button';
 import { GuardianTransitionHero } from 'components/GuardianTransitionHero';
 import { NavigationHeader } from 'components/NavigationHeader';
+import { earnWithdrawalRetryKind } from 'lib/epoch/earn-withdraw-policy';
 import { getAdaptiveDecimalPlaces, toAdaptiveFixed } from 'lib/i18n/numbers';
 import {
   cancelTransactionById,
@@ -93,7 +94,7 @@ interface HistoryDetailsProps {
 
 /** Requested-token display info for the swap order tracking card. */
 interface RequestedTokenInfo {
-  /** Undefined for rows persisted without a requested amount — unknown, not zero. */
+  /** Undefined for rows persisted without a requested amount - unknown, not zero. */
   amount?: bigint;
   decimals?: number;
   symbol?: string;
@@ -111,10 +112,10 @@ interface RequestedTokenInfo {
  * Transaction types that move value OUT of the wallet's own account, i.e. whose
  * Transfer Details read "From: this account / To: `secondaryAccountId`".
  *
- *  - `send` — `secondaryAccountId` is the recipient.
- *  - `earn-deposit` — `secondaryAccountId` is the Epoch allocator the P2IDE
+ *  - `send` - `secondaryAccountId` is the recipient.
+ *  - `earn-deposit` - `secondaryAccountId` is the Epoch allocator the P2IDE
  *    collateral note is sent to (`EarnDepositTransaction`, db/types.ts).
- *  - `bridged-send` — normally short-circuited by `isBridgeOut` (which hides the
+ *  - `bridged-send` - normally short-circuited by `isBridgeOut` (which hides the
  *    Miden "to" row in favour of the BridgeClaimSection), but a USER-CANCELLED
  *    bridge falls through to this rule and is still outbound.
  */
@@ -137,7 +138,7 @@ const BridgeHeroAmounts: FC<{ entry: IHistoryEntry }> = ({ entry }) => {
   // Both sides go through the adaptive formatter (2dp, expanding for dust) so a
   // raw quote/source string never renders with its full precision. `break-all`
   // + `min-w-0` keep an unexpectedly long value from widening the page (#752).
-  const inAmount = formatBridgeOutputAmount(bridgeIn ? entry.bridgeInSourceAmount : entry.amount?.toString()) ?? '—';
+  const inAmount = formatBridgeOutputAmount(bridgeIn ? entry.bridgeInSourceAmount : entry.amount?.toString()) ?? '-';
   const displayedOutAmount = formatBridgeOutputAmount(outAmount) ?? inAmount;
   return (
     <div className="mt-1 flex w-full min-w-0 max-w-full flex-wrap items-baseline justify-center gap-2 text-center font-heading font-extrabold text-[2.5rem] leading-none break-all">
@@ -573,9 +574,6 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   const trackingEntry = useSwapOrderTrackingStore(state =>
     orderKey === undefined ? undefined : state.entries[orderKey]
   );
-  const swapTracking = trackingEntry?.tracking ?? null;
-  const trackingLoading =
-    orderKey !== undefined && transaction?.restoredFromBackup !== true && (trackingEntry?.loading ?? true);
   useEffect(() => {
     if (orderKey === undefined || transaction?.restoredFromBackup === true) return;
     requestSwapOrderRefresh(orderKey);
@@ -584,6 +582,10 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   // Settlement consumes are Dexie-backed too, so liveQuery replaces the old
   // bounded interval and updates the receipt whenever a consume row changes.
   const settlementNotes = useSwapSettlementNotes(transaction?.type === 'swap' ? transaction.id : undefined);
+
+  const swapTracking = trackingEntry?.tracking ?? null;
+  const trackingLoading =
+    orderKey !== undefined && transaction?.restoredFromBackup !== true && (trackingEntry?.loading ?? true);
 
   const receipt = deriveSwapReceipt({
     requestedAmount: requestedToken?.amount,
@@ -607,13 +609,13 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   // display label. `displayMessage` only reads 'Sent' once `completeSendTransaction`
   // stamps it: a send is 'Sending' while queued/building and `cancelTransaction`
   // rewrites it to 'Failed' (or "Interrupted…"). Keying the direction off the
-  // message therefore reversed From/To on every send that had not completed — a
+  // message therefore reversed From/To on every send that had not completed - a
   // cancelled 500 TST send read "From: <recipient> / To: <your own account>".
   //
   // Every outbound type has to be listed here, not just `send`. An `earn-deposit`
   // moves collateral OUT of the account and into the Epoch allocator
   // (`secondaryAccountId` = `sendParams.recipientId`) and its `displayMessage` is
-  // 'Depositing' / 'Deposited to lending' — never 'Sent' — so keying only on `send`
+  // 'Depositing' / 'Deposited to lending' - never 'Sent' - so keying only on `send`
   // rendered it exactly backwards in every state. A USER-CANCELLED `bridged-send`
   // falls out of `isBridgeOut` (which excludes cancelled rows so the bridge claim UI
   // stays hidden) and lands here too, still outbound. The message check is kept as a
@@ -652,7 +654,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   const createdCount = entry?.outputNoteIds?.length ?? (entry?.noteId ? 1 : 0);
   // Priced from the primary faucet alone, so it is only shown when that IS the
   // whole transaction. A batch claim's hero lists every asset it swept up, and a
-  // single-faucet estimate under it reads as the total while understating it —
+  // single-faucet estimate under it reads as the total while understating it -
   // no figure is better than a confidently wrong one.
   const spansMultipleAssets = (transaction?.assetTotals?.length ?? 0) > 1;
   const approximateUsdAmount =
@@ -679,25 +681,17 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   // already been picked up cannot be stopped, retried, or completed afterwards,
   // so the button only mislabels a rotation that is going to land anyway.
   const canCancel = entry ? isCancellableTransaction({ status: entry.status, type: entry.txType }) : false;
-  // Retry only makes sense when there's something recoverable: a re-queueable
-  // failed Miden tx (structural Guardian ops and earn deposits are excluded — the
-  // user re-initiates those from Settings / the Earn flow), or a failed Smart
-  // Withdraw, which is fully resubmittable as a brand-new Epoch intent whether or
-  // not the previous one ever reached the allocator.
-  // A row restored from a backup is never retryable, whatever its type: the
-  // requeue re-signs the row's own recipient and amount, and for an imported row
-  // those came from whoever supplied the file. The backend refuses it either way
-  // — this is what keeps the UI from offering a button that only ever errors.
+  const earnRetryKind = earnWithdrawalRetryKind(transaction);
   const canRetry =
     entry !== null &&
     !entry.isCancelled &&
     !transaction?.restoredFromBackup &&
     (entry.txType === 'earn-withdraw'
-      ? earnWithdraw?.phase === 'failed'
+      ? earnRetryKind !== undefined
       : isRequeueableTransaction({
           status: entry.status,
           type: entry.txType,
-          // Epoch (Fast) bridged sends are not replayable — their Epoch intent is
+          // Epoch (Fast) bridged sends are not replayable - their Epoch intent is
           // already gone, so a requeue would mint a second orphan collateral note.
           bridgeProvider: entry.bridgeProvider,
           restoredFromBackup: transaction?.restoredFromBackup
@@ -746,7 +740,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           />
         ) : (
           <div className="flex-1 flex min-w-0 flex-col overflow-y-auto overflow-x-hidden">
-            {/* Top Section — bridges and Guardian switches use purpose-built transition heroes. */}
+            {/* Top Section - bridges and Guardian switches use purpose-built transition heroes. */}
             <div className="flex flex-col items-center justify-center pt-6 pb-5">
               {isGuardianSwitch ? (
                 <GuardianTransitionHero
@@ -779,7 +773,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                 ) : isEarnWithdraw && earnWithdraw ? (
                   <EarnWithdrawStatusPill phase={earnWithdraw.phase} />
                 ) : isEarnDeposit && earnDeposit && entry.status === ITransactionStatus.Completed ? (
-                  // Miden note landed — the pill tracks the solver-fulfilled
+                  // Miden note landed - the pill tracks the solver-fulfilled
                   // lending leg instead of the (long-settled) Miden tx status.
                   <EarnDepositStatusPill status={earnDeposit.epochStatus ?? 'pending'} />
                 ) : (
@@ -1009,7 +1003,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
 
             {/*
               Private-note delivery warning.
-              A send can be legitimately Completed — the assets have left the account —
+              A send can be legitimately Completed - the assets have left the account -
               while its note never reached the transport layer, and a private note is
               unreachable without that relayed body. Nothing else on this page can say
               so: the status pill reads the TRANSACTION, which really did land. Without
@@ -1017,7 +1011,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
 
               Shown for 'pending' as well as 'undelivered'. A row still reading
               'pending' means the wallet recorded the debt and never recorded an
-              outcome — the process died mid-relay — which is no more reassuring than
+              outcome - the process died mid-relay - which is no more reassuring than
               an outright failure.
             */}
             {(entry.noteDelivery === 'undelivered' || entry.noteDelivery === 'pending') && (
@@ -1054,7 +1048,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
 
               Deliberately no equivalent for 'relayed'. That state means the
               transport accepted the note but nothing has proven it arrived, and an
-              unclaimed note is the ordinary case — a recipient who simply has not
+              unclaimed note is the ordinary case - a recipient who simply has not
               got round to claiming looks identical to one who never received it. A
               warning there would fire on most healthy private sends, so silence is
               the honest reading and only the two states that indicate a real
@@ -1192,6 +1186,15 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           </div>
         )}
 
+        {isEarnWithdraw && earnWithdraw?.phase === 'failed' && !canRetry && !transaction?.restoredFromBackup && (
+          <p
+            data-testid="withdrawal-recovery-unavailable"
+            className="shrink-0 pt-3 pb-4 text-center text-sm text-heading-gray"
+          >
+            {t('withdrawalRecoveryUnavailable')}
+          </p>
+        )}
+
         {canRetry && (
           <div className="shrink-0 pt-3 pb-4">
             {retryError && (
@@ -1199,7 +1202,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                 {retryError}
               </p>
             )}
-            {maxNetworkFee && (
+            {maxNetworkFee && !isEarnWithdraw && (
               // Requeues as a NEW transaction paying a NEW fee, on one tap with no
               // review step. The recorded `networkFee` row above is what the failed
               // attempt already paid, not a bound on what this retry will cost.
@@ -1210,7 +1213,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
             <Button
               data-testid="history-retry-button"
               variant={ButtonVariant.Primary}
-              title={t('retry')}
+              title={t(earnRetryKind === 'allocation' ? 'retryEarnDelivery' : 'retry')}
               isLoading={isRetrying}
               disabled={isRetrying}
               onClick={() => handleRetry(false)}

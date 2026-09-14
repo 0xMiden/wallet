@@ -2,8 +2,8 @@ import { execSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 
-import type { CLIRunner } from '../harness/cli-runner';
 import { mintFromPublicFaucet, publicFaucetApiUrl } from './public-faucet';
+import type { CLIRunner } from '../harness/cli-runner';
 import type { CLIInvocation, EnvironmentConfig } from '../harness/types';
 
 /**
@@ -426,6 +426,20 @@ export class MidenCli {
       return `public faucet ${faucetApi}`;
     }
 
+    return (await this.transferNativeFromFunder(target, BigInt(FUNDING_MIDEN))).source;
+  }
+
+  /** Sends a public native-asset note on the local test chain and returns its actual receipt. */
+  async transferNativeFromFunder(
+    target: string,
+    amount: bigint
+  ): Promise<{ source: string; faucetId: string; txId: string; noteId: string }> {
+    if (this.env.name !== 'localhost') {
+      throw new Error('Genesis funder transfers are only available on the local test chain');
+    }
+    if (amount <= 0n) {
+      throw new Error('Native transfer amount must be positive');
+    }
     const funders = await this.importFunders();
 
     if (funders.length > 0) {
@@ -441,10 +455,15 @@ export class MidenCli {
           await this.sync();
           const sent = await this.run(
             `transfer --sender ${funder} --target ${target} ` +
-              `--asset ${FUNDING_MIDEN}::${this.nativeFaucetId} --note-type public --force`,
+              `--asset ${amount}::${this.nativeFaucetId} --note-type public --force`,
             { timeoutMs: 180_000 }
           );
-          if (sent.exitCode === 0) return `genesis funder ${funder}`;
+          if (sent.exitCode === 0) {
+            const txId = sent.parsed?.transactionId;
+            const noteId = sent.parsed?.noteId;
+            if (!txId || !noteId) throw new Error('Could not parse native transfer receipt');
+            return { source: `genesis funder ${funder}`, faucetId: this.nativeFaucetId, txId, noteId };
+          }
           const stale = /invalid request|stale|nonce|does not match the current commitment/i.test(sent.stderr);
           if (!stale || attempt === 4) {
             failures.push(`${funder}: ${sent.stderr.trim().slice(0, 200)}`);

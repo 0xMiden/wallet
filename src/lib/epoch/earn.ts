@@ -14,6 +14,7 @@ import * as Repo from 'lib/miden/repo';
 import { normalizeMidenIdToHex } from './bridge';
 import { getCurrentMidenBlock, MIDEN_MIN_RECLAIM_BLOCKS, MIDEN_RECLAIM_BUFFER_BLOCKS } from './chain';
 import { createEarnP2IDENote } from './earn-note';
+import { isEvmAddress } from './evm-address';
 import { earnDepositPollKey, matchesEarnDepositIntent, type ExpectedEarnDepositIntent } from './intent-key';
 import type { BridgeNoteDeps } from './miden-note';
 import { startIntentPoll } from './poll-registry';
@@ -79,11 +80,6 @@ export interface EarnQuote {
   intentData: Record<string, unknown>;
   quoteResult: IntentQuoteResult;
   params: EarnIntentParams;
-}
-
-/** Narrow a plain string to a 0x EVM address without a cast. */
-function isEvmAddress(value: string): value is `0x${string}` {
-  return /^0x[0-9a-fA-F]{40}$/.test(value);
 }
 
 /**

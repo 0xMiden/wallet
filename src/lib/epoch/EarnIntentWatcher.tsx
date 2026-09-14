@@ -2,6 +2,8 @@ import { useEffect } from 'react';
 
 import { IEarnDepositExtraInputs, IEarnWithdrawExtraInputs, ITransactionStatus } from 'lib/miden/db/types';
 
+import { hasEarnWithdrawRecoveryWork } from './earn-withdraw-policy';
+import { isEvmAddress } from './evm-address';
 import { isEarnWithdrawalStale } from './intent-key';
 import { earnDepositPollKey, earnWithdrawPollKey, isPollActive } from './poll-registry';
 
@@ -80,15 +82,18 @@ async function findUncoveredEarnRows(): Promise<{ deposits: boolean; withdrawals
       const inputs: IEarnDepositExtraInputs | undefined = row.extraInputs;
       if (row.restoredFromBackup || row.status !== ITransactionStatus.Completed || !inputs?.intentNonce) continue;
       if (inputs.epochStatus === 'confirmed' || inputs.epochStatus === 'failed') continue;
-      if (!inputs.evmRecipient || !isPollActive(earnDepositPollKey(inputs.evmRecipient, inputs.intentNonce)))
+      if (
+        isEvmAddress(inputs.evmRecipient) &&
+        !isPollActive(earnDepositPollKey(inputs.evmRecipient, inputs.intentNonce))
+      )
         deposits = true;
     } else {
       const inputs: IEarnWithdrawExtraInputs | undefined = row.extraInputs;
-      if (inputs?.phase !== 'redeeming' && inputs?.phase !== 'delivering') continue;
+      if (!inputs || !hasEarnWithdrawRecoveryWork(row)) continue;
       // Local provenance and TTL repair must run even while an intent has an owner.
       if (
         row.restoredFromBackup ||
-        isEarnWithdrawalStale(row) ||
+        (!inputs.withdrawIntentNonce && isEarnWithdrawalStale(row)) ||
         !inputs.evmOwner ||
         !inputs.withdrawIntentNonce ||
         !isPollActive(earnWithdrawPollKey(inputs.evmOwner, inputs.withdrawIntentNonce))

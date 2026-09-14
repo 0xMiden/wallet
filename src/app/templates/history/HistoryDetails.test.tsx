@@ -3,6 +3,13 @@ import React from 'react';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import { create } from 'zustand';
 
+import { selectEarnWithdrawPreparedExecution } from 'lib/epoch/earn-withdraw-policy';
+import {
+  preparedExecution,
+  PREPARED_FAUCET,
+  PREPARED_OWNER,
+  PREPARED_RECIPIENT
+} from 'lib/epoch/testing/earn-prepared';
 import { DEFAULT_TOKEN_METADATA, MIDEN_METADATA } from 'lib/miden/metadata/defaults';
 import type { AssetMetadata } from 'lib/miden/metadata/types';
 import {
@@ -15,6 +22,16 @@ import { formatAmount } from 'lib/shared/format';
 
 // Imported after the mocks so the module graph is wired to the stubs.
 import { HistoryDetails } from './HistoryDetails';
+
+jest.mock('@miden-sdk/miden-sdk', () => ({
+  ...jest.requireActual('@miden-sdk/miden-sdk'),
+  AccountId: {
+    fromHex: (value: string) => {
+      if (!/^0x[0-9a-f]{28,32}$/.test(value)) throw new Error('invalid account');
+      return { toString: () => value };
+    }
+  }
+}));
 
 // ---------------------------------------------------------------------------
 // Mutable state the mocks read at call time (must be `mock`-prefixed for jest).
@@ -30,6 +47,7 @@ const mockWalletStore = create<MetadataStore>(() => ({ tokenPrices: { MID: { pri
 let mockConfiguredNativeFaucet: string | null = 'configured-native';
 let mockChainNativeFaucet: string | null = 'chain-native';
 let mockPrice = 2;
+let mockMaxNetworkFee: string | undefined;
 let mockRow: Tx | undefined;
 let mockRowLoaded = true;
 let mockSettlementNotes: {
@@ -121,6 +139,10 @@ jest.mock('app/hooks/useMidenFaucetId', () => ({
   default: () => mockConfiguredNativeFaucet
 }));
 
+jest.mock('app/hooks/useNetworkFeeEstimate', () => ({
+  useNetworkFeeEstimate: () => mockMaxNetworkFee
+}));
+
 jest.mock('lib/miden-chain/native-asset', () => ({
   ...jest.requireActual('lib/miden-chain/native-asset'),
   getNativeAssetIdSync: () => mockChainNativeFaucet
@@ -140,7 +162,7 @@ jest.mock('./useSwapSettlementNotes', () => ({
 }));
 
 // ---------------------------------------------------------------------------
-// Presentational dependency mocks — light DOM so the test stays focused on
+// Presentational dependency mocks - light DOM so the test stays focused on
 // HistoryDetails' own branches (mirrors how sibling tests stub sub-components).
 // ---------------------------------------------------------------------------
 jest.mock('app/atoms/ActivitySpinner', () => ({
@@ -240,7 +262,7 @@ jest.mock('./DetailCard', () => ({
 // would make these hrefs mismatch and fail the test.
 jest.mock('lib/miden-chain/constants', () => ({
   // `constants` re-exports `./networks-config` (MIDEN_NETWORK_NAME, DEFAULT_NETWORK,
-  // …) which the icon module and others rely on — keep them via requireActual and
+  // …) which the icon module and others rely on - keep them via requireActual and
   // override only the two explorer helpers.
   ...jest.requireActual('lib/miden-chain/constants'),
   getExplorerTxUrl: (hash: string) => `https://custom-explorer.test/tx/${hash}`,
@@ -369,6 +391,7 @@ beforeEach(() => {
   mockConfiguredNativeFaucet = 'configured-native';
   mockChainNativeFaucet = 'chain-native';
   mockPrice = 2;
+  mockMaxNetworkFee = undefined;
 
   // Default: token metadata for the tx faucet; requested-faucet lookups get a
   // symbol-less record so the "no symbol" swap branch is reachable.
@@ -402,6 +425,15 @@ afterEach(() => {
 });
 
 describe('HistoryDetails', () => {
+  it('shows the fee bound when retrying a Miden transaction', async () => {
+    mockMaxNetworkFee = '0.3 MIDEN';
+    setMockRow({ ...baseSendTx, status: 3 });
+    await renderAndLoad();
+
+    expect(screen.getByTestId('history-retry-button')).toBeInTheDocument();
+    expect(screen.getByText('networkFeeMax · 0.3 MIDEN')).toBeInTheDocument();
+  });
+
   describe('reactive metadata', () => {
     const resolved: AssetMetadata = { name: 'Resolved', symbol: 'RES', decimals: 8 };
     const feeMetadata: AssetMetadata = { name: 'Fee', symbol: 'FEE', decimals: 3 };
@@ -607,14 +639,14 @@ describe('HistoryDetails', () => {
       // `t` is stubbed to echo the key here, so assert on the key: the point is
       // WHICH copy is chosen, not its wording.
       expect(warning.textContent).toBe('noteDeliveryUndeliveredBody');
-      // Recovery guidance accompanies the warning — a warning with no action is
+      // Recovery guidance accompanies the warning - a warning with no action is
       // just a dead end for the one user who most needs a next step.
       expect(screen.getByText('noteDeliveryRecoveryHint')).toBeInTheDocument();
     });
 
     it('warns on a row still recording a PENDING delivery', async () => {
       // 'pending' means the wallet recorded that a relay was owed and never
-      // recorded an outcome — the process died mid-relay. No more reassuring than
+      // recorded an outcome - the process died mid-relay. No more reassuring than
       // an outright failure, so it is surfaced too.
       setMockRow({
         ...baseSendTx,
@@ -669,7 +701,7 @@ describe('HistoryDetails', () => {
 
     it('stays silent on a relayed-but-unconfirmed note rather than warning', async () => {
       // 'relayed' means accepted by the transport with nothing yet proving arrival,
-      // and an unclaimed note is the ordinary case — a recipient who simply hasn't
+      // and an unclaimed note is the ordinary case - a recipient who simply hasn't
       // claimed looks identical to one who never received it. Warning here would
       // fire on most healthy private sends.
       setMockRow({
@@ -978,7 +1010,7 @@ describe('HistoryDetails', () => {
       await renderAndLoad();
 
       expect(rowByLabel('consumed')).toBeUndefined();
-      // And it must not degrade into "Created: 0" either — the note type alone
+      // And it must not degrade into "Created: 0" either - the note type alone
       // does not open the card.
       expect(rowByLabel('created')).toBeUndefined();
       expect(rowByLabel('noteTypeLabel')).toBeUndefined();
@@ -1077,7 +1109,7 @@ describe('HistoryDetails', () => {
 
     it('resolves the requested token via the swap registry and shows a filled order', async () => {
       mockGetSwapTokenByFaucetId.mockReturnValue({ symbol: 'ETH', decimals: 8 });
-      // A filled order has nothing outstanding — a lineage reporting 'filled'
+      // A filled order has nothing outstanding - a lineage reporting 'filled'
       // with a remainder is a shape the protocol cannot produce, and asserting
       // on it hid the difference between a full and a partial fill.
       seedTracking({
@@ -1136,7 +1168,7 @@ describe('HistoryDetails', () => {
       // Close is a dismiss, not a cancellation, so no order state can take it
       // away. Deriving it from the order state left a filled receipt with only
       // the header controls, and slid it into the primary slot the instant a
-      // fill landed — under a finger already travelling toward the other button.
+      // fill landed - under a finger already travelling toward the other button.
       mockGetSwapTokenByFaucetId.mockReturnValue({ symbol: 'ETH', decimals: 8 });
       seedTracking({
         orderId: '42',
@@ -1176,7 +1208,7 @@ describe('HistoryDetails', () => {
     it('does not announce an expired partial fill as Filled', async () => {
       // The protocol's ordinary partial-fill ending: the expiry batch carries a
       // payback, so it is tagged 'settle' and the local stamp reads 'filled',
-      // while the lineage — the authority on the order — says reclaimed
+      // while the lineage - the authority on the order - says reclaimed
       // (playwright/e2e/tests/swap/swap-partial-fill.spec.ts). Announcing
       // "Filled" here told the user their whole order went through.
       mockGetSwapTokenByFaucetId.mockReturnValue({ symbol: 'ETH', decimals: 8 });
@@ -1227,10 +1259,10 @@ describe('HistoryDetails', () => {
       expect(screen.getByTestId('swap-order-status').textContent).toBe('orderStatusReclaimed');
       // The row carries no requestedAmount, so the total is unknown and the fill
       // derived from it is too. Defaulting the total to 0 used to render
-      // "0 of 0 filled" at 0% — a confident claim about an order this receipt
+      // "0 of 0 filled" at 0% - a confident claim about an order this receipt
       // knows nothing about. Unknown progress is indeterminate: no bar, no
       // percentage, no aria-valuenow.
-      expect(screen.getByTestId('swap-order-amount-filled').textContent).toBe('swapAmountProgress_—_—_');
+      expect(screen.getByTestId('swap-order-amount-filled').textContent).toBe('swapAmountProgress_-_-_');
       expect(screen.getByRole('progressbar')).not.toHaveAttribute('aria-valuenow');
       expect(screen.queryByTestId('swap-amount-progress-fill')).not.toBeInTheDocument();
       // Prefix match: the stubbed `t` renders this key as `swapProgressPercent_60`,
@@ -1268,7 +1300,7 @@ describe('HistoryDetails', () => {
 
     it('reconciles to Filled once settlement notes are seen locally, even if the lineage still reports active (#486)', async () => {
       mockGetSwapTokenByFaucetId.mockReturnValue({ symbol: 'ETH', decimals: 8 });
-      // The on-chain lineage lags — it keeps reporting the order as still active
+      // The on-chain lineage lags - it keeps reporting the order as still active
       // even though its own remainder shows the request fully matched...
       seedTracking({
         orderId: '10',
@@ -1308,7 +1340,7 @@ describe('HistoryDetails', () => {
       expect(screen.queryByText('swapMatchingDex')).not.toBeInTheDocument();
     });
 
-    it('treats a mixed settle+reclaim order as Filled — a settle consume outranks a reclaim (#486)', async () => {
+    it('treats a mixed settle+reclaim order as Filled - a settle consume outranks a reclaim (#486)', async () => {
       mockGetSwapTokenByFaucetId.mockReturnValue({ symbol: 'ETH', decimals: 8 });
       seedTracking({
         orderId: '12',
@@ -1317,7 +1349,7 @@ describe('HistoryDetails', () => {
         remainingOffered: 0n,
         remainingRequested: 0n
       });
-      // Paybacks settled in one consume tick, the tip reclaimed in another — both
+      // Paybacks settled in one consume tick, the tip reclaimed in another - both
       // buckets are non-empty. The swap-row chip stamps "Settled" (funds received),
       // so this row must agree rather than showing "Reclaimed".
       setMockSettlementNotes(settlementNotes(['note-s'], ['note-r']));
@@ -1343,9 +1375,9 @@ describe('HistoryDetails', () => {
       await renderAndLoad();
       expect(screen.getByTestId('swap-order-card')).toBeInTheDocument();
       // No order id and no requested amount, so neither side of the progress
-      // line is known — em dashes, not zeroes that would claim the order
+      // line is known - em dashes, not zeroes that would claim the order
       // definitely filled nothing out of a total of nothing.
-      expect(screen.getByTestId('swap-order-amount-filled')).toHaveTextContent('swapAmountProgress_—_—_');
+      expect(screen.getByTestId('swap-order-amount-filled')).toHaveTextContent('swapAmountProgress_-_-_');
       expect(screen.queryByTestId('swap-amount-progress-fill')).not.toBeInTheDocument();
     });
   });
@@ -1448,7 +1480,7 @@ describe('HistoryDetails', () => {
     it('omits the received amount when the consume settled a different faucet than the requested token', async () => {
       // An expired order consumes its requested-token paybacks together with the
       // offered-token tip, and the consume's amount covers only its first input
-      // note's faucet — so it can be the offered remainder, which must not be
+      // note's faucet - so it can be the offered remainder, which must not be
       // relabelled as funds received in the requested token.
       mockGetSwapTokenByFaucetId.mockReturnValue({ symbol: 'ETH', decimals: 8 });
       setMockSettlementNotes({
@@ -1517,7 +1549,7 @@ describe('HistoryDetails', () => {
     it('reports the fill as unknown, not as smaller, when a consume cannot be attributed', async () => {
       // With no lineage the fill is inferred by summing the settled consumes'
       // amounts. A row whose notes were split across consumes carries no usable
-      // amount, so the sum is incomplete — and an incomplete sum is not a
+      // amount, so the sum is incomplete - and an incomplete sum is not a
       // smaller fill, it is an unknown one. Adding up only the rows that happen
       // to have amounts stated 400 of 1000 where 600 arrived, which understates
       // the money as confidently as the old double-count overstated it.
@@ -1550,7 +1582,7 @@ describe('HistoryDetails', () => {
 
       await renderAndLoad();
 
-      expect(screen.getByTestId('swap-order-amount-filled').textContent).toBe('swapAmountProgress_—_1000_ ETH');
+      expect(screen.getByTestId('swap-order-amount-filled').textContent).toBe('swapAmountProgress_-_1000_ ETH');
       expect(screen.queryByTestId('swap-amount-progress-fill')).not.toBeInTheDocument();
     });
 
@@ -1593,7 +1625,7 @@ describe('HistoryDetails', () => {
     it('keeps the claim route for a legacy order the wallet will never settle on its own', async () => {
       // Orders persisted before expiry stamping have no `expiresAt`, and
       // `reconcileSwapOrderNotes` only bundles an 'active' order's notes once it
-      // expires — so this order is never auto-settled, no matter that
+      // expires - so this order is never auto-settled, no matter that
       // `autoConsume` is absent and therefore read as enabled. Trusting that
       // flag alone hid "Go to Pending Notes" from precisely the orders whose
       // funds nothing else will ever collect.
@@ -1619,7 +1651,7 @@ describe('HistoryDetails', () => {
       // `remainingRequested` is read off the order's CURRENT tip, so a lineage
       // that has not yet synced the fill still reports the whole request
       // outstanding. That is the same lag that used to leave the status on
-      // "Active" after settlement (#486) — but the rule that a local settle
+      // "Active" after settlement (#486) - but the rule that a local settle
       // consume outranks it was only ever applied to the STATE. Taking the
       // lineage's number first let it state a confident zero over a payback this
       // wallet had consumed and was showing three rows further down, and the
@@ -1693,14 +1725,14 @@ describe('HistoryDetails', () => {
 
       await renderAndLoad();
 
-      expect(screen.getByTestId('swap-order-amount-filled').textContent).toBe('swapAmountProgress_—_1000_ ETH');
+      expect(screen.getByTestId('swap-order-amount-filled').textContent).toBe('swapAmountProgress_-_1000_ ETH');
       expect(screen.getByRole('progressbar')).not.toHaveAttribute('aria-valuenow');
     });
 
     it('keeps the claim route for a partly filled order whose tip was reclaimed', async () => {
       // "Reclaimed" is a statement about the offered TIP being taken back. The
       // payback notes carrying whatever was matched are an independent P2ID
-      // chain, and Pending Notes claims per group — so a manual-claim user can
+      // chain, and Pending Notes claims per group - so a manual-claim user can
       // take the tip back and leave the matched funds sitting there. Reading the
       // order's ending as "nothing left to collect" removed the only route to
       // them from a receipt that was simultaneously reporting a 40% fill.
@@ -1724,7 +1756,7 @@ describe('HistoryDetails', () => {
     it('does not link a local row id to the explorer as though it were on chain', async () => {
       // A consume the reaper marked Completed never received a chain id, and
       // falling back to the Dexie UUID published it under "Consume tx ID" with a
-      // live explorer link — an identity the receipt does not have, and a dead
+      // live explorer link - an identity the receipt does not have, and a dead
       // link.
       mockGetSwapTokenByFaucetId.mockReturnValue({ symbol: 'ETH', decimals: 8 });
       setMockSettlementNotes({
@@ -1895,7 +1927,7 @@ describe('HistoryDetails', () => {
 
       await renderAndLoad();
 
-      expect(screen.getByTestId('swap-order-amount-filled').textContent).toBe('swapAmountProgress_—_1000_ ETH');
+      expect(screen.getByTestId('swap-order-amount-filled').textContent).toBe('swapAmountProgress_-_1000_ ETH');
       // An em dash beside a full-width empty bar reading "0%" still asserted
       // zero in every channel except the one word. Unknown progress draws no
       // bar and exposes no value to assistive technology.
@@ -2085,7 +2117,7 @@ describe('HistoryDetails', () => {
     // and that string alone decides whether Retry exists at all. The
     // infra-resilience E2E depends on the distinction: it plants a reaped row
     // precisely so Retry is on screen to click. Stated as a pair because the
-    // negative case is what carries the weight — the positive one restates the
+    // negative case is what carries the weight - the positive one restates the
     // ordinary failed-send path a few tests up, and passes for any string that
     // is not the hand-cancel text.
     it('offers Retry for a row the reaper failed', async () => {
@@ -2107,7 +2139,7 @@ describe('HistoryDetails', () => {
     // real one to match the reaper's reason too would leave them green and send
     // the E2E straight back to timing out, so assert the real predicate itself.
     // It lives here, next to what it protects, rather than in
-    // `constants.test.ts` — which means: do NOT add a `jest.mock` for
+    // `constants.test.ts` - which means: do NOT add a `jest.mock` for
     // `lib/miden/transaction/constants` to this file, or this becomes an
     // assertion about a mock and stops saying anything.
     it('treats only the hand-cancel reason as a user cancel', () => {
@@ -2258,7 +2290,7 @@ describe('HistoryDetails', () => {
       await renderAndLoad({ transactionId: 'bridge-out' });
 
       // Both the "in" amount and the (absent) "out" amount collapse to the dash.
-      expect(document.body.textContent?.match(/—/g)?.length).toBeGreaterThanOrEqual(2);
+      expect(document.body.textContent?.match(/-/g)?.length).toBeGreaterThanOrEqual(2);
     });
 
     it('shows the claim section and bridge status pill for an outbound bridge', async () => {
@@ -2267,7 +2299,7 @@ describe('HistoryDetails', () => {
 
       expect(screen.getByTestId('bridge-claim-section')).toBeInTheDocument();
       expect(screen.getByText('confirmed')).toBeInTheDocument();
-      // The bridged "to" is the EVM destination — no Miden to-row.
+      // The bridged "to" is the EVM destination - no Miden to-row.
       expect(rowByLabel('to')).toBeUndefined();
     });
 
@@ -2386,13 +2418,13 @@ describe('HistoryDetails', () => {
 
 // Smart Withdraw detail: the hero must show the same side as the activity row
 // (source USDC in flight, destination asset once delivered), and retry must be
-// offered for ANY failed withdrawal — it resubmits a brand-new Epoch intent
-// rather than re-polling the dead nonce, so a missing nonce is not a blocker.
+// offered only with evidence for the appropriate source or delivery action.
 describe('HistoryDetails earn-withdraw', () => {
   const earnWithdrawTx = (extraInputs: Record<string, unknown>, overrides: Tx = {}): Tx => ({
     ...baseSendTx,
     id: 'tx-1',
     type: 'earn-withdraw',
+    accountId: PREPARED_RECIPIENT,
     faucetId: 'faucet-1',
     displayMessage: 'Withdraw from Earn',
     displayIcon: 'DEFAULT',
@@ -2402,6 +2434,9 @@ describe('HistoryDetails earn-withdraw', () => {
       marketUid: 'DUMMY_LENDING:11155111:0xunderlying',
       sourceAmount: '10.50',
       sourceSymbol: 'USDC',
+      destinationFaucetId: PREPARED_FAUCET,
+      submissionState: 'preparing',
+      submissionAttemptId: 'attempt-1',
       ...extraInputs
     },
     ...overrides
@@ -2442,14 +2477,52 @@ describe('HistoryDetails earn-withdraw', () => {
     expect(mockNavigate).not.toHaveBeenCalled();
   });
 
-  it('offers retry on a failed withdrawal that does have a nonce', async () => {
+  it('explains why a failed withdrawal with only a legacy nonce cannot be retried', async () => {
     setMockRow(earnWithdrawTx({ phase: 'failed', error: 'boom', withdrawIntentNonce: 'DEAD' }));
     await renderAndLoad();
 
-    fireEvent.click(screen.getByText('retry'));
-    await flush();
+    expect(screen.queryByText('retry')).toBeNull();
+    expect(screen.queryByText('retryEarnDelivery')).toBeNull();
+    expect(screen.getByText('withdrawalRecoveryUnavailable')).toBeInTheDocument();
+    expect(mockRetryEarnWithdrawReceive).not.toHaveBeenCalled();
+  });
 
+  it('updates the action from source Retry to saved delivery Retry and then removes it while progressing', async () => {
+    mockMaxNetworkFee = '0.3 MIDEN';
+    setMockRow(earnWithdrawTx({ phase: 'failed' }));
+    const { rerender } = await renderAndLoad();
+    expect(screen.getByText('retry')).toBeInTheDocument();
+    expect(screen.queryByText('networkFeeMax · 0.3 MIDEN')).toBeNull();
+
+    const saved = selectEarnWithdrawPreparedExecution(preparedExecution(), {
+      owner: PREPARED_OWNER,
+      attemptId: 'attempt-1',
+      sourceChainId: 11155111,
+      destinationChainId: 999999999,
+      recipientAccountId: PREPARED_RECIPIENT,
+      destinationFaucetId: PREPARED_FAUCET
+    });
+    if (!saved) throw new Error('invalid prepared execution fixture');
+    const deliveredInputs = {
+      phase: 'failed',
+      submissionState: 'prepared',
+      withdrawIntentNonce: '22',
+      preparedExecution: saved
+    };
+    setMockRow(earnWithdrawTx(deliveredInputs));
+    rerender(<HistoryDetails transactionId="tx-1" />);
+    await flush();
+    expect(screen.queryByText('retry')).toBeNull();
+    expect(screen.queryByText('networkFeeMax · 0.3 MIDEN')).toBeNull();
+    fireEvent.click(screen.getByText('retryEarnDelivery'));
+    await flush();
     expect(mockRetryEarnWithdrawReceive).toHaveBeenCalledWith('tx-1');
+    expect(mockRequeueFailedTransaction).not.toHaveBeenCalled();
+
+    setMockRow(earnWithdrawTx({ ...deliveredInputs, phase: 'redeeming' }));
+    rerender(<HistoryDetails transactionId="tx-1" />);
+    await flush();
+    expect(screen.queryByText('retryEarnDelivery')).toBeNull();
   });
 
   it('offers no retry while the withdrawal is still progressing', async () => {
@@ -2512,7 +2585,7 @@ describe('HistoryDetails earn-withdraw', () => {
   });
 
   // The initiating context's poller dies with its popup, so an in-flight detail
-  // page restarts one — exactly once per nonce — and reloads the row on a timer.
+  // page restarts one - exactly once per nonce - and reloads the row on a timer.
 });
 
 // Smart Deposit detail: the row goes database-Completed as soon as the Miden

@@ -1,6 +1,6 @@
-import { deferred } from './testing/earn-locks';
 import { MIDEN_DESTINATION_CHAIN_ID } from './config';
 import { useEpochStore } from './store';
+import { deferred } from './testing/earn-locks';
 
 const OWNER = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 const OTHER = '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';

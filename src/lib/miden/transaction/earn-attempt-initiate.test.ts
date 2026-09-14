@@ -27,7 +27,11 @@ it('persists attempt identity and its clock before exposing the withdrawal row',
     expect.objectContaining({
       id,
       status: ITransactionStatus.Completed,
-      extraInputs: expect.objectContaining({ submissionAttemptId: 'attempt-1', attemptStartedAt: 123 })
+      extraInputs: expect.objectContaining({
+        submissionState: 'preparing',
+        submissionAttemptId: 'attempt-1',
+        attemptStartedAt: 123
+      })
     })
   );
 });

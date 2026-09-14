@@ -1,3 +1,4 @@
+import type { PreparedExecution } from '@epoch-protocol/epoch-intents-sdk';
 import { v4 as uuid } from 'uuid';
 
 import { ConsumableNote, NoteType } from '../types';
@@ -207,6 +208,18 @@ export interface IEarnDepositExtraInputs {
  */
 export type IEarnWithdrawPhase = 'redeeming' | 'delivering' | 'received' | 'failed';
 
+export interface IEarnWithdrawPreparedExecution extends PreparedExecution {
+  readonly attemptId: string;
+  readonly delivery: {
+    readonly allocationIndex: number;
+    readonly owner: string;
+    readonly nonce: string;
+    readonly destinationChainId: number;
+    readonly recipientAccountId: string;
+    readonly destinationFaucetId: string;
+  };
+}
+
 /**
  * `extraInputs` shape for an `EarnWithdrawTransaction`. Smart Withdraw redeems an
  * Epoch lending position and bridges the underlying back to Miden as a single
@@ -229,6 +242,8 @@ export interface IEarnWithdrawExtraInputs {
   withdrawIntentNonce?: string;
   submissionAttemptId?: string;
   attemptStartedAt?: number;
+  submissionState?: 'preparing' | 'prepared' | 'accepted';
+  preparedExecution?: IEarnWithdrawPreparedExecution;
   /** solver/settlement EVM tx hash, once known. */
   evmTxHash?: string;
   /** Miden note id of the bridged-in note, once it lands and is consumed. */
@@ -1090,6 +1105,7 @@ export class EarnWithdrawTransaction implements ITransaction {
       sourceAmount,
       sourceSymbol,
       phase: 'redeeming',
+      submissionState: 'preparing',
       submissionAttemptId,
       attemptStartedAt: attemptStartedAt ?? now
     };

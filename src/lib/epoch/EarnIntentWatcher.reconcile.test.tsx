@@ -10,6 +10,7 @@ import {
 } from 'lib/miden/db/types';
 import { transactions } from 'lib/miden/repo';
 
+import { earnWithdrawExecutionIdentity, selectEarnWithdrawPreparedExecution } from './earn-withdraw-policy';
 import { EarnIntentWatcher } from './EarnIntentWatcher';
 import {
   clearPollRegistryForTests,
@@ -18,10 +19,30 @@ import {
   isPollActive,
   startIntentPoll
 } from './poll-registry';
+import { preparedExecution, PREPARED_FAUCET, PREPARED_OWNER, PREPARED_RECIPIENT } from './testing/earn-prepared';
 
 const mockGetIntentStatus = jest.fn(async () => []);
-const mockGetSdk = jest.fn(async () => ({ getIntentStatus: mockGetIntentStatus }));
+const mockRetryIntentSolve = jest.fn(async () => ({ hash: 'hash', digest: 'digest', signature: 'signature' }));
+const mockGetSdk = jest.fn(async () => ({
+  getIntentStatus: mockGetIntentStatus,
+  retryIntentSolve: mockRetryIntentSolve
+}));
 const mockRegisterBridgeIn = jest.fn(async () => undefined);
+const mockAccepted = jest.fn(
+  async (...args: Parameters<typeof import('lib/miden/transaction/complete').markEarnWithdrawAccepted>) =>
+    jest
+      .requireActual<typeof import('lib/miden/transaction/complete')>('lib/miden/transaction/complete')
+      .markEarnWithdrawAccepted(...args)
+);
+jest.mock('@miden-sdk/miden-sdk', () => ({
+  ...jest.requireActual('@miden-sdk/miden-sdk'),
+  AccountId: {
+    fromHex: (value: string) => {
+      if (!/^0x[0-9a-f]{28,32}$/.test(value)) throw new Error('invalid account');
+      return { toString: () => value };
+    }
+  }
+}));
 jest.mock('./sdk', () => ({
   getEpochReadOnlySdk: () => mockGetSdk(),
   ensureEpochSmartAccount: jest.fn()
@@ -38,6 +59,9 @@ jest.mock('lib/miden/activity', () => {
     get updateEarnWithdrawPhase() {
       return jest.requireActual<typeof import('lib/miden/transaction/complete')>('lib/miden/transaction/complete')
         .updateEarnWithdrawPhase;
+    },
+    get markEarnWithdrawAccepted() {
+      return mockAccepted;
     },
     initiateEarnWithdrawTransaction: jest.fn(),
     registerPendingBridgeIn: () => mockRegisterBridgeIn(),
@@ -98,6 +122,34 @@ afterEach(async () => {
 });
 
 describe('EarnIntentWatcher local reconciliation', () => {
+  it('repairs an unavailable sibling after a persisted selected receipt without changing its terminal phase', async () => {
+    jest.useRealTimers();
+    const row = withdrawal('received-prepared', {
+      evmOwner: PREPARED_OWNER,
+      marketUid: 'DUMMY_LENDING:11155111:token',
+      destinationFaucetId: PREPARED_FAUCET,
+      phase: 'received',
+      withdrawIntentNonce: '22',
+      midenNoteId: 'received-note',
+      submissionState: 'prepared'
+    });
+    row.accountId = PREPARED_RECIPIENT;
+    const identity = earnWithdrawExecutionIdentity(row);
+    if (!identity) throw new Error('fixture identity');
+    row.extraInputs.preparedExecution = selectEarnWithdrawPreparedExecution(preparedExecution(), identity);
+    await transactions.add(row);
+    render(<EarnIntentWatcher />);
+    await waitFor(async () => {
+      const persisted = await transactions.get(row.id);
+      expect(persisted?.extraInputs.submissionState).toBe('accepted');
+      expect(persisted?.extraInputs.phase).toBe('received');
+      expect(persisted?.extraInputs.midenNoteId).toBe('received-note');
+    });
+    expect(mockRetryIntentSolve).toHaveBeenCalledTimes(1);
+    expect(mockRetryIntentSolve).toHaveBeenCalledWith(JSON.parse(preparedExecution().allocations[0]!.requestJson));
+    expect(mockGetIntentStatus).not.toHaveBeenCalledWith(PREPARED_OWNER, '22');
+  });
+
   it.each(pendingPhases)('persists failure for a restored %s withdrawal whose poll key is owned', async phase => {
     const row = withdrawal('restored', { phase });
     row.restoredFromBackup = true;
@@ -120,7 +172,7 @@ describe('EarnIntentWatcher local reconciliation', () => {
     expect(mockRegisterBridgeIn).not.toHaveBeenCalled();
   });
 
-  it.each(pendingPhases)('persists failure for an expired %s attempt whose poll key is owned', async phase => {
+  it.each(pendingPhases)('preserves an owned %s intent despite its local age', async phase => {
     const row = withdrawal('expired', {
       phase,
       attemptStartedAt: EXPIRED_SECONDS
@@ -133,8 +185,8 @@ describe('EarnIntentWatcher local reconciliation', () => {
     await waitFor(async () => {
       const persisted = await transactions.get('expired');
       const inputs: IEarnWithdrawExtraInputs | undefined = persisted?.extraInputs;
-      expect(inputs?.phase).toBe('failed');
-      expect(persisted?.error).toBe('Withdrawal timed out.');
+      expect(inputs?.phase).toBe(phase);
+      expect(persisted?.error).toBeUndefined();
       expect(persisted?.initiatedAt).toBe(NOW_SECONDS);
     });
     expect(isPollActive(earnWithdrawPollKey(OWNER, 'nonce-expired'))).toBe(true);
@@ -165,7 +217,13 @@ describe('EarnIntentWatcher local reconciliation', () => {
     const read = jest.spyOn(transactions, 'filter');
     render(<EarnIntentWatcher />);
     await waitFor(() => expect(read).toHaveBeenCalled());
-    await transactions.add(withdrawal('late-expired', { attemptStartedAt: EXPIRED_SECONDS }));
+    await transactions.add(
+      withdrawal('late-expired', {
+        attemptStartedAt: EXPIRED_SECONDS,
+        withdrawIntentNonce: undefined,
+        submissionState: 'preparing'
+      })
+    );
     own(earnWithdrawPollKey(OWNER.toUpperCase(), 'nonce-late-expired'));
 
     await act(async () => {

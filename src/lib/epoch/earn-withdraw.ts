@@ -8,9 +8,17 @@ import {
   initiateEarnWithdrawTransaction,
   registerPendingBridgeIn,
   resolveBridgeInNoteId,
-  updateEarnWithdrawPhase
+  updateEarnWithdrawPhase,
+  prepareEarnWithdrawExecution,
+  markEarnWithdrawNotSent,
+  markEarnWithdrawAccepted
 } from 'lib/miden/activity';
-import type { IBridgeInInfo } from 'lib/miden/db/types';
+import {
+  ITransactionStatus,
+  type IBridgeInInfo,
+  type IEarnWithdrawPreparedExecution,
+  type ITransaction
+} from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 import { getNativeAssetId } from 'lib/miden-chain/native-asset';
 
@@ -19,7 +27,15 @@ import { BRIDGEABLE_EVM_OUTPUT_TOKEN_DECIMALS } from './bridgeable-token';
 import { EPOCH_ALLOCATOR_URL, MIDEN_DESTINATION_CHAIN_ID } from './config';
 import { EARN_PROTOCOL_HASH, EARN_UNDERLYING, resolveEarnIntentOutcome } from './earn';
 import { tryWithEarnSubmissionLock, withEarnSubmissionLock } from './earn-submission-lock';
+import {
+  earnWithdrawalRetryKind,
+  earnWithdrawExecutionIdentity,
+  hasEarnWithdrawRecoveryWork,
+  selectEarnWithdrawPreparedExecution,
+  validateEarnWithdrawPreparedExecution
+} from './earn-withdraw-policy';
 import { buildVaultEvmWalletClient } from './evm-account';
+import { isEvmAddress } from './evm-address';
 import {
   earnWithdrawPollKey,
   effectiveWithdrawAttemptId,
@@ -29,8 +45,6 @@ import {
 } from './intent-key';
 import { startIntentPoll } from './poll-registry';
 import { getEpochReadOnlySdk, ensureEpochSmartAccount } from './sdk';
-
-const EVM_ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
 
 /** Non-terminal `earn-withdraw` phases the reconciler resumes; terminal ones are skipped. */
 const NON_TERMINAL_WITHDRAW_PHASES = new Set(['redeeming', 'delivering']);
@@ -47,7 +61,7 @@ export interface GaslessEarnWithdrawalArgs {
   amount: string;
   underlyingDecimals: number;
   /** Fired once the tracking `earn-withdraw` row exists (before the intent work),
-   * so the caller can navigate to the generating-transaction screen — mirrors
+   * so the caller can navigate to the generating-transaction screen, matching
    * `openEarnPosition`'s callback. */
   onRowCreated?: (txId: string) => void;
 }
@@ -62,6 +76,9 @@ export interface GaslessEarnWithdrawalResult {
 
 interface GaslessEarnWithdrawalDeps {
   sdk?: EpochIntentSDK;
+  prepareExecution?: typeof prepareEarnWithdrawExecution;
+  markNotSent?: typeof markEarnWithdrawNotSent;
+  markAccepted?: typeof markEarnWithdrawAccepted;
   ensureSmartAccount?: typeof ensureEpochSmartAccount;
   registerBridgeIn?: typeof registerPendingBridgeIn;
   initiateRow?: typeof initiateEarnWithdrawTransaction;
@@ -69,10 +86,6 @@ interface GaslessEarnWithdrawalDeps {
   /** Injectable delivery poller (tests pass a no-op). */
   startDeliveryPoll?: typeof pollEarnWithdrawDelivery;
   withSubmissionLock?: typeof withEarnSubmissionLock;
-}
-
-function isEvmAddress(value: string): value is Address {
-  return EVM_ADDRESS_RE.test(value);
 }
 
 function asAddress(value: string, label: string): Address {
@@ -150,8 +163,6 @@ export async function gaslessEarnWithdrawalToMiden(
   if (amountAtomic <= 0n) throw new Error('Withdraw amount must be greater than zero.');
 
   const initiateRow = deps.initiateRow ?? initiateEarnWithdrawTransaction;
-  const updatePhase = deps.updatePhase ?? updateEarnWithdrawPhase;
-  const registerBridgeIn = deps.registerBridgeIn ?? registerPendingBridgeIn;
   const startDeliveryPoll = deps.startDeliveryPoll ?? pollEarnWithdrawDelivery;
   const withSubmissionLock = deps.withSubmissionLock ?? withEarnSubmissionLock;
   const destinationFaucetId = await getNativeAssetId();
@@ -177,7 +188,28 @@ export async function gaslessEarnWithdrawalToMiden(
     assertCurrent();
     args.onRowCreated?.(txId);
     const expected: ExpectedEarnWithdrawIntent = { owner: sponsorAddress, attemptId };
-    let nonceString: string;
+    let preparedExecution: IEarnWithdrawPreparedExecution | undefined;
+    let executionPermitted = false;
+    const bridgeInfo = (nonce: string): IBridgeInInfo => ({
+      provider: 'epoch',
+      sourceAmount: args.amount,
+      sourceSymbol: 'USDC',
+      intentOwner: sponsorAddress,
+      intentNonce: nonce,
+      earnWithdrawTxId: txId,
+      earnWithdrawAttemptId: attemptId
+    });
+    const startRecovery = () => {
+      if (!context.isCurrent() || !preparedExecution) return;
+      startDeliveryPoll({
+        sponsorAddress,
+        nonce: preparedExecution.delivery.nonce,
+        txId,
+        attemptId,
+        immediate: true,
+        bridgeInfo: bridgeInfo(preparedExecution.delivery.nonce)
+      });
+    };
     try {
       const ensureSmartAccount = deps.ensureSmartAccount ?? ensureEpochSmartAccount;
       await ensureSmartAccount(args.midenAccountPublicKey, sponsorAddress);
@@ -185,11 +217,7 @@ export async function gaslessEarnWithdrawalToMiden(
       const walletClient = buildVaultEvmWalletClient(args.midenAccountPublicKey, sponsorAddress);
       const sdk =
         deps.sdk ??
-        new EpochIntentSDK({
-          apiBaseUrl: EPOCH_ALLOCATOR_URL,
-          walletClient,
-          allowGaslessSmartAccount: true
-        });
+        new EpochIntentSDK({ apiBaseUrl: EPOCH_ALLOCATOR_URL, walletClient, allowGaslessSmartAccount: true });
       const status = await sdk.getWalletGaslessStatus(chainId);
       assertCurrent();
       if (!status.is7702Capable) throw new Error('Wallet/chain is not 7702-capable for a gasless withdrawal.');
@@ -198,80 +226,131 @@ export async function gaslessEarnWithdrawalToMiden(
         assertCurrent();
         if (!setup.ok) throw new Error('Smart-account conversion failed for the gasless withdrawal.');
       }
-      const native = await getNativeAssetId();
-      assertCurrent();
-      const { nonce } = await sdk.helpers.executeActions({
+      await sdk.helpers.executeActions({
         action: ActionType.Withdraw,
         underlying: underlyingAddress,
         amount: amountAtomic.toString(),
         protocol: 'dummy-lending',
         swapAndBridge: {
-          toToken: normalizeMidenIdToHex(native),
+          toToken: normalizeMidenIdToHex(destinationFaucetId),
           toChainId: MIDEN_DESTINATION_CHAIN_ID,
           recipient: midenRecipientHex
         },
-        gasless: true
+        gasless: true,
+        onBeforeExecute: async execution => {
+          assertCurrent();
+          if (executionPermitted) throw new Error('Withdrawal execution was already permitted.');
+          const identity = {
+            owner: sponsorAddress,
+            attemptId,
+            sourceChainId: chainId,
+            destinationChainId: MIDEN_DESTINATION_CHAIN_ID,
+            recipientAccountId: args.midenAccountPublicKey,
+            destinationFaucetId
+          };
+          const selected = selectEarnWithdrawPreparedExecution(execution, identity);
+          if (!selected) throw new Error('The prepared withdrawal does not match its destination.');
+          preparedExecution = selected;
+          const prepareExecution = deps.prepareExecution ?? prepareEarnWithdrawExecution;
+          if (!(await prepareExecution(txId, selected, expected, context.isCurrent)))
+            throw new Error('The withdrawal preparation could not be saved.');
+          assertCurrent();
+          const fresh = await Repo.transactions.where({ id: txId }).first();
+          assertCurrent();
+          if (
+            !fresh ||
+            fresh.restoredFromBackup ||
+            fresh.status !== ITransactionStatus.Completed ||
+            !NON_TERMINAL_WITHDRAW_PHASES.has(fresh.extraInputs?.phase) ||
+            !matchesEarnWithdrawIntent(fresh, expected) ||
+            fresh.extraInputs.withdrawIntentNonce !== selected.delivery.nonce ||
+            (fresh.extraInputs.submissionState !== 'prepared' && fresh.extraInputs.submissionState !== 'accepted') ||
+            !matchesPreparedExecution(fresh, selected)
+          )
+            throw new Error('The saved withdrawal preparation could not be verified.');
+          if (
+            selected.allocations.some(allocation => BigInt(allocation.expires) <= BigInt(Math.floor(Date.now() / 1000)))
+          )
+            throw new Error('The prepared withdrawal expired before execution.');
+          executionPermitted = true;
+        }
       });
       assertCurrent();
-      nonceString = String(nonce);
+      if (!executionPermitted || !preparedExecution)
+        throw new Error('The SDK did not prepare the withdrawal before execution.');
+      const markAccepted = deps.markAccepted ?? markEarnWithdrawAccepted;
+      await markAccepted(txId, { ...expected, nonce: preparedExecution.delivery.nonce }, context.isCurrent).catch(
+        (error: unknown) => console.warn('[earn-withdraw] acceptance patch failed', error)
+      );
     } catch (error) {
-      if (context.isCurrent()) {
-        const message = error instanceof Error ? error.message : String(error);
-        await updatePhase(txId, 'failed', { error: message }, undefined, expected).catch((err: unknown) =>
-          console.warn('[earn-withdraw] failed-phase patch failed', err)
-        );
+      if (!executionPermitted && context.isCurrent()) {
+        const markNotSent = deps.markNotSent ?? markEarnWithdrawNotSent;
+        await markNotSent(
+          txId,
+          error instanceof Error ? error.message : String(error),
+          expected,
+          preparedExecution,
+          () => context.isCurrent() && !executionPermitted
+        ).catch((failure: unknown) => console.warn('[earn-withdraw] not-sent patch failed', failure));
       }
+      if (executionPermitted) startRecovery();
       throw error;
     }
-
-    // Independent durability anchors: either one lets recovery find the submitted intent.
-    try {
-      await registerBridgeIn(sponsorAddress, nonceString, {
-        provider: 'epoch',
-        sourceAmount: args.amount,
-        sourceSymbol: 'USDC',
-        intentOwner: sponsorAddress,
-        intentNonce: nonceString,
-        earnWithdrawTxId: txId,
-        earnWithdrawAttemptId: attemptId
-      });
-    } catch (error) {
-      console.warn('[earn-withdraw] bridge-in registration failed; row nonce + reconcile will recover', error);
-    }
     assertCurrent();
-    try {
-      await updatePhase(txId, 'redeeming', { withdrawIntentNonce: nonceString }, undefined, {
-        ...expected,
-        nonce: nonceString
-      });
-    } catch (error) {
-      console.warn('[earn-withdraw] nonce persist failed; bridge-in registry + auto-consume will recover', error);
-    }
-    assertCurrent();
-    startDeliveryPoll({ sponsorAddress, nonce: nonceString, txId, attemptId });
+    if (!preparedExecution) throw new Error('The withdrawal preparation is missing.');
+    const nonceString = preparedExecution.delivery.nonce;
+    // The poll owns metadata repair independently from status checking.
+    startRecovery();
     return { txId, nonce: nonceString, gaslessUsed: true };
   });
 }
 
 interface DeliveryPollDeps {
+  tryWithSubmissionLock?: typeof tryWithEarnSubmissionLock;
   getSdk?: typeof getEpochReadOnlySdk;
+  markAccepted?: typeof markEarnWithdrawAccepted;
   updatePhase?: typeof updateEarnWithdrawPhase;
   resolveNoteId?: typeof resolveBridgeInNoteId;
   registerBridgeIn?: typeof registerPendingBridgeIn;
   startPoll?: typeof startIntentPoll;
 }
 
-async function isLiveWithdrawal(txId: string, expected: ExpectedEarnWithdrawIntent): Promise<boolean> {
+async function liveWithdrawal(txId: string, expected: ExpectedEarnWithdrawIntent): Promise<ITransaction | undefined> {
   const row = await Repo.transactions.where({ id: txId }).first();
-  return (
-    row?.type === 'earn-withdraw' &&
+  return row?.type === 'earn-withdraw' &&
     !row.restoredFromBackup &&
-    NON_TERMINAL_WITHDRAW_PHASES.has(row.extraInputs?.phase) &&
+    row.status === ITransactionStatus.Completed &&
+    hasEarnWithdrawRecoveryWork(row) &&
     matchesEarnWithdrawIntent(row, expected)
+    ? row
+    : undefined;
+}
+
+function matchesPreparedExecution(row: ITransaction, captured: IEarnWithdrawPreparedExecution): boolean {
+  const identity = earnWithdrawExecutionIdentity(row);
+  const execution = identity && validateEarnWithdrawPreparedExecution(row.extraInputs?.preparedExecution, identity);
+  return Boolean(execution && JSON.stringify(execution.preparedExecution) === JSON.stringify(captured));
+}
+
+const allocationLockKey = (attemptId: string, nonce: string): string => `allocation:${attemptId}:${nonce}`;
+
+function positiveStatus(value: unknown): value is { chainId: number; status: string; transactionHash: string }[] {
+  return (
+    Array.isArray(value) &&
+    value.length > 0 &&
+    value.every(
+      entry =>
+        entry !== null &&
+        typeof entry === 'object' &&
+        Number.isSafeInteger(Reflect.get(entry, 'chainId')) &&
+        typeof Reflect.get(entry, 'status') === 'string' &&
+        Reflect.get(entry, 'status').length > 0 &&
+        typeof Reflect.get(entry, 'transactionHash') === 'string'
+    )
   );
 }
 
-/** Advance destination-leg status before resolving an already-consumed delivery note. */
+/** Track delivery while independently repairing each exact prepared allocation. */
 export function pollEarnWithdrawDelivery(args: {
   sponsorAddress: `0x${string}`;
   nonce: string;
@@ -289,6 +368,7 @@ export function pollEarnWithdrawDelivery(args: {
   const updatePhase = deps.updatePhase ?? updateEarnWithdrawPhase;
   const resolveNoteId = deps.resolveNoteId ?? resolveBridgeInNoteId;
   const registerBridgeIn = deps.registerBridgeIn ?? registerPendingBridgeIn;
+  const markAccepted = deps.markAccepted ?? markEarnWithdrawAccepted;
   const startPoll = deps.startPoll ?? startIntentPoll;
   const expected: ExpectedEarnWithdrawIntent = {
     owner: sponsorAddress,
@@ -296,47 +376,191 @@ export function pollEarnWithdrawDelivery(args: {
     attemptId: effectiveWithdrawAttemptId(txId, args.attemptId)
   };
   let registered = args.bridgeInfo === undefined;
+  let registrationInFlight = false;
+  let registrationDue = 0;
+  let registrationBackoff = 30_000;
+  let acceptedWriteInFlight = false;
+  let deliveryTerminal = false;
+  let capturedExecution: IEarnWithdrawPreparedExecution | undefined;
+  let states: { accepted: boolean; inFlight: boolean; failures: number; repairDue: number }[] | undefined;
   startPoll({
     key: earnWithdrawPollKey(sponsorAddress, nonce),
     intervalMs,
     maxAttempts,
     immediate,
     tick: async context => {
-      if (!(await isLiveWithdrawal(txId, expected))) {
+      const row = await liveWithdrawal(txId, expected);
+      if (!context.isCurrent()) return;
+      if (!row) {
         context.markTerminal();
         return;
       }
-      if (!context.isCurrent()) return;
-      if (!registered && args.bridgeInfo) {
-        await registerBridgeIn(sponsorAddress, nonce, args.bridgeInfo);
+      const identity = earnWithdrawExecutionIdentity(row);
+      const execution = identity && validateEarnWithdrawPreparedExecution(row.extraInputs.preparedExecution, identity);
+      if (!execution && row.extraInputs.preparedExecution !== undefined) {
+        context.markTerminal();
+        return;
+      }
+      if (!registered && !registrationInFlight && args.bridgeInfo && Date.now() >= registrationDue) {
+        registrationInFlight = true;
+        void registerBridgeIn(sponsorAddress, nonce, args.bridgeInfo)
+          .then(() => {
+            if (context.isCurrent()) registered = true;
+          })
+          .catch((error: unknown) => console.warn('[earn-withdraw] bridge-in registration failed', error))
+          .finally(() => {
+            registrationInFlight = false;
+            registrationDue = Date.now() + registrationBackoff;
+            registrationBackoff = Math.min(registrationBackoff * 2, 300_000);
+          });
+      }
+      const applyDelivery = async (results: { chainId: number; status: string; transactionHash: string }[]) => {
         if (!context.isCurrent()) return;
-        registered = true;
+        const fresh = await liveWithdrawal(txId, expected);
+        if (!context.isCurrent()) return;
+        const { outcome, source } = resolveEarnIntentOutcome(results, MIDEN_DESTINATION_CHAIN_ID);
+        if (outcome !== 'pending') deliveryTerminal = true;
+        try {
+          if (fresh && NON_TERMINAL_WITHDRAW_PHASES.has(fresh.extraInputs.phase)) {
+            if (outcome === 'done') {
+              const evmTxHash = source?.transactionHash || undefined;
+              await updatePhase(txId, 'delivering', evmTxHash ? { evmTxHash } : undefined, undefined, expected);
+            } else if (outcome === 'failed') {
+              await updatePhase(
+                txId,
+                'failed',
+                { error: 'The withdrawal intent failed on Epoch.' },
+                undefined,
+                expected
+              );
+            }
+          }
+        } finally {
+          const noteId = extractMidenNoteId(results);
+          if (context.isCurrent() && noteId)
+            await resolveNoteId(sponsorAddress, nonce, noteId).catch((error: unknown) =>
+              console.warn('[earn-withdraw] note resolution failed', error)
+            );
+        }
+      };
+      if (!execution) {
+        const sdk = await getSdk(sponsorAddress);
+        if (!context.isCurrent() || !(await liveWithdrawal(txId, expected)) || !context.isCurrent()) return;
+        const results = await sdk.getIntentStatus(sponsorAddress, nonce);
+        if (!context.isCurrent()) return;
+        try {
+          await applyDelivery(results);
+        } finally {
+          if (deliveryTerminal && registered) context.markTerminal();
+        }
+        return;
       }
-      const sdk = await getSdk(sponsorAddress);
-      if (!context.isCurrent()) return;
-      if (!(await isLiveWithdrawal(txId, expected))) {
+      if (capturedExecution && !matchesPreparedExecution(row, capturedExecution)) {
         context.markTerminal();
         return;
       }
-      if (!context.isCurrent()) return;
-      const results = await sdk.getIntentStatus(sponsorAddress, nonce);
-      if (!context.isCurrent()) return;
-      const stillLive = await isLiveWithdrawal(txId, expected);
-      if (!context.isCurrent()) return;
-      const { outcome, source } = resolveEarnIntentOutcome(results, MIDEN_DESTINATION_CHAIN_ID);
-      if (!stillLive || outcome !== 'pending') context.markTerminal();
-      try {
-        if (stillLive && outcome === 'done') {
-          const evmTxHash = source?.transactionHash || undefined;
-          await updatePhase(txId, 'delivering', evmTxHash ? { evmTxHash } : undefined, undefined, expected);
-        } else if (stillLive && outcome === 'failed') {
-          await updatePhase(txId, 'failed', { error: 'The withdrawal intent failed on Epoch.' }, undefined, expected);
-        }
-      } finally {
-        // A retried primary cannot take this result, but its old delivered receipt still can.
-        const midenNoteId = extractMidenNoteId(results);
-        if (context.isCurrent() && midenNoteId) await resolveNoteId(sponsorAddress, nonce, midenNoteId);
+      capturedExecution = execution.preparedExecution;
+      const selectedIndex = execution.preparedExecution.delivery.allocationIndex;
+      if (execution.preparedExecution.delivery.nonce !== nonce) {
+        context.markTerminal();
+        return;
       }
+      if (!states)
+        states = execution.allocationRequests.map(() => ({
+          accepted: row.extraInputs.submissionState === 'accepted',
+          inFlight: false,
+          failures: 0,
+          repairDue: 0
+        }));
+      const allocationStates = states;
+      const selectedState = allocationStates[selectedIndex];
+      if (selectedState && row.extraInputs.phase === 'received' && row.extraInputs.midenNoteId)
+        selectedState.accepted = true;
+      const finishAcceptance = async () => {
+        if (!context.isCurrent() || acceptedWriteInFlight || !allocationStates.every(state => state.accepted)) return;
+        acceptedWriteInFlight = true;
+        try {
+          const fresh = await liveWithdrawal(txId, expected);
+          if (!context.isCurrent() || !fresh || !matchesPreparedExecution(fresh, execution.preparedExecution)) return;
+          if (
+            fresh.extraInputs.submissionState !== 'accepted' &&
+            !(await markAccepted(txId, expected, context.isCurrent))
+          )
+            return;
+          if (!context.isCurrent()) return;
+          if (
+            (deliveryTerminal || fresh.extraInputs.phase === 'received' || fresh.extraInputs.phase === 'failed') &&
+            registered
+          )
+            context.markTerminal();
+        } finally {
+          acceptedWriteInFlight = false;
+        }
+      };
+      for (const [index, request] of execution.allocationRequests.entries()) {
+        const state = allocationStates[index];
+        if (!state || state.inFlight) continue;
+        const selected = index === selectedIndex;
+        if (!selected && (state.accepted || Date.now() < state.repairDue)) continue;
+        if (selected && row.extraInputs.phase === 'received') continue;
+        state.inFlight = true;
+        void (async () => {
+          const repairAttempted = !state.accepted && Date.now() >= state.repairDue;
+          try {
+            const sdk = await getSdk(sponsorAddress);
+            if (!context.isCurrent() || !(await liveWithdrawal(txId, expected)) || !context.isCurrent()) return;
+            let results: unknown;
+            try {
+              results = await sdk.getIntentStatus(request.compact.sponsor, request.compact.nonce);
+            } catch (error) {
+              console.warn('[earn-withdraw] allocation status failed', error);
+            }
+            if (!context.isCurrent()) return;
+            if (positiveStatus(results)) {
+              state.accepted = true;
+              if (selected) await applyDelivery(results);
+            }
+            if (!context.isCurrent() || state.accepted || Date.now() < state.repairDue) return;
+            const fresh = await liveWithdrawal(txId, expected);
+            if (
+              !context.isCurrent() ||
+              !fresh ||
+              !matchesPreparedExecution(fresh, execution.preparedExecution) ||
+              (selected && fresh.extraInputs.phase === 'failed')
+            )
+              return;
+            const tryWithAllocationLock = deps.tryWithSubmissionLock ?? tryWithEarnSubmissionLock;
+            const result = await tryWithAllocationLock(
+              allocationLockKey(expected.attemptId, request.compact.nonce),
+              async lock => {
+                const current = await liveWithdrawal(txId, expected);
+                if (
+                  !lock.isCurrent() ||
+                  !context.isCurrent() ||
+                  !current ||
+                  !matchesPreparedExecution(current, execution.preparedExecution)
+                )
+                  return false;
+                await sdk.retryIntentSolve(request);
+                return lock.isCurrent() && context.isCurrent();
+              }
+            );
+            if (context.isCurrent() && result.acquired && result.value) state.accepted = true;
+          } catch (error) {
+            console.warn('[earn-withdraw] allocation repair failed', error);
+          } finally {
+            state.inFlight = false;
+            if (!state.accepted && repairAttempted) {
+              state.repairDue = Date.now() + Math.min(30_000 * 2 ** state.failures, 300_000);
+              state.failures += 1;
+            }
+            await finishAcceptance().catch((error: unknown) =>
+              console.warn('[earn-withdraw] acceptance patch failed', error)
+            );
+          }
+        })();
+      }
+      await finishAcceptance();
     }
   });
 }
@@ -350,14 +574,17 @@ interface ResumeDeps extends DeliveryPollDeps {
 /** Recover an interrupted attempt only after its submitting document releases ownership. */
 export async function resumeEarnWithdrawal(txId: string, deps: ResumeDeps = {}): Promise<void> {
   const row = await Repo.transactions.where({ id: txId }).first();
-  if (row?.type !== 'earn-withdraw' || !NON_TERMINAL_WITHDRAW_PHASES.has(row.extraInputs?.phase)) return;
+  if (!row || !hasEarnWithdrawRecoveryWork(row)) return;
   const expected: ExpectedEarnWithdrawIntent = {
     owner: row.extraInputs.evmOwner,
     nonce: row.extraInputs.withdrawIntentNonce,
     attemptId: effectiveWithdrawAttemptId(txId, row.extraInputs.submissionAttemptId)
   };
   const updatePhase = deps.updatePhase ?? updateEarnWithdrawPhase;
-  if (row.restoredFromBackup || isEarnWithdrawalStale(row)) {
+  if (
+    row.restoredFromBackup ||
+    (!row.extraInputs.withdrawIntentNonce && !row.extraInputs.preparedExecution && isEarnWithdrawalStale(row))
+  ) {
     await updatePhase(
       txId,
       'failed',
@@ -371,8 +598,7 @@ export async function resumeEarnWithdrawal(txId: string, deps: ResumeDeps = {}):
   await tryWithSubmissionLock(expected.attemptId, async context => {
     const fresh = await Repo.transactions.where({ id: txId }).first();
     if (!context.isCurrent() || fresh?.type !== 'earn-withdraw' || fresh.restoredFromBackup) return;
-    if (!NON_TERMINAL_WITHDRAW_PHASES.has(fresh.extraInputs?.phase) || !matchesEarnWithdrawIntent(fresh, expected))
-      return;
+    if (!hasEarnWithdrawRecoveryWork(fresh) || !matchesEarnWithdrawIntent(fresh, expected)) return;
     const ei = fresh.extraInputs;
     if (!isEvmAddress(ei.evmOwner)) {
       await updatePhase(
@@ -431,25 +657,8 @@ export async function resumeEarnWithdrawal(txId: string, deps: ResumeDeps = {}):
 /** Repair stale/restored rows locally before attempting any polling ownership. */
 export async function reconcileEarnWithdrawals(deps: ResumeDeps = {}): Promise<void> {
   const rows = await Repo.transactions.filter(tx => tx.type === 'earn-withdraw').toArray();
-  const updatePhase = deps.updatePhase ?? updateEarnWithdrawPhase;
   for (const row of rows) {
-    if (row.type !== 'earn-withdraw' || !NON_TERMINAL_WITHDRAW_PHASES.has(row.extraInputs?.phase)) continue;
-    if (row.restoredFromBackup || isEarnWithdrawalStale(row)) {
-      await updatePhase(
-        row.id,
-        'failed',
-        { error: row.restoredFromBackup ? RESTORED_WITHDRAW_UNVERIFIABLE : 'Withdrawal timed out.' },
-        undefined,
-        row.restoredFromBackup
-          ? undefined
-          : {
-              owner: row.extraInputs.evmOwner,
-              nonce: row.extraInputs.withdrawIntentNonce,
-              attemptId: effectiveWithdrawAttemptId(row.id, row.extraInputs.submissionAttemptId)
-            }
-      ).catch(() => undefined);
-      continue;
-    }
+    if (!hasEarnWithdrawRecoveryWork(row)) continue;
     await resumeEarnWithdrawal(row.id, deps).catch((error: unknown) =>
       console.warn('[earn-withdraw] reconcile resume failed', error)
     );
@@ -464,7 +673,7 @@ export async function resubmitEarnWithdrawal(txId: string, deps: ResubmitDeps = 
   if (row?.type !== 'earn-withdraw') throw new Error(`Transaction ${txId} is not an earn-withdraw`);
   if (row.restoredFromBackup) throw new Error(RESTORED_WITHDRAW_UNVERIFIABLE);
   const ei = row.extraInputs;
-  if (ei.phase !== 'failed') return;
+  if (earnWithdrawalRetryKind(row) !== 'source') return;
   if (!isEvmAddress(ei.evmOwner)) {
     throw new Error('This withdrawal has no valid position owner recorded - start a new withdrawal.');
   }
@@ -504,7 +713,7 @@ export async function resubmitEarnWithdrawal(txId: string, deps: ResubmitDeps = 
           if (
             current.type !== 'earn-withdraw' ||
             current.restoredFromBackup ||
-            current.extraInputs.phase !== 'failed' ||
+            earnWithdrawalRetryKind(current) !== 'source' ||
             !matchesEarnWithdrawIntent(current, previous)
           ) {
             return;
@@ -512,6 +721,8 @@ export async function resubmitEarnWithdrawal(txId: string, deps: ResubmitDeps = 
           current.extraInputs = {
             ...current.extraInputs,
             phase: 'redeeming',
+            submissionState: 'preparing',
+            preparedExecution: undefined,
             submissionAttemptId: attemptId,
             attemptStartedAt: startedAt,
             withdrawIntentNonce: undefined,
@@ -529,4 +740,90 @@ export async function resubmitEarnWithdrawal(txId: string, deps: ResubmitDeps = 
       }
     }
   );
+}
+
+type EarnWithdrawalRetryDeps = ResubmitDeps & ResumeDeps;
+
+/** Retry only the operation permitted by the durable submission evidence. */
+export async function retryEarnWithdrawal(txId: string, deps: EarnWithdrawalRetryDeps = {}): Promise<void> {
+  const row = await Repo.transactions.where({ id: txId }).first();
+  const kind = earnWithdrawalRetryKind(row);
+  if (kind === 'source') {
+    await resubmitEarnWithdrawal(txId, deps);
+    return;
+  }
+  if (kind !== 'allocation' || !row) return;
+  const expected: ExpectedEarnWithdrawIntent = {
+    owner: row.extraInputs.evmOwner,
+    nonce: row.extraInputs.withdrawIntentNonce,
+    attemptId: effectiveWithdrawAttemptId(txId, row.extraInputs.submissionAttemptId)
+  };
+  const withSubmissionLock = deps.withSubmissionLock ?? withEarnSubmissionLock;
+  await withSubmissionLock(expected.attemptId, async context => {
+    let claimed: ITransaction | undefined;
+    await Repo.transactions.where({ id: txId }).modify(current => {
+      if (
+        !context.isCurrent() ||
+        earnWithdrawalRetryKind(current) !== 'allocation' ||
+        !matchesEarnWithdrawIntent(current, expected)
+      )
+        return;
+      current.extraInputs = { ...current.extraInputs, phase: 'redeeming', error: undefined };
+      current.error = undefined;
+      claimed = current;
+    });
+    if (!context.isCurrent() || !claimed) return;
+    const identity = earnWithdrawExecutionIdentity(claimed);
+    const execution =
+      identity && validateEarnWithdrawPreparedExecution(claimed.extraInputs.preparedExecution, identity);
+    if (!execution || !isEvmAddress(expected.owner) || !expected.nonce) return;
+    const request = execution.allocationRequests[execution.preparedExecution.delivery.allocationIndex];
+    if (!request) return;
+    try {
+      const sdk = await (deps.getSdk ?? getEpochReadOnlySdk)(expected.owner);
+      if (!context.isCurrent()) return;
+      const fresh = await liveWithdrawal(txId, expected);
+      if (!context.isCurrent() || !fresh || !matchesPreparedExecution(fresh, execution.preparedExecution)) return;
+      await withSubmissionLock(allocationLockKey(expected.attemptId, request.compact.nonce), async lock => {
+        const current = await liveWithdrawal(txId, expected);
+        if (
+          !context.isCurrent() ||
+          !lock.isCurrent() ||
+          !current ||
+          !matchesPreparedExecution(current, execution.preparedExecution)
+        )
+          return;
+        await sdk.retryIntentSolve(request);
+      });
+    } catch (error) {
+      if (context.isCurrent())
+        await (deps.updatePhase ?? updateEarnWithdrawPhase)(
+          txId,
+          'failed',
+          { error: error instanceof Error ? error.message : String(error) },
+          undefined,
+          expected
+        ).catch((failure: unknown) => console.warn('[earn-withdraw] retry-phase patch failed', failure));
+      throw error;
+    } finally {
+      if (context.isCurrent())
+        (deps.startDeliveryPoll ?? pollEarnWithdrawDelivery)({
+          sponsorAddress: expected.owner,
+          nonce: expected.nonce,
+          txId,
+          attemptId: expected.attemptId,
+          immediate: true,
+          bridgeInfo: {
+            provider: 'epoch',
+            sourceAmount: claimed.extraInputs.sourceAmount,
+            sourceSymbol: claimed.extraInputs.sourceSymbol,
+            intentOwner: expected.owner,
+            intentNonce: expected.nonce,
+            earnWithdrawTxId: txId,
+            earnWithdrawAttemptId: expected.attemptId
+          },
+          deps
+        });
+    }
+  });
 }
