@@ -1,6 +1,7 @@
 import {
   CollateralType,
   EpochIntentSDK,
+  EVM_TO_MIDEN_EXTRA_TYPESTRING,
   GetTaskDataParams,
   IntentQuoteResult,
   SolveIntentParams,
@@ -19,7 +20,7 @@ export interface CrossChainQuote {
   params: CrossChainIntentParams;
 }
 
-/** Pre-fetched EVM->Miden quote for the typed EVM input amount. */
+/** Pre-fetched EVM->Miden reverse quote (`tokenInAmount: "0"` + Miden `minTokenOut`). */
 export interface EVMToMidenQuote {
   taskTypeString: string;
   intentData: unknown;
@@ -188,24 +189,34 @@ export function buildEVMToMidenTaskDataParams(params: EVMToMidenIntentParams) {
       protocolHashIdentifier: ZERO_HASH,
       recipient: params.evmSourceAddress
     },
-    extraDataTypestring: 'string midenRecipientAccount,string midenFaucetId,string midenNoteType',
+    // The SDK's canonical EVM→Miden witness shape (recipient + faucet only).
+    // The allocator validates the typestring against this constant; an extra
+    // field such as `midenNoteType` makes the quote unavailable.
+    extraDataTypestring: EVM_TO_MIDEN_EXTRA_TYPESTRING,
     extraData: {
       midenRecipientAccount: midenRecipientHex,
-      midenFaucetId: midenFaucetHex,
-      midenNoteType: 'P2ID'
+      midenFaucetId: midenFaucetHex
     }
   };
 
   return taskDataParams;
 }
 
-/** Step 1: quote EVM->Miden using the provided EVM input amount. */
+/**
+ * Step 1: reverse-quote EVM->Miden. The allocator only quotes this direction
+ * from the Miden-side `minTokenOut` (base units) with `tokenInAmount: "0"`
+ * and answers with the EVM `tokenIn` the sponsor must deposit. A forward
+ * quote (fixed EVM input, `minTokenOut: "0"`) returns NO_QUOTE_AVAILABLE, so
+ * `evmAmount` is cleared here; the returned `params` carry that cleared value
+ * so `buildEVMToMidenIntent` rebuilds the same reverse-quote task data.
+ */
 export async function getEVMToMidenQuote(
   sdk: EpochIntentSDK,
   params: EVMToMidenIntentParams,
   sponsorAddress: string
 ): Promise<EVMToMidenQuote> {
-  const taskDataParams = buildEVMToMidenTaskDataParams(params);
+  const quoteParams: EVMToMidenIntentParams = { ...params, evmAmount: undefined };
+  const taskDataParams = buildEVMToMidenTaskDataParams(quoteParams);
   const { taskTypeString, intentData } = await sdk.getTaskData(taskDataParams);
 
   const quoteResult = await sdk.getIntentQuote({
@@ -219,7 +230,7 @@ export async function getEVMToMidenQuote(
     throw new Error(quoteResult.error ?? 'Quote failed');
   }
 
-  return { taskTypeString, intentData, quoteResult, params };
+  return { taskTypeString, intentData, quoteResult, params: quoteParams };
 }
 
 export async function buildEVMToMidenIntent(

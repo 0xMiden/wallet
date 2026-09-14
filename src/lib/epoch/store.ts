@@ -1,4 +1,5 @@
 import type { CollateralType, IntentTransactionStatus, SolveIntentParams } from '@epoch-protocol/epoch-intents-sdk';
+import { formatUnits } from 'viem';
 import { sepolia } from 'viem/chains';
 import { create } from 'zustand';
 
@@ -171,7 +172,7 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
       console.log('[epoch] EVM→Miden quote', quote);
       set({ status: 'quoted', quote });
     } catch (err) {
-      console.error('[epoch] quoteEVMToMiden failed', err);
+      console.error('[epoch] quoteEVMToMiden failed', { intent: params, sponsorAddress }, err);
       set({ status: 'failed', error: errorMessage(err) });
     }
   },
@@ -228,10 +229,16 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
         });
       }
       if (nonce) {
+        // Reverse quote: the EVM spend is the quoted `tokenIn` (base units), not a
+        // typed amount. Rendered as a human string for the pending record.
         const evmParams = (quote as EVMToMidenQuote).params;
+        const quotedTokenIn = quote.quoteResult.tokenIn;
+        const sourceAmount = quotedTokenIn
+          ? formatUnits(BigInt(quotedTokenIn), evmParams.evmTokenDecimals ?? 18)
+          : evmParams.evmAmount;
         await registerPendingBridgeIn(connection.address, nonce, {
           provider: 'epoch',
-          sourceAmount: evmParams.evmAmount,
+          sourceAmount,
           sourceSymbol: quote.quoteResult.tokenInSymbol,
           intentNonce: nonce,
           evmTxHash,
