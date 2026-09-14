@@ -1,5 +1,6 @@
 import React, { useMemo, useRef } from 'react';
 
+import classNames from 'clsx';
 import { motion, useReducedMotion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
@@ -9,7 +10,9 @@ import { useNetworkFeeEstimate } from 'app/hooks/useNetworkFeeEstimate';
 import type { NoteWithMetadata } from 'app/pages/Receive/PendingTab';
 import { Button } from 'components/Button';
 import { durations, useMotion } from 'lib/animation';
+import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
 import { useConfirm } from 'lib/ui/dialog';
+import { useLocation } from 'lib/woozie';
 
 import History, { ActivityFilter } from './History';
 import { PendingActivityCard } from './PendingActivityCard';
@@ -57,6 +60,15 @@ export const ActivityPendingHistory = ({ search, filter, programId }: ActivityPe
     .filter(item => (item.status === 'pending' || item.status === 'failed') && item.note.fromCache !== true)
     .map(item => item.note);
   const claimingCount = listItems.filter(item => item.status === 'claiming').length;
+  // Accept All is the page's primary action, so it sits at the bottom edge in
+  // place of the tab navbar, the way the send flow pins its CTA. The navbar is
+  // hidden only while the Activity tab is the ACTIVE route: TabLayout keeps a
+  // visited tab mounted under the others, so without the route gate a pending
+  // list on a hidden Activity tab would hide the navbar on Home.
+  const showAcceptAll = filter === 'pending' && pendingCount > 0;
+  const { pathname } = useLocation();
+  const onActivityTab = pathname.split('/')[1] === 'history';
+  useHideNavbarWhileOpen(showAcceptAll && onActivityTab);
   const excludedTransactions = useMemo(
     () =>
       items
@@ -88,19 +100,9 @@ export const ActivityPendingHistory = ({ search, filter, programId }: ActivityPe
         )}
       </div>
 
-      {filter === 'pending' && pendingCount > 0 && (
-        <div className="shrink-0 px-4 pt-3">
-          <Button
-            className="max-w-none"
-            title={claimingCount > 0 && claimableNotes.length === 0 ? t('claiming') : t('acceptAll')}
-            disabled={claimableNotes.length === 0}
-            isLoading={claimingCount > 0 && claimableNotes.length === 0}
-            onClick={() => acceptMany(claimableNotes)}
-          />
-        </div>
-      )}
-
-      <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto pb-28">
+      {/* `pb-28` clears the floating navbar; with the Accept All footer in its
+          place the list only needs its own bottom breathing room. */}
+      <div ref={scrollRef} className={classNames('flex-1 min-h-0 overflow-y-auto', showAcceptAll ? 'pb-4' : 'pb-28')}>
         {pendingCount > 0 && maxFee && (
           <p className="px-4 pt-2 text-xs text-text-secondary-token">{t('activityClaimFee', { fee: maxFee })}</p>
         )}
@@ -126,6 +128,18 @@ export const ActivityPendingHistory = ({ search, filter, programId }: ActivityPe
           />
         </div>
       </div>
+
+      {showAcceptAll && (
+        <div className="shrink-0 px-4 pt-3 pb-4">
+          <Button
+            className="max-w-none"
+            title={claimingCount > 0 && claimableNotes.length === 0 ? t('claiming') : t('acceptAll')}
+            disabled={claimableNotes.length === 0}
+            isLoading={claimingCount > 0 && claimableNotes.length === 0}
+            onClick={() => acceptMany(claimableNotes)}
+          />
+        </div>
+      )}
     </>
   );
 };

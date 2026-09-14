@@ -2,6 +2,7 @@ import React, { memo, RefObject, useMemo } from 'react';
 
 import classNames from 'clsx';
 import { format } from 'date-fns';
+import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import InfiniteScroll from 'react-infinite-scroller';
 
@@ -11,6 +12,7 @@ import { Icon, IconName } from 'app/icons/v2';
 import { ReactComponent as FailedCrossIcon } from 'app/icons/v2/failed-cross.svg';
 import { ReactComponent as SwapIcon } from 'app/icons/v2/swap.svg';
 import { ActivityRow, ActivityRowProps, ActivityStatusTone } from 'components/ui';
+import { springs, useMotion } from 'lib/animation';
 import { navigate } from 'lib/woozie';
 
 import HistoryItem from './HistoryItem';
@@ -364,6 +366,9 @@ const HistoryView = memo<HistoryViewProps>(
     className
   }) => {
     const { t } = useTranslation();
+    // Same spring as the rows, so a date group and the rows inside it move
+    // together when a filter empties part of the list.
+    const layoutTransition = useMotion(springs.settle);
     const timeline = useMemo(() => {
       if (!pendingItems?.length) return entries;
       const pending: TimelineEntry[] = pendingItems.map(item => ({
@@ -428,8 +433,17 @@ const HistoryView = memo<HistoryViewProps>(
 
     const list = (
       <div data-testid="history-view" className="flex flex-col">
+        {/* Each row is a layout-animated Framer element (`ActivityRow`), and
+            `layout` on the date group moves the groups below into the space a
+            removed row leaves. Rows and groups slide; nothing fades, so a
+            filter change behaves like a native list update. */}
         {dateGroups.map(([dateMs, dateEntries], index) => (
-          <div key={dateMs} className={classNames('flex flex-col gap-3 py-3', index === 0 && 'pt-4')}>
+          <motion.div
+            layout
+            transition={layoutTransition}
+            key={dateMs}
+            className={classNames('flex flex-col gap-3 py-3', index === 0 && 'pt-4')}
+          >
             {dateMs === -1 ? (
               <span className="font-heading font-extrabold text-heading-gray text-base">
                 {t('activityDateUnavailable')}
@@ -464,7 +478,7 @@ const HistoryView = memo<HistoryViewProps>(
                 );
               })}
             </div>
-          </div>
+          </motion.div>
         ))}
       </div>
     );

@@ -23,6 +23,8 @@ const mockItems: PendingActivityItem[] = ['first', 'second', 'third'].map(id => 
   status: 'pending'
 }));
 const mockHidden = { ids: new Set<string>(), loaded: true, failed: false, hide: mockHide, restore: mockRestore };
+const mockHideNavbar = jest.fn();
+let mockPathname = '/history';
 
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 jest.mock('app/hooks/useActivityClaims', () => ({
@@ -42,7 +44,10 @@ jest.mock('lib/animation', () => ({
   useMotion: () => ({ duration: 0 })
 }));
 jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn() }));
-jest.mock('lib/woozie', () => ({ navigate: jest.fn() }));
+jest.mock('lib/woozie', () => ({ navigate: jest.fn(), useLocation: () => ({ pathname: mockPathname }) }));
+jest.mock('lib/mobile/useHideNavbarWhileOpen', () => ({
+  useHideNavbarWhileOpen: (open: boolean) => mockHideNavbar(open)
+}));
 jest.mock('app/icons/v2', () => ({ Icon: () => null, IconName: {} }));
 jest.mock('lib/i18n/numbers', () => ({ formatBigInt: () => '1', getAdaptiveDecimalPlaces: () => 3 }));
 jest.mock('./History', () => ({
@@ -79,6 +84,7 @@ jest.mock('components/Button', () => ({
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockPathname = '/history';
   mockItems.forEach(item => {
     item.status = 'pending';
   });
@@ -117,6 +123,35 @@ it('shows Accept All on the pending tab and claims every listed note that can be
   fireEvent.click(screen.getByRole('button', { name: 'acceptAll' }));
   expect(mockAcceptMany).toHaveBeenCalledTimes(1);
   expect(mockAcceptMany.mock.calls[0]?.[0].map((note: { id: string }) => note.id)).toEqual(['first', 'second']);
+});
+
+it('pins Accept All below the list and hides the navbar while the pending tab has notes', () => {
+  render(<ActivityPendingHistory search="" filter="pending" />);
+  const button = screen.getByRole('button', { name: 'acceptAll' });
+  const timeline = screen.getByTestId('timeline');
+  // The footer follows the scroller in the DOM, so it sits at the bottom edge.
+  expect(timeline.compareDocumentPosition(button) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(mockHideNavbar).toHaveBeenLastCalledWith(true);
+});
+
+it('keeps the navbar on the other filters and when every note is claimed', () => {
+  const { rerender } = render(<ActivityPendingHistory search="" filter="all" />);
+  expect(mockHideNavbar).toHaveBeenLastCalledWith(false);
+  mockItems.forEach(item => {
+    item.status = 'claimed';
+  });
+  rerender(<ActivityPendingHistory search="" filter="pending" />);
+  expect(screen.queryByRole('button', { name: 'acceptAll' })).not.toBeInTheDocument();
+  expect(mockHideNavbar).toHaveBeenLastCalledWith(false);
+});
+
+it('keeps the navbar while the Activity tab is mounted under another tab', () => {
+  // TabLayout keeps a visited tab mounted; the pending list must not hide the
+  // navbar on the tab that is actually showing.
+  mockPathname = '/';
+  render(<ActivityPendingHistory search="" filter="pending" />);
+  expect(screen.getByRole('button', { name: 'acceptAll' })).toBeInTheDocument();
+  expect(mockHideNavbar).toHaveBeenLastCalledWith(false);
 });
 
 it('opens the same details and footer for a pending and a claimed note', () => {
