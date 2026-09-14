@@ -1,5 +1,9 @@
+import type { initiateEarnWithdrawTransaction, updateEarnWithdrawPhase } from 'lib/miden/activity';
+import type { PendingBridgeInIntent } from 'lib/miden/activity/bridge-in';
+import type { IBridgeInInfo, ITransaction, IEarnWithdrawExtraInputs } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 
+import { clearEarnSubmissionLocksForTests, createEarnSubmissionLocks } from './earn-submission-lock';
 import {
   gaslessEarnWithdrawalToMiden,
   pollEarnWithdrawDelivery,
@@ -7,7 +11,9 @@ import {
   resubmitEarnWithdrawal,
   resumeEarnWithdrawal
 } from './earn-withdraw';
-import { clearPollRegistryForTests } from './poll-registry';
+import { matchesEarnWithdrawIntent } from './intent-key';
+import { clearPollRegistryForTests, createIntentPollCoordinator } from './poll-registry';
+import { deferred, SharedEarnLocks } from './testing/earn-locks';
 
 jest.mock('@epoch-protocol/epoch-intents-sdk', () => ({
   EpochIntentSDK: class {},
@@ -52,7 +58,8 @@ jest.mock('lib/miden/activity', () => ({
   initiateEarnWithdrawTransaction: jest.fn(),
   registerPendingBridgeIn: jest.fn(),
   resolveBridgeInNoteId: jest.fn(),
-  updateEarnWithdrawPhase: jest.fn()
+  updateEarnWithdrawPhase: jest.fn(),
+  findPendingBridgeInByEarnWithdrawTxId: jest.fn()
 }));
 jest.mock('lib/miden/repo', () => ({ transactions: { where: jest.fn(), filter: jest.fn() } }));
 
@@ -107,9 +114,17 @@ describe('gaslessEarnWithdrawalToMiden', () => {
       MARKET_UID,
       'mtst1native',
       '10',
-      'USDC'
+      'USDC',
+      expect.any(String),
+      expect.any(Number)
     );
-    expect(deps.updatePhase).toHaveBeenCalledWith('TX1', 'redeeming', { withdrawIntentNonce: 'NONCE1' });
+    expect(deps.updatePhase).toHaveBeenCalledWith(
+      'TX1',
+      'redeeming',
+      { withdrawIntentNonce: 'NONCE1' },
+      undefined,
+      expect.objectContaining({ owner: EVM_OWNER, nonce: 'NONCE1', attemptId: expect.any(String) })
+    );
     expect(deps.registerBridgeIn).toHaveBeenCalledWith(
       EVM_OWNER,
       'NONCE1',
@@ -154,7 +169,13 @@ describe('gaslessEarnWithdrawalToMiden', () => {
 
     await expect(gaslessEarnWithdrawalToMiden(validArgs(), deps)).rejects.toThrow('solve boom');
     expect(deps.initiateRow).toHaveBeenCalled();
-    expect(deps.updatePhase).toHaveBeenCalledWith('TX1', 'failed', { error: 'solve boom' });
+    expect(deps.updatePhase).toHaveBeenCalledWith(
+      'TX1',
+      'failed',
+      { error: 'solve boom' },
+      undefined,
+      expect.objectContaining({ owner: EVM_OWNER, attemptId: expect.any(String) })
+    );
   });
 });
 
@@ -179,10 +200,13 @@ describe('resumeEarnWithdrawal', () => {
 
     await resumeEarnWithdrawal('TX1', deps);
 
-    expect(deps.registerBridgeIn).toHaveBeenCalledWith(
-      EVM_OWNER,
-      'NONCE1',
-      expect.objectContaining({ earnWithdrawTxId: 'TX1' })
+    expect(deps.registerBridgeIn).not.toHaveBeenCalled();
+    expect(deps.startDeliveryPoll).toHaveBeenCalledWith(
+      expect.objectContaining({
+        immediate: true,
+        attemptId: 'TX1',
+        bridgeInfo: expect.objectContaining({ earnWithdrawTxId: 'TX1', earnWithdrawAttemptId: 'TX1' })
+      })
     );
     expect(deps.startDeliveryPoll).toHaveBeenCalled();
     expect(deps.updatePhase).not.toHaveBeenCalled();
@@ -205,14 +229,17 @@ describe('resumeEarnWithdrawal', () => {
 
     await resumeEarnWithdrawal('TX3', deps);
 
-    expect(deps.findBridgeIn).toHaveBeenCalledWith('TX3');
+    expect(deps.findBridgeIn).toHaveBeenCalledWith('TX3', 'TX3');
     // Re-persists the recovered nonce onto the row (not a `failed` write).
-    expect(deps.updatePhase).toHaveBeenCalledWith('TX3', 'redeeming', { withdrawIntentNonce: 'RECOVERED' });
+    expect(deps.updatePhase).toHaveBeenCalledWith('TX3', 'redeeming', { withdrawIntentNonce: 'RECOVERED' }, undefined, {
+      owner: EVM_OWNER,
+      nonce: 'RECOVERED',
+      attemptId: 'TX3'
+    });
     expect(deps.updatePhase).not.toHaveBeenCalledWith('TX3', 'failed', expect.anything());
-    expect(deps.registerBridgeIn).toHaveBeenCalledWith(
-      EVM_OWNER,
-      'RECOVERED',
-      expect.objectContaining({ earnWithdrawTxId: 'TX3' })
+    expect(deps.registerBridgeIn).not.toHaveBeenCalled();
+    expect(deps.startDeliveryPoll).toHaveBeenCalledWith(
+      expect.objectContaining({ nonce: 'RECOVERED', immediate: true, attemptId: 'TX3' })
     );
     expect(deps.startDeliveryPoll).toHaveBeenCalled();
   });
@@ -234,7 +261,9 @@ describe('resumeEarnWithdrawal', () => {
     expect(deps.updatePhase).toHaveBeenCalledWith(
       'TX2',
       'failed',
-      expect.objectContaining({ error: expect.any(String) })
+      expect.objectContaining({ error: expect.any(String) }),
+      undefined,
+      expect.objectContaining({ owner: EVM_OWNER, attemptId: expect.any(String) })
     );
     expect(deps.startDeliveryPoll).not.toHaveBeenCalled();
   });
@@ -258,7 +287,9 @@ describe('reconcileEarnWithdrawals', () => {
     expect(deps.updatePhase).toHaveBeenCalledWith(
       'OLD',
       'failed',
-      expect.objectContaining({ error: expect.any(String) })
+      expect.objectContaining({ error: expect.any(String) }),
+      undefined,
+      expect.objectContaining({ owner: EVM_OWNER, attemptId: expect.any(String) })
     );
     expect(deps.startDeliveryPoll).not.toHaveBeenCalled();
   });
@@ -288,7 +319,9 @@ describe('reconcileEarnWithdrawals', () => {
     expect(deps.updatePhase).toHaveBeenCalledWith(
       'RESTORED',
       'failed',
-      expect.objectContaining({ error: expect.any(String) })
+      expect.objectContaining({ error: expect.any(String) }),
+      undefined,
+      undefined
     );
     expect(deps.startDeliveryPoll).not.toHaveBeenCalled();
   });
@@ -303,8 +336,20 @@ describe('pollEarnWithdrawDelivery', () => {
     jest.clearAllMocks();
     jest.useFakeTimers();
     clearPollRegistryForTests();
+    jest.mocked(Repo.transactions.where).mockImplementation(
+      jest.fn().mockReturnValue({
+        first: jest.fn().mockResolvedValue({
+          id: 'TX1',
+          type: 'earn-withdraw',
+          extraInputs: { phase: 'redeeming', evmOwner: EVM_OWNER, withdrawIntentNonce: 'NONCE1' }
+        })
+      })
+    );
   });
-  afterEach(() => jest.useRealTimers());
+  afterEach(() => {
+    clearPollRegistryForTests();
+    jest.useRealTimers();
+  });
 
   const runTick = async (results: unknown[]) => {
     const deps = {
@@ -313,8 +358,7 @@ describe('pollEarnWithdrawDelivery', () => {
       resolveNoteId: jest.fn().mockResolvedValue(undefined)
     };
     pollEarnWithdrawDelivery({ sponsorAddress: EVM_OWNER, nonce: 'NONCE1', txId: 'TX1', intervalMs: 10, deps });
-    jest.advanceTimersByTime(10);
-    for (let i = 0; i < 6; i += 1) await Promise.resolve();
+    await jest.advanceTimersByTimeAsync(10);
     return deps;
   };
 
@@ -334,7 +378,11 @@ describe('pollEarnWithdrawDelivery', () => {
       { chainId: MIDEN_CHAIN_ID, status: 'completed', transactionHash: '0xdest' }
     ]);
     // The EVM-side hash comes off the source leg, not the Miden leg.
-    expect(deps.updatePhase).toHaveBeenCalledWith('TX1', 'delivering', { evmTxHash: '0xsource' });
+    expect(deps.updatePhase).toHaveBeenCalledWith('TX1', 'delivering', { evmTxHash: '0xsource' }, undefined, {
+      owner: EVM_OWNER,
+      nonce: 'NONCE1',
+      attemptId: 'TX1'
+    });
   });
 
   it('fails on a Miden destination-leg failure', async () => {
@@ -345,7 +393,9 @@ describe('pollEarnWithdrawDelivery', () => {
     expect(deps.updatePhase).toHaveBeenCalledWith(
       'TX1',
       'failed',
-      expect.objectContaining({ error: expect.any(String) })
+      expect.objectContaining({ error: expect.any(String) }),
+      undefined,
+      expect.objectContaining({ owner: EVM_OWNER, attemptId: expect.any(String) })
     );
   });
 
@@ -354,15 +404,14 @@ describe('pollEarnWithdrawDelivery', () => {
       { chainId: SEPOLIA_CHAIN_ID, status: 'pending' },
       { chainId: MIDEN_CHAIN_ID, status: 'completed', midenNoteId: '0xnote' }
     ]);
-    expect(deps.resolveNoteId).toHaveBeenCalledWith('NONCE1', '0xnote');
+    expect(deps.resolveNoteId).toHaveBeenCalledWith(EVM_OWNER, 'NONCE1', '0xnote');
     // Ordering is what keeps a `received` flip from being downgraded to `delivering`.
     expect(deps.updatePhase.mock.invocationCallOrder[0]!).toBeLessThan(deps.resolveNoteId.mock.invocationCallOrder[0]!);
   });
 
   /** Advance one interval and drain the tick's microtasks (mirrors `runTick`). */
   const stepTick = async () => {
-    jest.advanceTimersByTime(10);
-    for (let i = 0; i < 6; i += 1) await Promise.resolve();
+    await jest.advanceTimersByTimeAsync(10);
   };
 
   it('stops polling after maxAttempts and leaves the row non-terminal for the reconciler', async () => {
@@ -422,7 +471,11 @@ describe('pollEarnWithdrawDelivery', () => {
     // Second tick sees a terminal result — proving the interval was never cleared.
     await stepTick();
     expect(getIntentStatus).toHaveBeenCalledTimes(2);
-    expect(deps.updatePhase).toHaveBeenCalledWith('TX1', 'delivering', { evmTxHash: '0xsource' });
+    expect(deps.updatePhase).toHaveBeenCalledWith('TX1', 'delivering', { evmTxHash: '0xsource' }, undefined, {
+      owner: EVM_OWNER,
+      nonce: 'NONCE1',
+      attemptId: 'TX1'
+    });
   });
 
   it('is a no-op when a poll for the same nonce is already live', async () => {
@@ -479,6 +532,21 @@ describe('resubmitEarnWithdrawal', () => {
   // past this point signs with the row's own `evmOwner`, `marketUid` and
   // `sourceAmount`, all of which came from whoever wrote the dump. Guarded in
   // here rather than only in the caller so a future caller inherits it.
+  it('claims a failed row atomically so two concurrent retries submit only once', async () => {
+    const row = failedRow();
+    const modify = mockRow(row);
+    jest.mocked(Repo.transactions.where).mockImplementation(
+      jest.fn().mockReturnValue({
+        first: jest.fn().mockImplementation(async () => ({ ...row, extraInputs: { ...row.extraInputs } })),
+        modify
+      })
+    );
+    const executeActions = jest.fn().mockResolvedValue({ nonce: 'FRESH_NONCE' });
+    const deps = baseDeps({ sdk: fakeSdk(executeActions) });
+    await Promise.allSettled([resubmitEarnWithdrawal('TX1', deps), resubmitEarnWithdrawal('TX1', deps)]);
+    expect(executeActions).toHaveBeenCalledTimes(1);
+  });
+
   it('refuses a row restored from a backup', async () => {
     const executeActions = jest.fn();
     // The flag lives on the row itself, not inside `extraInputs`.
@@ -510,7 +578,13 @@ describe('resubmitEarnWithdrawal', () => {
     expect(row.extraInputs.error).toBeUndefined();
     // A genuinely new intent, and the row keeps its id.
     expect(executeActions).toHaveBeenCalled();
-    expect(deps.updatePhase).toHaveBeenCalledWith('TX1', 'redeeming', { withdrawIntentNonce: 'FRESH_NONCE' });
+    expect(deps.updatePhase).toHaveBeenCalledWith(
+      'TX1',
+      'redeeming',
+      { withdrawIntentNonce: 'FRESH_NONCE' },
+      undefined,
+      expect.objectContaining({ owner: EVM_OWNER, nonce: 'FRESH_NONCE', attemptId: expect.any(String) })
+    );
     expect(deps.registerBridgeIn).toHaveBeenCalledWith(
       EVM_OWNER,
       'FRESH_NONCE',
@@ -555,6 +629,591 @@ describe('resubmitEarnWithdrawal', () => {
     delete (deps as { initiateRow?: unknown }).initiateRow;
 
     await expect(resubmitEarnWithdrawal('TX1', deps)).rejects.toThrow('still broke');
-    expect(deps.updatePhase).toHaveBeenCalledWith('TX1', 'failed', { error: 'still broke' });
+    expect(deps.updatePhase).toHaveBeenCalledWith(
+      'TX1',
+      'failed',
+      { error: 'still broke' },
+      undefined,
+      expect.objectContaining({ owner: EVM_OWNER, attemptId: expect.any(String) })
+    );
+  });
+});
+
+interface LiveWithdrawal extends ITransaction {
+  type: 'earn-withdraw';
+  extraInputs: IEarnWithdrawExtraInputs;
+}
+
+function liveWithdrawal(id: string, inputs: Partial<IEarnWithdrawExtraInputs> = {}): LiveWithdrawal {
+  return {
+    id,
+    type: 'earn-withdraw',
+    accountId: 'mtst1recipient',
+    status: 2,
+    initiatedAt: Math.floor(Date.now() / 1000),
+    completedAt: Math.floor(Date.now() / 1000),
+    displayIcon: 'DEFAULT',
+    extraInputs: {
+      phase: 'redeeming',
+      evmOwner: EVM_OWNER,
+      marketUid: MARKET_UID,
+      destinationFaucetId: 'mtst1native',
+      sourceAmount: '10',
+      sourceSymbol: 'USDC',
+      ...inputs
+    }
+  };
+}
+
+function memoryWithdrawals() {
+  const rows = new Map<string, LiveWithdrawal>();
+  const registry: PendingBridgeInIntent[] = [];
+  const clone = (row: LiveWithdrawal): LiveWithdrawal => ({ ...row, extraInputs: { ...row.extraInputs } });
+  jest.mocked(Repo.transactions.where).mockImplementation(
+    jest.fn().mockImplementation(({ id }: { id: string }) => ({
+      first: jest.fn().mockImplementation(async () => {
+        const row = rows.get(id);
+        return row ? clone(row) : undefined;
+      }),
+      modify: jest.fn().mockImplementation(async (modify: (row: LiveWithdrawal) => void) => {
+        const row = rows.get(id);
+        if (!row) return 0;
+        modify(row);
+        return 1;
+      })
+    }))
+  );
+  jest.mocked(Repo.transactions.filter).mockImplementation(
+    jest.fn().mockImplementation((predicate: (row: LiveWithdrawal) => boolean) => ({
+      toArray: jest.fn().mockImplementation(async () => [...rows.values()].filter(predicate).map(clone))
+    }))
+  );
+  const initiateRow = jest.fn(async (...args: Parameters<typeof initiateEarnWithdrawTransaction>) => {
+    const [accountId, amount, owner, market, faucet, sourceAmount, symbol, attemptId, startedAt] = args;
+    const row = liveWithdrawal('TX1', {
+      evmOwner: owner,
+      marketUid: market,
+      destinationFaucetId: faucet,
+      sourceAmount,
+      sourceSymbol: symbol ?? 'USDC',
+      submissionAttemptId: attemptId,
+      attemptStartedAt: startedAt
+    });
+    row.accountId = accountId;
+    row.amount = amount;
+    rows.set(row.id, row);
+    return row.id;
+  });
+  const updatePhase = jest.fn(async (...args: Parameters<typeof updateEarnWithdrawPhase>) => {
+    const [id, phase, patch, amount, expected] = args;
+    const row = rows.get(id);
+    if (!row || (expected && !matchesEarnWithdrawIntent(row, expected))) return;
+    if (row.extraInputs.phase === 'received' || row.extraInputs.phase === 'failed') return;
+    row.extraInputs = { ...row.extraInputs, ...patch, phase };
+    if (amount !== undefined) row.amount = amount;
+  });
+  const registerBridgeIn = jest.fn(async (owner: string, nonce: string, info: IBridgeInInfo) => {
+    if (!registry.some(entry => entry.userAddress === owner && entry.intentNonce === nonce)) {
+      registry.push({ userAddress: owner, intentNonce: nonce, info, registeredAt: Date.now() });
+    }
+  });
+  const findBridgeIn = jest.fn(async (id: string, attemptId: string) =>
+    registry.find(entry => entry.info.earnWithdrawTxId === id && (entry.info.earnWithdrawAttemptId ?? id) === attemptId)
+  );
+  return { rows, registry, initiateRow, updatePhase, registerBridgeIn, findBridgeIn };
+}
+
+describe('withdrawal ownership across independent document factories', () => {
+  const disposers: Array<() => void> = [];
+  beforeEach(() => {
+    jest.clearAllMocks();
+    jest.useFakeTimers();
+    clearPollRegistryForTests();
+    clearEarnSubmissionLocksForTests();
+    jest.spyOn(console, 'warn').mockImplementation();
+  });
+  afterEach(() => {
+    for (const dispose of disposers.splice(0)) dispose();
+    clearPollRegistryForTests();
+    clearEarnSubmissionLocksForTests();
+    jest.useRealTimers();
+    jest.restoreAllMocks();
+  });
+
+  function documents() {
+    const locks = new SharedEarnLocks();
+    const submissionA = createEarnSubmissionLocks({ getLocks: () => locks });
+    const submissionB = createEarnSubmissionLocks({ getLocks: () => locks });
+    const pollA = createIntentPollCoordinator({ getLocks: () => locks });
+    const pollB = createIntentPollCoordinator({ getLocks: () => locks });
+    disposers.push(submissionA.dispose, submissionB.dispose, pollA.dispose, pollB.dispose);
+    return { locks, submissionA, submissionB, pollA, pollB };
+  }
+
+  it('fails a missing-owner row locally instead of leaving it permanently pending', async () => {
+    const h = memoryWithdrawals();
+    const d = documents();
+    const row = liveWithdrawal('TX1');
+    Reflect.deleteProperty(row.extraInputs, 'evmOwner');
+    h.rows.set('TX1', row);
+    const getSdk = jest.fn();
+    await resumeEarnWithdrawal('TX1', { ...h, getSdk, tryWithSubmissionLock: d.submissionB.tryWithEarnSubmissionLock });
+    expect(row.extraInputs.phase).toBe('failed');
+    expect(getSdk).not.toHaveBeenCalled();
+    expect(h.findBridgeIn).not.toHaveBeenCalled();
+  });
+
+  it('does not declare an attempt interrupted when its registry lookup fails', async () => {
+    const h = memoryWithdrawals();
+    const d = documents();
+    const row = liveWithdrawal('TX1');
+    h.rows.set('TX1', row);
+    await expect(
+      resumeEarnWithdrawal('TX1', {
+        ...h,
+        findBridgeIn: jest.fn().mockRejectedValue(new Error('storage unavailable')),
+        tryWithSubmissionLock: d.submissionB.tryWithEarnSubmissionLock
+      })
+    ).rejects.toThrow('storage unavailable');
+    expect(row.extraInputs.phase).toBe('redeeming');
+    expect(h.updatePhase).not.toHaveBeenCalled();
+  });
+
+  it('keeps a parked initial submission live while another document reconciles unrelated rows', async () => {
+    const h = memoryWithdrawals();
+    const d = documents();
+    const execution = deferred<{ nonce: string }>();
+    const executeActions = jest.fn().mockReturnValue(execution.promise);
+    const getIntentStatus = jest.fn().mockResolvedValue([{ chainId: MIDEN_CHAIN_ID, status: 'pending' }]);
+    const pollDeps = { getSdk: jest.fn().mockResolvedValue({ getIntentStatus }), updatePhase: h.updatePhase };
+    const submission = gaslessEarnWithdrawalToMiden(
+      validArgs(),
+      baseDeps({
+        ...h,
+        sdk: fakeSdk(executeActions),
+        withSubmissionLock: d.submissionA.withEarnSubmissionLock,
+        startDeliveryPoll: (args: Parameters<typeof pollEarnWithdrawDelivery>[0]) =>
+          pollEarnWithdrawDelivery({
+            ...args,
+            deps: { ...pollDeps, startPoll: d.pollA.startIntentPoll }
+          })
+      })
+    );
+    await jest.advanceTimersByTimeAsync(0);
+    void submission.catch(() => undefined);
+    h.rows.set('UNRELATED', liveWithdrawal('UNRELATED'));
+    const recovery = {
+      ...h,
+      ...pollDeps,
+      startPoll: d.pollB.startIntentPoll,
+      tryWithSubmissionLock: d.submissionB.tryWithEarnSubmissionLock
+    };
+    await reconcileEarnWithdrawals(recovery);
+    expect(h.rows.get('TX1')?.extraInputs.phase).toBe('redeeming');
+    expect(h.rows.get('UNRELATED')?.extraInputs.phase).toBe('failed');
+    expect(h.findBridgeIn).not.toHaveBeenCalledWith('TX1', expect.anything());
+    expect(getIntentStatus).not.toHaveBeenCalled();
+
+    execution.resolve({ nonce: 'LIVE' });
+    await submission;
+    await reconcileEarnWithdrawals(recovery);
+    await jest.advanceTimersByTimeAsync(3000);
+    expect(executeActions).toHaveBeenCalledTimes(1);
+    expect(getIntentStatus).toHaveBeenCalledTimes(1);
+    const inputs = h.rows.get('TX1')?.extraInputs;
+    expect(inputs?.withdrawIntentNonce).toBe('LIVE');
+    expect(h.registry[0]?.info.earnWithdrawAttemptId).toBe(inputs?.submissionAttemptId);
+  });
+
+  it('does not recover an old registry nonce during retry and preserves history timestamps', async () => {
+    const h = memoryWithdrawals();
+    const d = documents();
+    const old = liveWithdrawal('TX1', {
+      phase: 'failed',
+      withdrawIntentNonce: 'OLD',
+      submissionAttemptId: 'OLD-ATTEMPT',
+      evmTxHash: '0xold',
+      midenNoteId: '0xoldnote',
+      outputAmount: '99',
+      outputSymbol: 'OLD',
+      error: 'failed'
+    });
+    old.initiatedAt = 1;
+    old.completedAt = 2;
+    h.rows.set('TX1', old);
+    h.registry.push({
+      userAddress: EVM_OWNER,
+      intentNonce: 'OLD',
+      registeredAt: Date.now(),
+      info: { provider: 'epoch', earnWithdrawTxId: 'TX1', earnWithdrawAttemptId: 'OLD-ATTEMPT' }
+    });
+    const execution = deferred<{ nonce: string }>();
+    const retry = resubmitEarnWithdrawal(
+      'TX1',
+      baseDeps({
+        ...h,
+        sdk: fakeSdk(jest.fn().mockReturnValue(execution.promise)),
+        withSubmissionLock: d.submissionA.withEarnSubmissionLock
+      })
+    );
+    await jest.advanceTimersByTimeAsync(0);
+    await reconcileEarnWithdrawals({
+      ...h,
+      tryWithSubmissionLock: d.submissionB.tryWithEarnSubmissionLock,
+      startDeliveryPoll: jest.fn()
+    });
+    expect(old.extraInputs.phase).toBe('redeeming');
+    expect(old.extraInputs.withdrawIntentNonce).toBeUndefined();
+    expect(old.extraInputs.midenNoteId).toBeUndefined();
+    expect(old.extraInputs.evmTxHash).toBeUndefined();
+    expect(old.extraInputs.outputAmount).toBeUndefined();
+    expect(old.extraInputs.outputSymbol).toBeUndefined();
+    expect(old.extraInputs.error).toBeUndefined();
+    expect(old.initiatedAt).toBe(1);
+    expect(old.completedAt).toBe(2);
+    expect(old.extraInputs.attemptStartedAt).toBe(Math.floor(Date.now() / 1000));
+    expect(h.findBridgeIn).not.toHaveBeenCalled();
+    execution.resolve({ nonce: 'NEW' });
+    await retry;
+    expect(old.extraInputs.withdrawIntentNonce).toBe('NEW');
+    expect(old.extraInputs.submissionAttemptId).not.toBe('OLD-ATTEMPT');
+  });
+
+  it('recovers a same-attempt registry anchor after the submitting document disappears', async () => {
+    const h = memoryWithdrawals();
+    const d = documents();
+    const writingNonce = deferred<void>();
+    const updatePhase = jest.fn().mockReturnValue(writingNonce.promise);
+    const submission = gaslessEarnWithdrawalToMiden(
+      validArgs(),
+      baseDeps({
+        ...h,
+        sdk: fakeSdk(jest.fn().mockResolvedValue({ nonce: 'RECOVER' })),
+        updatePhase,
+        withSubmissionLock: d.submissionA.withEarnSubmissionLock
+      })
+    );
+    const result = submission.catch(error => error);
+    await jest.advanceTimersByTimeAsync(0);
+    expect(h.registry).toHaveLength(1);
+    const getIntentStatus = jest.fn().mockResolvedValue([{ chainId: MIDEN_CHAIN_ID, status: 'pending' }]);
+    const recovery = {
+      ...h,
+      getSdk: jest.fn().mockResolvedValue({ getIntentStatus }),
+      startPoll: d.pollB.startIntentPoll,
+      tryWithSubmissionLock: d.submissionB.tryWithEarnSubmissionLock
+    };
+    await reconcileEarnWithdrawals(recovery);
+    expect(h.rows.get('TX1')?.extraInputs.withdrawIntentNonce).toBeUndefined();
+    d.submissionA.dispose();
+    expect(await result).toBeInstanceOf(Error);
+    await jest.advanceTimersByTimeAsync(0);
+    await reconcileEarnWithdrawals(recovery);
+    await jest.advanceTimersByTimeAsync(0);
+    expect(h.rows.get('TX1')?.extraInputs.withdrawIntentNonce).toBe('RECOVER');
+    expect(h.rows.get('TX1')?.extraInputs.phase).toBe('redeeming');
+    expect(getIntentStatus).toHaveBeenCalledTimes(1);
+    expect(h.registerBridgeIn).toHaveBeenCalledTimes(2);
+    writingNonce.resolve();
+    await jest.advanceTimersByTimeAsync(0);
+    expect(getIntentStatus).toHaveBeenCalledTimes(1);
+  });
+
+  it('fails an interrupted attempt after owner teardown and ignores its late submission callback', async () => {
+    const h = memoryWithdrawals();
+    const d = documents();
+    const execution = deferred<{ nonce: string }>();
+    const startDeliveryPoll = jest.fn();
+    const submission = gaslessEarnWithdrawalToMiden(
+      validArgs(),
+      baseDeps({
+        ...h,
+        sdk: fakeSdk(jest.fn().mockReturnValue(execution.promise)),
+        startDeliveryPoll,
+        withSubmissionLock: d.submissionA.withEarnSubmissionLock
+      })
+    );
+    const result = submission.catch(error => error);
+    await jest.advanceTimersByTimeAsync(0);
+    d.submissionA.dispose();
+    expect(await result).toBeInstanceOf(Error);
+    await jest.advanceTimersByTimeAsync(0);
+    await reconcileEarnWithdrawals({ ...h, tryWithSubmissionLock: d.submissionB.tryWithEarnSubmissionLock });
+    expect(h.rows.get('TX1')?.extraInputs.phase).toBe('failed');
+    execution.resolve({ nonce: 'LATE' });
+    await jest.advanceTimersByTimeAsync(0);
+    expect(h.registry).toHaveLength(0);
+    expect(h.rows.get('TX1')?.extraInputs.withdrawIntentNonce).toBeUndefined();
+    expect(startDeliveryPoll).not.toHaveBeenCalled();
+  });
+
+  it.each(['registry', 'nonce'])('recovers a submitted intent when its %s durability write failed', async anchor => {
+    const h = memoryWithdrawals();
+    const d = documents();
+    if (anchor === 'registry') h.registerBridgeIn.mockRejectedValueOnce(new Error('registry write failed'));
+    else h.updatePhase.mockRejectedValueOnce(new Error('nonce write failed'));
+    await gaslessEarnWithdrawalToMiden(
+      validArgs(),
+      baseDeps({
+        ...h,
+        sdk: fakeSdk(jest.fn().mockResolvedValue({ nonce: 'DURABLE' })),
+        withSubmissionLock: d.submissionA.withEarnSubmissionLock
+      })
+    );
+    expect(h.rows.get('TX1')?.extraInputs.phase).toBe('redeeming');
+    expect(h.registerBridgeIn).toHaveBeenCalledTimes(1);
+    expect(h.updatePhase).toHaveBeenCalledTimes(1);
+    const getIntentStatus = jest.fn().mockResolvedValue([{ chainId: MIDEN_CHAIN_ID, status: 'pending' }]);
+    await resumeEarnWithdrawal('TX1', {
+      ...h,
+      getSdk: jest.fn().mockResolvedValue({ getIntentStatus }),
+      startPoll: d.pollB.startIntentPoll,
+      tryWithSubmissionLock: d.submissionB.tryWithEarnSubmissionLock
+    });
+    await jest.advanceTimersByTimeAsync(0);
+    expect(h.rows.get('TX1')?.extraInputs.withdrawIntentNonce).toBe('DURABLE');
+    expect(h.rows.get('TX1')?.extraInputs.phase).toBe('redeeming');
+    expect(h.registry).toHaveLength(1);
+    expect(getIntentStatus).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not fail or poll an existing row when recovery lock acquisition rejects', async () => {
+    const h = memoryWithdrawals();
+    const row = liveWithdrawal('TX1');
+    h.rows.set(row.id, row);
+    const locks = { request: jest.fn().mockRejectedValue(new Error('lock rejected')) };
+    const recovery = createEarnSubmissionLocks({ getLocks: () => locks });
+    disposers.push(recovery.dispose);
+    const getSdk = jest.fn();
+    await reconcileEarnWithdrawals({ ...h, getSdk, tryWithSubmissionLock: recovery.tryWithEarnSubmissionLock });
+    expect(row.extraInputs.phase).toBe('redeeming');
+    expect(h.updatePhase).not.toHaveBeenCalled();
+    expect(h.findBridgeIn).not.toHaveBeenCalled();
+    expect(getSdk).not.toHaveBeenCalled();
+  });
+
+  it('refuses submission when the available lock service rejects', async () => {
+    const h = memoryWithdrawals();
+    const locks = { request: jest.fn().mockRejectedValue(new Error('locks unavailable')) };
+    const owner = createEarnSubmissionLocks({ getLocks: () => locks });
+    disposers.push(owner.dispose);
+    const executeActions = jest.fn();
+    await expect(
+      gaslessEarnWithdrawalToMiden(
+        validArgs(),
+        baseDeps({
+          ...h,
+          sdk: fakeSdk(executeActions),
+          withSubmissionLock: owner.withEarnSubmissionLock
+        })
+      )
+    ).rejects.toThrow('locks unavailable');
+    expect(h.rows.size).toBe(0);
+    expect(executeActions).not.toHaveBeenCalled();
+  });
+
+  it('resolves an old response note after retry without applying that response to the new primary', async () => {
+    const h = memoryWithdrawals();
+    const d = documents();
+    const row = liveWithdrawal('TX1', { withdrawIntentNonce: 'OLD', submissionAttemptId: 'OLD-ATTEMPT' });
+    h.rows.set('TX1', row);
+    const response = deferred<unknown[]>();
+    const getIntentStatus = jest.fn().mockReturnValue(response.promise);
+    const resolveNoteId = jest.fn().mockResolvedValue(undefined);
+    pollEarnWithdrawDelivery({
+      sponsorAddress: EVM_OWNER,
+      nonce: 'OLD',
+      txId: 'TX1',
+      attemptId: 'OLD-ATTEMPT',
+      immediate: true,
+      deps: {
+        getSdk: jest.fn().mockResolvedValue({ getIntentStatus }),
+        updatePhase: h.updatePhase,
+        resolveNoteId,
+        startPoll: d.pollA.startIntentPoll
+      }
+    });
+    await jest.advanceTimersByTimeAsync(0);
+    row.extraInputs.phase = 'failed';
+    const execution = deferred<{ nonce: string }>();
+    const retry = resubmitEarnWithdrawal(
+      'TX1',
+      baseDeps({
+        ...h,
+        sdk: fakeSdk(jest.fn().mockReturnValue(execution.promise)),
+        withSubmissionLock: d.submissionB.withEarnSubmissionLock
+      })
+    );
+    await jest.advanceTimersByTimeAsync(0);
+    void retry.catch(() => undefined);
+    const newAttempt = row.extraInputs.submissionAttemptId;
+    response.resolve([{ chainId: MIDEN_CHAIN_ID, status: 'completed', midenNoteId: '0xold-note' }]);
+    await jest.advanceTimersByTimeAsync(0);
+    expect(resolveNoteId).toHaveBeenCalledWith(EVM_OWNER, 'OLD', '0xold-note');
+    expect(h.updatePhase).not.toHaveBeenCalled();
+    expect(row.extraInputs.phase).toBe('redeeming');
+    expect(row.extraInputs.withdrawIntentNonce).toBeUndefined();
+    expect(row.extraInputs.submissionAttemptId).toBe(newAttempt);
+    execution.resolve({ nonce: 'NEW' });
+    await retry;
+    await jest.advanceTimersByTimeAsync(60_000);
+    expect(getIntentStatus).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps equal nonces for different owners independent and deduplicates owner case variants', async () => {
+    const h = memoryWithdrawals();
+    const d = documents();
+    const ownerA = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+    const ownerACase = '0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+    const ownerB = '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+    h.rows.set('A', liveWithdrawal('A', { evmOwner: ownerA, withdrawIntentNonce: 'SAME' }));
+    h.rows.set('B', liveWithdrawal('B', { evmOwner: ownerB, withdrawIntentNonce: 'SAME' }));
+    const getIntentStatus = jest.fn().mockResolvedValue([{ chainId: MIDEN_CHAIN_ID, status: 'pending' }]);
+    const deps = { getSdk: jest.fn().mockResolvedValue({ getIntentStatus }), updatePhase: h.updatePhase };
+    pollEarnWithdrawDelivery({
+      sponsorAddress: ownerA,
+      nonce: 'SAME',
+      txId: 'A',
+      immediate: true,
+      deps: { ...deps, startPoll: d.pollA.startIntentPoll }
+    });
+    pollEarnWithdrawDelivery({
+      sponsorAddress: ownerACase,
+      nonce: 'SAME',
+      txId: 'A',
+      immediate: true,
+      deps: { ...deps, startPoll: d.pollB.startIntentPoll }
+    });
+    pollEarnWithdrawDelivery({
+      sponsorAddress: ownerB,
+      nonce: 'SAME',
+      txId: 'B',
+      immediate: true,
+      deps: { ...deps, startPoll: d.pollB.startIntentPoll }
+    });
+    await jest.advanceTimersByTimeAsync(0);
+    expect(getIntentStatus).toHaveBeenCalledTimes(2);
+    expect(getIntentStatus).toHaveBeenCalledWith(ownerA, 'SAME');
+    expect(getIntentStatus).toHaveBeenCalledWith(ownerB, 'SAME');
+  });
+
+  it.each(['received', 'restored', 'deleted', 'owner', 'nonce', 'attempt'])(
+    'stops stale withdrawal status writes after a %s replacement',
+    async replacement => {
+      const h = memoryWithdrawals();
+      const d = documents();
+      const row = liveWithdrawal('TX1', { withdrawIntentNonce: 'LIVE', submissionAttemptId: 'CURRENT' });
+      h.rows.set(row.id, row);
+      const response = deferred<unknown[]>();
+      const getIntentStatus = jest.fn().mockReturnValue(response.promise);
+      const resolveNoteId = jest.fn();
+      pollEarnWithdrawDelivery({
+        sponsorAddress: EVM_OWNER,
+        nonce: 'LIVE',
+        txId: 'TX1',
+        attemptId: 'CURRENT',
+        immediate: true,
+        deps: {
+          getSdk: jest.fn().mockResolvedValue({ getIntentStatus }),
+          updatePhase: h.updatePhase,
+          resolveNoteId,
+          startPoll: d.pollA.startIntentPoll
+        }
+      });
+      await jest.advanceTimersByTimeAsync(0);
+      if (replacement === 'received') row.extraInputs.phase = 'received';
+      if (replacement === 'restored') row.restoredFromBackup = true;
+      if (replacement === 'deleted') h.rows.delete(row.id);
+      if (replacement === 'owner') row.extraInputs.evmOwner = '0x2222222222222222222222222222222222222222';
+      if (replacement === 'nonce') row.extraInputs.withdrawIntentNonce = 'OTHER';
+      if (replacement === 'attempt') row.extraInputs.submissionAttemptId = 'SUCCESSOR';
+      response.resolve([{ chainId: MIDEN_CHAIN_ID, status: 'completed' }]);
+      await jest.advanceTimersByTimeAsync(60_000);
+      expect(h.updatePhase).not.toHaveBeenCalled();
+      expect(getIntentStatus).toHaveBeenCalledTimes(1);
+    }
+  );
+
+  it('holds polling ownership through phase and note writes, without overlapping SDK calls', async () => {
+    const h = memoryWithdrawals();
+    const d = documents();
+    h.rows.set('TX1', liveWithdrawal('TX1', { withdrawIntentNonce: 'LIVE' }));
+    const status = deferred<unknown[]>();
+    const phase = deferred<void>();
+    const note = deferred<void>();
+    const getIntentStatus = jest.fn().mockReturnValue(status.promise);
+    const updatePhase = jest.fn().mockReturnValue(phase.promise);
+    const resolveNoteId = jest.fn().mockReturnValue(note.promise);
+    const deps = { getSdk: jest.fn().mockResolvedValue({ getIntentStatus }), updatePhase, resolveNoteId };
+    const args: Parameters<typeof pollEarnWithdrawDelivery>[0] = {
+      sponsorAddress: EVM_OWNER,
+      nonce: 'LIVE',
+      txId: 'TX1',
+      immediate: true
+    };
+    pollEarnWithdrawDelivery({ ...args, deps: { ...deps, startPoll: d.pollA.startIntentPoll } });
+    await jest.advanceTimersByTimeAsync(30_000);
+    expect(getIntentStatus).toHaveBeenCalledTimes(1);
+    status.resolve([{ chainId: MIDEN_CHAIN_ID, status: 'completed', midenNoteId: '0xnote' }]);
+    await jest.advanceTimersByTimeAsync(0);
+    pollEarnWithdrawDelivery({ ...args, deps: { ...deps, startPoll: d.pollB.startIntentPoll } });
+    await jest.advanceTimersByTimeAsync(10_000);
+    expect(getIntentStatus).toHaveBeenCalledTimes(1);
+    expect(resolveNoteId).not.toHaveBeenCalled();
+    phase.resolve();
+    await jest.advanceTimersByTimeAsync(0);
+    expect(resolveNoteId).toHaveBeenCalledWith(EVM_OWNER, 'LIVE', '0xnote');
+    pollEarnWithdrawDelivery({ ...args, deps: { ...deps, startPoll: d.pollB.startIntentPoll } });
+    await jest.advanceTimersByTimeAsync(10_000);
+    expect(getIntentStatus).toHaveBeenCalledTimes(1);
+    note.resolve();
+    await jest.advanceTimersByTimeAsync(0);
+    pollEarnWithdrawDelivery({ ...args, deps: { ...deps, startPoll: d.pollB.startIntentPoll } });
+    await jest.advanceTimersByTimeAsync(0);
+    expect(getIntentStatus).toHaveBeenCalledTimes(2);
+  });
+
+  it('registers recovered bridge metadata before the immediate owned status request', async () => {
+    const h = memoryWithdrawals();
+    const d = documents();
+    h.rows.set('TX1', liveWithdrawal('TX1', { withdrawIntentNonce: 'LIVE', submissionAttemptId: 'CURRENT' }));
+    const getIntentStatus = jest.fn().mockResolvedValue([{ chainId: MIDEN_CHAIN_ID, status: 'pending' }]);
+    const deps = {
+      ...h,
+      getSdk: jest.fn().mockResolvedValue({ getIntentStatus }),
+      startPoll: d.pollB.startIntentPoll,
+      tryWithSubmissionLock: d.submissionB.tryWithEarnSubmissionLock
+    };
+    await resumeEarnWithdrawal('TX1', deps);
+    await jest.advanceTimersByTimeAsync(0);
+    expect(h.registry[0]?.info.earnWithdrawAttemptId).toBe('CURRENT');
+    expect(getIntentStatus).toHaveBeenCalledTimes(1);
+    expect(h.registerBridgeIn.mock.invocationCallOrder[0]!).toBeLessThan(getIntentStatus.mock.invocationCallOrder[0]!);
+  });
+
+  it('counts failed resumed registration inside the same bounded poll burst', async () => {
+    const h = memoryWithdrawals();
+    const d = documents();
+    h.rows.set('TX1', liveWithdrawal('TX1', { withdrawIntentNonce: 'LIVE' }));
+    const getIntentStatus = jest.fn();
+    const registerBridgeIn = jest.fn().mockRejectedValue(new Error('storage offline'));
+    const deps = {
+      ...h,
+      registerBridgeIn,
+      getSdk: jest.fn().mockResolvedValue({ getIntentStatus }),
+      startPoll: d.pollB.startIntentPoll,
+      tryWithSubmissionLock: d.submissionB.tryWithEarnSubmissionLock,
+      startDeliveryPoll: (args: Parameters<typeof pollEarnWithdrawDelivery>[0]) =>
+        pollEarnWithdrawDelivery({ ...args, intervalMs: 10, maxAttempts: 2 })
+    };
+    await resumeEarnWithdrawal('TX1', deps);
+    await jest.advanceTimersByTimeAsync(10);
+    expect(registerBridgeIn).toHaveBeenCalledTimes(2);
+    await resumeEarnWithdrawal('TX1', deps);
+    await jest.advanceTimersByTimeAsync(29_999);
+    expect(registerBridgeIn).toHaveBeenCalledTimes(2);
+    expect(getIntentStatus).not.toHaveBeenCalled();
+    await jest.advanceTimersByTimeAsync(1);
+    expect(registerBridgeIn).toHaveBeenCalledTimes(3);
   });
 });

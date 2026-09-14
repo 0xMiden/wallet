@@ -6,6 +6,7 @@ import { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 
 import { ActivitySpinner } from 'app/atoms/ActivitySpinner';
+import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import { useNetworkFeeEstimate } from 'app/hooks/useNetworkFeeEstimate';
 import { Icon, IconName } from 'app/icons/v2';
 import PageLayout from 'app/layouts/PageLayout';
@@ -28,6 +29,7 @@ import { feeTextFromTransaction } from 'lib/miden/activity/fee';
 import {
   IBridgedReceiveExtraInputs,
   IBridgedSendExtraInputs,
+  IConsumeBridgeInExtraInputs,
   IEarnDepositExtraInputs,
   IEarnWithdrawExtraInputs,
   ISwapExtraInputs,
@@ -38,6 +40,7 @@ import {
 } from 'lib/miden/db/types';
 import { useAllAccounts, useAccount } from 'lib/miden/front';
 import { MIDEN_METADATA } from 'lib/miden/metadata/defaults';
+import { resolveDisplayMetadata } from 'lib/miden/metadata/resolve';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
 import { requestSwapOrderRefresh, useSwapOrderTrackingStore } from 'lib/miden/swap/order-tracking-store';
@@ -303,6 +306,8 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   const allAccounts = useAllAccounts();
   const account = useAccount();
   const tokenPrices = useWalletStore(s => s.tokenPrices);
+  const assetsMetadata = useWalletStore(s => s.assetsMetadata);
+  const configuredNativeFaucet = useMidenFaucetId();
   // The transaction row is push-driven. Status changes and metadata patches
   // written by the app-root watchers re-render this view without page polling.
   const { row, loaded } = useTransactionRow(transactionId);
@@ -315,8 +320,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   const [isRetrying, setIsRetrying] = useState(false);
   const [retryError, setRetryError] = useState<string | null>(null);
   const [needsSendAcknowledgement, setNeedsSendAcknowledgement] = useState(false);
-  // Swap order tracking: the orderId is persisted on the swap tx's extraInputs
-  // by `completeSwapTransaction`; the live lineage is fetched via `trackOrderId`.
+  // The root tracker follows the orderId persisted by completeSwapTransaction.
   const [orderId, setOrderId] = useState<string | bigint | null>(null);
   const [requestedToken, setRequestedToken] = useState<RequestedTokenInfo | null>(null);
   const [swapAutoConsume, setSwapAutoConsume] = useState(true);
@@ -326,16 +330,22 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   // Smart Deposit (open-position) metadata for the details card.
   const [earnDeposit, setEarnDeposit] = useState<IEarnDepositExtraInputs | null>(null);
 
-  // Dexie emits the row again after any transactions-table write. Cache faucet
-  // metadata so those re-derives stay local and do not refetch.
+  // Current store metadata supersedes storage reads; unknown scales remain retryable.
   const tokenMetadataCache = useRef(new Map<string, Awaited<ReturnType<typeof getTokenMetadata>>>());
-  const getCachedTokenMetadata = useCallback(async (faucetId: string) => {
-    const cache = tokenMetadataCache.current;
-    if (cache.has(faucetId)) return cache.get(faucetId);
-    const metadata = await getTokenMetadata(faucetId);
-    cache.set(faucetId, metadata);
-    return metadata;
-  }, []);
+  const getCachedTokenMetadata = useCallback(
+    async (faucetId: string) => {
+      if (faucetId === configuredNativeFaucet) return MIDEN_METADATA;
+      const current = resolveDisplayMetadata(faucetId, assetsMetadata, configuredNativeFaucet);
+      if (hasKnownScale(current)) return current;
+      const cache = tokenMetadataCache.current;
+      const cached = cache.get(faucetId);
+      if (cached) return cached;
+      const metadata = await getTokenMetadata(faucetId);
+      if (hasKnownScale(metadata)) cache.set(faucetId, metadata);
+      return metadata;
+    },
+    [assetsMetadata, configuredNativeFaucet]
+  );
 
   useEffect(() => {
     if (!row) {
@@ -352,7 +362,8 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
     const derive = async () => {
       try {
         setDeriveError(null);
-        const tokenMetadata = tx.faucetId ? await getCachedTokenMetadata(tx.faucetId) : undefined;
+        const offeredSwapToken = tx.type === 'swap' ? getSwapTokenByFaucetId(tx.faucetId) : undefined;
+        const tokenMetadata = !offeredSwapToken && tx.faucetId ? await getCachedTokenMetadata(tx.faucetId) : undefined;
         if (cancelled) return;
 
         // Resolved the same way as any other amount on this page, which for the native
@@ -397,6 +408,9 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
         const bridge: IBridgedSendExtraInputs | undefined = tx.type === 'bridged-send' ? tx.extraInputs : undefined;
         const bridgeReceive: IBridgedReceiveExtraInputs | undefined =
           tx.type === 'bridged-receive' ? tx.extraInputs : undefined;
+        const consumeExtra: IConsumeBridgeInExtraInputs | undefined =
+          tx.type === 'consume' ? tx.extraInputs : undefined;
+        const consumedBridge = consumeExtra?.bridgeIn;
         const earnWithdrawExtra: IEarnWithdrawExtraInputs | undefined =
           tx.type === 'earn-withdraw' ? tx.extraInputs : undefined;
         const earnDepositExtra: IEarnDepositExtraInputs | undefined =
@@ -406,7 +420,6 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
         const earnWithdrawFields = earnWithdrawExtra
           ? earnWithdrawAmountFields(earnWithdrawExtra, tx.amount, tokenMetadata)
           : undefined;
-        const offeredSwapToken = tx.type === 'swap' ? getSwapTokenByFaucetId(tx.faucetId) : undefined;
         const historyEntry: IHistoryEntry = {
           address: tx.accountId,
           restoredFromBackup: tx.restoredFromBackup === true,
@@ -458,15 +471,17 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           bridgeFillChainId: bridge?.fillChainId,
           bridgeEpochStatus: bridge?.epochStatus,
           bridgeReclaimHeight: bridge?.reclaimHeight,
-          bridgeInProvider: bridgeReceive?.provider,
-          bridgeInSourceAddress: bridgeReceive?.sourceAddress,
-          bridgeInSourceAmount: bridgeReceive?.sourceAmount,
-          bridgeInSourceSymbol: bridgeReceive?.sourceSymbol,
-          bridgeInEvmTxHash: bridgeReceive?.evmTxHash,
+          bridgeInProvider: bridgeReceive?.provider ?? consumedBridge?.provider,
+          bridgeInSourceAddress: bridgeReceive?.sourceAddress ?? consumedBridge?.intentOwner,
+          bridgeInSourceAmount: bridgeReceive?.sourceAmount ?? consumedBridge?.sourceAmount,
+          bridgeInSourceSymbol: bridgeReceive?.sourceSymbol ?? consumedBridge?.sourceSymbol,
+          bridgeInEvmTxHash: bridgeReceive?.evmTxHash ?? consumedBridge?.evmTxHash,
           bridgeInPhase: bridgeReceive?.phase,
           bridgeInOutputAmount: bridgeReceive?.outputAmount,
           bridgeInOutputSymbol: bridgeReceive?.outputSymbol,
-          bridgeInMidenNoteId: bridgeReceive?.midenNoteId
+          bridgeInMidenNoteId:
+            bridgeReceive?.midenNoteId ??
+            (consumedBridge ? (consumedBridge.midenNoteId ?? tx.noteId ?? tx.noteIds?.[0]) : undefined)
         };
 
         if (tx.type === 'swap') {
@@ -579,11 +594,11 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
     expiresAt: swapExpiresAt
   });
 
-  // For a bridge the sender is always the Miden account; the EVM destination is
+  // For an outbound bridge the sender is the Miden account; the EVM destination is
   // shown in the BridgeClaimSection (with the right explorer link), so the Miden
   // "to" row is omitted here.
   const isBridgeOut = entry?.txType === 'bridged-send' && !entry.isCancelled;
-  const isBridgeIn = entry ? isBridgeInEntry(entry) && entry.txType === 'bridged-receive' : false;
+  const isBridgeIn = entry ? isBridgeInEntry(entry) : false;
   const isBridge = isBridgeOut || isBridgeIn;
   const isEarnWithdraw = entry?.txType === 'earn-withdraw' && earnWithdraw !== null;
   const isEarnDeposit = entry?.txType === 'earn-deposit' && earnDeposit !== null;
@@ -743,10 +758,10 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
               ) : (
                 <>
                   <TransactionIcon entry={entry} size="lg" />
-                  {historySummaryBadgeContent ? (
-                    <TransactionSummaryBadge {...historySummaryBadgeContent} className="mt-2" />
-                  ) : isBridge ? (
+                  {isBridge ? (
                     <BridgeHeroAmounts entry={entry} />
+                  ) : historySummaryBadgeContent ? (
+                    <TransactionSummaryBadge {...historySummaryBadgeContent} className="mt-2" />
                   ) : (
                     <div className="mt-1 flex max-w-full items-baseline justify-center gap-2 text-center font-heading font-extrabold text-[2.5rem] leading-none">
                       {entry.amount !== undefined && (
@@ -1086,7 +1101,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
               </>
             )}
 
-            {/* Inbound bridge details (bridged-receive only) */}
+            {/* Inbound bridge details */}
             {isBridgeIn && (
               <div className="mt-6 mb-4">
                 <SectionDivider color={sectionDividerColor} />

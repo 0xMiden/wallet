@@ -227,6 +227,8 @@ export interface IEarnWithdrawExtraInputs {
   phase: IEarnWithdrawPhase;
   /** intent nonce (SIO `userAddress:intentNonce`) used to poll `getIntentStatus`. */
   withdrawIntentNonce?: string;
+  submissionAttemptId?: string;
+  attemptStartedAt?: number;
   /** solver/settlement EVM tx hash, once known. */
   evmTxHash?: string;
   /** Miden note id of the bridged-in note, once it lands and is consumed. */
@@ -253,9 +255,11 @@ export interface IBridgeInInfo {
   sourceSymbol?: string;
   /** epoch: intent nonce (SIO `userAddress:intentNonce`) of the originating intent. */
   intentNonce?: string;
+  intentOwner?: string;
+  earnWithdrawAttemptId?: string;
   /** EVM-side deposit/fill tx hash, when known. */
   evmTxHash?: string;
-  /** Miden-side note id the bridge-in resolved to, copied on by `takeBridgeInInfoForNotes`. */
+  /** Miden-side note id the bridge-in resolved to, copied on by `applyBridgeInInfoForNotes`. */
   midenNoteId?: string;
   /**
    * When the bridged note originates from a Smart Withdraw, the `earn-withdraw`
@@ -1064,7 +1068,9 @@ export class EarnWithdrawTransaction implements ITransaction {
     marketUid: string,
     faucetId: string,
     sourceAmount: string,
-    sourceSymbol = 'USDC'
+    sourceSymbol = 'USDC',
+    submissionAttemptId?: string,
+    attemptStartedAt?: number
   ) {
     const now = Math.floor(Date.now() / 1000); // seconds
     this.id = uuid();
@@ -1083,7 +1089,9 @@ export class EarnWithdrawTransaction implements ITransaction {
       destinationFaucetId: faucetId,
       sourceAmount,
       sourceSymbol,
-      phase: 'redeeming'
+      phase: 'redeeming',
+      submissionAttemptId,
+      attemptStartedAt: attemptStartedAt ?? now
     };
   }
 }

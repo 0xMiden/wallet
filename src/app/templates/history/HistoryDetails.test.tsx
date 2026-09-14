@@ -1,13 +1,17 @@
 import React from 'react';
 
 import { render, screen, fireEvent, act } from '@testing-library/react';
+import { create } from 'zustand';
 
+import { DEFAULT_TOKEN_METADATA, MIDEN_METADATA } from 'lib/miden/metadata/defaults';
+import type { AssetMetadata } from 'lib/miden/metadata/types';
 import {
   REMOTE_PROVER_FAILED_ERROR,
   TRANSACTION_STUCK_ERROR,
   USER_CANCELLED_TRANSACTION_REASON,
   isUserCancelledTransaction
 } from 'lib/miden/transaction/constants';
+import { formatAmount } from 'lib/shared/format';
 
 // Imported after the mocks so the module graph is wired to the stubs.
 import { HistoryDetails } from './HistoryDetails';
@@ -17,7 +21,14 @@ import { HistoryDetails } from './HistoryDetails';
 // ---------------------------------------------------------------------------
 let mockAccount: { publicKey?: string; name?: string } | undefined = { publicKey: 'acct-A', name: 'Mine' };
 let mockAllAccounts: Array<{ publicKey: string; name: string }> = [{ publicKey: 'acct-B', name: 'Other' }];
-let mockTokenPrices: Record<string, { price: number }> = { MID: { price: 2 } };
+interface MetadataStore {
+  tokenPrices: Record<string, { price: number }>;
+  assetsMetadata: Record<string, AssetMetadata>;
+}
+
+const mockWalletStore = create<MetadataStore>(() => ({ tokenPrices: { MID: { price: 2 } }, assetsMetadata: {} }));
+let mockConfiguredNativeFaucet: string | null = 'configured-native';
+let mockChainNativeFaucet: string | null = 'chain-native';
 let mockPrice = 2;
 let mockRow: Tx | undefined;
 let mockRowLoaded = true;
@@ -102,9 +113,17 @@ jest.mock('lib/shared/format', () => ({
 }));
 
 jest.mock('lib/store', () => ({
-  // The component only reads `tokenPrices` via a selector.
-  useWalletStore: (selector: (state: { tokenPrices: typeof mockTokenPrices }) => unknown) =>
-    selector({ tokenPrices: mockTokenPrices })
+  useWalletStore: <T,>(selector: (state: MetadataStore) => T) => mockWalletStore(selector)
+}));
+
+jest.mock('app/hooks/useMidenFaucetId', () => ({
+  __esModule: true,
+  default: () => mockConfiguredNativeFaucet
+}));
+
+jest.mock('lib/miden-chain/native-asset', () => ({
+  ...jest.requireActual('lib/miden-chain/native-asset'),
+  getNativeAssetIdSync: () => mockChainNativeFaucet
 }));
 
 jest.mock('lib/woozie', () => ({
@@ -346,7 +365,9 @@ beforeEach(() => {
   trackingStore().clearSwapOrderSchedulesForTests();
   mockAccount = { publicKey: 'acct-A', name: 'Mine' };
   mockAllAccounts = [{ publicKey: 'acct-B', name: 'Other' }];
-  mockTokenPrices = { MID: { price: 2 } };
+  mockWalletStore.setState({ tokenPrices: { MID: { price: 2 } }, assetsMetadata: {} });
+  mockConfiguredNativeFaucet = 'configured-native';
+  mockChainNativeFaucet = 'chain-native';
   mockPrice = 2;
 
   // Default: token metadata for the tx faucet; requested-faucet lookups get a
@@ -381,6 +402,191 @@ afterEach(() => {
 });
 
 describe('HistoryDetails', () => {
+  describe('reactive metadata', () => {
+    const resolved: AssetMetadata = { name: 'Resolved', symbol: 'RES', decimals: 8 };
+    const feeMetadata: AssetMetadata = { name: 'Fee', symbol: 'FEE', decimals: 3 };
+    const publishMetadata = async (assetsMetadata: Record<string, AssetMetadata>) => {
+      act(() => mockWalletStore.setState({ assetsMetadata }));
+      await flush();
+    };
+
+    beforeEach(() => {
+      const { formatBigInt } = jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers');
+      jest.mocked(formatAmount).mockImplementation((amount, decimals) => formatBigInt(amount, decimals));
+    });
+
+    it('updates a send amount and symbol when unresolved metadata arrives without a row change', async () => {
+      mockGetTokenMetadata.mockResolvedValue(DEFAULT_TOKEN_METADATA);
+      setMockRow({ ...baseSendTx, amount: 250_000_000n });
+      await renderAndLoad();
+      expect(screen.queryByText(/historyDetailsFiatApprox/)).not.toBeInTheDocument();
+
+      await publishMetadata({ 'faucet-1': resolved });
+
+      expect(screen.getByText('2.5 RES')).toBeInTheDocument();
+      expect(screen.getByText('historyDetailsFiatApprox_$5.00')).toBeInTheDocument();
+      expect(mockGetTokenMetadata).toHaveBeenCalledTimes(1);
+    });
+
+    it('prefers corrected store metadata over an older known storage result', async () => {
+      mockGetTokenMetadata.mockResolvedValue({ name: 'Old', symbol: 'OLD', decimals: 6 });
+      setMockRow({ ...baseSendTx, amount: 250_000_000n });
+      await renderAndLoad();
+      expect(screen.getByText('250 OLD')).toBeInTheDocument();
+
+      await publishMetadata({ 'faucet-1': resolved });
+
+      expect(screen.getByText('2.5 RES')).toBeInTheDocument();
+      expect(screen.queryByText('250 OLD')).not.toBeInTheDocument();
+      expect(mockGetTokenMetadata).toHaveBeenCalledTimes(1);
+    });
+
+    it('reveals a recorded fee when its non-native faucet metadata arrives', async () => {
+      mockWalletStore.setState({ assetsMetadata: { 'faucet-1': resolved } });
+      mockGetTokenMetadata.mockResolvedValue(DEFAULT_TOKEN_METADATA);
+      setMockRow({ ...baseSendTx, feeAmount: 1_250n, feeFaucetId: 'fee-faucet' });
+      await renderAndLoad();
+      expect(rowByLabel('networkFee')).toBeUndefined();
+
+      await publishMetadata({ 'faucet-1': resolved, 'fee-faucet': feeMetadata });
+
+      expect(rowByLabel('networkFee')?.textContent).toBe('1.25 FEE');
+      expect(mockGetTokenMetadata).toHaveBeenCalledTimes(1);
+      expect(mockGetTokenMetadata).toHaveBeenCalledWith('fee-faucet');
+    });
+
+    it('updates the requested swap quote and settled amount without changing the order row', async () => {
+      mockWalletStore.setState({ assetsMetadata: { 'faucet-1': { name: 'Offer', symbol: 'OFFER', decimals: 6 } } });
+      mockGetTokenMetadata.mockResolvedValue(DEFAULT_TOKEN_METADATA);
+      seedUnavailable('42');
+      setMockSettlementNotes({
+        settled: ['payback'],
+        reclaimed: [],
+        settledTransactions: [
+          { id: 'consume-1', noteIds: ['payback'], amount: 60_000_000n, faucetId: 'requested-faucet' }
+        ],
+        reclaimedTransactions: []
+      });
+      setMockRow({
+        ...baseSendTx,
+        type: 'swap',
+        amount: 500_000n,
+        extraInputs: { orderId: '42', requestedFaucetId: 'requested-faucet', requestedAmount: 100_000_000n }
+      });
+      await renderAndLoad();
+      expect(screen.getByTestId('swap-order-amount-filled')).toHaveTextContent('swapAmountProgress_');
+      expect(screen.getByTestId('swap-order-amount-filled')).not.toHaveTextContent('0.6');
+
+      await publishMetadata({
+        'faucet-1': { name: 'Offer', symbol: 'OFFER', decimals: 6 },
+        'requested-faucet': resolved
+      });
+
+      expect(screen.getByTestId('swap-order-hero').textContent).toBe('0.5OFFER1RES');
+      expect(screen.getByTestId('swap-order-amount-filled').textContent).toBe('swapAmountProgress_0.6_1_ RES');
+      expect(screen.getByTestId('swap-settled-notes')).toHaveTextContent('swapReceivedAmount_0.6_ RES');
+      expect(mockGetTokenMetadata).toHaveBeenCalledTimes(1);
+    });
+
+    it('uses configured-native metadata before a conflicting store entry', async () => {
+      mockConfiguredNativeFaucet = 'faucet-1';
+      mockGetTokenMetadata.mockResolvedValue(MIDEN_METADATA);
+      mockWalletStore.setState({ assetsMetadata: { 'faucet-1': resolved } });
+      setMockRow({ ...baseSendTx, amount: 2_000_000n });
+      await renderAndLoad();
+
+      expect(screen.getByText('2 MIDEN')).toBeInTheDocument();
+      expect(mockGetTokenMetadata).not.toHaveBeenCalled();
+    });
+
+    it('retains the actual native fee fallback under a configured faucet override', async () => {
+      mockConfiguredNativeFaucet = 'configured-override';
+      mockChainNativeFaucet = 'chain-native';
+      mockGetTokenMetadata.mockResolvedValue(DEFAULT_TOKEN_METADATA);
+      setMockRow({ ...baseSendTx, feeAmount: 1_250_000n, feeFaucetId: 'chain-native' });
+      await renderAndLoad();
+
+      expect(rowByLabel('networkFee')?.textContent).toBe('1.25 MIDEN');
+    });
+
+    it('keeps swap registry symbols and scales ahead of conflicting store metadata', async () => {
+      mockWalletStore.setState({ assetsMetadata: { 'faucet-1': resolved, 'requested-faucet': resolved } });
+      mockGetSwapTokenByFaucetId.mockImplementation((id: string) =>
+        id === 'faucet-1' ? { symbol: 'REG-OFFER', decimals: 6 } : { symbol: 'REG-WANT', decimals: 3 }
+      );
+      setMockRow({
+        ...baseSendTx,
+        type: 'swap',
+        amount: 500_000n,
+        extraInputs: { orderId: '42', requestedFaucetId: 'requested-faucet', requestedAmount: 1_250n }
+      });
+      await renderAndLoad();
+
+      expect(screen.getByTestId('swap-order-hero').textContent).toBe('0.5REG-OFFER1.25REG-WANT');
+      expect(mockGetTokenMetadata).not.toHaveBeenCalled();
+    });
+
+    it('does not reread known in-memory metadata on a later transaction emission', async () => {
+      mockWalletStore.setState({ assetsMetadata: { 'faucet-1': resolved } });
+      setMockRow({ ...baseSendTx, amount: 250_000_000n });
+      const { rerender } = await renderAndLoad();
+      expect(screen.getByText('2.5 RES')).toBeInTheDocument();
+
+      setMockRow({ ...baseSendTx, amount: 300_000_000n });
+      rerender(<HistoryDetails transactionId="tx-1" />);
+      await flush();
+
+      expect(screen.getByText('3 RES')).toBeInTheDocument();
+      expect(mockGetTokenMetadata).not.toHaveBeenCalled();
+    });
+
+    it('reuses a known storage result for later transaction emissions', async () => {
+      mockGetTokenMetadata.mockResolvedValue(resolved);
+      setMockRow({ ...baseSendTx, amount: 250_000_000n });
+      const { rerender } = await renderAndLoad();
+      setMockRow({ ...baseSendTx, amount: 300_000_000n });
+      rerender(<HistoryDetails transactionId="tx-1" />);
+      await flush();
+
+      expect(screen.getByText('3 RES')).toBeInTheDocument();
+      expect(mockGetTokenMetadata).toHaveBeenCalledTimes(1);
+    });
+
+    it('retries unknown storage metadata on a later transaction emission', async () => {
+      mockGetTokenMetadata.mockResolvedValueOnce(DEFAULT_TOKEN_METADATA).mockResolvedValue(resolved);
+      setMockRow({ ...baseSendTx, amount: 250_000_000n });
+      const { rerender } = await renderAndLoad();
+      expect(screen.queryByText(/historyDetailsFiatApprox/)).not.toBeInTheDocument();
+
+      setMockRow({ ...baseSendTx, amount: 300_000_000n });
+      rerender(<HistoryDetails transactionId="tx-1" />);
+      await flush();
+
+      expect(screen.getByText('3 RES')).toBeInTheDocument();
+      expect(mockGetTokenMetadata).toHaveBeenCalledTimes(2);
+    });
+
+    it('keeps a newer store result when an older storage read finishes late', async () => {
+      let finishRead: (metadata: AssetMetadata) => void = () => {
+        throw new Error('Storage read not started');
+      };
+      const pending = new Promise<AssetMetadata>(resolve => {
+        finishRead = resolve;
+      });
+      mockGetTokenMetadata.mockReturnValue(pending);
+      setMockRow({ ...baseSendTx, amount: 250_000_000n });
+      await renderAndLoad();
+      expect(screen.getByTestId('spinner')).toBeInTheDocument();
+
+      await publishMetadata({ 'faucet-1': resolved });
+      expect(screen.getByText('2.5 RES')).toBeInTheDocument();
+      await act(async () => finishRead({ name: 'Stale', symbol: 'STALE', decimals: 6 }));
+      await flush();
+
+      expect(screen.getByText('2.5 RES')).toBeInTheDocument();
+      expect(screen.queryByText('250 STALE')).not.toBeInTheDocument();
+    });
+  });
   describe('private-note delivery warning', () => {
     it('warns on a COMPLETED send whose private note was never delivered', async () => {
       // The status pill answers a different question from this card: the
@@ -892,9 +1098,7 @@ describe('HistoryDetails', () => {
       expect(screen.getByTestId('swap-order-amount-filled').textContent).toBe('swapAmountProgress_1000_1000_ ETH');
       expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '100');
 
-      // Registry hit → requested-faucet metadata NOT fetched (only the tx faucet was).
-      expect(mockGetTokenMetadata).toHaveBeenCalledTimes(1);
-      expect(mockGetTokenMetadata).toHaveBeenCalledWith('faucet-1');
+      expect(mockGetTokenMetadata).not.toHaveBeenCalled();
       expect(screen.queryByText('swapOpenPendingNotes')).not.toBeInTheDocument();
       expect(screen.queryByText('cancel')).not.toBeInTheDocument();
     });
@@ -2100,6 +2304,67 @@ describe('HistoryDetails', () => {
       expect(screen.getByText('0xminednote')).toBeInTheDocument();
       expect(screen.getByText('confirmed')).toBeInTheDocument();
     });
+
+    it('opens an old withdrawal-attempt consume as an independent bridge receipt', async () => {
+      setMockRow({
+        ...baseSendTx,
+        id: 'old-attempt-consume',
+        type: 'consume',
+        displayMessage: 'Received',
+        displayIcon: 'RECEIVE',
+        outputNoteIds: undefined,
+        noteIds: ['delivered-old-note'],
+        extraInputs: {
+          bridgeIn: {
+            provider: 'epoch',
+            sourceAmount: '12.5',
+            sourceSymbol: 'USDC',
+            intentOwner: '0xold-owner',
+            intentNonce: 'old-nonce',
+            earnWithdrawTxId: 'withdrawal-now-retried',
+            earnWithdrawAttemptId: 'old-attempt',
+            evmTxHash: '0xold-evm-hash',
+            midenNoteId: 'delivered-old-note'
+          }
+        }
+      });
+
+      await renderAndLoad({ transactionId: 'old-attempt-consume' });
+
+      expect(screen.getByText('12.50')).toBeInTheDocument();
+      expect(screen.getByText('USDC')).toBeInTheDocument();
+      expect(rowByLabel('from')?.textContent).toBe('0xold-owner');
+      expect(rowByLabel('from')?.querySelector('a')).toHaveAttribute(
+        'href',
+        'https://sepolia.etherscan.io/address/0xold-owner'
+      );
+      expect(rowByLabel('to')?.textContent).toBe('you (Mine)');
+      expect(rowByLabel('route')?.textContent).toBe('fastRouteLabel');
+      expect(screen.getByText('0xold-evm-hash').closest('a')).toHaveAttribute(
+        'href',
+        'https://sepolia.etherscan.io/tx/0xold-evm-hash'
+      );
+      expect(rowByLabel('noteId')?.textContent).toBe('delivered-old-note');
+      expect(screen.getByText('confirmed')).toBeInTheDocument();
+      expect(screen.queryByTestId('bridge-claim-section')).not.toBeInTheDocument();
+    });
+
+    it.each([{ noteId: 'legacy-note' }, { noteIds: ['legacy-note'] }])(
+      'reads a legacy bridge consume note from its transaction fields: %p',
+      async noteFields => {
+        setMockRow({
+          ...baseSendTx,
+          type: 'consume',
+          outputNoteIds: undefined,
+          ...noteFields,
+          extraInputs: { bridgeIn: { provider: 'agglayer' } }
+        });
+        await renderAndLoad();
+
+        expect(rowByLabel('route')?.textContent).toBe('slowRouteLabel');
+        expect(rowByLabel('noteId')?.textContent).toBe('legacy-note');
+      }
+    );
 
     it('surfaces the failure reason for a failed inbound bridge', async () => {
       setMockRow({

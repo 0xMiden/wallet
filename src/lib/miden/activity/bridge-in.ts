@@ -1,31 +1,18 @@
 import { AGGLAYER_BRIDGE_NOTE_SENDER_ACCOUNT_ID } from 'lib/agglayer/constant';
+import { effectiveWithdrawAttemptId, intentKey, matchesEarnWithdrawIntent } from 'lib/epoch/intent-key';
 import * as Repo from 'lib/miden/repo';
 
 import { compareAccountIds } from './utils';
-import { IBridgeInInfo, IBridgedReceiveExtraInputs, IEarnWithdrawExtraInputs, ITransactionStatus } from '../db/types';
+import {
+  IBridgeInInfo,
+  IBridgedReceiveExtraInputs,
+  IEarnWithdrawExtraInputs,
+  ITransaction,
+  ITransactionStatus
+} from '../db/types';
 import { fetchFromStorage, putToStorage } from '../front/storage';
 
-/**
- * Bridged-in (EVM → Miden) intent registry.
- *
- * Epoch deposits auto-consume the Miden-side P2ID note, so the wallet's only
- * trace of the deposit is a plain `consume` row created by auto-consume. The
- * intent polling reports the note id (`midenNoteId`), but the deposit screen's
- * polling loop dies with the screen — the user can close it right after
- * signing and the note id is never learned on that path. So the intent
- * metadata (user address + nonce + display info) is persisted at EXECUTE time,
- * and resolution is order-independent:
- *
- *  - `registerPendingBridgeIn` (execute side): parks the intent in platform
- *    storage as soon as `solveIntent` succeeds.
- *  - `resolveBridgeInNoteId` (screen-poll side, opportunistic): when the
- *    deposit screen's polling does learn the note id, it is recorded on the
- *    pending intent and any already-completed consume row is tagged.
- *  - `takeBridgeInInfoForNotes` (consume side): when a consume completes, any
- *    still-unresolved pending intent gets ONE `getIntentStatus` poll to learn
- *    its note id; a match hands the bridge-in info to the completing row.
- */
-
+/** Pending Epoch deliveries survive closed screens and incomplete consume tagging. */
 const REGISTRY_KEY = 'epoch_bridge_in_intents';
 
 /** Drop unmatched intents after 7 days — the deposit failed, was recalled, or claimed elsewhere. */
@@ -50,6 +37,33 @@ async function readRegistry(): Promise<PendingBridgeInIntent[]> {
 
 async function writeRegistry(records: PendingBridgeInIntent[]): Promise<void> {
   await putToStorage(REGISTRY_KEY, records);
+}
+
+// The entire array shares one lock. Callbacks may write local rows, never await network or re-enter this registry.
+let mutationTail: Promise<unknown> = Promise.resolve();
+function withBridgeInRegistryLock<T>(operation: () => Promise<T>): Promise<T> {
+  if (typeof navigator !== 'undefined' && navigator.locks) {
+    return navigator.locks.request<Promise<T>>('epoch-bridge-in-registry', operation);
+  }
+  const run = mutationTail.then(operation, operation);
+  mutationTail = run.then(
+    () => undefined,
+    () => undefined
+  );
+  return run;
+}
+
+const registryIdentity = (intent: PendingBridgeInIntent): string => intentKey(intent.userAddress, intent.intentNonce);
+
+function bridgeInfo(intent: PendingBridgeInIntent): IBridgeInInfo {
+  const txId = intent.info.earnWithdrawTxId;
+  return {
+    ...intent.info,
+    intentOwner: intent.userAddress,
+    intentNonce: intent.intentNonce,
+    earnWithdrawAttemptId: txId ? effectiveWithdrawAttemptId(txId, intent.info.earnWithdrawAttemptId) : undefined,
+    midenNoteId: intent.midenNoteId
+  };
 }
 
 function isEvmAddress(value: string): value is `0x${string}` {
@@ -93,57 +107,55 @@ async function pollIntentNoteId(intent: PendingBridgeInIntent): Promise<string |
   }
 }
 
-/** Patch the COMPLETED consume row that claimed `noteId`. Returns false if no such row exists yet. */
-async function tagConsumeRow(noteId: string, info: IBridgeInInfo): Promise<boolean> {
-  const row = await Repo.transactions
-    .where('noteIds')
-    .equals(noteId)
-    .filter(
-      tx =>
-        tx.type === 'consume' &&
-        tx.status === ITransactionStatus.Completed &&
-        // Same rule as `takeAgglayerBridgeInInfo` below. A restored row is a
-        // record of someone else's claim: adopting it here would retitle it
-        // "Bridged from EVM", file the live intent's amounts against it, and —
-        // because the caller drops the intent on a hit — leave the wallet's own
-        // consume of that note untagged and the intent gone.
-        !tx.restoredFromBackup
-    )
-    .first();
-  if (!row) return false;
-  await Repo.transactions.where({ id: row.id }).modify(tx => {
+/** Persist a bridge receipt and its linked lifecycle updates before releasing its recovery record. */
+export async function applyBridgeInToConsumeRow(consumeId: string, info: IBridgeInInfo): Promise<void> {
+  let applied = false;
+  let delivered: Pick<ITransaction, 'amount' | 'faucetId' | 'transactionId'> = {};
+  await Repo.transactions.where({ id: consumeId }).modify(tx => {
+    if (tx.type !== 'consume' || tx.status !== ITransactionStatus.Completed || tx.restoredFromBackup) return;
     tx.extraInputs = { ...(tx.extraInputs ?? {}), bridgeIn: info };
     tx.displayMessage = 'Bridged from EVM';
+    delivered = { amount: tx.amount, faucetId: tx.faucetId, transactionId: tx.transactionId };
+    applied = true;
   });
-  if (info.bridgeReceiveTxId && row.amount !== undefined && row.faucetId) {
-    try {
-      const { updateBridgedReceivePhase } = await import('../transaction/complete');
-      await updateBridgedReceivePhase(
-        info.bridgeReceiveTxId,
-        'received',
-        { midenNoteId: noteId, outputSymbol: info.sourceSymbol },
-        { amount: row.amount, faucetId: row.faucetId, transactionId: row.transactionId }
-      );
-    } catch (err) {
-      console.warn('[bridge-in] bridge receive patch (resolve path) failed', err);
-    }
-  }
-  // Race cover: if the consume already completed before this intent was resolved,
-  // `completeConsumeTransaction` never saw the bridge-in, so flip the linked
-  // Smart Withdraw row to `received` here instead. Lazy import avoids a cycle.
+  if (!applied) throw new Error('Bridge receipt requires a completed local consume');
+  if (!info.earnWithdrawTxId && !info.bridgeReceiveTxId) return;
+  const { updateEarnWithdrawPhase, updateBridgedReceivePhase } = await import('../transaction/complete');
   if (info.earnWithdrawTxId) {
-    try {
-      const { updateEarnWithdrawPhase } = await import('../transaction/complete');
-      await updateEarnWithdrawPhase(
-        info.earnWithdrawTxId,
-        'received',
-        { midenNoteId: noteId, outputSymbol: info.sourceSymbol },
-        row.amount
-      );
-    } catch (err) {
-      console.warn('[bridge-in] earn-withdraw received patch (resolve path) failed', err);
-    }
+    if (!info.intentOwner) throw new Error('Bridge withdrawal has no intent owner');
+    await updateEarnWithdrawPhase(
+      info.earnWithdrawTxId,
+      'received',
+      { midenNoteId: info.midenNoteId, outputSymbol: info.sourceSymbol },
+      delivered.amount,
+      {
+        owner: info.intentOwner,
+        nonce: info.intentNonce,
+        attemptId: effectiveWithdrawAttemptId(info.earnWithdrawTxId, info.earnWithdrawAttemptId)
+      }
+    );
   }
+  if (info.bridgeReceiveTxId) {
+    if (delivered.amount === undefined || !delivered.faucetId)
+      throw new Error('Bridge consume is missing delivered asset data');
+    await updateBridgedReceivePhase(
+      info.bridgeReceiveTxId,
+      'received',
+      { midenNoteId: info.midenNoteId, outputSymbol: info.sourceSymbol },
+      { amount: delivered.amount, faucetId: delivered.faucetId, transactionId: delivered.transactionId }
+    );
+  }
+}
+
+async function tagConsumeRow(noteId: string, info: IBridgeInInfo): Promise<boolean> {
+  const key = noteIdKey(noteId);
+  const row = await Repo.transactions
+    .where('noteIds')
+    .anyOfIgnoreCase(key, `0x${key}`)
+    .filter(tx => tx.type === 'consume' && tx.status === ITransactionStatus.Completed && !tx.restoredFromBackup)
+    .first();
+  if (!row) return false;
+  await applyBridgeInToConsumeRow(row.id, info);
   return true;
 }
 
@@ -201,80 +213,77 @@ export async function takeAgglayerBridgeInInfo(args: {
   };
 }
 
-/**
- * Park an EVM→Miden intent as soon as it is submitted, so the bridged note can
- * be recognized even if the deposit screen (and its polling) is closed before
- * the note id is ever reported. Idempotent per intent nonce.
- */
+/** Persist each submitted owner/nonce once, before its delivery is known. */
 export async function registerPendingBridgeIn(
   userAddress: string,
   intentNonce: string,
   info: IBridgeInInfo
 ): Promise<void> {
-  const registry = await readRegistry();
-  if (registry.some(r => r.intentNonce === intentNonce)) return;
-  await writeRegistry([...registry, { userAddress, intentNonce, info, registeredAt: Date.now() }]);
+  await withBridgeInRegistryLock(async () => {
+    const registry = await readRegistry();
+    const key = intentKey(userAddress, intentNonce);
+    if (registry.some(record => registryIdentity(record) === key)) return;
+    await writeRegistry([...registry, { userAddress, intentNonce, info, registeredAt: Date.now() }]);
+  });
 }
 
-/**
- * Opportunistic resolution from the deposit screen's polling loop: record the
- * note id on the pending intent and, if auto-consume already claimed the note,
- * tag that consume row right away (and drop the intent).
- */
-export async function resolveBridgeInNoteId(intentNonce: string, midenNoteId: string): Promise<void> {
-  const registry = await readRegistry();
-  const intent = registry.find(r => r.intentNonce === intentNonce);
-  if (!intent) return;
-
-  if (await tagConsumeRow(midenNoteId, intent.info)) {
-    await writeRegistry(registry.filter(r => r.intentNonce !== intentNonce));
-    return;
-  }
-
-  if (intent.midenNoteId !== midenNoteId) {
-    await writeRegistry(registry.map(r => (r.intentNonce === intentNonce ? { ...r, midenNoteId } : r)));
-  }
+export async function resolveBridgeInNoteId(
+  userAddress: string,
+  intentNonce: string,
+  midenNoteId: string
+): Promise<void> {
+  await withBridgeInRegistryLock(async () => {
+    const registry = await readRegistry();
+    const key = intentKey(userAddress, intentNonce);
+    const intent = registry.find(record => registryIdentity(record) === key);
+    if (!intent) return;
+    if (!intent.midenNoteId) {
+      intent.midenNoteId = midenNoteId;
+      await writeRegistry(registry);
+    }
+    if (await tagConsumeRow(intent.midenNoteId, bridgeInfo(intent))) {
+      await writeRegistry(registry.filter(record => registryIdentity(record) !== key));
+    }
+  });
 }
 
-/**
- * Pop the bridge-in info matching any of the consumed note ids. Pending
- * intents that haven't learned their note id yet get one poll each — this is
- * what covers "user closed the deposit screen before polling reported the
- * note id". Called by `completeConsumeTransaction`; zero-cost (one storage
- * read) when no bridge-in is pending.
- */
-export async function takeBridgeInInfoForNotes(noteIds: string[]): Promise<IBridgeInInfo | undefined> {
-  if (noteIds.length === 0) return undefined;
-  const registry = await readRegistry();
-  if (registry.length === 0) return undefined;
+/** Discover outside the registry lock; remove only after the required local persistence callback succeeds. */
+export async function applyBridgeInInfoForNotes(
+  noteIds: string[],
+  apply: (info: IBridgeInInfo) => Promise<void>
+): Promise<boolean> {
+  if (noteIds.length === 0) return false;
+  const snapshot = await readRegistry();
+  if (snapshot.length === 0) return false;
   const consumedKeys = new Set(noteIds.map(noteIdKey));
-
-  let matched: PendingBridgeInIntent | undefined;
-  let registryChanged = false;
-  const next: PendingBridgeInIntent[] = [];
-
-  for (const intent of registry) {
-    let noteId = intent.midenNoteId;
-    if (!matched && !noteId) {
-      noteId = await pollIntentNoteId(intent);
+  const discovered = new Map<string, string>();
+  if (!snapshot.some(intent => intent.midenNoteId && consumedKeys.has(noteIdKey(intent.midenNoteId)))) {
+    for (const intent of snapshot) {
+      if (intent.midenNoteId) continue;
+      const noteId = await pollIntentNoteId(intent);
       if (noteId) {
-        intent.midenNoteId = noteId;
-        registryChanged = true;
+        discovered.set(registryIdentity(intent), noteId);
+        if (consumedKeys.has(noteIdKey(noteId))) break;
       }
     }
-    if (!matched && noteId && consumedKeys.has(noteIdKey(noteId))) {
-      matched = intent;
-      registryChanged = true;
-      continue; // matched intents leave the registry
-    }
-    next.push(intent);
   }
-
-  if (registryChanged) await writeRegistry(next);
-  // Copy the resolved note id onto the returned info so the consume side can
-  // patch the linked `bridged-receive` row's `midenNoteId` without another lookup.
-  if (!matched) return undefined;
-  return matched.midenNoteId ? { ...matched.info, midenNoteId: matched.midenNoteId } : matched.info;
+  return withBridgeInRegistryLock(async () => {
+    const registry = await readRegistry();
+    let changed = false;
+    for (const intent of registry) {
+      const noteId = discovered.get(registryIdentity(intent));
+      if (!intent.midenNoteId && noteId) {
+        intent.midenNoteId = noteId;
+        changed = true;
+      }
+    }
+    if (changed) await writeRegistry(registry);
+    const matched = registry.find(intent => intent.midenNoteId && consumedKeys.has(noteIdKey(intent.midenNoteId)));
+    if (!matched) return false;
+    await apply(bridgeInfo(matched));
+    await writeRegistry(registry.filter(intent => registryIdentity(intent) !== registryIdentity(matched)));
+    return true;
+  });
 }
 
 /**
@@ -287,7 +296,8 @@ export async function takeBridgeInInfoForNotes(noteIds: string[]): Promise<IBrid
  * pending intent references this row (never submitted, or already resolved/expired).
  */
 export async function findPendingBridgeInByEarnWithdrawTxId(
-  txId: string
+  txId: string,
+  attemptId: string
 ): Promise<{ intentNonce: string; userAddress: string } | undefined> {
   const registry = await readRegistry();
   // A resubmit reuses the same earnWithdrawTxId and APPENDS a fresh entry (a failed
@@ -296,37 +306,52 @@ export async function findPendingBridgeInByEarnWithdrawTxId(
   // intent — not the first, which may be a dead nonce whose failed status would
   // re-strand the row and defeat this recovery's purpose.
   const intent = registry
-    .filter(r => r.info.earnWithdrawTxId === txId)
+    .filter(
+      r =>
+        r.info.earnWithdrawTxId === txId && effectiveWithdrawAttemptId(txId, r.info.earnWithdrawAttemptId) === attemptId
+    )
     .reduce<
       PendingBridgeInIntent | undefined
     >((newest, r) => (!newest || r.registeredAt > newest.registeredAt ? r : newest), undefined);
   return intent ? { intentNonce: intent.intentNonce, userAddress: intent.userAddress } : undefined;
 }
 
-/**
- * Of the given linked-primary ids, the ones whose row is currently the SINGLE TRACE
- * of the money movement, and so should suppress its delivery `consume` in the history
- * list. Ids with no row (dangling reference) fall through to a plain receive — funds
- * are never invisible.
- *
- * The one exception to "exists ⇒ suppresses": a terminal-`failed` earn-withdraw row.
- * The bridged note can still be delivered and auto-consumed AFTER the row was failed
- * (a bridge that stalls past the reconcile TTL, or a resubmit), and the monotonic phase
- * machine then refuses to flip the failed row to `received`. Such a row is no longer a
- * valid trace of the (arrived) funds, so it must NOT suppress its consume — otherwise
- * the delivered funds would be invisible in history behind a Failed row. It is excluded
- * here so the consume falls through to a visible receive. Every other primary suppresses
- * on existence, as before.
- */
-export async function suppressingLinkedTxIds(ids: string[]): Promise<Set<string>> {
-  const unique = [...new Set(ids)].filter(Boolean);
-  if (unique.length === 0) return new Set();
-  const rows = await Repo.transactions.where('id').anyOf(unique).toArray();
-  const suppressing = new Set<string>();
-  for (const row of rows) {
-    const isFailedEarnWithdraw =
-      row.type === 'earn-withdraw' && (row.extraInputs as IEarnWithdrawExtraInputs | undefined)?.phase === 'failed';
-    if (!isFailedEarnWithdraw) suppressing.add(row.id);
+/** Return consumes represented by a current linked primary, retaining prior-attempt receipts in history. */
+export async function suppressedLinkedConsumeIds(transactions: ITransaction[]): Promise<Set<string>> {
+  const linked = transactions.flatMap(tx => {
+    if (tx.type !== 'consume') return [];
+    const id: string | undefined =
+      tx.extraInputs?.swapOrderTxId ??
+      tx.extraInputs?.bridgeIn?.earnWithdrawTxId ??
+      tx.extraInputs?.bridgeIn?.bridgeReceiveTxId;
+    return id ? [{ tx, id }] : [];
+  });
+  if (linked.length === 0) return new Set();
+  const rows = await Repo.transactions
+    .where('id')
+    .anyOf([...new Set(linked.map(({ id }) => id))])
+    .toArray();
+  const primaries = new Map(rows.map(row => [row.id, row]));
+  const suppressed = new Set<string>();
+  for (const { tx, id } of linked) {
+    const row = primaries.get(id);
+    if (!row) continue;
+    if (row.type === 'earn-withdraw') {
+      const inputs: IEarnWithdrawExtraInputs | undefined = row.extraInputs;
+      const info: IBridgeInInfo | undefined = tx.extraInputs?.bridgeIn;
+      const owner = info?.intentOwner ?? inputs?.evmOwner;
+      if (
+        inputs?.phase === 'failed' ||
+        !owner ||
+        !matchesEarnWithdrawIntent(row, {
+          owner,
+          nonce: info?.intentNonce,
+          attemptId: effectiveWithdrawAttemptId(id, info?.earnWithdrawAttemptId)
+        })
+      )
+        continue;
+    }
+    suppressed.add(tx.id);
   }
-  return suppressing;
+  return suppressed;
 }

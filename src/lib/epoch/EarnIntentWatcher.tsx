@@ -1,59 +1,63 @@
-import { useEffect, useRef } from 'react';
+import { useEffect } from 'react';
 
 import { IEarnDepositExtraInputs, IEarnWithdrawExtraInputs, ITransactionStatus } from 'lib/miden/db/types';
 
+import { isEarnWithdrawalStale } from './intent-key';
 import { earnDepositPollKey, earnWithdrawPollKey, isPollActive } from './poll-registry';
 
-/**
- * Headless app-root driver for the Epoch earn pollers. `pollEarnIntentStatus`
- * and `pollEarnWithdrawDelivery` are context-lifetime setIntervals: they used
- * to be kicked from the initiating flow and re-kicked once per session from the
- * Home mount (and again by the history detail page), so a poller that died with
- * its context stayed dead until the user visited the right screen. This watcher
- * owns the restart instead: every tick it runs a cheap Dexie scan for
- * non-terminal `earn-deposit`/`earn-withdraw` rows and, only when one isn't
- * covered by a live poll (poll-registry), dynamic-imports the reconcilers to
- * re-poll and re-kick. Steady state is one IndexedDB scan per tick with zero
- * network and zero heavy imports.
- *
- * Modeled on `DepositAddressWatcher`: `running` ref against overlap, `disposed`
- * flag so a teardown mid-tick can't act, `document.hidden` early-out. Same
- * extension caveat: runs only while the popup/panel is open — parity with the
- * page-mounted pollers it replaces.
- */
 const POLL_INTERVAL_MS = 15_000;
 
+/** Recover document-lifetime earn polling from any ready wallet surface. */
 export function EarnIntentWatcher(): null {
-  const running = useRef(false);
-
   useEffect(() => {
     let disposed = false;
+    let scanning = false;
+    let depositsRunning = false;
+    let withdrawalsRunning = false;
 
+    const runDeposits = async () => {
+      if (disposed || depositsRunning) return;
+      depositsRunning = true;
+      try {
+        const { reconcileEarnDeposits } = await import('./earn');
+        if (!disposed) await reconcileEarnDeposits();
+      } catch (error) {
+        console.warn('[earn-intent-watcher] deposits failed', error);
+      } finally {
+        depositsRunning = false;
+      }
+    };
+    const runWithdrawals = async () => {
+      if (disposed || withdrawalsRunning) return;
+      withdrawalsRunning = true;
+      try {
+        const { reconcileEarnWithdrawals } = await import('./earn-withdraw');
+        if (!disposed) await reconcileEarnWithdrawals();
+      } catch (error) {
+        console.warn('[earn-intent-watcher] withdrawals failed', error);
+      } finally {
+        withdrawalsRunning = false;
+      }
+    };
     const tick = async () => {
-      if (disposed || running.current) return;
-      if (typeof document !== 'undefined' && document.hidden) return;
-      running.current = true;
+      if (disposed || scanning || (typeof document !== 'undefined' && document.hidden)) return;
+      scanning = true;
       try {
         const { deposits, withdrawals } = await findUncoveredEarnRows();
         if (disposed) return;
-        if (deposits) {
-          const { reconcileEarnDeposits } = await import('./earn');
-          await reconcileEarnDeposits();
-        }
-        if (disposed) return;
-        if (withdrawals) {
-          const { reconcileEarnWithdrawals } = await import('./earn-withdraw');
-          await reconcileEarnWithdrawals();
-        }
-      } catch (err) {
-        console.warn('[earn-intent-watcher] tick failed', err);
+        if (deposits) void runDeposits();
+        if (withdrawals) void runWithdrawals();
+      } catch (error) {
+        console.warn('[earn-intent-watcher] scan failed', error);
       } finally {
-        running.current = false;
+        scanning = false;
       }
     };
 
-    tick();
-    const timer = setInterval(tick, POLL_INTERVAL_MS);
+    void tick();
+    const timer = setInterval(() => {
+      void tick();
+    }, POLL_INTERVAL_MS);
     return () => {
       disposed = true;
       clearInterval(timer);
@@ -63,44 +67,33 @@ export function EarnIntentWatcher(): null {
   return null;
 }
 
-const TERMINAL_DEPOSIT_STATUSES = new Set(['confirmed', 'failed']);
-const TERMINAL_WITHDRAW_PHASES = new Set(['received', 'failed']);
-
-function pendingDepositNonce(
-  status: ITransactionStatus,
-  extraInputs: IEarnDepositExtraInputs | undefined
-): string | undefined {
-  if (status !== ITransactionStatus.Completed) return undefined;
-  if (!extraInputs || TERMINAL_DEPOSIT_STATUSES.has(extraInputs.epochStatus ?? '')) return undefined;
-  return extraInputs.intentNonce || undefined;
-}
-
-function pendingWithdrawNonce(extraInputs: IEarnWithdrawExtraInputs | undefined): { pending: boolean; nonce?: string } {
-  if (!extraInputs?.phase || TERMINAL_WITHDRAW_PHASES.has(extraInputs.phase)) return { pending: false };
-  return { pending: true, nonce: extraInputs.withdrawIntentNonce || undefined };
-}
-
-/**
- * Cheap gate on the reconcile imports: scan Dexie for non-terminal earn rows and
- * report, per side, whether any of them lacks a live poll. A row with an active
- * registry key is already covered; a non-terminal row WITHOUT a nonce (teardown
- * mid-solve) still counts as uncovered so the reconciler can recover or fail it.
- */
 async function findUncoveredEarnRows(): Promise<{ deposits: boolean; withdrawals: boolean }> {
   const Repo = await import('lib/miden/repo');
   const rows = await Repo.transactions
-    .filter(tx => (tx.type === 'earn-deposit' || tx.type === 'earn-withdraw') && tx.restoredFromBackup !== true)
+    .filter(tx => tx.type === 'earn-deposit' || tx.type === 'earn-withdraw')
     .toArray();
 
   let deposits = false;
   let withdrawals = false;
   for (const row of rows) {
     if (row.type === 'earn-deposit') {
-      const nonce = pendingDepositNonce(row.status, row.extraInputs);
-      if (nonce && !isPollActive(earnDepositPollKey(nonce))) deposits = true;
+      const inputs: IEarnDepositExtraInputs | undefined = row.extraInputs;
+      if (row.restoredFromBackup || row.status !== ITransactionStatus.Completed || !inputs?.intentNonce) continue;
+      if (inputs.epochStatus === 'confirmed' || inputs.epochStatus === 'failed') continue;
+      if (!inputs.evmRecipient || !isPollActive(earnDepositPollKey(inputs.evmRecipient, inputs.intentNonce)))
+        deposits = true;
     } else {
-      const { pending, nonce } = pendingWithdrawNonce(row.extraInputs);
-      if (pending && (!nonce || !isPollActive(earnWithdrawPollKey(nonce)))) withdrawals = true;
+      const inputs: IEarnWithdrawExtraInputs | undefined = row.extraInputs;
+      if (inputs?.phase !== 'redeeming' && inputs?.phase !== 'delivering') continue;
+      // Local provenance and TTL repair must run even while an intent has an owner.
+      if (
+        row.restoredFromBackup ||
+        isEarnWithdrawalStale(row) ||
+        !inputs.evmOwner ||
+        !inputs.withdrawIntentNonce ||
+        !isPollActive(earnWithdrawPollKey(inputs.evmOwner, inputs.withdrawIntentNonce))
+      )
+        withdrawals = true;
     }
     if (deposits && withdrawals) break;
   }

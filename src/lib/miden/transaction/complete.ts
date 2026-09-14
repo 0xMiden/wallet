@@ -1,5 +1,11 @@
 import { Note, TransactionResult } from '@miden-sdk/miden-sdk/lazy';
 
+import {
+  matchesEarnDepositIntent,
+  matchesEarnWithdrawIntent,
+  type ExpectedEarnDepositIntent,
+  type ExpectedEarnWithdrawIntent
+} from 'lib/epoch/intent-key';
 import { clearGuardianServiceFor, type GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
 import { MultisigService } from 'lib/miden/guardian';
 import { finalizeDirectGuardianSwitch } from 'lib/miden/guardian/direct-switch';
@@ -8,7 +14,7 @@ import * as Repo from 'lib/miden/repo';
 
 import { recordNoteDelivery, setTransactionStage, updateTransactionStatus } from './helper';
 import { ensureGuardianProcedureThresholds } from './initiate';
-import { takeAgglayerBridgeInInfo, takeBridgeInInfoForNotes } from '../activity/bridge-in';
+import { applyBridgeInInfoForNotes, applyBridgeInToConsumeRow, takeAgglayerBridgeInInfo } from '../activity/bridge-in';
 import { feeFieldsFromResult, splitExecutedOutputNotes } from '../activity/fee';
 import { interpretTransactionResult } from '../activity/helpers';
 import { compareAccountIds } from '../activity/utils';
@@ -264,40 +270,14 @@ export const completeConsumeTransaction = async (id: string, result: Transaction
   // fail the consume itself.
   try {
     const consumedNoteIds = inputNotes.map(inputNote => inputNote.note().id().toString());
-    const bridgeIn =
-      (await takeBridgeInInfoForNotes(consumedNoteIds)) ??
-      (await takeAgglayerBridgeInInfo({
+    const applied = await applyBridgeInInfoForNotes(consumedNoteIds, info => applyBridgeInToConsumeRow(id, info));
+    if (!applied) {
+      const info = await takeAgglayerBridgeInInfo({
         accountId: dbTransaction?.accountId ?? '',
         senderAccountId: sender,
         amount
-      }));
-    if (bridgeIn) {
-      await Repo.transactions.where({ id }).modify(tx => {
-        tx.extraInputs = { ...(tx.extraInputs ?? {}), bridgeIn };
-        tx.displayMessage = 'Bridged from EVM';
       });
-      if (bridgeIn.earnWithdrawTxId) {
-        await updateEarnWithdrawPhase(
-          bridgeIn.earnWithdrawTxId,
-          'received',
-          {
-            midenNoteId: bridgeIn.midenNoteId ?? consumedNoteIds[0],
-            outputSymbol: bridgeIn.sourceSymbol
-          },
-          amount
-        );
-      }
-      if (bridgeIn.bridgeReceiveTxId) {
-        await updateBridgedReceivePhase(
-          bridgeIn.bridgeReceiveTxId,
-          'received',
-          {
-            midenNoteId: bridgeIn.midenNoteId ?? consumedNoteIds[0],
-            outputSymbol: bridgeIn.sourceSymbol
-          },
-          { amount, faucetId, transactionId: executedTransaction.id().toHex() }
-        );
-      }
+      if (info) await applyBridgeInToConsumeRow(id, { ...info, midenNoteId: consumedNoteIds[0] });
     }
   } catch (err) {
     console.warn('[bridge-in] consume tagging failed (non-fatal)', err);
@@ -1043,9 +1023,19 @@ export const completeEarnDepositTransaction = async (tx: EarnDepositTransaction,
 export const updateEarnDepositStatus = async (
   id: string,
   epochStatus: NonNullable<IEarnDepositExtraInputs['epochStatus']>,
-  extra?: Partial<Pick<IEarnDepositExtraInputs, 'evmTxHash' | 'intentNonce' | 'outputAmount' | 'outputSymbol'>>
+  extra?: Partial<Pick<IEarnDepositExtraInputs, 'evmTxHash' | 'intentNonce' | 'outputAmount' | 'outputSymbol'>>,
+  expected?: ExpectedEarnDepositIntent
 ) => {
   await Repo.transactions.where({ id }).modify(tx => {
+    if (
+      expected &&
+      (tx.restoredFromBackup ||
+        tx.status !== ITransactionStatus.Completed ||
+        !matchesEarnDepositIntent(tx, expected) ||
+        tx.extraInputs?.epochStatus === 'confirmed' ||
+        tx.extraInputs?.epochStatus === 'failed')
+    )
+      return;
     const inputs: IEarnDepositExtraInputs = tx.extraInputs;
     tx.extraInputs = { ...inputs, epochStatus, ...(extra ?? {}) };
   });
@@ -1107,9 +1097,15 @@ export const updateEarnWithdrawPhase = async (
   >,
   // Actual delivered amount (base units), patched onto the row when the bridged
   // note is consumed so the history hero reflects what really landed.
-  amount?: bigint
+  amount?: bigint,
+  expected?: ExpectedEarnWithdrawIntent
 ) => {
   await Repo.transactions.where({ id }).modify(tx => {
+    if (
+      expected &&
+      (tx.restoredFromBackup || tx.status !== ITransactionStatus.Completed || !matchesEarnWithdrawIntent(tx, expected))
+    )
+      return;
     const inputs: IEarnWithdrawExtraInputs = tx.extraInputs;
     if (!canAdvanceEarnWithdrawPhase(inputs.phase, phase)) {
       console.warn(`[earn-withdraw] refusing phase downgrade ${inputs.phase} -> ${phase} on ${id}`);
