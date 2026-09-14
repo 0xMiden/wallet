@@ -1630,8 +1630,8 @@ describe('poisoned client recovery', () => {
 
   it('a write taking the lock while a holder is mid-yield shares the client: nothing is marked or freed', async () => {
     // Before #878 a write rebuilt the with-options client under a yielded holder, so
-    // the old one had to be marked and reclaimed later. Now the write declares its
-    // signer on its own hold and shares the realm's one client.
+    // the old one had to be marked and reclaimed later. Now the realm's one client
+    // signs with the realm's installed signer and the write shares it.
     const { mod, free, markPoisoned, create } = await loadIsolated();
     const first = await mod.getMidenClient();
 
@@ -1642,9 +1642,7 @@ describe('poisoned client recovery', () => {
     const yielded = mod.withWasmClientLock(hold => mod.yieldWasmClientLock(() => yieldGate, hold));
     await jest.advanceTimersByTimeAsync(0);
 
-    const second = await mod.withWasmClientLock(() => mod.getMidenClient(), {
-      keystore: { sign: async () => new Uint8Array() }
-    });
+    const second = await mod.withWasmClientLock(() => mod.getMidenClient());
     expect(second).toBe(first);
     expect(create).toHaveBeenCalledTimes(1);
     expect(markPoisoned).not.toHaveBeenCalled();

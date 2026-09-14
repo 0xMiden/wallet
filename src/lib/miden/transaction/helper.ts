@@ -13,18 +13,8 @@ import {
   ITransactionStatus,
   TransactionOutput
 } from '../db/types';
-import { getLastSignReason } from '../sdk/miden-client';
 import { errorMessageParts } from '../sdk/sdk-error-code';
 import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
-
-/**
- * Feature flag: is the offscreen WASM client active? Read as a module constant
- * (mirroring `back/miden-client-proxy.ts`) so a flag-OFF build dead-code-
- * eliminates the flag-on branch of {@link readLastAuthReason}. Defaults ON in
- * the service-worker bundle that runs the transaction loop, OFF elsewhere and
- * hardcoded OFF on mobile — see the defines in the vite configs.
- */
-const USE_OFFSCREEN_CLIENT = process.env.MIDEN_USE_OFFSCREEN_CLIENT === 'true';
 
 // Re-export the sign-callback classification from its leaf home (issue #260,
 // slice 5). It moved to `./sign-callback` to break a `helper ↔ proxy` import
@@ -32,9 +22,7 @@ const USE_OFFSCREEN_CLIENT = process.env.MIDEN_USE_OFFSCREEN_CLIENT === 'true';
 // every existing caller — `import { buildSignCallbackError, ... } from './helper'`
 // / `./index` — unchanged.
 export { buildSignCallbackError, buildSdkSignCallback, type SignCallbackError } from './sign-callback';
-// `SignCallbackReason` is imported locally (used in `readLastAuthReason`'s
-// return type) and re-exported from that local binding to avoid naming it in
-// two separate re-export statements.
+// `SignCallbackReason` is imported locally and re-exported from that binding.
 export type { SignCallbackReason };
 
 /**
@@ -127,9 +115,13 @@ export function isGuardianUnauthorizedExecutionError(error: unknown): boolean {
  * auto-consume cycle retries it after unlock, instead of marking it Failed.
  *
  * Two signals, mirroring `buildSignCallbackError`'s locked classification:
- *   - a `reason: 'locked'` tag (attached by `buildSignCallbackError` or by
- *     the vault-backed guardian provider's null-vault guard), or
- *   - an explicit "locked" / "not initialized" message.
+ *   - a `reason: 'locked'` tag, attached to the write's own rejection by
+ *     `withWasmClientLock` (from the record its sign trampoline keyed by the
+ *     hold) or by `dispatchOffscreenWrite` (from its op-keyed record), through
+ *     `tagLockedSignReason`; the vault-backed guardian provider's null-vault
+ *     guard throws it directly, or
+ *   - an explicit "locked" / "not initialized" message, which is all the SDK
+ *     forwards from a sign callback's throw.
  *
  * Deliberately NARROWER than `buildSignCallbackError`: it does NOT treat a
  * bare `Cannot read properties of null` TypeError as locked. That regex is
@@ -427,29 +419,6 @@ export const clearCancelledInFlight = async (id: string) => {
     tx.cancelledInFlightAt = undefined;
   });
 };
-
-/**
- * The reason the last declared sign callback failed (`locked` / `rejected` / …),
- * used by the transaction loop to DEFER a locked-mid-sign tx instead of Failing
- * it (issue #313 note-loss guard).
- *
- * Read from the lock's own record (`getLastSignReason`, #878), which resets when
- * a hold that declares a signer begins, not from the SDK client's
- * `lastAuthError()`: every write now shares one client, and the SDK's slot clears
- * only on the next SUCCESSFUL sign, so it would hand one write's locked error to
- * the next write that failed before it signed.
- *
- * Invariant (issue #260 flip-prep #2): consult this IFF the SW signed - i.e. the
- * FLAG-OFF (inline) write path. Under the flag-ON offscreen write the sign runs in
- * the OFFSCREEN realm; the SW never signed for that op, so this returns
- * `undefined` and the loop relies solely on the op-keyed error tag
- * (`isLockedError(e)`, set by `dispatchOffscreenWrite` when the reverse-IPC sign
- * reported 'locked').
- */
-export async function readLastAuthReason(): Promise<SignCallbackReason | undefined> {
-  if (USE_OFFSCREEN_CLIENT) return undefined;
-  return getLastSignReason();
-}
 
 // Timeout for waiting on consume transactions (5 minutes)
 const WAIT_FOR_CONSUME_TX_TIMEOUT = 5 * 60_000;

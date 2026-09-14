@@ -1,3 +1,5 @@
+import type { GetKeyCallback, InsertKeyCallback, SignCallback } from '@miden-sdk/miden-sdk/lazy';
+
 // This import must stay ABOVE the `./miden-client-interface` one: that import
 // forms a cycle (via `speculation-manager`), and the poison bindings this
 // module's own body reads — the three ceilings in `armWatchdogFor`, the error
@@ -10,7 +12,7 @@ import {
   WasmClientPoisonedError,
   bumpWasmClientGeneration
 } from './wasm-client-poison';
-import type { SignCallbackReason } from '../transaction/sign-callback';
+import { tagLockedSignReason, type SignCallbackReason } from '../transaction/sign-callback';
 // eslint-disable-next-line import/order -- must load AFTER wasm-client-poison (TDZ safety, see above)
 import { MidenClientInterface, MidenClientCreateOptions } from './miden-client-interface';
 
@@ -201,13 +203,6 @@ interface LockHolder {
    * a convention every call site has to remember.
    */
   normalCeilingMs: number;
-  /**
-   * The SDK keystore callbacks this hold's WASM calls may trigger (#878). The
-   * realm's one client hands the SDK trampolines that route every keystore call
-   * to the CURRENT holder's callbacks, so a write no longer needs a client of its
-   * own: declaring a signer here is what `getMidenClient(options)` used to be.
-   */
-  keystore: HoldKeystore | null;
   /**
    * Who took this hold, for the eviction record. The watchdog fires rarely, in the
    * field, on a device whose console nobody can read live — and by now a dozen
@@ -740,7 +735,7 @@ function startPausedSegment(holder: LockHolder): void {
  * out of range no matter which call site (or which future one) supplies it —
  * see {@link resolveNormalCeilingMs} for what an unchecked value breaks.
  */
-function beginHold(requestedCeilingMs?: number, label?: string, keystore?: HoldKeystore): LockHolder {
+function beginHold(requestedCeilingMs?: number, label?: string): LockHolder {
   let abort!: (err: Error) => void;
   const aborted = new Promise<never>((_, reject) => {
     abort = reject;
@@ -758,7 +753,6 @@ function beginHold(requestedCeilingMs?: number, label?: string, keystore?: HoldK
     pausedGraceUsed: false,
     normalCeilingMs: resolveNormalCeilingMs(requestedCeilingMs),
     label: label ?? null,
-    keystore: keystore ?? null,
     abort,
     aborted
   };
@@ -781,7 +775,6 @@ function beginHold(requestedCeilingMs?: number, label?: string, keystore?: HoldK
     displaced.watchdogTimer = null;
     displaced.abort(new WasmClientPoisonedError('realm-error', new Error('displaced by a second lock holder')));
   }
-  if (keystore?.sign) lastSignReason = undefined;
   armWatchdogFor(holder);
   currentHolder = holder;
   return holder;
@@ -859,6 +852,130 @@ function recoverFromWedgedHolder(holder: LockHolder, reason: 'watchdog' | 'realm
 }
 
 /**
+ * The SDK keystore callbacks this realm's one client may be asked for (#878):
+ * `sign` from inside a write's `executeTransaction`, `insertKey` from an account
+ * creation or import. Two lifecycles: `Actions.init` installs the signer once
+ * in every realm that writes; the insert-key slot is mutable, installed by each
+ * vault when it takes its key, re-derived from the store when the flow that
+ * constructed a vault ends, and retired by identity on lock. The SDK's third
+ * callback, `getKey`, has no installer: secrets live in the vault and the SDK
+ * signs through `sign`, so the client is built with `refuseGetKey`. The offscreen
+ * document builds its own client with its reverse-IPC signer and never touches
+ * this. Byte-shaped, as the SDK calls them: `buildSdkSignCallback` wraps the raw
+ * hex signer.
+ */
+export interface RealmKeystore {
+  sign: SignCallback | null;
+  insertKey: InsertKeyCallback | null;
+}
+
+const realmKeystore: RealmKeystore = { sign: null, insertKey: null };
+
+/**
+ * A number per insert-key sink, assigned on first sight and never retaining the
+ * sink (each closes over a vault's key). A retired client's late insert is judged
+ * by the installed sink's id rather than by the object, so the singleton holds
+ * no closure past the vault's lock, and the same vault's sink put back (the
+ * store's resync) still counts as the same sink (#878).
+ */
+const insertKeySinkIds = new WeakMap<InsertKeyCallback, number>();
+let nextInsertKeySinkId = 1;
+function sinkIdOf(sink: InsertKeyCallback): number {
+  let id = insertKeySinkIds.get(sink);
+  if (id === undefined) {
+    id = nextInsertKeySinkId++;
+    insertKeySinkIds.set(sink, id);
+  }
+  return id;
+}
+
+/** The id of the installed insert-key sink, or null when none is. */
+let realmInsertKeySinkId: number | null = null;
+
+const refuseGetKey: GetKeyCallback = async () => {
+  throw new Error(
+    'getKey is not served by this realm: secrets live in the vault and the SDK signs through the sign callback'
+  );
+};
+
+/** Install (or with `null`, clear) the realm's keystore callbacks; a field left out is untouched. */
+export function installRealmKeystore(callbacks: Partial<RealmKeystore>): void {
+  if (callbacks.sign !== undefined) realmKeystore.sign = callbacks.sign;
+  if (callbacks.insertKey !== undefined) {
+    realmKeystore.insertKey = callbacks.insertKey;
+    realmInsertKeySinkId = callbacks.insertKey ? sinkIdOf(callbacks.insertKey) : null;
+  }
+  logRealmKeystoreSlots('installRealmKeystore', callbacks);
+}
+
+/**
+ * A slot transition has no error to carry a record, so each leaves one line:
+ * the slots the call named and the state after it (an id, never a key).
+ */
+function logRealmKeystoreSlots(call: string, callbacks: Partial<RealmKeystore>): void {
+  console.log(`[miden-client] ${call}:`, {
+    slots: Object.keys(callbacks).join(','),
+    sign: realmKeystore.sign ? 'installed' : 'none',
+    insertKeySinkId: realmInsertKeySinkId
+  });
+}
+
+/**
+ * Whether each callback given is the one installed, compared by identity, the
+ * same test `uninstallRealmKeystore` applies. A vault asserts this for its
+ * insert-key sink first inside every hold in which it inserts: a lock that
+ * landed while the write waited retired the sink, and the write must refuse
+ * before any irreversible step.
+ */
+export function isRealmKeystoreInstalled(callbacks: Partial<RealmKeystore>): boolean {
+  return (
+    (callbacks.sign === undefined || realmKeystore.sign === callbacks.sign) &&
+    (callbacks.insertKey === undefined || realmKeystore.insertKey === callbacks.insertKey)
+  );
+}
+
+/**
+ * Remove the given callbacks, each only if it is the one installed: a vault
+ * retiring its insert-key sink must not clear the sink a newer vault installed
+ * while it was being locked (#878).
+ */
+export function uninstallRealmKeystore(callbacks: Partial<RealmKeystore>): void {
+  if (callbacks.sign !== undefined && realmKeystore.sign === callbacks.sign) realmKeystore.sign = null;
+  if (callbacks.insertKey !== undefined && realmKeystore.insertKey === callbacks.insertKey) {
+    realmKeystore.insertKey = null;
+    realmInsertKeySinkId = null;
+  }
+  logRealmKeystoreSlots('uninstallRealmKeystore', callbacks);
+}
+
+/**
+ * Why a sign failed, keyed by the lock hold current when the SDK asked for it: the
+ * mutex holder is the only flow inside a WASM call, so the hold IS the operation.
+ * `withWasmClientLock` carries the reason out on that hold's own rejection
+ * (`tagLockedSignReason`, the same tag the offscreen path sets per op) and the
+ * transaction loop reads only the error (issue #313: a wallet locked mid-sign
+ * DEFERS the write). Nothing is ambient: a dry run, a speculation, or an evicted
+ * client's late rejection records under its own hold, which no other flow reads,
+ * so no write can inherit another's reason (issue #260's rule, which a realm-wide
+ * slot broke twice under review). Cleared at the next attempt under the same hold,
+ * so a later sign that succeeds leaves nothing for the hold's rejection to carry.
+ */
+const signReasonByHold = new WeakMap<WasmLockHold, SignCallbackReason>();
+
+function takeSignReason(hold: WasmLockHold): SignCallbackReason | undefined {
+  const reason = signReasonByHold.get(hold);
+  signReasonByHold.delete(hold);
+  return reason;
+}
+
+function signReasonOf(err: unknown): SignCallbackReason | undefined {
+  const reason = typeof err === 'object' && err !== null && 'reason' in err ? err.reason : undefined;
+  return reason === 'locked' || reason === 'rejected' || reason === 'not_found' || reason === 'internal'
+    ? reason
+    : undefined;
+}
+
+/**
  * Options for {@link withWasmClientLock}.
  *
  * `watchdogMs` tightens THIS hold's normal watchdog ceiling below
@@ -874,45 +991,10 @@ function recoverFromWedgedHolder(holder: LockHolder, reason: 'watchdog' | 'realm
  *
  * The value is CLAMPED, never trusted — see `resolveNormalCeilingMs`.
  */
-/**
- * The SDK keystore callbacks a lock hold declares (#878): `sign` for a write
- * (the SDK signs from inside `executeTransaction`), `insertKey` for an account
- * creation or import (the SDK hands the new secret to the wallet to persist).
- * Byte-shaped, as the SDK calls them - `buildSdkSignCallback` wraps a raw hex
- * signer.
- */
-export interface HoldKeystore {
-  sign?: (publicKey: Uint8Array, signingInputs: Uint8Array) => Promise<Uint8Array>;
-  insertKey?: (key: Uint8Array, secretKey: Uint8Array) => void | Promise<void>;
-}
-
-/**
- * Why the most recent declared sign callback threw, for the transaction loop's
- * "defer a locked-mid-sign write instead of failing it" decision (issue #313).
- * Reset whenever a hold that declares a signer begins, so it can only ever
- * describe the latest signing hold: the SDK's own `lastAuthError()` clears only
- * on the next SUCCESSFUL sign, and on a client shared by every write it would
- * hand one write's locked error to the next write that failed before signing.
- */
-let lastSignReason: SignCallbackReason | undefined;
-
-export function getLastSignReason(): SignCallbackReason | undefined {
-  return lastSignReason;
-}
-
-function signReasonOf(err: unknown): SignCallbackReason | undefined {
-  const reason = typeof err === 'object' && err !== null && 'reason' in err ? err.reason : undefined;
-  return reason === 'locked' || reason === 'rejected' || reason === 'not_found' || reason === 'internal'
-    ? reason
-    : undefined;
-}
-
 export interface WasmClientLockOptions {
   watchdogMs?: number;
   /** Names this hold in the eviction record — see `LockHolder.label`. */
   label?: string;
-  /** The keystore callbacks this hold's WASM calls may trigger - see `HoldKeystore`. */
-  keystore?: HoldKeystore;
 }
 
 /**
@@ -972,7 +1054,7 @@ export async function withWasmClientLock<T>(
   options?: WasmClientLockOptions
 ): Promise<T> {
   await wasmClientMutex.acquire();
-  const holder = beginHold(options?.watchdogMs, options?.label, options?.keystore);
+  const holder = beginHold(options?.watchdogMs, options?.label);
   try {
     const running = operation(holder);
     holder.running = running;
@@ -982,6 +1064,12 @@ export async function withWasmClientLock<T>(
     // innocent successor. Park a no-op handler so the abandonment is silent.
     running.catch(() => {});
     return await Promise.race([running, holder.aborted]);
+  } catch (err) {
+    // A locked vault reported by this hold's sign rides out on the hold's own
+    // rejection, the one tag `isLockedError` reads; keyed by the hold, so no other
+    // operation can inherit it (#878).
+    tagLockedSignReason(err, takeSignReason(holder));
+    throw err;
   } finally {
     if (endHold(holder)) {
       wasmClientMutex.release();
@@ -1037,7 +1125,7 @@ export async function tryWithWasmClientLock<T>(
   // busy is the one that most needs one: the window it DOES win is the instant an
   // eviction released the mutex, when the client slot is empty and its own read has
   // to rebuild against the node that just parked (#777).
-  const holder = beginHold(options?.watchdogMs, options?.label, options?.keystore);
+  const holder = beginHold(options?.watchdogMs, options?.label);
   try {
     const running = operation(holder);
     holder.running = running;
@@ -1279,11 +1367,11 @@ export function runWhenClientIdle(operation: () => Promise<void>): void {
  * disposed and rebuilt on every call so the SDK keystore could carry that
  * write's sign callback, and in 0.16 nothing releases a client built in this
  * realm, so every signed write stranded a wasm-bindgen client and an IndexedDB
- * connection. The keystore callbacks are declared on the LOCK HOLD instead
- * (`WasmClientLockOptions.keystore`), and this client's SDK keystore holds
- * trampolines that route each call to the current holder. The client is
- * replaced only by a generation bump: trap recovery (`poisonAllInstances`) or an
- * endpoint change (`disposeAllInstances`), never by a write.
+ * connection. The keystore callbacks live in realm slots instead
+ * (`installRealmKeystore`), and this client's SDK keystore holds trampolines
+ * that route each call to them. The client is replaced only by a generation
+ * bump: trap recovery (`poisonAllInstances`) or an endpoint change
+ * (`disposeAllInstances`), never by a write.
  */
 class MidenClientSingleton {
   private instance: MidenClientInterface | null = null;
@@ -1301,6 +1389,29 @@ class MidenClientSingleton {
    * whoever holds the mutex now.
    */
   private generation = 0;
+  /**
+   * The cell the build in the slot (installed or initializing) carries in its
+   * trampolines, stamped with the installed insert-key sink's id when that build
+   * is retired. An account write evicted mid-flow keeps running and may still
+   * ask for its key insert: the SDK has persisted the account by then, and an
+   * account without its secret cannot sign and cannot be repaired later, so the
+   * insert LANDS as long as the installed sink is the one its build was retired
+   * against, the same vault's, whether untouched, reinstalled, or put back by the
+   * store's resync. Another vault's sink, a cleared slot, or an unstamped cell (a
+   * build that was never in the slot) refuses: a secret under another vault's key
+   * is worse than a missing one. One cell per build, by construction: a creation
+   * starts only when the slot is empty, so a later retirement can never
+   * re-authorize an older client against a newer vault; numbers only, so no sink
+   * closure (and no vault key) is retained; collected with the client (#878).
+   */
+  private retiringBuild: { sinkId?: number | null } | null = null;
+
+  /** Retire the build in the slot: stamp its cell with the installed sink's id, and start the next generation. */
+  private retireGeneration(): void {
+    if (this.retiringBuild) this.retiringBuild.sinkId = realmInsertKeySinkId;
+    this.retiringBuild = null;
+    this.generation++;
+  }
 
   /** Get or create the realm's client; see the class doc for when it is replaced. */
   async getInstance(): Promise<MidenClientInterface> {
@@ -1348,37 +1459,69 @@ class MidenClientSingleton {
   }
 
   /**
-   * The SDK keystore callbacks for a client built at `generationAtBuild`. Each
-   * routes to the callbacks the CURRENT hold declared (`WasmClientLockOptions.keystore`),
-   * which is sound because only the mutex holder runs WASM: a flow suspended
-   * mid-yield is not executing, and an evicted flow's client was marked or
-   * disposed before the mutex was released, so the generation check refuses it
-   * before the routing could hand its sign to the successor's signer. A hold that
-   * declared no callback and triggers one is a programming error, named as such.
+   * The SDK keystore callbacks for a client built at `generationAtBuild`, routing
+   * to the realm's installed callbacks (`installRealmKeystore`). Three behaviours
+   * once the client has been replaced (an evicted flow's client is marked or
+   * disposed before the mutex is released): a sign is refused, so an abandoned
+   * write cannot gain a signature it could still submit; an insert lands only
+   * against the sink its build was retired with (`retiringBuild`), because the
+   * SDK has persisted the account by the time it asks; getKey is refused by
+   * name on every client, since nothing installs it. A call before the realm
+   * installed the callback is a wiring error, named as such.
    */
   private keystoreTrampolines(
     generationAtBuild: number
-  ): Pick<MidenClientCreateOptions, 'signCallback' | 'insertKeyCallback'> {
-    const declared = <K extends keyof HoldKeystore>(kind: K): NonNullable<HoldKeystore[K]> => {
+  ): Pick<MidenClientCreateOptions, 'signCallback' | 'insertKeyCallback' | 'getKeyCallback'> {
+    const retirement: { sinkId?: number | null } = {};
+    this.retiringBuild = retirement;
+    const installed = <K extends keyof RealmKeystore>(kind: K): NonNullable<RealmKeystore[K]> => {
       if (generationAtBuild !== this.generation) {
+        // Logged here: the poison message is a closed set, and a keystore callback's
+        // throw crosses the SDK boundary as its message alone, so nothing else names
+        // the kind or the generations.
+        console.warn(
+          `[miden-client] ${kind} refused: the WASM client was replaced (built at generation ${generationAtBuild}, now ${this.generation})`
+        );
         throw new WasmClientPoisonedError('watchdog', new Error(`${kind} requested on a replaced WASM client`));
       }
-      const callback = currentHolder?.keystore?.[kind];
+      const callback = realmKeystore[kind];
       if (!callback) {
-        throw new Error(`${kind} requested by a WASM call whose lock hold declared no ${kind} callback`);
+        throw new Error(`no ${kind} callback installed in this realm - see installRealmKeystore`);
       }
       return callback;
     };
     return {
       signCallback: async (publicKey, signingInputs) => {
+        // Resolved before anything is recorded: a call this client refuses (a
+        // replaced client's late sign, a missing install) must not touch the
+        // record of whoever holds the lock now.
+        const sign = installed('sign');
+        const holder = currentHolder;
+        if (holder) signReasonByHold.delete(holder);
         try {
-          return await declared('sign')(publicKey, signingInputs);
+          return await sign(publicKey, signingInputs);
         } catch (err) {
-          lastSignReason = signReasonOf(err);
+          const reason = signReasonOf(err);
+          if (holder && reason) signReasonByHold.set(holder, reason);
           throw err;
         }
       },
-      insertKeyCallback: async (key, secretKey) => declared('insertKey')(key, secretKey)
+      insertKeyCallback: async (key, secretKey) => {
+        if (generationAtBuild === this.generation) return installed('insertKey')(key, secretKey);
+        // A replaced client: see `retiringBuild`.
+        const sink = realmKeystore.insertKey;
+        if (!sink || retirement.sinkId == null || retirement.sinkId !== realmInsertKeySinkId) {
+          console.warn(
+            `[miden-client] insertKey refused: the WASM client was replaced (built at generation ${generationAtBuild}, now ${this.generation}) and the realm sink changed since`
+          );
+          throw new WasmClientPoisonedError(
+            'watchdog',
+            new Error('insertKey requested on a replaced WASM client after the realm sink changed')
+          );
+        }
+        return sink(key, secretKey);
+      },
+      getKeyCallback: refuseGetKey
     };
   }
 
@@ -1438,9 +1581,9 @@ class MidenClientSingleton {
    */
   disposeAllInstances(): void {
     bumpWasmClientGeneration();
-    this.generation++;
+    this.retireGeneration();
     if (this.instance) {
-      // Routed through the same retirement path as the with-options slot. An
+      // Routed through the retirement path the poison paths use. An
       // endpoint change takes the mutex, which a holder suspended mid-yield does
       // NOT hold — so this reset could reach a straight `free()` while that flow
       // still had the instance in hand, the one path left violating the
@@ -1449,7 +1592,7 @@ class MidenClientSingleton {
       this.instance = null;
     }
     // Null unconditionally, not just inside the `this.instance` guard above: if a
-    // no-options `getInstance()` creation is in flight, `this.instance` is still null
+    // `getInstance()` creation is in flight, `this.instance` is still null
     // here (the guard above never runs) but `initializingPromise` is a pending promise
     // that a subsequent `getInstance()` call would otherwise return as-is — repopulating
     // `this.instance` with a client built against the pre-reload override once that
@@ -1483,7 +1626,7 @@ class MidenClientSingleton {
    */
   poisonAllInstances(): MidenClientInterface[] {
     bumpWasmClientGeneration();
-    this.generation++;
+    this.retireGeneration();
     const poisoned = this.instance ? [this.instance] : [];
     for (const client of poisoned) client.markPoisoned();
     this.instance = null;
@@ -1514,9 +1657,9 @@ ensureRealmErrorListener();
 
 /**
  * The realm's shared `MidenClientInterface`. Use this instead of
- * `MidenClientInterface.create()`. A write declares its sign callback on its lock
- * hold (`WasmClientLockOptions.keystore`), an account creation or import its
- * insert-key callback; the client itself is never rebuilt for a call (#878).
+ * `MidenClientInterface.create()`. Its SDK keystore routes to the callbacks the
+ * realm installed (`installRealmKeystore`); the client is never rebuilt for a
+ * call (#878).
  */
 export async function getMidenClient(): Promise<MidenClientInterface> {
   return midenClientSingleton.getInstance();

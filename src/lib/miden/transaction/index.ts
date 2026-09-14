@@ -60,7 +60,6 @@ import {
   isGuardianUnauthorizedExecutionError,
   isLockedError,
   markMayHaveSubmitted,
-  readLastAuthReason,
   setTransactionStage,
   updateTransactionStatus
 } from './helper';
@@ -102,9 +101,9 @@ import {
   assertWasmHoldCurrent,
   getCurrentWasmLockHold,
   getMidenClient,
+  type WasmLockHold,
   withWasmClientLock,
-  withWasmLockWatchdogPaused,
-  type WasmLockHold
+  withWasmLockWatchdogPaused
 } from '../sdk/miden-client';
 import { getRealmReaderClient, remoteProver, withDelegatedProveTimeout } from '../sdk/miden-client-interface';
 import { buildNativeProverCallback } from '../sdk/native-prover-mobile';
@@ -1344,7 +1343,7 @@ export const generateTransaction = async (
   // killable. `consume` (slice 5a), `send`/`swap`/`execute` (slice 5b), and now
   // `bridged-send`/`earn-deposit` (slice 7b) all share this. Each proxy method's
   // flag-OFF path is BYTE-IDENTICAL to the inline switch it replaced (same
-  // `withWasmClientLock`, same `getMidenClient()` under a hold declaring the same signer,
+  // `withWasmClientLock`, same `getMidenClient()` and the realm's installed signer,
   // same underlying `sendTransaction`/`newTransaction`), so production is unchanged.
   // The proxy owns its own per-flag locking, so these are NOT wrapped in a caller
   // lock here (flag-on must not hold the SW WASM lock across the whole offscreen op —
@@ -1670,141 +1669,126 @@ const runGuardianPipeline = async (
   accountId: string,
   tr: TransactionRequest,
   delegateTransaction: boolean | undefined,
-  signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>,
   setStage: (stage: ITransactionStage) => Promise<void>,
   chainAnchorB64?: string
 ): Promise<TransactionResult> => {
-  // The signer this write declares on its hold (#878): the SDK signs from inside
-  // `executeRequest`, and the realm's one client routes that to the current hold.
-  const sign = async (publicKey: Uint8Array, signingInputs: Uint8Array) => {
-    const keyString = Buffer.from(publicKey).toString('hex');
-    const signingInputsString = Buffer.from(signingInputs).toString('hex');
-    return await signCallback(keyString, signingInputsString);
-  };
-
-  // MidenClient handles the full pipeline (execute → prove → submit → apply).
-  return withWasmClientLock(
-    async hold => {
-      const midenClient = await getMidenClient();
-      // The client build can be the LONGEST parking await in this hold - a first
-      // build's genesis fetch goes to the same node everything else here is waiting
-      // on. The offscreen copy of this pipeline checks the hold right after its own
-      // build for that reason; this copy is otherwise covered only incidentally,
-      // because a poison bumps the singleton's generation and hands a raced build
-      // back terminated. Re-deriving it here makes the guarantee local.
-      //
-      // AFTER the stage write, not before it. `setTransactionStage` awaits a Dexie
-      // `modify`, so it parks too, and a guard on its far side covers the build and
-      // the write both — an eviction is monotonic (a hold that stops being current
-      // never becomes current again), so the later check strictly subsumes the
-      // earlier one. Checked before the write, the very next statement was a WASM
-      // deserialize on whatever the eviction had since handed to a successor.
-      await setStage('executing');
-      assertStillHoldingLock(hold, 'after the client build and the executing stage write');
-      // #784: execute AT the proposal's anchored reference block, not the current
-      // sync height. The co-signatures were collected over a summary that binds
-      // that block's commitment (protocol 0.16), so an unanchored execute after
-      // the chain advanced derives a different summary and the kernel rejects the
-      // transaction as unauthorized. Decoded in-realm from the wire-form base64
-      // (`ChainAnchor.deserialize` re-validates header/chain consistency); freed
-      // as soon as executeRequest is done with it — the rest of the pipeline
-      // never touches it.
-      let anchor: ChainAnchor | undefined;
-      let executedTx;
+  // MidenClient handles the full pipeline (execute → prove → submit → apply). The
+  // sign inside `executeRequest` reaches the realm's installed signer (#878).
+  return withWasmClientLock(async hold => {
+    const midenClient = await getMidenClient();
+    // The client build can be the LONGEST parking await in this hold - a first
+    // build's genesis fetch goes to the same node everything else here is waiting
+    // on. The offscreen copy of this pipeline checks the hold right after its own
+    // build for that reason; this copy is otherwise covered only incidentally,
+    // because a poison bumps the singleton's generation and hands a raced build
+    // back terminated. Re-deriving it here makes the guarantee local.
+    //
+    // AFTER the stage write, not before it. `setTransactionStage` awaits a Dexie
+    // `modify`, so it parks too, and a guard on its far side covers the build and
+    // the write both — an eviction is monotonic (a hold that stops being current
+    // never becomes current again), so the later check strictly subsumes the
+    // earlier one. Checked before the write, the very next statement was a WASM
+    // deserialize on whatever the eviction had since handed to a successor.
+    await setStage('executing');
+    assertStillHoldingLock(hold, 'after the client build and the executing stage write');
+    // #784: execute AT the proposal's anchored reference block, not the current
+    // sync height. The co-signatures were collected over a summary that binds
+    // that block's commitment (protocol 0.16), so an unanchored execute after
+    // the chain advanced derives a different summary and the kernel rejects the
+    // transaction as unauthorized. Decoded in-realm from the wire-form base64
+    // (`ChainAnchor.deserialize` re-validates header/chain consistency); freed
+    // as soon as executeRequest is done with it — the rest of the pipeline
+    // never touches it.
+    let anchor: ChainAnchor | undefined;
+    let executedTx;
+    try {
+      anchor = chainAnchorB64 ? ChainAnchor.deserialize(b64ToU8(chainAnchorB64)) : undefined;
+      executedTx = await midenClient.client.transactions.executeRequest(accountId, tr, anchor ? { anchor } : undefined);
+    } finally {
+      freeChainAnchor(anchor);
+    }
+    // Same pre-submit checks as the offscreen copy of this pipeline: an eviction
+    // during `executeRequest` (a network round trip on the normal ceiling) abandons
+    // this callback instead of stopping it, and mobile/desktop run THIS copy — the
+    // platform #777 was reported on.
+    await setStage('proving');
+    assertStillHoldingLock(hold, 'before proving');
+    let provenTx;
+    if (!delegateTransaction) {
+      // Local (non-delegated) proving. The guardian pipeline drives the raw
+      // client directly, whose default local prover is the single-threaded
+      // WASM one — which on iOS WKWebView runs on the main thread and freezes
+      // the UI for the whole multi-second prove. Route to the native Rust
+      // prover on mobile (off the main thread via @miden/native-prover),
+      // exactly like `proveWithFallback`'s localProverFactory and the
+      // delegated fallback below; WASM local prover elsewhere.
+      const localProver = isMobile()
+        ? TransactionProver.newCallbackProver(buildNativeProverCallback())
+        : TransactionProver.newLocalProver();
+      // Local proving is deliberately unbounded — pause the lock watchdog for
+      // its duration, exactly like proveWithFallback's local attempts (#775).
+      provenTx = await withWasmLockWatchdogPaused(() => executedTx.prove({ prover: localProver }), hold);
+    } else {
+      // Delegated (remote) proving. The client's default prover is the remote
+      // gRPC prover on every platform, and its ~10s deadline is too tight for a
+      // heavyweight guardian multisig proof when the machine is under load — a
+      // single "Deadline expired" used to kill the whole co-signed transaction
+      // (surfacing as the guardian 409 canonicalize-conflict retry loop and a
+      // claim timeout), because the guardian pipeline drives the raw client
+      // directly and had none of the local fallback the non-guardian path gets
+      // for free from `proveWithFallback`. Give it that resilience: on remote
+      // failure — or on a remote that never answers at all, which is a stall the
+      // bare await could not see (see `withDelegatedProveTimeout`) — re-prove the
+      // SAME executed tx locally. Re-proving is safe
+      // because `proveTransaction` borrows the executed result (only the prover
+      // is consumed, and each attempt passes a fresh one). The local prover
+      // mirrors `proveWithFallback`: the native Rust prover on mobile (WASM
+      // proving isn't viable in iOS WKWebView), the WASM local prover elsewhere.
       try {
-        anchor = chainAnchorB64 ? ChainAnchor.deserialize(b64ToU8(chainAnchorB64)) : undefined;
-        executedTx = await midenClient.client.transactions.executeRequest(
-          accountId,
-          tr,
-          anchor ? { anchor } : undefined
+        // Safe to bound here in the strongest sense available: this pipeline drives
+        // execute/prove/submit itself, so the deadline provably expires BEFORE any
+        // submit and the local re-prove cannot broadcast twice.
+        // Explicit remote prover rather than `prove({})`: the empty form selects the
+        // SDK's default-prover fallback, which "requires an initialized client" and so
+        // never dispatches from a prover-only realm — the write then hangs until the
+        // deadline below rather than proving in seconds (#718).
+        const delegatedProver = remoteProver();
+        provenTx = await withDelegatedProveTimeout(
+          executedTx.prove(delegatedProver ? { prover: delegatedProver } : {}),
+          'Delegated guardian prove'
         );
-      } finally {
-        freeChainAnchor(anchor);
-      }
-      // Same pre-submit checks as the offscreen copy of this pipeline: an eviction
-      // during `executeRequest` (a network round trip on the normal ceiling) abandons
-      // this callback instead of stopping it, and mobile/desktop run THIS copy — the
-      // platform #777 was reported on.
-      await setStage('proving');
-      assertStillHoldingLock(hold, 'before proving');
-      let provenTx;
-      if (!delegateTransaction) {
-        // Local (non-delegated) proving. The guardian pipeline drives the raw
-        // client directly, whose default local prover is the single-threaded
-        // WASM one — which on iOS WKWebView runs on the main thread and freezes
-        // the UI for the whole multi-second prove. Route to the native Rust
-        // prover on mobile (off the main thread via @miden/native-prover),
-        // exactly like `proveWithFallback`'s localProverFactory and the
-        // delegated fallback below; WASM local prover elsewhere.
-        const localProver = isMobile()
+      } catch (proveError) {
+        // The delegated prove was the longest parking await in this hold, and the
+        // fallback below is a WASM call on `executedTx` — an object borrowed from
+        // the client's RefCell. If the watchdog evicted us while the delegated
+        // prove was parked, this catch runs on an abandoned callback and the local
+        // re-prove is a second borrow of a client a successor now owns. The
+        // eviction outranks the prove failure as the reason to stop, so it is
+        // checked before the fallback rather than only after it. Still pre-submit.
+        assertStillHoldingLock(hold, 'before the local prove fallback');
+        console.warn('Delegated guardian prove failed; retrying with local prover', proveError);
+        const fallbackProver = isMobile()
           ? TransactionProver.newCallbackProver(buildNativeProverCallback())
           : TransactionProver.newLocalProver();
-        // Local proving is deliberately unbounded — pause the lock watchdog for
-        // its duration, exactly like proveWithFallback's local attempts (#775).
-        provenTx = await withWasmLockWatchdogPaused(() => executedTx.prove({ prover: localProver }), hold);
-      } else {
-        // Delegated (remote) proving. The client's default prover is the remote
-        // gRPC prover on every platform, and its ~10s deadline is too tight for a
-        // heavyweight guardian multisig proof when the machine is under load — a
-        // single "Deadline expired" used to kill the whole co-signed transaction
-        // (surfacing as the guardian 409 canonicalize-conflict retry loop and a
-        // claim timeout), because the guardian pipeline drives the raw client
-        // directly and had none of the local fallback the non-guardian path gets
-        // for free from `proveWithFallback`. Give it that resilience: on remote
-        // failure — or on a remote that never answers at all, which is a stall the
-        // bare await could not see (see `withDelegatedProveTimeout`) — re-prove the
-        // SAME executed tx locally. Re-proving is safe
-        // because `proveTransaction` borrows the executed result (only the prover
-        // is consumed, and each attempt passes a fresh one). The local prover
-        // mirrors `proveWithFallback`: the native Rust prover on mobile (WASM
-        // proving isn't viable in iOS WKWebView), the WASM local prover elsewhere.
-        try {
-          // Safe to bound here in the strongest sense available: this pipeline drives
-          // execute/prove/submit itself, so the deadline provably expires BEFORE any
-          // submit and the local re-prove cannot broadcast twice.
-          // Explicit remote prover rather than `prove({})`: the empty form selects the
-          // SDK's default-prover fallback, which "requires an initialized client" and so
-          // never dispatches from a prover-only realm — the write then hangs until the
-          // deadline below rather than proving in seconds (#718).
-          const delegatedProver = remoteProver();
-          provenTx = await withDelegatedProveTimeout(
-            executedTx.prove(delegatedProver ? { prover: delegatedProver } : {}),
-            'Delegated guardian prove'
-          );
-        } catch (proveError) {
-          // The delegated prove was the longest parking await in this hold, and the
-          // fallback below is a WASM call on `executedTx` — an object borrowed from
-          // the client's RefCell. If the watchdog evicted us while the delegated
-          // prove was parked, this catch runs on an abandoned callback and the local
-          // re-prove is a second borrow of a client a successor now owns. The
-          // eviction outranks the prove failure as the reason to stop, so it is
-          // checked before the fallback rather than only after it. Still pre-submit.
-          assertStillHoldingLock(hold, 'before the local prove fallback');
-          console.warn('Delegated guardian prove failed; retrying with local prover', proveError);
-          const fallbackProver = isMobile()
-            ? TransactionProver.newCallbackProver(buildNativeProverCallback())
-            : TransactionProver.newLocalProver();
-          provenTx = await withWasmLockWatchdogPaused(() => executedTx.prove({ prover: fallbackProver }), hold);
-        }
+        provenTx = await withWasmLockWatchdogPaused(() => executedTx.prove({ prover: fallbackProver }), hold);
       }
-      // Deliberately AFTER the stage write, not before it. Stamping 'submitting'
-      // turns into `markMayHaveSubmitted`, and on an eviction that record is wanted:
-      // the abandoned callback keeps running and can still reach `submit()`, so a
-      // row that throws here must carry the crossing rather than look never-
-      // broadcast to Retry. `abandonCandidate` re-derives the same conclusion from
-      // the error shape, and exempts only the stages that are provably pre-WRITE;
-      // checking before the write would drop this pipeline's own record of it.
-      //
-      // Still pre-submit as to the BROADCAST — that is the next line — so throwing
-      // here cannot orphan a transaction the network has seen.
-      await setStage('submitting');
-      assertStillHoldingLock(hold, 'before submit');
-      const submittedTx = await provenTx.submit();
-      await submittedTx.apply();
-      return executedTx.result;
-    },
-    { keystore: { sign } }
-  );
+    }
+    // Deliberately AFTER the stage write, not before it. Stamping 'submitting'
+    // turns into `markMayHaveSubmitted`, and on an eviction that record is wanted:
+    // the abandoned callback keeps running and can still reach `submit()`, so a
+    // row that throws here must carry the crossing rather than look never-
+    // broadcast to Retry. `abandonCandidate` re-derives the same conclusion from
+    // the error shape, and exempts only the stages that are provably pre-WRITE;
+    // checking before the write would drop this pipeline's own record of it.
+    //
+    // Still pre-submit as to the BROADCAST — that is the next line — so throwing
+    // here cannot orphan a transaction the network has seen.
+    await setStage('submitting');
+    assertStillHoldingLock(hold, 'before submit');
+    const submittedTx = await provenTx.submit();
+    await submittedTx.apply();
+    return executedTx.result;
+  });
 };
 
 // Route a value-moving guardian leaf offscreen only when the offscreen client is
@@ -2013,7 +1997,6 @@ const generateDirectSwitchGuardianTransaction = async (
       transaction.accountId,
       tr,
       transaction.delegateTransaction,
-      signCallback,
       stageStampFor(transaction.id),
       chainAnchorB64
     );
@@ -2754,7 +2737,6 @@ const generateGuardianTransaction = async (
         transaction.accountId,
         tr,
         transaction.delegateTransaction,
-        signCallback,
         stageStampFor(transaction.id),
         chainAnchorB64
       );
@@ -3039,31 +3021,27 @@ export const generateTransactionsLoop = async (
     // This prevents the note-loss scenario the 1000-op stress run
     // surfaced: lock during executeTransaction → tx cancelled → next
     // cycle starts fresh but some races can leave the note stuck.
-    // Two locked signals. (1) The SDK-captured sign-callback auth error on the
-    // SW-inline (FLAG-OFF) client — `readLastAuthReason()` returns `undefined`
-    // under flag-on, where the SW client never signed for the offscreen op (issue
-    // #260 flip-prep #2). (2) An explicit `reason:'locked'` error tag — thrown by
-    // the guardian provider when the vault is null (guardian path), OR re-tagged
-    // onto a flag-on offscreen write whose reverse-IPC sign reported 'locked'
-    // (`dispatchOffscreenWrite`). Either one defers the tx for retry after unlock
-    // rather than marking it Failed.
-    // The abandonment exclusion has to sit on the WHOLE condition, not just inside
-    // `isLockedError` (issue #775). `authReason` is ambient client state, read
-    // after the fact and not derived from `e` at all, so an eviction paired with
-    // a stale `locked` reason would take the defer branch — which requeues the
-    // row as a fresh write while the abandoned pipeline can still submit,
-    // turning one send into two payments. The requeue's "strictly pre-submit"
-    // justification below is exactly what an abandonment breaks.
+    // One locked signal, `isLockedError(e)`: an explicit `reason:'locked'` tag
+    // (thrown by the guardian provider when the vault is null, or attached to the
+    // write's own rejection) or a message the SDK built from the sign callback's
+    // error. It defers the tx for retry after unlock rather than marking it Failed.
+    // The tag rides on `e` itself, for both paths: the offscreen write
+    // tags its error from an op-keyed record, and `withWasmClientLock` tags an
+    // inline hold's rejection from the record keyed by that hold (the proxy's
+    // writes and the guardian execute alike). Nothing ambient is read here: a
+    // realm-wide slot let a dry run's or an earlier write's locked sign requeue an
+    // unrelated failure, including one already on chain (#878 review).
     //
-    // BOTH kill shapes, not just poison. An offscreen deadline arrives as
-    // `OperationAbortedError` from the identical point and is equally still
-    // running — `cancel.ts` treats the two as one equivalence class for exactly
-    // this reason, and `dispatchOffscreenWrite` re-tags whatever it caught with
-    // `reason:'locked'` whenever the op's sign reported locked, so either shape
-    // can reach `isLockedError` here.
-    const authReason = await readLastAuthReason();
+    // The abandonment exclusion still sits on the WHOLE condition, not just inside
+    // `isLockedError` (issue #775): an evicted write's error can carry a locked tag
+    // recorded before the eviction, and the defer branch requeues the row as a
+    // fresh write while the abandoned pipeline can still submit, turning one send
+    // into two payments. The requeue's "strictly pre-submit" justification below
+    // is exactly what an abandonment breaks. BOTH kill shapes, not just poison: an
+    // offscreen deadline arrives as `OperationAbortedError` from the identical
+    // point and is equally still running (`cancel.ts` treats the two as one class).
     const abandoned = isWasmClientPoisonedError(e) || isOperationAbortedError(e);
-    if (!abandoned && (authReason === 'locked' || isLockedError(e))) {
+    if (!abandoned && isLockedError(e)) {
       logger.warning('Wallet locked during tx generation; requeueing tx for retry after unlock');
       // Genuinely RE-QUEUE it. `generateTransaction` already advanced the row to
       // `GeneratingTransaction` (before any signing), and that status is exactly
