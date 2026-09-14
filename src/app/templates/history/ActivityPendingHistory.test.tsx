@@ -36,7 +36,6 @@ jest.mock('app/hooks/useActivityClaims', () => ({
   })
 }));
 jest.mock('app/hooks/useActivityHiddenNotes', () => ({ useActivityHiddenNotes: () => mockHidden }));
-jest.mock('app/hooks/useNetworkFeeEstimate', () => ({ useNetworkFeeEstimate: () => '0.01 MIDEN' }));
 jest.mock('lib/ui/dialog', () => ({ useConfirm: () => mockConfirm }));
 jest.mock('lib/animation', () => ({
   springs: { standard: {} },

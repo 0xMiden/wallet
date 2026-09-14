@@ -6,7 +6,6 @@ import { useTranslation } from 'react-i18next';
 
 import { useActivityClaims } from 'app/hooks/useActivityClaims';
 import { useActivityHiddenNotes } from 'app/hooks/useActivityHiddenNotes';
-import { useNetworkFeeEstimate } from 'app/hooks/useNetworkFeeEstimate';
 import type { NoteWithMetadata } from 'app/pages/Receive/PendingTab';
 import { Button } from 'components/Button';
 import { durations, useMotion } from 'lib/animation';
@@ -34,7 +33,6 @@ export const ActivityPendingHistory = ({ search, filter, programId }: ActivityPe
   });
   const hidden = useActivityHiddenNotes(account.publicKey);
   const confirm = useConfirm();
-  const maxFee = useNetworkFeeEstimate();
   const scrollRef = useRef<HTMLDivElement>(null);
   const currentItems = useRef(items);
   currentItems.current = items;
@@ -103,9 +101,6 @@ export const ActivityPendingHistory = ({ search, filter, programId }: ActivityPe
       {/* `pb-28` clears the floating navbar; with the Accept All footer in its
           place the list only needs its own bottom breathing room. */}
       <div ref={scrollRef} className={classNames('flex-1 min-h-0 overflow-y-auto', showAcceptAll ? 'pb-4' : 'pb-28')}>
-        {pendingCount > 0 && maxFee && (
-          <p className="px-4 pt-2 text-xs text-text-secondary-token">{t('activityClaimFee', { fee: maxFee })}</p>
-        )}
         {hidden.failed && (
           <p role="alert" className="px-4 py-2 text-xs text-status-negative">
             {t('activityHiddenNotesError')}
