@@ -3,11 +3,8 @@ import { type ITransaction, ITransactionStatus, type SwapTransaction } from 'lib
 import * as Repo from 'lib/miden/repo';
 
 import { midenClientProxy } from '../back/miden-client-proxy';
-import { isOperationAbortedError } from '../back/offscreen-codec';
 import type { ConsumableNoteDto } from '../sdk/consumable-notes';
-import { getCurrentWasmLockHold, type WasmLockHold } from '../sdk/miden-client';
-import type { PswapLineageDto } from '../sdk/pswap-lineage';
-import { isWasmClientPoisonedError, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
+import { assertWasmHoldCurrent, type WasmLockHold } from '../sdk/miden-client';
 import type { SwapOrderNoteMetadata } from '../types';
 
 export const SWAP_ORDER_EXPIRY_SECONDS = 120;
@@ -55,68 +52,27 @@ export async function localSwapOrders(accountId: string): Promise<SwapOrder[]> {
 }
 
 /**
- * Classify only notes belonging to swap orders created by this wallet.
- * Pass `preloadedOrders` when the caller already ran `localSwapOrders` this
- * tick — it is an unindexed full scan of the transactions table.
- *
- * Since slice 4 (issue #260) the notes arrive as plain {@link ConsumableNoteDto}s
- * rather than live `InputNoteRecord`s: the per-note swap-order id/depth is
- * precomputed into `dto.swapAttachment` by the reducer (which holds the live
- * record), so this classifier no longer reaches through to `note.attachments()`.
- * Since slice 7a the per-order PSWAP lineage lookup routes through
- * `midenClientProxy.getPswapLineage` (a plain {@link PswapLineageDto}), so flag-ON
- * it reads the OFFSCREEN client's canonical synced lineage (the SW client is
- * dormant then and would classify against stale tip/depth/state); flag-OFF is the
- * byte-identical inline `client.client.pswap.lineage` reduction under the caller
- * lock. No live client is threaded through here any more.
+ * Classify notes belonging to this wallet's orders using one synced lineage snapshot.
+ * Reuse preloadedOrders to avoid another transactions-table scan in the same tick.
  */
 export async function classifySwapOrderNotes(
   notes: ConsumableNoteDto[],
   accountId: string,
   preloadedOrders: SwapOrder[] | undefined,
-  /**
-   * The caller's lock hold. REQUIRED rather than optional: every call site runs inside a
-   * hold, and an optional guard is one a future caller disables by forgetting it — the
-   * loop below is the longest unguarded stretch of WASM work in the wallet, so that is
-   * not a mistake the type should permit.
-   */
   hold: WasmLockHold
 ): Promise<Map<string, SwapOrderNoteMetadata>> {
   const orders = preloadedOrders ?? (await localSwapOrders(accountId));
   const result = new Map<string, SwapOrderNoteMetadata>();
 
-  // Sequential on purpose: the WASM client is single-threaded, and the outer
-  // withWasmClientLock held by callers does not serialize sibling promises
-  // launched by the same holder — concurrent lineage() calls throw
-  // "recursive use of an object ... unsafe aliasing". Flag-ON each getPswapLineage
-  // is a separate offscreen op serialized by the offscreen doc's own mutex, so the
-  // sequential await preserves the one-at-a-time invariant either way.
+  if (orders.length === 0) return result;
+  const assertLive = () => assertWasmHoldCurrent(hold, 'during swap lineage classification');
+  assertLive();
+  const snapshot = await midenClientProxy.getPswapLineages(assertLive);
+  assertLive();
+  const lineages = new Map(snapshot.map(lineage => [lineage.orderId, lineage]));
   for (const order of orders) {
-    // Every caller runs this inside a WASM lock hold, and the loop below is one WASM
-    // round trip PER ORDER — so it is the longest-running unguarded stretch of WASM work
-    // in the wallet, and the count is the user's open-order count rather than a constant.
-    // A watchdog eviction during any of those round trips hands the mutex to a successor
-    // without stopping this loop, and the next iteration's lineage read would then borrow
-    // a client somebody else is inside. Guarding at the callers' boundaries could only
-    // ever catch an eviction that landed before the loop started or after it finished.
-    if (getCurrentWasmLockHold() !== hold) {
-      throw new WasmClientPoisonedError('watchdog', new Error('swap lineage classification abandoned mid-loop'));
-    }
     const orderId = orderIdString(order.extraInputs.orderId);
-    let lineage: PswapLineageDto | null = null;
-    try {
-      lineage = await midenClientProxy.getPswapLineage(orderId);
-    } catch (err) {
-      // An ABANDONMENT is not a missing order. Swallowing it here left the loop
-      // to finish over the remaining orders and return a partial map, and the
-      // callers then booked `noteSyncSuccess('claimable-notes')` — withdrawing
-      // the very eviction evidence the fuse needs, from inside the probe that
-      // was evicted. The loop-top guard already says the right answer is to
-      // abandon; a failure on the last order must not escape it.
-      if (isWasmClientPoisonedError(err) || isOperationAbortedError(err)) throw err;
-      console.warn('[swap-settlement] lineage lookup failed', orderId, err);
-      continue;
-    }
+    const lineage = lineages.get(orderId);
     if (!lineage) continue;
 
     const currentTipNoteId = lineage.currentTipNoteId;

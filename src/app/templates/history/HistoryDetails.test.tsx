@@ -1812,13 +1812,11 @@ describe('HistoryDetails', () => {
       expect(screen.queryByTestId('swap-reclaimed-notes')).not.toBeInTheDocument();
     });
 
-    it('picks the notes up when settlement lands while the page is open', async () => {
+    it('renders settlement notes supplied by the hook on the next page render', async () => {
       setMockRow(swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet' }));
       const { rerender } = await renderAndLoad();
       expect(screen.queryByTestId('swap-settled-notes')).not.toBeInTheDocument();
 
-      // Auto-consume completes after the page mounted. The mocked liveQuery hook
-      // returns the pushed value on the next render.
       setMockSettlementNotes(settlementNotes(['note-late'], []));
       rerender(<HistoryDetails transactionId="tx-1" />);
       await flush();

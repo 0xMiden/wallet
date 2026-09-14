@@ -136,6 +136,24 @@ function resetControl() {
       remainingOffered: () => 10n,
       remainingRequested: () => 20n
     })),
+    inlineLineages: jest.fn(async () => [
+      {
+        orderId: () => '77',
+        currentTipNoteId: () => ({ toString: () => '0xtip' }),
+        currentDepth: () => 2,
+        state: () => 1,
+        remainingOffered: () => 9007199254740993n,
+        remainingRequested: () => 20n
+      },
+      {
+        orderId: () => '88',
+        currentTipNoteId: () => ({ toString: () => '0xtip88' }),
+        currentDepth: () => 0,
+        state: () => 0,
+        remainingOffered: () => 30n,
+        remainingRequested: () => 40n
+      }
+    ]),
     inlineGetInputNote: jest.fn(async () => ({ metadata: () => ({ noteType: () => 1 }) })),
     inlineGetTransactionCommitState: jest.fn(async () => 'committed'),
     inlineImportNoteBytes: jest.fn(async () => '0ximportedid'),
@@ -172,7 +190,10 @@ function resetControl() {
       client: {
         getSyncHeight: (...a: any[]) => G.__px.inlineGetSyncHeight(...a),
         sync: (...a: any[]) => G.__px.inlineSync(...a),
-        pswap: { lineage: (...a: any[]) => G.__px.inlineLineage(...a) }
+        pswap: {
+          lineage: (orderId: string | bigint) => G.__px.inlineLineage(orderId),
+          lineages: () => G.__px.inlineLineages()
+        }
       }
     }))
   };
@@ -1214,6 +1235,114 @@ describe('MidenClientProxy — slice-7a reach-through reads', () => {
     await flush();
     fireReady();
     expect(await p).toBeNull();
+  });
+
+  it('reads all inline lineages once without IPC and preserves decimal amounts', async () => {
+    const { midenClientProxy } = await loadProxy(false);
+    const result = await midenClientProxy.getPswapLineages(() => {});
+
+    expect(G.__px.inlineLineages).toHaveBeenCalledTimes(1);
+    expect(G.__px.inlineLineage).not.toHaveBeenCalled();
+    expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
+    expect(result).toEqual([
+      {
+        orderId: '77',
+        currentTipNoteId: '0xtip',
+        currentDepth: 2,
+        state: 1,
+        remainingOffered: '9007199254740993',
+        remainingRequested: '20'
+      },
+      {
+        orderId: '88',
+        currentTipNoteId: '0xtip88',
+        currentDepth: 0,
+        state: 0,
+        remainingOffered: '30',
+        remainingRequested: '40'
+      }
+    ]);
+  });
+
+  it('does not start a bulk SDK read after the client acquisition loses its hold', async () => {
+    const { midenClientProxy } = await loadProxy(false);
+    let live = true;
+    const acquire = G.__px.getMidenClient;
+    G.__px.getMidenClient = jest.fn(async () => {
+      const client = await acquire();
+      live = false;
+      return client;
+    });
+    await expect(
+      midenClientProxy.getPswapLineages(() => {
+        if (!live) throw new Error('abandoned hold');
+      })
+    ).rejects.toThrow('abandoned hold');
+    expect(G.__px.inlineLineages).not.toHaveBeenCalled();
+  });
+
+  it('does not reduce bulk live records after the SDK read loses its hold', async () => {
+    const { midenClientProxy } = await loadProxy(false);
+    let live = true;
+    const readRecord = jest.fn(() => '77');
+    G.__px.inlineLineages = jest.fn(async () => {
+      live = false;
+      return [{ orderId: readRecord }];
+    });
+    await expect(
+      midenClientProxy.getPswapLineages(() => {
+        if (!live) throw new Error('abandoned hold');
+      })
+    ).rejects.toThrow('abandoned hold');
+    expect(readRecord).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [],
+    [
+      {
+        orderId: '77',
+        currentTipNoteId: '0xtip',
+        currentDepth: 2,
+        state: 1,
+        remainingOffered: '9007199254740993',
+        remainingRequested: '20'
+      }
+    ]
+  ])('routes a bulk lineage snapshot through offscreen with no arguments', async (...rows) => {
+    const { midenClientProxy } = await loadProxy(true);
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: { op_id: string }) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: Buffer.from(JSON.stringify(rows)).toString('base64'),
+      durationMs: 1
+    }));
+    const pending = midenClientProxy.getPswapLineages(() => {});
+    await flush();
+    fireReady();
+    expect(await pending).toEqual(rows);
+    expect(fakeChrome.runtime.sendMessage.mock.calls[0][0]).toEqual(
+      expect.objectContaining({
+        method: 'getPswapLineages',
+        argsB64: [],
+        deadline_ms: 15_000
+      })
+    );
+    expect(G.__px.inlineLineages).not.toHaveBeenCalled();
+  });
+
+  it('rejects an absent offscreen bulk snapshot instead of reporting no tracked orders', async () => {
+    const { midenClientProxy } = await loadProxy(true);
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: { op_id: string }) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: null,
+      durationMs: 1
+    }));
+    const pending = midenClientProxy.getPswapLineages(() => {}).catch((error: Error) => error);
+    await flush();
+    fireReady();
+    expect(await pending).toEqual(new Error('getPswapLineages: offscreen document returned no snapshot'));
   });
 
   // ── getInputNoteSummary ───────────────────────────────────────────────────

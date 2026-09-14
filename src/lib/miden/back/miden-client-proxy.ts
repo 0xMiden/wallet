@@ -1326,6 +1326,23 @@ export const midenClientProxy = {
     return JSON.parse(new TextDecoder().decode(b64ToBytes(resultB64))) as PswapLineageDto;
   },
 
+  /** Read a complete lineage snapshot from the realm that owns the synced client. */
+  async getPswapLineages(assertLive: AssertLive): Promise<PswapLineageDto[]> {
+    assertLive();
+    if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
+      const client = (await getMidenClient()).client;
+      assertLive();
+      const records = await client.pswap.lineages();
+      assertLive();
+      return records.map(reducePswapLineage).filter((lineage): lineage is PswapLineageDto => lineage !== null);
+    }
+    const resultB64 = await this.call('getPswapLineages', [], { deadlineMs: READ_DEADLINE_MS });
+    assertLive();
+    if (resultB64 == null) throw new Error('getPswapLineages: offscreen document returned no snapshot');
+    const lineages: PswapLineageDto[] = JSON.parse(new TextDecoder().decode(b64ToBytes(resultB64)));
+    return lineages;
+  },
+
   /**
    * Read a to-be-consumed note's summary as a plain {@link InputNoteSummaryDto}
    * (issue #260, slice 7a). `getInputNote` returns a live `InputNoteRecord` the

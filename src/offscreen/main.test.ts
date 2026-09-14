@@ -471,7 +471,10 @@ function resetControl() {
           syncChain: (...a: any[]) => (globalThis as any).__off.clientSyncChain(...a),
           getSyncHeight: (...a: any[]) => (globalThis as any).__off.clientGetSyncHeight(...a),
           sync: (...a: any[]) => (globalThis as any).__off.clientSync(...a),
-          pswap: { lineage: (...a: any[]) => (globalThis as any).__off.clientLineage(...a) }
+          pswap: {
+            lineage: (orderId: string) => G.__off.clientLineage(orderId),
+            lineages: () => G.__off.clientLineages()
+          }
         }
       };
     })
@@ -2187,6 +2190,84 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     const resp = sendResponse.mock.calls[0][0];
     expect(resp.ok).toBe(false);
     expect(resp.errorName).toBe('WasmClientPoisonedError');
+  });
+
+  it('dispatches one bulk lineage read and reduces every result in the owning realm', async () => {
+    await loadModule();
+    G.__off.clientLineages = jest.fn(async () => [
+      await G.__off.clientLineage(),
+      {
+        orderId: () => '88',
+        currentTipNoteId: () => ({ toString: () => '0xtip88' }),
+        currentDepth: () => 0,
+        state: () => 0,
+        remainingOffered: () => 9007199254740993n,
+        remainingRequested: () => 40n
+      }
+    ]);
+    const sendResponse = jest.fn();
+    capturedListener!(callReq({ method: 'getPswapLineages', argsB64: [] }), {}, sendResponse);
+    await flush();
+    expect(G.__off.clientLineages).toHaveBeenCalledTimes(1);
+    const response = sendResponse.mock.calls[0][0];
+    expect(response.ok).toBe(true);
+    expect(JSON.parse(Buffer.from(response.resultB64, 'base64').toString('utf8'))).toEqual([
+      {
+        orderId: '77',
+        currentTipNoteId: '0xtip',
+        currentDepth: 2,
+        state: 1,
+        remainingOffered: '10',
+        remainingRequested: '20'
+      },
+      {
+        orderId: '88',
+        currentTipNoteId: '0xtip88',
+        currentDepth: 0,
+        state: 0,
+        remainingOffered: '9007199254740993',
+        remainingRequested: '40'
+      }
+    ]);
+  });
+
+  it('serializes an empty bulk lineage snapshot as an array', async () => {
+    await loadModule();
+    G.__off.clientLineages = jest.fn(async () => []);
+    const sendResponse = jest.fn();
+    capturedListener!(callReq({ method: 'getPswapLineages', argsB64: [] }), {}, sendResponse);
+    await flush();
+    const response = sendResponse.mock.calls[0][0];
+    expect(response.ok).toBe(true);
+    expect(JSON.parse(Buffer.from(response.resultB64, 'base64').toString('utf8'))).toEqual([]);
+  });
+
+  it('does not reduce a bulk lineage snapshot after its offscreen hold is evicted', async () => {
+    await loadModule();
+    const miden = await import('lib/miden/sdk/miden-client');
+    const evict: () => void = Reflect.get(miden, '__evictHolder');
+    const recordRead = jest.fn(() => '77');
+    let release!: () => void;
+    const parked = new Promise<void>(resolve => {
+      release = resolve;
+    });
+    G.__off.clientLineages = jest.fn(async () => {
+      await parked;
+      return [{ orderId: recordRead }];
+    });
+    const sendResponse = jest.fn();
+    capturedListener!(callReq({ method: 'getPswapLineages', argsB64: [] }), {}, sendResponse);
+    await flush();
+    evict();
+    release();
+    await flush();
+    expect(recordRead).not.toHaveBeenCalled();
+    expect(sendResponse.mock.calls[0][0]).toEqual(
+      expect.objectContaining({
+        ok: false,
+        errorName: 'WasmClientPoisonedError'
+      })
+    );
   });
 
   it('dispatches getInputNoteSummary → reduces the live record to its noteType (JSON DTO)', async () => {

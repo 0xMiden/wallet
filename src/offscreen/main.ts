@@ -647,6 +647,12 @@ const DISPATCH: Record<string, DispatchFn> = {
     return dto ? new TextEncoder().encode(JSON.stringify(dto)) : null;
   },
 
+  getPswapLineages: async (context, client) => {
+    const records = await client.client.pswap.lineages();
+    assertWasmHoldCurrent(context.hold, 'in offscreen getPswapLineages before reducing the records');
+    return new TextEncoder().encode(JSON.stringify(records.map(reducePswapLineage)));
+  },
+
   // A to-be-consumed note's summary, reduced in-realm to a minimal JSON DTO carrying
   // just the note's `noteType`. Returns null (→ resultB64 null) for a not-found note,
   // distinct from a found record whose `noteType` is undefined (the JSON `{}`).

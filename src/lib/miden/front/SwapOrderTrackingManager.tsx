@@ -1,26 +1,24 @@
 import { useEffect, useRef } from 'react';
 
-import { getSwapOrderSchedule, useSwapOrderTrackingStore, type SwapOrderSchedule } from '../swap/order-tracking-store';
+import { isSyncFused, noteNonEvictionSyncFailure, noteSyncSuccess, noteSyncWatchdogEviction } from './sync-fuse';
+import { isSyncWatchdogEviction } from '../sdk/wasm-client-poison';
+import {
+  getSwapOrderSchedule,
+  useSwapOrderTrackingStore,
+  type SwapOrderPollEntry,
+  type SwapOrderSchedule
+} from '../swap/order-tracking-store';
+import type { SwapOrderTracking } from '../transaction/get';
 
-/**
- * App-root poller for PSWAP order lineages. The history detail page used to own
- * this poll (`trackOrderId` + exponential backoff), so tracking died with the
- * page; now the manager watches every swap row with a persisted `orderId` and
- * publishes results to `useSwapOrderTrackingStore` for the page to read.
- *
- * Poll semantics are ported verbatim from the old page effect: `trackOrderId`
- * takes the WASM client lock, so an unresolved result (null / error — the order
- * isn't trackable by this client) backs off exponentially and gives up after a
- * cap rather than hammering the lock every 2s forever; a genuinely `active`
- * order resets the backoff and keeps a steady watch; `filled`/`reclaimed` (or a
- * completed settlement consume in Dexie) is terminal. Orders are polled
- * sequentially — at most one lock acquisition per tick — so this never floods
- * the lock alongside `SwapSettlementManager`'s own 3s cycle.
- */
 const BASE_INTERVAL_MS = 2_000;
 const MAX_INTERVAL_MS = 30_000;
 const MAX_UNRESOLVED_POLLS = 20;
 
+/**
+ * Watch live order lineages at the app root using one snapshot per due batch.
+ * A payback consume can precede reclaim, so only filled/reclaimed lineage stops
+ * tracking permanently. Missing orders back off until the detail page requests a retry.
+ */
 export function SwapOrderTrackingManager(): null {
   const running = useRef(false);
 
@@ -28,17 +26,30 @@ export function SwapOrderTrackingManager(): null {
     let disposed = false;
 
     const tick = async () => {
-      if (disposed || running.current) return;
+      if (disposed || running.current || isSyncFused('swap-order-tracking')) return;
       if (typeof document !== 'undefined' && document.hidden) return;
       running.current = true;
       try {
         const candidates = await findPollableOrders();
         const now = Date.now();
         const due = candidates.filter(({ schedule }) => schedule.nextAt <= now);
-        for (const { orderId, schedule } of due) {
-          if (disposed) return;
-          await pollOrder(orderId, schedule);
+        if (disposed || due.length === 0) return;
+        const { trackSwapOrders } = await import('../transaction/get');
+        if (disposed || isSyncFused('swap-order-tracking')) return;
+
+        let tracking: Map<string, SwapOrderTracking> | null;
+        try {
+          tracking = await trackSwapOrders();
+        } catch (err) {
+          if (isSyncWatchdogEviction(err)) noteSyncWatchdogEviction('swap-order-tracking');
+          else noteNonEvictionSyncFailure('swap-order-tracking');
+          console.error('[swap-order-tracking] failed to track orders', err);
+          if (!disposed) publishSnapshot(due, new Map());
+          return;
         }
+        if (disposed || tracking === null) return;
+        publishSnapshot(due, tracking);
+        noteSyncSuccess('swap-order-tracking');
       } catch (err) {
         console.warn('[swap-order-tracking] tick failed', err);
       } finally {
@@ -62,86 +73,47 @@ interface PollableOrder {
   schedule: SwapOrderSchedule;
 }
 
-/**
- * Cheap Dexie gate: swap rows with a persisted `orderId` that are still worth
- * polling. A completed settlement consume (`extraInputs.swapOrderTxId`, same
- * predicate as `getSwapSettlementNotes`) marks the order terminal even when the
- * lineage poll never resolved — settlement IS the outcome.
- */
 async function findPollableOrders(): Promise<PollableOrder[]> {
-  const [Repo, { ITransactionStatus }] = await Promise.all([import('lib/miden/repo'), import('lib/miden/db/types')]);
-
+  const Repo = await import('lib/miden/repo');
   const swaps = await Repo.transactions
     .filter(tx => tx.type === 'swap' && tx.restoredFromBackup !== true && tx.extraInputs?.orderId != null)
     .toArray();
-  if (swaps.length === 0) return [];
 
-  const swapTxIds = new Set(swaps.map(tx => tx.id));
-  const settledSwapTxIds = new Set<string>();
-  await Repo.transactions
-    .filter(
-      tx =>
-        tx.type === 'consume' &&
-        tx.status === ITransactionStatus.Completed &&
-        tx.extraInputs?.swapOrderTxId != null &&
-        swapTxIds.has(tx.extraInputs.swapOrderTxId)
-    )
-    .each(tx => {
-      if (tx.type === 'consume' && tx.extraInputs?.swapOrderTxId != null) {
-        settledSwapTxIds.add(tx.extraInputs.swapOrderTxId);
-      }
-    });
-
-  const pollable: PollableOrder[] = [];
+  const pollable = new Map<string, PollableOrder>();
   for (const tx of swaps) {
     if (tx.type !== 'swap' || tx.extraInputs?.orderId == null) continue;
     const orderId = String(tx.extraInputs.orderId);
     const schedule = getSwapOrderSchedule(orderId);
-    if (settledSwapTxIds.has(tx.id)) schedule.terminal = true;
     if (schedule.terminal || schedule.gaveUp) continue;
-    pollable.push({ orderId, schedule });
+    pollable.set(orderId, { orderId, schedule });
   }
-  return pollable;
+  return [...pollable.values()];
 }
 
-/** One `trackOrderId` round for one order, advancing its backoff schedule. */
-async function pollOrder(orderId: string, schedule: SwapOrderSchedule): Promise<void> {
-  const { setEntry } = useSwapOrderTrackingStore.getState();
-  const previous = useSwapOrderTrackingStore.getState().entries[orderId];
-  if (!previous) setEntry(orderId, { tracking: null, loading: true });
+function backOff(orderId: string, schedule: SwapOrderSchedule): void {
+  schedule.unresolved += 1;
+  if (schedule.unresolved >= MAX_UNRESOLVED_POLLS) {
+    schedule.gaveUp = true;
+    console.warn('[swap-order-tracking] gave up tracking order', orderId, { attempts: schedule.unresolved });
+  } else {
+    schedule.nextAt = Date.now() + Math.min(BASE_INTERVAL_MS * 2 ** (schedule.unresolved - 1), MAX_INTERVAL_MS);
+  }
+}
 
-  const backOff = () => {
-    schedule.unresolved += 1;
-    if (schedule.unresolved >= MAX_UNRESOLVED_POLLS) {
-      schedule.gaveUp = true;
-      console.warn('[swap-order-tracking] gave up tracking order', orderId, {
-        attempts: schedule.unresolved
-      });
-    } else {
-      schedule.nextAt = Date.now() + Math.min(BASE_INTERVAL_MS * 2 ** (schedule.unresolved - 1), MAX_INTERVAL_MS);
-    }
-  };
-
-  try {
-    const { trackOrderId } = await import('../transaction/get');
-    const result = await trackOrderId(orderId);
-    if (result === null) {
-      // Not yet trackable / not found — back off and eventually give up.
-      setEntry(orderId, { tracking: previous?.tracking ?? null, loading: false });
-      backOff();
+function publishSnapshot(orders: PollableOrder[], tracking: ReadonlyMap<string, SwapOrderTracking>): void {
+  const previous = useSwapOrderTrackingStore.getState().entries;
+  const updates: Record<string, SwapOrderPollEntry> = {};
+  for (const { orderId, schedule } of orders) {
+    const result = tracking.get(orderId);
+    updates[orderId] = { tracking: result ?? previous[orderId]?.tracking ?? null, loading: false };
+    if (!result) {
+      backOff(orderId, schedule);
     } else if (result.state === 'active') {
-      setEntry(orderId, { tracking: result, loading: false });
-      // Live and resolving; steady watch until a terminal state.
       schedule.unresolved = 0;
       schedule.nextAt = Date.now() + BASE_INTERVAL_MS;
     } else {
-      setEntry(orderId, { tracking: result, loading: false });
-      // filled / reclaimed → terminal, stop polling.
       schedule.terminal = true;
     }
-  } catch (err) {
-    console.error('[swap-order-tracking] failed to track order', orderId, err);
-    setEntry(orderId, { tracking: previous?.tracking ?? null, loading: false });
-    backOff();
   }
+  useSwapOrderTrackingStore.setState(state => ({ entries: { ...state.entries, ...updates } }));
 }

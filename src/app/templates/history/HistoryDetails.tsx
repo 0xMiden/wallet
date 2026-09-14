@@ -40,7 +40,7 @@ import { useAllAccounts, useAccount } from 'lib/miden/front';
 import { MIDEN_METADATA } from 'lib/miden/metadata/defaults';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
-import { useSwapOrderTrackingStore } from 'lib/miden/swap/order-tracking-store';
+import { requestSwapOrderRefresh, useSwapOrderTrackingStore } from 'lib/miden/swap/order-tracking-store';
 import { getSwapTokenByFaucetId } from 'lib/miden/swap/tokens';
 import { getExplorerAccountUrl, getExplorerTxUrl } from 'lib/miden-chain/constants';
 import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
@@ -563,7 +563,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
     orderKey !== undefined && transaction?.restoredFromBackup !== true && (trackingEntry?.loading ?? true);
   useEffect(() => {
     if (orderKey === undefined || transaction?.restoredFromBackup === true) return;
-    useSwapOrderTrackingStore.getState().requestRefresh(orderKey);
+    requestSwapOrderRefresh(orderKey);
   }, [orderKey, transaction?.restoredFromBackup]);
 
   // Settlement consumes are Dexie-backed too, so liveQuery replaces the old

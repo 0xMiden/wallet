@@ -2,18 +2,11 @@ import { create } from 'zustand';
 
 import type { SwapOrderTracking } from 'lib/miden/transaction/get';
 
-/**
- * Session-scoped store of live PSWAP order-lineage tracking, keyed by
- * `String(orderId)`. Written by the app-root `SwapOrderTrackingManager`
- * (which owns the actual `trackOrderId` polling and its backoff), read by the
- * history detail page. Deliberately in-memory only: the tracking card is
- * display-only and the list derives its swap status from the Dexie-persisted
- * `settledAt`/`reclaimedAt` stamps instead.
- */
+/** Session-only lineage results for history details; activity lists use persisted settlement stamps. */
 export interface SwapOrderPollEntry {
-  /** Last poll result; null = polled but the order isn't trackable (yet). */
+  /** Last known result, retained when a later read fails or cannot find the order. */
   tracking: SwapOrderTracking | null;
-  /** True while a poll for this order is in flight. */
+  /** Whether the initial lineage read is still pending. */
   loading: boolean;
 }
 
@@ -23,29 +16,19 @@ interface SwapOrderTrackingState {
 
 interface SwapOrderTrackingActions {
   setEntry(orderId: string, entry: SwapOrderPollEntry): void;
-  /**
-   * Revive a given-up (or backed-off) order so the manager re-polls it soon —
-   * called by the detail page on mount, preserving the old "reopening the page
-   * restarts the poll" behavior. No-op for terminally resolved orders.
-   */
-  requestRefresh(orderId: string): void;
 }
 
 export type SwapOrderTrackingStore = SwapOrderTrackingState & SwapOrderTrackingActions;
 
-/**
- * Per-order scheduler bookkeeping, deliberately OUT of the store (none of it is
- * rendered; mirrors the deposit-bridge store's module-local poll state). Shared
- * between `requestRefresh` and the manager's tick.
- */
+/** Non-rendered scheduling state survives detail-page and root-manager remounts. */
 export interface SwapOrderSchedule {
-  /** Consecutive polls that returned null / threw. */
+  /** Consecutive missing or failed reads. */
   unresolved: number;
-  /** Epoch ms before which the manager must not poll this order again. */
+  /** Earliest permitted poll time in epoch milliseconds. */
   nextAt: number;
-  /** Backoff budget exhausted — parked until a `requestRefresh`. */
+  /** Retry budget exhausted until requestSwapOrderRefresh is called. */
   gaveUp: boolean;
-  /** Lineage reached filled/reclaimed (or settlement landed) — never poll again. */
+  /** Explicit filled or reclaimed lineage was observed. */
   terminal: boolean;
 }
 
@@ -60,6 +43,15 @@ export function getSwapOrderSchedule(orderId: string): SwapOrderSchedule {
   return schedule;
 }
 
+/** Reopening a detail page revives unresolved orders, but never terminal orders. */
+export function requestSwapOrderRefresh(orderId: string): void {
+  const schedule = getSwapOrderSchedule(orderId);
+  if (schedule.terminal) return;
+  schedule.unresolved = 0;
+  schedule.nextAt = 0;
+  schedule.gaveUp = false;
+}
+
 export function clearSwapOrderSchedulesForTests(): void {
   schedules.clear();
 }
@@ -69,13 +61,5 @@ export const useSwapOrderTrackingStore = create<SwapOrderTrackingStore>(set => (
 
   setEntry(orderId, entry) {
     set(state => ({ entries: { ...state.entries, [orderId]: entry } }));
-  },
-
-  requestRefresh(orderId) {
-    const schedule = getSwapOrderSchedule(orderId);
-    if (schedule.terminal) return;
-    schedule.unresolved = 0;
-    schedule.nextAt = 0;
-    schedule.gaveUp = false;
   }
 }));
