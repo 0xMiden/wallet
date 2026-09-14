@@ -98,13 +98,11 @@ jest.mock('../sdk/miden-client', () => ({
 
 // Since slice 4 (issue #260) claimable-notes reads consumable notes through the
 // proxy (reduced DTOs) rather than getMidenClient().getConsumableNotes; since slice
-// 7a the swap-classification per-order PSWAP lineage also routes through the proxy
-// (getPswapLineage) instead of a live client — so the hook no longer calls
-// getMidenClient directly at all. Mock both proxy reads.
+// Swap classification reads a complete lineage snapshot through the same proxy.
 jest.mock('../back/miden-client-proxy', () => ({
   midenClientProxy: {
     getConsumableNotes: (...a: any[]) => (globalThis as any).__cnTest.proxyGetConsumableNotes(...a),
-    getPswapLineage: jest.fn(async () => null)
+    getPswapLineages: jest.fn(async () => [])
   }
 }));
 

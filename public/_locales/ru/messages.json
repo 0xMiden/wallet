@@ -786,6 +786,14 @@
     "message": "Повторить попытку",
     "englishSource": "Retry"
   },
+  "retryEarnDelivery": {
+    "message": "Повторить доставку",
+    "englishSource": "Retry delivery"
+  },
+  "withdrawalRecoveryUnavailable": {
+    "message": "Этот вывод средств нельзя безопасно повторить. Проверьте его статус, прежде чем начать другой вывод средств.",
+    "englishSource": "This withdrawal cannot be retried safely. Check its status before starting another withdrawal."
+  },
   "retryAnyway": {
     "message": "Всё равно повторить",
     "englishSource": "Retry anyway"
@@ -4457,6 +4465,10 @@
   "withdrawalProcessing": {
     "message": "Обработка вывода средств",
     "englishSource": "Processing Withdrawal"
+  },
+  "withdrawalCheckingDescription": {
+    "message": "Проверяем ваш вывод средств. Держите кошелёк открытым, пока доставка не будет подтверждена.",
+    "englishSource": "Checking your withdrawal. Keep the wallet open while delivery is confirmed."
   },
   "withdrawalProcessingDescription": {
     "message": "Подписка и отправка заявки на вывод средств без комиссии в Epoch. Обычно это занимает несколько секунд.",

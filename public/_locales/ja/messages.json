@@ -786,6 +786,14 @@
     "message": "再試行",
     "englishSource": "Retry"
   },
+  "retryEarnDelivery": {
+    "message": "受け取りを再試行",
+    "englishSource": "Retry delivery"
+  },
+  "withdrawalRecoveryUnavailable": {
+    "message": "この出金は安全に再試行できません。別の出金を開始する前に、この出金の状況を確認してください。",
+    "englishSource": "This withdrawal cannot be retried safely. Check its status before starting another withdrawal."
+  },
   "retryAnyway": {
     "message": "それでも再試行",
     "englishSource": "Retry anyway"
@@ -4457,6 +4465,10 @@
   "withdrawalProcessing": {
     "message": "出金の処理",
     "englishSource": "Processing Withdrawal"
+  },
+  "withdrawalCheckingDescription": {
+    "message": "出金状況を確認しています。資金の受け取りが確認されるまで、ウォレットを開いたままにしてください。",
+    "englishSource": "Checking your withdrawal. Keep the wallet open while delivery is confirmed."
   },
   "withdrawalProcessingDescription": {
     "message": "ガス料金不要の引き出し意向を署名し、Epochに送信します。これには通常、数秒かかります。",

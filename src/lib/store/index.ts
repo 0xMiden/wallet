@@ -4,6 +4,7 @@ import { subscribeWithSelector } from 'zustand/middleware';
 import { setAgglayerFaucetForE2E } from 'lib/agglayer/b2agg/constant';
 import { createIntercomClient, IIntercomClient } from 'lib/intercom/client';
 import { clearPersistedSeenNoteIds, persistSeenNoteIds } from 'lib/miden/back/note-checker-storage';
+import type { IConsumeBridgeInExtraInputs, IEarnWithdrawExtraInputs, ITransaction } from 'lib/miden/db/types';
 import { setTestSyncPaused } from 'lib/miden/front/test-sync-pause';
 import { fetchTokenMetadata } from 'lib/miden/metadata';
 import { installSwapTestHooks } from 'lib/miden/swap/test-hooks';
@@ -826,18 +827,49 @@ if (process.env.MIDEN_E2E_TEST === 'true') {
   // note-id reconcile flips it), so the SW's Repo view never sees it. The e2e
   // reads these via `walletA.page.evaluate` (the deposit rows, created SW-side,
   // stay on the SW hooks). Lazy Repo import — E2E-gated, zero prod impact.
-  (globalThis as any).__TEST_LATEST_EARN_WITHDRAW__ = async () => {
+  const toEarnWithdrawView = async (row: ITransaction | undefined) => {
+    if (!row || row.type !== 'earn-withdraw') return null;
+    const inputs: IEarnWithdrawExtraInputs | undefined = row.extraInputs;
     const Repo = await import('lib/miden/repo');
-    const rows = await Repo.transactions.filter((tx: any) => tx.type === 'earn-withdraw').toArray();
-    rows.sort((a: any, b: any) => (b.initiatedAt ?? 0) - (a.initiatedAt ?? 0));
-    const row: any = rows[0];
-    return row ? { id: row.id, phase: row.extraInputs?.phase, displayMessage: row.displayMessage } : null;
+    const consumes = await Repo.transactions
+      .filter(tx => {
+        const extra: IConsumeBridgeInExtraInputs | undefined = tx.extraInputs;
+        return tx.type === 'consume' && extra?.bridgeIn?.earnWithdrawTxId === row.id;
+      })
+      .toArray();
+    return {
+      id: row.id,
+      phase: inputs?.phase,
+      displayMessage: row.displayMessage,
+      submissionState: inputs?.submissionState,
+      withdrawIntentNonce: inputs?.withdrawIntentNonce,
+      preparedExecution: inputs?.preparedExecution,
+      midenNoteId: inputs?.midenNoteId,
+      receipts: consumes.map(tx => {
+        const extra: IConsumeBridgeInExtraInputs | undefined = tx.extraInputs;
+        return {
+          id: tx.id,
+          status: tx.status,
+          transactionId: tx.transactionId,
+          noteIds: tx.inputNoteIds ?? tx.noteIds ?? (tx.noteId ? [tx.noteId] : []),
+          intentOwner: extra?.bridgeIn?.intentOwner,
+          intentNonce: extra?.bridgeIn?.intentNonce,
+          attemptId: extra?.bridgeIn?.earnWithdrawAttemptId,
+          midenNoteId: extra?.bridgeIn?.midenNoteId
+        };
+      })
+    };
   };
-  (globalThis as any).__TEST_EARN_WITHDRAW_STATE__ = async (txId: string) => {
+  Reflect.set(globalThis, '__TEST_LATEST_EARN_WITHDRAW__', async () => {
     const Repo = await import('lib/miden/repo');
-    const row: any = await Repo.transactions.where({ id: txId }).first();
-    return row ? { id: row.id, phase: row.extraInputs?.phase, displayMessage: row.displayMessage } : null;
-  };
+    const rows = await Repo.transactions.filter(tx => tx.type === 'earn-withdraw').toArray();
+    rows.sort((a, b) => b.initiatedAt - a.initiatedAt);
+    return toEarnWithdrawView(rows[0]);
+  });
+  Reflect.set(globalThis, '__TEST_EARN_WITHDRAW_STATE__', async (txId: string) => {
+    const Repo = await import('lib/miden/repo');
+    return toEarnWithdrawView(await Repo.transactions.where({ id: txId }).first());
+  });
   // Hex→bech32 faucet-id conversion. iOS E2E needs this to inject
   // synthetic metadata for the CLI-deployed test faucet (whose on-chain
   // procedure layout the SDK can't parse, so the real metadata RPC fails

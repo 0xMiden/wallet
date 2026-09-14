@@ -55,13 +55,24 @@ jest.mock('lib/miden/repo', () => ({
     filter: jest.fn((fn: (tx: any) => boolean) => ({
       toArray: jest.fn(async () => txStore.filter(fn))
     })),
-    where: jest.fn((query: any) => ({
-      first: jest.fn(async () => txStore.find(t => t.id === query.id)),
-      modify: jest.fn(async (fn: (tx: any) => void) => {
-        const tx = txStore.find(t => t.id === query.id);
-        if (tx) fn(tx);
-      })
-    }))
+    where: jest.fn((query: any) => {
+      if (query === 'extraInputs.swapOrderTxId') {
+        return {
+          equals: jest.fn((value: string) => ({
+            filter: jest.fn((fn: (tx: any) => boolean) => ({
+              toArray: jest.fn(async () => txStore.filter(tx => tx.extraInputs?.swapOrderTxId === value).filter(fn))
+            }))
+          }))
+        };
+      }
+      return {
+        first: jest.fn(async () => txStore.find(t => t.id === query.id)),
+        modify: jest.fn(async (fn: (tx: any) => void) => {
+          const tx = txStore.find(t => t.id === query.id);
+          if (tx) fn(tx);
+        })
+      };
+    })
   }
 }));
 

@@ -786,6 +786,14 @@
     "message": "다시 시도",
     "englishSource": "Retry"
   },
+  "retryEarnDelivery": {
+    "message": "전달 다시 시도",
+    "englishSource": "Retry delivery"
+  },
+  "withdrawalRecoveryUnavailable": {
+    "message": "이 인출은 안전하게 다시 시도할 수 없습니다. 다른 인출을 시작하기 전에 이 인출의 상태를 확인하세요.",
+    "englishSource": "This withdrawal cannot be retried safely. Check its status before starting another withdrawal."
+  },
   "retryAnyway": {
     "message": "그래도 다시 시도",
     "englishSource": "Retry anyway"
@@ -4457,6 +4465,10 @@
   "withdrawalProcessing": {
     "message": "인출 처리",
     "englishSource": "Processing Withdrawal"
+  },
+  "withdrawalCheckingDescription": {
+    "message": "인출 상태를 확인하고 있습니다. 전달이 확인될 때까지 지갑을 열어 두세요.",
+    "englishSource": "Checking your withdrawal. Keep the wallet open while delivery is confirmed."
   },
   "withdrawalProcessingDescription": {
     "message": "가스 비용이 들지 않는 인출 의향서를 서명하여 Epoch에 제출합니다. 이 과정은 보통 몇 초 정도 소요됩니다.",

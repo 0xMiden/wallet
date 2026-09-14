@@ -786,6 +786,14 @@
     "message": "Erneut versuchen",
     "englishSource": "Retry"
   },
+  "retryEarnDelivery": {
+    "message": "Zustellung erneut versuchen",
+    "englishSource": "Retry delivery"
+  },
+  "withdrawalRecoveryUnavailable": {
+    "message": "Diese Auszahlung kann nicht sicher erneut versucht werden. Prüfen Sie ihren Status, bevor Sie eine weitere Auszahlung starten.",
+    "englishSource": "This withdrawal cannot be retried safely. Check its status before starting another withdrawal."
+  },
   "retryAnyway": {
     "message": "Trotzdem wiederholen",
     "englishSource": "Retry anyway"
@@ -4457,6 +4465,10 @@
   "withdrawalProcessing": {
     "message": "Bearbeitung einer Auszahlung",
     "englishSource": "Processing Withdrawal"
+  },
+  "withdrawalCheckingDescription": {
+    "message": "Ihre Auszahlung wird überprüft. Lassen Sie die Wallet geöffnet, bis die Zustellung bestätigt ist.",
+    "englishSource": "Checking your withdrawal. Keep the wallet open while delivery is confirmed."
   },
   "withdrawalProcessingDescription": {
     "message": "Unterzeichnung und Übermittlung der gaslosen Auszahlungsabsicht an Epoch. Dies dauert in der Regel einige Sekunden.",

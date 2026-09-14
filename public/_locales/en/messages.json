@@ -786,6 +786,14 @@
     "message": "Retry",
     "englishSource": "Retry"
   },
+  "retryEarnDelivery": {
+    "message": "Retry delivery",
+    "englishSource": "Retry delivery"
+  },
+  "withdrawalRecoveryUnavailable": {
+    "message": "This withdrawal cannot be retried safely. Check its status before starting another withdrawal.",
+    "englishSource": "This withdrawal cannot be retried safely. Check its status before starting another withdrawal."
+  },
   "retryAnyway": {
     "message": "Retry anyway",
     "englishSource": "Retry anyway"
@@ -4457,6 +4465,10 @@
   "withdrawalProcessing": {
     "message": "Processing Withdrawal",
     "englishSource": "Processing Withdrawal"
+  },
+  "withdrawalCheckingDescription": {
+    "message": "Checking your withdrawal. Keep the wallet open while delivery is confirmed.",
+    "englishSource": "Checking your withdrawal. Keep the wallet open while delivery is confirmed."
   },
   "withdrawalProcessingDescription": {
     "message": "Signing and submitting the gasless withdrawal intent to Epoch. This usually takes a few seconds.",

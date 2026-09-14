@@ -786,6 +786,14 @@
     "message": "重试",
     "englishSource": "Retry"
   },
+  "retryEarnDelivery": {
+    "message": "重试交付",
+    "englishSource": "Retry delivery"
+  },
+  "withdrawalRecoveryUnavailable": {
+    "message": "无法安全地重试此次提现。开始另一次提现前，请先查看此次提现的状态。",
+    "englishSource": "This withdrawal cannot be retried safely. Check its status before starting another withdrawal."
+  },
   "retryAnyway": {
     "message": "仍然重试",
     "englishSource": "Retry anyway"
@@ -4457,6 +4465,10 @@
   "withdrawalProcessing": {
     "message": "处理提现",
     "englishSource": "Processing Withdrawal"
+  },
+  "withdrawalCheckingDescription": {
+    "message": "正在检查您的提现状态。请保持钱包打开，直到交付得到确认。",
+    "englishSource": "Checking your withdrawal. Keep the wallet open while delivery is confirmed."
   },
   "withdrawalProcessingDescription": {
     "message": "对无Gas费的提现意向进行签名并提交至Epoch。这通常只需几秒钟。",

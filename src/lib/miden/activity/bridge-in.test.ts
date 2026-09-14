@@ -2,11 +2,11 @@ import {
   findPendingBridgeInByEarnWithdrawTxId,
   registerPendingBridgeIn,
   resolveBridgeInNoteId,
-  suppressingLinkedTxIds,
+  suppressedLinkedConsumeIds,
   takeAgglayerBridgeInInfo,
-  takeBridgeInInfoForNotes
+  applyBridgeInInfoForNotes
 } from './bridge-in';
-import { IBridgeInInfo } from '../db/types';
+import { IBridgeInInfo, ITransaction } from '../db/types';
 
 const mockStore: Record<string, unknown> = {};
 
@@ -22,14 +22,30 @@ const mockTransactions: any[] = [];
 // Rows `tagConsumeRow` searches by note id, kept apart from `mockTransactions`
 // so the AggLayer suites above are unaffected.
 const mockNoteIdRows: any[] = [];
-const mockModify = jest.fn();
+const mockModify = jest.fn(async (mutate: (row: ITransaction) => void, index: unknown) => {
+  const row =
+    typeof index === 'object' && index !== null
+      ? mockNoteIdRows.find(record => record.id === Reflect.get(index, 'id'))
+      : undefined;
+  if (row) mutate(row);
+  return row ? 1 : 0;
+});
 jest.mock('lib/agglayer/constant', () => ({ AGGLAYER_BRIDGE_NOTE_SENDER_ACCOUNT_ID: 'agg-sender' }));
 jest.mock('lib/miden/repo', () => ({
   transactions: {
     where: jest.fn((index?: unknown) => ({
       anyOf: jest.fn(() => ({ toArray: mockAnyOfToArray })),
+      anyOfIgnoreCase: jest.fn((...noteIds: string[]) => ({
+        filter: jest.fn((predicate: (tx: ITransaction) => boolean) => ({
+          first: jest.fn(async () =>
+            mockNoteIdRows
+              .filter(row => row.noteIds?.some((id: string) => noteIds.includes(id.toLowerCase())))
+              .find(predicate)
+          )
+        }))
+      })),
       // `where({ id })` for the modify path; `where('noteIds').equals(id)` for the lookup.
-      modify: mockModify,
+      modify: (mutate: (row: ITransaction) => void) => mockModify(mutate, index),
       equals: jest.fn((noteId: string) => ({
         filter: jest.fn((predicate: (tx: any) => boolean) => ({
           first: jest.fn(async () =>
@@ -37,7 +53,11 @@ jest.mock('lib/miden/repo', () => ({
           )
         }))
       })),
-      first: jest.fn(async () => undefined),
+      first: jest.fn(async () =>
+        typeof index === 'object' && index !== null
+          ? mockNoteIdRows.find(row => row.id === Reflect.get(index, 'id'))
+          : undefined
+      ),
       index
     })),
     filter: jest.fn((predicate: (tx: any) => boolean) => ({
@@ -79,7 +99,7 @@ describe('resolveBridgeInNoteId', () => {
     mockNoteIdRows.push(consumeRow());
     await registerPendingBridgeIn(EVM_OWNER, 'N1', info);
 
-    await resolveBridgeInNoteId('N1', NOTE_ID);
+    await resolveBridgeInNoteId(EVM_OWNER, 'N1', NOTE_ID);
 
     expect(mockModify).toHaveBeenCalled();
     expect(mockStore[REGISTRY_KEY]).toEqual([]);
@@ -92,7 +112,7 @@ describe('resolveBridgeInNoteId', () => {
     mockNoteIdRows.push(consumeRow({ restoredFromBackup: true }));
     await registerPendingBridgeIn(EVM_OWNER, 'N1', info);
 
-    await resolveBridgeInNoteId('N1', NOTE_ID);
+    await resolveBridgeInNoteId(EVM_OWNER, 'N1', NOTE_ID);
 
     expect(mockModify).not.toHaveBeenCalled();
     expect(mockStore[REGISTRY_KEY]).toHaveLength(1);
@@ -174,7 +194,7 @@ describe('takeAgglayerBridgeInInfo', () => {
   });
 });
 
-describe('takeBridgeInInfoForNotes', () => {
+describe('applyBridgeInInfoForNotes', () => {
   it('returns the parked info with the resolved note id and bridge-receive link', async () => {
     const info: IBridgeInInfo = {
       provider: 'epoch',
@@ -187,7 +207,12 @@ describe('takeBridgeInInfoForNotes', () => {
     // Simulate the delivery poll having already learned the note id.
     (mockStore[REGISTRY_KEY] as Array<{ midenNoteId?: string }>)[0]!.midenNoteId = 'note-abc';
 
-    const result = await takeBridgeInInfoForNotes(['note-abc']);
+    let result: IBridgeInInfo | undefined;
+    expect(
+      await applyBridgeInInfoForNotes(['note-abc'], async info => {
+        result = info;
+      })
+    ).toBe(true);
 
     expect(result).toMatchObject({ bridgeReceiveTxId: 'TX1', midenNoteId: 'note-abc', sourceSymbol: 'USDC' });
     // Matched intent leaves the registry.
@@ -200,7 +225,12 @@ describe('takeBridgeInInfoForNotes', () => {
     (mockStore[REGISTRY_KEY] as Array<{ midenNoteId?: string }>)[0]!.midenNoteId = '0xABCDEF';
 
     // ...while the consumed note id from the SDK is bare lowercase hex.
-    const result = await takeBridgeInInfoForNotes(['abcdef']);
+    let result: IBridgeInInfo | undefined;
+    expect(
+      await applyBridgeInInfoForNotes(['abcdef'], async info => {
+        result = info;
+      })
+    ).toBe(true);
 
     expect(result).toMatchObject({ bridgeReceiveTxId: 'TX1' });
   });
@@ -209,7 +239,7 @@ describe('takeBridgeInInfoForNotes', () => {
     await registerPendingBridgeIn(EVM_OWNER, 'NONCE1', { provider: 'epoch' });
     (mockStore[REGISTRY_KEY] as Array<{ midenNoteId?: string }>)[0]!.midenNoteId = 'note-abc';
 
-    expect(await takeBridgeInInfoForNotes(['note-other'])).toBeUndefined();
+    expect(await applyBridgeInInfoForNotes(['note-other'], async () => {})).toBe(false);
   });
 });
 
@@ -235,7 +265,10 @@ describe('findPendingBridgeInByEarnWithdrawTxId', () => {
       }
     ];
 
-    expect(await findPendingBridgeInByEarnWithdrawTxId('T')).toEqual({ intentNonce: 'N2', userAddress: EVM_OWNER });
+    expect(await findPendingBridgeInByEarnWithdrawTxId('T', 'T')).toEqual({
+      intentNonce: 'N2',
+      userAddress: EVM_OWNER
+    });
   });
 
   it('returns undefined when no pending intent references the row', async () => {
@@ -249,29 +282,38 @@ describe('findPendingBridgeInByEarnWithdrawTxId', () => {
       }
     ];
 
-    expect(await findPendingBridgeInByEarnWithdrawTxId('T')).toBeUndefined();
+    expect(await findPendingBridgeInByEarnWithdrawTxId('T', 'T')).toBeUndefined();
   });
 });
 
-describe('suppressingLinkedTxIds', () => {
+describe('suppressedLinkedConsumeIds', () => {
   it('suppresses existing linked primaries but NOT a terminal-failed earn-withdraw row', async () => {
     // A live withdraw row is the single trace (suppress its consume). A FAILED withdraw
     // row is not — its delivered note must fall through to a visible receive — so it is
     // excluded even though it exists. Non-earn-withdraw primaries suppress on existence.
     // 'MISSING' has no row (the query returns only existing rows) so it is absent.
     mockAnyOfToArray.mockResolvedValue([
-      { id: 'LIVE', type: 'earn-withdraw', extraInputs: { phase: 'delivering' } },
+      { id: 'LIVE', type: 'earn-withdraw', extraInputs: { phase: 'delivering', evmOwner: EVM_OWNER } },
       { id: 'FAILED', type: 'earn-withdraw', extraInputs: { phase: 'failed' } },
       { id: 'SWAP', type: 'swap', extraInputs: {} }
     ]);
 
-    const result = await suppressingLinkedTxIds(['LIVE', 'FAILED', 'SWAP', 'MISSING']);
+    const consumes: ITransaction[] = ['LIVE', 'FAILED', 'SWAP', 'MISSING'].map(id => ({
+      id: `consume-${id}`,
+      type: 'consume',
+      accountId: 'account',
+      status: 2,
+      displayIcon: 'RECEIVE',
+      initiatedAt: 1,
+      extraInputs: id === 'SWAP' ? { swapOrderTxId: id } : { bridgeIn: { provider: 'epoch', earnWithdrawTxId: id } }
+    }));
+    const result = await suppressedLinkedConsumeIds(consumes);
 
-    expect(result).toEqual(new Set(['LIVE', 'SWAP']));
+    expect(result).toEqual(new Set(['consume-LIVE', 'consume-SWAP']));
   });
 
   it('short-circuits on an empty id list', async () => {
-    const result = await suppressingLinkedTxIds([]);
+    const result = await suppressedLinkedConsumeIds([]);
     expect(result).toEqual(new Set());
     expect(mockAnyOfToArray).not.toHaveBeenCalled();
   });

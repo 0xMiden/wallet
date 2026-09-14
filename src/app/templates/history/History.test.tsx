@@ -15,7 +15,7 @@ import { HistoryEntryType } from './IHistoryEntry';
 const mockGetCompletedTransactions = jest.fn();
 const mockGetUncompletedTransactions = jest.fn();
 const mockCancelTransactionById = jest.fn().mockResolvedValue(undefined);
-const mockSuppressingLinkedTxIds = jest.fn();
+const mockSuppressedLinkedConsumeIds = jest.fn();
 const mockGetTokenMetadata = jest.fn();
 const mockFormatAmount = jest.fn();
 const mockResolveSwapHistoryFields = jest.fn();
@@ -69,7 +69,7 @@ jest.mock('react-i18next', () => ({
 
 jest.mock('lib/miden/activity', () => ({
   cancelTransactionById: (...args: unknown[]) => mockCancelTransactionById(...args),
-  suppressingLinkedTxIds: (...args: unknown[]) => mockSuppressingLinkedTxIds(...args),
+  suppressedLinkedConsumeIds: (...args: unknown[]) => mockSuppressedLinkedConsumeIds(...args),
   getCompletedTransactions: (...args: unknown[]) => mockGetCompletedTransactions(...args),
   getUncompletedTransactions: (...args: unknown[]) => mockGetUncompletedTransactions(...args),
   // The REAL predicate: which rows may be cancelled is exactly what these
@@ -292,7 +292,10 @@ beforeEach(() => {
     (entry: any) => entry.faucetId === 'NATIVE' && entry.transactionIcon === 'RECEIVE'
   );
   mockFormatTransactionStatus.mockImplementation((s: number) => `status-${s}`);
-  mockSuppressingLinkedTxIds.mockImplementation(async (ids: string[]) => new Set(ids.filter(id => id === 'BR-KEEP')));
+  mockSuppressedLinkedConsumeIds.mockImplementation(
+    async (transactions: Array<{ id: string; extraInputs?: { bridgeIn?: { bridgeReceiveTxId?: string } } }>) =>
+      new Set(transactions.filter(tx => tx.extraInputs?.bridgeIn?.bridgeReceiveTxId === 'BR-KEEP').map(tx => tx.id))
+  );
   mockResolveConsumeExtraAmounts.mockResolvedValue([]);
 });
 
@@ -865,6 +868,8 @@ describe('History', () => {
                   sourceAmount: '3',
                   sourceSymbol: 'USDC',
                   evmTxHash: '0xebd',
+                  intentOwner: '0xold-owner',
+                  midenNoteId: '0xold-note',
                   bridgeReceiveTxId: 'BR-GONE'
                 }
               }
@@ -966,7 +971,9 @@ describe('History', () => {
       bridgeInProvider: 'epoch',
       bridgeInSourceAmount: '3',
       bridgeInSourceSymbol: 'USDC',
-      bridgeInEvmTxHash: '0xebd'
+      bridgeInEvmTxHash: '0xebd',
+      bridgeInSourceAddress: '0xold-owner',
+      bridgeInMidenNoteId: '0xold-note'
     });
     expect(byKey('completed-CONS-SWAP-GONE')).toBeDefined();
 
