@@ -29,8 +29,8 @@ interface SwapDetailProps {
    * False when the requested faucet never resolved, so `requestedDecimals` is
    * the unknown-token placeholder's guess.
    *
-   * Every quantity on this screen — the order's requested size, how much of it
-   * filled, and each settlement note's payout — is scaled by those same
+   * Every quantity on this screen - the order's requested size, how much of it
+   * filled, and each settlement note's payout - is scaled by those same
    * decimals, so one unresolved faucet makes the entire fill history wrong
    * together. The token is still named throughout; only the numbers are
    * withheld.
@@ -45,7 +45,7 @@ interface SwapDetailProps {
   /**
    * The consumes that claimed this order's notes. `getSwapSettlementNotes`
    * fills these in the same pass that collects the note ids, so a note is never
-   * known without its owning consume — the receipt has no id-only fallback to
+   * known without its owning consume - the receipt has no id-only fallback to
    * render and needs none.
    */
   settledTransactions: SwapSettlementTransaction[];
@@ -209,7 +209,7 @@ const SwapNoteRow = memo(function SwapNoteRow({
  * `onChain` says whether this id is a chain transaction id at all. A consume
  * that the reaper marked Completed never received one, and falling back to the
  * local row's UUID published a Dexie id under "Consume tx ID" with a live
- * explorer link behind it — an on-chain identity the receipt does not have, and
+ * explorer link behind it - an on-chain identity the receipt does not have, and
  * a dead link. Degrade to a plain hash, the way an unknown network already does.
  */
 const ExplorerTxValue: FC<{ txId: string; onChain?: boolean }> = ({ txId, onChain = true }) => {
@@ -271,7 +271,7 @@ export const SwapDetail: FC<SwapDetailProps> = ({
   const progressTransition = useMotion(springs.standard);
   // An unknown fill (no lineage and no settlement consume in the requested
   // token) is not a zero fill, and neither is an unknown requested total.
-  // Printing "0 of 1000" — or drawing an empty bar and "0%" beside a "—" —
+  // Printing "0 of 1000" - or drawing an empty bar and "0%" beside a "-" -
   // asserts that nothing arrived, which is a different and possibly false
   // statement about a restored wallet whose order may long since have settled.
   // Unknown progress is therefore rendered with no bar, no percentage and no
@@ -282,15 +282,15 @@ export const SwapDetail: FC<SwapDetailProps> = ({
       : undefined;
   const progressKnown = percentage !== undefined;
   // Derived here rather than passed in: it is a statement about these two props,
-  // and as a third prop a caller could contradict them — asserting a partial
-  // fill on a receipt whose progress line reads "— of 1000".
+  // and as a third prop a caller could contradict them - asserting a partial
+  // fill on a receipt whose progress line reads "- of 1000".
   const isPartialFill =
     filledAmount !== undefined && requestedAmount !== undefined && filledAmount > 0n && filledAmount < requestedAmount;
-  const formattedOffered = entry.amount === undefined ? '—' : entry.amount.toString();
+  const formattedOffered = entry.amount === undefined ? '-' : entry.amount.toString();
   const formattedRequested =
-    requestedAmount === undefined || !requestedScaleIsKnown ? '—' : formatAmount(requestedAmount, requestedDecimals);
+    requestedAmount === undefined || !requestedScaleIsKnown ? '-' : formatAmount(requestedAmount, requestedDecimals);
   const formattedFilled =
-    filledAmount === undefined || !requestedScaleIsKnown ? '—' : formatAmount(filledAmount, requestedDecimals);
+    filledAmount === undefined || !requestedScaleIsKnown ? '-' : formatAmount(filledAmount, requestedDecimals);
   const requestedSuffix = requestedSymbol ? ` ${requestedSymbol}` : '';
   const showPendingRow = orderState === 'active' || (orderState === null && trackingLoading);
   const consumeTransactions = [...settledTransactions, ...reclaimedTransactions];
@@ -413,8 +413,8 @@ export const SwapDetail: FC<SwapDetailProps> = ({
             )}
             {showPendingRow && <SwapNoteRow kind="pending" />}
             {/* Only claimable while the fill is actually known. With no lineage
-                and no settlement rows — a restored wallet, or consumes that
-                predate settlement tagging — "nothing has been bundled yet" is
+                and no settlement rows - a restored wallet, or consumes that
+                predate settlement tagging - "nothing has been bundled yet" is
                 an assertion the receipt cannot support, and is plainly false
                 for an order that settled before the wallet was restored. The
                 status line above already reads "Not available"; adding a
@@ -485,7 +485,7 @@ export const SwapDetail: FC<SwapDetailProps> = ({
               className="max-w-none"
             />
           )}
-          {/* Always present. It dismisses the receipt — an order that already
+          {/* Always present. It dismisses the receipt - an order that already
               reached the DEX has no cancel path, so it must not borrow the
               destructive Cancel label, and there is no order state in which
               "leave this screen" stops being available. Deriving it from the

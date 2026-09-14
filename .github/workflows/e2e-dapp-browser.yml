@@ -57,6 +57,23 @@ jobs:
       - name: Launch Simulator.app
         run: open -a Simulator || true
 
+      # idb lets the harness tap "Allow" on the native notification-permission alert
+      # (system-alerts.ts), which lives outside the WebView and otherwise covers the dApp
+      # slot in every paint check. Same install as e2e-blockchain.yml: fb-idb needs
+      # Python 3.11 (it calls asyncio.get_event_loop, gone in the runner's 3.14), and
+      # the harness degrades gracefully without idb, so a broken install never fails the job.
+      - name: Set up Python for idb
+        continue-on-error: true
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install idb (dismiss native notification alert)
+        continue-on-error: true
+        run: |
+          brew trust facebook/fb || true
+          brew install facebook/fb/idb-companion
+          python3 -m pip install fb-idb
+
       # Fresh-create + boot of custom simulators hangs multi-minute then
       # errors on macos-26 runners. Pin the test harness to preinstalled
       # Xcode sims by writing .device-pair.json before globalSetup reads it.

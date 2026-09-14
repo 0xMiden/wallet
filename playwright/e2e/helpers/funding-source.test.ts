@@ -25,23 +25,33 @@ jest.mock('./public-faucet', () => ({
 const TARGET = '0xa5c2900b1895271109557de2d9ce04';
 
 /** Records every CLI command and answers the few the funding path actually issues. */
-function fakeRunner(): { runner: CLIRunner; commands: string[] } {
+function fakeRunner(parseTransfer = true): { runner: CLIRunner; commands: string[] } {
   const commands: string[] = [];
   const runner = {
     run: async (command: string) => {
       commands.push(command);
       // `importFunders` parses the account id out of an import's stdout.
       const stdout = /\bimport\b/.test(command) ? 'Successfully imported account 0x3d6f968b3cd35c91' : '';
-      return { command, args: [], cwd: '', exitCode: 0, stdout, stderr: '', durationMs: 1, timedOut: false };
+      return {
+        command,
+        args: [],
+        cwd: '',
+        exitCode: 0,
+        stdout,
+        stderr: '',
+        durationMs: 1,
+        timedOut: false,
+        parsed: parseTransfer ? { transactionId: 'native-transfer-tx', noteId: 'native-transfer-note' } : undefined
+      };
     }
   };
   return { runner: runner as unknown as CLIRunner, commands };
 }
 
-function cliFor(network: string, funderDir: string): { cli: MidenCli; commands: string[] } {
+function cliFor(network: string, funderDir: string, parseTransfer = true): { cli: MidenCli; commands: string[] } {
   process.env.E2E_NETWORK = network;
   process.env.MIDEN_E2E_FUNDER_DIR = funderDir;
-  const { runner, commands } = fakeRunner();
+  const { runner, commands } = fakeRunner(parseTransfer);
   const cli = new MidenCli({
     binaryPath: 'miden-client',
     workDir: funderDir,
@@ -92,5 +102,38 @@ describe('MidenCli fee funding source', () => {
     const transfers = commands.filter(c => c.includes('transfer'));
     expect(transfers).toHaveLength(1);
     expect(transfers[0]).toContain(`--target ${TARGET}`);
+  });
+
+  it('returns the exact native transfer receipt and requested amount from a local genesis funder', async () => {
+    const { cli, commands } = cliFor('localhost', funderDir);
+    await expect(cli.transferNativeFromFunder(TARGET, 10_000_000n)).resolves.toEqual({
+      source: 'genesis funder 0x3d6f968b3cd35c91',
+      faucetId: '0x3d6f968b3cd35c91',
+      txId: 'native-transfer-tx',
+      noteId: 'native-transfer-note'
+    });
+    const transfers = commands.filter(command => command.includes('transfer'));
+    expect(transfers).toHaveLength(1);
+    expect(transfers[0]).toContain('--asset 10000000::0x3d6f968b3cd35c91');
+    expect(transfers[0]).toContain(`--target ${TARGET}`);
+  });
+
+  it('refuses to claim a native note was sent when the CLI output has no receipt', async () => {
+    const { cli } = cliFor('localhost', funderDir, false);
+    await expect(cli.transferNativeFromFunder(TARGET, 10_000_000n)).rejects.toThrow(
+      'Could not parse native transfer receipt'
+    );
+  });
+
+  it('does not spend stale local funders on a public chain', async () => {
+    const { cli, commands } = cliFor('devnet', funderDir);
+    await expect(cli.transferNativeFromFunder(TARGET, 10_000_000n)).rejects.toThrow('local test chain');
+    expect(commands).toEqual([]);
+  });
+
+  it('rejects a nonpositive transfer amount before any CLI command', async () => {
+    const { cli, commands } = cliFor('localhost', funderDir);
+    await expect(cli.transferNativeFromFunder(TARGET, 0n)).rejects.toThrow('positive');
+    expect(commands).toEqual([]);
   });
 });

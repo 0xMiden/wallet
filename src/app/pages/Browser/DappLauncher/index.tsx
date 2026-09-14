@@ -2,7 +2,7 @@
  * Top-level launcher composition for the embedded dApp browser.
  *
  * Stack (top → bottom):
- *   <TabHeader/>         "Explore" title + settings button
+ *   <TabHeader/>         "Explore" title
  *   <HeroSearch/>        search/URL bar
  *   <AppsGrid/>          Two curated faucet app cards
  *   <RecentsRow/>        1-row of up to 4 recent opens

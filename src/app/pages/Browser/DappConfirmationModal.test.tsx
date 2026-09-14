@@ -4,6 +4,7 @@ import { PrivateDataPermission, AllowedPrivateData } from '@miden-sdk/miden-wall
 import { fireEvent, render, screen } from '@testing-library/react';
 
 import type { DAppConfirmationRequest } from 'lib/dapp-browser/confirmation-store';
+import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { DELEGATE_PROOF_STORAGE_KEY } from 'lib/settings/constants';
 
 import { DappConfirmationModal } from './DappConfirmationModal';
@@ -34,7 +35,7 @@ jest.mock('lib/mobile/haptics', () => ({
 }));
 
 jest.mock('lib/mobile/useMobileBackHandler', () => ({
-  useMobileBackHandler: () => undefined
+  useMobileBackHandler: jest.fn()
 }));
 
 jest.mock('framer-motion', () => {
@@ -94,6 +95,12 @@ describe('DappConfirmationModal', () => {
     expect(arg.confirmed).toBe(true);
     expect(arg.accountPublicKey).toBe(FULL_ACCOUNT_ID);
     expect(arg.accountPublicKey).not.toMatch(/\.\.\./);
+  });
+
+  it('registers its back handler in the overlay tier, ahead of the browser page', () => {
+    render(<DappConfirmationModal request={buildRequest()} accountId={FULL_ACCOUNT_ID} onResolve={jest.fn()} />);
+
+    expect(useMobileBackHandler).toHaveBeenCalledWith(expect.any(Function), [], { overlay: true });
   });
 
   it('does not allow Approve when accountId is null', () => {

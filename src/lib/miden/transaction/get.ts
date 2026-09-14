@@ -5,7 +5,9 @@ import * as Repo from 'lib/miden/repo';
 import { compareAccountIds } from '../activity/utils';
 import { midenClientProxy } from '../back/miden-client-proxy';
 import { ITransaction, ITransactionStatus, Transaction } from '../db/types';
-import { withWasmClientLock } from '../sdk/miden-client';
+import { isSyncFused } from '../front/sync-fuse';
+import { assertWasmHoldCurrent, withWasmClientLock } from '../sdk/miden-client';
+import { WASM_LOCK_SYNC_WATCHDOG_MS } from '../sdk/wasm-client-poison';
 
 /**
  * Token-scoped history filter. A row belongs to a token view whenever it moved
@@ -142,12 +144,9 @@ export interface SwapSettlementNotes {
  */
 export const getSwapSettlementNotes = async (swapTxId: string): Promise<SwapSettlementNotes> => {
   const consumes = await Repo.transactions
-    .filter(
-      tx =>
-        tx.type === 'consume' &&
-        tx.status === ITransactionStatus.Completed &&
-        tx.extraInputs?.swapOrderTxId === swapTxId
-    )
+    .where('extraInputs.swapOrderTxId')
+    .equals(swapTxId)
+    .filter(tx => tx.type === 'consume' && tx.status === ITransactionStatus.Completed)
     .toArray();
 
   const settled = new Set<string>();
@@ -250,7 +249,7 @@ export interface SwapOrderTracking {
   remainingRequested: bigint;
 }
 
-const pswapStateToOrderState = (state: PswapLineageState): SwapOrderState => {
+const pswapStateToOrderState = (state: number): SwapOrderState => {
   switch (state) {
     case PswapLineageState.FullyFilled:
       return 'filled';
@@ -261,29 +260,27 @@ const pswapStateToOrderState = (state: PswapLineageState): SwapOrderState => {
   }
 };
 
-/**
- * Look up the live PSWAP lineage for a swap order so the activity detail page
- * can show how far the order has been filled. `orderId` is the value persisted
- * on the swap transaction's `extraInputs.orderId` by `completeSwapTransaction`.
- * Returns `null` when this client isn't tracking the order (e.g. not synced
- * yet).
- *
- * Routed through `midenClientProxy.getPswapLineage` (issue #260, slice 7a) so
- * flag-ON it reads the OFFSCREEN client's canonical synced lineage (the SW client
- * is dormant then and would report stale fill progress); flag-OFF is the
- * byte-identical inline `client.client.pswap.lineage` reduction under the caller
- * lock. The DTO's decimal-string amounts are re-widened to BigInt here.
- */
-export const trackOrderId = async (orderId: string | bigint): Promise<SwapOrderTracking | null> => {
-  return withWasmClientLock(async () => {
-    const lineage = await midenClientProxy.getPswapLineage(orderId);
-    if (!lineage) return null;
-    return {
-      orderId: lineage.orderId,
-      state: pswapStateToOrderState(lineage.state as PswapLineageState),
-      currentDepth: lineage.currentDepth,
-      remainingOffered: BigInt(lineage.remainingOffered),
-      remainingRequested: BigInt(lineage.remainingRequested)
-    };
-  });
+/** Read one live lineage snapshot. Null means the queued probe was fused before it acquired the lock. */
+export const trackSwapOrders = async (): Promise<Map<string, SwapOrderTracking> | null> => {
+  return withWasmClientLock(
+    async hold => {
+      if (isSyncFused('swap-order-tracking')) return null;
+      const lineages = await midenClientProxy.getPswapLineages(() =>
+        assertWasmHoldCurrent(hold, 'during swap order tracking')
+      );
+      return new Map<string, SwapOrderTracking>(
+        lineages.map(lineage => [
+          lineage.orderId,
+          {
+            orderId: lineage.orderId,
+            state: pswapStateToOrderState(lineage.state),
+            currentDepth: lineage.currentDepth,
+            remainingOffered: BigInt(lineage.remainingOffered),
+            remainingRequested: BigInt(lineage.remainingRequested)
+          }
+        ])
+      );
+    },
+    { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'swap-order-tracking' }
+  );
 };

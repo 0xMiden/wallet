@@ -285,7 +285,7 @@ describe('reconcileBridgedReceives', () => {
 
     await reconcileBridgedReceives();
 
-    expect(resolveNoteId).toHaveBeenCalledWith('nonce-2', '0xnote-1');
+    expect(resolveNoteId).toHaveBeenCalledWith('0x1111111111111111111111111111111111111111', 'nonce-2', '0xnote-1');
     expect(updatePhase).toHaveBeenCalledWith('epoch-failed-leg', 'failed', {
       error: 'The Epoch bridge intent failed.'
     });

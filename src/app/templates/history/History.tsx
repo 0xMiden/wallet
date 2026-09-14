@@ -7,7 +7,7 @@ import {
   getUncompletedTransactions,
   isCancellableTransaction,
   isUserCancelledTransaction,
-  suppressingLinkedTxIds,
+  suppressedLinkedConsumeIds,
   USER_CANCELLED_TRANSACTION_REASON
 } from 'lib/miden/activity';
 import {
@@ -337,14 +337,14 @@ async function fetchTransactionsAsHistoryEntries(
       bridgeReclaimHeight: bridge?.reclaimHeight,
       restoredFromBackup: tx.restoredFromBackup,
       bridgeInProvider: bridgedReceive?.provider ?? bridgeIn?.provider,
-      bridgeInSourceAddress: bridgedReceive?.sourceAddress,
+      bridgeInSourceAddress: bridgedReceive?.sourceAddress ?? bridgeIn?.intentOwner,
       bridgeInSourceAmount: bridgedReceive?.sourceAmount ?? bridgeIn?.sourceAmount,
       bridgeInSourceSymbol: bridgedReceive?.sourceSymbol ?? bridgeIn?.sourceSymbol,
       bridgeInEvmTxHash: bridgedReceive?.evmTxHash ?? bridgeIn?.evmTxHash,
       bridgeInPhase: bridgedReceive?.phase,
       bridgeInOutputAmount: bridgedReceive?.outputAmount,
       bridgeInOutputSymbol: bridgedReceive?.outputSymbol,
-      bridgeInMidenNoteId: bridgedReceive?.midenNoteId
+      bridgeInMidenNoteId: bridgedReceive?.midenNoteId ?? bridgeIn?.midenNoteId
     } as IHistoryEntry;
 
     return entry;
@@ -427,32 +427,8 @@ async function fetchPendingTransactionsAsHistoryEntries(address: string, tokenId
  * the swap row on its requested-token page too.
  */
 async function suppressLinkedConsumes<T extends ITransaction>(transactions: T[]): Promise<T[]> {
-  const linkedTrackingIds = transactions.map(linkedPrimaryTxId).filter((id): id is string => Boolean(id));
-  if (linkedTrackingIds.length === 0) return transactions;
-  const suppressingIds = await suppressingLinkedTxIds(linkedTrackingIds);
-  return transactions.filter(tx => {
-    const linkedId = linkedPrimaryTxId(tx);
-    return !(linkedId && suppressingIds.has(linkedId));
-  });
-}
-
-/**
- * The primary row a `consume` transaction is the lifecycle tail of, if any —
- * swap-order settlement consumes (linked via `extraInputs.swapOrderTxId` by
- * `reconcileSwapOrderNotes`), Smart Withdraw delivery consumes (linked via
- * `extraInputs.bridgeIn.earnWithdrawTxId`) and bridged-receive delivery consumes
- * (linked via `extraInputs.bridgeIn.bridgeReceiveTxId`). While the primary row
- * exists AND is a valid trace it is the single trace; a dangling reference — or a
- * terminal-`failed` earn-withdraw primary (see `suppressingLinkedTxIds`) — falls
- * through to a normal receive row so the delivered funds stay visible.
- */
-function linkedPrimaryTxId(tx: ITransaction): string | undefined {
-  if (tx.type !== 'consume') return undefined;
-  return (
-    tx.extraInputs?.swapOrderTxId ??
-    tx.extraInputs?.bridgeIn?.earnWithdrawTxId ??
-    tx.extraInputs?.bridgeIn?.bridgeReceiveTxId
-  );
+  const suppressed = await suppressedLinkedConsumeIds(transactions);
+  return transactions.filter(tx => !suppressed.has(tx.id));
 }
 
 function mergeAndSort(base?: IHistoryEntry[], toAppend: IHistoryEntry[] = []) {
