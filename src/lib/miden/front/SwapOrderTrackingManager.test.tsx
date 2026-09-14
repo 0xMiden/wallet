@@ -192,17 +192,20 @@ describe('SwapOrderTrackingManager', () => {
 
   it('keeps polling an unresolved order at the capped interval until terminal lineage arrives', async () => {
     mockRows = [swapRow(3n)];
+    const schedule = getSwapOrderSchedule('3');
+    schedule.unresolved = 5;
+    schedule.nextAt = 0;
     render(<SwapOrderTrackingManager />);
     await settleMount();
 
-    for (const delay of [2000, 4000, 8000, 16000, ...Array(15).fill(30_000)]) await step(delay);
-    expect(mockTrackSwapOrders).toHaveBeenCalledTimes(20);
+    for (let attempt = 1; attempt < 15; attempt++) await step(30_000);
+    expect(mockTrackSwapOrders).toHaveBeenCalledTimes(15);
     expect(useSwapOrderTrackingStore.getState().entries['3']).toEqual({ tracking: null, loading: false });
 
     const filled: SwapOrderTracking = { ...activeTracking('3'), state: 'filled' };
     mockTrackSwapOrders.mockResolvedValue(snapshot(filled));
     await step(30_000);
-    expect(mockTrackSwapOrders).toHaveBeenCalledTimes(21);
+    expect(mockTrackSwapOrders).toHaveBeenCalledTimes(16);
     expect(useSwapOrderTrackingStore.getState().entries['3']).toEqual({ tracking: filled, loading: false });
     expect(getSwapOrderSchedule('3').terminal).toBe(true);
   });

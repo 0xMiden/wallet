@@ -1,6 +1,7 @@
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
 import { liveQuery } from 'dexie';
 
+import { getSwapSettlementNotes } from 'lib/miden/activity';
 import { ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import { transactions } from 'lib/miden/repo';
 
@@ -14,9 +15,7 @@ jest.mock('lib/miden/back/miden-client-proxy', () => ({ midenClientProxy: {} }))
 jest.mock('lib/miden/sdk/miden-client', () => ({}));
 jest.mock('@miden-sdk/miden-sdk/lazy', () => ({ PswapLineageState: {} }));
 
-const mockGetSwapSettlementNotes = jest.mocked(
-  jest.requireMock<typeof import('lib/miden/transaction/get')>('lib/miden/activity').getSwapSettlementNotes
-);
+const mockGetSwapSettlementNotes = jest.mocked(getSwapSettlementNotes);
 
 const emptyNotes = {
   settled: [],
@@ -60,6 +59,7 @@ async function mutateAndObserve(mutate: () => Promise<unknown>, expectedCount: n
 }
 
 beforeEach(async () => {
+  mockGetSwapSettlementNotes.mockClear();
   await transactions.clear();
 });
 
@@ -103,10 +103,7 @@ describe('useSwapSettlementNotes', () => {
     await waitFor(() => expect(result.current).toEqual(emptyNotes));
     mockGetSwapSettlementNotes.mockClear();
 
-    await act(async () => {
-      await transactions.add(consume('unrelated', 'swap-2'));
-      await new Promise(resolve => setTimeout(resolve, 0));
-    });
+    await mutateAndObserve(() => transactions.add(consume('unrelated', 'swap-2')), 1);
 
     expect(mockGetSwapSettlementNotes).not.toHaveBeenCalled();
   });
@@ -151,39 +148,36 @@ describe('useSwapSettlementNotes', () => {
     const { result, rerender } = renderHook(({ id }) => useSwapSettlementNotes(id), { initialProps });
     await waitFor(() => expect(result.current?.settled).toEqual(['note-first']));
 
-    const read = jest.spyOn(transactions, 'where');
+    mockGetSwapSettlementNotes.mockClear();
     rerender({ id: undefined });
     expect(result.current).toBeNull();
     await mutateAndObserve(() => transactions.add(consume('late', 'swap-1')), 2);
     expect(result.current).toBeNull();
-    expect(read).not.toHaveBeenCalled();
+    expect(mockGetSwapSettlementNotes).not.toHaveBeenCalled();
   });
 
   it('does not subscribe when mounted without an order id', async () => {
-    const read = jest.spyOn(transactions, 'where');
     const { result } = renderHook(() => useSwapSettlementNotes(undefined));
 
     await mutateAndObserve(() => transactions.add(consume('first', 'swap-1')), 1);
     expect(result.current).toBeNull();
-    expect(read).not.toHaveBeenCalled();
+    expect(mockGetSwapSettlementNotes).not.toHaveBeenCalled();
   });
 
   it('stops reading settlement rows after unmount', async () => {
     const { result, unmount } = renderHook(() => useSwapSettlementNotes('swap-1'));
     await waitFor(() => expect(result.current).toEqual(emptyNotes));
-    const read = jest.spyOn(transactions, 'where');
+    mockGetSwapSettlementNotes.mockClear();
 
     unmount();
     await mutateAndObserve(() => transactions.add(consume('late', 'swap-1')), 1);
 
-    expect(read).not.toHaveBeenCalled();
+    expect(mockGetSwapSettlementNotes).not.toHaveBeenCalled();
   });
 
   it('reports a failed database read without publishing settlement notes', async () => {
     const error = new Error('Database read failed');
-    jest.spyOn(transactions, 'where').mockImplementationOnce(() => {
-      throw error;
-    });
+    mockGetSwapSettlementNotes.mockRejectedValueOnce(error);
     const logError = jest.spyOn(console, 'error').mockImplementation(() => undefined);
     const { result } = renderHook(() => useSwapSettlementNotes('swap-1'));
 
