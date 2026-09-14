@@ -1296,56 +1296,6 @@ describe('generateTransactionsLoop killed CONSUME node-verify (#260 fu #3a)', ()
 });
 
 describe('generateTransaction execute + consume default switch arms', () => {
-  it('drives the execute branch and invokes the signCallback wrapper', async () => {
-    txStore.push({
-      id: 'tx-exec',
-      type: 'execute',
-      accountId: 'acc-1',
-      secondaryAccountId: 'recipient',
-      status: ITransactionStatus.Queued,
-      initiatedAt: 1,
-      requestBytes: new Uint8Array([1, 2, 3]),
-      delegateTransaction: false
-    });
-    const fakeResult = {
-      executedTransaction: () => ({
-        id: () => ({ toHex: () => 'exec-hash' }),
-        outputNotes: () => ({ notes: () => [] })
-      }),
-      serialize: () => new Uint8Array([])
-    };
-
-    // Capture the options.signCallback the WASM client receives so we can
-    // invoke it with byte buffers — that's the only way to exercise the
-    // hex-encoding wrapper inside generateTransaction (lines 775-779).
-    let capturedSignCallback: ((pk: Uint8Array, si: Uint8Array) => Promise<Uint8Array>) | null = null;
-    const sdk = require('../sdk/miden-client');
-    const origGetClient = sdk.getMidenClient;
-    sdk.getMidenClient = async (options?: any) => {
-      if (options?.signCallback) capturedSignCallback = options.signCallback;
-      return {
-        syncState: jest.fn(),
-        newTransaction: jest.fn(async () => fakeResult),
-        waitForTransactionCommit: jest.fn(),
-        sendPrivateNote: jest.fn()
-      };
-    };
-    _gh.__noteTypeForTest = 'public';
-    try {
-      const userSignCallback = jest.fn(async () => new Uint8Array([0xab, 0xcd]));
-      await generateTransaction(txStore[0] as any, userSignCallback, false, {} as any);
-      expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
-
-      // Drive the wrapper: it should hex-encode and forward to the user callback.
-      expect(capturedSignCallback).not.toBeNull();
-      const sig = await capturedSignCallback!(new Uint8Array([0x01, 0x02]), new Uint8Array([0x10, 0x20]));
-      expect(userSignCallback).toHaveBeenCalledWith('0102', '1020');
-      expect(sig).toEqual(new Uint8Array([0xab, 0xcd]));
-    } finally {
-      sdk.getMidenClient = origGetClient;
-    }
-  });
-
   it('Guardian consume: completes through completeConsumeTransaction → break (outer switch line 913)', async () => {
     txStore.push({
       id: 'guardian-consume',

@@ -60,7 +60,6 @@ import {
   isGuardianUnauthorizedExecutionError,
   isLockedError,
   markMayHaveSubmitted,
-  readLastAuthReason,
   setTransactionStage,
   updateTransactionStatus
 } from './helper';
@@ -102,16 +101,11 @@ import {
   assertWasmHoldCurrent,
   getCurrentWasmLockHold,
   getMidenClient,
+  type WasmLockHold,
   withWasmClientLock,
-  withWasmLockWatchdogPaused,
-  type WasmLockHold
+  withWasmLockWatchdogPaused
 } from '../sdk/miden-client';
-import {
-  getRealmReaderClient,
-  MidenClientCreateOptions,
-  remoteProver,
-  withDelegatedProveTimeout
-} from '../sdk/miden-client-interface';
+import { getRealmReaderClient, remoteProver, withDelegatedProveTimeout } from '../sdk/miden-client-interface';
 import { buildNativeProverCallback } from '../sdk/native-prover-mobile';
 import {
   errorMessageParts,
@@ -1349,7 +1343,7 @@ export const generateTransaction = async (
   // killable. `consume` (slice 5a), `send`/`swap`/`execute` (slice 5b), and now
   // `bridged-send`/`earn-deposit` (slice 7b) all share this. Each proxy method's
   // flag-OFF path is BYTE-IDENTICAL to the inline switch it replaced (same
-  // `withWasmClientLock`, same `getMidenClient(buildSignCallbackOptions(signCallback))`,
+  // `withWasmClientLock`, same `getMidenClient()` and the realm's installed signer,
   // same underlying `sendTransaction`/`newTransaction`), so production is unchanged.
   // The proxy owns its own per-flag locking, so these are NOT wrapped in a caller
   // lock here (flag-on must not hold the SW WASM lock across the whole offscreen op —
@@ -1675,28 +1669,19 @@ const runGuardianPipeline = async (
   accountId: string,
   tr: TransactionRequest,
   delegateTransaction: boolean | undefined,
-  signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>,
   setStage: (stage: ITransactionStage) => Promise<void>,
   chainAnchorB64?: string
 ): Promise<TransactionResult> => {
-  const options: MidenClientCreateOptions = {
-    signCallback: async (publicKey: Uint8Array, signingInputs: Uint8Array) => {
-      const keyString = Buffer.from(publicKey).toString('hex');
-      const signingInputsString = Buffer.from(signingInputs).toString('hex');
-      return await signCallback(keyString, signingInputsString);
-    }
-  };
-
-  // MidenClient handles the full pipeline (execute → prove → submit → apply).
+  // MidenClient handles the full pipeline (execute → prove → submit → apply). The
+  // sign inside `executeRequest` reaches the realm's installed signer (#878).
   return withWasmClientLock(async hold => {
-    const midenClient = await getMidenClient(options);
-    // The client build is the LONGEST parking await in this hold — `getMidenClient`
-    // with options always disposes and rebuilds, and the fresh client's eager
-    // genesis fetch goes to the same node everything else here is waiting on. The
-    // offscreen copy of this pipeline checks the hold right after its own build for
-    // that reason; today this copy is covered only incidentally, because a poison
-    // bumps the singleton's generation and hands a raced build back terminated.
-    // Re-deriving it here makes the guarantee local instead of inherited.
+    const midenClient = await getMidenClient();
+    // The client build can be the LONGEST parking await in this hold - a first
+    // build's genesis fetch goes to the same node everything else here is waiting
+    // on. The offscreen copy of this pipeline checks the hold right after its own
+    // build for that reason; this copy is otherwise covered only incidentally,
+    // because a poison bumps the singleton's generation and hands a raced build
+    // back terminated. Re-deriving it here makes the guarantee local.
     //
     // AFTER the stage write, not before it. `setTransactionStage` awaits a Dexie
     // `modify`, so it parks too, and a guard on its far side covers the build and
@@ -2012,7 +1997,6 @@ const generateDirectSwitchGuardianTransaction = async (
       transaction.accountId,
       tr,
       transaction.delegateTransaction,
-      signCallback,
       stageStampFor(transaction.id),
       chainAnchorB64
     );
@@ -2753,7 +2737,6 @@ const generateGuardianTransaction = async (
         transaction.accountId,
         tr,
         transaction.delegateTransaction,
-        signCallback,
         stageStampFor(transaction.id),
         chainAnchorB64
       );
@@ -3038,31 +3021,27 @@ export const generateTransactionsLoop = async (
     // This prevents the note-loss scenario the 1000-op stress run
     // surfaced: lock during executeTransaction → tx cancelled → next
     // cycle starts fresh but some races can leave the note stuck.
-    // Two locked signals. (1) The SDK-captured sign-callback auth error on the
-    // SW-inline (FLAG-OFF) client — `readLastAuthReason()` returns `undefined`
-    // under flag-on, where the SW client never signed for the offscreen op (issue
-    // #260 flip-prep #2). (2) An explicit `reason:'locked'` error tag — thrown by
-    // the guardian provider when the vault is null (guardian path), OR re-tagged
-    // onto a flag-on offscreen write whose reverse-IPC sign reported 'locked'
-    // (`dispatchOffscreenWrite`). Either one defers the tx for retry after unlock
-    // rather than marking it Failed.
-    // The abandonment exclusion has to sit on the WHOLE condition, not just inside
-    // `isLockedError` (issue #775). `authReason` is ambient client state, read
-    // after the fact and not derived from `e` at all, so an eviction paired with
-    // a stale `locked` reason would take the defer branch — which requeues the
-    // row as a fresh write while the abandoned pipeline can still submit,
-    // turning one send into two payments. The requeue's "strictly pre-submit"
-    // justification below is exactly what an abandonment breaks.
+    // One locked signal, `isLockedError(e)`: an explicit `reason:'locked'` tag
+    // (thrown by the guardian provider when the vault is null, or attached to the
+    // write's own rejection) or a message the SDK built from the sign callback's
+    // error. It defers the tx for retry after unlock rather than marking it Failed.
+    // The tag rides on `e` itself, for both paths: the offscreen write
+    // tags its error from an op-keyed record, and `withWasmClientLock` tags an
+    // inline hold's rejection from the record keyed by that hold (the proxy's
+    // writes and the guardian execute alike). Nothing ambient is read here: a
+    // realm-wide slot let a dry run's or an earlier write's locked sign requeue an
+    // unrelated failure, including one already on chain (#878 review).
     //
-    // BOTH kill shapes, not just poison. An offscreen deadline arrives as
-    // `OperationAbortedError` from the identical point and is equally still
-    // running — `cancel.ts` treats the two as one equivalence class for exactly
-    // this reason, and `dispatchOffscreenWrite` re-tags whatever it caught with
-    // `reason:'locked'` whenever the op's sign reported locked, so either shape
-    // can reach `isLockedError` here.
-    const authReason = await readLastAuthReason();
+    // The abandonment exclusion still sits on the WHOLE condition, not just inside
+    // `isLockedError` (issue #775): an evicted write's error can carry a locked tag
+    // recorded before the eviction, and the defer branch requeues the row as a
+    // fresh write while the abandoned pipeline can still submit, turning one send
+    // into two payments. The requeue's "strictly pre-submit" justification below
+    // is exactly what an abandonment breaks. BOTH kill shapes, not just poison: an
+    // offscreen deadline arrives as `OperationAbortedError` from the identical
+    // point and is equally still running (`cancel.ts` treats the two as one class).
     const abandoned = isWasmClientPoisonedError(e) || isOperationAbortedError(e);
-    if (!abandoned && (authReason === 'locked' || isLockedError(e))) {
+    if (!abandoned && isLockedError(e)) {
       logger.warning('Wallet locked during tx generation; requeueing tx for retry after unlock');
       // Genuinely RE-QUEUE it. `generateTransaction` already advanced the row to
       // `GeneratingTransaction` (before any signing), and that status is exactly

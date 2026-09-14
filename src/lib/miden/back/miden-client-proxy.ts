@@ -33,6 +33,7 @@ import type {
 import type { PswapLineageDto } from 'lib/miden/sdk/pswap-lineage';
 import { reducePswapLineage } from 'lib/miden/sdk/pswap-lineage';
 import { WasmClientPoisonedError, isWasmClientPoisonReason } from 'lib/miden/sdk/wasm-client-poison';
+import { tagLockedSignReason } from 'lib/miden/transaction/sign-callback';
 import type { SerializedInputNoteDetail } from 'lib/shared/types';
 
 import {
@@ -61,11 +62,7 @@ import {
   isOffscreenAvailable
 } from './offscreen-prover';
 import type { ConsumeTransaction, ITransactionStage, SendTransaction, SwapTransaction } from '../db/types';
-import {
-  buildSignCallbackError,
-  buildSignCallbackOptions,
-  type SignCallbackReason
-} from '../transaction/sign-callback';
+import { buildSignCallbackError, type SignCallbackReason } from '../transaction/sign-callback';
 import type { NoteType } from '../types';
 
 /**
@@ -324,8 +321,9 @@ interface InFlightOp {
 const inFlight = new Map<string, InFlightOp>();
 
 /** The RAW hex-in/bytes-out sign callback shape the tx loop supplies (the SW's
- * `swSignCallback`). It is what crosses into the reverse-IPC handler; the SDK
- * keystore's byte-shaped `sign` is built from it via `buildSignCallbackOptions`. */
+ * `swSignCallback`). Flag-ON it crosses into the reverse-IPC handler, where the
+ * offscreen document builds its byte-shaped keystore `sign` from it via
+ * `buildSdkSignCallback`; flag-OFF it is unused, the realm signer signs (#878). */
 type RawSignCallback = (publicKey: string, signingInputs: string) => Promise<Uint8Array>;
 
 /** The per-step stage stamp the tx loop supplies for a staged write (PR #524) —
@@ -850,14 +848,9 @@ async function dispatchOffscreenWrite(
     await getWasmOrThrow();
     return TransactionResult.deserialize(b64ToBytes(resultB64));
   } catch (err) {
-    // If this op's failure was a LOCKED sign, re-tag the thrown error so
-    // `isLockedError(err)` in the tx loop DEFERS (not Fails) the write — the
-    // issue #313 note-loss guard. Only 'locked' matters to `isLockedError`;
-    // other reasons are left untagged (a genuine failure should Fail).
-    const reason = opSignReasons.get(op_id);
-    if (reason === 'locked' && err && typeof err === 'object' && (err as { reason?: unknown }).reason === undefined) {
-      (err as { reason?: SignCallbackReason }).reason = reason;
-    }
+    // If this op's failure was a LOCKED sign, the tag on the thrown error is what
+    // makes the tx loop DEFER (not Fail) the write - the issue #313 note-loss guard.
+    tagLockedSignReason(err, opSignReasons.get(op_id));
     throw err;
   } finally {
     decrementCriticalOp();
@@ -1486,12 +1479,10 @@ export const midenClientProxy = {
    * `signCallback` is the RAW `(publicKeyHex, signingInputsHex) => signatureBytes`
    * the tx loop supplies (the SW's `swSignCallback`). It is used two ways:
    *
-   *   Flag OFF (default) / offscreen unavailable: BYTE-IDENTICAL to production
-   *   today. The consume runs inline on the SW client under the WASM lock, with
-   *   the exact wrapped `signCallback` options `generateTransaction` has always
-   *   built (`buildSignCallbackOptions`). This is the same `withWasmClientLock(
-   *   () => getMidenClient(options).consumeNoteId(tx))` the switch ran before this
-   *   slice pulled consume out — same lock, same options, same call.
+   *   Flag OFF (default) / offscreen unavailable: the consume runs inline on the
+   *   realm's one client under the WASM lock, `withWasmClientLock(() =>
+   *   getMidenClient().consumeNoteId(tx))`; the realm signer `Actions.init`
+   *   installed signs it, and the `signCallback` argument is unused (#878).
    *
    *   Flag ON: the whole execute→prove→submit→apply chain runs in the offscreen
    *   realm as ONE killable op; the SDK keystore reaches the vault mid-execute via
@@ -1501,9 +1492,7 @@ export const midenClientProxy = {
    */
   async consumeNoteId(transaction: ConsumeTransaction, signCallback: RawSignCallback): Promise<TransactionResult> {
     if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
-      return withWasmClientLock(async () =>
-        (await getMidenClient(buildSignCallbackOptions(signCallback))).consumeNoteId(transaction)
-      );
+      return withWasmClientLock(async () => (await getMidenClient()).consumeNoteId(transaction));
     }
     const dto: OffscreenConsumeDto = {
       accountId: transaction.accountId,
@@ -1516,11 +1505,11 @@ export const midenClientProxy = {
 
   /**
    * Send (create a P2ID / recallable-P2IDE note) — moved offscreen (issue #260,
-   * slice 5b). Same shape as {@link consumeNoteId}: flag-OFF is BYTE-IDENTICAL to
-   * production (inline under the WASM lock with the exact wrapped sign options
-   * `generateTransaction` has always built — same lock, same `getMidenClient(
-   * options)`, same `sendTransaction(tx)`); flag-ON runs the whole
-   * execute→prove→submit→apply chain in the offscreen realm as one killable op.
+   * slice 5b). Same shape as {@link consumeNoteId}: flag-OFF runs inline under
+   * the WASM lock on the realm's one client, signed by the realm signer (the
+   * `signCallback` argument is unused, #878); flag-ON runs the whole
+   * execute→prove→submit→apply chain in the offscreen realm as one killable op,
+   * with that argument as the op's reverse-IPC signer.
    *
    * The minimal DTO carries EXACTLY the fields `MidenClientInterface.sendTransaction`
    * reads off the row — `accountId`, `secondaryAccountId`, `faucetId`, `noteType`,
@@ -1546,9 +1535,7 @@ export const midenClientProxy = {
     onStage?: StageCallback
   ): Promise<TransactionResult> {
     if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
-      return withWasmClientLock(async () =>
-        (await getMidenClient(buildSignCallbackOptions(signCallback))).sendTransaction(transaction, onStage)
-      );
+      return withWasmClientLock(async () => (await getMidenClient()).sendTransaction(transaction, onStage));
     }
     const dto: OffscreenSendDto = {
       accountId: transaction.accountId,
@@ -1564,7 +1551,7 @@ export const midenClientProxy = {
 
   /**
    * Create a partial-swap (PSWAP) note — moved offscreen (issue #260, slice 5b).
-   * Same flag-OFF byte-identity + flag-ON whole-op contract as {@link sendTransaction}.
+   * Same flag-OFF inline (realm signer) + flag-ON whole-op contract as {@link sendTransaction}.
    * The DTO carries EXACTLY what `MidenClientInterface.swapTransaction` reads —
    * `accountId`, `faucetId`, the offered `amount` (BigInt → string),
    * `delegateTransaction`, and `extraInputs.{requestedFaucetId, requestedAmount}`
@@ -1573,9 +1560,7 @@ export const midenClientProxy = {
    */
   async swapTransaction(transaction: SwapTransaction, signCallback: RawSignCallback): Promise<TransactionResult> {
     if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
-      return withWasmClientLock(async () =>
-        (await getMidenClient(buildSignCallbackOptions(signCallback))).swapTransaction(transaction)
-      );
+      return withWasmClientLock(async () => (await getMidenClient()).swapTransaction(transaction));
     }
     const dto: OffscreenSwapDto = {
       accountId: transaction.accountId,
@@ -1592,8 +1577,8 @@ export const midenClientProxy = {
 
   /**
    * Execute a pre-built custom `TransactionRequest` (custom-tx / execute) —
-   * moved offscreen (issue #260, slice 5b). Same flag-OFF byte-identity + flag-ON
-   * whole-op contract as the other writes. This one takes POSITIONAL args
+   * moved offscreen (issue #260, slice 5b). Same flag-OFF inline (realm signer) +
+   * flag-ON whole-op contract as the other writes. This one takes POSITIONAL args
    * mirroring `MidenClientInterface.newTransaction(accountId, requestBytes,
    * delegateTransaction)` — `requestBytes` crosses as raw bytes (`encodeArg`
    * base64), never JSON — because the request is opaque serialized bytes, not a
@@ -1609,11 +1594,7 @@ export const midenClientProxy = {
   ): Promise<TransactionResult> {
     if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
       return withWasmClientLock(async () =>
-        (await getMidenClient(buildSignCallbackOptions(signCallback))).newTransaction(
-          accountId,
-          requestBytes,
-          delegateTransaction
-        )
+        (await getMidenClient()).newTransaction(accountId, requestBytes, delegateTransaction)
       );
     }
     return dispatchOffscreenWrite('newTransaction', [accountId, requestBytes, delegateTransaction], signCallback);

@@ -7,7 +7,7 @@ import { clearPersistedSeenNoteIds, persistSeenNoteIds } from 'lib/miden/back/no
 import type { IConsumeBridgeInExtraInputs, IEarnWithdrawExtraInputs, ITransaction } from 'lib/miden/db/types';
 import { setTestSyncPaused } from 'lib/miden/front/test-sync-pause';
 import { fetchTokenMetadata } from 'lib/miden/metadata';
-import { installSwapTestHooks } from 'lib/miden/swap/test-hooks';
+import { describeHookError, installSwapTestHooks } from 'lib/miden/swap/test-hooks';
 import { MidenMessageType, MidenState } from 'lib/miden/types';
 import { isExtension } from 'lib/platform';
 import { WalletMessageType, WalletRequest, WalletResponse, WalletStatus } from 'lib/shared/types';
@@ -958,28 +958,43 @@ if (process.env.MIDEN_E2E_TEST === 'true') {
     // on MIDEN_E2E_TEST, tree-shaken from production.
     setTestSyncPaused(true);
     try {
-      const [{ AccountInspector }, { getMidenClient }, { getGuardianCommitmentFromAccount }] = await Promise.all([
+      const [
+        { AccountInspector },
+        { assertWasmHoldCurrent, getMidenClient, withWasmClientLock },
+        { getGuardianCommitmentFromAccount }
+      ] = await Promise.all([
         import('@openzeppelin/miden-multisig-client'),
         import('lib/miden/sdk/miden-client'),
         import('lib/miden/guardian/account')
       ]);
-      const account = await (await getMidenClient()).getAccount(accountPublicKey);
-      if (!account) {
-        return { error: `Guardian account ${accountPublicKey} not found in local client` };
-      }
-      const config = AccountInspector.fromAccount(account);
-      return {
-        threshold: config.threshold,
-        signerCommitments: config.signerCommitments,
-        procedureThresholds: Object.fromEntries(config.procedureThresholds),
-        // Active guardian-operator commitment — a SEPARATE storage slot
-        // (`GUARDIAN_SLOT_NAMES.PUBLIC_KEY`) from `signerCommitments` above.
-        // A guardian switch changes this while the signer set / threshold
-        // stay put, so this is the field that actually verifies a switch.
-        guardianCommitment: getGuardianCommitmentFromAccount(account)
-      };
+      // One hold from the read through the inspection of the account it returned
+      // (borrowed from the client's RefCell): this realm's reads and writes share one
+      // client, and the transaction loop holds this lock on mobile and desktop (#878).
+      return await withWasmClientLock(
+        async hold => {
+          const mc = await getMidenClient();
+          assertWasmHoldCurrent(hold, 'e2e-guardian-auth after the client build');
+          const account = await mc.getAccount(accountPublicKey);
+          assertWasmHoldCurrent(hold, 'e2e-guardian-auth after the account read');
+          if (!account) {
+            return { error: `Guardian account ${accountPublicKey} not found in local client` };
+          }
+          const config = AccountInspector.fromAccount(account);
+          return {
+            threshold: config.threshold,
+            signerCommitments: config.signerCommitments,
+            procedureThresholds: Object.fromEntries(config.procedureThresholds),
+            // Active guardian-operator commitment — a SEPARATE storage slot
+            // (`GUARDIAN_SLOT_NAMES.PUBLIC_KEY`) from `signerCommitments` above.
+            // A guardian switch changes this while the signer set / threshold
+            // stay put, so this is the field that actually verifies a switch.
+            guardianCommitment: getGuardianCommitmentFromAccount(account)
+          };
+        },
+        { label: 'e2e-guardian-auth' }
+      );
     } catch (e) {
-      return { error: e instanceof Error ? e.message : String(e) };
+      return { error: describeHookError(e) };
     } finally {
       setTestSyncPaused(false);
     }

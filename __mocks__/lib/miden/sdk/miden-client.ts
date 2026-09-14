@@ -11,3 +11,8 @@ export const getMidenClient = async () => ({
 export const withWasmClientLock = async <T>(operation: () => Promise<T>): Promise<T> => {
   return operation();
 };
+
+// The realm keystore (#878): init installs the signer, a vault its insert-key sink, lock retires it.
+export const installRealmKeystore = () => {};
+export const uninstallRealmKeystore = () => {};
+export const isRealmKeystoreInstalled = () => true;
