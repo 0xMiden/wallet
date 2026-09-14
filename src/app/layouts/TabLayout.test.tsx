@@ -512,6 +512,18 @@ describe('TabLayout — mount fade and tab panes', () => {
     expect(paneOf('activity')).toHaveStyle({ visibility: 'hidden' });
   });
 
+  it('renders a visible pane for every tab destination, including settings', () => {
+    // Settings joined the bottom nav after the pane list was written. A tab
+    // whose id is missing from the render order lights up in the nav but
+    // never gets a pane, so the page shows nothing.
+    mockLocation.pathname = '/settings';
+    renderLayout(<div data-testid="settings-content" />);
+    const settingsPane = paneOf('settings');
+    expect(settingsPane).toContainElement(screen.getByTestId('settings-content'));
+    expect(settingsPane).toHaveStyle({ visibility: 'visible' });
+    expect(settingsPane).not.toHaveAttribute('inert');
+  });
+
   it('refreshes the active tab content on every render', () => {
     mockLocation.pathname = '/history';
     const { rerender } = renderLayout(<div data-testid="child-content">one</div>);

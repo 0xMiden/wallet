@@ -53,7 +53,7 @@ const HOME_GROUP_ROUTES = new Set(['/', '/send', '/receive', '/earn', '/swap']);
 // Render order of the tab panes. Each pane stays mounted after its first
 // visit, like a native tab controller, so a tab change is one visibility
 // swap and each tab keeps its scroll position and state.
-const TAB_ORDER = ['home', 'explore', 'activity'];
+const TAB_ORDER = ['home', 'explore', 'activity', 'settings'];
 
 interface TabPaneProps extends PropsWithChildren {
   id: string;
