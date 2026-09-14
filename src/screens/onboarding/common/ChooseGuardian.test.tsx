@@ -55,8 +55,8 @@ jest.mock('lib/ui/util', () => ({
 // `Button` — render the title and forward the click so the continue wiring is
 // assertable without the real button internals.
 jest.mock('components/Button', () => ({
-  Button: ({ title, onClick }: { title?: string; onClick?: () => void }) => (
-    <button data-testid="continue-button" onClick={onClick}>
+  Button: ({ title, onClick, disabled }: { title?: string; onClick?: () => void; disabled?: boolean }) => (
+    <button data-testid="continue-button" onClick={onClick} disabled={disabled}>
       {title}
     </button>
   )
@@ -318,6 +318,17 @@ describe('ChooseGuardianScreen', () => {
     expect(screen.queryByText('default')).not.toBeInTheDocument();
   });
 
+  // A stored endpoint can differ from the option's literal by a trailing slash;
+  // RotateGuardian compares the two sanitized for the same reason.
+  it('recognizes the current provider when the stored endpoint has a trailing slash', () => {
+    const { container } = render(<ChooseGuardianScreen currentEndpoint={`${GATEWAY.endpoint}/`} />);
+    const [ozBtn, gwBtn] = optionButtons(container);
+
+    expect(isHighlighted(gwBtn!)).toBe(true);
+    expect(isHighlighted(ozBtn!)).toBe(false);
+    expect(screen.getByText('currentLabel')).toBeInTheDocument();
+  });
+
   it('falls back to the first provider when currentEndpoint matches nothing', () => {
     const { container } = render(<ChooseGuardianScreen currentEndpoint="https://unknown.example.com" />);
     const [ozBtn] = optionButtons(container);
@@ -326,6 +337,18 @@ describe('ChooseGuardianScreen', () => {
     // No "current" badge (nothing matched); the default badge is shown instead.
     expect(screen.queryByText('currentLabel')).not.toBeInTheDocument();
     expect(screen.getByText('default')).toBeInTheDocument();
+  });
+
+  // RotateGuardian's current endpoint hydrates from storage after the first render;
+  // until the user picks, the highlight follows it.
+  it('follows a currentEndpoint that resolves after mount until the user picks', () => {
+    const { container, rerender } = render(<ChooseGuardianScreen />);
+    const [ozBtn, gwBtn] = optionButtons(container);
+    expect(isHighlighted(ozBtn!)).toBe(true);
+
+    rerender(<ChooseGuardianScreen currentEndpoint={GATEWAY.endpoint} />);
+    expect(isHighlighted(gwBtn!)).toBe(true);
+    expect(isHighlighted(ozBtn!)).toBe(false);
   });
 
   it('keeps the user selection when currentEndpoint changes after an explicit pick', () => {
@@ -610,15 +633,168 @@ describe('ChooseGuardianScreen — offline banner', () => {
     expect(gwCard).toHaveAttribute('aria-pressed', 'true');
   });
 
-  it('keeps an offline provider selectable and submittable', () => {
+  // An account created against a down operator fails deep in the pipeline,
+  // after the seed backup and the password. The card already SAID offline; it
+  // still took the tap and Continue still submitted it.
+  it('disables an offline provider card so it cannot be selected or submitted', () => {
     mockUseGuardianAvailability.mockReturnValue({ [GATEWAY.endpoint]: 'offline' });
     const onSubmit = jest.fn();
     const { container } = render(<ChooseGuardianScreen onSubmit={onSubmit} />);
-    const [, gwBtn] = optionButtons(container);
+    const [ozBtn, gwBtn] = optionButtons(container);
+
+    expect(gwBtn).toBeDisabled();
+    expect(ozBtn).not.toBeDisabled();
 
     fireEvent.click(gwBtn!);
+    expect(mockHapticLight).not.toHaveBeenCalled();
+    expect(gwBtn).toHaveAttribute('aria-pressed', 'false');
+    expect(isHighlighted(gwBtn!)).toBe(false);
+
+    fireEvent.click(screen.getByTestId('continue-button'));
+    expect(onSubmit).toHaveBeenCalledWith({ guardianId: 'open-zeppelin', guardianEndpoint: OZ.endpoint });
+  });
+
+  // Verdicts land AFTER the default is picked (the map starts empty), so the
+  // default card can turn out to be offline. The selection has to follow the
+  // verdict rather than sit on a card the user cannot tap.
+  it('moves the default selection to the first online provider when the default is offline (create flow)', () => {
+    mockUseGuardianAvailability.mockReturnValue({ [OZ.endpoint]: 'offline' });
+    const onSubmit = jest.fn();
+    const { container } = render(<ChooseGuardianScreen onSubmit={onSubmit} />);
+    const [ozBtn, gwBtn] = optionButtons(container);
+
+    expect(ozBtn).toHaveAttribute('aria-pressed', 'false');
+    expect(gwBtn).toHaveAttribute('aria-pressed', 'true');
+    // The "default" badge still names the first card; only the selection moved.
+    expect(screen.getByTestId('guardian-offline-banner')).toHaveTextContent('default · guardianOfflineLabel');
+
     fireEvent.click(screen.getByTestId('continue-button'));
     expect(onSubmit).toHaveBeenCalledWith({ guardianId: 'gateway', guardianEndpoint: GATEWAY.endpoint });
+  });
+
+  // The 30 s re-probe can flip an explicitly picked card offline while the user
+  // is still on the screen. The pick is an intent; the verdict wins.
+  it('drops an explicit selection that goes offline on a later probe round', () => {
+    const onSubmit = jest.fn();
+    const { container, rerender } = render(<ChooseGuardianScreen onSubmit={onSubmit} />);
+    const [ozBtn, gwBtn] = optionButtons(container);
+
+    fireEvent.click(gwBtn!);
+    expect(gwBtn).toHaveAttribute('aria-pressed', 'true');
+
+    mockUseGuardianAvailability.mockReturnValue({ [GATEWAY.endpoint]: 'offline' });
+    rerender(<ChooseGuardianScreen onSubmit={onSubmit} />);
+
+    expect(gwBtn).toBeDisabled();
+    expect(gwBtn).toHaveAttribute('aria-pressed', 'false');
+    expect(ozBtn).toHaveAttribute('aria-pressed', 'true');
+
+    fireEvent.click(screen.getByTestId('continue-button'));
+    expect(onSubmit).toHaveBeenCalledWith({ guardianId: 'open-zeppelin', guardianEndpoint: OZ.endpoint });
+  });
+
+  // A card that recovers is selected again without a tap: the intent never
+  // changed, only the verdict did.
+  it('re-selects the default when it comes back online', () => {
+    mockUseGuardianAvailability.mockReturnValue({ [OZ.endpoint]: 'offline' });
+    const { container, rerender } = render(<ChooseGuardianScreen />);
+    const [ozBtn, gwBtn] = optionButtons(container);
+    expect(gwBtn).toHaveAttribute('aria-pressed', 'true');
+
+    mockUseGuardianAvailability.mockReturnValue({ [OZ.endpoint]: 'online' });
+    rerender(<ChooseGuardianScreen />);
+    expect(ozBtn).toHaveAttribute('aria-pressed', 'true');
+    expect(gwBtn).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('disables Continue when every provider is offline, instead of submitting the first one', () => {
+    mockUseGuardianAvailability.mockReturnValue({
+      [OZ.endpoint]: 'offline',
+      [GATEWAY.endpoint]: 'offline',
+      [LAMBDA.endpoint]: 'offline'
+    });
+    const onSubmit = jest.fn();
+    const { container } = render(<ChooseGuardianScreen onSubmit={onSubmit} />);
+
+    optionButtons(container).forEach(btn => {
+      expect(btn).toBeDisabled();
+      expect(btn).toHaveAttribute('aria-pressed', 'false');
+    });
+    expect(screen.getByTestId('continue-button')).toBeDisabled();
+    fireEvent.click(screen.getByTestId('continue-button'));
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  // The offline-rotation flow starts BECAUSE the current operator is down, and
+  // the pre-selection rule says never nudge the user onto another operator by
+  // default. So the down current card is disabled and NOTHING is selected: the
+  // user must pick the replacement deliberately.
+  it('pre-selects nothing when the offline current operator is stored with a trailing slash', () => {
+    mockUseGuardianAvailability.mockReturnValue({ [GATEWAY.endpoint]: 'offline' });
+    const { container } = render(<ChooseGuardianScreen currentEndpoint={`${GATEWAY.endpoint}/`} />);
+
+    optionButtons(container).forEach(btn => expect(btn).toHaveAttribute('aria-pressed', 'false'));
+    expect(screen.getByTestId('guardian-offline-banner')).toHaveTextContent('currentLabel · guardianOfflineLabel');
+    expect(screen.getByTestId('continue-button')).toBeDisabled();
+  });
+
+  // The rotation flow's rule covers a replacement the user picked, not only the
+  // operator the account is on: an offline pick selects nothing there.
+  it('drops an explicit pick in the switch flow that goes offline, selecting nothing', () => {
+    const onSubmit = jest.fn();
+    const { container, rerender } = render(<ChooseGuardianScreen currentEndpoint={OZ.endpoint} onSubmit={onSubmit} />);
+    const [ozBtn, gwBtn, lcBtn] = optionButtons(container);
+
+    fireEvent.click(gwBtn!);
+    expect(gwBtn).toHaveAttribute('aria-pressed', 'true');
+
+    mockUseGuardianAvailability.mockReturnValue({ [GATEWAY.endpoint]: 'offline' });
+    rerender(<ChooseGuardianScreen currentEndpoint={OZ.endpoint} onSubmit={onSubmit} />);
+
+    expect(gwBtn).toBeDisabled();
+    [ozBtn, gwBtn, lcBtn].forEach(btn => expect(btn).toHaveAttribute('aria-pressed', 'false'));
+    expect(screen.getByTestId('continue-button')).toBeDisabled();
+  });
+
+  it('pre-selects nothing in the switch flow when the current operator is offline', () => {
+    mockUseGuardianAvailability.mockReturnValue({ [GATEWAY.endpoint]: 'offline' });
+    const onSubmit = jest.fn();
+    const { container } = render(<ChooseGuardianScreen currentEndpoint={GATEWAY.endpoint} onSubmit={onSubmit} />);
+    const [ozBtn, gwBtn, lcBtn] = optionButtons(container);
+
+    expect(gwBtn).toBeDisabled();
+    [ozBtn, gwBtn, lcBtn].forEach(btn => expect(btn).toHaveAttribute('aria-pressed', 'false'));
+    // "Current" survives on the strip so the user still sees what they are leaving.
+    expect(screen.getByTestId('guardian-offline-banner')).toHaveTextContent('currentLabel · guardianOfflineLabel');
+
+    expect(screen.getByTestId('continue-button')).toBeDisabled();
+    fireEvent.click(screen.getByTestId('continue-button'));
+    expect(onSubmit).not.toHaveBeenCalled();
+
+    fireEvent.click(lcBtn!);
+    expect(lcBtn).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByTestId('continue-button')).not.toBeDisabled();
+    fireEvent.click(screen.getByTestId('continue-button'));
+    expect(onSubmit).toHaveBeenCalledWith({ guardianId: 'lambda-class', guardianEndpoint: LAMBDA.endpoint });
+  });
+
+  // The custom field is its own escape hatch: a user pointing at their own
+  // Guardian is not blocked by the built-in operators being down.
+  it('keeps Continue enabled for a custom URL while every provider is offline', () => {
+    mockUseGuardianAvailability.mockReturnValue({
+      [OZ.endpoint]: 'offline',
+      [GATEWAY.endpoint]: 'offline',
+      [LAMBDA.endpoint]: 'offline'
+    });
+    const onSubmit = jest.fn();
+    render(<ChooseGuardianScreen allowCustomEndpoint onSubmit={onSubmit} />);
+    expect(screen.getByTestId('continue-button')).toBeDisabled();
+
+    fireEvent.click(screen.getByText('useCustomGuardianUrl'));
+    expect(screen.getByTestId('continue-button')).not.toBeDisabled();
+    fireEvent.change(screen.getByTestId('custom-input'), { target: { value: 'https://custom.example.com' } });
+    fireEvent.click(screen.getByTestId('continue-button'));
+    expect(onSubmit).toHaveBeenCalledWith({ guardianId: 'custom', guardianEndpoint: 'https://custom.example.com' });
   });
 });
 
