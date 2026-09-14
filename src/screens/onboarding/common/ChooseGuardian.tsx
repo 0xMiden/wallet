@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 
 import clsx from 'clsx';
 import { useTranslation } from 'react-i18next';
@@ -69,7 +69,7 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
   // card dead for the first round trip.
   const endpoints = useMemo(() => options.map(o => o.endpoint), [options]);
   const availability = useGuardianAvailability(endpoints);
-  const isOfflineEndpoint = useCallback((endpoint: string) => availability[endpoint] === 'offline', [availability]);
+  const isOfflineEndpoint = (endpoint: string) => availability[endpoint] === 'offline';
 
   // In the switch context (GuardianSettings passes `currentEndpoint`) pre-select
   // the CURRENT operator, so the user has to deliberately pick a different one to
@@ -77,23 +77,22 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
   // flow (no `currentEndpoint`) default to the first provider.
   const defaultId = useMemo(() => {
     if (currentEndpoint) {
-      const current = options.find(o => o.endpoint === currentEndpoint);
+      // Sanitized on both sides: a stored endpoint can differ from the option's
+      // literal by a trailing slash (RotateGuardian compares them the same way).
+      const current = options.find(o => sanitizeGuardianUrl(o.endpoint) === sanitizeGuardianUrl(currentEndpoint));
       if (current) return current.id;
     }
     return options[0]?.id ?? '';
   }, [currentEndpoint, options]);
 
-  const [selectedId, setSelectedId] = useState<string>(defaultId);
-  // Until the user makes an explicit choice, keep the selection in sync with
-  // `defaultId` so a `currentEndpoint` that resolves after mount (async store
+  // The user's explicit pick, null until they make one. Until then the intent is
+  // `defaultId`, so a `currentEndpoint` that resolves after mount (async store
   // hydration) still updates the highlighted card.
-  const userSelectedRef = useRef(false);
-  useEffect(() => {
-    if (!userSelectedRef.current) setSelectedId(defaultId);
-  }, [defaultId]);
+  const [pickedId, setPickedId] = useState<string | null>(null);
+  const intendedId = pickedId ?? defaultId;
 
-  // The selection Continue will act on. `selectedId` is a stored intent; the
-  // verdicts land AFTER it is set (the map starts empty and re-probes every
+  // The selection Continue will act on. `intendedId` is the intent; the
+  // verdicts land AFTER it is known (the map starts empty and re-probes every
   // 30 s), so an intent can point at a card that has since gone offline.
   // Derived rather than stored, so a card that comes back online is simply
   // selected again, and a mid-screen outage cannot submit.
@@ -106,30 +105,32 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
   //   operator is down. Picking a replacement for the user would nudge them
   //   onto an operator by default, which the pre-selection rule exists to
   //   prevent.
-  const effectiveSelectedId = useMemo(() => {
-    if (selectedId === NO_GUARDIAN_ID) return selectedId;
-    const selected = options.find(o => o.id === selectedId);
-    if (selected && !isOfflineEndpoint(selected.endpoint)) return selected.id;
-    if (currentEndpoint) return '';
-    return options.find(o => !isOfflineEndpoint(o.endpoint))?.id ?? '';
-  }, [selectedId, options, isOfflineEndpoint, currentEndpoint]);
+  const intended = options.find(o => o.id === intendedId);
+  const effectiveSelectedId =
+    intendedId === NO_GUARDIAN_ID
+      ? NO_GUARDIAN_ID
+      : intended && !isOfflineEndpoint(intended.endpoint)
+        ? intended.id
+        : currentEndpoint
+          ? ''
+          : (options.find(o => !isOfflineEndpoint(o.endpoint))?.id ?? '');
 
   const handleSelect = (id: string) => {
     hapticLight();
-    userSelectedRef.current = true;
-    setSelectedId(id);
+    setPickedId(id);
     setIsCustom(false);
   };
 
   // Continue has something to submit: a custom URL (validated on tap), the
-  // no-guardian sentinel, or an online provider. With every provider offline
-  // the button is dead and each card says why.
+  // no-guardian sentinel, or a provider not reported offline. It is dead when
+  // every provider is offline, or in the switch flow when the operator the
+  // account is on is offline and nothing else is picked; each card says why.
   const canContinue = isCustom || effectiveSelectedId !== '';
 
   const handleContinue = () => {
     // Custom mode first, because it is the mode the SCREEN is in — the cards and
-    // the no-guardian sentinel are all just a stale `selectedId` underneath it
-    // (`handleSelect` clears `isCustom`, but nothing clears `selectedId`). Read
+    // the no-guardian sentinel are all just a stale `pickedId` underneath it
+    // (`handleSelect` clears `isCustom`, but nothing clears `pickedId`). Read
     // in the other order, a user who picked "No guardian" and then opened the
     // custom field got their typed URL silently discarded and a guardian-less
     // account instead. No caller passes both affordances today, which is what
@@ -148,8 +149,10 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
       onSubmit?.({ guardianId: NO_GUARDIAN_ID, guardianEndpoint: '' });
       return;
     }
-    // No `?? options[0]` fallback: an empty `effectiveSelectedId` means every
-    // provider is offline, and the first one is offline too.
+    // Continue is disabled while nothing is selectable (`canContinue`), so a click
+    // lands here with a selectable id and this guard only narrows the type. No
+    // `?? options[0]` fallback: it would submit an offline operator, or in the
+    // switch flow one the user did not pick.
     const selected = options.find(o => o.id === effectiveSelectedId);
     if (!selected) return;
     onSubmit?.({ guardianId: selected.id, guardianEndpoint: selected.endpoint });
@@ -182,14 +185,15 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
         <div className="grid grid-cols-[repeat(2,minmax(0,177px))] justify-center gap-x-4 gap-y-3 mt-7">
           {options.map(option => {
             // `isCustom` overrides the card selection, matching what Continue
-            // will actually submit. `selectedId` is never empty (it seeds from
-            // `defaultId`), so without this a provider card kept the 4px selected
+            // will actually submit. `effectiveSelectedId` still names a card while
+            // the custom field is open, so without this a provider card kept the 4px selected
             // border AND reported `aria-pressed="true"` while the custom URL was
             // the live choice — telling a screen-reader user, in a
             // machine-readable attribute, that the wrong operator was selected.
             const isSelected = !isCustom && effectiveSelectedId === option.id;
             const isDefault = option.id === defaultId;
-            const isCurrent = currentEndpoint != null && option.endpoint === currentEndpoint;
+            const isCurrent =
+              currentEndpoint != null && sanitizeGuardianUrl(option.endpoint) === sanitizeGuardianUrl(currentEndpoint);
             const isOffline = isOfflineEndpoint(option.endpoint);
             // GUARDIAN_LOGOS is keyed by provider id with no compile-time tie to
             // GUARDIAN_OPTIONS, so the old `GUARDIAN_LOGOS[option.id]!` + destructure
