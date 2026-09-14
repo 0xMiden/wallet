@@ -3,8 +3,7 @@ import {
   NoteType,
   type TransactionRequest,
   TransactionProver,
-  type TransactionResult,
-  WasmWebClient
+  type TransactionResult
 } from '@miden-sdk/miden-sdk/lazy';
 import { type Proposal } from '@openzeppelin/miden-multisig-client';
 
@@ -31,7 +30,6 @@ import { assertGuardianInSync } from 'lib/miden/guardian/sync-guard';
 import * as Repo from 'lib/miden/repo';
 import { freeChainAnchor } from 'lib/miden/sdk/chain-anchor';
 import { syncUnderBoundedLock } from 'lib/miden/sync-lock';
-import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { isExtension, isMobile } from 'lib/platform';
 import { b64ToU8 } from 'lib/shared/helpers';
 import { logger } from 'shared/logger';
@@ -108,7 +106,12 @@ import {
   withWasmLockWatchdogPaused,
   type WasmLockHold
 } from '../sdk/miden-client';
-import { MidenClientCreateOptions, remoteProver, withDelegatedProveTimeout } from '../sdk/miden-client-interface';
+import {
+  getRealmReaderClient,
+  MidenClientCreateOptions,
+  remoteProver,
+  withDelegatedProveTimeout
+} from '../sdk/miden-client-interface';
 import { buildNativeProverCallback } from '../sdk/native-prover-mobile';
 import {
   errorMessageParts,
@@ -2428,42 +2431,39 @@ const generateGuardianTransaction = async (
           const creatorAccount = await midenClientProxy.getAccount(accountIdStringToSdk(swapTx.accountId).toString());
           // An eviction during the read ABANDONS this callback without stopping
           // it: the creator Account is a borrow of a client a successor now
-          // owns, and spinning up the transient client below would burn a second
-          // multi-MB WASM instance inside somebody else's hold. Pre-proposal
-          // throughout, so stopping costs one retry.
+          // owns, and reaching for the realm's reader below would queue this dead
+          // flow on the reader its successor uses. Pre-proposal throughout, so
+          // stopping costs one retry.
           assertWasmHoldCurrent(hold, 'PSWAP request build: after the creator account read');
-          const client = await WasmWebClient.createClient(getEffectiveRpcUrl());
-          try {
-            // Inside the try on purpose: the create is the long parking await
-            // here (it fetches genesis over the network), and the guard's throw
-            // must still release the transient client via the finally.
-            assertWasmHoldCurrent(hold, 'PSWAP request build: after the transient client build');
-            const tr = await client.newPswapCreateTransactionRequest(
-              accountIdStringToSdk(swapTx.accountId),
-              accountIdStringToSdk(swapTx.faucetId),
-              swapTx.amount,
-              accountIdStringToSdk(swapTx.extraInputs.requestedFaucetId),
-              swapTx.extraInputs.requestedAmount,
-              NoteType.Public,
-              NoteType.Public
-            );
-            // `buildPswapCreateRequest` reads the creator Account — the SHARED
-            // client's borrow, not the transient one — so the request build
-            // needs its own re-check after the await above.
-            assertWasmHoldCurrent(hold, 'PSWAP request build: after the request build');
-            // Built once and rewritten once, in the same scope: each builder call
-            // draws a fresh serial number, which IS the order id. See
-            // `buildPswapCreateRequest`.
-            return buildPswapCreateRequest(
-              creatorAccount ?? undefined,
-              tr,
-              swapTx.faucetId,
-              BigInt(swapTx.amount),
-              swapFeeSalt
-            ).serialize();
-          } finally {
-            client.terminate();
-          }
+          // The realm's reader client (see `getRealmReaderClient`), not a per-call
+          // client: 0.16 can release neither, so a client per swap build leaked.
+          // Its first build is the long parking await here (a genesis fetch on a
+          // fresh store), hence the re-check after it.
+          const client = await getRealmReaderClient();
+          assertWasmHoldCurrent(hold, 'PSWAP request build: after the reader build');
+          const tr = await client.newPswapCreateTransactionRequest(
+            accountIdStringToSdk(swapTx.accountId),
+            accountIdStringToSdk(swapTx.faucetId),
+            swapTx.amount,
+            accountIdStringToSdk(swapTx.extraInputs.requestedFaucetId),
+            swapTx.extraInputs.requestedAmount,
+            NoteType.Public,
+            NoteType.Public
+          );
+          // `buildPswapCreateRequest` reads the creator Account - the SHARED
+          // client's borrow, not the reader's - so the request build needs its
+          // own re-check after the await above.
+          assertWasmHoldCurrent(hold, 'PSWAP request build: after the request build');
+          // Built once and rewritten once, in the same scope: each builder call
+          // draws a fresh serial number, which IS the order id. See
+          // `buildPswapCreateRequest`.
+          return buildPswapCreateRequest(
+            creatorAccount ?? undefined,
+            tr,
+            swapTx.faucetId,
+            BigInt(swapTx.amount),
+            swapFeeSalt
+          ).serialize();
         });
         transaction.requestBytes = requestBytes;
         await Repo.transactions.where({ id: transaction.id }).modify(t => {

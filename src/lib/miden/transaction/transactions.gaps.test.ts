@@ -193,19 +193,23 @@ jest.mock('../sdk/helpers', () => ({
 }));
 
 const mockTransactionResultDeserialize = jest.fn();
-// The swap request build spins up a TRANSIENT client inside the caller's hold —
-// the eviction tests below drive both sides of that create.
-// eslint-disable-next-line no-var
-var mockGapsCreateWasmWebClient = jest.fn();
 jest.mock('@miden-sdk/miden-sdk/lazy', () => {
   const base = jest.requireActual('../../../../__mocks__/wasmMock.js');
   return {
     ...base,
     TransactionResult: { deserialize: (...args: unknown[]) => mockTransactionResultDeserialize(...args) },
-    TransactionProver: { newLocalProver: jest.fn(() => ({ __proverMarker: true })) },
-    WasmWebClient: { createClient: (...args: unknown[]) => mockGapsCreateWasmWebClient(...args) }
+    TransactionProver: { newLocalProver: jest.fn(() => ({ __proverMarker: true })) }
   };
 });
+// The swap request build takes the realm's reader client inside the caller's hold;
+// each eviction test below hands it its own reader. The real module is kept for the
+// rest, and mocking the accessor keeps its module-scoped reader out of these tests.
+// eslint-disable-next-line no-var
+var mockGapsGetRealmReaderClient = jest.fn();
+jest.mock('../sdk/miden-client-interface', () => ({
+  ...jest.requireActual('../sdk/miden-client-interface'),
+  getRealmReaderClient: (...args: unknown[]) => mockGapsGetRealmReaderClient(...args)
+}));
 
 jest.mock('lib/store', () => ({
   getIntercom: () => ({ request: jest.fn(() => Promise.resolve({})) })
@@ -1610,62 +1614,59 @@ describe('guardian request-build holds stop at an eviction (#788 follow-up)', ()
     expect(service.createCustomProposal).not.toHaveBeenCalled();
   });
 
-  it('swap: never spins up the transient client when the hold is evicted during the account read', async () => {
+  it('swap: never reaches the realm reader when the hold is evicted during the account read', async () => {
     const row = pushSwapRow();
     seedGuardianService();
-    await withPatchedClient(
-      {
-        getAccount: jest.fn(async () => {
-          gapsHold = null;
-          return { kind: 'account' };
-        })
-      },
-      async () => {
-        await generateTransaction(row, jest.fn(), false, provider as any);
-      }
-    );
-    expect(mockGapsCreateWasmWebClient).not.toHaveBeenCalled();
+    mockGapsGetRealmReaderClient.mockReset();
+    const getAccount = jest.fn(async () => {
+      gapsHold = null;
+      return { kind: 'account' };
+    });
+    await withPatchedClient({ getAccount }, async () => {
+      await generateTransaction(row, jest.fn(), false, provider as any);
+    });
+    expect(getAccount).toHaveBeenCalledTimes(1);
+    expect(mockGapsGetRealmReaderClient).not.toHaveBeenCalled();
     expect(mockGapsBuildPswapRequest).not.toHaveBeenCalled();
     expect(row.requestBytes).toBeUndefined();
   });
 
-  it('swap: stops before the PSWAP build — but still terminates the transient client — on an eviction during its create', async () => {
+  it('swap: stops before the PSWAP build on an eviction during the reader build', async () => {
     const row = pushSwapRow();
     const service = seedGuardianService();
-    const terminate = jest.fn();
     const newPswapCreateTransactionRequest = jest.fn();
-    mockGapsCreateWasmWebClient.mockImplementationOnce(async () => {
-      gapsHold = null; // the create is the long parking await (genesis fetch)
-      return { newPswapCreateTransactionRequest, terminate };
+    mockGapsGetRealmReaderClient.mockReset();
+    mockGapsGetRealmReaderClient.mockImplementationOnce(async () => {
+      gapsHold = null; // the first build is the long parking await (a genesis fetch on a fresh store)
+      return { newPswapCreateTransactionRequest };
     });
     await withPatchedClient({ getAccount: jest.fn(async () => ({ kind: 'account' })) }, async () => {
       await generateTransaction(row, jest.fn(), false, provider as any);
     });
+    expect(mockGapsGetRealmReaderClient).toHaveBeenCalledTimes(1);
     expect(newPswapCreateTransactionRequest).not.toHaveBeenCalled();
     expect(mockGapsBuildPswapRequest).not.toHaveBeenCalled();
-    // The guard's throw must not leak the transient client's worker.
-    expect(terminate).toHaveBeenCalledTimes(1);
     expect(service.createCustomProposal).not.toHaveBeenCalled();
   });
 
   it('swap: stops before touching the creator account when the hold is evicted during the PSWAP request build', async () => {
     const row = pushSwapRow();
-    seedGuardianService();
-    const terminate = jest.fn();
-    mockGapsCreateWasmWebClient.mockImplementationOnce(async () => ({
-      newPswapCreateTransactionRequest: jest.fn(async () => {
-        gapsHold = null;
-        return { kind: 'pswap-request' };
-      }),
-      terminate
-    }));
+    const service = seedGuardianService();
+    const newPswapCreateTransactionRequest = jest.fn(async () => {
+      gapsHold = null;
+      return { kind: 'pswap-request' };
+    });
+    mockGapsGetRealmReaderClient.mockReset();
+    mockGapsGetRealmReaderClient.mockImplementationOnce(async () => ({ newPswapCreateTransactionRequest }));
     await withPatchedClient({ getAccount: jest.fn(async () => ({ kind: 'account' })) }, async () => {
       await generateTransaction(row, jest.fn(), false, provider as any);
     });
-    // buildPswapCreateRequest reads the creator Account — a borrow of the SHARED
-    // client, not the transient one — so it must never run past the eviction.
+    expect(mockGapsGetRealmReaderClient).toHaveBeenCalledTimes(1);
+    expect(newPswapCreateTransactionRequest).toHaveBeenCalledTimes(1);
+    // buildPswapCreateRequest reads the creator Account - a borrow of the SHARED
+    // client, not the reader - so it must never run past the eviction.
     expect(mockGapsBuildPswapRequest).not.toHaveBeenCalled();
-    expect(terminate).toHaveBeenCalledTimes(1);
+    expect(service.createCustomProposal).not.toHaveBeenCalled();
     expect(row.requestBytes).toBeUndefined();
   });
 });

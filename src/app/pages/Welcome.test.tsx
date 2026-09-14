@@ -135,6 +135,13 @@ jest.mock('lib/shared/types', () => ({
   WalletStatus: { Idle: 0, Locked: 1, Ready: 2 }
 }));
 
+// The network notice only shows on a test network; null stands for mainnet.
+let mockTestNetworkKey: 'testnet' | 'devnet' | 'localnet' | null = 'testnet';
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  ...jest.requireActual('lib/miden-chain/effective-endpoints'),
+  getTestNetworkNameKey: () => mockTestNetworkKey
+}));
+
 const READY = 2;
 const IDLE = 0;
 
@@ -183,6 +190,7 @@ beforeEach(() => {
   mockCanHandoff = false;
   mockFlowProps.current = null;
   mockBackHandlerRef.current = null;
+  mockTestNetworkKey = 'testnet';
   mockIsMobileFn.mockReturnValue(false);
   mockIsDesktopFn.mockReturnValue(false);
   mockDesktopHW.mockResolvedValue(false);
@@ -368,21 +376,97 @@ describe('Welcome — hash → step routing', () => {
 // onAction — forward navigation branches
 // ===========================================================================
 
+describe('Welcome - network notice (#875)', () => {
+  it('parks the create flow behind the notice and starts it on acknowledge', async () => {
+    mockIsMobileFn.mockReturnValue(false);
+    await renderWelcome();
+    await dispatch({ id: 'choose-protection' });
+    expect(mockNavigate).toHaveBeenLastCalledWith('/#network-notice');
+    expect(mockTrackEvent).toHaveBeenCalledWith('choose-protection', 'button-press', {});
+    await setHash('#network-notice');
+    expect(currentStep()).toBe(OnboardingStep.NetworkNotice);
+
+    mockNavigate.mockClear();
+    await dispatch({ id: 'network-notice-acknowledge' });
+    expect(mockFlowProps.current.onboardingType).toBe(OnboardingType.Create);
+    expect(mockTrackEvent).toHaveBeenCalledWith('network-notice-acknowledge', 'button-press', {});
+    expect(mockNavigate).toHaveBeenCalledWith('/#create-password');
+  });
+
+  it('parks the import flow behind the notice and starts it on acknowledge', async () => {
+    await renderWelcome();
+    await dispatch({ id: 'select-import-type' });
+    expect(mockNavigate).toHaveBeenLastCalledWith('/#network-notice');
+    expect(mockTrackEvent).toHaveBeenCalledWith('select-import-type', 'button-press', {});
+
+    mockNavigate.mockClear();
+    await dispatch({ id: 'network-notice-acknowledge' });
+    expect(mockFlowProps.current.onboardingType).toBe(OnboardingType.Import);
+    expect(mockTrackEvent).toHaveBeenCalledWith('network-notice-acknowledge', 'button-press', {});
+    expect(mockNavigate).toHaveBeenCalledWith('/#import-from-seed');
+  });
+
+  it('skips the notice on mainnet', async () => {
+    mockTestNetworkKey = null;
+    mockIsMobileFn.mockReturnValue(false);
+    await renderWelcome();
+
+    await dispatch({ id: 'choose-protection' });
+    expect(mockNavigate).toHaveBeenLastCalledWith('/#create-password');
+
+    await dispatch({ id: 'select-import-type' });
+    expect(mockNavigate).toHaveBeenLastCalledWith('/#import-from-seed');
+    expect(mockNavigate).not.toHaveBeenCalledWith('/#network-notice');
+  });
+
+  it('bounces #network-notice to Welcome when the chosen flow was lost (reload)', async () => {
+    await renderWelcome();
+    await setHash('#network-notice');
+    expect(mockNavigate).toHaveBeenCalledWith('/');
+    expect(currentStep()).not.toBe(OnboardingStep.NetworkNotice);
+  });
+
+  it('bounces #network-notice to Welcome on mainnet', async () => {
+    await renderWelcome();
+    await dispatch({ id: 'choose-protection' });
+    mockTestNetworkKey = null;
+    mockNavigate.mockClear();
+    await setHash('#network-notice');
+    expect(mockNavigate).toHaveBeenCalledWith('/');
+    expect(currentStep()).not.toBe(OnboardingStep.NetworkNotice);
+  });
+
+  it('back from the notice returns to Welcome', async () => {
+    await renderWelcome();
+    await dispatch({ id: 'choose-protection' });
+    await setHash('#network-notice');
+    mockNavigate.mockClear();
+    await dispatch({ id: 'back' });
+    expect(mockNavigate).toHaveBeenCalledWith('/');
+  });
+});
+
 describe('Welcome — onAction forward navigation', () => {
-  it('choose-protection routes to the protection step and tracks the event', async () => {
+  it('choose-protection routes through the notice to the protection step and tracks the event', async () => {
     mockIsMobileFn.mockReturnValue(true);
     await renderWelcome();
     await dispatch({ id: 'choose-protection' });
     expect(mockFlowProps.current.onboardingType).toBe(OnboardingType.Create);
-    expect(mockNavigate).toHaveBeenCalledWith('/#choose-protection');
     expect(mockTrackEvent).toHaveBeenCalledWith('choose-protection', 'button-press', {});
+    expect(mockNavigate).toHaveBeenLastCalledWith('/#network-notice');
+    await dispatch({ id: 'network-notice-acknowledge' });
+    expect(mockTrackEvent).toHaveBeenCalledWith('network-notice-acknowledge', 'button-press', {});
+    expect(mockNavigate).toHaveBeenLastCalledWith('/#choose-protection');
   });
 
-  it('choose-protection off mobile skips straight to create-password', async () => {
+  it('choose-protection off mobile skips straight to create-password after the notice', async () => {
     mockIsMobileFn.mockReturnValue(false);
     await renderWelcome();
     await dispatch({ id: 'choose-protection' });
-    expect(mockNavigate).toHaveBeenCalledWith('/#create-password');
+    expect(mockNavigate).toHaveBeenLastCalledWith('/#network-notice');
+    await dispatch({ id: 'network-notice-acknowledge' });
+    expect(mockTrackEvent).toHaveBeenCalledWith('network-notice-acknowledge', 'button-press', {});
+    expect(mockNavigate).toHaveBeenLastCalledWith('/#create-password');
   });
 
   it('setup-passcode and setup-biometric navigate to their screens', async () => {
@@ -409,11 +493,14 @@ describe('Welcome — onAction forward navigation', () => {
     expect(mockNavigate).toHaveBeenCalledWith('/#choose-guardian');
   });
 
-  it('select-import-type jumps straight to the seed import screen', async () => {
+  it('select-import-type goes through the notice to the seed import screen', async () => {
     await renderWelcome();
     await dispatch({ id: 'select-import-type' });
     expect(mockFlowProps.current.onboardingType).toBe(OnboardingType.Import);
-    expect(mockNavigate).toHaveBeenCalledWith('/#import-from-seed');
+    expect(mockNavigate).toHaveBeenLastCalledWith('/#network-notice');
+    await dispatch({ id: 'network-notice-acknowledge' });
+    expect(mockTrackEvent).toHaveBeenCalledWith('network-notice-acknowledge', 'button-press', {});
+    expect(mockNavigate).toHaveBeenLastCalledWith('/#import-from-seed');
   });
 
   it('ignores unrecognised action ids (default) but still tracks', async () => {

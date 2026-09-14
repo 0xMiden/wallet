@@ -57,6 +57,7 @@ jest.mock('components/AmountInput', () => ({
     label,
     value,
     error,
+    invalid,
     helper,
     tokenSelector,
     showDivider,
@@ -66,13 +67,19 @@ jest.mock('components/AmountInput', () => ({
     label?: React.ReactNode;
     value?: string;
     error?: string;
+    invalid?: boolean;
     helper?: React.ReactNode;
     tokenSelector?: React.ReactNode;
     showDivider?: boolean;
     onValueChange?: OnValueChange;
     'data-testid'?: string;
   }) => (
-    <div data-testid="amount-input" data-forwarded-testid={dataTestId} data-show-divider={String(showDivider)}>
+    <div
+      data-testid="amount-input"
+      data-forwarded-testid={dataTestId}
+      data-show-divider={String(showDivider)}
+      data-invalid={String(invalid)}
+    >
       <div data-testid="ai-label">{label}</div>
       {error !== undefined && <div data-testid="ai-error">{error}</div>}
       {helper !== undefined && <div data-testid="ai-helper">{helper}</div>}
@@ -112,6 +119,16 @@ describe('SelectAmount', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     (isMobile as jest.Mock).mockReturnValue(false);
+  });
+
+  it.each([true, false])('marks a cleared amount invalid without an error message (mobile: %s)', mobile => {
+    jest.mocked(isMobile).mockReturnValue(mobile);
+    renderComponent({ amount: '', isValidAmount: false, error: 'invalidAmount' });
+
+    expect(screen.getByTestId('amount-input')).toHaveAttribute('data-invalid', 'true');
+    expect(screen.queryByTestId('ai-error')).not.toBeInTheDocument();
+    expect(screen.getByTestId('ai-helper')).toHaveTextContent('available 200 USDC');
+    expect(screen.getByTestId('confirm-btn')).toBeDisabled();
   });
 
   describe('page variant', () => {

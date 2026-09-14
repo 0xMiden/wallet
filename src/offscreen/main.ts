@@ -599,11 +599,11 @@ const DISPATCH: Record<string, DispatchFn> = {
   // serializer and callers reaching through to `.id()/.metadata()/…` — cannot
   // itself cross the boundary; the reduced DTO can).
   getConsumableNotes: async (context, client, accountId: string) => {
-    // The reducer's records come from a transient client, but the sync height
-    // the gate compares them against is a SECOND call on the shared client after
-    // the listing's await — so that call needs the hold to still be ours (#788).
-    const dtos = await client.getConsumableNoteDtos(accountId, () =>
-      assertWasmHoldCurrent(context.hold, 'in offscreen getConsumableNotes before reading the sync height')
+    // The listing runs on the realm's separate reader client, but the reads around
+    // it are calls on this shared client (and the reader lookup itself must not be
+    // reached by a dead flow), so each needs the hold to still be ours (#788).
+    const dtos = await client.getConsumableNoteDtos(accountId, step =>
+      assertWasmHoldCurrent(context.hold, 'in offscreen getConsumableNotes', step)
     );
     return new TextEncoder().encode(JSON.stringify(dtos));
   },

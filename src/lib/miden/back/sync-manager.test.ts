@@ -528,6 +528,34 @@ describe('doSync', () => {
     jest.restoreAllMocks();
   });
 
+  it('names the reader check that parked in the note read eviction message', async () => {
+    jest.spyOn(console, 'warn').mockImplementation();
+    mockClient.syncState.mockReset();
+    mockClient.syncState.mockResolvedValue(undefined);
+    mockClient.getConsumableNoteDtos.mockClear();
+    let thrown: unknown;
+    mockClient.getConsumableNoteDtos.mockImplementationOnce(async (...called: unknown[]) => {
+      const assertLive = called[1] as (step?: string) => void;
+      evictSwLockHold();
+      try {
+        assertLive('after the reader build');
+      } catch (e) {
+        thrown = e;
+        throw e;
+      }
+      return [];
+    });
+
+    await doSync();
+
+    // The interface names the check; the sync read forwards it into its own label.
+    expect(thrown).toBeInstanceOf(WasmClientPoisonedError);
+    expect(((thrown as Error).cause as Error).message).toBe(
+      'sync note read abandoned inside the consumable-note read, after the reader build'
+    );
+    jest.restoreAllMocks();
+  });
+
   it('lights the sync fuse after repeated watchdog evictions, and only a success puts it out (#777)', async () => {
     await jest.isolateModulesAsync(async () => {
       const warnSpy = jest.spyOn(console, 'warn').mockImplementation();

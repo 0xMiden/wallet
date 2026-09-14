@@ -43,6 +43,25 @@ export function getEffectiveNetworkName(): MIDEN_NETWORK_NAME {
   return overrideCache?.networkName ?? DEFAULT_NETWORK;
 }
 
+/**
+ * Locale key naming the effective network on the test-network surfaces (#875:
+ * banner, onboarding notice, Receive warning, share text, QR caption), or null
+ * on mainnet, where none of them render. Read it on every render: a Developer
+ * Settings save swaps the override without a reload.
+ */
+export function getTestNetworkNameKey(): 'testnet' | 'devnet' | 'localnet' | null {
+  switch (getEffectiveNetworkName()) {
+    case MIDEN_NETWORK_NAME.TESTNET:
+      return 'testnet';
+    case MIDEN_NETWORK_NAME.DEVNET:
+      return 'devnet';
+    case MIDEN_NETWORK_NAME.LOCALNET:
+      return 'localnet';
+    case MIDEN_NETWORK_NAME.MAINNET:
+      return null;
+  }
+}
+
 export function getEffectiveRpcUrl(): string {
   return overrideCache?.rpcUrl || MIDEN_NETWORK_ENDPOINTS.get(getEffectiveNetworkName())!;
 }

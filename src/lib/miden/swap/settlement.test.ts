@@ -20,10 +20,10 @@ let onLockAcquired: (() => void) | null = null;
 
 jest.mock('../sdk/miden-client', () => ({
   getCurrentWasmLockHold: () => currentHold,
-  assertWasmHoldCurrent: (hold: object, where: string): void => {
+  assertWasmHoldCurrent: (hold: object, where: string, step?: string): void => {
     if (hold === currentHold) return;
     const { WasmClientPoisonedError } = require('../sdk/wasm-client-poison');
-    throw new WasmClientPoisonedError('watchdog', new Error(`operation abandoned ${where}`));
+    throw new WasmClientPoisonedError('watchdog', new Error(`operation abandoned ${where}${step ? `, ${step}` : ''}`));
   },
   withWasmClientLock: async <T>(operation: (hold: object) => Promise<T>, options?: unknown): Promise<T> => {
     lockOptionsSeen.push(options);
@@ -408,6 +408,26 @@ describe('swap order note settlement', () => {
       }
 
       expect(isSyncFused('claimable-notes')).toBe(true);
+    });
+
+    it('the settlement read forwards the reader check that parked into its own label', async () => {
+      let thrown: unknown;
+      (midenClientProxy.getConsumableNotes as jest.Mock).mockImplementationOnce(async (...called: unknown[]) => {
+        const assertLive = called[1] as (step?: string) => void;
+        currentHold = null; // an eviction hands the mutex on
+        try {
+          assertLive('after the reader build');
+        } catch (e) {
+          thrown = e;
+          throw e;
+        }
+        return [];
+      });
+
+      await expect(settleSwapOrders('account-1')).rejects.toMatchObject({ name: 'WasmClientPoisonedError' });
+      expect(((thrown as Error).cause as Error).message).toBe(
+        'operation abandoned inside the settlement consumable-notes read, after the reader build'
+      );
     });
 
     it('withdraws the shared fuse evidence on its own success, so it is not write-only (#777)', async () => {

@@ -1,4 +1,4 @@
-import { findAllowTapPoint, type AxElement } from './system-alerts';
+import { createNotificationAlertGate, findAllowTapPoint, type AxElement } from './system-alerts';
 
 // Faithful to a real `idb ui describe-all` tree captured on an iOS 26 sim while
 // the wallet's notification-permission alert was up (Allow button center was
@@ -49,5 +49,47 @@ describe('findAllowTapPoint', () => {
 
   it('returns null on an empty tree', () => {
     expect(findAllowTapPoint([])).toBeNull();
+  });
+});
+
+describe('createNotificationAlertGate', () => {
+  const quiet = { settleMs: 0, onLog: () => undefined };
+
+  it('joins a dismissal already in flight instead of tapping twice', async () => {
+    let finish: (tapped: boolean) => void = () => undefined;
+    const dismiss = jest.fn(
+      () =>
+        new Promise<boolean>(resolve => {
+          finish = resolve;
+        })
+    );
+    const gate = createNotificationAlertGate('udid', { ...quiet, dismiss });
+
+    const first = gate.beforeCapture();
+    const second = gate.beforeCapture();
+    finish(true);
+    await Promise.all([first, second]);
+
+    expect(dismiss).toHaveBeenCalledTimes(1);
+  });
+
+  it('stops asking once it has tapped Allow', async () => {
+    const dismiss = jest.fn(async () => true);
+    const gate = createNotificationAlertGate('udid', { ...quiet, dismiss });
+
+    await gate.beforeCapture();
+    await gate.beforeCapture();
+
+    expect(dismiss).toHaveBeenCalledTimes(1);
+  });
+
+  it('asks again on the next capture while the alert has not appeared', async () => {
+    const dismiss = jest.fn(async () => false);
+    const gate = createNotificationAlertGate('udid', { ...quiet, dismiss });
+
+    await gate.beforeCapture();
+    await gate.beforeCapture();
+
+    expect(dismiss).toHaveBeenCalledTimes(2);
   });
 });
