@@ -472,7 +472,7 @@ export interface WalletAccount {
    * by every applied binding write (`Vault.updateGuardianBinding`). A writer
    * that snapshotted the account before a rotation carries a dead epoch and
    * its write returns `stale` instead of resurrecting the old operator.
-   * Absent means 0 — pre-epoch records need no migration write.
+   * Absent means 0 - pre-epoch records need no migration write.
    */
   guardianEpoch?: number;
   /** Reconciliation state; see GuardianSyncStatus. Defaults to 'in-sync'. */

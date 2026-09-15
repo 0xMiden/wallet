@@ -448,7 +448,13 @@ function queuedDriftVaultAdapter(vault: Vault) {
     updateGuardianBinding: (pk: string, expectedEpoch: number, patch: GuardianBindingPatch) =>
       getAccountsWriteQueue().add(() => vault.updateGuardianBinding(pk, expectedEpoch, patch)),
     setGuardianSyncStatus: (pk: string, status: GuardianSyncStatus) =>
-      getAccountsWriteQueue().add(() => vault.setGuardianSyncStatus(pk, status))
+      getAccountsWriteQueue().add(() => vault.setGuardianSyncStatus(pk, status)),
+    setGuardianSyncStatusIf: (pk: string, status: GuardianSyncStatus, holds: (account?: WalletAccount) => boolean) =>
+      getAccountsWriteQueue().add(async () => {
+        if (!holds((await vault.fetchAccounts()).find(acc => acc.publicKey === pk))) return false;
+        await vault.setGuardianSyncStatus(pk, status);
+        return true;
+      })
   };
 }
 

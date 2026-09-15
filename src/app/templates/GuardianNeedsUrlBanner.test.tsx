@@ -117,6 +117,16 @@ describe('GuardianNeedsUrlBanner', () => {
     expect(screen.queryByText('guardianUrlMismatch')).not.toBeInTheDocument();
   });
 
+  it('asks for one retry when the guardian changed while the URL was being checked', async () => {
+    mockApply.mockResolvedValueOnce('stale');
+    render(<GuardianNeedsUrlBanner />);
+    fireEvent.change(getUrlInput(), { target: { value: 'https://mine.example.com' } });
+    fireEvent.click(getSubmitButton());
+
+    await waitFor(() => expect(screen.getByText('guardianUrlStaleRetry')).toBeInTheDocument());
+    expect(screen.queryByText('guardianUrlMismatch')).not.toBeInTheDocument();
+  });
+
   it('surfaces a thrown error message from the apply action', async () => {
     mockApply.mockRejectedValueOnce(new Error('network down'));
     render(<GuardianNeedsUrlBanner />);
