@@ -51,7 +51,7 @@ The architecture that actually works reliably: **two View instances sharing a si
 └──────────────────────────────────────────────────────┘
 ```
 
-Taps flow the other direction: `NavbarButton.onClickListener` → `manager.dispatchItemTap(id)` → `TapCallback.onItemTap(id)` → `InAppBrowserPlugin.notifyListeners("nativeNavbarTap", {id})`. No wallet frontend listener is currently registered; tests drive the retained plugin API directly.
+Taps flow the other direction: `NavbarButton.onClickListener` → `manager.dispatchItemTap(id)` → `TapCallback.onItemTap(id)` → `InAppBrowserPlugin.notifyListeners("nativeNavbarTap", {id})`. No wallet frontend caller or listener is currently registered.
 
 ## Gotchas
 
