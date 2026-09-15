@@ -589,6 +589,32 @@ describe('bridge prompts', () => {
     expect(updateClaimStatus).toHaveBeenCalledTimes(2);
   });
 
+  it('keeps polling the other rows when one row fails, and names the failing row', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    pollEpochIntentFill.mockImplementation(async ({ intentNonce }: { intentNonce: string }) => {
+      if (intentNonce === 'N-broken') throw new Error('allocator down');
+      return { status: 'confirmed', fillTxHash: '0xfill', fillChainId: 11155111 };
+    });
+    const pending = (id: string, accountId: string, intentNonce: string) =>
+      baseBridge({
+        id,
+        accountId,
+        extraInputs: {
+          provider: 'epoch',
+          epochStatus: 'pending',
+          intentNonce,
+          destinationAddress: '0x1111111111111111111111111111111111111111'
+        }
+      });
+    bridgeRows.push(pending('broken-row', 'acct-1', 'N-broken'), pending('healthy-row', 'acct-2', 'N-healthy'));
+
+    await expect(reconcileBridgedSends()).resolves.toBeUndefined();
+
+    expect(updateClaimStatus).toHaveBeenCalledWith('healthy-row', 'not-applicable', expect.any(Object));
+    expect(warn).toHaveBeenCalledWith('[wallet-prompts] bridged-send poll failed', 'broken-row', expect.any(Error));
+    warn.mockRestore();
+  });
+
   it('flips a pending AggLayer bridge to ready once its deposit is claimable', async () => {
     findClaimableDeposit.mockResolvedValue({ deposit: true });
     const claimable = baseBridge({

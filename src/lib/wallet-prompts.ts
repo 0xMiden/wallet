@@ -157,7 +157,14 @@ export async function reconcileBridgedSends(): Promise<void> {
   // A restored row keeps what the backup recorded, but must not drive work:
   // `pollBridgedSend` queries the bridge services with those values and writes
   // the answer back onto the row.
-  await Promise.all(rows.filter(tx => !tx.restoredFromBackup).map(pollBridgedSend));
+  await Promise.all(
+    rows
+      .filter(tx => !tx.restoredFromBackup)
+      .map(tx =>
+        // One row's failing indexer or allocator call must not reject the pass for the others.
+        pollBridgedSend(tx).catch(error => console.warn('[wallet-prompts] bridged-send poll failed', tx.id, error))
+      )
+  );
 }
 
 export function normalizeWalletPromptStorage(value: unknown): WalletPromptStorage {
