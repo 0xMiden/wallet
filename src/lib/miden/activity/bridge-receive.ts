@@ -114,7 +114,7 @@ async function readUnsettledRows(): Promise<ITransaction[]> {
     .filter(tx => {
       if (tx.type !== 'bridged-receive') return false;
       // Optional-chained: a throw in here rejects the whole `toArray()`, which
-      // this function's only caller swallows — so one legacy or partially
+      // this function's only caller swallows - so one legacy or partially
       // written row without `extraInputs` would silently disable reconciliation
       // for every genuine row, on every tick.
       const inputs: IBridgedReceiveExtraInputs | undefined = tx.extraInputs;
@@ -208,7 +208,7 @@ export function createBridgeReceiveReconciler({
       if (inputs === undefined) continue;
       // Terminalize rather than skip. Resuming would register a pending bridge-in
       // for the dump's `sourceAddress` and drive the incoming-funds UI off it with
-      // no user action — but merely skipping strands the row: these rows are born
+      // no user action - but merely skipping strands the row: these rows are born
       // `Completed` with their lifecycle in `extraInputs.phase`, and the only other
       // writers of that phase are driven by the pending-bridge-in registry, which
       // lives in platform storage and does NOT travel in the dump. The row would
