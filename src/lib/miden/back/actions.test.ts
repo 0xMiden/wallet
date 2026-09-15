@@ -6,7 +6,10 @@ import {
   getFrontState,
   lock,
   unlock,
+  provideRecoverySeed,
   registerNewWallet,
+  registerWalletFromHotKey,
+  removeSeedPhrase,
   registerImportedWallet,
   updateCurrentAccount,
   editAccount,
@@ -39,6 +42,8 @@ import {
 
 // Create mock vault instance
 const mockVault = {
+  fetchSeedPhraseStatus: jest.fn().mockResolvedValue('stored'),
+  provideRecoverySeed: jest.fn(),
   fetchAccounts: jest.fn(),
   fetchSettings: jest.fn(),
   getCurrentAccount: jest.fn(),
@@ -104,6 +109,7 @@ jest.mock('lib/miden/back/vault', () => ({
   Vault: {
     isExist: jest.fn(),
     spawn: jest.fn(),
+    spawnFromHotKey: jest.fn(),
     setup: jest.fn(),
     revealMnemonic: jest.fn(),
     revealPrivateKey: jest.fn(),
@@ -334,6 +340,7 @@ describe('actions', () => {
 
   describe('unlock', () => {
     const unlockableVault = () => ({
+      fetchSeedPhraseStatus: jest.fn().mockResolvedValue('stored'),
       migrateLegacyGuardianAccounts: jest.fn().mockResolvedValue(undefined),
       backfillEvmAddresses: jest.fn().mockResolvedValue(undefined),
       backfillGuardianEndpoints: jest.fn().mockResolvedValue(undefined),
@@ -408,13 +415,29 @@ describe('actions', () => {
       expect(mockInstallRealmKeystore).toHaveBeenLastCalledWith({ insertKey: mockVault.insertKeySink });
     });
 
-    it('calls Vault.setup and unlocked with password', async () => {
+    it('uses the unlocked vault for recovery seed input without another password check', async () => {
+      const { Vault } = jest.requireMock('lib/miden/back/vault');
+      Vault.setup.mockClear();
+      const action = { type: 'switch-guardian', accountId: 'account', newGuardianEndpoint: 'https://guardian.example' };
+      await provideRecoverySeed('transaction', 'test phrase', {
+        type: 'switch-guardian',
+        accountId: action.accountId,
+        newGuardianEndpoint: action.newGuardianEndpoint
+      });
+
+      expect(mockVault.provideRecoverySeed).toHaveBeenCalledWith('transaction', 'test phrase', action);
+      expect(Vault.setup).not.toHaveBeenCalled();
+    });
+
+    it.each(['stored', 'removing', 'removed', 'unavailable'])('unlocks with seed status %s', async status => {
       const { Vault } = jest.requireMock('lib/miden/back/vault');
       // The guardian-endpoint backfill makes external HTTP and must NOT gate the
       // unlock UI: model it as a promise that never settles and assert unlock()
       // still resolves (fired detached), while still proving it ran at unlock.
       let backfillStarted = false;
       const mockVaultInstance = {
+        fetchSeedPhraseStatus: jest.fn().mockResolvedValue(status),
+        removeSeedPhrase: jest.fn().mockResolvedValue(undefined),
         migrateLegacyGuardianAccounts: jest.fn().mockResolvedValue(undefined),
         // Unlock also backfills wallet-derived EVM addresses onto legacy HD
         // accounts (needed by the earn flow) before reading the accounts list.
@@ -437,6 +460,7 @@ describe('actions', () => {
       await unlock('password123');
 
       expect(Vault.setup).toHaveBeenCalledWith('password123');
+      expect(mockVaultInstance.removeSeedPhrase).toHaveBeenCalledTimes(Number(status === 'removing'));
       expect(mockVaultInstance.migrateLegacyGuardianAccounts).toHaveBeenCalled();
       expect(mockVaultInstance.backfillEvmAddresses).toHaveBeenCalled();
       expect(mockVaultInstance.fetchAccounts).toHaveBeenCalled();
@@ -445,6 +469,35 @@ describe('actions', () => {
       // Backfill was kicked off at unlock but did not block it.
       expect(mockVaultInstance.backfillGuardianEndpoints).toHaveBeenCalled();
       expect(backfillStarted).toBe(true);
+    });
+  });
+
+  describe('key storage after seed removal and key import', () => {
+    it('keeps the active callback when authentication for seed removal fails', async () => {
+      const { Vault } = jest.requireMock('lib/miden/back/vault');
+      Vault.setup.mockRejectedValueOnce(new Error('authentication failed'));
+      Object.assign(mockStoreState, { vault: mockVault });
+      await expect(removeSeedPhrase('pw')).rejects.toThrow('authentication failed');
+      expect(mockInstallRealmKeystore).toHaveBeenLastCalledWith({ insertKey: mockVault.insertKeySink });
+    });
+
+    it('installs the imported wallet callback after key import', async () => {
+      const { Vault } = jest.requireMock('lib/miden/back/vault');
+      const imported = { ...mockVault, insertKeySink: jest.fn() };
+      Vault.spawnFromHotKey.mockResolvedValueOnce(imported);
+      mockUnlocked.mockImplementationOnce(() => {
+        Object.assign(mockStoreState, { status: WalletStatus.Ready, vault: imported });
+      });
+      await registerWalletFromHotKey('pw', 'hot:evm', 'https://guardian.example');
+      expect(mockInstallRealmKeystore).toHaveBeenLastCalledWith({ insertKey: imported.insertKeySink });
+    });
+
+    it('keeps the active callback when key import fails', async () => {
+      const { Vault } = jest.requireMock('lib/miden/back/vault');
+      Vault.spawnFromHotKey.mockRejectedValueOnce(new Error('import failed'));
+      Object.assign(mockStoreState, { vault: mockVault });
+      await expect(registerWalletFromHotKey('pw', 'hot:evm')).rejects.toThrow('import failed');
+      expect(mockInstallRealmKeystore).toHaveBeenLastCalledWith({ insertKey: mockVault.insertKeySink });
     });
   });
 
@@ -516,6 +569,7 @@ describe('actions', () => {
     it('creates new vault and unlocks', async () => {
       const { Vault } = jest.requireMock('lib/miden/back/vault');
       const mockVaultInstance = {
+        fetchSeedPhraseStatus: jest.fn().mockResolvedValue('stored'),
         fetchAccounts: jest.fn().mockResolvedValue([]),
         fetchSettings: jest.fn().mockResolvedValue({}),
         getCurrentAccount: jest.fn().mockResolvedValue(null),
@@ -541,6 +595,7 @@ describe('actions', () => {
     it('passes empty string when password is undefined', async () => {
       const { Vault } = jest.requireMock('lib/miden/back/vault');
       const mockVaultInstance = {
+        fetchSeedPhraseStatus: jest.fn().mockResolvedValue('stored'),
         fetchAccounts: jest.fn().mockResolvedValue([]),
         fetchSettings: jest.fn().mockResolvedValue({}),
         getCurrentAccount: jest.fn().mockResolvedValue(null),
@@ -558,6 +613,7 @@ describe('actions', () => {
     it('imports wallet from miden client and unlocks', async () => {
       const { Vault } = jest.requireMock('lib/miden/back/vault');
       const mockVaultInstance = {
+        fetchSeedPhraseStatus: jest.fn().mockResolvedValue('stored'),
         fetchAccounts: jest.fn().mockResolvedValue([]),
         fetchSettings: jest.fn().mockResolvedValue({}),
         getCurrentAccount: jest.fn().mockResolvedValue(null),
@@ -578,6 +634,7 @@ describe('actions', () => {
     it('passes empty strings when password and mnemonic are undefined', async () => {
       const { Vault } = jest.requireMock('lib/miden/back/vault');
       const mockVaultInstance = {
+        fetchSeedPhraseStatus: jest.fn().mockResolvedValue('stored'),
         fetchAccounts: jest.fn().mockResolvedValue([]),
         fetchSettings: jest.fn().mockResolvedValue({}),
         getCurrentAccount: jest.fn().mockResolvedValue(null),

@@ -16,6 +16,7 @@ import { isExtension } from 'lib/platform';
 import type { TokenPrices } from 'lib/prices';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { WalletAccount } from 'lib/shared/types';
+import { useWalletStore } from 'lib/store';
 import {
   fetchActiveBridgePrompts,
   faucet,
@@ -131,6 +132,7 @@ export const HomePrompts: FC<HomePromptsProps> = ({
   tokenPrices
 }) => {
   const { t } = useTranslation();
+  const seedStatus = useWalletStore(s => s.seedPhraseStatus);
   const { storage, isLoaded, setPromptStatus, dismissPrompt, completePrompt, isPromptPending } =
     useWalletPromptStorage();
   const [faucetStatusIndicator, setFaucetStatusIndicator] = useState<PromptCardStatus>('idle');
@@ -346,6 +348,7 @@ export const HomePrompts: FC<HomePromptsProps> = ({
   const pendingWalletPrompts = useMemo(() => {
     if (!isLoaded || balancesLoading) return [];
     return WALLET_PROMPT_ORDER.filter(type => {
+      if (type === WalletPromptType.VerifySeedPhrase && seedStatus && seedStatus !== 'stored') return false;
       if (type === WalletPromptType.GuardianNoteRecovery) return noteRecoveryProgress !== null;
       if (type === WalletPromptType.PendingNotes) return showPendingNotesPrompt;
       if (type === WalletPromptType.Faucet) return showFaucetPrompt;
@@ -360,7 +363,8 @@ export const HomePrompts: FC<HomePromptsProps> = ({
     isPromptPending,
     noteRecoveryProgress,
     showFaucetPrompt,
-    showPendingNotesPrompt
+    showPendingNotesPrompt,
+    seedStatus
   ]);
 
   // Per-type runtime behavior in one place; anything not set here falls back

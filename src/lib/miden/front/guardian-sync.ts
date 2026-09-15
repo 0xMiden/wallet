@@ -46,9 +46,12 @@ import { isSyncWatchdogEviction, WASM_LOCK_SYNC_WATCHDOG_MS } from '../sdk/wasm-
  * manager doesn't drag `lib/store` into the SW init chain.
  */
 export const zustandProvider: GuardianAccountProvider = {
+  prepareRecoveryTransaction: id => useWalletStore.getState().prepareRecoveryTransaction(id),
+  releaseRecoveryAuthorization: id => useWalletStore.getState().releaseRecoveryAuthorization(id),
   getAccounts: async () => useWalletStore.getState().accounts,
   getPublicKeyForCommitment: (commitment: string) => useWalletStore.getState().getPublicKeyForCommitment(commitment),
-  signWord: (publicKey: string, wordHex: string) => useWalletStore.getState().signWord(publicKey, wordHex),
+  signWord: (publicKey: string, wordHex: string, transactionId?: string) =>
+    useWalletStore.getState().signWord(publicKey, wordHex, transactionId),
   persistNewHotKey: (newHotPubKey: string, newHotCiphertext: string) =>
     useWalletStore.getState().persistNewHotKey(newHotPubKey, newHotCiphertext),
   swapHotKey: (accountPublicKey: string, newHotPubKey: string) =>

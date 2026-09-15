@@ -103,6 +103,20 @@ afterEach(() => {
 // Tests
 // ---------------------------------------------------------------------------
 describe('ScanQrDrawer', () => {
+  it('returns a key pair unchanged and stops the camera in raw mode', async () => {
+    const { stream, tracks } = makeStream();
+    getUserMediaMock.mockResolvedValue(stream);
+    const payload = `${'ab'.repeat(32)}:${'cd'.repeat(32)}`;
+    detectMock.mockResolvedValue([{ rawValue: payload }]);
+    const onDetected = jest.fn();
+    const onOpenChange = jest.fn();
+    await act(async () => {
+      render(<ScanQrDrawer open rawPayload onDetected={onDetected} onOpenChange={onOpenChange} onError={jest.fn()} />);
+    });
+    expect(onDetected).toHaveBeenCalledWith(payload);
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+    tracks.forEach(track => expect(track.stop).toHaveBeenCalled());
+  });
   it('requests the environment-facing camera and shows the video when open', async () => {
     const { stream } = makeStream();
     getUserMediaMock.mockResolvedValue(stream);

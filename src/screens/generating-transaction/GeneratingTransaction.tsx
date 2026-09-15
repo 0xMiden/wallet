@@ -7,6 +7,7 @@ import { useTranslation } from 'react-i18next';
 
 import { useNetworkFeeEstimate } from 'app/hooks/useNetworkFeeEstimate';
 import { Button, ButtonVariant } from 'components/Button';
+import { RecoverySeedPrompt } from 'components/RecoverySeedPrompt';
 import { ScreenHeader } from 'components/ScreenHeader';
 import { useAnalytics } from 'lib/analytics';
 import {
@@ -195,6 +196,10 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
     if (!explorerUrl) return;
     openExternalUrl({ url: explorerUrl, title: EXPLORER_TITLE });
   }, [explorerUrl]);
+
+  if (active?.awaitingRecoverySeed && active.status === ITransactionStatus.Queued) {
+    return <RecoverySeedPrompt transaction={active} onClose={onClose} />;
+  }
 
   // Unknown id (never existed, or already pruned) — nothing to show.
   if (loaded && !active) {

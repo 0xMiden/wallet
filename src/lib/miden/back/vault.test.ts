@@ -2,17 +2,31 @@
 // In-memory storage adapter used by `safe-storage`. Mocked at module scope so
 // the real `safe-storage` code runs but writes/reads go to `memoryStore`.
 // ---------------------------------------------------------------------------
+import { privateKeyToAccount } from 'viem/accounts';
+
+import { ITransaction, ITransactionStatus, ITransactionType, Transaction } from 'lib/miden/db/types';
 import * as Passworder from 'lib/miden/passworder';
+import * as Repo from 'lib/miden/repo';
+import { cancelStaleQueuedTransactions, MAX_QUEUED_AGE } from 'lib/miden/transaction/cancel';
 import { WalletAccount } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
 import { PublicError } from './defaults';
-import { encryptAndSaveMany, fetchAndDecryptOneWithLegacyFallBack, savePlain } from './safe-storage';
+import { clearRecoveryAuthorizations, getRecoveryAction } from './recovery-authorization';
+import {
+  encryptAndSaveMany,
+  fetchAndDecryptOneWithLegacyFallBack,
+  getPlain,
+  isStored,
+  removeMany,
+  savePlain
+} from './safe-storage';
 import { Vault } from './vault';
 
 jest.setTimeout(30_000);
 
 const memoryStore: Record<string, any> = {};
+let retainedStorageKey: string | undefined;
 jest.mock('lib/platform/storage-adapter', () => ({
   getStorageProvider: jest.fn(() => ({
     get: async (keys: string[]) => {
@@ -24,7 +38,9 @@ jest.mock('lib/platform/storage-adapter', () => ({
       Object.assign(memoryStore, items);
     },
     remove: async (keys: string[]) => {
-      for (const k of keys) delete memoryStore[k];
+      for (const k of keys) {
+        if (k !== retainedStorageKey) delete memoryStore[k];
+      }
     }
   })),
   StorageProvider: class {}
@@ -60,6 +76,9 @@ const mockRecoverGuardianAccountsBySeed = jest.fn(async (_deriveColdSeed: any, _
     coldSecretKeyHex: GUARDIAN_KEYS_FIXTURE.coldSecretKeyHex
   }
 ]);
+const mockRecoverGuardianAccountByHotKey = jest.fn(async (_hotSecretKeyHex: string, _endpoint: string) => [
+  { accountId: 'guardian-acc-hot', hotPublicKey: 'dead' }
+]);
 const mockGetAccounts = jest.fn(async () => [] as any[]);
 const mockGetAccount = jest.fn(async (_id: string) => null as any);
 const mockSyncState = jest.fn(async () => {});
@@ -67,6 +86,11 @@ const mockSyncState = jest.fn(async () => {});
 // surface; `importAccountFromPrivateKey` calls these directly on the
 // `MidenClientInterface.client` field.
 const mockAccountsInsert = jest.fn(async (_options: any) => {});
+const mockKeystoreRemove = jest.fn(async () => {});
+const mockKeystoreGet = jest.fn(async () => {
+  throw new Error('failed to get key from keystore: storage error: Failed to get secret key from IndexedDB');
+});
+const mockKeystoreGetAccountId = jest.fn<Promise<{ free: () => void } | null>, []>(async () => null);
 const mockKeystoreInsert = jest.fn(async (_id: any, _secretKey: any) => {});
 const mockGetMidenClient = jest.fn(async (_options?: any) => ({
   createMidenWallet: (...args: unknown[]) => mockCreateMidenWallet(...(args as [any, Uint8Array])),
@@ -77,13 +101,20 @@ const mockGetMidenClient = jest.fn(async (_options?: any) => ({
   importAccountBySeed: async (_walletType: any, seed: Uint8Array) => mockImportPublicMidenWalletFromSeed(seed),
   createGuardianMidenWallet: (...args: unknown[]) => mockCreateGuardianMidenWallet(...(args as [Uint8Array])),
   recoverGuardianAccountsBySeed: (...args: unknown[]) => mockRecoverGuardianAccountsBySeed(...(args as [any, string])),
+  recoverGuardianAccountByHotKey: (...args: unknown[]) =>
+    mockRecoverGuardianAccountByHotKey(...(args as [string, string])),
   getAccounts: () => mockGetAccounts(),
   getAccount: (id: string) => mockGetAccount(id),
   syncState: () => mockSyncState(),
   network: 'devnet',
   client: {
     accounts: { insert: mockAccountsInsert },
-    keystore: { insert: mockKeystoreInsert }
+    keystore: {
+      insert: mockKeystoreInsert,
+      remove: mockKeystoreRemove,
+      get: mockKeystoreGet,
+      getAccountId: mockKeystoreGetAccountId
+    }
   }
 }));
 // The slice-2 offscreen client proxy reads getAccount through the `lib/...` alias
@@ -146,6 +177,7 @@ jest.mock('../sdk/miden-client', () => {
         if (currentWasmHold === hold) currentWasmHold = null;
       }
     },
+    resetMidenClient: jest.fn(async () => {}),
     runWhenClientIdle: () => {}
   };
 });
@@ -192,6 +224,25 @@ jest.mock('../guardian/operator-map', () => ({
   normalizeHex: (h: string) => (h.startsWith('0x') ? h.slice(2) : h).toLowerCase()
 }));
 
+// spawnFromHotKey validates the pasted key via the shared hot-key-import
+// helper. Mock it so tests hand back a scriptable fake key: `publicKey()`
+// yields the bytes whose slice(1)-hex is 'dead' (matching the recover mock),
+// `serialize()` the canonical secret blob, and the ECDSA-felts accessor not
+// throwing makes `detectAuthScheme` read it as 'ecdsa'.
+const fakeHotSecretKey = () => ({
+  publicKey: () => ({
+    serialize: () => Uint8Array.from([0x02, 0xde, 0xad]),
+    free: jest.fn()
+  }),
+  serialize: () => Uint8Array.from([0x01, 0xbe, 0xef]),
+  getEcdsaK256KeccakSecretKeyAsFelts: jest.fn(),
+  free: jest.fn()
+});
+const mockDeserializeHotSecretKey = jest.fn((_hex: string) => fakeHotSecretKey() as any);
+jest.mock('../guardian/hot-key-import', () => ({
+  deserializeHotSecretKey: (...a: unknown[]) => mockDeserializeHotSecretKey(...(a as [string]))
+}));
+
 // Unified handle used by tests — matches the old mockMidenClient API.
 const mockMidenClient = {
   createMidenWallet: mockCreateMidenWallet,
@@ -207,6 +258,7 @@ const mockMidenClient = {
 // getBech32AddressFromAccountId uses the real WASM `Address.fromAccountId`;
 // stub it so tests can assert on returned ids without a real WASM binary.
 jest.mock('../sdk/helpers', () => ({
+  sameWalletAccountId: (left: string, right: string) => left === right,
   getBech32AddressFromAccountId: jest.fn((id: any) => {
     if (id && typeof id === 'object' && '__marker' in id) {
       return `bech32:${id.__marker}`;
@@ -268,6 +320,12 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => {
       // restored WalletAccount records authScheme='ecdsa'. Mirror the
       // shape of the falcon mock — only the marker differs.
       ecdsaWithRNG: jest.fn(() => ({ __marker: 'ecdsa-secret' }))
+    },
+    PublicKey: {
+      deserialize: jest.fn(() => ({
+        toCommitment: () => ({ serialize: () => new Uint8Array([2, 3, 4]), free: jest.fn() }),
+        free: jest.fn()
+      }))
     },
     SigningInputs: { deserialize: jest.fn(() => ({})) },
     Word: { deserialize: jest.fn(() => ({})) },
@@ -370,6 +428,7 @@ function clearMemoryStore() {
 }
 
 beforeEach(() => {
+  retainedStorageKey = undefined;
   clearMemoryStore();
   jest.clearAllMocks();
   (isDesktop as jest.Mock).mockReturnValue(false);
@@ -387,6 +446,8 @@ beforeEach(() => {
       coldSecretKeyHex: GUARDIAN_KEYS_FIXTURE.coldSecretKeyHex
     }
   ]);
+  mockRecoverGuardianAccountByHotKey.mockResolvedValue([{ accountId: 'guardian-acc-hot', hotPublicKey: 'dead' }]);
+  mockDeserializeHotSecretKey.mockImplementation(() => fakeHotSecretKey() as any);
   mockMidenClient.getAccounts.mockResolvedValue([]);
   mockMidenClient.getAccount.mockResolvedValue(null);
   mockMidenClient.syncState.mockResolvedValue(undefined);
@@ -713,6 +774,46 @@ describe('Vault.revealPrivateKey', () => {
     await seedVault('pw');
     await expect(Vault.revealPrivateKey('acc-pub-key-1', 'pw')).rejects.toThrow(PublicError);
   });
+
+  it('rejects with PublicError after the seed phrase is removed, even when the secret key is still stored', async () => {
+    const vault = await seedVault('pw');
+    const vaultKey = (vault as any).vaultKey as CryptoKey;
+    await encryptAndSaveMany([[keys.accAuthSecretKey('acc-pub-key-1'), 'aabbccdd']], vaultKey);
+    await vault.removeSeedPhrase();
+
+    await expect(Vault.revealPrivateKey('acc-pub-key-1', 'pw')).rejects.toThrow(PublicError);
+  });
+});
+
+describe('Vault.signWord', () => {
+  const NON_RECOVERY_TYPES: ITransactionType[] = [
+    'send',
+    'consume',
+    'execute',
+    'bridged-send',
+    'bridged-receive',
+    'earn-deposit',
+    'earn-withdraw',
+    'swap'
+  ];
+
+  it.each(NON_RECOVERY_TYPES)('signs a %s transaction with the hot key when given its id', async type => {
+    const vault = await seedVault('pw', {
+      accounts: [{ publicKey: 'acc-1', name: 'A', isPublic: false, type: WalletType.Guardian }]
+    });
+    const vaultKey = (vault as any).vaultKey as CryptoKey;
+    await encryptAndSaveMany([[keys.accAuthSecretKey('hot-pk'), 'hot-ciphertext']], vaultKey);
+    const signHotDigest = jest.requireMock('lib/secure-hot-key').signHotDigest as jest.Mock;
+    signHotDigest.mockResolvedValueOnce('0xsigned');
+    // Every pipeline hands `signWord` the transaction id. A row of a non-recovery
+    // type must never reach the recovery-authorization binding, which throws for it.
+    const row = new Transaction('acc-1', new Uint8Array());
+    row.type = type;
+    await Repo.transactions.add(row);
+
+    await expect(vault.signWord('hot-pk', '0xabc', row.id)).resolves.toBe('0xsigned');
+    expect(signHotDigest).toHaveBeenCalledWith('hot-ciphertext', '0xabc');
+  });
 });
 
 describe('Vault.revealHotKey', () => {
@@ -728,21 +829,25 @@ describe('Vault.revealHotKey', () => {
       type: WalletType.Guardian,
       hdIndex: 0,
       hotPublicKey: 'hot-pub-hex',
-      coldPublicKey: 'cold-pub-hex'
+      coldPublicKey: 'cold-pub-hex',
+      evmAddress: '0xEvm'
     };
     await encryptAndSaveMany(
       [
         [keys.accounts, [account]],
-        [keys.accAuthSecretKey('hot-pub-hex'), 'OPAQUE_CIPHERTEXT']
+        [keys.accAuthSecretKey('hot-pub-hex'), 'OPAQUE_CIPHERTEXT'],
+        [`${ck('accevmsecretkey')}_0xevm`, `0x${'cd'.repeat(32)}`]
       ],
       vaultKey
     );
-    mockRevealHotKey.mockResolvedValueOnce('deadbeef');
+    mockRevealHotKey.mockResolvedValue('ab'.repeat(32));
 
     const secret = await Vault.revealHotKey('guardian-acc-1', 'pw');
 
     expect(mockRevealHotKey).toHaveBeenCalledWith('OPAQUE_CIPHERTEXT');
-    expect(secret).toBe('deadbeef');
+    expect(secret).toBe(`${'ab'.repeat(32)}:${'cd'.repeat(32)}`);
+    await removeMany([keys.mnemonic]);
+    await expect(Vault.revealHotKey('guardian-acc-1', 'pw')).resolves.toBe(secret);
   });
 
   it('rejects when the account is not a Guardian account', async () => {
@@ -2272,5 +2377,360 @@ describe('insert-performing holds after a lock (#878)', () => {
     await expect(vault.importAccountFromPrivateKey(LATE_HEX, 'Late')).rejects.toMatchObject({ reason: 'locked' });
     expect(mockAccountsInsert).not.toHaveBeenCalled();
     expect(mockKeystoreInsert).not.toHaveBeenCalled();
+  });
+});
+
+describe('recovery seed waiting time', () => {
+  it.each([false, true])('resumes after an hour, with a legacy row: %s', async legacyRow => {
+    const account: WalletAccount = {
+      publicKey: 'guardian-recovery',
+      name: 'Guardian',
+      type: WalletType.Guardian,
+      hdIndex: 0,
+      isPublic: false,
+      coldPublicKey: '020304'
+    };
+    const vault = await seedVault('pw', { mnemonic: '', accounts: [account] });
+    const transaction: ITransaction = new Transaction(account.publicKey, new Uint8Array());
+    transaction.type = 'replace-hot-key';
+    transaction.awaitingRecoverySeed = legacyRow;
+    const startedAt = transaction.initiatedAt;
+    const now = jest.spyOn(Date, 'now').mockReturnValue((startedAt + 60) * 1000);
+    await Repo.transactions.add(transaction);
+    try {
+      await expect(vault.prepareRecoveryTransaction(transaction.id)).resolves.toEqual({ ready: false });
+      const expectedPause = startedAt + Number(!legacyRow) * 60;
+      expect((await Repo.transactions.get(transaction.id))?.recoverySeedRequestedAt).toBe(expectedPause);
+      now.mockReturnValue((startedAt + 3660) * 1000);
+      await vault.prepareRecoveryTransaction(transaction.id);
+      expect((await Repo.transactions.get(transaction.id))?.recoverySeedRequestedAt).toBe(expectedPause);
+      if (legacyRow) {
+        await Repo.transactions.where({ id: transaction.id }).modify(tx => {
+          delete tx.recoverySeedRequestedAt;
+        });
+      }
+      const action = getRecoveryAction(transaction);
+      await expect(vault.provideRecoverySeed(transaction.id, 'invalid', action)).rejects.toThrow();
+      expect((await Repo.transactions.get(transaction.id))?.awaitingRecoverySeed).toBe(true);
+      const sdk = jest.requireMock<{ AuthSecretKey: { ecdsaWithRNG: jest.Mock } }>('@miden-sdk/miden-sdk/lazy');
+      sdk.AuthSecretKey.ecdsaWithRNG.mockImplementationOnce(() => ({
+        publicKey: () => ({
+          serialize: () => new Uint8Array([1, 2, 3, 4]),
+          toCommitment: () => ({ toHex: () => '0x020304', free: jest.fn() }),
+          free: jest.fn()
+        }),
+        serialize: () => new Uint8Array([1, 5, 6]),
+        free: jest.fn()
+      }));
+      mockGetAccount.mockResolvedValueOnce({});
+      mockGetSignerDetailsFromAccount.mockResolvedValueOnce({ commitment: '020304' });
+      await vault.provideRecoverySeed(transaction.id, VALID_MNEMONIC, action);
+      const resumed = await Repo.transactions.get(transaction.id);
+      expect(resumed?.awaitingRecoverySeed).toBe(false);
+      expect(resumed?.recoverySeedRequestedAt).toBeUndefined();
+      const expectedStart = startedAt + 3600 + Number(legacyRow) * 60;
+      expect(resumed?.initiatedAt).toBe(expectedStart);
+      await cancelStaleQueuedTransactions();
+      expect((await Repo.transactions.get(transaction.id))?.status).toBe(ITransactionStatus.Queued);
+      now.mockReturnValue((expectedStart + MAX_QUEUED_AGE + 1) * 1000);
+      await cancelStaleQueuedTransactions();
+      expect((await Repo.transactions.get(transaction.id))?.status).toBe(ITransactionStatus.Failed);
+    } finally {
+      now.mockRestore();
+      clearRecoveryAuthorizations();
+      await Repo.transactions.delete(transaction.id);
+    }
+  });
+});
+
+describe('seed phrase removal', () => {
+  it('removes the phrase and leaves the account usable after unlock', async () => {
+    const vault = await seedVault('password123');
+    const before = await vault.fetchAccounts();
+    expect(await vault.fetchSeedPhraseStatus()).toBe('stored');
+    await expect(Vault.revealMnemonic('password123')).resolves.toBe(VALID_MNEMONIC);
+    await vault.removeSeedPhrase();
+    expect(await vault.fetchSeedPhraseStatus()).toBe('removed');
+    const reopened = await Vault.setup('password123');
+    expect(await reopened.fetchSeedPhraseStatus()).toBe('removed');
+    expect(await reopened.fetchAccounts()).toEqual(before);
+    await expect(Vault.revealMnemonic('password123')).rejects.toThrow();
+    await expect(reopened.createHDAccount(WalletType.OnChain)).rejects.toThrow();
+    await reopened.removeSeedPhrase();
+    expect(await reopened.fetchSeedPhraseStatus()).toBe('removed');
+  });
+
+  it.each([
+    { retainedKey: undefined, error: undefined, status: 'removed' },
+    { retainedKey: keys.accAuthSecretKey('020304'), error: 'seedRemovalFailed', status: 'removing' }
+  ])('deletes all recovery-key copies, with retained storage: $retainedKey', async ({ retainedKey, error, status }) => {
+    const account: WalletAccount = {
+      publicKey: 'guardian',
+      name: 'Guardian',
+      type: WalletType.Guardian,
+      hdIndex: -1,
+      isPublic: false,
+      hotPublicKey: 'hot-key',
+      coldPublicKey: '02' + 'ab'.repeat(32)
+    };
+    const vault = await seedVault('password123', { accounts: [account] });
+    const protector = await getPlain<string>(keys.vaultKeyPassword);
+    if (!protector) throw new Error('Missing test vault protector');
+    const key = await Passworder.importVaultKey(await Passworder.decryptVaultKeyWithPassword(protector, 'password123'));
+    const coldPublicKey = account.coldPublicKey;
+    if (!coldPublicKey) throw new Error('Missing test recovery public key');
+    await encryptAndSaveMany(
+      [
+        [keys.accAuthSecretKey('hot-key'), 'daily-secret'],
+        [keys.accAuthSecretKey(coldPublicKey), 'recovery-secret'],
+        [keys.accAuthSecretKey('020304'), 'recovery-secret'],
+        [keys.accColdSecretKey(coldPublicKey), 'recovery-secret']
+      ],
+      key
+    );
+    retainedStorageKey = retainedKey;
+    if (retainedKey) {
+      const digest = await crypto.subtle.digest('SHA-256', Buffer.from(retainedKey, 'utf-8'));
+      retainedStorageKey = Buffer.from(digest).toString('hex');
+    }
+    const removalError = await vault.removeSeedPhrase().catch((cause: Error) => cause.message);
+    expect(removalError).toBe(error);
+    expect(await vault.fetchSeedPhraseStatus()).toBe(status);
+    retainedStorageKey = undefined;
+    await vault.removeSeedPhrase();
+    expect(await isStored(keys.mnemonic)).toBe(false);
+    expect(await isStored(keys.accAuthSecretKey(coldPublicKey))).toBe(false);
+    expect(await isStored(keys.accAuthSecretKey('020304'))).toBe(false);
+    expect(await isStored(keys.accColdSecretKey(coldPublicKey))).toBe(false);
+    expect(await vault.getAuthSecretKey('hot-key')).toBe('daily-secret');
+    expect(mockGetMidenClient).toHaveBeenCalledWith();
+    expect(mockKeystoreRemove).toHaveBeenCalled();
+    expect(mockKeystoreGet).not.toHaveBeenCalled();
+    expect(mockKeystoreGetAccountId).toHaveBeenCalled();
+    expect(await vault.fetchAccounts()).toEqual([account]);
+  });
+
+  it.each(['remove', 'mapping-lookup', 'retained-mapping'])(
+    'resumes cleanup after a keystore failure at %s',
+    async failure => {
+      const account: WalletAccount = {
+        publicKey: 'guardian',
+        name: 'Guardian',
+        type: WalletType.Guardian,
+        hdIndex: -1,
+        isPublic: false,
+        hotPublicKey: 'hot-key',
+        coldPublicKey: '02' + 'ab'.repeat(32)
+      };
+      const vault = await seedVault('password123', { accounts: [account] });
+      const protector = await getPlain<string>(keys.vaultKeyPassword);
+      if (!protector) throw new Error('Missing test vault protector');
+      const key = await Passworder.importVaultKey(
+        await Passworder.decryptVaultKeyWithPassword(protector, 'password123')
+      );
+      await encryptAndSaveMany([[keys.accAuthSecretKey('hot-key'), 'daily-secret']], key);
+      const free = jest.fn();
+      switch (failure) {
+        case 'remove':
+          mockKeystoreRemove.mockRejectedValueOnce(new Error('Storage failed'));
+          break;
+        case 'mapping-lookup':
+          mockKeystoreGetAccountId.mockRejectedValueOnce(new Error('Storage failed'));
+          break;
+        case 'retained-mapping':
+          mockKeystoreGetAccountId.mockResolvedValueOnce({ free });
+          break;
+      }
+      await expect(vault.removeSeedPhrase()).rejects.toThrow();
+      expect(free).toHaveBeenCalledTimes(Number(failure === 'retained-mapping'));
+      expect(await vault.fetchSeedPhraseStatus()).toBe('removing');
+      await expect(Vault.revealMnemonic('password123')).rejects.toThrow();
+      const reopened = await Vault.setup('password123');
+      await reopened.removeSeedPhrase();
+      expect(await reopened.fetchSeedPhraseStatus()).toBe('removed');
+      expect(await reopened.getAuthSecretKey('hot-key')).toBe('daily-secret');
+      expect(mockKeystoreGet).not.toHaveBeenCalled();
+    }
+  );
+
+  it('keeps the phrase when the everyday key is not ready', async () => {
+    const account: WalletAccount = {
+      publicKey: 'guardian',
+      name: 'Guardian',
+      type: WalletType.Guardian,
+      hdIndex: -1,
+      isPublic: false,
+      coldPublicKey: '02' + 'ab'.repeat(32)
+    };
+    const vault = await seedVault('password123', { accounts: [account] });
+    await expect(vault.removeSeedPhrase()).rejects.toThrow();
+    expect(await vault.fetchSeedPhraseStatus()).toBe('stored');
+  });
+
+  it('distinguishes a wallet without a phrase from a removed phrase', async () => {
+    const vault = await seedVault('password123', { mnemonic: '' });
+    expect(await vault.fetchSeedPhraseStatus()).toBe('unavailable');
+    await expect(vault.removeSeedPhrase()).rejects.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Seed-less Guardian import: spawn from a pasted HOT key.
+// ---------------------------------------------------------------------------
+describe('Vault.spawnFromHotKey', () => {
+  const ENDPOINT = 'https://guardian.example.com';
+  const EVM_KEY = `0x${'cd'.repeat(32)}`;
+  const PAIR = `${'beef'.repeat(16)}:${'cd'.repeat(32)}`;
+
+  it('authenticates reveal without a seed and never recreates a missing EVM key', async () => {
+    const vault = await Vault.spawnFromHotKey('pw', PAIR, ENDPOINT);
+    mockRevealHotKey.mockResolvedValue('beef'.repeat(16));
+    await expect(Vault.revealHotKey('guardian-acc-hot', 'wrong')).rejects.toThrow();
+    expect(mockRevealHotKey).not.toHaveBeenCalled();
+    await expect(Vault.revealHotKey('guardian-acc-hot', 'pw')).resolves.toBe(PAIR);
+    const account = (await vault.fetchAccounts())[0]!;
+    await removeMany([`${ck('accevmsecretkey')}_${account.evmAddress?.toLowerCase()}`]);
+    await expect(Vault.revealHotKey('guardian-acc-hot', 'pw')).rejects.toThrow('evmPrivateKeyMissing');
+    expect(await isStored(keys.mnemonic)).toBe(false);
+  });
+
+  it('loads the WASM module before it parses the pasted key', async () => {
+    // Fresh onboarding has no client yet, so nothing else has loaded the lazy
+    // SDK's WASM. A parse before the load throws inside the SDK and is reported
+    // to the user as an invalid paste.
+    const sdk = jest.requireMock('@miden-sdk/miden-sdk/lazy');
+    const order: string[] = [];
+    sdk.getWasmOrThrow.mockImplementationOnce(async () => {
+      order.push('wasm');
+      return {};
+    });
+    mockDeserializeHotSecretKey.mockImplementationOnce((_hex: string) => {
+      order.push('parse');
+      return fakeHotSecretKey() as any;
+    });
+
+    await Vault.spawnFromHotKey('pw', 'beef'.repeat(16), ENDPOINT);
+
+    expect(order).toEqual(['wasm', 'parse']);
+  });
+
+  it('adopts the guardian account and persists a hot-key-only wallet', async () => {
+    const vault = await Vault.spawnFromHotKey('pw', PAIR, ENDPOINT);
+
+    // The canonical serialized hex (from the deserialized key, not the raw
+    // paste) is what reaches the guardian lookup.
+    expect(mockRecoverGuardianAccountByHotKey).toHaveBeenCalledWith('01beef', ENDPOINT);
+
+    const accounts = await vault.fetchAccounts();
+    expect(accounts).toHaveLength(1);
+    const account = accounts[0]!;
+    expect(account).toMatchObject({
+      publicKey: 'guardian-acc-hot',
+      isPublic: false,
+      type: WalletType.Guardian,
+      hdIndex: -1,
+      authScheme: 'ecdsa',
+      hotPublicKey: 'dead',
+      guardianEndpoint: ENDPOINT,
+      guardianNoteRecoveryPending: true
+    });
+    // No cold key, and no rotation gate — the pasted key IS the working hot key.
+    expect(account.coldPublicKey).toBeUndefined();
+    expect(account.requiresHotKeyRotation).toBeUndefined();
+    const evmAddress = privateKeyToAccount(`0x${'cd'.repeat(32)}`).address;
+    expect(account.evmAddress).toBe(evmAddress);
+    const protector = await getPlain<string>(keys.vaultKeyPassword);
+    if (!protector) throw new Error('Missing test vault protector');
+    const authenticatedKey = await Passworder.importVaultKey(
+      await Passworder.decryptVaultKeyWithPassword(protector, 'pw')
+    );
+    const storageKey = `${ck('accevmsecretkey')}_${evmAddress.toLowerCase()}`;
+    await expect(fetchAndDecryptOneWithLegacyFallBack<string>(storageKey, authenticatedKey)).resolves.toBe(EVM_KEY);
+    expect(JSON.stringify(memoryStore[storageKey])).not.toContain(EVM_KEY);
+
+    // The hot secret is persisted under the accAuthSecretKey slot in its
+    // canonical serialized form (signWord's hot path reads exactly this).
+    const vaultKey = (vault as any).vaultKey as CryptoKey;
+    await expect(fetchAndDecryptOneWithLegacyFallBack<string>(keys.accAuthSecretKey('dead'), vaultKey)).resolves.toBe(
+      '01beef'
+    );
+
+    // No mnemonic was written: the wallet is born seed-less and every
+    // seed-status gate engages.
+    expect(await isStored(keys.mnemonic)).toBe(false);
+    await expect(vault.fetchSeedPhraseStatus()).resolves.toBe('unavailable');
+
+    // The imported account is current, and the wallet counts as user-imported.
+    await expect(getPlain(keys.currentAccPubKey)).resolves.toBe('guardian-acc-hot');
+    await expect(vault.isOwnMnemonic()).resolves.toBe(true);
+  });
+
+  it('refuses account creation afterwards (no seed to derive from)', async () => {
+    const vault = await Vault.spawnFromHotKey('pw', PAIR, ENDPOINT);
+
+    await expect(vault.createHDAccount(WalletType.Guardian)).rejects.toThrow(PublicError);
+  });
+
+  it('rejects an unparseable paste before any storage wipe or network work', async () => {
+    await savePlain('sentinel', 'still-here');
+    mockDeserializeHotSecretKey.mockImplementation(() => {
+      throw new Error('bad key');
+    });
+
+    await expect(Vault.spawnFromHotKey('pw', 'zz', ENDPOINT)).rejects.toThrow(PublicError);
+
+    expect(mockRecoverGuardianAccountByHotKey).not.toHaveBeenCalled();
+    // The existing wallet's storage was not cleared by the failed validation.
+    await expect(getPlain('sentinel')).resolves.toBe('still-here');
+  });
+
+  it.each([
+    'beef'.repeat(16),
+    `${'beef'.repeat(16)}:`,
+    `${'beef'.repeat(16)}:${'0'.repeat(64)}`,
+    `${'0'.repeat(64)}:${'cd'.repeat(32)}`,
+    `${'beef'.repeat(16)}:fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141`,
+    `${'f'.repeat(64)}:${'cd'.repeat(32)}`,
+    `${PAIR}:extra`
+  ])('rejects an invalid pair before storage or recovery', async payload => {
+    await savePlain('sentinel', 'preserved');
+    await expect(Vault.spawnFromHotKey('pw', payload, ENDPOINT)).rejects.toThrow(PublicError);
+    expect(mockDeserializeHotSecretKey).not.toHaveBeenCalled();
+    expect(mockRecoverGuardianAccountByHotKey).not.toHaveBeenCalled();
+    await expect(getPlain('sentinel')).resolves.toBe('preserved');
+  });
+
+  it('rejects a non-ECDSA key (Falcon blob pasted by mistake)', async () => {
+    mockDeserializeHotSecretKey.mockImplementation(() => {
+      const key = fakeHotSecretKey();
+      key.getEcdsaK256KeccakSecretKeyAsFelts = jest.fn(() => {
+        throw new Error('wrong scheme');
+      });
+      return key as any;
+    });
+
+    await expect(Vault.spawnFromHotKey('pw', PAIR, ENDPOINT)).rejects.toThrow(PublicError);
+    expect(mockRecoverGuardianAccountByHotKey).not.toHaveBeenCalled();
+  });
+
+  it('surfaces the guardian lookup reason as a PublicError (no account for this key)', async () => {
+    mockRecoverGuardianAccountByHotKey.mockRejectedValue(new Error('No Guardian account was found for this key'));
+
+    await expect(Vault.spawnFromHotKey('pw', PAIR, ENDPOINT)).rejects.toThrow(
+      'No Guardian account was found for this key'
+    );
+  });
+
+  it('requires a password when hardware protection is unavailable', async () => {
+    await expect(Vault.spawnFromHotKey(undefined, PAIR, ENDPOINT)).rejects.toThrow(PublicError);
+    expect(mockRecoverGuardianAccountByHotKey).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the network default endpoint when none is passed', async () => {
+    await Vault.spawnFromHotKey('pw', PAIR);
+
+    const [, endpoint] = mockRecoverGuardianAccountByHotKey.mock.calls[0]!;
+    expect(typeof endpoint).toBe('string');
+    expect(endpoint.length).toBeGreaterThan(0);
   });
 });

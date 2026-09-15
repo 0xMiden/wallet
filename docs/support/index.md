@@ -32,6 +32,14 @@ Yes. Your seed phrase, private keys, account names, balances, and transaction hi
 ### How do I back up or move my wallet to a new device?
 Use the in-app **Export Wallet** function, and keep your recovery phrase safe. You can restore on a new device by importing that phrase or exported file. Never store your recovery phrase in plain text where others could access it.
 
+### Can I remove the seed phrase from this device?
+
+Open **Settings → Security → Remove seed phrase**. Write the words on paper, complete the word check, and confirm removal. Keep the paper outside this device.
+
+Daily transactions still use the stored signing keys. When you change the Guardian, replace the everyday key, or change a procedure threshold, enter your seed phrase to continue. The wallet checks that it belongs to the account and uses the recovery key only for that action. It does not save the phrase again. If an action waits for seed input, open it in Activity and select **Enter your seed phrase**.
+
+Removal affects this local wallet. It does not delete backups that you previously made. Account creation without a stored seed phrase is not yet supported. Wallet export changes are planned separately.
+
 ## More
 
 - [Privacy Policy](https://0xmiden.github.io/wallet/privacy/)

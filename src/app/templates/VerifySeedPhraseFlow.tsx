@@ -1,4 +1,4 @@
-import React, { FC, useCallback, useEffect, useMemo, useState } from 'react';
+import React, { FC, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { useForm } from 'react-hook-form';
 import { Trans, useTranslation } from 'react-i18next';
@@ -13,21 +13,32 @@ import { Vault } from 'lib/miden/back/vault';
 import { useMidenContext } from 'lib/miden/front';
 import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
 import { useScreenshotGuard } from 'lib/mobile/screenshot-guard';
+import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isMobile } from 'lib/platform';
+import { useWalletStore } from 'lib/store';
 import useCopyToClipboard from 'lib/ui/useCopyToClipboard';
 import { completeWalletPrompt, WalletPromptType } from 'lib/wallet-prompts';
 import { goBack, navigate } from 'lib/woozie';
 import { VerifySeedPhraseScreen } from 'screens/onboarding/create-wallet-flow/VerifySeedPhrase';
 
-type Step = 'warning' | 'auth' | 'review' | 'quiz';
+type Step = 'warning' | 'auth' | 'review' | 'quiz' | 'confirm';
 
 type FormData = {
   password: string;
 };
 
-const VerifySeedPhraseFlow: FC = () => {
+const VerifySeedPhraseFlow: FC<{ remove?: boolean }> = ({ remove = false }) => {
   const { t } = useTranslation();
-  const { revealMnemonic } = useMidenContext();
+  const { revealMnemonic, removeSeedPhrase } = useMidenContext();
+  const secretGeneration = useRef(0);
+  const seedStatus = useWalletStore(s => s.seedPhraseStatus);
+  useEffect(
+    () => () => {
+      secretGeneration.current += 1;
+    },
+    [seedStatus]
+  );
+  const [credential, setCredential] = useState<string>();
   const [step, setStep] = useState<Step>('warning');
   const [mnemonic, setMnemonic] = useState<string | null>(null);
   const [hasHardwareProtector, setHasHardwareProtector] = useState<boolean | null>(null);
@@ -80,8 +91,11 @@ const VerifySeedPhraseFlow: FC = () => {
       setAuthError(null);
       clearErrors();
       try {
+        const generation = secretGeneration.current;
         const phrase = await revealMnemonic(password);
+        if (generation !== secretGeneration.current) return;
         setMnemonic(phrase);
+        if (remove) setCredential(password);
         setStep('review');
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
@@ -95,7 +109,7 @@ const VerifySeedPhraseFlow: FC = () => {
         setIsSubmitting(false);
       }
     },
-    [clearErrors, isSubmitting, revealMnemonic, setError]
+    [clearErrors, isSubmitting, revealMnemonic, setError, remove]
   );
 
   const onWarningContinue = useCallback(() => {
@@ -111,16 +125,85 @@ const VerifySeedPhraseFlow: FC = () => {
 
   const onComplete = useCallback(async () => {
     hapticMedium();
+    if (remove) {
+      setMnemonic(null);
+      setStep('confirm');
+      return;
+    }
     await completeWalletPrompt(WalletPromptType.VerifySeedPhrase);
     setMnemonic(null);
     navigate('/');
-  }, []);
+  }, [remove]);
 
   const onExit = useCallback(() => {
     hapticLight();
     setMnemonic(null);
+    setCredential(undefined);
     goBack();
   }, []);
+
+  useMobileBackHandler(() => {
+    onExit();
+    return true;
+  }, [onExit]);
+
+  useEffect(() => {
+    if (seedStatus && seedStatus !== 'stored') {
+      setMnemonic(null);
+      setCredential(undefined);
+    }
+  }, [seedStatus]);
+
+  const onRemove = async () => {
+    if (isSubmitting) return;
+    setIsSubmitting(true);
+    setAuthError(null);
+    try {
+      await removeSeedPhrase(credential);
+      setMnemonic(null);
+      setCredential(undefined);
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : t('seedRemovalFailed'));
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  if (seedStatus && seedStatus !== 'stored') {
+    return (
+      <div className="flex flex-1 flex-col gap-6 px-4 pb-6">
+        <NavigationHeader title={t('recoveryPhrase')} onBack={onExit} />
+        <p role="status">{t(seedStatus === 'removing' ? 'seedRemovalIncomplete' : 'seedPhraseRemoved')}</p>
+        {authError && <p role="alert">{authError}</p>}
+        <Button title={t('close')} onClick={onExit} />
+      </div>
+    );
+  }
+
+  if (step === 'confirm') {
+    return (
+      <div className="flex flex-1 min-h-0 flex-col bg-app-bg text-heading-gray">
+        <NavigationHeader title={t('removeSeedPhrase')} onBack={onExit} />
+        <div className="flex flex-1 flex-col justify-center w-full max-w-md mx-auto px-4 py-6 gap-6">
+          <p className="text-sm text-center text-heading-gray">{t('removeSeedPhraseConfirmation')}</p>
+          {authError && (
+            <p role="alert" className="text-sm text-center">
+              {authError}
+            </p>
+          )}
+          <div className="flex flex-col gap-2">
+            <Button
+              title={t('removeSeedPhraseConfirm')}
+              onClick={onRemove}
+              disabled={isSubmitting}
+              isLoading={isSubmitting}
+            />
+            <Button title={t('cancel')} variant={ButtonVariant.Secondary} onClick={onExit} />
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (step === 'warning') {
     return (
@@ -137,7 +220,9 @@ const VerifySeedPhraseFlow: FC = () => {
             </div>
 
             <div className="mt-4 bg-white rounded-xl p-4 text-center">
-              <p className="text-sm text-heading-gray">{t('verifySeedPhraseWarningBody')}</p>
+              <p className="text-sm text-heading-gray">
+                {t(remove ? 'removeSeedPhraseDescription' : 'verifySeedPhraseWarningBody')}
+              </p>
             </div>
             {authError && (
               <Alert type="error" title={t('error')} description={authError} className="mt-4 rounded-lg text-black" />
@@ -242,25 +327,29 @@ const VerifySeedPhraseFlow: FC = () => {
       <div className="flex flex-col flex-1 min-h-0 bg-app-bg text-heading-gray">
         <NavigationHeader title={t('recoveryPhrase')} onBack={onExit} />
         <div className="flex-1 flex flex-col px-4 pt-4 pb-6">
-          <p className="text-sm text-black text-center mb-4">{t('verifySeedPhraseReviewBody')}</p>
+          <p className="text-sm text-black text-center mb-4">
+            {t(remove ? 'removeSeedPhraseWriteDown' : 'verifySeedPhraseReviewBody')}
+          </p>
 
           {isGuardReady && (
             <>
               <input ref={fieldRef} value={mnemonic ?? ''} readOnly className="sr-only" tabIndex={-1} />
 
-              <div className="flex justify-center mb-4">
-                <button
-                  type="button"
-                  onClick={() => {
-                    hapticLight();
-                    copy();
-                  }}
-                  className="flex items-center gap-1.5 px-4 py-1.5 border border-border-card rounded-2xl text-sm font-medium text-heading-gray hover:opacity-80 cursor-pointer"
-                >
-                  <Icon name={copied ? IconName.CheckboxCircleFill : IconName.FileCopy} size="xs" />
-                  {t(copied ? 'copied' : 'copyToClipboard')}
-                </button>
-              </div>
+              {!remove && (
+                <div className="flex justify-center mb-4">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      hapticLight();
+                      copy();
+                    }}
+                    className="flex items-center gap-1.5 px-4 py-1.5 border border-border-card rounded-2xl text-sm font-medium text-heading-gray hover:opacity-80 cursor-pointer"
+                  >
+                    <Icon name={copied ? IconName.CheckboxCircleFill : IconName.FileCopy} size="xs" />
+                    {t(copied ? 'copied' : 'copyToClipboard')}
+                  </button>
+                </div>
+              )}
 
               <div className="p-6 bg-white rounded-10">
                 <div className="grid grid-cols-3 gap-x-4 gap-y-5">
