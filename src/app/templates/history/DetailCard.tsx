@@ -100,7 +100,8 @@ export const StatusPill: FC<{
   isCancelled?: boolean;
   swapSettlement?: 'pending' | 'reclaimed';
   testId?: string;
-}> = memo(({ status, isCancelled, swapSettlement: reportedSettlement, testId }) => {
+  confirmedLabel?: string;
+}> = memo(({ status, isCancelled, swapSettlement: reportedSettlement, testId, confirmedLabel }) => {
   const { t } = useTranslation();
   const isFailed = status === ITransactionStatus.Failed;
   // A swap that failed or was cancelled never placed its order, so it has no
@@ -148,7 +149,7 @@ export const StatusPill: FC<{
       : swapSettlement === 'pending'
         ? t('pending')
         : isCompleted
-          ? t('confirmed')
+          ? confirmedLabel ?? t('confirmed')
           : isFailed
             ? t('failed')
             : t('inProgress');

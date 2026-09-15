@@ -1,3 +1,4 @@
+import { guardianSummarySchema } from '../sdk/guardian-history';
 // SW-side `MidenClientProxy` — the thin forwarder half of the offscreen
 // WASM-client rehost (issue #260, slice 1).
 //
@@ -1423,6 +1424,24 @@ export const midenClientProxy = {
   },
 
   /** Pending-note recovery chunk: import proposal-embedded note bytes. */
+  async decodeGuardianHistory(encoded: string) {
+    if (!USE_OFFSCREEN_CLIENT) {
+      return withWasmClientLock(async () => (await getMidenClient()).decodeGuardianHistory(encoded));
+    }
+    const result = await this.call('decodeGuardianHistory', [encoded], { deadlineMs: 15_000 });
+    if (!result) throw new Error('Missing Guardian summary response');
+    return guardianSummarySchema.parse(JSON.parse(new TextDecoder().decode(b64ToBytes(result))));
+  },
+
+  async getGuardianResultCommitment(bytes: Uint8Array): Promise<string> {
+    if (!USE_OFFSCREEN_CLIENT) {
+      return withWasmClientLock(async () => (await getMidenClient()).getGuardianResultCommitment(bytes));
+    }
+    const result = await this.call('getGuardianResultCommitment', [bytesToB64(bytes)], { deadlineMs: 15_000 });
+    if (!result) throw new Error('Missing Guardian commitment response');
+    return new TextDecoder().decode(b64ToBytes(result));
+  },
+
   async importRecoveryNoteBytes(proposalNoteBytes: Uint8Array[]): Promise<{ imported: number; failures: number }> {
     if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) {
       return withWasmClientLock(async () => (await getMidenClient()).importRecoveryNoteBytes(proposalNoteBytes));

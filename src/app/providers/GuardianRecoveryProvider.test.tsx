@@ -61,6 +61,19 @@ describe('GuardianRecoveryProvider', () => {
     expect(startGuardianRecovery).not.toHaveBeenCalled();
   });
 
+  it('offers history for the current Guardian account even without a pending-note flag', () => {
+    const currentAccount = account('current', { coldPublicKey: 'cold' });
+    const other = account('other', { coldPublicKey: 'other-cold' });
+    mockUseWalletStore.mockImplementation(
+      (selector: (state: { accounts: WalletAccount[]; currentAccount: WalletAccount }) => object) =>
+        selector({ accounts: [currentAccount, other], currentAccount })
+    );
+    const result = render(<GuardianRecoveryProvider />);
+    expect(startGuardianRecovery).toHaveBeenCalledWith('current');
+    expect(startGuardianRecovery).not.toHaveBeenCalledWith('other');
+    result.unmount();
+  });
+
   it('starts eligible recoveries immediately and retries them while pending', () => {
     setAccounts([
       account('account-a', { guardianNoteRecoveryPending: true, requiresHotKeyRotation: false }),

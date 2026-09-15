@@ -11,24 +11,21 @@ import { registerGuardianOrigin } from 'lib/miden/guardian/native-http';
 import { WalletSigner } from 'lib/miden/guardian/signer';
 import { canonicalWalletAccountId } from 'lib/miden/sdk/helpers';
 import { withWasmClientLock } from 'lib/miden/sdk/miden-client';
+import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { getAllUncompletedTransactions } from 'lib/miden/transaction/get';
 import { b64ToU8 } from 'lib/shared/helpers';
 import { WalletAccount } from 'lib/shared/types';
 
 import { getAccountsWriteQueue } from './accounts-write-queue';
+import { recoverGuardianHistory } from './guardian-history-recovery';
 import { midenClientProxy } from './miden-client-proxy';
 import { OperationAbortedError } from './offscreen-codec';
 import { accountsUpdated, store } from './store';
 import { doSync } from './sync-manager';
 import type { Vault } from './vault';
 
-// NOTE: transaction-history recovery from Guardian's retained deltas is NOT
-// implemented here. It cannot be built against today's Guardian API: the
-// server only lists PENDING proposals on GET /delta/proposal, `getDelta`
-// needs the exact proposer-chosen `Date.now()` nonces (unknowable after seed
-// recovery), and `getDeltaSince` merges the history into one metadata-less
-// blob — so completed history is unreachable until a Guardian release exposes
-// canonical delta history (OpenZeppelin/guardian#357).
+// Guardian exposes canonical deltas through getDeltaHistory. Recover history
+// after pending notes and the required device-key rotation.
 
 export interface GuardianPendingNoteRecoveryResult {
   proposalNotes: number;
@@ -86,7 +83,7 @@ function isWalletLocked(): boolean {
  * checkpoint on the next offer instead.
  */
 function isAbortedOp(error: unknown): boolean {
-  return error instanceof OperationAbortedError;
+  return error instanceof OperationAbortedError || error instanceof WasmClientPoisonedError;
 }
 
 async function shouldYield(): Promise<'wallet locked' | 'transaction in flight' | null> {
@@ -157,7 +154,7 @@ function withHexPrefix(value: string): string {
   return value.startsWith('0x') ? value : `0x${value}`;
 }
 
-async function createGuardianClientContext(account: WalletAccount): Promise<GuardianClientContext> {
+async function createGuardianClientContext(account: WalletAccount, endpoint?: string): Promise<GuardianClientContext> {
   if (!account.coldPublicKey) {
     throw new Error(`Recovered Guardian account ${account.publicKey} is missing its cold public key`);
   }
@@ -168,7 +165,7 @@ async function createGuardianClientContext(account: WalletAccount): Promise<Guar
     return details.commitment;
   });
 
-  const guardianEndpoint = await resolveGuardianEndpoint(account);
+  const guardianEndpoint = endpoint ?? await resolveGuardianEndpoint(account);
   registerGuardianOrigin(guardianEndpoint);
   const guardian = new GuardianHttpClient(guardianEndpoint);
   guardian.setSigner(
@@ -644,6 +641,7 @@ export async function recoverPendingNotes(account: WalletAccount): Promise<Guard
  * are transient and should be retried within this same backend lifetime.
  */
 const startedRecoveries = new Set<string>();
+let recoveryVault: WeakRef<Vault> | undefined;
 
 /**
  * Recoveries run one at a time. They are long, they monopolize the single
@@ -670,7 +668,13 @@ let recoveryQueue: Promise<void> = Promise.resolve();
  * when the account is ineligible or busy right now.
  */
 export async function maybeStartGuardianRecovery(account: WalletAccount): Promise<boolean> {
-  if (!account.guardianNoteRecoveryPending) return false;
+  const vault = liveVault();
+  if (recoveryVault?.deref() !== vault) {
+    startedRecoveries.clear();
+    recoveryVault = vault ? new WeakRef(vault) : undefined;
+  }
+  if (!account.guardianNoteRecoveryPending && !account.coldPublicKey) return false;
+  if (!account.guardianNoteRecoveryPending && store.getState().currentAccount?.publicKey !== account.publicKey) return false;
   if (account.requiresHotKeyRotation) return false;
   if (startedRecoveries.has(account.publicKey)) return false;
 
@@ -728,7 +732,9 @@ async function runDetachedRecovery(account: WalletAccount): Promise<void> {
 
   console.log(`[GuardianRecovery] Starting detached pending-note recovery for ${account.publicKey}`);
   try {
-    const result = await recoverPendingNotes(account);
+    const result = account.guardianNoteRecoveryPending
+      ? await recoverPendingNotes(account)
+      : { deferred: false, sourceFailures: 0 };
     if (result.deferred) {
       // Giving way is not a failing source: release the reservation so the
       // provider's poll restarts this account once the wallet is free again,
@@ -742,9 +748,31 @@ async function runDetachedRecovery(account: WalletAccount): Promise<void> {
         `[GuardianRecovery] Keeping recovery pending for ${account.publicKey}: ` +
           `${result.sourceFailures} source(s) failed; will retry on the next session`
       );
+    }
+    if (account.guardianNoteRecoveryPending && result.sourceFailures === 0) await clearPendingFlag(account);
+    if (!account.coldPublicKey) return;
+    if (store.getState().currentAccount?.publicKey !== account.publicKey) {
+      if (result.sourceFailures === 0) startedRecoveries.delete(account.publicKey);
       return;
     }
-    await clearPendingFlag(account);
+    const history = await recoverGuardianHistory(account, {
+      createClient: createGuardianClientContext,
+      shouldYield: async () => {
+        if (store.getState().currentAccount?.publicKey !== account.publicKey) return 'account changed';
+        return shouldYield();
+      }
+    });
+    if (history.deferred) {
+      startedRecoveries.delete(account.publicKey);
+      return;
+    }
+    if (history.sourceFailures > 0) {
+      await reportGuardianNoteRecoveryProgress({
+        accountId: account.publicKey, step: 'history-partial', restored: history.restored
+      });
+      return;
+    }
+    await clearGuardianNoteRecoveryProgress(account.publicKey);
   } catch (error) {
     console.warn(`[GuardianRecovery] Detached pending-note recovery failed for ${account.publicKey}:`, error);
   }
