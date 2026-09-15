@@ -414,6 +414,7 @@ export interface ITransaction {
   /** Consume only: per-faucet totals of a batch claim (see `ConsumeTransaction`). */
   assetTotals?: IConsumedAssetTotal[];
   transactionId?: string;
+  spendingLimitAuthorizationId?: string;
   /**
    * Fee this transaction actually paid, in the fee asset's smallest unit.
    *
