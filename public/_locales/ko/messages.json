@@ -4702,7 +4702,7 @@
     "message": "설정할 수 있는 자산이 없습니다.",
     "englishSource": "No assets are available to configure."
   },
-  "spendingLimitSave": { "message": "저장", "englishSource": "Save" }
+  "spendingLimitSave": { "message": "저장", "englishSource": "Save" },
   "spendingLimitChallengeTitle": {
     "message": "지출 한도 초과",
     "englishSource": "Spending limit exceeded"

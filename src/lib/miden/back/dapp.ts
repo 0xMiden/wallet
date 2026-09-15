@@ -71,6 +71,16 @@ import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { getAssetSymbol, getTokenMetadata } from 'lib/miden/metadata/utils';
 import { NETWORKS } from 'lib/miden/networks';
 import { importedNoteIds, releaseNoteIds } from 'lib/miden/note-quarantine';
+import { createSpendingLimitAuthorization } from 'lib/miden/spending-limits/authorization';
+import {
+  assessOutgoingSpendingLimitDetails,
+  type SpendingLimitAssessmentDetails
+} from 'lib/miden/spending-limits/queue';
+import {
+  spendingLimitAssessmentFromError,
+  toSerializedSpendingLimitAssessment,
+  type SpendingLimitAuthorization
+} from 'lib/miden/spending-limits/types';
 import {
   DappMetadata,
   MidenDAppPayload,
@@ -1572,6 +1582,42 @@ function delegateFromConfirmation(result: DAppConfirmationResult): boolean {
   return result.delegate ?? DEFAULT_DELEGATE_PROOF;
 }
 
+const DAPP_SPENDING_LIMIT_RETRY = 'Spending limit changed. Review and retry the transaction.';
+
+const authorizationForDappSend = (
+  details: SpendingLimitAssessmentDetails | undefined,
+  strictlyAuthenticated: boolean | undefined
+): SpendingLimitAuthorization | undefined => {
+  if (details === undefined || details.assessment.breaches.length === 0) return undefined;
+  if (strictlyAuthenticated !== true) throw new Error(MidenDAppErrorType.NotGranted);
+  return createSpendingLimitAuthorization(details.assessment);
+};
+
+const assertDappSendStillAuthorized = async (
+  origin: string,
+  sourcePublicKey: string,
+  senderAddress: string
+): Promise<void> => {
+  const liveSession = await getDApp(origin, sourcePublicKey);
+  const currentAccount = store.getState().currentAccount?.publicKey;
+  if (
+    liveSession === undefined ||
+    currentAccount === undefined ||
+    !sameWalletAccountId(liveSession.accountId, senderAddress) ||
+    !sameWalletAccountId(currentAccount, senderAddress)
+  ) {
+    throw new Error(MidenDAppErrorType.NotGranted);
+  }
+};
+
+const dappSendFailure = (error: unknown): Error => {
+  if (spendingLimitAssessmentFromError(error) !== undefined) {
+    return new Error(`${MidenDAppErrorType.NotGranted}: ${DAPP_SPENDING_LIMIT_RETRY}`);
+  }
+  if (error instanceof Error && error.message === MidenDAppErrorType.NotGranted) return error;
+  return new Error(`${MidenDAppErrorType.InvalidParams}: ${error}`);
+};
+
 /**
  * The account a dApp request is AUTHORIZED for is `dApp.accountId` — the id
  * `getDApp(origin, req.sourcePublicKey)` matched a stored session on. The account
@@ -1868,6 +1914,7 @@ const generatePromisifySendTransaction = async (
   }
 
   let transactionMessages: string[] = [];
+  let spendingLimitDetails: SpendingLimitAssessmentDetails | undefined;
   try {
     // Normalize the note type ONCE, before anything reads it. It crosses
     // postMessage from an untrusted page, so its type is a claim rather than a
@@ -1890,6 +1937,11 @@ const generatePromisifySendTransaction = async (
     transactionMessages = await withUnlocked(async () => {
       return await formatSendTransactionPreview(req.transaction);
     });
+    spendingLimitDetails = await assessOutgoingSpendingLimitDetails({
+      accountId: senderAddress,
+      faucetId: req.transaction.faucetId,
+      amount: BigInt(req.transaction.amount)
+    });
   } catch (e) {
     reject(new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`));
     return;
@@ -1911,7 +1963,12 @@ const generatePromisifySendTransaction = async (
       allowedPrivateData: dApp.allowedPrivateData,
       existingPermission: true,
       transactionMessages,
-      sourcePublicKey: req.sourcePublicKey
+      sourcePublicKey: req.sourcePublicKey,
+      ...(spendingLimitDetails !== undefined &&
+        spendingLimitDetails.assessment.breaches.length > 0 && {
+          spendingLimitAssessment: spendingLimitDetails.assessment,
+          spendingLimitAsset: spendingLimitDetails.asset
+        })
     });
 
     if (!result.confirmed) {
@@ -1921,7 +1978,12 @@ const generatePromisifySendTransaction = async (
 
     try {
       const transactionId = await withUnlocked(async () => {
-        const { senderAddress, recipientAddress, faucetId, noteType, amount, recallBlocks } = req.transaction;
+        await assertDappSendStillAuthorized(origin, req.sourcePublicKey, senderAddress);
+        const spendingLimitAuthorization = authorizationForDappSend(
+          spendingLimitDetails,
+          result.spendingLimitAuthenticated
+        );
+        const { recipientAddress, faucetId, noteType, amount, recallBlocks } = req.transaction;
         return await initiateSendTransaction(
           senderAddress,
           recipientAddress,
@@ -1929,7 +1991,8 @@ const generatePromisifySendTransaction = async (
           noteType as any,
           BigInt(amount),
           recallBlocks,
-          delegateFromConfirmation(result)
+          delegateFromConfirmation(result),
+          spendingLimitAuthorization
         );
       });
       startDappBackgroundProcessing();
@@ -1938,7 +2001,7 @@ const generatePromisifySendTransaction = async (
         transactionId
       } as any);
     } catch (e) {
-      reject(new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`));
+      reject(dappSendFailure(e));
     }
     return;
   }
@@ -1952,7 +2015,12 @@ const generatePromisifySendTransaction = async (
       appMeta: dApp.appMeta,
       sourcePublicKey: req.sourcePublicKey,
       transactionMessages,
-      preview: null
+      preview: null,
+      ...(spendingLimitDetails !== undefined &&
+        spendingLimitDetails.assessment.breaches.length > 0 && {
+          spendingLimitAssessment: toSerializedSpendingLimitAssessment(spendingLimitDetails.assessment),
+          spendingLimitAsset: spendingLimitDetails.asset
+        })
     },
     onDecline: () => {
       reject(new Error(MidenDAppErrorType.NotGranted));
@@ -1962,7 +2030,12 @@ const generatePromisifySendTransaction = async (
         if (confirmReq.confirmed) {
           try {
             const transactionId = await withUnlocked(async () => {
-              const { senderAddress, recipientAddress, faucetId, noteType, amount, recallBlocks } = req.transaction;
+              await assertDappSendStillAuthorized(origin, req.sourcePublicKey, senderAddress);
+              const spendingLimitAuthorization = authorizationForDappSend(
+                spendingLimitDetails,
+                confirmReq.spendingLimitAuthenticated
+              );
+              const { recipientAddress, faucetId, noteType, amount, recallBlocks } = req.transaction;
               return await initiateSendTransaction(
                 senderAddress,
                 recipientAddress,
@@ -1970,7 +2043,8 @@ const generatePromisifySendTransaction = async (
                 noteType as any,
                 BigInt(amount),
                 recallBlocks,
-                confirmReq.delegate
+                confirmReq.delegate,
+                spendingLimitAuthorization
               );
             });
             startDappBackgroundProcessing();
@@ -1979,7 +2053,7 @@ const generatePromisifySendTransaction = async (
               transactionId
             } as any);
           } catch (e) {
-            reject(new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`));
+            reject(dappSendFailure(e));
           }
         } else {
           decline();

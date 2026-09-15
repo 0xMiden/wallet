@@ -44,7 +44,10 @@ const mockWithUnlocked = jest.fn(async (fn: (ctx: unknown) => unknown) =>
 
 jest.mock('lib/miden/back/store', () => ({
   store: {
-    getState: () => ({ currentAccount: { publicKey: 'miden-account-1' }, status: 'Ready' })
+    getState: () => ({
+      currentAccount: { publicKey: (globalThis as any).__dappExtTestCurrentAccount ?? 'miden-account-1' },
+      status: 'Ready'
+    })
   },
   withUnlocked: (fn: (ctx: unknown) => unknown) => mockWithUnlocked(fn)
 }));
@@ -88,6 +91,11 @@ jest.mock('lib/platform/storage-adapter', () => ({
 
 jest.mock('lib/miden/metadata/utils', () => ({
   getTokenMetadata: jest.fn().mockResolvedValue({ decimals: 6, symbol: 'TOK' })
+}));
+
+const mockAssessOutgoingSpendingLimitDetails = jest.fn();
+jest.mock('lib/miden/spending-limits/queue', () => ({
+  assessOutgoingSpendingLimitDetails: (...args: unknown[]) => mockAssessOutgoingSpendingLimitDetails(...args)
 }));
 
 jest.mock('lib/i18n/numbers', () => ({
@@ -254,6 +262,8 @@ beforeEach(() => {
   for (const k of Object.keys(_g.__dappExtTest.storage)) delete _g.__dappExtTest.storage[k];
   _g.__dappExtTest.storage[STORAGE_KEY] = { 'https://miden.xyz': [SESSION] };
   mockGetCurrentAccountPublicKey.mockResolvedValue('miden-account-1');
+  mockAssessOutgoingSpendingLimitDetails.mockResolvedValue(undefined);
+  _g.__dappExtTestCurrentAccount = 'miden-account-1';
 });
 
 /** Drive the most recently registered intercom listener with a synthetic confirmation. */
@@ -608,7 +618,8 @@ describe('requestConsumeTransaction — extension flow', () => {
 async function driveConfirmation(
   start: () => Promise<any>,
   confirmRequestType: MidenMessageType,
-  extraConfirmFields: Record<string, any> = { confirmed: true }
+  extraConfirmFields: Record<string, any> = { confirmed: true },
+  beforeConfirm?: () => void
 ) {
   const browser = (require('webextension-polyfill').default || require('webextension-polyfill')) as any;
   const startCallCount = browser.windows.create.mock.calls.length;
@@ -623,7 +634,11 @@ async function driveConfirmation(
   const id = url.match(/[?&]id=([^&]+)/)![1];
   const port = { id: 'fake-port' };
   const listener = _g.__dappExtTest.intercomListeners[_g.__dappExtTest.intercomListeners.length - 1];
-  await listener({ type: MidenMessageType.DAppGetPayloadRequest, id: [id] }, port);
+  _g.__dappExtTest.lastPayloadResponse = await listener(
+    { type: MidenMessageType.DAppGetPayloadRequest, id: [id] },
+    port
+  );
+  beforeConfirm?.();
   await listener({ type: confirmRequestType, id, ...extraConfirmFields }, port);
   return promise;
 }
@@ -804,6 +819,107 @@ describe('Full confirmation cycles in extension mode', () => {
       { confirmed: true, delegate: true }
     );
     expect(res.type).toBe(MidenDAppMessageType.SendTransactionResponse);
+  });
+
+  it('serializes breach display data and passes a backend-created authorization only after strict confirmation', async () => {
+    const assessment = {
+      accountId: 'miden-account-1',
+      faucetId: 'faucet-1',
+      amount: 100n,
+      revision: 'revision-1',
+      assessedAt: 100,
+      breaches: [{ period: '24h', spent: 90n, proposedTotal: 190n, limit: 100n, overBy: 90n, resetAt: 200 }]
+    };
+    mockAssessOutgoingSpendingLimitDetails.mockResolvedValue({
+      assessment,
+      asset: { symbol: 'TOK', decimals: 6 }
+    });
+
+    await driveConfirmation(
+      () =>
+        dapp.requestSendTransaction('https://miden.xyz', {
+          type: MidenDAppMessageType.SendTransactionRequest,
+          sourcePublicKey: 'miden-account-1',
+          transaction: {
+            senderAddress: 'miden-account-1',
+            recipientAddress: 'bob',
+            faucetId: 'faucet-1',
+            noteType: 'Private',
+            amount: '100'
+          }
+        } as never),
+      MidenMessageType.DAppTransactionConfirmationRequest,
+      { confirmed: true, delegate: true, spendingLimitAuthenticated: true }
+    );
+
+    expect(_g.__dappExtTest.lastPayloadResponse.payload).toMatchObject({
+      spendingLimitAssessment: { amount: '100', breaches: [{ spent: '90', overBy: '90' }] },
+      spendingLimitAsset: { symbol: 'TOK', decimals: 6 }
+    });
+    expect(_g.__dappExtTest.lastPayloadResponse.payload).not.toHaveProperty('spendingLimitAuthorization');
+    const transaction = require('lib/miden/transaction');
+    expect(transaction.initiateSendTransaction.mock.calls[0]![7]).toMatchObject({
+      accountId: 'miden-account-1',
+      faucetId: 'faucet-1',
+      amount: 100n,
+      revision: 'revision-1'
+    });
+  });
+
+  it('denies an approved send when the origin disconnected while confirmation was open', async () => {
+    const transaction = require('lib/miden/transaction');
+
+    await expect(
+      driveConfirmation(
+        () =>
+          dapp.requestSendTransaction('https://miden.xyz', {
+            type: MidenDAppMessageType.SendTransactionRequest,
+            sourcePublicKey: 'miden-account-1',
+            transaction: {
+              senderAddress: 'miden-account-1',
+              recipientAddress: 'bob',
+              faucetId: 'faucet-1',
+              noteType: 'Private',
+              amount: '100'
+            }
+          } as never),
+        MidenMessageType.DAppTransactionConfirmationRequest,
+        { confirmed: true, delegate: true },
+        () => {
+          delete _g.__dappExtTest.storage[STORAGE_KEY]['https://miden.xyz'];
+        }
+      )
+    ).rejects.toThrow(MidenDAppErrorType.NotGranted);
+
+    expect(transaction.initiateSendTransaction).not.toHaveBeenCalled();
+  });
+
+  it('denies an approved send when the active wallet account changed while confirmation was open', async () => {
+    const transaction = require('lib/miden/transaction');
+
+    await expect(
+      driveConfirmation(
+        () =>
+          dapp.requestSendTransaction('https://miden.xyz', {
+            type: MidenDAppMessageType.SendTransactionRequest,
+            sourcePublicKey: 'miden-account-1',
+            transaction: {
+              senderAddress: 'miden-account-1',
+              recipientAddress: 'bob',
+              faucetId: 'faucet-1',
+              noteType: 'Private',
+              amount: '100'
+            }
+          } as never),
+        MidenMessageType.DAppTransactionConfirmationRequest,
+        { confirmed: true, delegate: true },
+        () => {
+          _g.__dappExtTestCurrentAccount = 'miden-account-2';
+        }
+      )
+    ).rejects.toThrow(MidenDAppErrorType.NotGranted);
+
+    expect(transaction.initiateSendTransaction).not.toHaveBeenCalled();
   });
 
   it('requestConsumeTransaction resolves when confirmed', async () => {

@@ -151,7 +151,7 @@ Gates: e2e-bridge-in.yml (IN, iOS) + e2e-bridge.yml (OUT, Chrome), both post-mer
 - [x] Implement the data model, atomic policy, and one-time authorization.
 - [x] Implement validated configuration reads, writes, revision checks, and all runtime transports.
 - [x] Implement strict authentication and Security settings UI.
-- [ ] Integrate send, swap, bridge, Earn, and dApp flows.
+- [x] Integrate send, swap, bridge, Earn, and dApp flows.
 - [ ] Run visual checks, full local gates, Review Council, and fix every actionable finding.
 - [ ] Push a PR with Closes #646, babysit CI, admin squash merge, and verify closure.
 
@@ -165,4 +165,5 @@ Gates: e2e-bridge-in.yml (IN, iOS) + e2e-bridge.yml (OUT, Chrome), both post-mer
 - Task 6: account-scoped Security settings route, held and configured-zero-balance assets, exact base-unit conversion, unknown-scale guard, strict edit classification, stale-account suppression, and 14 localized bundles with 0 stale keys. 164 focused tests green; TypeScript, scoped lint, i18n lint, and locale parity green.
 - Task 7: structured send and swap preflight challenges, exact one-time authorization threading, draft-preserving cancellation, and race or expiry re-challenge. 530 affected tests green; new spending-limit modules clear the 95% gate at 99.73% statements, 97.29% branches, 100% functions, and 99.73% lines.
 - Task 8: Agglayer, Epoch bridge, and Earn preflight before external work; exact authorization threading through SDK callbacks; structured final-race re-challenge; cancellation and below-limit regression coverage. 110 focused tests, TypeScript, and scoped lint green.
-- Remaining: dApp flow integrations, E2E, full gates, Review Council, and delivery.
+- Task 9: extension, mobile, and desktop dApp preflight; wallet-owned strict authorization; disconnect and account-switch revalidation; one-shot modal handoff; structured race retry; generalized-send parity. 726 tests across all 37 dApp and confirmation suites, TypeScript, and scoped lint green.
+- Remaining: E2E, visual checks, full gates, Review Council, and delivery.

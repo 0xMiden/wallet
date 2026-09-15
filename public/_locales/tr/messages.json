@@ -4702,7 +4702,7 @@
     "message": "Yapılandırılabilecek varlık yok.",
     "englishSource": "No assets are available to configure."
   },
-  "spendingLimitSave": { "message": "Kaydet", "englishSource": "Save" }
+  "spendingLimitSave": { "message": "Kaydet", "englishSource": "Save" },
   "spendingLimitChallengeTitle": {
     "message": "Harcama limiti aşıldı",
     "englishSource": "Spending limit exceeded"

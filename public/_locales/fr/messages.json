@@ -4702,7 +4702,7 @@
     "message": "Aucun actif n'est disponible à la configuration.",
     "englishSource": "No assets are available to configure."
   },
-  "spendingLimitSave": { "message": "Enregistrer", "englishSource": "Save" }
+  "spendingLimitSave": { "message": "Enregistrer", "englishSource": "Save" },
   "spendingLimitChallengeTitle": {
     "message": "Limite de dépenses dépassée",
     "englishSource": "Spending limit exceeded"

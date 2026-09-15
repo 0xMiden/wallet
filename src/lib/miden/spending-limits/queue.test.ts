@@ -1,7 +1,7 @@
 import { SendTransaction } from '../db/types';
 import { spendingLimits, transactions } from '../repo';
 import { NoteTypeEnum } from '../types';
-import { assessOutgoingSpendingLimit, queueOutgoingTransaction } from './queue';
+import { assessOutgoingSpendingLimit, assessOutgoingSpendingLimitDetails, queueOutgoingTransaction } from './queue';
 import { PersistedSpendingLimit, SpendingLimitAuthorization, SpendingLimitAuthorizationRequiredError } from './types';
 
 const NOW = 2_000_000;
@@ -54,6 +54,18 @@ describe('queueOutgoingTransaction', () => {
     await expect(
       assessOutgoingSpendingLimit({ accountId: 'account-a', faucetId: 'faucet-a', amount: 20n, now: NOW })
     ).resolves.toBeUndefined();
+  });
+
+  it('returns the persisted asset snapshot with dApp preflight details', async () => {
+    await spendingLimits.put(config());
+    await transactions.add(outgoing(90n, 'existing'));
+
+    await expect(
+      assessOutgoingSpendingLimitDetails({ accountId: 'account-a', faucetId: 'faucet-a', amount: 20n, now: NOW })
+    ).resolves.toMatchObject({
+      asset: { symbol: 'MIDEN', decimals: 8 },
+      assessment: { amount: 20n, revision: 'revision-1', breaches: [{ overBy: 10n }] }
+    });
   });
 
   it('queues when no spending limit is configured', async () => {

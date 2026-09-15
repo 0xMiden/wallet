@@ -842,19 +842,20 @@ describe('useWalletStore', () => {
       });
     });
 
-    it('confirmDAppTransaction sends correct request with delegate', async () => {
+    it('confirmDAppTransaction sends strict-authentication success only when supplied', async () => {
       mockRequest.mockResolvedValueOnce({
         type: MidenMessageType.DAppTransactionConfirmationResponse
       });
 
       const { confirmDAppTransaction } = useWalletStore.getState();
-      await confirmDAppTransaction('req-id', true, true);
+      await confirmDAppTransaction('req-id', true, true, true);
 
       expect(mockRequest).toHaveBeenCalledWith({
         type: MidenMessageType.DAppTransactionConfirmationRequest,
         id: 'req-id',
         confirmed: true,
-        delegate: true
+        delegate: true,
+        spendingLimitAuthenticated: true
       });
     });
 

@@ -4702,7 +4702,7 @@
     "message": "設定できる資産がありません。",
     "englishSource": "No assets are available to configure."
   },
-  "spendingLimitSave": { "message": "保存", "englishSource": "Save" }
+  "spendingLimitSave": { "message": "保存", "englishSource": "Save" },
   "spendingLimitChallengeTitle": {
     "message": "利用上限を超えています",
     "englishSource": "Spending limit exceeded"

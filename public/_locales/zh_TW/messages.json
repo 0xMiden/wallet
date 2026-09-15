@@ -4702,7 +4702,7 @@
     "message": "沒有可設定的資產。",
     "englishSource": "No assets are available to configure."
   },
-  "spendingLimitSave": { "message": "儲存", "englishSource": "Save" }
+  "spendingLimitSave": { "message": "儲存", "englishSource": "Save" },
   "spendingLimitChallengeTitle": {
     "message": "支出限額已超出",
     "englishSource": "Spending limit exceeded"

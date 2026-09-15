@@ -4702,7 +4702,7 @@
     "message": "Немає активів, доступних для налаштування.",
     "englishSource": "No assets are available to configure."
   },
-  "spendingLimitSave": { "message": "Зберегти", "englishSource": "Save" }
+  "spendingLimitSave": { "message": "Зберегти", "englishSource": "Save" },
   "spendingLimitChallengeTitle": {
     "message": "Ліміт витрат перевищено",
     "englishSource": "Spending limit exceeded"

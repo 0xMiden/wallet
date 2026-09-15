@@ -2,6 +2,7 @@ import { assessSpendingLimit } from './policy';
 import {
   SpendingLimitAuthorization,
   SpendingLimitAssessment,
+  SpendingLimitAssetSnapshot,
   SpendingLimitAuthorizationRequiredError,
   SpendingLimitPolicyUnavailableError,
   parsePersistedSpendingLimit
@@ -34,15 +35,27 @@ export interface SpendingLimitProposal {
   now?: number;
 }
 
-export const assessOutgoingSpendingLimit = async (
+export interface SpendingLimitAssessmentDetails {
+  assessment: SpendingLimitAssessment;
+  asset: SpendingLimitAssetSnapshot;
+}
+
+export const assessOutgoingSpendingLimitDetails = async (
   proposal: SpendingLimitProposal
-): Promise<SpendingLimitAssessment | undefined> => {
+): Promise<SpendingLimitAssessmentDetails | undefined> => {
   const persisted = await readPolicy(proposal.accountId, proposal.faucetId);
   if (persisted === undefined) return undefined;
   const config = parsePersistedSpendingLimit(persisted);
   const now = proposal.now ?? Math.floor(Date.now() / 1000);
-  return assessSpendingLimit(config, await readHistory(proposal.accountId), { ...proposal, now });
+  return {
+    assessment: assessSpendingLimit(config, await readHistory(proposal.accountId), { ...proposal, now }),
+    asset: config.asset
+  };
 };
+
+export const assessOutgoingSpendingLimit = async (
+  proposal: SpendingLimitProposal
+): Promise<SpendingLimitAssessment | undefined> => (await assessOutgoingSpendingLimitDetails(proposal))?.assessment;
 
 const readHistory = async (accountId: string): Promise<ITransaction[]> => {
   try {

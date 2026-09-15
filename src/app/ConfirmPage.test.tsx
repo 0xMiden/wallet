@@ -103,6 +103,21 @@ jest.mock('components/NetworkModeBanner', () => ({
   NetworkModeBanner: () => <div data-testid="network-mode-banner" />
 }));
 
+jest.mock('components/SpendingLimitChallenge', () => ({
+  SpendingLimitChallenge: (props: any) => (
+    <div data-testid="spending-limit-challenge">
+      <span>{props.assessment.revision}</span>
+      <span>{props.asset.symbol}</span>
+      <button type="button" onClick={() => props.onResult({ id: 'ui-only-authorization' })}>
+        authenticate-limit
+      </button>
+      <button type="button" onClick={() => props.onResult(undefined)}>
+        cancel-limit
+      </button>
+    </div>
+  )
+}));
+
 jest.mock('components/Button', () => ({
   ButtonVariant: { Primary: 'primary', Secondary: 'secondary', Ghost: 'ghost' },
   Button: ({ children, onClick, isLoading, variant }: any) => (
@@ -576,6 +591,61 @@ describe('transaction payload', () => {
     });
 
     await waitFor(() => expect(ctx.confirmDAppTransaction).toHaveBeenCalledWith('req-1', true, true));
+  });
+
+  it('does not confirm an over-limit transaction until strict authentication succeeds', async () => {
+    mockIsDelegateProofEnabled.mockReturnValue(true);
+    ctx.confirmDAppTransaction.mockResolvedValue(undefined);
+    setPayload({
+      ...txPayload(),
+      spendingLimitAssessment: {
+        accountId: ACCOUNT.publicKey,
+        faucetId: 'mtst1faucet',
+        amount: '5',
+        revision: 'revision-1',
+        assessedAt: 100,
+        breaches: [{ period: '24h', spent: '8', proposedTotal: '13', limit: '10', overBy: '3', resetAt: 200 }]
+      },
+      spendingLimitAsset: { symbol: 'MIDEN', decimals: 6 }
+    });
+    render(<ConfirmPage />);
+
+    fireEvent.click(screen.getByTestId(ConfirmPageSelectors.TransactionAction_AcceptButton));
+
+    expect(screen.getByTestId('spending-limit-challenge')).toHaveTextContent('revision-1');
+    expect(screen.getByTestId('spending-limit-challenge')).toHaveTextContent('MIDEN');
+    expect(ctx.confirmDAppTransaction).not.toHaveBeenCalled();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'authenticate-limit' }));
+    });
+
+    await waitFor(() => expect(ctx.confirmDAppTransaction).toHaveBeenCalledWith('req-1', true, true, true));
+    expect(ctx.confirmDAppTransaction.mock.calls[0]).not.toContain('ui-only-authorization');
+  });
+
+  it('denies an over-limit transaction when strict authentication is cancelled', async () => {
+    ctx.confirmDAppTransaction.mockResolvedValue(undefined);
+    setPayload({
+      ...txPayload(),
+      spendingLimitAssessment: {
+        accountId: ACCOUNT.publicKey,
+        faucetId: 'mtst1faucet',
+        amount: '5',
+        revision: 'revision-1',
+        assessedAt: 100,
+        breaches: [{ period: '24h', spent: '8', proposedTotal: '13', limit: '10', overBy: '3', resetAt: 200 }]
+      },
+      spendingLimitAsset: { symbol: 'MIDEN', decimals: 6 }
+    });
+    render(<ConfirmPage />);
+
+    fireEvent.click(screen.getByTestId(ConfirmPageSelectors.TransactionAction_AcceptButton));
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'cancel-limit' }));
+    });
+
+    await waitFor(() => expect(ctx.confirmDAppTransaction).toHaveBeenCalledWith('req-1', false, false));
   });
 
   it('renders the payloadError instead of the derived content when present', () => {

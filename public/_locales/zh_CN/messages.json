@@ -4702,7 +4702,7 @@
     "message": "没有可配置的资产。",
     "englishSource": "No assets are available to configure."
   },
-  "spendingLimitSave": { "message": "保存", "englishSource": "Save" }
+  "spendingLimitSave": { "message": "保存", "englishSource": "Save" },
   "spendingLimitChallengeTitle": {
     "message": "支出限额已超出",
     "englishSource": "Spending limit exceeded"

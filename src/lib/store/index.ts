@@ -573,12 +573,13 @@ export const useWalletStore = create<WalletStore>()(
       assertResponse(res.type === MidenMessageType.DAppConsumableNotesConfirmationResponse);
     },
 
-    confirmDAppTransaction: async (id, confirmed, delegate) => {
+    confirmDAppTransaction: async (id, confirmed, delegate, spendingLimitAuthenticated) => {
       const res = await request({
         type: MidenMessageType.DAppTransactionConfirmationRequest,
         id,
         confirmed,
-        delegate
+        delegate,
+        ...(spendingLimitAuthenticated === true && { spendingLimitAuthenticated: true as const })
       });
       assertResponse(res.type === MidenMessageType.DAppTransactionConfirmationResponse);
     },

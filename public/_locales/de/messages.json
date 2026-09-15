@@ -4702,7 +4702,7 @@
     "message": "Es sind keine Assets zum Konfigurieren verfügbar.",
     "englishSource": "No assets are available to configure."
   },
-  "spendingLimitSave": { "message": "Speichern", "englishSource": "Save" }
+  "spendingLimitSave": { "message": "Speichern", "englishSource": "Save" },
   "spendingLimitChallengeTitle": {
     "message": "Ausgabenlimit überschritten",
     "englishSource": "Spending limit exceeded"
