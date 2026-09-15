@@ -488,6 +488,13 @@ export interface WalletAccount {
   evmAddress?: string;
 }
 
+export interface ImportedAccountBackup {
+  accountId: string;
+  publicKeyCommitment: string;
+  authScheme: AuthScheme;
+  secretKeyHex: string;
+}
+
 export interface WalletNetwork {
   rpcBaseURL: string;
   id: string;
