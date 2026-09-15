@@ -63,6 +63,7 @@ const mockRecoverGuardianAccountsBySeed = jest.fn(async (_deriveColdSeed: any, _
 const mockGetAccounts = jest.fn(async () => [] as any[]);
 const mockGetAccount = jest.fn(async (_id: string) => null as any);
 const mockSyncState = jest.fn(async () => {});
+const mockExportDb = jest.fn(async () => 'miden-db-dump');
 // `.client.accounts.insert` / `.client.keystore.insert` are the raw WASM
 // surface; `importAccountFromPrivateKey` calls these directly on the
 // `MidenClientInterface.client` field.
@@ -80,6 +81,7 @@ const mockGetMidenClient = jest.fn(async (_options?: any) => ({
   getAccounts: () => mockGetAccounts(),
   getAccount: (id: string) => mockGetAccount(id),
   syncState: () => mockSyncState(),
+  exportDb: () => mockExportDb(),
   network: 'devnet',
   client: {
     accounts: { insert: mockAccountsInsert },
@@ -213,7 +215,8 @@ jest.mock('../sdk/helpers', () => ({
     }
     if (typeof id === 'string') return id;
     return 'bech32:unknown';
-  })
+  }),
+  sameWalletAccountId: jest.fn((a: string, b: string) => a.split('_')[0] === b.split('_')[0])
 }));
 
 // ---------------------------------------------------------------------------
@@ -253,10 +256,16 @@ jest.mock('lib/i18n', () => ({
 // ---------------------------------------------------------------------------
 // Exposed so `importAccountFromPrivateKey` tests can stub per-test
 // behaviour (e.g. force `deserialize` to throw for the invalid-hex path).
-const mockAuthSecretKeyDeserialize = jest.fn((_bytes?: Uint8Array) => ({
+let mockDeserializedCommitment = 'a1b2';
+let mockBuiltAccountIdMarker = 'imported-account-id';
+const defaultDeserializedSecret = () => ({
   sign: jest.fn(() => ({ serialize: jest.fn(() => new Uint8Array([9, 9, 9])) })),
-  signData: jest.fn(() => ({ serialize: jest.fn(() => new Uint8Array([9, 9, 9])) }))
-}));
+  signData: jest.fn(() => ({ serialize: jest.fn(() => new Uint8Array([9, 9, 9])) })),
+  publicKey: jest.fn(() => ({
+    toCommitment: jest.fn(() => ({ toHex: jest.fn(() => `0x${mockDeserializedCommitment}`) }))
+  }))
+});
+const mockAuthSecretKeyDeserialize = jest.fn((_bytes?: Uint8Array) => defaultDeserializedSecret());
 jest.mock('@miden-sdk/miden-sdk/lazy', () => {
   const base = jest.requireActual('../../../../__mocks__/wasmMock.js');
   return {
@@ -276,7 +285,7 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => {
     AccountBuilder: jest.fn().mockImplementation((_seed: Uint8Array) => {
       const built = {
         account: {
-          id: () => ({ __marker: 'imported-account-id' }),
+          id: () => ({ __marker: mockBuiltAccountIdMarker }),
           isFaucet: () => false
         }
       };
@@ -391,6 +400,9 @@ beforeEach(() => {
   mockMidenClient.getAccount.mockResolvedValue(null);
   mockMidenClient.syncState.mockResolvedValue(undefined);
   mockMidenClient.network = 'devnet';
+  mockDeserializedCommitment = 'a1b2';
+  mockBuiltAccountIdMarker = 'imported-account-id';
+  mockAuthSecretKeyDeserialize.mockImplementation(() => defaultDeserializedSecret());
 });
 
 describe('Vault (static)', () => {
@@ -712,6 +724,111 @@ describe('Vault.revealPrivateKey', () => {
   it('rejects with PublicError when no secret key is stored for the account', async () => {
     await seedVault('pw');
     await expect(Vault.revealPrivateKey('acc-pub-key-1', 'pw')).rejects.toThrow(PublicError);
+  });
+});
+
+describe('Vault.exportWalletBackupMaterial', () => {
+  const hdAccount: WalletAccount = {
+    publicKey: 'hd-account',
+    name: 'HD account',
+    isPublic: true,
+    type: WalletType.OnChain,
+    hdIndex: 0,
+    authScheme: 'ecdsa'
+  };
+  const importedAccount: WalletAccount = {
+    publicKey: 'bech32:imported-account-id',
+    name: 'Imported account',
+    isPublic: true,
+    type: WalletType.OnChain,
+    hdIndex: -1,
+    authScheme: 'falcon'
+  };
+  const sdkAccount = (commitments: string[] = ['0xA1B2']) => ({
+    id: () => ({ __marker: 'imported-account-id' }),
+    getPublicKeyCommitments: () => commitments.map(commitment => ({ toHex: () => commitment }))
+  });
+
+  const seedImportedSecret = async () => {
+    const seeded = await seedVault('pw', { accounts: [hdAccount, importedAccount] });
+    await seeded.insertKeySink(new Uint8Array([0xa1, 0xb2]), new Uint8Array([1, 2, 3, 4]));
+  };
+
+  it('authenticates once and returns a complete snapshot with validated imported secrets', async () => {
+    await seedImportedSecret();
+    mockMidenClient.getAccount.mockResolvedValueOnce(sdkAccount());
+
+    await expect(Vault.exportWalletBackupMaterial('pw')).resolves.toEqual({
+      seedPhrase: VALID_MNEMONIC,
+      accounts: [hdAccount, importedAccount],
+      midenClientDbContent: 'miden-db-dump',
+      importedAccounts: [
+        {
+          accountId: importedAccount.publicKey,
+          publicKeyCommitment: 'a1b2',
+          authScheme: 'falcon',
+          secretKeyHex: '01020304'
+        }
+      ]
+    });
+    expect(mockExportDb).toHaveBeenCalledTimes(1);
+  });
+
+  it('fails before returning a snapshot when the imported SDK account is absent', async () => {
+    await seedImportedSecret();
+    mockMidenClient.getAccount.mockResolvedValueOnce(null);
+
+    await expect(Vault.exportWalletBackupMaterial('pw')).rejects.toThrow(PublicError);
+    expect(mockExportDb).not.toHaveBeenCalled();
+  });
+
+  it.each([{ commitments: [] }, { commitments: ['0xa1b2', '0xc3d4'] }])(
+    'fails before returning a snapshot when the imported account has $commitments auth commitments',
+    async ({ commitments }) => {
+      await seedImportedSecret();
+      mockMidenClient.getAccount.mockResolvedValueOnce(sdkAccount(commitments));
+
+      await expect(Vault.exportWalletBackupMaterial('pw')).rejects.toThrow(PublicError);
+      expect(mockExportDb).not.toHaveBeenCalled();
+    }
+  );
+
+  it('fails before returning a snapshot when an imported secret is missing', async () => {
+    await seedVault('pw', { accounts: [hdAccount, importedAccount] });
+    mockMidenClient.getAccount.mockResolvedValueOnce(sdkAccount());
+
+    await expect(Vault.exportWalletBackupMaterial('pw')).rejects.toThrow(PublicError);
+    expect(mockExportDb).not.toHaveBeenCalled();
+  });
+
+  it('fails before returning a snapshot when the stored scheme differs from the account', async () => {
+    await seedImportedSecret();
+    mockMidenClient.getAccount.mockResolvedValueOnce(sdkAccount());
+    mockAuthSecretKeyDeserialize.mockReturnValueOnce({
+      getEcdsaK256KeccakSecretKeyAsFelts: jest.fn(() => []),
+      publicKey: jest.fn(() => ({ toCommitment: jest.fn(() => ({ toHex: jest.fn(() => '0xa1b2') })) }))
+    } as any);
+
+    await expect(Vault.exportWalletBackupMaterial('pw')).rejects.toThrow(PublicError);
+    expect(mockExportDb).not.toHaveBeenCalled();
+  });
+
+  it('fails before returning a snapshot when the stored secret has a different commitment', async () => {
+    await seedImportedSecret();
+    mockMidenClient.getAccount.mockResolvedValueOnce(sdkAccount());
+    mockDeserializedCommitment = 'ffff';
+
+    await expect(Vault.exportWalletBackupMaterial('pw')).rejects.toThrow(PublicError);
+    expect(mockExportDb).not.toHaveBeenCalled();
+  });
+
+  it('fails before returning a snapshot when deterministic reconstruction changes the account id', async () => {
+    await seedImportedSecret();
+    mockMidenClient.getAccount.mockResolvedValueOnce(sdkAccount());
+    mockBuiltAccountIdMarker = 'different-account-id';
+
+    await expect(Vault.exportWalletBackupMaterial('pw')).rejects.toThrow(PublicError);
+    expect(mockExportDb).not.toHaveBeenCalled();
   });
 });
 
@@ -1781,6 +1898,56 @@ describe('Vault hardware branches', () => {
       // May throw if the decrypted key doesn't match - that's ok, we exercised the branch
     }
     expect(true).toBe(true); // assert no-throw
+  });
+
+  it('exports every imported account after one hardware authorization', async () => {
+    (isDesktop as jest.Mock).mockReturnValue(true);
+    (isMobile as jest.Mock).mockReturnValue(false);
+    mockDesktopSecureStorage.isHardwareSecurityAvailable.mockResolvedValue(true);
+    mockDesktopSecureStorage.hasHardwareKey.mockResolvedValue(true);
+    let vaultKeyBase64 = '';
+    mockDesktopSecureStorage.encryptWithHardwareKey.mockImplementation(async value => {
+      vaultKeyBase64 = value;
+      return 'encrypted-vault-key';
+    });
+    mockDesktopSecureStorage.decryptWithHardwareKey.mockImplementation(async () => vaultKeyBase64);
+
+    const vault = await Vault.spawn(WalletType.OnChain, undefined as any);
+    const vaultKey = (vault as any).vaultKey as CryptoKey;
+    const importedAccount: WalletAccount = {
+      publicKey: 'bech32:imported-account-id',
+      name: 'Imported account',
+      isPublic: true,
+      type: WalletType.OnChain,
+      hdIndex: -1,
+      authScheme: 'falcon'
+    };
+    await encryptAndSaveMany(
+      [
+        [keys.accounts, [importedAccount]],
+        [keys.accAuthSecretKey('a1b2'), '01020304']
+      ],
+      vaultKey
+    );
+    mockMidenClient.getAccount.mockResolvedValueOnce({
+      id: () => ({ __marker: 'imported-account-id' }),
+      getPublicKeyCommitments: () => [{ toHex: () => '0xa1b2' }]
+    });
+    mockDesktopSecureStorage.decryptWithHardwareKey.mockClear();
+
+    await expect(Vault.exportWalletBackupMaterial()).resolves.toEqual(
+      expect.objectContaining({
+        importedAccounts: [
+          {
+            accountId: importedAccount.publicKey,
+            publicKeyCommitment: 'a1b2',
+            authScheme: 'falcon',
+            secretKeyHex: '01020304'
+          }
+        ]
+      })
+    );
+    expect(mockDesktopSecureStorage.decryptWithHardwareKey).toHaveBeenCalledTimes(1);
   });
 });
 

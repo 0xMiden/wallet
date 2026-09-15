@@ -11,6 +11,7 @@ import {
   SerializedConsumableNote,
   SignEvmOperation,
   WalletAccount,
+  WalletBackupMaterial,
   WalletSettings,
   WalletStatus
 } from 'lib/shared/types';
@@ -144,6 +145,7 @@ export interface WalletActions {
   updateCurrentAccount: (accountPublicKey: string) => Promise<void>;
   editAccountName: (accountPublicKey: string, name: string) => Promise<void>;
   revealMnemonic: (password?: string) => Promise<string>;
+  exportWalletBackupMaterial: (password?: string) => Promise<WalletBackupMaterial>;
   revealPrivateKey: (accountPublicKey: string, password?: string) => Promise<string>;
   revealHotKey: (accountPublicKey: string, password?: string) => Promise<string>;
   revealGuardianKeys: (

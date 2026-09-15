@@ -56,6 +56,7 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
   const storeUpdateCurrentAccount = useWalletStore(s => s.updateCurrentAccount);
   const storeEditAccountName = useWalletStore(s => s.editAccountName);
   const storeRevealMnemonic = useWalletStore(s => s.revealMnemonic);
+  const storeExportWalletBackupMaterial = useWalletStore(s => s.exportWalletBackupMaterial);
   const storeRevealPrivateKey = useWalletStore(s => s.revealPrivateKey);
   const storeRevealHotKey = useWalletStore(s => s.revealHotKey);
   const storeRevealGuardianKeys = useWalletStore(s => s.revealGuardianKeys);
@@ -161,6 +162,11 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
       return storeRevealMnemonic(password);
     },
     [storeRevealMnemonic]
+  );
+
+  const exportWalletBackupMaterial = useCallback(
+    async (password?: string) => storeExportWalletBackupMaterial(password),
+    [storeExportWalletBackupMaterial]
   );
 
   const revealPrivateKey = useCallback(
@@ -400,6 +406,7 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
     applyUserGuardianEndpoint,
     startGuardianRecovery,
     revealMnemonic,
+    exportWalletBackupMaterial,
     removeAccount,
     editAccountName,
     importAccount,

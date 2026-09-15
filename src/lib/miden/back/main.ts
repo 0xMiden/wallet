@@ -534,6 +534,12 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
         type: WalletMessageType.RevealMnemonicResponse,
         mnemonic
       };
+    case WalletMessageType.ExportWalletBackupMaterialRequest:
+      const material = await Actions.exportWalletBackupMaterial(req.password);
+      return {
+        type: WalletMessageType.ExportWalletBackupMaterialResponse,
+        material
+      };
     case WalletMessageType.RemoveAccountRequest:
       await Actions.removeAccount(req.accountPublicKey, req.password);
       return {

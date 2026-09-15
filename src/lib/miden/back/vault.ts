@@ -30,11 +30,20 @@ import { isDesktop, isMobile } from 'lib/platform';
 import * as secureHotKey from 'lib/secure-hot-key';
 import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
 import { b64ToU8, bytesToHex, u8ToB64 } from 'lib/shared/helpers';
-import { AuthScheme, GuardianSyncStatus, SignEvmOperation, WalletAccount, WalletSettings } from 'lib/shared/types';
+import {
+  AuthScheme,
+  GuardianSyncStatus,
+  ImportedAccountBackup,
+  SignEvmOperation,
+  WalletAccount,
+  WalletBackupMaterial,
+  WalletSettings
+} from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
 import { midenClientProxy } from './miden-client-proxy';
 import { compareAccountIds } from '../activity/utils';
+import { normalizeBackupHex } from '../backup-file';
 import { fetchFromStorage } from '../front/storage';
 import type { CreatedGuardianKeys } from '../guardian/account';
 import {
@@ -53,6 +62,7 @@ import {
   uninstallRealmKeystore,
   withWasmClientLock
 } from '../sdk/miden-client';
+import { resolvePublicKeyCommitments } from '../sdk/resolve-public-key-commitments';
 import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 // AUTH SCHEME POLICY
@@ -110,6 +120,13 @@ const detectAuthScheme = (key: AuthSecretKey): AuthScheme => {
     return 'falcon';
   }
 };
+
+const buildImportedAccount = (secretKey: AuthSecretKey) =>
+  new AccountBuilder(new Uint8Array(32).fill(0))
+    .storageMode(AccountStorageMode.public())
+    .withAuthComponent(AccountComponent.createAuthComponentFromSecretKey(secretKey))
+    .withBasicWalletComponent()
+    .build().account;
 
 const STORAGE_KEY_PREFIX = 'vault';
 const DEFAULT_SETTINGS = {};
@@ -341,6 +358,88 @@ export class Vault {
       // Password-based unlock
       const vaultKey = await Vault.unlockWithPassword(password);
       return new Vault(vaultKey);
+    });
+  }
+
+  static async exportWalletBackupMaterial(password?: string): Promise<WalletBackupMaterial> {
+    const vaultKey = password ? await Vault.unlockWithPassword(password) : await Vault.getHardwareVaultKey();
+
+    return withError('Failed to prepare encrypted wallet backup', async () => {
+      const [seedPhrase, accounts] = await Promise.all([
+        fetchAndDecryptOneWithLegacyFallBack<string>(mnemonicStrgKey, vaultKey),
+        fetchAndDecryptOneWithLegacyFallBack<WalletAccount[]>(accountsStrgKey, vaultKey)
+      ]);
+      if (!Array.isArray(accounts)) {
+        throw new PublicError('Accounts not found');
+      }
+
+      const { importedAccounts, midenClientDbContent } = await withWasmClientLock(
+        async hold => {
+          const midenClient = await getMidenClient();
+          assertWasmHoldCurrent(hold, 'in exportWalletBackupMaterial after the client build');
+          const backups: ImportedAccountBackup[] = [];
+
+          for (const walletAccount of accounts.filter(account => account.hdIndex < 0)) {
+            const fail = (): never => {
+              throw new PublicError(
+                `The encrypted wallet file was not created because ${walletAccount.name} could not be backed up. Repair or remove this account and try again.`
+              );
+            };
+            if (!walletAccount.isPublic || walletAccount.type !== WalletType.OnChain) fail();
+
+            const account = await midenClient.getAccount(walletAccount.publicKey);
+            assertWasmHoldCurrent(hold, 'in exportWalletBackupMaterial after the account read');
+            const sdkAccount = account ?? fail();
+            if (!sameWalletAccountId(getBech32AddressFromAccountId(sdkAccount.id()), walletAccount.publicKey)) fail();
+
+            const commitments = resolvePublicKeyCommitments(sdkAccount);
+            if (commitments.length !== 1) fail();
+            const publicKeyCommitment = normalizeBackupHex(commitments[0]!.toHex());
+
+            let secretKeyHex: string;
+            try {
+              secretKeyHex = await fetchAndDecryptOneWithLegacyFallBack<string>(
+                accAuthSecretKeyStrgKey(publicKeyCommitment),
+                vaultKey
+              );
+            } catch {
+              fail();
+            }
+            assertWasmHoldCurrent(hold, 'in exportWalletBackupMaterial after the secret read');
+
+            let secretKey: AuthSecretKey;
+            try {
+              secretKey = AuthSecretKey.deserialize(new Uint8Array(Buffer.from(secretKeyHex!, 'hex')));
+            } catch {
+              fail();
+            }
+            if (
+              detectAuthScheme(secretKey!) !== getAccountAuthScheme(walletAccount) ||
+              normalizeBackupHex(secretKey!.publicKey().toCommitment().toHex()) !== publicKeyCommitment ||
+              !sameWalletAccountId(
+                getBech32AddressFromAccountId(buildImportedAccount(secretKey!).id()),
+                walletAccount.publicKey
+              )
+            ) {
+              fail();
+            }
+
+            backups.push({
+              accountId: walletAccount.publicKey,
+              publicKeyCommitment,
+              authScheme: getAccountAuthScheme(walletAccount),
+              secretKeyHex: secretKeyHex!
+            });
+          }
+
+          const database = await midenClient.exportDb();
+          assertWasmHoldCurrent(hold, 'in exportWalletBackupMaterial after the database export');
+          return { importedAccounts: backups, midenClientDbContent: database };
+        },
+        { label: 'vault-export-wallet-backup' }
+      );
+
+      return { seedPhrase, accounts, midenClientDbContent, importedAccounts };
     });
   }
 
@@ -1092,12 +1191,7 @@ export class Vault {
 
           const detectedScheme = detectAuthScheme(secretKey);
 
-          const builder = new AccountBuilder(new Uint8Array(32).fill(0))
-            .storageMode(AccountStorageMode.public())
-            .withAuthComponent(AccountComponent.createAuthComponentFromSecretKey(secretKey))
-            .withBasicWalletComponent();
-
-          const account = builder.build().account;
+          const account = buildImportedAccount(secretKey);
           await midenClient.client.accounts.insert({ account });
           await midenClient.client.keystore.insert(account.id(), secretKey);
 

@@ -72,6 +72,14 @@ export async function processInProcessRequest(req: WalletRequest, label: string)
       };
     }
 
+    case WalletMessageType.ExportWalletBackupMaterialRequest: {
+      const material = await Actions.exportWalletBackupMaterial(req.password);
+      return {
+        type: WalletMessageType.ExportWalletBackupMaterialResponse,
+        material
+      };
+    }
+
     case WalletMessageType.RevealPrivateKeyRequest: {
       const privateKey = await Actions.revealPrivateKey(req.accountPublicKey, req.password);
       return {

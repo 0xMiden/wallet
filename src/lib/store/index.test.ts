@@ -383,6 +383,22 @@ describe('useWalletStore', () => {
       });
     });
 
+    it('exportWalletBackupMaterial returns the dedicated snapshot response', async () => {
+      const material = { seedPhrase: 'seed', accounts: [], midenClientDbContent: 'db', importedAccounts: [] };
+      mockRequest.mockResolvedValueOnce({
+        type: WalletMessageType.ExportWalletBackupMaterialResponse,
+        material
+      });
+
+      const result = await useWalletStore.getState().exportWalletBackupMaterial('password123');
+
+      expect(result).toBe(material);
+      expect(mockRequest).toHaveBeenCalledWith({
+        type: WalletMessageType.ExportWalletBackupMaterialRequest,
+        password: 'password123'
+      });
+    });
+
     it('importAccount returns new account public key from response', async () => {
       mockRequest.mockResolvedValueOnce({
         type: WalletMessageType.ImportAccountResponse,

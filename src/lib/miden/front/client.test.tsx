@@ -6,6 +6,7 @@ import { createRoot } from 'react-dom/client';
 import { act } from 'react-dom/test-utils';
 
 import { WalletMessageType, WalletStatus } from 'lib/shared/types';
+import { useWalletStore } from 'lib/store';
 
 import { MidenContextProvider, useMidenContext } from './client';
 
@@ -70,14 +71,57 @@ describe('useMidenContext actions', () => {
     });
 
     expect(container).toBeDefined();
+    await act(async () => root.unmount());
   });
+});
+
+const BackupProbe: React.FC<{ onMaterial: (value: unknown) => void }> = ({ onMaterial }) => {
+  const { exportWalletBackupMaterial, ready } = useMidenContext();
+  React.useEffect(() => {
+    if (ready) void exportWalletBackupMaterial('password').then(onMaterial);
+  }, [exportWalletBackupMaterial, onMaterial, ready]);
+  return null;
+};
+
+it('exposes the authenticated wallet backup snapshot through the React context', async () => {
+  const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
+  const material = { seedPhrase: 'seed', accounts: [], midenClientDbContent: 'db', importedAccounts: [] };
+  const exportWalletBackupMaterial = jest.fn().mockResolvedValue(material);
+  const previousState = useWalletStore.getState();
+  useWalletStore.setState({ status: WalletStatus.Ready, isInitialized: true, exportWalletBackupMaterial });
+  const onMaterial = jest.fn();
+  const container = document.createElement('div');
+  const root = createRoot(container);
+
+  try {
+    await act(async () => {
+      root.render(
+        <MidenContextProvider>
+          <BackupProbe onMaterial={onMaterial} />
+        </MidenContextProvider>
+      );
+    });
+
+    expect(exportWalletBackupMaterial).toHaveBeenCalledWith('password');
+    expect(onMaterial).toHaveBeenCalledWith(material);
+  } finally {
+    await act(async () => root.unmount());
+    useWalletStore.setState({
+      status: previousState.status,
+      isInitialized: previousState.isInitialized,
+      exportWalletBackupMaterial: previousState.exportWalletBackupMaterial
+    });
+    consoleError.mockRestore();
+  }
 });
 
 const ActionProbe: React.FC = () => {
   const ctx = useMidenContext();
+  const didRun = React.useRef(false);
 
   React.useEffect(() => {
-    if (ctx.ready) {
+    if (ctx.ready && !didRun.current) {
+      didRun.current = true;
       ctx.updateCurrentAccount('pk');
       ctx.updateSettings({ contacts: [] });
       ctx.getAuthSecretKey('k');
@@ -94,9 +138,11 @@ const ActionProbe: React.FC = () => {
 // because the mocked intercom rejects unknown request types.
 const FullActionProbe: React.FC = () => {
   const ctx = useMidenContext() as any;
+  const didRun = React.useRef(false);
 
   React.useEffect(() => {
-    if (!ctx.ready) return;
+    if (!ctx.ready || didRun.current) return;
+    didRun.current = true;
     const swallow = (p: any) => {
       try {
         const r = typeof p === 'function' ? p() : p;
@@ -151,5 +197,6 @@ describe('useMidenContext — full callback coverage', () => {
       );
     });
     expect(container).toBeDefined();
+    await act(async () => root.unmount());
   });
 });

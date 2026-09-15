@@ -326,6 +326,10 @@ export function revealMnemonic(password?: string) {
   return withInited(() => Vault.revealMnemonic(password));
 }
 
+export function exportWalletBackupMaterial(password?: string) {
+  return withInited(() => getAccountsWriteQueue().add(() => Vault.exportWalletBackupMaterial(password)));
+}
+
 export function revealPrivateKey(accPubKeyCommitment: string, password?: string) {
   return withInited(() => Vault.revealPrivateKey(accPubKeyCommitment, password));
 }

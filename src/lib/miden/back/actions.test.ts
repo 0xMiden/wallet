@@ -25,6 +25,7 @@ import {
   init,
   isDAppEnabled,
   revealMnemonic,
+  exportWalletBackupMaterial,
   removeDAppSession,
   decryptCiphertexts,
   revealViewKey,
@@ -106,6 +107,7 @@ jest.mock('lib/miden/back/vault', () => ({
     spawn: jest.fn(),
     setup: jest.fn(),
     revealMnemonic: jest.fn(),
+    exportWalletBackupMaterial: jest.fn(),
     revealPrivateKey: jest.fn(),
     spawnFromMidenClient: jest.fn(),
     getCurrentAccountPublicKey: jest.fn()
@@ -1151,6 +1153,17 @@ describe('actions', () => {
       await revealPrivateKey('pk-commitment-hex');
 
       expect(Vault.revealPrivateKey).toHaveBeenCalledWith('pk-commitment-hex', undefined);
+    });
+  });
+
+  describe('exportWalletBackupMaterial', () => {
+    it('serializes one authenticated backup snapshot on the accounts write queue', async () => {
+      const { Vault } = require('lib/miden/back/vault');
+      const snapshot = { seedPhrase: 'seed', accounts: [], midenClientDbContent: 'db', importedAccounts: [] };
+      Vault.exportWalletBackupMaterial.mockResolvedValueOnce(snapshot);
+
+      await expect(exportWalletBackupMaterial('password')).resolves.toBe(snapshot);
+      expect(Vault.exportWalletBackupMaterial).toHaveBeenCalledWith('password');
     });
   });
 

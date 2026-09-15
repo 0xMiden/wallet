@@ -18,6 +18,12 @@ jest.mock('lib/miden/back/actions', () => ({
   createHDAccount: jest.fn().mockResolvedValue(undefined),
   updateCurrentAccount: jest.fn().mockResolvedValue(undefined),
   revealMnemonic: jest.fn().mockResolvedValue('test mnemonic'),
+  exportWalletBackupMaterial: jest.fn().mockResolvedValue({
+    seedPhrase: 'seed',
+    accounts: [],
+    midenClientDbContent: 'db',
+    importedAccounts: []
+  }),
   revealPrivateKey: jest.fn().mockResolvedValue('deadbeef'),
   removeAccount: jest.fn().mockResolvedValue(undefined),
   editAccount: jest.fn().mockResolvedValue(undefined),
@@ -163,6 +169,19 @@ describe('DesktopIntercomAdapter', () => {
 
       expect(Actions.registerImportedWallet).toHaveBeenCalledWith('test123', 'word1 word2 word3', []);
       expect(response).toEqual({ type: WalletMessageType.ImportFromClientResponse });
+    });
+
+    it('handles ExportWalletBackupMaterialRequest', async () => {
+      const response = await adapter.request({
+        type: WalletMessageType.ExportWalletBackupMaterialRequest,
+        password: 'test123'
+      } as any);
+
+      expect(Actions.exportWalletBackupMaterial).toHaveBeenCalledWith('test123');
+      expect(response).toEqual({
+        type: WalletMessageType.ExportWalletBackupMaterialResponse,
+        material: { seedPhrase: 'seed', accounts: [], midenClientDbContent: 'db', importedAccounts: [] }
+      });
     });
 
     it('handles UnlockRequest', async () => {

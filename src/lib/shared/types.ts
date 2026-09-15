@@ -45,6 +45,8 @@ export enum WalletMessageType {
   RevealGuardianKeysResponse = 'REVEAL_GUARDIAN_KEYS_RESPONSE',
   RevealMnemonicRequest = 'REVEAL_MNEMONIC_REQUEST',
   RevealMnemonicResponse = 'REVEAL_MNEMONIC_RESPONSE',
+  ExportWalletBackupMaterialRequest = 'EXPORT_WALLET_BACKUP_MATERIAL_REQUEST',
+  ExportWalletBackupMaterialResponse = 'EXPORT_WALLET_BACKUP_MATERIAL_RESPONSE',
   RemoveAccountRequest = 'REMOVE_ACCOUNT_REQUEST',
   RemoveAccountResponse = 'REMOVE_ACCOUNT_RESPONSE',
   EditAccountRequest = 'EDIT_ACCOUNT_REQUEST',
@@ -495,6 +497,13 @@ export interface ImportedAccountBackup {
   secretKeyHex: string;
 }
 
+export interface WalletBackupMaterial {
+  seedPhrase: string;
+  accounts: WalletAccount[];
+  midenClientDbContent: string;
+  importedAccounts: ImportedAccountBackup[];
+}
+
 export interface WalletNetwork {
   rpcBaseURL: string;
   id: string;
@@ -634,6 +643,16 @@ export interface RevealMnemonicRequest extends WalletMessageBase {
 export interface RevealMnemonicResponse extends WalletMessageBase {
   type: WalletMessageType.RevealMnemonicResponse;
   mnemonic: string;
+}
+
+export interface ExportWalletBackupMaterialRequest extends WalletMessageBase {
+  type: WalletMessageType.ExportWalletBackupMaterialRequest;
+  password?: string;
+}
+
+export interface ExportWalletBackupMaterialResponse extends WalletMessageBase {
+  type: WalletMessageType.ExportWalletBackupMaterialResponse;
+  material: WalletBackupMaterial;
 }
 
 export interface RemoveAccountRequest extends WalletMessageBase {
@@ -1061,6 +1080,7 @@ export type WalletRequest =
   | RevealHotKeyRequest
   | RevealGuardianKeysRequest
   | RevealMnemonicRequest
+  | ExportWalletBackupMaterialRequest
   | RemoveAccountRequest
   | EditAccountRequest
   | ImportAccountRequest
@@ -1126,6 +1146,7 @@ export type WalletResponse =
   | RevealHotKeyResponse
   | RevealGuardianKeysResponse
   | RevealMnemonicResponse
+  | ExportWalletBackupMaterialResponse
   | RemoveAccountResponse
   | EditAccountResponse
   | ImportAccountResponse

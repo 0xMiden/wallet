@@ -247,6 +247,15 @@ export const useWalletStore = create<WalletStore>()(
       return res.mnemonic;
     },
 
+    exportWalletBackupMaterial: async password => {
+      const res = await request({
+        type: WalletMessageType.ExportWalletBackupMaterialRequest,
+        password
+      });
+      assertResponse(res.type === WalletMessageType.ExportWalletBackupMaterialResponse);
+      return res.material;
+    },
+
     revealPrivateKey: async (accountPublicKey, password) => {
       const res = await request({
         type: WalletMessageType.RevealPrivateKeyRequest,
