@@ -861,6 +861,48 @@ if (process.env.MIDEN_E2E_TEST === 'true') {
   (globalThis as any).__TEST_STORE__ = useWalletStore;
   (globalThis as any).__TEST_INTERCOM__ = getIntercom();
   installSwapTestHooks();
+  Reflect.set(
+    globalThis,
+    '__TEST_RUN_SPENDING_LIMIT_RACE__',
+    async (input: { recipientAddress: string; faucetId: string; amountBaseUnits: string }) => {
+      const [{ SendTransaction, ITransactionStatus }, { NoteTypeEnum }, { queueOutgoingTransaction }, Repo] =
+        await Promise.all([
+          import('lib/miden/db/types'),
+          import('lib/miden/types'),
+          import('lib/miden/spending-limits/queue'),
+          import('lib/miden/repo')
+        ]);
+      const accountId = useWalletStore.getState().currentAccount?.publicKey;
+      if (accountId === undefined) throw new Error('Spending-limit race hook found no current account');
+      const amount = BigInt(input.amountBaseUnits);
+      const candidates = [
+        new SendTransaction(accountId, amount, input.recipientAddress, input.faucetId, NoteTypeEnum.Public),
+        new SendTransaction(accountId, amount, input.recipientAddress, input.faucetId, NoteTypeEnum.Public)
+      ];
+      const now = Math.floor(Date.now() / 1000);
+      for (const candidate of candidates) {
+        candidate.status = ITransactionStatus.Completed;
+        candidate.completedAt = now;
+      }
+
+      try {
+        const results = await Promise.allSettled(candidates.map(candidate => queueOutgoingTransaction(candidate)));
+        const inserted = await Repo.transactions.bulkGet(candidates.map(candidate => candidate.id));
+        return {
+          fulfilledCount: results.filter(result => result.status === 'fulfilled').length,
+          rejectedCount: results.filter(result => result.status === 'rejected').length,
+          insertedCount: inserted.filter(row => row !== undefined).length,
+          rejectionCodes: results.flatMap(result => {
+            if (result.status !== 'rejected') return [];
+            const reason = result.reason as { code?: unknown };
+            return typeof reason?.code === 'string' ? [reason.code] : [];
+          })
+        };
+      } finally {
+        await Repo.transactions.bulkDelete(candidates.map(candidate => candidate.id));
+      }
+    }
+  );
   // Point the earn (Epoch lending) collateral faucet at a runtime-created test faucet.
   // `openEarnPosition` runs page-side (EarnDepositReview), so the override must be set in
   // THIS (page) realm. The import is LAZY (like the bridge-in hooks) so the Epoch/EVM SDK
