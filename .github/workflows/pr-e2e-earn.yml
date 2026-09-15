@@ -138,7 +138,7 @@ jobs:
         working-directory: playwright/e2e/local-stack
         run: |
           for attempt in 1 2 3; do
-            docker compose --env-file versions.env -f docker-compose.local.yml --profile guardian up -d guardian guardian-postgres && exit 0
+            docker compose --env-file versions.env -f docker-compose.local.yml --profile guardian up -d guardian && exit 0
             echo "guardian bring-up attempt $attempt failed; retrying in 10s" >&2
             sleep 10
           done
