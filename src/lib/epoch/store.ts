@@ -237,7 +237,7 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
         const quotedTokenIn = quote.quoteResult.tokenIn;
         const sourceAmount = quotedTokenIn
           ? formatUnits(BigInt(quotedTokenIn), evmParams.evmTokenDecimals ?? 18)
-          : evmParams.evmAmount;
+          : undefined;
         // The symbol comes from the tracking row, which the deposit screen set
         // from the token the user picked. The quote's `tokenInSymbol` is the
         // allocator's own `name` for the token, and for Sepolia USDC that is the

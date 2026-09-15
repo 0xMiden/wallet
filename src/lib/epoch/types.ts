@@ -49,15 +49,12 @@ export interface EVMToMidenIntentParams {
   destinationChainId: number;
   evmSourceAddress: string;
   evmTokenAddress: string;
-  /** Human-readable EVM input amount. Omit, empty, or "0" to use reverse-quote path (EVM spend comes from quote). */
-  evmAmount?: string;
   evmTokenDecimals?: number;
   midenRecipientId: string;
   midenFaucetId: string;
   /**
-   * Minimum Miden-side output you want.
-   * Reverse-quote path: paired with `tokenInAmount: "0"` so SIO derives required EVM `tokenIn`.
-   * Forward path (when `evmAmount` is set): optional slippage floor on Miden output.
+   * Miden-side output to receive, in faucet base units. EVM→Miden is reverse-quoted:
+   * task data pairs this with `tokenInAmount: "0"` and SIO derives the EVM `tokenIn`.
    */
   minTokenOut: string;
 }

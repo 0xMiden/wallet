@@ -152,22 +152,14 @@ export function buildEpochTaskDataParams(params: CrossChainIntentParams): GetTas
 export function buildEVMToMidenTaskDataParams(params: EVMToMidenIntentParams) {
   const midenRecipientHex = normalizeMidenIdToHex(params.midenRecipientId);
   const midenFaucetHex = normalizeMidenIdToHex(params.midenFaucetId);
-  const evmDecimals = params.evmTokenDecimals ?? 18;
-
-  const rawEvm = params.evmAmount?.trim() ?? '';
-  const hasFixedEvmIn = rawEvm !== '' && rawEvm !== '0';
 
   const minHuman = (params.minTokenOut ?? '').trim();
   // Do not scale using frontend-provided decimals. Treat minTokenOut as already
   // being in base units, and let backend derive/validate decimals from faucet id.
   const scaledMinMidenOut = minHuman ? minHuman : '0';
 
-  const amountInWei = hasFixedEvmIn ? parseUnits(rawEvm, evmDecimals).toString() : '0';
-
-  if (!hasFixedEvmIn && scaledMinMidenOut === '0') {
-    throw new Error(
-      'EVM→Miden: set minTokenOut (minimum Miden tokens to receive) for quote path, or provide evmAmount for a fixed EVM spend.'
-    );
+  if (scaledMinMidenOut === '0') {
+    throw new Error('EVM→Miden: set minTokenOut (Miden tokens to receive, in base units) for the reverse quote.');
   }
 
   const destinationChainId = params.destinationChainId ?? MIDEN_DESTINATION_CHAIN_ID;
@@ -182,7 +174,8 @@ export function buildEVMToMidenTaskDataParams(params: EVMToMidenIntentParams) {
     intentData: {
       isNative: false,
       depositTokenAddress: params.evmTokenAddress,
-      tokenInAmount: amountInWei,
+      // Reverse quote: the allocator derives the EVM `tokenIn` from minTokenOut.
+      tokenInAmount: '0',
       outputTokenAddress: ZERO_ADDRESS,
       minTokenOut: scaledMinMidenOut, // Miden-side minimum out (base units)
       destinationChainId: String(destinationChainId),
@@ -206,17 +199,14 @@ export function buildEVMToMidenTaskDataParams(params: EVMToMidenIntentParams) {
  * Step 1: reverse-quote EVM->Miden. The allocator only quotes this direction
  * from the Miden-side `minTokenOut` (base units) with `tokenInAmount: "0"`
  * and answers with the EVM `tokenIn` the sponsor must deposit. A forward
- * quote (fixed EVM input, `minTokenOut: "0"`) returns NO_QUOTE_AVAILABLE, so
- * `evmAmount` is cleared here; the returned `params` carry that cleared value
- * so `buildEVMToMidenIntent` rebuilds the same reverse-quote task data.
+ * quote (fixed EVM input) returns NO_QUOTE_AVAILABLE.
  */
 export async function getEVMToMidenQuote(
   sdk: EpochIntentSDK,
   params: EVMToMidenIntentParams,
   sponsorAddress: string
 ): Promise<EVMToMidenQuote> {
-  const quoteParams: EVMToMidenIntentParams = { ...params, evmAmount: undefined };
-  const taskDataParams = buildEVMToMidenTaskDataParams(quoteParams);
+  const taskDataParams = buildEVMToMidenTaskDataParams(params);
   const { taskTypeString, intentData } = await sdk.getTaskData(taskDataParams);
 
   const quoteResult = await sdk.getIntentQuote({
@@ -230,7 +220,7 @@ export async function getEVMToMidenQuote(
     throw new Error(quoteResult.error ?? 'Quote failed');
   }
 
-  return { taskTypeString, intentData, quoteResult, params: quoteParams };
+  return { taskTypeString, intentData, quoteResult, params };
 }
 
 export async function buildEVMToMidenIntent(
