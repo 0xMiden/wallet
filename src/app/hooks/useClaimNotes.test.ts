@@ -1,5 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 
+import type { NoteWithMetadata } from 'app/pages/Receive/PendingTab';
+
 import { useClaimNotes } from './useClaimNotes';
 
 // --- Mocked collaborators -------------------------------------------------
@@ -10,13 +12,15 @@ import { useClaimNotes } from './useClaimNotes';
 const mockGetFailedTransactions = jest.fn();
 const mockGetInputNoteDetails = jest.fn();
 const mockInitiateConsume = jest.fn();
+/** The enqueue the hook calls. By default it reports every note under the id mockInitiateConsume returns. */
+const mockQueueConsume = jest.fn();
 
 jest.mock('app/hooks/useMidenFaucetId', () => ({ __esModule: true, default: () => 'faucet-miden' }));
 const mockRequestSW = jest.fn();
 const mockStartBackground = jest.fn();
 jest.mock('lib/miden/activity', () => ({
   getFailedTransactions: (...args: unknown[]) => mockGetFailedTransactions(...args),
-  initiateConsumeNotesTransaction: (...args: unknown[]) => mockInitiateConsume(...args),
+  queueConsumeNotes: (...args: unknown[]) => mockQueueConsume(...args),
   requestSWTransactionProcessing: (...args: unknown[]) => mockRequestSW(...args),
   startBackgroundTransactionProcessing: (...args: unknown[]) => mockStartBackground(...args),
   verifyStuckTransactionsFromNode: jest.fn().mockResolvedValue(0)
@@ -66,10 +70,12 @@ jest.mock('lib/woozie', () => ({
 const note = (id: string, faucetId = 'f') => ({ id, isBeingClaimed: false, amount: '1', faucetId, metadata: {} });
 
 const mockNavigate = jest.requireMock('lib/woozie').navigate as jest.Mock;
-/** Note ids passed as the 2nd arg of the n-th initiateConsumeNotesTransaction call. */
+/** Note ids passed as the 2nd arg of the n-th enqueue. */
 const queuedNoteIds = (call: number) => (mockInitiateConsume.mock.calls[call]![1] as { id: string }[]).map(n => n.id);
 
 const failedConsume = (...noteIds: string[]) => ({ type: 'consume', noteIds });
+/** A Failed consume row carrying the transaction id a claim queued, for the hold-release tests. */
+const failedClaim = (txId: string, ...noteIds: string[]) => ({ id: txId, type: 'consume', noteIds });
 
 function setNotes(...ids: string[]) {
   mockUseClaimableNotes.mockReturnValue({
@@ -90,6 +96,10 @@ function deferred<T>() {
 describe('useClaimNotes failed-note check (#456)', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockQueueConsume.mockImplementation(async (accountId: string, notes: { id: string }[], ...rest: unknown[]) => {
+      const committedId = await mockInitiateConsume(accountId, notes, ...rest);
+      return { committedId, coveringTxIdByNoteId: new Map(notes.map(n => [n.id, committedId])) };
+    });
     mockGetFailedTransactions.mockResolvedValue([]);
     mockGetInputNoteDetails.mockResolvedValue([]);
     setNotes('a');
@@ -322,12 +332,14 @@ describe('useClaimNotes failed-note check (#456)', () => {
       expect(result.current.retriableNoteIds.has('n-miden')).toBe(false);
 
       // The consume fails immediately, without ever rendering as claiming.
-      mockGetFailedTransactions.mockResolvedValue([failedConsume('n-miden')]);
+      mockGetFailedTransactions.mockResolvedValue([failedClaim('tx-miden', 'n-miden')]);
       await act(async () => {
         jest.advanceTimersByTime(3_000);
       });
 
       await waitFor(() => expect(result.current.retriableNoteIds.has('n-miden')).toBe(true));
+      // The failure has to END the gate too: a note still in claimingNoteIds renders as consuming, with no Retry.
+      expect(result.current.claimingNoteIds.has('n-miden')).toBe(false);
     } finally {
       jest.useRealTimers();
     }
@@ -583,5 +595,234 @@ describe('useClaimNotes failed-note check (#456)', () => {
 
     await waitFor(() => expect(mockGetFailedTransactions).toHaveBeenCalledTimes(2));
     expect(mockGetFailedTransactions).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps the gate of a note claimed again when its only Failed row is from an earlier attempt', async () => {
+    // getFailedTransactions returns every Failed row, so a note that failed once still has that row while it is
+    // claimed again. Releasing on it would put an enabled Claim back over the new consume.
+    jest.useFakeTimers({ doNotFake: ['nextTick', 'queueMicrotask'] });
+    try {
+      const notes = [note('n-miden', 'faucet-miden')];
+      mockUseClaimableNotes.mockReturnValue({ data: notes, mutate: jest.fn().mockResolvedValue(notes) });
+      mockGetFailedTransactions.mockResolvedValue([failedClaim('tx-old', 'n-miden')]);
+      mockInitiateConsume.mockResolvedValueOnce('tx-new');
+
+      const { result } = renderHook(() => useClaimNotes());
+      await waitFor(() => expect(mockGetFailedTransactions).toHaveBeenCalled());
+
+      await act(async () => {
+        await result.current.handleClaimAll();
+      });
+      // Positive control: the watch has to have RUN the failure check, or "still gated" proves nothing.
+      const callsBefore = mockGetFailedTransactions.mock.calls.length;
+      await act(async () => {
+        jest.advanceTimersByTime(3_000);
+      });
+      expect(mockGetFailedTransactions.mock.calls.length).toBeGreaterThan(callsBefore);
+
+      expect(result.current.claimingNoteIds.has('n-miden')).toBe(true);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('releases the claim gate at its deadline even when the claimable list never changes', async () => {
+    // The release effect only re-runs when the notes array changes. With a stalled refresh and an unchanged list, the
+    // gate must still end on its own timer, or Claim All stays disabled for the life of the page.
+    jest.useFakeTimers({ doNotFake: ['nextTick', 'queueMicrotask'] });
+    try {
+      const notes = [note('n-a', 'faucet-a')];
+      const mutate = jest.fn().mockResolvedValueOnce(notes).mockRejectedValue(new Error('refresh failed'));
+      mockUseClaimableNotes.mockReturnValue({ data: notes, mutate });
+      mockGetFailedTransactions.mockResolvedValue([]);
+      mockInitiateConsume.mockResolvedValueOnce('tx-a');
+
+      const { result } = renderHook(() => useClaimNotes());
+      await waitFor(() => expect(mockGetFailedTransactions).toHaveBeenCalled());
+
+      await act(async () => {
+        await result.current.handleClaimAll().catch(() => undefined);
+      });
+      expect(result.current.claimingNoteIds.has('n-a')).toBe(true);
+
+      await act(async () => {
+        jest.advanceTimersByTime(120_001);
+      });
+
+      expect(result.current.claimingNoteIds.has('n-a')).toBe(false);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('keeps a note claimed again held and watched until its own row fails, whatever an earlier attempt left', async () => {
+    // The flag that settles the watch came from ANY Failed row: the earlier attempt's row flagged the held note at the
+    // first tick, the watch stopped at the second, and a new row that failed before any render saw it live ran no check.
+    // The note showed Claiming with no Retry until the 120s deadline.
+    jest.useFakeTimers({ doNotFake: ['nextTick', 'queueMicrotask'] });
+    try {
+      const notes = [note('n-miden', 'faucet-miden')];
+      mockUseClaimableNotes.mockReturnValue({ data: notes, mutate: jest.fn().mockResolvedValue(notes) });
+      mockGetFailedTransactions.mockResolvedValue([failedClaim('tx-old', 'n-miden')]);
+      mockInitiateConsume.mockResolvedValueOnce('tx-new');
+
+      const { result } = renderHook(() => useClaimNotes());
+      // Positive control: the earlier row does flag the note while nothing holds it.
+      await waitFor(() => expect(result.current.retriableNoteIds.has('n-miden')).toBe(true));
+
+      await act(async () => {
+        await result.current.handleClaimAll();
+      });
+      const callsBefore = mockGetFailedTransactions.mock.calls.length;
+      await act(async () => {
+        jest.advanceTimersByTime(2_000);
+      });
+      await act(async () => {
+        jest.advanceTimersByTime(2_000);
+      });
+      expect(mockGetFailedTransactions.mock.calls.length).toBeGreaterThan(callsBefore);
+      expect(result.current.retriableNoteIds.has('n-miden')).toBe(false);
+      expect(result.current.claimingNoteIds.has('n-miden')).toBe(true);
+
+      // The new row fails without ever rendering live.
+      mockGetFailedTransactions.mockResolvedValue([failedClaim('tx-old', 'n-miden'), failedClaim('tx-new', 'n-miden')]);
+      await act(async () => {
+        jest.advanceTimersByTime(6_000);
+      });
+
+      await waitFor(() => expect(result.current.retriableNoteIds.has('n-miden')).toBe(true));
+      expect(result.current.claimingNoteIds.has('n-miden')).toBe(false);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('keeps watching a held note the node reports Invalid until its own row fails', async () => {
+    // An Invalid flag settled the watch like any other, so claiming a note the node had already invalidated stopped the
+    // only thing that runs the check, and the claim's failed row never ended its hold.
+    jest.useFakeTimers({ doNotFake: ['nextTick', 'queueMicrotask'] });
+    try {
+      const notes = [note('n-a', 'faucet-a')];
+      mockUseClaimableNotes.mockReturnValue({ data: notes, mutate: jest.fn().mockResolvedValue(notes) });
+      mockGetInputNoteDetails.mockResolvedValue([{ noteId: 'n-a', state: 'Invalid' }]);
+      mockInitiateConsume.mockResolvedValueOnce('tx-a');
+
+      const { result } = renderHook(() => useClaimNotes());
+      await waitFor(() => expect(result.current.invalidNoteIds.has('n-a')).toBe(true));
+
+      await act(async () => {
+        await result.current.handleClaimAll();
+      });
+      await act(async () => {
+        jest.advanceTimersByTime(2_000);
+      });
+      expect(result.current.claimingNoteIds.has('n-a')).toBe(true);
+
+      mockGetFailedTransactions.mockResolvedValue([failedClaim('tx-a', 'n-a')]);
+      await act(async () => {
+        jest.advanceTimersByTime(4_000);
+      });
+
+      await waitFor(() => expect(result.current.claimingNoteIds.has('n-a')).toBe(false));
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it("ends a deduplicated note's hold when the row covering it fails, not the row the rest of its group joined", async () => {
+    // The enqueue skips a note an existing row already covers, and the committed id names only the row the other notes
+    // joined. Keying every note to that id meant the covering row's failure matched no hold.
+    jest.useFakeTimers({ doNotFake: ['nextTick', 'queueMicrotask'] });
+    try {
+      const notes = [note('n1', 'faucet-miden'), note('n2', 'faucet-miden')];
+      mockUseClaimableNotes.mockReturnValue({ data: notes, mutate: jest.fn().mockResolvedValue(notes) });
+      mockQueueConsume.mockResolvedValueOnce({
+        committedId: 'tx-y',
+        coveringTxIdByNoteId: new Map([
+          ['n1', 'tx-x'],
+          ['n2', 'tx-y']
+        ])
+      });
+
+      const { result } = renderHook(() => useClaimNotes());
+      await waitFor(() => expect(mockGetFailedTransactions).toHaveBeenCalled());
+      await act(async () => {
+        await result.current.handleClaimAll();
+      });
+      expect(result.current.claimingNoteIds.has('n1')).toBe(true);
+
+      mockGetFailedTransactions.mockResolvedValue([failedClaim('tx-x', 'n1')]);
+      await act(async () => {
+        jest.advanceTimersByTime(2_000);
+      });
+
+      await waitFor(() => expect(result.current.claimingNoteIds.has('n1')).toBe(false));
+      expect(result.current.claimingNoteIds.has('n2')).toBe(true);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('holds a single-row claim from the tap through its enqueue until the note renders live', async () => {
+    // A row's claim used to be gated by the row itself, which cleared the gate when it unmounted while the enqueue kept
+    // going. On the hook's queue path the gate outlives any component.
+    const notes = [note('n1', 'faucet-miden')];
+    mockUseClaimableNotes.mockReturnValue({ data: notes, mutate: jest.fn().mockResolvedValue(notes) });
+    const queued = deferred<string>();
+    mockInitiateConsume.mockReturnValueOnce(queued.promise);
+
+    const { result, rerender } = renderHook(() => useClaimNotes());
+    await waitFor(() => expect(mockGetFailedTransactions).toHaveBeenCalled());
+
+    let claimed!: Promise<string | null>;
+    await act(async () => {
+      claimed = result.current.handleClaimNote(notes[0] as unknown as NoteWithMetadata);
+      await Promise.resolve();
+    });
+    expect(result.current.claimingNoteIds.has('n1')).toBe(true);
+
+    await act(async () => {
+      queued.resolve('tx-1');
+      await claimed;
+    });
+    await expect(claimed).resolves.toBe('tx-1');
+    expect(result.current.claimingNoteIds.has('n1')).toBe(true);
+    expect(mockStartBackground).toHaveBeenCalled();
+
+    const live = [{ ...note('n1', 'faucet-miden'), isBeingClaimed: true }];
+    mockUseClaimableNotes.mockReturnValue({ data: live, mutate: jest.fn().mockResolvedValue(live) });
+    rerender();
+    await waitFor(() => expect(result.current.claimingNoteIds.has('n1')).toBe(false));
+  });
+
+  it("clears a retried row's flag at queue time, and flags it again when the enqueue fails", async () => {
+    mockGetFailedTransactions.mockResolvedValue([failedConsume('n1')]);
+    const notes = [note('n1', 'faucet-miden')];
+    mockUseClaimableNotes.mockReturnValue({ data: notes, mutate: jest.fn().mockResolvedValue(notes) });
+    let failQueue: (reason: unknown) => void = () => {};
+    mockInitiateConsume.mockReturnValueOnce(
+      new Promise<string>((_resolve, reject) => {
+        failQueue = reject;
+      })
+    );
+
+    const { result } = renderHook(() => useClaimNotes());
+    await waitFor(() => expect(result.current.retriableNoteIds.has('n1')).toBe(true));
+
+    let claimed!: Promise<string | null>;
+    await act(async () => {
+      claimed = result.current.handleClaimNote(notes[0] as unknown as NoteWithMetadata);
+      await Promise.resolve();
+    });
+    expect(result.current.retriableNoteIds.has('n1')).toBe(false);
+    expect(result.current.claimingNoteIds.has('n1')).toBe(true);
+
+    await act(async () => {
+      failQueue(new Error('queue failed'));
+      await claimed;
+    });
+    await expect(claimed).resolves.toBeNull();
+    expect(result.current.claimingNoteIds.has('n1')).toBe(false);
+    expect(result.current.retriableNoteIds.has('n1')).toBe(true);
   });
 });

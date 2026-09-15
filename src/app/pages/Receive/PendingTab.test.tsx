@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
 import { PendingTab, NoteWithMetadata } from './PendingTab';
 
@@ -39,10 +39,9 @@ jest.mock('lib/i18n/numbers', () => ({
   formatUsd: (value: number) => `$${value}`
 }));
 
-jest.mock('lib/miden/activity', () => ({
-  initiateConsumeTransaction: jest.fn().mockResolvedValue('tx-id'),
-  requestSWTransactionProcessing: jest.fn()
-}));
+// Claims arrive through the onClaimNote prop, but PendingTab still loads this module transitively (useNetworkFeeEstimate
+// -> lib/shared/format -> lib/miden/front), and loading it for real runs platform checks this suite does not mock.
+jest.mock('lib/miden/activity', () => ({}));
 
 jest.mock('lib/mobile/haptics', () => ({
   hapticLight: jest.fn()
@@ -103,14 +102,11 @@ const makeNote = (id: string, over: Partial<NoteWithMetadata> = {}): NoteWithMet
 
 const baseProps = {
   safeClaimableNotes: [] as NoteWithMetadata[],
-  account: { publicKey: 'mtst1account' } as never,
-  isDelegatedProvingEnabled: false,
   claimingNoteIds: new Set<string>(),
-  individualClaimingIds: new Set<string>(),
   retriableNoteIds: new Set<string>(),
   invalidNoteIds: new Set<string>(),
   checkingNoteIds: new Set<string>(),
-  onClaimingStateChange: jest.fn(),
+  onClaimNote: jest.fn().mockResolvedValue('tx-id'),
   onClaimAll: jest.fn(),
   onClaimGroup: jest.fn()
 };
@@ -317,27 +313,79 @@ describe('PendingTab — fee disclosure on the claim buttons', () => {
   });
 });
 
-describe('PendingTab — the row unmount closing edge', () => {
-  it('reports the claim as no longer in flight when the row unmounts', () => {
-    // `individualClaimingIds` is the one in-flight set with no self-clear: it removes the note from
-    // the claimable half AND suppresses that note from `retriableNoteIds`, so a latched id hides
-    // both the Claim and the Retry for the life of the page. Two reviewers argued opposite fixes
-    // here; this test states which behaviour actually ships.
-    const onClaimingStateChange = jest.fn();
-    const { unmount } = renderTab({
-      safeClaimableNotes: [makeNote('n1')],
-      onClaimingStateChange
-    });
+describe('PendingTab - the group view counts every in-flight signal', () => {
+  it('disables the group claim when its only unclaimed note is held by a claim this page queued', () => {
+    // The group view kept its own copy of the in-flight filter, so a note already being claimed still counted as
+    // claimable there while the summary counted it as in flight.
+    const { rerender } = renderTab({ safeClaimableNotes: [makeNote('n1')] });
     openDetail();
-    onClaimingStateChange.mockClear();
+    // Positive control: with no in-flight signal the group claim is actionable.
+    expect(screen.getByTestId('claim-group-button')).not.toBeDisabled();
 
-    unmount();
+    rerender(<PendingTab {...baseProps} safeClaimableNotes={[makeNote('n1')]} claimingNoteIds={new Set(['n1'])} />);
 
-    expect(onClaimingStateChange).toHaveBeenCalledWith('n1', false);
+    expect(screen.getByTestId('claim-group-button')).toBeDisabled();
   });
 });
 
-describe('PendingTab — the summary while a claim is in flight', () => {
+describe('PendingTab - a row claim', () => {
+  const mockNavigate = jest.requireMock('lib/woozie').navigate as jest.Mock;
+  const claimRow = () => fireEvent.click(within(screen.getByTestId('detail-note-row')).getByTestId('claim-button'));
+
+  beforeEach(() => {
+    mockNavigate.mockClear();
+  });
+
+  it('claims through onClaimNote and opens the progress screen for the row it returns', async () => {
+    const onClaimNote = jest.fn().mockResolvedValue('tx-1');
+    renderTab({ safeClaimableNotes: [makeNote('n1')], onClaimNote });
+    openDetail();
+
+    claimRow();
+
+    await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/generating-transaction-full/tx-1'));
+    expect(onClaimNote).toHaveBeenCalledWith(expect.objectContaining({ id: 'n1' }));
+  });
+
+  it('does not navigate when the row unmounts before its claim settles', async () => {
+    // Unmounting cancels only the row's navigation: the claim and the note's gate belong to the hook.
+    let settle: (id: string) => void = () => {};
+    const onClaimNote = jest.fn(
+      () =>
+        new Promise<string>(resolve => {
+          settle = resolve;
+        })
+    );
+    const { unmount } = renderTab({ safeClaimableNotes: [makeNote('n1')], onClaimNote });
+    openDetail();
+    claimRow();
+    expect(onClaimNote).toHaveBeenCalled();
+
+    unmount();
+    await act(async () => {
+      settle('tx-1');
+    });
+
+    expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  it('does not navigate when nothing was queued', async () => {
+    // A queue-time failure resolves to null: the hook has already flagged the note, so there is no row to show.
+    const onClaimNote = jest.fn().mockResolvedValue(null);
+    renderTab({ safeClaimableNotes: [makeNote('n1')], onClaimNote });
+    openDetail();
+
+    claimRow();
+    await act(async () => {
+      await onClaimNote.mock.results[0]?.value;
+    });
+
+    expect(onClaimNote).toHaveBeenCalled();
+    expect(mockNavigate).not.toHaveBeenCalled();
+  });
+});
+
+describe('PendingTab - the summary while a claim is in flight', () => {
   // Claiming no longer navigates away, so this screen has to say what is happening. Every note
   // being claimed drops out of `unclaimedNotesCount` (useClaimNotes filters `isBeingClaimed`),
   // so gating the CTA on that count alone left the user tapping "Claim All" and watching the
@@ -370,8 +418,8 @@ describe('PendingTab — the summary while a claim is in flight', () => {
   });
 
   it('still offers Claim All when only SOME notes are in flight', () => {
-    // Keying the actionable button on the in-flight count made one background auto-consume — which
-    // Explore runs for native notes without any user action — disable Claim All for every other
+    // Keying the actionable button on the in-flight count made one background auto-consume, which
+    // Explore runs for native notes without any user action, disable Claim All for every other
     // claimable note, with the fee text still quoted above a button that could not be pressed.
     renderTab({
       safeClaimableNotes: [makeNote('n1', { isBeingClaimed: true }), makeNote('n2')]
@@ -401,15 +449,6 @@ describe('PendingTab — the summary while a claim is in flight', () => {
 
     expect(screen.queryByTestId('claim-all-button')).not.toBeInTheDocument();
     expect(screen.getByTestId('claim-all-status')).toHaveTextContent('claiming');
-  });
-
-  it('counts a single-row claim as in flight too', () => {
-    renderTab({
-      safeClaimableNotes: [makeNote('n1', { isBeingClaimed: false })],
-      individualClaimingIds: new Set(['n1'])
-    });
-
-    expect(screen.getByTestId('claim-all-status')).toBeInTheDocument();
   });
 
   it('offers Claim All again once a note is claimable', () => {

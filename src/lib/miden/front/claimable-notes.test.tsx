@@ -114,7 +114,11 @@ jest.mock('lib/miden/activity', () => ({
     // issued, not with whatever a later read installed. Reading after the await made a stale-read
     // test observe fresh data and pass against the very bug it was written for.
     const value = t.uncompletedTxsByAddress?.[address] ?? t.uncompletedTxs;
-    if (t.uncompletedTxsGateFor === address) await t.uncompletedTxsGate;
+    if (t.uncompletedTxsGateFor === address) {
+      await t.uncompletedTxsGate;
+      // Lets a test wait until a parked read has actually returned, rather than asserting before it lands.
+      t.onParkedReadReturn?.();
+    }
     return value;
   }
 }));
@@ -250,9 +254,15 @@ describe('useClaimableNotes (extension mode)', () => {
     // Park ONLY the old account's read. Gating both would let the new account's read resolve last
     // and clear the map on its own, which is what made an earlier version of this test vacuous.
     _g.__cnTest.uncompletedTxsGateFor = 'pk-old';
+    const parkedReturned = new Promise<void>(res => {
+      _g.__cnTest.onParkedReadReturn = res;
+    });
+    // The new account has a live consume of its own. Unguarded, the stale read replaces the map that consume installed,
+    // and the render-time generation check then shows no claim at all, which asserting "not claimed" cannot tell apart
+    // from the guard working.
     _g.__cnTest.uncompletedTxsByAddress = {
       'pk-old': [{ id: 'tx-old', type: 'consume', noteIds: ['n1'] }],
-      'pk-new': []
+      'pk-new': [{ id: 'tx-new', type: 'consume', noteIds: ['n1'] }]
     };
     _g.__cnTest.walletState.extensionClaimableNotes = [
       {
@@ -269,15 +279,18 @@ describe('useClaimableNotes (extension mode)', () => {
       initialProps: { pk: 'pk-old' }
     });
 
-    // Switch accounts while the first read is still parked, then let it land.
+    // Switch accounts while the first read is still parked; the new account's own claim shows first.
     rerender({ pk: 'pk-new' });
+    await waitFor(() => expect(result.current.data?.[0]?.claimingTxId).toBe('tx-new'));
+
+    // Then let the stale read land, and wait until it has before asserting it changed nothing.
     await act(async () => {
       release();
-      await Promise.resolve();
+      await parkedReturned;
+      await new Promise(resolve => setTimeout(resolve, 0));
     });
 
-    await waitFor(() => expect(result.current.data).toHaveLength(1));
-    expect(result.current.data?.[0]?.isBeingClaimed).toBe(false);
+    expect(result.current.data?.[0]?.claimingTxId).toBe('tx-new');
   });
 
   it('drops a stale read across an A -> B -> A switch, which an address comparison cannot', async () => {
@@ -289,6 +302,9 @@ describe('useClaimableNotes (extension mode)', () => {
       release = res;
     });
     _g.__cnTest.uncompletedTxsGateFor = 'pk-a';
+    const parkedReturned = new Promise<void>(res => {
+      _g.__cnTest.onParkedReadReturn = res;
+    });
     _g.__cnTest.uncompletedTxsByAddress = {
       'pk-a': [{ id: 'tx-stale', type: 'consume', noteIds: ['n1'] }],
       'pk-b': []
@@ -308,20 +324,53 @@ describe('useClaimableNotes (extension mode)', () => {
       initialProps: { pk: 'pk-a' }
     });
 
-    // The first A's read has already captured [tx-stale] and is parked. Everything issued from
-    // here on must see an empty store, so the ONLY way `isBeingClaimed` can end up true is the
-    // parked read landing -- which is exactly what the guard has to prevent.
+    // The first A's read has already captured [tx-stale] and is parked. From here on the store holds the second A's own
+    // live consume, tx-a2, so the parked read landing unguarded would replace that map with a stale one, which the
+    // render-time generation check then shows as no claim at all.
     _g.__cnTest.uncompletedTxsGateFor = 'never';
-    _g.__cnTest.uncompletedTxsByAddress['pk-a'] = [];
+    _g.__cnTest.uncompletedTxsByAddress['pk-a'] = [{ id: 'tx-a2', type: 'consume', noteIds: ['n1'] }];
 
     // A -> B -> A: the parked read belongs to the FIRST A.
     rerender({ pk: 'pk-b' });
     rerender({ pk: 'pk-a' });
+    await waitFor(() => expect(result.current.data?.[0]?.claimingTxId).toBe('tx-a2'));
 
     await act(async () => {
       release();
-      await Promise.resolve();
+      await parkedReturned;
+      await new Promise(resolve => setTimeout(resolve, 0));
     });
+
+    expect(result.current.data?.[0]?.claimingTxId).toBe('tx-a2');
+  });
+
+  it("does not show the previous account's installed claim map while the new account's read fails", async () => {
+    // The generation guard drops stale completions, but a map that already landed is not a completion: untagged, it stayed
+    // applied after a switch, and a failed read deliberately keeps the last map, so the new account showed the old
+    // account's claim until its own read succeeded.
+    _g.__cnTest.uncompletedTxsByAddress = {
+      'pk-old': [{ id: 'tx-old', type: 'consume', noteIds: ['n1'] }],
+      'pk-new': []
+    };
+    _g.__cnTest.walletState.extensionClaimableNotes = [
+      {
+        id: 'n1',
+        faucetId: 'f1',
+        amountBaseUnits: '100',
+        senderAddress: 's1',
+        noteType: 'public',
+        metadata: { decimals: 6, symbol: 'TOK', name: 'Token' }
+      }
+    ];
+
+    const { result, rerender } = renderHook(({ pk }: { pk: string }) => useClaimableNotes(pk), {
+      initialProps: { pk: 'pk-old' }
+    });
+    // Positive control: the old account's map is installed before the switch.
+    await waitFor(() => expect(result.current.data?.[0]?.isBeingClaimed).toBe(true));
+
+    _g.__cnTest.uncompletedTxsError = true;
+    rerender({ pk: 'pk-new' });
 
     await waitFor(() => expect(result.current.data).toHaveLength(1));
     expect(result.current.data?.[0]?.isBeingClaimed).toBe(false);

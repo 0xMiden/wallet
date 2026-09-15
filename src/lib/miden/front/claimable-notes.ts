@@ -243,9 +243,18 @@ async function fetchNotesFromLocalClient(
 
 // -------------------- Extension hook (reads from Zustand) --------------------
 
+/** The extension's claim map, tagged with the account generation of the read that produced it. */
+interface ClaimingRead {
+  generation: number;
+  txIdByNoteId: ReadonlyMap<string, string>;
+}
+const NO_CLAIMING: ReadonlyMap<string, string> = new Map();
+
 function useExtensionClaimableNotes(publicAddress: string, enabled: boolean) {
   const extensionNotes = useWalletStore(s => s.extensionClaimableNotes);
-  const [claimingTxIds, setClaimingTxIds] = useState<ReadonlyMap<string, string>>(new Map());
+  // Applied only while its generation is current, so after an account switch the previous account's map never shows on
+  // the new account's notes, whether the new read is still pending or keeps failing.
+  const [claimingRead, setClaimingRead] = useState<ClaimingRead>({ generation: -1, txIdByNoteId: NO_CLAIMING });
   const assetsMetadata = useWalletStore(s => s.assetsMetadata);
 
   // Poll chrome.storage.local for notes on mount + every 3s.
@@ -321,7 +330,7 @@ function useExtensionClaimableNotes(publicAddress: string, enabled: boolean) {
           console.warn('[claimable-notes] dropped a consume-row read from a previous account');
           return;
         }
-        setClaimingTxIds(claimingTxIdByNoteId(txs));
+        setClaimingRead({ generation: boundGeneration, txIdByNoteId: claimingTxIdByNoteId(txs) });
       })
       .catch(() => {
         // A failed read leaves the previous gate in place: better a stale gate for one
@@ -339,6 +348,7 @@ function useExtensionClaimableNotes(publicAddress: string, enabled: boolean) {
   // Map serialized notes to ConsumableNote with metadata
   const computedData = useMemo(() => {
     if (!enabled || extensionNotes === null) return undefined;
+    const claimingTxIds = claimingRead.generation === boundGeneration ? claimingRead.txIdByNoteId : NO_CLAIMING;
 
     return extensionNotes
       .filter(n => !n.swapOrder || n.swapOrder.autoConsume === false)
@@ -355,14 +365,14 @@ function useExtensionClaimableNotes(publicAddress: string, enabled: boolean) {
         swapOrder: n.swapOrder ? { ...n.swapOrder, autoConsume: n.swapOrder.autoConsume ?? true } : undefined,
         recallableAtMs: n.recallableAtMs
       }));
-  }, [enabled, extensionNotes, claimingTxIds, assetsMetadata]);
+  }, [enabled, extensionNotes, claimingRead, boundGeneration, assetsMetadata]);
 
   const mutate = useCallback(() => {
     // Trigger a SyncRequest to get fresh data
     const intercom = getIntercom();
     intercom.request({ type: WalletMessageType.SyncRequest }).catch(() => {});
     // ALSO re-read the consume rows. The SyncRequest round-trip refreshes the note list but never
-    // touches `claimingTxIds`, which only the 3s poll writes -- so without this a caller that
+    // touches `claimingRead`, which only the 3s poll writes -- so without this a caller that
     // refreshes after queueing a claim (useClaimNotes does) would see `isBeingClaimed` stay false
     // on this platform for up to a full poll period, and offer an enabled Claim All over a live
     // consume. Returns the read so a caller can sequence on it.

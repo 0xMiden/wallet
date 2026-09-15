@@ -1881,8 +1881,7 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
       // `claim-all-status` while every note is in flight. Without this the loop would fall through
       // to the per-row fallback below and pay a full reloadAndPreparePending() per asset row --
       // ~8-12s each -- to find no `claim-button` there either, because those rows are also showing
-      // their in-flight control. Sleep on the batch instead, exactly as the fast path does after
-      // its own click.
+      // their in-flight control. Wait for the batch to settle instead.
       if (
         await this.page
           .getByTestId('claim-all-status')
@@ -1890,7 +1889,12 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
           .catch(() => false)
       ) {
         console.log(`[WalletPage.claimAllNotes] iter=${iteration} pending=${pending} batch in flight`);
-        await this.page.waitForTimeout(8_000);
+        // The status control leaves once every note in the batch settles; the cap keeps the loop re-reading the
+        // pending count while a long batch runs.
+        await this.page
+          .getByTestId('claim-all-status')
+          .waitFor({ state: 'hidden', timeout: 8_000 })
+          .catch(() => {});
         continue;
       }
 

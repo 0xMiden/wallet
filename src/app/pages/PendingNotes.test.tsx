@@ -46,7 +46,7 @@ jest.mock('app/hooks/useClaimNotes', () => ({
     retriableNoteIds: new Set(),
     invalidNoteIds: new Set(),
     checkingNoteIds: new Set(),
-    handleClaimingStateChange: jest.fn(),
+    handleClaimNote: jest.fn(),
     handleClaimAll: jest.fn(),
     handleClaimGroup: jest.fn()
   })
