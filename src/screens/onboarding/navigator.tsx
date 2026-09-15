@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 
 import { Button, ButtonVariant } from 'components/Button';
 import { ProgressIndicator } from 'components/ProgressIndicator';
+import type { DecryptedWalletFile } from 'lib/miden/backup-file';
 import { getEffectiveAllowNoGuardian } from 'lib/miden-chain/effective-endpoints';
 import { isMobile } from 'lib/platform';
 
@@ -23,7 +24,9 @@ import { SelectTransactionTypeScreen } from './create-wallet-flow/SelectTransact
 import { VerifySeedPhraseScreen } from './create-wallet-flow/VerifySeedPhrase';
 import { ImportRecoveryMethodScreen } from './import-wallet-flow/ImportRecoveryMethod';
 import { ImportSeedPhraseScreen } from './import-wallet-flow/ImportSeedPhrase';
-import { GuardianProbeState, OnboardingAction, OnboardingStep, OnboardingType, WalletType } from './types';
+import { ImportWalletFileScreen } from './import-wallet-flow/ImportWalletFile';
+import { SelectImportTypeScreen } from './import-wallet-flow/SelectImportType';
+import { GuardianProbeState, ImportType, OnboardingAction, OnboardingStep, OnboardingType, WalletType } from './types';
 
 export interface OnboardingFlowProps {
   wordslist: string[];
@@ -56,7 +59,9 @@ const STEP_TO_PROGRESS: Partial<Record<OnboardingStep, number>> = {
   [OnboardingStep.SetupPasscode]: 2,
   [OnboardingStep.SetupBiometric]: 2,
   [OnboardingStep.ChooseGuardian]: 3,
-  [OnboardingStep.ImportFromSeed]: 1,
+  [OnboardingStep.SelectImportType]: 1,
+  [OnboardingStep.ImportFromSeed]: 2,
+  [OnboardingStep.ImportFromFile]: 2,
   [OnboardingStep.BackupSeedPhrase]: 1,
   [OnboardingStep.VerifySeedPhrase]: 2,
   [OnboardingStep.CreatePassword]: 3,
@@ -154,6 +159,14 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
 
     const onNetworkNoticeSubmit = () => onForwardAction?.({ id: 'network-notice-acknowledge' });
 
+    const onSelectImportTypeSubmit = (payload: ImportType) => {
+      if (payload === ImportType.SeedPhrase) {
+        onForwardAction?.({ id: 'import-from-seed' });
+      } else if (payload === ImportType.WalletFile) {
+        onForwardAction?.({ id: 'import-from-file' });
+      }
+    };
+
     const onBackupSeedPhraseSubmit = () =>
       onForwardAction?.({
         id: 'verify-seed-phrase'
@@ -180,6 +193,9 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
 
     const onImportSeedPhraseSubmit = (seedPhrase: string) =>
       onForwardAction?.({ id: 'import-seed-phrase-submit', payload: seedPhrase });
+
+    const onImportWalletFileSubmit = (payload: DecryptedWalletFile) =>
+      onForwardAction?.({ id: 'import-wallet-file-submit', payload });
 
     const onSelectBiometric = () => onForwardAction?.({ id: 'setup-biometric' });
     const onSelectPasscode = () => onForwardAction?.({ id: 'setup-passcode' });
@@ -228,6 +244,10 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
         );
       case OnboardingStep.ImportFromSeed:
         return <ImportSeedPhraseScreen wordslist={wordslist} onSubmit={onImportSeedPhraseSubmit} />;
+      case OnboardingStep.SelectImportType:
+        return <SelectImportTypeScreen onSubmit={onSelectImportTypeSubmit} />;
+      case OnboardingStep.ImportFromFile:
+        return <ImportWalletFileScreen onSubmit={onImportWalletFileSubmit} />;
       case OnboardingStep.CreatePassword:
         return <CreatePasswordScreen onSubmit={onCreatePasswordSubmit} />;
       case OnboardingStep.SelectRecoveryMethod:

@@ -1956,6 +1956,50 @@
     "message": "Hesabınızı geri alın",
     "englishSource": "Recover your account"
   },
+  "chooseImportType": {
+    "message": "İçe Aktarma Türünüzü Seçin",
+    "englishSource": "Choose Your Import Type"
+  },
+  "chooseImportTypeDescription": {
+    "message": "12 kelimelik ifadenizle halkın dengesini yeniden sağlayın. Özel fonları geri yüklemek için şifrelenmiş yedekleme dosyasını yükleyin.",
+    "englishSource": "Restore public balance with your 12-word phrase. To restore private balance, upload an encrypted backup file."
+  },
+  "importWithSeedPhrase": {
+    "message": "Seed Phraseyle İçe Aktarma",
+    "englishSource": "Import with Seed Phrase"
+  },
+  "importWithSeedPhraseDescription": {
+    "message": "Mevcut 12 kelimelik bir kurtarma ifadesini kullanın. Ayrıca diğer cüzdan sağlayıcılarından da cüzdanları içe aktarabilirsiniz.",
+    "englishSource": "Use an existing 12 word recovery phrase. You can also import wallets from other wallet providers."
+  },
+  "importWithEncryptedWalletFile": {
+    "message": "Şifreli Cüzdan Dosyasıyla İçe Aktarma",
+    "englishSource": "Import with Encrypted Wallet File"
+  },
+  "importWithEncryptedWalletFileDescription": {
+    "message": "Hesabınızı güvenli bir şekilde içe aktarmak için şifrelenmiş cüzdan dosyanızı yükleyin. Verileriniz gizli kalır ve yalnızca karma bilgiler zincirde depolanır",
+    "englishSource": "Upload your encrypted wallet file to securely import your account. Your data remains private, with only hashed information stored on-chain"
+  },
+  "chooseFromDevice": {
+    "message": "cihaz arasından seçim yapın",
+    "englishSource": "Choose from device"
+  },
+  "dragAndDropFile": {
+    "message": "Dosyayı sürükleyip bırakın veya",
+    "englishSource": "Drag and drop file or"
+  },
+  "jsonFileType": {
+    "message": ".JSON",
+    "englishSource": ".JSON"
+  },
+  "enterDecryptionPassword": {
+    "message": "Cüzdanınızı dışa aktarırken belirlediğiniz şifreyi girin. Bu, dosyanın şifresini çözecek ve erişimi geri yükleyecektir.",
+    "englishSource": "Enter the password you set when exporting your wallet. This will decrypt the file and restore access."
+  },
+  "continueImport": {
+    "message": "İçe Aktarmaya Devam Et",
+    "englishSource": "Continue Import"
+  },
   "chooseHowToProtect": {
     "message": "Cüzdanınızı nasıl korumak istediğinizi seçin",
     "englishSource": "Choose how you want to protect your wallet"
@@ -2659,6 +2703,30 @@
   "enterPasswordToEncrypt": {
     "message": "Cüzdan dosyanızı şifrelemek için bir şifre girin.",
     "englishSource": "Enter a password to encrypt your wallet file."
+  },
+  "encryptedWalletFileJsonOnly": {
+    "message": ".JSON cüzdan dosyası seçin.",
+    "englishSource": "Choose a .JSON wallet file."
+  },
+  "encryptedWalletFileReadFailed": {
+    "message": "Cüzdan dosyası okunamadı. Dosyayı yeniden seçin.",
+    "englishSource": "The wallet file could not be read. Choose it again."
+  },
+  "encryptedWalletFileSelectOne": {
+    "message": "Devam etmek için bir cüzdan dosyası seçin.",
+    "englishSource": "Choose a wallet file to continue."
+  },
+  "encryptedWalletFileMalformed": {
+    "message": "Bu cüzdan dosyası geçersiz veya bozuk.",
+    "englishSource": "This wallet file is invalid or damaged."
+  },
+  "encryptedWalletFileUnsupportedVersion": {
+    "message": "Bu cüzdan dosyası daha yeni bir Bread sürümüyle oluşturuldu. Bread'i güncelleyip tekrar deneyin.",
+    "englishSource": "This wallet file was created by a newer version of Bread. Update Bread and try again."
+  },
+  "encryptedWalletFileRestoreFailed": {
+    "message": "Cüzdan geri yüklenemedi. Depolama alanınızı kontrol edip tekrar deneyin.",
+    "englishSource": "The wallet could not be restored. Check your storage and try again."
   },
   "contacts": {
     "message": "İletişim Bilgileri",

@@ -1956,6 +1956,50 @@
     "message": "Odzyskaj dostęp do swojego konta",
     "englishSource": "Recover your account"
   },
+  "chooseImportType": {
+    "message": "Wybierz typ importu",
+    "englishSource": "Choose Your Import Type"
+  },
+  "chooseImportTypeDescription": {
+    "message": "Przywróć równowagę publiczną za pomocą frazy składającej się z 12 słów. Aby przywrócić saldo prywatne, prześlij zaszyfrowany plik kopii zapasowej.",
+    "englishSource": "Restore public balance with your 12-word phrase. To restore private balance, upload an encrypted backup file."
+  },
+  "importWithSeedPhrase": {
+    "message": "Importuj z frazą źródłową",
+    "englishSource": "Import with Seed Phrase"
+  },
+  "importWithSeedPhraseDescription": {
+    "message": "Użyj istniejącej frazy odzyskiwania składającej się z 12 słów. Możesz także importować portfele od innych dostawców portfeli.",
+    "englishSource": "Use an existing 12 word recovery phrase. You can also import wallets from other wallet providers."
+  },
+  "importWithEncryptedWalletFile": {
+    "message": "Importuj z zaszyfrowanym plikiem portfela",
+    "englishSource": "Import with Encrypted Wallet File"
+  },
+  "importWithEncryptedWalletFileDescription": {
+    "message": "Prześlij zaszyfrowany plik portfela, aby bezpiecznie zaimportować swoje konto. Twoje dane pozostają prywatne, a w łańcuchu przechowywane są wyłącznie informacje zaszyfrowane",
+    "englishSource": "Upload your encrypted wallet file to securely import your account. Your data remains private, with only hashed information stored on-chain"
+  },
+  "chooseFromDevice": {
+    "message": "Wybierz z urządzenia",
+    "englishSource": "Choose from device"
+  },
+  "dragAndDropFile": {
+    "message": "Przeciągnij i upuść plik lub",
+    "englishSource": "Drag and drop file or"
+  },
+  "jsonFileType": {
+    "message": ".JSON",
+    "englishSource": ".JSON"
+  },
+  "enterDecryptionPassword": {
+    "message": "Wprowadź hasło ustawione podczas eksportowania portfela. Spowoduje to odszyfrowanie pliku i przywrócenie dostępu.",
+    "englishSource": "Enter the password you set when exporting your wallet. This will decrypt the file and restore access."
+  },
+  "continueImport": {
+    "message": "Kontynuuj importowanie",
+    "englishSource": "Continue Import"
+  },
   "chooseHowToProtect": {
     "message": "Wybierz, w jaki sposób chcesz zabezpieczyć swój portfel",
     "englishSource": "Choose how you want to protect your wallet"
@@ -2659,6 +2703,30 @@
   "enterPasswordToEncrypt": {
     "message": "Wprowadź hasło, aby zaszyfrować plik portfela.",
     "englishSource": "Enter a password to encrypt your wallet file."
+  },
+  "encryptedWalletFileJsonOnly": {
+    "message": "Wybierz plik portfela .JSON.",
+    "englishSource": "Choose a .JSON wallet file."
+  },
+  "encryptedWalletFileReadFailed": {
+    "message": "Nie udało się odczytać pliku portfela. Wybierz go ponownie.",
+    "englishSource": "The wallet file could not be read. Choose it again."
+  },
+  "encryptedWalletFileSelectOne": {
+    "message": "Wybierz plik portfela, aby kontynuować.",
+    "englishSource": "Choose a wallet file to continue."
+  },
+  "encryptedWalletFileMalformed": {
+    "message": "Ten plik portfela jest nieprawidłowy lub uszkodzony.",
+    "englishSource": "This wallet file is invalid or damaged."
+  },
+  "encryptedWalletFileUnsupportedVersion": {
+    "message": "Ten plik portfela został utworzony w nowszej wersji Bread. Zaktualizuj Bread i spróbuj ponownie.",
+    "englishSource": "This wallet file was created by a newer version of Bread. Update Bread and try again."
+  },
+  "encryptedWalletFileRestoreFailed": {
+    "message": "Nie udało się przywrócić portfela. Sprawdź pamięć i spróbuj ponownie.",
+    "englishSource": "The wallet could not be restored. Check your storage and try again."
   },
   "contacts": {
     "message": "Kontakty",

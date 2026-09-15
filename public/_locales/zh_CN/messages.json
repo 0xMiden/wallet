@@ -1956,6 +1956,50 @@
     "message": "找回您的账户",
     "englishSource": "Recover your account"
   },
+  "chooseImportType": {
+    "message": "选择您的导入类型",
+    "englishSource": "Choose Your Import Type"
+  },
+  "chooseImportTypeDescription": {
+    "message": "用你的 12 个词短语恢复公共平衡。如需恢复私人资金，请上传加密的备份文件。",
+    "englishSource": "Restore public balance with your 12-word phrase. To restore private balance, upload an encrypted backup file."
+  },
+  "importWithSeedPhrase": {
+    "message": "使用Seed Phrase导入",
+    "englishSource": "Import with Seed Phrase"
+  },
+  "importWithSeedPhraseDescription": {
+    "message": "使用现有的 12 字恢复短语。您还可以从其他钱包提供商导入钱包。",
+    "englishSource": "Use an existing 12 word recovery phrase. You can also import wallets from other wallet providers."
+  },
+  "importWithEncryptedWalletFile": {
+    "message": "使用加密钱包文件导入",
+    "englishSource": "Import with Encrypted Wallet File"
+  },
+  "importWithEncryptedWalletFileDescription": {
+    "message": "上传您的加密钱包文件以安全地导入您的帐户。您的数据保持私密，仅散列信息存储在链上",
+    "englishSource": "Upload your encrypted wallet file to securely import your account. Your data remains private, with only hashed information stored on-chain"
+  },
+  "chooseFromDevice": {
+    "message": "从设备中选择",
+    "englishSource": "Choose from device"
+  },
+  "dragAndDropFile": {
+    "message": "拖放文件或",
+    "englishSource": "Drag and drop file or"
+  },
+  "jsonFileType": {
+    "message": ".JSON",
+    "englishSource": ".JSON"
+  },
+  "enterDecryptionPassword": {
+    "message": "输入您导出钱包时设置的密码。这将解密文件并恢复访问权限。",
+    "englishSource": "Enter the password you set when exporting your wallet. This will decrypt the file and restore access."
+  },
+  "continueImport": {
+    "message": "继续导入",
+    "englishSource": "Continue Import"
+  },
   "chooseHowToProtect": {
     "message": "选择您希望如何保护您的钱包",
     "englishSource": "Choose how you want to protect your wallet"
@@ -2659,6 +2703,30 @@
   "enterPasswordToEncrypt": {
     "message": "请输入密码以对您的钱包文件进行加密。",
     "englishSource": "Enter a password to encrypt your wallet file."
+  },
+  "encryptedWalletFileJsonOnly": {
+    "message": "请选择 .JSON 钱包文件。",
+    "englishSource": "Choose a .JSON wallet file."
+  },
+  "encryptedWalletFileReadFailed": {
+    "message": "无法读取钱包文件。请重新选择。",
+    "englishSource": "The wallet file could not be read. Choose it again."
+  },
+  "encryptedWalletFileSelectOne": {
+    "message": "请选择钱包文件以继续。",
+    "englishSource": "Choose a wallet file to continue."
+  },
+  "encryptedWalletFileMalformed": {
+    "message": "此钱包文件无效或已损坏。",
+    "englishSource": "This wallet file is invalid or damaged."
+  },
+  "encryptedWalletFileUnsupportedVersion": {
+    "message": "此钱包文件由较新版本的 Bread 创建。请更新 Bread 后重试。",
+    "englishSource": "This wallet file was created by a newer version of Bread. Update Bread and try again."
+  },
+  "encryptedWalletFileRestoreFailed": {
+    "message": "无法恢复钱包。请检查存储空间后重试。",
+    "englishSource": "The wallet could not be restored. Check your storage and try again."
   },
   "contacts": {
     "message": "联系方式",
