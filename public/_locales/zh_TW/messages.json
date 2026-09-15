@@ -4662,5 +4662,9 @@
   "activityDateUnavailable": {
     "message": "日期不詳",
     "englishSource": "Date unavailable"
+  },
+  "walletSetupDidNotComplete": {
+    "message": "您的錢包已建立，但尚未完成啟動。請檢查網路連線並重新嘗試。",
+    "englishSource": "Your wallet was created but did not finish starting up. Check your connection and try again."
   }
 }

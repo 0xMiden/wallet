@@ -4662,5 +4662,9 @@
   "activityDateUnavailable": {
     "message": "日付不明",
     "englishSource": "Date unavailable"
+  },
+  "walletSetupDidNotComplete": {
+    "message": "ウォレットは作成されましたが、起動が完了していません。接続を確認して、もう一度お試しください。",
+    "englishSource": "Your wallet was created but did not finish starting up. Check your connection and try again."
   }
 }

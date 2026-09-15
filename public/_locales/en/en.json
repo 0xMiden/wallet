@@ -1047,5 +1047,6 @@
   "activityHiddenTransfers": "Hidden transfers: $count$",
   "activityRestoreTransfers": "Restore",
   "activityHiddenNotesError": "Could not save hidden transfers. Please try again.",
-  "activityDateUnavailable": "Date unavailable"
+  "activityDateUnavailable": "Date unavailable",
+  "walletSetupDidNotComplete": "Your wallet was created but did not finish starting up. Check your connection and try again."
 }

@@ -4662,5 +4662,9 @@
   "activityDateUnavailable": {
     "message": "Fecha no disponible",
     "englishSource": "Date unavailable"
+  },
+  "walletSetupDidNotComplete": {
+    "message": "Se ha creado tu monedero, pero no se ha completado la puesta en marcha. Comprueba tu conexión e inténtalo de nuevo.",
+    "englishSource": "Your wallet was created but did not finish starting up. Check your connection and try again."
   }
 }

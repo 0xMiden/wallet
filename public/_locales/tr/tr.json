@@ -1041,5 +1041,6 @@
   "activityHiddenTransfers": "Gizli transferler: $count$",
   "activityRestoreTransfers": "Geri Yükle",
   "activityHiddenNotesError": "Gizli transferler kaydedilemedi. Lütfen tekrar deneyin.",
-  "activityDateUnavailable": "Tarih mevcut değil"
+  "activityDateUnavailable": "Tarih mevcut değil",
+  "walletSetupDidNotComplete": "Cüzdanınız oluşturuldu ancak başlatma işlemi tamamlanmadı. Bağlantınızı kontrol edin ve tekrar deneyin."
 }

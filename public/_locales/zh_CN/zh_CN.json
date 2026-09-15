@@ -1041,5 +1041,6 @@
   "activityHiddenTransfers": "隐蔽转账：$count$",
   "activityRestoreTransfers": "恢复",
   "activityHiddenNotesError": "无法保存隐藏转账。请重试。",
-  "activityDateUnavailable": "日期不可用"
+  "activityDateUnavailable": "日期不可用",
+  "walletSetupDidNotComplete": "您的钱包已创建但未完成启动。请检查网络连接并重试。"
 }

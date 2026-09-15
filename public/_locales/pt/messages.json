@@ -4662,5 +4662,9 @@
   "activityDateUnavailable": {
     "message": "Data indisponível",
     "englishSource": "Date unavailable"
+  },
+  "walletSetupDidNotComplete": {
+    "message": "Sua carteira foi criada, mas não concluiu a inicialização. Verifique sua conexão e tente novamente.",
+    "englishSource": "Your wallet was created but did not finish starting up. Check your connection and try again."
   }
 }

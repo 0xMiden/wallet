@@ -1041,5 +1041,6 @@
   "activityHiddenTransfers": "Ukryte transfery: $count$",
   "activityRestoreTransfers": "Przywróć",
   "activityHiddenNotesError": "Nie udało się zapisać ukrytych transferów. Spróbuj ponownie.",
-  "activityDateUnavailable": "Data niedostępna"
+  "activityDateUnavailable": "Data niedostępna",
+  "walletSetupDidNotComplete": "Twój portfel został utworzony, ale nie zakończył procesu uruchamiania. Sprawdź połączenie i spróbuj ponownie."
 }

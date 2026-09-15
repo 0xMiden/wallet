@@ -4662,5 +4662,9 @@
   "activityDateUnavailable": {
     "message": "Дата отсутствует",
     "englishSource": "Date unavailable"
+  },
+  "walletSetupDidNotComplete": {
+    "message": "Ваш кошелёк был создан, но не завершил запуск. Проверьте подключение и попробуйте ещё раз.",
+    "englishSource": "Your wallet was created but did not finish starting up. Check your connection and try again."
   }
 }

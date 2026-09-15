@@ -4662,5 +4662,9 @@
   "activityDateUnavailable": {
     "message": "날짜 미확인",
     "englishSource": "Date unavailable"
+  },
+  "walletSetupDidNotComplete": {
+    "message": "지갑이 생성되었으나 시작 절차가 완료되지 않았습니다. 연결 상태를 확인하고 다시 시도해 주세요.",
+    "englishSource": "Your wallet was created but did not finish starting up. Check your connection and try again."
   }
 }

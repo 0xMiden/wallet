@@ -1041,5 +1041,6 @@
   "activityHiddenTransfers": "Transferts masqués : $count$",
   "activityRestoreTransfers": "Restaurer",
   "activityHiddenNotesError": "Impossible d'enregistrer les transferts masqués. Veuillez réessayer.",
-  "activityDateUnavailable": "Date indisponible"
+  "activityDateUnavailable": "Date indisponible",
+  "walletSetupDidNotComplete": "Votre portefeuille a été créé mais n’a pas terminé son démarrage. Vérifiez votre connexion et réessayez."
 }

@@ -1041,5 +1041,6 @@
   "activityHiddenTransfers": "Transferências ocultas: $count$",
   "activityRestoreTransfers": "Restaurar",
   "activityHiddenNotesError": "Não foi possível salvar as transferências ocultas. Tente novamente.",
-  "activityDateUnavailable": "Data indisponível"
+  "activityDateUnavailable": "Data indisponível",
+  "walletSetupDidNotComplete": "Sua carteira foi criada, mas não concluiu a inicialização. Verifique sua conexão e tente novamente."
 }

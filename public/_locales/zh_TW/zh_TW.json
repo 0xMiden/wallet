@@ -1041,5 +1041,6 @@
   "activityHiddenTransfers": "隱藏轉帳：$count$",
   "activityRestoreTransfers": "還原",
   "activityHiddenNotesError": "無法儲存隱藏轉帳。請重試。",
-  "activityDateUnavailable": "日期不詳"
+  "activityDateUnavailable": "日期不詳",
+  "walletSetupDidNotComplete": "您的錢包已建立，但尚未完成啟動。請檢查網路連線並重新嘗試。"
 }
