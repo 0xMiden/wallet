@@ -52,8 +52,9 @@ export function NativeNoteAutoConsumeManager(): null {
         const nativeFaucetId = await getFaucetIdSetting();
         if (disposed || !nativeFaucetId) return;
         // A claim worth no more than its own fee makes the balance go DOWN. This runs
-        // unattended, so the wallet must not collect on the user's behalf at a loss;
-        // `selectAutoConsumeBatch` judges the batch total and fails open on an unknown fee.
+        // unattended, so the wallet must not collect on the user's behalf at a loss, nor
+        // start a claim from the cache-first list; `selectAutoConsumeBatch` judges the batch
+        // total, fails open on an unknown fee and never takes a `fromCache` entry.
         const baseFee = await getVerificationBaseFee();
         if (disposed) return;
         const nativeNotes: ConsumableNote[] = selectAutoConsumeBatch(notes, nativeFaucetId, baseFee);

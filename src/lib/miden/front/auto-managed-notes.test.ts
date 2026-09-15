@@ -3,12 +3,13 @@ import { renderHook } from '@testing-library/react';
 import { excludeAutoManagedNotes, selectAutoConsumeBatch, useManuallyClaimableNotes } from './auto-managed-notes';
 import type { ConsumableNote, SwapOrderNoteMetadata } from '../types';
 
-type NoteFixture = Pick<ConsumableNote, 'id' | 'faucetId' | 'amount' | 'isBeingClaimed' | 'swapOrder'>;
+type NoteFixture = Pick<ConsumableNote, 'id' | 'faucetId' | 'amount' | 'isBeingClaimed' | 'swapOrder' | 'fromCache'>;
 
 let mockFaucetId: string | null = 'faucet-native';
 let mockAutoConsume = true;
 let mockBaseFee: number | null = null;
 let mockClaimableNotes: NoteFixture[] | undefined;
+let mockIsFallback = false;
 
 jest.mock('app/hooks/useMidenFaucetId', () => ({
   __esModule: true,
@@ -27,7 +28,7 @@ jest.mock('lib/settings/helpers', () => ({
 jest.mock('./claimable-notes', () => ({
   useClaimableNotes: (publicAddress: string, enabled: boolean) => {
     mockUseClaimableNotes(publicAddress, enabled);
-    return { data: mockClaimableNotes };
+    return { data: mockClaimableNotes, isFallback: mockIsFallback };
   }
 }));
 const mockUseClaimableNotes = jest.fn();
@@ -54,6 +55,8 @@ const other = note('other', 'faucet-other', '1000000');
 const nativeManualSwap = note('swap', 'faucet-native', '1000000', { swapOrder: manualSwapOrder });
 const nativeDust = note('dust', 'faucet-native', '1');
 const nativeInFlight = note('in-flight', 'faucet-native', '1000000', { isBeingClaimed: true });
+const nativeCached = note('cached', 'faucet-native', '1000000', { fromCache: true });
+const otherCached = note('other-cached', 'faucet-other', '1000000', { fromCache: true });
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -61,6 +64,7 @@ beforeEach(() => {
   mockAutoConsume = true;
   mockBaseFee = null;
   mockClaimableNotes = [native, other, nativeManualSwap];
+  mockIsFallback = false;
 });
 
 describe('selectAutoConsumeBatch', () => {
@@ -81,6 +85,11 @@ describe('selectAutoConsumeBatch', () => {
 
   it('does not count an in-flight note toward the batch total', () => {
     expect(selectAutoConsumeBatch([nativeInFlight, nativeDust], 'faucet-native', FEE)).toEqual([]);
+  });
+
+  it('never takes an entry only the cached list has shown, nor counts its value', () => {
+    expect(selectAutoConsumeBatch([nativeCached, native], 'faucet-native', FEE)).toEqual([native]);
+    expect(selectAutoConsumeBatch([nativeCached, nativeDust], 'faucet-native', FEE)).toEqual([]);
   });
 
   it('fails open on an unknown fee', () => {
@@ -112,6 +121,10 @@ describe('excludeAutoManagedNotes', () => {
     expect(excludeAutoManagedNotes([nativeInFlight, nativeDust], 'faucet-native', true, FEE)).toEqual([nativeDust]);
   });
 
+  it('judges a cache-first list as if a live read had confirmed it', () => {
+    expect(excludeAutoManagedNotes([nativeCached, otherCached], 'faucet-native', true, FEE)).toEqual([otherCached]);
+  });
+
   it('returns every note when auto-consume is off', () => {
     expect(excludeAutoManagedNotes([native, other, nativeInFlight], 'faucet-native', false, FEE)).toEqual([
       native,
@@ -130,6 +143,15 @@ describe('useManuallyClaimableNotes', () => {
   it('filters auto-managed notes out of the data', () => {
     const { result } = renderHook(() => useManuallyClaimableNotes('pk-1'));
     expect(result.current.data).toEqual([other, nativeManualSwap]);
+    expect(result.current.isFallback).toBe(false);
+  });
+
+  it('reports whether the list is still the persisted fallback', () => {
+    mockIsFallback = true;
+    mockClaimableNotes = [nativeCached, otherCached];
+    const { result } = renderHook(() => useManuallyClaimableNotes('pk-1'));
+    expect(result.current.isFallback).toBe(true);
+    expect(result.current.data).toEqual([otherCached]);
   });
 
   it('judges the native batch against the chain fee', () => {

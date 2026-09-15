@@ -1,0 +1,196 @@
+import { useEffect, useMemo, useRef, useState } from 'react';
+
+import { useClaimNotes } from 'app/hooks/useClaimNotes';
+import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
+import type { NoteWithMetadata } from 'app/pages/Receive/PendingTab';
+import type { PendingActivityItem, PendingActivityStatus } from 'app/templates/history/PendingActivityCard';
+import { subscribeToLiveQuery } from 'lib/dexie-live-query';
+import {
+  initiateConsumeNotesTransaction,
+  initiateConsumeTransaction,
+  requestSWTransactionProcessing,
+  startBackgroundTransactionProcessing
+} from 'lib/miden/activity';
+import { ITransactionStatus } from 'lib/miden/db/types';
+import { useMidenContext } from 'lib/miden/front';
+import { groupNotesForClaim } from 'lib/miden/front/claim-groups';
+import { zustandProvider } from 'lib/miden/front/guardian-sync';
+import * as Repo from 'lib/miden/repo';
+import { isExtension } from 'lib/platform';
+
+export function useActivityClaims() {
+  const claim = useClaimNotes();
+  const { signTransaction } = useMidenContext();
+  const nativeFaucetId = useMidenFaucetId();
+  const [attempts, setAttempts] = useState<ReadonlyMap<string, PendingActivityItem>>(new Map());
+  // Notes whose claim is being queued right now. Once queued, the attempt's
+  // `claiming` status is what keeps the note from being accepted again.
+  const busy = useRef(new Set<string>());
+
+  // Transaction rows of the queued claims that have not settled yet.
+  const watchedTxIds = [
+    ...new Set([...attempts.values()].flatMap(item => (item.status === 'claiming' && item.txId ? [item.txId] : [])))
+  ].join(',');
+
+  useEffect(() => {
+    if (!watchedTxIds) return;
+    const txIds = watchedTxIds.split(',');
+    return subscribeToLiveQuery(() => Repo.transactions.where('id').anyOf(txIds).toArray(), {
+      next: rows => {
+        const settled = new Map<string, Pick<PendingActivityItem, 'status' | 'claimedAt'>>();
+        for (const tx of rows) {
+          if (tx.status === ITransactionStatus.Completed) {
+            settled.set(tx.id, { status: 'claimed', claimedAt: tx.completedAt });
+          } else if (tx.status === ITransactionStatus.Failed) {
+            settled.set(tx.id, { status: 'failed', claimedAt: tx.completedAt });
+          }
+        }
+        setAttempts(previous => {
+          let next: Map<string, PendingActivityItem> | undefined;
+          for (const [noteId, item] of previous) {
+            const outcome = item.status === 'claiming' && item.txId ? settled.get(item.txId) : undefined;
+            if (!outcome) continue;
+            next ??= new Map(previous);
+            next.set(noteId, { ...item, ...outcome });
+          }
+          return next ?? previous;
+        });
+      },
+      error: error => console.warn('[activity] Could not read claim status', error)
+    });
+  }, [watchedTxIds]);
+
+  const items = useMemo(() => {
+    const result = new Map<string, PendingActivityItem>();
+    for (const note of claim.safeClaimableNotes) {
+      let status: PendingActivityStatus = 'pending';
+      switch (true) {
+        case note.isBeingClaimed || claim.claimingNoteIds.has(note.id):
+          status = 'claiming';
+          break;
+        // The check holds back a note until its state is known; a cached note cannot be accepted, so it stays listed.
+        case !note.fromCache && claim.checkingNoteIds.has(note.id):
+          status = 'checking';
+          break;
+        case claim.invalidNoteIds.has(note.id):
+          status = 'unavailable';
+          break;
+        case claim.retriableNoteIds.has(note.id):
+          status = 'failed';
+          break;
+      }
+      result.set(note.id, { note, status, txId: note.claimingTxId });
+    }
+    for (const [id, attempt] of attempts) {
+      const current = result.get(id);
+      // A failed attempt stays retryable only while its note is live and no newer state (a live claim or a
+      // note check) replaced it: a note consumed elsewhere or recalled would fail every batch it joins.
+      // Claimed receipts and queued claims outlive the note on purpose.
+      if (attempt.status === 'failed' && (!current || (current.status !== 'pending' && current.status !== 'failed')))
+        continue;
+      result.set(id, { ...attempt, note: current?.note ?? attempt.note });
+    }
+    return [...result.values()];
+  }, [
+    claim.safeClaimableNotes,
+    claim.claimingNoteIds,
+    claim.checkingNoteIds,
+    claim.invalidNoteIds,
+    claim.retriableNoteIds,
+    attempts
+  ]);
+
+  const accept = async (note: NoteWithMetadata) => {
+    // A cache-first entry is displayed before any live read has confirmed it, so it
+    // cannot start a claim. The live read replaces it within one poll lap.
+    if (note.fromCache) return;
+    const item = items.find(candidate => candidate.note.id === note.id);
+    if (!item || (item.status !== 'pending' && item.status !== 'failed') || busy.current.has(note.id)) return;
+    busy.current.add(note.id);
+    setAttempts(previous => new Map(previous).set(note.id, { note, status: 'claiming' }));
+    try {
+      const txId = await initiateConsumeTransaction(
+        claim.account.publicKey,
+        note,
+        claim.isDelegatedProvingEnabled,
+        true
+      );
+      setAttempts(previous => new Map(previous).set(note.id, { note, status: 'claiming', txId }));
+    } catch (error) {
+      setAttempts(previous => new Map(previous).set(note.id, { note, status: 'failed' }));
+      console.error('[activity] Could not queue claim', error);
+      return;
+    } finally {
+      busy.current.delete(note.id);
+    }
+    try {
+      if (isExtension()) requestSWTransactionProcessing();
+      else startBackgroundTransactionProcessing(signTransaction, false, zustandProvider);
+    } catch (error) {
+      // The transaction is queued. Keep its status until the worker reports a result.
+      console.warn('[activity] Could not start claim processing', error);
+    }
+  };
+
+  // Queues a claim for many notes at once. Every note shows as `claiming`
+  // before the first queue call, so the list reacts on tap on all platforms.
+  const acceptMany = async (notes: readonly NoteWithMetadata[]) => {
+    const accepted = notes.filter(note => {
+      // Same gate as `accept`: unconfirmed cache entries are never claimed.
+      if (note.fromCache) return false;
+      const item = items.find(candidate => candidate.note.id === note.id);
+      return (
+        item !== undefined && (item.status === 'pending' || item.status === 'failed') && !busy.current.has(note.id)
+      );
+    });
+    if (accepted.length === 0) return;
+    for (const note of accepted) busy.current.add(note.id);
+    setAttempts(previous => {
+      const next = new Map(previous);
+      for (const note of accepted) next.set(note.id, { note, status: 'claiming' });
+      return next;
+    });
+
+    let queued = false;
+    for (const groupNotes of groupNotesForClaim(accepted, nativeFaucetId)) {
+      try {
+        const txId = await initiateConsumeNotesTransaction(
+          claim.account.publicKey,
+          groupNotes,
+          claim.isDelegatedProvingEnabled,
+          true
+        );
+        queued = true;
+        setAttempts(previous => {
+          const next = new Map(previous);
+          for (const note of groupNotes) next.set(note.id, { note, status: 'claiming', txId });
+          return next;
+        });
+      } catch (error) {
+        setAttempts(previous => {
+          const next = new Map(previous);
+          for (const note of groupNotes) next.set(note.id, { note, status: 'failed' });
+          return next;
+        });
+        console.error('[activity] Could not queue batch claim', error);
+      } finally {
+        for (const note of groupNotes) busy.current.delete(note.id);
+      }
+    }
+    if (!queued) return;
+    try {
+      if (isExtension()) requestSWTransactionProcessing();
+      else startBackgroundTransactionProcessing(signTransaction, false, zustandProvider);
+    } catch (error) {
+      console.warn('[activity] Could not start claim processing', error);
+    }
+  };
+
+  return {
+    items,
+    accept,
+    acceptMany,
+    account: claim.account,
+    isLoadingNotes: claim.isFetchingNotes || claim.checkingNoteIds.size > 0
+  };
+}

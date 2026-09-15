@@ -2,8 +2,10 @@ import React, { FC, ReactNode } from 'react';
 
 import BigNumber from 'bignumber.js';
 import classNames from 'clsx';
+import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
+import { springs, useMotion } from 'lib/animation';
 import { getAdaptiveDecimalPlaces } from 'lib/i18n/numbers';
 import { hapticLight } from 'lib/mobile/haptics';
 
@@ -115,6 +117,11 @@ export const ActivityRow: FC<ActivityRowProps> = ({
   entryKey
 }) => {
   const { t } = useTranslation();
+  // `settle` for the row's layout move: the most damped preset, so a slide
+  // comes to rest with no overshoot. Under reduced motion `useMotion`
+  // collapses it to an instant tween, so a filter change still swaps the
+  // list, only without the movement.
+  const transition = useMotion(springs.settle);
   const handleClick = () => {
     if (!onClick) return;
     hapticLight();
@@ -128,17 +135,21 @@ export const ActivityRow: FC<ActivityRowProps> = ({
   const extra = amount?.extra ?? [];
   const visibleExtra = extra.slice(0, EXTRA_ASSET_PREVIEW_COUNT);
   const extraOverflowCount = extra.length - visibleExtra.length;
+  // The row is a Framer element so a list can animate it as a plain list item:
+  // `layout` slides the rows that stay into place when a filter or a search
+  // removes a neighbour. Nothing fades: a removed row leaves at once and a new
+  // one appears in place, the way a native list behaves. The tap state is
+  // Framer's, so it shares the channel a layout move may hold.
   return (
-    <div
+    <motion.div
+      layout
+      whileTap={onClick ? { opacity: 0.9 } : undefined}
+      transition={transition}
       data-testid={testId}
       data-entry-key={entryKey}
       role={onClick ? 'button' : undefined}
       onClick={onClick ? handleClick : undefined}
-      className={classNames(
-        'w-full flex items-center py-4 justify-between',
-        onClick && 'cursor-pointer active:opacity-90 transition-opacity',
-        className
-      )}
+      className={classNames('w-full flex items-center py-4 justify-between', onClick && 'cursor-pointer', className)}
     >
       <div className="flex items-center gap-2">
         <div
@@ -219,7 +230,7 @@ export const ActivityRow: FC<ActivityRowProps> = ({
         )}
         {timestamp && <span className="text-[10px] text-[#8E8E93] font-regular">{timestamp}</span>}
       </div>
-    </div>
+    </motion.div>
   );
 };
 

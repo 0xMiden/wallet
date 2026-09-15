@@ -6,7 +6,8 @@ const _g = globalThis as any;
 _g.__noteToastTest = {
   claimableNotes: [] as Array<{ id: string }>,
   baseFee: null as number | null,
-  isExtension: false
+  isExtension: false,
+  isFallback: false
 };
 
 _g.__noteToastTest.checkForNewNotes = jest.fn();
@@ -35,7 +36,8 @@ jest.mock('lib/platform', () => ({
 
 jest.mock('./claimable-notes', () => ({
   useClaimableNotes: () => ({
-    data: (globalThis as any).__noteToastTest.claimableNotes
+    data: (globalThis as any).__noteToastTest.claimableNotes,
+    isFallback: (globalThis as any).__noteToastTest.isFallback
   })
 }));
 
@@ -70,9 +72,29 @@ beforeEach(() => {
   _g.__noteToastTest.isExtension = false;
   _g.__noteToastTest.claimableNotes = [];
   _g.__noteToastTest.baseFee = null;
+  _g.__noteToastTest.isFallback = false;
 });
 
 describe('useNoteToastMonitor', () => {
+  it('waits for a live list before seeding, so notes received while the app was closed do not notify', () => {
+    // Nothing is published at mount; the persisted list arrives on a later render, as it does at launch.
+    _g.__noteToastTest.claimableNotes = undefined;
+    const { rerender } = renderHook(() => useNoteToastMonitor('pk'));
+
+    _g.__noteToastTest.claimableNotes = [];
+    _g.__noteToastTest.isFallback = true;
+    rerender();
+
+    _g.__noteToastTest.claimableNotes = [{ id: 'arrived-while-closed' }];
+    _g.__noteToastTest.isFallback = false;
+    rerender();
+    expect(mockCheckForNewNotes).not.toHaveBeenCalled();
+
+    _g.__noteToastTest.claimableNotes = [{ id: 'arrived-while-closed' }, { id: 'new' }];
+    rerender();
+    expect(mockCheckForNewNotes).toHaveBeenCalledWith(['arrived-while-closed', 'new']);
+  });
+
   it('does nothing on first fetch (seeds seen notes silently)', async () => {
     _g.__noteToastTest.claimableNotes = [{ id: 'n1' }];
     renderHook(() => useNoteToastMonitor('pk-1'));
