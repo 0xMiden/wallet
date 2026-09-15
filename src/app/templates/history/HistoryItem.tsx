@@ -11,6 +11,7 @@ import { isMobile } from 'lib/platform';
 import { Link } from 'lib/woozie';
 
 import { IHistoryEntry } from './IHistoryEntry';
+import { guardianHistoryActionKey } from './guardianHistoryLabels';
 import TransactionIcon from './TransactionIcon';
 import {
   BRIDGE_STATUS_LABEL_KEY,
@@ -60,7 +61,7 @@ const HistoryContent: FC<HistoryItemProps> = ({ fullHistory, entry, lastEntry })
     [entry]
   );
 
-  if (entry.txType === 'bridged-send' || isBridgeInEntry(entry)) {
+  if (!entry.guardianRecovered && (entry.txType === 'bridged-send' || isBridgeInEntry(entry))) {
     return <BridgeRowContent entry={entry} fullHistory={fullHistory} lastEntry={lastEntry} />;
   }
 
@@ -73,12 +74,14 @@ const HistoryContent: FC<HistoryItemProps> = ({ fullHistory, entry, lastEntry })
   // leg while it is still pending or has failed (settled reads as the plain row).
   // Never on a cancelled or Miden-failed row: that failure is the real story.
   const settlement =
-    entry.txType === 'earn-deposit' && !entry.isCancelled && entry.transactionIcon !== 'FAILED'
+    !entry.guardianRecovered && entry.txType === 'earn-deposit' && !entry.isCancelled && entry.transactionIcon !== 'FAILED'
       ? earnDepositSettlementOf(entry)
       : 'confirmed';
   const depositSettlement = settlement === 'confirmed' ? undefined : settlement;
 
-  const title = isFaucet ? t('faucetRequest') : entry.message;
+  const title = entry.guardianRecovered
+    ? t(guardianHistoryActionKey(entry.txType, entry.guardianReclaimed))
+    : isFaucet ? t('faucetRequest') : entry.message;
   return (
     <div
       className={classNames(

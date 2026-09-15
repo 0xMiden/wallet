@@ -34,11 +34,13 @@ const MAX_TRACKED_ACCOUNTS = 20;
  */
 export const GUARDIAN_NOTE_RECOVERY_PROGRESS_STALE_MS = 180_000;
 
-export type GuardianNoteRecoveryStep = 'transport' | 'proposals' | 'public';
+export type GuardianNoteRecoveryStep = 'transport' | 'proposals' | 'public' | 'history' | 'history-partial';
 
 export type GuardianNoteRecoveryProgress = {
   accountId: string;
   step: GuardianNoteRecoveryStep;
+  operator?: string;
+  restored?: number;
   /** Public-backfill bounds; present only during the `public` step. */
   startBlock?: number;
   syncedToBlock?: number;
@@ -62,10 +64,13 @@ function normalizeEntry(value: unknown): GuardianNoteRecoveryProgress | null {
   const accountId = Reflect.get(value, 'accountId');
   const step = Reflect.get(value, 'step');
   if (typeof accountId !== 'string' || accountId.length === 0) return null;
-  if (step !== 'transport' && step !== 'proposals' && step !== 'public') return null;
+  if (!['transport', 'proposals', 'public', 'history', 'history-partial'].includes(step)) return null;
+  const operator = Reflect.get(value, 'operator');
   return {
     accountId,
     step,
+    operator: typeof operator === 'string' ? operator : undefined,
+    restored: numberOrUndefined(Reflect.get(value, 'restored')),
     startBlock: numberOrUndefined(Reflect.get(value, 'startBlock')),
     syncedToBlock: numberOrUndefined(Reflect.get(value, 'syncedToBlock')),
     latestBlock: numberOrUndefined(Reflect.get(value, 'latestBlock')),

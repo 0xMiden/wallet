@@ -955,6 +955,7 @@ export const generateTransaction = async (
   _useWorker: boolean = true,
   guardianProvider: GuardianAccountProvider
 ) => {
+  if (transaction.recovery) return;
   // Sync state first to ensure we have latest account state
   // Separate lock acquisition to avoid holding lock during network call
   // If sync fails (e.g. network down), the error propagates to generateTransactionsLoop's
@@ -2339,7 +2340,7 @@ const generateGuardianTransaction = async (
             t.requestBytes = aggBytes;
           });
         }
-        proposalResult = await service.createCustomProposal(aggBytes);
+        proposalResult = await service.createCustomProposal(aggBytes, 'agglayer_bridged_send');
       }
       break;
     }

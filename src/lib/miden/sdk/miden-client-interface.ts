@@ -1,3 +1,4 @@
+import { decodeGuardianSummary, guardianResultCommitment } from './guardian-history';
 import {
   Account,
   AccountFile,
@@ -814,6 +815,14 @@ export class MidenClientInterface {
    * from pending Guardian `consume_notes` proposals, attaching a node-fetched
    * inclusion proof when one exists.
    */
+  async decodeGuardianHistory(encoded: string) {
+    return decodeGuardianSummary(encoded);
+  }
+
+  async getGuardianResultCommitment(bytes: Uint8Array) {
+    return guardianResultCommitment(bytes);
+  }
+
   async importRecoveryNoteBytes(proposalNoteBytes: Uint8Array[]): Promise<{ imported: number; failures: number }> {
     const rpc = new RpcClient(new Endpoint(getEffectiveRpcUrl()));
     let imported = 0;
