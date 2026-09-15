@@ -4642,6 +4642,19 @@
     "message": "Masquer ce transfert dans l’historique d’activité sur cet appareil ? Cela ne restitue pas les fonds à l’expéditeur et ne supprime pas l’note. Vous pouvez restaurer les transferts masqués dans l’historique d’activité.",
     "englishSource": "Hide this transfer from Activity on this device? This does not return funds to the sender or delete the note. You can restore hidden transfers in Activity."
   },
+  "activityHiddenTransfers": {
+    "message": "Transferts masqués : $count$",
+    "englishSource": "Hidden transfers: $count$",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "activityRestoreTransfers": {
+    "message": "Restaurer",
+    "englishSource": "Restore"
+  },
   "activityHiddenNotesError": {
     "message": "Impossible d'enregistrer les transferts masqués. Veuillez réessayer.",
     "englishSource": "Could not save hidden transfers. Please try again."

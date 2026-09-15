@@ -4642,6 +4642,19 @@
     "message": "Ocultar esta transferência da seção “Atividade” neste dispositivo? Isso não devolve fundos ao remetente nem exclui o “note”. Você pode restaurar transferências ocultas na seção “Atividade”.",
     "englishSource": "Hide this transfer from Activity on this device? This does not return funds to the sender or delete the note. You can restore hidden transfers in Activity."
   },
+  "activityHiddenTransfers": {
+    "message": "Transferências ocultas: $count$",
+    "englishSource": "Hidden transfers: $count$",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "activityRestoreTransfers": {
+    "message": "Restaurar",
+    "englishSource": "Restore"
+  },
   "activityHiddenNotesError": {
     "message": "Não foi possível salvar as transferências ocultas. Tente novamente.",
     "englishSource": "Could not save hidden transfers. Please try again."

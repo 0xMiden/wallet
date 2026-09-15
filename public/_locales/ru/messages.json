@@ -4642,6 +4642,19 @@
     "message": "Скрыть этот перевод из раздела «Активность» на этом устройстве? Это не приводит к возврату средств отправителю и не удаляет запись «note». Вы можете восстановить скрытые переводы в разделе «Активность».",
     "englishSource": "Hide this transfer from Activity on this device? This does not return funds to the sender or delete the note. You can restore hidden transfers in Activity."
   },
+  "activityHiddenTransfers": {
+    "message": "Скрытые переводы: $count$",
+    "englishSource": "Hidden transfers: $count$",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "activityRestoreTransfers": {
+    "message": "Восстановить",
+    "englishSource": "Restore"
+  },
   "activityHiddenNotesError": {
     "message": "Не удалось сохранить скрытые переводы. Пожалуйста, попробуйте ещё раз.",
     "englishSource": "Could not save hidden transfers. Please try again."

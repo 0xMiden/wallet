@@ -1038,6 +1038,8 @@
   "activityTransferAccepted": "Transfer accepted",
   "activityTransferDetails": "Details",
   "activityRejectExplanation": "Hide this transfer from Activity on this device? This does not return funds to the sender or delete the note. You can restore hidden transfers in Activity.",
+  "activityHiddenTransfers": "Hidden transfers: $count$",
+  "activityRestoreTransfers": "Restore",
   "activityHiddenNotesError": "Could not save hidden transfers. Please try again.",
   "activityDateUnavailable": "Date unavailable"
 }

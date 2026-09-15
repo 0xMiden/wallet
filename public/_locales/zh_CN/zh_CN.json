@@ -1038,6 +1038,8 @@
   "activityTransferAccepted": "转账已接受",
   "activityTransferDetails": "详情",
   "activityRejectExplanation": "“将此转账从本设备的‘活动’中隐藏？”此操作不会将资金退还给发件人，也不会删除note。您可以在“活动”中恢复已隐藏的转账。",
+  "activityHiddenTransfers": "隐蔽转账：$count$",
+  "activityRestoreTransfers": "恢复",
   "activityHiddenNotesError": "无法保存隐藏转账。请重试。",
   "activityDateUnavailable": "日期不可用"
 }

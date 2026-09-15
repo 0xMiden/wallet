@@ -1038,6 +1038,8 @@
   "activityTransferAccepted": "Перевод принят",
   "activityTransferDetails": "Подробности",
   "activityRejectExplanation": "Скрыть этот перевод из раздела «Активность» на этом устройстве? Это не приводит к возврату средств отправителю и не удаляет запись «note». Вы можете восстановить скрытые переводы в разделе «Активность».",
+  "activityHiddenTransfers": "Скрытые переводы: $count$",
+  "activityRestoreTransfers": "Восстановить",
   "activityHiddenNotesError": "Не удалось сохранить скрытые переводы. Пожалуйста, попробуйте ещё раз.",
   "activityDateUnavailable": "Дата отсутствует"
 }

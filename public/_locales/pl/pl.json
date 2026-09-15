@@ -1038,6 +1038,8 @@
   "activityTransferAccepted": "Przelew zaakceptowany",
   "activityTransferDetails": "Szczegóły",
   "activityRejectExplanation": "Czy chcesz ukryć ten transfer w sekcji „Aktywność” na tym urządzeniu? Nie spowoduje to zwrotu środków nadawcy ani usunięcia adresu note. Ukryte transfery można przywrócić w sekcji „Aktywność”.",
+  "activityHiddenTransfers": "Ukryte transfery: $count$",
+  "activityRestoreTransfers": "Przywróć",
   "activityHiddenNotesError": "Nie udało się zapisać ukrytych transferów. Spróbuj ponownie.",
   "activityDateUnavailable": "Data niedostępna"
 }

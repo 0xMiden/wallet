@@ -1038,6 +1038,8 @@
   "activityTransferAccepted": "Transfer kabul edildi",
   "activityTransferDetails": "Ayrıntılar",
   "activityRejectExplanation": "Bu aktarımı bu cihazdaki Etkinlik bölümünden gizlemek ister misiniz? Bu işlem, parayı gönderene iade etmez veya note adresini silmez. Gizlenen aktarımları Etkinlik bölümünden geri yükleyebilirsiniz.",
+  "activityHiddenTransfers": "Gizli transferler: $count$",
+  "activityRestoreTransfers": "Geri Yükle",
   "activityHiddenNotesError": "Gizli transferler kaydedilemedi. Lütfen tekrar deneyin.",
   "activityDateUnavailable": "Tarih mevcut değil"
 }

@@ -1038,6 +1038,8 @@
   "activityTransferAccepted": "Переказ прийнято",
   "activityTransferDetails": "Деталі",
   "activityRejectExplanation": "Приховати цей переказ у розділі «Активність» на цьому пристрої? Це не повертає кошти відправнику та не видаляє запис «note». Ви можете відновити приховані перекази в розділі «Активність».",
+  "activityHiddenTransfers": "Приховані перекази: $count$",
+  "activityRestoreTransfers": "Відновити",
   "activityHiddenNotesError": "Не вдалося зберегти приховані перекази. Спробуйте ще раз.",
   "activityDateUnavailable": "Дата недоступна"
 }

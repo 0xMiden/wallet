@@ -1038,6 +1038,8 @@
   "activityTransferAccepted": "Transfert accepté",
   "activityTransferDetails": "Détails",
   "activityRejectExplanation": "Masquer ce transfert dans l’historique d’activité sur cet appareil ? Cela ne restitue pas les fonds à l’expéditeur et ne supprime pas l’note. Vous pouvez restaurer les transferts masqués dans l’historique d’activité.",
+  "activityHiddenTransfers": "Transferts masqués : $count$",
+  "activityRestoreTransfers": "Restaurer",
   "activityHiddenNotesError": "Impossible d'enregistrer les transferts masqués. Veuillez réessayer.",
   "activityDateUnavailable": "Date indisponible"
 }

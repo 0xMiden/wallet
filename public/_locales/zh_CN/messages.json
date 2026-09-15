@@ -4642,6 +4642,19 @@
     "message": "“将此转账从本设备的‘活动’中隐藏？”此操作不会将资金退还给发件人，也不会删除note。您可以在“活动”中恢复已隐藏的转账。",
     "englishSource": "Hide this transfer from Activity on this device? This does not return funds to the sender or delete the note. You can restore hidden transfers in Activity."
   },
+  "activityHiddenTransfers": {
+    "message": "隐蔽转账：$count$",
+    "englishSource": "Hidden transfers: $count$",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "activityRestoreTransfers": {
+    "message": "恢复",
+    "englishSource": "Restore"
+  },
   "activityHiddenNotesError": {
     "message": "无法保存隐藏转账。请重试。",
     "englishSource": "Could not save hidden transfers. Please try again."

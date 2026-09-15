@@ -1038,6 +1038,8 @@
   "activityTransferAccepted": "Überweisung akzeptiert",
   "activityTransferDetails": "Details",
   "activityRejectExplanation": "Diese Überweisung in „Aktivität“ auf diesem Gerät ausblenden? Dadurch werden keine Gelder an den Absender zurücküberwiesen und die „note“ wird nicht gelöscht. Sie können ausgeblendete Überweisungen in „Aktivität“ wiederherstellen.",
+  "activityHiddenTransfers": "Versteckte Übertragungen: $count$",
+  "activityRestoreTransfers": "Wiederherstellen",
   "activityHiddenNotesError": "Versteckte Überweisungen konnten nicht gespeichert werden. Bitte versuchen Sie es erneut.",
   "activityDateUnavailable": "Datum nicht verfügbar"
 }

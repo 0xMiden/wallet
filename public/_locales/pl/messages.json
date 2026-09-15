@@ -4642,6 +4642,19 @@
     "message": "Czy chcesz ukryć ten transfer w sekcji „Aktywność” na tym urządzeniu? Nie spowoduje to zwrotu środków nadawcy ani usunięcia adresu note. Ukryte transfery można przywrócić w sekcji „Aktywność”.",
     "englishSource": "Hide this transfer from Activity on this device? This does not return funds to the sender or delete the note. You can restore hidden transfers in Activity."
   },
+  "activityHiddenTransfers": {
+    "message": "Ukryte transfery: $count$",
+    "englishSource": "Hidden transfers: $count$",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "activityRestoreTransfers": {
+    "message": "Przywróć",
+    "englishSource": "Restore"
+  },
   "activityHiddenNotesError": {
     "message": "Nie udało się zapisać ukrytych transferów. Spróbuj ponownie.",
     "englishSource": "Could not save hidden transfers. Please try again."

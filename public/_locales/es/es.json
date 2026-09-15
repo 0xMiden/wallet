@@ -1038,6 +1038,8 @@
   "activityTransferAccepted": "Transferencia aceptada",
   "activityTransferDetails": "Detalles",
   "activityRejectExplanation": "¿Ocultar esta transferencia de la sección «Actividad» en este dispositivo? Esto no devuelve los fondos al remitente ni elimina el «note». Puedes restaurar las transferencias ocultas en la sección «Actividad».",
+  "activityHiddenTransfers": "Transferencias ocultas: $count$",
+  "activityRestoreTransfers": "Restaurar",
   "activityHiddenNotesError": "No se han podido guardar las transferencias ocultas. Inténtalo de nuevo.",
   "activityDateUnavailable": "Fecha no disponible"
 }

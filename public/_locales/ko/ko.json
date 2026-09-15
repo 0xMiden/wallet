@@ -1038,6 +1038,8 @@
   "activityTransferAccepted": "이체 승인됨",
   "activityTransferDetails": "상세 정보",
   "activityRejectExplanation": "이 기기의 ‘활동’에서 이 전송 내역을 숨기시겠습니까? 이 작업을 수행해도 자금이 발신자에게 반환되거나 ‘note’가 삭제되지는 않습니다. ‘활동’에서 숨겨진 전송 내역을 복원할 수 있습니다.",
+  "activityHiddenTransfers": "숨겨진 전송: $count$",
+  "activityRestoreTransfers": "복원",
   "activityHiddenNotesError": "숨겨진 전송 내역을 저장할 수 없습니다. 다시 시도해 주십시오.",
   "activityDateUnavailable": "날짜 미확인"
 }

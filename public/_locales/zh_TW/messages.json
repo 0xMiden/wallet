@@ -4642,6 +4642,19 @@
     "message": "要將此轉帳從本裝置的「活動」中隱藏嗎？此操作不會將資金退還給寄件者，也不會刪除該筆note。您可以在「活動」中還原已隱藏的轉帳。",
     "englishSource": "Hide this transfer from Activity on this device? This does not return funds to the sender or delete the note. You can restore hidden transfers in Activity."
   },
+  "activityHiddenTransfers": {
+    "message": "隱藏轉帳：$count$",
+    "englishSource": "Hidden transfers: $count$",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "activityRestoreTransfers": {
+    "message": "還原",
+    "englishSource": "Restore"
+  },
   "activityHiddenNotesError": {
     "message": "無法儲存隱藏轉帳。請重試。",
     "englishSource": "Could not save hidden transfers. Please try again."

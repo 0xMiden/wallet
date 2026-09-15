@@ -4642,6 +4642,19 @@
     "message": "Hide this transfer from Activity on this device? This does not return funds to the sender or delete the note. You can restore hidden transfers in Activity.",
     "englishSource": "Hide this transfer from Activity on this device? This does not return funds to the sender or delete the note. You can restore hidden transfers in Activity."
   },
+  "activityHiddenTransfers": {
+    "message": "Hidden transfers: $count$",
+    "englishSource": "Hidden transfers: $count$",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "activityRestoreTransfers": {
+    "message": "Restore",
+    "englishSource": "Restore"
+  },
   "activityHiddenNotesError": {
     "message": "Could not save hidden transfers. Please try again.",
     "englishSource": "Could not save hidden transfers. Please try again."

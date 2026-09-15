@@ -1038,6 +1038,8 @@
   "activityTransferAccepted": "送金受理済み",
   "activityTransferDetails": "詳細",
   "activityRejectExplanation": "このデバイス上の「アクティビティ」からこの送金を非表示にしますか？ これにより、送金者に資金が返還されたり、noteが削除されたりすることはありません。「アクティビティ」では、非表示にした送金を復元することができます。",
+  "activityHiddenTransfers": "隠された送金：$count$",
+  "activityRestoreTransfers": "復元",
   "activityHiddenNotesError": "非公開の送金を保存できませんでした。もう一度お試しください。",
   "activityDateUnavailable": "日付不明"
 }
