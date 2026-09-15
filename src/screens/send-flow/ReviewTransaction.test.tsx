@@ -2,7 +2,9 @@ import React from 'react';
 
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
+import { initiateB2AggBridge } from 'lib/agglayer/b2agg';
 import { confirmSensitiveAction } from 'lib/biometric';
+import { bridgeEpochSend } from 'lib/epoch';
 import { stringToBigInt } from 'lib/i18n/numbers';
 import {
   initiateSendTransaction,
@@ -149,7 +151,7 @@ jest.mock('lib/agglayer/b2agg', () => ({
 jest.mock('lib/agglayer/b2agg/constant', () => ({
   EVM_AGGLAYER_NETWORK_ID: 11155111,
   MIDEN_AGGLAYER_FAUCET_ID: 'agglayer-faucet',
-  getAgglayerFaucetId: () => 'agglayer-faucet'
+  getAgglayerFaucetId: () => 'sdk-faucet'
 }));
 
 jest.mock('lib/epoch', () => ({
@@ -247,6 +249,8 @@ jest.mock('./useEpochQuote', () => ({
 // Typed handles to the mocks
 // ---------------------------------------------------------------------------
 const confirmMock = confirmSensitiveAction as jest.Mock;
+const initiateB2AggBridgeMock = initiateB2AggBridge as jest.Mock;
+const bridgeEpochSendMock = bridgeEpochSend as jest.Mock;
 const stringToBigIntMock = stringToBigInt as jest.Mock;
 const initiateMock = initiateSendTransaction as jest.Mock;
 const requestSpeculateInvalidateMock = requestSpeculateInvalidate as jest.Mock;
@@ -310,6 +314,8 @@ beforeEach(() => {
   confirmMock.mockResolvedValue(true);
   stringToBigIntMock.mockReturnValue(12345n);
   initiateMock.mockResolvedValue('tx-abc');
+  initiateB2AggBridgeMock.mockResolvedValue('tx-bridge');
+  bridgeEpochSendMock.mockResolvedValue({ txId: 'tx-epoch' });
   dateTimeToRecallBlocksMock.mockReturnValue(999);
   isExtensionMock.mockReturnValue(false);
   isDelegateProofEnabledMock.mockReturnValue(false);
@@ -614,6 +620,93 @@ describe('ReviewTransaction — onSubmit', () => {
     expect(confirmMock).not.toHaveBeenCalled();
   });
 
+  it('uses strict authentication before building an Agglayer bridge request', async () => {
+    mockDetectedChain = 'ethereum';
+    mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=agglayer';
+    mockBalanceData = [VALID_TOKEN];
+    mockWalletStoreState.assessSpendingLimit.mockResolvedValue({
+      accountId: 'pubkey-1',
+      faucetId: 'tok1',
+      amount: 12345n,
+      revision: 'revision-1',
+      assessedAt: 100,
+      breaches: [{ period: '24h', spent: 90n, proposedTotal: 12435n, limit: 100n, overBy: 12335n, resetAt: 200 }]
+    });
+    render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+
+    expect(screen.getByTestId('spending-limit-challenge')).toBeInTheDocument();
+    expect(confirmMock).not.toHaveBeenCalled();
+    expect(initiateB2AggBridgeMock).not.toHaveBeenCalled();
+
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'authorize-limit' })));
+    await flush();
+
+    expect(initiateB2AggBridgeMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        amount: 12345n,
+        senderPublicKey: 'pubkey-1',
+        spendingLimitAuthorization: expect.objectContaining({ id: 'authorization-1', revision: 'revision-1' })
+      })
+    );
+  });
+
+  it('keeps the ordinary confirmation and sends no authorization for a below-limit bridge', async () => {
+    mockDetectedChain = 'ethereum';
+    mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=agglayer';
+    mockBalanceData = [VALID_TOKEN];
+    render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+
+    expect(mockWalletStoreState.assessSpendingLimit).toHaveBeenCalledWith('pubkey-1', 'tok1', 12345n);
+    expect(confirmMock).toHaveBeenCalledWith('Confirm your send');
+    expect(screen.queryByTestId('spending-limit-challenge')).not.toBeInTheDocument();
+    expect(initiateB2AggBridgeMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        amount: 12345n,
+        senderPublicKey: 'pubkey-1',
+        spendingLimitAuthorization: undefined
+      })
+    );
+  });
+
+  it('reopens an Epoch bridge challenge when external preparation outlives authorization', async () => {
+    mockDetectedChain = 'ethereum';
+    mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=epoch';
+    mockBalanceData = [VALID_TOKEN];
+    const firstAssessment = {
+      accountId: 'pubkey-1',
+      faucetId: 'tok1',
+      amount: 12345n,
+      revision: 'revision-1',
+      assessedAt: 100,
+      breaches: [{ period: '7d', spent: 90n, proposedTotal: 12435n, limit: 100n, overBy: 12335n, resetAt: null }]
+    };
+    mockWalletStoreState.assessSpendingLimit.mockResolvedValue(firstAssessment);
+    bridgeEpochSendMock.mockRejectedValue({
+      code: 'SPENDING_LIMIT_AUTHORIZATION_REQUIRED',
+      assessment: { ...firstAssessment, revision: 'revision-2', assessedAt: 240 }
+    });
+    render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'authorize-limit' })));
+    await flush();
+
+    expect(bridgeEpochSendMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        spendingLimitAuthorization: expect.objectContaining({ id: 'authorization-1', revision: 'revision-1' })
+      })
+    );
+    expect(screen.getByTestId('spending-limit-challenge')).toHaveTextContent('revision-2');
+    expect(screen.getByTestId('review-amount')).toHaveTextContent('youAreSending|5|MDN');
+  });
+
   it('cancels a spending-limit challenge without queueing or losing the review draft', async () => {
     setValidRoute();
     mockWalletStoreState.assessSpendingLimit.mockResolvedValue({
@@ -633,6 +726,30 @@ describe('ReviewTransaction — onSubmit', () => {
 
     expect(screen.queryByTestId('spending-limit-challenge')).not.toBeInTheDocument();
     expect(initiateMock).not.toHaveBeenCalled();
+    expect(screen.getByTestId('review-amount')).toHaveTextContent('youAreSending|5|MDN');
+  });
+
+  it('cancels a bridge challenge before any external bridge work', async () => {
+    mockDetectedChain = 'ethereum';
+    mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=epoch';
+    mockBalanceData = [VALID_TOKEN];
+    mockWalletStoreState.assessSpendingLimit.mockResolvedValue({
+      accountId: 'pubkey-1',
+      faucetId: 'tok1',
+      amount: 12345n,
+      revision: 'revision-1',
+      assessedAt: 100,
+      breaches: [{ period: '7d', spent: 90n, proposedTotal: 12435n, limit: 100n, overBy: 12335n, resetAt: null }]
+    });
+    render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+    fireEvent.click(screen.getByRole('button', { name: 'cancel-limit' }));
+    await flush();
+
+    expect(bridgeEpochSendMock).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('spending-limit-challenge')).not.toBeInTheDocument();
     expect(screen.getByTestId('review-amount')).toHaveTextContent('youAreSending|5|MDN');
   });
 

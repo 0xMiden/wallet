@@ -5,6 +5,7 @@ import {
   waitForTransactionCompletion
 } from 'lib/miden/activity';
 import * as Repo from 'lib/miden/repo';
+import { type SpendingLimitAuthorization, spendingLimitAssessmentFromError } from 'lib/miden/spending-limits/types';
 import { NoteTypeEnum } from 'lib/miden/types';
 import { isExtension } from 'lib/platform';
 
@@ -29,6 +30,7 @@ export interface CreateEarnP2IDENoteArgs {
   deps: BridgeNoteDeps;
   /** Fired the instant the `earn-deposit` row is created (before proving/submit). */
   onRowCreated?: (txId: string) => void;
+  spendingLimitAuthorization?: SpendingLimitAuthorization;
 }
 
 /**
@@ -63,7 +65,8 @@ export async function createEarnP2IDENote(
     evmRecipient,
     marketUid,
     deps,
-    onRowCreated
+    onRowCreated,
+    spendingLimitAuthorization
   } = args;
   try {
     console.log('[epoch] creating earn note with', { senderAccountId, faucetId, amount, allocatorId, recallBlocks });
@@ -89,7 +92,8 @@ export async function createEarnP2IDENote(
       // Delegate to the remote prover — local proving this Guardian P2IDE note
       // OOMs the service worker / WebView and restarts the wallet mid-submit.
       true,
-      requestBytes
+      requestBytes,
+      spendingLimitAuthorization
     );
 
     // Row exists now (Queued) — let the caller navigate before we block on proving.
@@ -116,6 +120,7 @@ export async function createEarnP2IDENote(
     console.log('[epoch] earn note created', { noteId, txHash: result.txHash });
     return { success: true, noteId, txId };
   } catch (err) {
+    if (spendingLimitAssessmentFromError(err) !== undefined) throw err;
     console.error('[epoch] createEarnP2IDENote threw', err);
     return { success: false };
   }

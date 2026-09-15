@@ -295,19 +295,21 @@ export const ReviewTransaction: React.FC = () => {
     [amountBaseUnits, goToGeneratingTransaction, publicKey, recallBlocks, sharePrivately, to, token]
   );
 
-  const onSubmit = useCallback(async () => {
-    if (isSubmitting || !token || !publicKey || amountBaseUnits === undefined) return;
-    if (!token.scaleIsKnown) {
-      setSubmitError(t('unknownTokenScale'));
-      return;
-    }
-    setIsSubmitting(true);
-    setSubmitError(undefined);
-    if (isBridge) {
-      if (!(await confirmSensitiveAction('Confirm your send'))) {
-        setIsSubmitting(false);
+  const runBridgeSend = useCallback(
+    async (authorization?: SpendingLimitAuthorization) => {
+      if (!token || !publicKey || amountBaseUnits === undefined) return;
+      if (
+        authorization !== undefined &&
+        (authorization.accountId !== publicKey ||
+          authorization.faucetId !== token.id ||
+          authorization.amount !== amountBaseUnits)
+      ) {
+        setSpendingLimitAssessment(undefined);
         return;
       }
+      setIsSubmitting(true);
+      setSubmitError(undefined);
+      setSpendingLimitAssessment(undefined);
       try {
         useWalletStore.getState().setLastCompletedTxHash(null);
         if (route === 'agglayer' && !isBridgeableToken) {
@@ -320,7 +322,8 @@ export const ReviewTransaction: React.FC = () => {
             amount: amountBaseUnits,
             destinationAddress: to as `0x${string}`,
             senderPublicKey: publicKey,
-            destinationNetwork: EVM_AGGLAYER_NETWORK_ID
+            destinationNetwork: EVM_AGGLAYER_NETWORK_ID,
+            spendingLimitAuthorization: authorization
           });
           if (isExtension()) requestSWTransactionProcessing();
           goToGeneratingTransaction(txId);
@@ -331,17 +334,32 @@ export const ReviewTransaction: React.FC = () => {
             destinationAddress: to as `0x${string}`,
             senderPublicKey: publicKey,
             deps: { signTransaction, guardianProvider: zustandProvider },
-            onRowCreated: goToGeneratingTransaction
+            onRowCreated: goToGeneratingTransaction,
+            spendingLimitAuthorization: authorization
           });
         }
       } catch (error) {
         console.error(error);
-        setSubmitError(error instanceof Error ? error.message : String(error));
+        const assessment = spendingLimitAssessmentFromError(error);
+        if (assessment !== undefined) {
+          setSpendingLimitAssessment(assessment);
+        } else {
+          setSubmitError(error instanceof Error ? error.message : String(error));
+        }
         setIsSubmitting(false);
       }
+    },
+    [amountBaseUnits, goToGeneratingTransaction, isBridgeableToken, publicKey, route, signTransaction, t, to, token]
+  );
+
+  const onSubmit = useCallback(async () => {
+    if (isSubmitting || !token || !publicKey || amountBaseUnits === undefined) return;
+    if (!token.scaleIsKnown) {
+      setSubmitError(t('unknownTokenScale'));
       return;
     }
-
+    setIsSubmitting(true);
+    setSubmitError(undefined);
     try {
       const assessment = await assessSpendingLimit(publicKey, token.id, amountBaseUnits);
       if (assessment !== undefined && assessment.breaches.length > 0) {
@@ -353,7 +371,11 @@ export const ReviewTransaction: React.FC = () => {
         setIsSubmitting(false);
         return;
       }
-      await runSameChainSend();
+      if (isBridge) {
+        await runBridgeSend();
+      } else {
+        await runSameChainSend();
+      }
     } catch (error) {
       console.error(error);
       setSubmitError(error instanceof Error ? error.message : String(error));
@@ -362,25 +384,27 @@ export const ReviewTransaction: React.FC = () => {
   }, [
     amountBaseUnits,
     assessSpendingLimit,
-    goToGeneratingTransaction,
     isBridge,
-    isBridgeableToken,
     isSubmitting,
     publicKey,
-    route,
+    runBridgeSend,
     runSameChainSend,
-    signTransaction,
     t,
-    to,
     token
   ]);
 
   const handleSpendingLimitResult = useCallback(
     (authorization: SpendingLimitAuthorization | undefined) => {
       setSpendingLimitAssessment(undefined);
-      if (authorization !== undefined) void runSameChainSend(authorization);
+      if (authorization !== undefined) {
+        if (isBridge) {
+          void runBridgeSend(authorization);
+        } else {
+          void runSameChainSend(authorization);
+        }
+      }
     },
-    [runSameChainSend]
+    [isBridge, runBridgeSend, runSameChainSend]
   );
 
   useEffect(() => {
