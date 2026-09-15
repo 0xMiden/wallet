@@ -4654,5 +4654,9 @@
   "activityDateUnavailable": {
     "message": "Дата недоступна",
     "englishSource": "Date unavailable"
+  },
+  "walletSetupDidNotComplete": {
+    "message": "Ваш гаманець було створено, але його запуск не завершився. Перевірте підключення та спробуйте ще раз.",
+    "englishSource": "Your wallet was created but did not finish starting up. Check your connection and try again."
   }
 }

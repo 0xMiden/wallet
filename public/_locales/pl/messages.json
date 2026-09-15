@@ -4654,5 +4654,9 @@
   "activityDateUnavailable": {
     "message": "Data niedostępna",
     "englishSource": "Date unavailable"
+  },
+  "walletSetupDidNotComplete": {
+    "message": "Twój portfel został utworzony, ale nie zakończył procesu uruchamiania. Sprawdź połączenie i spróbuj ponownie.",
+    "englishSource": "Your wallet was created but did not finish starting up. Check your connection and try again."
   }
 }

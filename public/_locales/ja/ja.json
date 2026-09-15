@@ -1039,5 +1039,6 @@
   "activityHiddenTransfers": "隠された送金：$count$",
   "activityRestoreTransfers": "復元",
   "activityHiddenNotesError": "非公開の送金を保存できませんでした。もう一度お試しください。",
-  "activityDateUnavailable": "日付不明"
+  "activityDateUnavailable": "日付不明",
+  "walletSetupDidNotComplete": "ウォレットは作成されましたが、起動が完了していません。接続を確認して、もう一度お試しください。"
 }

@@ -1039,5 +1039,6 @@
   "activityHiddenTransfers": "Приховані перекази: $count$",
   "activityRestoreTransfers": "Відновити",
   "activityHiddenNotesError": "Не вдалося зберегти приховані перекази. Спробуйте ще раз.",
-  "activityDateUnavailable": "Дата недоступна"
+  "activityDateUnavailable": "Дата недоступна",
+  "walletSetupDidNotComplete": "Ваш гаманець було створено, але його запуск не завершився. Перевірте підключення та спробуйте ще раз."
 }

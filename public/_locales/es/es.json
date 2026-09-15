@@ -1039,5 +1039,6 @@
   "activityHiddenTransfers": "Transferencias ocultas: $count$",
   "activityRestoreTransfers": "Restaurar",
   "activityHiddenNotesError": "No se han podido guardar las transferencias ocultas. Inténtalo de nuevo.",
-  "activityDateUnavailable": "Fecha no disponible"
+  "activityDateUnavailable": "Fecha no disponible",
+  "walletSetupDidNotComplete": "Se ha creado tu monedero, pero no se ha completado la puesta en marcha. Comprueba tu conexión e inténtalo de nuevo."
 }

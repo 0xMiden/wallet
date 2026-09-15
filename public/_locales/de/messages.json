@@ -4654,5 +4654,9 @@
   "activityDateUnavailable": {
     "message": "Datum nicht verfügbar",
     "englishSource": "Date unavailable"
+  },
+  "walletSetupDidNotComplete": {
+    "message": "Ihre Wallet wurde erstellt, der Startvorgang wurde jedoch nicht abgeschlossen. Überprüfen Sie Ihre Verbindung und versuchen Sie es erneut.",
+    "englishSource": "Your wallet was created but did not finish starting up. Check your connection and try again."
   }
 }

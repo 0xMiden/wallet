@@ -4654,5 +4654,9 @@
   "activityDateUnavailable": {
     "message": "日期不可用",
     "englishSource": "Date unavailable"
+  },
+  "walletSetupDidNotComplete": {
+    "message": "您的钱包已创建但未完成启动。请检查网络连接并重试。",
+    "englishSource": "Your wallet was created but did not finish starting up. Check your connection and try again."
   }
 }

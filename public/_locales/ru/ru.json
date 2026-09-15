@@ -1039,5 +1039,6 @@
   "activityHiddenTransfers": "Скрытые переводы: $count$",
   "activityRestoreTransfers": "Восстановить",
   "activityHiddenNotesError": "Не удалось сохранить скрытые переводы. Пожалуйста, попробуйте ещё раз.",
-  "activityDateUnavailable": "Дата отсутствует"
+  "activityDateUnavailable": "Дата отсутствует",
+  "walletSetupDidNotComplete": "Ваш кошелёк был создан, но не завершил запуск. Проверьте подключение и попробуйте ещё раз."
 }

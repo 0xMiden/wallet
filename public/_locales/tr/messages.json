@@ -4654,5 +4654,9 @@
   "activityDateUnavailable": {
     "message": "Tarih mevcut değil",
     "englishSource": "Date unavailable"
+  },
+  "walletSetupDidNotComplete": {
+    "message": "Cüzdanınız oluşturuldu ancak başlatma işlemi tamamlanmadı. Bağlantınızı kontrol edin ve tekrar deneyin.",
+    "englishSource": "Your wallet was created but did not finish starting up. Check your connection and try again."
   }
 }
