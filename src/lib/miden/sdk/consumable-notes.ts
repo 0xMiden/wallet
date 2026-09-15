@@ -60,6 +60,7 @@ export type ConsumableNoteAsset = {
  */
 export type ConsumableNoteDto = {
   noteId: string | null;
+  blockNum?: number;
   nullifier: string | null;
   noteType: NoteType | undefined;
   senderAccountId: string | undefined;
@@ -140,6 +141,7 @@ export function reduceConsumableNoteRecord(record: InputNoteRecord, syncHeight?:
       }));
     const swapAttachment = attachmentOrderAndDepth(record);
     const dto: ConsumableNoteDto = { noteId, nullifier, noteType, senderAccountId, state, assets, swapAttachment };
+    dto.blockNum = record.inclusionProof?.()?.location().blockNum();
     if (syncHeight !== undefined) {
       const recallableAtMs = getNoteRecallableAtMs(record, syncHeight);
       if (recallableAtMs !== undefined) dto.recallableAtMs = recallableAtMs;

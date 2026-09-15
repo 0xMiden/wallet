@@ -1,5 +1,8 @@
+import React from 'react';
+
 import { renderHook } from '@testing-library/react';
 
+import { PageActiveContext } from 'app/layouts/page-active';
 import { isMobile } from 'lib/platform';
 
 import { useMobileBackHandler } from './useMobileBackHandler';
@@ -91,4 +94,27 @@ describe('useMobileBackHandler', () => {
 
     expect(mockRegisterMobileBackHandler).toHaveBeenCalledTimes(1);
   });
+});
+
+it('registers nothing while its page is off screen, and registers again when the page returns', () => {
+  // This test sits outside the describe, so it clears the calls the tests above left behind.
+  mockRegisterMobileBackHandler.mockClear();
+  mockIsMobile.mockReturnValue(true);
+  const handler = jest.fn(() => true);
+  const unregister = jest.fn();
+  mockRegisterMobileBackHandler.mockReturnValue(unregister);
+  let onScreen = false;
+  const wrapper = ({ children }: { children?: React.ReactNode }) =>
+    React.createElement(PageActiveContext.Provider, { value: onScreen }, children);
+
+  const { rerender } = renderHook(() => useMobileBackHandler(handler, []), { wrapper });
+  expect(mockRegisterMobileBackHandler).not.toHaveBeenCalled();
+
+  onScreen = true;
+  rerender();
+  expect(mockRegisterMobileBackHandler).toHaveBeenCalledWith(handler, { overlay: false });
+
+  onScreen = false;
+  rerender();
+  expect(unregister).toHaveBeenCalled();
 });

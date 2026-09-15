@@ -879,8 +879,15 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
 
   // Record successful slot rect reports so the auto-park effect knows
   // which foregrounds have actually been visible at least once.
+  //
+  // A record lasts for one stay in the foreground: releasing the foreground clears it. Parking waits for the snapshot
+  // while the session is still foreground, and DappActive re-measures the slot on timers after it mounts, so a record
+  // made during that wait would outlive the park, make the next restore of that session look already shown, and park
+  // it again before its slot reports.
   useEffect(() => {
-    if (foregroundId && slotRect) {
+    if (!foregroundId) {
+      slotRectShownForRef.current = null;
+    } else if (slotRect) {
       slotRectShownForRef.current = foregroundId;
     }
   }, [foregroundId, slotRect]);

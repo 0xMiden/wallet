@@ -8,14 +8,13 @@ import * as yup from 'yup';
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
 import { Navigator, NavigatorProvider, Route, useNavigator } from 'components/Navigator';
-import { getAgglayerFaucetId } from 'lib/agglayer/b2agg/constant';
 import { stringToBigInt } from 'lib/i18n/numbers';
 import { requestSpeculateInvalidate, requestSpeculateSend } from 'lib/miden/activity';
 import { hasNoFeeAsset, maxSendableNative } from 'lib/miden/fees/spendable';
 import { useAccount, useAllAccounts, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { useFilteredContacts } from 'lib/miden/front/use-filtered-contacts.hook';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
-import { accountIdStringToSdk, sameWalletAccountId } from 'lib/miden/sdk/helpers';
+import { sameWalletAccountId } from 'lib/miden/sdk/helpers';
 import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isExtension, isMobile } from 'lib/platform';
@@ -269,11 +268,6 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
     [recentSendRecipients, allContactsList]
   );
 
-  // Cross-chain sends over the Slow (Agglayer) route are restricted to the single
-  // bridgeable faucet token; Fast (Epoch) bridges any token.
-  const isBridgeableToken =
-    !!token && accountIdStringToSdk(token.id.toLowerCase()).toString() === getAgglayerFaucetId().toLowerCase();
-
   // A destination selected before typing can carry into an EVM address. Once a
   // non-empty Miden address is entered, the EVM destination is no longer meaningful.
   useEffect(() => {
@@ -288,14 +282,6 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
       setShowNetworkDrawer(false);
     }
   }, [recipientAddress, isBridge, bridgeNetwork, recipientNetwork, setValue, showNetworkDrawer]);
-
-  // If Slow was selected and the token changes to one it can't bridge, fall back
-  // to Fast so Review/submit don't dead-end on the bridgeable-token guard.
-  useEffect(() => {
-    if (isBridge && bridgeRoute === 'agglayer' && !isBridgeableToken) {
-      setValue('bridgeRoute', 'epoch');
-    }
-  }, [isBridge, bridgeRoute, isBridgeableToken, setValue]);
 
   // Forward-quote the USDC output for the Fast (Epoch) route, so the Route
   // screen can show a live fee regardless of which route is selected.
@@ -805,7 +791,6 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
               amount={amount || ''}
               isValidAmount={!errors.amount && validations.amount.isValidSync(amount)}
               error={errors.amount?.message?.toString()}
-              footerClassName="pt-4 pb-[max(0px,calc(1.5rem-var(--keyboard-height,0px)))]"
               onAmountChange={onAmountChange}
               onSelectToken={() => setShowTokenDrawer(true)}
               onConfirm={onConfirmAmount}
@@ -818,8 +803,6 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
               onRouteChange={onRouteChange}
               fastFeeUsd={fastFeeUsd}
               fastQuoteLoading={epochQuote.loading}
-              slowEnabled={isBridgeableToken}
-              footerClassName="pt-4 pb-[max(0px,calc(1.5rem-var(--keyboard-height,0px)))]"
               onConfirm={goToReview}
             />
           );
@@ -852,7 +835,6 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
       onRouteChange,
       fastFeeUsd,
       epochQuote.loading,
-      isBridgeableToken,
       goToReview
     ]
   );

@@ -4190,10 +4190,6 @@
     "message": "Miden'e ve Miden'den varlık aktarmak için bir cüzdan bağlayın.",
     "englishSource": "Connect a wallet to bridge assets to and from Miden."
   },
-  "onlyBridgeableTokenSupported": {
-    "message": "Yavaş (Agglayer) yolu yalnızca köprülenebilir token’ları destekler. Diğer token’ları göndermek için Hızlı seçeneğini kullanın.",
-    "englishSource": "The Slow (Agglayer) route only supports the bridgeable token. Use Fast to send other tokens."
-  },
   "connectDestinationWalletToClaim": {
     "message": "Talep etmek için hedef cüzdanı bağlayın.",
     "englishSource": "Connect the destination wallet to claim."
@@ -4269,10 +4265,6 @@
   "delivering": {
     "message": "Teslimat",
     "englishSource": "Delivering"
-  },
-  "slowNeedsNativeEth": {
-    "message": "Slow (Agglayer) rotası, test ağında yalnızca yerel ETH’yi desteklemektedir. Kullanmak için ETH’yi seçin.",
-    "englishSource": "The Slow (Agglayer) route only supports native ETH on testnet. Choose ETH to use it."
   },
   "fastEthWrapNotice": {
     "message": "Hızlı yoldan ETH köprüleme işlemi, ETH’yi önce WETH’e dönüştürür, ardından WETH’i köprüler. Bu yol henüz kullanıma açık değildir.",
@@ -4593,5 +4585,78 @@
   "devEndpointResetConfirm": {
     "message": "Bu işlem, anahtarlarınız ve işlem geçmişiniz dahil olmak üzere bu cüzdanı kalıcı olarak siler. Cüzdanı geri yüklemek için kurtarma ifadesine ihtiyacınız olacak.",
     "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
+  },
+  "activityAcceptTransfer": {
+    "message": "Aktarımı Kabul Et",
+    "englishSource": "Accept Transfer"
+  },
+  "activityRejectTransfer": {
+    "message": "Reddet",
+    "englishSource": "Decline"
+  },
+  "activityCheckingTransfer": {
+    "message": "Kontrol ediliyor…",
+    "englishSource": "Checking…"
+  },
+  "activityTransferClaimed": {
+    "message": "Talep Edildi",
+    "englishSource": "Claimed"
+  },
+  "activityClaimedOn": {
+    "message": "Talep edildi",
+    "englishSource": "Claimed on"
+  },
+  "activityReceivedOn": {
+    "message": "Alındığı tarih:",
+    "englishSource": "Received on"
+  },
+  "activityNotYetAccepted": {
+    "message": "Henüz kabul edilmedi — bu fonları talep etmek için inceleyin ve kabul edin.",
+    "englishSource": "Not yet accepted — review and accept to claim these funds."
+  },
+  "acceptAll": {
+    "message": "Tümünü Kabul Et",
+    "englishSource": "Accept All"
+  },
+  "activitySearch": {
+    "message": "Arama etkinliği",
+    "englishSource": "Search activity"
+  },
+  "activityTransferAccepted": {
+    "message": "Transfer kabul edildi",
+    "englishSource": "Transfer accepted"
+  },
+  "activityTransferDetails": {
+    "message": "Ayrıntılar",
+    "englishSource": "Details"
+  },
+  "activityRejectExplanation": {
+    "message": "Bu aktarımı bu cihazdaki Etkinlik bölümünden gizlemek ister misiniz? Bu işlem, parayı gönderene iade etmez veya note adresini silmez. Gizlenen aktarımları Etkinlik bölümünden geri yükleyebilirsiniz.",
+    "englishSource": "Hide this transfer from Activity on this device? This does not return funds to the sender or delete the note. You can restore hidden transfers in Activity."
+  },
+  "activityHiddenTransfers": {
+    "message": "Gizli transferler: $count$",
+    "englishSource": "Hidden transfers: $count$",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "activityRestoreTransfers": {
+    "message": "Geri Yükle",
+    "englishSource": "Restore"
+  },
+  "activityHiddenNotesError": {
+    "message": "Gizli transferler kaydedilemedi. Lütfen tekrar deneyin.",
+    "englishSource": "Could not save hidden transfers. Please try again."
+  },
+  "activityDateUnavailable": {
+    "message": "Tarih mevcut değil",
+    "englishSource": "Date unavailable"
+  },
+  "walletSetupDidNotComplete": {
+    "message": "Cüzdanınız oluşturuldu ancak başlatma işlemi tamamlanmadı. Bağlantınızı kontrol edin ve tekrar deneyin.",
+    "englishSource": "Your wallet was created but did not finish starting up. Check your connection and try again."
   }
 }

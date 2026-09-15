@@ -4190,10 +4190,6 @@
     "message": "ウォレットを接続して、Midenとの間で資産をブリッジしてください。",
     "englishSource": "Connect a wallet to bridge assets to and from Miden."
   },
-  "onlyBridgeableTokenSupported": {
-    "message": "「スロー（アグレイヤー）」ルートでは、ブリッジ可能なトークンのみがサポートされています。その他のトークンを送信するには、「ファスト」をご利用ください。",
-    "englishSource": "The Slow (Agglayer) route only supports the bridgeable token. Use Fast to send other tokens."
-  },
   "connectDestinationWalletToClaim": {
     "message": "受け取りを行うには、宛先ウォレットを接続してください。",
     "englishSource": "Connect the destination wallet to claim."
@@ -4269,10 +4265,6 @@
   "delivering": {
     "message": "配送",
     "englishSource": "Delivering"
-  },
-  "slowNeedsNativeEth": {
-    "message": "「Slow（Agglayer）」ルートは、テストネットではネイティブETHのみに対応しています。これを利用するには、ETHを選択してください。",
-    "englishSource": "The Slow (Agglayer) route only supports native ETH on testnet. Choose ETH to use it."
   },
   "fastEthWrapNotice": {
     "message": "「Fast」ルートでのETHのブリッジでは、まずETHをWETHにラップし、その後WETHをブリッジします。このルートは現時点では利用できません。",
@@ -4593,5 +4585,78 @@
   "devEndpointResetConfirm": {
     "message": "この操作を行うと、このウォレットはキーや取引履歴を含めて完全に消去されます。復元するには、リカバリーフレーズが必要になります。",
     "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
+  },
+  "activityAcceptTransfer": {
+    "message": "送金を受け入れる",
+    "englishSource": "Accept Transfer"
+  },
+  "activityRejectTransfer": {
+    "message": "拒否",
+    "englishSource": "Decline"
+  },
+  "activityCheckingTransfer": {
+    "message": "確認中…",
+    "englishSource": "Checking…"
+  },
+  "activityTransferClaimed": {
+    "message": "請求済み",
+    "englishSource": "Claimed"
+  },
+  "activityClaimedOn": {
+    "message": "請求日：",
+    "englishSource": "Claimed on"
+  },
+  "activityReceivedOn": {
+    "message": "受信日時：",
+    "englishSource": "Received on"
+  },
+  "activityNotYetAccepted": {
+    "message": "まだ承認されていません。確認して承認し、これらの資金を受け取ってください。",
+    "englishSource": "Not yet accepted — review and accept to claim these funds."
+  },
+  "acceptAll": {
+    "message": "すべて承諾",
+    "englishSource": "Accept All"
+  },
+  "activitySearch": {
+    "message": "検索履歴",
+    "englishSource": "Search activity"
+  },
+  "activityTransferAccepted": {
+    "message": "送金受理済み",
+    "englishSource": "Transfer accepted"
+  },
+  "activityTransferDetails": {
+    "message": "詳細",
+    "englishSource": "Details"
+  },
+  "activityRejectExplanation": {
+    "message": "このデバイス上の「アクティビティ」からこの送金を非表示にしますか？ これにより、送金者に資金が返還されたり、noteが削除されたりすることはありません。「アクティビティ」では、非表示にした送金を復元することができます。",
+    "englishSource": "Hide this transfer from Activity on this device? This does not return funds to the sender or delete the note. You can restore hidden transfers in Activity."
+  },
+  "activityHiddenTransfers": {
+    "message": "隠された送金：$count$",
+    "englishSource": "Hidden transfers: $count$",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "activityRestoreTransfers": {
+    "message": "復元",
+    "englishSource": "Restore"
+  },
+  "activityHiddenNotesError": {
+    "message": "非公開の送金を保存できませんでした。もう一度お試しください。",
+    "englishSource": "Could not save hidden transfers. Please try again."
+  },
+  "activityDateUnavailable": {
+    "message": "日付不明",
+    "englishSource": "Date unavailable"
+  },
+  "walletSetupDidNotComplete": {
+    "message": "ウォレットは作成されましたが、起動が完了していません。接続を確認して、もう一度お試しください。",
+    "englishSource": "Your wallet was created but did not finish starting up. Check your connection and try again."
   }
 }

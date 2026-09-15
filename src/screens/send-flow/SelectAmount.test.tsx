@@ -284,6 +284,7 @@ describe('SelectAmount', () => {
       const defaultFooterPb = 'pb-[max(0px,calc(6rem-var(--keyboard-height,0px)))]';
       const { container: def } = renderComponent();
       expect(def.innerHTML).toContain(defaultFooterPb);
+      expect(def.querySelector('[data-navbar-cushion="true"]')).not.toBeNull();
 
       const { container: override } = renderComponent({ footerClassName: 'pt-2' });
       expect(override.querySelector('.pt-2')).not.toBeNull();

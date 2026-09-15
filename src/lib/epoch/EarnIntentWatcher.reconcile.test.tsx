@@ -122,6 +122,10 @@ afterEach(async () => {
 });
 
 describe('EarnIntentWatcher local reconciliation', () => {
+  // Real timers: the reconcile does a real Dexie round trip and a solver retry
+  // before the row is written back. The `waitFor` default of one second is
+  // enough locally but not under the instrumented coverage run, where this
+  // test failed on unrelated branches, so it gets its own budget.
   it('repairs an unavailable sibling after a persisted selected receipt without changing its terminal phase', async () => {
     jest.useRealTimers();
     const row = withdrawal('received-prepared', {
@@ -139,16 +143,19 @@ describe('EarnIntentWatcher local reconciliation', () => {
     row.extraInputs.preparedExecution = selectEarnWithdrawPreparedExecution(preparedExecution(), identity);
     await transactions.add(row);
     render(<EarnIntentWatcher />);
-    await waitFor(async () => {
-      const persisted = await transactions.get(row.id);
-      expect(persisted?.extraInputs.submissionState).toBe('accepted');
-      expect(persisted?.extraInputs.phase).toBe('received');
-      expect(persisted?.extraInputs.midenNoteId).toBe('received-note');
-    });
+    await waitFor(
+      async () => {
+        const persisted = await transactions.get(row.id);
+        expect(persisted?.extraInputs.submissionState).toBe('accepted');
+        expect(persisted?.extraInputs.phase).toBe('received');
+        expect(persisted?.extraInputs.midenNoteId).toBe('received-note');
+      },
+      { timeout: 10_000 }
+    );
     expect(mockRetryIntentSolve).toHaveBeenCalledTimes(1);
     expect(mockRetryIntentSolve).toHaveBeenCalledWith(JSON.parse(preparedExecution().allocations[0]!.requestJson));
     expect(mockGetIntentStatus).not.toHaveBeenCalledWith(PREPARED_OWNER, '22');
-  });
+  }, 15_000);
 
   it.each(pendingPhases)('persists failure for a restored %s withdrawal whose poll key is owned', async phase => {
     const row = withdrawal('restored', { phase });

@@ -4190,10 +4190,6 @@
     "message": "將錢包連接至 Miden，以便在 Miden 與其他區塊鏈之間進行資產橋接。",
     "englishSource": "Connect a wallet to bridge assets to and from Miden."
   },
-  "onlyBridgeableTokenSupported": {
-    "message": "「慢速（Agglayer）」路線僅支援可橋接的代幣。若要傳送其他代幣，請使用「快速」路線。",
-    "englishSource": "The Slow (Agglayer) route only supports the bridgeable token. Use Fast to send other tokens."
-  },
   "connectDestinationWalletToClaim": {
     "message": "請將目標錢包連接至該處以領取代幣。",
     "englishSource": "Connect the destination wallet to claim."
@@ -4269,10 +4265,6 @@
   "delivering": {
     "message": "交付",
     "englishSource": "Delivering"
-  },
-  "slowNeedsNativeEth": {
-    "message": "Slow（Agglayer）路線在測試網僅支援原生 ETH。請選擇 ETH 以使用此路線。",
-    "englishSource": "The Slow (Agglayer) route only supports native ETH on testnet. Choose ETH to use it."
   },
   "fastEthWrapNotice": {
     "message": "透過「快速路徑」進行 ETH 跨鏈轉移時，會先將 ETH 封裝為 WETH，再將 WETH 進行跨鏈轉移。此路徑目前尚未開放。",
@@ -4593,5 +4585,78 @@
   "devEndpointResetConfirm": {
     "message": "此操作將永久刪除此錢包，包括您的金鑰和交易紀錄。若要還原錢包，您需要使用您的恢復短語。",
     "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
+  },
+  "activityAcceptTransfer": {
+    "message": "接受轉帳",
+    "englishSource": "Accept Transfer"
+  },
+  "activityRejectTransfer": {
+    "message": "拒絕",
+    "englishSource": "Decline"
+  },
+  "activityCheckingTransfer": {
+    "message": "正在檢查……",
+    "englishSource": "Checking…"
+  },
+  "activityTransferClaimed": {
+    "message": "已申領",
+    "englishSource": "Claimed"
+  },
+  "activityClaimedOn": {
+    "message": "已申領於",
+    "englishSource": "Claimed on"
+  },
+  "activityReceivedOn": {
+    "message": "收到於",
+    "englishSource": "Received on"
+  },
+  "activityNotYetAccepted": {
+    "message": "尚未接受 — 請審閱並接受以領取這些資金。",
+    "englishSource": "Not yet accepted — review and accept to claim these funds."
+  },
+  "acceptAll": {
+    "message": "全數接受",
+    "englishSource": "Accept All"
+  },
+  "activitySearch": {
+    "message": "搜尋活動",
+    "englishSource": "Search activity"
+  },
+  "activityTransferAccepted": {
+    "message": "轉帳已接受",
+    "englishSource": "Transfer accepted"
+  },
+  "activityTransferDetails": {
+    "message": "詳細說明",
+    "englishSource": "Details"
+  },
+  "activityRejectExplanation": {
+    "message": "要將此轉帳從本裝置的「活動」中隱藏嗎？此操作不會將資金退還給寄件者，也不會刪除該筆note。您可以在「活動」中還原已隱藏的轉帳。",
+    "englishSource": "Hide this transfer from Activity on this device? This does not return funds to the sender or delete the note. You can restore hidden transfers in Activity."
+  },
+  "activityHiddenTransfers": {
+    "message": "隱藏轉帳：$count$",
+    "englishSource": "Hidden transfers: $count$",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "activityRestoreTransfers": {
+    "message": "還原",
+    "englishSource": "Restore"
+  },
+  "activityHiddenNotesError": {
+    "message": "無法儲存隱藏轉帳。請重試。",
+    "englishSource": "Could not save hidden transfers. Please try again."
+  },
+  "activityDateUnavailable": {
+    "message": "日期不詳",
+    "englishSource": "Date unavailable"
+  },
+  "walletSetupDidNotComplete": {
+    "message": "您的錢包已建立，但尚未完成啟動。請檢查網路連線並重新嘗試。",
+    "englishSource": "Your wallet was created but did not finish starting up. Check your connection and try again."
   }
 }

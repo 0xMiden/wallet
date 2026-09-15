@@ -1476,20 +1476,20 @@
   dependencies:
     tslib "^2.4.0"
 
-"@epoch-protocol/epoch-commons-sdk@^0.1.19":
-  version "0.1.19"
-  resolved "https://registry.yarnpkg.com/@epoch-protocol/epoch-commons-sdk/-/epoch-commons-sdk-0.1.19.tgz#c6cab788f16582db707579a23e61284eddb24973"
-  integrity sha512-M1ZSzK5LQyTWFPx4gHLVVOaAFHT23DKKP3c2G3cPsavmnyckxFayoIXIS9UyMTDn1g0QPeoL5R1YmKBmP7HE8Q==
+"@epoch-protocol/epoch-commons-sdk@^0.1.20":
+  version "0.1.20"
+  resolved "https://registry.yarnpkg.com/@epoch-protocol/epoch-commons-sdk/-/epoch-commons-sdk-0.1.20.tgz#a7576b5aafe0a5938c435f0a88ac2b67f5195bcb"
+  integrity sha512-KvM6hkKHik/x8Dp3cpu0wwgQfqwOEndkdh3GhTvnQrLi+QcSrHQ2BLy6ZElV3Jv8vO2TA2yWHCMUl+Ks8GyuPg==
   dependencies:
     ethers "^6.0.0"
     viem "2.42.0"
 
-"@epoch-protocol/epoch-intents-sdk@1.0.38":
-  version "1.0.38"
-  resolved "https://registry.yarnpkg.com/@epoch-protocol/epoch-intents-sdk/-/epoch-intents-sdk-1.0.38.tgz#c2a8e902253a77d61b5b96545502fc6ac7acf56d"
-  integrity sha512-DS/JltAxR1cb5relGrssrj6EenIaVfWw/y4n4BkmiAODG/jhEf4qHFacn+ydZnJaQCxKjNdAvdNmbUYqevNW4g==
+"@epoch-protocol/epoch-intents-sdk@^1.0.39":
+  version "1.0.39"
+  resolved "https://registry.yarnpkg.com/@epoch-protocol/epoch-intents-sdk/-/epoch-intents-sdk-1.0.39.tgz#fd2c6969ad3562d72b4c2a74be82991a999689ad"
+  integrity sha512-b41yIOmkwNXIzHcfemyp7oFRrQBDMLQK9yRpWyGQUcPvMIgJbtd4jBtZjMJ6DAKW64qoqB/2pTGRb4lifjKxgQ==
   dependencies:
-    "@epoch-protocol/epoch-commons-sdk" "^0.1.19"
+    "@epoch-protocol/epoch-commons-sdk" "^0.1.20"
     "@metamask/smart-accounts-kit" "^1.6.0"
     viem "^2.31.4"
 
@@ -2557,17 +2557,17 @@
     semver "^7.5.4"
     uuid "^9.0.1"
 
-"@miden-sdk/miden-sdk@0.16.0":
-  version "0.16.0"
-  resolved "https://registry.yarnpkg.com/@miden-sdk/miden-sdk/-/miden-sdk-0.16.0.tgz#a54e095b3fc2aa36ebf249b24eeb9f280b4fbc75"
-  integrity sha512-APdct6zmuoGRPQaZ3kf2ovpUQ1a9C8VxV2MrJcGS3DelupiV34WBNNvIXhGE+I6DnSV9t2NzAHvokPVYhUq+kQ==
+"@miden-sdk/miden-sdk@0.16.0", "@miden-sdk/miden-sdk@0.16.1":
+  version "0.16.1"
+  resolved "https://registry.yarnpkg.com/@miden-sdk/miden-sdk/-/miden-sdk-0.16.1.tgz#73328c1e267f5e4a85b8c778038331526bc6c541"
+  integrity sha512-btPAINsZXX/PVy6O7yhJiO1OyxBw2Hu389aNzIU7j4RZsQhkSbxxrfIXhwun4WMeA25ndvI0KjRXGacrkvvwug==
   dependencies:
     dexie "^4.0.1"
     glob "^11.0.0"
   optionalDependencies:
-    "@miden-sdk/node-darwin-arm64" "0.16.0"
-    "@miden-sdk/node-darwin-x64" "0.16.0"
-    "@miden-sdk/node-linux-x64-gnu" "0.16.0"
+    "@miden-sdk/node-darwin-arm64" "0.16.1"
+    "@miden-sdk/node-darwin-x64" "0.16.1"
+    "@miden-sdk/node-linux-x64-gnu" "0.16.1"
 
 "@miden-sdk/miden-wallet-adapter-base@0.16.0":
   version "0.16.0"
@@ -2588,15 +2588,30 @@
   resolved "https://registry.yarnpkg.com/@miden-sdk/node-darwin-arm64/-/node-darwin-arm64-0.16.0.tgz#0ce84fa029899820674557b8b92690d25fb21b0c"
   integrity sha512-uxwzouQkVG91/pU9o0wajLqzq2yqdZSttzzHmQtpl2hlpyFZJ8lucMwMFKOLCzU04+87PutBiUQ18Xfir2et6w==
 
+"@miden-sdk/node-darwin-arm64@0.16.1":
+  version "0.16.1"
+  resolved "https://registry.yarnpkg.com/@miden-sdk/node-darwin-arm64/-/node-darwin-arm64-0.16.1.tgz#c6225c28b1b0784580fc8f93bc73f4ea46f1ad97"
+  integrity sha512-oZlsk0b2Ty80Wcqw0TB7Cx3E7HbgmkI4cx2pCs80IiCzqG4h9oZpA8iK0TpMf3j4LmNr+tvmF6ydE4wc+9f6Hw==
+
 "@miden-sdk/node-darwin-x64@0.16.0":
   version "0.16.0"
   resolved "https://registry.yarnpkg.com/@miden-sdk/node-darwin-x64/-/node-darwin-x64-0.16.0.tgz#1f2aa253398984cda42a1bfd6888a7ba512c1b11"
   integrity sha512-vqKtB5xw8iE5OkmEE31KMVuTWxJ006EwrFFSBFEsZNuGGWHyZXlpSqCA3y3azstu2RX3FEYoViBFPwu0fLJVzg==
 
+"@miden-sdk/node-darwin-x64@0.16.1":
+  version "0.16.1"
+  resolved "https://registry.yarnpkg.com/@miden-sdk/node-darwin-x64/-/node-darwin-x64-0.16.1.tgz#3e86b21df89ce24d3dd7eabb22c2a5f2c52a0642"
+  integrity sha512-4EUqPGoKUk+yFERtyByszFR6qefxZm79vHdgyPVzzLNHvKYP0A+RaYhKJdJnPgqUWrFemv3utKYjXL3CvXJ9KQ==
+
 "@miden-sdk/node-linux-x64-gnu@0.16.0":
   version "0.16.0"
   resolved "https://registry.yarnpkg.com/@miden-sdk/node-linux-x64-gnu/-/node-linux-x64-gnu-0.16.0.tgz#2618859bfc526a0ec67e79eaaa4d9290ad675aff"
   integrity sha512-+gFdLiRcAcv77QX3n4/0BoAecho9lbMxQR87sKH8oIIwP70+1ux0DFCE2Uf1nR8RK/rsbSSk/57R+0QBRY1kgw==
+
+"@miden-sdk/node-linux-x64-gnu@0.16.1":
+  version "0.16.1"
+  resolved "https://registry.yarnpkg.com/@miden-sdk/node-linux-x64-gnu/-/node-linux-x64-gnu-0.16.1.tgz#00c1207829d09935caf1b78dd120d0fed9ee7d18"
+  integrity sha512-6jNwydSU5oDpt0FW4lovL/buWL/RP9jiz1u8fAguFiuCAYBDcqSXZc5C4ldi83sm0jXZiuiw1acIgZW0jnIU0A==
 
 "@miden-sdk/react@0.16.0":
   version "0.16.0"
