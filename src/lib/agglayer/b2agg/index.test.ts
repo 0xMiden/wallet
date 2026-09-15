@@ -2,7 +2,7 @@
 /**
  * Regression guard for the Agglayer (Slow) bridge-out row's `faucetId`.
  *
- * `getAgglayerFaucetId()` is a HEX account id — that is the form
+ * The caller may pass the faucet as a HEX account id, the form
  * `AccountId.fromHex` needs to build the B2AGG note's asset. But the transaction
  * ROW must carry the bech32 id, because that is what every other producer writes
  * and every consumer matches on: `getTokenMetadata` looks the row's `faucetId` up
@@ -71,10 +71,10 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
     fromBech32: (address: string) => ({ accountId: () => ({ hex: `0x${address.slice(5)}` }) })
   },
   EthAddress: { fromHex: (hex: string) => ({ hex }) },
-  FungibleAsset: class {},
+  FungibleAsset: jest.fn((faucet: unknown, amount: unknown) => ({ faucet, amount })),
   Note: { createB2AggNote: (...args: unknown[]) => mockCreateB2AggNote(...args) },
   NoteArray: class {},
-  NoteAssets: class {},
+  NoteAssets: jest.fn((assets: unknown) => ({ assets })),
   TransactionRequest: { deserialize: jest.fn() },
   TransactionRequestBuilder: class {
     withOwnOutputNotes() {
@@ -129,6 +129,28 @@ describe('initiateB2AggBridge', () => {
     expect(bridge).toEqual({ hex: '0x3b66e20b5088f25133b69216484652' });
     const faucetArg = mockInitiateBridgedSendTransaction.mock.calls[0]![2];
     expect(faucetArg).toBe(`mlcl1${MIDEN_AGGLAYER_FAUCET_ID.slice(2)}`);
+  });
+
+  // Any asset bridges, so the note and the row must carry the faucet the caller
+  // picked. Each case uses a faucet other than the dedicated bridge faucet, so a
+  // build that ignored the argument cannot pass by coincidence.
+  it.each([
+    ['hex', '0x0123456789abcdef0123456789abcd', '0x0123456789abcdef0123456789abcd'],
+    ['bech32', 'mlcl1fedcba9876543210fedcba987654_qr7qqq9wr6w', '0xfedcba9876543210fedcba987654']
+  ])('builds the note asset and the row from a %s faucet id the caller passes', async (_form, faucetId, faucetHex) => {
+    expect(faucetHex).not.toBe(MIDEN_AGGLAYER_FAUCET_ID);
+
+    await initiateB2AggBridge({
+      amount: 250n,
+      faucetId,
+      destinationAddress: '0x1111111111111111111111111111111111111111',
+      senderPublicKey: 'mlcl1sender',
+      destinationNetwork: 0
+    });
+
+    const assets = mockCreateB2AggNote.mock.calls[0]![2];
+    expect(assets).toEqual({ assets: [{ faucet: { hex: faucetHex }, amount: 250n }] });
+    expect(mockInitiateBridgedSendTransaction.mock.calls[0]![2]).toBe(`mlcl1${faucetHex.slice(2)}`);
   });
 
   it('still queues the row as an agglayer bridged-send with the pre-built request bytes', async () => {

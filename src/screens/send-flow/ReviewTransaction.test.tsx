@@ -539,6 +539,27 @@ describe('ReviewTransaction — onSubmit', () => {
     expect(navigateMock).toHaveBeenCalledWith('/generating-transaction/tx-abc', 'replacestate');
   });
 
+  it('bridges over the Slow route with the faucet of the token being sent', async () => {
+    mockDetectedChain = 'ethereum';
+    mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=agglayer';
+    mockBalanceData = [VALID_TOKEN];
+    const { initiateB2AggBridge } = jest.requireMock('lib/agglayer/b2agg');
+    initiateB2AggBridge.mockResolvedValue('tx-agg');
+    render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+
+    expect(initiateB2AggBridge).toHaveBeenCalledWith(
+      expect.objectContaining({
+        amount: 12345n,
+        faucetId: 'tok1',
+        destinationAddress: '0xrecipient',
+        senderPublicKey: 'pubkey-1'
+      })
+    );
+  });
+
   it('nudges the service worker and uses the full-page route on extension', async () => {
     setValidRoute();
     mockFullPage = true;
