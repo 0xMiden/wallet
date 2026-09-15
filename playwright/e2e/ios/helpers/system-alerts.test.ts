@@ -97,14 +97,18 @@ describe('createNotificationAlertGate', () => {
     const asked = (id: number): string => `%cnative %cLocalNotifications.requestPermissions (#${id})`;
     const answered = (id: number): string => `%cresult %cLocalNotifications.requestPermissions (#${id})`;
     const noWait = { ...quiet, promptPollMs: 0, sleep: async (): Promise<void> => undefined };
+    type Gate = ReturnType<typeof createNotificationAlertGate>;
 
-    it('keeps looking until it taps the alert, so the capture never shoots it', async () => {
+    it('keeps looking until the alert is up, taps it, and waits for the answer', async () => {
       let looks = 0;
+      let gate: Gate | undefined;
       const dismiss = async (): Promise<boolean> => {
         looks += 1;
-        return looks === 3;
+        if (looks < 3) return false;
+        gate?.observeConsole(answered(7));
+        return true;
       };
-      const gate = createNotificationAlertGate('udid', { ...noWait, dismiss });
+      gate = createNotificationAlertGate('udid', { ...noWait, dismiss });
       gate.observeConsole(asked(7));
 
       await gate.beforeCapture();
@@ -112,26 +116,68 @@ describe('createNotificationAlertGate', () => {
       expect(looks).toBe(3);
     });
 
+    it('taps again when no answer follows a tap, since SpringBoard can drop one', async () => {
+      let taps = 0;
+      let gate: Gate | undefined;
+      const dismiss = async (): Promise<boolean> => {
+        taps += 1;
+        if (taps === 2) gate?.observeConsole(answered(8));
+        return true;
+      };
+      gate = createNotificationAlertGate('udid', { ...noWait, retapAfterMs: 0, dismiss });
+      gate.observeConsole(asked(8));
+
+      await gate.beforeCapture();
+
+      expect(taps).toBe(2);
+    });
+
+    it('does not tap again while the answer to its tap can still be on its way', async () => {
+      let taps = 0;
+      let polls = 0;
+      let gate: Gate | undefined;
+      const dismiss = async (): Promise<boolean> => {
+        taps += 1;
+        return true;
+      };
+      gate = createNotificationAlertGate('udid', {
+        ...quiet,
+        promptPollMs: 0,
+        retapAfterMs: 60_000,
+        dismiss,
+        sleep: async (): Promise<void> => {
+          polls += 1;
+          if (polls === 3) gate?.observeConsole(answered(9));
+        }
+      });
+      gate.observeConsole(asked(9));
+
+      await gate.beforeCapture();
+
+      expect(taps).toBe(1);
+    });
+
     it('stops looking once the request is answered', async () => {
       let looks = 0;
+      let gate: Gate | undefined;
       const dismiss = async (): Promise<boolean> => {
         looks += 1;
         return false;
       };
-      const gate: ReturnType<typeof createNotificationAlertGate> = createNotificationAlertGate('udid', {
+      gate = createNotificationAlertGate('udid', {
         ...quiet,
         promptPollMs: 0,
         dismiss,
-        sleep: async (): Promise<void> => gate.observeConsole(answered(8))
+        sleep: async (): Promise<void> => gate?.observeConsole(answered(10))
       });
-      gate.observeConsole(asked(8));
+      gate.observeConsole(asked(10));
 
       await gate.beforeCapture();
 
       expect(looks).toBe(1);
     });
 
-    it('shoots anyway, and says why, when no alert shows up within the wait', async () => {
+    it('shoots anyway, and says why, when the request stays open past the wait', async () => {
       let looks = 0;
       const dismiss = async (): Promise<boolean> => {
         looks += 1;
@@ -146,7 +192,7 @@ describe('createNotificationAlertGate', () => {
         },
         dismiss
       });
-      gate.observeConsole(asked(9));
+      gate.observeConsole(asked(11));
 
       await gate.beforeCapture();
 
@@ -154,9 +200,10 @@ describe('createNotificationAlertGate', () => {
       expect(logs.some(message => message.includes('still open'))).toBe(true);
     });
 
-    it('looks again after a dismissal in flight when the app asked in the meantime', async () => {
+    it('looks again after a look in flight when the app asked in the meantime', async () => {
       let looks = 0;
       let finishFirst: (tapped: boolean) => void = () => undefined;
+      let gate: Gate | undefined;
       const dismiss = (): Promise<boolean> => {
         looks += 1;
         if (looks === 1) {
@@ -164,12 +211,13 @@ describe('createNotificationAlertGate', () => {
             finishFirst = resolve;
           });
         }
+        gate?.observeConsole(answered(12));
         return Promise.resolve(true);
       };
-      const gate = createNotificationAlertGate('udid', { ...noWait, dismiss });
+      gate = createNotificationAlertGate('udid', { ...noWait, dismiss });
 
       const first = gate.beforeCapture();
-      gate.observeConsole(asked(10));
+      gate.observeConsole(asked(12));
       const second = gate.beforeCapture();
       finishFirst(false);
       await Promise.all([first, second]);
@@ -184,11 +232,40 @@ describe('createNotificationAlertGate', () => {
         return false;
       };
       const gate = createNotificationAlertGate('udid', { ...noWait, dismiss });
-      gate.observeConsole('%cnative %cLocalNotifications.checkPermissions (#11)');
+      gate.observeConsole('%cnative %cLocalNotifications.checkPermissions (#13)');
 
       await gate.beforeCapture();
 
       expect(looks).toBe(1);
+    });
+
+    it('settles the prompt: waits for the request, taps the alert and reports the answer', async () => {
+      let taps = 0;
+      let polls = 0;
+      let gate: Gate | undefined;
+      const dismiss = async (): Promise<boolean> => {
+        taps += 1;
+        gate?.observeConsole(answered(14));
+        return true;
+      };
+      gate = createNotificationAlertGate('udid', {
+        ...quiet,
+        promptPollMs: 0,
+        dismiss,
+        sleep: async (): Promise<void> => {
+          polls += 1;
+          if (polls === 2) gate?.observeConsole(asked(14));
+        }
+      });
+
+      await expect(gate.settlePrompt(60_000)).resolves.toBe(true);
+      expect(taps).toBe(1);
+    });
+
+    it('reports an unsettled prompt when the app does not ask in time', async () => {
+      const gate = createNotificationAlertGate('udid', { ...noWait, dismiss: async () => false });
+
+      await expect(gate.settlePrompt(0)).resolves.toBe(false);
     });
   });
 });
