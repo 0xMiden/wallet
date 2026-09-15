@@ -153,10 +153,17 @@ function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : 'Unknown error';
 }
 
+// The deposit screen re-quotes on every debounced amount change, so a response can land after a
+// newer request, or a reset, has replaced it. Only the latest request writes: an older quote left in
+// the store keeps Fast unconfirmable until the amount is edited, since the screen offers a quote
+// only for the amount on screen.
+let latestQuoteRequest = 0;
+
 export const useEpochStore = create<EpochStore>((set, get) => ({
   ...INITIAL_STATE,
 
   async quoteEVMToMiden(params, sponsorAddress) {
+    const request = ++latestQuoteRequest;
     set({
       status: 'quoting',
       flow: 'evm-to-miden',
@@ -170,9 +177,11 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
       const sdk = await getEpochSdk();
       if (!sdk) throw new Error('Connect an EVM wallet first');
       const quote = await getEVMToMidenQuote(sdk, params, sponsorAddress);
+      if (request !== latestQuoteRequest) return;
       console.log('[epoch] EVM→Miden quote', quote);
       set({ status: 'quoted', quote });
     } catch (err) {
+      if (request !== latestQuoteRequest) return;
       console.error('[epoch] quoteEVMToMiden failed', { intent: params, sponsorAddress }, err);
       set({ status: 'failed', error: errorMessage(err) });
     }
@@ -257,14 +266,17 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
   },
 
   async quoteMidenToEVM(params, sponsorAddress) {
+    const request = ++latestQuoteRequest;
     set({ status: 'quoting', flow: 'miden-to-evm', error: null, intent: null, pollResults: null, midenNoteId: null });
     try {
       const sdk = await getEpochSdk({ forMidenFlow: true });
       if (!sdk) throw new Error('Connect an EVM wallet first');
       const quote = await getCrossChainQuote(sdk, params, sponsorAddress);
+      if (request !== latestQuoteRequest) return;
       console.log('[epoch] Miden→EVM quote', quote);
       set({ status: 'quoted', quote });
     } catch (err) {
+      if (request !== latestQuoteRequest) return;
       console.error('[epoch] quoteMidenToEVM failed', err);
       set({ status: 'failed', error: errorMessage(err) });
     }
@@ -338,6 +350,7 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
   },
 
   reset() {
+    latestQuoteRequest += 1;
     set({ ...INITIAL_STATE });
   }
 }));
