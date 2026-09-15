@@ -8,6 +8,7 @@ import AwaitFonts from 'app/a11y/AwaitFonts';
 import { formatMnemonic } from 'app/defaults';
 import { AnalyticsEventCategory, useAnalytics } from 'lib/analytics';
 import { canHandoffToSidePanel, postOnboardingRoute } from 'lib/extension/side-panel-handoff';
+import type { DecryptedWalletFile } from 'lib/miden/backup-file';
 import { useMidenContext } from 'lib/miden/front';
 import { useGuardianProbe } from 'lib/miden/guardian/use-guardian-probe';
 import { monotonicNowMs } from 'lib/miden/sync-backoff';
@@ -21,7 +22,14 @@ import { seedWalletPrompt, WalletPromptType } from 'lib/wallet-prompts';
 import { listen, navigate, useLocation } from 'lib/woozie';
 import { errorToMessage } from 'screens/onboarding/error-message';
 import { OnboardingFlow } from 'screens/onboarding/navigator';
-import { NO_GUARDIAN_ID, OnboardingAction, OnboardingStep, OnboardingType, WalletType } from 'screens/onboarding/types';
+import {
+  ImportType,
+  NO_GUARDIAN_ID,
+  OnboardingAction,
+  OnboardingStep,
+  OnboardingType,
+  WalletType
+} from 'screens/onboarding/types';
 
 /**
  * Check if hardware security is available for vault key protection.
@@ -110,12 +118,59 @@ async function waitForReadyState(syncFromBackend: (state: any) => void): Promise
   return false;
 }
 
+const fileRegistrationBinding = (payload: DecryptedWalletFile) => ({
+  formatVersion: payload.formatVersion ?? null,
+  accounts: payload.accounts.map(
+    ({
+      publicKey,
+      name,
+      isPublic,
+      type,
+      hdIndex,
+      hotPublicKey,
+      coldPublicKey,
+      requiresHotKeyRotation,
+      guardianNoteRecoveryPending,
+      guardianEndpoint,
+      guardianOperatorCommitment,
+      guardianSyncStatus,
+      authScheme,
+      evmAddress
+    }) => ({
+      publicKey,
+      name,
+      isPublic,
+      type,
+      hdIndex,
+      hotPublicKey,
+      coldPublicKey,
+      requiresHotKeyRotation,
+      guardianNoteRecoveryPending,
+      guardianEndpoint,
+      guardianOperatorCommitment,
+      guardianSyncStatus,
+      authScheme,
+      evmAddress
+    })
+  ),
+  importedAccounts:
+    payload.formatVersion === 2
+      ? payload.importedAccounts.map(({ accountId, publicKeyCommitment, authScheme }) => ({
+          accountId,
+          publicKeyCommitment,
+          authScheme
+        }))
+      : []
+});
+
 const Welcome: FC = () => {
   const { t } = useTranslation();
   const { hash } = useLocation();
   const [step, setStep] = useState(OnboardingStep.Welcome);
   const [seedPhrase, setSeedPhrase] = useState<string[] | null>(null);
   const [onboardingType, setOnboardingType] = useState<OnboardingType | null>(null);
+  const [importType, setImportType] = useState<ImportType | null>(null);
+  const [walletFilePayload, setWalletFilePayload] = useState<DecryptedWalletFile | null>(null);
   const [password, setPassword] = useState<string | null>(null);
   const [walletType, setWalletType] = useState<WalletType>(WalletType.Guardian);
   // The guardian operator endpoint the user picked (choose-guardian) or that the
@@ -158,7 +213,7 @@ const Welcome: FC = () => {
   // back navigation and the create-password→confirmation routing pick the right
   // origin without colliding with the legacy create flow.
   const [protectionMethod, setProtectionMethod] = useState<'passcode' | 'biometric' | 'password' | null>(null);
-  const { registerWallet } = useMidenContext();
+  const { importWalletFromClient, registerWallet } = useMidenContext();
   const { trackEvent } = useAnalytics();
   // Guardian auto-detection (issue #418): kicked off in the background the
   // moment a seed phrase is submitted, so it is usually already resolved by the
@@ -292,13 +347,25 @@ const Welcome: FC = () => {
       // For hardware-only wallets, pass undefined as password
       const actualPassword = password === '__HARDWARE_ONLY__' ? undefined : password;
       const isImport = onboardingType === OnboardingType.Import;
-      const inputs = JSON.stringify([walletType, actualPassword, seedPhraseFormatted, isImport, guardianEndpoint]);
+      const inputs = walletFilePayload
+        ? JSON.stringify([actualPassword, seedPhraseFormatted, fileRegistrationBinding(walletFilePayload)])
+        : JSON.stringify([walletType, actualPassword, seedPhraseFormatted, isImport, guardianEndpoint]);
       let registration = registrationRef.current;
       if (!registration || registration.inputs !== inputs) {
         const next = {
           inputs,
           done: (async () => {
-            await registerWallet(walletType, actualPassword, seedPhraseFormatted, isImport, guardianEndpoint);
+            if (walletFilePayload) {
+              await importWalletFromClient(
+                actualPassword,
+                seedPhraseFormatted,
+                walletFilePayload.accounts,
+                walletFilePayload.formatVersion,
+                walletFilePayload.formatVersion === 2 ? walletFilePayload.importedAccounts : undefined
+              );
+            } else {
+              await registerWallet(walletType, actualPassword, seedPhraseFormatted, isImport, guardianEndpoint);
+            }
           })()
         };
         next.done.catch(() => {
@@ -308,14 +375,23 @@ const Welcome: FC = () => {
         registration = next;
       }
       await registration.done;
-      if (onboardingType === OnboardingType.Create) {
+      if (!walletFilePayload && onboardingType === OnboardingType.Create) {
         // Idempotent and intentionally retried separately from wallet creation.
         await seedWalletPrompt(WalletPromptType.VerifySeedPhrase);
       }
     } else {
       throw new Error('Missing password or seed phrase');
     }
-  }, [password, seedPhrase, registerWallet, onboardingType, walletType, guardianEndpoint]);
+  }, [
+    password,
+    seedPhrase,
+    walletFilePayload,
+    registerWallet,
+    importWalletFromClient,
+    onboardingType,
+    walletType,
+    guardianEndpoint
+  ]);
 
   // Side panel handoff: kick off wallet creation as soon as the confirmation
   // screen is reached (the screen shows a spinner), so the wallet is Ready by
@@ -375,6 +451,8 @@ const Welcome: FC = () => {
     let eventProperties = {};
 
     const startCreateFlow = () => {
+      setImportType(null);
+      setWalletFilePayload(null);
       setOnboardingType(OnboardingType.Create);
       // Biometric is unavailable on the extension/desktop, so the
       // choose-protection screen has only one real option — skip it and go
@@ -382,9 +460,8 @@ const Welcome: FC = () => {
       navigate(protectionStepRoute());
     };
     const startImportFlow = () => {
-      // Recovery is seed-phrase only — jump straight to the seed entry screen.
       setOnboardingType(OnboardingType.Import);
-      navigate('/#import-from-seed');
+      navigate('/#select-import-type');
     };
 
     switch (action.id) {
@@ -428,11 +505,10 @@ const Welcome: FC = () => {
         // the random 256-bit vault key. Online brute-force is blocked by the
         // Unlock screen's escalating lockout (src/app/pages/Unlock.tsx).
         if (onboardingType === OnboardingType.Import) {
-          // Import flow (mobile, no hardware security): keep the imported seed —
-          // the passcode only protects the vault.
+          // The passcode protects the restored vault; the backup or seed remains unchanged.
           setPassword(action.payload);
           setProtectionMethod('passcode');
-          navigate('/#import-select-recovery-method');
+          navigate(importType === ImportType.WalletFile ? '/#confirmation' : '/#import-select-recovery-method');
           break;
         }
         setSeedPhrase(generateMnemonic(128).split(' '));
@@ -468,6 +544,8 @@ const Welcome: FC = () => {
         }
         break;
       case 'select-import-type':
+        setImportType(null);
+        setWalletFilePayload(null);
         if (getTestNetworkNameKey()) {
           setOnboardingType(OnboardingType.Import);
           navigate('/#network-notice');
@@ -476,11 +554,36 @@ const Welcome: FC = () => {
         }
         break;
       case 'import-from-seed':
+        setImportType(ImportType.SeedPhrase);
+        setWalletFilePayload(null);
         navigate('/#import-from-seed');
+        break;
+      case 'import-from-file':
+        setImportType(ImportType.WalletFile);
+        navigate('/#import-from-file');
+        break;
+      case 'import-wallet-file-submit':
+        setGuardianLookupError(false);
+        setOnboardingType(OnboardingType.Import);
+        setImportType(ImportType.WalletFile);
+        setWalletFilePayload(action.payload);
+        setSeedPhrase(action.payload.seedPhrase.split(' '));
+        {
+          const hardwareAvailable = await checkHardwareSecurityAvailable();
+          if (transitionGenerationRef.current !== generation) break;
+          if (hardwareAvailable) {
+            setPassword('__HARDWARE_ONLY__');
+            navigate('/#confirmation');
+          } else {
+            navigate(isMobile() ? '/#setup-passcode' : '/#create-password');
+          }
+        }
         break;
       case 'import-seed-phrase-submit':
         // A new seed retires a Guardian lookup failure raised for the previous one.
         setGuardianLookupError(false);
+        setImportType(ImportType.SeedPhrase);
+        setWalletFilePayload(null);
         setSeedPhrase(action.payload.split(' '));
         // Start guardian auto-detection here rather than on the recovery-method
         // screen: it then runs behind the password/passcode step and is usually
@@ -511,7 +614,7 @@ const Welcome: FC = () => {
           setProtectionMethod('password');
           navigate('/#choose-guardian');
         } else if (onboardingType === OnboardingType.Import) {
-          navigate('/#import-select-recovery-method');
+          navigate(importType === ImportType.WalletFile ? '/#confirmation' : '/#import-select-recovery-method');
         } else {
           navigate('/#confirmation');
         }
@@ -563,7 +666,11 @@ const Welcome: FC = () => {
           // branch below hands off to the recovery-method screen, which retires this
           // message on arrival, and the hardware-only branch adds its attempt count.
           setRegistrationError(errorToMessage(error) ?? t('smthWentWrong'));
-          if (onboardingType === OnboardingType.Import && walletType === WalletType.Guardian) {
+          if (
+            onboardingType === OnboardingType.Import &&
+            importType !== ImportType.WalletFile &&
+            walletType === WalletType.Guardian
+          ) {
             setGuardianLookupError(true);
             navigate('/#import-select-recovery-method');
           } else if (password === '__HARDWARE_ONLY__') {
@@ -588,13 +695,14 @@ const Welcome: FC = () => {
       case 'back':
         if (
           step === OnboardingStep.NetworkNotice ||
+          step === OnboardingStep.SelectImportType ||
           step === OnboardingStep.SelectWalletType ||
           step === OnboardingStep.ChooseProtection
         ) {
           navigate('/');
         } else if (step === OnboardingStep.SetupPasscode || step === OnboardingStep.SetupBiometric) {
           if (onboardingType === OnboardingType.Import) {
-            navigate('/#import-from-seed');
+            navigate(importType === ImportType.WalletFile ? '/#import-from-file' : '/#import-from-seed');
           } else {
             // The choose-protection screen is skipped when biometric is
             // unavailable, so backing out of passcode setup returns to Welcome.
@@ -615,7 +723,7 @@ const Welcome: FC = () => {
             // biometric-without-hardware path lands here from choose-guardian.
             navigate(isMobile() ? '/#choose-guardian' : '/');
           } else {
-            navigate('/#import-from-seed');
+            navigate(importType === ImportType.WalletFile ? '/#import-from-file' : '/#import-from-seed');
           }
         } else if (step === OnboardingStep.ImportSelectRecoveryMethod) {
           if (password === '__HARDWARE_ONLY__') {
@@ -623,8 +731,8 @@ const Welcome: FC = () => {
           } else {
             navigate(isMobile() ? '/#setup-passcode' : '/#create-password');
           }
-        } else if (step === OnboardingStep.ImportFromSeed) {
-          navigate('/');
+        } else if (step === OnboardingStep.ImportFromSeed || step === OnboardingStep.ImportFromFile) {
+          navigate('/#select-import-type');
         }
         break;
       default:
@@ -703,12 +811,25 @@ const Welcome: FC = () => {
         setOnboardingType(OnboardingType.Create);
         setStep(OnboardingStep.ChooseGuardian);
         break;
+      case '#select-import-type':
+        setOnboardingType(OnboardingType.Import);
+        setImportType(null);
+        setWalletFilePayload(null);
+        setStep(OnboardingStep.SelectImportType);
+        break;
       case '#import-from-seed':
         setOnboardingType(OnboardingType.Import);
+        setImportType(ImportType.SeedPhrase);
+        setWalletFilePayload(null);
         setStep(OnboardingStep.ImportFromSeed);
         // Backing out to seed entry invalidates any detection for the previous
         // phrase — abort it so a stale result can't be shown for a new seed.
         resetGuardianProbe();
+        break;
+      case '#import-from-file':
+        setOnboardingType(OnboardingType.Import);
+        setImportType(ImportType.WalletFile);
+        setStep(OnboardingStep.ImportFromFile);
         break;
       case '#create-password':
         // Onboarding state is in-memory only; reloading on this screen loses
