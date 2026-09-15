@@ -32,9 +32,8 @@ describe('Drawer', () => {
   });
 
   it('stops taking pointer events once dismissed, so a tap during the close reaches what is underneath', () => {
-    // The sheet's exit animation runs 500ms (vaul TRANSITIONS.DURATION), and the overlay is
-    // `fixed inset-0`. While it stays hit-testable, a tap aimed at the button revealed underneath
-    // lands on a layer that is on its way out and is swallowed.
+    // The guard is asserted as an inline style, not a class: Radix sets inline pointer-events on both
+    // layers, which only an inline style can outrank, and jsdom applies no Tailwind CSS.
     const { rerender } = render(
       <Drawer open onOpenChange={() => {}}>
         <DrawerContent forceMount>
@@ -62,8 +61,6 @@ describe('Drawer', () => {
     expect(closingContent.style.pointerEvents).toBe('none');
     expect(closingContent.getAttribute('data-state')).toBe('closed');
 
-    // The overlay matters more than the sheet: it is the `fixed inset-0` layer actually covering
-    // the button being tapped.
     const overlay = document.querySelector('[data-vaul-overlay]') as HTMLElement | null;
     expect(overlay?.style.pointerEvents).toBe('none');
   });

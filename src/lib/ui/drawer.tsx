@@ -83,14 +83,10 @@ function DrawerContent({
   ...props
 }: DrawerContentProps) {
   const { open } = useContext(DrawerContext);
-  // The sheet animates out over 500ms (vaul's TRANSITIONS.DURATION) and stays mounted for all of
-  // it, with a `fixed inset-0` overlay. Left hit-testable, that departing layer eats the tap a
-  // user makes at the control it is uncovering -- and a tap landing back on the sheet could
-  // re-pick a row that is already leaving. Once dismissed it is a purely visual artifact, so it
-  // stops taking pointer events. Not a `className`: callers override `overlayClassName` and
-  // `className` freely, and this must not be something a caller can accidentally style away --
-  // hence the guard is spread LAST over any caller `style`, which would otherwise clobber it via
-  // the trailing `{...props}`.
+  // Once dismissed, the sheet and its `fixed inset-0` overlay stay mounted through the 500ms exit and
+  // would swallow the tap aimed at what they uncover, so they stop taking pointer events. It must be an
+  // inline style spread last: Radix writes inline `pointer-events: auto` on the overlay and on the
+  // content's dismissable layer, and an inline declaration outranks any class.
   const inertWhileClosing = open ? undefined : ({ pointerEvents: 'none' } as const);
 
   return (
@@ -102,7 +98,6 @@ function DrawerContent({
       <VaulDrawer.Content
         data-slot="drawer-content"
         aria-describedby={undefined}
-        forceMount={forceMount}
         style={{ ...style, ...inertWhileClosing }}
         className={cn(
           // pb: the sheet is fixed to the viewport bottom, so body's safe-area /
