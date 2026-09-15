@@ -63,7 +63,7 @@
     {
       "id": "send-privacy",
       "headline": "Send publicly or privately",
-      "alt": "Send review in the Chrome extension with the public or private transfer choice visible."
+      "alt": "Chrome transaction request showing private note visibility before confirmation."
     },
     {
       "id": "receive",
@@ -73,7 +73,7 @@
     {
       "id": "guardian",
       "headline": "Recover with a Guardian",
-      "alt": "Guardian security overview in the Chrome extension."
+      "alt": "Guardian selection in the Chrome extension with operator choices."
     },
     {
       "id": "chrome-connect",

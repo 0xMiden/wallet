@@ -286,7 +286,7 @@
         "crop": { "x": 0, "y": 0, "width": 400, "height": 600 },
         "surface": "chrome-extension",
         "headline": "Recover with a Guardian",
-        "alt": "Guardian security overview in the Chrome extension.",
+        "alt": "Guardian selection in the Chrome extension with operator choices.",
         "width": 1280,
         "height": 800,
         "output": "store-listing/generated/chrome-web-store/04-guardian.png"

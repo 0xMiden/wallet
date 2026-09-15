@@ -64,7 +64,7 @@
     {
       "id": "send-privacy",
       "headline": "Send publicly or privately",
-      "alt": "Send review on iPhone with the public or private transfer choice visible."
+      "alt": "Transaction request on iPhone showing private note visibility before confirmation."
     },
     {
       "id": "receive",
@@ -79,7 +79,7 @@
     {
       "id": "ios-dapp-browser",
       "headline": "Explore Miden dApps",
-      "alt": "Built-in dApp browser on iPhone with the Miden ecosystem page open."
+      "alt": "Built-in dApp browser launcher on iPhone with search and Miden dApp shortcuts."
     },
     {
       "id": "ios-protection",

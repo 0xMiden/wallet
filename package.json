@@ -65,6 +65,7 @@
     "lint": "eslint src --max-warnings 0",
     "check:prover-pin": "node scripts/check-native-prover-pin.mjs",
     "store-listing:copy": "node scripts/store-listing/compose-copy.mjs",
+    "store-listing:assets": "node scripts/store-listing/build-assets.mjs",
     "store-listing:capture:build": "cross-env MIDEN_E2E_TEST=true MIDEN_USE_MOCK_CLIENT=true MODE_ENV=development yarn build:mobile && cross-env MIDEN_E2E_TEST=true MIDEN_USE_MOCK_CLIENT=true MIDEN_E2E_DISABLE_SIDEPANEL=true TARGET_BROWSER=chrome yarn build:chrome",
     "store-listing:capture": "playwright test --config playwright.store-listing.config.ts",
     "store-listing:validate": "node scripts/store-listing/validate.mjs",

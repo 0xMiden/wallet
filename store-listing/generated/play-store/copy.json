@@ -63,7 +63,7 @@
     {
       "id": "send-privacy",
       "headline": "Send publicly or privately",
-      "alt": "Send review on Android with the public or private transfer choice visible."
+      "alt": "Transaction request on Android showing private note visibility before confirmation."
     },
     {
       "id": "receive",
@@ -78,12 +78,12 @@
     {
       "id": "android-dapp-browser",
       "headline": "Explore Miden dApps",
-      "alt": "Built-in dApp browser on Android with the Miden ecosystem page open."
+      "alt": "Built-in dApp browser launcher on Android with search and Miden dApp shortcuts."
     },
     {
       "id": "android-local-proving",
       "headline": "Prove on your device",
-      "alt": "Android transaction review showing local proving selected."
+      "alt": "Android general settings with delegated proving switched off for local proving."
     },
     {
       "id": "android-protection",

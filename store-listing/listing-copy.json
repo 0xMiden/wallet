@@ -137,9 +137,9 @@
         "id": "send-privacy",
         "headline": "Send publicly or privately",
         "alt": {
-          "appStore": "Send review on iPhone with the public or private transfer choice visible.",
-          "playStore": "Send review on Android with the public or private transfer choice visible.",
-          "chromeWebStore": "Send review in the Chrome extension with the public or private transfer choice visible."
+          "appStore": "Transaction request on iPhone showing private note visibility before confirmation.",
+          "playStore": "Transaction request on Android showing private note visibility before confirmation.",
+          "chromeWebStore": "Chrome transaction request showing private note visibility before confirmation."
         }
       },
       {
@@ -157,7 +157,7 @@
         "alt": {
           "appStore": "Guardian selection on iPhone with operator choices.",
           "playStore": "Guardian selection on Android with operator choices.",
-          "chromeWebStore": "Guardian security overview in the Chrome extension."
+          "chromeWebStore": "Guardian selection in the Chrome extension with operator choices."
         }
       }
     ],
@@ -166,7 +166,7 @@
         {
           "id": "ios-dapp-browser",
           "headline": "Explore Miden dApps",
-          "alt": "Built-in dApp browser on iPhone with the Miden ecosystem page open."
+          "alt": "Built-in dApp browser launcher on iPhone with search and Miden dApp shortcuts."
         },
         {
           "id": "ios-protection",
@@ -178,12 +178,12 @@
         {
           "id": "android-dapp-browser",
           "headline": "Explore Miden dApps",
-          "alt": "Built-in dApp browser on Android with the Miden ecosystem page open."
+          "alt": "Built-in dApp browser launcher on Android with search and Miden dApp shortcuts."
         },
         {
           "id": "android-local-proving",
           "headline": "Prove on your device",
-          "alt": "Android transaction review showing local proving selected."
+          "alt": "Android general settings with delegated proving switched off for local proving."
         },
         {
           "id": "android-protection",

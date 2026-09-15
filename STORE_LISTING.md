@@ -35,10 +35,10 @@ Made for iPhone
 ### Screenshot copy
 
 1. **Your wallet, your keys** - Bread Wallet account home on iPhone, showing wallet controls and an account balance.
-2. **Send publicly or privately** - Send review on iPhone with the public or private transfer choice visible.
+2. **Send publicly or privately** - Transaction request on iPhone showing private note visibility before confirmation.
 3. **Receive with confidence** - Receive screen on iPhone with a Miden address and QR code.
 4. **Recover with a Guardian** - Guardian selection on iPhone with operator choices.
-5. **Explore Miden dApps** - Built-in dApp browser on iPhone with the Miden ecosystem page open.
+5. **Explore Miden dApps** - Built-in dApp browser launcher on iPhone with search and Miden dApp shortcuts.
 6. **Unlock your way** - Bread Wallet protection setup on iPhone with Face ID and passcode choices.
 
 ## Google Play
@@ -73,11 +73,11 @@ Made for Android
 ### Screenshot copy
 
 1. **Your wallet, your keys** - Bread Wallet account home on Android, showing wallet controls and an account balance.
-2. **Send publicly or privately** - Send review on Android with the public or private transfer choice visible.
+2. **Send publicly or privately** - Transaction request on Android showing private note visibility before confirmation.
 3. **Receive with confidence** - Receive screen on Android with a Miden address and QR code.
 4. **Recover with a Guardian** - Guardian selection on Android with operator choices.
-5. **Explore Miden dApps** - Built-in dApp browser on Android with the Miden ecosystem page open.
-6. **Prove on your device** - Android transaction review showing local proving selected.
+5. **Explore Miden dApps** - Built-in dApp browser launcher on Android with search and Miden dApp shortcuts.
+6. **Prove on your device** - Android general settings with delegated proving switched off for local proving.
 7. **Unlock your way** - Bread Wallet protection setup on Android with biometric and passcode choices.
 
 ### Promotional artwork
@@ -116,9 +116,9 @@ Made for Chrome
 ### Screenshot copy
 
 1. **Your wallet, your keys** - Bread Wallet account home in the Chrome side panel, showing wallet controls and an account balance.
-2. **Send publicly or privately** - Send review in the Chrome extension with the public or private transfer choice visible.
+2. **Send publicly or privately** - Chrome transaction request showing private note visibility before confirmation.
 3. **Receive with confidence** - Receive screen in the Chrome extension with a Miden address.
-4. **Recover with a Guardian** - Guardian security overview in the Chrome extension.
+4. **Recover with a Guardian** - Guardian selection in the Chrome extension with operator choices.
 5. **Connect to Miden sites** - Chrome extension connection request for a Miden site.
 
 ### Promotional artwork
