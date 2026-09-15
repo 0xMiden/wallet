@@ -4,13 +4,15 @@
 // ---------------------------------------------------------------------------
 import { privateKeyToAccount } from 'viem/accounts';
 
-import { ITransactionType, Transaction } from 'lib/miden/db/types';
+import { ITransaction, ITransactionStatus, ITransactionType, Transaction } from 'lib/miden/db/types';
 import * as Passworder from 'lib/miden/passworder';
 import * as Repo from 'lib/miden/repo';
+import { cancelStaleQueuedTransactions, MAX_QUEUED_AGE } from 'lib/miden/transaction/cancel';
 import { WalletAccount } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
 import { PublicError } from './defaults';
+import { clearRecoveryAuthorizations, getRecoveryAction } from './recovery-authorization';
 import {
   encryptAndSaveMany,
   fetchAndDecryptOneWithLegacyFallBack,
@@ -24,6 +26,7 @@ import { Vault } from './vault';
 jest.setTimeout(30_000);
 
 const memoryStore: Record<string, any> = {};
+let retainedStorageKey: string | undefined;
 jest.mock('lib/platform/storage-adapter', () => ({
   getStorageProvider: jest.fn(() => ({
     get: async (keys: string[]) => {
@@ -35,7 +38,9 @@ jest.mock('lib/platform/storage-adapter', () => ({
       Object.assign(memoryStore, items);
     },
     remove: async (keys: string[]) => {
-      for (const k of keys) delete memoryStore[k];
+      for (const k of keys) {
+        if (k !== retainedStorageKey) delete memoryStore[k];
+      }
     }
   })),
   StorageProvider: class {}
@@ -232,6 +237,7 @@ const mockMidenClient = {
 // getBech32AddressFromAccountId uses the real WASM `Address.fromAccountId`;
 // stub it so tests can assert on returned ids without a real WASM binary.
 jest.mock('../sdk/helpers', () => ({
+  sameWalletAccountId: (left: string, right: string) => left === right,
   getBech32AddressFromAccountId: jest.fn((id: any) => {
     if (id && typeof id === 'object' && '__marker' in id) {
       return `bech32:${id.__marker}`;
@@ -296,7 +302,7 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => {
     },
     PublicKey: {
       deserialize: jest.fn(() => ({
-        toCommitment: () => ({ free: jest.fn() }),
+        toCommitment: () => ({ serialize: () => new Uint8Array([2, 3, 4]), free: jest.fn() }),
         free: jest.fn()
       }))
     },
@@ -401,6 +407,7 @@ function clearMemoryStore() {
 }
 
 beforeEach(() => {
+  retainedStorageKey = undefined;
   clearMemoryStore();
   jest.clearAllMocks();
   (isDesktop as jest.Mock).mockReturnValue(false);
@@ -2273,6 +2280,69 @@ describe('WASM-lock eviction mid-flow (hold liveness)', () => {
   });
 });
 
+describe('recovery seed waiting time', () => {
+  it.each([false, true])('resumes after an hour, with a legacy row: %s', async legacyRow => {
+    const account: WalletAccount = {
+      publicKey: 'guardian-recovery',
+      name: 'Guardian',
+      type: WalletType.Guardian,
+      hdIndex: 0,
+      isPublic: false,
+      coldPublicKey: '020304'
+    };
+    const vault = await seedVault('pw', { mnemonic: '', accounts: [account] });
+    const transaction: ITransaction = new Transaction(account.publicKey, new Uint8Array());
+    transaction.type = 'replace-hot-key';
+    transaction.awaitingRecoverySeed = legacyRow;
+    const startedAt = transaction.initiatedAt;
+    const now = jest.spyOn(Date, 'now').mockReturnValue((startedAt + 60) * 1000);
+    await Repo.transactions.add(transaction);
+    try {
+      await expect(vault.prepareRecoveryTransaction(transaction.id)).resolves.toEqual({ ready: false });
+      const expectedPause = startedAt + Number(!legacyRow) * 60;
+      expect((await Repo.transactions.get(transaction.id))?.recoverySeedRequestedAt).toBe(expectedPause);
+      now.mockReturnValue((startedAt + 3660) * 1000);
+      await vault.prepareRecoveryTransaction(transaction.id);
+      expect((await Repo.transactions.get(transaction.id))?.recoverySeedRequestedAt).toBe(expectedPause);
+      if (legacyRow) {
+        await Repo.transactions.where({ id: transaction.id }).modify(tx => {
+          delete tx.recoverySeedRequestedAt;
+        });
+      }
+      const action = getRecoveryAction(transaction);
+      await expect(vault.provideRecoverySeed(transaction.id, 'invalid', action)).rejects.toThrow();
+      expect((await Repo.transactions.get(transaction.id))?.awaitingRecoverySeed).toBe(true);
+      const sdk = jest.requireMock<{ AuthSecretKey: { ecdsaWithRNG: jest.Mock } }>('@miden-sdk/miden-sdk/lazy');
+      sdk.AuthSecretKey.ecdsaWithRNG.mockImplementationOnce(() => ({
+        publicKey: () => ({
+          serialize: () => new Uint8Array([1, 2, 3, 4]),
+          toCommitment: () => ({ toHex: () => '0x020304', free: jest.fn() }),
+          free: jest.fn()
+        }),
+        serialize: () => new Uint8Array([1, 5, 6]),
+        free: jest.fn()
+      }));
+      mockGetAccount.mockResolvedValueOnce({});
+      mockGetSignerDetailsFromAccount.mockResolvedValueOnce({ commitment: '020304' });
+      await vault.provideRecoverySeed(transaction.id, VALID_MNEMONIC, action);
+      const resumed = await Repo.transactions.get(transaction.id);
+      expect(resumed?.awaitingRecoverySeed).toBe(false);
+      expect(resumed?.recoverySeedRequestedAt).toBeUndefined();
+      const expectedStart = startedAt + 3600 + Number(legacyRow) * 60;
+      expect(resumed?.initiatedAt).toBe(expectedStart);
+      await cancelStaleQueuedTransactions();
+      expect((await Repo.transactions.get(transaction.id))?.status).toBe(ITransactionStatus.Queued);
+      now.mockReturnValue((expectedStart + MAX_QUEUED_AGE + 1) * 1000);
+      await cancelStaleQueuedTransactions();
+      expect((await Repo.transactions.get(transaction.id))?.status).toBe(ITransactionStatus.Failed);
+    } finally {
+      now.mockRestore();
+      clearRecoveryAuthorizations();
+      await Repo.transactions.delete(transaction.id);
+    }
+  });
+});
+
 describe('seed phrase removal', () => {
   it('removes the phrase and leaves the account usable after unlock', async () => {
     const vault = await seedVault('password123');
@@ -2289,7 +2359,10 @@ describe('seed phrase removal', () => {
     expect(await reopened.fetchSeedPhraseStatus()).toBe('removed');
   });
 
-  it('deletes both recovery-key copies and preserves the everyday key', async () => {
+  it.each([
+    { retainedKey: undefined, error: undefined, status: 'removed' },
+    { retainedKey: keys.accAuthSecretKey('020304'), error: 'seedRemovalFailed', status: 'removing' }
+  ])('deletes all recovery-key copies, with retained storage: $retainedKey', async ({ retainedKey, error, status }) => {
     const account: WalletAccount = {
       publicKey: 'guardian',
       name: 'Guardian',
@@ -2309,13 +2382,24 @@ describe('seed phrase removal', () => {
       [
         [keys.accAuthSecretKey('hot-key'), 'daily-secret'],
         [keys.accAuthSecretKey(coldPublicKey), 'recovery-secret'],
+        [keys.accAuthSecretKey('020304'), 'recovery-secret'],
         [keys.accColdSecretKey(coldPublicKey), 'recovery-secret']
       ],
       key
     );
+    retainedStorageKey = retainedKey;
+    if (retainedKey) {
+      const digest = await crypto.subtle.digest('SHA-256', Buffer.from(retainedKey, 'utf-8'));
+      retainedStorageKey = Buffer.from(digest).toString('hex');
+    }
+    const removalError = await vault.removeSeedPhrase().catch((cause: Error) => cause.message);
+    expect(removalError).toBe(error);
+    expect(await vault.fetchSeedPhraseStatus()).toBe(status);
+    retainedStorageKey = undefined;
     await vault.removeSeedPhrase();
     expect(await isStored(keys.mnemonic)).toBe(false);
     expect(await isStored(keys.accAuthSecretKey(coldPublicKey))).toBe(false);
+    expect(await isStored(keys.accAuthSecretKey('020304'))).toBe(false);
     expect(await isStored(keys.accColdSecretKey(coldPublicKey))).toBe(false);
     expect(await vault.getAuthSecretKey('hot-key')).toBe('daily-secret');
     expect(mockGetMidenClient).toHaveBeenCalledWith({ insertKeyCallback: expect.any(Function) });

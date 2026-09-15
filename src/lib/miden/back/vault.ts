@@ -316,6 +316,7 @@ export class Vault {
         const publicKey = PublicKey.deserialize(framed);
         const commitment = publicKey.toCommitment();
         try {
+          keys.push(accAuthSecretKeyStrgKey(Buffer.from(commitment.serialize()).toString('hex')));
           await client.client.keystore.remove(commitment);
           // A missing secret causes an SDK storage error. Check the public mapping instead.
           const retainedAccountId = await client.client.keystore.getAccountId(commitment);
@@ -352,7 +353,12 @@ export class Vault {
     if (coldPublicKey && beginRecoveryAuthorization(transaction, coldPublicKey)) {
       return { ready: true, coldPublicKey };
     }
-    await Repo.transactions.update(transactionId, { awaitingRecoverySeed: true });
+    await Repo.transactions.update(transactionId, {
+      awaitingRecoverySeed: true,
+      recoverySeedRequestedAt:
+        transaction.recoverySeedRequestedAt ??
+        (transaction.awaitingRecoverySeed ? transaction.initiatedAt : Math.floor(Date.now() / 1000))
+    });
     return { ready: false };
   }
 
@@ -414,7 +420,14 @@ export class Vault {
     const updated = await Repo.transactions
       .where({ id: transactionId })
       .filter(tx => tx.status === ITransactionStatus.Queued && tx.awaitingRecoverySeed === true)
-      .modify({ awaitingRecoverySeed: false });
+      .modify(tx => {
+        const resumedAt = Math.floor(Date.now() / 1000);
+        // Older rows have no pause time. Give them a new expiry interval.
+        const pausedAt = tx.recoverySeedRequestedAt ?? tx.initiatedAt;
+        tx.initiatedAt += Math.max(0, resumedAt - pausedAt);
+        tx.awaitingRecoverySeed = false;
+        delete tx.recoverySeedRequestedAt;
+      });
     if (!updated) {
       const { clearRecoveryAuthorization } = await import('./recovery-authorization');
       clearRecoveryAuthorization(transactionId);

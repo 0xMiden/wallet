@@ -9,6 +9,7 @@
 
 ### Fixes
 
+- [FIX][all] Seed phrase removal now deletes and verifies the recovery secret stored under its commitment. Recovery actions exclude the seed input wait from transaction expiry.
 - [FIX][ci] Every ubuntu job now drops Google's Chrome apt repository before touching apt. Nothing installs Chrome from apt, yet its CDN served a mismatched package index for over an hour and failed every Playwright, xvfb and local-node install with `Hash Sum mismatch`.
 - [FIX][e2e] The testnet E2E harness now funds every new account from the public faucet before its first transaction, as it already did on devnet; testnet moved to the fee-charging 0.16 node and unfunded mints failed inside the kernel.
 - [FEATURE][all] Guardian rotation and everyday key replacement are now offered on every Guardian account, including one imported from an everyday key only. When the wallet holds no local cold key, the action prompts for the seed phrase, derives the cold key against the account's on-chain cold signer, and keeps it in memory only for that one transaction.
