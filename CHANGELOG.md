@@ -2,6 +2,10 @@
 
 ## 1.16.2 (TBD)
 
+### Features
+
+- [FEATURE][all] Advanced Settings can export the current account as a CLI-compatible `.mac` file after password, passcode, or device-security confirmation. The flow warns that the file grants access to the account's funds and requires an explicit acknowledgement before saving or sharing it (#537).
+
 ### Fixes
 
 - [FIX][ci] The dependency-integrity gate that runs before every production build no longer refuses a correct `node_modules` when the build itself runs with `NODE_ENV=production`. `yarn check --integrity` also compares the flags the install was made with, so a job that installs without that variable and builds with it was rejected; the check now verifies the whole dependency tree whatever the environment, which is what it is there to do. The v1.16.1 release's Chrome extension build failed on this.
@@ -17,7 +21,6 @@
 
 ### Features
 
-- [FEATURE][all] Advanced Settings can export the current account as a CLI-compatible `.mac` file after password, passcode, or device-security confirmation. The flow warns that the file grants access to the account's funds and requires an explicit acknowledgement before saving or sharing it (#537).
 - [FEAT][all] The popup, full-page, side-panel, mobile and desktop wallet screens and the dApp confirmation popup show a Bread-branded banner naming the network the wallet is on (it follows Developer Settings overrides and hides on mainnet), with a sheet that explains the test environment. Onboarding shows a network notice before a wallet is created or restored; Receive, the EVM wallet connect step and the bridge amount form warn to use test funds only; and a shared address or QR image names the network (#875).
 - [FEATURE][all] Add Settings to the bottom navigation, alongside Home, Explore and Activity (Explore remains hidden in the extension). Settings subpages keep their full-screen layout and back navigation, and returning restores the list's scroll position. Remove duplicate Settings shortcuts from tab headers, use a pencil for balance-card account options, localize tab labels, and fit four destinations on narrow screens. (#802)
 - [FEATURE][all] Replace the Bread logo with the new loaf mark across every surface: the in-app logo (onboarding, unlock, network banner, receive QR), the brand SVGs, the extension toolbar and notification icons, the iOS and Android app icons and splash screens, and the desktop (Tauri) icon set.
