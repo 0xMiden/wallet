@@ -3,7 +3,7 @@
  */
 import { createHash, randomBytes } from 'crypto';
 
-import { solvePow } from './public-faucet';
+import { mintFromPublicFaucet, solvePow } from './public-faucet';
 
 function hashBelowTarget(challengeHex: string, nonce: number, target: bigint): boolean {
   const nonceBytes = Buffer.alloc(8);
@@ -49,5 +49,74 @@ describe('solvePow', () => {
     // timer run before the rejection.
     await expect(solvePow(randomBytes(32).toString('hex'), 0n, 0)).rejects.toThrow('unsolved');
     expect(timerRan).toBe(true);
+  });
+});
+
+describe('mintFromPublicFaucet', () => {
+  const BASE = 'https://faucet.example';
+  const ACCOUNT = 'mtst1example';
+  // Any hash is below 2^63 half the time, so each proof-of-work resolves in a few hashes.
+  const EASY_TARGET = 2 ** 63;
+
+  let fetchSpy: jest.SpyInstance | undefined;
+
+  afterEach(() => {
+    fetchSpy?.mockRestore();
+    fetchSpy = undefined;
+  });
+
+  function reply(status: number, body: unknown): Response {
+    return new Response(typeof body === 'string' ? body : JSON.stringify(body), { status });
+  }
+
+  /** Answers each request with the next response in order and records every requested URL. */
+  function serve(responses: Response[]): string[] {
+    const urls: string[] = [];
+    fetchSpy = jest.spyOn(global, 'fetch').mockImplementation(async input => {
+      urls.push(String(input));
+      const next = responses.shift();
+      if (!next) throw new Error(`unexpected request ${String(input)}`);
+      return next;
+    });
+    return urls;
+  }
+
+  it('retries a 5xx grant from a fresh challenge', async () => {
+    const urls = serve([
+      reply(200, { challenge: 'aa', target: EASY_TARGET }),
+      reply(500, 'Internal error.'),
+      reply(200, { challenge: 'bb', target: EASY_TARGET }),
+      reply(200, { tx_id: '0xtx', note_id: '0xnote' })
+    ]);
+
+    await expect(mintFromPublicFaucet(BASE, ACCOUNT, 1n, 0)).resolves.toEqual({ txId: '0xtx', noteId: '0xnote' });
+
+    expect(urls.filter(url => url.includes('/pow?'))).toHaveLength(2);
+    expect(urls[3]).toContain('challenge=bb');
+  });
+
+  it('fails at once on a 4xx', async () => {
+    const urls = serve([reply(404, '404 page not found')]);
+
+    await expect(mintFromPublicFaucet(BASE, ACCOUNT, 1n, 0)).rejects.toThrow(
+      'Public faucet PoW request failed (404): 404 page not found'
+    );
+    expect(urls).toHaveLength(1);
+  });
+
+  it('gives up after three 5xx attempts and reports the last failure', async () => {
+    const urls = serve([
+      reply(200, { challenge: 'aa', target: EASY_TARGET }),
+      reply(502, 'Bad Gateway'),
+      reply(200, { challenge: 'bb', target: EASY_TARGET }),
+      reply(502, 'Bad Gateway'),
+      reply(200, { challenge: 'cc', target: EASY_TARGET }),
+      reply(502, 'Bad Gateway')
+    ]);
+
+    await expect(mintFromPublicFaucet(BASE, ACCOUNT, 1n, 0)).rejects.toThrow(
+      'Public faucet mint failed (502): Bad Gateway'
+    );
+    expect(urls).toHaveLength(6);
   });
 });

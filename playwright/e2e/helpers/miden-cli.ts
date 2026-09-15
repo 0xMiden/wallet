@@ -633,6 +633,11 @@ export class MidenCli {
     const maxAttempts = 5;
     let lastErr = '';
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      // The CLI executes at its store's sync height and loads the native fee faucet as a foreign account at
+      // that block. A miden-node 0.16 store cannot always rebuild that account's vault even twenty blocks (about
+      // a minute) behind the tip (`failed to reconstruct vault ... root not found`), and a retry at the same
+      // height fails the same way. Sync first, on every attempt.
+      await this.sync();
       const result = await this.run(mintArgs, { timeoutMs: this.env.txTimeoutMs });
       if (result.exitCode === 0) {
         const txId = result.parsed?.transactionId;
