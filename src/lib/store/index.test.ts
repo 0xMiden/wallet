@@ -245,6 +245,62 @@ describe('useWalletStore', () => {
     });
   });
 
+  describe('spending-limit actions', () => {
+    const draft = {
+      accountId: 'account-a',
+      faucetId: 'faucet-a',
+      dailyLimit: 90n,
+      asset: { symbol: 'MIDEN', decimals: 8 }
+    };
+
+    it('lists configurations through a serializable transport response', async () => {
+      mockRequest.mockResolvedValueOnce({
+        type: WalletMessageType.GetSpendingLimitsResponse,
+        configurations: [
+          {
+            ...draft,
+            dailyLimit: '90',
+            revision: 'revision-1',
+            createdAt: 1,
+            updatedAt: 2
+          }
+        ]
+      });
+
+      await expect(useWalletStore.getState().listSpendingLimits('account-a')).resolves.toEqual([
+        { ...draft, revision: 'revision-1', createdAt: 1, updatedAt: 2 }
+      ]);
+      expect(mockRequest).toHaveBeenCalledWith({
+        type: WalletMessageType.GetSpendingLimitsRequest,
+        accountId: 'account-a'
+      });
+    });
+
+    it('serializes bigint limits and parses the saved response', async () => {
+      mockRequest.mockResolvedValueOnce({
+        type: WalletMessageType.SaveSpendingLimitResponse,
+        configuration: {
+          ...draft,
+          dailyLimit: '90',
+          revision: 'revision-2',
+          createdAt: 1,
+          updatedAt: 2
+        }
+      });
+
+      await expect(useWalletStore.getState().saveSpendingLimit(draft, 'revision-1', false)).resolves.toMatchObject({
+        dailyLimit: 90n,
+        revision: 'revision-2'
+      });
+      expect(mockRequest).toHaveBeenCalledWith({
+        type: WalletMessageType.SaveSpendingLimitRequest,
+        draft: { ...draft, dailyLimit: '90' },
+        observedRevision: 'revision-1',
+        strictlyAuthenticated: false
+      });
+    });
+  });
+
   describe('setAssetsMetadata', () => {
     it('merges new metadata with existing', () => {
       useWalletStore.setState({

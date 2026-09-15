@@ -11,6 +11,20 @@ export interface SpendingLimitPeriods {
   weeklyLimit?: bigint;
 }
 
+export interface SpendingLimitDraft extends SpendingLimitPeriods {
+  accountId: string;
+  faucetId: string;
+  asset: SpendingLimitAssetSnapshot;
+}
+
+export interface SerializedSpendingLimitDraft {
+  accountId: string;
+  faucetId: string;
+  dailyLimit?: string;
+  weeklyLimit?: string;
+  asset: SpendingLimitAssetSnapshot;
+}
+
 export interface SpendingLimitConfiguration extends SpendingLimitPeriods {
   accountId: string;
   faucetId: string;
@@ -168,6 +182,34 @@ export const parsePersistedSpendingLimit = (value: unknown): SpendingLimitConfig
   if (dailyLimit === undefined && weeklyLimit === undefined) throw unavailable('no period is configured');
   return {
     ...common,
+    ...(dailyLimit !== undefined && { dailyLimit }),
+    ...(weeklyLimit !== undefined && { weeklyLimit })
+  };
+};
+
+export const toSerializedSpendingLimitDraft = (value: SpendingLimitDraft): SerializedSpendingLimitDraft => {
+  const accountId = requiredString(value.accountId, 'accountId');
+  const faucetId = requiredString(value.faucetId, 'faucetId');
+  const asset = assetSnapshot(value.asset);
+  const dailyLimit = domainAmount(value.dailyLimit, 'dailyLimit');
+  const weeklyLimit = domainAmount(value.weeklyLimit, 'weeklyLimit');
+  return {
+    accountId,
+    faucetId,
+    asset,
+    ...(dailyLimit !== undefined && { dailyLimit: dailyLimit.toString() }),
+    ...(weeklyLimit !== undefined && { weeklyLimit: weeklyLimit.toString() })
+  };
+};
+
+export const parseSerializedSpendingLimitDraft = (value: unknown): SpendingLimitDraft => {
+  if (!isRecord(value)) throw unavailable('draft is invalid');
+  const dailyLimit = persistedAmount(Reflect.get(value, 'dailyLimit'), 'dailyLimit');
+  const weeklyLimit = persistedAmount(Reflect.get(value, 'weeklyLimit'), 'weeklyLimit');
+  return {
+    accountId: requiredString(Reflect.get(value, 'accountId'), 'accountId'),
+    faucetId: requiredString(Reflect.get(value, 'faucetId'), 'faucetId'),
+    asset: assetSnapshot(Reflect.get(value, 'asset')),
     ...(dailyLimit !== undefined && { dailyLimit }),
     ...(weeklyLimit !== undefined && { weeklyLimit })
   };

@@ -1,4 +1,5 @@
 import { MidenDAppMessageType } from 'lib/adapter/types';
+import { spendingLimits } from 'lib/miden/repo';
 import { WalletStatus } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
@@ -34,7 +35,9 @@ import {
   importAccount,
   importMnemonicAccount,
   importFundraiserAccount,
-  importWatchOnlyAccount
+  importWatchOnlyAccount,
+  listSpendingLimits,
+  saveSpendingLimit
 } from './actions';
 
 // Create mock vault instance
@@ -630,6 +633,43 @@ describe('actions', () => {
 
       expect(mockVault.updateSettings).toHaveBeenCalledWith({ contacts: [] });
       expect(mockSettingsUpdated).toHaveBeenCalledWith(newSettings);
+    });
+  });
+
+  describe('spending limits', () => {
+    it('validates and serializes configuration at the action boundary', async () => {
+      await expect(
+        saveSpendingLimit(
+          {
+            accountId: 'account-a',
+            faucetId: 'faucet-a',
+            dailyLimit: '90',
+            asset: { symbol: 'MIDEN', decimals: 8 }
+          },
+          undefined,
+          true
+        )
+      ).resolves.toMatchObject({ dailyLimit: '90', revision: expect.any(String) });
+
+      await expect(listSpendingLimits('account-a')).resolves.toEqual([
+        expect.objectContaining({ accountId: 'account-a', faucetId: 'faucet-a', dailyLimit: '90' })
+      ]);
+    });
+
+    it('rejects a non-canonical transport amount without writing it', async () => {
+      await expect(
+        saveSpendingLimit(
+          {
+            accountId: 'account-a',
+            faucetId: 'faucet-a',
+            dailyLimit: '090',
+            asset: { symbol: 'MIDEN', decimals: 8 }
+          },
+          undefined,
+          true
+        )
+      ).rejects.toThrow(/policy is unavailable/i);
+      await expect(spendingLimits.count()).resolves.toBe(0);
     });
   });
 

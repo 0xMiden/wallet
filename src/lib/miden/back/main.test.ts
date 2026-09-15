@@ -188,6 +188,8 @@ jest.mock('lib/miden/back/actions', () => ({
   editAccount: jest.fn(),
   importAccount: jest.fn(),
   updateSettings: jest.fn(),
+  listSpendingLimits: jest.fn(),
+  saveSpendingLimit: jest.fn(),
   signTransaction: jest.fn(),
   getAuthSecretKey: jest.fn(),
   getAllDAppSessions: jest.fn(),
@@ -233,6 +235,8 @@ beforeEach(async () => {
   Actions.getAllDAppSessions.mockResolvedValue({});
   Actions.removeDAppSession.mockResolvedValue({});
   Actions.processDApp.mockResolvedValue({ payload: 'response' });
+  Actions.listSpendingLimits.mockResolvedValue([{ revision: 'revision-1' }]);
+  Actions.saveSpendingLimit.mockResolvedValue({ revision: 'revision-2' });
   mockClient.importNoteBytes.mockResolvedValue('note-id-1');
   mockClient.syncState.mockResolvedValue(undefined);
   mockClient.exportNote.mockResolvedValue(new Uint8Array([1, 2, 3]));
@@ -603,6 +607,34 @@ describe('processRequest', () => {
       settings: { fiat: 'USD' }
     });
     expect(Actions.updateSettings).toHaveBeenCalledWith({ fiat: 'USD' });
+  });
+
+  it('dispatches spending-limit list and save requests', async () => {
+    const draft = {
+      accountId: 'account-a',
+      faucetId: 'faucet-a',
+      dailyLimit: '90',
+      asset: { symbol: 'MIDEN', decimals: 8 }
+    };
+
+    const listed = await dispatch({ type: WalletMessageType.GetSpendingLimitsRequest, accountId: 'account-a' });
+    const saved = await dispatch({
+      type: WalletMessageType.SaveSpendingLimitRequest,
+      draft,
+      observedRevision: 'revision-1',
+      strictlyAuthenticated: false
+    });
+
+    expect(Actions.listSpendingLimits).toHaveBeenCalledWith('account-a');
+    expect(Actions.saveSpendingLimit).toHaveBeenCalledWith(draft, 'revision-1', false);
+    expect(listed).toEqual({
+      type: WalletMessageType.GetSpendingLimitsResponse,
+      configurations: [{ revision: 'revision-1' }]
+    });
+    expect(saved).toEqual({
+      type: WalletMessageType.SaveSpendingLimitResponse,
+      configuration: { revision: 'revision-2' }
+    });
   });
 
   it('SignTransactionRequest returns hex signature', async () => {

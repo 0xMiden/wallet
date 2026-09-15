@@ -21,6 +21,26 @@ jest.mock('lib/miden/back/actions', () => ({
   editAccount: jest.fn().mockResolvedValue(undefined),
   importAccount: jest.fn().mockResolvedValue('mtst1imported-pk'),
   updateSettings: jest.fn().mockResolvedValue(undefined),
+  listSpendingLimits: jest.fn().mockResolvedValue([
+    {
+      accountId: 'account-a',
+      faucetId: 'faucet-a',
+      dailyLimit: '100',
+      asset: { symbol: 'MIDEN', decimals: 8 },
+      revision: 'revision-1',
+      createdAt: 1,
+      updatedAt: 1
+    }
+  ]),
+  saveSpendingLimit: jest.fn().mockResolvedValue({
+    accountId: 'account-a',
+    faucetId: 'faucet-a',
+    dailyLimit: '90',
+    asset: { symbol: 'MIDEN', decimals: 8 },
+    revision: 'revision-2',
+    createdAt: 1,
+    updatedAt: 2
+  }),
   signTransaction: jest.fn().mockResolvedValue('signature'),
   signWord: jest.fn().mockResolvedValue('word-signature'),
   getAuthSecretKey: jest.fn().mockResolvedValue('secret-key'),
@@ -236,6 +256,34 @@ describe('MobileIntercomAdapter', () => {
 
       expect(Actions.updateSettings).toHaveBeenCalledWith(settings);
       expect(response).toEqual({ type: WalletMessageType.UpdateSettingsResponse });
+    });
+
+    it('handles spending-limit list and save requests', async () => {
+      const draft = {
+        accountId: 'account-a',
+        faucetId: 'faucet-a',
+        dailyLimit: '90',
+        asset: { symbol: 'MIDEN', decimals: 8 }
+      };
+
+      const listed = await adapter.request({
+        type: WalletMessageType.GetSpendingLimitsRequest,
+        accountId: 'account-a'
+      });
+      const saved = await adapter.request({
+        type: WalletMessageType.SaveSpendingLimitRequest,
+        draft,
+        observedRevision: 'revision-1',
+        strictlyAuthenticated: false
+      });
+
+      expect(Actions.listSpendingLimits).toHaveBeenCalledWith('account-a');
+      expect(Actions.saveSpendingLimit).toHaveBeenCalledWith(draft, 'revision-1', false);
+      expect(listed).toMatchObject({ type: WalletMessageType.GetSpendingLimitsResponse, configurations: [{}] });
+      expect(saved).toMatchObject({
+        type: WalletMessageType.SaveSpendingLimitResponse,
+        configuration: { revision: 'revision-2' }
+      });
     });
 
     it('handles SignTransactionRequest', async () => {

@@ -124,6 +124,20 @@ export async function processInProcessRequest(req: WalletRequest, label: string)
         type: WalletMessageType.UpdateSettingsResponse
       };
 
+    case WalletMessageType.GetSpendingLimitsRequest:
+      return {
+        type: WalletMessageType.GetSpendingLimitsResponse,
+        configurations: await Actions.listSpendingLimits(req.accountId)
+      };
+
+    case WalletMessageType.SaveSpendingLimitRequest: {
+      const configuration = await Actions.saveSpendingLimit(req.draft, req.observedRevision, req.strictlyAuthenticated);
+      return {
+        type: WalletMessageType.SaveSpendingLimitResponse,
+        ...(configuration !== undefined && { configuration })
+      };
+    }
+
     case WalletMessageType.SignTransactionRequest: {
       const signature = await Actions.signTransaction(req.publicKey, req.signingInputs);
       return {

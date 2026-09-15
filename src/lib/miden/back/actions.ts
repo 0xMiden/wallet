@@ -24,6 +24,17 @@ import {
 } from 'lib/miden/back/store';
 import { Vault } from 'lib/miden/back/vault';
 import { installRealmKeystore, withWasmClientLock } from 'lib/miden/sdk/miden-client';
+import {
+  listSpendingLimits as listStoredSpendingLimits,
+  saveSpendingLimit as saveStoredSpendingLimit
+} from 'lib/miden/spending-limits/config';
+import {
+  PersistedSpendingLimit,
+  SerializedSpendingLimitDraft,
+  SpendingLimitPolicyUnavailableError,
+  parseSerializedSpendingLimitDraft,
+  toPersistedSpendingLimit
+} from 'lib/miden/spending-limits/types';
 import { buildSdkSignCallback } from 'lib/miden/transaction/sign-callback';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
 import {
@@ -399,6 +410,32 @@ export function updateSettings(settings: Partial<WalletSettings>) {
     // createCustomNetworksSnapshot(updatedSettings);
     settingsUpdated(updatedSettings);
   });
+}
+
+const serializeSpendingLimit = (
+  configuration: Awaited<ReturnType<typeof listStoredSpendingLimits>>[number]
+): PersistedSpendingLimit => {
+  const persisted = toPersistedSpendingLimit(configuration);
+  if (persisted === undefined) {
+    throw new SpendingLimitPolicyUnavailableError('A stored spending limit has no configured period');
+  }
+  return persisted;
+};
+
+export async function listSpendingLimits(accountId: string): Promise<PersistedSpendingLimit[]> {
+  return (await listStoredSpendingLimits(accountId)).map(serializeSpendingLimit);
+}
+
+export async function saveSpendingLimit(
+  serializedDraft: SerializedSpendingLimitDraft,
+  observedRevision: string | undefined,
+  strictlyAuthenticated: boolean
+): Promise<PersistedSpendingLimit | undefined> {
+  const saved = await saveStoredSpendingLimit(parseSerializedSpendingLimitDraft(serializedDraft), {
+    observedRevision,
+    strictlyAuthenticated
+  });
+  return saved === undefined ? undefined : serializeSpendingLimit(saved);
 }
 
 export function signTransaction(publicKey: string, signingInputs: string) {

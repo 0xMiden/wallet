@@ -23,6 +23,18 @@ jest.mock('lib/miden/back/actions', () => ({
   editAccount: jest.fn().mockResolvedValue(undefined),
   importAccount: jest.fn().mockResolvedValue('mtst1imported-pk'),
   updateSettings: jest.fn().mockResolvedValue(undefined),
+  listSpendingLimits: jest.fn().mockResolvedValue([
+    {
+      accountId: 'account-a',
+      faucetId: 'faucet-a',
+      dailyLimit: '100',
+      asset: { symbol: 'MIDEN', decimals: 8 },
+      revision: 'revision-1',
+      createdAt: 1,
+      updatedAt: 1
+    }
+  ]),
+  saveSpendingLimit: jest.fn().mockResolvedValue(undefined),
   signTransaction: jest.fn().mockResolvedValue('signature'),
   signWord: jest.fn().mockResolvedValue('word-signature'),
   revealHotKey: jest.fn().mockResolvedValue('hot-private-key'),
@@ -307,6 +319,30 @@ describe('DesktopIntercomAdapter', () => {
 
       expect(Actions.updateSettings).toHaveBeenCalledWith(settings);
       expect(response).toEqual({ type: WalletMessageType.UpdateSettingsResponse });
+    });
+
+    it('handles spending-limit list and disable requests', async () => {
+      const draft = {
+        accountId: 'account-a',
+        faucetId: 'faucet-a',
+        asset: { symbol: 'MIDEN', decimals: 8 }
+      };
+
+      const listed = await adapter.request({
+        type: WalletMessageType.GetSpendingLimitsRequest,
+        accountId: 'account-a'
+      });
+      const saved = await adapter.request({
+        type: WalletMessageType.SaveSpendingLimitRequest,
+        draft,
+        observedRevision: 'revision-1',
+        strictlyAuthenticated: true
+      });
+
+      expect(Actions.listSpendingLimits).toHaveBeenCalledWith('account-a');
+      expect(Actions.saveSpendingLimit).toHaveBeenCalledWith(draft, 'revision-1', true);
+      expect(listed).toMatchObject({ type: WalletMessageType.GetSpendingLimitsResponse, configurations: [{}] });
+      expect(saved).toEqual({ type: WalletMessageType.SaveSpendingLimitResponse });
     });
 
     it('handles SignTransactionRequest', async () => {
