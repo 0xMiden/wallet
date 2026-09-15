@@ -142,3 +142,18 @@ Gates: e2e-bridge-in.yml (IN, iOS) + e2e-bridge.yml (OUT, Chrome), both post-mer
 - WALLETCONNECT_PROJECT_ID is NOT set anywhere (repo/CI/release) -> builds fall back to b54ef53.
   Fragile: any build not manually setting it ships the fallback. Verify the release process sets it.
 - Relay rate-limits bursts of connections on the same projectId/IP (intermittent 403).
+
+# Issue #646 - spending limits
+
+- [x] Record approved product decisions and inspect every outgoing initiation path.
+- [x] Write the implementation design and security invariants.
+- [ ] Obtain design approval, then write the TDD implementation plan.
+- [ ] Implement the data model, atomic policy, and one-time authorization.
+- [ ] Implement strict authentication and Security settings UI.
+- [ ] Integrate send, swap, bridge, Earn, and dApp flows.
+- [ ] Run visual checks, full local gates, Review Council, and fix every actionable finding.
+- [ ] Push a PR with Closes #646, babysit CI, admin squash merge, and verify closure.
+
+## Review
+
+Pending implementation and verification.
