@@ -820,8 +820,8 @@
     "englishSource": "I understand this key cannot be rotated or revoked."
   },
   "encryptedFileImportedAccountsOmitted": {
-    "message": "İçe aktarılan hesaplar ($importedCount$) bu dosyaya dahil edilmeyecektir. Bunları yedeklemek için, her bir özel anahtarı Ayarlar → Özel Anahtarı Göster seçeneğinden tek tek dışa aktarın.",
-    "englishSource": "Imported accounts ($importedCount$) will not be included in this file. To back them up, export each private key individually from Settings → Reveal Private Key.",
+    "message": "Bu eski cüzdan dosyasında bulunmayan içe aktarılmış hesaplar: $importedCount$. Bunları özel anahtar yedeklerinden ayrı ayrı geri yükleyin.",
+    "englishSource": "Imported accounts missing from this older wallet file: $importedCount$. Restore them separately from their private key backups.",
     "placeholders": {
       "importedcount": {
         "content": "$1"

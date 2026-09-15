@@ -158,7 +158,7 @@
   "privateKeyRevealWarningTitle": "在继续之前",
   "privateKeyRevealWarningBody": "您的私钥赋予持有者对该账户的完全控制权。Miden 账户无法轮换密钥，因此一旦密钥泄露，该账户将永久失效。",
   "privateKeyRevealAcknowledge": "我明白该密钥无法被旋转或撤销。",
-  "encryptedFileImportedAccountsOmitted": "导入的账户（$importedCount$）不会包含在此文件中。若要备份这些账户，请通过“设置”→“显示私钥”分别导出每个私钥。",
+  "encryptedFileImportedAccountsOmitted": "此旧钱包文件中缺少的已导入账户：$importedCount$。请分别使用各自的私钥备份进行恢复。",
   "editAccountName": "编辑账户名称",
   "delegate": "代表",
   "receive": "接收",

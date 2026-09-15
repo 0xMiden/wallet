@@ -9,13 +9,10 @@ import ExportFileComplete, { ExportFileCompleteProps } from './ExportFileComplet
 // ---------------------------------------------------------------------------
 
 // `react-i18next` pulls in the full i18n runtime; stub `useTranslation` so
-// `t(key)` echoes the key back. For the interpolated "omitted accounts"
-// message we fold the `importedCount` into the string so the test can assert
-// the number reached the template.
+// `t(key)` echoes the key back.
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (key: string, opts?: { importedCount?: string }) =>
-      opts?.importedCount !== undefined ? `${key}:${opts.importedCount}` : key
+    t: (key: string) => key
   })
 }));
 
@@ -33,16 +30,17 @@ jest.mock('components/Button', () => ({
   ButtonVariant: { Primary: 'Primary' }
 }));
 
-// `useMidenContext` — the component reads `revealMnemonic` and `accounts`.
-// Both are mutated per-test; the factory reads the mutable bindings at call
-// time so each render sees the current values.
+// Keep the legacy fields until the RED run proves the old exporter still uses
+// them. The version 2 implementation must use only the authenticated snapshot.
 const mockRevealMnemonic = jest.fn();
 let mockAccounts: Array<{ name: string; hdIndex: number }> = [];
+const mockExportWalletBackupMaterial = jest.fn();
 
 jest.mock('lib/miden/front', () => ({
   useMidenContext: () => ({
     revealMnemonic: mockRevealMnemonic,
-    accounts: mockAccounts
+    accounts: mockAccounts,
+    exportWalletBackupMaterial: mockExportWalletBackupMaterial
   })
 }));
 
@@ -118,6 +116,7 @@ const renderComponent = (overrides: Partial<ExportFileCompleteProps> = {}) =>
 describe('ExportFileComplete', () => {
   let clickSpy: jest.SpyInstance;
   let clickedAnchor: HTMLAnchorElement | null;
+  let createdBlob: Blob | null;
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -127,6 +126,12 @@ describe('ExportFileComplete', () => {
       { name: 'HD 1', hdIndex: 1 }
     ];
 
+    mockExportWalletBackupMaterial.mockResolvedValue({
+      seedPhrase: 'seed words twelve',
+      midenClientDbContent: 'MIDEN_DB_DUMP',
+      accounts: mockAccounts,
+      importedAccounts: []
+    });
     mockRevealMnemonic.mockResolvedValue('seed words twelve');
     mockGenerateSalt.mockReturnValue(new Uint8Array([1, 2, 3]));
     mockGenerateKey.mockResolvedValue('PASS_KEY');
@@ -142,7 +147,11 @@ describe('ExportFileComplete', () => {
 
     // jsdom doesn't implement the object-URL APIs; stub them so the desktop
     // download path can run without throwing.
-    (global.URL.createObjectURL as unknown) = jest.fn(() => 'blob:mock-url');
+    createdBlob = null;
+    (global.URL.createObjectURL as unknown) = jest.fn((blob: Blob) => {
+      createdBlob = blob;
+      return 'blob:mock-url';
+    });
     (global.URL.revokeObjectURL as unknown) = jest.fn();
 
     // Anchor.click() would try to navigate in jsdom; capture the anchor and
@@ -184,7 +193,7 @@ describe('ExportFileComplete', () => {
     await screen.findByText('encryptedWalletFileExportedTitle1');
 
     expect(mockEncryptJson).toHaveBeenCalledTimes(1);
-    expect(mockRevealMnemonic).toHaveBeenCalledTimes(1);
+    expect(mockExportWalletBackupMaterial).toHaveBeenCalledTimes(1);
   });
 
   it('renders the success icon, titles, descriptions and the Done button', async () => {
@@ -203,26 +212,26 @@ describe('ExportFileComplete', () => {
     await waitFor(() => expect(mockEncryptJson).toHaveBeenCalled());
   });
 
-  it('does not render the omitted-imported-accounts warning when none are omitted', async () => {
-    renderComponent();
-
-    expect(screen.queryByText(/encryptedFileImportedAccountsOmitted/)).not.toBeInTheDocument();
-
-    await waitFor(() => expect(mockEncryptJson).toHaveBeenCalled());
-  });
-
-  it('renders the omitted-imported-accounts warning with the omitted count', async () => {
+  it('does not render the legacy omission warning for a successful version 2 export', async () => {
     mockAccounts = [
       { name: 'HD 0', hdIndex: 0 },
       { name: 'Imported A', hdIndex: -1 },
       { name: 'Imported B', hdIndex: -1 }
     ];
+    mockExportWalletBackupMaterial.mockResolvedValueOnce({
+      seedPhrase: 'seed words twelve',
+      midenClientDbContent: 'MIDEN_DB_DUMP',
+      accounts: mockAccounts,
+      importedAccounts: [
+        { accountId: 'imported-a', publicKeyCommitment: 'a1b2', authScheme: 'falcon', secretKeyHex: '0102' },
+        { accountId: 'imported-b', publicKeyCommitment: 'c3d4', authScheme: 'ecdsa', secretKeyHex: '0304' }
+      ]
+    });
 
     renderComponent();
     await screen.findByText('encryptedWalletFileExportedTitle1');
 
-    // Two accounts have hdIndex < 0 → the warning surfaces "2".
-    expect(screen.getByText('encryptedFileImportedAccountsOmitted:2')).toBeInTheDocument();
+    expect(screen.queryByText('encryptedFileImportedAccountsOmitted')).not.toBeInTheDocument();
   });
 
   it('invokes onDone when the Done button is clicked', async () => {
@@ -238,47 +247,95 @@ describe('ExportFileComplete', () => {
   // Encryption pipeline (shared by both platforms)
   // -------------------------------------------------------------------------
 
-  it('builds the encrypted payload from db dumps, mnemonic and exportable accounts', async () => {
+  it('builds a complete version 2 payload from one authenticated backend snapshot', async () => {
     mockAccounts = [
       { name: 'HD 0', hdIndex: 0 },
       { name: 'Imported', hdIndex: -1 },
       { name: 'HD 5', hdIndex: 5 }
     ];
+    const importedAccounts = [
+      { accountId: 'imported', publicKeyCommitment: 'a1b2', authScheme: 'falcon' as const, secretKeyHex: '0102' }
+    ];
+    mockExportWalletBackupMaterial.mockResolvedValueOnce({
+      seedPhrase: 'seed words twelve',
+      midenClientDbContent: 'MIDEN_DB_DUMP',
+      accounts: mockAccounts,
+      importedAccounts
+    });
 
     renderComponent();
 
     await waitFor(() => expect(mockEncryptJson).toHaveBeenCalled());
 
-    // WASM db dump comes through the client lock; wallet db + mnemonic through
-    // their own helpers (mnemonic keyed off the wallet password).
-    expect(mockGetMidenClient).toHaveBeenCalledTimes(1);
-    expect(mockMidenClientExportDb).toHaveBeenCalledTimes(1);
+    expect(mockExportWalletBackupMaterial).toHaveBeenCalledWith('wallet-pass');
     expect(mockExportDb).toHaveBeenCalledTimes(1);
-    expect(mockRevealMnemonic).toHaveBeenCalledWith('wallet-pass');
+    expect(mockRevealMnemonic).not.toHaveBeenCalled();
+    expect(mockGetMidenClient).not.toHaveBeenCalled();
 
     // Key derivation: generateKey(filePassword) → deriveKey(passKey, salt).
     expect(mockGenerateKey).toHaveBeenCalledWith('file-pass');
     expect(mockGenerateSalt).toHaveBeenCalledTimes(1);
     expect(mockDeriveKey).toHaveBeenCalledWith('PASS_KEY', new Uint8Array([1, 2, 3]));
 
-    // Imported (hdIndex < 0) accounts are stripped; the count is carried
-    // alongside so the restore side can warn.
     expect(mockEncryptJson).toHaveBeenCalledWith(
       {
+        formatVersion: 2,
         seedPhrase: 'seed words twelve',
         midenClientDbContent: 'MIDEN_DB_DUMP',
         walletDbContent: 'WALLET_DB_DUMP',
-        accounts: [
-          { name: 'HD 0', hdIndex: 0 },
-          { name: 'HD 5', hdIndex: 5 }
-        ],
-        omittedImportedAccountCount: 1
+        accounts: mockAccounts,
+        importedAccounts
       },
       'DERIVED_KEY'
     );
 
     // The password check is encrypted with the constant sentinel + derived key.
     expect(mockEncrypt).toHaveBeenCalledWith('MidenIsAwesome', 'DERIVED_KEY');
+  });
+
+  it('writes an encrypted file that decrypts to the complete version 2 snapshot', async () => {
+    const passworder = jest.requireActual<typeof import('lib/miden/passworder')>('lib/miden/passworder');
+    const importedAccounts = [
+      { accountId: 'imported', publicKeyCommitment: 'a1b2', authScheme: 'falcon' as const, secretKeyHex: '0102' }
+    ];
+    const accounts = [
+      { name: 'HD 0', hdIndex: 0 },
+      { name: 'Imported', hdIndex: -1 }
+    ];
+    mockExportWalletBackupMaterial.mockResolvedValueOnce({
+      seedPhrase: 'seed words twelve',
+      midenClientDbContent: 'MIDEN_DB_DUMP',
+      accounts,
+      importedAccounts
+    });
+    mockGenerateKey.mockImplementation(passworder.generateKey);
+    let derivedKey: CryptoKey | undefined;
+    mockDeriveKey.mockImplementation(async (key: CryptoKey, salt: Uint8Array) => {
+      derivedKey = await passworder.deriveKey(key, salt, 1_000);
+      return derivedKey;
+    });
+    mockEncryptJson.mockImplementation(passworder.encryptJson);
+    mockEncrypt.mockImplementation(passworder.encrypt);
+
+    renderComponent();
+    await waitFor(() => expect(createdBlob).not.toBeNull());
+
+    const fileContent = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.onerror = () => reject(reader.error);
+      reader.readAsText(createdBlob!);
+    });
+    const encryptedFile = JSON.parse(fileContent);
+    const payload = await passworder.decryptJson({ dt: encryptedFile.dt, iv: encryptedFile.iv }, derivedKey!);
+    expect(payload).toEqual({
+      formatVersion: 2,
+      seedPhrase: 'seed words twelve',
+      midenClientDbContent: 'MIDEN_DB_DUMP',
+      walletDbContent: 'WALLET_DB_DUMP',
+      accounts,
+      importedAccounts
+    });
   });
 
   // -------------------------------------------------------------------------
@@ -384,6 +441,23 @@ describe('ExportFileComplete', () => {
     expect(screen.getByTestId('icon')).toHaveTextContent('Close');
     expect(consoleErrorSpy).toHaveBeenCalledWith('Failed to export encrypted wallet file:', error);
 
+    consoleErrorSpy.mockRestore();
+  });
+
+  it('creates no download or share result when the authenticated snapshot fails', async () => {
+    const message = 'Imported Account could not be backed up. Repair or remove this account and try again.';
+    mockExportWalletBackupMaterial.mockRejectedValueOnce(new Error(message));
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    renderComponent();
+    await screen.findByText('encryptedWalletFileExportFailedTitle');
+
+    expect(screen.getByText(message)).toBeInTheDocument();
+    expect(mockExportDb).not.toHaveBeenCalled();
+    expect(global.URL.createObjectURL).not.toHaveBeenCalled();
+    expect(mockWriteFile).not.toHaveBeenCalled();
+    expect(mockShare).not.toHaveBeenCalled();
+    expect(clickSpy).not.toHaveBeenCalled();
     consoleErrorSpy.mockRestore();
   });
 
@@ -534,13 +608,13 @@ describe('ExportFileComplete', () => {
   });
 
   // -------------------------------------------------------------------------
-  // Branch: undefined walletPassword is forwarded verbatim to revealMnemonic
+  // Branch: undefined walletPassword is forwarded verbatim to the snapshot
   // -------------------------------------------------------------------------
 
-  it('forwards an undefined walletPassword to revealMnemonic', async () => {
+  it('forwards an undefined walletPassword to exportWalletBackupMaterial', async () => {
     renderComponent({ walletPassword: undefined });
 
-    await waitFor(() => expect(mockRevealMnemonic).toHaveBeenCalled());
-    expect(mockRevealMnemonic).toHaveBeenCalledWith(undefined);
+    await waitFor(() => expect(mockExportWalletBackupMaterial).toHaveBeenCalled());
+    expect(mockExportWalletBackupMaterial).toHaveBeenCalledWith(undefined);
   });
 });

@@ -820,8 +820,8 @@
     "englishSource": "I understand this key cannot be rotated or revoked."
   },
   "encryptedFileImportedAccountsOmitted": {
-    "message": "匯入的帳戶（$importedCount$）將不會包含在此檔案中。若要備份這些帳戶，請從「設定」→「顯示私密金鑰」中，分別匯出每個私密金鑰。",
-    "englishSource": "Imported accounts ($importedCount$) will not be included in this file. To back them up, export each private key individually from Settings → Reveal Private Key.",
+    "message": "此舊錢包檔案中缺少的已匯入帳戶：$importedCount$。請分別使用各自的私密金鑰備份進行復原。",
+    "englishSource": "Imported accounts missing from this older wallet file: $importedCount$. Restore them separately from their private key backups.",
     "placeholders": {
       "importedcount": {
         "content": "$1"

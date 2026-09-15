@@ -158,7 +158,7 @@
   "privateKeyRevealWarningTitle": "Devam etmeden önce",
   "privateKeyRevealWarningBody": "Özel anahtarınız, bu hesabın tam kontrolünü elinde bulunduran kişiye verir. Miden hesaplarında anahtar değiştirme özelliği bulunmadığından, sızdırılan bir anahtar hesabın güvenliğini kalıcı olarak tehlikeye atar.",
   "privateKeyRevealAcknowledge": "Anladığım kadarıyla bu anahtarın değiştirilmesi veya iptal edilmesi mümkün değil.",
-  "encryptedFileImportedAccountsOmitted": "İçe aktarılan hesaplar ($importedCount$) bu dosyaya dahil edilmeyecektir. Bunları yedeklemek için, her bir özel anahtarı Ayarlar → Özel Anahtarı Göster seçeneğinden tek tek dışa aktarın.",
+  "encryptedFileImportedAccountsOmitted": "Bu eski cüzdan dosyasında bulunmayan içe aktarılmış hesaplar: $importedCount$. Bunları özel anahtar yedeklerinden ayrı ayrı geri yükleyin.",
   "editAccountName": "Hesap Adını Düzenle",
   "delegate": "Temsilci",
   "receive": "Al",

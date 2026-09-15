@@ -158,7 +158,7 @@
   "privateKeyRevealWarningTitle": "Avant de continuer",
   "privateKeyRevealWarningBody": "Votre clé privée confère à son détenteur le contrôle total de ce compte. Les comptes Miden ne permettent pas de renouveler les clés ; par conséquent, la divulgation d'une clé compromet définitivement le compte.",
   "privateKeyRevealAcknowledge": "Je comprends que cette clé ne peut être ni modifiée ni révoquée.",
-  "encryptedFileImportedAccountsOmitted": "Les comptes importés ($importedCount$) ne seront pas inclus dans ce fichier. Pour les sauvegarder, exportez chaque clé privée individuellement depuis Paramètres → Afficher la clé privée.",
+  "encryptedFileImportedAccountsOmitted": "Comptes importés absents de cet ancien fichier de portefeuille : $importedCount$. Restaurez-les séparément à partir de leurs sauvegardes de clés privées.",
   "editAccountName": "Modifier le nom du compte",
   "delegate": "Délégué",
   "receive": "Recevoir",

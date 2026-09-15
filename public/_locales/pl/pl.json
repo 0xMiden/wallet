@@ -158,7 +158,7 @@
   "privateKeyRevealWarningTitle": "Zanim przejdziesz dalej",
   "privateKeyRevealWarningBody": "Klucz prywatny zapewnia pełną kontrolę nad tym kontem osobie, która go posiada. Konta Miden nie obsługują rotacji kluczy, więc wyciek klucza powoduje trwałe naruszenie bezpieczeństwa konta.",
   "privateKeyRevealAcknowledge": "Rozumiem, że tego klucza nie można zmienić ani unieważnić.",
-  "encryptedFileImportedAccountsOmitted": "Konta zaimportowane ($importedCount$) nie zostaną uwzględnione w tym pliku. Aby wykonać ich kopię zapasową, należy wyeksportować każdy klucz prywatny z osobna, wybierając opcję Ustawienia → Pokaż klucz prywatny.",
+  "encryptedFileImportedAccountsOmitted": "Zaimportowane konta, których brakuje w tym starszym pliku portfela: $importedCount$. Przywróć je osobno z kopii zapasowych kluczy prywatnych.",
   "editAccountName": "Edytuj nazwę konta",
   "delegate": "Delegat",
   "receive": "Otrzymaj",

@@ -820,8 +820,8 @@
     "englishSource": "I understand this key cannot be rotated or revoked."
   },
   "encryptedFileImportedAccountsOmitted": {
-    "message": "インポートされたアカウント（$importedCount$）は、このファイルには含まれません。これらをバックアップするには、「設定」→「秘密鍵を表示」から、各秘密鍵を個別にエクスポートしてください。",
-    "englishSource": "Imported accounts ($importedCount$) will not be included in this file. To back them up, export each private key individually from Settings → Reveal Private Key.",
+    "message": "この古いウォレットファイルに含まれていないインポート済みアカウント: $importedCount$。秘密鍵のバックアップから個別に復元してください。",
+    "englishSource": "Imported accounts missing from this older wallet file: $importedCount$. Restore them separately from their private key backups.",
     "placeholders": {
       "importedcount": {
         "content": "$1"

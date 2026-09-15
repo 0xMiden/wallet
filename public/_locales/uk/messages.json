@@ -820,8 +820,8 @@
     "englishSource": "I understand this key cannot be rotated or revoked."
   },
   "encryptedFileImportedAccountsOmitted": {
-    "message": "Імпортовані облікові записи ($importedCount$) не будуть включені до цього файлу. Щоб створити їх резервну копію, експортуйте кожен приватний ключ окремо в меню «Налаштування» → «Показати приватний ключ».",
-    "englishSource": "Imported accounts ($importedCount$) will not be included in this file. To back them up, export each private key individually from Settings → Reveal Private Key.",
+    "message": "Імпортовані облікові записи, відсутні в цьому старому файлі гаманця: $importedCount$. Відновіть їх окремо з резервних копій приватних ключів.",
+    "englishSource": "Imported accounts missing from this older wallet file: $importedCount$. Restore them separately from their private key backups.",
     "placeholders": {
       "importedcount": {
         "content": "$1"

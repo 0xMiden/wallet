@@ -820,8 +820,8 @@
     "englishSource": "I understand this key cannot be rotated or revoked."
   },
   "encryptedFileImportedAccountsOmitted": {
-    "message": "Konta zaimportowane ($importedCount$) nie zostaną uwzględnione w tym pliku. Aby wykonać ich kopię zapasową, należy wyeksportować każdy klucz prywatny z osobna, wybierając opcję Ustawienia → Pokaż klucz prywatny.",
-    "englishSource": "Imported accounts ($importedCount$) will not be included in this file. To back them up, export each private key individually from Settings → Reveal Private Key.",
+    "message": "Zaimportowane konta, których brakuje w tym starszym pliku portfela: $importedCount$. Przywróć je osobno z kopii zapasowych kluczy prywatnych.",
+    "englishSource": "Imported accounts missing from this older wallet file: $importedCount$. Restore them separately from their private key backups.",
     "placeholders": {
       "importedcount": {
         "content": "$1"

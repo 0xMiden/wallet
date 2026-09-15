@@ -158,7 +158,7 @@
   "privateKeyRevealWarningTitle": "在繼續之前",
   "privateKeyRevealWarningBody": "您的私鑰賦予持有者對此帳戶的完全控制權。Miden 帳戶無法輪替私鑰，因此一旦私鑰外洩，該帳戶將永久遭到入侵。",
   "privateKeyRevealAcknowledge": "我明白這把金鑰無法被旋轉或撤銷。",
-  "encryptedFileImportedAccountsOmitted": "匯入的帳戶（$importedCount$）將不會包含在此檔案中。若要備份這些帳戶，請從「設定」→「顯示私密金鑰」中，分別匯出每個私密金鑰。",
+  "encryptedFileImportedAccountsOmitted": "此舊錢包檔案中缺少的已匯入帳戶：$importedCount$。請分別使用各自的私密金鑰備份進行復原。",
   "editAccountName": "編輯帳號名稱",
   "delegate": "代表",
   "receive": "接收",

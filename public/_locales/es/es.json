@@ -158,7 +158,7 @@
   "privateKeyRevealWarningTitle": "Antes de continuar",
   "privateKeyRevealWarningBody": "Tu clave privada otorga el control total de esta cuenta a quienquiera que la posea. Las cuentas de Miden no permiten la rotación de claves, por lo que una fuga de la clave compromete la cuenta de forma permanente.",
   "privateKeyRevealAcknowledge": "Entiendo que esta clave no se puede modificar ni revocar.",
-  "encryptedFileImportedAccountsOmitted": "Las cuentas importadas ($importedCount$) no se incluirán en este archivo. Para hacer una copia de seguridad de ellas, exporta cada clave privada por separado desde «Configuración» → «Mostrar clave privada».",
+  "encryptedFileImportedAccountsOmitted": "Cuentas importadas que faltan en este archivo de cartera antiguo: $importedCount$. Restáuralas por separado desde sus copias de seguridad de claves privadas.",
   "editAccountName": "Editar nombre de la cuenta",
   "delegate": "Delegado",
   "receive": "Recibir",

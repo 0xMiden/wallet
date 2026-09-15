@@ -158,7 +158,7 @@
   "privateKeyRevealWarningTitle": "先に進む前に",
   "privateKeyRevealWarningBody": "秘密鍵を所持している者は、このアカウントを完全に管理することができます。Midenアカウントでは鍵のローテーションができないため、鍵が漏洩するとアカウントは永久に危険にさらされます。",
   "privateKeyRevealAcknowledge": "この鍵は変更も取り消しもできないと理解しています。",
-  "encryptedFileImportedAccountsOmitted": "インポートされたアカウント（$importedCount$）は、このファイルには含まれません。これらをバックアップするには、「設定」→「秘密鍵を表示」から、各秘密鍵を個別にエクスポートしてください。",
+  "encryptedFileImportedAccountsOmitted": "この古いウォレットファイルに含まれていないインポート済みアカウント: $importedCount$。秘密鍵のバックアップから個別に復元してください。",
   "editAccountName": "アカウント名の編集",
   "delegate": "委任者",
   "receive": "受信",
