@@ -4666,5 +4666,41 @@
   "walletSetupDidNotComplete": {
     "message": "Twój portfel został utworzony, ale nie zakończył procesu uruchamiania. Sprawdź połączenie i spróbuj ponownie.",
     "englishSource": "Your wallet was created but did not finish starting up. Check your connection and try again."
-  }
+  },
+  "spendingLimits": { "message": "Limity wydatków", "englishSource": "Spending limits" },
+  "spendingLimitDaily": { "message": "Kroczący limit 24-godzinny", "englishSource": "Rolling 24-hour limit" },
+  "spendingLimitWeekly": { "message": "Kroczący limit 7-dniowy", "englishSource": "Rolling 7-day limit" },
+  "spendingLimitUnknownDecimals": {
+    "message": "Limity będą dostępne po ustaleniu metadanych miejsc dziesiętnych tego zasobu.",
+    "englishSource": "Limits are unavailable until this asset's decimal metadata is resolved."
+  },
+  "spendingLimitAuthenticationReason": {
+    "message": "Uwierzytelnij się, aby zastosować zmianę osłabiającą ochronę tego limitu wydatków.",
+    "englishSource": "Authenticate to apply a change that weakens this spending limit."
+  },
+  "spendingLimitLoadFailed": {
+    "message": "Nie udało się wczytać limitów wydatków. Spróbuj ponownie.",
+    "englishSource": "Spending limits could not be loaded. Try again."
+  },
+  "spendingLimitInvalidAmount": {
+    "message": "Wprowadź dodatnią kwotę z liczbą miejsc dziesiętnych nie większą niż obsługiwana przez ten zasób.",
+    "englishSource": "Enter a positive amount with no more decimal places than this asset supports."
+  },
+  "spendingLimitSaveFailed": {
+    "message": "Nie udało się zapisać tego limitu wydatków. Spróbuj ponownie.",
+    "englishSource": "This spending limit could not be saved. Try again."
+  },
+  "spendingLimitLocalDisclosure": {
+    "message": "Limity i historia wydatków są przechowywane tylko w tej instalacji. Zresetowanie danych aplikacji lub ponowna instalacja portfela je usuwa.",
+    "englishSource": "Limits and spending history are stored only on this installation. Resetting app data or reinstalling the wallet removes them."
+  },
+  "spendingLimitNotOnChain": {
+    "message": "Te limity są lokalną kontrolą bezpieczeństwa, a nie ograniczeniem on-chain. Każda osoba z bezpośrednim dostępem do kluczy może je ominąć.",
+    "englishSource": "These limits are a local safety check, not an on-chain restriction. Anyone with direct access to your keys can bypass them."
+  },
+  "spendingLimitNoAssets": {
+    "message": "Brak zasobów dostępnych do skonfigurowania.",
+    "englishSource": "No assets are available to configure."
+  },
+  "spendingLimitSave": { "message": "Zapisz", "englishSource": "Save" }
 }

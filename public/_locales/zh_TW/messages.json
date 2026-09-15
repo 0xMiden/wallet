@@ -4666,5 +4666,41 @@
   "walletSetupDidNotComplete": {
     "message": "您的錢包已建立，但尚未完成啟動。請檢查網路連線並重新嘗試。",
     "englishSource": "Your wallet was created but did not finish starting up. Check your connection and try again."
-  }
+  },
+  "spendingLimits": { "message": "支出限額", "englishSource": "Spending limits" },
+  "spendingLimitDaily": { "message": "滾動 24 小時限額", "englishSource": "Rolling 24-hour limit" },
+  "spendingLimitWeekly": { "message": "滾動 7 天限額", "englishSource": "Rolling 7-day limit" },
+  "spendingLimitUnknownDecimals": {
+    "message": "在解析此資產的小數位元資料之前，無法設定限額。",
+    "englishSource": "Limits are unavailable until this asset's decimal metadata is resolved."
+  },
+  "spendingLimitAuthenticationReason": {
+    "message": "請驗證身分以套用會削弱此支出限額保護的變更。",
+    "englishSource": "Authenticate to apply a change that weakens this spending limit."
+  },
+  "spendingLimitLoadFailed": {
+    "message": "無法載入支出限額。請重試。",
+    "englishSource": "Spending limits could not be loaded. Try again."
+  },
+  "spendingLimitInvalidAmount": {
+    "message": "請輸入正數金額，小數位數不得超過此資產支援的位數。",
+    "englishSource": "Enter a positive amount with no more decimal places than this asset supports."
+  },
+  "spendingLimitSaveFailed": {
+    "message": "無法儲存此支出限額。請重試。",
+    "englishSource": "This spending limit could not be saved. Try again."
+  },
+  "spendingLimitLocalDisclosure": {
+    "message": "限額與支出記錄僅儲存在此安裝中。重設應用程式資料或重新安裝錢包會將其刪除。",
+    "englishSource": "Limits and spending history are stored only on this installation. Resetting app data or reinstalling the wallet removes them."
+  },
+  "spendingLimitNotOnChain": {
+    "message": "這些限額是本機安全檢查，並非 on-chain 限制。任何可直接存取您金鑰的人都能繞過它們。",
+    "englishSource": "These limits are a local safety check, not an on-chain restriction. Anyone with direct access to your keys can bypass them."
+  },
+  "spendingLimitNoAssets": {
+    "message": "沒有可設定的資產。",
+    "englishSource": "No assets are available to configure."
+  },
+  "spendingLimitSave": { "message": "儲存", "englishSource": "Save" }
 }

@@ -150,7 +150,7 @@ Gates: e2e-bridge-in.yml (IN, iOS) + e2e-bridge.yml (OUT, Chrome), both post-mer
 - [x] Obtain design approval, then write the TDD implementation plan.
 - [x] Implement the data model, atomic policy, and one-time authorization.
 - [x] Implement validated configuration reads, writes, revision checks, and all runtime transports.
-- [ ] Implement strict authentication and Security settings UI.
+- [x] Implement strict authentication and Security settings UI.
 - [ ] Integrate send, swap, bridge, Earn, and dApp flows.
 - [ ] Run visual checks, full local gates, Review Council, and fix every actionable finding.
 - [ ] Push a PR with Closes #646, babysit CI, admin squash merge, and verify closure.
@@ -162,4 +162,5 @@ Gates: e2e-bridge-in.yml (IN, iOS) + e2e-bridge.yml (OUT, Chrome), both post-mer
 - Task 3: atomic policy recheck, exact one-time two-minute authorization, replay rejection, and all four outgoing initiation routes. 184 focused tests green; TypeScript and scoped lint green.
 - Task 4: validated account-scoped configuration, strict weakening classification, revision conflicts, coherent save-versus-queue serialization, bigint-safe transport, and extension/mobile/desktop/store routing. 408 focused tests green; TypeScript and scoped lint green.
 - Task 5: fail-closed strict authentication with hardware, passcode, and password paths; verify-only vault access; extension/mobile/desktop transport; stale-result suppression; localized retry UI. 520 focused tests green; TypeScript and scoped lint green.
-- Remaining: Security settings UI, flow integrations, E2E, full gates, Review Council, and delivery.
+- Task 6: account-scoped Security settings route, held and configured-zero-balance assets, exact base-unit conversion, unknown-scale guard, strict edit classification, stale-account suppression, and 14 localized bundles with 0 stale keys. 164 focused tests green; TypeScript, scoped lint, i18n lint, and locale parity green.
+- Remaining: flow integrations, E2E, full gates, Review Council, and delivery.

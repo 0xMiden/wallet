@@ -1,6 +1,7 @@
 import { v4 as uuid } from 'uuid';
 
 import { spendingLimits, db } from '../repo';
+import { classifySpendingLimitChange } from './change';
 import {
   SpendingLimitConfiguration,
   SpendingLimitDraft,
@@ -11,8 +12,8 @@ import {
 } from './types';
 
 export type { SpendingLimitDraft } from './types';
-
-export type SpendingLimitChangeClassification = 'safe' | 'strict-authentication';
+export { classifySpendingLimitChange } from './change';
+export type { SpendingLimitChangeClassification } from './change';
 
 export class SpendingLimitStrictAuthenticationRequiredError extends Error {
   readonly code = 'SPENDING_LIMIT_STRICT_AUTHENTICATION_REQUIRED';
@@ -38,24 +39,6 @@ export interface SaveSpendingLimitOptions {
   now?: number;
   makeRevision?: () => string;
 }
-
-const periodWeakens = (current: bigint | undefined, next: bigint | undefined): boolean => {
-  if (current === undefined) return next !== undefined;
-  if (next === undefined) return true;
-  return next > current;
-};
-
-export const classifySpendingLimitChange = (
-  current: SpendingLimitConfiguration | undefined,
-  next: SpendingLimitDraft
-): SpendingLimitChangeClassification => {
-  if (current === undefined) {
-    return next.dailyLimit === undefined && next.weeklyLimit === undefined ? 'safe' : 'strict-authentication';
-  }
-  return periodWeakens(current.dailyLimit, next.dailyLimit) || periodWeakens(current.weeklyLimit, next.weeklyLimit)
-    ? 'strict-authentication'
-    : 'safe';
-};
 
 export const listSpendingLimits = async (accountId: string): Promise<SpendingLimitConfiguration[]> => {
   const rows = await spendingLimits.where('accountId').equals(accountId).toArray();

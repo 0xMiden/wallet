@@ -1042,5 +1042,17 @@
   "activityRestoreTransfers": "Wiederherstellen",
   "activityHiddenNotesError": "Versteckte Überweisungen konnten nicht gespeichert werden. Bitte versuchen Sie es erneut.",
   "activityDateUnavailable": "Datum nicht verfügbar",
-  "walletSetupDidNotComplete": "Ihre Wallet wurde erstellt, der Startvorgang wurde jedoch nicht abgeschlossen. Überprüfen Sie Ihre Verbindung und versuchen Sie es erneut."
+  "walletSetupDidNotComplete": "Ihre Wallet wurde erstellt, der Startvorgang wurde jedoch nicht abgeschlossen. Überprüfen Sie Ihre Verbindung und versuchen Sie es erneut.",
+  "spendingLimits": "Ausgabenlimits",
+  "spendingLimitDaily": "Gleitendes 24-Stunden-Limit",
+  "spendingLimitWeekly": "Gleitendes 7-Tage-Limit",
+  "spendingLimitUnknownDecimals": "Limits sind erst verfügbar, wenn die Dezimalstellen-Metadaten dieses Assets aufgelöst wurden.",
+  "spendingLimitAuthenticationReason": "Authentifizieren Sie sich, um eine Änderung anzuwenden, die den Schutz dieses Ausgabenlimits schwächt.",
+  "spendingLimitLoadFailed": "Ausgabenlimits konnten nicht geladen werden. Versuchen Sie es erneut.",
+  "spendingLimitInvalidAmount": "Geben Sie einen positiven Betrag mit höchstens so vielen Dezimalstellen ein, wie dieses Asset unterstützt.",
+  "spendingLimitSaveFailed": "Dieses Ausgabenlimit konnte nicht gespeichert werden. Versuchen Sie es erneut.",
+  "spendingLimitLocalDisclosure": "Limits und Ausgabenverlauf werden nur in dieser Installation gespeichert. Beim Zurücksetzen der App-Daten oder einer Neuinstallation der Wallet werden sie gelöscht.",
+  "spendingLimitNotOnChain": "Diese Limits sind eine lokale Sicherheitsprüfung, keine On-Chain-Beschränkung. Wer direkten Zugriff auf Ihre Schlüssel hat, kann sie umgehen.",
+  "spendingLimitNoAssets": "Es sind keine Assets zum Konfigurieren verfügbar.",
+  "spendingLimitSave": "Speichern"
 }

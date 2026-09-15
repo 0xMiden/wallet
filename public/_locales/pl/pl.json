@@ -1042,5 +1042,17 @@
   "activityRestoreTransfers": "Przywróć",
   "activityHiddenNotesError": "Nie udało się zapisać ukrytych transferów. Spróbuj ponownie.",
   "activityDateUnavailable": "Data niedostępna",
-  "walletSetupDidNotComplete": "Twój portfel został utworzony, ale nie zakończył procesu uruchamiania. Sprawdź połączenie i spróbuj ponownie."
+  "walletSetupDidNotComplete": "Twój portfel został utworzony, ale nie zakończył procesu uruchamiania. Sprawdź połączenie i spróbuj ponownie.",
+  "spendingLimits": "Limity wydatków",
+  "spendingLimitDaily": "Kroczący limit 24-godzinny",
+  "spendingLimitWeekly": "Kroczący limit 7-dniowy",
+  "spendingLimitUnknownDecimals": "Limity będą dostępne po ustaleniu metadanych miejsc dziesiętnych tego zasobu.",
+  "spendingLimitAuthenticationReason": "Uwierzytelnij się, aby zastosować zmianę osłabiającą ochronę tego limitu wydatków.",
+  "spendingLimitLoadFailed": "Nie udało się wczytać limitów wydatków. Spróbuj ponownie.",
+  "spendingLimitInvalidAmount": "Wprowadź dodatnią kwotę z liczbą miejsc dziesiętnych nie większą niż obsługiwana przez ten zasób.",
+  "spendingLimitSaveFailed": "Nie udało się zapisać tego limitu wydatków. Spróbuj ponownie.",
+  "spendingLimitLocalDisclosure": "Limity i historia wydatków są przechowywane tylko w tej instalacji. Zresetowanie danych aplikacji lub ponowna instalacja portfela je usuwa.",
+  "spendingLimitNotOnChain": "Te limity są lokalną kontrolą bezpieczeństwa, a nie ograniczeniem on-chain. Każda osoba z bezpośrednim dostępem do kluczy może je ominąć.",
+  "spendingLimitNoAssets": "Brak zasobów dostępnych do skonfigurowania.",
+  "spendingLimitSave": "Zapisz"
 }

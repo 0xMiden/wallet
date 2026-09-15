@@ -1042,5 +1042,17 @@
   "activityRestoreTransfers": "恢复",
   "activityHiddenNotesError": "无法保存隐藏转账。请重试。",
   "activityDateUnavailable": "日期不可用",
-  "walletSetupDidNotComplete": "您的钱包已创建但未完成启动。请检查网络连接并重试。"
+  "walletSetupDidNotComplete": "您的钱包已创建但未完成启动。请检查网络连接并重试。",
+  "spendingLimits": "消费限额",
+  "spendingLimitDaily": "滚动 24 小时限额",
+  "spendingLimitWeekly": "滚动 7 天限额",
+  "spendingLimitUnknownDecimals": "在解析此资产的小数位元数据之前，无法设置限额。",
+  "spendingLimitAuthenticationReason": "请验证身份以应用会削弱此消费限额保护的更改。",
+  "spendingLimitLoadFailed": "无法加载消费限额。请重试。",
+  "spendingLimitInvalidAmount": "请输入正数金额，小数位数不得超过此资产支持的位数。",
+  "spendingLimitSaveFailed": "无法保存此消费限额。请重试。",
+  "spendingLimitLocalDisclosure": "限额和消费历史仅存储在此安装中。重置应用数据或重新安装钱包会将其删除。",
+  "spendingLimitNotOnChain": "这些限额是本地安全检查，并非 on-chain 限制。任何可直接访问您密钥的人都能绕过它们。",
+  "spendingLimitNoAssets": "没有可配置的资产。",
+  "spendingLimitSave": "保存"
 }

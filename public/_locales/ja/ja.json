@@ -1042,5 +1042,17 @@
   "activityRestoreTransfers": "復元",
   "activityHiddenNotesError": "非公開の送金を保存できませんでした。もう一度お試しください。",
   "activityDateUnavailable": "日付不明",
-  "walletSetupDidNotComplete": "ウォレットは作成されましたが、起動が完了していません。接続を確認して、もう一度お試しください。"
+  "walletSetupDidNotComplete": "ウォレットは作成されましたが、起動が完了していません。接続を確認して、もう一度お試しください。",
+  "spendingLimits": "利用上限",
+  "spendingLimitDaily": "直近24時間の上限",
+  "spendingLimitWeekly": "直近7日間の上限",
+  "spendingLimitUnknownDecimals": "この資産の小数桁メタデータが取得されるまで、上限は設定できません。",
+  "spendingLimitAuthenticationReason": "この利用上限の保護を弱める変更を行うには認証してください。",
+  "spendingLimitLoadFailed": "利用上限を読み込めませんでした。もう一度お試しください。",
+  "spendingLimitInvalidAmount": "この資産が対応する小数桁数以内で、0より大きい金額を入力してください。",
+  "spendingLimitSaveFailed": "この利用上限を保存できませんでした。もう一度お試しください。",
+  "spendingLimitLocalDisclosure": "上限と利用履歴は、このインストール環境にのみ保存されます。アプリデータをリセットするかウォレットを再インストールすると削除されます。",
+  "spendingLimitNotOnChain": "これらの上限はローカルの安全確認であり、on-chainの制限ではありません。キーに直接アクセスできる人は回避できます。",
+  "spendingLimitNoAssets": "設定できる資産がありません。",
+  "spendingLimitSave": "保存"
 }

@@ -1042,5 +1042,17 @@
   "activityRestoreTransfers": "Geri Yükle",
   "activityHiddenNotesError": "Gizli transferler kaydedilemedi. Lütfen tekrar deneyin.",
   "activityDateUnavailable": "Tarih mevcut değil",
-  "walletSetupDidNotComplete": "Cüzdanınız oluşturuldu ancak başlatma işlemi tamamlanmadı. Bağlantınızı kontrol edin ve tekrar deneyin."
+  "walletSetupDidNotComplete": "Cüzdanınız oluşturuldu ancak başlatma işlemi tamamlanmadı. Bağlantınızı kontrol edin ve tekrar deneyin.",
+  "spendingLimits": "Harcama limitleri",
+  "spendingLimitDaily": "Son 24 saatlik limit",
+  "spendingLimitWeekly": "Son 7 günlük limit",
+  "spendingLimitUnknownDecimals": "Bu varlığın ondalık basamak meta verileri çözümlenene kadar limitler kullanılamaz.",
+  "spendingLimitAuthenticationReason": "Bu harcama limitinin korumasını zayıflatan bir değişikliği uygulamak için kimliğinizi doğrulayın.",
+  "spendingLimitLoadFailed": "Harcama limitleri yüklenemedi. Tekrar deneyin.",
+  "spendingLimitInvalidAmount": "Bu varlığın desteklediğinden fazla ondalık basamak içermeyen pozitif bir tutar girin.",
+  "spendingLimitSaveFailed": "Bu harcama limiti kaydedilemedi. Tekrar deneyin.",
+  "spendingLimitLocalDisclosure": "Limitler ve harcama geçmişi yalnızca bu kurulumda saklanır. Uygulama verilerini sıfırlamak veya wallet'ı yeniden yüklemek bunları kaldırır.",
+  "spendingLimitNotOnChain": "Bu limitler yerel bir güvenlik kontrolüdür, on-chain kısıtlaması değildir. Anahtarlarınıza doğrudan erişimi olan herkes bunları aşabilir.",
+  "spendingLimitNoAssets": "Yapılandırılabilecek varlık yok.",
+  "spendingLimitSave": "Kaydet"
 }
