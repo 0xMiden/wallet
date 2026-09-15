@@ -4,7 +4,7 @@ import { accountIdStringToSdk } from 'lib/miden/sdk/helpers';
 import { getNativeAssetIdSync, getNativeAssetMetadataSync } from 'lib/miden-chain/native-asset';
 
 /**
- * Swap starts with this fixed set of devnet DEX test tokens and prepends the
+ * Swap starts with this fixed set of Miden testnet 0.16 DEX tokens and prepends the
  * network's discovered native asset at runtime. The fixed test tokens use
  * 8 decimals (`SWAP_TOKEN_DECIMALS`): the user enters a human-readable amount
  * and `stringToBigInt(amount, token.decimals)` converts it to base units.
@@ -31,25 +31,25 @@ export const SWAP_TOKEN_DECIMALS = 8;
 
 export const TOKEN_IMIDEN: SwapToken = {
   symbol: 'IMIDEN',
-  faucetId: 'mtst1aqsjql4cyylvpu2d2cwpxumpvvw5depe_qr7qqq9wr6w',
+  faucetId: 'mtst1arqxg9er3xclayt95nud82jnpggl9azj',
   decimals: SWAP_TOKEN_DECIMALS,
   logoSymbol: 'MIDEN'
 };
 export const TOKEN_IETH: SwapToken = {
   symbol: 'IETH',
-  faucetId: 'mtst1apfjwvs5f8mey5f6a6s5llnhp533fe5p_qr7qqq9wr6w',
+  faucetId: 'mtst1arcf9xpxfrc7wygpv744ytgr6cw2df6h',
   decimals: SWAP_TOKEN_DECIMALS,
   logoSymbol: 'ETH'
 };
 export const TOKEN_IBTC: SwapToken = {
   symbol: 'IBTC',
-  faucetId: 'mtst1aqvv35kq9tuvn5fuwkd055vyzuhc5vwl_qr7qqq9wr6w',
+  faucetId: 'mtst1apqk2y2uky2mkyfcjv95fjm5zgnrwk6x',
   decimals: SWAP_TOKEN_DECIMALS,
   logoSymbol: 'BTC'
 };
 export const TOKEN_IUSDT: SwapToken = {
   symbol: 'IUSDT',
-  faucetId: 'mtst1ap9q8svy8psvnvt4stqzr4tr4c077f9y_qr7qqq9wr6w',
+  faucetId: 'mtst1arvdwvzllvg3s5fzjle7nkljeuhkcufr',
   decimals: SWAP_TOKEN_DECIMALS,
   logoSymbol: 'USDC'
 };

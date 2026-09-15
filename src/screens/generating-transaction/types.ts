@@ -1,6 +1,6 @@
 import type { ITransaction, ITransactionStage, ITransactionType } from 'lib/miden/db/types';
 
-import type { TRANSACTION_STEPS } from './constants';
+import type { TransactionStepDef } from './constants';
 
 export interface GeneratingTransactionPageProps {
   /** Id of the transaction this page tracks; comes from the `/:txId` route param. */
@@ -17,6 +17,12 @@ export interface GeneratingTransactionProps {
   activeStage?: ITransactionStage;
   /** Type of the tx currently being processed (for type-specific labels). */
   activeType?: ITransactionType;
+  /**
+   * Whether the sending account is a Guardian account. Selects the step set:
+   * Guardian sends show co-sign → prove → submit → guardian-sync; standard
+   * sends show prove → submit (the guardian-only steps are omitted).
+   */
+  isGuardian: boolean;
   /** The in-flight tx, used by the summary badge under the title. */
   activeTransaction?: ITransaction;
   /** Last transaction shown before the queue completed, used by the success receipt. */
@@ -30,6 +36,12 @@ export interface GeneratingTransactionProps {
   onViewExplorer?: () => void;
   /** Retry a FAILED tx from the failure footer (#483). Shown only when `canRetry`. */
   onRetry?: () => void;
+  /**
+   * Retry a send the wallet cannot verify either way, on the user's word that it
+   * did not arrive. Provided only after a plain Retry has been refused for that
+   * reason, so the warning is always read before this can be tapped.
+   */
+  onRetryAnyway?: () => void;
   /** Whether the failed tx can be retried (requeueable / resubmittable). */
   canRetry?: boolean;
   /** True while a retry is in flight — drives the Retry button spinner. */
@@ -39,7 +51,7 @@ export interface GeneratingTransactionProps {
 }
 
 export type TransactionStepState = 'complete' | 'active' | 'pending' | 'failed';
-export type TransactionStep = (typeof TRANSACTION_STEPS)[number];
+export type TransactionStep = TransactionStepDef;
 export type TransactionHeroState = 'processing' | 'success' | 'failed';
 
 export interface TransactionHeroIconProps {

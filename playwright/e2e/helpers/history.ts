@@ -44,6 +44,30 @@ const TX_STATUS_NAME: Record<number, string> = {
 /** Mirror of `USER_CANCELLED_TRANSACTION_REASON` (src/lib/miden/transaction/constants.ts). */
 export const USER_CANCELLED_REASON = 'Transaction was cancelled by user';
 
+/**
+ * Mirror of `TRANSACTION_STUCK_ERROR` (src/lib/miden/transaction/constants.ts) —
+ * the reason `cancelStuckTransactions` hands to
+ * `cancelWhilePipelineMayStillRun` for a row that outran
+ * `MAX_WAIT_BEFORE_CANCEL`. (Not `cancelStaleQueuedTransactions`, which is a
+ * different reaper: it writes `TRANSACTION_EXPIRED_ERROR` through plain
+ * `cancelTransaction` and never stamps the in-flight marker.)
+ *
+ * Not interchangeable with `USER_CANCELLED_REASON`: the details screen derives
+ * `isCancelled` from the error string alone (`isUserCancelledTransaction`, which
+ * matches only the user-cancel text) and hides Retry entirely when it is set. A
+ * row the reaper failed therefore offers Retry; one the user cancelled by hand
+ * does not.
+ *
+ * Unlike `USER_CANCELLED_REASON` — which `history-cancel.spec.ts` compares
+ * against what the product actually persisted, so drift fails loudly — this
+ * string is only ever written INTO IndexedDB by a plant and never read back off
+ * a real cancel. Nothing detects drift from the source constant. That is
+ * tolerable because Retry visibility turns only on "not the user-cancel text",
+ * which any replacement still satisfies; the specific value is documentation of
+ * which route is being imitated, not a load-bearing assertion.
+ */
+export const TRANSACTION_STUCK_REASON = 'Transaction took too long to process and was cancelled';
+
 /** The Dexie database + store the wallet keeps its transaction rows in (src/lib/miden/repo.ts). */
 const TX_DB = 'TridentMain';
 const TX_STORE = 'transactions';
@@ -68,6 +92,22 @@ export interface TransactionRowSnapshot {
   /** First written by `setTransactionStage(id, 'syncing')`, before the status flip. */
   stage?: string;
   error?: string;
+  /**
+   * The untouched thrown error, kept only when the display message rewrote it
+   * (`cancel.ts`). The friendly copy is deliberately non-technical, so this is the
+   * field that names WHICH procedure root a prover could not resolve, or which
+   * kernel assertion tripped.
+   */
+  rawError?: string;
+  /**
+   * Fee actually paid, in the fee asset's smallest unit, read off the emitted
+   * `0xfee` note at completion (`activity/fee.ts`). `undefined` on a zero-fee chain,
+   * where no fee note is created at all -- so `undefined` and `'0'` mean different
+   * things and a test must not conflate them.
+   */
+  feeAmount?: string;
+  /** Faucet the fee was paid in. Should be the chain's native fee faucet. */
+  feeFaucetId?: string;
   displayMessage?: string;
 }
 
@@ -114,6 +154,10 @@ export async function readTransactionRows(page: Page): Promise<TransactionRowSna
           processingStartedAt: row.processingStartedAt === undefined ? undefined : Number(row.processingStartedAt),
           stage: row.stage === undefined ? undefined : String(row.stage),
           error: row.error === undefined ? undefined : String(row.error),
+          rawError: row.rawError === undefined ? undefined : String(row.rawError),
+          // Stringified like `amount`: a bigint cannot cross the evaluate boundary.
+          feeAmount: row.feeAmount === undefined || row.feeAmount === null ? undefined : String(row.feeAmount),
+          feeFaucetId: row.feeFaucetId === undefined ? undefined : String(row.feeFaucetId),
           displayMessage: row.displayMessage === undefined ? undefined : String(row.displayMessage)
         }));
       } finally {

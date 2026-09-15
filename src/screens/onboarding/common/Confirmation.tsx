@@ -60,7 +60,9 @@ export const ConfirmationScreen: React.FC<ConfirmationScreenProps> = ({
     );
   }
 
-  const primaryButtonTitle = hasError || hasRecoveryError ? t('retry') : t('openWallet');
+  // Nothing on this screen may call the wallet ready while it reports a failure.
+  const hasFailure = hasError || hasRecoveryError;
+  const primaryButtonTitle = hasFailure ? t('retry') : t('openWallet');
 
   return (
     <div {...props} className="bg-app-bg max-w-full h-full overflow-hidden" data-testid="onboarding-confirmation">
@@ -68,30 +70,41 @@ export const ConfirmationScreen: React.FC<ConfirmationScreenProps> = ({
         <div className="flex-1 flex flex-col items-center justify-center w-full text-center py-8">
           <ConfirmationHero style={{ width: 240, height: 'auto' }} />
           <h1 className="mt-6 text-5xl font-bold font-heading text-heading-gray leading-[100%] tracking-tight">
-            <Trans i18nKey="yourWalletIsReady" components={{ highlight: <span className="text-primary-500" /> }} />
+            {hasFailure ? (
+              t('smthWentWrong')
+            ) : (
+              <Trans i18nKey="yourWalletIsReady" components={{ highlight: <span className="text-primary-500" /> }} />
+            )}
           </h1>
-          {/* TODO: Wrap in a single class and then have child components */}
-          <p className="mt-3 text-lg font-heading font-medium text-heading-gray leading-[130%]">
-            {t('recoveryPhraseSevenDayReminder')}
-          </p>
-          <p className="mt-4 rounded-full bg-surface-input px-4 py-2 text-sm font-medium text-heading-gray">
-            {t('recoveryPhraseDailyReminder')}
-          </p>
-
-          {hasRecoveryError && (
-            <div className="mt-4">
-              <p className="text-red-500 text-sm mb-2 select-text" data-testid="onboarding-recovery-error">
-                {recoveryError}
+          {!hasFailure && (
+            <>
+              {/* TODO: Wrap in a single class and then have child components */}
+              <p className="mt-3 text-lg font-heading font-medium text-heading-gray leading-[130%]">
+                {t('recoveryPhraseSevenDayReminder')}
               </p>
-            </div>
+              <p className="mt-4 rounded-full bg-surface-input px-4 py-2 text-sm font-medium text-heading-gray">
+                {t('recoveryPhraseDailyReminder')}
+              </p>
+            </>
           )}
-          {hasError && (
-            <div className="mt-4">
-              <p className="text-red-500 text-sm mb-2">{t('biometricFailed')}</p>
-              {!showPasswordFallback && (
-                <p className="text-text-muted text-xs">
-                  {t('biometricAttemptsRemaining', { count: MAX_BIOMETRIC_ATTEMPTS - biometricAttempts })}
+
+          {hasFailure && (
+            // One failure is one announcement, even when it is also a counted biometric attempt.
+            <div role="alert" className="mt-4">
+              {hasRecoveryError && (
+                <p className="text-red-500 text-sm mb-2 select-text" data-testid="onboarding-recovery-error">
+                  {recoveryError}
                 </p>
+              )}
+              {hasError && (
+                <>
+                  <p className="text-red-500 text-sm mb-2">{t('biometricFailed')}</p>
+                  {!showPasswordFallback && (
+                    <p className="text-text-muted text-xs">
+                      {t('biometricAttemptsRemaining', { count: MAX_BIOMETRIC_ATTEMPTS - biometricAttempts })}
+                    </p>
+                  )}
+                </>
               )}
             </div>
           )}
@@ -105,6 +118,7 @@ export const ConfirmationScreen: React.FC<ConfirmationScreenProps> = ({
                 title={t('continueWithPassword')}
                 className="self-center"
                 onClick={onSwitchToPassword}
+                disabled={isLoading}
               />
               <Button
                 tabIndex={0}
@@ -113,6 +127,7 @@ export const ConfirmationScreen: React.FC<ConfirmationScreenProps> = ({
                 className="self-center"
                 onClick={onSubmit}
                 isLoading={isLoading}
+                disabled={isLoading}
               />
             </>
           ) : (
@@ -122,6 +137,7 @@ export const ConfirmationScreen: React.FC<ConfirmationScreenProps> = ({
               className="self-center w-full text-base"
               onClick={onSubmit}
               isLoading={isLoading}
+              disabled={isLoading}
               data-testid="onboarding-confirmation-submit"
             />
           )}

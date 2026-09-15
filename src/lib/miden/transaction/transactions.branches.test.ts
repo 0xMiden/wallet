@@ -9,8 +9,9 @@
  * error subscription).
  */
 
-import { ITransactionStatus, SendTransaction } from '../db/types';
+import { ITransaction, ITransactionStatus, SendTransaction } from '../db/types';
 import { NoteTypeEnum } from '../types';
+import { isLockedError } from './helper';
 import {
   completeSendTransaction,
   getCompletedTransactions,
@@ -18,9 +19,22 @@ import {
   cancelStaleQueuedTransactions,
   waitForTransactionCompletion,
   generateTransactionsLoop,
-  buildSignCallbackError,
-  readLastAuthReason
+  buildSignCallbackError
 } from './index'; // eslint-disable-line import/order
+
+/**
+ * The verbatim `Display` text miden-client produces for
+ * `ClientError::ApplyTransactionAfterSubmitFailed`, confirmed present in the
+ * shipped `@miden-sdk/miden-sdk@0.16.0-rc.4` wasm. That SDK attaches NO code
+ * property for this variant, so this string is the ONLY signal the wallet's
+ * classifier has. Building the fixture from the real message — instead of
+ * hand-setting an `errorCode` the SDK never sets — is what makes these tests
+ * fail if the classifier stops recognising what the SDK actually throws.
+ */
+const APPLY_AFTER_SUBMIT_ERROR_MESSAGE =
+  "Transaction 0xdeadbeef was accepted into the node's mempool at block 42 but the local store update failed. " +
+  'The pending update is attached to this error as `pending_update`; you can re-apply it later via ' +
+  '`Client::apply_transaction_update`. Do NOT resubmit the same transaction.';
 
 const _g = globalThis as any;
 _g.__txBrTest = {
@@ -41,13 +55,24 @@ jest.mock('lib/miden/repo', () => ({
     filter: jest.fn((fn: (tx: any) => boolean) => ({
       toArray: jest.fn(async () => txStore.filter(fn))
     })),
-    where: jest.fn((query: any) => ({
-      first: jest.fn(async () => txStore.find(t => t.id === query.id)),
-      modify: jest.fn(async (fn: (tx: any) => void) => {
-        const tx = txStore.find(t => t.id === query.id);
-        if (tx) fn(tx);
-      })
-    }))
+    where: jest.fn((query: any) => {
+      if (query === 'extraInputs.swapOrderTxId') {
+        return {
+          equals: jest.fn((value: string) => ({
+            filter: jest.fn((fn: (tx: any) => boolean) => ({
+              toArray: jest.fn(async () => txStore.filter(tx => tx.extraInputs?.swapOrderTxId === value).filter(fn))
+            }))
+          }))
+        };
+      }
+      return {
+        first: jest.fn(async () => txStore.find(t => t.id === query.id)),
+        modify: jest.fn(async (fn: (tx: any) => void) => {
+          const tx = txStore.find(t => t.id === query.id);
+          if (tx) fn(tx);
+        })
+      };
+    })
   }
 }));
 
@@ -84,33 +109,18 @@ jest.mock('dexie', () => ({
 const mockSyncState = jest.fn().mockResolvedValue(undefined);
 const mockWaitForTransactionCommit = jest.fn().mockResolvedValue(undefined);
 const mockSendPrivateNote = jest.fn().mockResolvedValue(undefined);
-// Raw WASM client's lastAuthError(), read by readLastAuthReason in the
-// generate-loop catch. Default null = no auth failure recorded.
-const mockLastAuthError = jest.fn((): unknown => null);
 // The #260 offscreen client proxy (through which non-guardian send/swap/execute
 // now route their flag-off write) imports getMidenClient / withWasmClientLock via
 // the `lib/...` alias, which jest mocks separately from the relative specifier
 // below; bridge the alias to the same mock so the proxy's flag-off passthrough
-// invokes the wrapped sign callback exactly as the old inline switch did.
+// takes the same lock the old inline switch did.
 jest.mock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-client'));
 jest.mock('../sdk/miden-client', () => ({
-  getMidenClient: async (options?: { signCallback?: (pk: Uint8Array, si: Uint8Array) => Promise<Uint8Array> }) => {
-    // Mirror the SDK invoking the wrapped per-tx sign callback so its wrapper
-    // (and buildSignCallbackError on failure) is exercised through the real path.
-    if (options?.signCallback) {
-      try {
-        await options.signCallback(new Uint8Array([1]), new Uint8Array([2]));
-      } catch {
-        /* wrapper threw a typed SignCallbackError; the SDK would capture it */
-      }
-    }
-    return {
-      syncState: mockSyncState,
-      waitForTransactionCommit: mockWaitForTransactionCommit,
-      sendPrivateNote: mockSendPrivateNote,
-      client: { lastAuthError: mockLastAuthError }
-    };
-  },
+  getMidenClient: async () => ({
+    syncState: mockSyncState,
+    waitForTransactionCommit: mockWaitForTransactionCommit,
+    sendPrivateNote: mockSendPrivateNote
+  }),
   withWasmClientLock: async <T>(fn: () => Promise<T>) => fn()
 }));
 
@@ -144,6 +154,7 @@ jest.mock('shared/logger', () => ({
 }));
 
 jest.mock('../helpers', () => ({
+  ...jest.requireActual('../helpers'),
   toNoteTypeString: () => 'public'
 }));
 
@@ -195,8 +206,6 @@ const stubGuardianProvider = {
 
 beforeEach(() => {
   jest.clearAllMocks();
-  mockLastAuthError.mockReset();
-  mockLastAuthError.mockImplementation((): unknown => null);
   txStore.length = 0;
   _g.__txBrTest.liveQueryCallbacks.length = 0;
 });
@@ -277,12 +286,17 @@ describe('completeSendTransaction', () => {
     }
   });
 
-  it('marks Completed when private-note transport fails — SDK outbox handles retry', async () => {
-    // Transport-level failures are no longer surfaced to the wallet: the
-    // SDK persists the relay payload to its durable outbox before calling
-    // transport (miden-client#2127) and retries on every subsequent
-    // sync_state. The wallet just marks Completed; eventual delivery is
-    // the SDK's responsibility.
+  it('records undelivered and qualifies the message when the private-note relay fails', async () => {
+    // The row stays Completed — the assets have left the account, so Failed would be
+    // untrue and would offer a Retry that spends a second time — but it must not
+    // read as an unqualified success.
+    //
+    // This previously asserted a bare 'Sent' on the premise that "the SDK persists
+    // the relay payload to its durable outbox before calling transport, so eventual
+    // delivery is the SDK's responsibility". Rust writes that outbox entry INSIDE
+    // the relay, after resolving the transport API, so every failure upstream of
+    // that point queues nothing — and the wallet cannot tell which side of it a
+    // rejection came from. So the pessimistic state is recorded.
     const tx = makeSendTx({ noteType: NoteTypeEnum.Private });
     txStore.push({ ...tx });
     mockSendPrivateNote.mockRejectedValueOnce(new Error('transport-down'));
@@ -293,15 +307,68 @@ describe('completeSendTransaction', () => {
     try {
       await completeSendTransaction(tx, makeResult({ intoFullReturns: fullNote }));
       expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
+      expect(txStore[0]!.noteDelivery).toBe('undelivered');
+      expect(txStore[0]!.displayMessage).toBe('Sent — the private note could not be delivered');
+      // The landed tx id is still recorded: the transaction is on chain regardless.
+      expect(txStore[0]!.transactionId).toBeTruthy();
+    } finally {
+      helpers.toNoteTypeString = orig;
+    }
+  });
+
+  it('records relayed and reports a clean Sent when the relay succeeds', async () => {
+    const tx = makeSendTx({ noteType: NoteTypeEnum.Private });
+    txStore.push({ ...tx });
+    const helpers = require('../helpers');
+    const orig = helpers.toNoteTypeString;
+    helpers.toNoteTypeString = () => 'private';
+    const fullNote = { id: () => ({ toString: () => 'note-out-1' }), serialize: () => new Uint8Array([1]) };
+    try {
+      await completeSendTransaction(tx, makeResult({ intoFullReturns: fullNote }));
+      expect(mockSendPrivateNote).toHaveBeenCalled();
+      expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
+      expect(txStore[0]!.noteDelivery).toBe('relayed');
       expect(txStore[0]!.displayMessage).toBe('Sent');
     } finally {
       helpers.toNoteTypeString = orig;
     }
   });
 
-  it('marks Completed when the WASM client lock cannot be acquired during a private send', async () => {
-    // Lock acquisition failures are also non-fatal: the on-chain tx is the
-    // source of truth and the SDK's outbox + sync_state will reconcile.
+  it('records the relay as OWED before attempting it, with the landed tx id and note', async () => {
+    // The ordering is the fix, not an implementation detail: the SDK's outbox is
+    // written from inside the relay, so between submit and that write there was no
+    // durable statement anywhere that a note was owed. An interruption in that
+    // window was indistinguishable from a delivered note. Observed from inside the
+    // relay call, which is the only place the intermediate state is visible.
+    const tx = makeSendTx({ noteType: NoteTypeEnum.Private });
+    txStore.push({ ...tx });
+    const helpers = require('../helpers');
+    const orig = helpers.toNoteTypeString;
+    helpers.toNoteTypeString = () => 'private';
+    let rowDuringRelay: ITransaction | undefined;
+    mockSendPrivateNote.mockImplementationOnce(async () => {
+      rowDuringRelay = { ...txStore[0]! };
+    });
+    const fullNote = { id: () => ({ toString: () => 'note-out-1' }), serialize: () => new Uint8Array([1]) };
+    try {
+      await completeSendTransaction(tx, makeResult({ intoFullReturns: fullNote }));
+      expect(rowDuringRelay!.noteDelivery).toBe('pending');
+      expect(rowDuringRelay!.status).not.toBe(ITransactionStatus.Completed);
+      // Enough evidence to reason about the note afterwards without the result bytes.
+      expect(rowDuringRelay!.transactionId).toBeTruthy();
+      expect(rowDuringRelay!.outputNoteIds).toEqual(['note-out-1']);
+    } finally {
+      helpers.toNoteTypeString = orig;
+    }
+  });
+
+  it('records undelivered when the WASM client lock cannot be acquired during a private send', async () => {
+    // A lock failure on this path means the relay never ran, so the note was never
+    // handed to anyone. This previously asserted a bare 'Sent' on the grounds that
+    // "lock acquisition failures are non-fatal: the on-chain tx is the source of
+    // truth and the SDK's outbox + sync_state will reconcile" — but with no relay
+    // there is no outbox entry to reconcile FROM, so that reported the exact silent
+    // loss being hunted.
     const tx = makeSendTx({ noteType: NoteTypeEnum.Private });
     txStore.push({ ...tx });
     const helpers = require('../helpers');
@@ -316,10 +383,79 @@ describe('completeSendTransaction', () => {
     try {
       await completeSendTransaction(tx, makeResult({ intoFullReturns: fullNote }));
       expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
-      expect(txStore[0]!.displayMessage).toBe('Sent');
+      expect(txStore[0]!.noteDelivery).toBe('undelivered');
+      expect(txStore[0]!.displayMessage).toBe('Sent — the private note could not be delivered');
     } finally {
       helpers.toNoteTypeString = orig;
       sdk.withWasmClientLock = origLock;
+    }
+  });
+
+  it('leaves noteDelivery unset on a public send and never relays', async () => {
+    const tx = makeSendTx({ noteType: NoteTypeEnum.Public });
+    txStore.push({ ...tx });
+    const helpers = require('../helpers');
+    const orig = helpers.toNoteTypeString;
+    helpers.toNoteTypeString = () => 'public';
+    const fullNote = {
+      id: () => ({ toString: () => 'note-out-1' }),
+      serialize: () => new Uint8Array([1]),
+      metadata: () => ({ noteType: () => 'public' })
+    };
+    try {
+      await completeSendTransaction(tx, makeResult({ intoFullReturns: fullNote }));
+      expect(mockSendPrivateNote).not.toHaveBeenCalled();
+      expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
+      // Not 'relayed' and not 'undelivered' — the question does not apply, and a
+      // public send must not surface a delivery warning.
+      expect(txStore[0]!.noteDelivery).toBeUndefined();
+      expect(txStore[0]!.displayMessage).toBe('Sent');
+    } finally {
+      helpers.toNoteTypeString = orig;
+    }
+  });
+
+  it('relays when the row says public but the note metadata says private', async () => {
+    // The row's noteType is a wallet-side string; the note's metadata is what the
+    // transaction actually put on chain. When they disagree the note wins, because
+    // skipping the relay for a genuinely private note strands it with no trace,
+    // while relaying a public one only wastes a request.
+    const tx = makeSendTx({ noteType: NoteTypeEnum.Public });
+    txStore.push({ ...tx });
+    const helpers = require('../helpers');
+    const orig = helpers.toNoteTypeString;
+    helpers.toNoteTypeString = () => 'private';
+    const fullNote = {
+      id: () => ({ toString: () => 'note-out-1' }),
+      serialize: () => new Uint8Array([1]),
+      // The note's own metadata is the authority the row is checked against.
+      metadata: () => ({ noteType: () => 'private' })
+    };
+    try {
+      await completeSendTransaction(tx, makeResult({ intoFullReturns: fullNote }));
+      expect(mockSendPrivateNote).toHaveBeenCalled();
+      expect(txStore[0]!.noteDelivery).toBe('relayed');
+    } finally {
+      helpers.toNoteTypeString = orig;
+    }
+  });
+
+  it('records undelivered when the full note is unavailable for a landed private send', async () => {
+    // Failed, but the transaction LANDED — so a private note exists on chain that
+    // was never relayed. "Failed" and "undelivered" are different claims and only
+    // the second says value is sitting somewhere unreachable.
+    const tx = makeSendTx({ noteType: NoteTypeEnum.Private });
+    txStore.push({ ...tx });
+    const helpers = require('../helpers');
+    const orig = helpers.toNoteTypeString;
+    helpers.toNoteTypeString = () => 'private';
+    try {
+      await completeSendTransaction(tx, makeResult({ hasOutputNote: false }));
+      expect(txStore[0]!.status).toBe(ITransactionStatus.Failed);
+      expect(txStore[0]!.noteDelivery).toBe('undelivered');
+      expect(txStore[0]!.transactionId).toBeTruthy();
+    } finally {
+      helpers.toNoteTypeString = orig;
     }
   });
 
@@ -353,7 +489,9 @@ describe('completeSendTransaction', () => {
     } catch {
       // May or may not throw depending on the error path
     }
-    expect(spy).toBeDefined();
+    // `toBeDefined` on a spy is always true: it held whether the failure was
+    // logged or the path was never reached at all.
+    expect(spy).toHaveBeenCalled();
     spy.mockRestore();
   });
 });
@@ -378,12 +516,73 @@ describe('getCompletedTransactions', () => {
     expect(txs[0]!.faucetId).toBe('f1');
   });
 
+  // A batch claim is filed under its FIRST note's faucet while sweeping up every
+  // other faucet, so filtering on `faucetId` alone hides the arrival of every
+  // secondary asset from that token's own history — the funds appear in no row.
+  it('files a batch claim under every faucet it swept up, not just its own', async () => {
+    txStore.push(
+      {
+        id: 'claim',
+        type: 'consume',
+        status: ITransactionStatus.Completed,
+        accountId: 'acc-1',
+        faucetId: 'f1',
+        initiatedAt: 100,
+        assetTotals: [
+          { faucetId: 'f1', amount: 20n },
+          { faucetId: 'f2', amount: 10n }
+        ]
+      },
+      {
+        id: 'unrelated',
+        type: 'send',
+        status: ITransactionStatus.Completed,
+        accountId: 'acc-1',
+        faucetId: 'f3',
+        initiatedAt: 200
+      }
+    );
+
+    // The secondary faucet's page must show the claim...
+    expect((await getCompletedTransactions('acc-1', undefined, undefined, false, 'f2')).map(t => t.id)).toEqual([
+      'claim'
+    ]);
+    // ...the primary's still does...
+    expect((await getCompletedTransactions('acc-1', undefined, undefined, false, 'f1')).map(t => t.id)).toEqual([
+      'claim'
+    ]);
+    // ...and a faucet the claim never touched must not.
+    expect((await getCompletedTransactions('acc-1', undefined, undefined, false, 'f3')).map(t => t.id)).toEqual([
+      'unrelated'
+    ]);
+  });
+
   it('applies offset and limit correctly', async () => {
     for (let i = 0; i < 10; i++) {
       txStore.push({ id: `tx-${i}`, status: ITransactionStatus.Completed, accountId: 'acc-1', initiatedAt: i });
     }
+    // `limit` is a page size, so this is "skip 2, take 5" — not "rows 2 to 5".
     const txs = await getCompletedTransactions('acc-1', 2, 5);
-    expect(txs).toHaveLength(3);
+    expect(txs.map(tx => tx.id)).toEqual(['tx-2', 'tx-3', 'tx-4', 'tx-5', 'tx-6']);
+  });
+
+  // The infinite-scroll caller asks for page N as `offset = pageSize * N`, which
+  // under the old end-index reading made every page after the first empty and
+  // silently capped history at one page.
+  it('returns a full page for offsets past the first page', async () => {
+    for (let i = 0; i < 10; i++) {
+      txStore.push({ id: `tx-${i}`, status: ITransactionStatus.Completed, accountId: 'acc-1', initiatedAt: i });
+    }
+    const page1 = await getCompletedTransactions('acc-1', 4, 4);
+    expect(page1.map(tx => tx.id)).toEqual(['tx-4', 'tx-5', 'tx-6', 'tx-7']);
+  });
+
+  it('returns every row when no limit is given', async () => {
+    for (let i = 0; i < 10; i++) {
+      txStore.push({ id: `tx-${i}`, status: ITransactionStatus.Completed, accountId: 'acc-1', initiatedAt: i });
+    }
+    expect(await getCompletedTransactions('acc-1')).toHaveLength(10);
+    expect(await getCompletedTransactions('acc-1', 8)).toHaveLength(2);
   });
 });
 
@@ -395,6 +594,10 @@ describe('getSwapSettlementNotes', () => {
         type: 'consume',
         status: ITransactionStatus.Completed,
         noteIds: ['n-1', 'n-2'],
+        transactionId: 'chain-c-1',
+        amount: 685n,
+        faucetId: 'eth-faucet',
+        completedAt: 1_700_000_000,
         extraInputs: { swapOrderTxId: 'swap-1', swapSettleKind: 'settle' }
       },
       {
@@ -403,6 +606,9 @@ describe('getSwapSettlementNotes', () => {
         status: ITransactionStatus.Completed,
         // Same note re-tagged by a later batch — must not appear twice.
         noteIds: ['n-2'],
+        amount: 685n,
+        faucetId: 'eth-faucet',
+        completedAt: 1_700_000_050,
         extraInputs: { swapOrderTxId: 'swap-1', swapSettleKind: 'settle' }
       },
       {
@@ -418,6 +624,123 @@ describe('getSwapSettlementNotes', () => {
 
     expect(notes.settled).toEqual(['n-1', 'n-2']);
     expect(notes.reclaimed).toEqual(['n-3']);
+    expect(notes.settledTransactions[0]).toEqual({
+      id: 'c-1',
+      transactionId: 'chain-c-1',
+      noteIds: ['n-1', 'n-2'],
+      amount: 685n,
+      faucetId: 'eth-faucet',
+      completedAt: 1_700_000_000
+    });
+    // Deduplicating only the id set left the transaction array disagreeing with
+    // it: the receipt drew n-2 in two rows, and a caller summing the rows'
+    // amounts to infer the fill counted the same 685 twice. A row whose notes
+    // were all claimed by an earlier consume is that same claim seen again.
+    expect(notes.settledTransactions.map(tx => tx.id)).toEqual(['c-1']);
+    expect(notes.settledTransactions.flatMap(tx => tx.noteIds)).toEqual(['n-1', 'n-2']);
+    expect(notes.reclaimedTransactions[0]?.id).toBe('c-3');
+  });
+
+  it('attributes an overlapping note to the earlier consume only', async () => {
+    // A later batch that covers a new note as well as one already claimed keeps
+    // its row — it delivered something — but not the duplicate id.
+    txStore.push(
+      {
+        id: 'c-1',
+        type: 'consume',
+        status: ITransactionStatus.Completed,
+        noteIds: ['n-1'],
+        transactionId: 'chain-1',
+        completedAt: 1_700_000_000,
+        extraInputs: { swapOrderTxId: 'swap-1', swapSettleKind: 'settle' }
+      },
+      {
+        id: 'c-2',
+        type: 'consume',
+        status: ITransactionStatus.Completed,
+        noteIds: ['n-1', 'n-2'],
+        transactionId: 'chain-2',
+        completedAt: 1_700_000_100,
+        extraInputs: { swapOrderTxId: 'swap-1', swapSettleKind: 'settle' }
+      }
+    );
+
+    const notes = await getSwapSettlementNotes('swap-1');
+
+    expect(notes.settled).toEqual(['n-1', 'n-2']);
+    expect(notes.settledTransactions.map(tx => tx.noteIds)).toEqual([['n-1'], ['n-2']]);
+  });
+
+  it('reports no amount for a row whose notes were split across consumes', async () => {
+    // `amount` is an aggregate over the row's whole note list, so it stops
+    // describing the row once part of that list belongs to an earlier consume.
+    // Keeping it overstated the money: 400 + 600 read as 1000 received where
+    // only 600 arrived. There is no per-note breakdown to split it with, so the
+    // honest value is "unknown" — which the receipt renders as such.
+    txStore.push(
+      {
+        id: 'c-1',
+        type: 'consume',
+        status: ITransactionStatus.Completed,
+        noteIds: ['n-1'],
+        transactionId: 'chain-1',
+        amount: 400n,
+        faucetId: 'eth-faucet',
+        completedAt: 1_700_000_000,
+        extraInputs: { swapOrderTxId: 'swap-1', swapSettleKind: 'settle' }
+      },
+      {
+        id: 'c-2',
+        type: 'consume',
+        status: ITransactionStatus.Completed,
+        noteIds: ['n-1', 'n-2'],
+        transactionId: 'chain-2',
+        amount: 600n,
+        faucetId: 'eth-faucet',
+        completedAt: 1_700_000_100,
+        extraInputs: { swapOrderTxId: 'swap-1', swapSettleKind: 'settle' }
+      }
+    );
+
+    const notes = await getSwapSettlementNotes('swap-1');
+
+    expect(notes.settledTransactions.map(tx => [tx.id, tx.noteIds, tx.amount])).toEqual([
+      ['c-1', ['n-1'], 400n],
+      ['c-2', ['n-2'], undefined]
+    ]);
+  });
+
+  it('orders same-second consumes by chain id so every device numbers the fills alike', async () => {
+    // `completedAt` is a one-second local stamp and auto-consume settles a batch
+    // within one tick, so ties are ordinary. Falling through to the Dexie scan's
+    // primary-key order numbered those fills by row UUID — arbitrary, and
+    // different on each device that saw the same order. Rows are pushed in
+    // reverse chain order here to prove the comparator, not the input order.
+    txStore.push(
+      {
+        id: 'uuid-a',
+        type: 'consume',
+        status: ITransactionStatus.Completed,
+        noteIds: ['n-2'],
+        transactionId: 'chain-2',
+        completedAt: 1_700_000_000,
+        extraInputs: { swapOrderTxId: 'swap-1', swapSettleKind: 'settle' }
+      },
+      {
+        id: 'uuid-b',
+        type: 'consume',
+        status: ITransactionStatus.Completed,
+        noteIds: ['n-1'],
+        transactionId: 'chain-1',
+        completedAt: 1_700_000_000,
+        extraInputs: { swapOrderTxId: 'swap-1', swapSettleKind: 'settle' }
+      }
+    );
+
+    const notes = await getSwapSettlementNotes('swap-1');
+
+    expect(notes.settledTransactions.map(tx => tx.transactionId)).toEqual(['chain-1', 'chain-2']);
+    expect(notes.settled).toEqual(['n-1', 'n-2']);
   });
 
   it('treats an untagged kind as a settle and reads the singular noteId', async () => {
@@ -469,7 +792,12 @@ describe('getSwapSettlementNotes', () => {
 
   it('returns empty buckets when the order has no settlement consumes at all', async () => {
     const notes = await getSwapSettlementNotes('swap-unknown');
-    expect(notes).toEqual({ settled: [], reclaimed: [] });
+    expect(notes).toEqual({
+      settled: [],
+      reclaimed: [],
+      settledTransactions: [],
+      reclaimedTransactions: []
+    });
   });
 });
 
@@ -519,6 +847,36 @@ describe('waitForTransactionCompletion — error subscription', () => {
     const result = await waitForTransactionCompletion('tx-f');
     expect(result).toEqual({ errorMessage: 'Transaction failed' });
   });
+
+  it('resolves (never hangs) when a row reaches Completed with no resultBytes', async () => {
+    // The failure this guards: `TransactionResult.deserialize(undefined)` throws
+    // INSIDE dexie's `next` callback, after `cleanup()` has cleared the 5-minute
+    // timeout. The promise then settles as neither success nor timeout and the
+    // awaiting Epoch bridge/earn note builder blocks forever.
+    txStore.push({ id: 'tx-no-result', status: ITransactionStatus.Completed, transactionId: '0xabc' });
+    const result = await waitForTransactionCompletion('tx-no-result');
+    expect(result).toEqual({ errorMessage: 'Transaction completed without a transaction result' });
+  });
+
+  it('resolves with the error message when deserializing the result throws', async () => {
+    const sdk = require('@miden-sdk/miden-sdk/lazy');
+    const original = sdk.TransactionResult.deserialize;
+    sdk.TransactionResult.deserialize = jest.fn(() => {
+      throw new Error('corrupt result bytes');
+    });
+    try {
+      txStore.push({
+        id: 'tx-bad-result',
+        status: ITransactionStatus.Completed,
+        transactionId: '0xdef',
+        resultBytes: new Uint8Array([9, 9, 9])
+      });
+      const result = await waitForTransactionCompletion('tx-bad-result');
+      expect(result).toEqual({ errorMessage: 'corrupt result bytes' });
+    } finally {
+      sdk.TransactionResult.deserialize = original;
+    }
+  });
 });
 
 describe('generateTransactionsLoop error paths', () => {
@@ -555,16 +913,14 @@ describe('generateTransactionsLoop error paths', () => {
     sdk.withWasmClientLock = origLock;
   });
 
-  it('marks Completed when errorCode is ApplyTransactionAfterSubmitFailed', async () => {
+  it('marks Completed on the SDK apply-after-submit error text', async () => {
     const sdk = require('../sdk/miden-client');
     const origLock = sdk.withWasmClientLock;
     let callCount = 0;
     sdk.withWasmClientLock = jest.fn(async (fn: any) => {
       callCount++;
       if (callCount >= 2) {
-        const err: any = new Error('apply failed');
-        err.errorCode = 'ApplyTransactionAfterSubmitFailed';
-        throw err;
+        throw new Error(APPLY_AFTER_SUBMIT_ERROR_MESSAGE);
       }
       return fn();
     });
@@ -579,9 +935,84 @@ describe('generateTransactionsLoop error paths', () => {
 
     const result = await generateTransactionsLoop(dummySign, true, stubGuardianProvider);
     expect(result).toBe(false);
-    // The errorCode dispatch is exercised; the final status depends on
-    // mock timing between updateTransactionStatus and cancelTransaction.
-    expect([ITransactionStatus.Completed, ITransactionStatus.Failed]).toContain(txStore[0]!.status);
+    // The whole point of this error code: the transaction IS on chain, only the
+    // local apply failed, so the row must not be demoted to Failed — that would
+    // offer a retry for a consume that already happened. Accepting either
+    // terminal status here made the test's own name unfalsifiable.
+    expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
+
+    sdk.withWasmClientLock = origLock;
+  });
+
+  it('marks a bridged-send Failed (never Completed) on the apply-after-submit error', async () => {
+    // `createBridgeP2IDNote` blocks on `waitForTransactionCompletion` and reads
+    // `outputNoteIds` off the finished row. This generic post-submit path has no
+    // TransactionResult to write, so a Completed row here would hang the Epoch
+    // bridge forever while reporting success — Fail it instead.
+    const sdk = require('../sdk/miden-client');
+    const origLock = sdk.withWasmClientLock;
+    let callCount = 0;
+    sdk.withWasmClientLock = jest.fn(async (fn: any) => {
+      callCount++;
+      if (callCount >= 2) {
+        throw new Error(APPLY_AFTER_SUBMIT_ERROR_MESSAGE);
+      }
+      return fn();
+    });
+
+    txStore.push({
+      id: 'tx-bridge-apply-fail',
+      type: 'bridged-send',
+      status: ITransactionStatus.Queued,
+      initiatedAt: Math.floor(Date.now() / 1000),
+      accountId: 'acc-1',
+      extraInputs: { provider: 'epoch', recallBlocks: 1200 }
+    });
+
+    const result = await generateTransactionsLoop(dummySign, true, stubGuardianProvider);
+    expect(result).toBe(false);
+    const row = txStore.find(t => t.id === 'tx-bridge-apply-fail');
+    expect(row.status).toBe(ITransactionStatus.Failed);
+    expect(row.status).not.toBe(ITransactionStatus.Completed);
+
+    sdk.withWasmClientLock = origLock;
+  });
+
+  it('marks an AGGLAYER bridged-send Completed (never Failed) on the apply-after-submit error', async () => {
+    // The route matters, not the type. An Agglayer (Slow) bridge-out is queued by
+    // `initiateB2AggBridge`, which returns the txId immediately and never awaits the
+    // row — so there is no waiter to strand, and the B2AGG note IS on chain. Failing
+    // it is actively harmful: `BridgeClaimSection` gates the deposit tracker and the
+    // whole Connect-wallet / Claim-Asset block on `status !== Failed`, so a Failed row
+    // removes the only in-wallet path to claim the bridged funds on L1 (the "Reclaim
+    // funds" fallback is Epoch-only), and Retry re-submits the same pre-built
+    // requestBytes, which the node rejects.
+    const sdk = require('../sdk/miden-client');
+    const origLock = sdk.withWasmClientLock;
+    let callCount = 0;
+    sdk.withWasmClientLock = jest.fn(async (fn: any) => {
+      callCount++;
+      if (callCount >= 2) {
+        throw new Error(APPLY_AFTER_SUBMIT_ERROR_MESSAGE);
+      }
+      return fn();
+    });
+
+    txStore.push({
+      id: 'tx-agglayer-apply-fail',
+      type: 'bridged-send',
+      status: ITransactionStatus.Queued,
+      initiatedAt: Math.floor(Date.now() / 1000),
+      accountId: 'acc-1',
+      requestBytes: new Uint8Array([9]),
+      extraInputs: { provider: 'agglayer', destinationAddress: '0xdest', claimStatus: 'pending' }
+    });
+
+    const result = await generateTransactionsLoop(dummySign, true, stubGuardianProvider);
+    expect(result).toBe(false);
+    const row = txStore.find(t => t.id === 'tx-agglayer-apply-fail');
+    expect(row.status).toBe(ITransactionStatus.Completed);
+    expect(row.status).not.toBe(ITransactionStatus.Failed);
 
     sdk.withWasmClientLock = origLock;
   });
@@ -615,6 +1046,52 @@ describe('generateTransactionsLoop error paths', () => {
     sdk.withWasmClientLock = origLock;
   });
 
+  it('defers on the locked tag the hold carried out, with no locked text in the message (#878)', async () => {
+    const sdk = require('../sdk/miden-client');
+    const origLock = sdk.withWasmClientLock;
+    let callCount = 0;
+    sdk.withWasmClientLock = jest.fn(async (fn: any) => {
+      callCount++;
+      // What withWasmClientLock rejects with once its hold's sign recorded locked.
+      if (callCount >= 2) {
+        throw Object.assign(new Error('failed to execute transaction: JsValue(Error: opaque)'), { reason: 'locked' });
+      }
+      return fn();
+    });
+    txStore.push({
+      id: 'tx-locked-tag',
+      type: 'send',
+      status: ITransactionStatus.Queued,
+      initiatedAt: Math.floor(Date.now() / 1000),
+      accountId: 'acc-1'
+    });
+    const result = await generateTransactionsLoop(dummySign, true, stubGuardianProvider);
+    expect(result).toBe(false);
+    expect(txStore[0]!.status).toBe(ITransactionStatus.Queued);
+    sdk.withWasmClientLock = origLock;
+  });
+
+  it('fails a plain rejection: the loop reads only the error (the hold-keyed isolation is pinned in miden-client.test.ts)', async () => {
+    const sdk = require('../sdk/miden-client');
+    const origLock = sdk.withWasmClientLock;
+    let callCount = 0;
+    sdk.withWasmClientLock = jest.fn(async (fn: any) => {
+      callCount++;
+      if (callCount >= 2) throw new Error('failed to execute transaction: JsValue(Error: node timeout)');
+      return fn();
+    });
+    txStore.push({
+      id: 'tx-plain-failure',
+      type: 'send',
+      status: ITransactionStatus.Queued,
+      initiatedAt: Math.floor(Date.now() / 1000),
+      accountId: 'acc-1'
+    });
+    await generateTransactionsLoop(dummySign, true, stubGuardianProvider);
+    expect(txStore[0]!.status).toBe(ITransactionStatus.Failed);
+    sdk.withWasmClientLock = origLock;
+  });
+
   it('leaves the tx Queued (not Failed) when the wallet was locked mid-sign', async () => {
     const sdk = require('../sdk/miden-client');
     const origLock = sdk.withWasmClientLock;
@@ -624,9 +1101,6 @@ describe('generateTransactionsLoop error paths', () => {
       if (callCount >= 2) throw new Error('executeTransaction failed: vault is null');
       return fn();
     });
-    // SDK captured a locked-wallet auth failure during the sign callback.
-    mockLastAuthError.mockReturnValueOnce({ reason: 'locked' });
-
     txStore.push({
       id: 'tx-locked',
       type: 'send',
@@ -637,9 +1111,97 @@ describe('generateTransactionsLoop error paths', () => {
 
     const result = await generateTransactionsLoop(dummySign, true, stubGuardianProvider);
     expect(result).toBe(false);
-    // Locked → the loop skips cancellation (NOT Failed), leaving the tx
-    // mid-flight so the next auto-consume cycle retries it after unlock.
-    expect(txStore[0]!.status).not.toBe(ITransactionStatus.Failed);
+    // Locked → the loop skips cancellation (NOT Failed) AND genuinely returns the
+    // row to Queued. `generateTransaction` had already advanced it to
+    // GeneratingTransaction, which is exactly what `getTransactionsInProgress()`
+    // selects — leaving it there would head-of-line block the FIFO for every
+    // account until the stuck reaper Failed it (30 min desktop / 2 min mobile).
+    expect(txStore[0]!.status).toBe(ITransactionStatus.Queued);
+    expect(txStore[0]!.processingStartedAt).toBeUndefined();
+    // Backed off so a still-locked wallet doesn't re-attempt every ~5s poll.
+    expect(txStore[0]!.nextEligibleAt).toBeGreaterThan(Math.floor(Date.now() / 1000));
+    // The in-progress set is empty, so the very next loop pass can pick up
+    // another account's queued transaction instead of returning early.
+    expect(txStore.filter(t => t.status === ITransactionStatus.GeneratingTransaction)).toEqual([]);
+
+    sdk.withWasmClientLock = origLock;
+  });
+
+  it('does NOT requeue a lock-recovery eviction that lands alongside a stale locked auth reason (#775)', async () => {
+    // The locked-defer branch reads the error alone, and an evicted write's error
+    // can read as locked: `withWasmClientLock` tags the hold's rejection with the
+    // reason its sign recorded before the eviction landed, and the SDK's message
+    // can carry the word. Without the abandonment guard such a
+    // WasmClientPoisonedError would take the defer path, which
+    // requeues the row as a fresh write on the argument that a locked vault is
+    // strictly pre-submit. An eviction is precisely the failure where that does
+    // not hold: the abandoned pipeline runs on and can still submit, so
+    // requeueing a send is a second payment.
+    const { WasmClientPoisonedError } = require('../sdk/wasm-client-poison');
+    const sdk = require('../sdk/miden-client');
+    const origLock = sdk.withWasmClientLock;
+    let callCount = 0;
+    sdk.withWasmClientLock = jest.fn(async (fn: any) => {
+      callCount++;
+      // An eviction whose text reads as locked. A conjunction pin: isLockedError's type
+      // guard and the loop's abandonment guard each keep the row Failed on their own, so
+      // this reddens only when both go; the classifier pin owns the type guard, the
+      // abort row below owns the loop guard.
+      const poison = new WasmClientPoisonedError('watchdog');
+      poison.message = 'Wallet is locked: vault unavailable';
+      if (callCount >= 2) throw poison;
+      return fn();
+    });
+
+    txStore.push({
+      id: 'tx-poisoned-not-locked',
+      type: 'send',
+      status: ITransactionStatus.Queued,
+      initiatedAt: Math.floor(Date.now() / 1000),
+      accountId: 'acc-1'
+    });
+
+    const result = await generateTransactionsLoop(dummySign, true, stubGuardianProvider);
+    expect(result).toBe(false);
+    // Terminal, and never returned to the queue.
+    expect(txStore[0]!.status).toBe(ITransactionStatus.Failed);
+    expect(txStore[0]!.nextEligibleAt).toBeUndefined();
+
+    sdk.withWasmClientLock = origLock;
+  });
+
+  it('does NOT requeue an offscreen ABORT that lands alongside a stale locked auth reason (#777)', async () => {
+    // The sibling of the poison case above, by the offscreen route:
+    // `dispatchOffscreenWrite` re-tags whatever error it caught with `reason:'locked'`
+    // whenever the op's reverse-IPC sign reported locked, so a deadline abort reaches
+    // `isLockedError` already tagged. An abort is the same
+    // abandonment as an eviction — the offscreen pipeline keeps running and can still
+    // submit — so the defer branch's "strictly pre-submit" argument fails identically,
+    // and the requeue would clear `requestBytes` and rebuild the send with a fresh
+    // note serial. One send, two payments.
+    const { OperationAbortedError } = require('../back/offscreen-codec');
+    const sdk = require('../sdk/miden-client');
+    const origLock = sdk.withWasmClientLock;
+    let callCount = 0;
+    sdk.withWasmClientLock = jest.fn(async (fn: any) => {
+      callCount++;
+      // An abort whose reason text reads as locked: the loop's abandonment guard must win.
+      if (callCount >= 2) throw new OperationAbortedError('op-1', 'wallet is locked');
+      return fn();
+    });
+
+    txStore.push({
+      id: 'tx-aborted-not-locked',
+      type: 'send',
+      status: ITransactionStatus.Queued,
+      initiatedAt: Math.floor(Date.now() / 1000),
+      accountId: 'acc-1'
+    });
+
+    const result = await generateTransactionsLoop(dummySign, true, stubGuardianProvider);
+    expect(result).toBe(false);
+    expect(txStore[0]!.status).toBe(ITransactionStatus.Failed);
+    expect(txStore[0]!.nextEligibleAt).toBeUndefined();
 
     sdk.withWasmClientLock = origLock;
   });
@@ -665,7 +1227,8 @@ describe('generateTransactionsLoop error paths', () => {
 
     const result = await generateTransactionsLoop(dummySign, true, stubGuardianProvider);
     expect(result).toBe(false);
-    expect(txStore[0]!.status).not.toBe(ITransactionStatus.Failed);
+    expect(txStore[0]!.status).toBe(ITransactionStatus.Queued);
+    expect(txStore.filter(t => t.status === ITransactionStatus.GeneratingTransaction)).toEqual([]);
   });
 
   it('leaves a Guardian tx Queued (not Failed) when the wallet locks mid-guardian-flow, e.g. at sign time (#313)', async () => {
@@ -692,41 +1255,8 @@ describe('generateTransactionsLoop error paths', () => {
 
     const result = await generateTransactionsLoop(dummySign, true, stubGuardianProvider);
     expect(result).toBe(false);
-    expect(txStore[0]!.status).not.toBe(ITransactionStatus.Failed);
-  });
-
-  it('invokes the wrapped sign callback during dispatch (success path)', async () => {
-    // Default withWasmClientLock runs fn(), so generateTransaction reaches
-    // getMidenClient(options) and the mock invokes the wrapped sign callback.
-    txStore.push({
-      id: 'tx-sign-ok',
-      type: 'send',
-      status: ITransactionStatus.Queued,
-      initiatedAt: Math.floor(Date.now() / 1000),
-      accountId: 'acc-1'
-    });
-    const signOk = jest.fn(async () => new Uint8Array([7]));
-
-    await generateTransactionsLoop(signOk, true, stubGuardianProvider);
-
-    expect(signOk).toHaveBeenCalled();
-  });
-
-  it('wraps a failing sign callback via buildSignCallbackError during dispatch', async () => {
-    txStore.push({
-      id: 'tx-sign-throw',
-      type: 'send',
-      status: ITransactionStatus.Queued,
-      initiatedAt: Math.floor(Date.now() / 1000),
-      accountId: 'acc-1'
-    });
-    const signThrows = jest.fn(async () => {
-      throw new Error('vault is not initialized');
-    });
-
-    await generateTransactionsLoop(signThrows, true, stubGuardianProvider);
-
-    expect(signThrows).toHaveBeenCalled();
+    expect(txStore[0]!.status).toBe(ITransactionStatus.Queued);
+    expect(txStore.filter(t => t.status === ITransactionStatus.GeneratingTransaction)).toEqual([]);
   });
 });
 
@@ -790,56 +1320,6 @@ describe('generateTransactionsLoop — head-of-line fairness', () => {
     expect(row!.status).not.toBe(ITransactionStatus.Queued);
   });
 });
-
-describe('readLastAuthReason', () => {
-  it.each(['locked', 'rejected', 'not_found', 'internal'])(
-    "returns the '%s' reason from the SDK's lastAuthError",
-    async reason => {
-      mockLastAuthError.mockReturnValueOnce({ reason });
-      expect(await readLastAuthReason()).toBe(reason);
-    }
-  );
-
-  it('returns undefined for an unrecognized reason', async () => {
-    mockLastAuthError.mockReturnValueOnce({ reason: 'something-else' });
-    expect(await readLastAuthReason()).toBeUndefined();
-  });
-
-  it('returns undefined when there is no recorded auth error', async () => {
-    mockLastAuthError.mockReturnValueOnce(null);
-    expect(await readLastAuthReason()).toBeUndefined();
-  });
-
-  it('returns undefined when lastAuthError throws', async () => {
-    mockLastAuthError.mockImplementationOnce(() => {
-      throw new Error('boom');
-    });
-    expect(await readLastAuthReason()).toBeUndefined();
-  });
-
-  // Issue #260 flip-prep #1+#2: under the flag-on offscreen write the SW-inline
-  // client NEVER signed for the op (the sign ran in the offscreen realm), so its
-  // `lastAuthError()` is STALE / another op's — consulting it would DEFER a
-  // genuinely-failed offscreen write forever on a stale 'locked'. The op's locked
-  // signal is carried instead by the op-keyed error tag (`isLockedError(e)`), so
-  // `readLastAuthReason()` must NOT consult the SW client at all under flag-on.
-  it('flag-on: never consults the stale SW-client lastAuthError (returns undefined)', async () => {
-    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
-    jest.resetModules();
-    try {
-      const { readLastAuthReason: readFlagOn } = await import('./helper');
-      // Seed a STALE 'locked' on the SW client — a genuinely-failed offscreen
-      // write must not be deferred on it.
-      mockLastAuthError.mockReturnValue({ reason: 'locked' });
-      expect(await readFlagOn()).toBeUndefined();
-    } finally {
-      delete process.env.MIDEN_USE_OFFSCREEN_CLIENT;
-      mockLastAuthError.mockReturnValue(null);
-      jest.resetModules();
-    }
-  });
-});
-
 describe('buildSignCallbackError', () => {
   it("classifies a 'not initialized' vault error as locked", () => {
     const wrapped = buildSignCallbackError(new Error('Wallet is not initialized'));
@@ -868,5 +1348,38 @@ describe('buildSignCallbackError', () => {
   it('tolerates an empty-message Error (falls back to internal)', () => {
     const wrapped = buildSignCallbackError(new Error(''));
     expect(wrapped.reason).toBe('internal');
+  });
+});
+
+describe('isLockedError', () => {
+  it('never classifies an abandonment as locked, whatever it carries', () => {
+    const { WasmClientPoisonedError } = require('../sdk/wasm-client-poison');
+    const { OperationAbortedError } = require('../back/offscreen-codec');
+    // A locked vault is strictly pre-submit; an abandoned pipeline can still submit, so
+    // deferring it would requeue a payment that may land.
+    // A poison error is refused by TYPE, whatever its text says: a locked-reading
+    // message must not get past the guard.
+    const poisonReadingAsLocked = new WasmClientPoisonedError('watchdog');
+    poisonReadingAsLocked.message = 'Wallet is locked: vault unavailable';
+    expect(isLockedError(poisonReadingAsLocked)).toBe(false);
+    // An abort is NOT refused here: with no locked signal it classifies false, with one
+    // it classifies true, and the loop's `!abandoned` is what keeps it out of the
+    // requeue (pinned by the full-loop abort test above).
+    expect(isLockedError(new OperationAbortedError('op-1', 'deadline'))).toBe(false);
+    expect(isLockedError(new OperationAbortedError('op-1', 'wallet is locked'))).toBe(true);
+  });
+
+  it('reads a locked vault out of an inline SDK rejection, whose message carries the sign callback error (#878)', () => {
+    // What the vault throws when locked, classified by the SDK-facing signer, then folded by the SDK
+    // into its executeTransaction rejection. Only the message crosses: in worker mode the main
+    // thread posts `error.message` (SDK dist/st/index.js, EXECUTE_CALLBACK catch), the worker rethrows
+    // `new Error(message)`, and the Rust adapter formats `{context}: JsValue(Error: <message>)`
+    // (web_keystore_callbacks.rs) - the same string the inline mode produces. That adaptation cannot
+    // run under jest (the Node entry is the napi build), so this pins the shape it is known to emit.
+    const classified = buildSignCallbackError(Object.assign(new Error('Wallet is locked'), { reason: 'locked' }));
+    const sdkShaped = (message: string) => new Error(`failed to execute transaction: JsValue(Error: ${message})`);
+    expect(isLockedError(sdkShaped(classified.message))).toBe(true);
+    const other = buildSignCallbackError(new Error('keystore IO failure'));
+    expect(isLockedError(sdkShaped(other.message))).toBe(false);
   });
 });

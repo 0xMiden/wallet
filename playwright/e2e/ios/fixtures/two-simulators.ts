@@ -20,6 +20,7 @@ import { MidenCli, resolveCliPath } from '../../helpers/miden-cli';
 import { CdpBridge, type CdpSession, isCdpNoPagesError } from '../helpers/cdp-bridge';
 import { IosWalletPage } from '../helpers/ios-wallet-page';
 import { isSimctlTimeoutError, SimulatorControl } from '../helpers/simulator-control';
+import { createNotificationAlertGate, warmUpIdb } from '../helpers/system-alerts';
 
 // ── Constants ───────────────────────────────────────────────────────────────
 
@@ -137,7 +138,32 @@ async function launchSimWalletInstance(
     });
   });
 
-  const walletPage = new IosWalletPage({ cdp, sim, udid, bundleId: BUNDLE_ID });
+  // Dismiss the native notification-permission alert before every screenshot of this wallet (see
+  // system-alerts.ts): initNativeNotifications() raises it when the authenticated shell mounts mid-test,
+  // a SpringBoard alert outside the WebView that CDP can't tap. Gating the page's own screenshot covers
+  // every capture path, the screen poll and DappBrowserDriver's paint assertions alike, so no frame is
+  // shot while it's up. Best-effort; no-op without idb.
+  const alertGate = createNotificationAlertGate(udid, {
+    onLog: message => timeline.emit({ category: 'test_lifecycle', severity: 'info', wallet: label, message })
+  });
+  // The wallet's bridge log says when the app has asked for notification permission, so a capture waits for the
+  // alert to be tapped instead of racing its appearance (see createNotificationAlertGate).
+  cdp.onConsoleLog(entry => alertGate.observeConsole(entry.text));
+  const walletPage = new IosWalletPage({
+    cdp,
+    sim,
+    udid,
+    bundleId: BUNDLE_ID,
+    beforeCapture: () => alertGate.beforeCapture(),
+    settleNotificationPrompt: () => alertGate.settlePrompt(30_000)
+  });
+
+  // Connect idb's companion now, before the screen poll starts, so the first
+  // home frame isn't captured while idb is still cold-starting (see warmUpIdb).
+  // Best-effort and mostly free after the first test (the companion persists).
+  await warmUpIdb(udid, {
+    onLog: message => timeline.emit({ category: 'test_lifecycle', severity: 'info', wallet: label, message })
+  });
 
   timeline.emit({
     category: 'test_lifecycle',
@@ -401,26 +427,32 @@ export const test = base.extend<TwoSimulatorFixtures>({
     // socket as the rest of the spec's traffic.
     const screensDir = path.join(steps.outputDir, 'screens');
     const screenPolls = [
-      { label: 'A', walletPage: instanceA.walletPage, cdp: instanceA.cdp },
-      { label: 'B', walletPage: instanceB.walletPage, cdp: instanceB.cdp }
-    ].map(({ label, walletPage, cdp }) =>
-      startScreenPoll({
+      { label: 'A' as const, walletPage: instanceA.walletPage, cdp: instanceA.cdp },
+      { label: 'B' as const, walletPage: instanceB.walletPage, cdp: instanceB.cdp }
+    ].map(({ label, walletPage, cdp }) => {
+      return startScreenPoll({
         intervalMs: 250,
         read: async () => {
           // Sync `eval`, not `evalAsync` — the latter is broken on this iOS
           // RWI bridge (see CdpSession.evalAsync). A plain-object read of
           // window.__TEST_SCREEN__ touches no WASM, so it's safe from the
           // single-threaded client's lock contention.
-          const raw = await cdp.eval<string>('return JSON.stringify(window.__TEST_SCREEN__ || null);', {
-            timeoutMs: 5_000
-          });
+          // Gate on paint: right after a launch the WebView is blank (React
+          // hasn't rendered), and a grab then yields an empty white frame.
+          // Report a screen only once the body has visible text, so the poll
+          // skips blank frames until the app has painted.
+          const raw = await cdp.eval<string>(
+            'return JSON.stringify(document.body && document.body.innerText.trim().length > 0 ? (window.__TEST_SCREEN__ || null) : null);',
+            { timeoutMs: 5_000 }
+          );
           return raw ? (JSON.parse(raw) as { key: string; seq: number }) : null;
         },
+        // walletPage.screenshot() dismisses the notification alert first (launchSimWalletInstance).
         grab: p => walletPage.screenshot({ path: p }),
         dir: screensDir,
         label
-      })
-    );
+      });
+    });
 
     await use({ instanceA, instanceB, simA, simB });
 

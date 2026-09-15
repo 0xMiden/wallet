@@ -56,6 +56,7 @@ import { DappWebViewInstance, InAppBrowser, ToolBarType, dappWebViewManager } fr
 import { DappConfirmationModal } from 'app/pages/Browser/DappConfirmationModal';
 import { DappPeekTray } from 'app/pages/Browser/DappPeekTray';
 import { DappSwitcher } from 'app/pages/Browser/DappSwitcher';
+import { MidenDAppErrorType } from 'lib/adapter/types';
 import {
   INJECTION_SCRIPT,
   type DappSession,
@@ -64,6 +65,7 @@ import {
   fromPersisted,
   handleWebViewMessage,
   loadPersistedSessions,
+  parseOrigin,
   readSnapshotFromDisk,
   removePersistedSession,
   removeSnapshotFromDisk,
@@ -76,8 +78,11 @@ import {
 // hand a disk-loaded snapshot to the in-memory store without going
 // through the native plugin.
 import { dappConfirmationStore } from 'lib/dapp-browser/confirmation-store';
+import { getDappDisplayName } from 'lib/dapp-browser/dapp-session';
 import { captureSnapshot, clearSnapshot, snapshotStoreInternals } from 'lib/dapp-browser/snapshot-store';
 import { type WebViewRect } from 'lib/dapp-browser/webview-rect';
+import { useOverlayScreenKey } from 'lib/e2e/useOverlayScreenKey';
+import { useHideDappBubblesWhileOpen } from 'lib/mobile/useHideDappBubblesWhileOpen';
 import { resetViewportAfterWebview } from 'lib/mobile/viewport-reset';
 import { markReturningFromWebview } from 'lib/mobile/webview-state';
 import { isMobile } from 'lib/platform';
@@ -109,8 +114,32 @@ export interface DappSessionState {
   /** The native-side multi-instance handle. Null briefly while opening. */
   instance: DappWebViewInstance | null;
   status: DappInstanceStatus;
-  /** Live origin — updated by urlChangeEvent so cross-origin nav is tracked. */
+  /**
+   * Live origin — the SOLE security principal for every dApp request from this
+   * session (`handleWebViewMessage` → `processDApp` → `getDApp`). Seeded from the
+   * URL the webview is told to load and updated by `urlChangeEvent` so cross-origin
+   * nav is tracked.
+   */
   origin: string;
+  /**
+   * True once an `urlChangeEvent` has reported the URL of the load currently in
+   * this session's webview, i.e. `origin` was derived from the document that is
+   * actually there rather than from the URL we asked for.
+   *
+   * The gap matters because the two are not the same after a server-side redirect,
+   * and `origin` decides whether a `PRIVATE_NOTES_REQUEST` is served from a stored
+   * `Auto` grant with no prompt at all. The dApp's document runs in another
+   * process and can post through `window.mobileApp.postMessage` as soon as it
+   * parses, with no ordering guarantee against the plugin's `urlChangeEvent` — so
+   * requests that arrive first are refused rather than attributed to an origin we
+   * have not confirmed. Dropping a request is safe; mis-attributing one is not.
+   *
+   * Cleared ONLY in `openInternal` (a load this provider starts). A soft reload
+   * goes through `InAppBrowser.reload` and never clears it, which matters because
+   * Android's `doUpdateVisitedHistory` deliberately skips `urlChangeEvent` on a
+   * reload — clearing it there would leave the session permanently refused.
+   */
+  originConfirmed: boolean;
   /** True between openWebView and the first browserPageLoaded event. */
   isLoading: boolean;
   /**
@@ -161,6 +190,11 @@ interface DappBrowserContextValue {
   setSlotRect: (rect: WebViewRect | null) => void;
   /** The most recent slot rect, used by minimize-animation hooks. */
   slotRect: WebViewRect | null;
+  /**
+   * Hold the foreground dApp's native window hidden while a host-WebView overlay
+   * is open above it. Returns the release; a no-op once released.
+   */
+  holdHostOverlay: () => () => void;
 }
 
 const DappBrowserContext = createContext<DappBrowserContextValue | null>(null);
@@ -171,6 +205,17 @@ export function useDappBrowser(): DappBrowserContextValue {
     throw new Error('useDappBrowser must be used inside <DappBrowserProvider>');
   }
   return ctx;
+}
+
+/**
+ * While `open`, hide the foreground dApp's native window (it sits above the
+ * host WebView and would cover a host overlay) and move parked-dApp bubbles
+ * aside. A no-op outside the provider: extension, desktop, confirm window.
+ */
+export function useHideForegroundDappWhileOpen(open: boolean): void {
+  const holdHostOverlay = useContext(DappBrowserContext)?.holdHostOverlay;
+  useEffect(() => (open && holdHostOverlay ? holdHostOverlay() : undefined), [open, holdHostOverlay]);
+  useHideDappBubblesWhileOpen(open);
 }
 
 /**
@@ -214,6 +259,38 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
   // PR-5: card switcher visibility lives in the provider so it survives
   // tab navigation alongside the bubble host.
   const [switcherOpen, setSwitcherOpen] = useState(false);
+
+  // The confirmation modal is rendered here so it survives tab navigation.
+  // PR-4 chunk 8: scope to the foreground session id so a parked dApp's
+  // pending confirmation stays queued until the user surfaces that
+  // session via its bubble. Falling back to undefined when no session is
+  // foregrounded means the modal also picks up the legacy default-slot
+  // request from this platform's non-session callers (faucet-webview,
+  // native notifications). This provider is mounted only on mobile
+  // (`App.tsx`); desktop renders its own `DesktopDappConfirmationModal`
+  // against the same default slot, and the extension uses its popup.
+  const { request, resolve } = useDappConfirmation(foregroundId ?? undefined);
+
+  // Host-WebView overlays that must sit above a foregrounded dApp (the network
+  // banner's sheet); while any holds, the foreground window stays hidden.
+  const [hostOverlays, setHostOverlays] = useState(0);
+  const holdHostOverlay = useCallback(() => {
+    setHostOverlays(n => n + 1);
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      setHostOverlays(n => Math.max(0, n - 1));
+    };
+  }, []);
+
+  // One decision for every path that can show the foreground window (the slot
+  // effect, the switcher close, the visibility effect): a pending confirmation,
+  // the open switcher or a held host overlay keeps it hidden. Mirrored into a
+  // ref during render so effects in this commit read the current value.
+  const foregroundBlocked = !!request || switcherOpen || hostOverlays > 0;
+  const foregroundBlockedRef = useRef(foregroundBlocked);
+  foregroundBlockedRef.current = foregroundBlocked;
   // Snapshot taken at the moment the switcher opens — restored when it
   // closes (unless the user picked a card, in which case the picked
   // session takes the foreground via restore()).
@@ -325,6 +402,23 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
             return;
           }
           const walletMessage = parsed as WebViewMessage;
+          // Refuse anything origin-scoped until `urlChangeEvent` has confirmed the
+          // origin of the load this message came from. `state.origin` is the only
+          // thing standing between a page and another page's approved session (an
+          // `Auto` grant serves private notes and balances with no prompt at all),
+          // and it is repaired by a cross-process event with no ordering guarantee
+          // against the dApp's own inline scripts. PING is exempt: it is the bridge's
+          // availability probe, answered locally with PONG and never reaching
+          // `processDApp`, so it carries no origin-derived authority.
+          if (!state.originConfirmed && walletMessage.payload !== 'PING') {
+            await sendResponseToInstance(state.instance, {
+              type: 'MIDEN_PAGE_ERROR_RESPONSE',
+              payload: null,
+              reqId: walletMessage.reqId,
+              error: MidenDAppErrorType.NotGranted
+            });
+            return;
+          }
           // PR-4 chunk 8: pass the session id through to the backend so any
           // confirmation prompt this request triggers is keyed by it and
           // the React modal routes correctly.
@@ -376,7 +470,16 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
         if (!newUrl) return;
         try {
           const origin = new URL(newUrl).origin;
-          updateSession(id, s => ({ ...s, origin }));
+          // url and origin are rewritten together, and only together: `parkInternal`
+          // persists `toPersisted(session).url` next to this live origin, so a pair
+          // that drifts apart makes the next cold restore load one page under
+          // another page's approved session.
+          updateSession(id, s => ({
+            ...s,
+            origin,
+            originConfirmed: true,
+            session: { ...s.session, url: newUrl, origin }
+          }));
         } catch {
           /* ignore */
         }
@@ -468,9 +571,13 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
           session: fromPersisted(p),
           instance: null,
           status: 'parked' as DappInstanceStatus,
+          // Display-only until `openInternal` re-derives it from the URL this
+          // session will actually load — a legacy record can carry an origin from
+          // a page its `url` never pointed at.
           origin: p.origin,
           isLoading: false,
           isCold: true,
+          originConfirmed: false,
           error: null
         }));
 
@@ -510,7 +617,14 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
         updateSession(session.id, s => ({
           ...s,
           instance,
-          status: 'active'
+          status: 'active',
+          // Stamp the principal from the URL this load actually starts at, rather
+          // than carrying over whatever origin the state (or a persisted record)
+          // happened to hold — a cold restore's persisted origin can be from a page
+          // this load is not opening. Unconfirmed until `urlChangeEvent` reports the
+          // document that really committed (a redirect can land elsewhere).
+          origin: parseOrigin(session.url),
+          originConfirmed: false
         }));
       } catch (error) {
         console.error('[DappBrowserProvider] Error opening webview:', error);
@@ -606,6 +720,7 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
           origin: next.origin,
           isLoading: true,
           isCold: false,
+          originConfirmed: false,
           error: null
         }
       ]);
@@ -740,8 +855,12 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       // `setRect(new)` moves it — producing a visible jump at the
       // end of the expand animation. Calling setRect first ensures
       // the webview is already at the target before it appears.
-      void state.instance.setRect(slotRect);
-      void state.instance.setVisible(true);
+      void state.instance.setRect(slotRect).catch(e => console.warn('[DappBrowserProvider] setRect failed:', e));
+      // Blocked: stay hidden; the visibility effect shows it once nothing blocks.
+      if (!foregroundBlockedRef.current)
+        void state.instance
+          .setVisible(true)
+          .catch(e => console.warn('[DappBrowserProvider] setVisible(true) failed:', e));
       // Re-run the injection script on restore so any CSS the wallet
       // wants to layer onto the dApp (currently the navbar bottom
       // padding) reaches sessions that were parked before the most
@@ -749,7 +868,9 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       // page loads, not when setVisible(true) un-parks an instance,
       // so without this the CSS would never refresh on a hot-restored
       // session.
-      void state.instance.executeScript(INJECTION_SCRIPT).catch(() => {});
+      void state.instance
+        .executeScript(INJECTION_SCRIPT)
+        .catch(e => console.warn('[DappBrowserProvider] executeScript failed:', e));
     }
     // openInternal is stable-ish; intentionally not in deps to avoid
     // re-running on every state change.
@@ -758,8 +879,15 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
 
   // Record successful slot rect reports so the auto-park effect knows
   // which foregrounds have actually been visible at least once.
+  //
+  // A record lasts for one stay in the foreground: releasing the foreground clears it. Parking waits for the snapshot
+  // while the session is still foreground, and DappActive re-measures the slot on timers after it mounts, so a record
+  // made during that wait would outlive the park, make the next restore of that session look already shown, and park
+  // it again before its slot reports.
   useEffect(() => {
-    if (foregroundId && slotRect) {
+    if (!foregroundId) {
+      slotRectShownForRef.current = null;
+    } else if (slotRect) {
       slotRectShownForRef.current = foregroundId;
     }
   }, [foregroundId, slotRect]);
@@ -848,7 +976,9 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       // Hide all active instances. Parked ones are already hidden.
       sessionStatesRef.current.forEach(s => {
         if (s.status === 'active' && s.instance) {
-          void s.instance.setVisible(false);
+          void s.instance
+            .setVisible(false)
+            .catch(e => console.warn('[DappBrowserProvider] setVisible(false) failed:', e));
         }
       });
     } else {
@@ -858,11 +988,15 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       // call setVisible(true) + setRect once it runs, but we don't
       // need to do anything explicit here — the dependency on
       // switcherOpen is enough to trigger a re-run.
-      if (foregroundIdRef.current && slotRectRef.current) {
+      if (foregroundIdRef.current && slotRectRef.current && !foregroundBlockedRef.current) {
         const state = sessionStatesRef.current.find(s => s.session.id === foregroundIdRef.current);
         if (state?.instance) {
-          void state.instance.setVisible(true);
-          void state.instance.setRect(slotRectRef.current);
+          void state.instance
+            .setVisible(true)
+            .catch(e => console.warn('[DappBrowserProvider] setVisible(true) failed:', e));
+          void state.instance
+            .setRect(slotRectRef.current)
+            .catch(e => console.warn('[DappBrowserProvider] setRect failed:', e));
         }
       }
     }
@@ -883,6 +1017,29 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
   const isLoading = foregroundState?.isLoading ?? false;
 
   const parkedSessions = useMemo(() => sessionStates.filter(s => s.status === 'parked'), [sessionStates]);
+
+  // E2E-only. Names the current dApp-browser surface in the screen-key signal
+  // (`lib/e2e/screen-key`), which the mobile suites take one screenshot per
+  // change of. Every dApp transition happens on ONE route, `/browser`, so
+  // without this the entire feature — open, park, restore, switch between
+  // sessions — is a single unchanging key, and the one suite whose failures are
+  // purely visual would document none of the transitions it exists to catch.
+  //
+  // The gate is the same three conditions the E2E driver uses for "this dApp is
+  // up": foregrounded, done loading, and holding a slot to draw into.
+  // `foregroundId` is assigned well before the native webview has a rect, let
+  // alone a painted frame, so publishing any earlier would spend the one
+  // screenshot-per-change on a blank slot.
+  //
+  // The label is `getDappDisplayName` — the same string the capsule bar shows —
+  // so the key names what the user is looking at instead of the session id,
+  // which is regenerated on every run and would sort as noise.
+  const dappScreenKeyPart = switcherOpen
+    ? 'dapp-switcher'
+    : foregroundState && foregroundState.status === 'active' && !foregroundState.isLoading && slotRect
+      ? `dapp:${getDappDisplayName(foregroundState.session)}`
+      : '';
+  useOverlayScreenKey(Boolean(dappScreenKeyPart), dappScreenKeyPart);
 
   // The React-only wallet shell is active once the user is past
   // onboarding / unlock. Parked dApp trays use this gate so persistent
@@ -917,7 +1074,8 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       openSwitcher,
       closeSwitcher,
       setSlotRect,
-      slotRect
+      slotRect,
+      holdHostOverlay
     }),
     [
       session,
@@ -932,17 +1090,10 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       switcherOpen,
       openSwitcher,
       closeSwitcher,
-      slotRect
+      slotRect,
+      holdHostOverlay
     ]
   );
-
-  // The confirmation modal is rendered here so it survives tab navigation.
-  // PR-4 chunk 8: scope to the foreground session id so a parked dApp's
-  // pending confirmation stays queued until the user surfaces that
-  // session via its bubble. Falling back to undefined when no session is
-  // foregrounded means the modal also picks up the legacy default-slot
-  // request from the extension/desktop flow when those code paths run.
-  const { request, resolve } = useDappConfirmation(foregroundId ?? undefined);
 
   // CRITICAL: when a confirmation is pending, hide the foreground dApp's
   // native UIWindow. The confirmation modal is rendered inside the
@@ -964,17 +1115,27 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
   // This matches the existing switcher-open effect's pattern, just
   // scoped to the single foreground session instead of every active
   // instance.
+  //
+  // foregroundBlocked (above) decides: a held host overlay or the open switcher
+  // hides it the same way, and it is shown again only when nothing blocks.
+  // Keyed on the foreground instance too, so a window created while blocked
+  // (openInternal opens it visible) is hidden as soon as it arrives.
+  const foregroundInstance = sessionStates.find(s => s.session.id === foregroundId)?.instance ?? null;
   useEffect(() => {
     if (!isMobile()) return;
     if (!foregroundId) return;
     const state = sessionStatesRef.current.find(s => s.session.id === foregroundId);
     if (!state?.instance) return;
-    if (request) {
-      void state.instance.setVisible(false).catch(() => {});
+    if (foregroundBlocked) {
+      void state.instance
+        .setVisible(false)
+        .catch(e => console.warn('[DappBrowserProvider] setVisible(false) failed:', e));
     } else {
-      void state.instance.setVisible(true).catch(() => {});
+      void state.instance
+        .setVisible(true)
+        .catch(e => console.warn('[DappBrowserProvider] setVisible(true) failed:', e));
     }
-  }, [request, foregroundId]);
+  }, [foregroundBlocked, foregroundId, foregroundInstance]);
 
   // Read account info for the modal — kept here to avoid prop-drilling
   const currentAccount = useWalletStore(s => s.currentAccount);
@@ -984,6 +1145,40 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
     if (accounts && accounts.length > 0) return accounts[0]!.publicKey;
     return null;
   }, [currentAccount, accounts]);
+
+  // E2E-only observability. The dApp itself renders in a native webview that
+  // CDP cannot see, so the suite needs the wallet's own view of the world to
+  // assert against: which session is foregrounded, what each session's
+  // lifecycle status is, and — the load-bearing one — the slot rect the
+  // wallet last asked the plugin to position the webview at. The dApp-browser
+  // spec compares that rect against the size the dApp page reports for itself,
+  // which is how a "resized the frame but never re-laid-out the content"
+  // regression is caught.
+  //
+  // Strictly READ-ONLY: the suite drives every transition through real taps on
+  // real elements. Exposing actions here would let the tests bypass the UI and
+  // silently stop covering it. Mirrors the __TEST_STORE__ gate; zero
+  // production impact.
+  useEffect(() => {
+    if (process.env.MIDEN_E2E_TEST !== 'true') return;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (globalThis as any).__TEST_DAPP_BROWSER__ = {
+      foregroundId,
+      mode: foregroundId ? 'active' : 'launcher',
+      switcherOpen,
+      slotRect,
+      sessions: sessionStates.map(s => ({
+        id: s.session.id,
+        url: s.session.url,
+        origin: s.origin,
+        status: s.status,
+        isLoading: s.isLoading,
+        isCold: s.isCold,
+        error: s.error
+      }))
+    };
+  }, [foregroundId, switcherOpen, slotRect, sessionStates]);
+
   return (
     <DappBrowserContext.Provider value={contextValue}>
       {children}

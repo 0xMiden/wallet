@@ -35,7 +35,15 @@ export const ScreenHeader: React.FC<ScreenHeaderProps> = ({
         className="shrink-0 border border-border-card text-primary-500"
       />
     )}
-    <h1 className="flex-1 font-heading text-[1.75rem] font-extrabold leading-none text-heading-gray">{title}</h1>
+    {/* No heading at all when there is no title, rather than an empty one: the
+        success receipts render a title-less header (their title lives in the body,
+        under the hero), and an `<h1></h1>` announced a nameless level-1 heading
+        before it. The spacer keeps the close button pinned right. */}
+    {title ? (
+      <h1 className="flex-1 font-heading text-[1.75rem] font-extrabold leading-none text-heading-gray">{title}</h1>
+    ) : (
+      <div className="flex-1" />
+    )}
     {onClose && (
       <button
         type="button"

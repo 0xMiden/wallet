@@ -94,7 +94,7 @@ async function launchEmuWalletInstance(
     uninstallMs = ms(tUninstall);
 
     const tInstall = phaseStart();
-    await emu.install(serial, APK_PATH);
+    await emu.install(serial, APK_PATH, PACKAGE_NAME);
     installMs = ms(tInstall);
     installedSerials.add(serial);
   } else {
@@ -102,6 +102,12 @@ async function launchEmuWalletInstance(
     await emu.wipeAppState(serial, PACKAGE_NAME);
     wipeMs = ms(tWipe);
   }
+
+  // Pre-grant POST_NOTIFICATIONS so the OS notification dialog never appears
+  // (it otherwise covers every screenshot). Granted every launch, not once
+  // after install: the warm-emulator wipe path above (`pm clear`/wipeAppState)
+  // resets granted runtime permissions. Best-effort — see grantNotifications.
+  await emu.grantNotifications(serial, PACKAGE_NAME);
 
   const tLaunch = phaseStart();
   // MIDEN_E2E_TEST + MIDEN_NETWORK are build-time baked on Android (vite
@@ -281,8 +287,14 @@ export const test = base.extend<TwoEmulatorFixtures>({
       startScreenPoll({
         intervalMs: 250,
         read: () =>
-          walletPage.evaluate(
-            () => (window as unknown as { __TEST_SCREEN__?: { key: string; seq: number } }).__TEST_SCREEN__ ?? null
+          // Gate on paint: right after a launch the WebView is blank (React
+          // hasn't rendered), and a grab then yields an empty white frame.
+          // Report a screen only once the body has visible text, so the poll
+          // skips blank frames until the app has painted.
+          walletPage.evaluate(() =>
+            document.body && document.body.innerText.trim().length > 0
+              ? ((window as unknown as { __TEST_SCREEN__?: { key: string; seq: number } }).__TEST_SCREEN__ ?? null)
+              : null
           ),
         grab: p => walletPage.screenshot({ path: p }),
         dir: screensDir,

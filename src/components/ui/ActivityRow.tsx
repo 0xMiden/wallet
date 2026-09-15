@@ -2,9 +2,15 @@ import React, { FC, ReactNode } from 'react';
 
 import BigNumber from 'bignumber.js';
 import classNames from 'clsx';
+import { motion } from 'framer-motion';
+import { useTranslation } from 'react-i18next';
 
+import { springs, useMotion } from 'lib/animation';
 import { getAdaptiveDecimalPlaces } from 'lib/i18n/numbers';
 import { hapticLight } from 'lib/mobile/haptics';
+
+/** Extra batch-claim assets rendered inline before the row collapses to a count. */
+const EXTRA_ASSET_PREVIEW_COUNT = 2;
 
 export type ActivityAmountDirection = 'positive' | 'negative' | 'neutral';
 export type ActivityStatusTone = 'confirmed' | 'pending' | 'failed' | 'cancelled';
@@ -24,6 +30,19 @@ export interface ActivityRowProps {
     /** Token symbol, rendered in the neutral heading color next to the value. */
     symbol?: string;
     direction?: ActivityAmountDirection;
+    /**
+     * Further assets appended inline after the first, comma-separated and in the
+     * same colour — a batch claim of several tokens reads "+20 A, +10 B". Each
+     * `value` carries its own sign like the primary `value`. `key` must be stable
+     * and unique (the source faucet id): two faucets can format to the same
+     * amount and to the same symbol, since an unresolvable one reads "Unknown".
+     *
+     * Only the first `EXTRA_ASSET_PREVIEW_COUNT` render; the remainder collapse
+     * to a "+N more" count, so pass these in the order worth showing — they are
+     * rendered in the given order, not sorted. The detail view's summary pill
+     * wraps and lists every asset.
+     */
+    extra?: { key: string; value: string; symbol?: string }[];
   };
   status?: {
     label: string;
@@ -97,22 +116,40 @@ export const ActivityRow: FC<ActivityRowProps> = ({
   testId,
   entryKey
 }) => {
+  const { t } = useTranslation();
+  // `settle` for the row's layout move: the most damped preset, so a slide
+  // comes to rest with no overshoot. Under reduced motion `useMotion`
+  // collapses it to an instant tween, so a filter change still swaps the
+  // list, only without the movement.
+  const transition = useMotion(springs.settle);
   const handleClick = () => {
     if (!onClick) return;
     hapticLight();
     onClick();
   };
+  // A "Claim All" can sweep up any number of distinct assets, and this row has
+  // one line for them; past a couple the amount column starves the title beside
+  // it. Show the first few in the order the caller passed and count the rest.
+  // The row opens the detail view, whose summary pill wraps and so does list
+  // every asset in full.
+  const extra = amount?.extra ?? [];
+  const visibleExtra = extra.slice(0, EXTRA_ASSET_PREVIEW_COUNT);
+  const extraOverflowCount = extra.length - visibleExtra.length;
+  // The row is a Framer element so a list can animate it as a plain list item:
+  // `layout` slides the rows that stay into place when a filter or a search
+  // removes a neighbour. Nothing fades: a removed row leaves at once and a new
+  // one appears in place, the way a native list behaves. The tap state is
+  // Framer's, so it shares the channel a layout move may hold.
   return (
-    <div
+    <motion.div
+      layout
+      whileTap={onClick ? { opacity: 0.9 } : undefined}
+      transition={transition}
       data-testid={testId}
       data-entry-key={entryKey}
       role={onClick ? 'button' : undefined}
       onClick={onClick ? handleClick : undefined}
-      className={classNames(
-        'w-full flex items-center py-4 justify-between',
-        onClick && 'cursor-pointer active:opacity-90 transition-opacity',
-        className
-      )}
+      className={classNames('w-full flex items-center py-4 justify-between', onClick && 'cursor-pointer', className)}
     >
       <div className="flex items-center gap-2">
         <div
@@ -142,9 +179,41 @@ export const ActivityRow: FC<ActivityRowProps> = ({
 
       <div className="flex flex-col items-end gap-0.5">
         {amount && (
-          <span data-testid={testId && `${testId}-amount`} className="font-heading text-sm font-bold leading-tight">
-            <span className={AMOUNT_COLOR[amount.direction ?? 'neutral']}>{formatDisplayAmount(amount.value)}</span>
-            {amount.symbol ? <span className="text-heading-gray">{` ${amount.symbol}`}</span> : null}
+          <span
+            data-testid={testId && `${testId}-amount`}
+            className="font-heading text-sm font-bold leading-tight text-right"
+          >
+            {amount.value !== '' && (
+              <span className={AMOUNT_COLOR[amount.direction ?? 'neutral']}>{formatDisplayAmount(amount.value)}</span>
+            )}
+            {amount.symbol ? (
+              <span className="text-heading-gray">{amount.value === '' ? amount.symbol : ` ${amount.symbol}`}</span>
+            ) : null}
+            {/* Every further asset of a batch claim follows inline: "+20 A, +10 B".
+                The test id is indexed so each asset stays individually addressable —
+                a repeated one makes `getByTestId` ambiguous under strict mode.
+                An asset whose scale never resolved carries an empty `value`; it is
+                named without a number, and without the space that would otherwise
+                sit between the missing number and the symbol. */}
+            {visibleExtra.map((line, index) => (
+              <span key={line.key} data-testid={testId && `${testId}-amount-extra-${index}`}>
+                {/* eslint-disable-next-line i18next/no-literal-string -- list separator, not translatable copy */}
+                <span className="text-heading-gray">, </span>
+                {line.value !== '' && (
+                  <span className={AMOUNT_COLOR[amount.direction ?? 'neutral']}>{formatDisplayAmount(line.value)}</span>
+                )}
+                {line.symbol ? (
+                  <span className="text-heading-gray">{line.value === '' ? line.symbol : ` ${line.symbol}`}</span>
+                ) : null}
+              </span>
+            ))}
+            {extraOverflowCount > 0 && (
+              <span data-testid={testId && `${testId}-amount-extra-overflow`} className="text-heading-gray">
+                {/* eslint-disable-next-line i18next/no-literal-string -- list separator, not translatable copy */}
+                <span>, </span>
+                {t('andMoreAssets', { count: extraOverflowCount })}
+              </span>
+            )}
           </span>
         )}
         {status && (
@@ -161,7 +230,7 @@ export const ActivityRow: FC<ActivityRowProps> = ({
         )}
         {timestamp && <span className="text-[10px] text-[#8E8E93] font-regular">{timestamp}</span>}
       </div>
-    </div>
+    </motion.div>
   );
 };
 

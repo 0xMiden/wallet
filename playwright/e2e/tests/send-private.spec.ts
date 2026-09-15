@@ -1,4 +1,4 @@
-import { test } from '../fixtures/two-wallets';
+import { expect, test } from '../fixtures/two-wallets';
 import { snapshotTransfer, type TransferSnapshot } from '../helpers/assertions';
 import {
   fromBaseUnits,
@@ -133,10 +133,16 @@ test.describe('Private Note Send', () => {
         // debit from A is a bug this now catches.
         // Waited, not read once — see the note in send-public.spec.ts: the recipient's
         // pending total and the sender's vault projection settle independently.
-        await waitForVaultDebit(walletA.page, TOKEN, beforeSend.fromVault, SEND_BASE_UNITS, {
+        // Pinned EXACTLY, not just "at least": a Miden fee is charged in the native
+        // asset, never in TST, so the transfer is the only thing that can move this
+        // balance. The `>=` this used to rely on passed for a send that debited 700
+        // TST for a 500 TST transfer. It says nothing about the fee itself -- see
+        // fee-accounting.spec.ts for that.
+        const debited = await waitForVaultDebit(walletA.page, TOKEN, beforeSend.fromVault, SEND_BASE_UNITS, {
           timeoutMs: 120_000,
           decimals: TOKEN_DECIMALS
         });
+        expect(debited, 'the transfer debit must be exactly the amount sent').toBe(SEND_BASE_UNITS);
       },
       {
         captureStateFrom: [

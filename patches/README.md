@@ -1,5 +1,8 @@
 # Patches
 
+Everything except `inspect-cli-cdp-fix.patch` is applied automatically by
+`patch-package` from the `postinstall` script.
+
 ## inspect-cli-cdp-fix.patch
 
 Fixes the "single-use" CDP bug in `@inspectdotdev/cli@2.1.1` where WebSocket

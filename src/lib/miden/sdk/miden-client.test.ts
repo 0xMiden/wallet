@@ -368,27 +368,319 @@ describe('getMidenClient singleton', () => {
     });
   });
 
-  it('disposes and recreates when called with options', async () => {
+  // #878: the realm's keystore callbacks live in realm slots; the client is never rebuilt for a write.
+  const withKeystoreClient = async (
+    run: (mod: typeof import('./miden-client'), create: jest.Mock, free: jest.Mock) => Promise<void>
+  ) => {
     const free = jest.fn();
-    const create = jest.fn().mockResolvedValueOnce({ free }).mockResolvedValueOnce({ free });
-
+    const create = jest.fn(async () => ({ free, markPoisoned: jest.fn() }));
     jest.doMock('./miden-client-interface', () => ({
       MidenClientInterface: class {
         static create = create;
         free = free;
       }
     }));
-
-    jest.isolateModules(() => {
-      const { getMidenClient } = require('./miden-client');
-      return Promise.resolve()
-        .then(() => getMidenClient({ seed: new Uint8Array([1]) }))
-        .then(() => getMidenClient({ seed: new Uint8Array([2]) }))
-        .then(() => {
-          expect(create).toHaveBeenCalledTimes(2);
-          expect(free).toHaveBeenCalledTimes(1);
-        });
+    await jest.isolateModulesAsync(async () => {
+      await run(require('./miden-client'), create, free);
     });
+  };
+  const publicKey = new Uint8Array([1, 2]);
+  const signingInputs = new Uint8Array([3, 4]);
+
+  it('memoizes one client per realm: a later hold gets the same instance, nothing rebuilt or freed', async () => {
+    // The per-write rebuild this change removed lived in the proxy's writes, which
+    // now ask for the singleton with no options (pinned in miden-client-proxy.test.ts);
+    // this pins the singleton they share.
+    await withKeystoreClient(async ({ getMidenClient, withWasmClientLock, installRealmKeystore }, create, free) => {
+      installRealmKeystore({ sign: async () => new Uint8Array([1]) });
+      const first = await withWasmClientLock(() => getMidenClient());
+      const second = await withWasmClientLock(() => getMidenClient());
+      expect(create).toHaveBeenCalledTimes(1);
+      expect(second).toBe(first);
+      expect(free).not.toHaveBeenCalled();
+    });
+  });
+
+  it('routes the SDK keystore callbacks to the realm keystore, and refuses before one is installed', async () => {
+    await withKeystoreClient(async ({ getMidenClient, installRealmKeystore }, create) => {
+      await getMidenClient();
+      const { signCallback, insertKeyCallback } = create.mock.calls[0]![0];
+      // A wiring error, named as such: nothing installed yet.
+      await expect(signCallback(publicKey, signingInputs)).rejects.toThrow('no sign callback installed in this realm');
+      await expect(insertKeyCallback(publicKey, signingInputs)).rejects.toThrow(
+        'no insertKey callback installed in this realm'
+      );
+      const sign = jest.fn(async () => new Uint8Array([9]));
+      const insertKey = jest.fn();
+      installRealmKeystore({ sign, insertKey });
+      await expect(signCallback(publicKey, signingInputs)).resolves.toEqual(new Uint8Array([9]));
+      expect(sign).toHaveBeenCalledWith(publicKey, signingInputs);
+      await insertKeyCallback(publicKey, signingInputs);
+      expect(insertKey).toHaveBeenCalledWith(publicKey, signingInputs);
+      // A later install replaces one callback and leaves the other; null clears one. None rebuilds the client.
+      const laterSign = jest.fn(async () => new Uint8Array([8]));
+      installRealmKeystore({ sign: laterSign });
+      await expect(signCallback(publicKey, signingInputs)).resolves.toEqual(new Uint8Array([8]));
+      expect(sign).toHaveBeenCalledTimes(1);
+      await insertKeyCallback(publicKey, signingInputs);
+      expect(insertKey).toHaveBeenCalledTimes(2);
+      installRealmKeystore({ insertKey: null });
+      await expect(insertKeyCallback(publicKey, signingInputs)).rejects.toThrow('no insertKey callback installed');
+      await expect(signCallback(publicKey, signingInputs)).resolves.toEqual(new Uint8Array([8]));
+      expect(create).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it('uninstall drops only the callback it names: a newer install stays', async () => {
+    await withKeystoreClient(async ({ getMidenClient, installRealmKeystore, uninstallRealmKeystore }, create) => {
+      await getMidenClient();
+      const { insertKeyCallback } = create.mock.calls[0]![0];
+      const older = jest.fn();
+      const newer = jest.fn();
+      installRealmKeystore({ insertKey: older });
+      installRealmKeystore({ insertKey: newer });
+      // A vault retiring after a newer one installed (a lock landing during an unlock) leaves the newer sink.
+      uninstallRealmKeystore({ insertKey: older });
+      await insertKeyCallback(publicKey, signingInputs);
+      expect(newer).toHaveBeenCalledTimes(1);
+      expect(older).not.toHaveBeenCalled();
+      uninstallRealmKeystore({ insertKey: newer });
+      await expect(insertKeyCallback(publicKey, signingInputs)).rejects.toThrow('no insertKey callback installed');
+    });
+  });
+
+  const opaque = () => new Error('failed to execute transaction: JsValue(Error: opaque)');
+  const lockedSigner = () => {
+    const locked = Object.assign(new Error('Sign callback failed (locked)'), { reason: 'locked' });
+    return async () => {
+      throw locked;
+    };
+  };
+
+  it("a locked sign rides out on its own hold's rejection, and a hold that completed leaves nothing behind", async () => {
+    await withKeystoreClient(async ({ getMidenClient, installRealmKeystore, withWasmClientLock }, create) => {
+      await getMidenClient();
+      const { signCallback } = create.mock.calls[0]![0];
+      installRealmKeystore({ sign: lockedSigner() });
+      // A hold whose sign reported locked, but which completed anyway (a dry run,
+      // a speculation): its record is nobody else's.
+      await withWasmClientLock(async () => {
+        await expect(signCallback(publicKey, signingInputs)).rejects.toMatchObject({ reason: 'locked' });
+      });
+      // The next hold's own failure is untagged: what the SDK made, not a leftover.
+      await expect(withWasmClientLock(async () => Promise.reject(opaque()))).rejects.not.toHaveProperty('reason');
+      // A hold whose sign reported locked and which then fails carries it out.
+      await expect(
+        withWasmClientLock(async () => {
+          await expect(signCallback(publicKey, signingInputs)).rejects.toMatchObject({ reason: 'locked' });
+          throw opaque();
+        })
+      ).rejects.toMatchObject({ reason: 'locked' });
+      // Carried once.
+      await expect(withWasmClientLock(async () => Promise.reject(opaque()))).rejects.not.toHaveProperty('reason');
+    });
+  });
+
+  it('a later sign that succeeds under the same hold clears the record, so its rejection carries nothing', async () => {
+    await withKeystoreClient(async ({ getMidenClient, installRealmKeystore, withWasmClientLock }, create) => {
+      await getMidenClient();
+      const { signCallback } = create.mock.calls[0]![0];
+      await expect(
+        withWasmClientLock(async () => {
+          installRealmKeystore({ sign: lockedSigner() });
+          await expect(signCallback(publicKey, signingInputs)).rejects.toMatchObject({ reason: 'locked' });
+          installRealmKeystore({ sign: async () => new Uint8Array([1]) });
+          await signCallback(publicKey, signingInputs);
+          throw opaque();
+        })
+      ).rejects.not.toHaveProperty('reason');
+      // An untagged sign failure records nothing either.
+      await expect(
+        withWasmClientLock(async () => {
+          installRealmKeystore({
+            sign: async () => {
+              throw new Error('plain');
+            }
+          });
+          await expect(signCallback(publicKey, signingInputs)).rejects.toThrow('plain');
+          throw opaque();
+        })
+      ).rejects.not.toHaveProperty('reason');
+    });
+  });
+
+  it("a sign refused on a replaced client leaves the current hold's record intact", async () => {
+    await withKeystoreClient(
+      async ({ getMidenClient, installRealmKeystore, resetMidenClient, withWasmClientLock }, create) => {
+        installRealmKeystore({ sign: lockedSigner() });
+        await getMidenClient();
+        const stale = create.mock.calls[0]![0].signCallback;
+        await resetMidenClient();
+        await expect(
+          withWasmClientLock(async () => {
+            await getMidenClient();
+            const live = create.mock.calls[1]![0].signCallback;
+            await expect(live(publicKey, signingInputs)).rejects.toMatchObject({ reason: 'locked' });
+            // The corpse's late sign is refused, and touches nothing of this hold's.
+            await expect(stale(publicKey, signingInputs)).rejects.toMatchObject({ name: 'WasmClientPoisonedError' });
+            throw opaque();
+          })
+        ).rejects.toMatchObject({ reason: 'locked' });
+      }
+    );
+  });
+
+  it('isRealmKeystoreInstalled answers by identity: the installed sink, no other, nothing once cleared', async () => {
+    await withKeystoreClient(async ({ installRealmKeystore, uninstallRealmKeystore, isRealmKeystoreInstalled }) => {
+      const a = jest.fn();
+      const b = jest.fn();
+      installRealmKeystore({ insertKey: a });
+      expect(isRealmKeystoreInstalled({ insertKey: a })).toBe(true);
+      expect(isRealmKeystoreInstalled({ insertKey: b })).toBe(false);
+      uninstallRealmKeystore({ insertKey: a });
+      expect(isRealmKeystoreInstalled({ insertKey: a })).toBe(false);
+    });
+  });
+
+  it('refuses getKey by name: no realm serves it, secrets live in the vault', async () => {
+    await withKeystoreClient(async ({ getMidenClient, installRealmKeystore }, create) => {
+      installRealmKeystore({ sign: async () => new Uint8Array(), insertKey: async () => {} });
+      await getMidenClient();
+      const { getKeyCallback } = create.mock.calls[0]![0];
+      await expect(getKeyCallback(publicKey)).rejects.toThrow('getKey is not served by this realm');
+      // No installable slot exists for it: one supplied past the types changes nothing.
+      installRealmKeystore({ getKey: async () => new Uint8Array([1]) } as never);
+      await expect(getKeyCallback(publicKey)).rejects.toThrow('getKey is not served by this realm');
+    });
+  });
+
+  it('refuses a sign on a replaced client; an insert lands only against the sink ITS build was retired with', async () => {
+    await withKeystoreClient(
+      async (
+        {
+          getMidenClient,
+          installRealmKeystore,
+          uninstallRealmKeystore,
+          resetMidenClient,
+          withWasmClientLock,
+          yieldWasmClientLock
+        },
+        create
+      ) => {
+        const sign = jest.fn(async () => new Uint8Array());
+        const sinkA = jest.fn();
+        const sinkB = jest.fn();
+        // The refusals name their kind in the console: the poison message cannot.
+        const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+        installRealmKeystore({ sign, insertKey: sinkA });
+        await withWasmClientLock(async hold => {
+          await getMidenClient();
+          const { signCallback, insertKeyCallback } = create.mock.calls[0]![0];
+          // Yielded, this flow retains its client through the replacements below, the
+          // way an evicted account write does: the client is marked, not freed.
+          await yieldWasmClientLock(async () => {
+            await resetMidenClient();
+            // An abandoned write must not gain a signature it could still submit.
+            await expect(signCallback(publicKey, signingInputs)).rejects.toMatchObject({
+              name: 'WasmClientPoisonedError'
+            });
+            expect(sign).not.toHaveBeenCalled();
+            expect(warn).toHaveBeenCalledWith(expect.stringContaining('sign refused: the WASM client was replaced'));
+            // Its key still lands: the SDK persisted the account before asking, and the
+            // installed sink is the one this client's build was retired against.
+            await insertKeyCallback(publicKey, signingInputs);
+            expect(sinkA).toHaveBeenCalledTimes(1);
+            // Reinstalling the same sink (the store's resync after every unlock) is the same sink.
+            installRealmKeystore({ insertKey: sinkA });
+            await insertKeyCallback(publicKey, signingInputs);
+            expect(sinkA).toHaveBeenCalledTimes(2);
+            // Another vault's sink installed: refused, and that sink untouched.
+            installRealmKeystore({ insertKey: sinkB });
+            await expect(insertKeyCallback(publicKey, signingInputs)).rejects.toMatchObject({
+              name: 'WasmClientPoisonedError'
+            });
+            expect(sinkB).not.toHaveBeenCalled();
+            expect(warn).toHaveBeenCalledWith(
+              expect.stringContaining('insertKey refused: the WASM client was replaced')
+            );
+            warn.mockRestore();
+            // The original vault's sink put back (a failed re-unlock's resync): lands again.
+            installRealmKeystore({ insertKey: sinkA });
+            await insertKeyCallback(publicKey, signingInputs);
+            expect(sinkA).toHaveBeenCalledTimes(3);
+            // A second replacement stamps the NEW build, not this client's cell.
+            installRealmKeystore({ insertKey: sinkB });
+            await getMidenClient();
+            await resetMidenClient();
+            await expect(insertKeyCallback(publicKey, signingInputs)).rejects.toMatchObject({
+              name: 'WasmClientPoisonedError'
+            });
+            expect(sinkB).not.toHaveBeenCalled();
+            // A cleared slot refuses.
+            uninstallRealmKeystore({ insertKey: sinkB });
+            await expect(insertKeyCallback(publicKey, signingInputs)).rejects.toMatchObject({
+              name: 'WasmClientPoisonedError'
+            });
+          }, hold);
+        });
+      }
+    );
+  });
+
+  it('a stale uninstall and a sign-only install change nothing about the installed sink', async () => {
+    await withKeystoreClient(
+      async (
+        {
+          getMidenClient,
+          installRealmKeystore,
+          uninstallRealmKeystore,
+          resetMidenClient,
+          withWasmClientLock,
+          yieldWasmClientLock
+        },
+        create
+      ) => {
+        const sinkA = jest.fn();
+        const sinkB = jest.fn();
+        installRealmKeystore({ sign: async () => new Uint8Array(), insertKey: sinkA });
+        await withWasmClientLock(async hold => {
+          await getMidenClient();
+          const { insertKeyCallback } = create.mock.calls[0]![0];
+          await yieldWasmClientLock(async () => {
+            await resetMidenClient();
+            // A retire of a vault whose sink is not installed (an older vault locking
+            // after a newer one installed its own) leaves the installed sink alone.
+            uninstallRealmKeystore({ insertKey: sinkB });
+            // Installing only a signer (Actions.init) does not touch the insert-key slot.
+            installRealmKeystore({ sign: async () => new Uint8Array([1]) });
+            await insertKeyCallback(publicKey, signingInputs);
+            expect(sinkA).toHaveBeenCalledTimes(1);
+          }, hold);
+        });
+      }
+    );
+  });
+
+  it("a watchdog eviction retires the build the same way: the evicted write's insert lands on its own vault's sink", async () => {
+    jest.useFakeTimers();
+    try {
+      await withKeystoreClient(async ({ getMidenClient, installRealmKeystore, withWasmClientLock }, create) => {
+        const sinkA = jest.fn();
+        installRealmKeystore({ sign: async () => new Uint8Array(), insertKey: sinkA });
+        await getMidenClient();
+        const { insertKeyCallback } = create.mock.calls[0]![0];
+        // A hold that never settles is evicted at the ceiling: the client is poisoned,
+        // not freed, and the abandoned write keeps running (F-041's case).
+        const wedged = withWasmClientLock(() => new Promise<never>(() => {}));
+        wedged.catch(() => {});
+        await jest.advanceTimersByTimeAsync(300_000);
+        await expect(wedged).rejects.toMatchObject({ name: 'WasmClientPoisonedError', reason: 'watchdog' });
+        await insertKeyCallback(publicKey, signingInputs);
+        expect(sinkA).toHaveBeenCalledTimes(1);
+      });
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   // GAP 7 (resilience): a startup RPC blip must NOT poison the singleton with a
@@ -416,5 +708,94 @@ describe('getMidenClient singleton', () => {
     // The NEXT call must re-attempt create() and succeed (not replay the poison).
     await expect(getMidenClient()).resolves.toBe(goodClient);
     expect(create).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('resetMidenClient', () => {
+  afterEach(() => {
+    jest.clearAllMocks();
+    jest.resetModules();
+  });
+
+  it('frees the singleton and forces the next getMidenClient() to recreate it', async () => {
+    const free = jest.fn();
+    const create = jest.fn(async () => ({ free }));
+    jest.doMock('./miden-client-interface', () => ({
+      MidenClientInterface: class {
+        static create = create;
+        free = free;
+      }
+    }));
+
+    await jest.isolateModulesAsync(async () => {
+      const { getMidenClient, resetMidenClient } = require('./miden-client');
+      const first = await getMidenClient();
+      expect(create).toHaveBeenCalledTimes(1);
+
+      await resetMidenClient();
+      expect(free).toHaveBeenCalledTimes(1);
+
+      const second = await getMidenClient();
+      expect(create).toHaveBeenCalledTimes(2);
+      expect(second).not.toBe(first);
+    });
+  });
+
+  it('is a no-op when no singleton has been created yet', async () => {
+    const create = jest.fn();
+    jest.doMock('./miden-client-interface', () => ({
+      MidenClientInterface: class {
+        static create = create;
+        free() {}
+      }
+    }));
+
+    await jest.isolateModulesAsync(async () => {
+      const { resetMidenClient } = require('./miden-client');
+      await expect(resetMidenClient()).resolves.toBeUndefined();
+      expect(create).not.toHaveBeenCalled();
+    });
+  });
+
+  it('clears an in-flight no-options creation so it cannot repopulate a stale client after the reset', async () => {
+    // Regression for: `disposeAllInstances()` used to only clear `initializingPromise`
+    // inside the `if (this.instance)` guard, so a reset that lands *while* a no-options
+    // `getInstance()` creation is still pending (instance still null) left that pending
+    // promise in place. When it later resolved, it unconditionally set `this.instance`
+    // to a client built against the pre-reset override, silently undoing the reset.
+    const free = jest.fn();
+    let resolveCreate: (client: { free: () => void }) => void = () => {};
+    const pending = new Promise<{ free: () => void }>(resolve => {
+      resolveCreate = resolve;
+    });
+    const create = jest.fn(() => pending);
+    jest.doMock('./miden-client-interface', () => ({
+      MidenClientInterface: class {
+        static create = create;
+        free = free;
+      }
+    }));
+
+    await jest.isolateModulesAsync(async () => {
+      const { getMidenClient, resetMidenClient } = require('./miden-client');
+
+      // Kick off a no-options creation but don't await it — it's left in flight.
+      const firstCall = getMidenClient();
+      expect(create).toHaveBeenCalledTimes(1);
+
+      // Reset while that creation is still pending: `this.instance` is still null, so
+      // the old `if (this.instance)`-guarded clear alone would have left the stale
+      // in-flight promise in place.
+      await resetMidenClient();
+
+      // A getInstance() call issued after the reset (but before the stale creation
+      // settles) must NOT rejoin the stale in-flight promise — it should start its own
+      // fresh creation instead.
+      const secondCall = getMidenClient();
+      expect(create).toHaveBeenCalledTimes(2);
+
+      resolveCreate({ free });
+      await Promise.all([firstCall, secondCall]);
+    });
   });
 });

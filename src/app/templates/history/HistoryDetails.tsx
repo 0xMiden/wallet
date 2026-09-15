@@ -6,39 +6,49 @@ import { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 
 import { ActivitySpinner } from 'app/atoms/ActivitySpinner';
+import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
+import { useNetworkFeeEstimate } from 'app/hooks/useNetworkFeeEstimate';
 import { Icon, IconName } from 'app/icons/v2';
 import PageLayout from 'app/layouts/PageLayout';
 import { Button, ButtonVariant } from 'components/Button';
 import { GuardianTransitionHero } from 'components/GuardianTransitionHero';
-import { ScreenHeader } from 'components/ScreenHeader';
+import { NavigationHeader } from 'components/NavigationHeader';
+import { earnWithdrawalRetryKind } from 'lib/epoch/earn-withdraw-policy';
 import { getAdaptiveDecimalPlaces, toAdaptiveFixed } from 'lib/i18n/numbers';
 import {
   cancelTransactionById,
-  getSwapSettlementNotes,
-  getTransactionById,
+  isCancellableTransaction,
   isRequeueableTransaction,
+  isUnverifiableSendRetryError,
   isUserCancelledTransaction,
   requestSWTransactionProcessing,
   requeueFailedTransaction,
   retryEarnWithdrawReceive,
-  trackOrderId,
-  SwapOrderState,
-  SwapOrderTracking,
-  SwapSettlementNotes,
   USER_CANCELLED_TRANSACTION_REASON
 } from 'lib/miden/activity';
+import { feeTextFromTransaction } from 'lib/miden/activity/fee';
 import {
   IBridgedReceiveExtraInputs,
   IBridgedSendExtraInputs,
+  IConsumeBridgeInExtraInputs,
   IEarnDepositExtraInputs,
   IEarnWithdrawExtraInputs,
+  ISwapExtraInputs,
   ITransaction,
   ITransactionStatus,
+  ITransactionType,
   ISwitchGuardianExtraInputs
 } from 'lib/miden/db/types';
 import { useAllAccounts, useAccount } from 'lib/miden/front';
+import { MIDEN_METADATA } from 'lib/miden/metadata/defaults';
+import { resolveDisplayMetadata } from 'lib/miden/metadata/resolve';
+import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
+import { requestSwapOrderRefresh, useSwapOrderTrackingStore } from 'lib/miden/swap/order-tracking-store';
 import { getSwapTokenByFaucetId } from 'lib/miden/swap/tokens';
+import { getExplorerAccountUrl, getExplorerTxUrl } from 'lib/miden-chain/constants';
+import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
+import { hapticLight } from 'lib/mobile/haptics';
 import { getTokenPrice } from 'lib/prices';
 import type { TokenPrices } from 'lib/prices';
 import { formatAmount } from 'lib/shared/format';
@@ -49,12 +59,16 @@ import {
   TransactionSummaryBadge,
   useTransactionSummaryBadgeContent
 } from 'screens/generating-transaction/TransactionSummaryBadge';
+import { useTransactionRow } from 'screens/generating-transaction/useTransactionRow';
 
 import AddressChip from '../AddressChip';
 import HashChip from '../HashChip';
 import { BridgeClaimSection } from './BridgeClaimSection';
 import { DetailCard, DetailRow, ExternalLinkValue, StatusPill } from './DetailCard';
-import { IHistoryEntry } from './IHistoryEntry';
+import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
+import { SwapDetail } from './SwapDetail';
+import { deriveSwapReceipt } from './swapReceipt';
+import { TransactionFailureCard } from './TransactionFailureCard';
 import TransactionIcon, { getTransactionIconBackgroundColor } from './TransactionIcon';
 import {
   BRIDGE_STATUS_LABEL_KEY,
@@ -64,33 +78,48 @@ import {
   EARN_WITHDRAW_STATUS_LABEL_KEY,
   earnWithdrawAmountFields,
   earnWithdrawToneOf,
+  formatBridgeOutputAmount,
   formatDate,
-  isBridgeInEntry
+  isBridgeInEntry,
+  swapSettlementOf
 } from './transactionUtils';
+import { useSwapSettlementNotes } from './useSwapSettlementNotes';
 
 const SEPOLIA_ADDRESS_URL = (addr: string) => `https://sepolia.etherscan.io/address/${addr}`;
 const SEPOLIA_TX_URL = (hash: string) => `https://sepolia.etherscan.io/tx/${hash}`;
-
-const isHexEvmAddress = (value: string | undefined): value is `0x${string}` =>
-  value !== undefined && /^0x[0-9a-fA-F]{40}$/.test(value);
 
 interface HistoryDetailsProps {
   transactionId: string;
 }
 
-/** Requested side of a swap transaction, persisted on `SwapTransaction.extraInputs`. */
-interface SwapExtraInputs {
-  requestedFaucetId?: string;
-  requestedAmount?: bigint;
-  orderId?: bigint;
-}
-
 /** Requested-token display info for the swap order tracking card. */
 interface RequestedTokenInfo {
-  amount: bigint;
+  /** Undefined for rows persisted without a requested amount - unknown, not zero. */
+  amount?: bigint;
   decimals?: number;
   symbol?: string;
+  faucetId?: string;
+  /**
+   * Whether `decimals` is a fact rather than the unknown-token placeholder's
+   * guess. Kept beside the amount instead of blanking it, because the receipt's
+   * fill maths (`deriveSwapReceipt`) needs the real base-unit value even when
+   * there is no honest way to display it.
+   */
+  scaleIsKnown: boolean;
 }
+
+/**
+ * Transaction types that move value OUT of the wallet's own account, i.e. whose
+ * Transfer Details read "From: this account / To: `secondaryAccountId`".
+ *
+ *  - `send` - `secondaryAccountId` is the recipient.
+ *  - `earn-deposit` - `secondaryAccountId` is the Epoch allocator the P2IDE
+ *    collateral note is sent to (`EarnDepositTransaction`, db/types.ts).
+ *  - `bridged-send` - normally short-circuited by `isBridgeOut` (which hides the
+ *    Miden "to" row in favour of the BridgeClaimSection), but a USER-CANCELLED
+ *    bridge falls through to this rule and is still outbound.
+ */
+const OUTBOUND_TRANSFER_TYPES: ITransactionType[] = ['send', 'earn-deposit', 'bridged-send'];
 
 const DISPLAY_DECIMAL_PLACES = 3;
 
@@ -106,14 +135,18 @@ const SectionDivider: FC<{ color: string }> = ({ color }) => (
 const BridgeHeroAmounts: FC<{ entry: IHistoryEntry }> = ({ entry }) => {
   const bridgeIn = isBridgeInEntry(entry);
   const { inSymbol, outSymbol, outAmount } = bridgeIn ? bridgeInRowDisplay(entry) : bridgeRowDisplay(entry);
-  const inAmount = (bridgeIn ? entry.bridgeInSourceAmount : entry.amount?.toString()) ?? '—';
+  // Both sides go through the adaptive formatter (2dp, expanding for dust) so a
+  // raw quote/source string never renders with its full precision. `break-all`
+  // + `min-w-0` keep an unexpectedly long value from widening the page (#752).
+  const inAmount = formatBridgeOutputAmount(bridgeIn ? entry.bridgeInSourceAmount : entry.amount?.toString()) ?? '-';
+  const displayedOutAmount = formatBridgeOutputAmount(outAmount) ?? inAmount;
   return (
-    <div className="mt-1 flex max-w-full flex-wrap items-baseline justify-center gap-2 text-center font-heading font-extrabold text-[2.5rem] leading-none">
-      <span className="text-heading-gray">{inAmount}</span>
-      <span className="text-text-muted">{inSymbol}</span>
-      <Icon name={IconName.ArrowRight} size="md" className="mx-0.5 self-center" />
-      <span className="text-heading-gray">{outAmount ?? inAmount}</span>
-      <span className="text-text-muted">{outSymbol}</span>
+    <div className="mt-1 flex w-full min-w-0 max-w-full flex-wrap items-baseline justify-center gap-2 text-center font-heading font-extrabold text-[2.5rem] leading-none break-all">
+      <span className="min-w-0 text-heading-gray">{inAmount}</span>
+      <span className="min-w-0 text-text-muted">{inSymbol}</span>
+      <Icon name={IconName.ArrowRight} size="md" className="mx-0.5 shrink-0 self-center" />
+      <span className="min-w-0 text-heading-gray">{displayedOutAmount}</span>
+      <span className="min-w-0 text-text-muted">{outSymbol}</span>
     </div>
   );
 };
@@ -201,14 +234,42 @@ function formatFiatDisplayAmount(
   return t('historyDetailsFiatApprox', { amount: `$${toAdaptiveFixed(fiatAmount)}` });
 }
 
-/** Right-aligned stack of trimmed, copyable note ids. */
-const NoteIdList: FC<{ noteIds: string[]; testId: string }> = ({ noteIds, testId }) => (
-  <div data-testid={testId} className="flex min-w-0 flex-col items-end gap-1">
-    {noteIds.map(noteId => (
-      <HashChip key={noteId} hash={noteId} trimHash fill="#9E9E9E" copyIcon={false} />
-    ))}
-  </div>
-);
+// A "Claim All" consumes every claimable note at once, so this list is bounded
+// only by how many notes the user had waiting -- unbounded in practice. Render a
+// screenful and put the rest behind a tap.
+const NOTE_ID_PREVIEW_COUNT = 5;
+
+/** Right-aligned stack of trimmed, copyable note ids, collapsed past a preview. */
+const NoteIdList: FC<{ noteIds: string[]; testId: string }> = ({ noteIds, testId }) => {
+  const { t } = useTranslation();
+  const [expanded, setExpanded] = useState(false);
+  const overflowCount = noteIds.length - NOTE_ID_PREVIEW_COUNT;
+  const isCollapsed = !expanded && overflowCount > 0;
+  const visibleNoteIds = isCollapsed ? noteIds.slice(0, NOTE_ID_PREVIEW_COUNT) : noteIds;
+
+  const handleExpand = useCallback(() => {
+    hapticLight();
+    setExpanded(true);
+  }, []);
+
+  return (
+    <div data-testid={testId} className="flex min-w-0 flex-col items-end gap-1">
+      {visibleNoteIds.map(noteId => (
+        <HashChip key={noteId} hash={noteId} trimHash fill="#9E9E9E" copyIcon={false} />
+      ))}
+      {isCollapsed && (
+        <button
+          type="button"
+          onClick={handleExpand}
+          data-testid={`${testId}-show-all`}
+          className="text-sm font-medium text-heading-gray underline transition-opacity active:opacity-60"
+        >
+          {t('showAllNotes', { count: overflowCount })}
+        </button>
+      )}
+    </div>
+  );
+};
 
 const AccountDisplay: FC<{
   address: string | undefined;
@@ -242,158 +303,230 @@ const AccountDisplay: FC<{
 
 export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   const { t } = useTranslation();
+  const maxNetworkFee = useNetworkFeeEstimate();
   const allAccounts = useAllAccounts();
   const account = useAccount();
   const tokenPrices = useWalletStore(s => s.tokenPrices);
+  const assetsMetadata = useWalletStore(s => s.assetsMetadata);
+  const configuredNativeFaucet = useMidenFaucetId();
+  // The transaction row is push-driven. Status changes and metadata patches
+  // written by the app-root watchers re-render this view without page polling.
+  const { row, loaded } = useTransactionRow(transactionId);
   const [entry, setEntry] = useState<IHistoryEntry | null>(null);
   const [transaction, setTransaction] = useState<ITransaction | undefined>();
   const transactionSummaryBadgeContent = useTransactionSummaryBadgeContent(transaction);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const [deriveError, setDeriveError] = useState<string | null>(null);
   const [isCancelling, setIsCancelling] = useState(false);
   const [cancelError, setCancelError] = useState<string | null>(null);
-  // Failed txs persist a friendly `error` plus the untouched thrown `rawError`;
-  // this reveals the latter on demand.
-  const [showFullError, setShowFullError] = useState(false);
   const [isRetrying, setIsRetrying] = useState(false);
   const [retryError, setRetryError] = useState<string | null>(null);
-  // Swap order tracking: the orderId is persisted on the swap tx's extraInputs
-  // by `completeSwapTransaction`; the live lineage is fetched via `trackOrderId`.
+  const [needsSendAcknowledgement, setNeedsSendAcknowledgement] = useState(false);
+  // The root tracker follows the orderId persisted by completeSwapTransaction.
   const [orderId, setOrderId] = useState<string | bigint | null>(null);
   const [requestedToken, setRequestedToken] = useState<RequestedTokenInfo | null>(null);
-  const [swapTracking, setSwapTracking] = useState<SwapOrderTracking | null>(null);
-  const [trackingLoading, setTrackingLoading] = useState(false);
-  // Notes claimed by this order's settlement consumes. Those consume rows are
-  // suppressed in the history list (the swap row is the order's single trace),
-  // so this page is where their notes stay visible.
-  const [settlementNotes, setSettlementNotes] = useState<SwapSettlementNotes | null>(null);
+  const [swapAutoConsume, setSwapAutoConsume] = useState(true);
+  const [swapExpiresAt, setSwapExpiresAt] = useState<number | null>(null);
   // Smart Withdraw metadata (market, position owner, intent nonce, phase) for the details card.
   const [earnWithdraw, setEarnWithdraw] = useState<IEarnWithdrawExtraInputs | null>(null);
-  // Guards the earn-withdraw delivery poller so it is (re)started at most once per
-  // intent nonce, even though the reload loop re-runs the effect as the row advances.
-  const withdrawPollNonceRef = useRef<string | null>(null);
-  // Smart Deposit (open-position) metadata for the details card + intent polling.
+  // Smart Deposit (open-position) metadata for the details card.
   const [earnDeposit, setEarnDeposit] = useState<IEarnDepositExtraInputs | null>(null);
-  const depositPollNonceRef = useRef<string | null>(null);
-  const loadTransaction = useCallback(async () => {
-    try {
-      setLoadError(null);
-      const tx = await getTransactionById(transactionId);
-      const tokenMetadata = tx.faucetId ? await getTokenMetadata(tx.faucetId) : undefined;
-      console.log('Loaded transaction for HistoryDetails:', tx, tokenMetadata);
-      // Bridge metadata (route/provider, EVM destination, per-route status) lives
-      // on `extraInputs`; without it the detail view can't tell Fast (Epoch) from
-      // Slow (Agglayer) and defaults every bridge to the Slow route.
-      const bridge: IBridgedSendExtraInputs | undefined = tx.type === 'bridged-send' ? tx.extraInputs : undefined;
-      const bridgeReceive: IBridgedReceiveExtraInputs | undefined =
-        tx.type === 'bridged-receive' ? tx.extraInputs : undefined;
-      const earnWithdrawExtra: IEarnWithdrawExtraInputs | undefined =
-        tx.type === 'earn-withdraw' ? tx.extraInputs : undefined;
-      const earnDepositExtra: IEarnDepositExtraInputs | undefined =
-        tx.type === 'earn-deposit' ? tx.extraInputs : undefined;
-      const guardianSwitchExtra: ISwitchGuardianExtraInputs | undefined =
-        tx.type === 'switch-guardian' ? tx.extraInputs : undefined;
-      // Source side (USDC) while in flight, destination side once the bridged
-      // note was consumed — identical rule to the activity row.
-      const earnWithdrawFields = earnWithdrawExtra
-        ? earnWithdrawAmountFields(earnWithdrawExtra, tx.amount, tokenMetadata)
-        : undefined;
-      const historyEntry = {
-        address: tx.accountId,
-        key: `completed-${tx.id}`,
-        timestamp: tx.completedAt ?? tx.initiatedAt,
-        message: tx.displayMessage,
-        status: tx.status,
-        transactionIcon: tx.displayIcon,
-        amount: earnWithdrawFields
-          ? earnWithdrawFields.amount
-          : tx.amount
-            ? formatAmount(tx.amount, tokenMetadata?.decimals)
-            : undefined,
-        token: earnWithdrawFields ? earnWithdrawFields.token : tokenMetadata ? tokenMetadata.symbol : undefined,
-        earnWithdrawPhase: earnWithdrawExtra?.phase,
-        earnDepositStatus: earnDepositExtra?.epochStatus,
-        secondaryAddress: tx.secondaryAccountId,
-        txId: tx.id,
-        noteType: tx.noteType,
-        noteId: tx.outputNoteIds?.[0],
-        externalTxId: tx.transactionId,
-        faucetId: tx.faucetId,
-        outputNoteIds: tx.outputNoteIds,
-        txType: tx.type,
-        previousGuardianEndpoint: guardianSwitchExtra?.previousGuardianEndpoint,
-        newGuardianEndpoint: guardianSwitchExtra?.newGuardianEndpoint,
-        errorMessage: tx.error,
-        rawErrorMessage: tx.rawError,
-        isCancelled: isUserCancelledTransaction(tx.error),
-        bridgeProvider: bridge?.provider,
-        bridgeDestinationAddress: bridge?.destinationAddress,
-        bridgeDestinationNetwork: bridge?.destinationNetwork,
-        bridgeClaimStatus: bridge?.claimStatus,
-        bridgeOutputAmount: bridge?.outputAmount,
-        bridgeOutputSymbol: bridge?.outputSymbol,
-        bridgeIntentNonce: bridge?.intentNonce,
-        bridgeFillTxHash: bridge?.fillTxHash,
-        bridgeFillChainId: bridge?.fillChainId,
-        bridgeEpochStatus: bridge?.epochStatus,
-        bridgeInProvider: bridgeReceive?.provider,
-        bridgeInSourceAddress: bridgeReceive?.sourceAddress,
-        bridgeInSourceAmount: bridgeReceive?.sourceAmount,
-        bridgeInSourceSymbol: bridgeReceive?.sourceSymbol,
-        bridgeInEvmTxHash: bridgeReceive?.evmTxHash,
-        bridgeInPhase: bridgeReceive?.phase,
-        bridgeInOutputAmount: bridgeReceive?.outputAmount,
-        bridgeInOutputSymbol: bridgeReceive?.outputSymbol,
-        bridgeInMidenNoteId: bridgeReceive?.midenNoteId
-      } as IHistoryEntry;
 
-      if (tx.type === 'swap') {
-        const extra: SwapExtraInputs = tx.extraInputs ?? {};
-        if (extra.orderId != null) {
-          // The DEX faucets are usually absent from assetsMetadata (where
-          // getTokenMetadata would fall back to MIDEN), so resolve via the
-          // swap-token registry first.
-          const swapToken = getSwapTokenByFaucetId(extra.requestedFaucetId);
-          const requestedMeta =
-            !swapToken && extra.requestedFaucetId ? await getTokenMetadata(extra.requestedFaucetId) : undefined;
-          setRequestedToken({
-            amount: extra.requestedAmount ?? 0n,
-            decimals: swapToken?.decimals ?? requestedMeta?.decimals,
-            symbol: swapToken?.symbol ?? requestedMeta?.symbol
-          });
-          setOrderId(extra.orderId);
-        }
-      }
-
-      if (tx.type === 'swap') {
-        setSettlementNotes(await getSwapSettlementNotes(tx.id));
-      }
-
-      setEarnWithdraw(earnWithdrawExtra ?? null);
-      setEarnDeposit(earnDepositExtra ?? null);
-
-      setTransaction(tx);
-      setEntry(historyEntry);
-    } catch (error) {
-      console.error('[HistoryDetails] Failed to load transaction:', error);
-      setLoadError(error instanceof Error ? error.message : t('historyDetailsLoadError'));
-    }
-  }, [transactionId, setEntry, t]);
+  // Current store metadata supersedes storage reads; unknown scales remain retryable.
+  const tokenMetadataCache = useRef(new Map<string, Awaited<ReturnType<typeof getTokenMetadata>>>());
+  const getCachedTokenMetadata = useCallback(
+    async (faucetId: string) => {
+      if (faucetId === configuredNativeFaucet) return MIDEN_METADATA;
+      const current = resolveDisplayMetadata(faucetId, assetsMetadata, configuredNativeFaucet);
+      if (hasKnownScale(current)) return current;
+      const cache = tokenMetadataCache.current;
+      const cached = cache.get(faucetId);
+      if (cached) return cached;
+      const metadata = await getTokenMetadata(faucetId);
+      if (hasKnownScale(metadata)) cache.set(faucetId, metadata);
+      return metadata;
+    },
+    [assetsMetadata, configuredNativeFaucet]
+  );
 
   useEffect(() => {
-    if (!entry && !loadError) loadTransaction();
-  }, [loadTransaction, entry, loadError]);
-
-  // A detail page can be opened while proving/submission is still in progress.
-  // Keep reloading until the Miden transaction reaches a terminal state so a
-  // bridge failure replaces Pending without requiring the user to leave.
-  useEffect(() => {
-    if (entry?.status !== ITransactionStatus.Queued && entry?.status !== ITransactionStatus.GeneratingTransaction) {
+    if (!row) {
+      if (loaded) {
+        setEntry(null);
+        setTransaction(undefined);
+      }
       return;
     }
 
-    const timer = setInterval(() => void loadTransaction(), 3000);
-    return () => clearInterval(timer);
-  }, [entry?.status, loadTransaction]);
+    const tx = row;
+    let cancelled = false;
+
+    const derive = async () => {
+      try {
+        setDeriveError(null);
+        const offeredSwapToken = tx.type === 'swap' ? getSwapTokenByFaucetId(tx.faucetId) : undefined;
+        const tokenMetadata = !offeredSwapToken && tx.faucetId ? await getCachedTokenMetadata(tx.faucetId) : undefined;
+        if (cancelled) return;
+
+        // Resolved the same way as any other amount on this page, which for the native
+        // fee faucet means MIDEN's `decimals` -- `getTokenMetadata` short-circuits the
+        // native id to `MIDEN_METADATA`. That is deliberately NOT swapped for the
+        // chain-discovered native scale here: `fetchBalances` scales every native figure
+        // in the wallet by the same constant, so reading the fee off the chain alone
+        // would leave one number on the screen measured differently from the balance
+        // above it. If the native scale ever needs to come from the chain, it has to
+        // change in `fetchBalances` first, for all of them at once.
+        //
+        // Only for a row that actually recorded a fee: rows predating fees, and every
+        // row on a zero-fee chain, render no fee line at all, so resolving metadata for
+        // them would be a wasted round trip.
+        const resolvedFeeMetadata =
+          tx.feeAmount !== undefined && tx.feeFaucetId ? await getCachedTokenMetadata(tx.feeFaucetId) : undefined;
+        if (cancelled) return;
+
+        // A fee faucet that is neither native nor resolved has no honest scale, so the
+        // line is suppressed rather than formatted by the placeholder's guessed 6 --
+        // which would display one asset's quantity as another's. The receipt, given the
+        // same row, renders nothing too, so the two surfaces agree.
+        //
+        // The native fallback is not redundant with the short-circuit above, because
+        // the two disagree under one configuration: `getTokenMetadata` short-circuits
+        // on `getFaucetIdSetting()`, which honours the Developer Settings faucet-id
+        // OVERRIDE, while the chain's real fee faucet is what the row records. With an
+        // override set the fee faucet misses the short-circuit, and if its record is
+        // absent or in the unresolved-faucet backoff it lands on the placeholder and
+        // the fee line disappears. `MIDEN_METADATA` rather than the chain-discovered
+        // scale, for the reason above: consistency with every other native figure.
+        const feeIsNative = tx.feeFaucetId !== undefined && tx.feeFaucetId === getNativeAssetIdSync();
+        const feeMetadata =
+          resolvedFeeMetadata !== undefined && hasKnownScale(resolvedFeeMetadata)
+            ? resolvedFeeMetadata
+            : feeIsNative
+              ? MIDEN_METADATA
+              : undefined;
+        // Bridge metadata (route/provider, EVM destination, per-route status) lives
+        // on `extraInputs`; without it the detail view can't tell Fast (Epoch) from
+        // Slow (Agglayer) and defaults every bridge to the Slow route.
+        const bridge: IBridgedSendExtraInputs | undefined = tx.type === 'bridged-send' ? tx.extraInputs : undefined;
+        const bridgeReceive: IBridgedReceiveExtraInputs | undefined =
+          tx.type === 'bridged-receive' ? tx.extraInputs : undefined;
+        const consumeExtra: IConsumeBridgeInExtraInputs | undefined =
+          tx.type === 'consume' ? tx.extraInputs : undefined;
+        const consumedBridge = consumeExtra?.bridgeIn;
+        const earnWithdrawExtra: IEarnWithdrawExtraInputs | undefined =
+          tx.type === 'earn-withdraw' ? tx.extraInputs : undefined;
+        const earnDepositExtra: IEarnDepositExtraInputs | undefined =
+          tx.type === 'earn-deposit' ? tx.extraInputs : undefined;
+        const guardianSwitchExtra: ISwitchGuardianExtraInputs | undefined =
+          tx.type === 'switch-guardian' ? tx.extraInputs : undefined;
+        const earnWithdrawFields = earnWithdrawExtra
+          ? earnWithdrawAmountFields(earnWithdrawExtra, tx.amount, tokenMetadata)
+          : undefined;
+        const historyEntry: IHistoryEntry = {
+          address: tx.accountId,
+          restoredFromBackup: tx.restoredFromBackup === true,
+          key: `completed-${tx.id}`,
+          timestamp: tx.completedAt ?? tx.initiatedAt,
+          message: tx.displayMessage ?? '',
+          type: HistoryEntryType.CompletedTransaction,
+          status: tx.status,
+          transactionIcon: tx.displayIcon,
+          amount: earnWithdrawFields
+            ? earnWithdrawFields.amount
+            : tx.amount !== undefined && (offeredSwapToken !== undefined || hasKnownScale(tokenMetadata))
+              ? formatAmount(tx.amount, offeredSwapToken?.decimals ?? tokenMetadata?.decimals)
+              : undefined,
+          token: earnWithdrawFields ? earnWithdrawFields.token : (offeredSwapToken?.symbol ?? tokenMetadata?.symbol),
+          earnWithdrawPhase: earnWithdrawExtra?.phase,
+          earnDepositStatus: earnDepositExtra?.epochStatus,
+          secondaryAddress: tx.secondaryAccountId,
+          processingStartedAt: tx.processingStartedAt,
+          txId: tx.id,
+          noteType: tx.noteType,
+          noteId: tx.outputNoteIds?.[0],
+          consumedNoteIds:
+            tx.type === 'consume' && tx.status === ITransactionStatus.Completed
+              ? (tx.noteIds ?? (tx.noteId ? [tx.noteId] : undefined))
+              : undefined,
+          // Present only on rows recorded since fees were charged, and only on chains
+          // that charge -- older rows simply render no fee line.
+          fee: feeMetadata ? feeTextFromTransaction(tx, feeMetadata.decimals, feeMetadata.symbol) : undefined,
+          externalTxId: tx.transactionId,
+          swapSettlement: swapSettlementOf(tx),
+          faucetId: tx.faucetId,
+          outputNoteIds: tx.outputNoteIds,
+          txType: tx.type,
+          previousGuardianEndpoint: guardianSwitchExtra?.previousGuardianEndpoint,
+          newGuardianEndpoint: guardianSwitchExtra?.newGuardianEndpoint,
+          errorMessage: tx.error,
+          rawErrorMessage: tx.rawError,
+          isCancelled: isUserCancelledTransaction(tx.error),
+          noteDelivery: tx.noteDelivery,
+          bridgeProvider: bridge?.provider,
+          bridgeDestinationAddress: bridge?.destinationAddress,
+          bridgeDestinationNetwork: bridge?.destinationNetwork,
+          bridgeClaimStatus: bridge?.claimStatus,
+          bridgeOutputAmount: bridge?.outputAmount,
+          bridgeOutputSymbol: bridge?.outputSymbol,
+          bridgeIntentNonce: bridge?.intentNonce,
+          bridgeFillTxHash: bridge?.fillTxHash,
+          bridgeFillChainId: bridge?.fillChainId,
+          bridgeEpochStatus: bridge?.epochStatus,
+          bridgeReclaimHeight: bridge?.reclaimHeight,
+          bridgeInProvider: bridgeReceive?.provider ?? consumedBridge?.provider,
+          bridgeInSourceAddress: bridgeReceive?.sourceAddress ?? consumedBridge?.intentOwner,
+          bridgeInSourceAmount: bridgeReceive?.sourceAmount ?? consumedBridge?.sourceAmount,
+          bridgeInSourceSymbol: bridgeReceive?.sourceSymbol ?? consumedBridge?.sourceSymbol,
+          bridgeInEvmTxHash: bridgeReceive?.evmTxHash ?? consumedBridge?.evmTxHash,
+          bridgeInPhase: bridgeReceive?.phase,
+          bridgeInOutputAmount: bridgeReceive?.outputAmount,
+          bridgeInOutputSymbol: bridgeReceive?.outputSymbol,
+          bridgeInMidenNoteId:
+            bridgeReceive?.midenNoteId ??
+            (consumedBridge ? (consumedBridge.midenNoteId ?? tx.noteId ?? tx.noteIds?.[0]) : undefined)
+        };
+
+        if (tx.type === 'swap') {
+          const extra: Partial<ISwapExtraInputs> = tx.extraInputs ?? {};
+          const swapToken = getSwapTokenByFaucetId(extra.requestedFaucetId);
+          const requestedMeta =
+            !swapToken && extra.requestedFaucetId ? await getCachedTokenMetadata(extra.requestedFaucetId) : undefined;
+          if (cancelled) return;
+          setRequestedToken({
+            amount: extra.requestedAmount,
+            decimals: swapToken?.decimals ?? requestedMeta?.decimals,
+            symbol: swapToken?.symbol ?? requestedMeta?.symbol,
+            faucetId: extra.requestedFaucetId,
+            scaleIsKnown: swapToken !== undefined || hasKnownScale(requestedMeta)
+          });
+          setSwapAutoConsume(extra.autoConsume ?? true);
+          setSwapExpiresAt(extra.expiresAt ?? null);
+          setOrderId(extra.orderId ?? null);
+        } else {
+          setRequestedToken(null);
+          setSwapAutoConsume(true);
+          setSwapExpiresAt(null);
+          setOrderId(null);
+        }
+
+        setEarnWithdraw(earnWithdrawExtra ?? null);
+        setEarnDeposit(earnDepositExtra ?? null);
+        setTransaction(tx);
+        setEntry(historyEntry);
+      } catch (error) {
+        console.error('[HistoryDetails] Failed to derive transaction view:', { transactionId, error });
+        if (!cancelled) {
+          setDeriveError(error instanceof Error ? error.message : t('historyDetailsLoadError'));
+        }
+      }
+    };
+
+    derive();
+    return () => {
+      cancelled = true;
+    };
+  }, [getCachedTokenMetadata, loaded, row, t, transactionId]);
+
+  const loadError = deriveError ?? (loaded && !row ? t('historyDetailsLoadError') : null);
 
   const handleCancel = useCallback(async () => {
     setIsCancelling(true);
@@ -401,263 +534,73 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
 
     try {
       await cancelTransactionById(transactionId, USER_CANCELLED_TRANSACTION_REASON);
-      await loadTransaction();
     } catch (error) {
       console.error('[HistoryDetails] Failed to cancel transaction:', error);
       setCancelError(error instanceof Error ? error.message : t('smthWentWrong'));
     } finally {
       setIsCancelling(false);
     }
-  }, [loadTransaction, t, transactionId]);
+  }, [t, transactionId]);
 
-  // Retry a failed transaction by re-queueing it through the FIFO loop, then
-  // hand off to the generating-transaction page which observes the row (and,
-  // on mobile/desktop, drives the loop). A failed Smart Withdraw has no Miden
-  // row to replay — the whole withdrawal is resubmitted as a BRAND NEW Epoch
-  // intent (fresh nonce) reusing this same row, so the page just reloads it in
-  // place rather than navigating.
-  const handleRetry = useCallback(async () => {
-    if (!entry) return;
-    setIsRetrying(true);
-    setRetryError(null);
-    try {
-      if (entry.txType === 'earn-withdraw') {
-        await retryEarnWithdrawReceive(transactionId);
-        await loadTransaction();
-      } else {
-        await requeueFailedTransaction(transactionId);
-        requestSWTransactionProcessing();
-        navigate(`/generating-transaction/${encodeURIComponent(transactionId)}`);
-        return; // navigating away — leave the spinner as-is
-      }
-    } catch (error) {
-      console.error('[HistoryDetails] Failed to retry transaction:', error);
-      setRetryError(error instanceof Error ? error.message : t('smthWentWrong'));
-    } finally {
-      setIsRetrying(false);
-    }
-  }, [entry, loadTransaction, t, transactionId]);
-
-  // The initiating context's background poller may be gone (extension popup closed),
-  // so this page (re)starts the delivery poller AND reloads the row on an interval —
-  // the `received` flip lands via auto-consume tagging, not the poller, so a reload
-  // loop is what surfaces it. Runs only while the phase is non-terminal.
-  const withdrawPhase = earnWithdraw?.phase;
-  const withdrawNonce = earnWithdraw?.withdrawIntentNonce;
-  const withdrawOwner = earnWithdraw?.evmOwner;
-  useEffect(() => {
-    if (entry?.txType !== 'earn-withdraw') return;
-    if (withdrawPhase === 'received' || withdrawPhase === 'failed' || withdrawPhase === undefined) return;
-
-    let cancelled = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const POLL_INTERVAL_MS = 3000;
-
-    // Kick a delivery poller at most once per nonce — it advances the Dexie row
-    // even if no other context is running one. Idempotent if one already is.
-    if (withdrawNonce && isHexEvmAddress(withdrawOwner) && withdrawPollNonceRef.current !== withdrawNonce) {
-      const sponsorAddress = withdrawOwner;
-      const nonce = withdrawNonce;
-      withdrawPollNonceRef.current = nonce;
-      import('lib/epoch')
-        .then(({ pollEarnWithdrawDelivery }) =>
-          pollEarnWithdrawDelivery({ sponsorAddress, nonce, txId: transactionId })
-        )
-        .catch(err => console.warn('[earn-withdraw] detail-page poll start failed', err));
-    }
-
-    const tick = async () => {
-      await loadTransaction();
-      if (!cancelled) timer = setTimeout(tick, POLL_INTERVAL_MS);
-    };
-    timer = setTimeout(tick, POLL_INTERVAL_MS);
-
-    return () => {
-      cancelled = true;
-      if (timer) clearTimeout(timer);
-    };
-  }, [entry?.txType, withdrawPhase, withdrawNonce, withdrawOwner, transactionId, loadTransaction]);
-
-  // Drive a live lending-leg status on a Smart Deposit's detail page. The
-  // initiating context started `pollEarnIntentStatus`, but it dies with that
-  // context (popup closed / app restart), so this page (re)starts it — once per
-  // nonce — and reloads the row on an interval until `epochStatus` settles.
-  // Only meaningful once the Miden collateral note actually landed (Completed).
-  const depositStatus = earnDeposit?.epochStatus;
-  const depositNonce = earnDeposit?.intentNonce;
-  const depositOwner = earnDeposit?.evmRecipient;
-  useEffect(() => {
-    if (entry?.txType !== 'earn-deposit') return;
-    if (entry.status !== ITransactionStatus.Completed) return;
-    if (depositStatus === 'confirmed' || depositStatus === 'failed') return;
-    if (!depositNonce || !isHexEvmAddress(depositOwner)) return;
-
-    let cancelled = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const POLL_INTERVAL_MS = 3000;
-
-    if (depositPollNonceRef.current !== depositNonce) {
-      const sponsorAddress = depositOwner;
-      const nonce = depositNonce;
-      depositPollNonceRef.current = nonce;
-      import('lib/epoch')
-        .then(({ pollEarnIntentStatus }) => pollEarnIntentStatus({ sponsorAddress, nonce, txId: transactionId }))
-        .catch(err => console.warn('[earn-deposit] detail-page poll start failed', err));
-    }
-
-    const tick = async () => {
-      await loadTransaction();
-      if (!cancelled) timer = setTimeout(tick, POLL_INTERVAL_MS);
-    };
-    timer = setTimeout(tick, POLL_INTERVAL_MS);
-
-    return () => {
-      cancelled = true;
-      if (timer) clearTimeout(timer);
-    };
-  }, [entry?.txType, entry?.status, depositStatus, depositNonce, depositOwner, transactionId, loadTransaction]);
-
-  // Poll the swap order lineage until it reaches a terminal state (filled or
-  // reclaimed). The orderId is persisted on the swap tx; the live lineage is
-  // fetched via `trackOrderId`. Each poll takes the WASM client lock, so a
-  // `null`/error result (not-yet-trackable or an order this client can't
-  // resolve) backs off exponentially and gives up after a cap, rather than
-  // hammering the lock every 2s forever. A genuinely `active` order resets the
-  // backoff and keeps a steady watch at the base interval.
-  useEffect(() => {
-    if (orderId == null) return;
-    // Capture the non-null id in a const so the narrowing survives into the
-    // hoisted `poll` declaration below (a function declaration wouldn't inherit
-    // the `orderId != null` guard otherwise).
-    const trackedOrderId = orderId;
-    let cancelled = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const BASE_INTERVAL_MS = 2000;
-    const MAX_INTERVAL_MS = 30_000;
-    const MAX_UNRESOLVED_POLLS = 20;
-    let unresolved = 0;
-
-    // Exponential backoff for unresolved polls, capped; give up after the cap.
-    const scheduleUnresolvedRetry = () => {
-      unresolved += 1;
-      if (!cancelled && unresolved < MAX_UNRESOLVED_POLLS) {
-        const delay = Math.min(BASE_INTERVAL_MS * 2 ** (unresolved - 1), MAX_INTERVAL_MS);
-        timer = setTimeout(poll, delay);
-      }
-    };
-
-    async function poll() {
-      if (cancelled) return;
-      setTrackingLoading(true);
+  const handleRetry = useCallback(
+    async (acknowledgeUnverifiedSend = false) => {
+      if (!entry) return;
+      setIsRetrying(true);
+      setRetryError(null);
+      setNeedsSendAcknowledgement(false);
       try {
-        const result = await trackOrderId(trackedOrderId);
-        if (cancelled) return;
-        setSwapTracking(result);
-        if (result === null) {
-          // Not yet trackable / not found — back off and eventually give up.
-          scheduleUnresolvedRetry();
-        } else if (result.state === 'active') {
-          // Live and resolving; steady watch until a terminal state.
-          unresolved = 0;
-          timer = setTimeout(poll, BASE_INTERVAL_MS);
+        if (entry.txType === 'earn-withdraw') {
+          await retryEarnWithdrawReceive(transactionId);
+        } else {
+          await requeueFailedTransaction(transactionId, { acknowledgeUnverifiedSend });
+          requestSWTransactionProcessing();
+          navigate(`/generating-transaction/${encodeURIComponent(transactionId)}`);
+          return;
         }
-        // filled / reclaimed → terminal, stop polling.
       } catch (error) {
-        console.error('[HistoryDetails] Failed to track swap order:', error);
-        if (!cancelled) scheduleUnresolvedRetry();
+        console.error('[HistoryDetails] Failed to retry transaction:', error);
+        setRetryError(error instanceof Error ? error.message : t('smthWentWrong'));
+        setNeedsSendAcknowledgement(isUnverifiableSendRetryError(error));
       } finally {
-        if (!cancelled) setTrackingLoading(false);
+        setIsRetrying(false);
       }
-    }
+    },
+    [entry, t, transactionId]
+  );
 
-    poll();
-
-    return () => {
-      cancelled = true;
-      if (timer) clearTimeout(timer);
-    };
-  }, [orderId]);
-
-  // Settlement can land while this page is open (auto-consume runs on its own
-  // 2s cycle), and the lineage poll above stops at a terminal state — usually
-  // just *before* the settlement consume completes. So watch for the notes
-  // separately: cheap Dexie-only reads, stopping as soon as any arrive and
-  // giving up after a cap so a manual-claim order doesn't poll forever.
-  const settlementFound = Boolean(
-    settlementNotes && (settlementNotes.settled.length || settlementNotes.reclaimed.length)
+  // Swap lineage polling lives at the app root. This screen consumes the latest
+  // store value and asks a parked order to refresh when opened.
+  const orderKey = orderId == null ? undefined : String(orderId);
+  const trackingEntry = useSwapOrderTrackingStore(state =>
+    orderKey === undefined ? undefined : state.entries[orderKey]
   );
   useEffect(() => {
-    if (orderId == null || settlementFound || !transaction) return;
-    const swapTxId = transaction.id;
-    const POLL_INTERVAL_MS = 2000;
-    const MAX_POLLS = 20;
-    let polls = 0;
-    let cancelled = false;
+    if (orderKey === undefined || transaction?.restoredFromBackup === true) return;
+    requestSwapOrderRefresh(orderKey);
+  }, [orderKey, transaction?.restoredFromBackup]);
 
-    const timer = setInterval(async () => {
-      polls += 1;
-      if (polls > MAX_POLLS) {
-        clearInterval(timer);
-        return;
-      }
-      try {
-        const notes = await getSwapSettlementNotes(swapTxId);
-        if (!cancelled && (notes.settled.length > 0 || notes.reclaimed.length > 0)) {
-          setSettlementNotes(notes);
-        }
-      } catch (error) {
-        console.error('[HistoryDetails] Failed to read swap settlement notes:', error);
-      }
-    }, POLL_INTERVAL_MS);
+  // Settlement consumes are Dexie-backed too, so liveQuery replaces the old
+  // bounded interval and updates the receipt whenever a consume row changes.
+  const settlementNotes = useSwapSettlementNotes(transaction?.type === 'swap' ? transaction.id : undefined);
 
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-    };
-  }, [orderId, settlementFound, transaction]);
+  const swapTracking = trackingEntry?.tracking ?? null;
+  const trackingLoading =
+    orderKey !== undefined && transaction?.restoredFromBackup !== true && (trackingEntry?.loading ?? true);
 
-  const orderStatusLabel = (state: SwapOrderState): string => {
-    switch (state) {
-      case 'filled':
-        return t('orderStatusFilled');
-      case 'reclaimed':
-        return t('orderStatusReclaimed');
-      default:
-        return t('orderStatusActive');
-    }
-  };
+  const receipt = deriveSwapReceipt({
+    requestedAmount: requestedToken?.amount,
+    requestedFaucetId: requestedToken?.faucetId,
+    tracking: swapTracking,
+    settlement: settlementNotes,
+    autoConsume: swapAutoConsume,
+    expiresAt: swapExpiresAt
+  });
 
-  // Reconcile the (potentially lagging) on-chain order lineage with settlement
-  // this wallet has already observed: once the settlement/reclaim consume notes
-  // are seen locally, the order is terminal regardless of what the lineage poll
-  // still reports. Otherwise the status sits on "Active" with a per-poll
-  // flickering spinner after the swap has actually settled (#486).
-  // A settle consume outranks a reclaim one — funds were received — matching
-  // `repairSettlementStamp`'s precedence so this row agrees with the swap-row
-  // chip when an order carries both kinds (e.g. paybacks settled one tick, tip
-  // reclaimed another).
-  const settledOrderState: SwapOrderState | null = settlementFound
-    ? settlementNotes && settlementNotes.settled.length > 0
-      ? 'filled'
-      : 'reclaimed'
-    : null;
-  const displayOrderState: SwapOrderState | null = settledOrderState ?? swapTracking?.state ?? null;
-  const orderStillResolving = displayOrderState === 'active';
-
-  // How much of the requested amount has been filled so far, derived from the
-  // original requested amount and the lineage's still-outstanding remainder.
-  const filledRequested =
-    requestedToken && swapTracking
-      ? swapTracking.remainingRequested > requestedToken.amount
-        ? 0n
-        : requestedToken.amount - swapTracking.remainingRequested
-      : undefined;
-
-  // For a bridge the sender is always the Miden account; the EVM destination is
+  // For an outbound bridge the sender is the Miden account; the EVM destination is
   // shown in the BridgeClaimSection (with the right explorer link), so the Miden
   // "to" row is omitted here.
   const isBridgeOut = entry?.txType === 'bridged-send' && !entry.isCancelled;
-  const isBridgeIn = entry ? isBridgeInEntry(entry) && entry.txType === 'bridged-receive' : false;
+  const isBridgeIn = entry ? isBridgeInEntry(entry) : false;
   const isBridge = isBridgeOut || isBridgeIn;
   const isEarnWithdraw = entry?.txType === 'earn-withdraw' && earnWithdraw !== null;
   const isEarnDeposit = entry?.txType === 'earn-deposit' && earnDeposit !== null;
@@ -666,12 +609,19 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   // display label. `displayMessage` only reads 'Sent' once `completeSendTransaction`
   // stamps it: a send is 'Sending' while queued/building and `cancelTransaction`
   // rewrites it to 'Failed' (or "Interrupted…"). Keying the direction off the
-  // message therefore reversed From/To on every send that had not completed — a
+  // message therefore reversed From/To on every send that had not completed - a
   // cancelled 500 TST send read "From: <recipient> / To: <your own account>".
-  // `send` is the only outbound type that reaches this branch (bridged-send and
-  // switch-guardian are handled above), so type is the whole rule; the message
-  // check is kept as a fallback for rows persisted before `txType` existed.
-  const isOutboundTransfer = entry?.txType === 'send' || entry?.message === 'Sent';
+  //
+  // Every outbound type has to be listed here, not just `send`. An `earn-deposit`
+  // moves collateral OUT of the account and into the Epoch allocator
+  // (`secondaryAccountId` = `sendParams.recipientId`) and its `displayMessage` is
+  // 'Depositing' / 'Deposited to lending' - never 'Sent' - so keying only on `send`
+  // rendered it exactly backwards in every state. A USER-CANCELLED `bridged-send`
+  // falls out of `isBridgeOut` (which excludes cancelled rows so the bridge claim UI
+  // stays hidden) and lands here too, still outbound. The message check is kept as a
+  // fallback for rows persisted before `txType` existed.
+  const isOutboundTransfer =
+    (entry?.txType !== undefined && OUTBOUND_TRANSFER_TYPES.includes(entry.txType)) || entry?.message === 'Sent';
   const fromAddress = isBridgeOut
     ? entry?.address
     : isGuardianSwitch
@@ -690,16 +640,25 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
         : isOutboundTransfer
           ? entry?.secondaryAddress
           : entry?.address;
-  const settledNoteIds = settlementNotes?.settled ?? [];
-  const reclaimedNoteIds = settlementNotes?.reclaimed ?? [];
-  const hasNoteData =
-    entry?.noteId ||
-    (entry?.outputNoteIds && entry.outputNoteIds.length > 0) ||
-    settledNoteIds.length > 0 ||
-    reclaimedNoteIds.length > 0;
+  const settledTransactions = settlementNotes?.settledTransactions ?? [];
+  const reclaimedTransactions = settlementNotes?.reclaimedTransactions ?? [];
+  const consumedNoteIds = entry?.consumedNoteIds ?? [];
+  // Private/Public storage mode of the note(s) sent or consumed (#732). Only
+  // the two known modes are labelled; anything else is left off the card.
+  const noteTypeLabel =
+    entry?.noteType === 'private' ? t('private') : entry?.noteType === 'public' ? t('public') : undefined;
+  // The note type alone does not open the card: a send carries one from the
+  // moment it is queued, and it has no note ids until it completes, so keying on
+  // it would put a "Created: 0" card on every pending and failed send.
+  const hasNoteData = Boolean(entry?.noteId) || (entry?.outputNoteIds?.length ?? 0) > 0 || consumedNoteIds.length > 0;
   const createdCount = entry?.outputNoteIds?.length ?? (entry?.noteId ? 1 : 0);
+  // Priced from the primary faucet alone, so it is only shown when that IS the
+  // whole transaction. A batch claim's hero lists every asset it swept up, and a
+  // single-faucet estimate under it reads as the total while understating it -
+  // no figure is better than a confidently wrong one.
+  const spansMultipleAssets = (transaction?.assetTotals?.length ?? 0) > 1;
   const approximateUsdAmount =
-    entry?.amount !== undefined && entry.token
+    entry?.amount !== undefined && entry.token && !spansMultipleAssets
       ? formatFiatDisplayAmount(t, entry.amount, entry.token, tokenPrices)
       : undefined;
   // The shared badge resolves its own amounts from the raw tx; for the types
@@ -718,23 +677,38 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   const sectionDividerColor = entry ? getTransactionIconBackgroundColor(entry) : 'transparent';
   const isPending =
     entry?.status === ITransactionStatus.Queued || entry?.status === ITransactionStatus.GeneratingTransaction;
-  // Retry only makes sense when there's something recoverable: a re-queueable
-  // failed Miden tx (structural Guardian ops and earn deposits are excluded — the
-  // user re-initiates those from Settings / the Earn flow), or a failed Smart
-  // Withdraw, which is fully resubmittable as a brand-new Epoch intent whether or
-  // not the previous one ever reached the allocator.
+  // Cancel is offered on a narrower set than "pending": a structural op that has
+  // already been picked up cannot be stopped, retried, or completed afterwards,
+  // so the button only mislabels a rotation that is going to land anyway.
+  const canCancel = entry ? isCancellableTransaction({ status: entry.status, type: entry.txType }) : false;
+  const earnRetryKind = earnWithdrawalRetryKind(transaction);
   const canRetry =
     entry !== null &&
     !entry.isCancelled &&
+    !transaction?.restoredFromBackup &&
     (entry.txType === 'earn-withdraw'
-      ? earnWithdraw?.phase === 'failed'
-      : isRequeueableTransaction({ status: entry.status, type: entry.txType }));
+      ? earnRetryKind !== undefined
+      : isRequeueableTransaction({
+          status: entry.status,
+          type: entry.txType,
+          // Epoch (Fast) bridged sends are not replayable - their Epoch intent is
+          // already gone, so a requeue would mint a second orphan collateral note.
+          bridgeProvider: entry.bridgeProvider,
+          restoredFromBackup: transaction?.restoredFromBackup
+        }));
 
   return (
     <PageLayout hideToolbar>
+      {/* A swap receipt is reachable from the swap flow itself, so it keeps the
+          close-to-home affordance the previous ScreenHeader carried. */}
+      <NavigationHeader
+        title={t('transaction')}
+        onBack={goBack}
+        variant="prominent"
+        titleAlign="left"
+        onClose={entry?.txType === 'swap' ? () => navigate('/') : undefined}
+      />
       <div className="flex flex-1 flex-col min-h-0 px-4">
-        <ScreenHeader title={t('transaction')} backLabel={t('back')} onBack={goBack} />
-
         {loadError ? (
           <div className="flex-1 flex flex-col items-center justify-center p-4">
             <p className="text-red-500 text-center mb-2">{t('smthWentWrong')}</p>
@@ -745,9 +719,28 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           </div>
         ) : entry === null ? (
           <ActivitySpinner />
+        ) : entry.txType === 'swap' && requestedToken ? (
+          <SwapDetail
+            entry={entry}
+            requestedAmount={requestedToken.amount}
+            requestedDecimals={requestedToken.decimals}
+            requestedScaleIsKnown={requestedToken.scaleIsKnown}
+            requestedSymbol={requestedToken.symbol}
+            requestedFaucetId={requestedToken.faucetId}
+            filledAmount={receipt.filledAmount}
+            orderState={receipt.orderState}
+            trackingLoading={trackingLoading}
+            settledTransactions={settledTransactions}
+            reclaimedTransactions={reclaimedTransactions}
+            approximateUsdAmount={approximateUsdAmount}
+            fromAccount={<AccountDisplay address={entry.address} account={account} allAccounts={allAccounts} />}
+            showActions={!isPending && !canRetry}
+            onOpenPendingNotes={receipt.offerClaimRoute ? () => navigate('/pending-notes') : undefined}
+            onDismiss={goBack}
+          />
         ) : (
-          <div className="flex-1 flex flex-col overflow-y-auto">
-            {/* Top Section — bridges and Guardian switches use purpose-built transition heroes. */}
+          <div className="flex-1 flex min-w-0 flex-col overflow-y-auto overflow-x-hidden">
+            {/* Top Section - bridges and Guardian switches use purpose-built transition heroes. */}
             <div className="flex flex-col items-center justify-center pt-6 pb-5">
               {isGuardianSwitch ? (
                 <GuardianTransitionHero
@@ -759,10 +752,10 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
               ) : (
                 <>
                   <TransactionIcon entry={entry} size="lg" />
-                  {historySummaryBadgeContent ? (
-                    <TransactionSummaryBadge {...historySummaryBadgeContent} className="mt-2" />
-                  ) : isBridge ? (
+                  {isBridge ? (
                     <BridgeHeroAmounts entry={entry} />
+                  ) : historySummaryBadgeContent ? (
+                    <TransactionSummaryBadge {...historySummaryBadgeContent} className="mt-2" />
                   ) : (
                     <div className="mt-1 flex max-w-full items-baseline justify-center gap-2 text-center font-heading font-extrabold text-[2.5rem] leading-none">
                       {entry.amount !== undefined && (
@@ -780,7 +773,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                 ) : isEarnWithdraw && earnWithdraw ? (
                   <EarnWithdrawStatusPill phase={earnWithdraw.phase} />
                 ) : isEarnDeposit && earnDeposit && entry.status === ITransactionStatus.Completed ? (
-                  // Miden note landed — the pill tracks the solver-fulfilled
+                  // Miden note landed - the pill tracks the solver-fulfilled
                   // lending leg instead of the (long-settled) Miden tx status.
                   <EarnDepositStatusPill status={earnDeposit.epochStatus ?? 'pending'} />
                 ) : (
@@ -815,6 +808,12 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                     </DetailRow>
                   )}
 
+                  {entry.fee && (
+                    <DetailRow label={t('networkFee')}>
+                      <span className="text-sm text-heading-gray font-medium">{entry.fee}</span>
+                    </DetailRow>
+                  )}
+
                   {entry.externalTxId && (
                     <DetailRow label={t('txIdLabel')} isLast={isGuardianSwitch} testId="history-detail-tx-id">
                       <ExternalLinkValue
@@ -827,7 +826,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                             copyIcon={false}
                           />
                         }
-                        href={`https://testnet.midenscan.com/tx/${entry.externalTxId}`}
+                        href={getExplorerTxUrl(entry.externalTxId)}
                       />
                     </DetailRow>
                   )}
@@ -844,7 +843,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                         displayValue={
                           <AccountDisplay address={fromAddress} account={account} allAccounts={allAccounts} />
                         }
-                        href={`https://testnet.midenscan.com/account/${fromAddress}`}
+                        href={getExplorerAccountUrl(fromAddress)}
                       />
                     </DetailRow>
                   )}
@@ -855,7 +854,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                         displayValue={
                           <AccountDisplay address={toAddress} account={account} allAccounts={allAccounts} />
                         }
-                        href={`https://testnet.midenscan.com/account/${toAddress}`}
+                        href={getExplorerAccountUrl(toAddress)}
                       />
                     </DetailRow>
                   )}
@@ -1002,39 +1001,86 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
               </div>
             )}
 
+            {/*
+              Private-note delivery warning.
+              A send can be legitimately Completed - the assets have left the account -
+              while its note never reached the transport layer, and a private note is
+              unreachable without that relayed body. Nothing else on this page can say
+              so: the status pill reads the TRANSACTION, which really did land. Without
+              this card the only trace was a console line.
+
+              Shown for 'pending' as well as 'undelivered'. A row still reading
+              'pending' means the wallet recorded the debt and never recorded an
+              outcome - the process died mid-relay - which is no more reassuring than
+              an outright failure.
+            */}
+            {(entry.noteDelivery === 'undelivered' || entry.noteDelivery === 'pending') && (
+              <div className="mt-6">
+                <SectionDivider color={sectionDividerColor} />
+                <div className="mt-5">
+                  <DetailCard
+                    title={
+                      entry.noteDelivery === 'undelivered'
+                        ? t('noteDeliveryUndeliveredTitle')
+                        : t('noteDeliveryPendingTitle')
+                    }
+                  >
+                    <p
+                      data-testid="history-note-delivery-warning"
+                      className="px-4 py-3 text-sm font-medium text-status-negative wrap-break-word select-text"
+                    >
+                      {entry.noteDelivery === 'undelivered'
+                        ? t('noteDeliveryUndeliveredBody')
+                        : t('noteDeliveryPendingBody')}
+                    </p>
+                    <p className="px-4 pb-3 text-xs font-medium text-text-muted wrap-break-word select-text">
+                      {t('noteDeliveryRecoveryHint')}
+                    </p>
+                  </DetailCard>
+                </div>
+              </div>
+            )}
+
+            {/*
+              The positive counterpart: the note was consumed on chain, which is the
+              only proof the sender can have that a PRIVATE note was received (the
+              recipient cannot consume a body they never got).
+
+              Deliberately no equivalent for 'relayed'. That state means the
+              transport accepted the note but nothing has proven it arrived, and an
+              unclaimed note is the ordinary case - a recipient who simply has not
+              got round to claiming looks identical to one who never received it. A
+              warning there would fire on most healthy private sends, so silence is
+              the honest reading and only the two states that indicate a real
+              problem warn above.
+            */}
+            {entry.noteDelivery === 'confirmed' && (
+              <div className="mt-6">
+                <SectionDivider color={sectionDividerColor} />
+                <div className="mt-5">
+                  <DetailCard title={t('noteDeliveryConfirmedTitle')}>
+                    <p
+                      data-testid="history-note-delivery-confirmed"
+                      className="px-4 py-3 text-sm font-medium text-status-positive wrap-break-word select-text"
+                    >
+                      {t('noteDeliveryConfirmedBody')}
+                    </p>
+                  </DetailCard>
+                </div>
+              </div>
+            )}
+
             {/* Failure reason (persisted on `tx.error` by cancelTransaction) */}
             {(entry.status === ITransactionStatus.Failed || (isBridgeIn && entry.bridgeInPhase === 'failed')) &&
               entry.errorMessage && (
                 <div className="mt-6">
                   <SectionDivider color={sectionDividerColor} />
                   <div className="mt-5">
-                    <DetailCard title={entry.isCancelled ? t('cancelled') : t('error')}>
-                      <p
-                        data-testid="history-failure-reason"
-                        className={clsx(
-                          'px-4 py-3 text-sm font-medium wrap-break-word select-text',
-                          entry.isCancelled ? 'text-gray-500' : 'text-status-negative'
-                        )}
-                      >
-                        {entry.errorMessage}
-                      </p>
-                      {entry.rawErrorMessage && (
-                        <div className="px-4 pb-3">
-                          <button
-                            type="button"
-                            className="text-sm font-medium text-text-muted underline"
-                            onClick={() => setShowFullError(v => !v)}
-                          >
-                            {showFullError ? t('hideFullError') : t('showFullError')}
-                          </button>
-                          {showFullError && (
-                            <p className="mt-2 text-xs font-medium text-text-muted wrap-break-word select-text">
-                              {entry.rawErrorMessage}
-                            </p>
-                          )}
-                        </div>
-                      )}
-                    </DetailCard>
+                    <TransactionFailureCard
+                      errorMessage={entry.errorMessage}
+                      rawErrorMessage={entry.rawErrorMessage}
+                      isCancelled={entry.isCancelled}
+                    />
                   </div>
                 </div>
               )}
@@ -1045,11 +1091,11 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                 <div className="mt-6">
                   <SectionDivider color={sectionDividerColor} />
                 </div>
-                <BridgeClaimSection entry={entry} onUpdated={loadTransaction} />
+                <BridgeClaimSection entry={entry} restoredFromBackup={transaction?.restoredFromBackup === true} />
               </>
             )}
 
-            {/* Inbound bridge details (bridged-receive only) */}
+            {/* Inbound bridge details */}
             {isBridgeIn && (
               <div className="mt-6 mb-4">
                 <SectionDivider color={sectionDividerColor} />
@@ -1096,83 +1142,26 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
               </div>
             )}
 
-            {/* Swap order tracking */}
-            {entry.txType === 'swap' && orderId != null && (
-              <div className="mt-6" data-testid="swap-order-card">
-                <SectionDivider color={sectionDividerColor} />
-                <div className="mt-5">
-                  <DetailCard title={t('orderTracking')}>
-                    <DetailRow label={t('orderStatus')} isLast={!swapTracking}>
-                      {displayOrderState ? (
-                        <div className="flex items-center gap-2">
-                          <span data-testid="swap-order-status" className="text-sm text-heading-gray font-medium">
-                            {orderStatusLabel(displayOrderState)}
-                          </span>
-                          {orderStillResolving && (
-                            <span
-                              data-testid="swap-order-polling"
-                              className="flex items-center gap-1.5 text-xs font-medium text-text-muted"
-                            >
-                              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-primary-500" />
-                              {t('loading')}
-                            </span>
-                          )}
-                        </div>
-                      ) : (
-                        <span
-                          data-testid={trackingLoading ? 'swap-order-polling' : undefined}
-                          className="text-sm text-text-muted font-medium"
-                        >
-                          {trackingLoading ? t('loading') : t('trackingUnavailable')}
-                        </span>
-                      )}
-                    </DetailRow>
-                    {swapTracking && (
-                      <DetailRow label={t('fillRounds')} isLast={!requestedToken}>
-                        <span data-testid="swap-order-fill-rounds" className="text-sm text-heading-gray font-medium">
-                          {swapTracking.currentDepth}
-                        </span>
-                      </DetailRow>
-                    )}
-                    {swapTracking && requestedToken && (
-                      <DetailRow label={t('amountFilled')} isLast>
-                        <span data-testid="swap-order-amount-filled" className="text-sm text-heading-gray font-medium">
-                          {t('historyDetailsAmountFilledValue', {
-                            filled: formatAmount(filledRequested ?? 0n, requestedToken.decimals),
-                            total: formatAmount(requestedToken.amount, requestedToken.decimals),
-                            symbol: requestedToken.symbol ? ` ${requestedToken.symbol}` : ''
-                          })}
-                        </span>
-                      </DetailRow>
-                    )}
-                  </DetailCard>
-                </div>
-              </div>
-            )}
-
             {/* Notes */}
             {hasNoteData && (
               <div className="mt-6 mb-4">
                 <SectionDivider color={sectionDividerColor} />
                 <div className="mt-5">
                   <DetailCard title={t('notesSection')}>
-                    <DetailRow
-                      label={t('created')}
-                      isLast={settledNoteIds.length === 0 && reclaimedNoteIds.length === 0}
-                    >
-                      <span className="text-sm text-heading-gray font-medium">{createdCount}</span>
-                    </DetailRow>
-
-                    {/* Swap settlement: the notes the suppressed consume rows claimed. */}
-                    {settledNoteIds.length > 0 && (
-                      <DetailRow label={t('claimed')} isLast={reclaimedNoteIds.length === 0}>
-                        <NoteIdList noteIds={settledNoteIds} testId="swap-settled-notes" />
+                    {noteTypeLabel && (
+                      <DetailRow label={t('noteTypeLabel')} testId="history-note-type">
+                        <span className="text-sm text-heading-gray font-medium">{noteTypeLabel}</span>
                       </DetailRow>
                     )}
 
-                    {reclaimedNoteIds.length > 0 && (
-                      <DetailRow label={t('reclaimed')} isLast>
-                        <NoteIdList noteIds={reclaimedNoteIds} testId="swap-reclaimed-notes" />
+                    {/* Claims list the input notes they consumed; every other type counts its outputs. */}
+                    {consumedNoteIds.length > 0 ? (
+                      <DetailRow label={t('consumed')} isLast>
+                        <NoteIdList noteIds={consumedNoteIds} testId="history-consumed-notes" />
+                      </DetailRow>
+                    ) : (
+                      <DetailRow label={t('created')} isLast>
+                        <span className="text-sm text-heading-gray font-medium">{createdCount}</span>
                       </DetailRow>
                     )}
                   </DetailCard>
@@ -1182,7 +1171,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           </div>
         )}
 
-        {isPending && (
+        {canCancel && (
           <div className="shrink-0 pt-3 pb-4">
             {cancelError && <p className="mb-2 text-center text-sm text-status-negative">{cancelError}</p>}
             <Button
@@ -1197,17 +1186,52 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           </div>
         )}
 
+        {isEarnWithdraw && earnWithdraw?.phase === 'failed' && !canRetry && !transaction?.restoredFromBackup && (
+          <p
+            data-testid="withdrawal-recovery-unavailable"
+            className="shrink-0 pt-3 pb-4 text-center text-sm text-heading-gray"
+          >
+            {t('withdrawalRecoveryUnavailable')}
+          </p>
+        )}
+
         {canRetry && (
           <div className="shrink-0 pt-3 pb-4">
-            {retryError && <p className="mb-2 text-center text-sm text-status-negative">{retryError}</p>}
+            {retryError && (
+              <p data-testid="history-retry-error" className="mb-2 text-center text-sm text-status-negative">
+                {retryError}
+              </p>
+            )}
+            {maxNetworkFee && !isEarnWithdraw && (
+              // Requeues as a NEW transaction paying a NEW fee, on one tap with no
+              // review step. The recorded `networkFee` row above is what the failed
+              // attempt already paid, not a bound on what this retry will cost.
+              <div className="mb-2 text-center text-xs text-heading-gray">
+                {t('networkFeeMax')} · {maxNetworkFee}
+              </div>
+            )}
             <Button
+              data-testid="history-retry-button"
               variant={ButtonVariant.Primary}
-              title={t('retry')}
+              title={t(earnRetryKind === 'allocation' ? 'retryEarnDelivery' : 'retry')}
               isLoading={isRetrying}
               disabled={isRetrying}
-              onClick={handleRetry}
+              onClick={() => handleRetry(false)}
               className="max-w-none"
             />
+            {/* Only after the refusal above has been shown, so the warning is
+                always read first. */}
+            {needsSendAcknowledgement && (
+              <Button
+                data-testid="history-retry-anyway-button"
+                variant={ButtonVariant.Secondary}
+                title={t('retryAnyway')}
+                isLoading={isRetrying}
+                disabled={isRetrying}
+                onClick={() => handleRetry(true)}
+                className="mt-2 max-w-none"
+              />
+            )}
           </div>
         )}
       </div>

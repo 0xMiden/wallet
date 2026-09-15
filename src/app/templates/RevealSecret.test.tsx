@@ -125,6 +125,18 @@ jest.mock('lib/mobile/useHideDappBubblesWhileOpen', () => ({
   useHideDappBubblesWhileOpen: jest.fn()
 }));
 
+// Screenshot / screen-recording guard (#417). `mockGuardReady` stands in for the
+// native plugin having actually enabled protection; the real hook returns `true`
+// unconditionally off-mobile.
+const mockUseScreenshotGuard = jest.fn();
+let mockGuardReady = true;
+jest.mock('lib/mobile/screenshot-guard', () => ({
+  useScreenshotGuard: (active: boolean) => {
+    mockUseScreenshotGuard(active);
+    return mockGuardReady;
+  }
+}));
+
 jest.mock('lib/platform', () => ({
   isMobile: () => mockIsMobile
 }));
@@ -152,6 +164,7 @@ describe('RevealSecret', () => {
     jest.clearAllMocks();
     mockSecret = null;
     mockIsMobile = false;
+    mockGuardReady = true;
     mockHasHardwareProtector.mockResolvedValue(false);
     mockGetAccount.mockResolvedValue({});
     mockResolveCommitments.mockReturnValue([{ toHex: () => '0xdeadbeef' }]);
@@ -175,6 +188,10 @@ describe('RevealSecret', () => {
 
   const renderReveal = async (reveal: Reveal) => {
     testContainer = document.createElement('div');
+    // Attached: a detached subtree cannot hold focus in jsdom, so `.focus()` is a
+    // silent no-op there and `document.activeElement` stays on <body>. Every
+    // focus assertion in this suite would pass or fail for that reason alone.
+    document.body.appendChild(testContainer);
     testRoot = createRoot(testContainer);
     await act(async () => {
       testRoot!.render(<RevealSecret reveal={reveal} />);
@@ -266,6 +283,20 @@ describe('RevealSecret', () => {
     expect(buttonWithText(container, 'continue')).toBeFalsy();
   });
 
+  it('puts the caret in the password field on desktop', async () => {
+    // The effect depends on `hasHardwareProtector` because this component renders
+    // `null` until that resolves. Without it in the deps it ran once against the
+    // empty first commit, when the form ref was still null, and never again — so
+    // the field was never focused, while Settings suppressed its own title focus
+    // on the strength of this effect and left focus on <body> with the page
+    // unannounced. On the two screens that hand out recovery material.
+    const container = await renderReveal('private-key');
+
+    const password = container.querySelector<HTMLInputElement>("input[name='password']");
+    expect(password).not.toBeNull();
+    expect(document.activeElement).toBe(password);
+  });
+
   it('reveals the private key with the entered password on the software-unlock path', async () => {
     const container = await renderReveal('private-key');
     await acknowledge(container);
@@ -347,6 +378,73 @@ describe('RevealSecret', () => {
     expect(mockRevealGuardianKeys).toHaveBeenCalledWith(mockAccount.publicKey, undefined);
     // Once the bundle is set the action button disappears (guardianBundle view).
     expect(buttonWithText(container, 'unlock')).toBeFalsy();
+  });
+
+  // #417 parity: RevealSeedPhrase blocks screenshots/recordings while the phrase
+  // is on screen. The private key, the Guardian COLD private key and the hot key
+  // are material of equal sensitivity (all confer spending authority) and used to
+  // render into a plain DOM textarea with no guard at all — screenshot-able,
+  // visible in the Android task-switcher thumbnail, and captured by any live
+  // screen recording or screen-share.
+  describe('screenshot guard (#417)', () => {
+    it('leaves the guard off while only the unlock form is on screen', async () => {
+      await renderReveal('private-key');
+      expect(mockUseScreenshotGuard).toHaveBeenCalledWith(false);
+      expect(mockUseScreenshotGuard).not.toHaveBeenCalledWith(true);
+    });
+
+    it('arms the guard once a secret is revealed', async () => {
+      mockSecret = 'PRIVATE_KEY_HEX';
+      const container = await renderReveal('private-key');
+
+      expect(mockUseScreenshotGuard).toHaveBeenCalledWith(true);
+      expect(container.querySelector('#reveal-secret-secret')).toBeTruthy();
+    });
+
+    it('withholds the secret field until the native guard reports it is enabled', async () => {
+      mockGuardReady = false;
+      mockSecret = 'PRIVATE_KEY_HEX';
+      const container = await renderReveal('private-key');
+
+      expect(mockUseScreenshotGuard).toHaveBeenCalledWith(true);
+      expect(container.querySelector('#reveal-secret-secret')).toBeFalsy();
+    });
+
+    it('arms the guard for the Guardian cold-key bundle too', async () => {
+      mockHasHardwareProtector.mockResolvedValue(true);
+      mockRevealGuardianKeys.mockResolvedValue({
+        coldPrivateKey: 'COLD_PRIVATE',
+        coldPublicKey: 'COLD_PUBLIC',
+        hotPublicKey: 'HOT_PUBLIC'
+      });
+      const container = await renderReveal('guardian-keys');
+      await acknowledge(container);
+      await act(async () => {
+        (buttonWithText(container, 'unlock') as HTMLButtonElement).click();
+      });
+      await flush();
+
+      expect(mockUseScreenshotGuard).toHaveBeenCalledWith(true);
+      expect(container.querySelector('#reveal-guardian-cold-private')).toBeTruthy();
+    });
+
+    it('withholds the Guardian cold-key bundle until the guard is enabled', async () => {
+      mockGuardReady = false;
+      mockHasHardwareProtector.mockResolvedValue(true);
+      mockRevealGuardianKeys.mockResolvedValue({
+        coldPrivateKey: 'COLD_PRIVATE',
+        coldPublicKey: 'COLD_PUBLIC',
+        hotPublicKey: 'HOT_PUBLIC'
+      });
+      const container = await renderReveal('guardian-keys');
+      await acknowledge(container);
+      await act(async () => {
+        (buttonWithText(container, 'unlock') as HTMLButtonElement).click();
+      });
+      await flush();
+
+      expect(container.querySelector('#reveal-guardian-cold-private')).toBeFalsy();
+    });
   });
 
   it('surfaces an error (no secret set) when the account has no key commitment', async () => {

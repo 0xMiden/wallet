@@ -1,5 +1,7 @@
-import { ITransactionStatus } from './db/types';
+import { ITransaction, ITransactionStatus } from './db/types';
 import { exportDb, importDb, transactions, Table } from './repo';
+import { isRequeueableTransaction } from './transaction/retry';
+import { NoteTypeEnum } from './types';
 
 describe('miden repo export/import', () => {
   beforeEach(async () => {
@@ -33,5 +35,503 @@ describe('miden repo export/import', () => {
     expect(imported).toHaveLength(1);
     expect(imported[0]!.amount).toBe(BigInt(42));
     expect(imported[0]!.requestBytes).toEqual(new Uint8Array([1, 2, 3]));
+  });
+
+  // Field-by-field assertions only prove the fields somebody thought to name.
+  // The walker's job is to preserve the WHOLE row, so this asserts identity —
+  // it fails if any future change drops or reshapes a field nobody listed here.
+  it('restores a maximal row identical to the one exported', async () => {
+    const original = {
+      id: 'max-1',
+      type: 'swap' as const,
+      status: ITransactionStatus.Completed,
+      accountId: 'acc1',
+      secondaryAccountId: 'acc2',
+      transactionId: 'tx-max',
+      initiatedAt: 11,
+      completedAt: 22,
+      amount: BigInt('123456789012345678901234567890'),
+      faucetId: 'faucet-a',
+      noteId: 'note-1',
+      noteIds: ['note-1', 'note-2'],
+      outputNoteIds: ['out-1'],
+      noteType: NoteTypeEnum.Private,
+      displayIcon: 'SWAP' as const,
+      displayMessage: 'a message',
+      errorMessage: '',
+      requestBytes: new Uint8Array([0, 255, 7]),
+      assetTotals: [{ faucetId: 'faucet-b', amount: BigInt(0) }],
+      extraInputs: {
+        requestedFaucetId: 'faucet-c',
+        requestedAmount: BigInt(-5),
+        orderId: BigInt(99),
+        nested: { deep: [BigInt(1), 'two', 3, true, null] }
+      }
+    };
+    await transactions.bulkAdd([original]);
+
+    await importDb(await exportDb());
+
+    const [restored] = await transactions.toArray();
+    // The provenance stamp is the ONLY thing import adds to a terminal row —
+    // asserting the whole object is what proves nothing else was rewritten.
+    expect(restored).toEqual({ ...original, restoredFromBackup: true });
+  });
+
+  // A row carries BigInt in more places than the top-level `amount`: `assetTotals`
+  // on a batch claim, `extraInputs.requestedAmount` on a swap. Hand-listing the
+  // fields to convert meant any of those threw "Do not know how to serialize a
+  // BigInt" out of `exportDb`, which the export screen reports as success while
+  // writing no file — so the round trip is asserted over the nested ones too.
+  it('round-trips BigInt nested in assetTotals and extraInputs', async () => {
+    await transactions.bulkAdd([
+      {
+        id: 'consume-1',
+        type: 'consume',
+        status: ITransactionStatus.Completed,
+        accountId: 'acc1',
+        initiatedAt: 1,
+        amount: BigInt(20),
+        faucetId: 'faucet-a',
+        assetTotals: [
+          { faucetId: 'faucet-a', amount: BigInt(20) },
+          { faucetId: 'faucet-b', amount: BigInt(10) }
+        ],
+        displayIcon: 'RECEIVE'
+      },
+      {
+        id: 'swap-1',
+        type: 'swap',
+        status: ITransactionStatus.Completed,
+        accountId: 'acc1',
+        initiatedAt: 2,
+        amount: BigInt(5),
+        extraInputs: { requestedFaucetId: 'faucet-b', requestedAmount: BigInt(7), orderId: BigInt(9) },
+        displayIcon: 'SEND'
+      }
+    ]);
+
+    const dump = await exportDb();
+    await importDb(dump);
+
+    const imported = await transactions.toArray();
+    const consume = imported.find(tx => tx.id === 'consume-1');
+    expect(consume?.assetTotals).toEqual([
+      { faucetId: 'faucet-a', amount: BigInt(20) },
+      { faucetId: 'faucet-b', amount: BigInt(10) }
+    ]);
+    expect(consume?.amount).toBe(BigInt(20));
+
+    const swap = imported.find(tx => tx.id === 'swap-1');
+    expect(swap?.type === 'swap' && swap.extraInputs?.requestedAmount).toBe(BigInt(7));
+    expect(swap?.type === 'swap' && swap.extraInputs?.orderId).toBe(BigInt(9));
+  });
+
+  it('round-trips resultBytes, which the previous format could not', async () => {
+    await transactions.bulkAdd([
+      {
+        id: 'result-1',
+        type: 'send',
+        status: ITransactionStatus.Completed,
+        accountId: 'acc1',
+        initiatedAt: 4,
+        resultBytes: new Uint8Array([9, 8, 7]),
+        displayIcon: 'SEND'
+      }
+    ]);
+
+    await importDb(await exportDb());
+
+    const imported = await transactions.toArray();
+    expect(imported[0]!.resultBytes).toEqual(new Uint8Array([9, 8, 7]));
+  });
+
+  // Files written before the BigInt tag existed keep importing. `amount` was a
+  // plain string and `requestBytes` an untagged number array; `resultBytes` rode
+  // the untouched rest-spread, and `JSON.stringify` renders a `Uint8Array` as an
+  // index-keyed object rather than an array.
+  it('imports a legacy dump whose amount and byte fields are untagged', async () => {
+    await importDb(
+      JSON.stringify({
+        [Table.Transactions]: [
+          {
+            id: 'legacy-1',
+            type: 'send',
+            status: ITransactionStatus.Completed,
+            accountId: 'acc1',
+            initiatedAt: 3,
+            amount: '42',
+            requestBytes: [1, 2, 3],
+            resultBytes: { '0': 9, '1': 8, '2': 7 },
+            displayIcon: 'SEND'
+          }
+        ]
+      })
+    );
+
+    const imported = await transactions.toArray();
+    expect(imported[0]!.amount).toBe(BigInt(42));
+    expect(imported[0]!.requestBytes).toEqual(new Uint8Array([1, 2, 3]));
+    expect(imported[0]!.resultBytes).toEqual(new Uint8Array([9, 8, 7]));
+  });
+
+  // A byte field holds a cryptographic blob. `new Uint8Array(...)` accepts every
+  // one of these inputs and quietly stores something else — 999 as 231, -1 as
+  // 255, a string as 0 — which is a different blob, and nothing downstream can
+  // tell. `importDb` is atomic, so failing here costs the user nothing.
+  describe('a byte field that is not bytes', () => {
+    const dumpWith = (fields: Record<string, unknown>) =>
+      JSON.stringify({
+        [Table.Transactions]: [
+          {
+            id: 'bad-bytes',
+            type: 'send',
+            status: ITransactionStatus.Completed,
+            accountId: 'acc1',
+            initiatedAt: 3,
+            displayIcon: 'SEND',
+            ...fields
+          }
+        ]
+      });
+
+    it.each([
+      ['a value above 255', { requestBytes: [1, 999, 3] }],
+      ['a negative value', { requestBytes: [1, -1, 3] }],
+      ['a fractional value', { requestBytes: [1, 1.5, 3] }],
+      ['a non-number', { requestBytes: [1, 'two', 3] }],
+      ['a value above 255, index-keyed', { resultBytes: { '0': 9, '1': 300 } }]
+    ])('is rejected rather than truncated: %s', async (_label, fields) => {
+      await expect(importDb(dumpWith(fields))).rejects.toThrow(/is not a byte/);
+    });
+
+    // The old decoder sized the array by key COUNT and then read 0…count-1, so a
+    // gap made it read a key the file did not have: this restored as [1, 0],
+    // inventing a zero and dropping the byte at index 2 without a word.
+    it.each([
+      ['a gap', { resultBytes: { '0': 1, '2': 3 } }],
+      ['an index past the end', { resultBytes: { '0': 1, '5': 3 } }],
+      ['a negative index', { resultBytes: { '0': 1, '-1': 3 } }],
+      ['a non-numeric key', { resultBytes: { '0': 1, x: 3 } }]
+    ])('is rejected rather than silently reshaped: %s', async (_label, fields) => {
+      await expect(importDb(dumpWith(fields))).rejects.toThrow(/dense byte sequence/);
+    });
+
+    // An empty Uint8Array serializes to exactly this, so it has to stay valid.
+    it('accepts an empty index-keyed object as an empty byte array', async () => {
+      await importDb(dumpWith({ resultBytes: {} }));
+      expect((await transactions.toArray())[0]!.resultBytes).toEqual(new Uint8Array([]));
+    });
+  });
+
+  // `$bigint` is a reserved word in a namespace the wallet does not own:
+  // `extraInputs` carries objects a dApp had a hand in. Without escaping, such an
+  // object came back from a round-trip as a number instead of itself — and when
+  // its string was not numeric, `BigInt()` threw and took the whole import down.
+  describe('data that looks like the BigInt tag', () => {
+    const roundTrip = async (extraInputs: unknown) => {
+      await transactions.clear();
+      await transactions.bulkAdd([
+        {
+          id: 'collide',
+          type: 'send',
+          status: ITransactionStatus.Completed,
+          accountId: 'acc1',
+          initiatedAt: 3,
+          displayIcon: 'SEND',
+          extraInputs
+        } as unknown as ITransaction
+      ]);
+      const dump = await exportDb();
+      await importDb(dump);
+      return (await transactions.toArray())[0]!.extraInputs;
+    };
+
+    it.each([
+      ['a non-numeric string', { $bigint: 'not a number' }],
+      ['a numeric string, indistinguishable from a real tag', { $bigint: '123' }],
+      ['an already-escaped-looking key', { $bigint$: 'x' }],
+      ['nested inside another object', { note: { $bigint: '7' } }]
+    ])('survives a round-trip unchanged: %s', async (_label, extraInputs) => {
+      expect(await roundTrip(extraInputs)).toEqual(extraInputs);
+    });
+
+    it('still restores a real BigInt written by the exporter', async () => {
+      expect(await roundTrip({ requestedAmount: 5n })).toEqual({ requestedAmount: 5n });
+    });
+
+    // A tag whose payload is not a canonical integer was never written by this
+    // code, so it is foreign data — and feeding it to `BigInt()` threw.
+    it('leaves a foreign tag alone rather than throwing on import', async () => {
+      await importDb(
+        JSON.stringify({
+          [Table.Transactions]: [
+            {
+              id: 'foreign-tag',
+              type: 'send',
+              status: ITransactionStatus.Completed,
+              accountId: 'acc1',
+              initiatedAt: 3,
+              displayIcon: 'SEND',
+              extraInputs: { $bigint: 'not a number' }
+            }
+          ]
+        })
+      );
+
+      expect((await transactions.toArray())[0]!.extraInputs).toEqual({ $bigint: 'not a number' });
+    });
+  });
+
+  // A malformed dump must fail in the pure mapping step, which runs before the
+  // existing database is dropped — not later, inside `bulkAdd`.
+  it('rejects a dump nested past the walk limit before touching the database', async () => {
+    await transactions.bulkAdd([
+      {
+        id: 'survivor',
+        type: 'send',
+        status: ITransactionStatus.Completed,
+        accountId: 'acc1',
+        initiatedAt: 5,
+        displayIcon: 'SEND'
+      }
+    ]);
+
+    let nested: unknown = 'deep';
+    for (let i = 0; i < 200; i++) nested = [nested];
+
+    await expect(
+      importDb(JSON.stringify({ [Table.Transactions]: [{ id: 'bad', extraInputs: nested }] }))
+    ).rejects.toThrow(/nested too deeply/);
+
+    const survivors = await transactions.toArray();
+    expect(survivors.map(tx => tx.id)).toEqual(['survivor']);
+  });
+
+  // The depth guard above only covers dumps that fail during the WALK. A dump can
+  // also parse and map cleanly and still be rejected by the write itself -- two
+  // rows sharing a primary key is enough. Importing used to `db.delete()` before
+  // writing anything, so that rejection destroyed the user's history and left
+  // nothing to restore from; the replacement has to be atomic.
+  it('keeps existing history when the import write itself fails', async () => {
+    await transactions.bulkAdd([
+      {
+        id: 'survivor',
+        type: 'send',
+        status: ITransactionStatus.Completed,
+        accountId: 'acc1',
+        initiatedAt: 5,
+        amount: BigInt(1),
+        displayIcon: 'SEND'
+      }
+    ]);
+
+    const duplicateIdDump = JSON.stringify({
+      [Table.Transactions]: [
+        { id: 'dup', type: 'send', status: ITransactionStatus.Completed, accountId: 'a', initiatedAt: 1 },
+        { id: 'dup', type: 'send', status: ITransactionStatus.Completed, accountId: 'a', initiatedAt: 2 }
+      ]
+    });
+
+    await expect(importDb(duplicateIdDump)).rejects.toThrow();
+
+    const survivors = await transactions.toArray();
+    expect(survivors.map(tx => tx.id)).toEqual(['survivor']);
+    expect(survivors[0]!.amount).toBe(BigInt(1));
+  });
+
+  // `safeGenerateTransactionsLoop` drives EVERY queued row through the signer
+  // without asking where it came from, so a queued row in a dump is not history
+  // -- it is an instruction to sign. A tampered backup must not be able to
+  // spend, and an honest one's stale queued row must not fire either.
+  it.each([
+    ['Queued', ITransactionStatus.Queued],
+    ['GeneratingTransaction', ITransactionStatus.GeneratingTransaction]
+  ])('lands an imported %s row in a terminal state', async (_label, status) => {
+    const dump = JSON.stringify({
+      [Table.Transactions]: [
+        {
+          id: 'injected',
+          type: 'send',
+          status,
+          accountId: 'victim',
+          secondaryAccountId: 'attacker',
+          initiatedAt: 1,
+          amount: '999999',
+          displayIcon: 'SEND'
+        }
+      ]
+    });
+
+    await importDb(dump);
+
+    const [restored] = await transactions.toArray();
+    expect(restored!.status).toBe(ITransactionStatus.Failed);
+    // Failed alone is not inert: `isRequeueableTransaction` offers a one-tap
+    // Retry on a failed send, which re-signs it. The flag is what blocks that.
+    expect(restored!.restoredFromBackup).toBe(true);
+    expect(isRequeueableTransaction(restored!)).toBe(false);
+    // Failing a row moves it onto the completed-history path, which reads
+    // `completedAt` as the timestamp and builds a Date from it with no fallback.
+    expect(restored!.completedAt).toBe(1);
+    // The row survives as a record -- only its ability to execute is removed.
+    expect(restored!.id).toBe('injected');
+    expect(restored!.amount).toBe(BigInt(999999));
+  });
+
+  // Asserted on the DUMP, not on a re-import: import re-stamps the flag, so a
+  // round-trip check passes even when the export drops it. Re-exporting a
+  // restored wallet must keep the provenance rather than laundering it.
+  it('carries restoredFromBackup through export', async () => {
+    await transactions.bulkAdd([
+      {
+        id: 'imported',
+        type: 'send',
+        status: ITransactionStatus.Failed,
+        accountId: 'acc1',
+        initiatedAt: 5,
+        restoredFromBackup: true,
+        displayIcon: 'SEND'
+      }
+    ]);
+
+    const dumped = JSON.parse(await exportDb());
+    expect(dumped[Table.Transactions][0].restoredFromBackup).toBe(true);
+  });
+
+  // The flag is stamped by a literal AFTER the spread. Reversing those two
+  // clauses hands the attacker control of the gate, and every other test here
+  // passes either way because none of their dumps mention the field.
+  it('ignores a restoredFromBackup the dump tries to supply', async () => {
+    const dump = JSON.stringify({
+      [Table.Transactions]: [
+        {
+          id: 'liar',
+          type: 'send',
+          status: ITransactionStatus.Failed,
+          restoredFromBackup: false,
+          accountId: 'victim',
+          initiatedAt: 1
+        }
+      ]
+    });
+
+    await importDb(dump);
+
+    const [restored] = await transactions.toArray();
+    expect(restored!.restoredFromBackup).toBe(true);
+    expect(isRequeueableTransaction(restored!)).toBe(false);
+  });
+
+  // The status test is an allow-list of the terminal values, so a dump is free
+  // to carry a status no consumer recognises. Such a row is invisible in every
+  // history view (all of them compare with `===`) while still holding its id.
+  it.each([
+    ['out of range', 99],
+    ['a string', '0'],
+    ['absent', undefined]
+  ])('treats a status that is %s as unfinished', async (_label, status) => {
+    const dump = JSON.stringify({
+      [Table.Transactions]: [{ id: 'odd', type: 'send', status, accountId: 'a', initiatedAt: 7 }]
+    });
+
+    await importDb(dump);
+
+    const [restored] = await transactions.toArray();
+    expect(restored!.status).toBe(ITransactionStatus.Failed);
+    expect(restored!.completedAt).toBe(7);
+    expect(restored!.restoredFromBackup).toBe(true);
+  });
+
+  const importOne = async (tx: Record<string, unknown>) => {
+    await importDb(
+      JSON.stringify({
+        [Table.Transactions]: [{ id: 'x', status: ITransactionStatus.Completed, accountId: 'a', initiatedAt: 1, ...tx }]
+      })
+    );
+    const [restored] = await transactions.toArray();
+    return restored!;
+  };
+
+  // Import must NOT rewrite the lifecycle markers in `extraInputs`. An earlier
+  // revision settled them to stop a restored row being resumed; those same
+  // strings are what the bridge/earn status pills render, so it rewrote journeys
+  // the user had genuinely completed as "Failed" — on rows whose `status` is
+  // Completed, which is exactly where the failure card withholds the reason. The
+  // resumers are gated on `restoredFromBackup` instead; display stays truthful.
+  it.each([
+    ['a completed Epoch bridge', 'bridged-send', { provider: 'epoch', epochStatus: 'confirmed' }],
+    ['an in-flight Epoch bridge', 'bridged-send', { provider: 'epoch', epochStatus: 'pending' }],
+    ['a claimed AggLayer bridge', 'bridged-send', { provider: 'agglayer', claimStatus: 'claimed' }],
+    ['a claimable AggLayer bridge', 'bridged-send', { provider: 'agglayer', claimStatus: 'ready' }],
+    ['a delivered bridge receive', 'bridged-receive', { phase: 'received' }],
+    ['an in-flight bridge receive', 'bridged-receive', { phase: 'delivering' }],
+    ['a settled earn deposit', 'earn-deposit', { epochStatus: 'confirmed' }],
+    ['an in-flight earn withdrawal', 'earn-withdraw', { phase: 'redeeming' }]
+  ])('restores %s exactly as the backup recorded it', async (_label, type, extraInputs) => {
+    const restored = await importOne({ type, extraInputs });
+
+    expect(restored.extraInputs).toEqual(extraInputs);
+    // Provenance is still recorded — that is what the resumers read.
+    expect(restored.restoredFromBackup).toBe(true);
+  });
+
+  // A Completed row skips the neutralization branch entirely, so it was the one
+  // path that could still reach history without a timestamp. History reads
+  // `completedAt` straight off the row with no fallback and builds a Date from
+  // it — a missing one throws while grouping by day and takes down the list.
+  it('stamps a timestamp on a terminal row that arrives without one', async () => {
+    const dump = JSON.stringify({
+      [Table.Transactions]: [
+        { id: 'no-ts', type: 'send', status: ITransactionStatus.Completed, accountId: 'a', initiatedAt: 42 }
+      ]
+    });
+
+    await importDb(dump);
+
+    const [restored] = await transactions.toArray();
+    expect(restored!.status).toBe(ITransactionStatus.Completed);
+    expect(restored!.completedAt).toBe(42);
+  });
+
+  it('keeps a terminal row own completedAt when it has one', async () => {
+    const dump = JSON.stringify({
+      [Table.Transactions]: [
+        {
+          id: 'has-ts',
+          type: 'send',
+          status: ITransactionStatus.Completed,
+          accountId: 'a',
+          initiatedAt: 42,
+          completedAt: 99
+        }
+      ]
+    });
+
+    await importDb(dump);
+
+    const [restored] = await transactions.toArray();
+    expect(restored!.completedAt).toBe(99);
+  });
+
+  it('leaves terminal rows untouched on import', async () => {
+    const dump = JSON.stringify({
+      [Table.Transactions]: [
+        { id: 'done', type: 'send', status: ITransactionStatus.Completed, accountId: 'a', initiatedAt: 1 },
+        { id: 'bad', type: 'send', status: ITransactionStatus.Failed, accountId: 'a', initiatedAt: 2 }
+      ]
+    });
+
+    await importDb(dump);
+
+    // Keyed by id, not position: `toArray` returns index order, not insertion order.
+    const restored = new Map((await transactions.toArray()).map(tx => [tx.id, tx]));
+    expect(restored.get('done')!.status).toBe(ITransactionStatus.Completed);
+    expect(restored.get('bad')!.status).toBe(ITransactionStatus.Failed);
+    // Terminal rows keep their status, but every imported row is still marked --
+    // an imported "completed" row is unverified local data, not a chain fact,
+    // and a genuinely failed one must not become retryable just by being in a dump.
+    expect(restored.get('done')!.restoredFromBackup).toBe(true);
+    expect(isRequeueableTransaction(restored.get('bad')!)).toBe(false);
   });
 });

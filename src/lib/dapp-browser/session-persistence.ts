@@ -41,8 +41,12 @@ export const MAX_PERSISTED_SESSIONS = 8;
 
 /**
  * What we store per session. Intentionally a subset of `DappSession` —
- * we drop ephemeral `status` and record the last-known origin so cross-
- * origin nav is preserved across an app restart.
+ * we drop ephemeral `status` and record the last-known url + origin so cross-
+ * origin nav is preserved across an app restart. The pair must be consistent
+ * (`origin === parseOrigin(url)`): a restore loads `url`, and the origin is what
+ * every dApp request from that load is authorized against. Legacy records written
+ * before the two were kept in lockstep can disagree, so the provider re-derives
+ * the origin from `url` when it opens the webview rather than trusting this.
  */
 export interface PersistedSession {
   id: string;

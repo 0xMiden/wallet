@@ -6,12 +6,14 @@ import { useTranslation } from 'react-i18next';
 
 import { Button, ButtonVariant } from 'components/Button';
 import { ProgressIndicator } from 'components/ProgressIndicator';
+import { getEffectiveAllowNoGuardian } from 'lib/miden-chain/effective-endpoints';
 import { isMobile } from 'lib/platform';
 
 import { ChooseGuardianScreen } from './common/ChooseGuardian';
 import { ChooseProtectionScreen } from './common/ChooseProtection';
 import { ConfirmationScreen } from './common/Confirmation';
 import { CreatePasswordScreen } from './common/CreatePassword';
+import { NetworkNoticeScreen } from './common/NetworkNotice';
 import { SetupBiometricScreen } from './common/SetupBiometric';
 import { SetupPasscodeScreen } from './common/SetupPasscode';
 import { WelcomeScreen } from './common/Welcome';
@@ -150,6 +152,8 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
       }
     };
 
+    const onNetworkNoticeSubmit = () => onForwardAction?.({ id: 'network-notice-acknowledge' });
+
     const onBackupSeedPhraseSubmit = () =>
       onForwardAction?.({
         id: 'verify-seed-phrase'
@@ -188,6 +192,8 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
     switch (step) {
       case OnboardingStep.Welcome:
         return <WelcomeScreen onSubmit={onWelcomeAction} />;
+      case OnboardingStep.NetworkNotice:
+        return <NetworkNoticeScreen onSubmit={onNetworkNoticeSubmit} />;
       case OnboardingStep.ChooseProtection:
         return <ChooseProtectionScreen onSelectBiometric={onSelectBiometric} onSelectPasscode={onSelectPasscode} />;
       case OnboardingStep.SetupPasscode:
@@ -202,7 +208,12 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
           <SetupBiometricScreen onContinue={onSetupBiometricSubmit} onSwitchToPasscode={onBiometricSwitchToPasscode} />
         );
       case OnboardingStep.ChooseGuardian:
-        return <ChooseGuardianScreen onSubmit={onChooseGuardianSubmit} />;
+        return (
+          <ChooseGuardianScreen
+            onSubmit={onChooseGuardianSubmit}
+            showNoGuardianOption={getEffectiveAllowNoGuardian()}
+          />
+        );
       case OnboardingStep.BackupSeedPhrase:
         return <BackUpSeedPhraseScreen seedPhrase={seedPhrase || []} onSubmit={onBackupSeedPhraseSubmit} />;
       case OnboardingStep.VerifySeedPhrase:
@@ -319,6 +330,7 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
           >
             {renderStep()}
             {step !== OnboardingStep.Welcome &&
+              step !== OnboardingStep.NetworkNotice &&
               step !== OnboardingStep.ChooseProtection &&
               step !== OnboardingStep.SetupPasscode &&
               step !== OnboardingStep.SetupBiometric &&

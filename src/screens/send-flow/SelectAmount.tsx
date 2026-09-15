@@ -1,5 +1,6 @@
 import React from 'react';
 
+import BigNumber from 'bignumber.js';
 import clsx from 'clsx';
 import { useTranslation } from 'react-i18next';
 
@@ -59,9 +60,18 @@ export interface SelectAmountProps {
   onSelectNetwork?: () => void;
 }
 
-/** Preserve the usual 4dp limit, expanding for tiny balances, then trim trailing zeros. */
+/**
+ * Preserve the usual 4dp limit, expanding for tiny balances, then trim trailing zeros.
+ *
+ * Rounded DOWN, so the "Available" figure is never larger than the amount the
+ * form will accept. The native token's cap is `balance - fee reserve`, which
+ * makes a long fractional tail the normal case rather than the exception: a
+ * 12.345678 balance caps at 12.045677999…, which rounds to "12.0457" — and a
+ * user who reads that back into the field is over the cap and rejected, with no
+ * Max button to fall back on.
+ */
 function formatBalance(value: number): string {
-  return toAdaptiveFixed(value, 4).replace(/\.?0+$/, '');
+  return toAdaptiveFixed(value, 4, BigNumber.ROUND_DOWN).replace(/\.?0+$/, '');
 }
 
 /** Blue circle used as a placeholder before a token/network is chosen. */
@@ -97,7 +107,15 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
   const { t } = useTranslation();
 
   const availableFiat = token ? token.balance * token.fiatPrice : 0;
-  const canProceed = !!token && isValidAmount && (!isBridge || !!network);
+  // An amount typed here is converted to base units with `token.decimals`. When
+  // those decimals are the unknown-token placeholder's guess, that conversion
+  // does not mean what the user thinks: "1" becomes 10^6 base units for a faucet
+  // that may actually count in 10^18, so the transfer that leaves the wallet is
+  // a different quantity from the one on screen. There is no honest way to
+  // denominate a transfer in a unit we cannot read, so the flow stops here
+  // rather than at the confirmation.
+  const scaleIsKnown = token === undefined || token.scaleIsKnown;
+  const canProceed = !!token && scaleIsKnown && isValidAmount && (!isBridge || !!network);
 
   const tokenSelector = (
     <button
@@ -183,11 +201,14 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
     token && showBalanceHelper ? (
       <>
         <span className="font-heading text-gray text-base font-bold">
-          {t('available')} {formatBalance(token.balance)} {token.name}
+          {/* Same guessed scale as the amount above — quoting a spendable
+              balance from it would be inviting the user to act on a number the
+              wallet cannot stand behind. */}
+          {scaleIsKnown ? `${t('available')} ${formatBalance(token.balance)} ${token.name}` : t('unknownTokenScale')}
         </span>
         {/* Only show the fiat approximation when we actually have a price — swap
             DEX tokens carry no fiatPrice, so a "$0.00" line would be misleading. */}
-        {token.fiatPrice > 0 && (
+        {scaleIsKnown && token.fiatPrice > 0 && (
           <span className="font-heading text-gray text-base font-bold">
             {t('approxFiatValue', { value: `$${toAdaptiveFixed(availableFiat)}` })}
           </span>
@@ -199,7 +220,8 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
     <AmountInput
       label={label ?? (title ? undefined : t('selectAmount'))}
       value={amount}
-      error={error ? t(error) : undefined}
+      invalid={!!error}
+      error={error && (amount || error !== 'invalidAmount') ? t(error) : undefined}
       // The helper (available balance) is controlled by `showBalanceHelper`, not
       // by `embedded`: the swap "You Pay" field is embedded but must still show
       // how much is spendable (#461). Embedded callers that don't want it (e.g.
@@ -230,7 +252,10 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
         {children}
       </div>
 
-      <div className={clsx('shrink-0 transition-[padding-bottom] duration-[250ms] ease-out', footerClassName)}>
+      <div
+        className={clsx('shrink-0 transition-[padding-bottom] duration-[250ms] ease-out', footerClassName)}
+        data-navbar-cushion="true"
+      >
         <Button
           title={confirmTitle ?? t('confirm')}
           variant={ButtonVariant.Primary}

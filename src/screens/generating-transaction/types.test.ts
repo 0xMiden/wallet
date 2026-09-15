@@ -78,6 +78,7 @@ describe('generating-transaction/types', () => {
       const full: GeneratingTransactionProps = {
         onDoneClick,
         transactionComplete: true,
+        isGuardian: true,
         hasErrors: false,
         keepOpen: true,
         activeStage: 'proving' as ITransactionStage,
@@ -108,7 +109,8 @@ describe('generating-transaction/types', () => {
 
       const minimal: GeneratingTransactionProps = {
         onDoneClick,
-        transactionComplete: false
+        transactionComplete: false,
+        isGuardian: false
       };
 
       expect(minimal.transactionComplete).toBe(false);
@@ -126,6 +128,7 @@ describe('generating-transaction/types', () => {
       const withNullHash: GeneratingTransactionProps = {
         onDoneClick: jest.fn(),
         transactionComplete: true,
+        isGuardian: true,
         completedTxHash: null
       };
       expect(withNullHash.completedTxHash).toBeNull();

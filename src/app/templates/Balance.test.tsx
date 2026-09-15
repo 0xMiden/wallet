@@ -56,7 +56,10 @@ jest.mock('react-transition-group/CSSTransition', () => ({
 // ---------------------------------------------------------------------------
 // Helpers.
 // ---------------------------------------------------------------------------
-type TokenBalance = { balance: number; metadata: { symbol: string } };
+type TokenBalance = {
+  balance: number;
+  metadata: { symbol: string; name?: string; decimals?: number; scaleIsUnknown?: boolean };
+};
 
 const balancesReturn = (data?: unknown[]) => ({ data });
 
@@ -120,6 +123,27 @@ describe('Balance', () => {
     expect(mockGetTokenPrice).toHaveBeenCalledTimes(2);
     expect(mockGetTokenPrice).toHaveBeenNthCalledWith(1, { SEED: 1 }, 'ETH');
     expect(mockGetTokenPrice).toHaveBeenNthCalledWith(2, { SEED: 1 }, 'BTC');
+  });
+
+  // A token whose faucet never resolved carries the unknown-token placeholder,
+  // whose 6 decimals are a guess — so `balance` was scaled by the wrong power of
+  // ten and can be off by a factor of a trillion. There is no way to show WHICH
+  // asset spoiled a single combined number, so it is left out of the fold
+  // entirely rather than allowed to invent a portfolio.
+  it('leaves a token with an unresolved scale out of the fiat total', () => {
+    const tokens: TokenBalance[] = [
+      { balance: 2, metadata: { symbol: 'ETH' } },
+      { balance: 1_000_000, metadata: { symbol: 'Unknown', name: 'Unknown', decimals: 6, scaleIsUnknown: true } }
+    ];
+    mockUseAllBalances.mockReturnValue(balancesReturn(tokens));
+    mockGetTokenPrice.mockImplementation((_prices, symbol) => ({ price: symbol === 'ETH' ? 100 : 1 }));
+
+    render(<Balance>{renderChild()}</Balance>);
+
+    expect(total()).toHaveTextContent('200');
+    // Skipped before the price lookup, not merely multiplied by zero.
+    expect(mockGetTokenPrice).toHaveBeenCalledTimes(1);
+    expect(mockGetTokenPrice).toHaveBeenCalledWith({ SEED: 1 }, 'ETH');
   });
 
   it('forwards the account public key and metadata map into useAllBalances', () => {

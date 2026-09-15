@@ -14,6 +14,11 @@ import { CLIRunner } from '../harness/cli-runner';
 import { assertExtensionNetworkMatches } from '../harness/extension-network';
 import { buildFailureReport, saveFailureReport } from '../harness/failure-report';
 import { installFetchFaultControls, isFetchFaultTarget, toFetchWire } from '../harness/fetch-faults';
+import {
+  createGuardianCommitmentLedger,
+  waitForGuardianLedgerSettled,
+  type GuardianCommitmentLedger
+} from '../harness/guardian-commitments';
 import { type GuardianFaultPolicy, type GuardianOrigins } from '../harness/guardian-fault';
 import {
   SW_FETCH_LOG_PREFIX,
@@ -27,7 +32,15 @@ import {
   type NetworkFaultPolicy,
   type NetworkOrigins
 } from '../harness/network-faults';
-import { captureBestEffort } from '../harness/screen-capture';
+import { dumpProveTelemetry } from '../harness/prove-telemetry-probe';
+import {
+  BLANK_FRAME_WAIT_MS,
+  SCREEN_CHANGE_BINDING,
+  captureBestEffort,
+  isScreenCaptureSuspended,
+  suspendScreenCapture,
+  trackScreenCapture
+} from '../harness/screen-capture';
 import { captureWalletSnapshot } from '../harness/state-snapshot';
 import { TestStepRunner } from '../harness/test-step';
 import { TimelineRecorder } from '../harness/timeline-recorder';
@@ -66,7 +79,30 @@ export interface GuardianFaultTestApi {
    * the op, i.e. a false green). See `NetworkFaultControls.guardianFaultHits`.
    */
   guardianFaultHits(): number;
+  /**
+   * How many requests the currently-armed NETWORK faults have injected into,
+   * across both seams (context.route and the in-realm fetch wrapper). Arming is
+   * best effort, so a spec that asserts an ABSENCE under a fault should assert a
+   * non-zero count first — otherwise a fault that never landed reads as a pass.
+   * The false-green guard for `armNetworkFault`, mirroring `guardianFaultHits`.
+   */
+  networkFaultHits(): Promise<number>;
   clearFaults(): Promise<void>;
+  /**
+   * Start recording this wallet's guardian pushes and state reads, for
+   * `waitForGuardianSettled`. Call it before the wallet's first guardian
+   * transaction; it survives a relaunch.
+   */
+  trackGuardianCommitments(): void;
+  /**
+   * Resolve once nothing is left settling on this wallet's guardian: the
+   * transaction queue has drained and the guardian's canonical state has caught
+   * up with the last delta the wallet pushed. A spec that hands the account to
+   * another wallet waits on this, since the guardian refuses a new proposal
+   * (a recovered wallet's hot-key rotation among them) while a candidate is
+   * pending.
+   */
+  waitForGuardianSettled(timeoutMs?: number): Promise<void>;
 }
 
 export type GuardianAwareWalletPage = ChromeWalletPageApi & GuardianFaultTestApi;
@@ -95,6 +131,11 @@ type TwoWalletFixtures = {
 };
 
 // ── Constants ───────────────────────────────────────────────────────────────
+
+// Budget for `waitForGuardianSettled`'s queue drain and then its canonicalization
+// wait. The guardian promotes a candidate within seconds once the chain has it, so
+// two minutes runs out only on a discarded candidate or a stalled guardian.
+const GUARDIAN_SETTLE_TIMEOUT_MS = 120_000;
 
 // The guardian operator origins fault injection keys on, for the active
 // E2E_NETWORK: local containers on localhost, the real operators on
@@ -203,10 +244,40 @@ function buildChromeSnapshotCaps(page: Page, context: BrowserContext, extensionI
  */
 export async function installScreenCapture(page: Page, label: string, outputDir: string): Promise<void> {
   const screensDir = path.join(outputDir, 'screens');
-  const handler = (key: string, seq: number) =>
-    captureBestEffort(async p => void (await page.screenshot({ path: p })), screensDir, seq, key, label);
+  const handler = async (key: string, seq: number) => {
+    // Bail before issuing any Playwright call once a caller has begun tearing
+    // this page down: an outstanding call when the browser dies fails in
+    // Playwright's own bookkeeping and is charged to the running test. See
+    // `suspendScreenCapture`, which also waits out whatever is already running.
+    if (page.isClosed() || isScreenCaptureSuspended(page)) return;
+    // The `.catch()` below is what makes the tracked promise safe to await
+    // without it ever rejecting; the `try` merely lets a blank frame be skipped
+    // without becoming an error. A diagnostic must never be able to fail the
+    // test it is documenting.
+    const work = (async () => {
+      // A screen-change can fire right after a page (re)load, before React has
+      // painted -- capturing then yields a blank white viewport. Wait briefly for
+      // the page to have rendered visible text, and skip the frame if it never
+      // does, so the filmstrip never contains blank frames.
+      try {
+        // This wait is the only call here whose reply names a handle, so its
+        // timeout is what lets `suspendScreenCapture`'s drain be bounded --
+        // hence the shared constant rather than a literal.
+        await page.waitForFunction(() => !!document.body && document.body.innerText.trim().length > 0, undefined, {
+          timeout: BLANK_FRAME_WAIT_MS,
+          polling: 100
+        });
+      } catch {
+        return;
+      }
+      if (page.isClosed()) return;
+      await captureBestEffort(async p => void (await page.screenshot({ path: p })), screensDir, seq, key, label);
+    })().catch(() => {});
+    trackScreenCapture(page, work);
+    await work;
+  };
   try {
-    await page.exposeFunction('__e2eScreenChanged', handler);
+    await page.exposeFunction(SCREEN_CHANGE_BINDING, handler);
   } catch {
     // Already exposed on this page instance (e.g. the binding survived a
     // soft reload) -- nothing to do.
@@ -364,19 +435,36 @@ async function launchWalletInstance(
   // wrapper survives within a single SW lifetime but is lost on restart;
   // re-install on every new SW target for this context.
   context.on('serviceworker', async newWorker => {
-    if (new URL(newWorker.url()).host !== extensionId) return;
-    newWorker.on('console', (msg: any) => {
-      const text = msg.text();
-      if (text.startsWith(SW_FETCH_LOG_PREFIX)) return;
-      timeline.emit({
-        category: 'browser_console',
-        severity: msg.type() === 'error' ? 'error' : msg.type() === 'warning' ? 'warn' : 'info',
-        wallet: label,
-        message: `[${label}-SW] ${msg.type()}: ${text}`,
-        data: { source: 'service_worker', type: msg.type(), text }
+    // Whole body guarded. This is an ASYNC listener, so anything that throws in
+    // here becomes an unhandled rejection that Playwright charges to whichever
+    // test is running — and the throw is easy to provoke: MV3 announces a new SW
+    // and can destroy it immediately (or the spec killed the browser outright),
+    // at which point attaching to it raises "Object with guid handle@… was not
+    // bound in the connection". Instrumentation must never be the thing that
+    // fails a run; losing capture on a worker that no longer exists costs
+    // nothing.
+    try {
+      if (new URL(newWorker.url()).host !== extensionId) return;
+      newWorker.on('console', (msg: any) => {
+        const text = msg.text();
+        if (text.startsWith(SW_FETCH_LOG_PREFIX)) return;
+        timeline.emit({
+          category: 'browser_console',
+          severity: msg.type() === 'error' ? 'error' : msg.type() === 'warning' ? 'warn' : 'info',
+          wallet: label,
+          message: `[${label}-SW] ${msg.type()}: ${text}`,
+          data: { source: 'service_worker', type: msg.type(), text }
+        });
       });
-    });
-    await attachServiceWorkerFetchCapture(newWorker, label, timeline);
+      await attachServiceWorkerFetchCapture(newWorker, label, timeline);
+    } catch (err) {
+      timeline.emit({
+        category: 'test_lifecycle',
+        severity: 'warn',
+        wallet: label,
+        message: `[SW-NET] re-attach to restarted SW failed: ${err instanceof Error ? err.message : String(err)}`
+      });
+    }
   });
 
   // After a delay, probe the SW for errors and state
@@ -520,12 +608,18 @@ async function launchWalletInstance(
   // `let`: relaunch swaps in the new context's faults so armGuardianFault()/
   // clearFaults() (captured by reference below) keep targeting the live context.
   let faults = installNetworkFaults(context, { network: networkOrigins(), guardian: guardianOrigins() });
+  // Outlives `faults`: a relaunch re-attaches it to the new context's handler.
+  let guardianLedger: GuardianCommitmentLedger | undefined;
 
   // Fetch-layer faults for node/prover/transport (gRPC-web inside the SW / SDK
   // worker — context.route can't reach it). Live SW via the context thunk so it
   // follows a relaunch; the worker hook re-applies to the SDK's lazily-spawned
   // worker. See harness/fetch-faults.ts.
-  const fetchFaults = installFetchFaultControls(() => context.serviceWorkers()[0], page);
+  const fetchFaults = installFetchFaultControls(
+    () => context.serviceWorkers()[0],
+    page,
+    () => context
+  );
 
   // Passed to ChromeWalletPage.reopen(): when the browser PROCESS has died (not
   // just the page), relaunch a fresh context on this same userDataDir and swap
@@ -544,6 +638,7 @@ async function launchWalletInstance(
     context = next.context;
     page = next.page;
     faults = next.faults;
+    if (guardianLedger) faults.trackGuardianCommitments(guardianLedger);
     // Fresh Page instance -- re-install the screen-change capture binding.
     await installScreenCapture(page, label, outputDir);
     return page;
@@ -554,6 +649,7 @@ async function launchWalletInstance(
     {
       armGuardianFault: (policy: GuardianFaultPolicy) => faults.armGuardian(policy),
       guardianFaultHits: () => faults.guardianFaultHits(),
+      networkFaultHits: async () => faults.networkFaultHits() + (await fetchFaults.hits()),
       armNetworkFault: async (policyOrPolicies: NetworkFaultPolicy | NetworkFaultPolicy[]) => {
         const list = Array.isArray(policyOrPolicies) ? policyOrPolicies : [policyOrPolicies];
         // context.route serves guardian + HTTP services; the fetch layer serves
@@ -564,6 +660,23 @@ async function launchWalletInstance(
       clearFaults: async () => {
         faults.clear();
         await fetchFaults.clear();
+      },
+      trackGuardianCommitments: () => {
+        guardianLedger ??= createGuardianCommitmentLedger();
+        faults.trackGuardianCommitments(guardianLedger);
+      },
+      waitForGuardianSettled: async (timeoutMs: number = GUARDIAN_SETTLE_TIMEOUT_MS) => {
+        if (!guardianLedger) {
+          throw new Error('waitForGuardianSettled: call trackGuardianCommitments() before the wallet transacts');
+        }
+        await walletPage.waitForQueueDrained(timeoutMs);
+        const waitedMs = await waitForGuardianLedgerSettled(guardianLedger, { timeoutMs });
+        timeline.emit({
+          category: 'test_lifecycle',
+          severity: 'info',
+          wallet: label,
+          message: `Wallet ${label}: guardian canonicalized its last pushed delta ${waitedMs}ms after the queue drained`
+        });
       }
     }
   );
@@ -597,6 +710,34 @@ async function captureFailureSnapshot(
   const caps = steps.walletCaps[label];
   if (!caps) return undefined;
   return captureWalletSnapshot(caps, label, timeline.currentStep, 'failure').catch(() => undefined);
+}
+
+/**
+ * Close a wallet's browser context in teardown, tolerating one that is already
+ * gone.
+ *
+ * A spec that deliberately kills the browser (`killBrowser()`, the
+ * deterministic stand-in for the Chromium crash CI produces) leaves this
+ * pointing at a dead context whenever the relaunch that follows doesn't
+ * complete. An unguarded `close()` then throws "browserContext.close: Target
+ * page, context or browser has been closed" FROM TEARDOWN, and Playwright
+ * reports that as the test's failure — burying the real error under a teardown
+ * artefact and failing tests whose body passed. That is how
+ * `guardian-recovery-stress`'s browser-crash spec failed on main (run
+ * 32365630519, and the same signature on a sibling test at 32321128598).
+ *
+ * Every other close in this harness already swallows this — `killBrowser`, and
+ * the page closes in `launchWalletInstance` — so these were the outliers.
+ * Teardown must not be able to invent a failure.
+ */
+async function closeContextQuietly(context: BrowserContext, page: Page): Promise<void> {
+  // Swallowing the close error is not enough on its own: this destroys the
+  // context out from under the screen-capture binding, and an outstanding
+  // capture call then fails in Playwright's own bookkeeping, out of band, where
+  // no `catch` here can reach it. Take capture down first. The page is the
+  // wallet's CURRENT one, which `reopen()` may have replaced since launch.
+  await suspendScreenCapture(page);
+  await context.close().catch(() => {});
 }
 
 function writeDebugSession(
@@ -782,21 +923,23 @@ export const test = base.extend<TwoWalletFixtures>({
     // `failureReport` fixture writes it out after this teardown returns.
     if (failed) {
       failureSnapshots.walletA = await captureFailureSnapshot(steps, timeline, 'A');
+      // Must run while the context is still open: the trail lives in
+      // chrome.storage.local and is read through the service worker. On a write
+      // that never returned this is the only record of where it stopped (#718).
+      await dumpProveTelemetry(instance.walletPage.page, 'wallet A at failure');
     }
 
     if (isAgentic && failed) {
       // Don't close -- browser stays open for agent inspection
       const timer = setTimeout(async () => {
-        try {
-          await instance.context.close();
-        } catch {}
+        await closeContextQuietly(instance.context, instance.walletPage.page);
       }, AGENTIC_TIMEOUT_MS);
       timer.unref();
     } else if (failed) {
       // Keep the on-disk profile (IndexedDB/LevelDB) so the SDK state can be
       // recovered offline if the in-page forensic dump was incomplete (e.g. the
       // page died mid-dump under memory pressure). Only the context is closed.
-      await instance.context.close();
+      await closeContextQuietly(instance.context, instance.walletPage.page);
       timeline.emit({
         category: 'test_lifecycle',
         severity: 'warn',
@@ -805,7 +948,7 @@ export const test = base.extend<TwoWalletFixtures>({
         data: { userDataDir: instance.userDataDir }
       });
     } else {
-      await instance.context.close();
+      await closeContextQuietly(instance.context, instance.walletPage.page);
       fs.rmSync(instance.userDataDir, { recursive: true, force: true });
     }
   },
@@ -847,17 +990,13 @@ export const test = base.extend<TwoWalletFixtures>({
 
       // Schedule auto-cleanup with process exit safety net
       const cleanupTimer = setTimeout(async () => {
-        try {
-          await instance.context.close();
-        } catch {
-          // ignore
-        }
+        await closeContextQuietly(instance.context, instance.walletPage.page);
       }, AGENTIC_TIMEOUT_MS);
       cleanupTimer.unref(); // Don't keep process alive just for this timer
     } else if (failed) {
       // Keep the on-disk profile (IndexedDB/LevelDB) for offline SDK-state
       // recovery when the in-page forensic dump may be incomplete.
-      await instance.context.close();
+      await closeContextQuietly(instance.context, instance.walletPage.page);
       timeline.emit({
         category: 'test_lifecycle',
         severity: 'warn',
@@ -866,7 +1005,7 @@ export const test = base.extend<TwoWalletFixtures>({
         data: { userDataDir: instance.userDataDir }
       });
     } else {
-      await instance.context.close();
+      await closeContextQuietly(instance.context, instance.walletPage.page);
       fs.rmSync(instance.userDataDir, { recursive: true, force: true });
     }
   }

@@ -89,9 +89,10 @@ describe('About', () => {
       const item = items[index] as HTMLElement;
       expect(item.getAttribute('data-title-key')).toBe(key);
       expect(item.getAttribute('data-slug')).toBe(link);
-      // Every row is an out-of-wallet link with an empty testID.
+      // Every row is an out-of-wallet link, and carries no testID at all — an
+      // empty one would have bought an unnamed analytics event.
       expect(item.getAttribute('data-links-outside')).toBe('true');
-      expect(item.getAttribute('data-test-id-prop')).toBe('');
+      expect(item.getAttribute('data-test-id-prop')).toBeNull();
     });
   });
 });

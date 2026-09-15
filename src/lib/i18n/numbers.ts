@@ -89,28 +89,62 @@ export function formatBigInt(amount: bigint, decimals: number = MIDEN_METADATA.d
   if (amount === BigInt(0)) {
     return '0';
   }
-  const amountString = amount.toString();
-  const numZeros = decimals > 0 ? decimals : 1; // ensure there's always at least 1 zero before the decimal point
-  const prefixed = '0'.repeat(numZeros) + amountString;
+  // Format the magnitude and reattach the sign. Zero-padding a string that
+  // already starts with '-' buries the sign inside the padding, so -5 at 5
+  // decimals came out as "-0.00005" spelled "0.000-5" — not a number at all.
+  const negative = amount < BigInt(0);
+  const amountString = (negative ? -amount : amount).toString();
+  // A zero-decimal faucet denominates in whole units, so the amount already IS
+  // the display string. The general path below cannot produce that: `-decimals`
+  // is `-0`, and `slice(0, -0)` is `slice(0, 0)` — the empty string — so the
+  // integer part is dropped and 100 renders as "0.01". That number is shown on
+  // the dApp approval sheet next to the amount actually being sent.
+  if (decimals <= 0) {
+    return negative ? `-${amountString}` : amountString;
+  }
+  const prefixed = '0'.repeat(decimals) + amountString;
   const withDecimal = prefixed.slice(0, -decimals) + '.' + prefixed.slice(-decimals);
   const trimmed = withDecimal.replace(/^0+|0+$/g, '');
   const withoutTrailingDecimal = trimmed.replace(/\.$/, '');
   const withLeadingZero = withoutTrailingDecimal.replace(/^\./, '0.');
-  return withLeadingZero;
+  return negative ? `-${withLeadingZero}` : withLeadingZero;
 }
 
-export function stringToBigInt(str: string, decimals: number) {
-  // Parse the string as a float
-  let num = parseFloat(str);
+/**
+ * Convert a human-typed decimal amount into faucet base units.
+ *
+ * Lexical, not arithmetic. This used to be `parseFloat(str) * 10 ** decimals`
+ * rounded, which cannot represent what the user typed once the scaled value
+ * exceeds 2^53: on an 18-decimal asset, `1.000001` came out as
+ * 1000000999999999872 base units — 128 short of the amount shown on the review
+ * screen the user approved. Shifting the decimal point across the digit STRING
+ * has no such limit, so what is built is exactly what was displayed.
+ *
+ * Digits beyond the faucet's precision are TRUNCATED, not rounded, which is both
+ * what the old float path happened to do at the boundary (`1.005` at 2 decimals
+ * scaled to 100.49999999999999 and rounded to 100) and the safer direction for an
+ * outgoing amount — rounding up would send more than was typed.
+ *
+ * Throws on input that denotes no number, `''` included; callers depend on that
+ * (see `SendManager`, which treats it as "amount not yet valid").
+ */
+export function stringToBigInt(str: string, decimals: number): bigint {
+  const match = /^\s*([+-]?)(\d*)(?:\.(\d*))?(?:[eE]([+-]?\d+))?\s*$/.exec(str ?? '');
+  const intDigits = match?.[2] ?? '';
+  const fracDigits = match?.[3] ?? '';
+  if (!match || (intDigits === '' && fracDigits === '')) {
+    throw new RangeError(`Cannot convert "${str}" to a base-unit amount`);
+  }
 
-  // Multiply by 10 to the power of the decimal count
-  num *= Math.pow(10, decimals);
+  const digits = intDigits + fracDigits;
+  const exponent = match[4] ? parseInt(match[4], 10) : 0;
+  // value = digits × 10^(exponent − fracDigits.length), and we want it scaled by
+  // 10^decimals, so the whole conversion is one power-of-ten shift of `digits`.
+  const shift = decimals + exponent - fracDigits.length;
+  // BigInt division truncates toward zero, which is the drop-excess-digits case.
+  const magnitude = shift >= 0 ? BigInt(digits) * 10n ** BigInt(shift) : BigInt(digits) / 10n ** BigInt(-shift);
 
-  // Round the number to avoid float precision issues
-  num = Math.round(num);
-
-  // Return the result as a BigInt
-  return BigInt(num);
+  return match[1] === '-' ? -magnitude : magnitude;
 }
 
 export function toLocalFixed(value: BigNumber.Value, decimalPlaces?: number, roundingMode?: BigNumber.RoundingMode) {

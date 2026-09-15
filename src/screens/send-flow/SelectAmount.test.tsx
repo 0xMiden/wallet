@@ -57,6 +57,7 @@ jest.mock('components/AmountInput', () => ({
     label,
     value,
     error,
+    invalid,
     helper,
     tokenSelector,
     showDivider,
@@ -66,13 +67,19 @@ jest.mock('components/AmountInput', () => ({
     label?: React.ReactNode;
     value?: string;
     error?: string;
+    invalid?: boolean;
     helper?: React.ReactNode;
     tokenSelector?: React.ReactNode;
     showDivider?: boolean;
     onValueChange?: OnValueChange;
     'data-testid'?: string;
   }) => (
-    <div data-testid="amount-input" data-forwarded-testid={dataTestId} data-show-divider={String(showDivider)}>
+    <div
+      data-testid="amount-input"
+      data-forwarded-testid={dataTestId}
+      data-show-divider={String(showDivider)}
+      data-invalid={String(invalid)}
+    >
       <div data-testid="ai-label">{label}</div>
       {error !== undefined && <div data-testid="ai-error">{error}</div>}
       {helper !== undefined && <div data-testid="ai-helper">{helper}</div>}
@@ -92,6 +99,7 @@ const baseToken = (overrides: Partial<UIToken> = {}): UIToken => ({
   decimals: 6,
   balance: 200,
   fiatPrice: 0.2,
+  scaleIsKnown: true,
   ...overrides
 });
 
@@ -111,6 +119,16 @@ describe('SelectAmount', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     (isMobile as jest.Mock).mockReturnValue(false);
+  });
+
+  it.each([true, false])('marks a cleared amount invalid without an error message (mobile: %s)', mobile => {
+    jest.mocked(isMobile).mockReturnValue(mobile);
+    renderComponent({ amount: '', isValidAmount: false, error: 'invalidAmount' });
+
+    expect(screen.getByTestId('amount-input')).toHaveAttribute('data-invalid', 'true');
+    expect(screen.queryByTestId('ai-error')).not.toBeInTheDocument();
+    expect(screen.getByTestId('ai-helper')).toHaveTextContent('available 200 USDC');
+    expect(screen.getByTestId('confirm-btn')).toBeDisabled();
   });
 
   describe('page variant', () => {
@@ -152,6 +170,18 @@ describe('SelectAmount', () => {
       expect(helper).toHaveTextContent('approxFiatValue:$200.50');
     });
 
+    it('never quotes an available balance above the real one', () => {
+      // The fee reserve makes a long fractional tail the normal case for the
+      // native token: a 12.345678 balance caps at 12.045677999999999. Rounded to
+      // 4dp that reads "12.0457" — more than the form will accept — so a user
+      // typing the quoted figure back in is rejected as over balance, with no Max
+      // button to fall back on. Rounding down cannot overstate it.
+      renderComponent({ token: baseToken({ balance: 12.045677999999999, fiatPrice: 0 }) });
+      const helper = screen.getByTestId('ai-helper');
+      expect(helper).toHaveTextContent('available 12.0456 USDC');
+      expect(helper).not.toHaveTextContent('12.0457');
+    });
+
     it('calls onConfirm when the enabled confirm button is clicked', () => {
       const onConfirm = jest.fn();
       renderComponent({ onConfirm });
@@ -182,6 +212,31 @@ describe('SelectAmount', () => {
     it('hides the network pill when showNetworkPill is false', () => {
       renderComponent({ showNetworkPill: false });
       expect(screen.queryByText('miden')).not.toBeInTheDocument();
+    });
+
+    // The amount typed here is converted to base units with `token.decimals`.
+    // When those are the unknown-token placeholder's guess of 6, a "1" typed for
+    // an 18-decimal faucet is a millionth of what the screen says — so the flow
+    // stops at the point of entry rather than at the confirmation.
+    describe('a token whose scale never resolved', () => {
+      const unscaled = () => baseToken({ name: 'Unknown', scaleIsKnown: false });
+
+      it('blocks the confirm CTA', () => {
+        renderComponent({ token: unscaled() });
+        expect(screen.getByTestId('confirm-btn')).toBeDisabled();
+      });
+
+      it('says so in place of an available balance it cannot vouch for', () => {
+        renderComponent({ token: unscaled() });
+        const helper = screen.getByTestId('ai-helper');
+        expect(helper).toHaveTextContent('unknownTokenScale');
+        expect(helper).not.toHaveTextContent('available');
+      });
+
+      it('withholds the fiat estimate, which is that same balance times a price', () => {
+        renderComponent({ token: unscaled() });
+        expect(screen.getByTestId('ai-helper')).not.toHaveTextContent('approxFiatValue');
+      });
     });
 
     it('hides the balance helper when showBalanceHelper is false', () => {
@@ -229,6 +284,7 @@ describe('SelectAmount', () => {
       const defaultFooterPb = 'pb-[max(0px,calc(6rem-var(--keyboard-height,0px)))]';
       const { container: def } = renderComponent();
       expect(def.innerHTML).toContain(defaultFooterPb);
+      expect(def.querySelector('[data-navbar-cushion="true"]')).not.toBeNull();
 
       const { container: override } = renderComponent({ footerClassName: 'pt-2' });
       expect(override.querySelector('.pt-2')).not.toBeNull();

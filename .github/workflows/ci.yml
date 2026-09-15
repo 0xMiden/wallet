@@ -38,9 +38,7 @@ jobs:
       #     echo "${{ secrets.ENV }}" > .env
 
       - name: Run Install
-        uses: borales/actions-yarn@v4
-        with:
-          cmd: install
+        uses: ./.github/actions/yarn-install
 
       - name: Run ESLint
         uses: borales/actions-yarn@v4
@@ -67,7 +65,13 @@ jobs:
         env:
           MIDEN_USE_MOCK_CLIENT: 'true'
 
+      - name: Drop apt repositories this repo never installs from
+        uses: ./.github/actions/apt-drop-unused-repos
+
       - name: Install Playwright Browsers
+        # `--with-deps` shells out to apt, and the browser download itself has
+        # wedged for 2h18m. Cap it so a stall fails fast instead of eating the job.
+        timeout-minutes: 12
         run: npx playwright install --with-deps chromium
 
       - name: Run Playwright E2E

@@ -15,6 +15,8 @@ export interface SearchInputProps {
   autoFocus?: boolean;
   /** Set to `'url'` for URL entry — also disables autocapitalize/autocorrect. */
   inputMode?: 'text' | 'url' | 'search';
+  /** `sm` fits a 36px header row: left-aligned text, no vertical padding. */
+  size?: 'md' | 'sm';
   'data-testid'?: string;
 }
 
@@ -26,6 +28,7 @@ export const SearchInput: FC<SearchInputProps> = ({
   className,
   autoFocus,
   inputMode,
+  size = 'md',
   'data-testid': dataTestId
 }) => {
   const { t } = useTranslation();
@@ -44,7 +47,7 @@ export const SearchInput: FC<SearchInputProps> = ({
   };
 
   return (
-    <div className={classNames('relative w-full bg-gray-25 rounded-3xl h-14', className)}>
+    <div className={classNames('relative w-full bg-gray-25 rounded-3xl', size === 'sm' ? 'h-9' : 'h-14', className)}>
       <input
         ref={inputRef}
         type="text"
@@ -62,11 +65,13 @@ export const SearchInput: FC<SearchInputProps> = ({
         spellCheck={inputMode === 'url' ? false : undefined}
         className={classNames(
           // pad right only while the clear button is shown so centered text doesn't sit under it
-          'w-full bg-transparent outline-none py-4 text-base font-heading text-center',
+          'w-full bg-transparent outline-none font-heading',
+          size === 'sm' ? 'h-full py-0 text-sm text-left' : 'py-4 text-base text-center',
           value ? 'pl-11 pr-11' : 'px-4',
           // #503 — placeholder must read as a hint, not a real value: lighter weight
           // than the bold input text, and hidden once the field is focused.
-          'placeholder:text-placeholder-gray placeholder:font-normal placeholder:text-center',
+          'placeholder:text-placeholder-gray placeholder:font-normal',
+          size === 'sm' ? 'placeholder:text-left' : 'placeholder:text-center',
           'focus:placeholder:text-transparent',
           'text-black font-bold'
         )}

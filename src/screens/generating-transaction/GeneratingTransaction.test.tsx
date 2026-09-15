@@ -3,6 +3,8 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { act } from 'react-dom/test-utils';
 
+import { WalletType } from 'screens/onboarding/types';
+
 import { GeneratingTransaction, GeneratingTransactionPage } from './GeneratingTransaction';
 
 jest.mock('react-i18next', () => ({
@@ -34,6 +36,8 @@ jest.mock('app/icons/v2', () => ({
 
 const mockWalletStoreState = {
   assetsMetadata: {} as Record<string, any>,
+  accounts: [] as { publicKey: string; type: WalletType }[],
+  currentAccount: { type: WalletType.Guardian } as { type: WalletType } | undefined,
   lastCompletedTxHash: null as string | null,
   setLastCompletedTxHash: jest.fn()
 };
@@ -82,11 +86,16 @@ const safeGenerateTransactionsLoopMock = jest.fn();
 const requeueFailedTransactionMock = jest.fn();
 const requestSWTransactionProcessingMock = jest.fn();
 const isRequeueableTransactionMock = jest.fn((..._a: unknown[]) => true);
+const isUnverifiableSendRetryErrorMock = jest.fn((..._a: unknown[]) => false);
 jest.mock('lib/miden/activity', () => ({
   safeGenerateTransactionsLoop: (...args: any[]) => safeGenerateTransactionsLoopMock(...args),
   requeueFailedTransaction: (...a: any[]) => requeueFailedTransactionMock(...a),
   requestSWTransactionProcessing: (...a: any[]) => requestSWTransactionProcessingMock(...a),
-  isRequeueableTransaction: (...a: any[]) => isRequeueableTransactionMock(...a)
+  isRequeueableTransaction: (...a: any[]) => isRequeueableTransactionMock(...a),
+  isUnverifiableSendRetryError: (...a: any[]) => isUnverifiableSendRetryErrorMock(...a),
+  // Real helper: the retry gate reads the provider off the row's `extraInputs`,
+  // and an Epoch (Fast) bridged-send must not be offered a Retry.
+  bridgeProviderOf: jest.requireActual('lib/miden/transaction/retry').bridgeProviderOf
 }));
 
 // The container observes the tracked row through this hook. Tests drive the row
@@ -119,6 +128,8 @@ describe('GeneratingTransactionPage interval driver', () => {
   beforeEach(() => {
     jest.useFakeTimers();
     mockWalletStoreState.lastCompletedTxHash = null;
+    mockWalletStoreState.accounts = [];
+    mockWalletStoreState.currentAccount = { type: WalletType.Guardian };
     mockWalletStoreState.setLastCompletedTxHash.mockClear();
     safeGenerateTransactionsLoopMock.mockReset();
     mockRowState = { row: makeTx({ stage: 'submitting' }), loaded: true };
@@ -218,6 +229,8 @@ describe('GeneratingTransactionPage container effects', () => {
   beforeEach(() => {
     jest.useFakeTimers();
     mockWalletStoreState.lastCompletedTxHash = null;
+    mockWalletStoreState.accounts = [];
+    mockWalletStoreState.currentAccount = { type: WalletType.Guardian };
     mockWalletStoreState.setLastCompletedTxHash.mockClear();
     safeGenerateTransactionsLoopMock.mockReset();
     safeGenerateTransactionsLoopMock.mockReturnValue(true);
@@ -230,6 +243,8 @@ describe('GeneratingTransactionPage container effects', () => {
     requestSWTransactionProcessingMock.mockClear();
     isRequeueableTransactionMock.mockReset();
     isRequeueableTransactionMock.mockReturnValue(true);
+    isUnverifiableSendRetryErrorMock.mockReset();
+    isUnverifiableSendRetryErrorMock.mockReturnValue(false);
     window.location.hash = '';
   });
 
@@ -330,11 +345,64 @@ describe('GeneratingTransactionPage container effects', () => {
       retryBtn!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     });
 
-    expect(requeueFailedTransactionMock).toHaveBeenCalledWith('tx-1');
+    // Plain Retry never acknowledges on the user's behalf.
+    expect(requeueFailedTransactionMock).toHaveBeenCalledWith('tx-1', { acknowledgeUnverifiedSend: false });
     expect(requestSWTransactionProcessingMock).toHaveBeenCalled();
     // Requeue flips the watched row back in place — the screen must NOT navigate
     // (the key difference from HistoryDetails.handleRetry).
     expect(navigateMock).not.toHaveBeenCalled();
+    act(() => root.unmount());
+  });
+
+  // The refusal has to lead somewhere: the wallet cannot tell whether the send
+  // landed, so it shows why and offers the user's own confirmation as a second,
+  // separate tap. Without this the Retry button throws the same error forever.
+  it('offers "retry anyway" only after a send is refused as unverifiable', async () => {
+    isRequeueableTransactionMock.mockReturnValue(true);
+    mockRowState = { row: makeTx({ status: 3, type: 'send' }), loaded: true };
+    requeueFailedTransactionMock.mockRejectedValueOnce(new Error('may already have reached the network'));
+    isUnverifiableSendRetryErrorMock.mockReturnValue(true);
+
+    const { container, root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
+
+    const findRetryAnyway = () =>
+      Array.from(container.querySelectorAll('button')).find(b => b.textContent?.includes('retryAnyway')) ?? null;
+    expect(findRetryAnyway()).toBeNull();
+
+    const retryBtn = Array.from(container.querySelectorAll('button')).find(b => b.textContent?.includes('retry'));
+    await act(async () => {
+      retryBtn!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+
+    // The warning is on screen, and only now is the override reachable.
+    expect(container.textContent).toContain('may already have reached the network');
+    expect(findRetryAnyway()).not.toBeNull();
+
+    requeueFailedTransactionMock.mockResolvedValueOnce(undefined);
+    await act(async () => {
+      findRetryAnyway()!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+
+    expect(requeueFailedTransactionMock).toHaveBeenLastCalledWith('tx-1', { acknowledgeUnverifiedSend: true });
+    act(() => root.unmount());
+  });
+
+  it('does not offer it for an ordinary retry failure', async () => {
+    isRequeueableTransactionMock.mockReturnValue(true);
+    mockRowState = { row: makeTx({ status: 3, type: 'send' }), loaded: true };
+    requeueFailedTransactionMock.mockRejectedValueOnce(new Error('row is gone'));
+    isUnverifiableSendRetryErrorMock.mockReturnValue(false);
+
+    const { container, root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
+    const retryBtn = Array.from(container.querySelectorAll('button')).find(b => b.textContent?.includes('retry'));
+    await act(async () => {
+      retryBtn!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+
+    expect(container.textContent).toContain('row is gone');
+    expect(
+      Array.from(container.querySelectorAll('button')).find(b => b.textContent?.includes('retryAnyway'))
+    ).toBeUndefined();
     act(() => root.unmount());
   });
 
@@ -369,6 +437,22 @@ describe('GeneratingTransactionPage container effects', () => {
     act(() => root.unmount());
   });
 
+  it('picks the step set from the tracked tx account, not the current account', async () => {
+    // Current account is standard, but the row's account (acc-1) is a Guardian
+    // account — the step set must follow the tx, not the globally-current account.
+    mockWalletStoreState.currentAccount = { type: WalletType.OnChain };
+    mockWalletStoreState.accounts = [{ publicKey: 'acc-1', type: WalletType.Guardian }];
+    mockRowState = { row: makeTx({ status: 1, stage: 'submitting' }), loaded: true };
+
+    const { container, root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
+
+    const ids = Array.from(container.querySelectorAll('[data-transaction-step]')).map(el =>
+      el.getAttribute('data-transaction-step')
+    );
+    expect(ids).toEqual(['guardian-approving', 'generating-proof', 'submitting', 'syncing-guardian']);
+    act(() => root.unmount());
+  });
+
   it('wires onViewExplorer to openExternalUrl when an explorer url is available', async () => {
     mockRowState = { row: makeTx({ status: 2, transactionId: '0xhash' }), loaded: true };
     mockWalletStoreState.lastCompletedTxHash = '0xhash';
@@ -397,6 +481,36 @@ describe('GeneratingTransactionPage container effects', () => {
       url: 'https://devnet.midenscan.com/tx/0xhash',
       title: 'Midenscan'
     });
+    act(() => root.unmount());
+  });
+
+  // The success receipt's hash (and its "View on Midenscan" link) must come
+  // from the row this page tracks, not from the module-global store slot: that
+  // slot is written only for a row that HAS a transactionId and is cleared only
+  // on entering /send or the swap flow, so a receipt dismissed with Done leaves
+  // the previous transaction's hash behind for the next one to inherit.
+  it("prefers the tracked row's transactionId over a leftover store hash", async () => {
+    mockRowState = { row: makeTx({ status: 2, transactionId: '0xrow' }), loaded: true };
+    mockWalletStoreState.lastCompletedTxHash = '0xpreviousSend';
+    getExplorerTxUrlMock.mockReturnValue('https://devnet.midenscan.com/tx/0xrow');
+
+    const { root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
+
+    expect(getExplorerTxUrlMock).toHaveBeenCalledWith('0xrow');
+    expect(getExplorerTxUrlMock).not.toHaveBeenCalledWith('0xpreviousSend');
+    act(() => root.unmount());
+  });
+
+  // A consume completed by a path with no TransactionResult to stamp an id from
+  // leaves `transactionId` undefined; without this clear, the receipt would fall
+  // back to the previous transaction's hash.
+  it('clears a leftover completed-tx hash when it starts tracking a row', async () => {
+    mockRowState = { row: makeTx({ status: 1, stage: 'submitting' }), loaded: true };
+    mockWalletStoreState.lastCompletedTxHash = '0xpreviousSend';
+
+    const { root } = await mount(<GeneratingTransactionPage txId="tx-consume" />);
+
+    expect(mockWalletStoreState.setLastCompletedTxHash).toHaveBeenCalledWith(null);
     act(() => root.unmount());
   });
 
@@ -461,6 +575,7 @@ describe('GeneratingTransaction stage + state rendering', () => {
   ])('renders stage %s (type=%s) with correct labels', async (stage, type, titleKey, descKey) => {
     const { container, root } = await renderInto(
       <GeneratingTransaction
+        isGuardian={true}
         onDoneClick={() => {}}
         transactionComplete={false}
         activeStage={stage as any}
@@ -472,9 +587,44 @@ describe('GeneratingTransaction stage + state rendering', () => {
     act(() => root.unmount());
   });
 
+  // `transactionSuccessDescription` reads "successfully processed and CONFIRMED
+  // ON THE NETWORK" — the one fact an unconfirmed rotation means the wallet
+  // never established. This screen holds it in an announced live region for the
+  // 1.5s before the careful receipt mounts, so the receipt's qualification was
+  // being contradicted by the screen the user was already reading.
+  it('does not claim network confirmation for a guardian switch that was only submitted', async () => {
+    const { container, root } = await renderInto(
+      <GeneratingTransaction
+        isGuardian={true}
+        onDoneClick={() => {}}
+        transactionComplete={true}
+        activeType="switch-guardian"
+        activeTransaction={{ type: 'switch-guardian', extraInputs: { commitUnconfirmed: true } } as never}
+      />
+    );
+    expect(container.textContent).toContain('transactionSubmittedUnconfirmedDescription');
+    expect(container.textContent).not.toContain('transactionSuccessDescription');
+    act(() => root.unmount());
+  });
+
+  it('still claims confirmation for a guardian switch whose commit WAS confirmed', async () => {
+    const { container, root } = await renderInto(
+      <GeneratingTransaction
+        isGuardian={true}
+        onDoneClick={() => {}}
+        transactionComplete={true}
+        activeType="switch-guardian"
+        activeTransaction={{ type: 'switch-guardian', extraInputs: { commitUnconfirmed: false } } as never}
+      />
+    );
+    expect(container.textContent).toContain('transactionSuccessDescription');
+    expect(container.textContent).not.toContain('transactionSubmittedUnconfirmedDescription');
+    act(() => root.unmount());
+  });
+
   it('renders fallback labels when no activeStage', async () => {
     const { container, root } = await renderInto(
-      <GeneratingTransaction onDoneClick={() => {}} transactionComplete={false} />
+      <GeneratingTransaction isGuardian={true} onDoneClick={() => {}} transactionComplete={false} />
     );
     expect(container.textContent).toContain('generatingTransaction');
     expect(container.textContent).toContain('generatingTransactionDescription');
@@ -489,7 +639,12 @@ describe('GeneratingTransaction stage + state rendering', () => {
 
   it('renders the backend step immediately when the backend stage starts ahead', async () => {
     const { container, root } = await renderInto(
-      <GeneratingTransaction onDoneClick={() => {}} transactionComplete={false} activeStage="submitting" />
+      <GeneratingTransaction
+        isGuardian={true}
+        onDoneClick={() => {}}
+        transactionComplete={false}
+        activeStage="submitting"
+      />
     );
     const stepStates = () =>
       Array.from(container.querySelectorAll('[data-transaction-step]')).map(row => row.getAttribute('data-state'));
@@ -501,9 +656,59 @@ describe('GeneratingTransaction stage + state rendering', () => {
     act(() => root.unmount());
   });
 
+  it('non-guardian send shows only the generic proof + submit steps', async () => {
+    const { container, root } = await renderInto(
+      <GeneratingTransaction
+        onDoneClick={() => {}}
+        transactionComplete={false}
+        isGuardian={false}
+        activeStage="submitting"
+      />
+    );
+    const rows = Array.from(container.querySelectorAll('[data-transaction-step]'));
+    expect(rows.map(r => r.getAttribute('data-transaction-step'))).toEqual(['generating-proof', 'submitting']);
+    expect(rows.map(r => r.getAttribute('data-state'))).toEqual(['complete', 'active']);
+    act(() => root.unmount());
+  });
+
+  it('renders per-step durations from persisted stage timestamps (no fabricated zero)', async () => {
+    const { container, root } = await renderInto(
+      <GeneratingTransaction
+        onDoneClick={() => {}}
+        transactionComplete
+        isGuardian={false}
+        activeTransaction={
+          { type: 'send', stageTimestamps: { proving: 1_000, submitting: 3_000, complete: 3_500 } } as any
+        }
+      />
+    );
+    const rows = Array.from(container.querySelectorAll('[data-transaction-step]'));
+    // generating-proof: submitting(3000) - proving(1000); submitting: complete(3500) - submitting(3000).
+    // The mocked t() echoes the key, so a rendered duration surfaces as 'transactionStepDurationSec'.
+    expect(rows[0]?.textContent).toContain('transactionStepDurationSec');
+    expect(rows[1]?.textContent).toContain('transactionStepDurationSec');
+    act(() => root.unmount());
+  });
+
+  it('omits a step duration when a boundary stamp is missing (never shows 0 sec)', async () => {
+    const { container, root } = await renderInto(
+      <GeneratingTransaction
+        onDoneClick={() => {}}
+        transactionComplete
+        isGuardian={false}
+        // No `proving` stamp → generating-proof has no start boundary; only submit is timed.
+        activeTransaction={{ type: 'send', stageTimestamps: { submitting: 3_000, complete: 3_500 } } as any}
+      />
+    );
+    const rows = Array.from(container.querySelectorAll('[data-transaction-step]'));
+    expect(rows[0]?.textContent).not.toContain('transactionStepDurationSec');
+    expect(rows[1]?.textContent).toContain('transactionStepDurationSec');
+    act(() => root.unmount());
+  });
+
   it('renders success state when transactionComplete + no errors', async () => {
     const { container, root } = await renderInto(
-      <GeneratingTransaction onDoneClick={() => {}} transactionComplete hasErrors={false} />
+      <GeneratingTransaction isGuardian={true} onDoneClick={() => {}} transactionComplete hasErrors={false} />
     );
     // No completed transaction data → the generic success title (send-typed
     // transactions get "Payment Sent!"). The redesigned screen has no header
@@ -514,7 +719,7 @@ describe('GeneratingTransaction stage + state rendering', () => {
 
   it('renders failure state with single-failure description', async () => {
     const { container, root } = await renderInto(
-      <GeneratingTransaction onDoneClick={() => {}} transactionComplete hasErrors />
+      <GeneratingTransaction isGuardian={true} onDoneClick={() => {}} transactionComplete hasErrors />
     );
     expect(container.textContent).toContain('transactionFailed');
     expect(container.textContent).toContain('transactionErrorDescription');
@@ -528,6 +733,7 @@ describe('GeneratingTransaction stage + state rendering', () => {
     navigateMock.mockClear();
     const { container, root } = await renderInto(
       <GeneratingTransaction
+        isGuardian={false}
         onDoneClick={() => {}}
         transactionComplete
         hasErrors
@@ -545,7 +751,7 @@ describe('GeneratingTransaction stage + state rendering', () => {
 
   it('does not show the Activity link on a successful (non-failed) transaction', async () => {
     const { container, root } = await renderInto(
-      <GeneratingTransaction onDoneClick={() => {}} transactionComplete hasErrors={false} />
+      <GeneratingTransaction isGuardian={false} onDoneClick={() => {}} transactionComplete hasErrors={false} />
     );
     const viewBtn = Array.from(container.querySelectorAll('button')).find(button =>
       button.textContent?.includes('viewInActivities')
@@ -559,6 +765,7 @@ describe('GeneratingTransaction stage + state rendering', () => {
     const onViewExplorer = jest.fn();
     const { container, root } = await renderInto(
       <GeneratingTransaction
+        isGuardian={true}
         onDoneClick={() => {}}
         transactionComplete
         hasErrors={false}
@@ -587,7 +794,7 @@ describe('GeneratingTransaction stage + state rendering', () => {
 
   it('omits the View on Midenscan button when no onViewExplorer is provided', async () => {
     const { container, root } = await renderInto(
-      <GeneratingTransaction onDoneClick={() => {}} transactionComplete hasErrors={false} />
+      <GeneratingTransaction isGuardian={true} onDoneClick={() => {}} transactionComplete hasErrors={false} />
     );
     expect(container.textContent).not.toContain('viewOnMidenscan');
     act(() => root.unmount());
@@ -595,7 +802,13 @@ describe('GeneratingTransaction stage + state rendering', () => {
 
   it('omits the View on Midenscan button on failure even when onViewExplorer is provided', async () => {
     const { container, root } = await renderInto(
-      <GeneratingTransaction onDoneClick={() => {}} transactionComplete hasErrors onViewExplorer={jest.fn()} />
+      <GeneratingTransaction
+        isGuardian={true}
+        onDoneClick={() => {}}
+        transactionComplete
+        hasErrors
+        onViewExplorer={jest.fn()}
+      />
     );
     expect(container.textContent).not.toContain('viewOnMidenscan');
     act(() => root.unmount());
@@ -603,7 +816,7 @@ describe('GeneratingTransaction stage + state rendering', () => {
 
   it('renders the "navigate home" warning alert when keepOpen is true (desktop, in-flight)', async () => {
     const { container, root } = await renderInto(
-      <GeneratingTransaction onDoneClick={() => {}} transactionComplete={false} keepOpen />
+      <GeneratingTransaction isGuardian={true} onDoneClick={() => {}} transactionComplete={false} keepOpen />
     );
     expect(container.textContent).toContain('doNotCloseWindowNavigateHome');
     act(() => root.unmount());
@@ -611,7 +824,7 @@ describe('GeneratingTransaction stage + state rendering', () => {
 
   it('renders the "auto-close" warning alert when keepOpen is false (desktop, in-flight)', async () => {
     const { container, root } = await renderInto(
-      <GeneratingTransaction onDoneClick={() => {}} transactionComplete={false} keepOpen={false} />
+      <GeneratingTransaction isGuardian={true} onDoneClick={() => {}} transactionComplete={false} keepOpen={false} />
     );
     expect(container.textContent).toContain('doNotCloseWindowAutoClose');
     act(() => root.unmount());

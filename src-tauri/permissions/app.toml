@@ -1,0 +1,40 @@
+# App-defined command permissions.
+#
+# The mere EXISTENCE of this file is load-bearing. Tauri checks the capability ACL
+# for an app command only when the generated `gen/schemas/acl-manifests.json`
+# carries an `__app-acl__` key (tauri-2.11.0 `src/webview/mod.rs`:
+# `if (plugin_command.is_some() || has_app_acl_manifest) && … && invoke.acl.is_none()`),
+# and `tauri-build` inserts that key only when `permissions/**/*` defines at least
+# one app permission. With no such directory every command in `generate_handler!`
+# bypassed the ACL for every webview — including the `dapp-browser` window, which
+# loads arbitrary third-party pages while `tauri.conf.json` sets
+# `withGlobalTauri: true`, so one line of page script could call
+# `delete_hardware_key` (bricking a biometric-only wallet) or the
+# encrypt/decrypt hardware oracle.
+#
+# `capabilities/default.json` grants this permission to `"windows": ["main"]` with
+# no `remote` section, so it applies to the wallet's own bundled window only.
+#
+# Keep this list in sync with `generate_handler!` in `src/lib.rs`. A command that is
+# added here but not there fails the build; one added there but not here is simply
+# unreachable from the frontend (Tauri rejects it with an ACL error), which is the
+# safe direction.
+
+[[permission]]
+identifier = "allow-wallet-window-commands"
+description = "Lets the wallet's own window invoke the app-defined commands."
+commands.allow = [
+  "js_log",
+  "focus_main_window",
+  "generate_hardware_key",
+  "encrypt_with_hardware_key",
+  "decrypt_with_hardware_key",
+  "delete_hardware_key",
+  "is_hardware_security_available",
+  "has_hardware_key",
+  "open_dapp_window",
+  "close_dapp_window",
+  "dapp_navigate",
+  "dapp_get_url",
+  "dapp_wallet_response",
+]

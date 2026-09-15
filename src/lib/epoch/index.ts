@@ -1,7 +1,7 @@
 export { EPOCH_ALLOCATOR_URL, MIDEN_DESTINATION_CHAIN_ID } from './config';
 export { MIDEN_MIN_RECLAIM_BLOCKS, getCurrentMidenBlock } from './chain';
 export { buildEpochWalletClient } from './client';
-export { createBridgeP2IDNote } from './miden-note';
+export { createBridgeP2IDENote } from './miden-note';
 export type { BridgeNoteDeps } from './miden-note';
 export { ensureEpochSmartAccount, getEpochSdk, getEpochSigningSdk, resetEpochSdk, useEpochSdk } from './sdk';
 export { buildVaultEvmWalletClient } from './evm-account';
@@ -31,6 +31,7 @@ export {
   pollEarnWithdrawDelivery,
   resumeEarnWithdrawal,
   resubmitEarnWithdrawal,
+  retryEarnWithdrawal,
   reconcileEarnWithdrawals
 } from './earn-withdraw';
 export type { GaslessEarnWithdrawalArgs, GaslessEarnWithdrawalResult } from './earn-withdraw';
@@ -49,6 +50,7 @@ export {
   buildEVMToMidenTaskDataParams,
   buildCrossChainIntent,
   buildEVMToMidenIntent,
+  evmToMidenMinTokenOut,
   formatQuoteTokenIn,
   getCrossChainQuote,
   getEVMToMidenQuote,

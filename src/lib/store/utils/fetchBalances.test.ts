@@ -1,8 +1,17 @@
 import '../../../../test/jest-mocks';
 
+import {
+  __resetSyncFuseStateForTests,
+  isSyncFused,
+  noteSyncSuccess,
+  noteSyncWatchdogEviction,
+  syncFuseUntilMs
+} from 'lib/miden/front/sync-fuse';
 import { AssetMetadata, MIDEN_METADATA } from 'lib/miden/metadata';
+import { WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
+import { MAX_CONSECUTIVE_WATCHDOG_EVICTIONS } from 'lib/miden/sync-backoff';
 
-import { fetchBalances } from './fetchBalances';
+import { __resetUnresolvedFaucetsForTest, fetchBalances } from './fetchBalances';
 
 // Mock dependencies
 const mockGetAccount = jest.fn();
@@ -12,19 +21,36 @@ const mockGetMidenClient = jest.fn(() => ({
   syncState: mockSyncState
 }));
 
+// Models hold OWNERSHIP, not just the callback: the read re-checks its hold before
+// touching the account's vault, so a mock that hands out no hold makes that guard throw
+// on every call and a mock that never revokes one makes it untestable.
+let currentHold: object | null = null;
 // Defaults to "lock free" — runs the op and reports it ran. A test overrides
 // this to `{ ran: false }` to exercise the WASM-busy skip path.
 const mockTryWithWasmClientLock = jest.fn(
-  async (operation: () => Promise<unknown>): Promise<{ ran: true; value: unknown } | { ran: false }> => ({
-    ran: true,
-    value: await operation()
-  })
+  async (operation: (hold: object) => Promise<unknown>): Promise<{ ran: true; value: unknown } | { ran: false }> => {
+    const hold = {};
+    currentHold = hold;
+    try {
+      return { ran: true, value: await operation(hold) };
+    } finally {
+      if (currentHold === hold) currentHold = null;
+    }
+  }
 );
+
+// The OPTIONS are the point of the #777 change here, so they have to reach an assertion:
+// a mock that silently drops them lets the bound come off without a single test noticing.
+const lockOptionsSeen: unknown[] = [];
 
 jest.mock('lib/miden/sdk/miden-client', () => ({
   getMidenClient: () => mockGetMidenClient(),
+  getCurrentWasmLockHold: () => currentHold,
   withWasmClientLock: async <T>(operation: () => Promise<T>): Promise<T> => operation(),
-  tryWithWasmClientLock: (operation: () => Promise<unknown>) => mockTryWithWasmClientLock(operation)
+  tryWithWasmClientLock: (operation: () => Promise<unknown>, options?: unknown) => {
+    lockOptionsSeen.push(options);
+    return mockTryWithWasmClientLock(operation);
+  }
 }));
 
 jest.mock('lib/miden/assets', () => ({
@@ -56,6 +82,9 @@ describe('fetchBalances', () => {
     mockGetAccount.mockReset();
     mockSyncState.mockReset();
     mockFetchTokenMetadata.mockReset();
+    // Process-wide rate limit — without this a faucet that failed in one case
+    // stays in backoff and silently skips the fetch in the next.
+    __resetUnresolvedFaucetsForTest();
   });
 
   beforeAll(() => {
@@ -64,6 +93,109 @@ describe('fetchBalances', () => {
 
   afterAll(() => {
     warnSpy.mockRestore();
+  });
+
+  it('bounds its hold at the sync ceiling and labels it, rather than taking the 5-minute backstop', async () => {
+    // The window this non-blocking read wins is the instant an eviction released the
+    // mutex — the client slot is empty, so the read rebuilds and the new client's genesis
+    // fetch goes to the node that just parked. On the default backstop a 5s balance poll
+    // then owned this realm's only WASM mutex for 300s. The label is what names it in the
+    // eviction log and keys its fuse.
+    mockGetAccount.mockResolvedValueOnce(null);
+    lockOptionsSeen.length = 0;
+
+    await fetchBalances('my-address', {});
+
+    expect(lockOptionsSeen).toEqual([{ watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'balances' }]);
+  });
+
+  it('skips the hold entirely once its own fuse is lit, and resumes on a success (#777)', async () => {
+    // A lit fuse means this probe's call is parked: the node took the request and never
+    // answered, so the client the next lap builds parks on it too. Bounding capped one
+    // park at 120s; only this gate stops the wallet paying that park, plus a leaked
+    // client, on every refresh from here on.
+    __resetSyncFuseStateForTests();
+    for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; i++) noteSyncWatchdogEviction('balances');
+    lockOptionsSeen.length = 0;
+
+    expect(await fetchBalances('my-address', {})).toBeNull();
+    expect(lockOptionsSeen).toHaveLength(0);
+    expect(mockGetAccount).not.toHaveBeenCalled();
+
+    // Falsifier: the gate is the fuse and nothing else. Put it out and the very next
+    // refresh reads again — the fuse must never become a one-way door.
+    noteSyncSuccess('balances');
+    mockGetAccount.mockResolvedValueOnce(null);
+    expect(await fetchBalances('my-address', {})).not.toBeNull();
+    expect(mockGetAccount).toHaveBeenCalledTimes(1);
+    __resetSyncFuseStateForTests();
+  });
+
+  it('stops before reading the vault when the hold was evicted during the account read', async () => {
+    // An eviction hands the mutex to somebody else without stopping this callback, and
+    // `acc.vault().fungibleAssets()` is a WASM call on an object borrowed from the
+    // client's RefCell — so continuing is the double borrow the lock exists to prevent,
+    // not a merely-stale read. Bounding this hold at two minutes made that window
+    // reachable on the very path #777 is about.
+    __resetSyncFuseStateForTests();
+    const vault = jest.fn(() => ({ fungibleAssets: () => [] }));
+    mockGetAccount.mockImplementationOnce(async () => {
+      currentHold = null; // what the watchdog does to the hold this callback still holds
+      return { vault };
+    });
+
+    await expect(fetchBalances('my-address', {})).rejects.toMatchObject({ name: 'WasmClientPoisonedError' });
+    expect(vault).not.toHaveBeenCalled();
+
+    // Falsifier: with the hold intact the same read completes and DOES touch the vault,
+    // so the assertion above is about the eviction and not about the fixture.
+    mockGetAccount.mockImplementationOnce(async () => ({ vault }));
+    await expect(fetchBalances('my-address', {})).resolves.not.toBeNull();
+    expect(vault).toHaveBeenCalledTimes(1);
+    __resetSyncFuseStateForTests();
+  });
+
+  it('reports its own evictions to the fuse, and a completed read puts it out', async () => {
+    __resetSyncFuseStateForTests();
+    const evict = () => Promise.reject(new WasmClientPoisonedError('watchdog'));
+
+    for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; i++) {
+      mockTryWithWasmClientLock.mockImplementationOnce(evict);
+      await expect(fetchBalances('my-address', {})).rejects.toMatchObject({ name: 'WasmClientPoisonedError' });
+    }
+    expect(isSyncFused('balances')).toBe(true);
+
+    // A completed read is the one thing that puts it out — asserted through a real
+    // successful `fetchBalances` rather than by calling `noteSyncSuccess` from the test,
+    // which would only re-test the ledger. Proven by the eviction that follows: it is the
+    // FIRST of a new run, so it cannot re-light a fuse whose count was truly zeroed.
+    // Served out first: while the window stands the gate skips the read, so the probe that
+    // clears the fuse is the one the fused cadence eventually lets through.
+    const realNow = performance.now();
+    const nowSpy = jest.spyOn(performance, 'now').mockReturnValue(realNow + 40 * 60_000);
+    mockGetAccount.mockResolvedValueOnce(null);
+    await fetchBalances('my-address', {});
+    nowSpy.mockRestore();
+    expect(isSyncFused('balances')).toBe(false);
+    mockTryWithWasmClientLock.mockImplementationOnce(evict);
+    await expect(fetchBalances('my-address', {})).rejects.toMatchObject({ name: 'WasmClientPoisonedError' });
+    expect(isSyncFused('balances')).toBe(false);
+
+    // A BUSY lap is evidence of nothing — no hold was taken — so it must neither light
+    // nor clear anything.
+    __resetSyncFuseStateForTests();
+    mockTryWithWasmClientLock.mockImplementationOnce(async () => ({ ran: false }));
+    await fetchBalances('my-address', {});
+    expect(syncFuseUntilMs('balances')).toBeNull();
+
+    // And an ORDINARY failure does not light it: the fuse's claim is specifically that a
+    // call is parked, which an offline node is not.
+    for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS + 1; i++) {
+      mockTryWithWasmClientLock.mockImplementationOnce(() => Promise.reject(new Error('Failed to fetch')));
+      await expect(fetchBalances('my-address', {})).rejects.toThrow('Failed to fetch');
+    }
+    expect(isSyncFused('balances')).toBe(false);
+    __resetSyncFuseStateForTests();
   });
 
   it('returns null (skips the read) when the WASM client lock is busy', async () => {
@@ -286,7 +418,6 @@ describe('fetchBalances', () => {
 
   it('falls back to DEFAULT_TOKEN_METADATA when fetchTokenMetadata throws', async () => {
     const mockSetAssetsMetadata = jest.fn();
-    const { DEFAULT_TOKEN_METADATA } = jest.requireMock('lib/miden/metadata');
     const mockAssets = [
       {
         faucetId: () => 'bad-faucet',
@@ -305,12 +436,36 @@ describe('fetchBalances', () => {
 
     const result = (await fetchBalances('my-address', {}, { setAssetsMetadata: mockSetAssetsMetadata }))!;
 
-    // Should still include the token with default metadata
-    expect(mockSetAssetsMetadata).toHaveBeenCalledWith({
-      'bech32-bad-faucet': DEFAULT_TOKEN_METADATA
-    });
+    // The token still lists, under the placeholder, so a failed lookup does not
+    // make the user's holding vanish from the screen.
     expect(result).toHaveLength(2);
     expect(result[0]!.tokenSlug).toBe('Unknown');
+  });
+
+  // A thrown lookup is transient. Publishing the placeholder would end the
+  // retries — the faucet is skipped once metadata is known — so the guessed
+  // decimals would outlive the outage with no path back to the real ones.
+  it('does not persist the placeholder when the metadata lookup throws', async () => {
+    const { getBech32AddressFromAccountId } = jest.requireMock('lib/miden/sdk/helpers');
+    getBech32AddressFromAccountId.mockReturnValue('bech32-bad-faucet');
+    mockGetAccount.mockResolvedValueOnce({
+      vault: () => ({
+        fungibleAssets: () => [{ faucetId: () => 'bad-faucet', amount: () => BigInt(1000) }]
+      })
+    });
+    mockFetchTokenMetadata.mockRejectedValueOnce(new Error('RPC error'));
+    const mockSetAssetsMetadata = jest.fn();
+    const { setTokensBaseMetadata } = jest.requireMock('../../miden/front/assets');
+
+    await fetchBalances('my-address', {}, { setAssetsMetadata: mockSetAssetsMetadata });
+
+    // Nothing at all is written for this faucet, so the next refresh sees it as
+    // still-unknown and tries the lookup again.
+    const wroteBadFaucet = (fn: jest.Mock) =>
+      fn.mock.calls.some(([written]: [Record<string, unknown>]) => 'bech32-bad-faucet' in written);
+
+    expect(wroteBadFaucet(mockSetAssetsMetadata)).toBe(false);
+    expect(wroteBadFaucet(setTokensBaseMetadata)).toBe(false);
   });
 
   it('skips MIDEN token when fetching metadata', async () => {
@@ -363,5 +518,69 @@ describe('fetchBalances', () => {
     expect(mockGetAccount).toHaveBeenCalledWith('my-address');
     // Should NOT call syncState - that happens separately via AutoSync
     expect(mockSyncState).not.toHaveBeenCalled();
+  });
+  // Neither storing the guess nor re-asking every few seconds is acceptable: the
+  // first answers the question forever with a wrong number, the second turns an
+  // unreadable faucet into a permanent RPC drip on a list that refreshes every
+  // few seconds. The record stays absent and the retry is spaced out instead.
+  describe('an unresolvable faucet', () => {
+    function accountWithBadFaucet() {
+      mockGetAccount.mockResolvedValueOnce({
+        vault: () => ({
+          fungibleAssets: () => [{ faucetId: () => 'bad-faucet', amount: () => BigInt(1000) }]
+        })
+      });
+    }
+
+    it('is not retried on the very next refresh', async () => {
+      const { getBech32AddressFromAccountId } = jest.requireMock('lib/miden/sdk/helpers');
+      getBech32AddressFromAccountId.mockReturnValue('bech32-bad-faucet');
+      mockFetchTokenMetadata.mockRejectedValue(new Error('RPC error'));
+
+      accountWithBadFaucet();
+      await fetchBalances('my-address', {}, {});
+      expect(mockFetchTokenMetadata).toHaveBeenCalledTimes(1);
+
+      accountWithBadFaucet();
+      await fetchBalances('my-address', {}, {});
+      expect(mockFetchTokenMetadata).toHaveBeenCalledTimes(1);
+    });
+
+    // The placeholder is returned, not thrown, when the faucet was reached but
+    // could not be read — that lands on the success path, which is how it used
+    // to get persisted despite `fetchTokenMetadata` deliberately not caching it.
+    it('is not persisted when the lookup RESOLVES to the placeholder', async () => {
+      const { getBech32AddressFromAccountId } = jest.requireMock('lib/miden/sdk/helpers');
+      getBech32AddressFromAccountId.mockReturnValue('bech32-bad-faucet');
+      const { setTokensBaseMetadata } = jest.requireMock('../../miden/front/assets');
+      const placeholder = { symbol: 'Unknown', name: 'Unknown', decimals: 6, scaleIsUnknown: true };
+      mockFetchTokenMetadata.mockResolvedValue({ base: placeholder, detailed: placeholder });
+
+      accountWithBadFaucet();
+      const result = (await fetchBalances('my-address', {}, {}))!;
+
+      const wrote = setTokensBaseMetadata.mock.calls.some(
+        ([written]: [Record<string, unknown>]) => written && 'bech32-bad-faucet' in written
+      );
+      expect(wrote).toBe(false);
+      // Still listed — an unresolved holding is a real one.
+      expect(result.some(b => b.tokenId === 'bech32-bad-faucet')).toBe(true);
+    });
+
+    it('still lists the token while its lookup is in backoff', async () => {
+      const { getBech32AddressFromAccountId } = jest.requireMock('lib/miden/sdk/helpers');
+      getBech32AddressFromAccountId.mockReturnValue('bech32-bad-faucet');
+      mockFetchTokenMetadata.mockRejectedValue(new Error('RPC error'));
+
+      accountWithBadFaucet();
+      await fetchBalances('my-address', {}, {});
+
+      accountWithBadFaucet();
+      const result = (await fetchBalances('my-address', {}, {}))!;
+
+      const row = result.find(b => b.tokenId === 'bech32-bad-faucet');
+      expect(row).toBeDefined();
+      expect(row!.metadata.symbol).toBe('Unknown');
+    });
   });
 });

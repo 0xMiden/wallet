@@ -191,6 +191,9 @@ const SwitcherCard: FC<SwitcherCardProps> = ({ state, onTap, onClose }) => {
         className="absolute inset-0 cursor-pointer"
         onClick={() => onTap(session)}
         aria-label={t('dappSwitcherCardActivate', { name: displayName })}
+        data-testid="dapp-switcher-card"
+        data-dapp-id={session.id}
+        data-dapp-url={session.url}
       />
       {/* Snapshot or fallback. `background-position: top center` makes
           the card show the TOP of the page (favicon / header / hero)

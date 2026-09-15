@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 
-import { liveQuery } from 'dexie';
-
+import { subscribeToLiveQuery } from 'lib/dexie-live-query';
 import { compareAccountIds } from 'lib/miden/activity/utils';
 import type { IBridgedSendExtraInputs, ITransaction } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
@@ -44,7 +43,12 @@ const orderingTime = (row: ITransaction): number => row.completedAt ?? row.initi
 
 export const selectRecentRecipients = (rows: ITransaction[], accountId: string): RecentRecipient[] => {
   const ordered = rows
-    .filter(row => compareAccountIds(row.accountId, accountId))
+    // Guarded here as well as in the query: "addresses you have sent to before"
+    // is a trust signal, and a restored row is not evidence of that - it is
+    // whatever the backup's author wrote. Five rows in a dump would otherwise
+    // own the whole list, and the wallet would vouch for the attacker's address
+    // at the exact moment the user is choosing where to send.
+    .filter(row => !row.restoredFromBackup && compareAccountIds(row.accountId, accountId))
     .sort((a, b) => orderingTime(b) - orderingTime(a));
 
   const seen = new Set<string>();
@@ -89,19 +93,29 @@ export const useRecentRecipients = (accountId: string | null | undefined): Recen
       return;
     }
 
-    const subscription = liveQuery(() =>
-      Repo.transactions.filter(row => row.type === 'send' || row.type === 'bridged-send').toArray()
-    ).subscribe({
-      next: rows => setRecents(selectRecentRecipients(rows, accountId)),
-      error: err => {
-        // Losing the suggestions is cosmetic, but a silently-empty "Recent"
-        // list is indistinguishable from "you've never sent to anyone".
-        console.warn('[useRecentRecipients] recent-recipient query failed', err);
-        setRecents(EMPTY_RECENTS);
+    return subscribeToLiveQuery(
+      () =>
+        Repo.transactions
+          .filter(
+            row =>
+              // "Addresses you have sent to before" is a trust signal, and a
+              // restored row is not evidence of that - it is whatever the backup's
+              // author wrote. Without this, five rows in a dump own the entire
+              // Recent list, and the wallet itself vouches for the attacker's
+              // address at the exact moment the user is choosing where to send.
+              !row.restoredFromBackup && (row.type === 'send' || row.type === 'bridged-send')
+          )
+          .toArray(),
+      {
+        next: rows => setRecents(selectRecentRecipients(rows, accountId)),
+        error: err => {
+          // Losing the suggestions is cosmetic, but a silently-empty "Recent"
+          // list is indistinguishable from "you've never sent to anyone".
+          console.warn('[useRecentRecipients] recent-recipient query failed', err);
+          setRecents(EMPTY_RECENTS);
+        }
       }
-    });
-
-    return () => subscription.unsubscribe();
+    );
   }, [accountId]);
 
   return recents;

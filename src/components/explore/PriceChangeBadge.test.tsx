@@ -132,6 +132,30 @@ describe('PriceChangeBadge', () => {
     expect(percent.className).toContain('text-receive-green');
   });
 
+  // The placeholder's guessed 6 decimals mean `balance` for an unresolved faucet
+  // is not a holding — here it would swamp the real ETH position and flip the
+  // badge from green to red. Dropped from BOTH sums, so the percentage stays a
+  // ratio over the same set of assets rather than a delta over one denominator
+  // and a total over another.
+  it('ignores a token whose scale never resolved, in the delta and the percentage alike', () => {
+    mockUseAllBalances.mockReturnValue({
+      data: [
+        { balance: 10, metadata: { symbol: 'ETH' } },
+        {
+          balance: 1_000_000,
+          metadata: { symbol: 'Unknown', name: 'Unknown', decimals: 6, scaleIsUnknown: true }
+        }
+      ]
+    });
+    mockTokenPrices = { ETH: { price: 2, change24h: 0.5 }, Unknown: { price: 1, change24h: -1 } };
+
+    const { badge, percent } = renderBadge();
+
+    // Identical to the ETH-only case above: +$5.00 over a $20 position.
+    expect(badge.textContent).toBe('+$5.00');
+    expect(percent.textContent).toBe('25.00%');
+  });
+
   it('renders a negative (red) delta with a "-" prefix and the absolute amount', () => {
     mockUseAllBalances.mockReturnValue({ data: [{ balance: 10, metadata: { symbol: 'BTC' } }] });
     mockTokenPrices = { BTC: { price: 3, change24h: -0.4 } };

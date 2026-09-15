@@ -1,4 +1,4 @@
-import React, { FC, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { FC, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { SubmitHandler, useForm } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
@@ -12,6 +12,7 @@ import { Vault } from 'lib/miden/back/vault';
 import { useAccount, useSecretState, useMidenContext } from 'lib/miden/front';
 import { getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import { resolvePublicKeyCommitments } from 'lib/miden/sdk/resolve-public-key-commitments';
+import { useScreenshotGuard } from 'lib/mobile/screenshot-guard';
 import { useHideDappBubblesWhileOpen } from 'lib/mobile/useHideDappBubblesWhileOpen';
 import { isMobile } from 'lib/platform';
 import useCopyToClipboard from 'lib/ui/useCopyToClipboard';
@@ -50,6 +51,16 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
   const passwordValue = watch('password');
   const [secret, setSecret] = useSecretState();
   const [guardianBundle, setGuardianBundle] = useState<GuardianKeysBundle | null>(null);
+  // Block screenshots / screen recordings while raw key material is on screen
+  // (#417) — the same protection `RevealSeedPhrase` already has, for material of
+  // equal sensitivity: a private key, a Guardian COLD private key (the account's
+  // recovery material) or a hot key all confer spending authority. `FormField`'s
+  // `secret` prop only blurs the value while the field is unfocused; once tapped
+  // the plaintext sits in an ordinary DOM textarea, which is exactly what a
+  // screenshot, an Android task-switcher thumbnail or a live screen recording
+  // captures. The hook withholds `true` until the native guard is actually
+  // enabled, so the unprotected first frames are never rendered.
+  const isGuardReady = useScreenshotGuard(secret !== null || guardianBundle !== null);
   const [hasHardwareProtector, setHasHardwareProtector] = useState<boolean | null>(null);
   // Keep parked dApp trays out of the way while the reveal screen is mounted.
   useHideDappBubblesWhileOpen(true);
@@ -92,11 +103,26 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
     formRef.current?.querySelector<HTMLInputElement>("input[name='password']")?.focus();
   }, []);
 
-  useLayoutEffect(() => {
+  // `hasHardwareProtector` is a dependency because this component renders `null`
+  // until it resolves. Without it the effect ran once, against that first empty
+  // commit where `formRef.current` was still null, and never again — its only
+  // other dependency being a `useCallback` with an empty dep list. So the field
+  // was never actually focused on desktop.
+  //
+  // A passive effect rather than a layout effect, so that it lands AFTER the host
+  // page's title focus rather than before it. Ordered the other way round, the
+  // title focus clobbered the caret, which is why Settings had to suppress its
+  // own title focus for these routes — and that suppression was wrong whenever
+  // there is no field to focus: on desktop with a hardware protector this form
+  // renders no password input at all, so nothing took focus and the page went
+  // unannounced. Now the title is focused first and the field takes over only if
+  // it exists, so both cases end up somewhere sensible without the host having to
+  // predict which one it is.
+  useEffect(() => {
     if (!isMobile()) {
       focusPasswordField();
     }
-  }, [focusPasswordField]);
+  }, [focusPasswordField, hasHardwareProtector]);
 
   const onSubmit = useCallback<SubmitHandler<FormData>>(
     async ({ password }) => {
@@ -197,8 +223,17 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
     }
   }, [reveal, t, account]);
 
+  // `font-sans` on every secret field below. Preflight sets `font: inherit` on
+  // form controls, so a textarea with no font of its own picks up whatever the
+  // page sets — and Settings wraps its sub-pages in `font-heading`, which put the
+  // recovery phrase and private keys in a rounded display face. Asked for here
+  // rather than by dropping the wrapper's class, which would restyle all twelve
+  // routed Settings screens to fix these four fields.
   const mainContent = useMemo(() => {
     if (guardianBundle) {
+      // Withhold until the native guard reports the screen is protected — an
+      // in-progress screen recording would otherwise capture the first frames.
+      if (!isGuardReady) return null;
       return (
         <div className="pt-8 flex flex-col gap-6">
           <FormField
@@ -212,7 +247,7 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
             labelDescription={<div className="mb-3">{texts.fieldDesc}</div>}
             id="reveal-guardian-cold-private"
             spellCheck={false}
-            className="resize-none notranslate"
+            className="resize-none notranslate font-sans"
             value={guardianBundle.coldPrivateKey}
           />
           <FormField
@@ -223,7 +258,7 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
             labelClassName="text-base/[20px] font-semibold text-heading-gray mb-0"
             id="reveal-guardian-cold-public"
             spellCheck={false}
-            className="resize-none notranslate"
+            className="resize-none notranslate font-sans"
             value={guardianBundle.coldPublicKey}
           />
           {guardianBundle.hotPublicKey && (
@@ -235,7 +270,7 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
               labelClassName="text-base/[20px] font-semibold text-heading-gray mb-0"
               id="reveal-guardian-hot-public"
               spellCheck={false}
-              className="resize-none notranslate"
+              className="resize-none notranslate font-sans"
               value={guardianBundle.hotPublicKey}
             />
           )}
@@ -244,6 +279,7 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
     }
 
     if (secret) {
+      if (!isGuardReady) return null;
       return (
         <div className="pt-8">
           <FormField
@@ -257,7 +293,7 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
             labelDescription={<div className="mb-3">{texts.fieldDesc}</div>}
             id="reveal-secret-secret"
             spellCheck={false}
-            className="resize-none notranslate"
+            className="resize-none notranslate font-sans"
             value={secret}
           />
         </div>
@@ -296,6 +332,7 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
             label={t('password')}
             labelDescription={t('revealSecretPasswordInputDescription', { secretName: texts.name })}
             id="reveal-secret-password"
+            className="font-sans"
             type="password"
             name="password"
             placeholder="********"
@@ -311,6 +348,7 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
     );
   }, [
     errors,
+    isGuardReady,
     onSubmit,
     register,
     secret,

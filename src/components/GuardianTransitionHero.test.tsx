@@ -59,9 +59,14 @@ it('emphasizes the destination and keeps review labels readable in dark mode', (
     />
   );
 
+  // `text-heading-gray`, not `text-text-muted`: the muted token is #ababab, which
+  // is 2.3:1 on this card in light mode. Both chips now carry ink that clears AA
+  // in both themes.
   expect(screen.getByText('Current')).toHaveClass('text-heading-gray');
-  expect(screen.getByText('EU-WEST')).toHaveClass('text-text-muted');
-  expect(screen.getByText('New')).toHaveClass('text-primary-500');
+  // Provider names come from the canonical brand mapping (#464).
+  expect(screen.getByText('LambdaClass · EU-WEST')).toHaveClass('text-heading-gray');
+  // Fixed dark grey on the fixed white pill so the chip stays readable in dark mode.
+  expect(screen.getByText('New')).toHaveClass('text-grey-700');
   expect(screen.getByText('OpenZeppelin · US-EAST')).toHaveClass('text-pure-white');
   expect(screen.getByText('OpenZeppelin', { selector: 'h2' })).toHaveClass('text-pure-white');
 });

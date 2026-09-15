@@ -9,6 +9,12 @@ import {
   MIDEN_GUARDIAN_ENDPOINTS,
   DEFAULT_NETWORK
 } from './constants';
+import {
+  getEffectiveAllowNoGuardian,
+  buildDefaultOverrideFor,
+  loadEndpointOverrides,
+  ENDPOINT_OVERRIDE_STORAGE_KEY
+} from './effective-endpoints';
 
 const mockKvStore: Record<string, unknown> = {};
 // Per-test toggle so a single test can simulate a storage-provider failure
@@ -85,6 +91,27 @@ describe('effective-endpoints resolver', () => {
     await m.clearEndpointOverride();
     expect(m.getActiveOverride()).toBeNull();
     expect(await m.isEndpointOverrideActive()).toBe(false);
+  });
+
+  // Regression guard for the reported bug: the dev-settings explorer override
+  // didn't reach the Transaction-ID / account explorer links (they were hardcoded
+  // to testnet.midenscan.com). getExplorerTxUrl/getExplorerAccountUrl (constants.ts)
+  // must resolve their base via the override-aware getEffectiveExplorerUrl. Require
+  // constants + effective-endpoints in ONE isolateModules so the helpers read the
+  // same overrideCache we set here.
+  it('getExplorerTxUrl/getExplorerAccountUrl use the custom explorer override', async () => {
+    let eff!: typeof import('./effective-endpoints');
+    let helpers!: typeof import('./constants');
+    jest.isolateModules(() => {
+      eff = require('./effective-endpoints');
+      helpers = require('./constants');
+    });
+    const override = eff.buildDefaultOverrideFor(MIDEN_NETWORK_NAME.DEVNET);
+    override.explorerUrl = 'https://my-explorer.example';
+    await eff.applyEndpointOverride(override);
+
+    expect(helpers.getExplorerTxUrl('0xabc')).toBe('https://my-explorer.example/tx/0xabc');
+    expect(helpers.getExplorerAccountUrl('mtst1acc')).toBe('https://my-explorer.example/account/mtst1acc');
   });
 
   it('loadEndpointOverrides is a no-op under MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES', async () => {
@@ -249,5 +276,70 @@ describe('effective-endpoints resolver', () => {
       await m.loadEndpointOverrides();
       expect(m.getActiveOverride()).toBeNull();
     });
+  });
+});
+
+describe('getEffectiveAllowNoGuardian', () => {
+  beforeEach(() => {
+    for (const k of Object.keys(mockKvStore)) delete mockKvStore[k];
+  });
+
+  it('defaults to false when no override is active', async () => {
+    await loadEndpointOverrides(); // nothing stored -> cache null
+    expect(getEffectiveAllowNoGuardian()).toBe(false);
+  });
+
+  it('reflects a stored override value', async () => {
+    mockKvStore[ENDPOINT_OVERRIDE_STORAGE_KEY] = {
+      ...buildDefaultOverrideFor(MIDEN_NETWORK_NAME.DEVNET),
+      allowNoGuardian: true
+    };
+    await loadEndpointOverrides();
+    expect(getEffectiveAllowNoGuardian()).toBe(true);
+  });
+
+  it('reads false from a legacy override that predates the field', async () => {
+    const legacy: Record<string, unknown> = { ...buildDefaultOverrideFor(MIDEN_NETWORK_NAME.DEVNET) };
+    delete legacy.allowNoGuardian;
+    mockKvStore[ENDPOINT_OVERRIDE_STORAGE_KEY] = legacy;
+    await loadEndpointOverrides();
+    expect(getEffectiveAllowNoGuardian()).toBe(false);
+  });
+
+  it('buildDefaultOverrideFor includes allowNoGuardian:false', () => {
+    expect(buildDefaultOverrideFor(MIDEN_NETWORK_NAME.DEVNET).allowNoGuardian).toBe(false);
+  });
+});
+
+describe('getTestNetworkNameKey', () => {
+  it('names the build network when no override is loaded', () => {
+    const m = loadModule();
+    expect(m.getTestNetworkNameKey()).toBe(DEFAULT_NETWORK === MIDEN_NETWORK_NAME.MAINNET ? null : DEFAULT_NETWORK);
+  });
+
+  it.each([
+    [MIDEN_NETWORK_NAME.TESTNET, 'testnet'],
+    [MIDEN_NETWORK_NAME.DEVNET, 'devnet'],
+    [MIDEN_NETWORK_NAME.LOCALNET, 'localnet'],
+    [MIDEN_NETWORK_NAME.MAINNET, null]
+  ])('follows an override to %s', async (network, expected) => {
+    const m = loadModule();
+    await m.applyEndpointOverride(m.buildDefaultOverrideFor(network));
+    expect(m.getTestNetworkNameKey()).toBe(expected);
+  });
+
+  it('only returns keys the English locale defines', async () => {
+    // Callers translate the result with a dynamic t(key), which key-coverage.test
+    // cannot see, so a missing entry would render the raw key.
+    const en: Record<string, string> = require('../../../public/_locales/en/en.json');
+    const keys: string[] = [];
+    for (const network of Object.values(MIDEN_NETWORK_NAME)) {
+      const m = loadModule();
+      await m.applyEndpointOverride(m.buildDefaultOverrideFor(network));
+      const key = m.getTestNetworkNameKey();
+      if (key !== null) keys.push(key);
+    }
+    expect(keys.sort()).toEqual(['devnet', 'localnet', 'testnet']);
+    expect(keys.filter(key => !(key in en))).toEqual([]);
   });
 });

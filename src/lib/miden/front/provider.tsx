@@ -3,7 +3,9 @@ import React, { FC, useEffect, useMemo, useState } from 'react';
 import { MidenProvider as SdkMidenProvider } from '@miden-sdk/react/lazy';
 
 import { NoteToastProvider } from 'components/NoteToastProvider';
+import { EarnIntentWatcher } from 'lib/epoch/EarnIntentWatcher';
 import { FiatCurrencyProvider } from 'lib/fiat-currency';
+import { BridgeIntentWatcher } from 'lib/miden/activity/BridgeIntentWatcher';
 import { MidenContextProvider, useMidenContext } from 'lib/miden/front/client';
 import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
 import {
@@ -21,6 +23,8 @@ import { WalletStoreProvider } from 'lib/store/WalletStoreProvider';
 
 import { TokensMetadataProvider } from './assets';
 import { NativeNoteAutoConsumeManager } from './NativeNoteAutoConsumeManager';
+import { OrphanedTransactionRecovery } from './OrphanedTransactionRecovery';
+import { SwapOrderTrackingManager } from './SwapOrderTrackingManager';
 import { SwapSettlementManager } from './SwapSettlementManager';
 import { useForegroundRefresh } from './useForegroundRefresh';
 import { useSyncTrigger } from './useSyncTrigger';
@@ -55,20 +59,25 @@ export const MidenProvider: FC<PropsWithChildren> = ({ children }) => {
     let cancelled = false;
     (async () => {
       await loadEndpointOverrides();
+      // Prime native-asset-id discovery on every page mount. On extension this
+      // also happens on the SW side, but the SW can be killed before the popup
+      // opens, so this is our source-of-truth for popup/fullpage/mobile/desktop.
+      // Cache-hit on repeat opens; one RPC call on first install per network.
+      //
+      // MUST run AFTER loadEndpointOverrides() so discovery targets the
+      // configured (possibly overridden) node, not the build-default endpoint —
+      // mirrors the service worker's load-then-prime order (back/main.ts). When
+      // it primed in a separate effect, a warm-WASM page (e.g. the handed-off
+      // side panel, where ensureSdkWasmReady resolves instantly) captured the
+      // build-default RPC before the override loaded and cached the wrong
+      // network's native faucet id, so balances showed a mismatched token.
+      if (!cancelled) primeNativeAssetId();
       await ensureSdkWasmReady();
       if (!cancelled) setReady(true);
     })();
     return () => {
       cancelled = true;
     };
-  }, []);
-
-  // Prime native-asset-id discovery on every page mount. On extension this
-  // also happens on the SW side, but the SW can be killed before the popup
-  // opens, so this is our source-of-truth for popup/fullpage/mobile/desktop.
-  // Cache-hit on repeat opens; one RPC call on first install per network.
-  useEffect(() => {
-    primeNativeAssetId();
   }, []);
 
   // Mirror the settings the extension service worker needs (auto-consume + delegated
@@ -165,7 +174,14 @@ const ConditionalProviders: FC<PropsWithChildren> = ({ children }) => {
             <PriceProvider />
             {children}
             <SwapSettlementManager />
+            <SwapOrderTrackingManager />
             <NativeNoteAutoConsumeManager />
+            <EarnIntentWatcher />
+            <BridgeIntentWatcher />
+            {/* Startup recovery for transactions orphaned by an app kill. No-op on
+                the extension, where the service worker's `setupTransactionProcessor`
+                already does this. */}
+            <OrphanedTransactionRecovery />
             {/* NoteToastProvider monitors for new notes and shows toast on mobile */}
             <NoteToastProvider />
           </FiatCurrencyProvider>

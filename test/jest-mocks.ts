@@ -1,5 +1,5 @@
 jest.mock('webextension-polyfill');
-jest.mock('@demox-labs/miden-wallet-adapter-base');
+jest.mock('@miden-sdk/miden-wallet-adapter-base');
 jest.mock('@miden-sdk/react');
 jest.mock('@miden-sdk/react/lazy');
 jest.mock('nanoid');

@@ -127,9 +127,9 @@ test.describe('Address Book send', () => {
     await steps.step(
       'save_wallet_b_as_contact',
       async () => {
-        // Settings → Address Book is a DRAWER tab: a direct hash nav to
-        // /settings/address-book falls back to the Settings root list and shows
-        // nothing. openSettingsDrawer clicks the row, which is the only way in.
+        // Settings → Address Book is a routed page at /settings/address-book, so a
+        // direct hash nav would reach it; openSettingsDrawer clicks the row instead,
+        // which covers the row wiring on the way in.
         await openSettingsDrawer(walletA, 'address-book');
         // addContact's own postcondition is the row rendering under this exact
         // name and address; re-asserting it here would just re-read what it

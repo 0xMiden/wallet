@@ -3,6 +3,7 @@ import React, { FC, useCallback, useEffect, useMemo, useRef, useState } from 're
 import { useTranslation } from 'react-i18next';
 
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
+import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
 import Balance from 'app/templates/Balance';
 import HomePrompts from 'app/templates/HomePrompts';
 import { AssetRow } from 'components/AssetRow';
@@ -11,13 +12,14 @@ import { Loader } from 'components/Loader';
 import { AccountsDrawer, BalanceCard, SearchInput } from 'components/ui';
 import { toLocalFormat } from 'lib/i18n/numbers';
 import {
+  initiateConsumeNotesTransaction,
   initiateConsumeTransaction,
-  reconcileBridgedReceives,
   requestSWTransactionProcessing,
   startBackgroundTransactionProcessing
 } from 'lib/miden/activity';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata, useMidenContext } from 'lib/miden/front';
 import type { TokenBalanceData } from 'lib/miden/front';
+import { excludeAutoManagedNotes, selectAutoConsumeBatch } from 'lib/miden/front/auto-managed-notes';
 import { useClaimableNotes } from 'lib/miden/front/claimable-notes';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import { clearNoteReceivedNotification } from 'lib/mobile/native-notifications';
@@ -44,18 +46,12 @@ interface PullGesture {
   distance: number;
 }
 
-// Resume bridge-receive tracking and Smart Withdraw rows orphaned by an app
-// kill exactly once per session (post-unlock, when Explore first mounts).
-// Module-level so they survive remounts.
-let bridgeReceivesReconciled = false;
-let earnWithdrawReconciled = false;
-let earnDepositsReconciled = false;
-
 const Explore: FC = () => {
   const { t } = useTranslation();
   const isMobileApp = isMobile();
   const account = useAccount();
   const midenFaucetId = useMidenFaucetId();
+  const verificationBaseFee = useVerificationBaseFee();
   const { signTransaction } = useMidenContext();
   const allTokensBaseMetadata = useAllTokensBaseMetadata();
   const {
@@ -81,32 +77,63 @@ const Explore: FC = () => {
     if (!shouldAutoConsume || !claimableNotes) {
       return [];
     }
-
-    // Swap-managed notes have their own lineage-aware settlement path. This
-    // explicit guard also protects native-asset swap notes whose per-order
-    // auto-consume setting is off: they remain available for manual settlement
-    // without being picked up by the wallet-wide native-note auto-consumer.
-    return claimableNotes.filter(note => note!.faucetId === midenFaucetId && !note!.swapOrder);
-  }, [claimableNotes, midenFaucetId, shouldAutoConsume]);
+    return selectAutoConsumeBatch(claimableNotes, midenFaucetId, verificationBaseFee);
+  }, [claimableNotes, midenFaucetId, shouldAutoConsume, verificationBaseFee]);
 
   const hasAutoConsumableNotes = useMemo(() => {
     return midenNotes.length > 0;
   }, [midenNotes]);
+
+  // What the "You have Pending Notes" card may ask the user to act on: the notes this
+  // page, the SW and NativeNoteAutoConsumeManager will NOT claim for them. Feeding it
+  // the raw list surfaced a card, with a USD total, for native notes that were already
+  // being auto-consumed (#811).
+  const manuallyClaimableNotes = useMemo(
+    () => excludeAutoManagedNotes(claimableNotes, midenFaucetId, shouldAutoConsume, verificationBaseFee),
+    [claimableNotes, midenFaucetId, shouldAutoConsume, verificationBaseFee]
+  );
 
   const autoConsumeMidenNotes = useCallback(async () => {
     if (!shouldAutoConsume || !hasAutoConsumableNotes) {
       return;
     }
 
-    const notesToClaim = midenNotes!.filter(note => !note.isBeingClaimed);
+    // Already filtered for `isBeingClaimed` by `selectAutoConsumeBatch`, where the value
+    // check needs the same set. Re-filtering here would let the two diverge again.
+    const notesToClaim = midenNotes;
     if (notesToClaim.length === 0) {
       return;
     }
 
-    const promises = notesToClaim.map(async note => {
-      await initiateConsumeTransaction(account.publicKey, note, isDelegatedProvingEnabled);
-    });
-    await Promise.all(promises);
+    // ONE transaction for the batch, matching the other two native auto-consumers
+    // (`NativeNoteAutoConsumeManager`, the SW sync pass): every consume pays its own
+    // fee, so a backlog claimed note-by-note charges N fees for what settles in one.
+    // This consumer runs on Home and fires on render, so it usually WINS the race
+    // against the others -- leaving it per-note meant the batching those two do was
+    // defeated in the common case.
+    //
+    // Poison-note isolation is the LAST argument, not this catch: an un-consumable note
+    // fails at generation time, long after this queue write returned, so the catch here
+    // only ever sees a DB error. See `initiateConsumeNotesTransaction`.
+    try {
+      await initiateConsumeNotesTransaction(
+        account.publicKey,
+        notesToClaim,
+        isDelegatedProvingEnabled,
+        false,
+        true,
+        verificationBaseFee
+      );
+    } catch (batchErr) {
+      console.warn('[native-auto-consume] batch enqueue failed, falling back to per-note enqueue', batchErr);
+      for (const note of notesToClaim) {
+        try {
+          await initiateConsumeTransaction(account.publicKey, note, isDelegatedProvingEnabled);
+        } catch (noteErr) {
+          console.warn('[native-auto-consume] enqueue failed for note', note.id, noteErr);
+        }
+      }
+    }
     // The wallet is now auto-claiming these notes, so the "click to claim"
     // notification is stale — dismiss it so it doesn't linger (#459).
     clearNoteReceivedNotification();
@@ -124,7 +151,8 @@ const Explore: FC = () => {
     account.publicKey,
     shouldAutoConsume,
     hasAutoConsumableNotes,
-    signTransaction
+    signTransaction,
+    verificationBaseFee
   ]);
 
   useEffect(() => {
@@ -138,31 +166,6 @@ const Explore: FC = () => {
       navigate('/reset-required');
     }
   }, [address]);
-
-  useEffect(() => {
-    if (earnWithdrawReconciled) return;
-    earnWithdrawReconciled = true;
-    import('lib/epoch')
-      .then(({ reconcileEarnWithdrawals }) => reconcileEarnWithdrawals())
-      .catch(err => console.warn('[earn-withdraw] reconcile on mount failed', err));
-  }, []);
-
-  // Deposit-side counterpart: `pollEarnIntentStatus` is a popup-lifetime
-  // setInterval, so rows can be stranded on `epochStatus: 'pending'` after the
-  // process dies. Re-poll (or restart polling for) those once per session.
-  useEffect(() => {
-    if (earnDepositsReconciled) return;
-    earnDepositsReconciled = true;
-    import('lib/epoch')
-      .then(({ reconcileEarnDeposits }) => reconcileEarnDeposits())
-      .catch(err => console.warn('[earn] deposit reconcile on mount failed', err));
-  }, []);
-
-  useEffect(() => {
-    if (bridgeReceivesReconciled) return;
-    bridgeReceivesReconciled = true;
-    reconcileBridgedReceives().catch(err => console.warn('[bridge-receive] reconcile on mount failed', err));
-  }, []);
 
   const filteredTokens = useMemo(() => {
     const sorted = [...allTokenBalances].sort((a, b) => {
@@ -293,7 +296,7 @@ const Explore: FC = () => {
             onSearchChange={setSearch}
             account={account}
             balancesLoading={balancesLoading}
-            claimableNotes={claimableNotes}
+            claimableNotes={manuallyClaimableNotes}
           />
         </div>
       </div>
@@ -343,6 +346,12 @@ const HomeOverview: FC<HomeOverviewProps> = ({
             // UX-REVIEW: a dash is the conservative honest choice; a UX owner may
             // prefer a skeleton or an explicit "prices unavailable" affordance.
             amount={Object.keys(tokenPrices).length === 0 ? '$—' : `$${toLocalFormat(balance, { decimalPlaces: 2 })}`}
+            // Until the first balance read succeeds the store has no entry for
+            // this address and `useAllBalances` substitutes a zero placeholder
+            // row. Right after a recovery that read can lose the WASM lock to the
+            // first sync tick for several seconds, so the card must show the
+            // skeleton and not a "$0.00" that reads as lost funds (#844).
+            state={balancesLoading ? 'loading' : 'default'}
             currency="USD"
             delta={{ absolute: '+0.00', percentage: '0.00%', direction: 'positive' }}
             onMore={() => setAccountsOpen(true)}

@@ -1,3 +1,5 @@
+import type { TransactionRequest as SdkTransactionRequest } from '@miden-sdk/miden-sdk/lazy';
+
 import { IEarnDepositExtraInputs, ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 
@@ -20,8 +22,24 @@ import * as Repo from 'lib/miden/repo';
 interface LatestEarnDeposit {
   id: string;
   status: ITransactionStatus;
+  /**
+   * The pipeline stage last stamped on the row. `status` alone cannot say where a
+   * row that never leaves `GeneratingTransaction` actually stopped, and the write
+   * runs in the offscreen document — a realm with no console the harness can
+   * attach to. The stage stamps DO cross back (`OFFSCREEN_STAGE_EVENT`), so this
+   * is the one field that names the call a stalled deposit is still inside (#718).
+   */
+  stage?: ITransaction['stage'];
   epochStatus?: IEarnDepositExtraInputs['epochStatus'];
   displayMessage?: string;
+  /**
+   * Why the row failed. `epochStatus: 'failed'` is written from two very different places -- a
+   * genuinely failed Epoch leg, and `intent.error` on the submit path -- so without the reason
+   * the two are indistinguishable from the harness. That is what made an earn failure read as an
+   * allocator problem while the allocator was a fake programmed to succeed.
+   */
+  error?: string;
+  rawError?: string;
 }
 
 declare global {
@@ -29,6 +47,13 @@ declare global {
   var __TEST_LATEST_EARN_DEPOSIT__: () => Promise<LatestEarnDeposit | null>;
   // eslint-disable-next-line no-var
   var __TEST_EARN_DEPOSIT_STATE__: (txId: string) => Promise<LatestEarnDeposit | null>;
+  // eslint-disable-next-line no-var
+  var __TEST_NOTE_ATTACHMENT_FELTS__: (noteId: string) => Promise<string[] | null>;
+}
+
+/** Strip an optional 0x prefix and lowercase, so hex note-id forms compare equal. */
+function normalizeNoteId(id: string): string {
+  return id.replace(/^0x/i, '').toLowerCase();
 }
 
 function toDepositView(row: ITransaction): LatestEarnDeposit {
@@ -36,8 +61,11 @@ function toDepositView(row: ITransaction): LatestEarnDeposit {
   return {
     id: row.id,
     status: row.status,
+    stage: row.stage,
     epochStatus: inputs?.epochStatus,
-    displayMessage: row.displayMessage
+    displayMessage: row.displayMessage,
+    error: row.error,
+    rawError: row.rawError
   };
 }
 
@@ -54,5 +82,58 @@ export function installEarnTestHooks(): void {
   globalThis.__TEST_EARN_DEPOSIT_STATE__ = async (txId: string): Promise<LatestEarnDeposit | null> => {
     const row = await Repo.transactions.where({ id: txId }).first();
     return row ? toDepositView(row) : null;
+  };
+
+  // Attachment felts of the note `noteId` as SUBMITTED by the wallet — read from
+  // the persisted `requestBytes` (the exact request the pipeline proves +
+  // submits), so the FakeEpochAllocator can play smallocator PR #38 and reject
+  // a collateral note whose attachment doesn't commit to the intent mandate.
+  // Returns every felt of the note's first attachment (word padding included —
+  // the real allocator ignores felts past the fixed binding count), `[]` when
+  // the note has NO attachment, and `null` when no persisted request carries a
+  // note with that id. The SDK import is dynamic so this test-only module adds
+  // nothing to SW boot.
+  globalThis.__TEST_NOTE_ATTACHMENT_FELTS__ = async (noteId: string): Promise<string[] | null> => {
+    const { TransactionRequest } = await import('@miden-sdk/miden-sdk/lazy');
+    const wanted = normalizeNoteId(noteId);
+    const rows = await Repo.transactions.filter(tx => !!tx.requestBytes).toArray();
+    for (const row of rows) {
+      let request: SdkTransactionRequest;
+      try {
+        request = TransactionRequest.deserialize(row.requestBytes!);
+      } catch {
+        continue; // not every persisted request is a note request (e.g. custom scripts)
+      }
+      for (const note of request.expectedOutputOwnNotes()) {
+        if (normalizeNoteId(note.id().toString()) !== wanted) continue;
+        const attachment = note.attachments()[0];
+        if (!attachment) return [];
+        const felts: string[] = [];
+        for (const word of attachment.toWords()) {
+          for (const felt of word.toFelts()) {
+            felts.push(felt.asInt().toString());
+          }
+        }
+        return felts;
+      }
+    }
+    // Nothing matched. To the fake allocator `null` reads as "note not found on-chain", which
+    // points at the chain rather than at this lookup -- so say what was actually scanned.
+    const seen: string[] = [];
+    for (const row of rows) {
+      try {
+        const req = TransactionRequest.deserialize(row.requestBytes!);
+        for (const n of req.expectedOutputOwnNotes()) {
+          seen.push(`${row.type}:${normalizeNoteId(n.id().toString())}`);
+        }
+      } catch {
+        seen.push(`${row.type}:<undeserializable>`);
+      }
+    }
+    console.warn('[earn-hook] no persisted request carries note', wanted, {
+      rowsScanned: rows.length,
+      noteIdsSeen: seen
+    });
+    return null;
   };
 }

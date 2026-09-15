@@ -39,7 +39,14 @@ export const HeroSearch: FC<HeroSearchProps> = ({ onSubmit }) => {
 
   return (
     <div className="px-4">
-      <SearchInput value={value} onChange={setValue} onSubmit={submit} placeholder={t('searchDapps')} inputMode="url" />
+      <SearchInput
+        value={value}
+        onChange={setValue}
+        onSubmit={submit}
+        placeholder={t('searchDapps')}
+        inputMode="url"
+        data-testid="dapp-hero-search"
+      />
     </div>
   );
 };

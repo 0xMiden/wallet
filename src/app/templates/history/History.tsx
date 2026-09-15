@@ -1,12 +1,14 @@
-import React, { memo, RefObject, useMemo, useState } from 'react';
+import React, { memo, RefObject, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import { HISTORY_PAGE_SIZE } from 'app/defaults';
+import { usePageActive } from 'app/layouts/page-active';
 import {
   cancelTransactionById,
   getCompletedTransactions,
   getUncompletedTransactions,
+  isCancellableTransaction,
   isUserCancelledTransaction,
-  suppressingLinkedTxIds,
+  suppressedLinkedConsumeIds,
   USER_CANCELLED_TRANSACTION_REASON
 } from 'lib/miden/activity';
 import {
@@ -20,6 +22,7 @@ import {
   ITransactionStatus,
   ISwitchGuardianExtraInputs
 } from 'lib/miden/db/types';
+import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
 import { formatAmount } from 'lib/shared/format';
 import { useRetryableSWR } from 'lib/swr';
@@ -27,10 +30,13 @@ import useSafeState from 'lib/ui/useSafeState';
 
 import HistoryView from './HistoryView';
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
+import type { PendingActivityItem } from './PendingActivityCard';
 import {
   earnWithdrawAmountFields,
   isFaucetRequest as isFaucetEntry,
-  resolveSwapHistoryFields
+  resolveConsumeExtraAmounts,
+  resolveSwapHistoryFields,
+  swapSettlementOf
 } from './transactionUtils';
 
 type HistoryProps = {
@@ -41,26 +47,83 @@ type HistoryProps = {
   className?: string;
   fullHistory?: boolean;
   centerEmptyState?: boolean;
+  pendingItems?: PendingActivityItem[];
+  renderPendingItem?: (item: PendingActivityItem) => React.ReactNode;
   tokenId?: string;
   searchQuery?: string;
-  filter?: 'all' | 'sent' | 'received' | 'faucet';
+  filter?: ActivityFilter;
 };
 
+// The chips above the activity list. `pending` shows only the notes that
+// wait for a claim, so it removes every settled history row.
+export type ActivityFilter = 'all' | 'pending' | 'sent' | 'received' | 'faucet';
+
 const History = memo<HistoryProps>(
-  ({ address, className, numItems, scrollParentRef, fullHistory, centerEmptyState, tokenId, searchQuery, filter }) => {
+  ({
+    address,
+    className,
+    numItems,
+    scrollParentRef,
+    fullHistory,
+    centerEmptyState,
+    tokenId,
+    searchQuery,
+    filter,
+    pendingItems,
+    renderPendingItem
+  }) => {
     const safeStateKey = useMemo(() => ['history', address, tokenId].join('_'), [address, tokenId]);
     const [isLoading, setIsLoading] = useState(false);
     const [hasMore, setHasMore] = useState(true);
     const [restEntries, setRestEntries] = useSafeState<Array<IHistoryEntry>>([], safeStateKey);
 
-    const { data: latestTransactions, isLoading: transactionsLoading } = useRetryableSWR(
+    // `restEntries` is keyed to the scope; these two are not, so without this
+    // they outlive it. A failed page sets `hasMore` false to stop the retry spin
+    // — correct for the scope that failed, but the flag would then follow the
+    // user to every other account and token page in this mount and silently
+    // disable their pagination too.
+    //
+    // The ref is the same problem seen from the other end: `useSafeState`'s
+    // setter only checks that the component is still MOUNTED, not that the key
+    // still matches, so a page already in flight when the user switches account
+    // would land its rows in the new account's list.
+    //
+    // `useLayoutEffect`, not `useEffect`: a passive effect is flushed by the
+    // scheduler AFTER paint, while a resolving fetch is a microtask. In that
+    // window the ref would still hold the old key and the stale page would sail
+    // through the guard. A layout effect runs inside commit, closing it. (Tests
+    // cannot see the difference — `act` flushes passive effects synchronously.)
+    //
+    // A monotonic counter rather than the key itself: comparing keys says "the
+    // scope matches now", which an A → B → A round trip satisfies while the
+    // original A request is still in flight. That request would then merge
+    // against the `restEntries` its closure captured — the list as it was before
+    // the user left — discarding whatever the second visit loaded.
+    const scopeRef = useRef(0);
+    useLayoutEffect(() => {
+      scopeRef.current += 1;
+      setHasMore(true);
+      setIsLoading(false);
+    }, [safeStateKey]);
+
+    const onScreen = usePageActive();
+    // The Pending filter shows transfer cards only, and a retained page off screen shows nothing, so the
+    // transaction reads run only while neither holds.
+    const reading = onScreen && filter !== 'pending';
+
+    const {
+      data: latestTransactions,
+      isLoading: transactionsLoading,
+      mutate: mutateLatest
+    } = useRetryableSWR(
       [`latest-transactions`, address, tokenId],
       async () => fetchTransactionsAsHistoryEntries(address, undefined, undefined, tokenId),
       {
         revalidateOnMount: true,
         refreshInterval: 10_000,
         dedupingInterval: 3_000,
-        keepPreviousData: true
+        keepPreviousData: true,
+        isPaused: () => !reading
       }
     );
 
@@ -71,12 +134,29 @@ const History = memo<HistoryProps>(
         revalidateOnMount: true,
         refreshInterval: 5_000,
         dedupingInterval: 3_000,
-        keepPreviousData: true
+        keepPreviousData: true,
+        isPaused: () => !reading
       }
     );
+    // A paused read only ticks again on its next interval, so reads that resume refresh at once: a page back on
+    // screen, or a filter moved off Pending.
+    const wasReading = useRef(reading);
+    useEffect(() => {
+      if (reading && !wasReading.current) {
+        void mutateLatest();
+        void mutateTx();
+      }
+      wasReading.current = reading;
+    }, [reading, mutateLatest, mutateTx]);
+
     const pendingTransactions = useMemo(
       () =>
         latestPendingTransactions?.map(tx => {
+          // A structural op already in flight gets no Cancel — see
+          // `isCancellableTransaction`. The pending list is Queued +
+          // GeneratingTransaction, so this is the only place the distinction can
+          // be made before the affordance is attached.
+          if (!isCancellableTransaction({ status: tx.status, type: tx.txType })) return tx;
           tx.cancel = async () => {
             if (tx.txId) {
               await cancelTransactionById(tx.txId, USER_CANCELLED_TRANSACTION_REASON);
@@ -100,25 +180,70 @@ const History = memo<HistoryProps>(
         return;
       }
       setIsLoading(true);
+      const scope = scopeRef.current;
       const offset = HISTORY_PAGE_SIZE * page;
       const limit = HISTORY_PAGE_SIZE;
-      const olderTransactions = await fetchTransactionsAsHistoryEntries(address, offset, limit, tokenId);
-      const allRestEntries = mergeAndSort(restEntries, olderTransactions);
-
-      if (allRestEntries.length === 0) {
-        setHasMore(false);
+      try {
+        const olderTransactions = await fetchTransactionsAsHistoryEntries(address, offset, limit, tokenId);
+        // Answer for a scope the user has since left: `restEntries` in this
+        // closure is the OLD account's list, so merging would show one account's
+        // history under another's.
+        if (scopeRef.current !== scope) return;
+        // Key off what the PAGE returned, not the merged list. Merged, the list
+        // is non-empty from the first successful page onward, so an exhausted
+        // history never sets the flag: the scroller re-arms on each parent
+        // render (SWR re-renders this on a timer) and fires an endless run of
+        // empty queries. A short page is also the last one, so stop there rather
+        // than spending one more round trip to see an empty one.
+        if (olderTransactions.length < limit) {
+          setHasMore(false);
+        }
+        setRestEntries(mergeAndSort(restEntries, olderTransactions));
+      } catch (error) {
+        // Stop paging on failure. Clearing `isLoading` without this would spin:
+        // the infinite scroller re-arms on every parent render (and SWR re-renders
+        // this on a timer), so a persistently failing page would be retried for
+        // the rest of the session. Leaving `isLoading` set instead would wedge
+        // pagination permanently, so neither flag alone is the answer — the list
+        // keeps everything already loaded and simply stops extending.
+        console.error(
+          `Failed to load history page ${page} (offset ${offset}, limit ${limit}) for ${address}${
+            tokenId ? ` token ${tokenId}` : ''
+          }`,
+          error
+        );
+        // Same reasoning as the success path: do not disable pagination for a
+        // scope the user has already moved on to.
+        if (scopeRef.current === scope) setHasMore(false);
+      } finally {
+        if (scopeRef.current === scope) setIsLoading(false);
       }
-      setRestEntries(allRestEntries);
-      setIsLoading(false);
     };
 
-    let entries: IHistoryEntry[] = allEntries;
+    // A card carries its claim's outcome, failed included, so the row that outcome would repeat stays hidden.
+    const representedNotes = new Set(
+      pendingItems
+        ?.filter(item => item.status === 'claiming' || item.status === 'claimed' || item.status === 'failed')
+        .map(item => item.note.id)
+    );
+    let entries: IHistoryEntry[] = allEntries.filter(
+      entry =>
+        !(
+          entry.txType === 'consume' &&
+          entry.consumedNoteIds?.length &&
+          entry.consumedNoteIds.every(id => representedNotes.has(id))
+        )
+    );
     if (searchQuery?.trim()) {
       const query = searchQuery.toLowerCase();
       entries = entries.filter(
         e =>
           e.message?.toLowerCase().includes(query) ||
           e.token?.toLowerCase().includes(query) ||
+          // A batch claim displays its secondary assets on the row, so searching
+          // for one has to find it — otherwise typing a symbol the user can see
+          // hides the very row showing it.
+          e.extraAmounts?.some(extra => extra.token.toLowerCase().includes(query)) ||
           e.secondaryAddress?.toLowerCase().includes(query)
       );
     }
@@ -126,6 +251,7 @@ const History = memo<HistoryProps>(
       // Failed/cancelled rows lose their directional icon (it becomes FAILED),
       // so the Sent/Received filters fall back to the underlying tx type.
       entries = entries.filter(e => {
+        if (filter === 'pending') return false;
         if (filter === 'sent') {
           return e.transactionIcon === 'SEND' || (e.transactionIcon === 'FAILED' && isSendType(e.txType));
         }
@@ -147,13 +273,18 @@ const History = memo<HistoryProps>(
     return (
       <HistoryView
         entries={entries ?? []}
-        initialLoading={transactionsLoading}
+        // Under Pending both reads are paused, and one that never ran reports loading until they resume.
+        initialLoading={filter !== 'pending' && transactionsLoading}
         loadMore={loadMore}
-        hasMore={hasMore}
+        // Paging reads transaction rows too, so it stops wherever the reads above pause: under Pending, where every
+        // row is filtered out, and off screen.
+        hasMore={reading && hasMore}
         scrollParentRef={scrollParentRef}
         tokenId={tokenId}
         fullHistory={fullHistory}
         centerEmptyState={centerEmptyState}
+        pendingItems={pendingItems}
+        renderPendingItem={renderPendingItem}
         className={className}
       />
     );
@@ -200,10 +331,15 @@ async function fetchTransactionsAsHistoryEntries(
     // Swap faucets are usually absent from wallet metadata — resolve both
     // sides through the DEX registry instead of the generic path.
     const swapFields = tx.type === 'swap' ? await resolveSwapHistoryFields(tx) : undefined;
+    const extraAmounts = await resolveConsumeExtraAmounts(tx);
     const entry = {
       address: address,
       key: `completed-${tx.id}`,
-      timestamp: tx.completedAt,
+      // Same fallback the query sorts by (`getCompletedTransactions`) and the
+      // detail view renders. A terminal row is not guaranteed to carry
+      // `completedAt`, and the day grouping builds a Date from this with no
+      // fallback of its own — one missing value takes down the whole list.
+      timestamp: tx.completedAt ?? tx.initiatedAt,
       message: updateMessageForFailed,
       status: tx.status,
       type: HistoryEntryType.CompletedTransaction,
@@ -212,7 +348,15 @@ async function fetchTransactionsAsHistoryEntries(
         ? earnWithdrawFields.amount
         : swapFields
           ? swapFields.amount
-          : tx.amount
+          : // `!== undefined`, not truthiness: `0n` is a real total. A claim whose
+            // primary faucet sums to zero would otherwise render no amount at all,
+            // and take every secondary asset down with it (see `buildRowProps`).
+            //
+            // `hasKnownScale` withholds the number when the faucet resolved only
+            // to the unknown-token placeholder, whose 6 decimals are a guess: the
+            // asset is still NAMED below, so the row keeps its headline slot
+            // rather than promoting a secondary over it.
+            tx.amount !== undefined && hasKnownScale(tokenMetadata)
             ? formatAmount(tx.amount, tokenMetadata?.decimals)
             : undefined,
       token: earnWithdrawFields
@@ -222,6 +366,7 @@ async function fetchTransactionsAsHistoryEntries(
           : tokenMetadata
             ? tokenMetadata.symbol
             : undefined,
+      extraAmounts: extraAmounts.length > 0 ? extraAmounts : undefined,
       earnWithdrawPhase: earnWithdraw?.phase,
       // The Miden collateral note landing is only half a deposit — the chip
       // tracks the Sepolia lending leg.
@@ -233,6 +378,7 @@ async function fetchTransactionsAsHistoryEntries(
       // Bridge rows have no Miden recipient — surface the EVM destination instead.
       secondaryAddress: bridge?.destinationAddress ?? tx.secondaryAccountId,
       txId: tx.id,
+      consumedNoteIds: tx.type === 'consume' ? (tx.noteIds ?? (tx.noteId ? [tx.noteId] : [])) : undefined,
       noteType: tx.noteType,
       faucetId: tx.faucetId,
       txType: tx.type,
@@ -251,15 +397,16 @@ async function fetchTransactionsAsHistoryEntries(
       bridgeFillChainId: bridge?.fillChainId,
       bridgeEpochStatus: bridge?.epochStatus,
       bridgeReclaimHeight: bridge?.reclaimHeight,
+      restoredFromBackup: tx.restoredFromBackup,
       bridgeInProvider: bridgedReceive?.provider ?? bridgeIn?.provider,
-      bridgeInSourceAddress: bridgedReceive?.sourceAddress,
+      bridgeInSourceAddress: bridgedReceive?.sourceAddress ?? bridgeIn?.intentOwner,
       bridgeInSourceAmount: bridgedReceive?.sourceAmount ?? bridgeIn?.sourceAmount,
       bridgeInSourceSymbol: bridgedReceive?.sourceSymbol ?? bridgeIn?.sourceSymbol,
       bridgeInEvmTxHash: bridgedReceive?.evmTxHash ?? bridgeIn?.evmTxHash,
       bridgeInPhase: bridgedReceive?.phase,
       bridgeInOutputAmount: bridgedReceive?.outputAmount,
       bridgeInOutputSymbol: bridgedReceive?.outputSymbol,
-      bridgeInMidenNoteId: bridgedReceive?.midenNoteId
+      bridgeInMidenNoteId: bridgedReceive?.midenNoteId ?? bridgeIn?.midenNoteId
     } as IHistoryEntry;
 
     return entry;
@@ -282,6 +429,7 @@ async function fetchPendingTransactionsAsHistoryEntries(address: string, tokenId
     const guardianSwitch: ISwitchGuardianExtraInputs | undefined =
       tx.type === 'switch-guardian' ? tx.extraInputs : undefined;
     const swapFields = tx.type === 'swap' ? await resolveSwapHistoryFields(tx) : undefined;
+    const extraAmounts = await resolveConsumeExtraAmounts(tx);
     return {
       key: `pending-${tx.id}`,
       address: address,
@@ -289,14 +437,23 @@ async function fetchPendingTransactionsAsHistoryEntries(address: string, tokenId
       timestamp: tx.initiatedAt,
       message: tx.displayMessage || 'Generating transaction',
       status: tx.status,
-      amount: swapFields ? swapFields.amount : tx.amount ? formatAmount(tx.amount, tokenMetadata?.decimals) : undefined,
+      amount: swapFields
+        ? swapFields.amount
+        : // See the completed-history fetcher above: `0n` is a real total, and a
+          // faucet that resolved only to the unknown-token placeholder has no
+          // trustworthy scale to convert by.
+          tx.amount !== undefined && hasKnownScale(tokenMetadata)
+          ? formatAmount(tx.amount, tokenMetadata?.decimals)
+          : undefined,
       token: swapFields ? swapFields.token : tokenMetadata ? tokenMetadata.symbol : undefined,
+      extraAmounts: extraAmounts.length > 0 ? extraAmounts : undefined,
       requestedAmount: swapFields?.requestedAmount,
       requestedToken: swapFields?.requestedToken,
       requestedFaucetId: swapFields?.requestedFaucetId,
       // Bridge rows have no Miden recipient — surface the EVM destination instead.
       secondaryAddress: bridge?.destinationAddress ?? tx.secondaryAccountId,
       txId: tx.id,
+      consumedNoteIds: tx.type === 'consume' ? (tx.noteIds ?? (tx.noteId ? [tx.noteId] : [])) : undefined,
       type: entryType,
       noteType: tx.noteType,
       faucetId: tx.faucetId,
@@ -314,6 +471,7 @@ async function fetchPendingTransactionsAsHistoryEntries(address: string, tokenId
       bridgeFillChainId: bridge?.fillChainId,
       bridgeEpochStatus: bridge?.epochStatus,
       bridgeReclaimHeight: bridge?.reclaimHeight,
+      restoredFromBackup: tx.restoredFromBackup,
       earnDepositStatus: earnDeposit?.epochStatus
     } as IHistoryEntry;
   });
@@ -332,49 +490,8 @@ async function fetchPendingTransactionsAsHistoryEntries(address: string, tokenId
  * the swap row on its requested-token page too.
  */
 async function suppressLinkedConsumes<T extends ITransaction>(transactions: T[]): Promise<T[]> {
-  const linkedTrackingIds = transactions.map(linkedPrimaryTxId).filter((id): id is string => Boolean(id));
-  if (linkedTrackingIds.length === 0) return transactions;
-  const suppressingIds = await suppressingLinkedTxIds(linkedTrackingIds);
-  return transactions.filter(tx => {
-    const linkedId = linkedPrimaryTxId(tx);
-    return !(linkedId && suppressingIds.has(linkedId));
-  });
-}
-
-/**
- * The primary row a `consume` transaction is the lifecycle tail of, if any —
- * swap-order settlement consumes (linked via `extraInputs.swapOrderTxId` by
- * `reconcileSwapOrderNotes`), Smart Withdraw delivery consumes (linked via
- * `extraInputs.bridgeIn.earnWithdrawTxId`) and bridged-receive delivery consumes
- * (linked via `extraInputs.bridgeIn.bridgeReceiveTxId`). While the primary row
- * exists AND is a valid trace it is the single trace; a dangling reference — or a
- * terminal-`failed` earn-withdraw primary (see `suppressingLinkedTxIds`) — falls
- * through to a normal receive row so the delivered funds stay visible.
- */
-function linkedPrimaryTxId(tx: ITransaction): string | undefined {
-  if (tx.type !== 'consume') return undefined;
-  return (
-    tx.extraInputs?.swapOrderTxId ??
-    tx.extraInputs?.bridgeIn?.earnWithdrawTxId ??
-    tx.extraInputs?.bridgeIn?.bridgeReceiveTxId
-  );
-}
-
-/**
- * Settlement state for a completed swap order, driving the single swap row's
- * status chip; `undefined` renders Confirmed. Pending only for auto-consumed
- * orders that carry an explicit expiry (stamped since settlement shipped) and
- * have no settlement stamp yet — settled, legacy, and manual-claim orders all
- * fall through to Confirmed. A settledAt stamp wins over reclaimedAt (a batch
- * containing payback notes delivered funds even if the order later expired).
- */
-function swapSettlementOf(tx: ITransaction): 'pending' | 'reclaimed' | undefined {
-  if (tx.type !== 'swap' || tx.status !== ITransactionStatus.Completed) return undefined;
-  const extra = tx.extraInputs ?? {};
-  if (extra.settledAt != null) return undefined;
-  if (extra.reclaimedAt != null) return 'reclaimed';
-  if (extra.autoConsume !== false && extra.orderId != null && extra.expiresAt != null) return 'pending';
-  return undefined;
+  const suppressed = await suppressedLinkedConsumeIds(transactions);
+  return transactions.filter(tx => !suppressed.has(tx.id));
 }
 
 function mergeAndSort(base?: IHistoryEntry[], toAppend: IHistoryEntry[] = []) {

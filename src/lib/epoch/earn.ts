@@ -13,8 +13,11 @@ import * as Repo from 'lib/miden/repo';
 
 import { normalizeMidenIdToHex } from './bridge';
 import { getCurrentMidenBlock, MIDEN_MIN_RECLAIM_BLOCKS, MIDEN_RECLAIM_BUFFER_BLOCKS } from './chain';
-import { createEarnP2IDNote } from './earn-note';
+import { createEarnP2IDENote } from './earn-note';
+import { isEvmAddress } from './evm-address';
+import { earnDepositPollKey, matchesEarnDepositIntent, type ExpectedEarnDepositIntent } from './intent-key';
 import type { BridgeNoteDeps } from './miden-note';
+import { startIntentPoll } from './poll-registry';
 import { getEpochReadOnlySdk } from './sdk';
 import type { IntentResult } from './types';
 
@@ -65,7 +68,10 @@ export interface EarnIntentParams {
   depositAmount: string;
   /** 0x EVM address that owns the resulting lending position (intent sponsor). */
   evmRecipient: `0x${string}`;
-  /** Absolute future Miden block at which the P2IDE note becomes reclaimable. */
+  /**
+   * Mandate-only reclaim-height estimate (hashed into the witness). The note's
+   * real reclaim height derives from the SDK callback's `recallBlocks` instead.
+   */
   midenReclaimHeight: number;
 }
 
@@ -74,11 +80,6 @@ export interface EarnQuote {
   intentData: Record<string, unknown>;
   quoteResult: IntentQuoteResult;
   params: EarnIntentParams;
-}
-
-/** Narrow a plain string to a 0x EVM address without a cast. */
-function isEvmAddress(value: string): value is `0x${string}` {
-  return /^0x[0-9a-fA-F]{40}$/.test(value);
 }
 
 /**
@@ -140,11 +141,11 @@ export async function getEarnQuote(
   return { taskTypeString, intentData, quoteResult, params };
 }
 
-/** Step 2: submit the lending intent, locking Miden collateral via `createMidenP2IDNote`. */
+/** Step 2: submit the lending intent, locking Miden collateral via `createMidenP2IDENote`. */
 export async function buildEarnIntent(
   sdk: EpochIntentSDK,
   params: EarnIntentParams & {
-    createMidenP2IDNote?: SolveIntentParams['createMidenP2IDNote'];
+    createMidenP2IDENote?: SolveIntentParams['createMidenP2IDENote'];
     /** Pre-fetched quote from `getEarnQuote` — skips the getTaskData step. */
     preFetchedQuote?: EarnQuote;
     /**
@@ -182,7 +183,7 @@ export async function buildEarnIntent(
       collateralType: CollateralType.Miden,
       midenFaucetId: midenFaucetHex,
       midenSourceAccount: midenSourceHex,
-      createMidenP2IDNote: params.createMidenP2IDNote
+      createMidenP2IDENote: params.createMidenP2IDENote
     });
     // The nonce lands on one of several fields depending on the solve path.
     const nonce =
@@ -256,55 +257,80 @@ export function resolveEarnIntentOutcome(
   return { outcome: 'pending', destination, source };
 }
 
-/**
- * Background-poll the Epoch allocator for a lending intent's fill and flip the
- * `earn-deposit` row's `epochStatus` once it settles. Fire-and-forget: the Miden
- * collateral note is already locked by the time this runs, so the form doesn't wait
- * on it — the activity row updates in place. Uses the read-only SDK (no wallet),
- * and self-terminates on a terminal status or after `maxAttempts` ticks.
- *
- * Settlement is gated on the SEPOLIA (destination) leg via
- * `resolveEarnIntentOutcome` — the Miden source leg completing only means the
- * collateral note was consumed by the allocator, not that the lending deposit
- * landed.
- */
+interface EarnDepositPollDeps {
+  getSdk?: typeof getEpochReadOnlySdk;
+  updateStatus?: typeof updateEarnDepositStatus;
+  startPoll?: typeof startIntentPoll;
+}
+
+async function isLiveDeposit(txId: string, expected: ExpectedEarnDepositIntent): Promise<boolean> {
+  const row = await Repo.transactions.where({ id: txId }).first();
+  return (
+    row?.type === 'earn-deposit' &&
+    row.status === ITransactionStatus.Completed &&
+    !row.restoredFromBackup &&
+    row.extraInputs?.epochStatus !== 'confirmed' &&
+    row.extraInputs?.epochStatus !== 'failed' &&
+    matchesEarnDepositIntent(row, expected)
+  );
+}
+
+/** Poll the destination leg under shared ownership, retaining bounded retry bursts. */
 export function pollEarnIntentStatus(args: {
   sponsorAddress: `0x${string}`;
   nonce: string;
-  /** `earn-deposit` row id to patch when the intent settles. */
   txId?: string;
   intervalMs?: number;
   maxAttempts?: number;
+  immediate?: boolean;
+  deps?: EarnDepositPollDeps;
 }): void {
-  const { sponsorAddress, nonce, txId, intervalMs = 3000, maxAttempts = 100 } = args;
-  let attempts = 0;
-  const interval = setInterval(() => void tick(), intervalMs);
-
-  async function tick(): Promise<void> {
-    attempts += 1;
-    try {
-      const sdk = await getEpochReadOnlySdk(sponsorAddress);
-      const results = await sdk.getIntentStatus(sponsorAddress, nonce);
-      console.log('[earn] poll intent status', results);
-      const { outcome, destination, source } = resolveEarnIntentOutcome(results, EARN_DESTINATION_CHAIN_ID);
-      if (outcome !== 'pending') {
-        clearInterval(interval);
-        // The Sepolia (destination) leg carries the EVM tx hash for the position;
-        // on a source-side failure fall back to whatever leg reported.
-        const evmTxHash = destination?.transactionHash || source?.transactionHash || undefined;
-        if (txId) {
-          await updateEarnDepositStatus(
-            txId,
-            outcome === 'done' ? 'confirmed' : 'failed',
-            evmTxHash ? { evmTxHash } : undefined
-          );
-        }
+  const { sponsorAddress, nonce, txId, intervalMs = 3000, maxAttempts = 100, immediate, deps = {} } = args;
+  if (!isEvmAddress(sponsorAddress) || !nonce) return;
+  const getSdk = deps.getSdk ?? getEpochReadOnlySdk;
+  const updateStatus = deps.updateStatus ?? updateEarnDepositStatus;
+  const startPoll = deps.startPoll ?? startIntentPoll;
+  const expected: ExpectedEarnDepositIntent = { owner: sponsorAddress, nonce };
+  startPoll({
+    key: earnDepositPollKey(sponsorAddress, nonce),
+    intervalMs,
+    maxAttempts,
+    immediate,
+    tick: async context => {
+      const stillLive = async () => txId === undefined || isLiveDeposit(txId, expected);
+      if (!(await stillLive())) {
+        context.markTerminal();
+        return;
       }
-    } catch (err) {
-      console.warn('[epoch] pollEarnIntentStatus failed', err);
+      if (!context.isCurrent()) return;
+      const sdk = await getSdk(sponsorAddress);
+      if (!context.isCurrent()) return;
+      if (!(await stillLive())) {
+        context.markTerminal();
+        return;
+      }
+      if (!context.isCurrent()) return;
+      const results = await sdk.getIntentStatus(sponsorAddress, nonce);
+      if (!context.isCurrent()) return;
+      if (!(await stillLive())) {
+        context.markTerminal();
+        return;
+      }
+      if (!context.isCurrent()) return;
+      const { outcome, destination, source } = resolveEarnIntentOutcome(results, EARN_DESTINATION_CHAIN_ID);
+      if (outcome === 'pending') return;
+      context.markTerminal();
+      const evmTxHash = destination?.transactionHash || source?.transactionHash || undefined;
+      if (txId) {
+        await updateStatus(
+          txId,
+          outcome === 'done' ? 'confirmed' : 'failed',
+          evmTxHash ? { evmTxHash } : undefined,
+          expected
+        );
+      }
     }
-    if (attempts >= maxAttempts) clearInterval(interval);
-  }
+  });
 }
 
 export interface OpenEarnPositionArgs {
@@ -326,7 +352,7 @@ export interface OpenEarnPositionArgs {
  * directly via the read-only client.
  *
  * There is exactly ONE on-chain transaction: the recallable P2IDE note created by
- * the `createMidenP2IDNote` callback (`createEarnP2IDNote`). That note IS the
+ * the `createMidenP2IDENote` callback (`createEarnP2IDENote`). That note IS the
  * `earn-deposit` activity row — created, proved, and submitted by the normal send
  * pipeline, then marked "Deposited to lending".
  */
@@ -347,9 +373,11 @@ export async function openEarnPosition(args: OpenEarnPositionArgs): Promise<{ tx
     midenFaucetId: getEarnCollateralFaucet(),
     depositAmount: args.amount.toString(),
     evmRecipient,
-    // Minimum window + headroom for the blocks that elapse while the collateral
-    // note is proved and submitted (the allocator validates against its later
-    // chain head). Mirrors `buildEpochSendIntentParams`.
+    // Mandate-only estimate (hashed into the witness, echoed back by the
+    // allocator). The NOTE's actual reclaim height is NOT derived from this —
+    // it uses the SDK-supplied `recallBlocks` from the mint callback (allocator
+    // minimum + SDK buffer); the allocator validates the note's REMAINING
+    // window against its own chain head, not this exact height.
     midenReclaimHeight: currentBlock + MIDEN_MIN_RECLAIM_BLOCKS + MIDEN_RECLAIM_BUFFER_BLOCKS
   };
 
@@ -368,12 +396,14 @@ export async function openEarnPosition(args: OpenEarnPositionArgs): Promise<{ tx
         console.warn('[epoch] updateEarnDepositStatus(pending) failed', err)
       );
     },
-    createMidenP2IDNote: async (faucet, amount, allocatorId) => {
-      const res = await createEarnP2IDNote({
+    createMidenP2IDENote: async (faucet, amount, allocatorId, recallBlocks, bindingAttachmentFelts) => {
+      const res = await createEarnP2IDENote({
         senderAccountId: args.senderPublicKey,
         faucetId: faucet,
         amount,
         allocatorId,
+        recallBlocks,
+        bindingAttachmentFelts,
         evmRecipient,
         marketUid: EARN_MARKET_UID,
         deps: args.deps,
@@ -414,65 +444,25 @@ export async function openEarnPosition(args: OpenEarnPositionArgs): Promise<{ tx
   return { txId: earnTxId };
 }
 
-interface ReconcileEarnDepositsDeps {
-  getSdk?: typeof getEpochReadOnlySdk;
-  updateStatus?: typeof updateEarnDepositStatus;
-  /** Injectable background poller (tests pass a no-op). */
+interface ReconcileEarnDepositsDeps extends EarnDepositPollDeps {
   startStatusPoll?: typeof pollEarnIntentStatus;
 }
 
-/**
- * Startup reconciler for `earn-deposit` rows — the deposit-side counterpart of
- * `reconcileEarnWithdrawals`.
- *
- * `pollEarnIntentStatus` is a plain `setInterval` living in the popup / app
- * process: closing the popup (or an iOS WebView teardown) kills it mid-flight and
- * the row is stranded on `epochStatus: 'pending'` forever, even though the Epoch
- * intent has long since settled. This scans the Completed `earn-deposit` rows
- * that are still un-settled and re-polls their intents once, applying the same
- * destination-leg gating (`resolveEarnIntentOutcome`) the live poller uses. Rows
- * that are still genuinely in flight get their background poll restarted so they
- * settle within this session.
- *
- * Called once per session from the Explore mount, next to
- * `reconcileEarnWithdrawals`.
- */
+/** Restart eligible deposits through the same owned polling path as initiation. */
 export async function reconcileEarnDeposits(deps: ReconcileEarnDepositsDeps = {}): Promise<void> {
-  const getSdk = deps.getSdk ?? getEpochReadOnlySdk;
-  const updateStatus = deps.updateStatus ?? updateEarnDepositStatus;
   const startStatusPoll = deps.startStatusPoll ?? pollEarnIntentStatus;
-
-  // `type` is not a Dexie index (see repo.ts), so scan + filter rather than
-  // `.where('type')` (which throws SchemaError).
   const rows = await Repo.transactions.filter(tx => tx.type === 'earn-deposit').toArray();
-
   for (const row of rows) {
-    // Only a row whose Miden collateral note actually landed has an intent to poll.
-    if (row.status !== ITransactionStatus.Completed) continue;
-
+    if (row.type !== 'earn-deposit' || row.status !== ITransactionStatus.Completed || row.restoredFromBackup) continue;
     const inputs: IEarnDepositExtraInputs | undefined = row.extraInputs;
-    if (!inputs) continue;
-    // Already settled one way or the other — nothing to reconcile.
-    if (inputs.epochStatus === 'confirmed' || inputs.epochStatus === 'failed') continue;
+    if (!inputs || inputs.epochStatus === 'confirmed' || inputs.epochStatus === 'failed') continue;
     if (!inputs.intentNonce || !isEvmAddress(inputs.evmRecipient)) continue;
-
-    const sponsorAddress = inputs.evmRecipient;
-    const nonce = inputs.intentNonce;
-    try {
-      const sdk = await getSdk(sponsorAddress);
-      const results = await sdk.getIntentStatus(sponsorAddress, nonce);
-      const { outcome, destination, source } = resolveEarnIntentOutcome(results, EARN_DESTINATION_CHAIN_ID);
-
-      if (outcome === 'pending') {
-        // Still in flight — restart the poller the dead process took with it.
-        startStatusPoll({ sponsorAddress, nonce, txId: row.id });
-        continue;
-      }
-
-      const evmTxHash = destination?.transactionHash || source?.transactionHash || undefined;
-      await updateStatus(row.id, outcome === 'done' ? 'confirmed' : 'failed', evmTxHash ? { evmTxHash } : undefined);
-    } catch (err) {
-      console.warn('[earn] reconcile deposit failed', row.id, err);
-    }
+    startStatusPoll({
+      sponsorAddress: inputs.evmRecipient,
+      nonce: inputs.intentNonce,
+      txId: row.id,
+      immediate: true,
+      deps
+    });
   }
 }

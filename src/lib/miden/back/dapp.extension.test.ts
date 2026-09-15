@@ -12,6 +12,7 @@
  */
 
 import { MidenDAppMessageType, MidenDAppErrorType } from 'lib/adapter/types';
+import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { MidenMessageType } from 'lib/miden/types';
 
 // ── Capture intercom listeners via the mock ────────────────────────
@@ -130,18 +131,46 @@ jest.mock('lib/miden/back/vault', () => ({
 // of miden-client, which jest mocks separately from the relative specifier below;
 // delegate the alias to the same mock so the proxy's flag-off passthrough hits it.
 jest.mock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-client'));
+// Models hold OWNERSHIP (#788 follow-up): the lock hands its callback a hold, and
+// dapp.ts re-checks it via `assertWasmHoldCurrent` after every parking await. The
+// assert re-implements the real comparison (a no-op would make the eviction tests
+// below vacuous) and throws the REAL poison class so `isWasmClientPoisonedError`
+// routing sees the shape the poison contract promises.
+let currentWasmHold: object | null = null;
+// Simulates the watchdog handing the mutex to a successor while the current client
+// call is still parked — call from inside a client-method mock.
+const revokeWasmHold = (): void => {
+  currentWasmHold = null;
+};
 jest.mock('../sdk/miden-client', () => ({
   getMidenClient: async () => (globalThis as any).__dappExtTest.midenClient,
-  withWasmClientLock: async <T>(fn: () => Promise<T>) => fn(),
+  withWasmClientLock: async <T>(fn: (hold: object) => Promise<T>) => {
+    const hold = { mock: 'wasm-lock-hold' };
+    currentWasmHold = hold;
+    try {
+      return await fn(hold);
+    } finally {
+      if (currentWasmHold === hold) currentWasmHold = null;
+    }
+  },
+  getCurrentWasmLockHold: () => currentWasmHold,
+  assertWasmHoldCurrent: (hold: object | null, where: string): void => {
+    if (hold !== null && hold === currentWasmHold) return;
+    throw new WasmClientPoisonedError('watchdog', new Error(`operation abandoned ${where}`));
+  },
   runWhenClientIdle: () => {}
 }));
 
 jest.mock('lib/miden/sdk/helpers', () => ({
+  // Real module underneath: `requestSendTransaction` binds the request's
+  // senderAddress to the session account through `sameWalletAccountId`, and a
+  // bare stub would drop that authorization check from every test here.
+  ...jest.requireActual('lib/miden/sdk/helpers'),
   getBech32AddressFromAccountId: () => 'bech32-addr'
 }));
 
 // Stub the wallet adapter package's enums (jest can't destructure the .mjs build).
-jest.mock('@demox-labs/miden-wallet-adapter-base', () => ({
+jest.mock('@miden-sdk/miden-wallet-adapter-base', () => ({
   PrivateDataPermission: { UponRequest: 'UPON_REQUEST', Auto: 'AUTO' },
   AllowedPrivateData: { None: 0, Assets: 1, Notes: 2, Storage: 4, All: 65535 }
 }));
@@ -208,6 +237,19 @@ const SESSION = {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  // The consume approval preview is derived from the note the wallet resolves, not
+  // from the dApp's declared faucet/amount/type, so consume tests need the note to
+  // exist in the store (note-1 / faucet-1 / 50, matching their request fixtures).
+  _g.__dappExtTest.midenClient.getInputNoteDetails = jest.fn().mockResolvedValue([
+    {
+      noteId: 'note-1',
+      noteType: 0,
+      senderAccountId: 's1',
+      nullifier: 'nf1',
+      state: 0,
+      assets: [{ faucetId: 'faucet-1', amount: '50' }]
+    }
+  ]);
   _g.__dappExtTest.intercomListeners.length = 0;
   for (const k of Object.keys(_g.__dappExtTest.storage)) delete _g.__dappExtTest.storage[k];
   _g.__dappExtTest.storage[STORAGE_KEY] = { 'https://miden.xyz': [SESSION] };
@@ -271,6 +313,35 @@ describe('requestConfirm window-position fallback', () => {
   });
 });
 
+/**
+ * `sourcePublicKey` on a sign request is a signer COMMITMENT, not an account id.
+ * `connect` hands the page b64 of `Word.serialize()`, and the vault keys its
+ * secret blobs by those same 32 bytes in hex — which is the form `signData`
+ * looks up by. A fixture that is neither (an account id, say) cannot exercise
+ * the key binding, and worse, would pass a check that only compared strings.
+ */
+const SIGNER_COMMITMENT = new Uint8Array(32).fill(0xab);
+const SIGNER_COMMITMENT_HEX = 'ab'.repeat(32);
+const FOREIGN_COMMITMENT_HEX = 'cd'.repeat(32);
+
+/**
+ * Make the session's account authenticate with SIGNER_COMMITMENT and nothing else.
+ *
+ * The binding is checked against the key the SESSION stored at connect
+ * (`isAuthorizedSigningKey`), so that is what has to carry the commitment here.
+ * It is stored in the base64 form the connect response hands back, which is also
+ * what makes the hex form the tests send authorize: both encodings name the same
+ * commitment, and the check accepts either.
+ */
+const arrangeSignerAccount = () => {
+  _g.__dappExtTest.storage[STORAGE_KEY]['https://miden.xyz'] = [
+    { ...SESSION, publicKey: Buffer.from(SIGNER_COMMITMENT).toString('base64') }
+  ];
+  _g.__dappExtTest.midenClient.getAccount = jest.fn().mockResolvedValue({
+    getPublicKeyCommitments: () => [{ serialize: () => SIGNER_COMMITMENT }]
+  });
+};
+
 describe('requestSign — extension flow', () => {
   it('opens a confirmation window on call', async () => {
     const browser = (require('webextension-polyfill').default || require('webextension-polyfill')) as any;
@@ -292,9 +363,10 @@ describe('requestSign — extension flow', () => {
   });
 
   it('resolves with a signature when the user confirms', async () => {
+    arrangeSignerAccount();
     const sigPromise = dapp.requestSign('https://miden.xyz', {
       type: MidenDAppMessageType.SignRequest,
-      sourcePublicKey: 'miden-account-1',
+      sourcePublicKey: SIGNER_COMMITMENT_HEX,
       sourceAccountId: 'miden-account-1',
       payload: 'aGVsbG8=',
       kind: 'word'
@@ -754,6 +826,12 @@ describe('Full confirmation cycles in extension mode', () => {
       { confirmed: true, delegate: true }
     );
     expect(res.type).toBe(MidenDAppMessageType.ConsumeResponse);
+
+    // 4th positional arg is `manualRetry`. The user just approved THIS consume on
+    // the confirm page, so auto-consume's exponential backoff must not swallow it
+    // and answer the dApp with a previous attempt's Failed row id.
+    const sdk = require('lib/miden/transaction');
+    expect(sdk.initiateConsumeTransactionFromId.mock.calls[0][3]).toBe(true);
   });
 
   it('requestPrivateNotes rejects when user declines (covers onDecline at L641)', async () => {
@@ -910,6 +988,7 @@ describe('Full confirmation cycles in extension mode', () => {
   });
 
   it('requestSign rejects with InvalidParams when signData throws inside the confirmed branch', async () => {
+    arrangeSignerAccount();
     mockWithUnlocked.mockImplementation(async (fn: (ctx: unknown) => unknown) =>
       fn({
         vault: {
@@ -924,7 +1003,7 @@ describe('Full confirmation cycles in extension mode', () => {
         () =>
           dapp.requestSign('https://miden.xyz', {
             type: MidenDAppMessageType.SignRequest,
-            sourcePublicKey: 'miden-account-1',
+            sourcePublicKey: SIGNER_COMMITMENT_HEX,
             sourceAccountId: 'miden-account-1',
             payload: 'aGVsbG8=',
             kind: 'word'
@@ -933,6 +1012,84 @@ describe('Full confirmation cycles in extension mode', () => {
         { confirmed: true }
       )
     ).rejects.toThrow(MidenDAppErrorType.InvalidParams);
+  });
+
+  /**
+   * The signing key is a separate field from the account the session is resolved
+   * by, and the vault's lookup is keyed by commitment alone with no
+   * back-reference to an account — so every key in the wallet is reachable from
+   * that one string. A page connected to its own account puts its own id in
+   * `sourceAccountId` (so the permission check passes) and somebody else's
+   * commitment in `sourcePublicKey`, and gets a signature from a key it was
+   * never granted. Approving the sheet does not help: the sheet shows the
+   * payload, not whose key will sign it.
+   */
+  describe('requestSign — the key must belong to the account the session authorized', () => {
+    const request = (sourcePublicKey: string) =>
+      ({
+        type: MidenDAppMessageType.SignRequest,
+        sourcePublicKey,
+        sourceAccountId: 'miden-account-1',
+        payload: 'aGVsbG8=',
+        kind: 'word'
+      }) as never;
+
+    const signWith = (sourcePublicKey: string) =>
+      driveConfirmation(
+        () => dapp.requestSign('https://miden.xyz', request(sourcePublicKey)),
+        MidenMessageType.DAppSignConfirmationRequest,
+        { confirmed: true }
+      );
+
+    /**
+     * The refusal cases call through directly rather than driving a confirmation:
+     * the key binding is checked BEFORE any prompt is raised, so there is no
+     * window for `driveConfirmation` to find and it would fail on the harness
+     * rather than on the assertion.
+     */
+    const signRefused = (sourcePublicKey: string) => dapp.requestSign('https://miden.xyz', request(sourcePublicKey));
+
+    it('refuses a commitment the session account does not authenticate with', async () => {
+      arrangeSignerAccount();
+      const signData = jest.fn(async () => 'stolen-signature');
+      mockWithUnlocked.mockImplementation(async (fn: (ctx: unknown) => unknown) => fn({ vault: { signData } }));
+
+      await expect(signRefused(FOREIGN_COMMITMENT_HEX)).rejects.toThrow(MidenDAppErrorType.NotGranted);
+      // Refused, not merely reported: the key is never touched.
+      expect(signData).not.toHaveBeenCalled();
+    });
+
+    it('accepts the b64 form the wallet itself handed out at connect', async () => {
+      arrangeSignerAccount();
+      mockWithUnlocked.mockImplementation(async (fn: (ctx: unknown) => unknown) =>
+        fn({ vault: { signData: jest.fn(async () => 'fake-signature-base64') } })
+      );
+
+      const res = await signWith(Buffer.from(SIGNER_COMMITMENT).toString('base64'));
+      expect((res as any).signature).toBe('fake-signature-base64');
+    });
+
+    it.each([
+      ['an account id, which denotes no key at all', 'miden-account-1'],
+      ['a short hex string', '0xdeadbeef'],
+      ['a 32-byte value that is neither hex nor b64', 'not a commitment at all']
+    ])('refuses %s', async (_label, sourcePublicKey) => {
+      arrangeSignerAccount();
+      const signData = jest.fn(async () => 'stolen-signature');
+      mockWithUnlocked.mockImplementation(async (fn: (ctx: unknown) => unknown) => fn({ vault: { signData } }));
+
+      await expect(signRefused(sourcePublicKey)).rejects.toThrow();
+      expect(signData).not.toHaveBeenCalled();
+    });
+
+    it('refuses when the account cannot be resolved, rather than signing anyway', async () => {
+      _g.__dappExtTest.midenClient.getAccount = jest.fn().mockResolvedValue(null);
+      const signData = jest.fn(async () => 'stolen-signature');
+      mockWithUnlocked.mockImplementation(async (fn: (ctx: unknown) => unknown) => fn({ vault: { signData } }));
+
+      await expect(signRefused(SIGNER_COMMITMENT_HEX)).rejects.toThrow(MidenDAppErrorType.NotGranted);
+      expect(signData).not.toHaveBeenCalled();
+    });
   });
 
   it('requestPermission rejects when user declines', async () => {
@@ -1096,5 +1253,74 @@ describe('Full confirmation cycles in extension mode', () => {
     ).rejects.toThrow(MidenDAppErrorType.NotGranted);
     // A failed pubkey fetch must not persist a publicKey: null session.
     expect((_g.__dappExtTest.storage[STORAGE_KEY] as any)['https://err-dapp.xyz']).toBeUndefined();
+  });
+});
+
+// ── Watchdog eviction mid-flow (#788 follow-up) ────────────────────
+
+describe('a watchdog eviction mid-read abandons the extension flow instead of double-borrowing', () => {
+  // Both tests revoke hold ownership from INSIDE the parking account read — the
+  // moment the real watchdog hands the mutex to a successor — and pin that the
+  // commitment reads on the returned Account never run: those are borrows of the
+  // client's RefCell, so touching them after the eviction IS the double borrow.
+
+  it('requestPermission rejects with the poison error, not a false NotGranted, when evicted during the account read', async () => {
+    delete (_g.__dappExtTest.storage[STORAGE_KEY] as any)['https://evicted-dapp.xyz'];
+    const getPublicKeyCommitments = jest.fn(() => [{ serialize: () => new Uint8Array([1, 2, 3]) }]);
+    _g.__dappExtTest.midenClient.getAccount = jest.fn().mockImplementation(async () => {
+      revokeWasmHold();
+      return { getPublicKeyCommitments };
+    });
+    await expect(
+      driveConfirmation(
+        () =>
+          dapp.requestPermission('https://evicted-dapp.xyz', {
+            type: MidenDAppMessageType.PermissionRequest,
+            appMeta: { name: 'Evicted Dapp', url: 'https://evicted-dapp.xyz' },
+            force: false,
+            network: 'testnet',
+            privateDataPermission: 'UPON_REQUEST',
+            allowedPrivateData: 0
+          } as never),
+        MidenMessageType.DAppPermConfirmationRequest,
+        { confirmed: true, accountPublicKey: 'miden-account-1', privateDataPermission: 'UPON_REQUEST' }
+      )
+      // NOT NotGranted: the user approved, and an eviction is a retryable
+      // internal failure rather than a permissions verdict (#775). Reporting the
+      // approval back as a denial tells the dApp to stop asking. Same contract
+      // the non-extension branch and the sign path below already keep.
+    ).rejects.toThrow(WasmClientPoisonedError);
+    // The abandoned flow must not have touched the borrowed account…
+    expect(getPublicKeyCommitments).not.toHaveBeenCalled();
+    // …nor persisted a session with a publicKey it never safely read.
+    expect((_g.__dappExtTest.storage[STORAGE_KEY] as any)['https://evicted-dapp.xyz']).toBeUndefined();
+  });
+
+  it('requestSign rejects with the poison error, not a false NotGranted, when evicted during the authorization read', async () => {
+    arrangeSignerAccount();
+    const getPublicKeyCommitments = jest.fn(() => [{ serialize: () => SIGNER_COMMITMENT }]);
+    _g.__dappExtTest.midenClient.getAccount = jest.fn().mockImplementation(async () => {
+      revokeWasmHold();
+      return { getPublicKeyCommitments };
+    });
+    const signData = jest.fn(async () => 'stolen-signature');
+    mockWithUnlocked.mockImplementation(async (fn: (ctx: unknown) => unknown) => fn({ vault: { signData } }));
+    await expect(
+      driveConfirmation(
+        () =>
+          dapp.requestSign('https://miden.xyz', {
+            type: MidenDAppMessageType.SignRequest,
+            sourcePublicKey: SIGNER_COMMITMENT_HEX,
+            sourceAccountId: 'miden-account-1',
+            payload: 'aGVsbG8=',
+            kind: 'word'
+          } as never),
+        MidenMessageType.DAppSignConfirmationRequest,
+        { confirmed: true }
+      )
+    ).rejects.toThrow(WasmClientPoisonedError);
+    expect(getPublicKeyCommitments).not.toHaveBeenCalled();
+    // An abandoned authorization must fail the request, never sign anyway.
+    expect(signData).not.toHaveBeenCalled();
   });
 });

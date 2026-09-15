@@ -9,6 +9,7 @@
  */
 
 import { MidenDAppMessageType, MidenDAppErrorType } from 'lib/adapter/types';
+import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 
 // ── Mocks ──────────────────────────────────────────────────────────
 
@@ -114,25 +115,59 @@ _g.__dappBranchMockGetAccount = jest.fn();
 // of miden-client, which jest mocks separately from the relative specifier below;
 // delegate the alias to the same mock so the proxy's flag-off passthrough hits it.
 jest.mock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-client'));
+// Models hold OWNERSHIP (#788 follow-up): the lock hands its callback a hold, and
+// dapp.ts re-checks it via `assertWasmHoldCurrent` after every parking await — a
+// hold-less pass-through would make those guards a TypeError on the happy path.
+// The assert re-implements the real comparison against this mock's hold so it is
+// never a vacuous no-op.
+let currentWasmHold: object | null = null;
 jest.mock('../sdk/miden-client', () => ({
   getMidenClient: async () => ({
     getAccount: (id: string) => (globalThis as any).__dappBranchMockGetAccount(id),
-    getInputNoteDetails: jest.fn(async () => []),
+    // The consume approval preview is derived from the note the wallet resolves,
+    // not from the dApp's declared faucet/amount/type — so the note has to exist.
+    getInputNoteDetails: jest.fn(async () => [
+      {
+        noteId: 'note-1',
+        noteType: 0,
+        senderAccountId: 's1',
+        nullifier: 'nf1',
+        state: 0,
+        assets: [{ faucetId: 'faucet-1', amount: '1000000' }]
+      }
+    ]),
     getConsumableNotes: jest.fn(async () => []),
     getConsumableNoteDtos: jest.fn(async () => []),
     syncState: jest.fn(async () => {}),
     importNoteBytes: jest.fn(async () => ({ toString: () => 'note-123' })),
     on: jest.fn()
   }),
-  withWasmClientLock: async <T>(fn: () => Promise<T>) => fn(),
+  withWasmClientLock: async <T>(fn: (hold: object) => Promise<T>) => {
+    const hold = { mock: 'wasm-lock-hold' };
+    currentWasmHold = hold;
+    try {
+      return await fn(hold);
+    } finally {
+      if (currentWasmHold === hold) currentWasmHold = null;
+    }
+  },
+  getCurrentWasmLockHold: () => currentWasmHold,
+  assertWasmHoldCurrent: (hold: object | null, where: string): void => {
+    if (hold !== null && hold === currentWasmHold) return;
+    throw new WasmClientPoisonedError('watchdog', new Error(`operation abandoned ${where}`));
+  },
   runWhenClientIdle: () => {}
 }));
 
 jest.mock('lib/miden/sdk/helpers', () => ({
+  // Real module underneath: `requestSendTransaction` binds the request's
+  // senderAddress to the session account through `sameWalletAccountId`, and a
+  // bare stub would drop that authorization check from every test here.
+  ...jest.requireActual('lib/miden/sdk/helpers'),
   getBech32AddressFromAccountId: () => 'bech32-addr'
 }));
 
-jest.mock('@demox-labs/miden-wallet-adapter-base', () => ({
+jest.mock('@miden-sdk/miden-wallet-adapter-base', () => ({
   PrivateDataPermission: { UponRequest: 'UPON_REQUEST', Auto: 'AUTO' },
   AllowedPrivateData: { None: 0, Assets: 1, Notes: 2, Storage: 4, All: 65535 }
 }));
@@ -579,6 +614,31 @@ describe('requestSign — input validation', () => {
         kind: 'word'
       } as never)
     ).rejects.toThrow(MidenDAppErrorType.NotGranted);
+  });
+
+  // Regression: the session is looked up by `sourceAccountId` but the signing key
+  // is loaded by `sourcePublicKey`, and nothing compared the two. Every account's
+  // auth secret is stored under `accAuthSecretKeyStrgKey(<commitment>)` under the
+  // one vault key, so a page holding a live session for account A could name A as
+  // the source account, pass account B's commitment, and get back a signature made
+  // with B's key — with `kind: 'signingInputs'` that authorizes a transaction on B.
+  // The approval sheet for `type: 'sign'` renders no account, so nothing on screen
+  // contradicts it.
+  it('throws NotGranted when sourcePublicKey names an account other than the session account', async () => {
+    await expect(
+      dapp.requestSign('https://miden.xyz', {
+        type: MidenDAppMessageType.SignRequest,
+        // Authorized account (a live session exists for it) …
+        sourceAccountId: 'miden-account-1',
+        // … but the key of a DIFFERENT account the wallet also owns.
+        sourcePublicKey: 'miden-account-2-commitment',
+        payload: 'aGVsbG8=',
+        kind: 'signingInputs'
+      } as never)
+    ).rejects.toThrow(MidenDAppErrorType.NotGranted);
+
+    // Rejected before the vault is ever asked to sign.
+    expect(mockWithUnlocked).not.toHaveBeenCalled();
   });
 });
 

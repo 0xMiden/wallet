@@ -1,4 +1,4 @@
-import { AllowedPrivateData, PrivateDataPermission, SignKind } from '@demox-labs/miden-wallet-adapter-base';
+import { AllowedPrivateData, PrivateDataPermission, SignKind } from '@miden-sdk/miden-wallet-adapter-base';
 
 import { MidenDAppMetadata } from 'lib/adapter/types';
 import { ReadyWalletState, WalletMessageBase, WalletNetwork, WalletState } from 'lib/shared/types';
@@ -29,10 +29,21 @@ export interface ConsumableNote {
   amount: string;
   senderAddress: string;
   isBeingClaimed: boolean;
+  /** When `isBeingClaimed`, the id of the consume transaction claiming it, for linking to its progress. */
+  claimingTxId?: string;
   type: NoteType | 'unknown';
   swapOrder?: SwapOrderNoteMetadata;
   /** Estimated epoch ms when the sender can reclaim this P2IDE note; absent for non-recallable notes. */
   recallableAtMs?: number;
+  /** Note inclusion time, in Unix seconds. */
+  receivedAt?: number;
+  /**
+   * Set when the entry comes from the persisted last-known list (mobile/desktop
+   * cache-first render) and no live read has confirmed it yet. Such an entry is
+   * safe to DISPLAY but must never START a claim: the note can already be spent,
+   * consumed or recalled. Every claim gate drops entries carrying this flag.
+   */
+  fromCache?: boolean;
 }
 
 export interface SwapOrderNoteMetadata {
@@ -248,7 +259,8 @@ export interface MidenDAppSimulateTransactionRequest extends WalletMessageBase {
 
 export interface MidenDAppSimulateTransactionResponse extends WalletMessageBase {
   type: MidenMessageType.DAppSimulateTransactionResponse;
-  summaryBytes?: string; // base64 serialized TransactionSummary
+  summaryBytes?: string; // base64 serialized TransactionSummary (authorization pending)
+  executedBytes?: string; // base64 serialized TransactionResult (already fully authorized)
   error?: string;
 }
 

@@ -1,11 +1,18 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import BigNumber from 'bignumber.js';
 
 import { findClaimableMidenToEvmDeposit } from 'lib/agglayer';
+import {
+  fetchGuardianNoteRecoveryProgress,
+  GUARDIAN_NOTE_RECOVERY_PROGRESS_STORAGE_KEY,
+  type GuardianNoteRecoveryProgress,
+  isGuardianNoteRecoveryProgressStale,
+  normalizeGuardianNoteRecoveryProgress
+} from 'lib/guardian-note-recovery-progress';
 import { compareAccountIds } from 'lib/miden/activity/utils';
 import { IBridgedSendExtraInputs, ITransaction, ITransactionStatus } from 'lib/miden/db/types';
-import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
+import { fetchFromStorage, onStorageChanged, putToStorage } from 'lib/miden/front/storage';
 import type { AssetMetadata } from 'lib/miden/metadata';
 import * as Repo from 'lib/miden/repo';
 import { updateBridgeClaimStatus } from 'lib/miden/transaction/complete';
@@ -19,6 +26,12 @@ export enum WalletPromptType {
   Faucet = 'faucet',
   PendingNotes = 'pendingNotes',
   VerifySeedPhrase = 'verifySeedPhrase',
+  // Non-dismissible, live-progress card shown while the post-seed-recovery
+  // pending-note scan runs. Driven purely by the progress record the SW
+  // orchestrator writes (lib/guardian-note-recovery-progress), NOT by the
+  // persisted prompt-status map — it appears when a record exists and
+  // disappears when the scan clears it.
+  GuardianNoteRecovery = 'guardianNoteRecovery',
   // Mobile-only: the native hot-key plugin hit a secure-hardware error —
   // either it couldn't use the TEE / Secure Enclave at all (signing falls back
   // to the software key), or a present StrongBox failed and the key degraded
@@ -77,6 +90,10 @@ export function getPendingNotesUsdTotal(notes: readonly PendingNoteValue[], toke
 
 function isBridgePromptActive(tx: ITransaction): boolean {
   if (tx.status === ITransactionStatus.Failed) return false;
+  // A restored row still DISPLAYS whatever the backup recorded, deliberately,
+  // but it must not drive work: this prompt surfaces a Claim affordance that
+  // signs an EVM transaction.
+  if (tx.restoredFromBackup) return false;
   if (tx.type !== 'bridged-send') return false;
   if (tx.status !== ITransactionStatus.Completed) return true;
 
@@ -99,7 +116,10 @@ async function pollBridgedSend(tx: ITransaction): Promise<void> {
 
   if (inputs.provider === 'agglayer') {
     if (inputs.claimStatus !== 'pending' || !inputs.destinationAddress) return;
-    const deposit = await findClaimableMidenToEvmDeposit(inputs.destinationAddress);
+    // Bound to this row's own Miden transaction id: several rows can share one
+    // destination address, and marking them all ready off ANY claimable deposit
+    // points every one of them at the same deposit.
+    const deposit = await findClaimableMidenToEvmDeposit(inputs.destinationAddress, tx.transactionId);
     if (deposit) await updateBridgeClaimStatus(tx.id, 'ready', { depositReady: true });
     return;
   }
@@ -126,8 +146,25 @@ async function pollBridgedSend(tx: ITransaction): Promise<void> {
   });
 }
 
-export async function pollActiveBridgePrompts(transactions: ITransaction[]): Promise<void> {
-  await Promise.all(transactions.filter(tx => tx.type === 'bridged-send').map(pollBridgedSend));
+/**
+ * Poll every Miden→EVM bridge row once, for every account. The app-root
+ * `BridgeIntentWatcher` runs this on an interval, so a pending Epoch fill or
+ * AggLayer claim is tracked whichever screen is open. `pollBridgedSend` returns
+ * early for a row with nothing left to settle.
+ */
+export async function reconcileBridgedSends(): Promise<void> {
+  const rows = await Repo.transactions.filter(tx => tx.type === 'bridged-send').toArray();
+  // A restored row keeps what the backup recorded, but must not drive work:
+  // `pollBridgedSend` queries the bridge services with those values and writes
+  // the answer back onto the row.
+  await Promise.all(
+    rows
+      .filter(tx => !tx.restoredFromBackup)
+      .map(tx =>
+        // One row's failing indexer or allocator call must not reject the pass for the others.
+        pollBridgedSend(tx).catch(error => console.warn('[wallet-prompts] bridged-send poll failed', tx.id, error))
+      )
+  );
 }
 
 export function normalizeWalletPromptStorage(value: unknown): WalletPromptStorage {
@@ -335,6 +372,67 @@ export function faucet(address: string): Promise<void> {
 /** Test-only: drop in-flight faucet joins between cases. */
 export function __resetInFlightFaucetRequestsForTest(): void {
   inFlightFaucetRequests.clear();
+}
+
+/**
+ * Live progress of the post-seed-recovery pending-note scan, or null when no
+ * scan is running. Extension surfaces get push updates via storage change
+ * events (the SW writes through the same storage area); mobile/desktop have no
+ * storage events, so a light poll keeps the card advancing there too.
+ *
+ * Pass the viewed account's id only while its `guardianNoteRecoveryPending`
+ * flag is set, and null otherwise. That gate is the whole reason this hook can
+ * be cheap: only a pending account can have a run to narrate, and the flag is
+ * cleared strictly after the progress record is, so gating on it can never hide
+ * a live card. Every other wallet — nearly all of them, nearly always — does no
+ * reads at all.
+ *
+ * Records are stored per account, so a run for a different recovered account
+ * cannot narrate itself on this account's home view.
+ */
+export function useGuardianNoteRecoveryProgress(accountId: string | null): GuardianNoteRecoveryProgress | null {
+  const [progress, setProgress] = useState<GuardianNoteRecoveryProgress | null>(null);
+  const cancelledRef = useRef(false);
+
+  // A run that died with its realm stops refreshing the record. The card is
+  // non-dismissible, so without ageing the record out it would sit on screen
+  // forever.
+  const accept = useCallback((next: GuardianNoteRecoveryProgress | null) => {
+    if (cancelledRef.current) return;
+    setProgress(next && isGuardianNoteRecoveryProgressStale(next) ? null : next);
+  }, []);
+
+  const refresh = useCallback(() => {
+    if (!accountId) return;
+    fetchGuardianNoteRecoveryProgress(accountId)
+      .then(accept)
+      .catch(error => console.warn('[wallet-prompts] failed to read note-recovery progress:', error));
+  }, [accept, accountId]);
+
+  useEffect(() => {
+    if (!accountId) {
+      setProgress(null);
+      return;
+    }
+    cancelledRef.current = false;
+    refresh();
+    const unsubscribe = onStorageChanged(GUARDIAN_NOTE_RECOVERY_PROGRESS_STORAGE_KEY, value =>
+      accept(normalizeGuardianNoteRecoveryProgress(value, accountId))
+    );
+    // Polled as well as subscribed, not instead: mobile and desktop get no
+    // storage events at all (`onStorageChanged` is a no-op there), and on the
+    // extension the listener is registered after an async import, so a write
+    // landing in that window is missed. The poll is also what ages out a
+    // record whose run died with its realm.
+    const interval = setInterval(refresh, 2000);
+    return () => {
+      cancelledRef.current = true;
+      unsubscribe();
+      clearInterval(interval);
+    };
+  }, [accept, accountId, refresh]);
+
+  return progress;
 }
 
 export function useWalletPromptStorage() {

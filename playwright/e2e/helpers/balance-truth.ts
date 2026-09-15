@@ -29,6 +29,8 @@
  */
 import type { Page } from '@playwright/test';
 
+import { readTransactionRows } from './history';
+
 /** A token's on-screen identity plus the raw amount, as the store reports it. */
 export interface SymbolBalance {
   symbol: string;
@@ -188,7 +190,7 @@ export async function waitForPendingNoteTotal(
   page: Page,
   symbol: string,
   expected: bigint,
-  opts: { timeoutMs?: number; decimals?: number } = {}
+  opts: { timeoutMs?: number; decimals?: number; diagnoseFrom?: Page } = {}
 ): Promise<void> {
   const timeoutMs = opts.timeoutMs ?? 120_000;
   const deadline = Date.now() + timeoutMs;
@@ -201,12 +203,19 @@ export async function waitForPendingNoteTotal(
   const d = opts.decimals;
   const fmt = (v: bigint) => (d == null ? `${v} base units` : `${fromBaseUnits(v, d)} (${v} base units)`);
   const vault = await vaultBalance(page, symbol).catch(() => -1n);
+  // A note that never arrives is almost always a SENDER-side failure, but this
+  // helper only watches the receiver -- so on its own it reports "nothing showed
+  // up" and names no cause. Callers that know the sender pass `diagnoseFrom` and
+  // get the sender's failed rows, including the raw kernel error the friendly
+  // message replaced, in the same throw.
+  const senderFailures = opts.diagnoseFrom ? await failedRowSummary(opts.diagnoseFrom) : '';
   throw new Error(
     `waitForPendingNoteTotal(${symbol}) timed out after ${timeoutMs}ms.\n` +
       `  expected unconsumed: ${fmt(expected)}\n` +
       `  actual unconsumed:   ${fmt(last)}\n` +
       `  vault balance for ${symbol}: ${vault === -1n ? 'unreadable' : vault.toString()} base units\n` +
-      `  (a vault total matching the expectation means the note was already consumed)`
+      `  (a vault total matching the expectation means the note was already consumed)` +
+      senderFailures
   );
 }
 
@@ -277,4 +286,102 @@ export async function waitForVaultBalance(
       `  unconsumed notes for ${symbol}: ${pending === -1n ? 'unreadable' : pending.toString()} base units\n` +
       `  (a non-zero pending total with a short vault means the note was discovered but never consumed)`
   );
+}
+
+/**
+ * The sender's failed transactions, formatted for a receiver-side timeout message.
+ * Returns '' when there are none -- an empty section would imply the sender is fine
+ * when it may simply not have started.
+ */
+async function failedRowSummary(sender: Page): Promise<string> {
+  const rows = await readTransactionRows(sender).catch(() => []);
+  const failed = rows.filter(r => r.status === 3);
+  if (failed.length === 0) return '\n  sender has no failed transactions (it may never have started one)';
+  return (
+    `\n  sender-side failures (${failed.length}):` +
+    failed
+      .map(
+        r =>
+          `\n    [${r.type ?? '?'} ${r.id.slice(0, 8)} stage=${r.stage ?? '?'}]` +
+          `\n      ${r.error ?? '(no message)'}` +
+          (r.rawError ? `\n      raw: ${r.rawError}` : '')
+      )
+      .join('')
+  );
+}
+
+/**
+ * The chain's `verification_base_fee` as the WALLET discovered it, or `null` if the
+ * wallet has not discovered it.
+ *
+ * Read from the extension's own cache (`native_asset_fee:v1:<scope>`, written by
+ * `lib/miden-chain/native-asset`) rather than from the harness's knowledge of how
+ * the node was genesised. That makes a spec self-describing -- it can require a fee
+ * on a fee-charging chain and say so on a fee-free one -- and it doubles as an
+ * assertion that the wallet's fee discovery works at all.
+ *
+ * `null` and `0` are different answers: `0` is a chain that charges nothing,
+ * `null` is a wallet that does not know. Callers must not collapse them.
+ */
+export async function walletDiscoveredBaseFee(page: Page): Promise<number | null> {
+  return page.evaluate(async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const c = (globalThis as any).chrome;
+    if (!c?.storage?.local) return null;
+    const all = await c.storage.local.get(null);
+    const key = Object.keys(all).find(k => k.startsWith('native_asset_fee:'));
+    const v = key === undefined ? null : all[key];
+    return typeof v === 'number' ? v : null;
+  });
+}
+
+/**
+ * The chain's native (fee) faucet id as the WALLET discovered it, or `null`.
+ *
+ * Read from the extension's own cache (`native_asset_id:v4:<scope>`). Preferred
+ * over looking the row up by symbol: the native asset's symbol comes from chain
+ * metadata that a local chain need not supply, so a symbol lookup can miss on a
+ * wallet that knows the faucet perfectly well.
+ */
+export async function walletDiscoveredNativeFaucetId(page: Page): Promise<string | null> {
+  return page.evaluate(async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const c = (globalThis as any).chrome;
+    if (!c?.storage?.local) return null;
+    const all = await c.storage.local.get(null);
+    const key = Object.keys(all).find(k => k.startsWith('native_asset_id:'));
+    const v = key === undefined ? null : all[key];
+    return typeof v === 'string' ? v : null;
+  });
+}
+
+/**
+ * Every asset row the store holds, for diagnostics when a lookup finds nothing.
+ *
+ * Field names match `TokenBalanceData` (`src/lib/miden/front/balance.ts`) deliberately.
+ * This previously read `token.faucetId` and `token.amountBaseUnits`, neither of which
+ * exists on that type, so every row printed `faucetId: '(none)'` and fell through to
+ * `balance` — a DECIMAL display number — under a key named `amount`. This output is
+ * what a failing fee assertion prints, so it was actively misdescribing the store at
+ * the one moment someone reads it.
+ */
+export async function listVaultAssets(
+  page: Page
+): Promise<Array<{ tokenId: string; symbol: string; balanceDecimal: string }>> {
+  return page.evaluate(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const state = (window as any).__TEST_STORE__?.getState?.();
+    const out: Array<{ tokenId: string; symbol: string; balanceDecimal: string }> = [];
+    for (const tokenList of Object.values(state?.balances ?? {}) as unknown[]) {
+      if (!Array.isArray(tokenList)) continue;
+      for (const token of tokenList) {
+        out.push({
+          tokenId: String(token?.tokenId ?? '(none)'),
+          symbol: String(token?.metadata?.symbol ?? '(none)'),
+          balanceDecimal: String(token?.balance ?? '(none)')
+        });
+      }
+    }
+    return out;
+  });
 }

@@ -42,8 +42,12 @@ export function decodeAddress(payload: string): string {
 
 /**
  * Validates if a string is a decodable Miden address (strict bech32 decode).
- * A wrong-network address still passes here — the send screen surfaces its
- * specific wrong-network message once the scanned address lands in the field.
+ * Delegated to the canonical `utils/miden` validator so this QR copy can never
+ * drift from the recognized network prefixes (mm1 / mtst1 / mdev1 / mlcl1)
+ * again — the old local copy hard-coded `mtst1`/`m1`, so a devnet, localnet or
+ * even real mainnet address scanned via QR came back "invalid". A wrong-network
+ * address still passes here — the send screen surfaces its specific
+ * wrong-network message once the scanned address lands in the field.
  *
  * @param address The address to validate
  * @returns true if the address decodes as a Miden address

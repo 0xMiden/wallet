@@ -56,7 +56,10 @@ const AddressBook: React.FC = () => {
           className={classNames(
             'w-full h-14 px-4',
             'bg-gray-25 border border-gray-100 rounded-10',
-            'text-base placeholder:text-text-muted placeholder:font-medium',
+            // `font-sans` because Preflight sets `font: inherit` on form controls
+            // and Settings wraps its sub-pages in `font-heading`, which would put
+            // typed wallet addresses in the rounded display face.
+            'font-sans text-base placeholder:text-text-muted placeholder:font-medium',
             'outline-none focus:border-gray-100'
           )}
         />

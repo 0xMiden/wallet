@@ -2,6 +2,7 @@ import React, { memo, RefObject, useMemo } from 'react';
 
 import classNames from 'clsx';
 import { format } from 'date-fns';
+import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import InfiniteScroll from 'react-infinite-scroller';
 
@@ -10,11 +11,13 @@ import { guardianEndpointDisplayName } from 'app/hooks/useCurrentGuardianEndpoin
 import { Icon, IconName } from 'app/icons/v2';
 import { ReactComponent as FailedCrossIcon } from 'app/icons/v2/failed-cross.svg';
 import { ReactComponent as SwapIcon } from 'app/icons/v2/swap.svg';
-import { ActivityRow, ActivityStatusTone } from 'components/ui';
+import { ActivityRow, ActivityRowProps, ActivityStatusTone } from 'components/ui';
+import { springs, useMotion } from 'lib/animation';
 import { navigate } from 'lib/woozie';
 
 import HistoryItem from './HistoryItem';
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
+import type { PendingActivityItem } from './PendingActivityCard';
 import {
   BRIDGE_STATUS_LABEL_KEY,
   bridgeInRowDisplay,
@@ -38,14 +41,29 @@ type HistoryViewProps = {
   tokenId?: string;
   fullHistory?: boolean;
   centerEmptyState?: boolean;
+  pendingItems?: PendingActivityItem[];
+  renderPendingItem?: (item: PendingActivityItem) => React.ReactNode;
   className?: string;
 };
 
-function groupEntriesByDate(entries: IHistoryEntry[]): Map<number, IHistoryEntry[]> {
-  const groups = new Map<number, IHistoryEntry[]>();
+type TimelineEntry = IHistoryEntry & { pendingActivity?: PendingActivityItem };
+
+function groupEntriesByDate(entries: TimelineEntry[]): Map<number, TimelineEntry[]> {
+  const groups = new Map<number, TimelineEntry[]>();
   for (const entry of entries) {
-    const d = new Date(entry.timestamp * 1000);
-    const key = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+    // A timestamp that isn't a usable number yields an Invalid Date, and
+    // `DateSeparator` formats the group key with date-fns, which THROWS on one —
+    // so a single bad row would take down the entire list rather than just
+    // itself. Group those under today instead; the row is still listed.
+    // `Number.isFinite` alone is not enough: 1e300 is finite but overflows the
+    // Date range, and the result is an Invalid Date all the same. Build the date
+    // first and test THAT, which is the only thing date-fns actually sees.
+    const candidate = new Date(entry.timestamp * 1000);
+    const d = Number.isFinite(candidate.getTime()) ? candidate : new Date();
+    const key =
+      entry.pendingActivity && !Number.isFinite(candidate.getTime())
+        ? -1
+        : new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
     const existing = groups.get(key);
     if (existing) existing.push(entry);
     else groups.set(key, [entry]);
@@ -214,16 +232,71 @@ function buildRowProps(
           : undefined
       : undefined;
 
-  let amount: { value: string; symbol?: string; direction: 'positive' | 'negative' | 'neutral' } | undefined;
+  let amount: ActivityRowProps['amount'];
   if (swapSide === 'requested' && entry.requestedAmount) {
     amount = { value: `+${entry.requestedAmount}`, symbol: entry.requestedToken, direction: 'positive' };
   } else if (swapSide === 'offered' && entry.amount !== undefined) {
     amount = { value: `-${entry.amount.toString()}`, symbol: entry.token, direction: 'negative' };
   } else if (isSwap && entry.requestedAmount) {
     amount = { value: entry.requestedAmount, symbol: entry.requestedToken, direction: 'neutral' };
-  } else if (entry.amount !== undefined) {
+    // `entry.token` on its own is enough: a faucet that resolved only to the
+    // unknown-token placeholder yields a symbol and no amount, and skipping the
+    // block over that would drop the asset's NAME too — leaving a row that says
+    // nothing about what moved.
+  } else if (entry.amount !== undefined || entry.extraAmounts?.length || entry.token !== undefined) {
     const sign = amountDirection === 'positive' ? '+' : amountDirection === 'negative' ? '-' : '';
-    amount = { value: `${sign}${entry.amount.toString()}`, symbol: entry.token, direction: amountDirection };
+    // A batch claim spanning several faucets appends each further asset inline —
+    // but only on the unscoped list. On a token page the row is read as a
+    // movement of THAT token (same reasoning as `swapSide` above), so show the
+    // scoped faucet's own total and nothing else: listing "+10 B" on token A's
+    // page states a balance change that never touched A.
+    const scopedExtra = tokenId ? entry.extraAmounts?.find(line => line.faucetId === tokenId) : undefined;
+    if (scopedExtra) {
+      // No amount means the faucet's decimals are unknown, so there is no honest
+      // number to print — name the asset and leave the quantity out.
+      amount =
+        scopedExtra.amount === undefined
+          ? { value: '', symbol: scopedExtra.token, direction: amountDirection }
+          : { value: `${sign}${scopedExtra.amount}`, symbol: scopedExtra.token, direction: amountDirection };
+    } else {
+      const lines = tokenId ? [] : (entry.extraAmounts ?? []);
+      // Promotion is keyed on the TOKEN, not the amount. A claim can name its
+      // primary asset while having no number for it — either because the first
+      // note's value was unknown (`ConsumeTransaction` leaves `amount` undefined
+      // there) or because that faucet resolved only to the unknown-token
+      // placeholder, whose decimals are a guess. In both cases the primary still
+      // owns the headline: promoting a secondary over it would file the row
+      // under faucet A while reading as a credit of B.
+      //
+      // Only a claim with no primary asset at all borrows one from the extras,
+      // and then a quantified line is preferred — the headline is the row's one
+      // prominent number, so an unquantified asset is a poor choice for it,
+      // though still better than dropping every asset the claim collected.
+      const [promoted, ...rest] =
+        entry.token === undefined
+          ? [...lines].sort((a, b) => Number(b.amount !== undefined) - Number(a.amount !== undefined))
+          : [];
+      const headlineValue = promoted ? promoted.amount : entry.amount?.toString();
+      const headlineSymbol = promoted ? promoted.token : entry.token;
+
+      // Nothing to state only when there is neither a primary asset nor an extra
+      // to borrow; a named asset with no number is still worth a row.
+      if (headlineSymbol !== undefined || headlineValue !== undefined) {
+        const extra = (promoted ? rest : lines).map(line => ({
+          key: line.faucetId,
+          value: line.amount === undefined ? '' : `${sign}${line.amount}`,
+          symbol: line.token
+        }));
+        amount = {
+          // Empty when the scale is unknown — the sign would otherwise render
+          // alone, as a bare "+" in front of the symbol.
+          value: headlineValue === undefined ? '' : `${sign}${headlineValue}`,
+          symbol: headlineSymbol,
+          direction: amountDirection,
+          extra: extra.length > 0 ? extra : undefined
+        };
+      }
+    }
   }
 
   let statusTone: ActivityStatusTone = 'confirmed';
@@ -286,14 +359,36 @@ const HistoryView = memo<HistoryViewProps>(
     tokenId,
     fullHistory,
     centerEmptyState,
+    pendingItems,
+    renderPendingItem,
     className
   }) => {
     const { t } = useTranslation();
-    const noEntries = entries.length === 0;
+    // Same spring as the rows, so a date group and the rows inside it move
+    // together when a filter empties part of the list.
+    const layoutTransition = useMotion(springs.settle);
+    const timeline = useMemo(() => {
+      if (!pendingItems?.length) return entries;
+      const pending: TimelineEntry[] = pendingItems.map(item => ({
+        key: `note-${item.note.id}`,
+        address: '',
+        timestamp: item.note.receivedAt ?? Number.NaN,
+        message: '',
+        type: HistoryEntryType.PendingTransaction,
+        txType: 'consume',
+        pendingActivity: item
+      }));
+      return [...entries, ...pending].sort(
+        (a, b) =>
+          (Number.isFinite(b.timestamp) ? b.timestamp : -Infinity) -
+          (Number.isFinite(a.timestamp) ? a.timestamp : -Infinity)
+      );
+    }, [entries, pendingItems]);
+    const noEntries = timeline.length === 0;
     const noOperationsClass = fullHistory
       ? 'mt-8 items-center text-left text-black'
       : 'm-4 items-start text-left text-black';
-    const groupedEntries = useMemo(() => groupEntriesByDate(entries), [entries]);
+    const groupedEntries = useMemo(() => groupEntriesByDate(timeline), [timeline]);
 
     if (noEntries) {
       if (initialLoading) return <ActivitySpinner />;
@@ -335,20 +430,40 @@ const HistoryView = memo<HistoryViewProps>(
 
     const list = (
       <div data-testid="history-view" className="flex flex-col">
+        {/* Each row is a layout-animated Framer element (`ActivityRow`), and
+            `layout` on the date group moves the groups below into the space a
+            removed row leaves. Rows and groups slide; nothing fades, so a
+            filter change behaves like a native list update. */}
         {dateGroups.map(([dateMs, dateEntries], index) => (
-          <div
+          <motion.div
+            layout
+            transition={layoutTransition}
             key={dateMs}
-            className={classNames('flex flex-col gap-1 py-3 border-b-[#BABABA33] border-b', index === 0 && 'pt-4')}
+            className={classNames('flex flex-col gap-3 py-3', index === 0 && 'pt-4')}
           >
-            <DateSeparator dateMs={dateMs} />
-            <div className="flex flex-col divide-y divide-rule-default dark:divide-pure-white">
+            {dateMs === -1 ? (
+              <span className="font-heading font-extrabold text-heading-gray text-base">
+                {t('activityDateUnavailable')}
+              </span>
+            ) : (
+              <DateSeparator dateMs={dateMs} />
+            )}
+            <div className="flex flex-col gap-3">
               {dateEntries.map(entry => {
+                if (entry.pendingActivity && renderPendingItem) {
+                  return (
+                    <div key={entry.key} data-pending-note-id={entry.pendingActivity.note.id}>
+                      {renderPendingItem(entry.pendingActivity)}
+                    </div>
+                  );
+                }
                 const props = buildRowProps(entry, t, tokenId);
                 return (
                   <ActivityRow
                     key={entry.key}
                     entryKey={entry.key}
                     testId="activity-row"
+                    className="rounded-2xl border border-rule-default bg-white px-3"
                     icon={props.icon}
                     iconBg={props.iconBg}
                     title={props.title}
@@ -360,7 +475,7 @@ const HistoryView = memo<HistoryViewProps>(
                 );
               })}
             </div>
-          </div>
+          </motion.div>
         ))}
       </div>
     );

@@ -72,7 +72,7 @@ function useDebounce(_arg0: string, _arg1: number): [any] {
  *
  * Resolution order:
  *   1. user override (dev-mode escape hatch, written from EditMidenFaucetId)
- *   2. discovered native asset ID (BlockHeader.nativeAssetId())
+ *   2. discovered native asset ID (BlockHeader.feeFaucetId(), keyed per RPC node)
  *   3. `null` — callers must tolerate unknown-native-asset by falling through
  *      comparisons to "not MIDEN" so the rest of the UI still works
  *

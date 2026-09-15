@@ -4,7 +4,7 @@ name: E2E Blockchain
 # against the public network that matches the BRANCH'S PROTOCOL LINE.
 #
 #   push to main  ->  testnet   (main is on @miden-sdk/miden-sdk 0.15.x)
-#   push to next  ->  devnet    (next is on 0.16.x-alpha)
+#   push to next  ->  devnet    (next is on 0.16.0-rc.x)
 #
 # Devnet and testnet run different protocol versions, so a wallet built for one
 # genuinely cannot pass against the other. This used to be handled by running
@@ -19,20 +19,24 @@ name: E2E Blockchain
 # Measured, not asserted: over the last 14 pushes to main, `Chrome Guardian E2E
 # (testnet)` concluded failure 7 times, success once, and was cancelled 3 times —
 # while the Chrome Guardian gate reported green throughout, because devnet passed
-# alongside it.
+# alongside it. That is not academic: it hid a real guardian rotation bug on main
+# for at least three consecutive runs.
 #
 # Splitting by branch gives each line a hard gate. Nothing is `continue-on-error`
 # any more: on main a testnet failure is fatal, and on next a devnet failure is
-# fatal, because in each case that network IS the branch's line.
+# fatal, because in each case that network IS the branch's line. GitHub runs the
+# workflow file from the PUSHED ref, so `next` carries its own copy of the split
+# (#678) alongside main's (#676) — otherwise devnet would never run here at all.
 #
 # `workflow_dispatch` still takes a network argument for ad-hoc runs, so either
 # network can be exercised from either branch by hand.
 #
-# NOTE ON ROLLOUT: GitHub runs the workflow file FROM THE PUSHED REF. Adding
-# `next` to the trigger list here does not make anything run on `next` — pushes
-# to `next` keep using `next`'s own copy of this file until this change is merged
-# there too. Until then the effect of this PR is main-only: testnet becomes a hard
-# gate and devnet stops running on main.
+# (#797, CLOSED) Devnet's 2026-08-27 re-genesis enabled transaction fees, and for a week no
+# released tooling could transact against it, so all four devnet suites were taken off the
+# push arm. All four are back: the wallet pays the fee on every path, and the harness funds
+# its accounts from the chain's own public faucet, which IS devnet's native fee-asset faucet.
+# Nothing here carves out a neither-ran shape any more -- a devnet suite that does not run is
+# a real bug again.
 
 on:
   push:
@@ -42,20 +46,20 @@ on:
   workflow_dispatch:
     inputs:
       network:
-        # Defaults to the main line. NOT 'both': the gates now require every
-        # network that ran to pass, and a wallet built for one protocol line
-        # cannot pass against the other — so a 'both' default would fail by
-        # construction. Dispatching from `next` should select devnet.
+        # Defaults to this branch's line (devnet); flips to testnet when `next`
+        # becomes main. NOT 'both': the gates now require every network that ran
+        # to pass, and a wallet built for one protocol line cannot pass against
+        # the other — so a 'both' default would fail by construction.
         description: 'Network to test against'
         required: false
-        default: 'testnet'
+        default: 'devnet'
         type: choice
         options:
           # No 'both': the gates require every network that ran to succeed, and a
           # wallet built for one protocol line cannot pass against the other, so
           # 'both' is unpassable by construction rather than merely slow.
-          - testnet
           - devnet
+          - testnet
 
 permissions:
   contents: read
@@ -69,10 +73,13 @@ jobs:
 
   chrome-devnet:
     name: Chrome E2E (devnet)
+    # Runs on push to next again (#797 closed for this suite): devnet's fee-enabled
+    # genesis is transactable now that the harness funds accounts from the chain's own
+    # public faucet, so a failure here is a real one.
     if: >-
       ${{ (github.event_name == 'push' && github.ref == 'refs/heads/next')
       || (github.event_name == 'workflow_dispatch' && (inputs.network == 'both' || inputs.network == 'devnet')) }}
-    runs-on: ubuntu-latest
+    runs-on: warp-ubuntu-latest-x64-8x
     timeout-minutes: 60
     env:
       E2E_NETWORK: devnet
@@ -82,7 +89,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: yarn
 
       # cargo is needed to install miden-client-cli from crates.io on first run.
       - uses: dtolnay/rust-toolchain@stable
@@ -104,37 +110,31 @@ jobs:
       # compile happens in its own step, not inside Playwright's 5-min
       # per-test timeout. `cargo install` is a no-op on warm cache.
       - name: Install miden-client-cli
-        shell: bash
-        run: |
-          # Decoupled from the JS SDK version — read the CLI pin from
-          # package.json. `midenClientCliGit` ({url, rev}) takes precedence
-          # over `midenClientCliVersion` and is used while the target
-          # miden-client line is unreleased on crates.io (the 0.15 series
-          # ships from the repo's `next` branch only). See
-          # playwright/e2e/helpers/miden-cli.ts for the matching local-dev
-          # path.
-          GIT_URL=$(node -p "require('./package.json').midenClientCliGit?.url ?? ''")
-          GIT_REV=$(node -p "require('./package.json').midenClientCliGit?.rev ?? ''")
-          VERSION=$(node -p "require('./package.json').midenClientCliVersion")
-          if [[ -z "$GIT_URL" && (-z "$VERSION" || "$VERSION" == "undefined") ]]; then
-            echo "::error::neither midenClientCliGit nor midenClientCliVersion present in package.json"
-            exit 1
-          fi
-          if [[ -x "$HOME/.cargo/bin/miden-client" ]]; then
-            echo "miden-client already present from cache:"
-            "$HOME/.cargo/bin/miden-client" --version || true
-          elif [[ -n "$GIT_URL" ]]; then
-            echo "Installing miden-client-cli from ${GIT_URL}@${GIT_REV:0:8}..."
-            cargo install miden-client-cli --git "$GIT_URL" --rev "$GIT_REV" --locked
-          else
-            echo "Installing miden-client-cli@${VERSION}..."
-            cargo install miden-client-cli --version "$VERSION"
-          fi
+        # Reads the CLI pin (midenClientCliGit, else midenClientCliVersion) from
+        # package.json — the same resolution playwright/e2e/helpers/miden-cli.ts does —
+        # and skips the ~7 min compile when the cache above already restored the binary.
+        # It also rebuilds the CLI against a linked Protocol PR when the PR carries one;
+        # no marker (as here) means the published pin, exactly as before.
+        uses: ./.github/actions/install-miden-client-cli
+
+      - name: Drop apt repositories this repo never installs from
+        uses: ./.github/actions/apt-drop-unused-repos
 
       - name: Install xvfb
-        run: sudo apt-get update && sudo apt-get install -y xvfb
+        # The azure apt mirror intermittently blackholes: runs have stalled ~57 min
+        # inside `apt-get update`, been killed by the job cap, and produced no test
+        # results. Prefer the canonical mirror, bound + retry fetches, cap the step.
+        timeout-minutes: 6
+        run: |
+          sudo sed -i 's|http://azure.archive.ubuntu.com|http://archive.ubuntu.com|g' \
+            /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 update
+          sudo apt-get install -y xvfb
 
       - name: Install Playwright browsers
+        # `--with-deps` shells out to apt, and the browser download itself has
+        # wedged for 2h18m. Cap it so a stall fails fast instead of eating the job.
+        timeout-minutes: 12
         run: npx playwright install --with-deps chromium
 
       - name: Run blockchain E2E (devnet)
@@ -158,7 +158,7 @@ jobs:
     if: >-
       ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main')
       || (github.event_name == 'workflow_dispatch' && (inputs.network == 'both' || inputs.network == 'testnet')) }}
-    runs-on: ubuntu-latest
+    runs-on: warp-ubuntu-latest-x64-8x
     timeout-minutes: 60
     env:
       E2E_NETWORK: testnet
@@ -168,7 +168,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: yarn
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -182,37 +181,31 @@ jobs:
         run: yarn install --frozen-lockfile
 
       - name: Install miden-client-cli
-        shell: bash
-        run: |
-          # Decoupled from the JS SDK version — read the CLI pin from
-          # package.json. `midenClientCliGit` ({url, rev}) takes precedence
-          # over `midenClientCliVersion` and is used while the target
-          # miden-client line is unreleased on crates.io (the 0.15 series
-          # ships from the repo's `next` branch only). See
-          # playwright/e2e/helpers/miden-cli.ts for the matching local-dev
-          # path.
-          GIT_URL=$(node -p "require('./package.json').midenClientCliGit?.url ?? ''")
-          GIT_REV=$(node -p "require('./package.json').midenClientCliGit?.rev ?? ''")
-          VERSION=$(node -p "require('./package.json').midenClientCliVersion")
-          if [[ -z "$GIT_URL" && (-z "$VERSION" || "$VERSION" == "undefined") ]]; then
-            echo "::error::neither midenClientCliGit nor midenClientCliVersion present in package.json"
-            exit 1
-          fi
-          if [[ -x "$HOME/.cargo/bin/miden-client" ]]; then
-            echo "miden-client already present from cache:"
-            "$HOME/.cargo/bin/miden-client" --version || true
-          elif [[ -n "$GIT_URL" ]]; then
-            echo "Installing miden-client-cli from ${GIT_URL}@${GIT_REV:0:8}..."
-            cargo install miden-client-cli --git "$GIT_URL" --rev "$GIT_REV" --locked
-          else
-            echo "Installing miden-client-cli@${VERSION}..."
-            cargo install miden-client-cli --version "$VERSION"
-          fi
+        # Reads the CLI pin (midenClientCliGit, else midenClientCliVersion) from
+        # package.json — the same resolution playwright/e2e/helpers/miden-cli.ts does —
+        # and skips the ~7 min compile when the cache above already restored the binary.
+        # It also rebuilds the CLI against a linked Protocol PR when the PR carries one;
+        # no marker (as here) means the published pin, exactly as before.
+        uses: ./.github/actions/install-miden-client-cli
+
+      - name: Drop apt repositories this repo never installs from
+        uses: ./.github/actions/apt-drop-unused-repos
 
       - name: Install xvfb
-        run: sudo apt-get update && sudo apt-get install -y xvfb
+        # The azure apt mirror intermittently blackholes: runs have stalled ~57 min
+        # inside `apt-get update`, been killed by the job cap, and produced no test
+        # results. Prefer the canonical mirror, bound + retry fetches, cap the step.
+        timeout-minutes: 6
+        run: |
+          sudo sed -i 's|http://azure.archive.ubuntu.com|http://archive.ubuntu.com|g' \
+            /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 update
+          sudo apt-get install -y xvfb
 
       - name: Install Playwright browsers
+        # `--with-deps` shells out to apt, and the browser download itself has
+        # wedged for 2h18m. Cap it so a stall fails fast instead of eating the job.
+        timeout-minutes: 12
         run: npx playwright install --with-deps chromium
 
       - name: Run blockchain E2E (testnet)
@@ -264,7 +257,7 @@ jobs:
             fi
           done
           if [[ "$ran" -eq 0 ]]; then
-            echo "Chrome E2E: neither network ran — check the branch gating on the jobs."
+                        echo "Chrome E2E: neither network ran — check the branch gating on the jobs."
             exit 1
           fi
           echo "Chrome E2E: passed."
@@ -283,14 +276,17 @@ jobs:
   #
   # The direction of the version risk is the other way round: DEVNET guardian is
   # the one expected to break, until guardian packages are published for the
-  # 0.16 line that `next` targets. That is a known gap on `next`, not on main.
+  # 0.16 line this branch targets — see the KNOWN note at the top of this file.
 
   chrome-guardian-devnet:
     name: Chrome Guardian E2E (devnet)
+    # Runs on push to next again (#797 closed for this suite): devnet's fee-enabled
+    # genesis is transactable now that the harness funds accounts from the chain's own
+    # public faucet, so a failure here is a real one.
     if: >-
       ${{ (github.event_name == 'push' && github.ref == 'refs/heads/next')
       || (github.event_name == 'workflow_dispatch' && (inputs.network == 'both' || inputs.network == 'devnet')) }}
-    runs-on: ubuntu-latest
+    runs-on: warp-ubuntu-latest-x64-8x
     timeout-minutes: 60
     env:
       E2E_NETWORK: devnet
@@ -301,7 +297,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: yarn
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -315,30 +310,31 @@ jobs:
         run: yarn install --frozen-lockfile
 
       - name: Install miden-client-cli
-        shell: bash
-        run: |
-          GIT_URL=$(node -p "require('./package.json').midenClientCliGit?.url ?? ''")
-          GIT_REV=$(node -p "require('./package.json').midenClientCliGit?.rev ?? ''")
-          VERSION=$(node -p "require('./package.json').midenClientCliVersion")
-          if [[ -z "$GIT_URL" && (-z "$VERSION" || "$VERSION" == "undefined") ]]; then
-            echo "::error::neither midenClientCliGit nor midenClientCliVersion present in package.json"
-            exit 1
-          fi
-          if [[ -x "$HOME/.cargo/bin/miden-client" ]]; then
-            echo "miden-client already present from cache:"
-            "$HOME/.cargo/bin/miden-client" --version || true
-          elif [[ -n "$GIT_URL" ]]; then
-            echo "Installing miden-client-cli from ${GIT_URL}@${GIT_REV:0:8}..."
-            cargo install miden-client-cli --git "$GIT_URL" --rev "$GIT_REV" --locked
-          else
-            echo "Installing miden-client-cli@${VERSION}..."
-            cargo install miden-client-cli --version "$VERSION"
-          fi
+        # Reads the CLI pin (midenClientCliGit, else midenClientCliVersion) from
+        # package.json — the same resolution playwright/e2e/helpers/miden-cli.ts does —
+        # and skips the ~7 min compile when the cache above already restored the binary.
+        # It also rebuilds the CLI against a linked Protocol PR when the PR carries one;
+        # no marker (as here) means the published pin, exactly as before.
+        uses: ./.github/actions/install-miden-client-cli
+
+      - name: Drop apt repositories this repo never installs from
+        uses: ./.github/actions/apt-drop-unused-repos
 
       - name: Install xvfb
-        run: sudo apt-get update && sudo apt-get install -y xvfb
+        # The azure apt mirror intermittently blackholes: runs have stalled ~57 min
+        # inside `apt-get update`, been killed by the job cap, and produced no test
+        # results. Prefer the canonical mirror, bound + retry fetches, cap the step.
+        timeout-minutes: 6
+        run: |
+          sudo sed -i 's|http://azure.archive.ubuntu.com|http://archive.ubuntu.com|g' \
+            /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 update
+          sudo apt-get install -y xvfb
 
       - name: Install Playwright browsers
+        # `--with-deps` shells out to apt, and the browser download itself has
+        # wedged for 2h18m. Cap it so a stall fails fast instead of eating the job.
+        timeout-minutes: 12
         run: npx playwright install --with-deps chromium
 
       - name: Build Chrome extension (devnet)
@@ -365,7 +361,7 @@ jobs:
     if: >-
       ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main')
       || (github.event_name == 'workflow_dispatch' && (inputs.network == 'both' || inputs.network == 'testnet')) }}
-    runs-on: ubuntu-latest
+    runs-on: warp-ubuntu-latest-x64-8x
     timeout-minutes: 60
     env:
       E2E_NETWORK: testnet
@@ -376,7 +372,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: yarn
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -390,30 +385,31 @@ jobs:
         run: yarn install --frozen-lockfile
 
       - name: Install miden-client-cli
-        shell: bash
-        run: |
-          GIT_URL=$(node -p "require('./package.json').midenClientCliGit?.url ?? ''")
-          GIT_REV=$(node -p "require('./package.json').midenClientCliGit?.rev ?? ''")
-          VERSION=$(node -p "require('./package.json').midenClientCliVersion")
-          if [[ -z "$GIT_URL" && (-z "$VERSION" || "$VERSION" == "undefined") ]]; then
-            echo "::error::neither midenClientCliGit nor midenClientCliVersion present in package.json"
-            exit 1
-          fi
-          if [[ -x "$HOME/.cargo/bin/miden-client" ]]; then
-            echo "miden-client already present from cache:"
-            "$HOME/.cargo/bin/miden-client" --version || true
-          elif [[ -n "$GIT_URL" ]]; then
-            echo "Installing miden-client-cli from ${GIT_URL}@${GIT_REV:0:8}..."
-            cargo install miden-client-cli --git "$GIT_URL" --rev "$GIT_REV" --locked
-          else
-            echo "Installing miden-client-cli@${VERSION}..."
-            cargo install miden-client-cli --version "$VERSION"
-          fi
+        # Reads the CLI pin (midenClientCliGit, else midenClientCliVersion) from
+        # package.json — the same resolution playwright/e2e/helpers/miden-cli.ts does —
+        # and skips the ~7 min compile when the cache above already restored the binary.
+        # It also rebuilds the CLI against a linked Protocol PR when the PR carries one;
+        # no marker (as here) means the published pin, exactly as before.
+        uses: ./.github/actions/install-miden-client-cli
+
+      - name: Drop apt repositories this repo never installs from
+        uses: ./.github/actions/apt-drop-unused-repos
 
       - name: Install xvfb
-        run: sudo apt-get update && sudo apt-get install -y xvfb
+        # The azure apt mirror intermittently blackholes: runs have stalled ~57 min
+        # inside `apt-get update`, been killed by the job cap, and produced no test
+        # results. Prefer the canonical mirror, bound + retry fetches, cap the step.
+        timeout-minutes: 6
+        run: |
+          sudo sed -i 's|http://azure.archive.ubuntu.com|http://archive.ubuntu.com|g' \
+            /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 update
+          sudo apt-get install -y xvfb
 
       - name: Install Playwright browsers
+        # `--with-deps` shells out to apt, and the browser download itself has
+        # wedged for 2h18m. Cap it so a stall fails fast instead of eating the job.
+        timeout-minutes: 12
         run: npx playwright install --with-deps chromium
 
       - name: Build Chrome extension (testnet)
@@ -477,6 +473,9 @@ jobs:
 
   mobile-devnet:
     name: Mobile E2E (devnet)
+    # Runs on push to next again (#797 closed for this suite): devnet's fee-enabled
+    # genesis is transactable now that the harness funds accounts from the chain's own
+    # public faucet, so a failure here is a real one.
     if: >-
       ${{ (github.event_name == 'push' && github.ref == 'refs/heads/next')
       || (github.event_name == 'workflow_dispatch' && (inputs.network == 'both' || inputs.network == 'devnet')) }}
@@ -499,7 +498,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: yarn
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -513,38 +511,41 @@ jobs:
         run: yarn install --frozen-lockfile
 
       - name: Install miden-client-cli
-        shell: bash
-        run: |
-          # Decoupled from the JS SDK version — read the CLI pin from
-          # package.json. `midenClientCliGit` ({url, rev}) takes precedence
-          # over `midenClientCliVersion` and is used while the target
-          # miden-client line is unreleased on crates.io (the 0.15 series
-          # ships from the repo's `next` branch only). See
-          # playwright/e2e/helpers/miden-cli.ts for the matching local-dev
-          # path.
-          GIT_URL=$(node -p "require('./package.json').midenClientCliGit?.url ?? ''")
-          GIT_REV=$(node -p "require('./package.json').midenClientCliGit?.rev ?? ''")
-          VERSION=$(node -p "require('./package.json').midenClientCliVersion")
-          if [[ -z "$GIT_URL" && (-z "$VERSION" || "$VERSION" == "undefined") ]]; then
-            echo "::error::neither midenClientCliGit nor midenClientCliVersion present in package.json"
-            exit 1
-          fi
-          if [[ -x "$HOME/.cargo/bin/miden-client" ]]; then
-            echo "miden-client already present from cache:"
-            "$HOME/.cargo/bin/miden-client" --version || true
-          elif [[ -n "$GIT_URL" ]]; then
-            echo "Installing miden-client-cli from ${GIT_URL}@${GIT_REV:0:8}..."
-            cargo install miden-client-cli --git "$GIT_URL" --rev "$GIT_REV" --locked
-          else
-            echo "Installing miden-client-cli@${VERSION}..."
-            cargo install miden-client-cli --version "$VERSION"
-          fi
+        # Reads the CLI pin (midenClientCliGit, else midenClientCliVersion) from
+        # package.json — the same resolution playwright/e2e/helpers/miden-cli.ts does —
+        # and skips the ~7 min compile when the cache above already restored the binary.
+        # It also rebuilds the CLI against a linked Protocol PR when the PR carries one;
+        # no marker (as here) means the published pin, exactly as before.
+        uses: ./.github/actions/install-miden-client-cli
 
       # CDP bridge (appium-remote-debugger) requires Simulator.app GUI to be
       # running — headless simctl boots don't expose webinspectord. Ignore
       # exit status because `open -a` returns 0 even if already open.
       - name: Launch Simulator.app
         run: open -a Simulator || true
+
+      # idb (Facebook's iOS debug bridge) lets the harness tap "Allow" on the
+      # native notification-permission SpringBoard alert, which lives outside the
+      # WebView (CDP can't reach it) and otherwise covers every screenshot.
+      # Best-effort: the harness degrades gracefully when idb is absent, so a
+      # broken install must never fail the job.
+      #
+      # fb-idb (1.1.7, unmaintained) calls asyncio.get_event_loop(), which
+      # Python 3.14 — the runner's default python3 — removed, crashing idb. Pin
+      # 3.11 for it; nothing else in this job uses python3 (build is node +
+      # xcodebuild). `brew trust ... || true` because older-Homebrew runners have
+      # no `trust` subcommand (and `brew install` auto-taps anyway).
+      - name: Set up Python for idb
+        continue-on-error: true
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install idb (dismiss native notification alert)
+        continue-on-error: true
+        run: |
+          brew trust facebook/fb || true
+          brew install facebook/fb/idb-companion
+          python3 -m pip install fb-idb
 
       # Fresh-create + boot of custom simulators hangs multi-minute then
       # errors on macos-26 runners. Pin the test harness to preinstalled
@@ -690,7 +691,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: yarn
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -704,35 +704,38 @@ jobs:
         run: yarn install --frozen-lockfile
 
       - name: Install miden-client-cli
-        shell: bash
-        run: |
-          # Decoupled from the JS SDK version — read the CLI pin from
-          # package.json. `midenClientCliGit` ({url, rev}) takes precedence
-          # over `midenClientCliVersion` and is used while the target
-          # miden-client line is unreleased on crates.io (the 0.15 series
-          # ships from the repo's `next` branch only). See
-          # playwright/e2e/helpers/miden-cli.ts for the matching local-dev
-          # path.
-          GIT_URL=$(node -p "require('./package.json').midenClientCliGit?.url ?? ''")
-          GIT_REV=$(node -p "require('./package.json').midenClientCliGit?.rev ?? ''")
-          VERSION=$(node -p "require('./package.json').midenClientCliVersion")
-          if [[ -z "$GIT_URL" && (-z "$VERSION" || "$VERSION" == "undefined") ]]; then
-            echo "::error::neither midenClientCliGit nor midenClientCliVersion present in package.json"
-            exit 1
-          fi
-          if [[ -x "$HOME/.cargo/bin/miden-client" ]]; then
-            echo "miden-client already present from cache:"
-            "$HOME/.cargo/bin/miden-client" --version || true
-          elif [[ -n "$GIT_URL" ]]; then
-            echo "Installing miden-client-cli from ${GIT_URL}@${GIT_REV:0:8}..."
-            cargo install miden-client-cli --git "$GIT_URL" --rev "$GIT_REV" --locked
-          else
-            echo "Installing miden-client-cli@${VERSION}..."
-            cargo install miden-client-cli --version "$VERSION"
-          fi
+        # Reads the CLI pin (midenClientCliGit, else midenClientCliVersion) from
+        # package.json — the same resolution playwright/e2e/helpers/miden-cli.ts does —
+        # and skips the ~7 min compile when the cache above already restored the binary.
+        # It also rebuilds the CLI against a linked Protocol PR when the PR carries one;
+        # no marker (as here) means the published pin, exactly as before.
+        uses: ./.github/actions/install-miden-client-cli
 
       - name: Launch Simulator.app
         run: open -a Simulator || true
+
+      # idb (Facebook's iOS debug bridge) lets the harness tap "Allow" on the
+      # native notification-permission SpringBoard alert, which lives outside the
+      # WebView (CDP can't reach it) and otherwise covers every screenshot.
+      # Best-effort: the harness degrades gracefully when idb is absent, so a
+      # broken install must never fail the job.
+      #
+      # fb-idb (1.1.7, unmaintained) calls asyncio.get_event_loop(), which
+      # Python 3.14 — the runner's default python3 — removed, crashing idb. Pin
+      # 3.11 for it; nothing else in this job uses python3 (build is node +
+      # xcodebuild). `brew trust ... || true` because older-Homebrew runners have
+      # no `trust` subcommand (and `brew install` auto-taps anyway).
+      - name: Set up Python for idb
+        continue-on-error: true
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install idb (dismiss native notification alert)
+        continue-on-error: true
+        run: |
+          brew trust facebook/fb || true
+          brew install facebook/fb/idb-companion
+          python3 -m pip install fb-idb
 
       - name: Pin test pair to preinstalled simulators
         shell: bash
@@ -904,6 +907,10 @@ jobs:
   # gate) so a guardian outage never blocks the standard mobile gate.
   mobile-guardian-devnet:
     name: Mobile Guardian E2E (devnet)
+    # Runs on push to next again (#797 closed): the last suite to come back. Its balance
+    # wait used to gate on the SUM of every asset, which a fee-charging chain made
+    # ambiguous -- the native funding balance landed first and the send opened before the
+    # test token existed. The wait names its token now.
     if: >-
       ${{ (github.event_name == 'push' && github.ref == 'refs/heads/next')
       || (github.event_name == 'workflow_dispatch' && (inputs.network == 'both' || inputs.network == 'devnet')) }}
@@ -926,7 +933,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: yarn
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -940,38 +946,41 @@ jobs:
         run: yarn install --frozen-lockfile
 
       - name: Install miden-client-cli
-        shell: bash
-        run: |
-          # Decoupled from the JS SDK version — read the CLI pin from
-          # package.json. `midenClientCliGit` ({url, rev}) takes precedence
-          # over `midenClientCliVersion` and is used while the target
-          # miden-client line is unreleased on crates.io (the 0.15 series
-          # ships from the repo's `next` branch only). See
-          # playwright/e2e/helpers/miden-cli.ts for the matching local-dev
-          # path.
-          GIT_URL=$(node -p "require('./package.json').midenClientCliGit?.url ?? ''")
-          GIT_REV=$(node -p "require('./package.json').midenClientCliGit?.rev ?? ''")
-          VERSION=$(node -p "require('./package.json').midenClientCliVersion")
-          if [[ -z "$GIT_URL" && (-z "$VERSION" || "$VERSION" == "undefined") ]]; then
-            echo "::error::neither midenClientCliGit nor midenClientCliVersion present in package.json"
-            exit 1
-          fi
-          if [[ -x "$HOME/.cargo/bin/miden-client" ]]; then
-            echo "miden-client already present from cache:"
-            "$HOME/.cargo/bin/miden-client" --version || true
-          elif [[ -n "$GIT_URL" ]]; then
-            echo "Installing miden-client-cli from ${GIT_URL}@${GIT_REV:0:8}..."
-            cargo install miden-client-cli --git "$GIT_URL" --rev "$GIT_REV" --locked
-          else
-            echo "Installing miden-client-cli@${VERSION}..."
-            cargo install miden-client-cli --version "$VERSION"
-          fi
+        # Reads the CLI pin (midenClientCliGit, else midenClientCliVersion) from
+        # package.json — the same resolution playwright/e2e/helpers/miden-cli.ts does —
+        # and skips the ~7 min compile when the cache above already restored the binary.
+        # It also rebuilds the CLI against a linked Protocol PR when the PR carries one;
+        # no marker (as here) means the published pin, exactly as before.
+        uses: ./.github/actions/install-miden-client-cli
 
       # CDP bridge (appium-remote-debugger) requires Simulator.app GUI to be
       # running — headless simctl boots don't expose webinspectord. Ignore
       # exit status because `open -a` returns 0 even if already open.
       - name: Launch Simulator.app
         run: open -a Simulator || true
+
+      # idb (Facebook's iOS debug bridge) lets the harness tap "Allow" on the
+      # native notification-permission SpringBoard alert, which lives outside the
+      # WebView (CDP can't reach it) and otherwise covers every screenshot.
+      # Best-effort: the harness degrades gracefully when idb is absent, so a
+      # broken install must never fail the job.
+      #
+      # fb-idb (1.1.7, unmaintained) calls asyncio.get_event_loop(), which
+      # Python 3.14 — the runner's default python3 — removed, crashing idb. Pin
+      # 3.11 for it; nothing else in this job uses python3 (build is node +
+      # xcodebuild). `brew trust ... || true` because older-Homebrew runners have
+      # no `trust` subcommand (and `brew install` auto-taps anyway).
+      - name: Set up Python for idb
+        continue-on-error: true
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install idb (dismiss native notification alert)
+        continue-on-error: true
+        run: |
+          brew trust facebook/fb || true
+          brew install facebook/fb/idb-companion
+          python3 -m pip install fb-idb
 
       # Fresh-create + boot of custom simulators hangs multi-minute then
       # errors on macos-26 runners. Pin the test harness to preinstalled
@@ -1115,7 +1124,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: yarn
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -1129,35 +1137,38 @@ jobs:
         run: yarn install --frozen-lockfile
 
       - name: Install miden-client-cli
-        shell: bash
-        run: |
-          # Decoupled from the JS SDK version — read the CLI pin from
-          # package.json. `midenClientCliGit` ({url, rev}) takes precedence
-          # over `midenClientCliVersion` and is used while the target
-          # miden-client line is unreleased on crates.io (the 0.15 series
-          # ships from the repo's `next` branch only). See
-          # playwright/e2e/helpers/miden-cli.ts for the matching local-dev
-          # path.
-          GIT_URL=$(node -p "require('./package.json').midenClientCliGit?.url ?? ''")
-          GIT_REV=$(node -p "require('./package.json').midenClientCliGit?.rev ?? ''")
-          VERSION=$(node -p "require('./package.json').midenClientCliVersion")
-          if [[ -z "$GIT_URL" && (-z "$VERSION" || "$VERSION" == "undefined") ]]; then
-            echo "::error::neither midenClientCliGit nor midenClientCliVersion present in package.json"
-            exit 1
-          fi
-          if [[ -x "$HOME/.cargo/bin/miden-client" ]]; then
-            echo "miden-client already present from cache:"
-            "$HOME/.cargo/bin/miden-client" --version || true
-          elif [[ -n "$GIT_URL" ]]; then
-            echo "Installing miden-client-cli from ${GIT_URL}@${GIT_REV:0:8}..."
-            cargo install miden-client-cli --git "$GIT_URL" --rev "$GIT_REV" --locked
-          else
-            echo "Installing miden-client-cli@${VERSION}..."
-            cargo install miden-client-cli --version "$VERSION"
-          fi
+        # Reads the CLI pin (midenClientCliGit, else midenClientCliVersion) from
+        # package.json — the same resolution playwright/e2e/helpers/miden-cli.ts does —
+        # and skips the ~7 min compile when the cache above already restored the binary.
+        # It also rebuilds the CLI against a linked Protocol PR when the PR carries one;
+        # no marker (as here) means the published pin, exactly as before.
+        uses: ./.github/actions/install-miden-client-cli
 
       - name: Launch Simulator.app
         run: open -a Simulator || true
+
+      # idb (Facebook's iOS debug bridge) lets the harness tap "Allow" on the
+      # native notification-permission SpringBoard alert, which lives outside the
+      # WebView (CDP can't reach it) and otherwise covers every screenshot.
+      # Best-effort: the harness degrades gracefully when idb is absent, so a
+      # broken install must never fail the job.
+      #
+      # fb-idb (1.1.7, unmaintained) calls asyncio.get_event_loop(), which
+      # Python 3.14 — the runner's default python3 — removed, crashing idb. Pin
+      # 3.11 for it; nothing else in this job uses python3 (build is node +
+      # xcodebuild). `brew trust ... || true` because older-Homebrew runners have
+      # no `trust` subcommand (and `brew install` auto-taps anyway).
+      - name: Set up Python for idb
+        continue-on-error: true
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install idb (dismiss native notification alert)
+        continue-on-error: true
+        run: |
+          brew trust facebook/fb || true
+          brew install facebook/fb/idb-companion
+          python3 -m pip install fb-idb
 
       - name: Pin test pair to preinstalled simulators
         shell: bash

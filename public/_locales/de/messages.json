@@ -388,8 +388,8 @@
     "englishSource": "Collateral"
   },
   "earnCollateralValue": {
-    "message": "Miden P2IDE (gasfrei)",
-    "englishSource": "Miden P2IDE (gasless)"
+    "message": "Miden P2IDE",
+    "englishSource": "Miden P2IDE"
   },
   "earnDepositRoute": {
     "message": "Miden -> $protocol$ ($network$)",
@@ -631,6 +631,34 @@
     "message": "Den vollständigen Fehler ausblenden",
     "englishSource": "Hide full error"
   },
+  "noteDeliveryPendingTitle": {
+    "message": "Lieferung unbestätigt",
+    "englishSource": "Delivery unconfirmed"
+  },
+  "noteDeliveryUndeliveredTitle": {
+    "message": "Empfänger nicht benachrichtigt",
+    "englishSource": "Recipient not notified"
+  },
+  "noteDeliveryUndeliveredBody": {
+    "message": "Diese Transaktion findet auf der Blockchain statt, aber der private „note“ konnte nicht an den Transportdienst „note“ übergeben werden. Solange dies nicht geschieht, kann der Empfänger die Transaktion weder einsehen noch ausgeben.",
+    "englishSource": "This transaction is on chain, but the private note could not be handed to the note transport service. Until it is, the recipient cannot see or spend it."
+  },
+  "noteDeliveryPendingBody": {
+    "message": "Diese Transaktion findet auf der Blockchain statt, aber die Wallet konnte nicht bestätigen, dass die privaten Schlüssel note den Transportdienst note erreicht haben.",
+    "englishSource": "This transaction is on chain, but the wallet could not confirm that the private note reached the note transport service."
+  },
+  "noteDeliveryRecoveryHint": {
+    "message": "Halten Sie diese Wallet geöffnet und verbunden – die Zustellung wird nach dem Senden eine Zeit lang automatisch erneut versucht, und diese Warnung verschwindet, sobald die Übertragung erfolgreich war. Sollte der Empfänger nach einer Stunde immer noch nichts erhalten haben, senden Sie nicht erneut; notieren Sie sich die unten angegebene Transaktions-ID und wenden Sie sich an den Support, da der „note“ (Vertrauens-ID) daraus noch wiederhergestellt werden kann.",
+    "englishSource": "Keep this wallet open and connected — the delivery is retried automatically for a while after sending, and this warning clears if it goes through. If the recipient still has nothing after an hour, do not send again; save the transaction ID below and contact support, since the note can still be recovered from it."
+  },
+  "noteDeliveryConfirmedTitle": {
+    "message": "Lieferung bestätigt",
+    "englishSource": "Delivery confirmed"
+  },
+  "noteDeliveryConfirmedBody": {
+    "message": "Der Empfänger hat diese private „note“ erhalten und ausgegeben, sodass deren Zustellung in der Blockchain bestätigt ist.",
+    "englishSource": "The recipient has received and spent this private note, so its delivery is confirmed on chain."
+  },
   "faucet": {
     "message": "Faucet",
     "englishSource": "Faucet"
@@ -717,6 +745,14 @@
     "message": "Sie können Ihren gesamten geheimen Seed phrase in ein beliebiges Feld einfügen",
     "englishSource": "You can paste your entire secret Seed phrase into any field"
   },
+  "importSeedPhraseError": {
+    "message": "Ein oder mehrere Wörter sind nicht in der Wortliste der Wiederherstellungsphrase enthalten. Überprüfen Sie die hervorgehobenen Wörter.",
+    "englishSource": "One or more words aren't in the recovery phrase word list. Check the highlighted words."
+  },
+  "unknownTokenScale": {
+    "message": "Die Dezimalstellen dieses Tokens konnten nicht überprüft werden, daher können Beträge weder angezeigt noch gesendet werden.",
+    "englishSource": "This token's decimals could not be verified, so amounts can't be shown or sent."
+  },
   "oops": {
     "message": "Hoppla!",
     "englishSource": "Oops!"
@@ -749,6 +785,18 @@
   "retry": {
     "message": "Erneut versuchen",
     "englishSource": "Retry"
+  },
+  "retryEarnDelivery": {
+    "message": "Zustellung erneut versuchen",
+    "englishSource": "Retry delivery"
+  },
+  "withdrawalRecoveryUnavailable": {
+    "message": "Diese Auszahlung kann nicht sicher erneut versucht werden. Prüfen Sie ihren Status, bevor Sie eine weitere Auszahlung starten.",
+    "englishSource": "This withdrawal cannot be retried safely. Check its status before starting another withdrawal."
+  },
+  "retryAnyway": {
+    "message": "Trotzdem wiederholen",
+    "englishSource": "Retry anyway"
   },
   "maximalAmount": {
     "message": "Maximal: $amount$",
@@ -852,6 +900,10 @@
     "message": "Guardian genehmigt",
     "englishSource": "Guardian approved"
   },
+  "transactionStepSignedLocally": {
+    "message": "Auf diesem Gerät signiert",
+    "englishSource": "Signed on this device"
+  },
   "transactionStepProofGenerated": {
     "message": "Beweis erstellt",
     "englishSource": "Proof generated"
@@ -932,6 +984,14 @@
   "transactionStageSigningProposalDescription": {
     "message": "Ihr „guardian“ unterzeichnet den Vorschlag.",
     "englishSource": "Your guardian is signing the proposal."
+  },
+  "transactionStageSigningLocally": {
+    "message": "Lokal signieren",
+    "englishSource": "Signing locally"
+  },
+  "transactionStageSigningLocallyDescription": {
+    "message": "Signieren mit Ihren Wallet-Schlüsseln",
+    "englishSource": "Signing with your wallet keys"
   },
   "transactionStageSubmitting": {
     "message": "Transaktion übermitteln",
@@ -1695,6 +1755,34 @@
     "message": "Ihr Geld ist bereit",
     "englishSource": "Your funds are ready"
   },
+  "guardianNoteRecoveryPromptTitle": {
+    "message": "Kontowiederherstellung erkannt",
+    "englishSource": "Account recovery detected"
+  },
+  "guardianNoteRecoveryTransportStep": {
+    "message": "Privates „notes“ wird gescannt: Die Übertragung von „note“ wird entleert…",
+    "englishSource": "Scanning private notes: draining the note transport…"
+  },
+  "guardianNoteRecoveryProposalsStep": {
+    "message": "Privates „notes“ wird gescannt: „notes“ aus ausstehenden Vorschlägen werden importiert…",
+    "englishSource": "Scanning private notes: importing notes from pending proposals…"
+  },
+  "guardianNoteRecoveryPublicPreparingStep": {
+    "message": "Synchronisierung der öffentlichen „notes“…",
+    "englishSource": "Syncing public notes…"
+  },
+  "guardianNoteRecoveryPublicStep": {
+    "message": "Synchronisierung der öffentlichen „notes“: Block-$current$ von $latest$",
+    "englishSource": "Syncing public notes: block $current$ of $latest$",
+    "placeholders": {
+      "current": {
+        "content": "$1"
+      },
+      "latest": {
+        "content": "$2"
+      }
+    }
+  },
   "pendingNotesPromptTitle": {
     "message": "Sie haben ausstehende „Notes“",
     "englishSource": "You have Pending Notes"
@@ -1949,6 +2037,14 @@
     "message": "Erfahren Sie mehr über das „Guardian“",
     "englishSource": "Learn more about the Guardian"
   },
+  "noGuardianOptionTitle": {
+    "message": "Kein Vormund",
+    "englishSource": "No guardian"
+  },
+  "noGuardianOptionSubtitle": {
+    "message": "Erweitert – nur mit Ihrem seed phrase wiederherstellen. Kein Vormund, Mitunterzeichner.",
+    "englishSource": "Advanced — recover with your seed phrase only. No guardian co-signer."
+  },
   "guardianOperatedBy": {
     "message": "Betreiber:",
     "englishSource": "Operated by:"
@@ -1956,6 +2052,22 @@
   "guardianLocation": {
     "message": "Standort:",
     "englishSource": "Location:"
+  },
+  "guardianOfflineLabel": {
+    "message": "Offline",
+    "englishSource": "Offline"
+  },
+  "guardianNotConnectedLabel": {
+    "message": "Nicht verbunden",
+    "englishSource": "Not connected"
+  },
+  "guardianNeedsAttentionLabel": {
+    "message": "Erfordert Aufmerksamkeit",
+    "englishSource": "Needs attention"
+  },
+  "guardianCheckingLabel": {
+    "message": "Wird geprüft",
+    "englishSource": "Checking"
   },
   "whatIsAGuardian": {
     "message": "Was ist ein „Guardian“?",
@@ -1970,7 +2082,7 @@
     "englishSource": "What it does"
   },
   "guardianInfoWhatItDoesDescription": {
-    "message": "Unterschreibt jede Transaktion mit – weder Ihr Gerät noch die „Guardian“ können Gelder allein bewegen. Hilft Ihnen, Ihr Konto wiederherzustellen, falls Sie Ihr Gerät verlieren.",
+    "message": "Unterschreibt jede Transaktion mit – weder Ihr Gerät noch der Guardian können Gelder allein bewegen. Hilft Ihnen, Ihr Konto wiederherzustellen, falls Sie Ihr Gerät verlieren.",
     "englishSource": "Co-signs every transaction — neither your device nor the Guardian can move funds alone. Helps you recover your account if you lose your device."
   },
   "guardianInfoWhatItCannotDoTitle": {
@@ -1986,7 +2098,7 @@
     "englishSource": "Switching is easy"
   },
   "guardianInfoSwitchingIsEasyDescription": {
-    "message": "Sie können jederzeit mit Ihrer Wiederherstellungsphrase zu einer anderen „Guardian“ wechseln. Es ändert sich lediglich, wer mitunterzeichnet; Ihr Konto und Ihr Guthaben bleiben unverändert.",
+    "message": "Sie können jederzeit mit Ihrer Wiederherstellungsphrase zu einem anderen Guardian wechseln. Es ändert sich lediglich, wer mitunterzeichnet; Ihr Konto und Ihr Guthaben bleiben unverändert.",
     "englishSource": "You can switch to a different Guardian at any time with your recovery phrase. Only who co-signs changes; your account and funds stay the same."
   },
   "gotIt": {
@@ -2270,8 +2382,12 @@
     "englishSource": "New Guardian Endpoint"
   },
   "guardianEndpointUnchanged": {
-    "message": "Das ist bereits Ihr aktuelles „guardian“.",
-    "englishSource": "That's already your current guardian."
+    "message": "Das ist bereits Ihr aktueller „Guardian“.",
+    "englishSource": "That's already your current Guardian."
+  },
+  "guardianSwitchAlreadyInProgress": {
+    "message": "Ein Guardian-Wechsel läuft bereits. Warten Sie, bis er abgeschlossen ist, bevor Sie einen weiteren starten.",
+    "englishSource": "A Guardian switch is already in progress. Wait for it to finish before starting another."
   },
   "rotateGuardian": {
     "message": "Guardian rotieren",
@@ -2313,10 +2429,6 @@
       }
     }
   },
-  "guardianRotationComplete": {
-    "message": "Guardian Aktualisiert!",
-    "englishSource": "Guardian Updated!"
-  },
   "online": {
     "message": "Online",
     "englishSource": "Online"
@@ -2325,9 +2437,73 @@
     "message": "Überprüfungszyklus",
     "englishSource": "Review rotation"
   },
-  "newLabel": {
-    "message": "Neu",
-    "englishSource": "New"
+  "currentGuardianLabel": {
+    "message": "Aktueller Guardian",
+    "englishSource": "Current Guardian"
+  },
+  "newGuardianLabel": {
+    "message": "Neuer Guardian",
+    "englishSource": "New Guardian"
+  },
+  "guardianSwitchSuccessTitle": {
+    "message": "Sie haben Ihre „Guardian“ erfolgreich rotiert!",
+    "englishSource": "You've successfully rotated your Guardian!"
+  },
+  "guardianSwitchSuccessInfoTitle": {
+    "message": "Was sich nun ändert",
+    "englishSource": "What changes now"
+  },
+  "guardianSwitchSetupIncompleteTitle": {
+    "message": "Einrichtung nicht abgeschlossen.",
+    "englishSource": "Setup unfinished."
+  },
+  "guardianSwitchUnconfirmedHeading": {
+    "message": "Guardian-Wechsel übermittelt",
+    "englishSource": "Guardian switch submitted"
+  },
+  "guardianSwitchUnconfirmedTitle": {
+    "message": "Noch nicht bestätigt.",
+    "englishSource": "Not confirmed yet."
+  },
+  "guardianSwitchUnconfirmedBody": {
+    "message": "Der Wechsel wurde übermittelt, aber dieses Gerät konnte nicht bestätigen, dass er on chain wirksam wurde. Die Wallet kann das nicht für Sie bestätigen — Ihre Guardian-Einstellungen und der Aktivitätseintrag dieser Transaktion nennen in beiden Fällen den neuen Guardian. Wenn eine spätere Transaktion abgelehnt wird, weil sie nicht mitsigniert werden konnte, führen Sie den Wechsel erneut aus.",
+    "englishSource": "The switch was submitted, but this device couldn't confirm it went through on chain. Nothing in the wallet can confirm it for you — your Guardian settings and this transaction's Activity entry will both name the new Guardian either way. If a later transaction is refused because it couldn't be co-signed, run the switch again."
+  },
+  "guardianSwitchUnconfirmedEndpointNotSaved": {
+    "message": "Dieses Gerät konnte außerdem die Adresse des neuen Guardians nicht speichern und zeigt daher weiterhin die vorherige an. Die Wallet wird Sie bitten, sie erneut einzugeben — diese Abfrage startet keinen weiteren Wechsel.",
+    "englishSource": "This device also couldn't save the new Guardian's address, so it still shows the previous one. The wallet will ask you to re-enter it — that prompt won't start another switch."
+  },
+  "guardianSwitchUnconfirmedInfo3": {
+    "message": "Sobald der Wechsel bestätigt ist, müssen neue Transaktionen Ihren neuen Guardian erreichen können, bevor sie abgeschlossen werden können.",
+    "englishSource": "Once the switch is confirmed, new transactions need your new Guardian to be reachable before they can complete."
+  },
+  "guardianSwitchUnconfirmedInfo1": {
+    "message": "Sobald der Wechsel on-chain bestätigt ist, signiert dein neuer Guardian jede Transaktion mit, und dein alter Guardian kann für dein Konto nicht mehr mitsignieren.",
+    "englishSource": "Once the switch is confirmed on chain, your new Guardian co-signs every transaction and your old Guardian can no longer co-sign for your account."
+  },
+  "guardianSwitchEndpointNotSavedBody": {
+    "message": "Der Wechsel wurde on-chain bestätigt, aber dieses Gerät konnte die Adresse des neuen Guardian nicht speichern. Die Wallet prüft dies automatisch und fordert Sie bei Bedarf auf, sie erneut einzugeben — dadurch wird kein weiterer Wechsel gestartet. Erscheint keine Aufforderung, wenden Sie sich an den Support.",
+    "englishSource": "The switch is confirmed on chain, but this device couldn't save the new Guardian's address. The wallet checks for this automatically and will prompt you to re-enter it if needed — this won't start another switch. If no prompt appears, contact support."
+  },
+  "guardianSwitchRegistrationPendingBody": {
+    "message": "Der Wechsel wurde on-chain bestätigt. Die Registrierung Ihres Kontos beim neuen Guardian ist noch nicht abgeschlossen — die Wallet versucht es automatisch eine begrenzte Anzahl von Malen erneut. Wenn sie danach noch nicht abgeschlossen ist, wenden Sie sich an den Support.",
+    "englishSource": "The switch is confirmed on chain. Registering your account with the new Guardian hasn't finished yet — the wallet retries automatically a limited number of times. If it still hasn't finished, contact support."
+  },
+  "guardianSwitchSuccessInfo1": {
+    "message": "Ihr neuer „Guardian“ unterzeichnet von nun an jede Transaktion mit – Ihr alter „Guardian“ kann Transaktionen für Ihr Konto nicht mehr mitunterzeichnen.",
+    "englishSource": "Your new Guardian cosigns every transaction from now on — your old Guardian can no longer co-sign transactions for your account."
+  },
+  "guardianSwitchSuccessInfo2": {
+    "message": "Ihre Wallet-Adresse, Ihr Guthaben und Ihr Verlauf bleiben unverändert. Während der Rotation wurde nichts verschoben.",
+    "englishSource": "Your wallet address, funds, and history are unchanged. Nothing moved during the rotation."
+  },
+  "guardianSwitchSuccessInfo3": {
+    "message": "Neue Transaktionen erfordern, dass Ihr neuer Guardian erreichbar ist, bevor sie abgeschlossen werden können.",
+    "englishSource": "New transactions need your new Guardian to be reachable before they can complete."
+  },
+  "guardianSwitchSuccessInfo4": {
+    "message": "Sie können Ihren Guardian jederzeit wieder rotieren – bewahren Sie Ihre Wiederherstellungsphrase sicher auf, da Sie diese dafür benötigen.",
+    "englishSource": "You can rotate your Guardian again at any time — keep your recovery phrase safe, it's required to do so."
   },
   "guardianSwitchAuthenticationDescription": {
     "message": "Authentifizieren Sie sich, um diesen Wechsel zu „Guardian“ zu genehmigen.",
@@ -2350,7 +2526,7 @@
     "englishSource": "Your old Guardian can't block this"
   },
   "oldGuardianCantBlockBody": {
-    "message": "Die Rotation wird durch Ihre beiden geräteinternen Schlüssel genehmigt. Die alte „Guardian“ wird lediglich benachrichtigt.",
+    "message": "Die Rotation wird durch Ihre beiden geräteinternen Schlüssel genehmigt. Der alte „Guardian“ wird lediglich benachrichtigt.",
     "englishSource": "Rotation is approved by your two on-device keys. The old Guardian is only notified."
   },
   "replaceHotKey": {
@@ -2400,6 +2576,26 @@
   "guardianUrlMismatch": {
     "message": "Dieser Betreiber stimmt nicht mit dem On-Chain-guardian Ihres Kontos überein.",
     "englishSource": "That operator doesn't match your account's on-chain guardian."
+  },
+  "guardianUrlUnreachable": {
+    "message": "Dieser Betreiber war nicht erreichbar. Prüfe die URL und deine Verbindung und versuche es erneut.",
+    "englishSource": "Couldn't reach that operator. Check the URL and your connection, then try again."
+  },
+  "guardianUrlNoOnChainGuardian": {
+    "message": "Für dieses Konto gibt es noch keinen Guardian on-chain, gegen den geprüft werden könnte.",
+    "englishSource": "This account has no on-chain guardian to verify against yet."
+  },
+  "connectivityGuardianTitle": {
+    "message": "Guardian nicht erreichbar",
+    "englishSource": "Guardian unreachable"
+  },
+  "connectivityGuardianBody": {
+    "message": "Ihr „guardian“ reagiert nicht, daher können Transaktionen nicht mitunterzeichnet werden.",
+    "englishSource": "Your guardian isn't responding, so transactions can't be co-signed."
+  },
+  "connectivityGuardianCta": {
+    "message": "Guardian wechseln",
+    "englishSource": "Switch Guardian"
   },
   "revealHotKey": {
     "message": "Geräteschlüssel anzeigen",
@@ -2481,6 +2677,38 @@
     "message": "Du kannst nicht an deine eigene Adresse senden.",
     "englishSource": "You can't send to your own address"
   },
+  "networkFee": {
+    "message": "Network Fee",
+    "englishSource": "Network Fee"
+  },
+  "networkFeeMax": {
+    "message": "Maximale Netzwerkgebühr",
+    "englishSource": "Max network fee"
+  },
+  "networkFeeEstimateNote": {
+    "message": "Die genaue Gebühr hängt von der Transaktion ab und ist in der Regel niedriger. Auf dem Beleg sehen Sie, was Sie bezahlt haben.",
+    "englishSource": "The exact fee depends on the transaction and is usually lower. You will see what you paid on the receipt."
+  },
+  "feeReserveBlocksSend": {
+    "message": "Ihr MIDEN ist für die Netzwerkgebühr reserviert. Erhalten Sie mehr MIDEN, um Guthaben zu versenden.",
+    "englishSource": "Your MIDEN is reserved for the network fee. Receive more MIDEN to send."
+  },
+  "notWorthClaiming": {
+    "message": "Worth less than the network fee to claim",
+    "englishSource": "Worth less than the network fee to claim"
+  },
+  "feeChargedPerClaim": {
+    "message": "Für jeden Anspruch fällt eine eigene Gebühr an. Werden sie gemeinsam geltend gemacht, fällt nur eine Gebühr an.",
+    "englishSource": "Each claim pays its own fee. Claiming them together pays one."
+  },
+  "feeChargedPerAsset": {
+    "message": "Die Gebühr wird einmal pro beanspruchter Anlage erhoben.",
+    "englishSource": "Charged once per asset claimed."
+  },
+  "insufficientFeeAsset": {
+    "message": "Sie benötigen MIDEN, um die Netzwerkgebühr zu bezahlen. Erhalten Sie etwas MIDEN, um fortzufahren.",
+    "englishSource": "You need MIDEN to pay the network fee. Receive some MIDEN to continue."
+  },
   "amountMustBeLessThanBalance": {
     "message": "Der Betrag muss geringer sein als der Kontostand.",
     "englishSource": "Amount must be less than balance"
@@ -2490,8 +2718,32 @@
     "englishSource": "Auto Consume MIDEN notes"
   },
   "autoConsumeSettingsDescription": {
-    "message": "Führt automatisch die Einlösung eingehender MIDEN-notesen in Ihr Guthaben durch – genau wie beim Antippen von „Einlösen“. Dabei werden weder Ihre Gelder ausgegeben noch Gebühren erhoben.",
-    "englishSource": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't spend your funds or add any fee."
+    "message": "Führt die automatische Einlösung eingehender MIDEN-notesen in Ihr Guthaben durch – genau wie beim Antippen von „Einlösen“. Es erfolgt keine häufigere Einlösung und es fallen keine höheren Gebühren an als beim manuellen Antippen von „Einlösen“.",
+    "englishSource": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't claim any more often, or cost any more in fees, than tapping Claim yourself."
+  },
+  "encryptedWalletFileExporting": {
+    "message": "Erstellen Ihrer Wallet-Datei…",
+    "englishSource": "Creating your wallet file…"
+  },
+  "encryptedWalletFileExportFailedTitle": {
+    "message": "Export fehlgeschlagen",
+    "englishSource": "Export Failed"
+  },
+  "encryptedWalletFileExportFailedDesc": {
+    "message": "Ihre Wallet-Datei konnte nicht erstellt werden, daher wurde nichts gespeichert. Bitte versuchen Sie den Export erneut.",
+    "englishSource": "Your wallet file could not be created, so nothing was saved. Please try exporting again."
+  },
+  "encryptedWalletFileNotSavedTitle": {
+    "message": "Noch nicht gespeichert",
+    "englishSource": "Not Saved Yet"
+  },
+  "encryptedWalletFileNotSavedDesc": {
+    "message": "Ihre Wallet-Datei ist bereit, aber Sie haben das Freigabefenster geschlossen, bevor Sie einen Speicherort ausgewählt haben.",
+    "englishSource": "Your wallet file is ready, but you closed the share sheet before choosing where to keep it."
+  },
+  "encryptedWalletFileSaveAgain": {
+    "message": "Wählen Sie aus, wo Sie speichern möchten",
+    "englishSource": "Choose Where to Save"
   },
   "encryptedWalletFileExportedTitle1": {
     "message": "Verschlüsselte Wallet-Datei",
@@ -2522,8 +2774,8 @@
     "englishSource": "Private Data Permission"
   },
   "confirmPrivateDataPermissionDescription": {
-    "message": "Dadurch erhalten Sie dauerhaften Zugriff auf Ihre Kontodaten; dieser Zugriff kann nicht widerrufen werden.",
-    "englishSource": "This will give permanent access to your account data and cannot be revoked."
+    "message": "Dadurch erhält die Website fortlaufenden Zugriff auf Ihre Kontodaten, ohne erneut danach fragen zu müssen. Sie können diese Berechtigung jederzeit unter „Einstellungen“ → „Autorisierte DApps“ widerrufen.",
+    "englishSource": "This gives the site ongoing access to your account data without asking again. You can revoke it any time in Settings → Authorized DApps."
   },
   "privateAccountAccessRequest": {
     "message": "Diese Website fordert Zugriff auf Ihr privates Konto an.",
@@ -2577,6 +2829,10 @@
     "message": "Schließen Sie dieses Fenster erst, wenn die Transaktion erstellt wurde.",
     "englishSource": "Do not close this window until the transaction is generated"
   },
+  "transactionSubmittedUnconfirmedDescription": {
+    "message": "Ihre Transaktion wurde übermittelt, aber dieses Gerät konnte sie im Netzwerk nicht bestätigen.",
+    "englishSource": "Your transaction was submitted, but this device couldn't confirm it on the network."
+  },
   "transactionSuccessDescription": {
     "message": "Ihre Transaktion wurde erfolgreich verarbeitet und im Netzwerk bestätigt.",
     "englishSource": "Your transaction was successfully processed and confirmed on the network."
@@ -2620,10 +2876,6 @@
   "viewInActivities": {
     "message": "In „Aktivitäten“ anzeigen",
     "englishSource": "View in Activities"
-  },
-  "viewActivity": {
-    "message": "Aktivitäten anzeigen",
-    "englishSource": "View activity"
   },
   "viewDetails": {
     "message": "Details anzeigen",
@@ -3115,6 +3367,27 @@
     "message": "Synchronisierung erneut versuchen",
     "englishSource": "Retry sync"
   },
+  "deadletteredNotesTitle": {
+    "message": "Eingehende „notes“ erfordern einen erneuten Versuch",
+    "englishSource": "Incoming notes need a retry"
+  },
+  "deadletteredNotesTitleOne": {
+    "message": "Ein eingehender „note“ erfordert einen erneuten Versuch",
+    "englishSource": "An incoming note needs a retry"
+  },
+  "deadletteredNotesBody": {
+    "message": "$count$ konnten nicht automatisch importiert werden.",
+    "englishSource": "$count$ couldn't be imported automatically.",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "deadletteredNotesBodyOne": {
+    "message": "1 note konnte nicht automatisch importiert werden.",
+    "englishSource": "1 note couldn't be imported automatically."
+  },
   "tomorrow": {
     "message": "Morgen",
     "englishSource": "Tomorrow"
@@ -3262,6 +3535,24 @@
       }
     }
   },
+  "showAllNotes": {
+    "message": "+$count$ mehr",
+    "englishSource": "+$count$ more",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "andMoreAssets": {
+    "message": "+$count$ mehr",
+    "englishSource": "+$count$ more",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
   "dappLoadFailed": {
     "message": "Diese dApp kann nicht geladen werden",
     "englishSource": "Can't load this dApp"
@@ -3305,6 +3596,18 @@
   "dappTransactionRequest": {
     "message": "Diese App fordert eine Transaktion an.",
     "englishSource": "This app is requesting a transaction"
+  },
+  "dappSignRequest": {
+    "message": "Diese App möchte, dass Sie Daten mit Ihrer Wallet signieren",
+    "englishSource": "This app wants you to sign data with your wallet"
+  },
+  "dappImportNoteRequest": {
+    "message": "Diese App möchte eine private „note“ in Ihre Wallet importieren",
+    "englishSource": "This app wants to import a private note into your wallet"
+  },
+  "dappPrivateDataRequest": {
+    "message": "Diese App fordert Zugriff auf Ihre privaten Wallet-Daten an",
+    "englishSource": "This app is requesting access to your private wallet data"
   },
   "noAccountSelected": {
     "message": "Es wurde kein Konto ausgewählt",
@@ -3504,6 +3807,127 @@
     "message": "Testnetz",
     "englishSource": "Testnet"
   },
+  "devnet": {
+    "message": "Devnet",
+    "englishSource": "Devnet"
+  },
+  "localnet": {
+    "message": "Localnet",
+    "englishSource": "Localnet"
+  },
+  "networkModeBanner": {
+    "message": "Sie nutzen Bread auf Miden $network$",
+    "englishSource": "You are using Bread on Miden $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "networkNoticeChip": {
+    "message": "Miden $network$",
+    "englishSource": "Miden $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "networkNoticeBody": {
+    "message": "Diese Umgebung dient zu Testzwecken. Alles, was Sie hier halten, sind Test-Token ohne Geldwert.",
+    "englishSource": "This environment is for testing. Everything you hold here is a test token with no monetary value."
+  },
+  "networkNoticeNoValueTitle": {
+    "message": "Test-Token sind kein Geld",
+    "englishSource": "Test tokens are not money"
+  },
+  "networkNoticeNoValueBody": {
+    "message": "Die hier angezeigten Guthaben und Preise sind simuliert und können nicht eingelöst werden.",
+    "englishSource": "Balances and prices shown here are simulated and cannot be redeemed."
+  },
+  "networkNoticeNoRealFundsTitle": {
+    "message": "Senden Sie keine echten Geldbeträge",
+    "englishSource": "Do not send real funds"
+  },
+  "networkNoticeNoRealFundsBody": {
+    "message": "Alles, was von einem echten Netzwerk an eine Testadresse gesendet wird, geht verloren.",
+    "englishSource": "Anything sent from a real network to a test address is lost."
+  },
+  "networkNoticeResetTitle": {
+    "message": "Das Netzwerk kann zurückgesetzt werden",
+    "englishSource": "The network can reset"
+  },
+  "networkNoticeResetBody": {
+    "message": "Ein Reset löscht Guthaben und den Verlauf. Testguthaben werden niemals ins Mainnet übertragen.",
+    "englishSource": "A reset clears balances and history. Test balances never carry over to Mainnet."
+  },
+  "iUnderstand": {
+    "message": "Ich habe verstanden",
+    "englishSource": "I understand"
+  },
+  "receiveTestFundsTitle": {
+    "message": "Nur Test-Token",
+    "englishSource": "Test tokens only"
+  },
+  "receiveTestFundsBody": {
+    "message": "Senden Sie an diese Adresse ausschließlich Token von Miden $network$. An diese Adresse gesendete echte Geldbeträge können nicht wiederhergestellt werden.",
+    "englishSource": "Only send Miden $network$ tokens here. Real funds sent to this address cannot be recovered.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "crossChainFromNetwork": {
+    "message": "aus $network$",
+    "englishSource": "from $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "ethereumSepolia": {
+    "message": "Ethereum Sepolia",
+    "englishSource": "Ethereum Sepolia"
+  },
+  "bridgeTestFundsTitle": {
+    "message": "Nur Testguthaben",
+    "englishSource": "Test funds only"
+  },
+  "bridgeTestFundsBody": {
+    "message": "Diese Brücke überträgt Ethereum-Sepolia-Test-Token zu Miden. Führen Sie niemals eine Überbrückung vom Ethereum-Mainnet oder einem anderen realen Netzwerk durch.",
+    "englishSource": "This bridge moves Ethereum Sepolia test tokens to Miden. Never bridge from Ethereum mainnet or any other real network."
+  },
+  "shareAddressText": {
+    "message": "Meine Adresse auf Miden $network$ (nur Test-Token): $address$",
+    "englishSource": "My Miden $network$ address (test tokens only): $address$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      },
+      "address": {
+        "content": "$2"
+      }
+    }
+  },
+  "qrNetworkCaption": {
+    "message": "Miden $network$",
+    "englishSource": "Miden $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "evmConnectTestWalletTitle": {
+    "message": "Verbinden Sie nur eine Test-Wallet",
+    "englishSource": "Connect a test wallet only"
+  },
+  "evmConnectTestWalletBody": {
+    "message": "Diese Bridge läuft auf Ethereum Sepolia. Verbinden Sie keine Wallet, die echtes Geld enthält. Erstellen Sie eine neue Wallet und laden Sie diese ausschließlich mit Sepolia-ETH auf.",
+    "englishSource": "This bridge runs on Ethereum Sepolia. Do not connect a wallet that holds real funds. Create a fresh wallet and fund it with Sepolia ETH only."
+  },
   "browser": {
     "message": "Browser",
     "englishSource": "Browser"
@@ -3537,8 +3961,8 @@
     "englishSource": "Type"
   },
   "txIdLabel": {
-    "message": "Tx-ID",
-    "englishSource": "Tx ID"
+    "message": "Transaktions-ID",
+    "englishSource": "Transaction ID"
   },
   "notesSection": {
     "message": "Notes",
@@ -3553,16 +3977,24 @@
     "englishSource": "Status"
   },
   "orderStatusActive": {
-    "message": "Öffnen",
+    "message": "Offen",
     "englishSource": "Open"
   },
   "orderStatusFilled": {
-    "message": "Gefüllt",
+    "message": "Ausgeführt",
     "englishSource": "Filled"
   },
   "orderStatusReclaimed": {
-    "message": "Wiedergewonnen",
+    "message": "Zurückgeholt",
     "englishSource": "Reclaimed"
+  },
+  "orderStatusPartiallyFilled": {
+    "message": "Teilweise ausgeführt",
+    "englishSource": "Partially filled"
+  },
+  "orderStatusPartiallyFilledReclaimed": {
+    "message": "Teilweise ausgeführt, Rest zurückgeholt",
+    "englishSource": "Partially filled, remainder reclaimed"
   },
   "fillRounds": {
     "message": "Runden füllen",
@@ -3572,9 +4004,96 @@
     "message": "Gefüllt",
     "englishSource": "Filled"
   },
+  "swapAmountProgress": {
+    "message": "$filled$ von $total$$symbol$ ausgeführt",
+    "englishSource": "$filled$ of $total$$symbol$ filled",
+    "placeholders": {
+      "filled": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      },
+      "symbol": {
+        "content": "$3"
+      }
+    }
+  },
+  "swapProgressPercent": {
+    "message": "$percentage$%",
+    "englishSource": "$percentage$%",
+    "placeholders": {
+      "percentage": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapNotesBundled": {
+    "message": "In diesen Swap gebündelte Notes",
+    "englishSource": "Notes bundled into this swap"
+  },
+  "swapFillNote": {
+    "message": "Ausführungs-Note $number$",
+    "englishSource": "Fill note $number$",
+    "placeholders": {
+      "number": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapConsumedAt": {
+    "message": "Eingelöst · $time$",
+    "englishSource": "Consumed · $time$",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapReceivedAmount": {
+    "message": "+$amount$$symbol$",
+    "englishSource": "+$amount$$symbol$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "swapOpenFill": {
+    "message": "Offene Ausführung",
+    "englishSource": "Open fill"
+  },
+  "swapMatchingDex": {
+    "message": "Abgleich auf der DEX…",
+    "englishSource": "Matching on DEX…"
+  },
+  "swapNoBundledNotes": {
+    "message": "Es wurden noch keine Notes gebündelt.",
+    "englishSource": "No fill notes have been bundled yet."
+  },
+  "swapOpenPendingNotes": {
+    "message": "Zu Pending Notes",
+    "englishSource": "Go to Pending Notes"
+  },
   "trackingUnavailable": {
     "message": "Nicht verfügbar",
     "englishSource": "Not available"
+  },
+  "consumeTxId": {
+    "message": "TX-ID des Einlösens",
+    "englishSource": "Consume TX ID"
+  },
+  "consumeTxIdNumber": {
+    "message": "TX-ID des Einlösens $number$",
+    "englishSource": "Consume TX ID $number$",
+    "placeholders": {
+      "number": {
+        "content": "$1"
+      }
+    }
   },
   "created": {
     "message": "Erstellt",
@@ -3664,10 +4183,6 @@
     "message": "Verbinden Sie eine Wallet, um Vermögenswerte zu und von Miden zu überführen.",
     "englishSource": "Connect a wallet to bridge assets to and from Miden."
   },
-  "onlyBridgeableTokenSupported": {
-    "message": "Die „Slow“-Route (Agglayer) unterstützt nur das „bridgeable“-Token. Verwenden Sie „Fast“, um andere Token zu senden.",
-    "englishSource": "The Slow (Agglayer) route only supports the bridgeable token. Use Fast to send other tokens."
-  },
   "connectDestinationWalletToClaim": {
     "message": "Verbinden Sie die Ziel-Wallet, um Ihre Ansprüche geltend zu machen.",
     "englishSource": "Connect the destination wallet to claim."
@@ -3697,8 +4212,8 @@
     }
   },
   "noFee": {
-    "message": "Keine Gebühr",
-    "englishSource": "No fee"
+    "message": "Keine Brückengebühr",
+    "englishSource": "No bridge fee"
   },
   "fastArrival": {
     "message": "~30 Sek.",
@@ -3743,10 +4258,6 @@
   "delivering": {
     "message": "Lieferung",
     "englishSource": "Delivering"
-  },
-  "slowNeedsNativeEth": {
-    "message": "Die Slow-Route (Agglayer) unterstützt im Testnetz nur native ETH. Wählen Sie „ETH“, um sie zu nutzen.",
-    "englishSource": "The Slow (Agglayer) route only supports native ETH on testnet. Choose ETH to use it."
   },
   "fastEthWrapNotice": {
     "message": "Beim Bridgen von ETH über den „Fast“-Weg wird ETH zunächst in WETH umgewandelt und anschließend das WETH über die Bridge übertragen. Dieser Weg ist noch nicht verfügbar.",
@@ -3940,6 +4451,10 @@
     "message": "Bearbeitung einer Auszahlung",
     "englishSource": "Processing Withdrawal"
   },
+  "withdrawalCheckingDescription": {
+    "message": "Ihre Auszahlung wird überprüft. Lassen Sie die Wallet geöffnet, bis die Zustellung bestätigt ist.",
+    "englishSource": "Checking your withdrawal. Keep the wallet open while delivery is confirmed."
+  },
   "withdrawalProcessingDescription": {
     "message": "Unterzeichnung und Übermittlung der gaslosen Auszahlungsabsicht an Epoch. Dies dauert in der Regel einige Sekunden.",
     "englishSource": "Signing and submitting the gasless withdrawal intent to Epoch. This usually takes a few seconds."
@@ -3967,6 +4482,10 @@
   "consumed": {
     "message": "Verbraucht",
     "englishSource": "Consumed"
+  },
+  "noteTypeLabel": {
+    "message": "Note Typ",
+    "englishSource": "Note Type"
   },
   "sourceTx": {
     "message": "Transaktions-ID",
@@ -4024,6 +4543,10 @@
     "message": "Benutzerdefinierte URL für „guardian“",
     "englishSource": "Custom guardian URL"
   },
+  "devAllowNoGuardian": {
+    "message": "Erlauben Sie beim Onboarding die Option „Kein Vormund“.",
+    "englishSource": "Allow 'No guardian' option in onboarding"
+  },
   "devEndpointChecking": {
     "message": "Wird geprüft…",
     "englishSource": "Checking…"
@@ -4055,5 +4578,78 @@
   "devEndpointResetConfirm": {
     "message": "Dadurch wird diese Wallet dauerhaft gelöscht, einschließlich Ihrer Schlüssel und Ihrer Transaktionshistorie. Um sie wiederherzustellen, benötigen Sie Ihre Wiederherstellungsphrase.",
     "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
+  },
+  "activityAcceptTransfer": {
+    "message": "Überweisung akzeptieren",
+    "englishSource": "Accept Transfer"
+  },
+  "activityRejectTransfer": {
+    "message": "Ablehnen",
+    "englishSource": "Decline"
+  },
+  "activityCheckingTransfer": {
+    "message": "Wird überprüft…",
+    "englishSource": "Checking…"
+  },
+  "activityTransferClaimed": {
+    "message": "Geltend gemacht",
+    "englishSource": "Claimed"
+  },
+  "activityClaimedOn": {
+    "message": "Beansprucht am",
+    "englishSource": "Claimed on"
+  },
+  "activityReceivedOn": {
+    "message": "Erhalten am",
+    "englishSource": "Received on"
+  },
+  "activityNotYetAccepted": {
+    "message": "Noch nicht akzeptiert – bitte prüfen und akzeptieren, um diese Gelder einzufordern.",
+    "englishSource": "Not yet accepted — review and accept to claim these funds."
+  },
+  "acceptAll": {
+    "message": "Alle akzeptieren",
+    "englishSource": "Accept All"
+  },
+  "activitySearch": {
+    "message": "Suchaktivität",
+    "englishSource": "Search activity"
+  },
+  "activityTransferAccepted": {
+    "message": "Überweisung akzeptiert",
+    "englishSource": "Transfer accepted"
+  },
+  "activityTransferDetails": {
+    "message": "Details",
+    "englishSource": "Details"
+  },
+  "activityRejectExplanation": {
+    "message": "Diese Überweisung in „Aktivität“ auf diesem Gerät ausblenden? Dadurch werden keine Gelder an den Absender zurücküberwiesen und die „note“ wird nicht gelöscht. Sie können ausgeblendete Überweisungen in „Aktivität“ wiederherstellen.",
+    "englishSource": "Hide this transfer from Activity on this device? This does not return funds to the sender or delete the note. You can restore hidden transfers in Activity."
+  },
+  "activityHiddenTransfers": {
+    "message": "Versteckte Übertragungen: $count$",
+    "englishSource": "Hidden transfers: $count$",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "activityRestoreTransfers": {
+    "message": "Wiederherstellen",
+    "englishSource": "Restore"
+  },
+  "activityHiddenNotesError": {
+    "message": "Versteckte Überweisungen konnten nicht gespeichert werden. Bitte versuchen Sie es erneut.",
+    "englishSource": "Could not save hidden transfers. Please try again."
+  },
+  "activityDateUnavailable": {
+    "message": "Datum nicht verfügbar",
+    "englishSource": "Date unavailable"
+  },
+  "walletSetupDidNotComplete": {
+    "message": "Ihre Wallet wurde erstellt, der Startvorgang wurde jedoch nicht abgeschlossen. Überprüfen Sie Ihre Verbindung und versuchen Sie es erneut.",
+    "englishSource": "Your wallet was created but did not finish starting up. Check your connection and try again."
   }
 }

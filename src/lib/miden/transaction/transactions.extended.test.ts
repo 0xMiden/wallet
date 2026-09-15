@@ -154,8 +154,12 @@ jest.mock('shared/logger', () => ({
 // the global control variable.
 const _gh = globalThis as any;
 _gh.__noteTypeForTest = 'public';
+// A note whose metadata reports a string type maps through as itself, so a batch
+// can mix types per note; numeric stand-ins keep using the global switch.
 jest.mock('../helpers', () => ({
-  toNoteTypeString: () => (globalThis as any).__noteTypeForTest
+  ...jest.requireActual('../helpers'),
+  toNoteTypeString: (noteType: unknown) =>
+    typeof noteType === 'string' ? noteType : (globalThis as any).__noteTypeForTest
 }));
 
 jest.mock('../sdk/helpers', () => ({
@@ -238,6 +242,30 @@ describe('verifyStuckTransactionsFromNode', () => {
     expect(await verifyStuckTransactionsFromNode()).toBe(0);
   });
 
+  it('joins a run still in progress instead of starting another', async () => {
+    txStore.push({
+      id: 'tx-1',
+      type: 'consume',
+      noteId: 'note-1',
+      status: ITransactionStatus.GeneratingTransaction,
+      initiatedAt: 100
+    });
+    let release: (notes: unknown[]) => void = () => {};
+    mockGetInputNoteDetails.mockImplementationOnce(
+      () =>
+        new Promise(resolve => {
+          release = resolve;
+        })
+    );
+    const first = verifyStuckTransactionsFromNode();
+    const second = verifyStuckTransactionsFromNode();
+    expect(second).toBe(first);
+    await new Promise(resolve => setTimeout(resolve, 0));
+    release([]);
+    await Promise.all([first, second]);
+    expect(mockGetInputNoteDetails).toHaveBeenCalledTimes(1);
+  });
+
   it('returns 0 when in-progress transactions are not consume type', async () => {
     txStore.push({
       id: 'tx-1',
@@ -303,6 +331,36 @@ describe('verifyStuckTransactionsFromNode', () => {
     expect(txStore[0]!.status).toBe(ITransactionStatus.Failed);
   });
 
+  // FUNDS-2: `ProcessingAuthenticated` / `ProcessingUnauthenticated` used to fall
+  // through verifyConsumeLanded's catch-all to 'not-landed', so this reaper
+  // terminal-failed a claim whose submit had already reached the node. On a
+  // Guardian account (the default) that window is routine: runGuardianPipeline
+  // releases the WASM lock after submit()/apply() and only then runs a
+  // multi-second service.sync(), during which the row is still
+  // GeneratingTransaction and this reaper is free to read the note.
+  it.each(['ProcessingAuthenticated', 'ProcessingUnauthenticated'])(
+    'leaves a %s consume in progress even past the grace window (its submit already landed)',
+    async noteState => {
+      const longAgo = Math.floor(Date.now() / 1000) - 120;
+      txStore.push({
+        id: 'tx-1',
+        type: 'consume',
+        noteId: 'note-1',
+        status: ITransactionStatus.GeneratingTransaction,
+        initiatedAt: 100,
+        processingStartedAt: longAgo
+      });
+      const { InputNoteState } = require('@miden-sdk/miden-sdk/lazy');
+      mockGetInputNoteDetails.mockResolvedValueOnce([{ state: InputNoteState[noteState] }]);
+
+      const resolved = await verifyStuckTransactionsFromNode();
+
+      expect(resolved).toBe(0);
+      expect(txStore[0]!.status).toBe(ITransactionStatus.GeneratingTransaction);
+      expect(txStore[0]!.error).toBeUndefined();
+    }
+  );
+
   it('skips claimable notes that are still inside the processing grace window', async () => {
     txStore.push({
       id: 'tx-1',
@@ -332,21 +390,57 @@ describe('verifyStuckTransactionsFromNode', () => {
     expect(resolved).toBe(0);
   });
 
-  it('treats a ConsumedExternal note as landed too — the reaper keeps its pre-#3a behavior', async () => {
-    // Unlike the strict killed-consume path, the background reaper (lower-exposure,
-    // rides AutoSync) still counts an external-consumed note as landed → Completed.
+  // FUNDS-B: `ConsumedExternal` means the note's nullifier is on chain but the
+  // consuming transaction was NOT this client's — a recallable P2IDE the SENDER
+  // recalled lands in exactly that state, as does losing a race to another consumer
+  // of the same public note. The reaper used to accept it alongside 'landed-local'
+  // and write Completed / 'Received', so Bob's history claimed he received funds
+  // Alice took back. It must never do that, and this is not a low-exposure path: it
+  // is the ONLY consume reconciler that runs on mobile and desktop (useClaimNotes
+  // polls it every 3s and returns early on isExtension(), while
+  // tryCompleteKilledConsume fires only on the Chrome-offscreen abort error).
+  it('never marks a ConsumedExternal note Received — it is consumed by someone, not provably us', async () => {
     txStore.push({
       id: 'tx-ext',
       type: 'consume',
       noteId: 'note-1',
       status: ITransactionStatus.GeneratingTransaction,
-      initiatedAt: 100
+      initiatedAt: 100,
+      // FRESH — inside the grace window, so the funds-safe outcome is "leave it".
+      processingStartedAt: Math.floor(Date.now() / 1000)
     });
     const { InputNoteState } = require('@miden-sdk/miden-sdk/lazy');
     mockGetInputNoteDetails.mockResolvedValueOnce([{ state: InputNoteState.ConsumedExternal }]);
+
     const resolved = await verifyStuckTransactionsFromNode();
+
+    expect(resolved).toBe(0);
+    expect(txStore[0]!.status).not.toBe(ITransactionStatus.Completed);
+    expect(txStore[0]!.displayMessage).not.toBe('Received');
+  });
+
+  it('fails a ConsumedExternal consume past the grace window instead of completing it', async () => {
+    // A false-Failed is the safe residual: a re-consume harmlessly collides on the
+    // spent nullifier and the next sync reconciles the row. A false 'Received' is not.
+    const { TRANSACTION_INTERRUPTED_ERROR } = require('./constants');
+    const longAgo = Math.floor(Date.now() / 1000) - 120;
+    txStore.push({
+      id: 'tx-ext-stale',
+      type: 'consume',
+      noteId: 'note-1',
+      status: ITransactionStatus.GeneratingTransaction,
+      initiatedAt: 100,
+      processingStartedAt: longAgo
+    });
+    const { InputNoteState } = require('@miden-sdk/miden-sdk/lazy');
+    mockGetInputNoteDetails.mockResolvedValueOnce([{ state: InputNoteState.ConsumedExternal }]);
+
+    const resolved = await verifyStuckTransactionsFromNode();
+
     expect(resolved).toBe(1);
-    expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
+    expect(txStore[0]!.status).toBe(ITransactionStatus.Failed);
+    expect(txStore[0]!.error).toBe(TRANSACTION_INTERRUPTED_ERROR);
+    expect(txStore[0]!.displayMessage).not.toBe('Received');
   });
 
   it('does NOT sync once per stuck consume — at most one sync per cycle (rides AutoSync)', async () => {
@@ -484,7 +578,11 @@ describe('completeConsumeTransaction', () => {
     } as any;
     await completeConsumeTransaction('tx-1', txResult);
     expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
-    expect(txStore[0]!.faucetId).toBeDefined();
+    // The values, not merely their presence: `toBeDefined()` alone passes
+    // against a hardcoded faucet id and a dropped amount, which is exactly the
+    // pair this test's name claims to protect.
+    expect(txStore[0]!.faucetId).toBe('faucet-1');
+    expect(txStore[0]!.amount).toBe(50n);
   });
 
   it('sums every consumed asset for the displayed faucet in a batch', async () => {
@@ -511,6 +609,125 @@ describe('completeConsumeTransaction', () => {
     await completeConsumeTransaction('tx-batch', txResult);
 
     expect(txStore[0]!.amount).toBe(75n);
+  });
+
+  // The completed row is what history, the details card and the receipt read, so
+  // these fields have to describe the whole batch — the queue-time estimate the
+  // ConsumeTransaction constructor wrote only sees the first asset of each note.
+  function fakeMultiAssetNote(opts: { assets: Array<[string, bigint]>; noteType?: string | number }) {
+    return {
+      note: () => ({
+        metadata: () => ({
+          sender: () => 'sender-1',
+          noteType: () => opts.noteType ?? 0
+        }),
+        assets: () => ({
+          fungibleAssets: () =>
+            opts.assets.map(([faucetId, amount]) => ({ faucetId: () => faucetId, amount: () => amount }))
+        })
+      })
+    };
+  }
+
+  function resultOf(notes: unknown[]) {
+    return {
+      executedTransaction: () => ({
+        id: () => ({ toHex: () => 'on-chain-hash' }),
+        inputNotes: () => ({ notes: () => notes })
+      }),
+      serialize: () => new Uint8Array([1, 2, 3])
+    } as any;
+  }
+
+  it('records a per-faucet total for every asset the batch swept up', async () => {
+    txStore.push({
+      id: 'tx-multi',
+      accountId: 'acc-1',
+      status: ITransactionStatus.GeneratingTransaction,
+      initiatedAt: 100,
+      type: 'consume'
+    });
+
+    await completeConsumeTransaction(
+      'tx-multi',
+      resultOf([
+        fakeNote({ senderId: 'sender-1', faucetId: 'faucet-1', amount: 50n }),
+        fakeNote({ senderId: 'sender-1', faucetId: 'faucet-2', amount: 10n }),
+        fakeNote({ senderId: 'sender-1', faucetId: 'faucet-1', amount: 25n })
+      ])
+    );
+
+    expect(txStore[0]!.assetTotals).toEqual([
+      { faucetId: 'faucet-1', amount: 75n },
+      { faucetId: 'faucet-2', amount: 10n }
+    ]);
+    // `amount` stays the displayed faucet's entry in that list.
+    expect(txStore[0]!.faucetId).toBe('faucet-1');
+    expect(txStore[0]!.amount).toBe(75n);
+  });
+
+  it('counts every asset inside a single note, not just its first', async () => {
+    txStore.push({
+      id: 'tx-fat-note',
+      accountId: 'acc-1',
+      status: ITransactionStatus.GeneratingTransaction,
+      initiatedAt: 100,
+      type: 'consume'
+    });
+
+    await completeConsumeTransaction(
+      'tx-fat-note',
+      resultOf([
+        fakeMultiAssetNote({
+          assets: [
+            ['faucet-1', 5n],
+            ['faucet-2', 7n]
+          ]
+        })
+      ])
+    );
+
+    expect(txStore[0]!.assetTotals).toEqual([
+      { faucetId: 'faucet-1', amount: 5n },
+      { faucetId: 'faucet-2', amount: 7n }
+    ]);
+  });
+
+  it('reports the note type of a uniform batch and nothing for a mixed one', async () => {
+    txStore.push({
+      id: 'tx-uniform',
+      accountId: 'acc-1',
+      status: ITransactionStatus.GeneratingTransaction,
+      initiatedAt: 100,
+      type: 'consume'
+    });
+    await completeConsumeTransaction(
+      'tx-uniform',
+      resultOf([
+        fakeMultiAssetNote({ assets: [['faucet-1', 1n]], noteType: 'public' }),
+        fakeMultiAssetNote({ assets: [['faucet-1', 1n]], noteType: 'public' })
+      ])
+    );
+    expect(txStore[0]!.noteType).toBe('public');
+
+    txStore.length = 0;
+    txStore.push({
+      id: 'tx-mixed',
+      accountId: 'acc-1',
+      status: ITransactionStatus.GeneratingTransaction,
+      initiatedAt: 100,
+      type: 'consume'
+    });
+    await completeConsumeTransaction(
+      'tx-mixed',
+      resultOf([
+        fakeMultiAssetNote({ assets: [['faucet-1', 1n]], noteType: 'public' }),
+        fakeMultiAssetNote({ assets: [['faucet-1', 1n]], noteType: 'private' })
+      ])
+    );
+    // Labelling a mixed batch by its first note would also drag it onto the
+    // private-note delivery path further down `completeConsumeTransaction`.
+    expect(txStore[0]!.noteType).toBeUndefined();
   });
 
   it('throws when the executed transaction has no input notes', async () => {
@@ -710,6 +927,65 @@ describe('initiateConsumeTransactionFromId', () => {
     const id = await initiateConsumeTransactionFromId('acc-1', 'note-exists');
     expect(typeof id).toBe('string');
     sdk.getMidenClient = orig;
+  });
+});
+
+/**
+ * The bounded-retry gate (#215) exists to throttle auto-consume's background
+ * polling. `initiateConsumeTransactionFromId` is reached only from paths that run
+ * AFTER an explicit user approval — the dApp consume sheet and the failed-bridge
+ * "Reclaim funds" button — so it must forward `manualRetry` and never be
+ * throttled by it.
+ */
+describe('initiateConsumeTransactionFromId manual-retry gate', () => {
+  const seedFailedConsume = () => {
+    const nowSec = Math.floor(Date.now() / 1000);
+    txStore.push({
+      id: 'failed-consume-1',
+      type: 'consume',
+      noteId: 'note-approved',
+      noteIds: ['note-approved'],
+      accountId: 'acc-1',
+      status: ITransactionStatus.Failed,
+      initiatedAt: nowSec - 120,
+      // 60s ago — well inside the 5-minute base backoff.
+      completedAt: nowSec - 60
+    });
+  };
+
+  const withResolvableNote = async <T>(run: () => Promise<T>): Promise<T> => {
+    const sdk = require('../sdk/miden-client');
+    const orig = sdk.getMidenClient;
+    sdk.getMidenClient = async () => ({
+      getInputNote: jest.fn(async () => ({ metadata: () => ({ noteType: () => 0 }) }))
+    });
+    try {
+      return await run();
+    } finally {
+      sdk.getMidenClient = orig;
+    }
+  };
+
+  it('queues a fresh consume for a user-approved claim inside the backoff window', async () => {
+    seedFailedConsume();
+    const { initiateConsumeTransactionFromId } = require('./index');
+
+    const id = await withResolvableNote(() => initiateConsumeTransactionFromId('acc-1', 'note-approved', false, true));
+
+    expect(id).not.toBe('failed-consume-1');
+    const queued = txStore.find(row => row.id === id);
+    expect(queued?.status).toBe(ITransactionStatus.Queued);
+    expect(queued?.noteIds).toEqual(['note-approved']);
+  });
+
+  it('still throttles background auto-consume, answering with the most recent Failed row', async () => {
+    seedFailedConsume();
+    const { initiateConsumeTransactionFromId } = require('./index');
+
+    const id = await withResolvableNote(() => initiateConsumeTransactionFromId('acc-1', 'note-approved', false));
+
+    expect(id).toBe('failed-consume-1');
+    expect(txStore).toHaveLength(1);
   });
 });
 

@@ -115,7 +115,11 @@ describe('metadata/fetch', () => {
         symbol: 'TEST',
         name: 'TEST',
         shouldPreferSymbol: true,
-        thumbnailUri: 'chrome-extension://test-id/misc/token-logos/default.svg'
+        thumbnailUri: 'chrome-extension://test-id/misc/token-logos/default.svg',
+        // The faucet answered, so the scale is a fact — and saying so is what
+        // stops the placeholder shape test from mistaking a token that happens
+        // to look like the placeholder for one.
+        scaleIsUnknown: false
       });
       expect(result.detailed).toEqual(result.base);
     });

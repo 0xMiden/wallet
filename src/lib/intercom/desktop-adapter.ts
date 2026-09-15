@@ -2,14 +2,17 @@
  * Desktop adapter for intercom that directly calls backend handlers
  * instead of using browser extension port messaging.
  *
- * This is essentially the same as the mobile adapter - both run the
- * backend in-process rather than in a separate service worker.
+ * Desktop and mobile both run the backend in-process rather than in a separate
+ * service worker, and both dispatch requests through the SAME switch
+ * (`processInProcessRequest`). Only the lifecycle differs: this adapter has no
+ * mobile-only E2E bridge-in hook in `init`.
  */
 
 import * as Actions from 'lib/miden/back/actions';
 import { store, toFront } from 'lib/miden/back/store';
-import { MidenMessageType } from 'lib/miden/types';
 import { WalletMessageType, WalletRequest, WalletResponse } from 'lib/shared/types';
+
+import { processInProcessRequest } from './in-process-request-handler';
 
 type SubscriptionCallback = (data: any) => void;
 
@@ -63,148 +66,13 @@ export class DesktopIntercomAdapter {
   }
 
   /**
-   * Process a request directly (same logic as main.ts processRequest)
+   * Process a request directly. Delegates to the ONE switch shared with the
+   * mobile adapter (`processInProcessRequest`) so the two in-process adapters
+   * cannot drift again — desktop used to implement 16 of the 27 message types
+   * and silently dropped the 11 guardian ones.
    */
   private async processRequest(req: WalletRequest): Promise<WalletResponse | void> {
-    switch (req?.type) {
-      case WalletMessageType.GetStateRequest:
-        console.log('[DesktopAdapter] GetStateRequest received');
-        const state = await Actions.getFrontState();
-        console.log('[DesktopAdapter] GetStateResponse:', {
-          status: state.status,
-          hasAccounts: !!state.accounts?.length
-        });
-        return {
-          type: WalletMessageType.GetStateResponse,
-          state
-        };
-
-      case WalletMessageType.NewWalletRequest:
-        console.log('[DesktopAdapter] NewWalletRequest received');
-        await Actions.registerNewWallet((req as any).password, (req as any).mnemonic, (req as any).ownMnemonic);
-        console.log('[DesktopAdapter] NewWalletResponse - registration complete');
-        return { type: WalletMessageType.NewWalletResponse };
-
-      case WalletMessageType.ImportFromClientRequest:
-        await Actions.registerImportedWallet(req.password, req.mnemonic, req.walletAccounts);
-        return { type: WalletMessageType.ImportFromClientResponse };
-
-      case WalletMessageType.UnlockRequest:
-        await Actions.unlock((req as any).password);
-        return { type: WalletMessageType.UnlockResponse };
-
-      case WalletMessageType.LockRequest:
-        await Actions.lock();
-        return { type: WalletMessageType.LockResponse };
-
-      case WalletMessageType.CreateAccountRequest:
-        await Actions.createHDAccount((req as any).walletType, (req as any).name);
-        return { type: WalletMessageType.CreateAccountResponse };
-
-      case WalletMessageType.UpdateCurrentAccountRequest:
-        await Actions.updateCurrentAccount((req as any).accountPublicKey);
-        return { type: WalletMessageType.UpdateCurrentAccountResponse };
-
-      case WalletMessageType.RevealMnemonicRequest:
-        const mnemonic = await Actions.revealMnemonic((req as any).password);
-        return {
-          type: WalletMessageType.RevealMnemonicResponse,
-          mnemonic
-        };
-
-      case WalletMessageType.RevealPrivateKeyRequest:
-        const privateKey = await Actions.revealPrivateKey((req as any).accountPublicKey, (req as any).password);
-        return {
-          type: WalletMessageType.RevealPrivateKeyResponse,
-          privateKey: privateKey ?? ''
-        };
-
-      case WalletMessageType.RemoveAccountRequest:
-        await Actions.removeAccount((req as any).accountPublicKey, (req as any).password);
-        return {
-          type: WalletMessageType.RemoveAccountResponse
-        };
-
-      case WalletMessageType.EditAccountRequest:
-        await Actions.editAccount((req as any).accountPublicKey, (req as any).name);
-        return {
-          type: WalletMessageType.EditAccountResponse
-        };
-
-      case WalletMessageType.ImportAccountRequest:
-        const importedAccountPublicKey = await Actions.importAccount((req as any).privateKey, (req as any).name);
-        return {
-          type: WalletMessageType.ImportAccountResponse,
-          accountPublicKey: importedAccountPublicKey ?? ''
-        };
-
-      case WalletMessageType.UpdateSettingsRequest:
-        await Actions.updateSettings((req as any).settings);
-        return {
-          type: WalletMessageType.UpdateSettingsResponse
-        };
-
-      case WalletMessageType.SignTransactionRequest:
-        const signature = await Actions.signTransaction((req as any).publicKey, (req as any).signingInputs);
-        return {
-          type: WalletMessageType.SignTransactionResponse,
-          signature
-        };
-
-      case WalletMessageType.SignEvmRequest:
-        const evmSignResult = await Actions.signEvm(req.accountPublicKey, req.operation);
-        return {
-          type: WalletMessageType.SignEvmResponse,
-          result: evmSignResult
-        };
-
-      case WalletMessageType.GetAuthSecretKeyRequest:
-        const key = await Actions.getAuthSecretKey((req as any).key);
-        return {
-          type: WalletMessageType.GetAuthSecretKeyResponse,
-          key
-        };
-
-      case MidenMessageType.DAppGetAllSessionsRequest:
-        const allSessions = await Actions.getAllDAppSessions();
-        return {
-          type: MidenMessageType.DAppGetAllSessionsResponse,
-          sessions: allSessions
-        };
-
-      case MidenMessageType.DAppRemoveSessionRequest:
-        const sessions = await Actions.removeDAppSession((req as any).origin);
-        return {
-          type: MidenMessageType.DAppRemoveSessionResponse,
-          sessions
-        };
-
-      case MidenMessageType.PageRequest:
-        const dAppEnabled = await Actions.isDAppEnabled();
-        if (dAppEnabled) {
-          if ((req as any).payload === 'PING') {
-            return {
-              type: MidenMessageType.PageResponse,
-              payload: 'PONG'
-            };
-          }
-          // PR-4 chunk 8: thread the multi-instance session id through if
-          // present so confirmation prompts route to the right session.
-          const resPayload = await Actions.processDApp(
-            (req as any).origin,
-            (req as any).payload,
-            (req as any).sessionId
-          );
-          return {
-            type: MidenMessageType.PageResponse,
-            payload: resPayload ?? null
-          };
-        }
-        break;
-
-      default:
-        console.warn('DesktopIntercomAdapter: Unknown request type', req?.type);
-    }
+    return processInProcessRequest(req, 'DesktopIntercomAdapter');
   }
 
   /**

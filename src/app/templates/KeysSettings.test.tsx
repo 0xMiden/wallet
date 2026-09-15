@@ -157,25 +157,22 @@ describe('KeysSettings — row visibility', () => {
 // openPage side effects.
 // ---------------------------------------------------------------------------
 describe('KeysSettings — openPage', () => {
-  it('fires haptics, closes and navigates to the row path when a row is clicked', () => {
+  it('fires haptics and navigates to the row path when a row is clicked', () => {
     mockState.currentAccount = { type: WalletType.OffChain };
-    const onClose = jest.fn();
 
-    render(<KeysSettings onClose={onClose} />);
+    render(<KeysSettings />);
 
     fireEvent.click(screen.getByText('revealPrivateKey'));
 
     expect(mockHapticLight).toHaveBeenCalledTimes(1);
-    expect(onClose).toHaveBeenCalledTimes(1);
     expect(mockNavigate).toHaveBeenCalledTimes(1);
     expect(mockNavigate).toHaveBeenCalledWith('/settings/reveal-private-key');
   });
 
   it('navigates to each guardian row path with its own target', () => {
     mockState.currentAccount = { type: WalletType.Guardian, hotPublicKey: 'hot_pk_1' };
-    const onClose = jest.fn();
 
-    render(<KeysSettings onClose={onClose} />);
+    render(<KeysSettings />);
 
     fireEvent.click(screen.getByText('revealHotKey'));
     expect(mockNavigate).toHaveBeenLastCalledWith('/settings/reveal-hot-key');
@@ -183,18 +180,6 @@ describe('KeysSettings — openPage', () => {
     fireEvent.click(screen.getByText('rotateGuardian'));
     expect(mockNavigate).toHaveBeenLastCalledWith('/rotate-guardian');
 
-    // Three clicks in total (private key not clicked here) → onClose each time.
-    expect(onClose).toHaveBeenCalledTimes(2);
     expect(mockHapticLight).toHaveBeenCalledTimes(2);
-  });
-
-  it('does not throw when onClose is omitted (optional-chaining no-op) and still navigates', () => {
-    mockState.currentAccount = { type: WalletType.OffChain };
-
-    render(<KeysSettings />);
-
-    expect(() => fireEvent.click(screen.getByText('revealPrivateKey'))).not.toThrow();
-    expect(mockHapticLight).toHaveBeenCalledTimes(1);
-    expect(mockNavigate).toHaveBeenCalledWith('/settings/reveal-private-key');
   });
 });

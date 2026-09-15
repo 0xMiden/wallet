@@ -79,6 +79,8 @@ export enum WalletMessageType {
   CheckGuardianDriftResponse = 'CHECK_GUARDIAN_DRIFT_RESPONSE',
   ApplyUserGuardianEndpointRequest = 'APPLY_USER_GUARDIAN_ENDPOINT_REQUEST',
   ApplyUserGuardianEndpointResponse = 'APPLY_USER_GUARDIAN_ENDPOINT_RESPONSE',
+  StartGuardianRecoveryRequest = 'START_GUARDIAN_RECOVERY_REQUEST',
+  StartGuardianRecoveryResponse = 'START_GUARDIAN_RECOVERY_RESPONSE',
   GetPublicKeyForCommitmentRequest = 'GET_PUBLIC_KEY_FOR_COMMITMENT_REQUEST',
   GetPublicKeyForCommitmentResponse = 'GET_PUBLIC_KEY_FOR_COMMITMENT_RESPONSE',
   GetAuthSecretKeyRequest = 'GET_AUTH_SECRET_KEY_REQUEST',
@@ -129,9 +131,15 @@ export enum WalletMessageType {
   // Transaction processing (popup → SW)
   ProcessTransactionsRequest = 'PROCESS_TRANSACTIONS_REQUEST',
   ProcessTransactionsResponse = 'PROCESS_TRANSACTIONS_RESPONSE',
+  // Developer endpoint overrides (popup → SW): re-hydrate the SW's override
+  // cache + rebuild its Miden client singleton(s) after a save.
+  ReloadEndpointOverridesRequest = 'RELOAD_ENDPOINT_OVERRIDES_REQUEST',
+  ReloadEndpointOverridesResponse = 'RELOAD_ENDPOINT_OVERRIDES_RESPONSE',
   // Note operations (popup → SW)
   ImportNoteBytesRequest = 'IMPORT_NOTE_BYTES_REQUEST',
   ImportNoteBytesResponse = 'IMPORT_NOTE_BYTES_RESPONSE',
+  RetryDeadletteredNotesRequest = 'RETRY_DEADLETTERED_NOTES_REQUEST',
+  RetryDeadletteredNotesResponse = 'RETRY_DEADLETTERED_NOTES_RESPONSE',
   ExportNoteRequest = 'EXPORT_NOTE_REQUEST',
   ExportNoteResponse = 'EXPORT_NOTE_RESPONSE',
   GetInputNoteDetailsRequest = 'GET_INPUT_NOTE_DETAILS_REQUEST',
@@ -178,6 +186,8 @@ export interface SerializedVaultAsset {
     symbol: string;
     name: string;
     thumbnailUri?: string;
+    /** See `AssetMetadata.scaleIsUnknown` — dropping it here would launder a guess into a fact. */
+    scaleIsUnknown?: boolean;
   };
 }
 
@@ -208,6 +218,8 @@ export interface SerializedConsumableNote {
   noteType?: string; // 'public' | 'private' | 'unknown'
   /** Estimated epoch ms when the sender can reclaim this P2IDE note; absent for non-recallable notes. */
   recallableAtMs?: number;
+  /** Note inclusion time, in Unix seconds. */
+  receivedAt?: number;
   swapOrder?: {
     orderId: string;
     depth: number;
@@ -222,6 +234,8 @@ export interface SerializedConsumableNote {
     symbol: string;
     name: string;
     thumbnailUri?: string;
+    /** See `AssetMetadata.scaleIsUnknown` — dropping it here would launder a guess into a fact. */
+    scaleIsUnknown?: boolean;
   };
 }
 
@@ -242,6 +256,26 @@ export interface ProcessTransactionsResponse extends WalletMessageBase {
   type: WalletMessageType.ProcessTransactionsResponse;
 }
 
+/**
+ * Tell the SW to re-hydrate `lib/miden-chain/effective-endpoints`'s
+ * module-level override cache from storage and dispose its Miden client
+ * singleton(s), so the next `getMidenClient()` rebuilds against the
+ * freshly-saved endpoints. Fire-and-forget from the caller's perspective
+ * (the response payload carries no data) — mirrors `ProcessTransactionsRequest`.
+ * Still pairs with a Response type: `IntercomServer.processMessage` treats a
+ * handler returning `undefined` as "Not Found" and errors the round trip, so
+ * every case in `processRequest` must resolve to a typed response, even ones
+ * with nothing to report. Extension-only: mobile/desktop share the frontend's
+ * JS realm, so `applyEndpointOverride` alone already takes effect there.
+ */
+export interface ReloadEndpointOverridesRequest extends WalletMessageBase {
+  type: WalletMessageType.ReloadEndpointOverridesRequest;
+}
+
+export interface ReloadEndpointOverridesResponse extends WalletMessageBase {
+  type: WalletMessageType.ReloadEndpointOverridesResponse;
+}
+
 export interface ImportNoteBytesRequest extends WalletMessageBase {
   type: WalletMessageType.ImportNoteBytesRequest;
   noteBytes: string; // base64 encoded
@@ -250,6 +284,21 @@ export interface ImportNoteBytesRequest extends WalletMessageBase {
 export interface ImportNoteBytesResponse extends WalletMessageBase {
   type: WalletMessageType.ImportNoteBytesResponse;
   noteId: string;
+}
+
+/**
+ * Drain the note dead-letter store back onto the import queue (#788 follow-up)
+ * — the Activity notice's Retry. Handled in the realm that owns the import
+ * pass: the SW on extension, the single realm on mobile/desktop.
+ */
+export interface RetryDeadletteredNotesRequest extends WalletMessageBase {
+  type: WalletMessageType.RetryDeadletteredNotesRequest;
+}
+
+export interface RetryDeadletteredNotesResponse extends WalletMessageBase {
+  type: WalletMessageType.RetryDeadletteredNotesResponse;
+  /** How many notes were moved back onto the import queue. */
+  requeued: number;
 }
 
 export interface ExportNoteRequest extends WalletMessageBase {
@@ -395,6 +444,12 @@ export interface WalletAccount {
   // a user-triggered rotation (banner on the home view). Cleared by Vault.swapHotKey
   // once the cold+guardian-signed update_signers tx lands on-chain.
   requiresHotKeyRotation?: boolean;
+  /**
+   * Set on adoption through Guardian seed recovery; the detached pending-note
+   * recovery (GuardianRecoveryProvider → maybeStartGuardianRecovery) runs once
+   * and clears it. Absent on accounts that were not seed-recovered.
+   */
+  guardianNoteRecoveryPending?: boolean;
   /**
    * Guardian operator endpoint this account is registered with — the
    * authoritative source of truth for endpoint resolution (#408). Set at create /
@@ -772,9 +827,29 @@ export interface ApplyUserGuardianEndpointRequest extends WalletMessageBase {
   guardianEndpoint: string;
 }
 
+/**
+ * Why applying a user-typed guardian endpoint did or did not stick.
+ *
+ * Not a boolean, because the banner that offers this repair accuses the URL
+ * the user typed when it fails, and only `'mismatch'` is evidence against it.
+ * `'unreachable'` (no answer, or an answer carrying no commitment) is a fact
+ * about the network, not about the URL.
+ */
+export type ApplyUserEndpointOutcome = 'applied' | 'mismatch' | 'unreachable' | 'no-onchain-guardian';
+
 export interface ApplyUserGuardianEndpointResponse extends WalletMessageBase {
   type: WalletMessageType.ApplyUserGuardianEndpointResponse;
-  applied: boolean;
+  outcome: ApplyUserEndpointOutcome;
+}
+
+export interface StartGuardianRecoveryRequest extends WalletMessageBase {
+  type: WalletMessageType.StartGuardianRecoveryRequest;
+  accountPublicKey: string;
+}
+
+export interface StartGuardianRecoveryResponse extends WalletMessageBase {
+  type: WalletMessageType.StartGuardianRecoveryResponse;
+  started: boolean;
 }
 
 export interface GetPublicKeyForCommitmentRequest extends WalletMessageBase {
@@ -997,6 +1072,7 @@ export type WalletRequest =
   | SetGuardianSyncStatusRequest
   | CheckGuardianDriftRequest
   | ApplyUserGuardianEndpointRequest
+  | StartGuardianRecoveryRequest
   | GetPublicKeyForCommitmentRequest
   | GetAuthSecretKeyRequest
   | PageRequest
@@ -1019,7 +1095,9 @@ export type WalletRequest =
   | SyncRequest
   | NoteClaimStarted
   | ProcessTransactionsRequest
+  | ReloadEndpointOverridesRequest
   | ImportNoteBytesRequest
+  | RetryDeadletteredNotesRequest
   | ExportNoteRequest
   | GetInputNoteDetailsRequest
   | SpeculateSendRequest
@@ -1059,6 +1137,7 @@ export type WalletResponse =
   | SetGuardianSyncStatusResponse
   | CheckGuardianDriftResponse
   | ApplyUserGuardianEndpointResponse
+  | StartGuardianRecoveryResponse
   | GetPublicKeyForCommitmentResponse
   | GetAuthSecretKeyResponse
   | PageResponse
@@ -1081,7 +1160,9 @@ export type WalletResponse =
   | SyncResponse
   | NoteClaimStartedResponse
   | ProcessTransactionsResponse
+  | ReloadEndpointOverridesResponse
   | ImportNoteBytesResponse
+  | RetryDeadletteredNotesResponse
   | ExportNoteResponse
   | GetInputNoteDetailsResponse
   | SpeculateSendResponse

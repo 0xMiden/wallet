@@ -69,7 +69,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: yarn
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -88,33 +87,40 @@ jobs:
         run: yarn install --frozen-lockfile
 
       - name: Install miden-client-cli
-        shell: bash
-        run: |
-          # Decoupled from the JS SDK version — read the CLI pin from
-          # package.json. `midenClientCliGit` ({url, rev}) takes precedence over
-          # `midenClientCliVersion` (the 0.15 series ships from the repo only).
-          GIT_URL=$(node -p "require('./package.json').midenClientCliGit?.url ?? ''")
-          GIT_REV=$(node -p "require('./package.json').midenClientCliGit?.rev ?? ''")
-          VERSION=$(node -p "require('./package.json').midenClientCliVersion")
-          if [[ -z "$GIT_URL" && (-z "$VERSION" || "$VERSION" == "undefined") ]]; then
-            echo "::error::neither midenClientCliGit nor midenClientCliVersion present in package.json"
-            exit 1
-          fi
-          if [[ -x "$HOME/.cargo/bin/miden-client" ]]; then
-            echo "miden-client already present from cache:"
-            "$HOME/.cargo/bin/miden-client" --version || true
-          elif [[ -n "$GIT_URL" ]]; then
-            echo "Installing miden-client-cli from ${GIT_URL}@${GIT_REV:0:8}..."
-            cargo install miden-client-cli --git "$GIT_URL" --rev "$GIT_REV" --locked
-          else
-            echo "Installing miden-client-cli@${VERSION}..."
-            cargo install miden-client-cli --version "$VERSION"
-          fi
+        # Reads the CLI pin (midenClientCliGit, else midenClientCliVersion) from
+        # package.json — the same resolution playwright/e2e/helpers/miden-cli.ts does —
+        # and skips the ~7 min compile when the cache above already restored the binary.
+        # It also rebuilds the CLI against a linked Protocol PR when the PR carries one;
+        # no marker (as here) means the published pin, exactly as before.
+        uses: ./.github/actions/install-miden-client-cli
 
       # CDP bridge (appium-remote-debugger) requires Simulator.app GUI running —
       # headless simctl boots don't expose webinspectord.
       - name: Launch Simulator.app
         run: open -a Simulator || true
+
+      # idb (Facebook's iOS debug bridge) lets the harness tap "Allow" on the
+      # native notification-permission SpringBoard alert, which lives outside the
+      # WebView (CDP can't reach it) and otherwise covers every screenshot.
+      # Best-effort: the harness degrades gracefully when idb is absent, so a
+      # broken install must never fail the job.
+      #
+      # fb-idb (1.1.7, unmaintained) calls asyncio.get_event_loop(), which
+      # Python 3.14 — the runner's default python3 — removed, crashing idb. Pin
+      # 3.11 for it; nothing else in this job uses python3 (build is node +
+      # xcodebuild). `brew trust ... || true` because older-Homebrew runners have
+      # no `trust` subcommand (and `brew install` auto-taps anyway).
+      - name: Set up Python for idb
+        continue-on-error: true
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install idb (dismiss native notification alert)
+        continue-on-error: true
+        run: |
+          brew trust facebook/fb || true
+          brew install facebook/fb/idb-companion
+          python3 -m pip install fb-idb
 
       # Fresh-create + boot of custom sims hangs on macos-26 runners. Pin to
       # preinstalled Xcode sims by writing .device-pair.json before globalSetup.

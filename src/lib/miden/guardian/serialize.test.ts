@@ -83,6 +83,31 @@ describe('isGuardianPendingConflict', () => {
     expect(isGuardianPendingConflict({ status: 409, body: 'GUARDIAN_ACCOUNT_PAUSED' })).toBe(false);
     expect(isGuardianPendingConflict({ status: 409, message: 'account is Paused' })).toBe(false);
   });
+
+  // A recognized code is an ALLOWLIST, because 409 is not one condition. The
+  // sharp member is `account_released`: it is documented terminal on that server,
+  // and it is the answer a rotation that landed on chain without the wallet's
+  // record of it produces — which now routes to the direct on-chain switch. Twelve
+  // 5s retries in front of that escape hatch spend minutes waiting out a verdict
+  // that cannot change.
+  it.each([['account_released'], ['account_paused'], ['candidate_landed'], ['commitment_mismatch']])(
+    'does not retry the terminal 409 code %s',
+    code => {
+      expect(isGuardianPendingConflict({ status: 409, code, body: 'Conflict' })).toBe(false);
+    }
+  );
+
+  it.each([['conflict_pending_delta'], ['conflict_pending_proposal']])('retries the transient 409 code %s', code => {
+    expect(isGuardianPendingConflict({ status: 409, code, body: 'Conflict' })).toBe(true);
+  });
+
+  // No code at all — an older server, or a test double carrying only a status —
+  // keeps the previous text heuristic so nothing that used to be waited out
+  // stops being waited out.
+  it('falls back to the body heuristic when the error carries no code', () => {
+    expect(isGuardianPendingConflict({ status: 409, code: '', body: 'ConflictPendingDelta' })).toBe(true);
+    expect(isGuardianPendingConflict({ status: 409, code: undefined, body: 'account was released' })).toBe(false);
+  });
 });
 
 describe('withGuardianConflictRetry', () => {

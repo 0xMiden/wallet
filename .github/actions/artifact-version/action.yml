@@ -1,0 +1,45 @@
+name: Resolve artifact version
+description: >
+  The version to put in a build artifact's filename: the release tag when a
+  release triggered the build, and `package.json` otherwise.
+
+  `package.json` alone is not enough, because it cannot carry a prerelease
+  suffix. Its version is stamped verbatim into the extension manifest, which
+  Chrome requires to be one to four dotted integers, and into the Tauri bundle,
+  whose Windows MSI rejects a prerelease too — so a `1.16.0-rc.0` there would
+  build and upload an extension nobody can install. The tree therefore stays at
+  the final version through its whole release candidate series, and every
+  artifact those candidates produced used to be named after it: `v1.16.0-rc.0`,
+  `v1.16.0-rc.1` and `v1.16.0` all shipped a file called
+  `MidenWallet.1.16.0.Testnet.zip`. Nothing was overwritten, since uploads are
+  scoped to their own release, but a downloaded file no longer said which
+  build it came from.
+
+  The tag is the one name that is already unique per release, and it is only
+  ever used for naming — nothing built from it — so a suffix Chrome or WiX
+  would reject is harmless here.
+
+  A manual dispatch has no release to take a tag from, so it keeps reading
+  `package.json`, exactly as before.
+
+outputs:
+  version:
+    description: Version for artifact filenames, without a leading `v`.
+    value: ${{ steps.resolve.outputs.version }}
+
+runs:
+  using: composite
+  steps:
+    - id: resolve
+      shell: bash
+      env:
+        # Empty for every trigger that is not a release.
+        RELEASE_TAG: ${{ github.event.release.tag_name }}
+      run: |
+        set -uo pipefail
+        VERSION="${RELEASE_TAG#v}"
+        if [ -z "$VERSION" ]; then
+          VERSION=$(node -p "require('./package.json').version")
+        fi
+        echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+        echo "Artifact version: ${VERSION}"

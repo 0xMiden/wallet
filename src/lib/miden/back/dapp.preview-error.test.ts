@@ -143,7 +143,7 @@ describe('C1 regression: requestSendTransaction preview error', () => {
     type: MidenDAppMessageType.SendTransactionRequest,
     sourcePublicKey: 'miden-account-1',
     transaction: {
-      senderAddress: 'sender',
+      senderAddress: 'miden-account-1',
       recipientAddress: 'recipient',
       faucetId: 'faucet',
       noteType: 'Public',
@@ -198,7 +198,7 @@ describe('C1 regression: requestTransaction (custom) preview error', () => {
     sourcePublicKey: 'miden-account-1',
     transaction: {
       payload: {
-        address: 'sender',
+        address: 'miden-account-1',
         transactionRequest: 'tx',
         recipientAddress: 'recipient',
         inputNoteIds: [],

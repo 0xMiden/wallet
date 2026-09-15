@@ -5,10 +5,22 @@ import { getFaucetIdSetting } from 'lib/miden/assets';
 import { midenClientProxy } from 'lib/miden/back/miden-client-proxy';
 import { fetchFromStorage } from 'lib/miden/front';
 import { TokenBalanceData } from 'lib/miden/front/balance';
+import {
+  isSyncFused,
+  noteNonEvictionSyncFailure,
+  noteSyncSuccess,
+  noteSyncWatchdogEviction
+} from 'lib/miden/front/sync-fuse';
 import { getGuardianCommitmentFromAccount } from 'lib/miden/guardian/account';
 import { AssetMetadata, DEFAULT_TOKEN_METADATA, fetchTokenMetadata, MIDEN_METADATA } from 'lib/miden/metadata';
+import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
-import { getMidenClient, tryWithWasmClientLock } from 'lib/miden/sdk/miden-client';
+import { getCurrentWasmLockHold, getMidenClient, tryWithWasmClientLock } from 'lib/miden/sdk/miden-client';
+import {
+  isSyncWatchdogEviction,
+  WASM_LOCK_SYNC_WATCHDOG_MS,
+  WasmClientPoisonedError
+} from 'lib/miden/sdk/wasm-client-poison';
 import { getTokenPrice, type TokenPrices } from 'lib/prices';
 
 import { ALL_TOKENS_BASE_METADATA_STORAGE_KEY, setTokensBaseMetadata } from '../../miden/front/assets';
@@ -21,6 +33,43 @@ export interface FetchBalancesOptions {
 }
 
 type SdkAccount = NonNullable<Awaited<ReturnType<Awaited<ReturnType<typeof getMidenClient>>['getAccount']>>>;
+
+const UNRESOLVED_RETRY_BASE_MS = 30_000;
+const UNRESOLVED_RETRY_MAX_MS = 15 * 60_000;
+
+/**
+ * Faucets whose metadata could not be resolved, and the earliest time to try
+ * them again.
+ *
+ * Two bad options meet here. Persisting the placeholder answers the question
+ * forever with a guess — the skip filter below never asks again, so the wrong
+ * decimals outlive whatever caused the failure. Not persisting it re-asks on
+ * every refresh, and balances refresh every few seconds, so a faucet that
+ * simply cannot be read turns into a permanent RPC drip.
+ *
+ * So neither is stored: the record stays absent, and the retry is spaced out
+ * here instead. A faucet that resolves later still heals, and one that never
+ * will costs a request every quarter of an hour rather than every five seconds.
+ * Module-scoped because it is a rate limit, not state — losing it on reload
+ * only means one more attempt.
+ */
+const unresolvedFaucets = new Map<string, { attempts: number; nextAttemptAt: number }>();
+
+function shouldRetryUnresolved(assetId: string, now: number): boolean {
+  const seen = unresolvedFaucets.get(assetId);
+  return seen === undefined || now >= seen.nextAttemptAt;
+}
+
+function recordUnresolved(assetId: string, now: number): void {
+  const attempts = (unresolvedFaucets.get(assetId)?.attempts ?? 0) + 1;
+  const backoff = Math.min(UNRESOLVED_RETRY_BASE_MS * 2 ** (attempts - 1), UNRESOLVED_RETRY_MAX_MS);
+  unresolvedFaucets.set(assetId, { attempts, nextAttemptAt: now + backoff });
+}
+
+/** Exported for tests: the backoff is process-wide and would otherwise leak between cases. */
+export function __resetUnresolvedFaucetsForTest(): void {
+  unresolvedFaucets.clear();
+}
 
 /**
  * E2E-only: parse a Guardian account's on-chain auth structure (signer set +
@@ -112,30 +161,73 @@ export async function fetchBalances(
   // run inline / double-borrow and trap the client. Acquiring the lock around
   // the read closes that window; the non-blocking try means we skip (not queue)
   // when the lock is busy, so we never stall behind long writes.
-  const read = await tryWithWasmClientLock(async () => {
-    const acc = await midenClientProxy.getAccount(address);
+  // Bounded at the SYNC ceiling rather than left on the 5-minute backstop (#777):
+  // the window this non-blocking read wins is the instant an eviction released the
+  // mutex, when the client slot is empty — so the read has to rebuild, and the new
+  // client's genesis fetch goes to the node that just parked.
+  // Fused (#777): this probe's own last holds were evicted by the watchdog, which means
+  // the realm's call is parked and the client the next lap builds parks on it too.
+  // Skipping is the same outcome the non-blocking try already produces when the mutex is
+  // busy — `null`, which callers read as "no fresh balances this lap" and leaves the
+  // displayed figures alone — so the fused path needs no new contract, only the same one
+  // taken earlier and without a 120s hold and a leaked client to pay for it.
+  if (isSyncFused('balances')) return null;
 
-    // E2E-only: capture a Guardian account's on-chain auth structure while we
-    // already hold the account, so `__TEST_GUARDIAN_AUTH__` can read it as a
-    // plain value instead of its own blocking-eval WASM read (which gets starved
-    // on the single-threaded iOS main thread). The structure is immutable, so a
-    // slightly-old capture is correct. Gated on MIDEN_E2E_TEST, tree-shaken from
-    // production.
-    if (process.env.MIDEN_E2E_TEST === 'true' && acc) {
-      await captureGuardianAuthStructureForTest(address, acc);
-    }
+  const read = await tryWithWasmClientLock(
+    async hold => {
+      const acc = await midenClientProxy.getAccount(address);
 
-    // `fungibleAssets()` is on the Account object (not the shared WebClient
-    // RefCell); extract it here so the rest of the fn works off plain values.
-    const acctAssets = acc ? (acc.vault().fungibleAssets() as FungibleAsset[]) : [];
-    return { account: (acc ?? null) as typeof acc | null, assets: acctAssets };
+      // E2E-only: capture a Guardian account's on-chain auth structure while we
+      // already hold the account, so `__TEST_GUARDIAN_AUTH__` can read it as a
+      // plain value instead of its own blocking-eval WASM read (which gets starved
+      // on the single-threaded iOS main thread). The structure is immutable, so a
+      // slightly-old capture is correct. Gated on MIDEN_E2E_TEST, tree-shaken from
+      // production.
+      if (process.env.MIDEN_E2E_TEST === 'true' && acc) {
+        // Guarded on its own, not merely behind it: the capture dynamically imports the
+        // multisig client and then makes its OWN WASM calls on this borrowed account, so
+        // an eviction during the account read above must stop it here. Reachable only
+        // under the flag — but the resilience suite is exactly the one that drives
+        // evictions at a real client, which is where a double borrow would surface.
+        if (getCurrentWasmLockHold() !== hold) {
+          throw new WasmClientPoisonedError('watchdog', new Error('balance read abandoned before the E2E capture'));
+        }
+        await captureGuardianAuthStructureForTest(address, acc);
+      }
+
+      // Checked immediately before the vault read, and after EVERY await above it —
+      // the account read and, under the E2E flag, the guardian-auth capture. An eviction
+      // during either releases the mutex without stopping this callback, and `vault()` is
+      // a WASM call on an object borrowed from the client's RefCell, so continuing is the
+      // double borrow the lock exists to prevent rather than a merely stale read.
+      if (getCurrentWasmLockHold() !== hold) {
+        throw new WasmClientPoisonedError('watchdog', new Error('balance read abandoned before the vault read'));
+      }
+
+      // `fungibleAssets()` is on the Account object (not the shared WebClient
+      // RefCell); extract it here so the rest of the fn works off plain values.
+      const acctAssets = acc ? (acc.vault().fungibleAssets() as FungibleAsset[]) : [];
+      return { account: (acc ?? null) as typeof acc | null, assets: acctAssets };
+    },
+    { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'balances' }
+  ).catch((e: unknown) => {
+    // Report before rethrowing, so this probe accumulates its own evidence. Bounding the
+    // hold capped one park at 120s; only the fuse stops the wallet re-entering that park
+    // — and leaking the client it poisoned — on the very next refresh, indefinitely.
+    if (isSyncWatchdogEviction(e)) noteSyncWatchdogEviction('balances');
+    else noteNonEvictionSyncFailure('balances');
+    throw e;
   });
 
   if (!read.ran) {
     // A `withWasmClientLock` op (a transaction or sync) holds the client — skip
     // this refresh so we neither stall behind it nor race its inner window.
+    // Deliberately NOT reported to the fuse either way: no hold was taken, so this lap
+    // is evidence of nothing about the node.
     return null;
   }
+  // The call went through, which is the one observation that puts this probe's fuse out.
+  noteSyncSuccess('balances');
   const { account, assets } = read.value;
 
   // Fetch missing metadata OUTSIDE the lock — RpcClient doesn't use the WASM client
@@ -143,19 +235,38 @@ export async function fetchBalances(
 
   // Fetch missing metadata for non-MIDEN tokens
   {
+    const now = Date.now();
     const metadataFetchPromises = assets
       .filter(asset => {
         const assetId = getBech32AddressFromAccountId(asset.faucetId());
-        return assetId !== midenFaucetId && !localMetadatas[assetId];
+        return assetId !== midenFaucetId && !localMetadatas[assetId] && shouldRetryUnresolved(assetId, now);
       })
       .map(async asset => {
         const assetId = getBech32AddressFromAccountId(asset.faucetId());
+        // A lookup can fail two ways, and both used to end the same: the guess
+        // was written to the store as though it were the answer. It throws when
+        // the RPC or the WASM client is unavailable, and it RETURNS the
+        // placeholder when the faucet was reached but could not be read. The
+        // second is the one that hid here — it lands on the success path, so it
+        // was persisted despite `fetchTokenMetadata` deliberately not caching
+        // it "so a later fetch can retry".
+        //
+        // Either way the placeholder is used for THIS refresh only: it goes to
+        // `localMetadatas`, which keeps the token on screen, and never to
+        // `fetchedMetadatas`, which is what gets persisted and published.
         try {
           const tokenMetadata = await fetchTokenMetadata(assetId);
-          fetchedMetadatas[assetId] = tokenMetadata.base;
+          if (hasKnownScale(tokenMetadata.base)) {
+            fetchedMetadatas[assetId] = tokenMetadata.base;
+            unresolvedFaucets.delete(assetId);
+          } else {
+            localMetadatas[assetId] = tokenMetadata.base;
+            recordUnresolved(assetId, now);
+          }
         } catch (e) {
           console.warn('Failed to fetch metadata for', assetId, e);
-          fetchedMetadatas[assetId] = DEFAULT_TOKEN_METADATA;
+          localMetadatas[assetId] = DEFAULT_TOKEN_METADATA;
+          recordUnresolved(assetId, now);
         }
       });
     await Promise.all(metadataFetchPromises);
@@ -197,11 +308,13 @@ export async function fetchBalances(
       hasMiden = true;
     }
 
-    const tokenMetadata = isMiden ? MIDEN_METADATA : localMetadatas[tokenId];
-    if (!tokenMetadata) {
-      // Skip assets without metadata (metadata fetch failed)
-      continue;
-    }
+    // The placeholder rather than a `continue`: an unresolved faucet is a real
+    // holding, and dropping the row hides an asset the user owns. It carries
+    // `scaleIsUnknown`, so the row renders as a name without a quantity instead
+    // of a number derived from guessed decimals. This also keeps the token
+    // visible while its lookup is in backoff, and matches what the sync path
+    // (`updateBalancesFromSyncData`) already does for the same case.
+    const tokenMetadata = isMiden ? MIDEN_METADATA : (localMetadatas[tokenId] ?? DEFAULT_TOKEN_METADATA);
 
     const balance = new BigNumber(asset.amount().toString()).div(10 ** tokenMetadata.decimals);
     const priceInfo = getTokenPrice(tokenPrices, tokenMetadata.symbol);

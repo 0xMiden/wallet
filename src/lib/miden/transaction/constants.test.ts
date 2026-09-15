@@ -1,9 +1,16 @@
+import { OperationAbortedError } from 'lib/miden/back/offscreen-codec';
+import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
+
 import {
   isProverProcedureMismatch,
   resolveTransactionErrorMessage,
+  TRANSACTION_FEE_CONVERSION_INFO_MISSING_ERROR,
+  TRANSACTION_VAULT_SHORTFALL_ERROR,
   PROVER_PROCEDURE_MISMATCH_ERROR,
   REMOTE_PROVER_FAILED_ERROR,
-  LOCAL_PROVER_FAILED_ERROR
+  LOCAL_PROVER_FAILED_ERROR,
+  TRANSACTION_ENGINE_RECOVERED_ERROR,
+  TRANSACTION_ENGINE_RECOVERED_PRE_WRITE_ERROR
 } from './constants';
 
 // The real native-prover error captured in #487.
@@ -47,6 +54,55 @@ describe('resolveTransactionErrorMessage', () => {
     );
   });
 
+  it('refuses to promise "no funds moved" for a lock-recovery eviction at the proving stage (#775)', () => {
+    // The stage-based copy is only honest for an error that STOPPED the
+    // pipeline. An eviction abandons one that keeps running and can still
+    // submit, so the reassuring version would be a promise the wallet cannot
+    // keep — and it invites the retry that pays twice.
+    const poisoned = new WasmClientPoisonedError('watchdog');
+    expect(resolveTransactionErrorMessage(poisoned, 'proving', true)).toBe(TRANSACTION_ENGINE_RECOVERED_ERROR);
+    expect(resolveTransactionErrorMessage(poisoned, 'proving', true)).not.toBe(REMOTE_PROVER_FAILED_ERROR);
+    // Local prover, and the broad non-guardian 'sending' stage, take the same
+    // hedged copy rather than "please try again".
+    expect(resolveTransactionErrorMessage(poisoned, 'proving', false)).toBe(TRANSACTION_ENGINE_RECOVERED_ERROR);
+    expect(resolveTransactionErrorMessage(poisoned, 'sending', true)).toBe(TRANSACTION_ENGINE_RECOVERED_ERROR);
+    expect(resolveTransactionErrorMessage(poisoned, undefined, undefined)).toBe(TRANSACTION_ENGINE_RECOVERED_ERROR);
+  });
+
+  it('drops the hedge when the caller proved the abandonment landed BEFORE any write (#777)', () => {
+    // The hedge is honest only where a submit is possible. `cancel.ts` can prove it is
+    // not — a row still at a pre-write stage with no `processingStartedAt` was never
+    // picked up — and there the hedge is a falsehood that costs something real: it tells
+    // the user to go check their activity and wait, on a row whose Retry is safe. The
+    // extension reaches this on a routine non-critical `deadline-no-kill`.
+    for (const error of [new WasmClientPoisonedError('watchdog'), new OperationAbortedError('op-1', 'deadline')]) {
+      expect(resolveTransactionErrorMessage(error, 'syncing', false, true)).toBe(
+        TRANSACTION_ENGINE_RECOVERED_PRE_WRITE_ERROR
+      );
+      // Absent or false, the hedge stands: the flag is opt-in, so no existing caller
+      // silently starts promising "nothing was submitted".
+      expect(resolveTransactionErrorMessage(error, 'syncing', false, false)).toBe(TRANSACTION_ENGINE_RECOVERED_ERROR);
+      expect(resolveTransactionErrorMessage(error, 'syncing', false)).toBe(TRANSACTION_ENGINE_RECOVERED_ERROR);
+    }
+    // And it never leaks onto an unrelated error, whose stage copy is already accurate.
+    expect(resolveTransactionErrorMessage(new Error(MISSING_PROCEDURE), 'proving', false, true)).toBe(
+      PROVER_PROCEDURE_MISMATCH_ERROR
+    );
+  });
+
+  it('hedges the same way for an offscreen DEADLINE kill, not just a watchdog eviction (#777)', () => {
+    // The other half of the same equivalence class. `cancel.ts` stamps
+    // `mayHaveSubmitted` for an abort exactly as it does for a poison, so the
+    // reassuring copy put "No funds moved — please try again" on the very row whose
+    // Retry then refuses with "may already have been submitted": two contradictory
+    // statements about the same money, from one error.
+    const aborted = new OperationAbortedError('op-1', 'offscreen deadline');
+    expect(resolveTransactionErrorMessage(aborted, 'proving', true)).toBe(TRANSACTION_ENGINE_RECOVERED_ERROR);
+    expect(resolveTransactionErrorMessage(aborted, 'proving', true)).not.toBe(REMOTE_PROVER_FAILED_ERROR);
+    expect(resolveTransactionErrorMessage(aborted, 'proving', false)).not.toBe(LOCAL_PROVER_FAILED_ERROR);
+    expect(resolveTransactionErrorMessage(aborted, 'sending', true)).toBe(TRANSACTION_ENGINE_RECOVERED_ERROR);
+  });
+
   it('still maps a generic delegated proving failure to the remote-prover message', () => {
     expect(resolveTransactionErrorMessage(new Error('prover exploded'), 'proving', true)).toBe(
       REMOTE_PROVER_FAILED_ERROR
@@ -63,5 +119,50 @@ describe('resolveTransactionErrorMessage', () => {
     expect(resolveTransactionErrorMessage(new Error('insufficient balance'), 'sending')).toBe(
       'Error: insufficient balance'
     );
+  });
+});
+describe('fee failures', () => {
+  const vaultShortfall = new Error(
+    'failed to execute transaction kernel program: failed to remove the fungible asset from ' +
+      'the vault since the amount of the asset in the vault is less than the amount to remove'
+  );
+
+  it('does not attribute the generic vault-shortfall assertion to the fee', () => {
+    // The kernel assertion says a vault held less of SOME asset than the transaction
+    // tried to remove -- it does not say which. The fee is one producer; an ordinary
+    // send against a stale local balance is another, and `resolveHeldFungibleAsset`
+    // documents two more. Attributing all of them to the fee told users holding plenty
+    // of MIDEN to "Receive some MIDEN", and called a stale-state failure deterministic
+    // -- talking them out of the resync that actually fixes it.
+    const message = resolveTransactionErrorMessage(vaultShortfall);
+    expect(message).toBe(TRANSACTION_VAULT_SHORTFALL_ERROR);
+    expect(message).not.toBe(TRANSACTION_FEE_CONVERSION_INFO_MISSING_ERROR);
+  });
+
+  it('still replaces that raw assertion with something a user can act on', () => {
+    // Not attributing it is not the same as passing the kernel text through: raw, it
+    // reads as an internal error. The replacement names both candidates and points at
+    // the resync, without claiming which asset fell short.
+    const message = resolveTransactionErrorMessage(vaultShortfall);
+    expect(message).not.toContain('transaction kernel program');
+    expect(message).toContain('network fee');
+  });
+
+  it('names a missing fee conversion info abort rather than its numeric error code', () => {
+    // ERR_FEE_CONVERSION_INFO_MISSING surfaces only as a hashed code, which tells
+    // the user nothing and tells support even less.
+    const err = new Error('assertion failed with error code: 14712559985122731094');
+    expect(resolveTransactionErrorMessage(err)).toBe(TRANSACTION_FEE_CONVERSION_INFO_MISSING_ERROR);
+  });
+
+  it('does not blame the balance for a missing conversion-info commitment', () => {
+    // The code says "requires conversion info", not "insufficient funds". The old
+    // copy read "Not enough MIDEN to pay the network fee. Receive some MIDEN and
+    // try again", which on a Guardian custom proposal sent the user to top up an
+    // account that was already funded — the one action that provably cannot help.
+    const err = new Error('assertion failed with error code: 14712559985122731094');
+    const message = resolveTransactionErrorMessage(err);
+    expect(message).not.toMatch(/receive some miden/i);
+    expect(message).not.toMatch(/not enough/i);
   });
 });

@@ -7,8 +7,10 @@
 
 import {
   OFFSCREEN_CALL,
+  OFFSCREEN_STAGE_EVENT,
   OFFSCREEN_TARGET,
   OperationAbortedError,
+  SW_TARGET,
   b64ToBytes,
   bytesToB64,
   decodeArg,
@@ -77,7 +79,17 @@ describe('offscreen-codec — envelope + error', () => {
   it('exposes the stable discriminators', () => {
     expect(OFFSCREEN_TARGET).toBe('offscreen');
     expect(OFFSCREEN_CALL).toBe('OFFSCREEN_CALL');
+    expect(SW_TARGET).toBe('sw');
+    expect(OFFSCREEN_STAGE_EVENT).toBe('OFFSCREEN_STAGE_EVENT');
   });
+
+  // NOTE: there is deliberately no `OffscreenStageEvent` envelope test here. The
+  // envelope has no encoder — the producer builds the object literal directly — so a
+  // test that builds one itself and reads its own fields back can only fail if the
+  // discriminators change, which the test above already covers. Its runtime shape is
+  // pinned where it is actually produced and consumed: `offscreen/main.test.ts`
+  // asserts the posted `{target, type, op_id, stage}` for both the send and the
+  // guardian leaf, and `miden-client-proxy.test.ts` asserts the SW replays it.
 
   it('an OffscreenCallRequest carries its op_id, method, args and deadline', () => {
     const req: OffscreenCallRequest = {

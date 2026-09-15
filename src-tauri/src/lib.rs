@@ -1,19 +1,27 @@
 mod dapp_browser;
+mod ipc_guard;
 mod secure_storage;
 mod tray;
 
+use ipc_guard::ensure_wallet_webview;
 use log::info;
 use tauri::Manager;
 
 /// Log a message from JavaScript to Rust's stdout
 #[tauri::command]
-fn js_log(message: String) {
+fn js_log(webview: tauri::Webview, message: String) -> Result<(), String> {
+    ensure_wallet_webview(&webview)?;
     println!("[JS] {}", message);
+    Ok(())
 }
 
 /// Focus the main wallet window (bring to front)
+///
+/// The desktop dApp approval prompt renders in this window, which sits behind the
+/// dApp browser window the user was just looking at, so the prompt raises it here.
 #[tauri::command]
-fn focus_main_window(app: tauri::AppHandle) -> Result<(), String> {
+fn focus_main_window(webview: tauri::Webview, app: tauri::AppHandle) -> Result<(), String> {
+    ensure_wallet_webview(&webview)?;
     if let Some(window) = app.get_webview_window("main") {
         window.set_focus().map_err(|e| e.to_string())?;
         window.unminimize().map_err(|e| e.to_string())?;
@@ -65,6 +73,13 @@ pub fn run() {
 
             Ok(())
         })
+        // Every command below is ACL-gated by `permissions/app.toml` +
+        // `capabilities/default.json` (`"windows": ["main"]`, no `remote` section) AND
+        // refuses a non-`main` webview at its own entry (`ipc_guard`). Add a command
+        // here and you MUST add it to `permissions/app.toml` and give it the guard —
+        // the dApp-browser window loads arbitrary third-party pages with
+        // `withGlobalTauri: true`, so anything reachable from it is reachable from
+        // any site the user visits.
         .invoke_handler(tauri::generate_handler![
             js_log,
             focus_main_window,
@@ -78,9 +93,7 @@ pub fn run() {
             dapp_browser::close_dapp_window,
             dapp_browser::dapp_navigate,
             dapp_browser::dapp_get_url,
-            dapp_browser::dapp_wallet_request,
             dapp_browser::dapp_wallet_response,
-            dapp_browser::show_dapp_confirmation_overlay,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

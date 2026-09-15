@@ -31,28 +31,34 @@ export const GuardianTransitionHero: FC<GuardianTransitionHeroProps> = ({
   if (variant === 'review') {
     return (
       <div data-testid="guardian-transition-hero" className={`w-full ${className}`}>
-        <div className="flex min-h-36 flex-col items-center justify-center rounded-3xl border border-border-card bg-white px-4 py-6">
-          <span className="rounded-lg bg-surface-interactive px-3 py-1 text-xs font-semibold uppercase tracking-wide text-heading-gray">
+        <div className="flex min-h-[5.5rem] flex-col items-center justify-center rounded-3xl bg-surface-interactive px-4 py-4">
+          {/* `text-heading-gray`, matching the "New Guardian" chip below rather
+              than `text-text-muted`: the two chips sit one above the other, and
+              the muted token is 2.3:1 on this white pill in light mode while the
+              other chip's ink is 9.2:1. */}
+          <span className="rounded-full bg-white px-2.5 py-0.5 text-xs font-medium text-heading-gray">
             {previousLabel}
           </span>
-          <h2 className="mt-3 break-all text-center font-heading text-2xl font-bold text-heading-gray">
+          <h2 className="mt-1.5 break-all text-center font-heading text-xl font-bold text-heading-gray">
             {guardianEndpointDisplayName(previousEndpoint, unknown)}
           </h2>
-          {previousOption && <p className="mt-1 text-sm text-text-muted">{previousOption.location}</p>}
+          {previousOption && (
+            <p className="mt-0.5 text-xs font-semibold text-heading-gray">
+              {t('guardianProviderRegion', { provider: previousOption.operatedBy, region: previousOption.location })}
+            </p>
+          )}
         </div>
 
-        <div className="relative mt-6 flex min-h-36 flex-col items-center justify-center rounded-3xl bg-primary-500 px-4 py-6 text-pure-white">
-          <div className="absolute -top-5 flex h-11 w-11 items-center justify-center rounded-xl border-4 border-app-bg bg-primary-500">
+        <div className="relative mt-5 flex min-h-[5.5rem] flex-col items-center justify-center rounded-3xl bg-primary-500 px-4 py-4 text-pure-white">
+          <div className="absolute -top-4 flex h-9 w-9 items-center justify-center rounded-xl border-4 border-app-bg bg-primary-500">
             <Icon name={IconName.ArrowDown} fill="currentColor" size="sm" />
           </div>
-          <span className="rounded-lg bg-primary-white px-3 py-1 text-xs font-semibold uppercase tracking-wide text-primary-500">
-            {newLabel}
-          </span>
-          <h2 className="mt-3 break-all text-center font-heading text-2xl font-bold text-pure-white">
+          <span className="rounded-full bg-pure-white px-2.5 py-0.5 text-xs font-medium text-grey-700">{newLabel}</span>
+          <h2 className="mt-1.5 break-all text-center font-heading text-xl font-bold text-pure-white">
             {guardianEndpointDisplayName(newEndpoint, unknown)}
           </h2>
           {newOption && (
-            <p className="mt-1 text-center text-sm font-semibold text-pure-white">
+            <p className="mt-0.5 text-center text-xs font-semibold text-pure-white">
               {t('guardianProviderRegion', { provider: newOption.operatedBy, region: newOption.location })}
             </p>
           )}

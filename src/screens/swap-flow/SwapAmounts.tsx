@@ -12,6 +12,8 @@ import { SelectAmount } from '../send-flow/SelectAmount';
 import { UIToken } from '../send-flow/types';
 
 export interface SwapAmountsProps {
+  /** True when the account holds none of the native asset the fee is paid in. */
+  feeAssetMissing?: boolean;
   offerToken: SwapToken;
   offerBalance: number;
   offerAmount: string;
@@ -38,7 +40,10 @@ const swapTokenToUIToken = (token: SwapToken, balance = 0): UIToken => ({
   name: token.symbol,
   decimals: token.decimals,
   balance,
-  fiatPrice: 0
+  fiatPrice: 0,
+  // A registry token carries its own decimals — that is the point of the
+  // registry, and why swap sides never fall back to the placeholder.
+  scaleIsKnown: true
 });
 
 /**
@@ -60,12 +65,19 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
   onConfirm,
   canProceed,
   statusMessage,
-  statusIsError
+  statusIsError,
+  feeAssetMissing = false
 }) => {
   const { t } = useTranslation();
   const offerAmountValue = Number(offerAmount);
   const offerAmountExceedsBalance = offerAmountValue > offerBalance;
-  const offerAmountError = offerAmountExceedsBalance ? 'amountMustBeLessThanBalance' : undefined;
+  // Missing the fee asset outranks an over-balance amount: no amount at all is
+  // sendable, so telling the user to lower it would send them in a loop.
+  const offerAmountError = feeAssetMissing
+    ? 'insufficientFeeAsset'
+    : offerAmountExceedsBalance
+      ? 'amountMustBeLessThanBalance'
+      : undefined;
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-app-bg px-6">

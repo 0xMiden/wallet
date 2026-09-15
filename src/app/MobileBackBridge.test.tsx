@@ -88,9 +88,21 @@ describe('MobileBackBridge', () => {
     expect(mockBack.deps).toEqual(['/settings/security', 3, false, true, true]);
   });
 
-  it('on a settings subpage: replaces to /settings and consumes the event', () => {
-    // historyPosition > 0 to prove the settings-subpage branch wins first.
-    const { handler } = renderAt('/settings/security', 5);
+  it('on a settings subpage with history: pops one level, like the header chevron', () => {
+    // The settings screens are routes now and they nest — Keys pushes Reveal
+    // private key, Authorized dApps pushes Connected dApps. Jumping to
+    // '/settings' from here skipped the page the chevron goes back to.
+    const { handler } = renderAt('/settings/reveal-private-key', 5);
+
+    const result = handler();
+
+    expect(result).toBe(true);
+    expect(goBackMock).toHaveBeenCalledTimes(1);
+    expect(navigateMock).not.toHaveBeenCalled();
+  });
+
+  it('on a cold-opened settings subpage: replaces to /settings and consumes the event', () => {
+    const { handler } = renderAt('/settings/security', 0);
 
     const result = handler();
 
@@ -125,11 +137,26 @@ describe('MobileBackBridge', () => {
     const { handler } = renderAt('/settings', 0);
 
     // /settings does NOT start with '/settings/', so it falls through to the
-    // tab-page branch and goes home rather than replacing to itself.
+    // tab-page branch and goes home rather than replacing to itself. Settings
+    // is a bottom-nav destination now, so this is the same back behaviour the
+    // other tab roots (/history, /browser) get.
     const result = handler();
 
     expect(result).toBe(true);
     expect(navigateMock).toHaveBeenCalledWith('/', HistoryAction.Replace);
+  });
+
+  it('leaves the /settings tab root on the tab-page branch even with history behind it', () => {
+    // Regression guard for the fourth-tab change: a user who reached Settings
+    // by tapping the tab still lands on Home, not one step back into whatever
+    // tab they came from.
+    const { handler } = renderAt('/settings', 3);
+
+    const result = handler();
+
+    expect(result).toBe(true);
+    expect(navigateMock).toHaveBeenCalledWith('/', HistoryAction.Replace);
+    expect(goBackMock).not.toHaveBeenCalled();
   });
 
   it('on a non-tab page with history: goes back and consumes', () => {

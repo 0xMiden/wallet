@@ -67,7 +67,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: 'yarn'
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -91,13 +90,17 @@ jobs:
         with:
           args: ${{ matrix.platform == 'macos-latest' && '--target universal-apple-darwin' || '' }}
 
+      - name: Resolve artifact version
+        id: artifact_version
+        uses: ./.github/actions/artifact-version
+
       # --- macOS: rename + stage DMG ---
       - name: Stage macOS artifacts
         if: matrix.platform == 'macos-latest'
         id: stage_mac
         shell: bash
         run: |
-          VERSION=$(node -p "require('./package.json').version")
+          VERSION="${{ steps.artifact_version.outputs.version }}"
           NETWORK="${{ matrix.network }}"
           ENV_CAP=$(echo "$NETWORK" | awk '{print toupper(substr($0,1,1)) substr($0,2)}')
           mkdir -p release-output
@@ -118,7 +121,7 @@ jobs:
         id: stage_win
         shell: pwsh
         run: |
-          $Version = (Get-Content package.json | ConvertFrom-Json).version
+          $Version = "${{ steps.artifact_version.outputs.version }}"
           $Network = "${{ matrix.network }}"
           $EnvCap = $Network.Substring(0,1).ToUpper() + $Network.Substring(1)
           New-Item -ItemType Directory -Force -Path release-output | Out-Null

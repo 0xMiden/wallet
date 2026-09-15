@@ -1,6 +1,7 @@
 import {
   CollateralType,
   EpochIntentSDK,
+  EVM_TO_MIDEN_EXTRA_TYPESTRING,
   GetTaskDataParams,
   IntentQuoteResult,
   SolveIntentParams,
@@ -19,7 +20,7 @@ export interface CrossChainQuote {
   params: CrossChainIntentParams;
 }
 
-/** Pre-fetched EVM->Miden quote for the typed EVM input amount. */
+/** Pre-fetched EVM->Miden reverse quote (`tokenInAmount: "0"` + Miden `minTokenOut`). */
 export interface EVMToMidenQuote {
   taskTypeString: string;
   intentData: unknown;
@@ -148,25 +149,32 @@ export function buildEpochTaskDataParams(params: CrossChainIntentParams): GetTas
   return taskDataParams;
 }
 
+/**
+ * The Miden base units a typed EVM->Miden deposit amount asks for, or undefined when
+ * the amount is not a number or rounds to zero at the faucet's decimals. A reverse
+ * quote needs a positive `minTokenOut`, and a quote is only good for the amount it
+ * was made for.
+ */
+export function evmToMidenMinTokenOut(amount: string, faucetDecimals: number): string | undefined {
+  try {
+    const units = parseUnits(amount.trim(), faucetDecimals);
+    return units > 0n ? units.toString() : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export function buildEVMToMidenTaskDataParams(params: EVMToMidenIntentParams) {
   const midenRecipientHex = normalizeMidenIdToHex(params.midenRecipientId);
   const midenFaucetHex = normalizeMidenIdToHex(params.midenFaucetId);
-  const evmDecimals = params.evmTokenDecimals ?? 18;
-
-  const rawEvm = params.evmAmount?.trim() ?? '';
-  const hasFixedEvmIn = rawEvm !== '' && rawEvm !== '0';
 
   const minHuman = (params.minTokenOut ?? '').trim();
   // Do not scale using frontend-provided decimals. Treat minTokenOut as already
   // being in base units, and let backend derive/validate decimals from faucet id.
   const scaledMinMidenOut = minHuman ? minHuman : '0';
 
-  const amountInWei = hasFixedEvmIn ? parseUnits(rawEvm, evmDecimals).toString() : '0';
-
-  if (!hasFixedEvmIn && scaledMinMidenOut === '0') {
-    throw new Error(
-      'EVM→Miden: set minTokenOut (minimum Miden tokens to receive) for quote path, or provide evmAmount for a fixed EVM spend.'
-    );
+  if (scaledMinMidenOut === '0') {
+    throw new Error('EVM→Miden: set minTokenOut (Miden tokens to receive, in base units) for the reverse quote.');
   }
 
   const destinationChainId = params.destinationChainId ?? MIDEN_DESTINATION_CHAIN_ID;
@@ -181,25 +189,33 @@ export function buildEVMToMidenTaskDataParams(params: EVMToMidenIntentParams) {
     intentData: {
       isNative: false,
       depositTokenAddress: params.evmTokenAddress,
-      tokenInAmount: amountInWei,
+      // Reverse quote: the allocator derives the EVM `tokenIn` from minTokenOut.
+      tokenInAmount: '0',
       outputTokenAddress: ZERO_ADDRESS,
       minTokenOut: scaledMinMidenOut, // Miden-side minimum out (base units)
       destinationChainId: String(destinationChainId),
       protocolHashIdentifier: ZERO_HASH,
       recipient: params.evmSourceAddress
     },
-    extraDataTypestring: 'string midenRecipientAccount,string midenFaucetId,string midenNoteType',
+    // The SDK's canonical EVM→Miden witness shape (recipient + faucet only).
+    // The allocator validates the typestring against this constant; an extra
+    // field such as `midenNoteType` makes the quote unavailable.
+    extraDataTypestring: EVM_TO_MIDEN_EXTRA_TYPESTRING,
     extraData: {
       midenRecipientAccount: midenRecipientHex,
-      midenFaucetId: midenFaucetHex,
-      midenNoteType: 'P2ID'
+      midenFaucetId: midenFaucetHex
     }
   };
 
   return taskDataParams;
 }
 
-/** Step 1: quote EVM->Miden using the provided EVM input amount. */
+/**
+ * Step 1: reverse-quote EVM->Miden. The allocator only quotes this direction
+ * from the Miden-side `minTokenOut` (base units) with `tokenInAmount: "0"`
+ * and answers with the EVM `tokenIn` the sponsor must deposit. A forward
+ * quote (fixed EVM input) returns NO_QUOTE_AVAILABLE.
+ */
 export async function getEVMToMidenQuote(
   sdk: EpochIntentSDK,
   params: EVMToMidenIntentParams,
@@ -296,7 +312,7 @@ export async function buildCrossChainIntent(
   params: CrossChainIntentParams & {
     collateralType?: CollateralType;
     midenSourceAccount?: string;
-    createMidenP2IDNote?: SolveIntentParams['createMidenP2IDNote'];
+    createMidenP2IDENote?: SolveIntentParams['createMidenP2IDENote'];
     /** Pre-fetched quote from getCrossChainQuote — skips getTaskData step. */
     preFetchedQuote?: CrossChainQuote;
   }
@@ -324,7 +340,7 @@ export async function buildCrossChainIntent(
       collateralType: (params.collateralType ?? 'miden') as CollateralType,
       midenFaucetId: midenFaucetIdHex,
       midenSourceAccount: midenSourceHex,
-      createMidenP2IDNote: params.createMidenP2IDNote
+      createMidenP2IDENote: params.createMidenP2IDENote
     });
 
     return {

@@ -15,6 +15,7 @@ import { NavigationHeader } from 'components/NavigationHeader';
 import { TokenLogo } from 'components/TokenLogo';
 import { toAdaptiveFixed } from 'lib/i18n/numbers';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata, useNetwork } from 'lib/miden/front';
+import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { hapticSelection } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
 import { fetchKlineData, getTokenPrice } from 'lib/prices';
@@ -55,6 +56,15 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
   const balance = token?.balance ?? 0;
   const priceInfo = getTokenPrice(tokenPrices, symbol);
   const fiatValue = balance * priceInfo.price;
+  // `balance` was divided by the placeholder's guessed decimals upstream, so for
+  // an unresolved faucet it is not this user's holding — and the fiat figure
+  // below is that same wrong number multiplied by a price. The hero is the most
+  // emphatic number in the wallet; an em dash says "not known" where a rendered
+  // quantity would say "this is what you have".
+  const scaleIsKnown = hasKnownScale(metadata);
+  // An em dash, not a translated phrase: this slot is a number in a 44px hero,
+  // and the header above it already names the token.
+  const heroBalance = scaleIsKnown ? toAdaptiveFixed(balance) : '—';
 
   const handleBack = () => goBack();
 
@@ -76,11 +86,13 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
             <TokenLogo symbol={symbol} size="xl" className="rounded-10" />
 
             <span className="font-heading text-[44px] font-bold text-heading-gray leading-none pt-2">
-              {toAdaptiveFixed(balance)}
+              {heroBalance}
             </span>
-            <span className="font-heading text-sm font-semibold text-heading-gray opacity-50 leading-none pt-1">
-              ${toAdaptiveFixed(fiatValue)}
-            </span>
+            {scaleIsKnown && (
+              <span className="font-heading text-sm font-semibold text-heading-gray opacity-50 leading-none pt-1">
+                ${toAdaptiveFixed(fiatValue)}
+              </span>
+            )}
           </div>
 
           {/* Action Buttons */}

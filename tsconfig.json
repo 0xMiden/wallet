@@ -24,6 +24,12 @@
     "downlevelIteration": true,
     "typeRoots": ["./node_modules/@types"]
   },
-  "include": ["src", "playwright/**/*.ts", "playwright.config.ts"],
+  // `playwright*.config.ts` (not just `playwright.config.ts`): the other
+  // fifteen root configs were type-checked by nothing. `yarn lint` only walks
+  // `src`, so a duplicate `use` key in playwright.e2e.config.ts silently
+  // discarded the timeouts #675 added and went unnoticed through every CI run
+  // until it produced an undiagnosable E2E failure on main. TS1117 makes that a
+  // hard error; this line is what makes TS look.
+  "include": ["src", "playwright/**/*.ts", "playwright*.config.ts"],
   "exclude": ["**/node_modules/**", "node_modules"]
 }

@@ -10,8 +10,7 @@ import type {
   UIContact,
   UIForm,
   UIBalance,
-  UIRecords,
-  UIFees
+  UIRecords
 } from './types';
 // The runtime surface of this module is the four enums plus the
 // `TransactionTypeNameMapping` const; everything else is compile-time-only
@@ -114,7 +113,8 @@ describe('send-flow/types', () => {
           name: 'Token',
           decimals: 6,
           balance: 100,
-          fiatPrice: 1.23
+          fiatPrice: 1.23,
+          scaleIsKnown: true
         }
       };
       const minimal: SendFlowForm = {
@@ -201,7 +201,8 @@ describe('send-flow/types', () => {
         name: 'Aleo Credits',
         decimals: 6,
         balance: 42,
-        fiatPrice: 0.5
+        fiatPrice: 0.5,
+        scaleIsKnown: true
       };
       expect(token).toMatchObject({ id: 'aleo', decimals: 6, fiatPrice: 0.5 });
     });
@@ -231,18 +232,15 @@ describe('send-flow/types', () => {
           name: 'Aleo',
           decimals: 6,
           balance: 1,
-          fiatPrice: 1
-        },
-        feeAmount: '0.01',
-        feeType: UIFeeType.Public
+          fiatPrice: 1,
+          scaleIsKnown: true
+        }
       };
       const sparse: UIForm = {
         amount: '0',
         sendType: UITransactionType.Private,
         sharePrivately: false,
-        receiveType: UITransactionType.Public,
-        feeAmount: '0',
-        feeType: UIFeeType.Private
+        receiveType: UITransactionType.Public
       };
       expect(complete.recallBlocks).toBe('100');
       expect(sparse.recipientAddress).toBeUndefined();
@@ -254,34 +252,6 @@ describe('send-flow/types', () => {
       const records: UIRecords = { public: 1, private: 2 };
       expect(balance.public + balance.private).toBe(10);
       expect(records.public + records.private).toBe(3);
-    });
-
-    it('UIFees nests MIDEN/OTHER by send→receive transaction type', () => {
-      const fees: UIFees = {
-        MIDEN: {
-          [UITransactionType.Public]: {
-            [UITransactionType.Public]: '1',
-            [UITransactionType.Private]: '2'
-          },
-          [UITransactionType.Private]: {
-            [UITransactionType.Public]: '3',
-            [UITransactionType.Private]: '4'
-          }
-        },
-        OTHER: {
-          [UITransactionType.Public]: {
-            [UITransactionType.Public]: '5',
-            [UITransactionType.Private]: '6'
-          },
-          [UITransactionType.Private]: {
-            [UITransactionType.Public]: '7',
-            [UITransactionType.Private]: '8'
-          }
-        }
-      };
-
-      expect(fees.MIDEN[UITransactionType.Public][UITransactionType.Private]).toBe('2');
-      expect(fees.OTHER[UITransactionType.Private][UITransactionType.Public]).toBe('7');
     });
   });
 });

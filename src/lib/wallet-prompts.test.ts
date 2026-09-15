@@ -1,5 +1,10 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 
+import {
+  GUARDIAN_NOTE_RECOVERY_PROGRESS_STALE_MS,
+  GUARDIAN_NOTE_RECOVERY_PROGRESS_STORAGE_KEY,
+  reportGuardianNoteRecoveryProgress
+} from 'lib/guardian-note-recovery-progress';
 import { ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import { putToStorage } from 'lib/miden/front/storage';
 import { mintFromMidenFaucet } from 'lib/miden-chain/faucet-api';
@@ -20,12 +25,13 @@ import {
   getPendingNotesUsdTotal,
   isWalletPromptPending,
   normalizeWalletPromptStorage,
-  pollActiveBridgePrompts,
+  reconcileBridgedSends,
   reportHotKeyHardwareFailure,
   reportHotKeyRotationNeeded,
   seedWalletPrompt,
   setFaucetFundingMarker,
   setWalletPromptStatus,
+  useGuardianNoteRecoveryProgress,
   useWalletPromptStorage
 } from './wallet-prompts';
 
@@ -374,6 +380,99 @@ describe('wallet prompts', () => {
   });
 });
 
+describe('guardian note-recovery progress card', () => {
+  const OTHER_ACCOUNT = 'account-2';
+  const ACCOUNT = 'account-1';
+
+  beforeEach(async () => {
+    localStorage.clear();
+    jest.clearAllMocks();
+  });
+
+  it('reads the progress of the account it was given', async () => {
+    await reportGuardianNoteRecoveryProgress({ accountId: ACCOUNT, step: 'transport' });
+
+    const { result } = renderHook(() => useGuardianNoteRecoveryProgress(ACCOUNT));
+
+    await waitFor(() => expect(result.current?.step).toBe('transport'));
+  });
+
+  // Seed recovery flags EVERY adopted account, so a record belonging to another
+  // account is the normal case rather than an edge one. Narrating its blocks
+  // under this account's name would be a lie about which recovery is running.
+  it('ignores the progress of a different account', async () => {
+    await reportGuardianNoteRecoveryProgress({ accountId: OTHER_ACCOUNT, step: 'public', syncedToBlock: 500 });
+
+    const { result } = renderHook(() => useGuardianNoteRecoveryProgress(ACCOUNT));
+
+    await waitFor(() => expect(result.current).toBeNull());
+  });
+
+  // The card is non-dismissible, so a record whose run died with its realm
+  // would otherwise sit on screen forever.
+  it('ages out a record that stopped being refreshed', async () => {
+    // Written far enough in the past that the real clock makes it stale, so the
+    // hook runs against an unmocked `Date.now`.
+    const dateSpy = jest
+      .spyOn(Date, 'now')
+      .mockReturnValue(Date.now() - GUARDIAN_NOTE_RECOVERY_PROGRESS_STALE_MS - 60_000);
+    await reportGuardianNoteRecoveryProgress({ accountId: ACCOUNT, step: 'public', syncedToBlock: 900 });
+    dateSpy.mockRestore();
+
+    const { result } = renderHook(() => useGuardianNoteRecoveryProgress(ACCOUNT));
+
+    // Long enough for a fresh record to have shown up.
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(result.current).toBeNull();
+  });
+
+  it('drops the card when the account it was narrating stops recovering', async () => {
+    await reportGuardianNoteRecoveryProgress({ accountId: ACCOUNT, step: 'transport' });
+    const { result, rerender } = renderHook(({ id }: { id: string | null }) => useGuardianNoteRecoveryProgress(id), {
+      initialProps: { id: ACCOUNT as string | null }
+    });
+    await waitFor(() => expect(result.current?.step).toBe('transport'));
+
+    rerender({ id: null });
+
+    await waitFor(() => expect(result.current).toBeNull());
+  });
+
+  // Every home view mounts this. Reading storage on a 2s interval for accounts
+  // with no recovery at all is pure background cost, so a null id means idle.
+  it('does not read storage at all when no account is recovering', async () => {
+    await reportGuardianNoteRecoveryProgress({ accountId: ACCOUNT, step: 'transport' });
+    const getItemSpy = jest.spyOn(Storage.prototype, 'getItem');
+
+    const { result } = renderHook(() => useGuardianNoteRecoveryProgress(null));
+
+    await waitFor(() => expect(result.current).toBeNull());
+    expect(getItemSpy).not.toHaveBeenCalledWith(GUARDIAN_NOTE_RECOVERY_PROGRESS_STORAGE_KEY);
+  });
+
+  it('picks up a later write without remounting', async () => {
+    jest.useFakeTimers();
+    try {
+      await reportGuardianNoteRecoveryProgress({ accountId: ACCOUNT, step: 'transport' });
+      const { result } = renderHook(() => useGuardianNoteRecoveryProgress(ACCOUNT));
+      await waitFor(() => expect(result.current?.step).toBe('transport'));
+
+      await reportGuardianNoteRecoveryProgress({ accountId: ACCOUNT, step: 'public', syncedToBlock: 900 });
+      // Mobile and desktop get no storage events, so the poll is the only way
+      // the card advances there.
+      await act(async () => {
+        jest.advanceTimersByTime(2_000);
+      });
+
+      await waitFor(() => expect(result.current?.syncedToBlock).toBe(900));
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+});
+
 describe('bridge prompts', () => {
   const baseBridge = (over: Partial<ITransaction>): ITransaction =>
     ({
@@ -415,6 +514,90 @@ describe('bridge prompts', () => {
     expect(active.map(tx => tx.id)).toEqual(['epoch-pending', 'agg-unclaimed', 'in-flight']);
   });
 
+  // Import deliberately leaves a restored row's bridge status alone so history
+  // stays truthful, which means the prompt is what has to refuse it: this card
+  // polls the bridge indexer against dump-supplied values on a timer and puts a
+  // Claim button — an EVM signature — in front of the user.
+  it('excludes a restored bridge from the prompt whatever its recorded status', async () => {
+    bridgeRows.push(
+      baseBridge({
+        id: 'restored-epoch',
+        restoredFromBackup: true,
+        extraInputs: { provider: 'epoch', epochStatus: 'pending' },
+        initiatedAt: 500
+      }),
+      baseBridge({
+        id: 'restored-agg',
+        restoredFromBackup: true,
+        extraInputs: { provider: 'agglayer', claimStatus: 'ready' },
+        initiatedAt: 400
+      }),
+      baseBridge({ id: 'restored-in-flight', restoredFromBackup: true, status: ITransactionStatus.Queued }),
+      baseBridge({ id: 'mine', extraInputs: { provider: 'epoch', epochStatus: 'pending' }, initiatedAt: 10 })
+    );
+
+    const active = await fetchActiveBridgePrompts('acct-1');
+
+    expect(active.map(tx => tx.id)).toEqual(['mine']);
+  });
+
+  it('reconciles every unsettled bridged-send across accounts and skips settled or restored rows', async () => {
+    pollEpochIntentFill.mockResolvedValue({ status: 'confirmed', fillTxHash: '0xfill', fillChainId: 11155111 });
+    const pending = (id: string, accountId: string, over: Partial<ITransaction> = {}) =>
+      baseBridge({
+        id,
+        accountId,
+        extraInputs: {
+          provider: 'epoch',
+          epochStatus: 'pending',
+          intentNonce: 'N1',
+          destinationAddress: '0x1111111111111111111111111111111111111111'
+        },
+        ...over
+      });
+    bridgeRows.push(
+      pending('acct-1-pending', 'acct-1'),
+      pending('acct-2-pending', 'acct-2'),
+      pending('restored', 'acct-1', { restoredFromBackup: true }),
+      baseBridge({ id: 'confirmed', extraInputs: { provider: 'epoch', epochStatus: 'confirmed' } }),
+      baseBridge({ id: 'not-a-bridge', type: 'send' })
+    );
+
+    await reconcileBridgedSends();
+
+    expect(pollEpochIntentFill).toHaveBeenCalledTimes(2);
+    expect(updateClaimStatus.mock.calls.map(call => call[0])).toEqual(
+      expect.arrayContaining(['acct-1-pending', 'acct-2-pending'])
+    );
+    expect(updateClaimStatus).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps polling the other rows when one row fails, and names the failing row', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    pollEpochIntentFill.mockImplementation(async ({ intentNonce }: { intentNonce: string }) => {
+      if (intentNonce === 'N-broken') throw new Error('allocator down');
+      return { status: 'confirmed', fillTxHash: '0xfill', fillChainId: 11155111 };
+    });
+    const pending = (id: string, accountId: string, intentNonce: string) =>
+      baseBridge({
+        id,
+        accountId,
+        extraInputs: {
+          provider: 'epoch',
+          epochStatus: 'pending',
+          intentNonce,
+          destinationAddress: '0x1111111111111111111111111111111111111111'
+        }
+      });
+    bridgeRows.push(pending('broken-row', 'acct-1', 'N-broken'), pending('healthy-row', 'acct-2', 'N-healthy'));
+
+    await expect(reconcileBridgedSends()).resolves.toBeUndefined();
+
+    expect(updateClaimStatus).toHaveBeenCalledWith('healthy-row', 'not-applicable', expect.any(Object));
+    expect(warn).toHaveBeenCalledWith('[wallet-prompts] bridged-send poll failed', 'broken-row', expect.any(Error));
+    warn.mockRestore();
+  });
+
   it('flips a pending AggLayer bridge to ready once its deposit is claimable', async () => {
     findClaimableDeposit.mockResolvedValue({ deposit: true });
     const claimable = baseBridge({
@@ -428,19 +611,65 @@ describe('bridge prompts', () => {
     const stillProving = baseBridge({ id: 'proving', status: ITransactionStatus.GeneratingTransaction });
     const notBridge = baseBridge({ id: 'send', type: 'send' });
 
-    await pollActiveBridgePrompts([claimable, alreadyReady, stillProving, notBridge]);
+    bridgeRows.push(claimable, alreadyReady, stillProving, notBridge);
+    await reconcileBridgedSends();
 
     expect(findClaimableDeposit).toHaveBeenCalledTimes(1);
     expect(updateClaimStatus).toHaveBeenCalledWith('agg-ready', 'ready', { depositReady: true });
   });
 
+  it('marks ready only the row whose OWN bridge-out produced the claimable deposit', async () => {
+    // Two Slow bridge-outs to the same L1 address. The claim the user then makes
+    // is stamped onto whichever row flipped to 'ready', so flipping both off one
+    // deposit reports a bridge as claimed that was never claimed.
+    // Deposit 41 belongs to row A. An unbound lookup (no origin hash) resolves it
+    // too, so dropping the binding flips BOTH rows ready off this one deposit.
+    findClaimableDeposit.mockImplementation(async (_dest: unknown, originTxHash: unknown) =>
+      originTxHash === '0xrow-b-origin' ? null : { deposit_cnt: 41 }
+    );
+
+    bridgeRows.push(
+      baseBridge({
+        id: 'agg-a',
+        transactionId: '0xrow-a-origin',
+        extraInputs: { provider: 'agglayer', claimStatus: 'pending', destinationAddress: '0xdest' }
+      }),
+      baseBridge({
+        id: 'agg-b',
+        transactionId: '0xrow-b-origin',
+        extraInputs: { provider: 'agglayer', claimStatus: 'pending', destinationAddress: '0xdest' }
+      })
+    );
+    await reconcileBridgedSends();
+
+    expect(updateClaimStatus).toHaveBeenCalledTimes(1);
+    expect(updateClaimStatus).toHaveBeenCalledWith('agg-a', 'ready', { depositReady: true });
+  });
+
+  // `pollBridgedSend` queries the allocator and writes back onto the row, so a
+  // row restored from a backup must never reach it.
+  it('polls nothing for a restored row', async () => {
+    const restored = baseBridge({
+      id: 'agg-restored',
+      restoredFromBackup: true,
+      extraInputs: { provider: 'agglayer', claimStatus: 'pending', destinationAddress: '0xdest' }
+    });
+
+    bridgeRows.push(restored);
+    await reconcileBridgedSends();
+
+    expect(findClaimableDeposit).not.toHaveBeenCalled();
+    expect(updateClaimStatus).not.toHaveBeenCalled();
+  });
+
   it('leaves a pending AggLayer bridge untouched while no deposit is claimable', async () => {
-    await pollActiveBridgePrompts([
+    bridgeRows.push(
       baseBridge({
         id: 'agg-wait',
         extraInputs: { provider: 'agglayer', claimStatus: 'pending', destinationAddress: '0xdest' }
       })
-    ]);
+    );
+    await reconcileBridgedSends();
 
     expect(updateClaimStatus).not.toHaveBeenCalled();
   });
@@ -460,7 +689,8 @@ describe('bridge prompts', () => {
       extraInputs: { provider: 'epoch', epochStatus: 'pending', destinationAddress: '0xdest' }
     });
 
-    await pollActiveBridgePrompts([filling, settled, noNonce]);
+    bridgeRows.push(filling, settled, noNonce);
+    await reconcileBridgedSends();
 
     expect(pollEpochIntentFill).toHaveBeenCalledTimes(1);
     expect(updateClaimStatus).toHaveBeenCalledWith('epoch-filling', 'not-applicable', {
@@ -473,12 +703,13 @@ describe('bridge prompts', () => {
   it('keeps polling an Epoch intent whose fill is still pending without a hash', async () => {
     pollEpochIntentFill.mockResolvedValue({ status: 'pending', fillTxHash: undefined });
 
-    await pollActiveBridgePrompts([
+    bridgeRows.push(
       baseBridge({
         id: 'epoch-unfilled',
         extraInputs: { provider: 'epoch', epochStatus: 'pending', intentNonce: 'n1', destinationAddress: '0xdest' }
       })
-    ]);
+    );
+    await reconcileBridgedSends();
 
     expect(updateClaimStatus).not.toHaveBeenCalled();
   });

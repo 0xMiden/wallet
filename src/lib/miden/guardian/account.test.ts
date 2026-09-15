@@ -8,12 +8,13 @@
  */
 
 import {
+  assertGuardianKeyCommitment,
   createGuardianAccount,
   getGuardianCommitmentFromAccount,
   getSignerDetailsFromAccount,
-  GUARDIAN_SLOT_NAMES,
   guardianProviderFromEndpoint,
-  MULTISIG_SLOT_NAMES,
+  insertGuardianAccountMonotonically,
+  resolveChosenGuardianEndpoint,
   resolveGuardianEndpoint
 } from './account';
 
@@ -140,6 +141,11 @@ const multisigClientConfig: {
 };
 const ecdsaSignerCtor = jest.fn();
 
+// The two account readers go through AccountInspector, the package's supported
+// layout-insulated accessor — see the comment above them in ./account.
+const mockGetSignerCommitments = jest.fn();
+const mockGetGuardianCommitment = jest.fn();
+
 jest.mock('@openzeppelin/miden-multisig-client', () => ({
   MultisigClient: jest.fn().mockImplementation(() => ({
     create: (...a: unknown[]) => multisigClientConfig.create(...a),
@@ -147,6 +153,10 @@ jest.mock('@openzeppelin/miden-multisig-client', () => ({
       getPubkey: (...a: unknown[]) => multisigClientConfig.getPubkey(...a)
     }
   })),
+  AccountInspector: {
+    getSignerPublicKeyCommitments: (...a: unknown[]) => mockGetSignerCommitments(...a),
+    getGuardianPublicKeyCommitment: (...a: unknown[]) => mockGetGuardianCommitment(...a)
+  },
   EcdsaSigner: jest.fn().mockImplementation((sk: unknown) => {
     ecdsaSignerCtor(sk);
     return { sk };
@@ -158,28 +168,19 @@ describe('getSignerDetailsFromAccount', () => {
     jest.clearAllMocks();
   });
 
-  // Mock account whose storage().getMapItem resolves a signer commitment by the
-  // index encoded in the key word (the Word mock above sets `{ idx }`). This
-  // mirrors the real by-key read; positional order is irrelevant.
-  const makeAccount = (signersByIndex: Record<number, string>) => ({
-    storage: () => ({
-      getMapItem: jest.fn((_slot: string, key: { idx: number }) => {
-        const hex = signersByIndex[key.idx];
-        return hex === undefined ? undefined : { toHex: () => hex };
-      })
-    })
-  });
+  // The inspector returns commitments ordered by signer index.
+  const withSigners = (commitments: string[]) => mockGetSignerCommitments.mockReturnValue(commitments);
 
   it('reads the hot signer commitment from index 0', async () => {
-    const account = makeAccount({ 0: '0xcommit-hot', 1: '0xcommit-cold' });
+    withSigners(['0xcommit-hot', '0xcommit-cold']);
 
-    expect(await getSignerDetailsFromAccount(account as never)).toEqual({ commitment: 'commit-hot' });
+    expect(await getSignerDetailsFromAccount({} as never)).toEqual({ commitment: 'commit-hot' });
   });
 
   it('reads the cold signer commitment from index 1 on a 3-key account', async () => {
-    const account = makeAccount({ 0: '0xcommit-hot', 1: '0xcommit-cold' });
+    withSigners(['0xcommit-hot', '0xcommit-cold']);
 
-    expect(await getSignerDetailsFromAccount(account as never, true)).toEqual({ commitment: 'commit-cold' });
+    expect(await getSignerDetailsFromAccount({} as never, true)).toEqual({ commitment: 'commit-cold' });
   });
 
   it('reads the cold signer commitment from index 0 on a legacy single-signer account', async () => {
@@ -187,45 +188,54 @@ describe('getSignerDetailsFromAccount', () => {
     // the cold/HD key — at index 0. The cold lookup falls back to it (index 1 is
     // absent) rather than throwing, which would brick activation of a migrated
     // account.
-    const account = makeAccount({ 0: '0xcommit-legacy-cold' });
+    withSigners(['0xcommit-legacy-cold']);
 
-    expect(await getSignerDetailsFromAccount(account as never, true)).toEqual({ commitment: 'commit-legacy-cold' });
+    expect(await getSignerDetailsFromAccount({} as never, true)).toEqual({ commitment: 'commit-legacy-cold' });
   });
 
-  it('reads commitments by signer-index key, independent of storage iteration order', async () => {
-    // Regression guard for the SMT-order bug: getMapItem(signerMapKey(i)) resolves
-    // hot=0 / cold=1 correctly regardless of getMapEntries iteration order. A
-    // positional read would bind the wrong signer for ~half of accounts.
-    const account = makeAccount({ 0: '0xhotC', 1: '0xcoldC' });
+  it('resolves signers through AccountInspector rather than a hard-coded slot name', async () => {
+    // Regression guard for the 0.17 breakage: the wallet re-declared the storage
+    // slot names locally, the component moved namespace upstream, and every read
+    // silently returned nothing. Going through the inspector is what keeps this
+    // working across contract versions, so assert the delegation itself.
+    withSigners(['0xhotC', '0xcoldC']);
+    const account = { marker: 'account' };
 
-    expect(await getSignerDetailsFromAccount(account as never)).toEqual({ commitment: 'hotC' });
-    expect(await getSignerDetailsFromAccount(account as never, true)).toEqual({ commitment: 'coldC' });
+    await getSignerDetailsFromAccount(account as never);
+
+    expect(mockGetSignerCommitments).toHaveBeenCalledWith(account);
   });
 
-  it('throws when there is no signer at index 0', async () => {
-    const account = makeAccount({});
+  it('throws when the inspector reports no signers', async () => {
+    withSigners([]);
 
-    await expect(getSignerDetailsFromAccount(account as never)).rejects.toThrow(
+    await expect(getSignerDetailsFromAccount({} as never)).rejects.toThrow(
+      'No signer commitment found in account storage'
+    );
+  });
+
+  it('throws when the inspector rejects the account (wrong contract version)', async () => {
+    mockGetSignerCommitments.mockImplementation(() => {
+      throw new Error('account has no threshold_config storage slot');
+    });
+
+    await expect(getSignerDetailsFromAccount({} as never)).rejects.toThrow(
       'No signer commitment found in account storage'
     );
   });
 
   it('treats an empty-word entry (0x / all-zeros) as no signer', async () => {
-    const account = makeAccount({ 0: '0x' });
+    withSigners(['0x']);
 
-    await expect(getSignerDetailsFromAccount(account as never)).rejects.toThrow(
+    await expect(getSignerDetailsFromAccount({} as never)).rejects.toThrow(
       'No signer commitment found in account storage'
     );
   });
 
   it('accepts a commitment hex without a 0x prefix', async () => {
-    const account = makeAccount({ 0: 'beefcafe' });
+    withSigners(['beefcafe']);
 
-    expect(await getSignerDetailsFromAccount(account as never)).toEqual({ commitment: 'beefcafe' });
-  });
-
-  it('exposes the multisig storage slot names', () => {
-    expect(MULTISIG_SLOT_NAMES.SIGNER_PUBLIC_KEYS).toBe('openzeppelin::multisig::signer_public_keys');
+    expect(await getSignerDetailsFromAccount({} as never)).toEqual({ commitment: 'beefcafe' });
   });
 });
 
@@ -234,53 +244,97 @@ describe('getGuardianCommitmentFromAccount', () => {
     jest.clearAllMocks();
   });
 
-  // The guardian public_key slot is a SEPARATE storage map from the multisig
-  // signer slots read by getSignerDetailsFromAccount — the mock keys the fake
-  // getMapItem by slot name so a cross-slot read would return the wrong (or
-  // no) value.
-  const makeAccount = (bySlot: Record<string, string | undefined>) => ({
-    storage: () => ({
-      getMapItem: jest.fn((slot: string) => {
-        const hex = bySlot[slot];
-        return hex === undefined ? undefined : { toHex: () => hex };
-      })
-    })
+  it('reads the guardian commitment through the guardian accessor', () => {
+    mockGetGuardianCommitment.mockReturnValue('0xdeadbeef');
+
+    expect(getGuardianCommitmentFromAccount({} as never)).toBe('deadbeef');
   });
 
-  it('reads the guardian commitment from the guardian public_key slot', () => {
-    const account = makeAccount({ [GUARDIAN_SLOT_NAMES.PUBLIC_KEY]: '0xdeadbeef' });
+  it('returns undefined when the account has no guardian key entry', () => {
+    // The inspector throws rather than returning empty; callers treat a
+    // guardian-less account as "no commitment", not as an error.
+    mockGetGuardianCommitment.mockImplementation(() => {
+      throw new Error('guardian key entry is missing');
+    });
 
-    expect(getGuardianCommitmentFromAccount(account as never)).toBe('deadbeef');
-  });
-
-  it('returns undefined when the guardian public_key slot has no entry', () => {
-    const account = makeAccount({});
-
-    expect(getGuardianCommitmentFromAccount(account as never)).toBeUndefined();
+    expect(getGuardianCommitmentFromAccount({} as never)).toBeUndefined();
   });
 
   it('returns undefined for the empty (all-zero) word', () => {
-    const account = makeAccount({ [GUARDIAN_SLOT_NAMES.PUBLIC_KEY]: '0x' + '0'.repeat(64) });
+    mockGetGuardianCommitment.mockReturnValue('0x' + '0'.repeat(64));
 
-    expect(getGuardianCommitmentFromAccount(account as never)).toBeUndefined();
+    expect(getGuardianCommitmentFromAccount({} as never)).toBeUndefined();
   });
 
   it('accepts a guardian commitment hex without a 0x prefix', () => {
-    const account = makeAccount({ [GUARDIAN_SLOT_NAMES.PUBLIC_KEY]: 'deadbeef' });
+    mockGetGuardianCommitment.mockReturnValue('deadbeef');
 
-    expect(getGuardianCommitmentFromAccount(account as never)).toBe('deadbeef');
+    expect(getGuardianCommitmentFromAccount({} as never)).toBe('deadbeef');
   });
 
-  it('does not read from the multisig signer_public_keys slot', () => {
-    const account = makeAccount({ [MULTISIG_SLOT_NAMES.SIGNER_PUBLIC_KEYS]: '0xcommit-hot' });
+  // The inspector's return value is not type-checked at runtime, and a slot that
+  // yields a non-string does NOT throw inside the try above — so without the type
+  // guard, `stripHexPrefix` calls `.startsWith` on it and a bare TypeError escapes
+  // a function whose contract is `string | undefined`. Every caller reads
+  // `undefined` as "no guardian key, do nothing"; a throw instead strands the
+  // drift reconciler mid-status and can spend a self-heal attempt.
+  it.each([[1234], [true], [null], [{ nested: 1 }], [undefined]])(
+    'returns undefined rather than throwing for a %p commitment',
+    raw => {
+      mockGetGuardianCommitment.mockReturnValue(raw);
 
-    expect(getGuardianCommitmentFromAccount(account as never)).toBeUndefined();
+      expect(() => getGuardianCommitmentFromAccount({} as never)).not.toThrow();
+      expect(getGuardianCommitmentFromAccount({} as never)).toBeUndefined();
+    }
+  );
+
+  it('does not read the multisig signer commitments', () => {
+    // The guardian key lives in its own storage slot; reading the signer
+    // accessor here would return a device key and silently mis-report the
+    // account's guardian.
+    mockGetGuardianCommitment.mockReturnValue('0xdeadbeef');
+
+    getGuardianCommitmentFromAccount({} as never);
+
+    expect(mockGetSignerCommitments).not.toHaveBeenCalled();
+  });
+});
+
+// This is the trust boundary for the one guardian response that becomes code:
+// the switch-guardian paths hand `GET /pubkey`'s commitment to
+// `buildUpdateGuardianTransactionRequest`, which splices it into MASM source
+// after a `normalizeHexWord` that validates neither charset nor length.
+describe('assertGuardianKeyCommitment', () => {
+  const word = 'ab'.repeat(32);
+
+  it.each([
+    ['a 0x-prefixed word', `0x${word}`],
+    ['an unprefixed word', word],
+    ['an uppercase word', `0x${word.toUpperCase()}`]
+  ])('accepts %s and returns it 0x-prefixed and lowercased', (_label, commitment) => {
+    expect(assertGuardianKeyCommitment(commitment, 'https://g.test')).toBe(`0x${word}`);
   });
 
-  it('exposes the guardian storage slot names', () => {
-    expect(GUARDIAN_SLOT_NAMES.PUBLIC_KEY).toBe('openzeppelin::guardian::public_key');
-    expect(GUARDIAN_SLOT_NAMES.SELECTOR).toBe('openzeppelin::guardian::selector');
-    expect(GUARDIAN_SLOT_NAMES.SCHEME_ID).toBe('openzeppelin::guardian::scheme_id');
+  it.each([
+    // The one that matters: `padStart(64, '0')` is a no-op on an over-long
+    // string, so everything after the word survives into the script source.
+    ['MASM appended after a valid word', `${'0'.repeat(64)}\ncall.0x${'1'.repeat(64)}\npush.0`],
+    ['a truncated word', '0xdeadbeef'],
+    ['an over-long word', `0x${word}ab`],
+    ['non-hex characters', `0x${'z'.repeat(64)}`],
+    ['an empty string', ''],
+    ['only the prefix', '0x'],
+    ['internal whitespace', `0x${word.slice(0, 60)} abc`],
+    ['a number', 1234],
+    ['null', null],
+    ['undefined', undefined],
+    ['an object', { commitment: word }]
+  ])('rejects %s', (_label, commitment) => {
+    expect(() => assertGuardianKeyCommitment(commitment, 'https://g.test')).toThrow('malformed key commitment');
+  });
+
+  it('names the endpoint that served the bad value', () => {
+    expect(() => assertGuardianKeyCommitment('nope', 'https://rogue.test')).toThrow('https://rogue.test');
   });
 });
 
@@ -353,7 +407,6 @@ describe('createGuardianAccount', () => {
         signerCommitments: ['0xhot-commit', '0xcommit-s1-2-3-4'],
         guardianCommitment: 'g-commit',
         guardianPublicKey: 'g-pubkey',
-        guardianEnabled: true,
         storageMode: 'private',
         signatureScheme: 'ecdsa',
         seed
@@ -469,5 +522,125 @@ describe('resolveGuardianEndpoint', () => {
     mockFetchFromStorage.mockResolvedValueOnce(undefined);
     const endpoint = await resolveGuardianEndpoint({} as never);
     expect(endpoint).toBe('https://default.guardian.test');
+  });
+
+  it('propagates a failed storage read rather than answering with the default', async () => {
+    // The default arm must be reachable ONLY by a proven-empty pointer. If a read
+    // failure resolved to the default instead, every caller would be handed a
+    // guessed operator dressed as the account's own choice.
+    mockFetchFromStorage.mockRejectedValueOnce(new Error('storage unavailable'));
+    await expect(resolveGuardianEndpoint({} as never)).rejects.toThrow('storage unavailable');
+  });
+});
+
+describe('resolveChosenGuardianEndpoint', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('prefers the per-account guardianEndpoint without reading storage', async () => {
+    const endpoint = await resolveChosenGuardianEndpoint({ guardianEndpoint: 'https://per-account.guardian' });
+    expect(endpoint).toBe('https://per-account.guardian');
+    expect(mockFetchFromStorage).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the legacy global key, the only pointer a pre-per-account account has', async () => {
+    mockFetchFromStorage.mockResolvedValueOnce('https://global.guardian');
+    await expect(resolveChosenGuardianEndpoint({})).resolves.toBe('https://global.guardian');
+    expect(mockFetchFromStorage).toHaveBeenCalledWith('guardian_url_setting');
+  });
+
+  it.each([
+    ['unset', undefined],
+    ['an empty string', '']
+  ])('returns undefined rather than the network default when the global key is %s', async (_label, stored) => {
+    // The distinguishing property against `resolveGuardianEndpoint`: callers that
+    // POST private account state, or that accuse an account of naming no
+    // operator, must be able to tell "chose nothing" from "was given a guess".
+    mockFetchFromStorage.mockResolvedValueOnce(stored);
+    await expect(resolveChosenGuardianEndpoint({})).resolves.toBeUndefined();
+  });
+
+  it('propagates a failed storage read instead of reporting no chosen endpoint', async () => {
+    // `undefined` is a VERDICT here ("named no operator"). A swallowed read error
+    // would forge that verdict out of a transient failure, which is what lets the
+    // drift reconciler accuse a healthy account.
+    mockFetchFromStorage.mockRejectedValueOnce(new Error('storage unavailable'));
+    await expect(resolveChosenGuardianEndpoint({})).rejects.toThrow('storage unavailable');
+  });
+});
+
+describe('insertGuardianAccountMonotonically', () => {
+  const makeAccount = (nonce: bigint) => ({
+    id: () => ({ toString: () => 'acc-1' }),
+    nonce: () => ({ asInt: () => nonce })
+  });
+
+  const makeClient = (storedNonce?: bigint) => ({
+    accounts: {
+      insert: jest.fn(async () => {}),
+      get: jest.fn(async () => (storedNonce === undefined ? null : makeAccount(storedNonce)))
+    }
+  });
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('inserts when the account is not present locally', async () => {
+    const client = makeClient();
+    const account = makeAccount(3n);
+
+    await insertGuardianAccountMonotonically(client as never, account as never);
+
+    expect(client.accounts.insert).toHaveBeenCalledWith({ account, overwrite: true });
+  });
+
+  it('inserts when the snapshot is newer than local state', async () => {
+    const client = makeClient(1n);
+
+    await insertGuardianAccountMonotonically(client as never, makeAccount(2n) as never);
+
+    expect(client.accounts.insert).toHaveBeenCalledTimes(1);
+  });
+
+  it('still overwrites at an equal nonce, since the snapshot may carry more detail', async () => {
+    const client = makeClient(2n);
+
+    await insertGuardianAccountMonotonically(client as never, makeAccount(2n) as never);
+
+    expect(client.accounts.insert).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses a staler snapshot instead of rolling local state backwards', async () => {
+    const client = makeClient(2n);
+
+    await insertGuardianAccountMonotonically(client as never, makeAccount(1n) as never);
+
+    expect(client.accounts.insert).not.toHaveBeenCalled();
+  });
+
+  it('keeps the committed state when a creation-time snapshot arrives last', async () => {
+    // The `guardian-recovery` flake exactly: one recovery adopts the same
+    // account twice, and before this guard a nonce-0 snapshot landing second
+    // left the account locally uncommitted, so the following hot-key rotation
+    // was built as an account creation and the node rejected it with
+    // "initial account commitment 0x0000…0000 does not match the current
+    // commitment". Order must no longer decide the outcome.
+    const stored: { nonce: bigint } = { nonce: 0n };
+    const client = {
+      accounts: {
+        insert: jest.fn(async ({ account }: { account: { nonce: () => { asInt: () => bigint } } }) => {
+          stored.nonce = account.nonce().asInt();
+        }),
+        get: jest.fn(async () => (stored.nonce === 0n ? null : makeAccount(stored.nonce)))
+      }
+    };
+
+    await insertGuardianAccountMonotonically(client as never, makeAccount(1n) as never);
+    await insertGuardianAccountMonotonically(client as never, makeAccount(0n) as never);
+
+    expect(stored.nonce).toBe(1n);
+    expect(client.accounts.insert).toHaveBeenCalledTimes(1);
   });
 });

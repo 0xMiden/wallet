@@ -83,13 +83,14 @@ jest.mock('components/review', () => ({
       {label}|{amount}|{symbol}
     </div>
   ),
-  ReviewLayout: ({ hero, children, primary }: any) => (
+  ReviewLayout: ({ hero, children, primary, error }: any) => (
     <div data-testid="review-layout">
       <div data-testid="hero">{hero}</div>
       <div data-testid="rows">{children}</div>
-      <button data-testid={primary['data-testid']} onClick={primary.onPress}>
+      <button data-testid={primary['data-testid']} onClick={primary.onPress} disabled={primary.disabled}>
         {primary.label}
       </button>
+      {error !== undefined && <div data-testid="review-error">{error}</div>}
     </div>
   ),
   ReviewRow: ({ label, value, children, onEdit, editLabel, note }: any) => (
@@ -116,9 +117,7 @@ jest.mock('lib/agglayer/b2agg', () => ({
 }));
 
 jest.mock('lib/agglayer/b2agg/constant', () => ({
-  EVM_AGGLAYER_NETWORK_ID: 11155111,
-  MIDEN_AGGLAYER_FAUCET_ID: 'agglayer-faucet',
-  getAgglayerFaucetId: () => 'agglayer-faucet'
+  EVM_AGGLAYER_NETWORK_ID: 11155111
 }));
 
 jest.mock('lib/epoch', () => ({
@@ -254,6 +253,15 @@ const VALID_TOKEN = {
   metadata: { symbol: 'MDN', decimals: 8 },
   balance: 100,
   fiatPrice: 2
+};
+
+// Same token, but its faucet never resolved — so `metadata.decimals` is the
+// unknown-token placeholder's guess of 6 rather than anything the faucet said.
+const UNSCALED_TOKEN = {
+  tokenId: 'tok1',
+  metadata: { symbol: 'Unknown', name: 'Unknown', decimals: 6, scaleIsUnknown: true },
+  balance: 100,
+  fiatPrice: 0
 };
 
 const setValidRoute = () => {
@@ -475,6 +483,45 @@ describe('ReviewTransaction — onSubmit', () => {
     await flush();
   };
 
+  // This screen is reachable by URL and re-derives its own token, so it cannot
+  // rely on the amount screen having refused. Every conversion below it runs
+  // `stringToBigInt(amount, token.decimals)`: at the placeholder's guessed 6, a
+  // "5" typed for an 18-decimal faucet authorises a transfer a trillion times
+  // smaller than the one being confirmed, irreversibly.
+  describe('a token whose scale never resolved', () => {
+    beforeEach(() => {
+      setValidRoute();
+      mockBalanceData = [UNSCALED_TOKEN];
+    });
+
+    it('refuses to submit and says why, instead of converting by a guess', async () => {
+      render(<ReviewTransaction />);
+      await flush();
+
+      await clickSubmit();
+
+      expect(confirmMock).not.toHaveBeenCalled();
+      expect(initiateMock).not.toHaveBeenCalled();
+      expect(screen.getByTestId('review-error').textContent).toBe('unknownTokenScale');
+    });
+
+    it('disables the CTA rather than waiting for the press to reject it', async () => {
+      render(<ReviewTransaction />);
+      await flush();
+
+      expect(screen.getByTestId('send-review-submit')).toBeDisabled();
+    });
+
+    it('leaves an ordinary token CTA alone', async () => {
+      mockBalanceData = [VALID_TOKEN];
+      render(<ReviewTransaction />);
+      await flush();
+
+      expect(screen.getByTestId('send-review-submit')).not.toBeDisabled();
+      expect(screen.queryByTestId('review-error')).not.toBeInTheDocument();
+    });
+  });
+
   it('runs the full private send pipeline (non-extension, popup route)', async () => {
     setValidRoute();
     render(<ReviewTransaction />);
@@ -490,6 +537,27 @@ describe('ReviewTransaction — onSubmit', () => {
     expect(requestSWMock).not.toHaveBeenCalled();
     expect(clearSendDraftMock).toHaveBeenCalled();
     expect(navigateMock).toHaveBeenCalledWith('/generating-transaction/tx-abc', 'replacestate');
+  });
+
+  it('bridges over the Slow route with the faucet of the token being sent', async () => {
+    mockDetectedChain = 'ethereum';
+    mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=agglayer';
+    mockBalanceData = [VALID_TOKEN];
+    const { initiateB2AggBridge } = jest.requireMock('lib/agglayer/b2agg');
+    initiateB2AggBridge.mockResolvedValue('tx-agg');
+    render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+
+    expect(initiateB2AggBridge).toHaveBeenCalledWith(
+      expect.objectContaining({
+        amount: 12345n,
+        faucetId: 'tok1',
+        destinationAddress: '0xrecipient',
+        senderPublicKey: 'pubkey-1'
+      })
+    );
   });
 
   it('nudges the service worker and uses the full-page route on extension', async () => {

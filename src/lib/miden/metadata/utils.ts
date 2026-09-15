@@ -20,7 +20,11 @@ export function toBaseMetadata(data: DetailedAssetMetdata | AssetMetadata): Asse
     shouldPreferSymbol: data.shouldPreferSymbol,
     thumbnailUri: data.thumbnailUri,
     displayUri: data.displayUri,
-    artifactUri: data.artifactUri
+    artifactUri: data.artifactUri,
+    // Carried through deliberately: this whitelist is what gets persisted, and
+    // dropping the marker here would launder the placeholder's guessed
+    // `decimals` into a stored record that reads as fact.
+    scaleIsUnknown: data.scaleIsUnknown
   };
 }
 

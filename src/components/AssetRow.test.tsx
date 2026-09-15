@@ -207,4 +207,43 @@ describe('AssetRow', () => {
     render(<AssetRowDefault asset={makeAsset()} tokenPrices={TOKEN_PRICES} data-testid="default-row" />);
     expect(screen.getByTestId('default-row')).toBeInTheDocument();
   });
+  // An unresolved faucet's `decimals` are the placeholder's guess, so `balance`
+  // was divided by the wrong power of ten before it ever reached this row. The
+  // token is still named; the number and the dollar figure derived from it are
+  // withheld rather than shown as fact.
+  describe('a token whose scale is unknown', () => {
+    function unknownAsset(): TokenBalanceData {
+      return {
+        tokenId: 'tok-unknown',
+        tokenSlug: 'slug-unknown',
+        metadata: {
+          symbol: 'Unknown',
+          name: 'Unknown',
+          decimals: 6,
+          scaleIsUnknown: true
+        } as TokenBalanceData['metadata'],
+        balance: 1234.5,
+        fiatPrice: 0,
+        change24h: 0
+      };
+    }
+
+    it('shows the symbol alone instead of a quantity', () => {
+      render(<AssetRow asset={unknownAsset()} tokenPrices={TOKEN_PRICES} data-testid="row" />);
+
+      expect(screen.getByTestId('row').getAttribute('data-amount')).toBe('Unknown');
+    });
+
+    it('omits the fiat value, which is derived from the same wrong balance', () => {
+      render(<AssetRow asset={unknownAsset()} tokenPrices={TOKEN_PRICES} data-testid="row" />);
+
+      expect(screen.getByTestId('row').getAttribute('data-price')).toBeNull();
+    });
+
+    it('still quantifies a token that reported its own decimals', () => {
+      render(<AssetRow asset={makeAsset()} tokenPrices={TOKEN_PRICES} data-testid="row" />);
+
+      expect(screen.getByTestId('row').getAttribute('data-amount')).toBe('2.00 BTC');
+    });
+  });
 });

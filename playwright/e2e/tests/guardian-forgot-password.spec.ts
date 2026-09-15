@@ -53,7 +53,7 @@
  */
 import { getEnvironmentConfig } from '../config/environments';
 import { expect, test } from '../fixtures/two-wallets';
-import { waitForVaultBalance } from '../helpers/balance-truth';
+import { waitForPendingNoteTotal, waitForVaultBalance } from '../helpers/balance-truth';
 import {
   RECOVERY_ERROR_TESTID,
   expectUnlockRejects,
@@ -111,6 +111,7 @@ test.describe('Forgot password — destructive in-place reset', () => {
     //   createGuardianWallet          180s (60s confirmation + 120s home)
     //   midenCli.init                 120s (init run + its sync)
     //   createFaucet                  180s   mint 60s   sync 60s
+    //   note-discovery pin            120s
     //   claimAllNotes                 132s (120s + ~12s of reload/prepare)
     //   funded-balance pin            120s
     //   lockWallet ×2                  64s (reload + unlock-screen wait)
@@ -120,7 +121,7 @@ test.describe('Forgot password — destructive in-place reset', () => {
     //   post-recovery reload + pin    180s
     //   expectUnlockRejects           105s   unlockWallet 105s
     //
-    // ≈ 1876s = 31.3 minutes, hence 35. Deliberately NOT included: the CLI
+    // ≈ 1996s = 33.3 minutes, hence 35. Deliberately NOT included: the CLI
     // helpers' transient-RPC retry ceilings (createFaucet alone is 5×180s +
     // backoff — helpers/miden-cli.ts) and `navigateHome`'s unbounded `page.goto`
     // (wallet-page.ts, shared). No wall-clock budget can cover a full retry
@@ -156,6 +157,18 @@ test.describe('Forgot password — destructive in-place reset', () => {
       faucetId = await midenCli.createFaucet();
       await midenCli.mint(faucetId, addressBeforeReset, FUND_BASE_UNITS, 'public');
       await midenCli.sync();
+
+      // Discovery BEFORE claim: claimAllNotes stops on two empty pending reads,
+      // which is also true before the note has synced -- claiming too early
+      // returns "drained" having consumed nothing, and the vault pin below then
+      // fails on a healthy run. Seen for real on main (runs 32070055869 and
+      // 32203559789), where this step logged "drained in 2 iteration(s)" with
+      // pending=0 and then read vault 0 with the whole mint still unconsumed.
+      await waitForPendingNoteTotal(walletA.page, TOKEN, FUND_BASE_UNITS, {
+        timeoutMs: 120_000,
+        decimals: TOKEN_DECIMALS
+      });
+
       await walletA.claimAllNotes(120_000);
 
       // Pin the EXACT spendable balance in setup, so a claim that silently

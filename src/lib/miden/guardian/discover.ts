@@ -154,6 +154,22 @@ export function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: st
 }
 
 /**
+ * Does this error mean the operator already has a record of the account?
+ *
+ * Duck-typed on the guardian's stable machine-readable code, like every other
+ * guardian error check (see `isGuardianUnreachableError`), so it survives the
+ * duplicate-package error-class instances this repo can end up with.
+ *
+ * Lives here rather than beside either registration path because BOTH need it:
+ * the direct switch's `/configure` loop and the coordinated switch's
+ * `registerOnGuardian` loop each retry a write that may have landed before its
+ * response was lost, and treating the operator's "I already have it" as a failure
+ * would turn the idempotent case into a false `registerFailed`.
+ */
+export const isGuardianAccountAlreadyRegistered = (err: unknown): boolean =>
+  typeof err === 'object' && err !== null && 'code' in err && err.code === 'account_already_exists';
+
+/**
  * Attempt `makeRequest` up to {@link GUARDIAN_PROBE_REQUEST_ATTEMPTS} times, each
  * under a `timeoutMs` deadline, returning the first success. Retries a transient
  * failure so a single blip on the CURRENT operator's request doesn't drop it from

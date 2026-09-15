@@ -2,8 +2,12 @@ import React, { FC, useMemo, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
+import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
+import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
 import { MIDEN_USDC_DECIMALS, MIDEN_USDC_FAUCET, normalizeMidenIdToHex } from 'lib/epoch';
+import { hasNoFeeAsset } from 'lib/miden/fees/spendable';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
+import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { navigate } from 'lib/woozie';
 import { SelectAmount } from 'screens/send-flow/SelectAmount';
 import { UIToken } from 'screens/send-flow/types';
@@ -26,6 +30,8 @@ const EarnDepositAmount: FC<EarnDepositAmountProps> = ({ vaultId }) => {
   const { publicKey } = useAccount();
   const allTokensBaseMetadata = useAllTokensBaseMetadata();
   const { data: balanceData } = useAllBalances(publicKey, allTokensBaseMetadata);
+  const nativeFaucetId = useMidenFaucetId();
+  const verificationBaseFee = useVerificationBaseFee();
   // Epoch Earn is USDC-only. Balance rows use bech32 faucet ids while the
   // allocator configuration uses hex, so compare their normalized account ids.
   const depositBalance = useMemo(
@@ -38,14 +44,20 @@ const EarnDepositAmount: FC<EarnDepositAmountProps> = ({ vaultId }) => {
       name: depositBalance?.metadata.symbol ?? 'USDC',
       decimals: depositBalance?.metadata.decimals ?? MIDEN_USDC_DECIMALS,
       balance: depositBalance?.balance ?? 0,
-      fiatPrice: depositBalance?.fiatPrice ?? 1
+      fiatPrice: depositBalance?.fiatPrice ?? 1,
+      // Either the faucet answered, or we fall back to the USDC constant — which
+      // is a stated decimals for a known token, not a guess about an unknown one.
+      scaleIsKnown: depositBalance ? hasKnownScale(depositBalance.metadata) : true
     }),
     [depositBalance]
   );
 
   const amountValue = parseAmount(amount);
   const hasAmount = amountValue > 0;
-  const isValidAmount = hasAmount && amountValue <= token.balance;
+  // A deposit is a transaction, and the fee comes out of this account's own vault
+  // in the native asset -- holding USDC alone is not enough to move it.
+  const feeAssetMissing = hasNoFeeAsset(balanceData ?? [], nativeFaucetId, verificationBaseFee);
+  const isValidAmount = hasAmount && amountValue <= token.balance && !feeAssetMissing;
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-app-bg font-inter" data-testid="earn-deposit-amount-page">
@@ -60,6 +72,11 @@ const EarnDepositAmount: FC<EarnDepositAmountProps> = ({ vaultId }) => {
           confirmTitle={t('confirm')}
           showNetworkPill={false}
           showBalanceHelper={!hasAmount}
+          // Say WHY Continue is dead. Without this the user sees a positive,
+          // in-balance amount and a disabled button with no explanation — the
+          // send and swap flows both name the same condition. `SelectAmount`
+          // translates the key itself, so pass the key rather than the text.
+          error={feeAssetMissing ? 'insufficientFeeAsset' : undefined}
           footerClassName="pt-4 pb-6"
           onAmountChange={setAmount}
           onSelectToken={() => undefined}

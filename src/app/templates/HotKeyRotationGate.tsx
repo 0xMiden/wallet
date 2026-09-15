@@ -108,7 +108,7 @@ const HotKeyRotationOverlay: FC<OverlayProps> = ({ accountPublicKey }) => {
   // Swallow hardware/gesture back while the wallet is blocked. Registered by
   // this component (which only mounts while blocking), so it is active exactly
   // when needed and unwinds automatically once the rotation lands.
-  useMobileBackHandler(() => true, []);
+  useMobileBackHandler(() => true, [], { overlay: true });
 
   const beginRotation = useCallback(
     async (adoptExisting: boolean) => {
@@ -136,9 +136,10 @@ const HotKeyRotationOverlay: FC<OverlayProps> = ({ accountPublicKey }) => {
   }, [beginRotation]);
 
   // Driver: on extension the service worker owns the FIFO loop; on
-  // mobile/desktop nobody else is mounted to drive it (the rotation never
-  // routes to the GeneratingTransaction page), so the overlay kicks the same
-  // loop that page uses. The in-flight generate promise survives unmount.
+  // mobile/desktop the rotation never routes to the GeneratingTransaction page,
+  // and `OrphanedTransactionRecovery` only runs its one-shot sweep at app start,
+  // so the overlay kicks the same loop that page uses. The in-flight generate
+  // promise survives unmount.
   const driveLoop = useCallback(async () => {
     try {
       await safeGenerateTransactionsLoop(signTransaction, false, zustandProvider);

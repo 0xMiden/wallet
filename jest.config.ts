@@ -29,8 +29,6 @@ export default {
   //   QR/native-share UI, and transaction-list interactions covered by E2E.
   // - `app/providers/DappBrowserProvider.tsx` — Capacitor inappbrowser
   //   provider wired to native plugins, exercised via mobile-e2e.
-  // - `components/TransactionProgressModal.tsx` — react-modal portal
-  //   with framer-motion animation, covered by Playwright.
   // - `components/review/ReviewRow.tsx`, `lib/ui/drawer.tsx`, and the swap
   //   success view — interaction/animation wrappers with no domain logic.
   // - `lib/animation/use-motion.ts` — browser media-query/animation plumbing.
@@ -71,7 +69,6 @@ export default {
     '/src/app/pages/Receive/',
     '/src/app/icons/v2/index\\.tsx$',
     '/src/app/providers/DappBrowserProvider\\.tsx$',
-    '/src/components/TransactionProgressModal\\.tsx$',
     '/src/components/review/ReviewRow\\.tsx$',
     '/src/lib/animation/use-motion\\.ts$',
     '/src/lib/ui/drawer\\.tsx$',
@@ -135,8 +132,15 @@ export default {
   transform: {
     '.+\\.(ts|tsx|js|mjs)$': '@swc/jest'
   },
+  // The wallet-adapter packages publish only a `module` field pointing at an
+  // ESM bundle — no `main`, no `exports` — so CommonJS cannot load them and
+  // every test mocks them instead. `conformance.test.ts` is the one test that
+  // must load the REAL package, so it needs @swc/jest to transpile it; without
+  // this entry that `require` dies on `Unexpected token 'export'`, the suite
+  // catches it and skips, and it would keep skipping through every future
+  // adapter release while reporting the reason as a missing export.
   transformIgnorePatterns: [
-    '/node_modules/(?!(p-queue|p-timeout|eventemitter3|date-fns|dexie|@epoch-protocol|@wagmi|wagmi|@reown)/)'
+    '/node_modules/(?!(p-queue|p-timeout|eventemitter3|date-fns|dexie|@epoch-protocol|@wagmi|wagmi|@reown|@miden-sdk/miden-wallet-adapter-base|@miden-sdk/miden-wallet-adapter-miden)/)'
   ],
   moduleFileExtensions: ['ts', 'tsx', 'js'],
   // Exclude git worktrees: they hold full copies of the repo, so without this a

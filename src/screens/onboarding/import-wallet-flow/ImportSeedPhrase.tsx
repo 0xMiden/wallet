@@ -119,7 +119,7 @@ export const ImportSeedPhraseScreen: React.FC<ImportSeedPhraseScreenProps> = ({
       {isError && <p className="text-red-500 text-xs mt-4">{t('importSeedPhraseError')}</p>}
       {isChecksumError && <p className="text-red-500 text-xs mt-4">{t('justValidPreGeneratedMnemonic')}</p>}
 
-      <div className="mt-auto w-full">
+      <div className="mt-auto w-full shrink-0 pt-6">
         <Button
           id={'submit-button'}
           data-testid="import-seed-submit"

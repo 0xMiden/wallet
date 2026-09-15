@@ -87,6 +87,20 @@ describe('CircleButton', () => {
     expect(screen.getByTestId('icon')).toHaveAttribute('data-fill', '#d1d5db');
   });
 
+  it('shows a keyboard focus ring at full brand opacity', () => {
+    render(<CircleButton icon={IconName.ArrowRight} />);
+
+    // `focus:outline-none` removes the UA indicator and the only replacement was
+    // `focus:bg-gray-100` — a 1.37:1 tint identical to hover. This matters because
+    // the routed Settings pages are no longer focus-trapping dialogs with Escape,
+    // so this button is their only exit. `focus-visible`, so a mouse click still
+    // shows nothing; `primary-600` rather than a translucent `primary-500`, which
+    // composited to 1.92:1 and failed the 3:1 that WCAG 1.4.11 asks of a ring.
+    const button = screen.getByRole('button');
+    expect(button).toHaveClass('focus-visible:ring-2');
+    expect(button).toHaveClass('focus-visible:ring-primary-600');
+  });
+
   it('uses custom color when provided', () => {
     render(<CircleButton icon={IconName.ArrowRight} color="blue" />);
 

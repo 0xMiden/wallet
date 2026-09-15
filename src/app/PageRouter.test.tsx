@@ -44,6 +44,7 @@ const mockLocation: { pathname: string; trigger: string | null } = {
 const mockEnv = { popup: false, fullPage: false };
 const mockMiden = { ready: false, locked: false, hydrated: false };
 const mockSwapEnabled = { value: true };
+const mockSettingsProps = jest.fn();
 
 // `lib/woozie` bundles the full history/location stack; keep the real Router so
 // createMap/resolve/SKIP behave exactly as in production, and stub the four
@@ -88,7 +89,11 @@ jest.mock('app/a11y/RootSuspenseFallback', () => ({
 // Layouts render their children so the wrapped page stays assertable.
 jest.mock('app/layouts/FullScreenPage', () => ({
   __esModule: true,
-  default: ({ children }: { children?: React.ReactNode }) => <div data-testid="full-screen-page">{children}</div>
+  default: ({ children, entrance }: { children?: React.ReactNode; entrance?: string }) => (
+    <div data-testid="full-screen-page" data-entrance={entrance}>
+      {children}
+    </div>
+  )
 }));
 jest.mock('app/layouts/TabLayout', () => ({
   __esModule: true,
@@ -96,6 +101,9 @@ jest.mock('app/layouts/TabLayout', () => ({
 }));
 
 // Leaf screens — identifiable stubs, echoing any route params they receive.
+jest.mock('components/NetworkModeBanner', () => ({
+  NetworkModeBanner: () => <div data-testid="network-mode-banner" />
+}));
 jest.mock('app/pages/Explore', () => ({ __esModule: true, default: () => <div data-testid="explore" /> }));
 jest.mock('app/pages/OpenSidePanel', () => ({
   __esModule: true,
@@ -112,7 +120,10 @@ jest.mock('app/pages/BridgeDeposit', () => ({
 }));
 jest.mock('app/pages/Settings', () => ({
   __esModule: true,
-  default: ({ tabSlug }: { tabSlug?: string }) => <div data-testid="settings" data-tab-slug={tabSlug ?? ''} />
+  default: (props: { tabSlug?: string; rootScrollTop?: React.MutableRefObject<number> }) => {
+    mockSettingsProps(props);
+    return <div data-testid="settings" data-tab-slug={props.tabSlug ?? ''} />;
+  }
 }));
 jest.mock('app/pages/Unlock', () => ({ __esModule: true, default: () => <div data-testid="unlock" /> }));
 jest.mock('app/pages/Welcome', () => ({ __esModule: true, default: () => <div data-testid="welcome" /> }));
@@ -224,6 +235,19 @@ beforeEach(() => {
   resolveRootViewMock.mockImplementation(realResolveRootView);
   window.scrollTo = scrollToMock as unknown as typeof window.scrollTo;
   mockSwapEnabled.value = true;
+});
+
+describe('app/PageRouter — network banner (#875)', () => {
+  it('mounts the network banner above every routed page', () => {
+    renderAt('/', { ready: true, hydrated: true });
+    const banner = screen.getByTestId('network-mode-banner');
+    expect(banner.compareDocumentPosition(screen.getByTestId('explore'))).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+  });
+
+  it('mounts the network banner on pre-ready screens too', () => {
+    renderAt('/reset-required');
+    expect(screen.getByTestId('network-mode-banner')).toBeInTheDocument();
+  });
 });
 
 describe('app/PageRouter — pre-ready / special routes', () => {
@@ -368,6 +392,24 @@ describe('app/PageRouter — ready tab & full-screen routes', () => {
     expect(el).toHaveAttribute('data-program-id', 'prog-1');
   });
 
+  it('keeps every tab route in one page layer, and keeps that layer mounted under a slide page', () => {
+    const { container, rerender } = renderAt('/history', ready);
+    const tabs = container.querySelector('[data-page-layer]');
+    expect(tabs).not.toBeNull();
+
+    // A tab change swaps panes inside the one tabs layer, never the layer itself.
+    mockLocation.pathname = '/settings';
+    rerender(<PageRouter />);
+    expect(container.querySelectorAll('[data-page-layer]')).toHaveLength(1);
+    expect(container.querySelector('[data-page-layer]')).toBe(tabs);
+
+    // A slide page stacks over the tabs layer, which stays mounted beneath it.
+    mockLocation.pathname = '/settings/general';
+    rerender(<PageRouter />);
+    expect(container.querySelectorAll('[data-page-layer]')).toHaveLength(2);
+    expect(tabs?.isConnected).toBe(true);
+  });
+
   it('/history renders AllHistory with an empty (optional) program id', () => {
     renderAt('/history', ready);
     expect(screen.getByTestId('all-history')).toHaveAttribute('data-program-id', '');
@@ -380,18 +422,47 @@ describe('app/PageRouter — ready tab & full-screen routes', () => {
     expect(el).toHaveAttribute('data-tab-slug', 'general');
   });
 
-  it('/settings renders Settings with no tab slug', () => {
+  // The Settings root is a primary tab destination, so it gets the persistent
+  // footer; its sub-pages keep the FullScreenPage drill-in asserted above.
+  it('/settings renders Settings with no tab slug inside TabLayout', () => {
     renderAt('/settings', ready);
-    expect(screen.getByTestId('settings')).toHaveAttribute('data-tab-slug', '');
+    const el = screen.getByTestId('settings');
+    expect(screen.getByTestId('tab-layout')).toContainElement(el);
+    expect(screen.queryByTestId('full-screen-page')).not.toBeInTheDocument();
+    expect(el).toHaveAttribute('data-tab-slug', '');
+  });
+
+  it('/settings/:tabSlug stays outside TabLayout so sub-pages keep their own layout', () => {
+    renderAt('/settings/general', ready);
+    expect(screen.queryByTestId('tab-layout')).not.toBeInTheDocument();
+  });
+
+  it('retains the root scroll reference across Settings layout changes', () => {
+    const { rerender } = renderAt('/settings', ready);
+    const initialRef = mockSettingsProps.mock.lastCall![0].rootScrollTop;
+    expect(initialRef).toEqual({ current: 0 });
+    initialRef.current = 420;
+
+    mockLocation.pathname = '/settings/language';
+    rerender(<PageRouter />);
+    mockLocation.pathname = '/settings';
+    rerender(<PageRouter />);
+
+    // The page's own restoration is exercised in Settings.test.tsx. This pins
+    // the router contract: its root must receive the same saved ref on return.
+    expect(mockSettingsProps.mock.lastCall![0].rootScrollTop).toBe(initialRef);
+    expect(mockSettingsProps.mock.lastCall![0].rootScrollTop.current).toBe(420);
   });
 
   // Registered ahead of the generic `/settings/:tabSlug?` route above so it
   // matches first — otherwise that route's pattern would swallow this path
   // with tabSlug='network-endpoints' and render the wrong screen.
-  it('/settings/network-endpoints renders DeveloperSettings in readOnly mode inside FullScreenPage', () => {
+  it('/settings/network-endpoints renders DeveloperSettings in readOnly mode inside a sliding FullScreenPage', () => {
     renderAt('/settings/network-endpoints', ready);
     const el = screen.getByTestId('developer-settings');
     expect(screen.getByTestId('full-screen-page')).toContainElement(el);
+    // Like every Settings sub-page it slides, so the tabs stay retained beneath it.
+    expect(screen.getByTestId('full-screen-page')).toHaveAttribute('data-entrance', 'slide');
     expect(el).toHaveAttribute('data-read-only', 'true');
     expect(screen.queryByTestId('settings')).not.toBeInTheDocument();
   });

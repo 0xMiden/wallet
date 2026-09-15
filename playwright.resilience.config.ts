@@ -10,18 +10,20 @@ import base from './playwright.e2e.config';
 //
 // retries: 2. Nuance learned the hard way: the resilience ASSERTIONS are
 // deterministic (a fault is armed with failFirstN/explicit-clear, so a genuine
-// non-graceful regression fails on EVERY attempt — a retry can't mask it). But
-// the guardian specs' SETUP — `createGuardianWallet` onboarding — is NOT
-// deterministic: it drives real proofs through the single serial local/CI prover,
-// and when several guardian specs run back-to-back the prover backs up and a
-// later onboarding can exceed the page-object's 120s wait. That is the exact
-// prover-timing flake the base localnet config already carries retries for. So a
-// small retry budget absorbs the onboarding flake without ever masking a real
-// resilience bug (which is deterministic under the armed fault and stays red
-// across retries). The flaky-report step surfaces any retried-then-passed spec.
+// non-graceful regression fails on EVERY attempt — a retry can't mask it). What
+// is NOT deterministic is the SETUP: wallet onboarding drives real proofs through
+// the single serial local/CI prover, and under back-to-back load a later one can
+// exceed the page object's wait — the same prover-timing hiccup pr-e2e-local
+// absorbs with `--retries=1`. So a small retry budget covers setup without ever
+// masking a real resilience bug (deterministic under the armed fault, red across
+// every attempt). The flaky-report step surfaces any retried-then-passed spec.
 export default defineConfig({
   ...base,
   testDir: './playwright/e2e/tests/resilience',
+  // Explicitly clears the base's list rather than inheriting it: that list
+  // ignores both `**/resilience/**` and `**/guardian-*.spec.ts`, so inheriting
+  // it here would select nothing at all. This suite's whole subject is the
+  // resilience directory, guardian specs included.
   testIgnore: undefined,
   retries: 2
 });

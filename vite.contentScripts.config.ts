@@ -97,6 +97,7 @@ export default defineConfig({
     // Issue #260: offscreen client rehost is Chrome-MV3 only; keep the flag
     // defined (default OFF) so shared code that reads it resolves cleanly.
     'process.env.MIDEN_USE_OFFSCREEN_CLIENT': JSON.stringify(process.env.MIDEN_USE_OFFSCREEN_CLIENT ?? 'false'),
+    'process.env.MIDEN_WRITE_DEADLINE_MS': JSON.stringify(process.env.MIDEN_WRITE_DEADLINE_MS ?? '90000'),
     'process.env.MIDEN_NETWORK': JSON.stringify(process.env.MIDEN_NETWORK ?? ''),
     'process.env.MIDEN_NOTE_TRANSPORT_URL': JSON.stringify(process.env.MIDEN_NOTE_TRANSPORT_URL ?? ''),
     'process.env.MIDEN_E2E_TEST': JSON.stringify(process.env.MIDEN_E2E_TEST ?? 'false'),
@@ -110,6 +111,12 @@ export default defineConfig({
       process.env.EPOCH_POSITIONS_URL ?? 'https://positions-testnet-dev.epochprotocol.xyz'
     ),
     'process.env.E2E_EVM_RPC_URL': JSON.stringify(process.env.E2E_EVM_RPC_URL ?? ''),
+    // dApp-bridge debug logging: `dappDebug` (lib/miden/back/dapp.ts) and `dlog`
+    // (lib/dapp-browser/message-handler.ts) both read this. It MUST be defined in
+    // every config that bundles either module — an un-defined `process.env.X` read
+    // is rewritten to `{}.X`, i.e. `undefined`, so the flag would be permanently
+    // off and the documented `DEBUG_DAPP_BRIDGE=1` escape hatch would do nothing.
+    'process.env.DEBUG_DAPP_BRIDGE': JSON.stringify(process.env.DEBUG_DAPP_BRIDGE ?? ''),
     'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'development'),
     'process.env.MODE_ENV': JSON.stringify(process.env.MODE_ENV ?? 'development'),
     'process.browser': 'true',

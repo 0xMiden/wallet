@@ -72,10 +72,10 @@ const commitment = { toHex: () => `0x${RESOLVED_KEY}` };
 
 const getCopyButton = (container: HTMLElement) => container.querySelectorAll('button')[0]!;
 
-const renderWithResolvedKey = async (props?: { onClose?: () => void }) => {
+const renderWithResolvedKey = async () => {
   mockGetAccount.mockResolvedValue({});
   mockResolveCommitments.mockReturnValue([commitment]);
-  const view = render(<AdvancedSettings {...props} />);
+  const view = render(<AdvancedSettings />);
   // Wait for the async effect to resolve and paint the truncated key.
   await screen.findByText('0xabcdef...7890');
   return view;
@@ -176,20 +176,12 @@ describe('AdvancedSettings (page)', () => {
     expect(getCopyButton(container)).toBeDisabled();
   });
 
-  it('closes the sheet and navigates to the faucet-id editor when the faucet row is pressed', async () => {
-    const onClose = jest.fn();
-    await renderWithResolvedKey({ onClose });
+  it('navigates to the faucet-id editor when the faucet row is pressed', async () => {
+    await renderWithResolvedKey();
 
     fireEvent.click(screen.getByText('editMidenFaucetId'));
 
-    expect(onClose).toHaveBeenCalledTimes(1);
-    expect(mockNavigate).toHaveBeenCalledWith('/settings/edit-miden-faucet-id');
-  });
-
-  it('navigates without throwing when no onClose handler is provided', async () => {
-    await renderWithResolvedKey();
-
-    expect(() => fireEvent.click(screen.getByText('editMidenFaucetId'))).not.toThrow();
+    expect(mockNavigate).toHaveBeenCalledTimes(1);
     expect(mockNavigate).toHaveBeenCalledWith('/settings/edit-miden-faucet-id');
   });
 });

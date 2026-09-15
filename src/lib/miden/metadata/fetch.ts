@@ -79,7 +79,13 @@ export async function fetchTokenMetadata(
         symbol,
         name: symbol,
         shouldPreferSymbol: true,
-        thumbnailUri: getAssetUrl('misc/token-logos/default.svg')
+        thumbnailUri: getAssetUrl('misc/token-logos/default.svg'),
+        // Stated explicitly because the faucet reported these decimals. Without
+        // it, a faucet that calls itself "Unknown" with 6 decimals is byte-for-
+        // byte the placeholder — `name` is set from `symbol` right here — and the
+        // shape test that recognises pre-marker cached placeholders would refuse
+        // to quantify a token that told us exactly what it was.
+        scaleIsUnknown: false
       };
     } catch (err) {
       // The account exists on-chain but its interface isn't a standard basic
