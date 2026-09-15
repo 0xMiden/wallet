@@ -132,6 +132,139 @@ interface JourneyContext {
   axis: AccountAxis;
 }
 
+const MINT_BASE_UNITS = 100_000_000_000n;
+
+/** Mint the harness token to two wallets and pin each pending balance exactly. */
+export async function runMintAndBalanceJourney(ctx: JourneyContext): Promise<void> {
+  const { walletA, walletB, midenCli, steps, timeline, axis } = ctx;
+  let addressA = '';
+  let addressB = '';
+  let faucetId = '';
+
+  await steps.step('create_wallets', async () => {
+    const a = await axis.create(walletA);
+    const b = await axis.create(walletB);
+    addressA = a.address;
+    addressB = b.address;
+  });
+
+  await steps.step('init_miden_client', async () => {
+    await midenCli.init();
+  });
+
+  await steps.step('deploy_faucet', async () => {
+    faucetId = await midenCli.createFaucet();
+    expect(faucetId).toBeTruthy();
+    timeline.emit({
+      category: 'blockchain_state',
+      severity: 'info',
+      message: `Faucet deployed: ${faucetId}`,
+      data: { faucetId }
+    });
+  });
+
+  await steps.step('mint_tokens_to_wallet_a', async () => {
+    const { txId, noteId } = await midenCli.mint(faucetId, addressA, Number(MINT_BASE_UNITS), 'public');
+    expect(txId).toBeTruthy();
+    expect(noteId).toBeTruthy();
+    await midenCli.sync();
+  });
+
+  await steps.step(
+    'verify_balance_wallet_a',
+    async () => {
+      await waitForPendingNoteTotal(walletA.page, TOKEN, MINT_BASE_UNITS, {
+        timeoutMs: 120_000,
+        decimals: TOKEN_DECIMALS
+      });
+    },
+    { captureStateFrom: [{ target: walletA.page, label: 'A', extensionId: walletA.extensionId }] }
+  );
+
+  await steps.step('mint_tokens_to_wallet_b', async () => {
+    const { txId, noteId } = await midenCli.mint(faucetId, addressB, Number(MINT_BASE_UNITS), 'public');
+    expect(txId).toBeTruthy();
+    expect(noteId).toBeTruthy();
+    await midenCli.sync();
+  });
+
+  await steps.step(
+    'verify_balance_wallet_b',
+    async () => {
+      await waitForPendingNoteTotal(walletB.page, TOKEN, MINT_BASE_UNITS, {
+        timeoutMs: 120_000,
+        decimals: TOKEN_DECIMALS
+      });
+    },
+    { captureStateFrom: [{ target: walletB.page, label: 'B', extensionId: walletB.extensionId }] }
+  );
+}
+
+/** Exercise the multi-account screens after funding the selected account. */
+export async function runMultiAccountJourney(ctx: JourneyContext): Promise<void> {
+  const { walletA, walletB, midenCli, steps, timeline, axis } = ctx;
+  let addressA = '';
+
+  await steps.step('create_wallets', async () => {
+    const a = await axis.create(walletA);
+    await axis.create(walletB);
+    addressA = a.address;
+  });
+
+  await steps.step('deploy_and_fund', async () => {
+    await midenCli.init();
+    const faucetId = await midenCli.createFaucet();
+    await midenCli.mint(faucetId, addressA, Number(MINT_BASE_UNITS), 'public');
+    await midenCli.sync();
+  });
+
+  await steps.step('sync_wallet_a', async () => {
+    await waitForPendingNoteTotal(walletA.page, TOKEN, MINT_BASE_UNITS, {
+      timeoutMs: 120_000,
+      decimals: TOKEN_DECIMALS
+    });
+  });
+
+  await steps.step(
+    'navigate_to_create_account',
+    async () => {
+      await walletA.navigateTo('/create-account');
+      await walletA.page.waitForTimeout(2_000);
+
+      const pageText = await walletA.page.locator('body').textContent();
+      timeline.emit({
+        category: 'ui_action',
+        severity: 'info',
+        wallet: 'A',
+        message: 'Navigated to create account page',
+        data: { pageTextSnippet: pageText?.slice(0, 200) }
+      });
+    },
+    { screenshotWallets: [{ target: walletA.page, label: 'A' }] }
+  );
+
+  await steps.step(
+    'verify_account_selector',
+    async () => {
+      await walletA.navigateTo('/select-account');
+      await walletA.page.waitForTimeout(2_000);
+
+      const pageText = await walletA.page.locator('body').textContent();
+      timeline.emit({
+        category: 'ui_action',
+        severity: 'info',
+        wallet: 'A',
+        message: 'Navigated to account selector',
+        data: { pageTextSnippet: pageText?.slice(0, 200) }
+      });
+    },
+    {
+      screenshotWallets: [{ target: walletA.page, label: 'A' }],
+      captureStateFrom: [{ target: walletA.page, label: 'A', extensionId: walletA.extensionId }]
+    }
+  );
+}
+
 /**
  * Mint N notes to one account, claim them in one pass, and pin the result.
  *
