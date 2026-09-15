@@ -1,5 +1,6 @@
 import { AllowedPrivateData, PrivateDataPermission } from '@miden-sdk/miden-wallet-adapter-base';
 
+import type { StrictAuthenticationProtectors } from 'lib/auth/strict-action-authentication';
 import { ExchangeRateRecord, FiatCurrencyOption } from 'lib/fiat-currency';
 import { TokenBalanceData } from 'lib/miden/front/balance';
 import { AssetMetadata } from 'lib/miden/metadata';
@@ -161,6 +162,8 @@ export interface WalletActions {
     observedRevision: string | undefined,
     strictlyAuthenticated: boolean
   ) => Promise<SpendingLimitConfiguration | undefined>;
+  getStrictAuthenticationProtectors: () => Promise<StrictAuthenticationProtectors>;
+  verifyStrictActionAuthentication: (credential?: string) => Promise<void>;
 
   // Signing actions
   signData: (publicKey: string, signingInputs: string) => Promise<string>;

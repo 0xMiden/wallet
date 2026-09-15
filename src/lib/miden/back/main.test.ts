@@ -190,6 +190,8 @@ jest.mock('lib/miden/back/actions', () => ({
   updateSettings: jest.fn(),
   listSpendingLimits: jest.fn(),
   saveSpendingLimit: jest.fn(),
+  getStrictAuthenticationProtectors: jest.fn(),
+  verifyStrictActionAuthentication: jest.fn(),
   signTransaction: jest.fn(),
   getAuthSecretKey: jest.fn(),
   getAllDAppSessions: jest.fn(),
@@ -237,6 +239,8 @@ beforeEach(async () => {
   Actions.processDApp.mockResolvedValue({ payload: 'response' });
   Actions.listSpendingLimits.mockResolvedValue([{ revision: 'revision-1' }]);
   Actions.saveSpendingLimit.mockResolvedValue({ revision: 'revision-2' });
+  Actions.getStrictAuthenticationProtectors.mockResolvedValue({ hardware: true, password: false });
+  Actions.verifyStrictActionAuthentication.mockResolvedValue(undefined);
   mockClient.importNoteBytes.mockResolvedValue('note-id-1');
   mockClient.syncState.mockResolvedValue(undefined);
   mockClient.exportNote.mockResolvedValue(new Uint8Array([1, 2, 3]));
@@ -635,6 +639,22 @@ describe('processRequest', () => {
       type: WalletMessageType.SaveSpendingLimitResponse,
       configuration: { revision: 'revision-2' }
     });
+  });
+
+  it('dispatches strict authentication protector and verification requests', async () => {
+    const protectors = await dispatch({ type: WalletMessageType.GetStrictAuthenticationProtectorsRequest });
+    const verified = await dispatch({
+      type: WalletMessageType.VerifyStrictActionAuthenticationRequest,
+      credential: 'secret'
+    });
+
+    expect(Actions.getStrictAuthenticationProtectors).toHaveBeenCalled();
+    expect(Actions.verifyStrictActionAuthentication).toHaveBeenCalledWith('secret');
+    expect(protectors).toEqual({
+      type: WalletMessageType.GetStrictAuthenticationProtectorsResponse,
+      protectors: { hardware: true, password: false }
+    });
+    expect(verified).toEqual({ type: WalletMessageType.VerifyStrictActionAuthenticationResponse });
   });
 
   it('SignTransactionRequest returns hex signature', async () => {

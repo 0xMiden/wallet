@@ -275,6 +275,15 @@ export class Vault {
     return !!passwordVaultKey;
   }
 
+  /** Verify the configured protector without constructing or adopting another vault. */
+  static async verifyProtector(credential?: string): Promise<void> {
+    if (credential !== undefined) {
+      await Vault.unlockWithPassword(credential);
+      return;
+    }
+    await Vault.getHardwareVaultKey();
+  }
+
   /**
    * Try to unlock the vault using hardware-backed security (biometric)
    * This will trigger Touch ID / Face ID / Windows Hello prompt

@@ -41,6 +41,8 @@ jest.mock('lib/miden/back/actions', () => ({
     createdAt: 1,
     updatedAt: 2
   }),
+  getStrictAuthenticationProtectors: jest.fn().mockResolvedValue({ hardware: true, password: false }),
+  verifyStrictActionAuthentication: jest.fn().mockResolvedValue(undefined),
   signTransaction: jest.fn().mockResolvedValue('signature'),
   signWord: jest.fn().mockResolvedValue('word-signature'),
   getAuthSecretKey: jest.fn().mockResolvedValue('secret-key'),
@@ -284,6 +286,22 @@ describe('MobileIntercomAdapter', () => {
         type: WalletMessageType.SaveSpendingLimitResponse,
         configuration: { revision: 'revision-2' }
       });
+    });
+
+    it('handles strict authentication protector and verification requests', async () => {
+      const protectors = await adapter.request({ type: WalletMessageType.GetStrictAuthenticationProtectorsRequest });
+      const verified = await adapter.request({
+        type: WalletMessageType.VerifyStrictActionAuthenticationRequest,
+        credential: '123456'
+      });
+
+      expect(Actions.getStrictAuthenticationProtectors).toHaveBeenCalled();
+      expect(Actions.verifyStrictActionAuthentication).toHaveBeenCalledWith('123456');
+      expect(protectors).toEqual({
+        type: WalletMessageType.GetStrictAuthenticationProtectorsResponse,
+        protectors: { hardware: true, password: false }
+      });
+      expect(verified).toEqual({ type: WalletMessageType.VerifyStrictActionAuthenticationResponse });
     });
 
     it('handles SignTransactionRequest', async () => {

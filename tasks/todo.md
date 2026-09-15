@@ -161,4 +161,5 @@ Gates: e2e-bridge-in.yml (IN, iOS) + e2e-bridge.yml (OUT, Chrome), both post-mer
 - Task 2: rolling 24-hour and 7-day assessment with conservative outgoing history and typed fail-closed errors. 79 focused tests green.
 - Task 3: atomic policy recheck, exact one-time two-minute authorization, replay rejection, and all four outgoing initiation routes. 184 focused tests green; TypeScript and scoped lint green.
 - Task 4: validated account-scoped configuration, strict weakening classification, revision conflicts, coherent save-versus-queue serialization, bigint-safe transport, and extension/mobile/desktop/store routing. 408 focused tests green; TypeScript and scoped lint green.
-- Remaining: strict authentication, UI and flow integrations, E2E, full gates, Review Council, and delivery.
+- Task 5: fail-closed strict authentication with hardware, passcode, and password paths; verify-only vault access; extension/mobile/desktop transport; stale-result suppression; localized retry UI. 520 focused tests green; TypeScript and scoped lint green.
+- Remaining: Security settings UI, flow integrations, E2E, full gates, Review Council, and delivery.

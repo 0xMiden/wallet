@@ -3,6 +3,7 @@ import PQueue from 'p-queue';
 
 import { ACCOUNT_NAME_PATTERN } from 'app/defaults';
 import { MidenDAppErrorType, MidenDAppMessageType, MidenDAppRequest, MidenDAppResponse } from 'lib/adapter/types';
+import type { StrictAuthenticationProtectors } from 'lib/auth/strict-action-authentication';
 import { importAllNotes, retryDeadletteredNotes as drainNoteDeadletter } from 'lib/miden/activity';
 import { getAccountsWriteQueue } from 'lib/miden/back/accounts-write-queue';
 import {
@@ -436,6 +437,15 @@ export async function saveSpendingLimit(
     strictlyAuthenticated
   });
   return saved === undefined ? undefined : serializeSpendingLimit(saved);
+}
+
+export async function getStrictAuthenticationProtectors(): Promise<StrictAuthenticationProtectors> {
+  const [hardware, password] = await Promise.all([Vault.hasHardwareProtector(), Vault.hasPasswordProtector()]);
+  return { hardware, password };
+}
+
+export async function verifyStrictActionAuthentication(credential?: string): Promise<void> {
+  await Vault.verifyProtector(credential);
 }
 
 export function signTransaction(publicKey: string, signingInputs: string) {

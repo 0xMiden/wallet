@@ -35,6 +35,8 @@ jest.mock('lib/miden/back/actions', () => ({
     }
   ]),
   saveSpendingLimit: jest.fn().mockResolvedValue(undefined),
+  getStrictAuthenticationProtectors: jest.fn().mockResolvedValue({ hardware: false, password: true }),
+  verifyStrictActionAuthentication: jest.fn().mockResolvedValue(undefined),
   signTransaction: jest.fn().mockResolvedValue('signature'),
   signWord: jest.fn().mockResolvedValue('word-signature'),
   revealHotKey: jest.fn().mockResolvedValue('hot-private-key'),
@@ -343,6 +345,21 @@ describe('DesktopIntercomAdapter', () => {
       expect(Actions.saveSpendingLimit).toHaveBeenCalledWith(draft, 'revision-1', true);
       expect(listed).toMatchObject({ type: WalletMessageType.GetSpendingLimitsResponse, configurations: [{}] });
       expect(saved).toEqual({ type: WalletMessageType.SaveSpendingLimitResponse });
+    });
+
+    it('handles strict authentication protector and verification requests', async () => {
+      const protectors = await adapter.request({ type: WalletMessageType.GetStrictAuthenticationProtectorsRequest });
+      const verified = await adapter.request({
+        type: WalletMessageType.VerifyStrictActionAuthenticationRequest
+      });
+
+      expect(Actions.getStrictAuthenticationProtectors).toHaveBeenCalled();
+      expect(Actions.verifyStrictActionAuthentication).toHaveBeenCalledWith(undefined);
+      expect(protectors).toEqual({
+        type: WalletMessageType.GetStrictAuthenticationProtectorsResponse,
+        protectors: { hardware: false, password: true }
+      });
+      expect(verified).toEqual({ type: WalletMessageType.VerifyStrictActionAuthenticationResponse });
     });
 
     it('handles SignTransactionRequest', async () => {

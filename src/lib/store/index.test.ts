@@ -301,6 +301,30 @@ describe('useWalletStore', () => {
     });
   });
 
+  describe('strict authentication actions', () => {
+    it('loads protectors and verifies a credential', async () => {
+      mockRequest
+        .mockResolvedValueOnce({
+          type: WalletMessageType.GetStrictAuthenticationProtectorsResponse,
+          protectors: { hardware: false, password: true }
+        })
+        .mockResolvedValueOnce({ type: WalletMessageType.VerifyStrictActionAuthenticationResponse });
+
+      await expect(useWalletStore.getState().getStrictAuthenticationProtectors()).resolves.toEqual({
+        hardware: false,
+        password: true
+      });
+      await expect(useWalletStore.getState().verifyStrictActionAuthentication('secret')).resolves.toBeUndefined();
+      expect(mockRequest).toHaveBeenNthCalledWith(1, {
+        type: WalletMessageType.GetStrictAuthenticationProtectorsRequest
+      });
+      expect(mockRequest).toHaveBeenNthCalledWith(2, {
+        type: WalletMessageType.VerifyStrictActionAuthenticationRequest,
+        credential: 'secret'
+      });
+    });
+  });
+
   describe('setAssetsMetadata', () => {
     it('merges new metadata with existing', () => {
       useWalletStore.setState({

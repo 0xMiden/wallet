@@ -138,6 +138,16 @@ export async function processInProcessRequest(req: WalletRequest, label: string)
       };
     }
 
+    case WalletMessageType.GetStrictAuthenticationProtectorsRequest:
+      return {
+        type: WalletMessageType.GetStrictAuthenticationProtectorsResponse,
+        protectors: await Actions.getStrictAuthenticationProtectors()
+      };
+
+    case WalletMessageType.VerifyStrictActionAuthenticationRequest:
+      await Actions.verifyStrictActionAuthentication(req.credential);
+      return { type: WalletMessageType.VerifyStrictActionAuthenticationResponse };
+
     case WalletMessageType.SignTransactionRequest: {
       const signature = await Actions.signTransaction(req.publicKey, req.signingInputs);
       return {

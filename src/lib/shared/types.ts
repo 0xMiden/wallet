@@ -1,3 +1,4 @@
+import type { StrictAuthenticationProtectors } from 'lib/auth/strict-action-authentication';
 import type { PersistedSpendingLimit, SerializedSpendingLimitDraft } from 'lib/miden/spending-limits/types';
 import { MidenMessageType, MidenRequest, MidenResponse } from 'lib/miden/types';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/constants';
@@ -62,6 +63,10 @@ export enum WalletMessageType {
   GetSpendingLimitsResponse = 'GET_SPENDING_LIMITS_RESPONSE',
   SaveSpendingLimitRequest = 'SAVE_SPENDING_LIMIT_REQUEST',
   SaveSpendingLimitResponse = 'SAVE_SPENDING_LIMIT_RESPONSE',
+  GetStrictAuthenticationProtectorsRequest = 'GET_STRICT_AUTHENTICATION_PROTECTORS_REQUEST',
+  GetStrictAuthenticationProtectorsResponse = 'GET_STRICT_AUTHENTICATION_PROTECTORS_RESPONSE',
+  VerifyStrictActionAuthenticationRequest = 'VERIFY_STRICT_ACTION_AUTHENTICATION_REQUEST',
+  VerifyStrictActionAuthenticationResponse = 'VERIFY_STRICT_ACTION_AUTHENTICATION_RESPONSE',
   SignDataRequest = 'SIGN_DATA_REQUEST',
   SignDataResponse = 'SIGN_DATA_RESPONSE',
   SignTransactionRequest = 'SIGN_TRANSACTION_REQUEST',
@@ -730,6 +735,24 @@ export interface SaveSpendingLimitResponse extends WalletMessageBase {
   configuration?: PersistedSpendingLimit;
 }
 
+export interface GetStrictAuthenticationProtectorsRequest extends WalletMessageBase {
+  type: WalletMessageType.GetStrictAuthenticationProtectorsRequest;
+}
+
+export interface GetStrictAuthenticationProtectorsResponse extends WalletMessageBase {
+  type: WalletMessageType.GetStrictAuthenticationProtectorsResponse;
+  protectors: StrictAuthenticationProtectors;
+}
+
+export interface VerifyStrictActionAuthenticationRequest extends WalletMessageBase {
+  type: WalletMessageType.VerifyStrictActionAuthenticationRequest;
+  credential?: string;
+}
+
+export interface VerifyStrictActionAuthenticationResponse extends WalletMessageBase {
+  type: WalletMessageType.VerifyStrictActionAuthenticationResponse;
+}
+
 export interface SignDataRequest extends WalletMessageBase {
   type: WalletMessageType.SignDataRequest;
   publicKey: string;
@@ -1090,6 +1113,8 @@ export type WalletRequest =
   | UpdateSettingsRequest
   | GetSpendingLimitsRequest
   | SaveSpendingLimitRequest
+  | GetStrictAuthenticationProtectorsRequest
+  | VerifyStrictActionAuthenticationRequest
   | SignDataRequest
   | SignTransactionRequest
   | SignWordRequest
@@ -1157,6 +1182,8 @@ export type WalletResponse =
   | UpdateSettingsResponse
   | GetSpendingLimitsResponse
   | SaveSpendingLimitResponse
+  | GetStrictAuthenticationProtectorsResponse
+  | VerifyStrictActionAuthenticationResponse
   | SignDataResponse
   | SignTransactionResponse
   | SignWordResponse

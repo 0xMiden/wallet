@@ -37,7 +37,9 @@ import {
   importFundraiserAccount,
   importWatchOnlyAccount,
   listSpendingLimits,
-  saveSpendingLimit
+  saveSpendingLimit,
+  getStrictAuthenticationProtectors,
+  verifyStrictActionAuthentication
 } from './actions';
 
 // Create mock vault instance
@@ -111,7 +113,10 @@ jest.mock('lib/miden/back/vault', () => ({
     revealMnemonic: jest.fn(),
     revealPrivateKey: jest.fn(),
     spawnFromMidenClient: jest.fn(),
-    getCurrentAccountPublicKey: jest.fn()
+    getCurrentAccountPublicKey: jest.fn(),
+    hasHardwareProtector: jest.fn(),
+    hasPasswordProtector: jest.fn(),
+    verifyProtector: jest.fn()
   }
 }));
 
@@ -670,6 +675,24 @@ describe('actions', () => {
         )
       ).rejects.toThrow(/policy is unavailable/i);
       await expect(spendingLimits.count()).resolves.toBe(0);
+    });
+  });
+
+  describe('strict authentication', () => {
+    it('reports the configured protectors', async () => {
+      const { Vault: MockVault } = jest.requireMock('lib/miden/back/vault');
+      MockVault.hasHardwareProtector.mockResolvedValueOnce(true);
+      MockVault.hasPasswordProtector.mockResolvedValueOnce(false);
+
+      await expect(getStrictAuthenticationProtectors()).resolves.toEqual({ hardware: true, password: false });
+    });
+
+    it('verifies without adopting another vault', async () => {
+      const { Vault: MockVault } = jest.requireMock('lib/miden/back/vault');
+      MockVault.verifyProtector.mockResolvedValueOnce(undefined);
+
+      await expect(verifyStrictActionAuthentication('secret')).resolves.toBeUndefined();
+      expect(MockVault.verifyProtector).toHaveBeenCalledWith('secret');
     });
   });
 

@@ -335,6 +335,20 @@ export const useWalletStore = create<WalletStore>()(
       return res.configuration === undefined ? undefined : parsePersistedSpendingLimit(res.configuration);
     },
 
+    getStrictAuthenticationProtectors: async () => {
+      const res = await request({ type: WalletMessageType.GetStrictAuthenticationProtectorsRequest });
+      assertResponse(res.type === WalletMessageType.GetStrictAuthenticationProtectorsResponse);
+      return res.protectors;
+    },
+
+    verifyStrictActionAuthentication: async credential => {
+      const res = await request({
+        type: WalletMessageType.VerifyStrictActionAuthenticationRequest,
+        credential
+      });
+      assertResponse(res.type === WalletMessageType.VerifyStrictActionAuthenticationResponse);
+    },
+
     // Signing actions
     signData: async (publicKey, signingInputs) => {
       const res = await request({
