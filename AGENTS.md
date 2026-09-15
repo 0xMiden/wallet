@@ -78,7 +78,7 @@ Back handlers (`src/app/env.ts`): `registerBackHandler` is stack-based. Mobile h
 - New Swift files must be registered in four `project.pbxproj` sections (`PBXBuildFile`, `PBXFileReference`, App `PBXGroup`, `PBXSourcesBuildPhase`) — the App target does not auto-discover them.
 - Custom Capacitor plugins (iOS) use **manual** registration: also call `bridge?.registerPluginInstance(MyPlugin())` in `capacitorDidLoad()` (`AppViewController.swift`), or JS calls return `{"code":"UNIMPLEMENTED"}`.
 - New Capacitor plugins: `yarn add @capacitor/<name> && yarn mobile:sync`, plus a ProGuard `-keep` rule in `android/app/proguard-rules.pro`.
-- Mobile bottom nav is a native overlay (iOS `UIWindow`, Android `NavbarOverlayManager`), wired in `src/app/providers/DappBrowserProvider.tsx`.
+- Persistent bottom navigation is the shared React `BottomNav` rendered by `TabLayout` on extension, mobile, and desktop. Change destinations, active state, haptics, and layout there. On mobile, keep the `public/mobile.html` safe-area padding and the `useHideNavbarWhileOpen`/`src/main.css` visibility contract. `DappBrowserProvider` owns embedded dApp WebViews, not wallet navigation.
 - Desktop (Tauri): clear state with `rm -rf ~/Library/WebKit/{com.miden.wallet,miden-wallet}`; dApp requests round-trip via base64-encoded `https://miden-wallet-request/{payload}` URL interception.
 
 ## Testing Guidelines

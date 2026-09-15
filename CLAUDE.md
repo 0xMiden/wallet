@@ -199,8 +199,8 @@ The App target in `ios/App/App.xcodeproj/project.pbxproj` does NOT auto-discover
 ### Adding a custom Capacitor plugin (iOS)
 Capacitor on this app uses **manual** registration — not the `CAPBridgedPlugin` auto-discovery you'd get on a stock Capacitor app. After creating `MyPlugin.swift` and wiring it into the four pbxproj sections above, you also have to call `bridge?.registerPluginInstance(MyPlugin())` inside `capacitorDidLoad()` in `ios/App/App/AppViewController.swift`. Skip this step and JS calls land as `{"code":"UNIMPLEMENTED"}` even though the class compiled fine.
 
-### Native navbar overlay
-Mobile hides React footer and renders bottom nav as native pill (iOS: `MidenNavbarOverlayWindow` `UIWindow`; Android: two-instance `NavbarOverlayManager` with Activity-scoped + Dialog-scoped `NavbarView`). Plugin methods: `showNativeNavbar`, `setNavbarSecondaryRow`, `setNavbarAction`, `morphNavbar{Out,In}`. Events: `nativeNavbarTap`, `nativeNavbarSecondaryTap`, `nativeNavbarActionTap`. Wiring: `src/app/providers/DappBrowserProvider.tsx`. Android gotchas: don't use `MATCH_PARENT` children in `WRAP_CONTENT` parents (1878px buttons); `Dialog.setLayout` must follow `setContentView`; shadow must be on the view owning the background drawable.
+### Persistent wallet navigation
+Extension, Capacitor, and Tauri render the same React `BottomNav` from `TabLayout`. `TabLayout` owns destinations, active route state, route changes, haptics, and the `[data-tabbar-footer]` shell; `BottomNav` owns button semantics and presentation. Drawers hide it through `useHideNavbarWhileOpen`, which drives the body data attribute consumed by `src/main.css`. On Capacitor, `public/mobile.html` owns body safe-area padding and `src/main.css` paints the footer strip. `DappBrowserProvider` owns embedded dApp WebViews, not wallet navigation; the native navbar API under `packages/dapp-browser` has no wallet frontend caller.
 
 ### Adding Capacitor plugins
 `yarn add @capacitor/<name> && yarn mobile:sync`. Add ProGuard rules to `android/app/proguard-rules.pro`:
@@ -227,7 +227,7 @@ Two Chrome instances + `miden-client` CLI against live network. `E2E_NETWORK` co
 Mirror suite in `playwright/e2e/ios/` against iPhone 17 + iPhone 17 Pro. CDP via `appium-remote-debugger` (simulator-compatible, unlike `remotedebug-ios-webkit-adapter`) over `RWI_LISTEN_SOCKET`. Per-test: terminate/uninstall/install/launch (~5s vs 30s for `simctl erase`). 7/7 specs pass on devnet in ~9 min.
 
 iOS-specific product notes:
-- Native navbar CTAs ("Claim All", "Continue") live in `UIWindow` outside WebView — CDP can't see them. `src/lib/dapp-browser/use-native-navbar-action.ts` exposes `globalThis.__TEST_TRIGGER_NAVBAR_ACTION__()` gated on `MIDEN_E2E_TEST=true && isMobile()`. Only wallet source change the iOS harness needed.
+- Wallet tabs and page CTAs such as "Claim All" and "Continue" render in the React WebView. Drive them through normal CDP/DOM interactions and verify the rendered state; there is no native-navbar action hook.
 - No `SYNC_REQUEST` on mobile (SW-only); `useSyncTrigger` auto-syncs every 3s, so sleep suffices.
 - No mobile reload trick — mobile `claimAllNotes` skips the `location.reload()` Chrome does (mobile has no SW holding the unlock, so reload drops decryption key).
 - Don't read WASM client from CDP — deadlocks against `useSyncTrigger`'s 30–60s lock hold.
