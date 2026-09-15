@@ -72,7 +72,7 @@ export function excludeAutoManagedNotes<T extends AutoConsumeNoteShape>(
  * by recovery, #742) must stay visible and retriable.
  */
 export function useManuallyClaimableNotes(publicAddress: string, enabled: boolean = true) {
-  const { data: claimableNotes, mutate } = useClaimableNotes(publicAddress, enabled);
+  const { data: claimableNotes } = useClaimableNotes(publicAddress, enabled);
   const nativeFaucetId = useMidenFaucetId();
   const verificationBaseFee = useVerificationBaseFee();
   const autoConsumeEnabled = isAutoConsumeEnabled();
@@ -82,5 +82,5 @@ export function useManuallyClaimableNotes(publicAddress: string, enabled: boolea
     [claimableNotes, nativeFaucetId, autoConsumeEnabled, verificationBaseFee]
   );
 
-  return { data, mutate };
+  return { data };
 }

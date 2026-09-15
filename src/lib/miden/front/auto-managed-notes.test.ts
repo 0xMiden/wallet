@@ -9,7 +9,6 @@ let mockFaucetId: string | null = 'faucet-native';
 let mockAutoConsume = true;
 let mockBaseFee: number | null = null;
 let mockClaimableNotes: NoteFixture[] | undefined;
-const mockMutate = jest.fn();
 
 jest.mock('app/hooks/useMidenFaucetId', () => ({
   __esModule: true,
@@ -28,7 +27,7 @@ jest.mock('lib/settings/helpers', () => ({
 jest.mock('./claimable-notes', () => ({
   useClaimableNotes: (publicAddress: string, enabled: boolean) => {
     mockUseClaimableNotes(publicAddress, enabled);
-    return { data: mockClaimableNotes, mutate: mockMutate };
+    return { data: mockClaimableNotes };
   }
 }));
 const mockUseClaimableNotes = jest.fn();
@@ -128,10 +127,9 @@ describe('useManuallyClaimableNotes', () => {
     expect(mockUseClaimableNotes).toHaveBeenCalledWith('pk-1', false);
   });
 
-  it('filters auto-managed notes out of the data and passes mutate through', () => {
+  it('filters auto-managed notes out of the data', () => {
     const { result } = renderHook(() => useManuallyClaimableNotes('pk-1'));
     expect(result.current.data).toEqual([other, nativeManualSwap]);
-    expect(result.current.mutate).toBe(mockMutate);
   });
 
   it('judges the native batch against the chain fee', () => {
