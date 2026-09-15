@@ -822,6 +822,33 @@ if (process.env.MIDEN_E2E_TEST === 'true') {
   (globalThis as any).__TEST_STORE__ = useWalletStore;
   (globalThis as any).__TEST_INTERCOM__ = getIntercom();
   installSwapTestHooks();
+  Reflect.set(globalThis, '__TEST_SIGN_ACCOUNT_WORD__', async (accountPublicKey: string, wordHex: string) => {
+    setTestSyncPaused(true);
+    try {
+      const [{ assertWasmHoldCurrent, getMidenClient, withWasmClientLock }, { resolvePublicKeyCommitments }] =
+        await Promise.all([
+          import('lib/miden/sdk/miden-client'),
+          import('lib/miden/sdk/resolve-public-key-commitments')
+        ]);
+      const publicKeyCommitment = await withWasmClientLock(
+        async hold => {
+          const client = await getMidenClient();
+          assertWasmHoldCurrent(hold, 'e2e-account-sign after the client build');
+          const account = await client.getAccount(accountPublicKey);
+          assertWasmHoldCurrent(hold, 'e2e-account-sign after the account read');
+          if (!account) throw new Error('Account not found');
+
+          const commitments = resolvePublicKeyCommitments(account);
+          if (commitments.length !== 1) throw new Error('Account does not have exactly one signing key');
+          return commitments[0]!.toHex().replace(/^0x/, '');
+        },
+        { label: 'e2e-account-sign' }
+      );
+      return await useWalletStore.getState().signWord(publicKeyCommitment, wordHex);
+    } finally {
+      setTestSyncPaused(false);
+    }
+  });
   // Point the bridge-OUT AggLayer "Slow" route at a runtime-created test faucet
   // (the real bridge faucet is un-mintable). Read front-side by createB2AggNote +
   // the send-flow route gate. Zero production impact (E2E-gated).

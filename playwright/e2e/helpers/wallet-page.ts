@@ -313,6 +313,26 @@ export interface ChromeWalletPageApi extends WalletPage, IdbDumpSource {
   currentGuardianEndpoint(): Promise<string>;
   /** Create another HD account through the E2E-only frontend store hook. */
   createAdditionalAccount(walletType: 'off-chain' | 'guardian'): Promise<{ address: string }>;
+  /** Create a Guardian wallet through every current extension onboarding screen. */
+  createGuardianWalletViaUi(password: string, guardianUrl: string): Promise<string>;
+  /** Import a serialized auth secret through the real account-import page. */
+  importPrivateKey(privateKeyHex: string, name: string): Promise<string>;
+  /** Export a password-encrypted wallet file through the real Settings flow. */
+  exportEncryptedWalletFile(options: {
+    walletPassword: string;
+    filePassword: string;
+    fileName: string;
+  }): Promise<string>;
+  /** Restore a password-encrypted wallet file through the real onboarding flow. */
+  restoreEncryptedWalletFile(options: {
+    backupPath: string;
+    filePassword: string;
+    newWalletPassword: string;
+  }): Promise<void>;
+  /** Resolve exactly one account by its persisted display name. */
+  findAccountByName(name: string): Promise<string>;
+  /** Sign one word with the single-signature key owned by an account. */
+  signAccountWord(accountPublicKey: string, wordHex: string): Promise<string>;
   /** Select an account through the E2E-only frontend store hook. */
   selectAccount(address: string): Promise<void>;
   /**
@@ -1111,6 +1131,147 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
       if (!created?.publicKey) throw new Error('createAdditionalAccount did not add an account');
       return { address: created.publicKey };
     }, walletType);
+  }
+
+  async createGuardianWalletViaUi(password: string, guardianUrl: string): Promise<string> {
+    await suspendScreenCapture(this.page);
+    await this.page.getByTestId('onboarding-welcome').waitFor({ timeout: 60_000 });
+    await this.page.getByTestId('onboarding-get-started').click();
+    await this.page.getByTestId('onboarding-network-notice-acknowledge').click({ timeout: 30_000 });
+
+    await this.page.getByTestId('create-password-input').fill(password);
+    await this.page.getByTestId('create-password-verify-input').fill(password);
+    await this.page.getByTestId('create-password-submit').click();
+
+    const guardian = this.page.locator(`[data-guardian-endpoint="${guardianUrl}"]`);
+    await guardian.waitFor({ timeout: 60_000 });
+    await guardian.click();
+    await this.page.getByTestId('choose-guardian-continue').click();
+    await this.page.getByTestId('onboarding-confirmation-submit').click();
+    await this.page.getByTestId('explore-page').waitFor({ timeout: 120_000 });
+    return this.getAccountAddress();
+  }
+
+  async importPrivateKey(privateKeyHex: string, name: string): Promise<string> {
+    await suspendScreenCapture(this.page);
+    await this.navigateTo('/import-account');
+    await this.page.locator('#importacc-privatekey').fill(privateKeyHex);
+    await this.page.locator('#importacc-name').fill(name);
+    await this.page.getByTestId('import-account-submit').click();
+
+    return this.page
+      .waitForFunction(
+        expectedName => {
+          type Account = { name?: string; publicKey?: string };
+          const store = (window as unknown as { __TEST_STORE__?: { getState(): { currentAccount?: Account | null } } })
+            .__TEST_STORE__;
+          const account = store?.getState?.().currentAccount;
+          return account?.name === expectedName && account.publicKey ? account.publicKey : false;
+        },
+        name,
+        { timeout: 60_000 }
+      )
+      .then(handle => handle.jsonValue() as Promise<string>);
+  }
+
+  async exportEncryptedWalletFile(options: {
+    walletPassword: string;
+    filePassword: string;
+    fileName: string;
+  }): Promise<string> {
+    await suspendScreenCapture(this.page);
+    await this.navigateTo('/settings/encrypted-wallet-file');
+
+    const flow = this.page.getByTestId('encrypted-file-manager-flow');
+    await flow.waitFor({ state: 'attached', timeout: 60_000 });
+    await this.page.locator('input[type="password"]').fill(options.walletPassword);
+    await this.page.getByText('I will not share my Encrypted Wallet File with anyone, including Bread.').click();
+    await this.page.getByRole('button', { name: 'Continue' }).click();
+
+    const inputs = flow.locator('input');
+    await inputs.nth(0).fill(options.fileName);
+    await inputs.nth(1).fill(options.filePassword);
+    await inputs.nth(2).fill(options.filePassword);
+
+    const downloadPromise = this.page.waitForEvent('download', { timeout: 120_000 });
+    await flow.getByRole('button', { name: 'Continue' }).click();
+    const download = await downloadPromise;
+    await flow.getByText('Exported!').waitFor({ timeout: 120_000 });
+
+    if (!this.userDataDir) throw new Error('Encrypted wallet export requires an isolated profile directory');
+    const downloadPath = `${this.userDataDir}/${download.suggestedFilename()}`;
+    await download.saveAs(downloadPath);
+    return downloadPath;
+  }
+
+  async restoreEncryptedWalletFile(options: {
+    backupPath: string;
+    filePassword: string;
+    newWalletPassword: string;
+  }): Promise<void> {
+    await suspendScreenCapture(this.page);
+    await this.page.goto(this.fullpageUrl, { waitUntil: 'domcontentloaded' });
+    await this.page.getByTestId('onboarding-welcome').waitFor({ timeout: 30_000 });
+    await this.page.locator('#import-link').click();
+    await this.page.getByTestId('onboarding-network-notice-acknowledge').click({ timeout: 15_000 });
+    await this.page.getByTestId('import-select-type').waitFor({ timeout: 15_000 });
+    await this.page.getByRole('button', { name: /Import with Encrypted Wallet File/ }).click();
+
+    await this.page.locator('input[type="file"]').setInputFiles(options.backupPath);
+    await this.page.locator('#newwallet-password').fill(options.filePassword);
+    await this.page.getByRole('button', { name: 'Import', exact: true }).click();
+
+    await this.page.getByTestId('create-password-input').waitFor({ timeout: 120_000 });
+    await this.page.getByTestId('create-password-input').fill(options.newWalletPassword);
+    await this.page.getByTestId('create-password-verify-input').fill(options.newWalletPassword);
+    await this.page.getByTestId('create-password-submit').click();
+
+    await this.page.getByTestId('onboarding-confirmation').waitFor({ timeout: 60_000 });
+    await this.page.getByTestId('onboarding-confirmation-submit').click();
+    await this.page.waitForFunction(
+      () => {
+        const store = (
+          window as unknown as {
+            __TEST_STORE__?: { getState(): { accounts?: unknown[]; currentAccount?: { publicKey?: string } | null } };
+          }
+        ).__TEST_STORE__;
+        const state = store?.getState?.();
+        return Boolean(state?.currentAccount?.publicKey) && (state?.accounts?.length ?? 0) > 0;
+      },
+      undefined,
+      { timeout: 120_000 }
+    );
+  }
+
+  async findAccountByName(name: string): Promise<string> {
+    return this.page
+      .waitForFunction(
+        expectedName => {
+          type Account = { name?: string; publicKey?: string };
+          const store = (window as unknown as { __TEST_STORE__?: { getState(): { accounts?: Account[] } } })
+            .__TEST_STORE__;
+          const matches = store?.getState?.().accounts?.filter(account => account.name === expectedName) ?? [];
+          return matches.length === 1 && matches[0]?.publicKey ? matches[0].publicKey : false;
+        },
+        name,
+        { timeout: 30_000 }
+      )
+      .then(handle => handle.jsonValue() as Promise<string>);
+  }
+
+  async signAccountWord(accountPublicKey: string, wordHex: string): Promise<string> {
+    return this.page.evaluate(
+      async ({ account, word }) => {
+        const sign = (
+          globalThis as unknown as {
+            __TEST_SIGN_ACCOUNT_WORD__?: (accountPublicKey: string, wordHex: string) => Promise<string>;
+          }
+        ).__TEST_SIGN_ACCOUNT_WORD__;
+        if (!sign) throw new Error('signAccountWord requires the E2E signing hook');
+        return sign(account, word);
+      },
+      { account: accountPublicKey, word: wordHex }
+    );
   }
 
   async selectAccount(address: string): Promise<void> {
