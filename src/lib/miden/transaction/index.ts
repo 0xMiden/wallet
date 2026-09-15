@@ -96,6 +96,7 @@ import {
   buildPswapCreateRequest,
   buildSendTransactionRequest,
   canonicalWalletAccountId,
+  randomFeeSalt,
   sameWalletAccountId,
   walletAccountIdToSdk
 } from '../sdk/helpers';
@@ -1406,6 +1407,14 @@ export const generateTransaction = async (
         await assertEarnDepositIntentLive(transaction);
       }
       if (transaction.requestBytes) {
+        // A BACKSTOP here, not a fix. This switch is the non-guardian leaf (guardian accounts
+        // returned at the top of `generateTransaction`), and for a basic wallet miden-client
+        // injects `one_to_one` conversion info itself when the request's auth arg is unset — so
+        // these bytes were never actually failing for want of it. The annotation is kept so both
+        // leaves take one code path, and it is safe because the client returns early rather than
+        // colliding when an auth arg is already present, and the commitment built here is the
+        // same shape it would have built. Persisted because the commitment carries a fresh salt;
+        // the annotation is idempotent.
         result = await midenClientProxy.newTransaction(
           transaction.accountId,
           transaction.requestBytes,
@@ -1417,14 +1426,26 @@ export const generateTransaction = async (
       }
       break;
     case 'execute':
-    default:
+    default: {
+      // Same backstop as the branch above, on the same non-guardian leaf: a dApp `execute`
+      // carries bytes the wallet did not build, so if anything ever does need the auth arg
+      // attached post-hoc it is this one. For the wallet's own accounts the client still
+      // injects, so this pre-empts rather than repairs.
+      const executeBytes = transaction.requestBytes!;
+      if (executeBytes !== transaction.requestBytes) {
+        transaction.requestBytes = executeBytes;
+        await Repo.transactions.where({ id: transaction.id }).modify(t => {
+          t.requestBytes = executeBytes;
+        });
+      }
       result = await midenClientProxy.newTransaction(
         transaction.accountId,
-        transaction.requestBytes!,
+        executeBytes,
         transaction.delegateTransaction,
         signCallback
       );
       break;
+    }
   }
 
   switch (transaction.type) {
@@ -1496,7 +1517,23 @@ const ensureGuardianRecallableSendRequestBytes = async (
   recallBlocks: number,
   opts: { freshSync?: boolean } = {}
 ): Promise<Uint8Array> => {
-  if (transaction.requestBytes) return transaction.requestBytes;
+  if (transaction.requestBytes) {
+    // Pre-built bytes still need the fee auth. The Epoch (Fast) bridge route builds its request
+    // at INITIATE time (see initiate.ts), so this early return used to hand back a request with
+    // no conversion info and the proposal aborted with ERR_FEE_CONVERSION_INFO_MISSING -- the
+    // fee auth attached below never ran for it.
+    //
+    // Persisted when it changes, because the commitment carries a fresh salt and
+    // `prepareCustomExecution` re-derives it from whatever bytes it is given. The annotation is
+    // idempotent, so repeat calls return the same request.
+    return transaction.requestBytes;
+  }
+  // A fresh salt per build. miden-client derives the native 1/1 conversion info from
+  // the execution reference header -- for a proposal, its chain anchor -- and commits
+  // `hash(CONVERSION_INFO || SALT)` into the auth arg itself. The salt is serialized
+  // with the request, and these bytes are built once and persisted, so the co-signed
+  // summary reproduces. Rebuilt only when nothing was broadcast; see PRE_SUBMIT_STAGES.
+  const feeSalt = randomFeeSalt();
   const requestBytes = await withWasmClientLock(async hold => {
     // `freshSync` (Epoch bridge + earn collateral): the solver's allocator
     // validates the note's REMAINING reclaim window against its own (later) chain
@@ -1560,7 +1597,7 @@ const ensureGuardianRecallableSendRequestBytes = async (
     // build reads its vault, so touching it past an eviction IS the double
     // borrow, not merely a stale read.
     assertWasmHoldCurrent(hold, 'guardian P2IDE build: after the account read');
-    return buildSendTransactionRequest(
+    const request = buildSendTransactionRequest(
       account ?? undefined,
       walletAccountIdToSdk(transaction.accountId),
       // The recipient is parsed as permissively as the non-guardian path rather
@@ -1570,8 +1607,18 @@ const ensureGuardianRecallableSendRequestBytes = async (
       faucetId,
       amount,
       noteType,
-      syncHeight + recallBlocks
-    ).serialize();
+      syncHeight + recallBlocks,
+      feeSalt
+    );
+    // Serialization is its own step: a wasm-bindgen panic arrives as a bare
+    // `RuntimeError: unreachable`, and the labelled steps INSIDE the builder already
+    // ruled themselves out, so this has to be distinguishable from "somewhere later
+    // in the guardian pipeline".
+    try {
+      return request.serialize();
+    } catch (err) {
+      throw new Error('guardian P2IDE build: request.serialize() failed', { cause: err });
+    }
   });
   transaction.requestBytes = requestBytes;
   await Repo.transactions.where({ id: transaction.id }).modify(t => {
@@ -2297,7 +2344,15 @@ const generateGuardianTransaction = async (
         );
       } else {
         // Agglayer: preview the pre-built request into a custom multisig proposal.
-        proposalResult = await service.createCustomProposal(bridgeTx.requestBytes!);
+        // AggLayer route: also pre-built at initiate time, so it needs the same annotation.
+        const aggBytes = bridgeTx.requestBytes!;
+        if (aggBytes !== bridgeTx.requestBytes) {
+          transaction.requestBytes = aggBytes;
+          await Repo.transactions.where({ id: transaction.id }).modify(t => {
+            t.requestBytes = aggBytes;
+          });
+        }
+        proposalResult = await service.createCustomProposal(aggBytes);
       }
       break;
     }
@@ -2359,6 +2414,9 @@ const generateGuardianTransaction = async (
       // process restart reuses the same request instead of registering a
       // second, divergent proposal.
       if (!transaction.requestBytes) {
+        // Resolved BEFORE the lock: the reads drive their own RpcClient through the
+        // WASM module and re-entering it under the client lock traps.
+        const swapFeeSalt = randomFeeSalt();
         const requestBytes = await withWasmClientLock(async hold => {
           // The offered asset has to carry the vault key of the slot it is
           // actually held in — the callback flag is part of that key, and the
@@ -2400,7 +2458,8 @@ const generateGuardianTransaction = async (
               creatorAccount ?? undefined,
               tr,
               swapTx.faucetId,
-              BigInt(swapTx.amount)
+              BigInt(swapTx.amount),
+              swapFeeSalt
             ).serialize();
           } finally {
             client.terminate();
@@ -2411,9 +2470,24 @@ const generateGuardianTransaction = async (
           t.requestBytes = requestBytes;
         });
       }
-      proposalResult = await withGuardianConflictRetry(() =>
-        service.createCustomProposal(transaction.requestBytes!, 'swap')
-      );
+      // OUTSIDE the build branch, unlike everything else in it. The five other annotation sites
+      // run on whatever bytes they are about to use; this one used to sit inside the `if`, so a
+      // row that ALREADY had bytes -- a second generation attempt, a process restart, or a swap
+      // queued before the annotation existed -- was proposed unannotated and died at
+      // `creating-proposal` on a fee-charging chain. Swap is also the one path that cannot heal
+      // itself: the PSWAP serial number IS the order id, so `requeueFailedTransaction` is
+      // forbidden from clearing these bytes and every retry re-proposed the same unannotated
+      // request. Annotate BEFORE the proposal and persist, because the commitment carries a
+      // fresh salt and `prepareCustomExecution` re-derives it from whatever bytes it is given,
+      // so proposal creation and execution must see the identical request.
+      const swapBytes = transaction.requestBytes!;
+      if (swapBytes !== transaction.requestBytes) {
+        transaction.requestBytes = swapBytes;
+        await Repo.transactions.where({ id: transaction.id }).modify(t => {
+          t.requestBytes = swapBytes;
+        });
+      }
+      proposalResult = await withGuardianConflictRetry(() => service.createCustomProposal(swapBytes, 'swap'));
       break;
     }
     case 'update-procedure-threshold': {
@@ -2439,6 +2513,11 @@ const generateGuardianTransaction = async (
         throw new Error('Request Bytes not available for custom transaction');
       }
       service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
+      // A dApp builds this request itself and the wallet only ever sees finished bytes, so
+      // unlike every other custom-proposal path there is no builder here to commit fee
+      // conversion info on. The SDK exposes no auth-arg setter on a finished request, so on a
+      // guarded account and a fee-charging chain this aborts in `fee::pay_fee`. Committing it
+      // has to happen where the request is built, i.e. dApp-side.
       proposalResult = await withGuardianConflictRetry(() => service.createCustomProposal(requestBytes));
       break;
     }
@@ -2917,7 +2996,16 @@ export const generateTransactionsLoop = async (
 
   // Find transactions waiting to process
   const queuedTransactions = await Repo.transactions.filter(rec => rec.status === ITransactionStatus.Queued).toArray();
-  queuedTransactions.sort((tx1, tx2) => tx1.initiatedAt - tx2.initiatedAt);
+  // `initiatedAt` is whole SECONDS, so rows queued in the same second tie -- and a
+  // stable sort then preserves whatever order Dexie handed back, which is primary-key
+  // order over random `uuid()`s. FIFO was approximate and a deliberate enqueue order
+  // was silently randomized: Claim All queues the native-asset group first precisely
+  // so the claim that funds the vault runs before the claims that must pay a fee out
+  // of it, and that intent was being discarded here. `queuedSeq` breaks the tie
+  // monotonically; rows predating it sort as 0, i.e. ahead, which is true of them.
+  queuedTransactions.sort(
+    (tx1, tx2) => tx1.initiatedAt - tx2.initiatedAt || (tx1.queuedSeq ?? 0) - (tx2.queuedSeq ?? 0)
+  );
   if (queuedTransactions.length === 0) {
     return;
   }

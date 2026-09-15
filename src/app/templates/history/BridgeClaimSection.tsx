@@ -2,6 +2,7 @@ import React, { FC, useCallback, useEffect, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
+import { useNetworkFeeEstimate } from 'app/hooks/useNetworkFeeEstimate';
 import { AgglayerDeposit, claimAgglayerDeposit, findClaimableMidenToEvmDeposit, useBridgeTracker } from 'lib/agglayer';
 import { getCurrentMidenBlock, pollEpochIntentFill } from 'lib/epoch';
 import {
@@ -69,6 +70,7 @@ interface BridgeClaimSectionProps {
  */
 export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restoredFromBackup, onUpdated }) => {
   const { t } = useTranslation();
+  const maxNetworkFee = useNetworkFeeEstimate();
   const { provider: evmProvider, address: evmAddress, isConnected, connect } = useEvmWalletProvider();
   const account = useAccount();
 
@@ -296,9 +298,18 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
             </p>
           )}
           {reclaimReached ? (
-            <Button variant="default" size="lg" onClick={handleReclaim} disabled={reclaiming}>
-              {reclaiming ? t('reclaiming') : t('reclaimFunds')}
-            </Button>
+            <>
+              {maxNetworkFee && (
+                // Reclaiming consumes the recallable note -- a real transaction with a
+                // real fee, submitted on this tap with no review step in between.
+                <div className="text-center text-xs text-heading-gray">
+                  {t('networkFeeMax')} · {maxNetworkFee}
+                </div>
+              )}
+              <Button variant="default" size="lg" onClick={handleReclaim} disabled={reclaiming}>
+                {reclaiming ? t('reclaiming') : t('reclaimFunds')}
+              </Button>
+            </>
           ) : (
             <p className="text-xs text-heading-gray/60">
               {t('reclaimableAfterBlock')} {reclaimHeight}

@@ -558,6 +558,9 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
 
     await generateTransaction(buildTx('on-send-unauthorized', row) as never, signCallback, false, provider as never);
 
+    // Read the clock AFTER the requeue as well: the stamp is taken from Date.now() inside
+    // the call, and a run that straddles a second boundary makes `before + 54` one short.
+    const after = Math.floor(Date.now() / 1000);
     const stored = txStore.find(r => r.id === 'on-send-unauthorized') as Record<string, unknown>;
     // The leaf was actually reached — without this the test would pass for any
     // earlier crash, e.g. a renamed mock silently short-circuiting the pipeline.
@@ -574,7 +577,7 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
     // pinned below rather than left to the draw, which only caught a zeroed base
     // cooldown about three runs in four.
     expect(Number(stored.nextEligibleAt)).toBeGreaterThanOrEqual(before + 15);
-    expect(Number(stored.nextEligibleAt)).toBeLessThanOrEqual(before + 54);
+    expect(Number(stored.nextEligibleAt)).toBeLessThanOrEqual(after + 54);
   });
 
   it('the stamped cooldown lands inside the jittered 15-54s window', async () => {
@@ -605,10 +608,13 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
       provider as never
     );
 
+    // Read the clock AFTER the requeue as well: the stamp is taken from Date.now() inside
+    // the call, and a run that straddles a second boundary makes `before + 54` one short.
+    const after = Math.floor(Date.now() / 1000);
     const stored = txStore.find(r => r.id === 'on-send-unauthorized-jitter') as Record<string, unknown>;
     expect(stored.status).toBe(ITransactionStatus.Queued);
     expect(Number(stored.nextEligibleAt)).toBeGreaterThanOrEqual(before + 15);
-    expect(Number(stored.nextEligibleAt)).toBeLessThanOrEqual(before + 54);
+    expect(Number(stored.nextEligibleAt)).toBeLessThanOrEqual(after + 54);
   });
 
   it('an unauthorized consume requeues too — the same race hit claims in the field', async () => {
@@ -628,6 +634,9 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
 
     await generateTransaction(buildTx('on-consume-unauthorized', row) as never, signCallback, false, provider as never);
 
+    // Read the clock AFTER the requeue as well: the stamp is taken from Date.now() inside
+    // the call, and a run that straddles a second boundary makes `before + 54` one short.
+    const after = Math.floor(Date.now() / 1000);
     const stored = txStore.find(r => r.id === 'on-consume-unauthorized') as Record<string, unknown>;
     expect(mockDispatchGuardianPipeline).toHaveBeenCalledTimes(1);
     expect(stored.status).toBe(ITransactionStatus.Queued);
@@ -635,7 +644,7 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
     // green at a cooldown of 0 — the row re-picked every poll, hammering the
     // guardian this arm is trying to give room to recover.
     expect(Number(stored.nextEligibleAt)).toBeGreaterThanOrEqual(before + 15);
-    expect(Number(stored.nextEligibleAt)).toBeLessThanOrEqual(before + 54);
+    expect(Number(stored.nextEligibleAt)).toBeLessThanOrEqual(after + 54);
   });
 
   it('an unauthorized replace-hot-key is NOT requeued — a structural op must not re-mint', async () => {

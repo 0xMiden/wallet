@@ -175,7 +175,7 @@ jobs:
 
   android-dapp-browser:
     name: dApp Browser (Android)
-    runs-on: ubuntu-latest
+    runs-on: warp-ubuntu-latest-x64-8x
     timeout-minutes: 60
     env:
       E2E_NETWORK: testnet
@@ -200,7 +200,10 @@ jobs:
           distribution: temurin
           java-version: '21'
 
+      # The action's default packages include the retired 'tools' package, which sdkmanager no longer finds.
       - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
 
       - name: Install SDK packages
         run: |

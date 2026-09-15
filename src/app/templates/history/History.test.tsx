@@ -343,6 +343,47 @@ describe('History', () => {
     expect(pending.newGuardianEndpoint).toBe('https://legacy-new.example');
   });
 
+  it('projects each rotation row verdict for the Activity title and chip', async () => {
+    const rotation = { accountId: '0xme', displayIcon: 'DEFAULT', type: 'switch-guardian' };
+    mockGetCompletedTransactions.mockResolvedValueOnce([
+      {
+        ...rotation,
+        id: 'unconfirmed',
+        status: STATUS.Completed,
+        displayMessage: 'Guardian switch submitted',
+        completedAt: 300,
+        extraInputs: { newGuardianEndpoint: 'https://new.example', commitUnconfirmed: true }
+      },
+      {
+        ...rotation,
+        id: 'confirmed',
+        status: STATUS.Completed,
+        displayMessage: 'Guardian switched',
+        completedAt: 200,
+        extraInputs: { newGuardianEndpoint: 'https://new.example' }
+      }
+    ]);
+    mockGetUncompletedTransactions.mockResolvedValueOnce([
+      {
+        ...rotation,
+        id: 'queued',
+        status: STATUS.Queued,
+        displayMessage: 'Switching guardian',
+        initiatedAt: 400,
+        extraInputs: { newGuardianEndpoint: 'https://new.example' }
+      }
+    ]);
+
+    await renderHistory();
+    await waitFor(() => expect(mockHistoryViewProps.entries).toHaveLength(3));
+
+    const verdictOf = (key: string) =>
+      mockHistoryViewProps.entries.find((entry: { key: string }) => entry.key === key).guardianSwitchVerdict;
+    expect(verdictOf('completed-unconfirmed')).toBe('submitted-unconfirmed');
+    expect(verdictOf('completed-confirmed')).toBe('confirmed');
+    expect(verdictOf('pending-queued')).toBe('in-flight');
+  });
+
   it('maps completed + pending transactions through every fetch branch and sorts completed by timestamp desc', async () => {
     await renderHistory();
 

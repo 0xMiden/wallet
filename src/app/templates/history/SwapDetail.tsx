@@ -447,6 +447,14 @@ export const SwapDetail: FC<SwapDetailProps> = ({
                 <ExplorerTxValue txId={entry.externalTxId} />
               </DetailRow>
             )}
+            {/* The generic detail card renders this for every other type; swap took a
+                specialised branch and so was the one history view that dropped it.
+                `entry.fee` is already resolved by the caller. */}
+            {entry.fee && (
+              <DetailRow label={t('networkFee')}>
+                <span className="text-sm font-medium text-heading-gray">{entry.fee}</span>
+              </DetailRow>
+            )}
             <DetailRow label={t('from')} isLast={consumeTransactions.length === 0}>
               {fromAccount}
             </DetailRow>

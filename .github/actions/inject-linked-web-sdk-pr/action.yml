@@ -17,6 +17,13 @@ description: >
   by scripts/dev-with-web-sdk-pr.sh, which writes the same patch under a
   marker block you can clear with --clear.
 
+  Nested markers in the LINKED PR's own body are honored too, so a chain
+  like wallet → web-sdk → protocol resolves transitively:
+    Client PR: #N        pins the cloned SDK's miden-client crates
+    Protocol PR: #N      emits a [patch.crates-io] for the protocol
+                         crates, which reach the SDK through miden-client
+  Both may be present on one web-sdk PR; they compose.
+
   Mirrors web-sdk's `inject-linked-client-pr` action; the differences are
   (1) the marker name, (2) the dep injection target (package.json vs.
   Cargo.toml), and (3) the build step (the SDK packages must be built
@@ -40,6 +47,16 @@ inputs:
     required: false
     default: "false"
 
+  build-node-module:
+    description: >-
+      Build the SDK's napi module and point MIDEN_MODULE_PATH at it. The published
+      package ships that binary through platform optionalDependencies
+      (@miden-sdk/node-linux-x64-gnu and friends); a `file:` source build has none, so
+      any spec that imports the SDK under node dies with "Miden napi module not found".
+      Off by default because it is a full native release build — opt in from the one
+      job that runs those specs.
+    required: false
+    default: 'false'
 outputs:
   patched:
     description: "true if a patch was injected, false otherwise."
@@ -65,6 +82,15 @@ runs:
         PR_NUMBER: ${{ github.event.pull_request.number }}
       run: |
         set -euo pipefail
+
+        # Breadcrumb for .github/actions/run-local-node, which pins the local node +
+        # remote prover to the SAME protocol rev this action pins the SDK to (handed
+        # over through $GITHUB_ENV further down). run-local-node has to tell "no linked
+        # Protocol PR" apart from "this action has not run yet in this job" — an absent
+        # env var means both, and the second one silently produces a stock node, which
+        # is exactly the version-skew bug the handover exists to prevent. Written before
+        # any early exit, because it records that this action RAN, not what it decided.
+        echo "MIDEN_LINKED_SDK_INJECTION_RAN=1" >> "$GITHUB_ENV"
 
         # Skip on push / schedule / workflow_dispatch.
         if [ "$EVENT_NAME" != "pull_request" ] && [ "$EVENT_NAME" != "pull_request_target" ]; then
@@ -132,7 +158,31 @@ runs:
         echo "state=${state}" >> "$GITHUB_OUTPUT"
         echo "merged=${merged}" >> "$GITHUB_OUTPUT"
 
-    - if: steps.parse.outputs.patched == 'true'
+    # WHY THREE STEPS AND NOT ONE.
+    #
+    # GitHub caps a single `run:` block at 21000 characters of RAW INDENTED
+    # source — it counts the YAML text, not the dedented script a YAML parser
+    # hands back — and it enforces the cap at TEMPLATE PARSE TIME. One
+    # oversized block therefore fails the entire action with
+    #   "The template is not valid ... Exceeded max expression length 21000"
+    # before a single line runs, taking every job that uses the action red at
+    # once and pointing at a line number instead of at a size problem. This
+    # body grew past the cap and did exactly that to 14 jobs on wallet #806.
+    #
+    # The split follows the seam the work already had — clone, then resolve the
+    # linked PR's own nested markers, then build — so the ordering constraint
+    # is unchanged: the nested markers must be applied AFTER the clone (they
+    # rewrite $SDK_DIR/Cargo.toml) and BEFORE the build (they decide what it
+    # compiles against). Composite steps run in file order, so file order is
+    # the whole mechanism holding that invariant now; do not reorder them.
+    #
+    # Steps share no shell variables, so SDK_DIR is re-derived in each one. It
+    # is a pure function of RUNNER_TEMP, so the three spellings cannot drift.
+    # The env: block is repeated verbatim rather than trimmed per step: these
+    # lines used to run with all of it in scope, and keeping it identical is
+    # what makes "same behaviour, fewer characters per block" checkable by eye.
+    - name: Clone the linked web-sdk PR head
+      if: steps.parse.outputs.patched == 'true'
       shell: bash
       env:
         REPO: ${{ steps.parse.outputs.repo }}
@@ -164,9 +214,238 @@ runs:
         mkdir -p "$SDK_DIR"
         git -C "$SDK_DIR" init -q
         git -C "$SDK_DIR" remote add origin "https://github.com/${HEAD_OWNER}/${HEAD_REPO}.git"
+        # Authenticate the fetch. These repos are public, but anonymous fetches from the runner
+        # started failing with `could not read Username for 'https://github.com'`, which git
+        # reports when the server declines the request rather than only for private repos.
+        git -C "$SDK_DIR" config http.extraheader \
+          "AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')"
         git -C "$SDK_DIR" fetch --depth 1 origin "${HEAD_SHA}"
         git -C "$SDK_DIR" checkout --detach FETCH_HEAD
         echo "::endgroup::"
+
+    - name: Apply the linked web-sdk PR's own nested Client / Protocol markers
+      if: steps.parse.outputs.patched == 'true'
+      shell: bash
+      env:
+        REPO: ${{ steps.parse.outputs.repo }}
+        NUM: ${{ steps.parse.outputs.num }}
+        HEAD_OWNER: ${{ steps.parse.outputs.head_owner }}
+        HEAD_REPO: ${{ steps.parse.outputs.head_repo }}
+        HEAD_REF: ${{ steps.parse.outputs.head_ref }}
+        HEAD_SHA: ${{ steps.parse.outputs.head_sha }}
+        MERGED: ${{ steps.parse.outputs.merged }}
+        GH_TOKEN: ${{ inputs.github-token }}
+      run: |
+        set -euo pipefail
+
+        # Same runner-local path the clone step used. Steps don't share shell
+        # variables and this one is a pure function of RUNNER_TEMP, so it is
+        # re-derived rather than handed over through $GITHUB_ENV.
+        SDK_DIR="${RUNNER_TEMP:-/tmp}/web-sdk-pr"
+
+        # COMPOSE WITH WEB-SDK'S OWN LINKED-DEPENDENCY MARKERS.
+        #
+        # The linked web-sdk PR may itself depend on an unreleased miden-client,
+        # declared by a `Client PR:` marker in ITS description — that is how
+        # web-sdk's own CI builds it (.github/actions/inject-linked-client-pr
+        # over there). Cloning the branch does not carry that marker's effect,
+        # so without this the SDK builds against its published miden-client pin
+        # and fails on whatever the client PR adds. The failure surfaces here as
+        # a compile error deep inside the SDK, which reads like the SDK is
+        # broken rather than like a dependency that was never applied.
+        #
+        # So: read the linked PR's body, resolve its client PR, and pin the SDK's
+        # miden-client crates to that head sha before building. Same rewrite
+        # web-sdk performs on itself, by SHA for the same reason (a merged PR's
+        # branch is usually deleted; the commit object is not).
+        #
+        # The body is read once here; both nested markers below parse it, and a
+        # web-sdk PR may carry either, both, or neither.
+        sdk_body=$(gh api "repos/${REPO}/pulls/${NUM}" --jq '.body // ""' 2>/dev/null || echo "")
+
+        echo "::group::Resolve the linked web-sdk PR's own Client PR marker"
+        client_marker=$(printf '%s' "$sdk_body" \
+          | grep -ioE '^[[:space:]]*Client PR:[[:space:]]*([0-9a-zA-Z._-]+/[0-9a-zA-Z._-]+)?#[0-9]+' \
+          | head -1 || true)
+        if [ -z "$client_marker" ]; then
+          echo "No Client PR marker on ${REPO}#${NUM}; the SDK builds against its published miden-client pin."
+        else
+          client_repo=$(printf '%s' "$client_marker" | grep -oE '[0-9a-zA-Z._-]+/[0-9a-zA-Z._-]+' | head -1 || echo "0xMiden/rust-sdk")
+          client_num=$(printf '%s' "$client_marker" | grep -oE '[0-9]+$')
+          # `if !` rather than `|| { echo ...; exit 1; }`: inside a command
+          # substitution the echo is captured into the variable instead of
+          # printed, so the step would die with a bare exit 1 and no annotation
+          # (gh's own stderr is already suppressed above).
+          if ! client_meta=$(gh api "repos/${client_repo}/pulls/${client_num}" \
+            --jq '"\(.head.repo.owner.login)\t\(.head.repo.name)\t\(.head.ref)\t\(.head.sha)"' 2>/dev/null); then
+            echo "::error title=inject-linked-web-sdk-pr::${REPO}#${NUM} declares 'Client PR: ${client_repo}#${client_num}' but it could not be read."
+            exit 1
+          fi
+          IFS=$'\t' read -r c_owner c_repo c_ref c_sha <<< "$client_meta"
+          echo "Pinning the SDK's miden-client to ${c_owner}/${c_repo}@${c_sha:0:8} (from ${client_repo}#${client_num})"
+
+          python3 - "$SDK_DIR/Cargo.toml" "https://github.com/${c_owner}/${c_repo}.git" "${c_sha}" "${client_repo}#${client_num}" <<'PYEOF'
+        import re, sys
+        path, url, sha, origin = sys.argv[1:5]
+        dep_re = re.compile(r'^(?P<name>miden-client(?:-sqlite-store)?)\s*=\s*(?P<rhs>.+)$')
+        with open(path) as f:
+            lines = f.readlines()
+        captured, patched = [], []
+        for ln in lines:
+            m = dep_re.match(ln)
+            if not m:
+                continue
+            captured.append(ln.rstrip('\n'))
+            df = ', default-features = false' if 'default-features = false' in m.group('rhs') else ''
+            patched.append(f'{m.group("name")} = {{ git = "{url}", rev = "{sha}"{df} }}')
+        if not captured:
+            sys.exit(0)
+        out, inserted = [], False
+        for ln in lines:
+            if dep_re.match(ln):
+                if not inserted:
+                    out.append("# >>>>>>> nested linked-client-pr (wallet CI) >>>>>>>\n")
+                    out.append(f"# The linked web-sdk PR declares \"Client PR: {origin}\"; pinned to {sha}.\n")
+                    out.append("# Runner-local override; never committed.\n")
+                    for c in captured:
+                        out.append("#  " + c + "\n")
+                    out.append("# <<<<<<< nested linked-client-pr <<<<<<<\n")
+                    out.extend(x + "\n" for x in patched)
+                    inserted = True
+                continue
+            out.append(ln)
+        with open(path, 'w') as f:
+            f.writelines(out)
+        print(f"Pinned {len(patched)} miden-client dep(s) to {sha[:8]}")
+        PYEOF
+
+          ( cd "$SDK_DIR" && cargo update -p miden-client >/dev/null 2>&1 || true )
+        fi
+        echo "::endgroup::"
+
+        # And one level further out, for the protocol crates.
+        #
+        # miden-protocol / miden-standards / miden-tx / miden-tx-batch /
+        # miden-block-prover are NOT direct deps of the SDK — they arrive
+        # transitively through miden-client. So a `Protocol PR:` marker cannot be
+        # applied as a dep-line rewrite; it emits a workspace-wide
+        # [patch.crates-io] block instead. That is also what makes it correct:
+        # [patch.crates-io] applies to the whole graph, so it redirects the
+        # protocol crates the git-pinned miden-client above compiles against too,
+        # and client, SDK and wallet all build against one miden-standards.
+        #
+        # Skipping it is how a MASM change in miden-standards lands in the client
+        # but not in the SDK: the SDK's compiled account components keep the
+        # published procedure roots, so guarded accounts hash to a root the client
+        # doesn't recognize and the pinned-version assert throws at runtime —
+        # nothing fails at compile time to point at the missing dependency.
+        #
+        # Pinned by rev for the same reason as the client block above.
+        echo "::group::Resolve the linked web-sdk PR's own Protocol PR marker"
+        protocol_marker=$(printf '%s' "$sdk_body" \
+          | grep -ioE '^[[:space:]]*Protocol PR:[[:space:]]*([0-9a-zA-Z._-]+/[0-9a-zA-Z._-]+)?#[0-9]+' \
+          | head -1 || true)
+        if [ -z "$protocol_marker" ]; then
+          echo "No Protocol PR marker on ${REPO}#${NUM}; the SDK builds against published protocol crates."
+        else
+          protocol_repo=$(printf '%s' "$protocol_marker" | grep -oE '[0-9a-zA-Z._-]+/[0-9a-zA-Z._-]+' | head -1 || echo "0xMiden/protocol")
+          protocol_num=$(printf '%s' "$protocol_marker" | grep -oE '[0-9]+$')
+          if ! protocol_meta=$(gh api "repos/${protocol_repo}/pulls/${protocol_num}" \
+            --jq '"\(.head.repo.owner.login)\t\(.head.repo.name)\t\(.head.ref)\t\(.head.sha)"' 2>/dev/null); then
+            echo "::error title=inject-linked-web-sdk-pr::${REPO}#${NUM} declares 'Protocol PR: ${protocol_repo}#${protocol_num}' but it could not be read."
+            exit 1
+          fi
+          IFS=$'\t' read -r p_owner p_repo p_ref p_sha <<< "$protocol_meta"
+          echo "Pinning the SDK's protocol crates to ${p_owner}/${p_repo}@${p_sha:0:8} (from ${protocol_repo}#${protocol_num})"
+
+          # Hand the SAME rev to run-local-node so the node + remote prover are built
+          # from it too. ONE source of truth on purpose: a second pin in versions.env
+          # would drift, and the skew is invisible until a transaction fails. A
+          # guarded-multisig account built in the browser links miden::standards::fee
+          # DYNAMICALLY, so the fee MASM is not inlined into the account code and the
+          # HOST supplies it at execution time — a host on a different protocol rev
+          # rejects the account's own procedure root ("procedure with root digest ...
+          # could not be found") on both the remote prover and the node.
+          {
+            echo "MIDEN_LINKED_PROTOCOL_URL=https://github.com/${p_owner}/${p_repo}.git"
+            echo "MIDEN_LINKED_PROTOCOL_REV=${p_sha}"
+            echo "MIDEN_LINKED_PROTOCOL_ORIGIN=${protocol_repo}#${protocol_num}"
+          } >> "$GITHUB_ENV"
+
+          python3 - "$SDK_DIR/Cargo.toml" "https://github.com/${p_owner}/${p_repo}.git" "${p_sha}" "${protocol_repo}#${protocol_num}" <<'PYEOF'
+        import re, sys
+        path, url, sha, origin = sys.argv[1:5]
+        # All five live in the one protocol repo, so one rev pins them coherently.
+        # miden-agglayer is in the protocol repo too and is a normal dep of miden-client.
+        # Omitting it leaves it resolving miden-standards from the registry, so the graph
+        # carries BOTH the patched rc.8 and a published rc.6 and the auth_tx procedure
+        # roots still disagree — observed exactly that on wallet #806.
+        crates = ['miden-protocol', 'miden-standards', 'miden-tx', 'miden-tx-batch',
+                  'miden-block-prover', 'miden-agglayer']
+        w = max(len(c) for c in crates)
+        patched = [f'{c:<{w}} = {{ git = "{url}", rev = "{sha}" }}' for c in crates]
+        head = [
+            '# >>>>>>> nested linked-protocol-pr (wallet CI) >>>>>>>\n',
+            f'# The linked web-sdk PR declares "Protocol PR: {origin}"; pinned to {sha}.\n',
+            '# Workspace-wide rather than a dep-line rewrite: the protocol crates reach\n',
+            '# the SDK through miden-client, so this redirects miden-client too.\n',
+            '# Runner-local override; never committed.\n',
+        ]
+        tail = '# <<<<<<< nested linked-protocol-pr <<<<<<<\n'
+        with open(path) as f:
+            lines = f.readlines()
+        table_re = re.compile(r'''^\s*\[patch\.(?:crates-io|"crates-io"|'crates-io')\]\s*$''')
+        key_re = re.compile(r'^\s*(?P<name>[A-Za-z0-9_-]+)\s*=')
+        header_re = re.compile(r'^\s*\[')
+        start = next((i for i, ln in enumerate(lines) if table_re.match(ln)), None)
+        if start is None:
+            # No [patch.crates-io] yet: append one. A second header would be a
+            # TOML duplicate-table error, hence the reuse path below.
+            if lines and not lines[-1].endswith('\n'):
+                lines.append('\n')
+            out = lines + ['\n'] + head + ['[patch.crates-io]\n'] + [p + '\n' for p in patched] + [tail]
+        else:
+            end = next((i for i in range(start + 1, len(lines)) if header_re.match(lines[i])), len(lines))
+            kept, superseded = [], []
+            for ln in lines[start + 1:end]:
+                m = key_re.match(ln)
+                (superseded if m and m.group('name') in crates else kept).append(ln)
+            out = (lines[:start + 1] + kept + head
+                   + ['#  ' + s.rstrip('\n') + '\n' for s in superseded]
+                   + [p + '\n' for p in patched] + [tail] + lines[end:])
+        with open(path, 'w') as f:
+            f.writelines(out)
+        print(f'Patched {len(patched)} protocol crate(s) to {sha[:8]}')
+        PYEOF
+
+          # Pre-resolve the patched entries into Cargo.lock. Best-effort: cargo
+          # re-resolves a changed [patch] table on the next build regardless, and
+          # a crate absent from this graph is not an error.
+          ( cd "$SDK_DIR" && for c in miden-protocol miden-standards miden-tx miden-tx-batch miden-block-prover miden-agglayer; do
+              cargo update -p "$c" >/dev/null 2>&1 || true
+            done )
+        fi
+        echo "::endgroup::"
+
+    - name: Build the linked web-sdk and point the wallet at it
+      if: steps.parse.outputs.patched == 'true'
+      shell: bash
+      env:
+        REPO: ${{ steps.parse.outputs.repo }}
+        NUM: ${{ steps.parse.outputs.num }}
+        HEAD_OWNER: ${{ steps.parse.outputs.head_owner }}
+        HEAD_REPO: ${{ steps.parse.outputs.head_repo }}
+        HEAD_REF: ${{ steps.parse.outputs.head_ref }}
+        HEAD_SHA: ${{ steps.parse.outputs.head_sha }}
+        MERGED: ${{ steps.parse.outputs.merged }}
+        GH_TOKEN: ${{ inputs.github-token }}
+      run: |
+        set -euo pipefail
+
+        # Same runner-local path the clone step used. Steps don't share shell
+        # variables and this one is a pure function of RUNNER_TEMP, so it is
+        # re-derived rather than handed over through $GITHUB_ENV.
+        SDK_DIR="${RUNNER_TEMP:-/tmp}/web-sdk-pr"
 
         # Pre-install the SDK's pinned Rust toolchain BEFORE the first
         # cargo invocation. The wallet's CI runners are Node-only and
@@ -258,6 +537,89 @@ runs:
         cd "$SDK_DIR/crates/web-client"
         MIDEN_FAST_BUILD=true $PNPM run build
         echo "::endgroup::"
+
+        if [ "${{ inputs.build-node-module }}" = "true" ]; then
+          echo "::group::Build the SDK's napi module (nodejs feature)"
+          cd "$SDK_DIR"
+
+          # `miden-client-web` is declared `crate-type = ["cdylib"]`, so a HOST
+          # build (no --target) drops the addon at
+          # target/release/libmiden_client_web.so on linux — right next to
+          # target/release/libmiden_client_web.d, cargo's dep-info file.
+          # Globbing `libmiden_client_web.*` and taking `head -1` therefore
+          # picks the `.d` (it sorts before `.so`), and copying that ~200-byte
+          # TEXT file to miden_client_web.node yields a green build, a set
+          # MIDEN_MODULE_PATH, and a spec that dies on
+          # `require(): invalid ELF header`.
+          #
+          # So: ask cargo where it actually put the artifact rather than
+          # guessing. That is also immune to CARGO_TARGET_DIR,
+          # `build.target-dir`, and a --target triple relocating the directory.
+          # (Progress and diagnostics still go to stderr, so the job log is
+          # unchanged; only the JSON message stream is captured.)
+          artifacts="${RUNNER_TEMP:-/tmp}/napi-build-artifacts.jsonl"
+          cargo build -p miden-client-web --no-default-features --features nodejs \
+            --release --message-format=json-render-diagnostics > "$artifacts"
+
+          lib="$(python3 - "$artifacts" <<'PYEOF'
+        import json, sys
+
+        # A cdylib's compiler-artifact message lists the linked library in
+        # `filenames`; the .d dep-info file is never in there. Match the LIB
+        # target's name (miden_client_web), not the package name
+        # (miden-client-web), and accept every host extension so this keeps
+        # working if the action is ever run on a macOS or Windows runner.
+        found = ""
+        with open(sys.argv[1], encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line.startswith("{"):
+                    continue
+                try:
+                    msg = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if msg.get("reason") != "compiler-artifact":
+                    continue
+                if (msg.get("target") or {}).get("name") != "miden_client_web":
+                    continue
+                for name in msg.get("filenames") or []:
+                    if name.endswith((".so", ".dylib", ".dll")):
+                        found = name
+        print(found)
+        PYEOF
+        )"
+
+          # NB: keep this as an explicit `if`, not `[ -n "$lib" ] || { ...; }`
+          # after a pipeline — under `set -euo pipefail` a failing producer
+          # kills the step before the error message can fire, which is how the
+          # previous version could only ever fail silently.
+          if [ -z "$lib" ] || [ ! -f "$lib" ]; then
+            echo "::error title=napi build::cargo built miden-client-web but reported no cdylib for the 'miden_client_web' lib target (artifact messages: $artifacts)."
+            exit 1
+          fi
+
+          # node's `require()` only accepts a native addon under a `.node` name.
+          # Write it beside the library, which is exactly where the SDK's own
+          # dev-mode loader puts its copy
+          # (crates/web-client/js/node/loader.js, candidate 4).
+          node_module="$(dirname "$lib")/miden_client_web.node"
+          cp -f "$lib" "$node_module"
+
+          # Prove it loads before handing the path to the specs — this is the
+          # check that would have caught the `.d` file. A bad addon now fails
+          # here, in this step, instead of as an opaque playwright failure ten
+          # minutes later. `process.exit(0)` because napi's tokio runtime can
+          # hold the event loop open.
+          node -e 'const p = process.argv[1]; const m = require(p); if (!m || typeof m !== "object") { throw new Error("napi module loaded but exported " + typeof m); } console.log("napi module loads: " + p); process.exit(0);' "$node_module"
+
+          # Consumed by the SDK loader's step 1 (explicit override). It has to
+          # be this env var rather than the loader's repo-target-dir fallback:
+          # yarn COPIES a `file:` dep into node_modules, so that fallback walks
+          # up from the wallet's node_modules and never finds the SDK checkout.
+          echo "MIDEN_MODULE_PATH=$node_module" >> "$GITHUB_ENV"
+          echo "::endgroup::"
+        fi
 
         echo "::group::Build @miden-sdk/react"
         cd "$SDK_DIR/packages/react-sdk"
@@ -378,3 +740,29 @@ runs:
       with:
         header: linked-web-sdk-pr
         delete: true
+
+    # Its own step because of the same 21000-character run-block cap described above:
+    # folded back into the build step it would fail the whole action at parse time with
+    # "Exceeded max expression length" — which reads like a syntax error, not a size one.
+    #
+    # A partly-applied patch is silent: cargo emits no warning and simply resolves a registry
+    # copy alongside the git one, so every step stays green while the account-component
+    # procedure roots disagree. A missing miden-agglayer cost a full CI round exactly that way.
+    - name: Verify the protocol patch applied cleanly
+      shell: bash
+      run: |
+        set -euo pipefail
+        SDK_DIR="${RUNNER_TEMP:-/tmp}/web-sdk-pr"
+        lock="$SDK_DIR/Cargo.lock"
+        [ -f "$lock" ] || exit 0          # no linked SDK PR: nothing to verify
+        grep -q 'github.com/0xMiden/protocol' "$lock" || exit 0   # no protocol patch in play
+        dupes=""
+        for c in miden-protocol miden-standards miden-tx miden-tx-batch miden-block-prover miden-agglayer; do
+          n=$(grep -c "^name = \"$c\"$" "$lock" 2>/dev/null || true)
+          if [ "${n:-0}" -gt 1 ]; then dupes="$dupes $c($n)"; fi
+        done
+        if [ -n "$dupes" ]; then
+          echo "::error title=inject-linked-web-sdk-pr::protocol patch applied only partly; these resolve to more than one source:${dupes}. The build mixes protocol versions and the account procedure roots will not match."
+          exit 1
+        fi
+        echo 'protocol patch verified: one source per crate'

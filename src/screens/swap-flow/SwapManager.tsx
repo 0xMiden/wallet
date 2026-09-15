@@ -3,10 +3,13 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
+import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
+import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
 import { Navigator, NavigatorProvider, Route, useNavigator } from 'components/Navigator';
 import { confirmSensitiveAction } from 'lib/biometric';
 import { stringToBigInt } from 'lib/i18n/numbers';
 import { initiateSwapTransaction, requestSWTransactionProcessing } from 'lib/miden/activity';
+import { hasNoFeeAsset, maxSendableNative } from 'lib/miden/fees/spendable';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { accountIdStringToSdk, getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
 import { deriveRequestAmount, getSwapTokens, SwapToken } from 'lib/miden/swap/tokens';
@@ -33,6 +36,9 @@ const SwapManager: React.FC = () => {
   const { publicKey } = useAccount();
   const allTokensBaseMetadata = useAllTokensBaseMetadata();
   const { data: balanceData = [] } = useAllBalances(publicKey, allTokensBaseMetadata);
+  const nativeFaucetId = useMidenFaucetId();
+  const verificationBaseFee = useVerificationBaseFee();
+  const feeAssetMissing = hasNoFeeAsset(balanceData, nativeFaucetId, verificationBaseFee);
 
   const [offerToken, setOfferToken] = useState<SwapToken>(() => getSwapTokens()[0]!);
   const [requestToken, setRequestToken] = useState<SwapToken>(() => getSwapTokens()[1]!);
@@ -121,9 +127,24 @@ const SwapManager: React.FC = () => {
         ?.balance ?? 0,
     [balanceData, offerBalanceKey, offerToken.faucetId]
   );
+  // What the user may actually offer. Same rule as the send flow: the fee is withdrawn
+  // from this account's own vault, so the full NATIVE balance is not offerable -- a swap
+  // of everything is accepted here and then fails in the epilogue on its own fee, after
+  // the user has already signed. Blocking the no-fee-asset case below is not enough: it
+  // only catches a balance of zero, not a balance entirely committed to the offer.
+  // Non-native offers are unaffected (their fee comes out of a different asset), and
+  // `maxSendableNative` fails open on an unknown or zero fee, so a zero-fee chain and
+  // the pre-discovery window both keep the full balance.
+  const offerSpendable = useMemo(
+    () =>
+      nativeFaucetId !== null && offerBalanceKey === nativeFaucetId
+        ? maxSendableNative(offerBalance, verificationBaseFee, offerToken.decimals)
+        : offerBalance,
+    [nativeFaucetId, offerBalanceKey, offerBalance, verificationBaseFee, offerToken.decimals]
+  );
   const offerAmountValue = Number(offerAmount);
   const hasOfferAmount = offerAmountValue > 0;
-  const offerAmountExceedsBalance = offerAmountValue > offerBalance;
+  const offerAmountExceedsBalance = offerAmountValue > offerSpendable;
   const quoteUnavailable = Boolean(swapEta.error);
   const expirySecondsValue = Number(expirySeconds);
   const validExpiry = Number.isInteger(expirySecondsValue) && expirySecondsValue > 0;
@@ -136,6 +157,13 @@ const SwapManager: React.FC = () => {
     !sameToken &&
     hasOfferAmount &&
     !offerAmountExceedsBalance &&
+    // The fee is withdrawn from this account's own vault, so with none of the fee
+    // asset the swap cannot succeed at any amount. `SwapAmounts` already SHOWS this,
+    // but showing it is not blocking it: without this the Continue button stayed
+    // enabled, review opened, and the swap ran through biometric confirmation to an
+    // on-chain failure -- the "reads as a lost transaction" outcome the check exists
+    // to prevent. `hasNoFeeAsset` fails open, so a zero-fee chain is unaffected.
+    !feeAssetMissing &&
     Number(requestAmount) > 0 &&
     validExpiry;
 
@@ -201,6 +229,13 @@ const SwapManager: React.FC = () => {
       setSubmitError(t('swapInvalidAmounts'));
       return;
     }
+    // Re-checked here as well as in `canProceed`, for the same reason the amounts are:
+    // the review screen's Swap button is not gated by `canProceed`, and the balance can
+    // resolve or drain between opening review and tapping it.
+    if (feeAssetMissing) {
+      setSubmitError(t('insufficientFeeAsset'));
+      return;
+    }
     setSubmitting(true);
     // Re-confirm this user-initiated swap with biometrics when enabled (same
     // app-layer gate as the send flow — see confirmSensitiveAction).
@@ -250,6 +285,10 @@ const SwapManager: React.FC = () => {
     expirySecondsValue,
     autoConsume,
     validExpiry,
+    // Read by the fee-asset refusal above. Omitted, the re-check would run against
+    // the first-render value -- before the balance and base fee resolve -- and admit
+    // exactly the swap it exists to stop.
+    feeAssetMissing,
     t
   ]);
 
@@ -267,8 +306,11 @@ const SwapManager: React.FC = () => {
         case SwapFlowStep.SwapAmounts:
           return (
             <SwapAmounts
+              feeAssetMissing={feeAssetMissing}
               offerToken={offerToken}
-              offerBalance={offerBalance}
+              // The SPENDABLE balance, so the quoted "Available" is the number the
+              // validation actually enforces and Max cannot overshoot it.
+              offerBalance={offerSpendable}
               offerAmount={offerAmount}
               onOfferAmountChange={onOfferAmountChange}
               onSelectOfferToken={onSelectOfferToken}
@@ -307,7 +349,7 @@ const SwapManager: React.FC = () => {
     },
     [
       offerToken,
-      offerBalance,
+      offerSpendable,
       offerAmount,
       requestToken,
       requestAmount,
@@ -325,7 +367,12 @@ const SwapManager: React.FC = () => {
       onSwapDirection,
       onSubmit,
       navigateTo,
-      goBack
+      goBack,
+      // Rendered into the review step. Omitted, the "you have no MIDEN to pay the
+      // fee" state is captured from first render, before the balance and the base
+      // fee have resolved -- so the warning shows stale, which on this screen means
+      // either hiding a real blocker or blocking a swap that can pay.
+      feeAssetMissing
     ]
   );
 

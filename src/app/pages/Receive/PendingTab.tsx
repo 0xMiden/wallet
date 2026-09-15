@@ -4,7 +4,10 @@ import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import { useAppEnv } from 'app/env';
-import { deriveNoteClaimState, NoteClaimState } from 'app/hooks/noteClaimState';
+import { deriveNoteClaimState, isNoteInFlight, NoteClaimState } from 'app/hooks/noteClaimState';
+import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
+import { useNetworkFeeEstimate } from 'app/hooks/useNetworkFeeEstimate';
+import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
 import { ReactComponent as EyeOpenIcon } from 'app/icons/eye-open.svg';
 import { Icon, IconName } from 'app/icons/v2';
 import { formatDate } from 'app/templates/history/transactionUtils';
@@ -12,14 +15,12 @@ import { Button, ButtonVariant } from 'components/Button';
 import { SyncWaveBackground } from 'components/SyncWaveBackground';
 import { TokenLogo } from 'components/TokenLogo';
 import { formatBigInt, formatUsd } from 'lib/i18n/numbers';
-import { initiateConsumeTransaction, requestSWTransactionProcessing } from 'lib/miden/activity';
+import { isWorthClaiming } from 'lib/miden/fees/spendable';
 import { AssetMetadata } from 'lib/miden/front';
 import { ConsumableNote, NoteTypeEnum } from 'lib/miden/types';
 import { hapticLight } from 'lib/mobile/haptics';
-import { isExtension } from 'lib/platform';
 import { getTokenPrice } from 'lib/prices';
 import type { TokenPrices } from 'lib/prices';
-import { WalletAccount } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
 import { navigate } from 'lib/woozie';
 import { truncateAddress } from 'utils/string';
@@ -35,14 +36,11 @@ export interface AssetNoteGroup {
 
 interface PendingTabProps {
   safeClaimableNotes: NoteWithMetadata[];
-  unclaimedNotesCount: number;
-  account: WalletAccount;
-  isDelegatedProvingEnabled: boolean;
   claimingNoteIds: Set<string>;
   retriableNoteIds: Set<string>;
   invalidNoteIds: Set<string>;
   checkingNoteIds: Set<string>;
-  onClaimingStateChange: (noteId: string, isClaiming: boolean) => void;
+  onClaimNote: (note: NoteWithMetadata) => Promise<string | null>;
   onClaimAll: () => void;
   onClaimGroup?: (faucetId: string) => void;
 }
@@ -57,19 +55,20 @@ const groupNumber = (value: string): string => {
 
 export const PendingTab: React.FC<PendingTabProps> = ({
   safeClaimableNotes,
-  unclaimedNotesCount,
-  account,
-  isDelegatedProvingEnabled,
   claimingNoteIds,
   retriableNoteIds,
   invalidNoteIds,
   checkingNoteIds,
-  onClaimingStateChange,
+  onClaimNote,
   onClaimAll,
   onClaimGroup
 }) => {
   const { registerBackHandler } = useAppEnv();
   const tokenPrices = useWalletStore(s => s.tokenPrices);
+  // Same pair `PendingSummary` resolves, so the detail view can judge the group it is
+  // showing rather than being told nothing about it.
+  const verificationBaseFee = useVerificationBaseFee();
+  const nativeFaucetId = useMidenFaucetId();
   const [selectedFaucetId, setSelectedFaucetId] = useState<string | null>(null);
 
   const groupedNotes = useMemo(() => {
@@ -120,25 +119,38 @@ export const PendingTab: React.FC<PendingTabProps> = ({
   if (selectedGroup) {
     return (
       <AssetPendingDetail
+        notWorthClaiming={
+          nativeFaucetId !== null &&
+          selectedGroup.faucetId === nativeFaucetId &&
+          !isWorthClaiming(selectedGroup.totalAmount, verificationBaseFee)
+        }
         group={selectedGroup}
         tokenPrices={tokenPrices}
-        account={account}
-        isDelegatedProvingEnabled={isDelegatedProvingEnabled}
         claimingNoteIds={claimingNoteIds}
         retriableNoteIds={retriableNoteIds}
         invalidNoteIds={invalidNoteIds}
         checkingNoteIds={checkingNoteIds}
-        onClaimingStateChange={onClaimingStateChange}
+        onClaimNote={onClaimNote}
         onClaimGroup={onClaimGroup}
       />
     );
   }
 
+  // BOTH halves are derived here, from one array and one predicate. They used to come from two
+  // places -- `unclaimedNotesCount` computed by useClaimNotes over the same three id-sets, and a
+  // separate in-flight count here -- and computing one partition twice is what let the halves
+  // disagree: a count saying "nothing claimable" beside one saying "nothing in flight" rendered no
+  // claim control at all. isNoteInFlight is that predicate, shared with the claim handlers and the group view.
+  const inFlight = (n: NoteWithMetadata) => isNoteInFlight(n, claimingNoteIds);
+  const claimingCount = safeClaimableNotes.filter(inFlight).length;
+  const claimableCount = safeClaimableNotes.length - claimingCount;
+
   return (
     <PendingSummary
       groupedNotes={groupedNotes}
       tokenPrices={tokenPrices}
-      unclaimedNotesCount={unclaimedNotesCount}
+      claimingCount={claimingCount}
+      claimableCount={claimableCount}
       retriableNoteIds={retriableNoteIds}
       invalidNoteIds={invalidNoteIds}
       onSelectGroup={handleSelectGroup}
@@ -148,9 +160,12 @@ export const PendingTab: React.FC<PendingTabProps> = ({
 };
 
 interface PendingSummaryProps {
+  /** Notes with a live consume behind them. */
+  claimingCount: number;
+  /** Notes still claimable, derived alongside `claimingCount` so the two cannot disagree. */
+  claimableCount: number;
   groupedNotes: AssetNoteGroup[];
   tokenPrices: TokenPrices;
-  unclaimedNotesCount: number;
   retriableNoteIds: Set<string>;
   invalidNoteIds: Set<string>;
   onSelectGroup: (faucetId: string) => void;
@@ -160,12 +175,16 @@ interface PendingSummaryProps {
 const PendingSummary: React.FC<PendingSummaryProps> = ({
   groupedNotes,
   tokenPrices,
-  unclaimedNotesCount,
+  claimingCount,
+  claimableCount,
   retriableNoteIds,
   invalidNoteIds,
   onSelectGroup,
   onClaimAll
 }) => {
+  const verificationBaseFee = useVerificationBaseFee();
+  const maxNetworkFee = useNetworkFeeEstimate();
+  const nativeFaucetId = useMidenFaucetId();
   const { t } = useTranslation();
 
   const totals: { totalUsd: number; notesCount: number; assetsCount: number } = useMemo(() => {
@@ -223,21 +242,76 @@ const PendingSummary: React.FC<PendingSummaryProps> = ({
               tokenPrices={tokenPrices}
               retriableNoteIds={retriableNoteIds}
               invalidNoteIds={invalidNoteIds}
+              // NATIVE groups only. The fee is quoted in the native asset's base units,
+              // so comparing another asset's base units against it compares two
+              // different currencies: a perfectly valuable token group was labelled
+              // "not worth claiming" purely because its raw base-unit total happened to
+              // be a small number. Auto-consume never touches non-native notes either,
+              // so the label's premise does not hold for them. Judging a token group
+              // properly needs a price conversion, which is a separate feature.
+              notWorthClaiming={
+                nativeFaucetId !== null &&
+                group.faucetId === nativeFaucetId &&
+                !isWorthClaiming(group.totalAmount, verificationBaseFee)
+              }
               showDivider={index !== groupedNotes.length - 1}
               onClick={() => onSelectGroup(group.faucetId)}
             />
           ))}
         </div>
 
-        {unclaimedNotesCount > 0 && (
-          <div className="flex justify-center mt-auto pt-4 pb-2">
-            <Button
-              data-testid="claim-all-button"
-              className="w-full"
-              variant={ButtonVariant.Primary}
-              onClick={onClaimAll}
-              title={t('claimAll')}
-            />
+        {/* Claiming does not navigate away any more, so this block is where progress is reported.
+            Every note being claimed leaves the claimable half, so gating on that alone made the CTA
+            vanish the moment the user tapped it. */}
+        {/* A live region has to exist in the tree BEFORE its text changes, or nothing is
+            announced. The control below swaps one button for another, so the announcement cannot
+            ride on it: this span is always mounted and only its text moves. */}
+        <span className="sr-only" role="status" aria-live="polite">
+          {claimingCount > 0 ? t('claiming') : ''}
+        </span>
+        {(claimableCount > 0 || claimingCount > 0) && (
+          <div className="flex flex-col items-center mt-auto pt-4 pb-2">
+            {/* Claiming submits immediately -- there is no review step between this
+                button and the transaction -- so this is the only place the cost can be
+                stated before the user commits. Label and amount are separate nodes so
+                no placeholder-only string has to survive translation. */}
+            {maxNetworkFee && claimableCount > 0 && (
+              <div className="mb-2 text-center text-xs text-heading-gray">
+                <div>
+                  {t('networkFeeMax')} · {maxNetworkFee}
+                </div>
+                {/* Claim All submits one transaction PER FAUCET (useClaimNotes.ts), so the
+                    bound above is one transaction's ceiling and the true maximum is that
+                    times the asset count. Say so rather than quoting a single figure over
+                    a button that submits several. */}
+                {totals.assetsCount > 1 && <div className="mt-0.5">{t('feeChargedPerAsset')}</div>}
+              </div>
+            )}
+            {/* The two controls answer DIFFERENT questions, deliberately: "is there anything to
+                claim" and "is anything in flight". Keying both on the in-flight count made one
+                background auto-consume disable Claim All for every other claimable note.
+                Two ids on purpose: `claim-all-button` keeps meaning "an actionable Claim All",
+                which is the contract the E2E helper reads: it treats that id being visible as
+                permission to click, and a disabled button under it would make the helper click a
+                control it cannot action. The in-flight state gets its own id, the same split #834
+                made for the row's control. */}
+            {claimableCount > 0 ? (
+              <Button
+                data-testid="claim-all-button"
+                className="w-full"
+                variant={ButtonVariant.Primary}
+                onClick={onClaimAll}
+                title={t('claimAll')}
+              />
+            ) : (
+              <Button
+                data-testid="claim-all-status"
+                className="w-full"
+                variant={ButtonVariant.Primary}
+                disabled
+                title={t('claiming')}
+              />
+            )}
           </div>
         )}
       </div>
@@ -246,6 +320,8 @@ const PendingSummary: React.FC<PendingSummaryProps> = ({
 };
 
 interface AssetSummaryRowProps {
+  /** True when the group's total is worth no more than the fee to claim it. */
+  notWorthClaiming?: boolean;
   group: AssetNoteGroup;
   tokenPrices: TokenPrices;
   retriableNoteIds: Set<string>;
@@ -255,6 +331,7 @@ interface AssetSummaryRowProps {
 }
 
 const AssetSummaryRow: React.FC<AssetSummaryRowProps> = ({
+  notWorthClaiming,
   group,
   tokenPrices,
   retriableNoteIds,
@@ -301,6 +378,14 @@ const AssetSummaryRow: React.FC<AssetSummaryRowProps> = ({
           </span>
         </div>
       </div>
+      {notWorthClaiming && (
+        // Auto-consume skips this group, so say why rather than leaving it to sit
+        // there unexplained. Claiming stays available: the call is the user's, the
+        // wallet just will not spend their money on it unprompted.
+        <div className="mt-3 w-full text-center text-sm font-heading text-black opacity-50">
+          {t('notWorthClaiming')}
+        </div>
+      )}
       {needsAttentionCount > 0 ? (
         <div className="mt-3 w-full rounded-full bg-red-500/10 py-2 text-center text-base font-heading font-semibold text-red-500">
           {t('notesUnresolved', { count: needsAttentionCount })}
@@ -317,29 +402,35 @@ const AssetSummaryRow: React.FC<AssetSummaryRowProps> = ({
 interface AssetPendingDetailProps {
   group: AssetNoteGroup;
   tokenPrices: ReturnType<typeof useWalletStore.getState>['tokenPrices'];
-  account: WalletAccount;
-  isDelegatedProvingEnabled: boolean;
   claimingNoteIds: Set<string>;
   retriableNoteIds: Set<string>;
   invalidNoteIds: Set<string>;
   checkingNoteIds: Set<string>;
-  onClaimingStateChange: (noteId: string, isClaiming: boolean) => void;
+  onClaimNote: (note: NoteWithMetadata) => Promise<string | null>;
   onClaimGroup?: (faucetId: string) => void;
+  /**
+   * Whether claiming this group costs more than it credits. Computed by the caller,
+   * which already resolves the native faucet and the base fee — the same value the
+   * collapsed summary row shows. Passed down because THIS is the screen with the
+   * Claim buttons: showing the warning only on the row the user taps through means
+   * it is gone at the moment they decide.
+   */
+  notWorthClaiming?: boolean;
 }
 
 const AssetPendingDetail: React.FC<AssetPendingDetailProps> = ({
   group,
   tokenPrices,
-  account,
-  isDelegatedProvingEnabled,
   claimingNoteIds,
   retriableNoteIds,
   invalidNoteIds,
   checkingNoteIds,
-  onClaimingStateChange,
-  onClaimGroup
+  onClaimNote,
+  onClaimGroup,
+  notWorthClaiming = false
 }) => {
   const { t } = useTranslation();
+  const maxNetworkFee = useNetworkFeeEstimate();
   const { metadata, faucetId, notes, totalAmount } = group;
   const symbol = metadata?.symbol || 'UNKNOWN';
   const name = metadata?.name || symbol;
@@ -350,7 +441,7 @@ const AssetPendingDetail: React.FC<AssetPendingDetailProps> = ({
   const { price } = getTokenPrice(tokenPrices, symbol);
   const usdValue = numericAmount * price;
 
-  const unclaimedInGroup = notes.filter(n => !n.isBeingClaimed && !claimingNoteIds.has(n.id));
+  const unclaimedInGroup = notes.filter(n => !isNoteInFlight(n, claimingNoteIds));
   const canClaimAllGroup = unclaimedInGroup.length > 0;
 
   const handleClaimGroup = useCallback(() => {
@@ -360,61 +451,89 @@ const AssetPendingDetail: React.FC<AssetPendingDetailProps> = ({
   }, [canClaimAllGroup, faucetId, onClaimGroup]);
 
   return (
-    <div className="flex-1 min-h-0 overflow-y-auto">
-      <div className="w-full mx-auto pt-6 px-6 flex flex-col min-h-full">
-        <div className="flex flex-col items-center flex-1">
-          <div className="inline-flex items-center px-3 py-1 rounded-5 bg-surface-interactive text-[10px] font-bold tracking-[0.08em] uppercase text-text-primary-token">
-            <span>{name}</span>
-            <span className="mx-2 text-heading-gray">•</span>
-            <span>{t('incomingCount', { count: notes.length })}</span>
+    <div className="flex flex-1 min-h-0 flex-col">
+      <div className="flex-1 min-h-0 overflow-y-auto">
+        {notWorthClaiming && (
+          // The verdict belongs on the screen with the Claim buttons, not only on the row
+          // the user tapped to get here. Claiming stays enabled: the wallet declines to
+          // spend their money unprompted, it does not refuse the choice.
+          <div className="mb-3 w-full text-center text-sm font-heading text-black opacity-50">
+            {t('notWorthClaiming')}
           </div>
+        )}
+        <div className="w-full mx-auto pt-6 px-6 flex flex-col">
+          <div className="flex flex-col items-center">
+            <div className="inline-flex items-center px-3 py-1 rounded-5 bg-surface-interactive text-[10px] font-bold tracking-[0.08em] uppercase text-text-primary-token">
+              <span>{name}</span>
+              <span className="mx-2 text-heading-gray">•</span>
+              <span>{t('incomingCount', { count: notes.length })}</span>
+            </div>
 
-          <div className="mt-4 flex items-end gap-2 leading-none">
-            <span className="font-heading text-[44px] font-extrabold text-text-primary-token leading-none tracking-tight">
-              {formattedAmount}
-            </span>
-            <span className="font-heading text-base font-bold text-heading-gray pb-1">{symbol}</span>
-          </div>
+            <div className="mt-4 flex items-end gap-2 leading-none">
+              <span className="font-heading text-[44px] font-extrabold text-text-primary-token leading-none tracking-tight">
+                {formattedAmount}
+              </span>
+              <span className="font-heading text-base font-bold text-heading-gray pb-1">{symbol}</span>
+            </div>
 
-          <div className="font-heading mt-2 text-sm text-heading-gray">
-            {t('pendingTabApproxUsd', { value: formatUsd(usdValue) })}
-          </div>
+            <div className="font-heading mt-2 text-sm text-heading-gray">
+              {t('pendingTabApproxUsd', { value: formatUsd(usdValue) })}
+            </div>
 
-          <div className="mt-5 w-full">
-            {notes.map((note, index) => (
-              <DetailNoteRow
-                key={note.id}
-                note={note}
-                account={account}
-                isDelegatedProvingEnabled={isDelegatedProvingEnabled}
-                claimState={deriveNoteClaimState(note, {
-                  retriableNoteIds,
-                  invalidNoteIds,
-                  claimingNoteIds,
-                  checkingNoteIds
-                })}
-                onClaimingStateChange={onClaimingStateChange}
-                showDivider={index !== notes.length - 1}
-              />
-            ))}
+            <div className="mt-5 w-full">
+              {notes.map((note, index) => (
+                <DetailNoteRow
+                  key={note.id}
+                  note={note}
+                  claimState={deriveNoteClaimState(note, {
+                    retriableNoteIds,
+                    invalidNoteIds,
+                    claimingNoteIds,
+                    checkingNoteIds
+                  })}
+                  onClaimNote={onClaimNote}
+                  showDivider={index !== notes.length - 1}
+                />
+              ))}
+            </div>
           </div>
         </div>
-        {onClaimGroup && (
+      </div>
+      {onClaimGroup && (
+        // Footer, deliberately OUTSIDE the scroller above. Every per-note Claim button
+        // in the list submits its own transaction and pays its own fee, so the cost
+        // statement has to stay on screen while those buttons are reachable -- when it
+        // sat after the list, a screenful of notes hid it. It also means the group
+        // button no longer has to be scrolled to.
+        <div className="w-full mx-auto shrink-0 px-6 pb-4 pt-3">
+          {maxNetworkFee && (
+            <div className="mb-2 text-center text-xs text-heading-gray">
+              <div>
+                {t('networkFeeMax')} · {maxNetworkFee}
+              </div>
+              {/* The number is identical for every button on this screen; what differs is
+                  how many times it is charged. The group button consumes all of this
+                  faucet's notes in one transaction, so it pays once; claiming the rows
+                  one at a time pays once each. Repeating the amount per row would say
+                  the opposite. */}
+              {notes.length > 1 && <div className="mt-0.5">{t('feeChargedPerClaim')}</div>}
+            </div>
+          )}
           <button
             data-testid="claim-group-button"
             type="button"
             onClick={handleClaimGroup}
             disabled={!canClaimAllGroup}
             className={classNames(
-              'mt-4 w-full rounded-2xl bg-surface-interactive py-3.5 text-base font-bold text-accent-primary',
+              'w-full rounded-2xl bg-surface-interactive py-3.5 text-base font-bold text-accent-primary',
               'hover:bg-grey-50 transition-colors',
               !canClaimAllGroup && 'opacity-50 cursor-not-allowed'
             )}
           >
             {t('claimAllProgress', { unclaimed: unclaimedInGroup.length, total: notes.length })}
           </button>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -449,25 +568,20 @@ const PrivateLockIcon: React.FC<{ className?: string }> = ({ className }) => (
 
 interface DetailNoteRowProps {
   note: NoteWithMetadata;
-  account: WalletAccount;
-  isDelegatedProvingEnabled: boolean;
   /** Parent-derived state from the four claim id-sets (see deriveNoteClaimState). */
   claimState?: NoteClaimState;
-  onClaimingStateChange?: (noteId: string, isClaiming: boolean) => void;
+  /** Queues this note's claim on the hook's gated path; resolves to the row covering it, or null if nothing queued. */
+  onClaimNote: (note: NoteWithMetadata) => Promise<string | null>;
   showDivider: boolean;
 }
 
-const DetailNoteRow: React.FC<DetailNoteRowProps> = ({
-  note,
-  account,
-  isDelegatedProvingEnabled,
-  claimState = 'pending',
-  onClaimingStateChange,
-  showDivider
-}) => {
+const DetailNoteRow: React.FC<DetailNoteRowProps> = ({ note, claimState = 'pending', onClaimNote, showDivider }) => {
   const { t } = useTranslation();
   const tokenPrices = useWalletStore(s => s.tokenPrices);
-  const [isLoading, setIsLoading] = useState(note.isBeingClaimed || false);
+  // Purely "this row's own claim is in flight". The gated look for a note being claimed
+  // elsewhere arrives via `claimState`, derived from `note.isBeingClaimed` -- seeding it here
+  // too took a mount-time snapshot that never followed the note back to claimable.
+  const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
 
@@ -491,10 +605,8 @@ const DetailNoteRow: React.FC<DetailNoteRowProps> = ({
   const showButton = rowState === 'pending' || rowState === 'retriable';
 
   useEffect(() => {
-    onClaimingStateChange?.(note.id, isLoading);
-  }, [isLoading, note.id, onClaimingStateChange]);
-
-  useEffect(() => {
+    // Unmounting cancels only this row's navigation. The claim, and the note's gate with it, belong to the hook's queue
+    // path, which a row can leave mid-enqueue (the back handler, or its group leaving the list).
     return () => {
       abortControllerRef.current?.abort();
     };
@@ -510,15 +622,16 @@ const DetailNoteRow: React.FC<DetailNoteRowProps> = ({
     const signal = abortControllerRef.current.signal;
 
     try {
-      // Explicit user tap (Claim / Retry) — bypass the auto-consume backoff gate
-      // so a retry after a failure always queues a fresh attempt.
-      const id = await initiateConsumeTransaction(account.publicKey, note, isDelegatedProvingEnabled, true);
+      const id = await onClaimNote(note);
 
-      if (isExtension()) {
-        requestSWTransactionProcessing();
-      }
-
-      if (!signal.aborted) {
+      // A SINGLE-note claim still goes to the progress screen, deliberately. That screen is
+      // addressed by one transaction id, which is exactly what this is -- so it renders a true
+      // receipt (sender, total consumed, note ids, fee, explorer link) and its own interval keeps
+      // driving the queue off-extension. Claim All is the case it cannot represent: that queues
+      // one consume PER FAUCET and only the first id survives, so the screen would assert a
+      // confident, wrong receipt while the other faucets were still queued or already failed.
+      // See `useClaimNotes.queueClaim`, which is where the navigation was removed.
+      if (id && !signal.aborted) {
         navigate(`/generating-transaction-full/${encodeURIComponent(id)}`);
       }
     } catch (err) {
@@ -526,11 +639,13 @@ const DetailNoteRow: React.FC<DetailNoteRowProps> = ({
       setError(t('failedToClaimNote'));
       console.error('Error claiming note:', err);
     } finally {
-      if (!isExtension()) {
-        setIsLoading(false);
-      }
+      // Same reason as the batch set in `useClaimNotes`: `note.isBeingClaimed` now comes from
+      // the live consume row, so this row-local latch no longer has to stay on to keep the
+      // spinner up on extension. Latching it also survived the gate clearing, so the button
+      // stayed gone until the row was unmounted and remounted.
+      setIsLoading(false);
     }
-  }, [account, isDelegatedProvingEnabled, note, t]);
+  }, [note, onClaimNote, t]);
 
   const { metadata } = note;
   const decimals = metadata?.decimals ?? 6;
@@ -582,6 +697,17 @@ const DetailNoteRow: React.FC<DetailNoteRowProps> = ({
             variant={ButtonVariant.Primary}
             onClick={handleClaim}
             title={isRetriable ? t('retry') : t('claim')}
+          />
+        ) : showSpinner && note.claimingTxId ? (
+          // A note being consumed keeps a labelled control instead of unmounting to a blank
+          // spacer, so the wait is legible -- and the control is a live destination: it opens
+          // that consume's own progress screen, which already renders per-step rows and timings.
+          <Button
+            data-testid="claiming-status-button"
+            className="w-auto shrink-0 px-4 h-8 text-sm leading-none"
+            variant={ButtonVariant.Secondary}
+            onClick={() => navigate(`/generating-transaction-full/${encodeURIComponent(note.claimingTxId!)}`)}
+            title={t('claiming')}
           />
         ) : (
           <div className="w-20 h-8 shrink-0" />

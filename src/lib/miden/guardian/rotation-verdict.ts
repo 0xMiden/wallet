@@ -5,8 +5,8 @@ import { ITransactionStatus, type ITransaction } from 'lib/miden/db/types';
  *
  * `commitUnconfirmed`, `registerFailed` and `endpointPersistFailed` are written
  * in exactly one place (`transaction/complete.ts`) but were read by every
- * surface independently, and rounds 21–25 of the #786 review each found
- * another surface certifying a rotation the wallet never confirmed — the
+ * surface independently, and rounds 21-25 of the #786 review each found
+ * another surface certifying a rotation the wallet never confirmed - the
  * receipt, the reconcile path, the Activity title, the details chip. The class
  * recurs because a surface that reads the raw flags can (and did, F-222) treat
  * an absent flag as evidence. This module closes that: surfaces consume a
@@ -16,14 +16,14 @@ import { ITransactionStatus, type ITransaction } from 'lib/miden/db/types';
  */
 
 export type RotationVerdict =
-  /** Queued or generating — no outcome to claim yet. */
+  /** Queued or generating - no outcome to claim yet. */
   | { kind: 'in-flight' }
   /** Committed on chain, every post-commit step landed. The only variant that may render full confidence. */
   | { kind: 'confirmed' }
   /**
-   * SUBMITTED, and nothing established that it committed. Not a failure — the
+   * SUBMITTED, and nothing established that it committed. Not a failure - the
    * pipeline completed the row deliberately (the alternative strands the
-   * account on an operator already judged unreachable) — but "went ahead on no
+   * account on an operator already judged unreachable) - but "went ahead on no
    * evidence" must never render as "confirmed".
    */
   | { kind: 'submitted-unconfirmed'; endpointPersisted: boolean; registered: boolean }
@@ -47,7 +47,7 @@ export function rotationVerdict(
 
   // Strict === true on every flag: these are the only reads of the raw fields,
   // and an absent flag on a legacy row means "predates the audit trail", which
-  // must present exactly like a clean switch — not like new evidence.
+  // must present exactly like a clean switch - not like new evidence.
   const endpointPersisted = tx.extraInputs?.endpointPersistFailed !== true;
   const registered = tx.extraInputs?.registerFailed !== true;
 
@@ -79,7 +79,7 @@ export function rotationRowTitleKey(kind: RotationVerdictKind): string | undefin
 
 /**
  * Status-chip rendering for a rotation row. `null` defers to the generic
- * status chip — only the claims the generic chip would get WRONG are overridden
+ * status chip - only the claims the generic chip would get WRONG are overridden
  * (a submitted-unconfirmed row is Completed in the DB, which the generic chip
  * renders as a green "Confirmed").
  */

@@ -4,6 +4,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 
 import type { TokenBalanceData } from 'lib/miden/front';
 import type { WalletAccount } from 'lib/shared/types';
+import { useWalletStore } from 'lib/store';
 import type { PendingNoteValue } from 'lib/wallet-prompts';
 import { WalletPromptStatus, WalletPromptType } from 'lib/wallet-prompts';
 
@@ -15,6 +16,9 @@ const mockPollActiveBridgePrompts = jest.fn();
 const mockUseWalletPromptStorage = jest.fn();
 const mockFetchHotKeyHardwareError = jest.fn();
 
+let mockBaseFee: number | null = 0;
+jest.mock('app/hooks/useVerificationBaseFee', () => ({ __esModule: true, default: () => mockBaseFee }));
+jest.mock('app/hooks/useMidenFaucetId', () => ({ __esModule: true, default: () => 'MIDEN-ID' }));
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, values?: { amount?: string }) => (values?.amount === undefined ? key : `${key}:${values.amount}`)
@@ -121,6 +125,11 @@ jest.mock('app/templates/FundWalletDrawer', () => ({
   )
 }));
 
+// The banner has its own suite; here only whether Home mounts it matters.
+jest.mock('app/templates/GuardianNeedsUrlBanner', () => ({
+  GuardianNeedsUrlBanner: () => <div data-testid="guardian-needs-url-banner" />
+}));
+
 const account = {
   publicKey: 'accountA',
   name: 'Account A',
@@ -212,6 +221,53 @@ describe('HomePrompts', () => {
       'verifySeedPhrasePromptTitle'
     ]);
     expect(promptState.setPromptStatus).toHaveBeenCalledWith(WalletPromptType.Faucet, WalletPromptStatus.Pending);
+  });
+
+  it('re-offers a dismissed faucet prompt once the account can no longer pay a fee', () => {
+    // Dismiss means "not now", not "never again". An account that has run its
+    // native balance to zero on a fee-charging chain is stuck, and the prompt is
+    // the way out -- keeping it hidden strands the user with no affordance.
+    mockBaseFee = 10000;
+    mockUseWalletPromptStorage.mockReturnValue(
+      makePromptState({
+        storage: {
+          version: 1,
+          prompts: { [WalletPromptType.Faucet]: WalletPromptStatus.Dismissed },
+          pendingNotesDismissedIds: []
+        }
+      })
+    );
+    render(
+      <HomePrompts
+        account={account}
+        balances={[{ tokenId: 'MIDEN-ID', balance: 0 }] as TokenBalanceData[]}
+        balancesLoading={false}
+        claimableNotes={[]}
+        tokenPrices={{}}
+      />
+    );
+    expect(screen.getByText('faucetPromptTitle')).toBeInTheDocument();
+  });
+
+  it('still offers the faucet when the account holds tokens but none of the fee asset', () => {
+    // Holding USDC is not the same as being funded: the fee comes out of the
+    // native balance, so this account cannot transact and needs the faucet.
+    mockBaseFee = 10000;
+    render(
+      <HomePrompts
+        account={account}
+        balances={
+          [
+            { tokenId: 'token', balance: 5 },
+            { tokenId: 'MIDEN-ID', balance: 0 }
+          ] as TokenBalanceData[]
+        }
+        balancesLoading={false}
+        claimableNotes={[]}
+        tokenPrices={{}}
+      />
+    );
+    expect(screen.getByText('faucetPromptTitle')).toBeInTheDocument();
   });
 
   it('does not show the faucet while balances load or when the account has funds', () => {
@@ -795,5 +851,41 @@ describe('HomePrompts', () => {
       expect(screen.getByTestId('prompt-card')).toHaveAttribute('data-status', 'failure');
     });
     errorSpy.mockRestore();
+  });
+
+  it('mounts the guardian URL prompt only while the account is drifted', () => {
+    mockUseWalletPromptStorage.mockReturnValue(makePromptState());
+    const props = { balances: fundedBalance, balancesLoading: false, claimableNotes: [], tokenPrices: {} };
+    const { rerender } = render(
+      <HomePrompts {...props} account={{ ...account, guardianSyncStatus: 'needs-user-input' }} />
+    );
+    expect(screen.getByTestId('guardian-needs-url-banner')).toBeInTheDocument();
+
+    rerender(<HomePrompts {...props} account={{ ...account, guardianSyncStatus: 'in-sync' }} />);
+    expect(screen.queryByTestId('guardian-needs-url-banner')).toBeNull();
+  });
+
+  it('runs no guardian status clock on Home', () => {
+    // The drift gate needs no freshness, so nothing on Home may re-render on the 15 s status tick.
+    const drifted = { ...account, guardianSyncStatus: 'needs-user-input' as const };
+    const previous = useWalletStore.getState().currentAccount;
+    useWalletStore.setState({ currentAccount: drifted });
+    const intervalSpy = jest.spyOn(global, 'setInterval');
+    try {
+      mockUseWalletPromptStorage.mockReturnValue(makePromptState());
+      render(
+        <HomePrompts
+          account={drifted}
+          balances={fundedBalance}
+          balancesLoading={false}
+          claimableNotes={[]}
+          tokenPrices={{}}
+        />
+      );
+      expect(intervalSpy.mock.calls.filter(([, delay]) => delay === 15_000)).toEqual([]);
+    } finally {
+      intervalSpy.mockRestore();
+      useWalletStore.setState({ currentAccount: previous });
+    }
   });
 });

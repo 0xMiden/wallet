@@ -17,6 +17,15 @@ import { streamIndexedDBToFile } from '../helpers/idb-dump';
 
 const INITIAL_MINT_AMOUNT = 100_000_000_000; // matches mint-and-balance.spec.ts
 
+/**
+ * The token this suite trades, and the ONLY asset its conservation identity covers.
+ *
+ * `midenCli.createFaucet()` defaults to this symbol. Scoping matters: the wallet's
+ * balance reads are cross-asset by default, and the native fee asset living inside the
+ * conserved total is what made a fee-charging run report its own fees as lost notes.
+ */
+const TOKEN = 'TST';
+
 function intEnv(key: string, dflt: number): number {
   const raw = process.env[key];
   if (raw == null || raw === '') return dflt;
@@ -152,8 +161,28 @@ test.describe('Stress - random send/claim', () => {
       await walletB.claimAllNotes(guardianSyncMs);
     });
 
-    const initialA = await walletA.getBalance();
-    const initialB = await walletB.getBalance();
+    // Conserve the TRADED token only. `getBalance()` and an unscoped
+    // `quickBalanceSnapshot()` sum EVERY asset the account holds, so on a fee-charging
+    // chain the native fee asset sits inside the conserved total and the fees this suite
+    // itself pays read back as lost value: the run that exposed this reported
+    // "balance conservation violated by -5.13; notes lost" with pending=0 and failed=0 --
+    // nothing was lost, ~2.56 MIDEN per wallet had been burned as fees. Worse, the settle
+    // loop below waits for `A + B === initialTotal`, a target that can never be reached on
+    // such a chain, so every run burned its full settle timeout before failing.
+    //
+    // Scoping to the token under test keeps the invariant EXACT on any chain, fee or not,
+    // and it is the honest statement of what this suite detects: lost NOTES. The fee is
+    // not a lost note, and `fee-accounting.spec.ts` proves fee correctness far better.
+    // Refresh FIRST. `quickBalanceSnapshot` reads the Zustand projection as it stands and
+    // does not refresh it, unlike the `getBalance()` this baseline used to call -- its own
+    // contract says so, and names a conservation assertion as the case that must refresh.
+    // An understated baseline is not a smaller failure than an overstated one: the settle
+    // loop below exits on strict equality, so a target below the real total is unreachable
+    // and the run burns its whole settle budget before reporting value GAINED -- the mirror
+    // image of the phantom loss this baseline was scoped to fix.
+    await Promise.all([walletA.refreshBalances(), walletB.refreshBalances()]);
+    const initialA = (await walletA.quickBalanceSnapshot({ symbol: TOKEN })).totalReportable;
+    const initialB = (await walletB.quickBalanceSnapshot({ symbol: TOKEN })).totalReportable;
     const initialTotal = initialA + initialB;
 
     console.log(`\n=== INITIAL BALANCES ===\nA=${initialA}\nB=${initialB}\ntotal=${initialTotal}\n`);
@@ -224,6 +253,7 @@ test.describe('Stress - random send/claim', () => {
       };
       let finalA = 0;
       let finalB = 0;
+      let finalUnidentified = 0;
       type UnlandedTotals = Awaited<ReturnType<typeof readUnlanded>>;
       // Sentinels, in case the settle loop cannot run a single iteration. Marked
       // as a failed read for the same reason: unknown, not clean.
@@ -285,12 +315,15 @@ test.describe('Stress - random send/claim', () => {
           // notes, moving their value out of `miden_sync_data.notes` and into the
           // account vault. Refresh the Zustand `balances` projection from that
           // vault before snapshotting so consumed value lands in `totalReportable`
-          // — the initial baseline (getBalance) refreshes the same way. Without
+          // — the initial baseline refreshes the same way, for the same reason. Without
           // this, every note consumed during settle drops out of the total and
           // strict conservation reports a phantom loss (see refreshBalances()).
           await Promise.all([walletA.refreshBalances(), walletB.refreshBalances()]);
           // Read full snapshot so we can log *what's* pending if settle gets stuck.
-          const [snapA, snapB] = await Promise.all([walletA.quickBalanceSnapshot(), walletB.quickBalanceSnapshot()]);
+          const [snapA, snapB] = await Promise.all([
+            walletA.quickBalanceSnapshot({ symbol: TOKEN }),
+            walletB.quickBalanceSnapshot({ symbol: TOKEN })
+          ]);
           // `quickBalanceSnapshot` swallows its own failures and reports
           // `totalReportable: 0` with an `error` field rather than throwing, so
           // an unchecked read here would put a fabricated zero into the
@@ -302,6 +335,11 @@ test.describe('Stress - random send/claim', () => {
           }
           finalA = snapA.totalReportable;
           finalB = snapB.totalReportable;
+          // A row with no metadata at all is invisible to the symbol scope, and this
+          // identity is strict — so a `fetchTokenMetadata` miss on the token under test
+          // subtracts real value from the total and reads as a lost note. Carried to the
+          // assertion so the failure names the right subsystem instead of the wrong one.
+          finalUnidentified = snapA.unidentified + snapB.unidentified;
           const readable = unlandedA.readFailed !== true && unlandedB.readFailed !== true;
           const sendsInFlight = unlandedA.pendingCount + unlandedB.pendingCount;
           // Follow the rows' own clock rather than guessing: a pending row whose
@@ -671,7 +709,14 @@ test.describe('Stress - random send/claim', () => {
             `(A: ${unlandedA.pendingCount}, B: ${unlandedB.pendingCount})`
         ).toBe(0);
 
-        expect(delta, `balance conservation violated by ${delta}; notes lost`).toBe(0);
+        expect(
+          delta,
+          `balance conservation violated by ${delta}; notes lost` +
+            (finalUnidentified > 0
+              ? ` — BUT ${finalUnidentified} row(s) carry no token metadata and were excluded by the ` +
+                `'${TOKEN}' scope, so this delta may be a fetchTokenMetadata miss rather than lost value`
+              : '')
+        ).toBe(0);
 
         // Per-wallet placement, which the total alone cannot see: A and B can sum
         // to the right number while value sits on the wrong side. Both sides are

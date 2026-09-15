@@ -1,3 +1,4 @@
+import { isWorthClaiming, totalClaimableAmount } from 'lib/miden/fees/spendable';
 import {
   getOrCreateMultisigService,
   isGuardianAccount,
@@ -7,10 +8,7 @@ import { resolveGuardianEndpoint } from 'lib/miden/guardian/account';
 import { GuardianRotationInProgressError } from 'lib/miden/guardian/rotation-in-progress';
 import * as Repo from 'lib/miden/repo';
 import { isNoteTransportConfigured } from 'lib/miden-chain/effective-endpoints';
-import { isExtension } from 'lib/platform';
 import { sanitizeGuardianUrl } from 'lib/settings/helpers';
-import { WalletMessageType } from 'lib/shared/types';
-import { getIntercom } from 'lib/store';
 import { WalletType } from 'screens/onboarding/types';
 
 import { queueNoteImport } from '../activity/notes';
@@ -107,6 +105,13 @@ export const initiateConsumeTransaction = async (
   return initiateConsumeNotesTransaction(accountId, [note], delegateTransaction, manualRetry);
 };
 
+/** What {@link queueConsumeNotes} committed: the row id callers link to, and the row covering each note. */
+export interface ConsumeNotesQueueResult {
+  committedId: string;
+  /** The row each note joined, or the live, Completed or Failed row that kept it out. */
+  coveringTxIdByNoteId: Map<string, string>;
+}
+
 /**
  * Queue ONE consume transaction for many notes (Claim All / Claim Group) —
  * both the WASM client (`transactions.consume({ notes })`) and the Guardian
@@ -133,9 +138,11 @@ export const initiateConsumeTransaction = async (
  * Returns the queued batch row id, or — when every note was deduped away — the
  * id of the row that blocked the most recent note (live/Completed dedup winner
  * or the most recent Failed row from the backoff gate), so callers always get
- * a stable "this note already has a tx" response.
+ * a stable "this note already has a tx" response. `coveringTxIdByNoteId` names the
+ * row covering EACH note, because a partly deduplicated batch's id covers only the
+ * notes that joined it.
  */
-export const initiateConsumeNotesTransaction = async (
+export const queueConsumeNotes = async (
   accountId: string,
   notes: ConsumableNote[],
   delegateTransaction?: boolean,
@@ -144,15 +151,56 @@ export const initiateConsumeNotesTransaction = async (
   // background polling. The bounded-retry failure gate below exists only to
   // throttle auto-consume's retry storms (#215); it must NOT suppress a user
   // who deliberately taps Retry.
-  manualRetry?: boolean
-): Promise<string> => {
+  manualRetry?: boolean,
+  // Auto-consume only. A note that already carries a FAILED BATCH row is given a
+  // row of its own instead of rejoining a batch.
+  //
+  // This is what actually delivers the poison-note isolation the auto-consume call
+  // sites describe. Their own `try/catch` around this function cannot: this is a
+  // queue write, so it throws only on a DB error or the empty-notes guard, while an
+  // un-consumable note fails much later, at generation time, inside the processing
+  // loop. A Miden transaction is atomic, so that failure fails the whole batch and
+  // — because the backoff gate above counts a shared row's failure once for EVERY
+  // note id it carries — one poison note dragged its healthy batch-mates into the
+  // same doubling backoff, up to the 24h cap. Per-note rows used to confine that to
+  // the offending note; batching reinstated it.
+  //
+  // Splitting on the NEXT enqueue rather than at the moment of failure is deliberate:
+  // it keeps this decision inside the same dedup/backoff transaction that already
+  // owns "what may be queued for this note", and it never requeues a row as a fresh
+  // write — an abandoned pipeline can still submit, so a requeue there could become a
+  // second payment. The cost is one recovery pass at N fees after a batch failure,
+  // which is the trade the call sites already promise and strictly better than
+  // stranding every healthy note for a day.
+  //
+  // Off by default, because it changes how many rows one call creates: the swap
+  // settlement path links its returned id to a swap order, and manual Claim All
+  // navigates to it.
+  isolateNotesWithFailedBatch?: boolean,
+  // The chain's base fee, when the caller is an unattended auto-consumer. Required for
+  // isolation to be SAFE, not merely for it to happen.
+  //
+  // Auto-consume admits a batch when the notes are worth one fee TOGETHER. Isolation
+  // then turns that one transaction into N, each paying its own fee -- so a note that
+  // only ever justified a shared claim must not be isolated, or the wallet spends more
+  // than it collects on its own initiative. With the fee in hand, such a note stays
+  // batched instead (see the isolation branch for why batched, not dropped).
+  //
+  // `null`/omitted isolates every candidate, which is right for a manual retry: the user
+  // asked, and `isWorthClaiming` fails open on an unknown fee everywhere else too.
+  verificationBaseFee?: number | null
+): Promise<ConsumeNotesQueueResult> => {
   if (notes.length === 0) {
     throw new Error('initiateConsumeNotesTransaction requires at least one note');
   }
 
-  const { committedId, queuedNoteIds } = await Repo.db.transaction('rw', Repo.transactions, async () => {
+  return await Repo.db.transaction('rw', Repo.transactions, async () => {
     const queueable: ConsumableNote[] = [];
+    // Notes that have already lost a shared batch row and so must not join another.
+    const isolate: ConsumableNote[] = [];
     let blockingId: string | null = null;
+    // A skipped note's row is the one that kept it out, not the one the other notes joined.
+    const coveringTxIdByNoteId = new Map<string, string>();
 
     for (const note of notes) {
       // Read every consume row covering this noteId once (scalar `noteId`
@@ -176,6 +224,7 @@ export const initiateConsumeNotesTransaction = async (
       const liveOrCompleted = sameAccount.find(tx => tx.status !== ITransactionStatus.Failed);
       if (liveOrCompleted) {
         blockingId = blockingId ?? liveOrCompleted.id;
+        coveringTxIdByNoteId.set(note.id, liveOrCompleted.id);
         // An explicit user retry must take effect NOW, even when the blocking row
         // is one the loop has backed off (guardian 429 requeue → nextEligibleAt up
         // to 5 min, #617; likewise the 409 / prover-outage requeues). Dedup still
@@ -216,35 +265,85 @@ export const initiateConsumeNotesTransaction = async (
           const backoffSec = Math.min(RETRY_COOLDOWN_SEC * 2 ** (failures.length - 1), MAX_RETRY_BACKOFF_SEC);
           if (secsSinceLastFailure < backoffSec) {
             blockingId = blockingId ?? mostRecentFailed.id;
+            coveringTxIdByNoteId.set(note.id, mostRecentFailed.id);
             continue;
           }
         }
       }
 
-      queueable.push(note);
+      // A shared row that failed is not evidence about THIS note — it names every note
+      // it carried. Give the note its own row so its next outcome is its own.
+      const failedBatchRow = sameAccount.find(
+        tx => tx.status === ITransactionStatus.Failed && (tx.noteIds?.length ?? 0) > 1
+      );
+      // A row of its own means a FEE of its own, so only a note that can pay for a
+      // transaction by itself may be isolated. Auto-consume admits a batch on what its
+      // notes are worth TOGETHER, which says nothing about any one of them.
+      //
+      // A note that cannot fund its own transaction therefore STAYS IN THE BATCH, and
+      // that is the whole answer for it: batched is the only way it can ever be claimed,
+      // so removing it from batches means the wallet never claims it at all. Twenty
+      // notes at 20x the base fee are each below the floor and together worth 400x — an
+      // earlier revision of this dropped every one of them, permanently, because the
+      // failed-batch row that made them isolation candidates is never pruned.
+      //
+      // The residual is that such a note can fail a batch again and cost its mates
+      // another lap of the #215 backoff. That is bounded (the backoff doubles and the
+      // batch total is re-checked each pass) and strictly better than stranding real
+      // value forever, whereas isolating it would pay a fee larger than it collects.
+      if (isolateNotesWithFailedBatch && failedBatchRow && isWorthClaiming(note.amount, verificationBaseFee ?? null)) {
+        isolate.push(note);
+      } else {
+        queueable.push(note);
+      }
     }
 
-    if (queueable.length === 0) {
-      return { committedId: blockingId!, queuedNoteIds: [] as string[] };
+    // Isolation must not leave behind a batch that cannot pay for its own transaction.
+    // The caller measured the FULL set against one fee; pulling the worthy notes out
+    // into rows of their own leaves a remainder that was never measured on its own, and
+    // a remainder of one below-floor note is simply that note claimed alone at a loss --
+    // exactly what excluding it from isolation was meant to avoid.
+    //
+    // So when the remainder cannot stand by itself, nothing is isolated this pass: the
+    // whole set goes out as one batch for one fee, which is what the caller verified.
+    // The poison note keeps its mates for one more lap of the #215 backoff, and no note
+    // is either claimed at a loss or stranded.
+    if (
+      isolate.length > 0 &&
+      queueable.length > 0 &&
+      !isWorthClaiming(totalClaimableAmount(queueable.map(n => n.amount)), verificationBaseFee ?? null)
+    ) {
+      queueable.push(...isolate);
+      isolate.length = 0;
     }
 
-    const dbTransaction = new ConsumeTransaction(accountId, queueable, delegateTransaction);
-    await Repo.transactions.add(dbTransaction);
-    return { committedId: dbTransaction.id, queuedNoteIds: queueable.map(n => n.id) };
+    if (queueable.length === 0 && isolate.length === 0) {
+      return { committedId: blockingId!, coveringTxIdByNoteId };
+    }
+
+    const createdIds: string[] = [];
+    // One row EACH for the isolated notes, then one shared row for the remainder. A
+    // single-note row is exactly what `initiateConsumeTransaction` produces, so an
+    // isolated note rejoins the ordinary per-note lifecycle.
+    for (const note of isolate) {
+      const isolatedRow = new ConsumeTransaction(accountId, [note], delegateTransaction);
+      await Repo.transactions.add(isolatedRow);
+      createdIds.push(isolatedRow.id);
+      coveringTxIdByNoteId.set(note.id, isolatedRow.id);
+    }
+    if (queueable.length > 0) {
+      const dbTransaction = new ConsumeTransaction(accountId, queueable, delegateTransaction);
+      await Repo.transactions.add(dbTransaction);
+      createdIds.push(dbTransaction.id);
+      for (const queued of queueable) coveringTxIdByNoteId.set(queued.id, dbTransaction.id);
+    }
+    return { committedId: createdIds[0]!, coveringTxIdByNoteId };
   });
-
-  // Only broadcast NoteClaimStarted for notes WE actually queued —
-  // duplicate broadcasts for the same note are a no-op but wasteful.
-  if (queuedNoteIds.length > 0 && isExtension()) {
-    for (const noteId of queuedNoteIds) {
-      getIntercom()
-        .request({ type: WalletMessageType.NoteClaimStarted, noteId })
-        .catch(() => {});
-    }
-  }
-
-  return committedId;
 };
+
+/** {@link queueConsumeNotes}, for the callers that need only the committed row id. */
+export const initiateConsumeNotesTransaction = async (...args: Parameters<typeof queueConsumeNotes>): Promise<string> =>
+  (await queueConsumeNotes(...args)).committedId;
 
 /**
  * Bounded-retry policy for auto-consume.

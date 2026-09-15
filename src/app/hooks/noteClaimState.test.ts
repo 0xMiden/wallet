@@ -1,4 +1,4 @@
-import { deriveNoteClaimState, NoteClaimStateSets } from './noteClaimState';
+import { deriveNoteClaimState, isNoteInFlight, NoteClaimStateSets } from './noteClaimState';
 
 // A note only needs an id + optional isBeingClaimed flag to derive its state.
 const note = (id: string, isBeingClaimed = false) => ({ id, isBeingClaimed });
@@ -9,6 +9,20 @@ const sets = (overrides: Partial<Record<keyof NoteClaimStateSets, string[]>> = {
   invalidNoteIds: new Set(overrides.invalidNoteIds ?? []),
   claimingNoteIds: new Set(overrides.claimingNoteIds ?? []),
   checkingNoteIds: new Set(overrides.checkingNoteIds ?? [])
+});
+
+describe('isNoteInFlight', () => {
+  it('is false when no signal marks the note', () => {
+    expect(isNoteInFlight(note('a'), new Set())).toBe(false);
+  });
+
+  it('is true for a live consume row', () => {
+    expect(isNoteInFlight(note('a', true), new Set())).toBe(true);
+  });
+
+  it('is true for a claim this page queued, a single row included', () => {
+    expect(isNoteInFlight(note('a'), new Set(['a']))).toBe(true);
+  });
 });
 
 describe('deriveNoteClaimState', () => {

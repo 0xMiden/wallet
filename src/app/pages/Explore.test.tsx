@@ -53,6 +53,10 @@ jest.mock('app/hooks/useMidenFaucetId', () => ({
   __esModule: true,
   default: () => mockFaucetId
 }));
+jest.mock('app/hooks/useVerificationBaseFee', () => ({
+  __esModule: true,
+  default: () => 0
+}));
 
 // Balance is a render-prop that hands its child the total fiat BigNumber; the
 // child immediately runs it through the (mocked) toLocalFormat, so any value is

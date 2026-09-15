@@ -53,6 +53,18 @@ describe('GuardianNeedsUrlBanner', () => {
     expect(screen.getByText('guardianChangedBody')).toBeInTheDocument();
   });
 
+  it('runs no guardian status clock', () => {
+    // Home mounts this banner, and nothing on Home may re-render on the 15 s status tick.
+    const intervalSpy = jest.spyOn(global, 'setInterval');
+    try {
+      render(<GuardianNeedsUrlBanner />);
+      expect(screen.getByText('guardianChangedTitle')).toBeInTheDocument();
+      expect(intervalSpy.mock.calls.filter(([, delay]) => delay === 15_000)).toEqual([]);
+    } finally {
+      intervalSpy.mockRestore();
+    }
+  });
+
   it('rejects an invalid URL without calling the apply action', () => {
     render(<GuardianNeedsUrlBanner />);
     fireEvent.change(getUrlInput(), { target: { value: 'not-a-url' } });

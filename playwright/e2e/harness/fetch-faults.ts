@@ -1,6 +1,7 @@
-import type { Page, Worker } from '@playwright/test';
+import type { BrowserContext, Page, Worker } from '@playwright/test';
 
 import type { FetchFaultWire, NetworkFaultPolicy, NetworkFaultTarget, NetworkOrigins } from './network-faults';
+import { installOffscreenFaultRealm } from './offscreen-realm';
 
 /**
  * Fetch-layer fault injection for the gRPC-web targets (node RPC / remote
@@ -155,8 +156,17 @@ export interface FetchFaultControls {
  * Install the Node-side fetch-fault controls. `getServiceWorker` is a thunk
  * because the fixture reassigns the SW handle across a crash-relaunch.
  */
-export function installFetchFaultControls(getServiceWorker: () => Worker | undefined, page: Page): FetchFaultControls {
+export function installFetchFaultControls(
+  getServiceWorker: () => Worker | undefined,
+  page: Page,
+  getContext: () => BrowserContext
+): FetchFaultControls {
   let current: FetchFaultWire[] = [];
+
+  // The third realm. Reached over CDP rather than by `evaluate`, created lazily and
+  // destroyed/recreated by the wallet itself, so it keeps its own bounded round trips
+  // and its own cross-generation hit accounting.
+  const offscreen = installOffscreenFaultRealm(getContext, getServiceWorker);
 
   // The SDK spawns its web-client worker lazily — often after a fault is armed.
   // Re-apply the current config to any worker that appears.
@@ -180,7 +190,7 @@ export function installFetchFaultControls(getServiceWorker: () => Worker | undef
         `[fetch-fault-debug] applyAll: ${realms.length} network realm(s) (of ${page.workers().length} workers + sw=${!!sw}), wire=${JSON.stringify(wire)}`
       );
     }
-    await Promise.all(realms.map(r => applyToRealm(r, wire)));
+    await Promise.all([...realms.map(r => applyToRealm(r, wire)), offscreen.arm(wire)]);
   };
 
   const readHits = async (): Promise<number> => {
@@ -203,7 +213,7 @@ export function installFetchFaultControls(getServiceWorker: () => Worker | undef
         }
       })
     );
-    return perRealm.reduce((total, n) => total + n, 0);
+    return perRealm.reduce((total, n) => total + n, 0) + (await offscreen.hits());
   };
 
   const clearAll = async (): Promise<void> => {
@@ -231,6 +241,7 @@ export function installFetchFaultControls(getServiceWorker: () => Worker | undef
         }
       })
     );
+    await offscreen.clear();
   };
 
   return {

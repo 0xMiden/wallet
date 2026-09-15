@@ -1,4 +1,5 @@
 import { getEnvironmentConfig } from '../config/environments';
+import { ensureFeeFunded } from '../helpers/fee-funding';
 import { expect, test } from '../fixtures/two-wallets';
 
 // The wallet's guardian operator for the active network: the local container on
@@ -114,6 +115,12 @@ test.describe('Guardian recovery stress - kill mid-rotation resumes', () => {
         await midenCli.mint(faucetId, addressA, 100_000_000_000, 'public');
         await midenCli.sync();
         await walletA.claimAllNotes(180_000);
+        // `mint` funds the account for fees by SENDING a note, so the vault stays empty until
+        // that note is claimed -- and `claimAllNotes` returns after two empty pending reads, so
+        // where discovery is not instant it drains nothing and reports success. The rotation
+        // below then fails on an unpayable fee, naming the vault rather than the funding.
+        // Retry until the native balance is actually there. A no-op on a zero-fee chain.
+        await ensureFeeFunded(midenCli, walletA, addressA);
       },
       { screenshotWallets: [{ target: walletA.page, label: 'A' }] }
     );
@@ -291,6 +298,12 @@ test.describe('Guardian recovery stress - rotation register fault retries', () =
         await midenCli.mint(faucetId, addressA, 100_000_000_000, 'public');
         await midenCli.sync();
         await walletA.claimAllNotes(180_000);
+        // `mint` funds the account for fees by SENDING a note, so the vault stays empty until
+        // that note is claimed -- and `claimAllNotes` returns after two empty pending reads, so
+        // where discovery is not instant it drains nothing and reports success. The rotation
+        // below then fails on an unpayable fee, naming the vault rather than the funding.
+        // Retry until the native balance is actually there. A no-op on a zero-fee chain.
+        await ensureFeeFunded(midenCli, walletA, addressA);
       },
       { screenshotWallets: [{ target: walletA.page, label: 'A' }] }
     );
@@ -451,6 +464,12 @@ test.describe('Guardian recovery stress - pending-delta conflict during rotation
         await midenCli.mint(faucetId, addressA, 100_000_000_000, 'public');
         await midenCli.sync();
         await walletA.claimAllNotes(180_000);
+        // `mint` funds the account for fees by SENDING a note, so the vault stays empty until
+        // that note is claimed -- and `claimAllNotes` returns after two empty pending reads, so
+        // where discovery is not instant it drains nothing and reports success. The rotation
+        // below then fails on an unpayable fee, naming the vault rather than the funding.
+        // Retry until the native balance is actually there. A no-op on a zero-fee chain.
+        await ensureFeeFunded(midenCli, walletA, addressA);
       },
       { screenshotWallets: [{ target: walletA.page, label: 'A' }] }
     );

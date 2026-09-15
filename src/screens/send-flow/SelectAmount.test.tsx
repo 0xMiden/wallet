@@ -153,6 +153,18 @@ describe('SelectAmount', () => {
       expect(helper).toHaveTextContent('approxFiatValue:$200.50');
     });
 
+    it('never quotes an available balance above the real one', () => {
+      // The fee reserve makes a long fractional tail the normal case for the
+      // native token: a 12.345678 balance caps at 12.045677999999999. Rounded to
+      // 4dp that reads "12.0457" — more than the form will accept — so a user
+      // typing the quoted figure back in is rejected as over balance, with no Max
+      // button to fall back on. Rounding down cannot overstate it.
+      renderComponent({ token: baseToken({ balance: 12.045677999999999, fiatPrice: 0 }) });
+      const helper = screen.getByTestId('ai-helper');
+      expect(helper).toHaveTextContent('available 12.0456 USDC');
+      expect(helper).not.toHaveTextContent('12.0457');
+    });
+
     it('calls onConfirm when the enabled confirm button is clicked', () => {
       const onConfirm = jest.fn();
       renderComponent({ onConfirm });
