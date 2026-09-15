@@ -138,10 +138,13 @@ export async function applyBridgeInToConsumeRow(consumeId: string, info: IBridge
   if (info.bridgeReceiveTxId) {
     if (delivered.amount === undefined || !delivered.faucetId)
       throw new Error('Bridge consume is missing delivered asset data');
+    // No `outputSymbol` here: the output of a bridge-in is the Miden asset that
+    // landed, not the EVM input token. The row keeps the symbol it was created
+    // with, and the delivered faucet id resolves the rest.
     await updateBridgedReceivePhase(
       info.bridgeReceiveTxId,
       'received',
-      { midenNoteId: info.midenNoteId, outputSymbol: info.sourceSymbol },
+      { midenNoteId: info.midenNoteId },
       { amount: delivered.amount, faucetId: delivered.faucetId, transactionId: delivered.transactionId }
     );
   }

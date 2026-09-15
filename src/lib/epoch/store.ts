@@ -4,6 +4,8 @@ import { sepolia } from 'viem/chains';
 import { create } from 'zustand';
 
 import { registerPendingBridgeIn, resolveBridgeInNoteId } from 'lib/miden/activity/bridge-in';
+import type { IBridgedReceiveExtraInputs } from 'lib/miden/db/types';
+import * as Repo from 'lib/miden/repo';
 import { updateBridgedReceivePhase } from 'lib/miden/transaction/complete';
 
 import {
@@ -236,10 +238,17 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
         const sourceAmount = quotedTokenIn
           ? formatUnits(BigInt(quotedTokenIn), evmParams.evmTokenDecimals ?? 18)
           : evmParams.evmAmount;
+        // The symbol comes from the tracking row, which the deposit screen set
+        // from the token the user picked. The quote's `tokenInSymbol` is the
+        // allocator's own `name` for the token, and for Sepolia USDC that is the
+        // contract address.
+        const trackingRow = bridgeReceiveTxId ? await Repo.transactions.get(bridgeReceiveTxId) : undefined;
+        const trackingInputs: IBridgedReceiveExtraInputs | undefined =
+          trackingRow?.type === 'bridged-receive' ? trackingRow.extraInputs : undefined;
         await registerPendingBridgeIn(connection.address, nonce, {
           provider: 'epoch',
           sourceAmount,
-          sourceSymbol: quote.quoteResult.tokenInSymbol,
+          sourceSymbol: trackingInputs?.sourceSymbol,
           intentNonce: nonce,
           evmTxHash,
           bridgeReceiveTxId
