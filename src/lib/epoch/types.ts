@@ -49,7 +49,6 @@ export interface EVMToMidenIntentParams {
   destinationChainId: number;
   evmSourceAddress: string;
   evmTokenAddress: string;
-  evmTokenDecimals?: number;
   midenRecipientId: string;
   midenFaucetId: string;
   /**

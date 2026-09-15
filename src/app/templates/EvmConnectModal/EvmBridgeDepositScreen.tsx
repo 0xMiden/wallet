@@ -311,7 +311,6 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
         destinationChainId: MIDEN_DESTINATION_CHAIN_ID,
         evmSourceAddress: evmAddress,
         evmTokenAddress: BRIDGEABLE_EVM_OUTPUT_TOKEN_ADDRESS,
-        evmTokenDecimals: BRIDGEABLE_EVM_OUTPUT_TOKEN_DECIMALS,
         midenRecipientId: midenAccount.publicKey,
         midenFaucetId: MIDEN_USDC_FAUCET_ID,
         minTokenOut
@@ -506,18 +505,20 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   const canConfirmRoute = route === 'epoch' ? fastReady : slowReady;
   // Fast (Epoch): the EVM amount the sponsor deposits, from the reverse quote's
   // `tokenIn` (EVM token base units). This is what the wallet signs for, so it
-  // is the amount shown as "depositing". Falls back to the typed amount for the
-  // Slow route and while no quote is present.
-  const depositAmount = useMemo(() => {
-    if (route === 'agglayer') return amount;
+  // is the amount shown as "depositing". It stays exact because the tracking row
+  // stores it; only the Review step rounds it. Falls back to the typed amount for
+  // the Slow route and while no quote is present.
+  const quotedDeposit = useMemo(() => {
+    if (route === 'agglayer') return undefined;
     const raw = epochQuote?.quoteResult.tokenIn;
-    if (!raw || raw === '0') return amount;
+    if (!raw || raw === '0') return undefined;
     try {
-      return toAdaptiveFixed(formatUnits(BigInt(String(raw)), BRIDGEABLE_EVM_OUTPUT_TOKEN_DECIMALS));
+      return formatUnits(BigInt(String(raw)), BRIDGEABLE_EVM_OUTPUT_TOKEN_DECIMALS);
     } catch {
-      return amount;
+      return undefined;
     }
-  }, [route, amount, epochQuote?.quoteResult.tokenIn]);
+  }, [route, epochQuote?.quoteResult.tokenIn]);
+  const depositAmount = quotedDeposit ?? amount;
   const fastFeeUsd = useMemo(() => {
     const rawIn = epochQuote?.quoteResult.tokenIn;
     const rawOut = epochQuote?.quoteResult.tokenOut;
@@ -656,7 +657,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
         case ReceiveStep.ShowBridgePageReview:
           return (
             <EvmBridgeDepositReview
-              amount={depositAmount}
+              amount={quotedDeposit ? toAdaptiveFixed(quotedDeposit) : amount}
               symbol={token === 'ETH' ? ETH_SYMBOL : BRIDGEABLE_EVM_OUTPUT_TOKEN_SYMBOL}
               fiat={token === 'USDC' ? Number(depositAmount) : undefined}
               route={route}
@@ -704,6 +705,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       amount,
       bridgeTxId,
       depositAmount,
+      quotedDeposit,
       error,
       evmAddress,
       epochStatus,

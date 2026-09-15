@@ -1,5 +1,4 @@
 import type { CollateralType, IntentTransactionStatus, SolveIntentParams } from '@epoch-protocol/epoch-intents-sdk';
-import { formatUnits } from 'viem';
 import { sepolia } from 'viem/chains';
 import { create } from 'zustand';
 
@@ -231,23 +230,16 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
         });
       }
       if (nonce) {
-        // Reverse quote: the EVM spend is the quoted `tokenIn` (base units), not a
-        // typed amount. Rendered as a human string for the pending record.
-        const evmParams = (quote as EVMToMidenQuote).params;
-        const quotedTokenIn = quote.quoteResult.tokenIn;
-        const sourceAmount = quotedTokenIn
-          ? formatUnits(BigInt(quotedTokenIn), evmParams.evmTokenDecimals ?? 18)
-          : undefined;
-        // The symbol comes from the tracking row, which the deposit screen set
-        // from the token the user picked. The quote's `tokenInSymbol` is the
-        // allocator's own `name` for the token, and for Sepolia USDC that is the
-        // contract address.
+        // Amount and symbol come from the tracking row, which the deposit screen
+        // wrote from the reverse quote (the exact EVM `tokenIn`) and the token the
+        // user picked. The quote's `tokenInSymbol` is the allocator's own `name`
+        // for the token, and for Sepolia USDC that is the contract address.
         const trackingRow = bridgeReceiveTxId ? await Repo.transactions.get(bridgeReceiveTxId) : undefined;
         const trackingInputs: IBridgedReceiveExtraInputs | undefined =
           trackingRow?.type === 'bridged-receive' ? trackingRow.extraInputs : undefined;
         await registerPendingBridgeIn(connection.address, nonce, {
           provider: 'epoch',
-          sourceAmount,
+          sourceAmount: trackingInputs?.sourceAmount,
           sourceSymbol: trackingInputs?.sourceSymbol,
           intentNonce: nonce,
           evmTxHash,
