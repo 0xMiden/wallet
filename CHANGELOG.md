@@ -6,6 +6,7 @@
 
 - [CHANGE][all] **A dismissed bottom sheet stops swallowing taps.** The sheet animates out over half a second and stays mounted for all of it, behind a full-screen overlay, so a tap aimed at the control it was uncovering landed on a layer already on its way out and did nothing. Once dismissed, the sheet and its overlay stop taking pointer events, so that tap reaches the button underneath, and a tap cannot re-pick a row that is already leaving. The animation itself is unchanged.
 
+- [CHANGE][all] Miden accounts use registered coin type 5063758 for key derivation. This changes the keys recovered from a phrase and ships with the protocol 0.17 account reset. (#505)
 - [CHORE][all] `next` is now the 1.17.0 line; the 0.16 line continues on `main` as 1.16.x.
 
 ### Fixes
