@@ -148,7 +148,7 @@ Gates: e2e-bridge-in.yml (IN, iOS) + e2e-bridge.yml (OUT, Chrome), both post-mer
 - [x] Record approved product decisions and inspect every outgoing initiation path.
 - [x] Write the implementation design and security invariants.
 - [x] Obtain design approval, then write the TDD implementation plan.
-- [ ] Implement the data model, atomic policy, and one-time authorization.
+- [x] Implement the data model, atomic policy, and one-time authorization.
 - [ ] Implement strict authentication and Security settings UI.
 - [ ] Integrate send, swap, bridge, Earn, and dApp flows.
 - [ ] Run visual checks, full local gates, Review Council, and fix every actionable finding.
@@ -156,4 +156,7 @@ Gates: e2e-bridge-in.yml (IN, iOS) + e2e-bridge.yml (OUT, Chrome), both post-mer
 
 ## Review
 
-Pending implementation and verification.
+- Task 1: Dexie 1.7 schema, compound account-and-faucet key, authorization index, and strict bigint-safe codec. 60 focused tests green.
+- Task 2: rolling 24-hour and 7-day assessment with conservative outgoing history and typed fail-closed errors. 79 focused tests green.
+- Task 3: atomic policy recheck, exact one-time two-minute authorization, replay rejection, and all four outgoing initiation routes. 184 focused tests green; TypeScript and scoped lint green.
+- Remaining: strict authentication, configuration transport, UI and flow integrations, E2E, full gates, Review Council, and delivery.

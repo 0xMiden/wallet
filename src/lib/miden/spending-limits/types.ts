@@ -70,6 +70,15 @@ export class SpendingLimitPolicyUnavailableError extends Error {
   }
 }
 
+export class SpendingLimitAuthorizationRequiredError extends Error {
+  readonly code = 'SPENDING_LIMIT_AUTHORIZATION_REQUIRED';
+
+  constructor(readonly assessment: SpendingLimitAssessment) {
+    super('A fresh authentication is required to exceed the configured spending limit');
+    this.name = 'SpendingLimitAuthorizationRequiredError';
+  }
+}
+
 const CANONICAL_AMOUNT = /^(0|[1-9]\d*)$/;
 
 const unavailable = (reason: string): SpendingLimitPolicyUnavailableError =>
