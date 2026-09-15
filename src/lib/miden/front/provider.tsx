@@ -5,6 +5,7 @@ import { MidenProvider as SdkMidenProvider } from '@miden-sdk/react/lazy';
 import { NoteToastProvider } from 'components/NoteToastProvider';
 import { EarnIntentWatcher } from 'lib/epoch/EarnIntentWatcher';
 import { FiatCurrencyProvider } from 'lib/fiat-currency';
+import { BridgeIntentWatcher } from 'lib/miden/activity/BridgeIntentWatcher';
 import { MidenContextProvider, useMidenContext } from 'lib/miden/front/client';
 import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
 import {
@@ -176,6 +177,7 @@ const ConditionalProviders: FC<PropsWithChildren> = ({ children }) => {
             <SwapOrderTrackingManager />
             <NativeNoteAutoConsumeManager />
             <EarnIntentWatcher />
+            <BridgeIntentWatcher />
             {/* Startup recovery for transactions orphaned by an app kill. No-op on
                 the extension, where the service worker's `setupTransactionProcessor`
                 already does this. */}

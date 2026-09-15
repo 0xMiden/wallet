@@ -9,8 +9,14 @@ import { useWriteContract } from 'wagmi';
 import { ReceiveStep } from 'app/pages/Receive/steps';
 import { Navigator, NavigatorProvider, Route, useNavigator } from 'components/Navigator';
 import { ScreenHeader } from 'components/ScreenHeader';
-import { AGGLAYER_BRIDGE_ABI, AGGLAYER_CONTRACT_ADDRESS, MIDEN_CHAIN_ID, midenAddrToEvmAddr } from 'lib/agglayer';
-import { MIDEN_DESTINATION_CHAIN_ID, useEpochStore } from 'lib/epoch';
+import {
+  AGGLAYER_BRIDGE_ABI,
+  AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL,
+  AGGLAYER_CONTRACT_ADDRESS,
+  MIDEN_CHAIN_ID,
+  midenAddrToEvmAddr
+} from 'lib/agglayer';
+import { evmToMidenMinTokenOut, MIDEN_DESTINATION_CHAIN_ID, useEpochStore } from 'lib/epoch';
 import {
   BRIDGEABLE_EVM_OUTPUT_TOKEN_ADDRESS,
   BRIDGEABLE_EVM_OUTPUT_TOKEN_DECIMALS,
@@ -18,6 +24,7 @@ import {
 } from 'lib/epoch/bridgeable-token';
 import { toAdaptiveFixed } from 'lib/i18n/numbers';
 import { initiateBridgedReceiveTransaction, updateBridgedReceivePhase } from 'lib/miden/activity';
+import { startBridgeReceiveSubmission } from 'lib/miden/activity/bridge-receive';
 import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { WalletAccount } from 'lib/shared/types';
@@ -33,10 +40,19 @@ import { EvmBridgeDepositStatus } from './EvmBridgeDepositStatus';
 import { EvmBridgeTokenDrawer, type DepositToken } from './EvmBridgeTokenDrawer';
 import { EvmSwitchWalletDrawer } from './EvmSwitchWalletDrawer';
 
-const MIDEN_USDC_FAUCET_ID = '0x2458e5446128e6b150b75b8ebd9ce1';
+/**
+ * Miden testnet faucet the Epoch solver delivers into (hex account id). This is
+ * the default faucet of epochprotocol/miden-integration-example; the solver
+ * only quotes faucets it holds inventory for, so the chain's native fee faucet
+ * is NOT usable here.
+ */
+const MIDEN_USDC_FAUCET_ID = '0x537c15a622074e91188aa894456c52';
+/** Decimals of that faucet (the example's testnet faucet map lists it at 6). */
+const MIDEN_USDC_FAUCET_DECIMALS = 6;
 
 /** Native-ETH source token symbol/decimals (the non-USDC deposit option). */
-const ETH_SYMBOL = 'ETH';
+// Also the symbol the AggLayer bridge-in matcher requires on a native deposit's tracker.
+const ETH_SYMBOL = AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL;
 const ETH_DECIMALS = 18;
 
 const MOCK_USDC_GET_BALANCE_ABI = [
@@ -46,6 +62,19 @@ const MOCK_USDC_GET_BALANCE_ABI = [
     stateMutability: 'view',
     inputs: [{ name: 'account', type: 'address' }],
     outputs: [{ name: '', type: 'uint256' }]
+  }
+] as const;
+
+const ERC20_APPROVE_ABI = [
+  {
+    type: 'function',
+    name: 'approve',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'spender', type: 'address' },
+      { name: 'amount', type: 'uint256' }
+    ],
+    outputs: [{ name: '', type: 'bool' }]
   }
 ] as const;
 
@@ -269,22 +298,23 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     };
   }, [evmAddress]);
 
-  // A fresh EVM→Miden forward-quote for the current amount. Extracted so a failed
-  // deposit can re-quote to recover (executeEVMToMiden requires status 'quoted',
-  // so without this a failed attempt dead-ends until the amount is edited).
+  // A fresh EVM→Miden reverse-quote for the current amount. The typed amount is
+  // the Miden-side output (`minTokenOut`, faucet base units); the allocator
+  // answers with the EVM `tokenIn` to deposit. Extracted so a failed deposit can
+  // re-quote to recover (executeEVMToMiden requires status 'quoted', so without
+  // this a failed attempt dead-ends until the amount is edited).
   const requote = useCallback(() => {
-    if (!debouncedAmount) return undefined;
+    const minTokenOut = evmToMidenMinTokenOut(debouncedAmount, MIDEN_USDC_FAUCET_DECIMALS);
+    if (!minTokenOut) return undefined;
     return quoteEVMToMiden(
       {
         sourceChainId: DEFAULT_CHAIN_ID,
         destinationChainId: MIDEN_DESTINATION_CHAIN_ID,
         evmSourceAddress: evmAddress,
         evmTokenAddress: BRIDGEABLE_EVM_OUTPUT_TOKEN_ADDRESS,
-        evmAmount: debouncedAmount,
-        evmTokenDecimals: BRIDGEABLE_EVM_OUTPUT_TOKEN_DECIMALS,
         midenRecipientId: midenAccount.publicKey,
         midenFaucetId: MIDEN_USDC_FAUCET_ID,
-        minTokenOut: '0'
+        minTokenOut
       },
       evmAddress
     ).catch(err => console.error('[EvmBridgeDepositScreen] quote failed', err));
@@ -292,11 +322,9 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
 
   useEffect(() => {
     if (route !== 'epoch' || token !== 'USDC') return;
-    if (!debouncedAmount) {
-      resetEpoch();
-      return;
-    }
-    void requote();
+    // A declined quote (no amount, or one that rounds to zero faucet units) clears the last one.
+    const quoting = requote();
+    if (quoting === undefined) resetEpoch();
   }, [debouncedAmount, requote, resetEpoch, route, token]);
 
   useEffect(() => {
@@ -318,8 +346,6 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       resetEpoch();
       setSlowStatus('idle');
       setSlowError(null);
-      // USDC can't use the native-only Slow (Agglayer) route — fall back to Fast.
-      if (next === 'USDC') setRoute('epoch');
     },
     [resetEpoch]
   );
@@ -351,19 +377,45 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       setSlowError(null);
 
       try {
-        const amountInBaseUnits = parseUnits(amount.trim(), 18);
+        // AggLayer bridges any asset: native ETH rides as `msg.value` with the zero
+        // token address; an ERC-20 is approved to the bridge first and then bridged
+        // with its own address and no value.
+        const isNative = token === 'ETH';
+        const amountInBaseUnits = parseUnits(
+          amount.trim(),
+          isNative ? ETH_DECIMALS : BRIDGEABLE_EVM_OUTPUT_TOKEN_DECIMALS
+        );
         const contractAddress = AGGLAYER_CONTRACT_ADDRESS.get('sepolia')! as `0x${string}`;
+        const tokenAddress = (
+          isNative ? '0x0000000000000000000000000000000000000000' : BRIDGEABLE_EVM_OUTPUT_TOKEN_ADDRESS
+        ) as `0x${string}`;
         const args = [
           MIDEN_CHAIN_ID,
           midenAddrToEvmAddr(midenAccount.publicKey),
           amountInBaseUnits,
-          '0x0000000000000000000000000000000000000000',
+          tokenAddress,
           true,
           '0x'
         ] as const;
+        const value = isNative ? amountInBaseUnits : 0n;
 
         let hash: `0x${string}`;
         if (nativeReownAvailable) {
+          if (!isNative) {
+            const approveData = encodeFunctionData({
+              abi: ERC20_APPROVE_ABI,
+              functionName: 'approve',
+              args: [contractAddress, amountInBaseUnits]
+            });
+            const approval = await NativeReown.sendTransaction({
+              chainId: DEFAULT_CHAIN_ID,
+              from: evmAddress,
+              to: tokenAddress,
+              value: toHex(0n),
+              data: approveData
+            });
+            await waitForSepoliaReceipt(unwrapNativeResult(approval.hash) as `0x${string}`);
+          }
           const data = encodeFunctionData({
             abi: AGGLAYER_BRIDGE_ABI,
             functionName: 'bridgeAsset',
@@ -373,7 +425,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
             chainId: DEFAULT_CHAIN_ID,
             from: evmAddress,
             to: contractAddress,
-            value: toHex(amountInBaseUnits),
+            value: toHex(value),
             data
           });
           hash = unwrapNativeResult(result.hash) as `0x${string}`;
@@ -384,13 +436,23 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
           // this a payable `bridgeAsset` would broadcast real ETH on the wrong chain
           // to a Sepolia-only address. The Fast/Epoch path guards this same case in
           // executeEVMToMiden; the native branch above already pins DEFAULT_CHAIN_ID.
+          if (!isNative) {
+            const approvalHash = await writeContract.mutateAsync({
+              chainId: DEFAULT_CHAIN_ID,
+              abi: ERC20_APPROVE_ABI,
+              address: tokenAddress,
+              functionName: 'approve',
+              args: [contractAddress, amountInBaseUnits]
+            });
+            await waitForSepoliaReceipt(approvalHash);
+          }
           hash = await writeContract.mutateAsync({
             chainId: DEFAULT_CHAIN_ID,
             abi: AGGLAYER_BRIDGE_ABI,
             address: contractAddress,
             functionName: 'bridgeAsset',
             args,
-            value: amountInBaseUnits
+            value
           });
         }
 
@@ -406,7 +468,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
         await updateBridgedReceivePhase(trackingTxId, 'failed', { error: message }).catch(() => undefined);
       }
     },
-    [amount, evmAddress, midenAccount.publicKey, nativeReownAvailable, walletProvider, writeContract]
+    [amount, evmAddress, midenAccount.publicKey, nativeReownAvailable, token, walletProvider, writeContract]
   );
 
   const setupReady = isValidAmount(amount);
@@ -435,38 +497,58 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     };
   }, [token, ethBalance.value, usdcBalance.value]);
 
-  // Route availability is token-driven: Fast (Epoch) only bridges USDC today
-  // (ETH-fast needs WETH wrapping — not built), and Slow (Agglayer) only bridges
-  // native ETH on testnet.
-  const slowEnabled = token === 'ETH';
+  // Fast (Epoch) only bridges USDC today: ETH-fast needs WETH wrapping, which is not built.
+  // The quote must be for the amount on screen: it lags the input by the debounce, and
+  // an amount that rounds to zero faucet units is never quoted.
   const fastReady =
-    route === 'epoch' && token === 'USDC' && epochFlow === 'evm-to-miden' && epochStatus === 'quoted' && !!epochQuote;
-  const slowReady = route === 'agglayer' && token === 'ETH' && isValidAmount(amount) && slowStatus !== 'signing';
+    route === 'epoch' &&
+    token === 'USDC' &&
+    epochFlow === 'evm-to-miden' &&
+    epochStatus === 'quoted' &&
+    !!epochQuote &&
+    epochQuote.params.minTokenOut === evmToMidenMinTokenOut(amount, MIDEN_USDC_FAUCET_DECIMALS);
+  const slowReady = route === 'agglayer' && isValidAmount(amount) && slowStatus !== 'signing';
   const canConfirmRoute = route === 'epoch' ? fastReady : slowReady;
-  const fastFeeUsd = useMemo(() => {
-    if (!amount || !epochQuote?.quoteResult.tokenOut) return undefined;
+  // Fast (Epoch): the EVM amount the sponsor deposits, from the reverse quote's
+  // `tokenIn` (EVM token base units). This is what the wallet signs for, so it
+  // is the amount shown as "depositing". It stays exact because the tracking row
+  // stores it; only the Review step rounds it. Falls back to the typed amount for
+  // the Slow route and while no quote is present.
+  const quotedDeposit = useMemo(() => {
+    if (route === 'agglayer') return undefined;
+    const raw = epochQuote?.quoteResult.tokenIn;
+    if (!raw || raw === '0') return undefined;
     try {
-      const input = parseFloat(amount);
-      const output = parseFloat(
-        formatUnits(BigInt(epochQuote.quoteResult.tokenOut), BRIDGEABLE_EVM_OUTPUT_TOKEN_DECIMALS)
-      );
+      return formatUnits(BigInt(String(raw)), BRIDGEABLE_EVM_OUTPUT_TOKEN_DECIMALS);
+    } catch {
+      return undefined;
+    }
+  }, [route, epochQuote?.quoteResult.tokenIn]);
+  const depositAmount = quotedDeposit ?? amount;
+  const fastFeeUsd = useMemo(() => {
+    const rawIn = epochQuote?.quoteResult.tokenIn;
+    const rawOut = epochQuote?.quoteResult.tokenOut;
+    if (!rawIn || !rawOut) return undefined;
+    try {
+      const input = parseFloat(formatUnits(BigInt(String(rawIn)), BRIDGEABLE_EVM_OUTPUT_TOKEN_DECIMALS));
+      const output = parseFloat(formatUnits(BigInt(String(rawOut)), MIDEN_USDC_FAUCET_DECIMALS));
       if (!Number.isFinite(input) || !Number.isFinite(output)) return undefined;
       return Math.max(0, input - output);
     } catch {
       return undefined;
     }
-  }, [amount, epochQuote?.quoteResult.tokenOut]);
+  }, [epochQuote?.quoteResult.tokenIn, epochQuote?.quoteResult.tokenOut]);
   const error = route === 'epoch' && epochFlow === 'evm-to-miden' ? epochError : slowError;
 
-  // Forward-quoted output the recipient receives on Miden, shown on the Review
-  // step. Fast (Epoch) reads the solver quote's tokenOut; Slow (Agglayer) bridges
-  // the dedicated token 1:1.
+  // Output the recipient receives on Miden, shown on the Review step. Fast
+  // (Epoch) reads the reverse quote's tokenOut (Miden faucet base units); Slow
+  // (Agglayer) bridges the dedicated token 1:1.
   const outputAmount = useMemo(() => {
     if (route === 'agglayer') return isValidAmount(amount) ? amount : undefined;
     const raw = epochQuote?.quoteResult.tokenOut;
     if (raw == null) return undefined;
     try {
-      const human = formatUnits(BigInt(String(raw)), BRIDGEABLE_EVM_OUTPUT_TOKEN_DECIMALS);
+      const human = formatUnits(BigInt(String(raw)), MIDEN_USDC_FAUCET_DECIMALS);
       return toAdaptiveFixed(human);
     } catch {
       return undefined;
@@ -475,10 +557,8 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
 
   const networkName = getChain(DEFAULT_CHAIN_ID)?.name ?? '';
 
-  // Route-screen hint below the cards: for USDC explain why Slow is disabled;
-  // for ETH+Fast inform that it wraps to WETH (and isn't available yet).
-  const routeNotice =
-    token === 'USDC' ? t('slowNeedsNativeEth') : route === 'epoch' ? t('fastEthWrapNotice') : undefined;
+  // Route-screen hint below the cards: ETH on Fast wraps to WETH, which isn't available yet.
+  const routeNotice = token === 'ETH' && route === 'epoch' ? t('fastEthWrapNotice') : undefined;
 
   // Review-step confirm state: spin while the submit is signing, and block
   // re-submits once it's in flight / done.
@@ -530,26 +610,27 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       hapticMedium();
       const expectedAmount =
         route === 'agglayer'
-          ? parseUnits(amount.trim(), ETH_DECIMALS)
+          ? parseUnits(amount.trim(), token === 'ETH' ? ETH_DECIMALS : BRIDGEABLE_EVM_OUTPUT_TOKEN_DECIMALS)
           : BigInt(String(epochQuote?.quoteResult.tokenOut ?? '0'));
-      const txId = await initiateBridgedReceiveTransaction({
-        accountId: midenAccount.publicKey,
-        amount: expectedAmount,
-        faucetId: route === 'epoch' ? MIDEN_USDC_FAUCET_ID : '',
-        provider: route,
-        sourceAddress: evmAddress,
-        sourceAmount: amount.trim(),
-        sourceSymbol: token === 'ETH' ? ETH_SYMBOL : BRIDGEABLE_EVM_OUTPUT_TOKEN_SYMBOL,
-        outputAmount,
-        outputSymbol: token === 'ETH' ? ETH_SYMBOL : BRIDGEABLE_EVM_OUTPUT_TOKEN_SYMBOL
-      });
+      // The row is born `submitting`; the submission keeps the app-root watcher
+      // from resuming it as an orphan while this flow still signs and writes it.
+      const txId = await startBridgeReceiveSubmission(
+        () =>
+          initiateBridgedReceiveTransaction({
+            accountId: midenAccount.publicKey,
+            amount: expectedAmount,
+            faucetId: route === 'epoch' ? MIDEN_USDC_FAUCET_ID : '',
+            provider: route,
+            sourceAddress: evmAddress,
+            sourceAmount: depositAmount.trim(),
+            sourceSymbol: token === 'ETH' ? ETH_SYMBOL : BRIDGEABLE_EVM_OUTPUT_TOKEN_SYMBOL,
+            outputAmount,
+            outputSymbol: token === 'ETH' ? ETH_SYMBOL : BRIDGEABLE_EVM_OUTPUT_TOKEN_SYMBOL
+          }),
+        id => (route === 'agglayer' ? handleSlowBridge(id) : executeEVMToMiden(id))
+      );
       setBridgeTxId(txId);
       navigateTo(ReceiveStep.ShowBridgePageStatus);
-      if (route === 'agglayer') {
-        void handleSlowBridge(txId);
-      } else {
-        void executeEVMToMiden(txId);
-      }
     } catch (err) {
       console.error('[EvmBridgeDepositScreen] bridge row creation failed', err);
       setSlowError(errorMessage(err));
@@ -560,6 +641,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     amount,
     canConfirmRoute,
     creatingBridgeRow,
+    depositAmount,
     epochQuote?.quoteResult.tokenOut,
     epochStatus,
     evmAddress,
@@ -581,9 +663,9 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
         case ReceiveStep.ShowBridgePageReview:
           return (
             <EvmBridgeDepositReview
-              amount={amount}
+              amount={quotedDeposit ? toAdaptiveFixed(quotedDeposit) : amount}
               symbol={token === 'ETH' ? ETH_SYMBOL : BRIDGEABLE_EVM_OUTPUT_TOKEN_SYMBOL}
-              fiat={token === 'USDC' ? Number(amount) : undefined}
+              fiat={token === 'USDC' ? Number(depositAmount) : undefined}
               route={route}
               outputAmount={outputAmount}
               networkName={networkName}
@@ -603,7 +685,6 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
               onRouteChange={handleRouteChange}
               fastFeeUsd={fastFeeUsd}
               fastQuoteLoading={route === 'epoch' && epochStatus === 'quoting'}
-              slowEnabled={slowEnabled}
               notice={routeNotice}
               confirmDisabled={!canConfirmRoute}
               onConfirm={handleContinueToReview}
@@ -629,6 +710,8 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     [
       amount,
       bridgeTxId,
+      depositAmount,
+      quotedDeposit,
       error,
       evmAddress,
       epochStatus,
@@ -640,7 +723,6 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       handleRouteChange,
       route,
       token,
-      slowEnabled,
       routeNotice,
       canConfirmRoute,
       outputAmount,

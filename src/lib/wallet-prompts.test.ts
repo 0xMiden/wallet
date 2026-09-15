@@ -23,7 +23,7 @@ import {
   getPendingNotesUsdTotal,
   isWalletPromptPending,
   normalizeWalletPromptStorage,
-  pollActiveBridgePrompts,
+  reconcileBridgedSends,
   reportHotKeyHardwareFailure,
   reportHotKeyRotationNeeded,
   seedWalletPrompt,
@@ -558,6 +558,63 @@ describe('bridge prompts', () => {
     expect(active.map(tx => tx.id)).toEqual(['mine']);
   });
 
+  it('reconciles every unsettled bridged-send across accounts and skips settled or restored rows', async () => {
+    pollEpochIntentFill.mockResolvedValue({ status: 'confirmed', fillTxHash: '0xfill', fillChainId: 11155111 });
+    const pending = (id: string, accountId: string, over: Partial<ITransaction> = {}) =>
+      baseBridge({
+        id,
+        accountId,
+        extraInputs: {
+          provider: 'epoch',
+          epochStatus: 'pending',
+          intentNonce: 'N1',
+          destinationAddress: '0x1111111111111111111111111111111111111111'
+        },
+        ...over
+      });
+    bridgeRows.push(
+      pending('acct-1-pending', 'acct-1'),
+      pending('acct-2-pending', 'acct-2'),
+      pending('restored', 'acct-1', { restoredFromBackup: true }),
+      baseBridge({ id: 'confirmed', extraInputs: { provider: 'epoch', epochStatus: 'confirmed' } }),
+      baseBridge({ id: 'not-a-bridge', type: 'send' })
+    );
+
+    await reconcileBridgedSends();
+
+    expect(pollEpochIntentFill).toHaveBeenCalledTimes(2);
+    expect(updateClaimStatus.mock.calls.map(call => call[0])).toEqual(
+      expect.arrayContaining(['acct-1-pending', 'acct-2-pending'])
+    );
+    expect(updateClaimStatus).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps polling the other rows when one row fails, and names the failing row', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    pollEpochIntentFill.mockImplementation(async ({ intentNonce }: { intentNonce: string }) => {
+      if (intentNonce === 'N-broken') throw new Error('allocator down');
+      return { status: 'confirmed', fillTxHash: '0xfill', fillChainId: 11155111 };
+    });
+    const pending = (id: string, accountId: string, intentNonce: string) =>
+      baseBridge({
+        id,
+        accountId,
+        extraInputs: {
+          provider: 'epoch',
+          epochStatus: 'pending',
+          intentNonce,
+          destinationAddress: '0x1111111111111111111111111111111111111111'
+        }
+      });
+    bridgeRows.push(pending('broken-row', 'acct-1', 'N-broken'), pending('healthy-row', 'acct-2', 'N-healthy'));
+
+    await expect(reconcileBridgedSends()).resolves.toBeUndefined();
+
+    expect(updateClaimStatus).toHaveBeenCalledWith('healthy-row', 'not-applicable', expect.any(Object));
+    expect(warn).toHaveBeenCalledWith('[wallet-prompts] bridged-send poll failed', 'broken-row', expect.any(Error));
+    warn.mockRestore();
+  });
+
   it('flips a pending AggLayer bridge to ready once its deposit is claimable', async () => {
     findClaimableDeposit.mockResolvedValue({ deposit: true });
     const claimable = baseBridge({
@@ -571,7 +628,8 @@ describe('bridge prompts', () => {
     const stillProving = baseBridge({ id: 'proving', status: ITransactionStatus.GeneratingTransaction });
     const notBridge = baseBridge({ id: 'send', type: 'send' });
 
-    await pollActiveBridgePrompts([claimable, alreadyReady, stillProving, notBridge]);
+    bridgeRows.push(claimable, alreadyReady, stillProving, notBridge);
+    await reconcileBridgedSends();
 
     expect(findClaimableDeposit).toHaveBeenCalledTimes(1);
     expect(updateClaimStatus).toHaveBeenCalledWith('agg-ready', 'ready', { depositReady: true });
@@ -587,7 +645,7 @@ describe('bridge prompts', () => {
       originTxHash === '0xrow-b-origin' ? null : { deposit_cnt: 41 }
     );
 
-    await pollActiveBridgePrompts([
+    bridgeRows.push(
       baseBridge({
         id: 'agg-a',
         transactionId: '0xrow-a-origin',
@@ -598,35 +656,37 @@ describe('bridge prompts', () => {
         transactionId: '0xrow-b-origin',
         extraInputs: { provider: 'agglayer', claimStatus: 'pending', destinationAddress: '0xdest' }
       })
-    ]);
+    );
+    await reconcileBridgedSends();
 
     expect(updateClaimStatus).toHaveBeenCalledTimes(1);
     expect(updateClaimStatus).toHaveBeenCalledWith('agg-a', 'ready', { depositReady: true });
   });
 
-  // Defence in depth: today's only caller passes the list `fetchActiveBridgePrompts`
-  // already filtered, but this is exported and takes whatever it is given, and
-  // `pollBridgedSend` queries the allocator and writes back onto the row.
-  it('polls nothing for a restored row even when handed one directly', async () => {
+  // `pollBridgedSend` queries the allocator and writes back onto the row, so a
+  // row restored from a backup must never reach it.
+  it('polls nothing for a restored row', async () => {
     const restored = baseBridge({
       id: 'agg-restored',
       restoredFromBackup: true,
       extraInputs: { provider: 'agglayer', claimStatus: 'pending', destinationAddress: '0xdest' }
     });
 
-    await pollActiveBridgePrompts([restored]);
+    bridgeRows.push(restored);
+    await reconcileBridgedSends();
 
     expect(findClaimableDeposit).not.toHaveBeenCalled();
     expect(updateClaimStatus).not.toHaveBeenCalled();
   });
 
   it('leaves a pending AggLayer bridge untouched while no deposit is claimable', async () => {
-    await pollActiveBridgePrompts([
+    bridgeRows.push(
       baseBridge({
         id: 'agg-wait',
         extraInputs: { provider: 'agglayer', claimStatus: 'pending', destinationAddress: '0xdest' }
       })
-    ]);
+    );
+    await reconcileBridgedSends();
 
     expect(updateClaimStatus).not.toHaveBeenCalled();
   });
@@ -646,7 +706,8 @@ describe('bridge prompts', () => {
       extraInputs: { provider: 'epoch', epochStatus: 'pending', destinationAddress: '0xdest' }
     });
 
-    await pollActiveBridgePrompts([filling, settled, noNonce]);
+    bridgeRows.push(filling, settled, noNonce);
+    await reconcileBridgedSends();
 
     expect(pollEpochIntentFill).toHaveBeenCalledTimes(1);
     expect(updateClaimStatus).toHaveBeenCalledWith('epoch-filling', 'not-applicable', {
@@ -659,12 +720,13 @@ describe('bridge prompts', () => {
   it('keeps polling an Epoch intent whose fill is still pending without a hash', async () => {
     pollEpochIntentFill.mockResolvedValue({ status: 'pending', fillTxHash: undefined });
 
-    await pollActiveBridgePrompts([
+    bridgeRows.push(
       baseBridge({
         id: 'epoch-unfilled',
         extraInputs: { provider: 'epoch', epochStatus: 'pending', intentNonce: 'n1', destinationAddress: '0xdest' }
       })
-    ]);
+    );
+    await reconcileBridgedSends();
 
     expect(updateClaimStatus).not.toHaveBeenCalled();
   });
