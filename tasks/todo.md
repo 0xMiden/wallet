@@ -147,7 +147,7 @@ Gates: e2e-bridge-in.yml (IN, iOS) + e2e-bridge.yml (OUT, Chrome), both post-mer
 
 - [x] Record approved product decisions and inspect every outgoing initiation path.
 - [x] Write the implementation design and security invariants.
-- [ ] Obtain design approval, then write the TDD implementation plan.
+- [x] Obtain design approval, then write the TDD implementation plan.
 - [ ] Implement the data model, atomic policy, and one-time authorization.
 - [ ] Implement strict authentication and Security settings UI.
 - [ ] Integrate send, swap, bridge, Earn, and dApp flows.
