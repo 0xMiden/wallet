@@ -4,6 +4,8 @@
 
 ### Changes
 
+- [CHANGE][all] **Claim All no longer takes over the screen.** It pushed a full-screen progress page and left you there. That page follows a single transaction, while Claim All queues one consume per asset, so it could only ever show the first and would report a confident, wrong receipt while the others were still queued or already failed. Claim All now reports progress on the pending list itself, which keeps a control reading "Claiming…" while the batch is in flight, so the list stays put and stays live. Claiming a single note is unchanged: that IS one transaction, so it still opens the progress screen and its receipt. Two things moved with it: off-extension that page's own timer was the only thing driving the transaction queue from the batch path, so Claim All now starts the background processor directly; and a consume that fails is re-checked on a short schedule afterwards rather than only on the next focus, so a claim that fails faster than the list can render it still shows its Retry.
+
 - [CHANGE][all] **A dismissed bottom sheet stops swallowing taps.** The sheet animates out over half a second and stays mounted for all of it, behind a full-screen overlay, so a tap aimed at the control it was uncovering landed on a layer already on its way out and did nothing. Once dismissed, the sheet and its overlay stop taking pointer events, so that tap reaches the button underneath, and a tap cannot re-pick a row that is already leaving. The animation itself is unchanged.
 
 - [CHANGE][all] Miden accounts use registered coin type 5063758 for key derivation. This changes the keys recovered from a phrase and ships with the protocol 0.17 account reset. (#505)

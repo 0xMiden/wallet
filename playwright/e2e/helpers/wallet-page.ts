@@ -1877,6 +1877,27 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
         .waitFor({ state: 'visible', timeout: 2_000 })
         .catch(() => {});
 
+      // A batch is already running: the summary swaps `claim-all-button` for a disabled
+      // `claim-all-status` while every note is in flight. Without this the loop would fall through
+      // to the per-row fallback below and pay a full reloadAndPreparePending() per asset row --
+      // ~8-12s each -- to find no `claim-button` there either, because those rows are also showing
+      // their in-flight control. Wait for the batch to settle instead.
+      if (
+        await this.page
+          .getByTestId('claim-all-status')
+          .isVisible()
+          .catch(() => false)
+      ) {
+        console.log(`[WalletPage.claimAllNotes] iter=${iteration} pending=${pending} batch in flight`);
+        // The status control leaves once every note in the batch settles; the cap keeps the loop re-reading the
+        // pending count while a long batch runs.
+        await this.page
+          .getByTestId('claim-all-status')
+          .waitFor({ state: 'hidden', timeout: 8_000 })
+          .catch(() => {});
+        continue;
+      }
+
       // Desktop fast path: a single "Claim All" button drains every faucet.
       if (await claimAllBtn.isVisible().catch(() => false)) {
         console.log(`[WalletPage.claimAllNotes] iter=${iteration} pending=${pending} clicking Claim All`);
@@ -2360,7 +2381,7 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
       // LEFT AS A SLEEP: head start for the enqueued consume (see claimAllNotes).
       await this.page.waitForTimeout(clicked ? 8_000 : 2_000);
 
-      // A successful group claim navigates to the transaction progress screen.
+      // A successful group claim now reports progress in place; only a single-note claim navigates.
       // Reload the pending route so the next iteration always resumes at the
       // asset summary rather than depending on an in-page back control.
       await this.reloadAndPreparePending();

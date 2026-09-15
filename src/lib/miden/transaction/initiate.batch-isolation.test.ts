@@ -38,7 +38,7 @@ jest.mock('../back/miden-client-proxy', () => ({ midenClientProxy: {} }));
 jest.mock('../activity/notes', () => ({ queueNoteImport: jest.fn() }));
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const { initiateConsumeNotesTransaction } = require('./initiate');
+const { initiateConsumeNotesTransaction, queueConsumeNotes } = require('./initiate');
 
 const ACCOUNT = 'mtst1account';
 
@@ -232,5 +232,49 @@ describe('initiateConsumeNotesTransaction — poison-note isolation', () => {
 
     const queuedIds = (await consumeRows()).filter(tx => tx.status === ITransactionStatus.Queued).map(tx => tx.id);
     expect(queuedIds).toContain(id);
+  });
+
+  it('reports each isolated note under the row it was given', async () => {
+    await failedBatch(['a', 'b']);
+
+    const { coveringTxIdByNoteId } = await queueConsumeNotes(
+      ACCOUNT,
+      [note('a'), note('b'), note('c')],
+      false,
+      false,
+      true
+    );
+
+    const rows = new Map((await consumeRows()).map(row => [row.id, row]));
+    for (const id of ['a', 'b', 'c']) {
+      expect(rows.get(coveringTxIdByNoteId.get(id)!)?.noteIds).toContain(id);
+    }
+  });
+});
+
+describe('queueConsumeNotes - the row covering each note', () => {
+  it('names the row that kept a deduplicated note out, and the committed row for a queued one', async () => {
+    // A caller following each note's outcome needs the row covering THAT note: in a partly deduplicated batch the
+    // committed id is only the row the other notes joined.
+    const live = new ConsumeTransaction(ACCOUNT, [note('a')], false);
+    await Repo.transactions.add(live);
+
+    const { committedId, coveringTxIdByNoteId } = await queueConsumeNotes(ACCOUNT, [note('a'), note('b')], false, true);
+
+    expect(committedId).not.toBe(live.id);
+    expect(coveringTxIdByNoteId.get('a')).toBe(live.id);
+    expect(coveringTxIdByNoteId.get('b')).toBe(committedId);
+  });
+
+  it('names the Failed row that backed a note off', async () => {
+    const failed = new ConsumeTransaction(ACCOUNT, [note('a')], false);
+    failed.status = ITransactionStatus.Failed;
+    failed.completedAt = Math.floor(Date.now() / 1000);
+    await Repo.transactions.add(failed);
+
+    const { committedId, coveringTxIdByNoteId } = await queueConsumeNotes(ACCOUNT, [note('a')], false, false);
+
+    expect(coveringTxIdByNoteId.get('a')).toBe(failed.id);
+    expect(committedId).toBe(failed.id);
   });
 });

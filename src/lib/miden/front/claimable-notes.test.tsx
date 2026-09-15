@@ -1,6 +1,6 @@
 /* eslint-disable import/first */
 
-import { renderHook, waitFor } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 
 import {
   guardianSyncFuseKey,
@@ -107,9 +107,19 @@ jest.mock('../back/miden-client-proxy', () => ({
 }));
 
 jest.mock('lib/miden/activity', () => ({
-  getUncompletedTransactions: async () => {
-    if ((globalThis as any).__cnTest.uncompletedTxsError) throw new Error('dexie unavailable');
-    return (globalThis as any).__cnTest.uncompletedTxs;
+  getUncompletedTransactions: async (address: string) => {
+    const t = (globalThis as any).__cnTest;
+    if (t.uncompletedTxsError) throw new Error('dexie unavailable');
+    // Captured BEFORE the gate: a parked read must resolve with what the store held when IT was
+    // issued, not with whatever a later read installed. Reading after the await made a stale-read
+    // test observe fresh data and pass against the very bug it was written for.
+    const value = t.uncompletedTxsByAddress?.[address] ?? t.uncompletedTxs;
+    if (t.uncompletedTxsGateFor === address) {
+      await t.uncompletedTxsGate;
+      // Lets a test wait until a parked read has actually returned, rather than asserting before it lands.
+      t.onParkedReadReturn?.();
+    }
+    return value;
   }
 }));
 
@@ -169,6 +179,9 @@ describe('useClaimableNotes (extension mode)', () => {
   beforeEach(() => {
     _g.__cnTest.isExtension = true;
     _g.__cnTest.uncompletedTxsError = false;
+    _g.__cnTest.uncompletedTxsGate = undefined;
+    _g.__cnTest.uncompletedTxsGateFor = undefined;
+    _g.__cnTest.uncompletedTxsByAddress = undefined;
     (globalThis as any).chrome = {
       storage: {
         local: {
@@ -228,6 +241,166 @@ describe('useClaimableNotes (extension mode)', () => {
     await waitFor(() => expect(result.current.data).toHaveLength(1));
     expect(result.current.data?.[0]?.isBeingClaimed).toBe(false);
     _g.__cnTest.uncompletedTxsError = false;
+  });
+
+  it('drops a consume-row read that resolves after the account changed', async () => {
+    // The read is async and runs from both the poll and `mutate`, so one started before an account
+    // switch can land after it. Ungated it installs the PREVIOUS account's claim gate over the new
+    // account's notes -- the note reads as claimed by a transaction that is not its own.
+    let release: () => void = () => {};
+    _g.__cnTest.uncompletedTxsGate = new Promise<void>(res => {
+      release = res;
+    });
+    // Park ONLY the old account's read. Gating both would let the new account's read resolve last
+    // and clear the map on its own, which is what made an earlier version of this test vacuous.
+    _g.__cnTest.uncompletedTxsGateFor = 'pk-old';
+    const parkedReturned = new Promise<void>(res => {
+      _g.__cnTest.onParkedReadReturn = res;
+    });
+    // The new account has a live consume of its own. Unguarded, the stale read replaces the map that consume installed,
+    // and the render-time generation check then shows no claim at all, which asserting "not claimed" cannot tell apart
+    // from the guard working.
+    _g.__cnTest.uncompletedTxsByAddress = {
+      'pk-old': [{ id: 'tx-old', type: 'consume', noteIds: ['n1'] }],
+      'pk-new': [{ id: 'tx-new', type: 'consume', noteIds: ['n1'] }]
+    };
+    _g.__cnTest.walletState.extensionClaimableNotes = [
+      {
+        id: 'n1',
+        faucetId: 'f1',
+        amountBaseUnits: '100',
+        senderAddress: 's1',
+        noteType: 'public',
+        metadata: { decimals: 6, symbol: 'TOK', name: 'Token' }
+      }
+    ];
+
+    const { result, rerender } = renderHook(({ pk }: { pk: string }) => useClaimableNotes(pk), {
+      initialProps: { pk: 'pk-old' }
+    });
+
+    // Switch accounts while the first read is still parked; the new account's own claim shows first.
+    rerender({ pk: 'pk-new' });
+    await waitFor(() => expect(result.current.data?.[0]?.claimingTxId).toBe('tx-new'));
+
+    // Then let the stale read land, and wait until it has before asserting it changed nothing.
+    await act(async () => {
+      release();
+      await parkedReturned;
+      await new Promise(resolve => setTimeout(resolve, 0));
+    });
+
+    expect(result.current.data?.[0]?.claimingTxId).toBe('tx-new');
+  });
+
+  it('drops a stale read across an A -> B -> A switch, which an address comparison cannot', async () => {
+    // The ABA case. Comparing the resolving read's address against the current one passes here,
+    // because the address IS 'pk-a' again by the time the first read lands -- so that guard would
+    // install the FIRST A's rows over the second A's. Only a generation distinguishes them.
+    let release: () => void = () => {};
+    _g.__cnTest.uncompletedTxsGate = new Promise<void>(res => {
+      release = res;
+    });
+    _g.__cnTest.uncompletedTxsGateFor = 'pk-a';
+    const parkedReturned = new Promise<void>(res => {
+      _g.__cnTest.onParkedReadReturn = res;
+    });
+    _g.__cnTest.uncompletedTxsByAddress = {
+      'pk-a': [{ id: 'tx-stale', type: 'consume', noteIds: ['n1'] }],
+      'pk-b': []
+    };
+    _g.__cnTest.walletState.extensionClaimableNotes = [
+      {
+        id: 'n1',
+        faucetId: 'f1',
+        amountBaseUnits: '100',
+        senderAddress: 's1',
+        noteType: 'public',
+        metadata: { decimals: 6, symbol: 'TOK', name: 'Token' }
+      }
+    ];
+
+    const { result, rerender } = renderHook(({ pk }: { pk: string }) => useClaimableNotes(pk), {
+      initialProps: { pk: 'pk-a' }
+    });
+
+    // The first A's read has already captured [tx-stale] and is parked. From here on the store holds the second A's own
+    // live consume, tx-a2, so the parked read landing unguarded would replace that map with a stale one, which the
+    // render-time generation check then shows as no claim at all.
+    _g.__cnTest.uncompletedTxsGateFor = 'never';
+    _g.__cnTest.uncompletedTxsByAddress['pk-a'] = [{ id: 'tx-a2', type: 'consume', noteIds: ['n1'] }];
+
+    // A -> B -> A: the parked read belongs to the FIRST A.
+    rerender({ pk: 'pk-b' });
+    rerender({ pk: 'pk-a' });
+    await waitFor(() => expect(result.current.data?.[0]?.claimingTxId).toBe('tx-a2'));
+
+    await act(async () => {
+      release();
+      await parkedReturned;
+      await new Promise(resolve => setTimeout(resolve, 0));
+    });
+
+    expect(result.current.data?.[0]?.claimingTxId).toBe('tx-a2');
+  });
+
+  it("does not show the previous account's installed claim map while the new account's read fails", async () => {
+    // The generation guard drops stale completions, but a map that already landed is not a completion: untagged, it stayed
+    // applied after a switch, and a failed read deliberately keeps the last map, so the new account showed the old
+    // account's claim until its own read succeeded.
+    _g.__cnTest.uncompletedTxsByAddress = {
+      'pk-old': [{ id: 'tx-old', type: 'consume', noteIds: ['n1'] }],
+      'pk-new': []
+    };
+    _g.__cnTest.walletState.extensionClaimableNotes = [
+      {
+        id: 'n1',
+        faucetId: 'f1',
+        amountBaseUnits: '100',
+        senderAddress: 's1',
+        noteType: 'public',
+        metadata: { decimals: 6, symbol: 'TOK', name: 'Token' }
+      }
+    ];
+
+    const { result, rerender } = renderHook(({ pk }: { pk: string }) => useClaimableNotes(pk), {
+      initialProps: { pk: 'pk-old' }
+    });
+    // Positive control: the old account's map is installed before the switch.
+    await waitFor(() => expect(result.current.data?.[0]?.isBeingClaimed).toBe(true));
+
+    _g.__cnTest.uncompletedTxsError = true;
+    rerender({ pk: 'pk-new' });
+
+    await waitFor(() => expect(result.current.data).toHaveLength(1));
+    expect(result.current.data?.[0]?.isBeingClaimed).toBe(false);
+  });
+
+  it('re-reads the consume rows when mutate is called, without waiting for the next poll', async () => {
+    _g.__cnTest.walletState.extensionClaimableNotes = [
+      {
+        id: 'n1',
+        faucetId: 'f1',
+        amountBaseUnits: '100',
+        senderAddress: 's1',
+        noteType: 'public',
+        metadata: { decimals: 6, symbol: 'TOK', name: 'Token' }
+      }
+    ];
+    _g.__cnTest.uncompletedTxs = [];
+
+    const { result } = renderHook(() => useClaimableNotes('pk-1'));
+    await waitFor(() => expect(result.current.data).toHaveLength(1));
+    expect(result.current.data?.[0]?.isBeingClaimed).toBe(false);
+
+    // A consume is queued after the last poll. `mutate` must surface it, or a caller that
+    // refreshes right after claiming still sees the note as claimable for a whole poll period.
+    _g.__cnTest.uncompletedTxs = [{ id: 'tx-9', type: 'consume', noteIds: ['n1'] }];
+    await act(async () => {
+      await result.current.mutate();
+    });
+
+    await waitFor(() => expect(result.current.data?.[0]?.isBeingClaimed).toBe(true));
   });
 
   it('un-gates a note once no consume row is in flight for it', async () => {

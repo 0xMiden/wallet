@@ -105,6 +105,13 @@ export const initiateConsumeTransaction = async (
   return initiateConsumeNotesTransaction(accountId, [note], delegateTransaction, manualRetry);
 };
 
+/** What {@link queueConsumeNotes} committed: the row id callers link to, and the row covering each note. */
+export interface ConsumeNotesQueueResult {
+  committedId: string;
+  /** The row each note joined, or the live, Completed or Failed row that kept it out. */
+  coveringTxIdByNoteId: Map<string, string>;
+}
+
 /**
  * Queue ONE consume transaction for many notes (Claim All / Claim Group) —
  * both the WASM client (`transactions.consume({ notes })`) and the Guardian
@@ -131,9 +138,11 @@ export const initiateConsumeTransaction = async (
  * Returns the queued batch row id, or — when every note was deduped away — the
  * id of the row that blocked the most recent note (live/Completed dedup winner
  * or the most recent Failed row from the backoff gate), so callers always get
- * a stable "this note already has a tx" response.
+ * a stable "this note already has a tx" response. `coveringTxIdByNoteId` names the
+ * row covering EACH note, because a partly deduplicated batch's id covers only the
+ * notes that joined it.
  */
-export const initiateConsumeNotesTransaction = async (
+export const queueConsumeNotes = async (
   accountId: string,
   notes: ConsumableNote[],
   delegateTransaction?: boolean,
@@ -180,16 +189,18 @@ export const initiateConsumeNotesTransaction = async (
   // `null`/omitted isolates every candidate, which is right for a manual retry: the user
   // asked, and `isWorthClaiming` fails open on an unknown fee everywhere else too.
   verificationBaseFee?: number | null
-): Promise<string> => {
+): Promise<ConsumeNotesQueueResult> => {
   if (notes.length === 0) {
     throw new Error('initiateConsumeNotesTransaction requires at least one note');
   }
 
-  const { committedId } = await Repo.db.transaction('rw', Repo.transactions, async () => {
+  return await Repo.db.transaction('rw', Repo.transactions, async () => {
     const queueable: ConsumableNote[] = [];
     // Notes that have already lost a shared batch row and so must not join another.
     const isolate: ConsumableNote[] = [];
     let blockingId: string | null = null;
+    // A skipped note's row is the one that kept it out, not the one the other notes joined.
+    const coveringTxIdByNoteId = new Map<string, string>();
 
     for (const note of notes) {
       // Read every consume row covering this noteId once (scalar `noteId`
@@ -213,6 +224,7 @@ export const initiateConsumeNotesTransaction = async (
       const liveOrCompleted = sameAccount.find(tx => tx.status !== ITransactionStatus.Failed);
       if (liveOrCompleted) {
         blockingId = blockingId ?? liveOrCompleted.id;
+        coveringTxIdByNoteId.set(note.id, liveOrCompleted.id);
         // An explicit user retry must take effect NOW, even when the blocking row
         // is one the loop has backed off (guardian 429 requeue → nextEligibleAt up
         // to 5 min, #617; likewise the 409 / prover-outage requeues). Dedup still
@@ -253,6 +265,7 @@ export const initiateConsumeNotesTransaction = async (
           const backoffSec = Math.min(RETRY_COOLDOWN_SEC * 2 ** (failures.length - 1), MAX_RETRY_BACKOFF_SEC);
           if (secsSinceLastFailure < backoffSec) {
             blockingId = blockingId ?? mostRecentFailed.id;
+            coveringTxIdByNoteId.set(note.id, mostRecentFailed.id);
             continue;
           }
         }
@@ -305,7 +318,7 @@ export const initiateConsumeNotesTransaction = async (
     }
 
     if (queueable.length === 0 && isolate.length === 0) {
-      return { committedId: blockingId!, queuedNoteIds: [] as string[] };
+      return { committedId: blockingId!, coveringTxIdByNoteId };
     }
 
     const createdIds: string[] = [];
@@ -316,20 +329,21 @@ export const initiateConsumeNotesTransaction = async (
       const isolatedRow = new ConsumeTransaction(accountId, [note], delegateTransaction);
       await Repo.transactions.add(isolatedRow);
       createdIds.push(isolatedRow.id);
+      coveringTxIdByNoteId.set(note.id, isolatedRow.id);
     }
     if (queueable.length > 0) {
       const dbTransaction = new ConsumeTransaction(accountId, queueable, delegateTransaction);
       await Repo.transactions.add(dbTransaction);
       createdIds.push(dbTransaction.id);
+      for (const queued of queueable) coveringTxIdByNoteId.set(queued.id, dbTransaction.id);
     }
-    return {
-      committedId: createdIds[0]!,
-      queuedNoteIds: [...isolate, ...queueable].map(n => n.id)
-    };
+    return { committedId: createdIds[0]!, coveringTxIdByNoteId };
   });
-
-  return committedId;
 };
+
+/** {@link queueConsumeNotes}, for the callers that need only the committed row id. */
+export const initiateConsumeNotesTransaction = async (...args: Parameters<typeof queueConsumeNotes>): Promise<string> =>
+  (await queueConsumeNotes(...args)).committedId;
 
 /**
  * Bounded-retry policy for auto-consume.

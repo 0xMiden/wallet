@@ -31,8 +31,8 @@ const UNLOCKED_CONDITION_JS =
  * Totals the store's balances projection, in place, with no navigation.
  *
  * Only valid on a screen that mounts the balance poll (`useAllBalances`, in
- * `Balance.tsx` / `Explore.tsx` / `TokenDetail.tsx`). Anywhere else — notably
- * `/generating-transaction-full/:txId` — nothing writes `st.balances`, so this
+ * `Balance.tsx` / `Explore.tsx` / `TokenDetail.tsx`). Anywhere else, notably
+ * `/pending-notes` where a claim waits, nothing writes `st.balances`, so this
  * returns whatever it held when that screen was last up. `getBalance()` is the
  * read that navigates home first and is therefore authoritative.
  */
@@ -645,20 +645,23 @@ export class IosWalletPage implements WalletPage {
     // delivery. Chrome's claimAllNotes already throws here
     // (`confirmDrainedOrThrow`); this brings iOS in line.
     //
-    // Report where the wallet actually ended up: still on the transaction
-    // progress route means the consume is merely slow, while a pending-notes
-    // page with the Claim All button back means it went nowhere.
+    // Report what the pending summary shows: its disabled status control means the
+    // batch is still in flight (merely slow), Claim All back means a queue-time or
+    // consume failure returned the notes, and neither means the list drained with no
+    // balance update reaching the store.
     const surface = await this.cdp
       .eval<string>(
         `var h = String(location.hash || ''); ` +
           `var claimAll = document.querySelector('[data-testid="claim-all-button"]'); ` +
-          `return 'hash=' + h + ' claimAllButton=' + (claimAll ? 'present' : 'absent');`
+          `var inFlight = document.querySelector('[data-testid="claim-all-status"]'); ` +
+          `return 'hash=' + h + ' claimAllButton=' + (claimAll ? 'present' : 'absent') + ` +
+          `' claimAllStatus=' + (inFlight ? 'present' : 'absent');`
       )
       .catch(() => 'unreadable');
 
     // Nothing authoritative has actually been read yet. The loop above polls the
-    // store IN PLACE, and for the whole of a claim the wallet sits on
-    // `/generating-transaction-full/:txId`, where no mounted screen refreshes
+    // store IN PLACE, and for the whole of a claim the wallet stays on the pending
+    // notes page, where no mounted screen refreshes
     // `st.balances` — so that poll can report 0 for a consume that has already
     // landed on-chain. Before failing, confirm with `getBalance()`, which
     // navigates home and therefore reads a projection something is updating.
