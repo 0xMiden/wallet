@@ -99,21 +99,28 @@ export async function solvePow(
   }
 }
 
-/**
- * Requests `amount` base units of the native asset for `accountId` (bech32).
- * Resolves once the faucet has SUBMITTED the note; the caller still has to wait for it
- * to commit and then consume it.
- */
-export async function mintFromPublicFaucet(
+/** Grant attempts when the faucet answers 5xx; each starts from a fresh challenge. */
+const GRANT_ATTEMPTS = 3;
+const GRANT_RETRY_DELAY_MS = 5_000;
+
+/** The faucet failed on its own side (5xx), so the same grant can succeed on a later attempt. */
+class FaucetServerError extends Error {}
+
+async function failedResponse(label: string, response: Response): Promise<Error> {
+  const message = `${label} (${response.status}): ${await response.text()}`;
+  return response.status >= 500 ? new FaucetServerError(message) : new Error(message);
+}
+
+async function requestGrant(
   baseUrl: string,
   accountId: string,
-  amount: bigint = PUBLIC_FAUCET_GRANT
+  amount: bigint
 ): Promise<{ txId: string; noteId: string }> {
   const powResponse = await faucetFetch(
     `${baseUrl}/pow?${new URLSearchParams({ account_id: accountId, amount: amount.toString() })}`
   );
   if (!powResponse.ok) {
-    throw new Error(`Public faucet PoW request failed (${powResponse.status}): ${await powResponse.text()}`);
+    throw await failedResponse('Public faucet PoW request failed', powResponse);
   }
   const { challenge, target } = (await powResponse.json()) as { challenge: string; target: number };
   const nonce = await solvePow(challenge, BigInt(target));
@@ -127,8 +134,33 @@ export async function mintFromPublicFaucet(
   });
   const response = await faucetFetch(`${baseUrl}/get_tokens?${params}`);
   if (!response.ok) {
-    throw new Error(`Public faucet mint failed (${response.status}): ${await response.text()}`);
+    throw await failedResponse('Public faucet mint failed', response);
   }
   const json = (await response.json()) as { tx_id: string; note_id: string };
   return { txId: json.tx_id, noteId: json.note_id };
+}
+
+/**
+ * Requests `amount` base units of the native asset for `accountId` (bech32).
+ * Resolves once the faucet has SUBMITTED the note; the caller still has to wait for it
+ * to commit and then consume it.
+ *
+ * A 5xx is the faucet's own failure (testnet answered `500 Internal error` and `502 Bad Gateway`
+ * during incidents), so the grant is retried from a new challenge, which also avoids replaying one
+ * that may have expired. A 4xx answers this request and fails at once.
+ */
+export async function mintFromPublicFaucet(
+  baseUrl: string,
+  accountId: string,
+  amount: bigint = PUBLIC_FAUCET_GRANT,
+  retryDelayMs: number = GRANT_RETRY_DELAY_MS
+): Promise<{ txId: string; noteId: string }> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await requestGrant(baseUrl, accountId, amount);
+    } catch (error) {
+      if (!(error instanceof FaucetServerError) || attempt >= GRANT_ATTEMPTS) throw error;
+      await new Promise(resolve => setTimeout(resolve, retryDelayMs * attempt));
+    }
+  }
 }

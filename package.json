@@ -1,6 +1,6 @@
 {
   "name": "miden-wallet",
-  "version": "1.16.0",
+  "version": "1.16.1",
   "private": true,
   "engines": {
     "node": ">=22.0.0"
@@ -144,7 +144,7 @@
     "@epoch-protocol/epoch-intents-sdk": "^1.0.39",
     "@floating-ui/react": "^0.27.16",
     "@hookform/resolvers": "^3.9.0",
-    "@miden-sdk/miden-sdk": "0.16.0",
+    "@miden-sdk/miden-sdk": "0.16.1",
     "@miden-sdk/miden-wallet-adapter-base": "0.16.0",
     "@miden-sdk/miden-wallet-adapter-miden": "0.16.0",
     "@miden-sdk/react": "0.16.0",
@@ -345,7 +345,7 @@
     ]
   },
   "resolutions": {
-    "@miden-sdk/miden-sdk": "0.16.0",
+    "@miden-sdk/miden-sdk": "0.16.1",
     "@miden-sdk/react": "0.16.0",
     "strip-ansi": "6.0.1",
     "webpack": "^5",
