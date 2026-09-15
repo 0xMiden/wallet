@@ -68,9 +68,23 @@ jest.mock('components/SyncWaveBackground', () => ({
 
 jest.mock('components/Button', () => ({
   ButtonVariant: { Primary: 'primary', Secondary: 'secondary', Ghost: 'ghost' },
-  Button: ({ title, onClick, disabled, ...props }: { title?: string; onClick?: () => void; disabled?: boolean }) => (
+  // Mirrors the real Button (components/Button.tsx): `isLoading` renders a Loader INSTEAD of the
+  // title. A mock that always renders `title` makes any assertion on the label a false positive --
+  // which is how a labelless "Claiming…" pill once passed this suite.
+  Button: ({
+    title,
+    onClick,
+    disabled,
+    isLoading,
+    ...props
+  }: {
+    title?: string;
+    onClick?: () => void;
+    disabled?: boolean;
+    isLoading?: boolean;
+  }) => (
     <button data-testid={(props as Record<string, string>)['data-testid']} onClick={onClick} disabled={disabled}>
-      {title}
+      {isLoading ? <span data-testid="btn-loader" /> : title}
     </button>
   )
 }));
@@ -91,8 +105,8 @@ const baseProps = {
   safeClaimableNotes: [] as NoteWithMetadata[],
   account: { publicKey: 'mtst1account' } as never,
   isDelegatedProvingEnabled: false,
-  unclaimedNotesCount: 1,
   claimingNoteIds: new Set<string>(),
+  individualClaimingIds: new Set<string>(),
   retriableNoteIds: new Set<string>(),
   invalidNoteIds: new Set<string>(),
   checkingNoteIds: new Set<string>(),
@@ -106,6 +120,12 @@ const renderTab = (props: Partial<React.ComponentProps<typeof PendingTab>> = {})
 
 /** Enter the per-asset detail view by tapping its summary row. */
 const openDetail = () => fireEvent.click(screen.getByTestId('pending-asset-row'));
+
+beforeEach(() => {
+  // Module-level fixtures with no reset: a describe otherwise inherits whatever the previously-run
+  // test left, which silently made a fee assertion unreachable in a later block.
+  mockBaseFee = 0;
+});
 
 describe('PendingTab — dust notes', () => {
   it('marks a NATIVE group the wallet will not auto-claim because it is worth less than the fee', () => {
@@ -297,6 +317,26 @@ describe('PendingTab — fee disclosure on the claim buttons', () => {
   });
 });
 
+describe('PendingTab — the row unmount closing edge', () => {
+  it('reports the claim as no longer in flight when the row unmounts', () => {
+    // `individualClaimingIds` is the one in-flight set with no self-clear: it removes the note from
+    // the claimable half AND suppresses that note from `retriableNoteIds`, so a latched id hides
+    // both the Claim and the Retry for the life of the page. Two reviewers argued opposite fixes
+    // here; this test states which behaviour actually ships.
+    const onClaimingStateChange = jest.fn();
+    const { unmount } = renderTab({
+      safeClaimableNotes: [makeNote('n1')],
+      onClaimingStateChange
+    });
+    openDetail();
+    onClaimingStateChange.mockClear();
+
+    unmount();
+
+    expect(onClaimingStateChange).toHaveBeenCalledWith('n1', false);
+  });
+});
+
 describe('PendingTab — the summary while a claim is in flight', () => {
   // Claiming no longer navigates away, so this screen has to say what is happening. Every note
   // being claimed drops out of `unclaimedNotesCount` (useClaimNotes filters `isBeingClaimed`),
@@ -304,8 +344,7 @@ describe('PendingTab — the summary while a claim is in flight', () => {
   // button vanish with nothing in its place.
   it('keeps a control and reports progress when every note is being claimed', () => {
     renderTab({
-      safeClaimableNotes: [makeNote('n1', { isBeingClaimed: true })],
-      unclaimedNotesCount: 0
+      safeClaimableNotes: [makeNote('n1', { isBeingClaimed: true })]
     });
 
     // Its own id: the E2E helper treats a visible `claim-all-button` as permission to click, so
@@ -316,19 +355,69 @@ describe('PendingTab — the summary while a claim is in flight', () => {
     expect(status).toHaveTextContent('claiming');
   });
 
+  it('announces the claiming state through a region that is already in the tree', () => {
+    // A live region only announces changes to a region that EXISTED beforehand, so the
+    // announcement cannot live on the control that appears -- it has to be a node that is always
+    // mounted and whose text changes.
+    const { rerender } = renderTab({ safeClaimableNotes: [makeNote('n1')] });
+    const region = document.querySelector('[role="status"]');
+    expect(region).toBeInTheDocument();
+    expect(region).toHaveTextContent('');
+
+    rerender(<PendingTab {...baseProps} safeClaimableNotes={[makeNote('n1', { isBeingClaimed: true })]} />);
+
+    expect(document.querySelector('[role="status"]')).toHaveTextContent('claiming');
+  });
+
+  it('still offers Claim All when only SOME notes are in flight', () => {
+    // Keying the actionable button on the in-flight count made one background auto-consume — which
+    // Explore runs for native notes without any user action — disable Claim All for every other
+    // claimable note, with the fee text still quoted above a button that could not be pressed.
+    renderTab({
+      safeClaimableNotes: [makeNote('n1', { isBeingClaimed: true }), makeNote('n2')]
+    });
+
+    // Present is not enough: the regression this pins made the control render DISABLED for every
+    // other note whenever one was in flight, so it has to assert actionable, and that tapping it
+    // actually reaches the handler.
+    const button = screen.getByTestId('claim-all-button');
+    expect(button).toBeInTheDocument();
+    expect(button).not.toBeDisabled();
+    expect(button).toHaveTextContent('claimAll');
+    fireEvent.click(button);
+    expect(baseProps.onClaimAll).toHaveBeenCalled();
+    expect(screen.queryByTestId('claim-all-status')).not.toBeInTheDocument();
+  });
+
+  it('keeps the status control in the window before the poll reports the note as claiming', () => {
+    // The gap all four review seats found. `isBeingClaimed` comes from a 3s/5s poll, so right after
+    // the tap the note is in `claimingNoteIds` but NOT yet isBeingClaimed. Counting only the polled
+    // flag left both counts at 0 -- the whole block unmounted -- and once the hook's `finally`
+    // cleared the batch set, an ENABLED "Claim All" came back over a live consume.
+    renderTab({
+      safeClaimableNotes: [makeNote('n1', { isBeingClaimed: false })],
+      claimingNoteIds: new Set(['n1'])
+    });
+
+    expect(screen.queryByTestId('claim-all-button')).not.toBeInTheDocument();
+    expect(screen.getByTestId('claim-all-status')).toHaveTextContent('claiming');
+  });
+
+  it('counts a single-row claim as in flight too', () => {
+    renderTab({
+      safeClaimableNotes: [makeNote('n1', { isBeingClaimed: false })],
+      individualClaimingIds: new Set(['n1'])
+    });
+
+    expect(screen.getByTestId('claim-all-status')).toBeInTheDocument();
+  });
+
   it('offers Claim All again once a note is claimable', () => {
-    renderTab({ safeClaimableNotes: [makeNote('n1')], unclaimedNotesCount: 1 });
+    renderTab({ safeClaimableNotes: [makeNote('n1')] });
 
     const button = screen.getByTestId('claim-all-button');
     expect(button).not.toBeDisabled();
     expect(button).toHaveTextContent('claimAll');
-    expect(screen.queryByTestId('claim-all-status')).not.toBeInTheDocument();
-  });
-
-  it('renders no claim control when there is nothing pending and nothing in flight', () => {
-    renderTab({ safeClaimableNotes: [], unclaimedNotesCount: 0 });
-
-    expect(screen.queryByTestId('claim-all-button')).not.toBeInTheDocument();
     expect(screen.queryByTestId('claim-all-status')).not.toBeInTheDocument();
   });
 });

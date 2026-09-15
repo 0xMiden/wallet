@@ -16,20 +16,27 @@ import { useAccount, useMidenContext } from 'lib/miden/front';
 import { useClaimableNotes } from 'lib/miden/front/claimable-notes';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import { assertWasmHoldCurrent, withWasmClientLock } from 'lib/miden/sdk/miden-client';
+import { WASM_LOCK_SYNC_WATCHDOG_MS } from 'lib/miden/sdk/wasm-client-poison';
 import { isExtension } from 'lib/platform';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { WalletAccount, WalletMessageType } from 'lib/shared/types';
 import { getIntercom } from 'lib/store';
 
 /**
- * When to re-check for a failed consume after queueing one, in ms.
+ * Cadence and ceiling for the post-claim failure watch.
  *
- * A consume can fail FASTER than the gate can render it: an offline send goes Queued → Failed in
- * well under the 3s claimable-notes poll, so `isBeingClaimed` is never true in any sampled render,
- * `claimingSignature` never moves, and the failure would be invisible to a user who — now that
- * claiming does not navigate away — is sitting on this list waiting. These cover that window.
+ * A consume can fail without ever rendering as claiming: an offline claim goes Queued → Failed in
+ * well under the claimable-notes poll, so `isBeingClaimed` is never true in a sampled render and
+ * `claimingSignature` never moves. Now that claiming does not navigate away, that failure would be
+ * invisible to a user sitting on this list.
+ *
+ * A fixed schedule of a few timers does not close it — whatever the last timer is, a consume that
+ * fails after it is silent forever. So this polls until the claim RESOLVES (the note stops being
+ * claimable, or a failure surfaces), with a ceiling only so a wedged consume cannot poll for the
+ * lifetime of the page.
  */
-const POST_CLAIM_RECHECK_MS = [1_000, 4_000, 10_000];
+const POST_CLAIM_POLL_MS = 2_000;
+const POST_CLAIM_MAX_MS = 120_000;
 
 export interface ClaimNotesState {
   account: WalletAccount;
@@ -37,6 +44,8 @@ export interface ClaimNotesState {
   unclaimedNotes: NoteWithMetadata[];
   isDelegatedProvingEnabled: boolean;
   claimingNoteIds: Set<string>;
+  /** Notes with a single-row claim in flight; the summary's in-flight count needs these too. */
+  individualClaimingIds: Set<string>;
   /** Notes that failed but where a retry can still help (local failed consume / claim error). */
   retriableNoteIds: Set<string>;
   /** Notes the node/client reports as terminally Invalid — a retry cannot help. */
@@ -71,6 +80,27 @@ export function useClaimNotes(): ClaimNotesState {
 
   const [claimingNoteIds, setClaimingNoteIds] = useState<Set<string>>(new Set());
   const [individualClaimingIds, setIndividualClaimingIds] = useState<Set<string>>(new Set());
+
+  // Ids with a live consume behind them, readable from `runFailedNotesCheck` without making it
+  // depend on (and re-fire for) every claiming-set change. Kept in a ref for that reason.
+  const liveClaimIdsRef = useRef<Set<string>>(new Set());
+
+  /** Ids that have surfaced as failed/invalid — one way a claim RESOLVES for the watch. */
+  const resolvedClaimIdsRef = useRef<Set<string>>(new Set());
+  /**
+   * The failure check has three triggers (the signature effect, the post-claim watch, and
+   * focus/visibility) and off-extension each run takes the WASM mutex the consume pipeline needs.
+   * A guard local to one of them only serialises repeats of that one, so it lives here.
+   */
+  const checkInFlightRef = useRef<Promise<void> | null>(null);
+  /** When each optimistically-gated id was set, so the hold is bounded if live state never lands. */
+  const optimisticSinceRef = useRef<Map<string, number>>(new Map());
+  /** The ids the last claim covered; the watch stops once none of them is claimable any more. */
+  const watchedClaimIdsRef = useRef<Set<string>>(new Set());
+  /** When each watched id joined, so a wedged one ages out instead of living for the page. */
+  const watchedClaimAtRef = useRef<Map<string, number>>(new Map());
+  /** Ids still listed as claimable right now, for the watch's success exit. */
+  const claimableIdsRef = useRef<Set<string>>(new Set());
   const [retriableNoteIds, setRetriableNoteIds] = useState<Set<string>>(new Set());
   const [invalidNoteIds, setInvalidNoteIds] = useState<Set<string>>(new Set());
   const [checkingNoteIds, setCheckingNoteIds] = useState<Set<string>>(new Set());
@@ -102,6 +132,36 @@ export function useClaimNotes(): ClaimNotesState {
   const unclaimedNotes = safeClaimableNotes.filter(
     n => !n.isBeingClaimed && !claimingNoteIds.has(n.id) && !individualClaimingIds.has(n.id)
   );
+
+  // ONLY notes with an actual live consume row. Deliberately NOT the optimistic sets: this ref
+  // suppresses a note's Retry, and the optimistic gate is held until live state arrives -- so
+  // including it here made a claim that FAILED before any row was observed keep its Retry
+  // suppressed for the whole hold, which is the silent failure the watch exists to prevent.
+  // The optimistic sets gate the BUTTON (see `inFlight` in PendingTab); this gates the RETRY.
+  liveClaimIdsRef.current = new Set(safeClaimableNotes.filter(n => n.isBeingClaimed).map(n => n.id));
+  resolvedClaimIdsRef.current = new Set([...retriableNoteIds, ...invalidNoteIds]);
+  claimableIdsRef.current = new Set(safeClaimableNotes.map(n => n.id));
+
+  // Release an optimistic id once the live consume row has actually taken over for that note, or
+  // once the hold has outlived its ceiling. Driven by what is OBSERVED rather than by the refresh
+  // promise: that promise resolves even when its read was discarded, and can also never settle.
+  useEffect(() => {
+    if (optimisticSinceRef.current.size === 0) return;
+    const cutoff = Date.now() - POST_CLAIM_MAX_MS;
+    const done: string[] = [];
+    for (const [id, since] of optimisticSinceRef.current) {
+      const liveRowTookOver = safeClaimableNotes.some(n => n.id === id && n.isBeingClaimed);
+      const goneFromList = !claimableIdsRef.current.has(id);
+      if (liveRowTookOver || goneFromList || since <= cutoff) done.push(id);
+    }
+    if (done.length === 0) return;
+    for (const id of done) optimisticSinceRef.current.delete(id);
+    setClaimingNoteIds(prev => {
+      const next = new Set(prev);
+      for (const id of done) next.delete(id);
+      return next;
+    });
+  }, [safeClaimableNotes]);
 
   // Poll for stuck transactions and verify their state from the node.
   // On extension, skip — the SW handles stuck transaction cleanup via generateTransactionsLoop.
@@ -135,7 +195,7 @@ export function useClaimNotes(): ClaimNotesState {
   // a note that recovered — or left the list — clears instead of latching (#456).
   // Only the first check with notes present shows the checking spinner; every
   // background re-run stays silent. No polling interval is added.
-  const runFailedNotesCheck = useCallback(async (showSpinner: boolean) => {
+  const runFailedNotesCheckInner = useCallback(async (showSpinner: boolean) => {
     const notes = safeClaimableNotesRef.current;
     if (notes.length === 0) {
       // Nothing claimable: drop any stale flags so old badges don't linger.
@@ -187,7 +247,7 @@ export function useClaimNotes(): ClaimNotesState {
               midenClientProxy.getInputNoteDetails({ ids: noteIds }, () =>
                 assertWasmHoldCurrent(hold, 'while reading input note details for the claim check')
               ),
-            { label: 'claim-note-state-check' }
+            { label: 'claim-note-state-check', watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS }
           );
 
           for (const note of noteDetails) {
@@ -211,11 +271,60 @@ export function useClaimNotes(): ClaimNotesState {
       // REPLACE (not union), scoped to the ids still claimable right now. A note
       // reported Invalid is terminal and takes precedence over a retriable flag.
       setInvalidNoteIds(new Set([...invalidIds].filter(id => claimableNoteIds.has(id))));
-      setRetriableNoteIds(new Set([...retriableIds].filter(id => claimableNoteIds.has(id) && !invalidIds.has(id))));
+      // The liveness exclusion is applied HERE, after every await, not where the ids were
+      // collected: `getFailedTransactions` is unscoped by time and liveness, and a manual retry
+      // ADDS a row rather than replacing the failed one, so a note claimed again would be
+      // re-flagged from its OLD row. Reading the ref before the awaits was a time-of-check /
+      // time-of-use gap — a claim that went live during the check was still flagged.
+      setRetriableNoteIds(
+        new Set(
+          [...retriableIds].filter(
+            id => claimableNoteIds.has(id) && !invalidIds.has(id) && !liveClaimIdsRef.current.has(id)
+          )
+        )
+      );
     } finally {
       if (showSpinner) setCheckingNoteIds(new Set());
     }
   }, []);
+
+  /**
+   * Coalescing wrapper: while a check is running, every other trigger joins it instead of starting
+   * a second lock-bound pass. The check has THREE triggers (the signature effect, the post-claim
+   * watch, focus/visibility) and off-extension each pass takes the WASM mutex the consume pipeline
+   * and the 5s notes poll are already contending for, so overlapping runs are contention, not
+   * parallelism. A guard local to one trigger only serialised repeats of that one.
+   */
+  const checkRerunPendingRef = useRef(false);
+
+  const runFailedNotesCheck = useCallback(
+    (showSpinner: boolean): Promise<void> => {
+      // Joining a live check is right for CONTENTION but wrong for CORRECTNESS on its own: a
+      // trigger that arrives mid-check is reporting state the running check already read past, so
+      // simply returning its promise would drop that update. Remember it instead and run once more
+      // against the newest state when the current pass finishes -- collapsing any number of
+      // triggers during a pass into exactly one follow-up, rather than one per trigger.
+      if (checkInFlightRef.current) {
+        checkRerunPendingRef.current = true;
+        return checkInFlightRef.current;
+      }
+
+      const start = (spinner: boolean): Promise<void> => {
+        const run = runFailedNotesCheckInner(spinner).finally(() => {
+          checkInFlightRef.current = null;
+          if (checkRerunPendingRef.current) {
+            checkRerunPendingRef.current = false;
+            void start(false).catch(err => console.warn('[useClaimNotes] coalesced re-check failed:', err));
+          }
+        });
+        checkInFlightRef.current = run;
+        return run;
+      };
+
+      return start(showSpinner);
+    },
+    [runFailedNotesCheckInner]
+  );
 
   // Primary re-run trigger: the claimable-id signature changing (notes added,
   // removed, or claimed away). The first check with notes present shows the
@@ -248,8 +357,62 @@ export function useClaimNotes(): ClaimNotesState {
 
   useEffect(() => {
     if (postClaimTick === 0) return;
-    const timers = POST_CLAIM_RECHECK_MS.map(ms => setTimeout(() => runFailedNotesCheck(false), ms));
-    return () => timers.forEach(clearTimeout);
+
+    const startedAt = Date.now();
+
+    const timer = setInterval(() => {
+      // Stop once THIS claim has resolved — either its notes are gone from the list (they were
+      // consumed) or one of them has surfaced as failed/invalid and the row is showing it. Note
+      // the exit cannot be "nothing is in flight": in the fast-failure case the row leaves
+      // Queued before the first tick, so nothing is in flight precisely when the check is most
+      // needed. Without an exit this ran every tick to the ceiling in the failed case, and
+      // off-extension each tick takes the WASM lock.
+      // Per id, not per batch: Claim All queues one consume PER FAUCET, so a batch can settle
+      // mixed — one faucet consumed, another failed. Requiring all-consumed OR all-failed left
+      // that batch watching to the ceiling; requiring only SOME to have failed tore the watch down
+      // while a later faucet was still in flight. Each id is done when it is gone from the
+      // claimable list or has surfaced as failed/invalid.
+      // Age out ONLY. A consume that sits in Queued (a guardian 409/429 or prover-outage requeue
+      // cooldown, terminal only at MAX_QUEUED_AGE = 30 min, and explicitly skipped by the 3s
+      // reaper) satisfies neither settle leg, so a union-only set let one wedged note make every
+      // LATER claim run the full ceiling. Ids age out on their own clock.
+      //
+      // Pruning DONE ids here instead would make `settled` unreachable: it asks whether every
+      // watched id is done, so removing them as they finish leaves only the unfinished ones and
+      // the predicate can never hold. They are cleared together, below, once all of them are.
+      const cutoff = Date.now() - POST_CLAIM_MAX_MS;
+      for (const [id, seenAt] of [...watchedClaimAtRef.current]) {
+        if (seenAt <= cutoff) {
+          console.warn('[useClaimNotes] note aged out of the post-claim watch unresolved:', id);
+          watchedClaimAtRef.current.delete(id);
+          watchedClaimIdsRef.current.delete(id);
+        }
+      }
+
+      const watched = [...watchedClaimIdsRef.current];
+      const settled =
+        watched.length > 0 &&
+        watched.every(id => !claimableIdsRef.current.has(id) || resolvedClaimIdsRef.current.has(id));
+      if (settled) {
+        watchedClaimIdsRef.current.clear();
+        watchedClaimAtRef.current.clear();
+      } else if (Date.now() - startedAt >= POST_CLAIM_MAX_MS) {
+        // The claim never resolved and nobody is watching it any more. Silent until now, and the
+        // one state a developer most needs named: these ids show neither a consume nor a Retry.
+        console.warn('[useClaimNotes] post-claim watch gave up with notes unresolved:', watched);
+      }
+      if (settled || Date.now() - startedAt >= POST_CLAIM_MAX_MS) {
+        clearInterval(timer);
+        return;
+      }
+      // The check's own catch: an unhandled rejection here would take the whole watch down and
+      // skip every remaining tick, which is the failure this watch exists to report.
+      void runFailedNotesCheck(false).catch(err =>
+        console.warn('[useClaimNotes] post-claim failure re-check failed:', err)
+      );
+    }, POST_CLAIM_POLL_MS);
+
+    return () => clearInterval(timer);
   }, [postClaimTick, runFailedNotesCheck]);
 
   useEffect(() => {
@@ -290,6 +453,7 @@ export function useClaimNotes(): ClaimNotesState {
       }
 
       if (freshUnclaimedNotes.length === 0) {
+        console.warn('[useClaimNotes] claim requested but no note was claimable at queue time');
         return;
       }
 
@@ -297,10 +461,15 @@ export function useClaimNotes(): ClaimNotesState {
       const noteIds = notesToClaim.map(n => n.id);
       setClaimingNoteIds(prev => new Set([...prev, ...noteIds]));
 
-      // Optimistically clear retriable badges for the notes now being retried
-      // (they render as 'consuming' while in flight); a queue-time throw below
-      // re-flags them.
-      setRetriableNoteIds(new Set());
+      // Optimistically clear retriable badges for the notes now being retried (they render as
+      // 'consuming' while in flight); a queue-time throw below re-flags them. Scoped to THIS
+      // batch, like its neighbour: removing the navigation made two batches concurrently
+      // reachable, and a wholesale wipe clears another batch's red badge and its Retry.
+      setRetriableNoteIds(prev => {
+        const next = new Set(prev);
+        for (const id of noteIds) next.delete(id);
+        return next;
+      });
       for (const id of noteIds) locallyFailedNoteIdsRef.current.delete(id);
 
       try {
@@ -378,11 +547,8 @@ export function useClaimNotes(): ClaimNotesState {
         // below is not optional: off-extension, the progress page's own interval was the only
         // thing turning the FIFO loop in this path, so without this a claim sits Queued forever.
         // Same shape as Explore's auto-consume, which has always claimed without navigating.
-        // Watch for a consume that fails faster than the gate can render (see
-        // POST_CLAIM_RECHECK_MS). Fires whether or not anything queued: a queue-time throw is
-        // already recorded above, but a row that queues and then fails immediately is not.
-        setPostClaimTick(tick => tick + 1);
-
+        // The rows are enqueued: nothing below may be allowed to strand them, so the driver goes
+        // FIRST. Off-extension this is the ONLY thing that turns the FIFO loop from here.
         if (batchTxId) {
           if (isExtension()) {
             requestSWTransactionProcessing();
@@ -390,12 +556,34 @@ export function useClaimNotes(): ClaimNotesState {
             startBackgroundTransactionProcessing(signTransaction, false, zustandProvider);
           }
         }
+
+        // Watch for a consume that fails before the gate can render it (see the watcher above).
+        // Fires whether or not anything queued: a queue-time throw is already recorded above, but a
+        // row that queues and then fails immediately is not.
+        // Union, not replace: a second Claim All while the first is still settling would
+        // otherwise drop the first batch's ids and abandon its failure detection. Ids leave this
+        // set by settling, not by being overwritten.
+        const joinedAt = Date.now();
+        for (const n of notesToClaim) {
+          watchedClaimIdsRef.current.add(n.id);
+          if (!watchedClaimAtRef.current.has(n.id)) watchedClaimAtRef.current.set(n.id, joinedAt);
+        }
+        setPostClaimTick(tick => tick + 1);
       } finally {
-        // The live consume row is the gate on every platform now (`claimingTxIdByNoteId`), and
-        // it exists from the moment the row is enqueued. This local set no longer has to be held
-        // open on extension to keep the button hidden -- and holding it was what made a FAILED
-        // batch claim unrecoverable, since nothing else ever cleared it.
-        setClaimingNoteIds(new Set());
+        // Kick a refresh so the live consume row surfaces sooner than the poll would, but do NOT
+        // hand the gate over on its promise. That promise resolves even when nothing was applied --
+        // a read discarded as belonging to a previous account resolves normally -- and it may never
+        // settle at all, so neither `then` nor `catch` is a signal that live state has arrived.
+        //
+        // The handover is driven by OBSERVATION instead, in the effect below: an id is released
+        // once the note actually reports `isBeingClaimed`, with a bounded fallback so a refresh
+        // that never delivers cannot strand the gate.
+        void mutateClaimableNotes().catch(err =>
+          console.warn('[useClaimNotes] post-claim refresh failed; holding the claim gate', err)
+        );
+        for (const id of noteIds) {
+          if (!optimisticSinceRef.current.has(id)) optimisticSinceRef.current.set(id, Date.now());
+        }
       }
     },
     [
@@ -432,6 +620,7 @@ export function useClaimNotes(): ClaimNotesState {
     unclaimedNotes,
     isDelegatedProvingEnabled,
     claimingNoteIds,
+    individualClaimingIds,
     retriableNoteIds,
     invalidNoteIds,
     checkingNoteIds,

@@ -39,7 +39,7 @@ export interface AssetNoteGroup {
 
 interface PendingTabProps {
   safeClaimableNotes: NoteWithMetadata[];
-  unclaimedNotesCount: number;
+  individualClaimingIds: Set<string>;
   account: WalletAccount;
   isDelegatedProvingEnabled: boolean;
   claimingNoteIds: Set<string>;
@@ -61,7 +61,7 @@ const groupNumber = (value: string): string => {
 
 export const PendingTab: React.FC<PendingTabProps> = ({
   safeClaimableNotes,
-  unclaimedNotesCount,
+  individualClaimingIds,
   account,
   isDelegatedProvingEnabled,
   claimingNoteIds,
@@ -147,14 +147,22 @@ export const PendingTab: React.FC<PendingTabProps> = ({
     );
   }
 
-  const claimingCount = safeClaimableNotes.filter(n => n.isBeingClaimed).length;
+  // BOTH halves are derived here, from one array and one predicate. They used to come from two
+  // places -- `unclaimedNotesCount` computed by useClaimNotes over the same three id-sets, and a
+  // separate in-flight count here -- and computing one partition twice is what let the halves
+  // disagree: a count saying "nothing claimable" beside one saying "nothing in flight" rendered no
+  // claim control at all. One source, so they cannot drift.
+  const inFlight = (n: NoteWithMetadata) =>
+    n.isBeingClaimed || claimingNoteIds.has(n.id) || individualClaimingIds.has(n.id);
+  const claimingCount = safeClaimableNotes.filter(inFlight).length;
+  const claimableCount = safeClaimableNotes.length - claimingCount;
 
   return (
     <PendingSummary
       groupedNotes={groupedNotes}
       tokenPrices={tokenPrices}
-      unclaimedNotesCount={unclaimedNotesCount}
       claimingCount={claimingCount}
+      claimableCount={claimableCount}
       retriableNoteIds={retriableNoteIds}
       invalidNoteIds={invalidNoteIds}
       onSelectGroup={handleSelectGroup}
@@ -164,11 +172,12 @@ export const PendingTab: React.FC<PendingTabProps> = ({
 };
 
 interface PendingSummaryProps {
-  /** Notes with a live consume behind them; they have already left `unclaimedNotesCount`. */
+  /** Notes with a live consume behind them. */
   claimingCount: number;
+  /** Notes still claimable, derived alongside `claimingCount` so the two cannot disagree. */
+  claimableCount: number;
   groupedNotes: AssetNoteGroup[];
   tokenPrices: TokenPrices;
-  unclaimedNotesCount: number;
   retriableNoteIds: Set<string>;
   invalidNoteIds: Set<string>;
   onSelectGroup: (faucetId: string) => void;
@@ -178,8 +187,8 @@ interface PendingSummaryProps {
 const PendingSummary: React.FC<PendingSummaryProps> = ({
   groupedNotes,
   tokenPrices,
-  unclaimedNotesCount,
   claimingCount,
+  claimableCount,
   retriableNoteIds,
   invalidNoteIds,
   onSelectGroup,
@@ -263,16 +272,22 @@ const PendingSummary: React.FC<PendingSummaryProps> = ({
           ))}
         </div>
 
-        {/* Claiming does not navigate away any more, so this block is where progress is
-            reported. Every note being claimed has already dropped out of `unclaimedNotesCount`,
-            so gating on that alone made the CTA vanish the moment the user tapped it. */}
-        {(unclaimedNotesCount > 0 || claimingCount > 0) && (
+        {/* Claiming does not navigate away any more, so this block is where progress is reported.
+            Every note being claimed leaves the claimable half, so gating on that alone made the CTA
+            vanish the moment the user tapped it. */}
+        {/* A live region has to exist in the tree BEFORE its text changes, or nothing is
+            announced. The control below swaps one button for another, so the announcement cannot
+            ride on it: this span is always mounted and only its text moves. */}
+        <span className="sr-only" role="status" aria-live="polite">
+          {claimingCount > 0 ? t('claiming') : ''}
+        </span>
+        {(claimableCount > 0 || claimingCount > 0) && (
           <div className="flex flex-col items-center mt-auto pt-4 pb-2">
             {/* Claiming submits immediately -- there is no review step between this
                 button and the transaction -- so this is the only place the cost can be
                 stated before the user commits. Label and amount are separate nodes so
                 no placeholder-only string has to survive translation. */}
-            {maxNetworkFee && unclaimedNotesCount > 0 && (
+            {maxNetworkFee && claimableCount > 0 && (
               <div className="mb-2 text-center text-xs text-heading-gray">
                 <div>
                   {t('networkFeeMax')} · {maxNetworkFee}
@@ -284,12 +299,15 @@ const PendingSummary: React.FC<PendingSummaryProps> = ({
                 {totals.assetsCount > 1 && <div className="mt-0.5">{t('feeChargedPerAsset')}</div>}
               </div>
             )}
-            {/* Two ids on purpose: `claim-all-button` keeps meaning "an actionable Claim All",
+            {/* The two controls answer DIFFERENT questions, deliberately: "is there anything to
+                claim" and "is anything in flight". Keying both on the in-flight count made one
+                background auto-consume disable Claim All for every other claimable note.
+                Two ids on purpose: `claim-all-button` keeps meaning "an actionable Claim All",
                 which is the contract the E2E helper reads — it treats that id being visible as
                 permission to click, and a disabled button under it would make the helper click a
                 control it cannot action. The in-flight state gets its own id, the same split #834
                 made for the row's control. */}
-            {unclaimedNotesCount > 0 ? (
+            {claimableCount > 0 ? (
               <Button
                 data-testid="claim-all-button"
                 className="w-full"
@@ -303,7 +321,6 @@ const PendingSummary: React.FC<PendingSummaryProps> = ({
                 className="w-full"
                 variant={ButtonVariant.Primary}
                 disabled
-                isLoading
                 title={t('claiming')}
               />
             )}
@@ -593,6 +610,11 @@ const DetailNoteRow: React.FC<DetailNoteRowProps> = ({
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+  // Read by the unmount-only cleanup below, which must not re-subscribe on every render.
+  const onClaimingStateChangeRef = useRef(onClaimingStateChange);
+  onClaimingStateChangeRef.current = onClaimingStateChange;
+  const noteIdRef = useRef(note.id);
+  noteIdRef.current = note.id;
 
   // Fold this row's local claim attempt into the parent-derived state: an
   // in-flight local claim reads as consuming; a local claim error reads as
@@ -620,6 +642,12 @@ const DetailNoteRow: React.FC<DetailNoteRowProps> = ({
   useEffect(() => {
     return () => {
       abortControllerRef.current?.abort();
+      // Emit the closing edge as well as aborting. `individualClaimingIds` is the one in-flight
+      // set with no self-clear -- `claimingNoteIds` clears in its batch's own cleanup and
+      // `isBeingClaimed` follows the live row -- so a row unmounted mid-claim (the back handler,
+      // or its group leaving the list) latched its id for the page's lifetime. A latched id is
+      // then suppressed from `retriableNoteIds`, so a later failure would show no Retry at all.
+      onClaimingStateChangeRef.current?.(noteIdRef.current, false);
     };
   }, []);
 
