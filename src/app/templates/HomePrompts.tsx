@@ -2,7 +2,6 @@ import React, { FC, useCallback, useEffect, useMemo, useRef, useState } from 're
 
 import { useTranslation } from 'react-i18next';
 
-import { useGuardianPresentation } from 'app/hooks/useGuardianPresentation';
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
 import { FundWalletDrawer } from 'app/templates/FundWalletDrawer';
@@ -13,6 +12,7 @@ import { initiateReplaceHotKeyTransaction, requestSWTransactionProcessing } from
 import { hasNoFeeAsset } from 'lib/miden/fees/spendable';
 import type { TokenBalanceData } from 'lib/miden/front';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
+import { isGuardianDrifted } from 'lib/miden/guardian/sync-guard';
 import { isExtension } from 'lib/platform';
 import type { TokenPrices } from 'lib/prices';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
@@ -132,9 +132,6 @@ export const HomePrompts: FC<HomePromptsProps> = ({
   tokenPrices
 }) => {
   const { t } = useTranslation();
-  // Shared guardian-status derivation: the drift-banner gate below fires on the
-  // same decision as the banner's own gate and the settings pill.
-  const guardianPresentation = useGuardianPresentation();
   const { storage, isLoaded, setPromptStatus, dismissPrompt, completePrompt, isPromptPending } =
     useWalletPromptStorage();
   const [faucetStatusIndicator, setFaucetStatusIndicator] = useState<PromptCardStatus>('idle');
@@ -462,7 +459,7 @@ export const HomePrompts: FC<HomePromptsProps> = ({
             />
           );
         })}
-        {guardianPresentation.prompt === 'needs-user-input' && <GuardianNeedsUrlBanner />}
+        {isGuardianDrifted(account) && <GuardianNeedsUrlBanner />}
       </PromptCarousel>
       <FundWalletDrawer
         open={fundDrawerOpen}

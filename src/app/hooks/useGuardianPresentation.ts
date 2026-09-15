@@ -11,15 +11,15 @@ import {
 import { useWalletStore } from 'lib/store';
 
 /**
- * The one wiring of `deriveGuardianPresentation` to the realm's inputs. Every
- * surface that says anything about the current account's guardian — the
- * settings pill, the connectivity banner's guardian slot, the needs-URL
- * banner's gate — consumes this hook, so they cannot disagree about which
- * account, which stores, or when freshness expires.
+ * The one wiring of `deriveGuardianPresentation` to the realm's inputs, so every
+ * status surface agrees on the account, the stores, and when freshness expires.
  */
 export function useGuardianPresentation(): GuardianPresentation {
-  const account = useWalletStore(s => s.currentAccount);
-  const pk = account?.publicKey;
+  // Primitives rather than the account: every backend push replaces the account
+  // object, and an unrelated field must not re-render the status.
+  const pk = useWalletStore(s => s.currentAccount?.publicKey);
+  const hotPublicKey = useWalletStore(s => s.currentAccount?.hotPublicKey);
+  const guardianSyncStatus = useWalletStore(s => s.currentAccount?.guardianSyncStatus);
 
   const outage = useSyncExternalStore(subscribeGuardianSyncOutage, () => (pk ? isGuardianSyncOutage(pk) : false));
   const unrepairable = useSyncExternalStore(subscribeGuardianSyncOutage, () =>
@@ -29,7 +29,7 @@ export function useGuardianPresentation(): GuardianPresentation {
     pk ? getGuardianLastSyncAt(pk) : undefined
   );
 
-  // Freshness decays with wall-clock time, which no subscription announces —
+  // Freshness decays with wall-clock time, which no subscription announces -
   // re-derive on a coarse tick so 'online' cannot outlive the stamp (F-149).
   const [, setClockTick] = useState(0);
   useEffect(() => {
@@ -39,7 +39,7 @@ export function useGuardianPresentation(): GuardianPresentation {
   }, [pk]);
 
   return deriveGuardianPresentation({
-    account: { hotPublicKey: account?.hotPublicKey, guardianSyncStatus: account?.guardianSyncStatus },
+    account: { hotPublicKey, guardianSyncStatus },
     outage,
     unrepairable,
     lastSyncAt,

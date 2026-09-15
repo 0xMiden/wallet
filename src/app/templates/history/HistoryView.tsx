@@ -191,7 +191,7 @@ function buildRowProps(
   const isSwap = !faucet && !isFailed && !isCancelled && entry.txType === 'swap';
 
   // A completed rotation's title derives from its verdict at render, not from
-  // the frozen `displayMessage` snapshot — the claim stays attached to the
+  // the frozen `displayMessage` snapshot - the claim stays attached to the
   // evidence rather than to whatever the row said the day it completed.
   const guardianTitleKey =
     entry.txType === 'switch-guardian' && !isFailed && !isCancelled && entry.guardianSwitchVerdict
@@ -315,7 +315,7 @@ function buildRowProps(
     statusLabel = t('pending');
   } else if (entry.txType === 'switch-guardian' && entry.guardianSwitchVerdict) {
     // A submitted-unconfirmed rotation is Completed in the DB, which the
-    // generic fallthrough below renders as a green "Confirmed" — the one claim
+    // generic fallthrough below renders as a green "Confirmed" - the one claim
     // that row cannot make. The override table lives with the verdict module.
     const chip = rotationChip(entry.guardianSwitchVerdict);
     if (chip) {

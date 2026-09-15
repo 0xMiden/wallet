@@ -26,12 +26,20 @@ export function assertGuardianInSync(account: { guardianSyncStatus?: GuardianSyn
 
 /**
  * The predicate behind `assertGuardianInSync`, exported so presentation can
- * consume the SAME decision — the F-207 finding was a settings pill reading
+ * consume the SAME decision - the F-207 finding was a settings pill reading
  * "Online" from its own derivation while this guard refused every send. One
  * predicate, two consumers, no second derivation to drift.
  */
 export function isGuardianSyncBlocked(account: { guardianSyncStatus?: GuardianSyncStatus }): boolean {
   return Boolean(account.guardianSyncStatus && account.guardianSyncStatus !== 'in-sync');
+}
+
+/**
+ * The drift decision behind the needs-URL prompt: the account's guardian changed
+ * to an operator the wallet could not identify, so only the user can name it.
+ */
+export function isGuardianDrifted(account: { guardianSyncStatus?: GuardianSyncStatus }): boolean {
+  return account.guardianSyncStatus === 'needs-user-input';
 }
 
 /**

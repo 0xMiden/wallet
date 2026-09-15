@@ -494,6 +494,40 @@ describe('HistoryDetails', () => {
       expect(screen.getByTestId('guardian-transition-hero')).toHaveAttribute('data-new', 'https://new.example');
       expect(rowByLabel('txIdLabel')?.textContent).toContain('tx-1');
     });
+
+    it('reads an unconfirmed rotation as Submitted instead of the generic pill', async () => {
+      mockGetTransactionById.mockResolvedValue({
+        ...baseSendTx,
+        type: 'switch-guardian',
+        displayMessage: 'Guardian switch submitted',
+        displayIcon: 'DEFAULT',
+        amount: undefined,
+        faucetId: undefined,
+        outputNoteIds: undefined,
+        extraInputs: { newGuardianEndpoint: 'https://new.example', commitUnconfirmed: true }
+      });
+      await renderAndLoad();
+
+      expect(screen.getByText('guardianSwitchSubmittedChip')).toBeInTheDocument();
+      expect(screen.queryByTestId('status-pill')).toBeNull();
+    });
+
+    it('keeps the generic pill for a committed rotation whose registration did not land', async () => {
+      mockGetTransactionById.mockResolvedValue({
+        ...baseSendTx,
+        type: 'switch-guardian',
+        displayMessage: 'Guardian switched',
+        displayIcon: 'DEFAULT',
+        amount: undefined,
+        faucetId: undefined,
+        outputNoteIds: undefined,
+        extraInputs: { newGuardianEndpoint: 'https://new.example', registerFailed: true }
+      });
+      await renderAndLoad();
+
+      expect(screen.getByTestId('status-pill')).toHaveAttribute('data-status', String(STATUS_COMPLETED));
+      expect(screen.queryByText('guardianSwitchSubmittedChip')).toBeNull();
+    });
   });
 
   describe('loading & error states', () => {

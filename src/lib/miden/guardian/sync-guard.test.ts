@@ -7,7 +7,7 @@
  * native-http, miden-multisig-client) into every transactions.ts test file.
  */
 
-import { assertGuardianInSync } from './sync-guard';
+import { assertGuardianInSync, isGuardianDrifted } from './sync-guard';
 
 describe('assertGuardianInSync', () => {
   it('throws "guardian out of sync" when guardianSyncStatus is needs-user-input', () => {
@@ -24,5 +24,14 @@ describe('assertGuardianInSync', () => {
 
   it('does not throw when guardianSyncStatus is absent (legacy/non-Guardian default)', () => {
     expect(() => assertGuardianInSync({})).not.toThrow();
+  });
+});
+
+describe('isGuardianDrifted', () => {
+  it('holds only for needs-user-input', () => {
+    expect(isGuardianDrifted({ guardianSyncStatus: 'needs-user-input' })).toBe(true);
+    expect(isGuardianDrifted({ guardianSyncStatus: 'resolving' })).toBe(false);
+    expect(isGuardianDrifted({ guardianSyncStatus: 'in-sync' })).toBe(false);
+    expect(isGuardianDrifted({})).toBe(false);
   });
 });

@@ -1,7 +1,7 @@
 /**
- * rotationVerdict — the single reader of switch-guardian outcome flags.
+ * rotationVerdict - the single reader of switch-guardian outcome flags.
  *
- * The invariants here are the ones rounds 21–25 of the #786 review kept
+ * The invariants here are the ones rounds 21-25 of the #786 review kept
  * re-proving per surface: an absent flag is not evidence (F-222), unconfirmed
  * never renders as confirmed, and the full flag product maps to exactly one
  * verdict.
@@ -79,7 +79,7 @@ describe('rotationVerdict', () => {
     });
   });
 
-  it('exactly one verdict per flag combination, and unconfirmed never reads confirmed — the full product', () => {
+  it('exactly one verdict per flag combination, and unconfirmed never reads confirmed - the full product', () => {
     const bools = [undefined, true, false] as const;
     const cases: Array<{ flags: Record<string, boolean | undefined>; expected: string }> = [];
     for (const commitUnconfirmed of bools)

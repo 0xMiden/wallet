@@ -114,7 +114,7 @@ export interface IHistoryEntry {
   newGuardianEndpoint?: ISwitchGuardianExtraInputs['newGuardianEndpoint'];
   /**
    * The row's rotation verdict kind (`rotationVerdict`), projected at the
-   * mapping boundary so the views can qualify their claims — the outcome flags
+   * mapping boundary so the views can qualify their claims - the outcome flags
    * themselves deliberately do not cross this boundary.
    */
   guardianSwitchVerdict?: RotationVerdictKind;

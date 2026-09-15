@@ -213,7 +213,7 @@ const EarnDepositStatusPill: FC<{ status: NonNullable<IEarnDepositExtraInputs['e
 
 /**
  * Amber "Submitted" pill for a switch-guardian row whose commit was never
- * confirmed — the generic `StatusPill` reads such a row's Completed status as a
+ * confirmed - the generic `StatusPill` reads such a row's Completed status as a
  * green "Confirmed", the exact claim the row cannot make. The override table
  * (`rotationChip`) lives with the verdict module; every other verdict defers to
  * the generic pill.
