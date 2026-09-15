@@ -705,23 +705,27 @@ export const useWalletStore = create<WalletStore>()(
     },
 
     // Note toast actions (mobile only)
-    checkForNewNotes: (currentNoteIds: string[]) => {
+    checkForNewNotes: (currentNoteIds: string[], notifiableNoteIds?: readonly string[]) => {
       const { seenNoteIds } = get();
 
       // Find note IDs that weren't previously seen
       const newNoteIds = currentNoteIds.filter(id => !seenNoteIds.has(id));
 
       if (newNoteIds.length > 0) {
-        // Update seen notes and show toast
         const updatedSeenNotes = new Set(seenNoteIds);
         for (const id of newNoteIds) {
           updatedSeenNotes.add(id);
         }
-        set({
-          seenNoteIds: updatedSeenNotes,
-          isNoteToastVisible: true,
-          noteToastShownAt: Date.now()
-        });
+        // Every new note is recorded as seen, but only one the user has to claim by hand shows the
+        // toast: a note first listed while the wallet was claiming it must not toast later, when a fee
+        // or setting change makes it manual (#811).
+        const notifiable = notifiableNoteIds ? new Set(notifiableNoteIds) : null;
+        const showToast = !notifiable || newNoteIds.some(id => notifiable.has(id));
+        set(
+          showToast
+            ? { seenNoteIds: updatedSeenNotes, isNoteToastVisible: true, noteToastShownAt: Date.now() }
+            : { seenNoteIds: updatedSeenNotes }
+        );
 
         // Persist to chrome.storage.local so service worker can read them
         if (isExtension()) {
