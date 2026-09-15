@@ -1,21 +1,16 @@
-export type FaucetAddressNetwork = 'testnet' | 'devnet' | 'localnet';
-
-export type FaucetAddressSdk = Pick<
-  typeof import('@miden-sdk/miden-sdk/lazy'),
-  'AccountId' | 'Address' | 'NetworkId'
+export type FaucetAddressHelpers = Pick<
+  typeof import('lib/miden/sdk/helpers'),
+  'accountRefToSdk' | 'getBech32AddressFromAccountId'
 >;
 
-export function hexFaucetIdToBech32(
-  sdk: FaucetAddressSdk,
-  hex: string,
-  network: FaucetAddressNetwork
-): string {
-  const accountId = sdk.AccountId.fromHex(hex);
-  const networkId =
-    network === 'localnet'
-      ? sdk.NetworkId.custom('mlcl')
-      : network === 'devnet'
-        ? sdk.NetworkId.devnet()
-        : sdk.NetworkId.testnet();
-  return sdk.Address.fromAccountId(accountId, 'BasicWallet').toBech32(networkId);
+export type FaucetAddressTarget = {
+  __TEST_HEX_TO_BECH32_FAUCET__?: (hex: string) => string;
+};
+
+export async function installFaucetAddressTestHook(
+  target: FaucetAddressTarget = globalThis as FaucetAddressTarget,
+  loadHelpers: () => Promise<FaucetAddressHelpers> = () => import('lib/miden/sdk/helpers')
+): Promise<void> {
+  const { accountRefToSdk, getBech32AddressFromAccountId } = await loadHelpers();
+  target.__TEST_HEX_TO_BECH32_FAUCET__ = hex => getBech32AddressFromAccountId(accountRefToSdk(hex));
 }

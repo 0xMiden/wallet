@@ -11,7 +11,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-import { runStressDriver, type StressOptions } from './stress-driver';
+import { assertFundedExactFaucetBalances, runStressDriver, type StressOptions } from './stress-driver';
 import { expect, test } from '../fixtures/two-wallets';
 import { hexFaucetToBech32 } from '../helpers/faucet-address';
 import { streamIndexedDBToFile } from '../helpers/idb-dump';
@@ -24,7 +24,6 @@ const INITIAL_MINT_AMOUNT = 100_000_000_000; // matches mint-and-balance.spec.ts
  * `midenCli.createFaucet()` defaults to this symbol. Conservation is scoped to the exact
  * faucet deployed for the run because unrelated faucets may reuse the same symbol.
  */
-const TOKEN = 'TST';
 
 function intEnv(key: string, dflt: number): number {
   const raw = process.env[key];
@@ -81,7 +80,7 @@ test.describe('Stress - random send/claim', () => {
   // No per-test timeout — the driver's `numNotes` is the stop condition.
   test.setTimeout(0);
 
-  test('random send/claim between two wallets', async ({ walletA, walletB, midenCli, steps, timeline, envConfig }) => {
+  test('random send/claim between two wallets', async ({ walletA, walletB, midenCli, steps, timeline }) => {
     const opts = parseOptions();
     const initialMintsPerWallet = intEnv('STRESS_INITIAL_MINTS', 3);
     const conservationStrict = (process.env.STRESS_CONSERVATION_STRICT ?? 'true') === 'true';
@@ -151,7 +150,7 @@ test.describe('Stress - random send/claim', () => {
         await midenCli.mint(faucetHex, addressB, INITIAL_MINT_AMOUNT, 'public');
       }
       await midenCli.sync();
-      faucetId = await hexFaucetToBech32(walletA, faucetHex, envConfig.name);
+      faucetId = await hexFaucetToBech32(walletA, faucetHex);
     });
 
     await steps.step('initial_claim', async () => {
@@ -185,6 +184,7 @@ test.describe('Stress - random send/claim', () => {
     await Promise.all([walletA.refreshBalances(), walletB.refreshBalances()]);
     const initialA = (await walletA.quickBalanceSnapshot({ faucetId })).totalReportable;
     const initialB = (await walletB.quickBalanceSnapshot({ faucetId })).totalReportable;
+    assertFundedExactFaucetBalances(initialA, initialB);
     const initialTotal = initialA + initialB;
 
     console.log(`\n=== INITIAL BALANCES ===\nA=${initialA}\nB=${initialB}\ntotal=${initialTotal}\n`);
@@ -192,11 +192,7 @@ test.describe('Stress - random send/claim', () => {
     let result: Awaited<ReturnType<typeof runStressDriver>> | undefined;
 
     await steps.step('stress_loop', async () => {
-      result = await runStressDriver(
-        { walletA, walletB, addressA, addressB, tokenSymbol: TOKEN, faucetId },
-        timeline,
-        opts
-      );
+      result = await runStressDriver({ walletA, walletB, addressA, addressB, faucetId }, timeline, opts);
     });
 
     await steps.step('verify_and_report', async () => {

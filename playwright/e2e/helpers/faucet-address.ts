@@ -1,23 +1,30 @@
 import type { ChromeWalletPageApi } from './wallet-page';
-import type { EnvironmentConfig } from '../harness/types';
 
-export function hexFaucetToBech32(
-  wallet: ChromeWalletPageApi,
-  faucetHex: string,
-  environment: EnvironmentConfig['name'] = 'testnet'
-): Promise<string> {
-  const network = environment === 'localhost' ? 'localnet' : environment;
-  if (network !== 'testnet' && network !== 'devnet' && network !== 'localnet') {
-    throw new Error(`Unsupported E2E network for faucet address: ${environment}`);
+const HOOK_READY_TIMEOUT_MS = 60_000;
+
+export async function hexFaucetToBech32(wallet: ChromeWalletPageApi, faucetHex: string): Promise<string> {
+  try {
+    await wallet.page.waitForFunction(
+      () =>
+        typeof (window as never as { __TEST_HEX_TO_BECH32_FAUCET__?: unknown }).__TEST_HEX_TO_BECH32_FAUCET__ ===
+        'function',
+      undefined,
+      { timeout: HOOK_READY_TIMEOUT_MS }
+    );
+  } catch (error) {
+    throw new Error(
+      `__TEST_HEX_TO_BECH32_FAUCET__ was not ready within ${HOOK_READY_TIMEOUT_MS}ms: ` +
+        (error instanceof Error ? error.message : String(error))
+    );
   }
-  const faucetNetwork: 'testnet' | 'devnet' | 'localnet' = network;
+
   return wallet.page.evaluate(
-    ({ faucetHex, faucetNetwork }) =>
+    hex =>
       (
         window as never as {
-          __TEST_HEX_TO_BECH32_FAUCET__: (hex: string, network: 'testnet' | 'devnet' | 'localnet') => string;
+          __TEST_HEX_TO_BECH32_FAUCET__: (hex: string) => string;
         }
-      ).__TEST_HEX_TO_BECH32_FAUCET__(faucetHex, faucetNetwork),
-    { faucetHex, faucetNetwork }
+      ).__TEST_HEX_TO_BECH32_FAUCET__(hex),
+    faucetHex
   );
 }

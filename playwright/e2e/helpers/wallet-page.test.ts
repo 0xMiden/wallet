@@ -12,6 +12,44 @@ function makePage(): Page {
   } as unknown as Page;
 }
 
+function makeSendPage(tokenIds: string[]): { page: Page; clickedTokenIds: string[] } {
+  const clickedTokenIds: string[] = [];
+  const noopLocator = {
+    waitFor: jest.fn(async () => undefined),
+    fill: jest.fn(async () => undefined),
+    click: jest.fn(async () => undefined),
+    textContent: jest.fn(async () => ''),
+    count: jest.fn(async () => 0),
+    first() {
+      return this;
+    },
+    getByTestId() {
+      return this;
+    }
+  };
+  const page = {
+    url: () => 'chrome-extension://test/fullpage.html#/',
+    goto: jest.fn(async () => undefined),
+    waitForFunction: jest.fn(async () => undefined),
+    evaluate: jest.fn(async () => undefined),
+    getByTestId: jest.fn(() => noopLocator),
+    locator: jest.fn((selector: string) => {
+      if (selector === 'body') return noopLocator;
+      const match = selector.match(/^\[data-token-id=(.+)\]$/);
+      const tokenId = JSON.parse(match?.[1] ?? '""') as string;
+      const exists = tokenIds.includes(tokenId);
+      return {
+        count: jest.fn(async () => (exists ? 1 : 0)),
+        locator: jest.fn(() => ({
+          first: () => ({ click: jest.fn(async () => clickedTokenIds.push(tokenId)) })
+        }))
+      };
+    })
+  } as unknown as Page;
+
+  return { page, clickedTokenIds };
+}
+
 function installBalanceState(state: Record<string, unknown>, notes: Array<Record<string, unknown>>): void {
   Object.defineProperty(window, '__TEST_STORE__', {
     configurable: true,
@@ -63,6 +101,72 @@ describe('ChromeWalletPage balance scoping', () => {
     await expect(wallet.getBalance()).resolves.toBe(19);
   });
 
+  it('uses cached metadata for consumed assets and pending notes in symbol snapshots', async () => {
+    const state = {
+      assetsMetadata: {
+        'tracked-faucet': { symbol: 'TST', decimals: 8 },
+        'foreign-faucet': { symbol: 'FOREIGN', decimals: 8 }
+      },
+      balances: {
+        'account-a': [
+          { tokenId: 'tracked-faucet', balance: 10 },
+          { tokenId: 'foreign-faucet', balance: 2 }
+        ]
+      },
+      transactions: {}
+    };
+    installBalanceState(state, [
+      { id: 'tracked-note', faucetId: 'tracked-faucet', amountBaseUnits: '300000000' },
+      { id: 'foreign-note', faucetId: 'foreign-faucet', amountBaseUnits: '400000000' }
+    ]);
+    const wallet = new ChromeWalletPage(makePage(), 'test');
+
+    const snapshot = await wallet.quickBalanceSnapshot({ symbol: 'tst' });
+
+    expect(snapshot.balance).toBe(10);
+    expect(snapshot.pendingSum).toBe(3);
+    expect(snapshot.totalReportable).toBe(13);
+    expect(snapshot).not.toHaveProperty('unidentified');
+  });
+
+  it('refreshes before delegating getBalance to the shared snapshot path', async () => {
+    const state = {
+      currentAccount: { publicKey: 'account-a' },
+      assetsMetadata: { 'tracked-faucet': { symbol: 'TST', decimals: 8 } },
+      balances: { 'account-a': [{ tokenId: 'tracked-faucet', balance: 1 }] },
+      transactions: {},
+      fetchBalances: jest.fn(async () => {
+        state.balances['account-a'] = [{ tokenId: 'tracked-faucet', balance: 10 }];
+      })
+    };
+    installBalanceState(state, [{ id: 'tracked-note', faucetId: 'tracked-faucet', amountBaseUnits: '300000000' }]);
+    const wallet = new ChromeWalletPage(makePage(), 'test');
+    const snapshotSpy = jest.spyOn(wallet, 'quickBalanceSnapshot');
+
+    await expect(wallet.getBalance('tst')).resolves.toBe(13);
+
+    expect(state.fetchBalances).toHaveBeenCalledWith('account-a', state.assetsMetadata);
+    expect(snapshotSpy).toHaveBeenCalledWith({ symbol: 'tst' });
+    expect(state.fetchBalances.mock.invocationCallOrder[0]!).toBeLessThan(snapshotSpy.mock.invocationCallOrder[0]!);
+  });
+
+  it('delegates an unscoped getBalance call without inventing a filter', async () => {
+    const state = {
+      currentAccount: { publicKey: 'account-a' },
+      assetsMetadata: {},
+      balances: { 'account-a': [] },
+      transactions: {},
+      fetchBalances: jest.fn(async () => undefined)
+    };
+    installBalanceState(state, []);
+    const wallet = new ChromeWalletPage(makePage(), 'test');
+    const snapshotSpy = jest.spyOn(wallet, 'quickBalanceSnapshot');
+
+    await wallet.getBalance();
+
+    expect(snapshotSpy).toHaveBeenCalledWith(undefined);
+  });
+
   it('isolates an exact faucet when another faucet uses the same symbol', async () => {
     const state = {
       balances: {
@@ -96,5 +200,36 @@ describe('ChromeWalletPage balance scoping', () => {
     expect(snapshot.pendingSum).toBe(3);
     expect(snapshot.totalReportable).toBe(13);
     expect(allAssets.totalReportable).toBe(19);
+  });
+});
+
+describe('ChromeWalletPage exact token selection', () => {
+  it('selects the requested token id when two rows share a symbol', async () => {
+    const { page, clickedTokenIds } = makeSendPage(['faucet-a', 'faucet-b']);
+    const wallet = new ChromeWalletPage(page, 'test');
+
+    await wallet.sendTokens({
+      recipientAddress: 'account-b',
+      amount: '1',
+      isPrivate: false,
+      tokenId: 'faucet-b'
+    });
+
+    expect(clickedTokenIds).toEqual(['faucet-b']);
+  });
+
+  it('fails instead of falling back when the requested token id is absent', async () => {
+    const { page, clickedTokenIds } = makeSendPage(['faucet-a']);
+    const wallet = new ChromeWalletPage(page, 'test');
+
+    await expect(
+      wallet.sendTokens({
+        recipientAddress: 'account-b',
+        amount: '1',
+        isPrivate: false,
+        tokenId: 'missing-faucet'
+      })
+    ).rejects.toThrow('missing-faucet');
+    expect(clickedTokenIds).toEqual([]);
   });
 });

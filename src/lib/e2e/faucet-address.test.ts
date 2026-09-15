@@ -1,25 +1,26 @@
-import { hexFaucetIdToBech32, type FaucetAddressSdk } from './faucet-address';
+import { installFaucetAddressTestHook, type FaucetAddressHelpers } from './faucet-address';
 
-describe('hexFaucetIdToBech32', () => {
-  it.each([
-    ['testnet', 'testnet'],
-    ['devnet', 'devnet'],
-    ['localnet', 'mlcl']
-  ] as const)('encodes a faucet id for %s', (network, expectedNetworkId) => {
-    const toBech32 = jest.fn(() => `${expectedNetworkId}1tracked`);
-    const sdk = {
-      AccountId: { fromHex: jest.fn(() => 'account-id') },
-      Address: { fromAccountId: jest.fn(() => ({ toBech32 })) },
-      NetworkId: {
-        testnet: jest.fn(() => 'testnet'),
-        devnet: jest.fn(() => 'devnet'),
-        custom: jest.fn((prefix: string) => prefix)
-      }
-    } as unknown as FaucetAddressSdk;
+describe('installFaucetAddressTestHook', () => {
+  it('loads the production helpers when no test loader is supplied', async () => {
+    const target: { __TEST_HEX_TO_BECH32_FAUCET__?: (hex: string) => string } = {};
 
-    expect(hexFaucetIdToBech32(sdk, '0xtracked', network)).toBe(`${expectedNetworkId}1tracked`);
-    expect(sdk.AccountId.fromHex).toHaveBeenCalledWith('0xtracked');
-    expect(sdk.Address.fromAccountId).toHaveBeenCalledWith('account-id', 'BasicWallet');
-    expect(toBech32).toHaveBeenCalledWith(expectedNetworkId);
+    await installFaucetAddressTestHook(target);
+
+    expect(target.__TEST_HEX_TO_BECH32_FAUCET__).toEqual(expect.any(Function));
+  });
+
+  it('composes the canonical account parser and network-aware address formatter', async () => {
+    const accountId = {} as ReturnType<FaucetAddressHelpers['accountRefToSdk']>;
+    const helpers = {
+      accountRefToSdk: jest.fn(() => accountId),
+      getBech32AddressFromAccountId: jest.fn(() => 'mlcl1tracked')
+    } as unknown as FaucetAddressHelpers;
+    const target: { __TEST_HEX_TO_BECH32_FAUCET__?: (hex: string) => string } = {};
+
+    await installFaucetAddressTestHook(target, async () => helpers);
+
+    expect(target.__TEST_HEX_TO_BECH32_FAUCET__?.('0xtracked')).toBe('mlcl1tracked');
+    expect(helpers.accountRefToSdk).toHaveBeenCalledWith('0xtracked');
+    expect(helpers.getBech32AddressFromAccountId).toHaveBeenCalledWith(accountId);
   });
 });
