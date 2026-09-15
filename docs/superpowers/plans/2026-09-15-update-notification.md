@@ -1,12 +1,23 @@
 # In-wallet Update Notification Implementation Plan
 
-> **For the implementer:** Follow `superpowers:test-driven-development` task by task. Do not write production code until the named failing test proves the behavior is absent. Use `superpowers:verification-before-completion` before every commit and `review-council:rev` after the implementation is locally green.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` (recommended) or `superpowers:executing-plans` to implement this plan task by task. Follow `superpowers:test-driven-development` for every production behavior, use `superpowers:verification-before-completion` before every commit, and run `review-council:rev` after the implementation is locally green.
 
 **Goal:** Show a non-blocking update card only when the installation's platform distribution channel confirms that a newer build is available, with Miden-owned metadata limited to safe presentation text.
 
-**Architecture:** A platform-neutral controller joins an authoritative `UpdateAvailabilityAdapter` result with a strictly validated, exact-version presentation manifest. Chrome availability is captured in the extension service worker, Android and iOS use small Capacitor plugins, and desktop uses Tauri's signed updater. One provider applies foreground caching and dismissal rules, then renders a shared accessible card on initialized wallet surfaces. URLs, update modes, and actions remain compiled into each client.
+**Architecture:** A platform-neutral controller joins an authoritative `UpdateAvailabilityAdapter` result with a strictly validated, exact-version presentation manifest. Chrome availability is captured in the extension service worker, and Android and iOS use small Capacitor plugins. Desktop returns `unknown` until a real Tauri updater signing pipeline, public key, and endpoint contract exist. One provider applies foreground caching and dismissal rules, then renders a shared accessible card on initialized wallet surfaces. URLs, update modes, and actions remain compiled into each client.
 
-**Tech stack:** React, TypeScript, Chrome Extension APIs, Capacitor Android/iOS plugins, Google Play Core, Swift URLSession, Tauri updater, Jest, native unit tests, Playwright.
+**Tech stack:** React, TypeScript, Chrome Extension APIs, Capacitor Android/iOS plugins, Google Play Core, Swift URLSession, Jest, native unit tests, Playwright.
+
+**Spec:** `docs/superpowers/specs/2026-09-15-update-notification-design.md`
+
+## Global Constraints
+
+- Availability must come from the installation's platform distribution channel, never the presentation manifest.
+- Remote metadata is bounded plain text and visual emphasis only. It cannot supply URLs, commands, labels, update modes, or blocking behavior.
+- Development, sideloaded, unsupported, and unverifiable builds return `unknown` and remain silent.
+- Desktop remains unsupported until a real Tauri signing pipeline, public key source, and signed-update endpoint are separately defined.
+- Every behavior change follows a witnessed RED, GREEN, and refactor cycle.
+- Every user-facing string is localized through the repository i18n system.
 
 ---
 
@@ -109,23 +120,17 @@
 4. Add TypeScript adapter tests for bridge response validation, semantic comparison, foreground caching, action failure, and unsupported web execution.
 5. Run Swift tests, focused Jest suites, an iOS simulator build, full error scan, and expected `.app` artifact check before committing.
 
-## Task 6: Enable Tauri's signed updater adapter
+## Task 6: Preserve the unsupported desktop boundary
 
 **Files:**
 
-- Modify: `src-tauri/Cargo.toml`
-- Modify: `src-tauri/tauri.conf.json`
-- Modify: `src-tauri/capabilities/default.json`
-- Modify generated lock/schema files only through repository-supported commands.
 - Create: `src/lib/update/desktop.ts`
 - Create: `src/lib/update/desktop.test.ts`
-- Modify as needed: desktop release workflows and signing configuration.
 
-1. Add failing TypeScript tests for signed-updater `none`, `available`, check failure, bad response, download progress, cancelled install, install failure, and relaunch prompt.
-2. Configure Tauri's official updater plugin with HTTPS endpoints, public-key signature verification, artifact creation, and the minimum capability permissions. Never disable signature checks and never take an endpoint from the presentation manifest.
-3. Treat development and builds without valid updater configuration as `unknown`. Keep download and install behind an explicit user action.
-4. Add or extend release-workflow checks proving updater artifacts and signatures are emitted together and a missing signature blocks publication.
-5. Run Cargo format/check/test, focused Jest suites, and desktop release builds supported on the host. Verify updater artifacts and search complete output for errors before committing.
+1. Add a failing TypeScript test proving desktop availability is `unknown` and exposes no update action.
+2. Implement the explicit unsupported adapter without adding the Tauri updater plugin, key material, endpoints, permissions, or release artifacts.
+3. Add a regression test proving remote presentation metadata cannot make the desktop adapter report an available update.
+4. Run the focused Jest suite and desktop TypeScript build before committing.
 
 ## Task 7: Add the provider and accessible update card
 
@@ -155,9 +160,9 @@
 - Modify: `scripts/validate-update-manifest.mjs`
 - Modify release documentation only where the repository already documents operator steps.
 
-1. Add failing workflow/script tests showing a release cannot claim a platform version without an exact valid manifest entry and cannot publish a desktop updater artifact without its signature.
+1. Add failing workflow/script tests showing a release cannot claim a supported platform version without an exact valid manifest entry.
 2. Verify every build receives its version from the same declared release version while Android's version code remains monotonic.
-3. Keep the feature flag off for a platform until its adapter and distribution sandbox have been verified. Unsupported platforms remain silent without sharing another platform's signal.
+3. Keep the feature flag off for a platform until its adapter and distribution sandbox have been verified. Desktop and other unsupported platforms remain silent without sharing another platform's signal.
 4. Preserve append-only catalog history so staged store rollouts can map different authoritative available versions at the same time.
 5. Run workflow lint, manifest validation, packaging dry runs that do not publish, and commit.
 
@@ -167,14 +172,13 @@
 
 - Create: `playwright/e2e/tests/update-notification.spec.ts`
 - Modify platform E2E harnesses only where needed for the test adapter.
-- Modify: `tasks/todo.md`
 
-1. Write failing deterministic E2E tests for extension, Android, iOS, and desktop supported surfaces. Inject authoritative availability through the E2E-only adapter, then verify safe metadata joining and the locally compiled action dispatch.
+1. Write failing deterministic E2E tests for extension, Android, and iOS supported surfaces. Inject authoritative availability through the E2E-only adapter, then verify safe metadata joining and the locally compiled action dispatch. Verify desktop remains silent.
 2. Cover `unknown` silence, generic fallback, dismiss persistence, later-version reappearance, action failure/retry, and absence during onboarding/recovery.
-3. Update the issue checklist and Review section with exact commands and outcomes.
+3. Record exact verification commands and outcomes in the Review Council report and PR description without editing shared task-tracking files.
 4. Run `git diff --check`, forbidden-dash and attribution scans, dependency integrity, TypeScript, ESLint, Prettier, i18n lint, locale parity, manifest validation, all affected Jest/native/Rust suites, and E2E with retries disabled.
 5. Read the coverage configuration, run full coverage serially, and verify statements, branches, functions, and lines each meet the configured 95% global threshold before pushing.
-6. Build extension, Android, iOS, and desktop release surfaces. Search every complete log case-insensitively for errors and verify each expected manifest, app, package, updater, and signature artifact.
+6. Build extension, Android, iOS, and desktop release surfaces. Search every complete log case-insensitively for errors and verify each expected manifest, app, and package artifact. Desktop must compile without updater configuration or artifacts.
 7. Capture fresh desktop and mobile screenshots at supported widths, safe areas, and orientations. Resize each to at most 1800 px on the long side before opening it. Grade every approved criterion in a literal pass/fail table against rendered pixels.
 8. Run `review-council:rev` explicitly with gpt-5.6-sol max, gpt-5.6-terra max, Opus, and Sonnet. Freeze every seat prompt before launch, apply every actionable finding in new commits, and rerun affected gates.
 9. Push the reviewed green tree and open a concise non-draft PR against `main` with a standalone `Closes #821` and focused `Reviewers:` line.

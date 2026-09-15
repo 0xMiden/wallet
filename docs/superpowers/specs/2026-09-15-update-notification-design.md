@@ -25,7 +25,7 @@ One `UpdateAvailabilityAdapter` normalizes `{ status, currentVersion, availableV
 | Chrome extension | `runtime.onUpdateAvailable`; when the manifest names a newer Chrome version, one deduplicated `runtime.requestUpdateCheck()` asks Chrome to confirm it. Chrome documents this as appropriate when a backend already knows the client is outdated. | `runtime.reload()` only after Chrome has reported the downloaded update as available. |
 | Android | A small Capacitor plugin wraps Google Play Core `AppUpdateManager.appUpdateInfo`, including the available version code and allowed update mode. | Start the Play flexible update flow; complete and restart only through Play Core. Fall back to the compiled Play Store listing when Play Core says an update exists but cannot start the flow. |
 | iOS | A small Capacitor plugin reads the installed version and queries Apple's App Store product metadata for `com.miden.bread`; a strictly greater App Store version is authoritative. There is no general StoreKit API that reports an App Store update for the current app. | Open the compiled App Store product URL. The manifest cannot replace it. |
-| Tauri desktop | Tauri's signed updater `check()` result. Enabling this path includes updater artifacts, configured HTTPS endpoint(s), signature verification, and capability permissions. | `downloadAndInstall()` followed by a platform relaunch prompt. |
+| Tauri desktop | Deferred. The current release pipeline has no updater signing-key contract, published updater public key, or signed-update endpoint. The adapter returns `unknown`. | No action in this issue. Enable only after the signed updater pipeline exists. |
 | Firefox, Safari extension, plain web | No implemented authoritative signal in this issue. | No card. Add a platform adapter only when its distribution channel is defined. |
 
 The Chrome listener lives in the service worker so it survives popup lifetimes. It stores only the normalized result in extension local storage and notifies open wallet surfaces. Mobile and desktop adapters run on app foreground with a session-level single-flight and a six-hour successful-check cache. A manual foreground after an `unknown` result may retry after exponential backoff.
@@ -64,24 +64,24 @@ The client accepts only schema-known fields, valid SemVer, a known urgency enum,
 
 - Availability is platform-authoritative. The manifest supplies only summary and emphasis.
 - A manifest compromise cannot select a URL, execute markup, force an update, or block wallet access.
-- Tauri updates remain signature-verified by the updater plugin; signature verification cannot be disabled.
+- Desktop remains silent until a separately reviewed Tauri updater pipeline provides signature-verified artifacts, a public key, and an HTTPS endpoint. This issue must not invent or embed placeholder key material.
 - Checks never delay wallet boot. Timeouts and malformed responses fail closed to no card unless an authoritative adapter already reported an update, in which case generic copy is used.
 - The update action is always a user gesture. No background auto-install or forced restart.
 
 ## Verification
 
 - Unit tests for SemVer comparison, schema validation, exact platform/build matching, dismissal scoping, stale metadata, `unknown` handling, and single-flight/cache behavior.
-- Adapter contract tests for Chrome events/check throttling, Android Play states, iOS App Store responses, and Tauri signed-updater states.
+- Adapter contract tests for Chrome events/check throttling, Android Play states, iOS App Store responses, and the explicit unsupported desktop result.
 - React tests for initialized-surface gating, generic fallback, emphasis, dismiss, retry, progress, and a later version reappearing.
 - Native Android and iOS tests for bridge response mapping and store-opening fallbacks.
-- E2E test doubles inject deterministic availability without contacting public stores, then verify the rendered card and action dispatch on extension, Android, iOS, and desktop builds.
+- E2E test doubles inject deterministic availability without contacting public stores, then verify the rendered card and action dispatch on extension, Android, and iOS builds. Desktop verifies that the feature stays silent.
 - Fresh screenshots at supported widths and mobile safe-area/orientation states are required before claiming the UI complete.
 - Run the repository's typecheck, lint, full Jest coverage gate, all affected native builds, and verify expected build artifacts before Review Council.
 
 ## Rollout
 
 1. Land manifest schema, validator, adapter contract, storage, and generic card behind `MIDEN_UPDATE_NOTIFICATIONS`.
-2. Add Chrome and mobile adapters, then Tauri's signed updater configuration and release artifacts.
+2. Add Chrome and mobile adapters. Keep desktop disabled until its signing infrastructure is defined and deployed.
 3. Add the first real manifest entry only after every target has a published version to match.
 4. Enable the flag after release-pipeline and store-sandbox verification. Unknown/unsupported platforms remain silent.
 
