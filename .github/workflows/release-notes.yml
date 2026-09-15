@@ -49,6 +49,17 @@ jobs:
         with:
           ref: ${{ steps.tag.outputs.tag }}
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Validate update manifest
+        run: yarn check:update-manifest
+
       - name: Extract changelog section
         id: extract
         shell: bash

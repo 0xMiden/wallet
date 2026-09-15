@@ -20,8 +20,8 @@ on:
 
 # Minimal permissions for security
 permissions:
-  contents: write   # needed to attach assets to a GitHub Release
-  actions: write    # needed for artifact cleanup
+  contents: write # needed to attach assets to a GitHub Release
+  actions: write # needed for artifact cleanup
 
 # Cancel in-progress runs for the same branch
 concurrency:
@@ -81,6 +81,13 @@ jobs:
 
       - name: Install dependencies
         run: yarn install --frozen-lockfile
+
+      - name: Preserve unsupported desktop update boundary
+        if: github.event_name == 'release'
+        shell: bash
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          yarn check:update-manifest --version "$VERSION" --forbid-platform desktop
 
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
