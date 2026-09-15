@@ -18,10 +18,9 @@ import { newEvmDestination } from '../../helpers/sepolia';
  * would assert the fake, not wallet code. It is deliberately NOT covered here.
  *
  * The real AggLayer bridge faucet is a custom transfer-policy faucet the test
- * can't mint, so an E2E override (`__TEST_SET_AGGLAYER_FAUCET__`) points the Slow
- * route at a runtime-created test faucet (and flips the note's asset-callback
- * flag so the CLI-minted balance is found). Requires public Miden testnet + the
- * delegated prover, so this is testnet/nightly, not a per-PR gate.
+ * can't mint, so the test bridges a runtime-created faucet token instead: the
+ * Slow route carries whichever token is picked. Requires public Miden testnet +
+ * the delegated prover, so this is testnet/nightly, not a per-PR gate.
  */
 test.describe('bridge-out Miden to EVM (Slow AggLayer)', () => {
   test.describe.configure({ mode: 'serial' });
@@ -49,14 +48,13 @@ test.describe('bridge-out Miden to EVM (Slow AggLayer)', () => {
     timeline
   }) => {
     await walletA.createNewWallet();
-    const { faucetHex } = await fundBridgeToken(midenCli, walletA, { symbol: TOKEN_SYMBOL, decimals: 6 }, timeline);
+    await fundBridgeToken(midenCli, walletA, { symbol: TOKEN_SYMBOL, decimals: 6 }, timeline);
 
     const destination = newEvmDestination();
 
     await bridgeOutSlow(walletA, {
       destAddress: destination,
       tokenSymbol: TOKEN_SYMBOL,
-      faucetHex,
       amount: BRIDGE_AMOUNT
     });
 

@@ -4190,10 +4190,6 @@
     "message": "ウォレットを接続して、Midenとの間で資産をブリッジしてください。",
     "englishSource": "Connect a wallet to bridge assets to and from Miden."
   },
-  "onlyBridgeableTokenSupported": {
-    "message": "「スロー（アグレイヤー）」ルートでは、ブリッジ可能なトークンのみがサポートされています。その他のトークンを送信するには、「ファスト」をご利用ください。",
-    "englishSource": "The Slow (Agglayer) route only supports the bridgeable token. Use Fast to send other tokens."
-  },
   "connectDestinationWalletToClaim": {
     "message": "受け取りを行うには、宛先ウォレットを接続してください。",
     "englishSource": "Connect the destination wallet to claim."
@@ -4269,10 +4265,6 @@
   "delivering": {
     "message": "配送",
     "englishSource": "Delivering"
-  },
-  "slowNeedsNativeEth": {
-    "message": "「Slow（Agglayer）」ルートは、テストネットではネイティブETHのみに対応しています。これを利用するには、ETHを選択してください。",
-    "englishSource": "The Slow (Agglayer) route only supports native ETH on testnet. Choose ETH to use it."
   },
   "fastEthWrapNotice": {
     "message": "「Fast」ルートでのETHのブリッジでは、まずETHをWETHにラップし、その後WETHをブリッジします。このルートは現時点では利用できません。",

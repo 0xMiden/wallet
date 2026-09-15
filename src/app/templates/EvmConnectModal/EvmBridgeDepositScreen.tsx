@@ -499,9 +499,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     };
   }, [token, ethBalance.value, usdcBalance.value]);
 
-  // Fast (Epoch) only bridges USDC today (ETH-fast needs WETH wrapping — not
-  // built); Slow (Agglayer) bridges any asset.
-  const slowEnabled = true;
+  // Fast (Epoch) only bridges USDC today: ETH-fast needs WETH wrapping, which is not built.
   const fastReady =
     route === 'epoch' && token === 'USDC' && epochFlow === 'evm-to-miden' && epochStatus === 'quoted' && !!epochQuote;
   const slowReady = route === 'agglayer' && isValidAmount(amount) && slowStatus !== 'signing';
@@ -552,10 +550,8 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
 
   const networkName = getChain(DEFAULT_CHAIN_ID)?.name ?? '';
 
-  // Route-screen hint below the cards: for USDC explain why Slow is disabled;
-  // for ETH+Fast inform that it wraps to WETH (and isn't available yet).
-  const routeNotice =
-    token === 'USDC' ? t('slowNeedsNativeEth') : route === 'epoch' ? t('fastEthWrapNotice') : undefined;
+  // Route-screen hint below the cards: ETH on Fast wraps to WETH, which isn't available yet.
+  const routeNotice = token === 'ETH' && route === 'epoch' ? t('fastEthWrapNotice') : undefined;
 
   // Review-step confirm state: spin while the submit is signing, and block
   // re-submits once it's in flight / done.
@@ -682,7 +678,6 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
               onRouteChange={handleRouteChange}
               fastFeeUsd={fastFeeUsd}
               fastQuoteLoading={route === 'epoch' && epochStatus === 'quoting'}
-              slowEnabled={slowEnabled}
               notice={routeNotice}
               confirmDisabled={!canConfirmRoute}
               onConfirm={handleContinueToReview}
@@ -720,7 +715,6 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       handleRouteChange,
       route,
       token,
-      slowEnabled,
       routeNotice,
       canConfirmRoute,
       outputAmount,
