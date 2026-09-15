@@ -6,6 +6,7 @@ import FullScreenPage, { FullScreenPageProps } from 'app/layouts/FullScreenPage'
 import MobilePageLayers from 'app/layouts/MobilePageLayers';
 import TabLayout from 'app/layouts/TabLayout';
 import Explore from 'app/pages/Explore';
+import ImportAccount from 'app/pages/ImportAccount';
 import OpenSidePanel from 'app/pages/OpenSidePanel';
 import { Receive } from 'app/pages/Receive';
 import Settings from 'app/pages/Settings';
@@ -202,6 +203,14 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
       <TabLayout>
         <Receive />
       </TabLayout>
+    ))
+  ],
+  [
+    '/import-account',
+    onlyReady(() => (
+      <FullScreenPage entrance="slide">
+        <ImportAccount />
+      </FullScreenPage>
     ))
   ],
   [
