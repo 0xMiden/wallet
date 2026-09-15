@@ -52,6 +52,57 @@ const STORE_BALANCE_TOTAL_JS =
   `} ` +
   `return 0;`;
 
+const CLAIM_ALL_CLICK_JS =
+  `var btn = document.querySelector('[data-testid="claim-all-button"]'); ` +
+  `if (!btn || btn.disabled || btn.getAttribute('aria-disabled') === 'true') return false; ` +
+  `btn.click(); return true;`;
+
+/** The network the wallet under test runs on, in the form `__TEST_HEX_TO_BECH32_FAUCET__` takes. */
+function testNetwork(): 'devnet' | 'testnet' {
+  const network = process.env.MIDEN_NETWORK || process.env.E2E_NETWORK || 'testnet';
+  return network === 'devnet' ? 'devnet' : 'testnet';
+}
+
+/**
+ * The consumed balance of the given faucets in the wallet's store. The store keys a token by its bech32 faucet id and
+ * the CLI hands out hex ids, so an id matches in either form. The native asset a wallet is funded with for fees never
+ * counts, which is the point: a total over every token goes positive as soon as that fee note is claimed.
+ */
+function requestedBalanceJs(faucetIds: string[]): string {
+  return (
+    `var conv = window.__TEST_HEX_TO_BECH32_FAUCET__; ` +
+    `var wanted = {}; ` +
+    `${JSON.stringify(faucetIds)}.forEach(function (id) { ` +
+    `  wanted[String(id).toLowerCase()] = true; ` +
+    `  if (typeof conv === 'function') { ` +
+    `    try { wanted[String(conv(id, ${JSON.stringify(testNetwork())})).toLowerCase()] = true; } catch (e) {} ` +
+    `  } ` +
+    `}); ` +
+    `var s = window.__TEST_STORE__; ` +
+    `if (!s) return 0; ` +
+    `var balances = s.getState().balances || {}; ` +
+    `var total = 0; ` +
+    `for (var k in balances) { ` +
+    `  var list = balances[k]; ` +
+    `  if (!Array.isArray(list)) continue; ` +
+    `  for (var i = 0; i < list.length; i++) { ` +
+    `    var t = list[i]; ` +
+    `    if (!wanted[String(t.tokenId || '').toLowerCase()]) continue; ` +
+    `    var amt = parseFloat(String(t.amount != null ? t.amount : (t.balance != null ? t.balance : '0'))); ` +
+    `    if (amt > 0) total += amt; ` +
+    `  } ` +
+    `} ` +
+    `return total;`
+  );
+}
+
+/** The route, and how many step rows a progress screen there shows and how many of them are still `active`. */
+const PROGRESS_SCREEN_JS =
+  `var rows = document.querySelectorAll('[data-transaction-step]'); ` +
+  `var active = 0; ` +
+  `for (var i = 0; i < rows.length; i++) { if (rows[i].getAttribute('data-state') === 'active') active++; } ` +
+  `return { hash: String(location.hash || ''), steps: rows.length, active: active };`;
+
 interface IosWalletPageOpts {
   cdp: CdpSession;
   sim: SimulatorControl;
@@ -612,12 +663,7 @@ export class IosWalletPage implements WalletPage {
     // the past 2+ weeks). Bumped to 120s — the outer claimAllNotes
     // timeout (default 180s) still has ~50s left for balance polling
     // after this resolves.
-    await this.pollForCondition(
-      `var btn = document.querySelector('[data-testid="claim-all-button"]'); ` +
-        `if (!btn || btn.disabled || btn.getAttribute('aria-disabled') === 'true') return false; ` +
-        `btn.click(); return true;`,
-      120_000
-    );
+    await this.pollForCondition(CLAIM_ALL_CLICK_JS, 120_000);
 
     // TEMPORARY (mobile-MT test): periodically dump
     // window.__PROVE_TIMINGS__ markers recorded by the wallet so we can
@@ -642,6 +688,10 @@ export class IosWalletPage implements WalletPage {
       }
     };
 
+    // With faucets named, only their balance counts. The wallet is also sent the native asset for fees, and that note and
+    // the test token can commit in different blocks: the first tap then claims only the fee note, so a later note of a
+    // named faucet is claimed with another tap once the first claim has settled.
+    const claimedJs = knownFaucetIds.length > 0 ? requestedBalanceJs(knownFaucetIds) : STORE_BALANCE_TOTAL_JS;
     const start = Date.now();
     let iterations = 0;
     while (Date.now() - start < timeoutMs) {
@@ -649,12 +699,13 @@ export class IosWalletPage implements WalletPage {
       await this.triggerSync();
       await sleep(5_000);
       await pumpProveTimings();
-      const balance = await this.cdp.eval<number>(STORE_BALANCE_TOTAL_JS);
+      const balance = await this.cdp.eval<number>(claimedJs);
       if (balance > 0) {
         await pumpProveTimings();
         await this.navigateHome();
         return;
       }
+      if (knownFaucetIds.length > 0) await this.claimAgainOnceSettled();
     }
     await pumpProveTimings();
 
@@ -694,7 +745,9 @@ export class IosWalletPage implements WalletPage {
     const confirmStart = Date.now();
     let confirmed = 0;
     while (Date.now() - confirmStart < confirmMs) {
-      confirmed = await this.getBalance().catch(() => 0);
+      confirmed = await (knownFaucetIds.length > 0 ? this.readHomeBalance(claimedJs) : this.getBalance()).catch(
+        () => 0
+      );
       if (confirmed > 0) {
         await pumpProveTimings();
         await this.navigateHome();
@@ -706,10 +759,33 @@ export class IosWalletPage implements WalletPage {
 
     await this.navigateHome();
     throw new Error(
-      `IosWalletPage.claimAllNotes: no consumed balance after ${iterations} sync iteration(s) over ` +
+      `IosWalletPage.claimAllNotes: no consumed balance${knownFaucetIds.length > 0 ? ` of ${knownFaucetIds.join(', ')}` : ''} ` +
+        `after ${iterations} sync iteration(s) over ` +
         `${timeoutMs}ms, and none after a further ${confirmMs}ms confirming via getBalance() from the ` +
         `home screen — "Claim All" was clicked but the consume never landed. Surface at timeout: ${surface}`
     );
+  }
+
+  /**
+   * Tap Claim All again once the claim before it has settled. On mobile, Claim All hands its queued consumes to the
+   * progress screen, whose own loop processes them, so leaving that screen while a step is still `active` could strand
+   * the claim. The screen stays mounted after it settles, so the route alone cannot tell.
+   */
+  private async claimAgainOnceSettled(): Promise<void> {
+    const screen = await this.cdp
+      .eval<{ hash: string; steps: number; active: number }>(PROGRESS_SCREEN_JS)
+      .catch(() => null);
+    if (!screen) return;
+    if (screen.hash.includes('generating-transaction') && (screen.steps === 0 || screen.active > 0)) return;
+    if (!screen.hash.startsWith('#/pending-notes')) await this.navigateTo('/pending-notes');
+    await this.cdp.eval<boolean>(CLAIM_ALL_CLICK_JS).catch(() => false);
+  }
+
+  /** A balance read from the home screen, whose mounted views keep the store's balances current. */
+  private async readHomeBalance(balanceJs: string): Promise<number> {
+    await this.navigateHome();
+    await sleep(1_000);
+    return this.cdp.eval<number>(balanceJs);
   }
 
   /**
@@ -735,8 +811,7 @@ export class IosWalletPage implements WalletPage {
     // the dynamic `import('@miden-sdk/miden-sdk/lazy')` hits the module
     // cache instantly because the wallet already imported it at boot.
     const hexJson = JSON.stringify(hexFaucetIds);
-    const network = process.env.MIDEN_NETWORK || process.env.E2E_NETWORK || 'testnet';
-    const networkArg = network === 'devnet' ? "'devnet'" : "'testnet'";
+    const networkArg = JSON.stringify(testNetwork());
     // Poll for the hex→bech32 hook to be exposed — it's set asynchronously
     // when the wallet boots (the SDK eager-import in store/index.ts under
     // MIDEN_E2E_TEST). On a freshly-installed app the SDK chunk takes a few
