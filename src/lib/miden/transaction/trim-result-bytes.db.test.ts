@@ -1,24 +1,22 @@
 /**
  * Database-level coverage for the reaper itself.
  *
- * These drive `trimCompletedResultBytes` against fake-indexeddb. The module's first suite tested
- * only a pure predicate, so every assertion in it survived deleting the dexie query, the bound and
- * the delete — which is how the stall shipped. Each test here names one production edit that makes
- * it fail, and each of those has been checked individually by mutation.
+ * These drive `runTrimTick` against fake-indexeddb, because a test of the predicate alone survives
+ * deleting the dexie query, the bound and the delete. Each test here names one production edit that
+ * makes it fail.
  */
+import type { DBCore } from 'dexie';
+
 import { ITransactionStatus } from 'lib/miden/db/types';
 import type { ITransaction } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 
-import { WAIT_FOR_TX_TIMEOUT } from './helper';
 import {
   __resetTrimThrottleForTests,
   RESULT_BYTES_RETENTION_MS,
   TRIM_BATCH_SIZE,
-  TRIM_FAILURE_RETRY_MS,
   TRIM_MIN_INTERVAL_MS,
-  runTrimTick,
-  trimCompletedResultBytes
+  runTrimTick
 } from './trim-result-bytes';
 
 const AGED = Math.floor((Date.now() - RESULT_BYTES_RETENTION_MS) / 1000) - 3600;
@@ -40,7 +38,7 @@ const blobsLeft = async () => (await Repo.transactions.toArray()).filter(r => r.
 
 const pass = async () => {
   __resetTrimThrottleForTests();
-  return trimCompletedResultBytes();
+  return runTrimTick();
 };
 
 beforeEach(async () => {
@@ -48,10 +46,14 @@ beforeEach(async () => {
   __resetTrimThrottleForTests();
 });
 
-describe('trimCompletedResultBytes', () => {
+// Several tests replace `Repo.transactions.where` or mute the console and restore them only after an
+// awaited assertion, so a failing assertion would leave the mock in place for every later test.
+afterEach(() => jest.restoreAllMocks());
+
+describe('runTrimTick', () => {
   it('drains every eligible row across successive passes', async () => {
-    // Fails before the fix: a bare `.limit()` re-selects the same oldest TRIM_BATCH_SIZE rows,
-    // which are already trimmed after pass 1, so the last 50 blobs survive forever.
+    // Fails without the select's `.filter()`: a bare `.limit()` re-selects the same oldest
+    // TRIM_BATCH_SIZE rows, which are already trimmed after pass 1, so the last 50 blobs survive.
     const n = TRIM_BATCH_SIZE + 50;
     await Repo.transactions.bulkPut(Array.from({ length: n }, (_, i) => row(i)));
     expect(await blobsLeft()).toBe(n);
@@ -88,8 +90,8 @@ describe('trimCompletedResultBytes', () => {
 
   it('reclaims a Failed row that kept its result bytes', async () => {
     // The replace-hot-key failure branch writes resultBytes while marking the row Failed, and
-    // markBridgedSendFailed demotes a Completed Epoch row without clearing them. Both stamp
-    // completedAt, so the index reaches them; a Completed-only predicate pinned them forever.
+    // markBridgedSendFailed demotes a Completed Epoch row without clearing them. Both rows carry
+    // completedAt, so the index reaches them; a Completed-only predicate would pin them forever.
     await Repo.transactions.bulkPut([
       row(1, { status: ITransactionStatus.Failed, type: 'replace-hot-key', error: 'rotate failed' }),
       row(2, {
@@ -104,10 +106,8 @@ describe('trimCompletedResultBytes', () => {
   });
 
   it('reclaims aged earn-deposit and epoch bridged-send rows too', async () => {
-    // These were exempt on the theory that their callers consume the result after completion.
-    // Both await waitForTransactionCompletion (which gives up after WAIT_FOR_TX_TIMEOUT, half the
-    // retention window) and then re-read outputNoteIds, which this never touches — so the
-    // exemption bought nothing and pinned ~237 KB per row forever.
+    // No type is exempt: both callers await waitForTransactionCompletion and then re-read
+    // outputNoteIds, which this never touches.
     await Repo.transactions.bulkPut([
       row(1, { type: 'earn-deposit' }),
       row(2, { type: 'bridged-send', extraInputs: { provider: 'epoch' } } as Partial<ITransaction>)
@@ -115,13 +115,6 @@ describe('trimCompletedResultBytes', () => {
 
     expect(await pass()).toBe(2);
     expect(await blobsLeft()).toBe(0);
-  });
-
-  it("keeps the retention window longer than the awaiting caller's own timeout", () => {
-    // A design margin, not a correctness condition: the timeout bounds how long one wait may LAST,
-    // never when the blob is read (the waiter reads on its first Completed emission). Pinned
-    // against the real exported constants so shrinking either one has to be deliberate.
-    expect(RESULT_BYTES_RETENTION_MS).toBeGreaterThan(WAIT_FOR_TX_TIMEOUT);
   });
 
   it('drains rows that share one completedAt second', async () => {
@@ -160,11 +153,11 @@ describe('trimCompletedResultBytes', () => {
   });
 
   it('treats the cutoff second as outside the window, matching the query exactly', async () => {
-    // Pins the COMPOSED selector's effective cutoff — and only that. Making the query inclusive
+    // Pins the COMPOSED selector's effective cutoff - and only that. Making the query inclusive
     // alone leaves this green (the predicate still declines), and making the predicate inclusive
     // alone leaves it green too (the query never selects the row); only changing both fails. So
     // this cannot claim to protect the agreement between the two, and neither half alone is
-    // observable — which is also why the drift it was written for was harmless.
+    // observable.
     const now = Date.now();
     const cutoff = Math.floor((now - RESULT_BYTES_RETENTION_MS) / 1000);
     await Repo.transactions.bulkPut([
@@ -173,10 +166,10 @@ describe('trimCompletedResultBytes', () => {
     ]);
 
     __resetTrimThrottleForTests();
-    expect(await trimCompletedResultBytes(now)).toBe(1);
+    expect(await runTrimTick(() => now)).toBe(1);
     const atCutoff = await Repo.transactions.get('at-cutoff');
     const oneOlder = await Repo.transactions.get('one-older');
-    // Both rows must still EXIST — `?.resultBytes === undefined` is equally true of a deleted row,
+    // Both rows must still EXIST - `?.resultBytes === undefined` is equally true of a deleted row,
     // so without these a regression that removed history rows would read as a correct trim.
     expect(atCutoff).toBeDefined();
     expect(oneOlder).toBeDefined();
@@ -187,7 +180,7 @@ describe('trimCompletedResultBytes', () => {
   it('clears the blob only once a row ages past the window, leaving the row itself intact', async () => {
     // Storage only, and named for it. Driving the real `waitForTransactionCompletion` here would
     // need TransactionResult.deserialize stubbed (jest maps the SDK to a mock without it),
-    // splitExecutedOutputNotes mocked, a transactionId on the fixture and a dexie liveQuery mock —
+    // splitExecutedOutputNotes mocked, a transactionId on the fixture and a dexie liveQuery mock -
     // and deleting that helper's missing-bytes arm would STILL degrade via its catch. Its coverage
     // lives in transactions.branches.test.ts. What this pins is the window's effect on the store.
     //
@@ -198,101 +191,67 @@ describe('trimCompletedResultBytes', () => {
     await Repo.transactions.bulkPut([row(1, { id: 'fresh', completedAt: inWindow } as Partial<ITransaction>)]);
 
     __resetTrimThrottleForTests();
-    expect(await trimCompletedResultBytes(now)).toBe(0);
+    expect(await runTrimTick(() => now)).toBe(0);
     expect((await Repo.transactions.get('fresh'))?.resultBytes).toBeDefined();
 
     // ...and once it ages past the window, the blob is gone and the wait can only degrade.
     const later = now + RESULT_BYTES_RETENTION_MS;
     __resetTrimThrottleForTests();
-    expect(await trimCompletedResultBytes(later)).toBe(1);
+    expect(await runTrimTick(() => later)).toBe(1);
     const trimmedRow = await Repo.transactions.get('fresh');
     expect(trimmedRow).toBeDefined();
     expect(trimmedRow?.resultBytes).toBeUndefined();
     // `delete`, not an assigned undefined: both release the blob, and this pins the stored shape.
     expect('resultBytes' in trimmedRow!).toBe(false);
+    // ...and the release is recorded, which is what lets the waiter answer it as expired.
+    expect(trimmedRow?.resultReleasedAt).toBe(Math.floor(later / 1000));
   });
 
   it('never trims a row that carries no completedAt', async () => {
-    // Pins the INDEX behaviour the module relies on — IndexedDB omits records whose index key is
+    // Pins the INDEX behaviour the module relies on - IndexedDB omits records whose index key is
     // undefined, so the query never reaches this row. It does not pin the predicate's lack of an
-    // `?? initiatedAt` fallback: restoring that fallback leaves this green, because the row never
-    // reaches the predicate either way. That is why deleting the fallback was safe, and it is the
-    // most this test can honestly claim.
+    // `?? initiatedAt` fallback: adding one leaves this green, because the row never reaches the
+    // predicate either way.
     await Repo.transactions.bulkPut([
       row(1, { id: 'no-ts', completedAt: undefined, initiatedAt: AGED } as Partial<ITransaction>)
     ]);
 
     __resetTrimThrottleForTests();
-    expect(await trimCompletedResultBytes()).toBe(0);
+    expect(await runTrimTick()).toBe(0);
     expect((await Repo.transactions.get('no-ts'))?.resultBytes).toBeDefined();
   });
 
   it('throttles only after the range is exhausted', async () => {
     // A SHORT pass means nothing is left, so the floor applies. Asserted under a load the ungated
-    // path has not already drained — without the throttle the second call would take the other 50.
+    // path has not already drained - without the throttle the second call would take the other 50.
     const n = TRIM_BATCH_SIZE + 50;
     await Repo.transactions.bulkPut(Array.from({ length: n }, (_, i) => row(i)));
     const t0 = Date.now();
 
     __resetTrimThrottleForTests();
-    expect(await trimCompletedResultBytes(t0)).toBe(TRIM_BATCH_SIZE); // full batch: no stamp
-    expect(await trimCompletedResultBytes(t0)).toBe(50); // continues at the SAME now
+    expect(await runTrimTick(() => t0)).toBe(TRIM_BATCH_SIZE); // full batch: no stamp
+    expect(await runTrimTick(() => t0)).toBe(50); // continues at the SAME now
     expect(await blobsLeft()).toBe(0);
 
-    // A fresh eligible row, so a third call returning 0 means THROTTLED rather than "nothing left"
-    // — the distinction the previous version of this test could not make.
+    // A fresh eligible row, so a third call returning 0 means THROTTLED rather than "nothing left".
     await Repo.transactions.bulkPut([row(1, { id: 'late-arrival', completedAt: AGED } as Partial<ITransaction>)]);
-    expect(await trimCompletedResultBytes(t0)).toBe(0);
+    expect(await runTrimTick(() => t0)).toBe(0);
     expect(await blobsLeft()).toBe(1);
 
     // ...and the floor lifts exactly at the interval.
-    expect(await trimCompletedResultBytes(t0 + TRIM_MIN_INTERVAL_MS)).toBe(1);
+    expect(await runTrimTick(() => t0 + TRIM_MIN_INTERVAL_MS)).toBe(1);
   });
 
   it('does not park a backlog behind the interval after a full batch', async () => {
-    // The drain rate is the point: stamping after a full batch made a 456-row backlog take one
-    // batch per five minutes.
+    // The drain rate is the point: stamping after a full batch would make a 456-row backlog take
+    // one batch per five minutes.
     await Repo.transactions.bulkPut(Array.from({ length: TRIM_BATCH_SIZE + 10 }, (_, i) => row(i)));
     const t0 = Date.now();
 
     __resetTrimThrottleForTests();
-    await trimCompletedResultBytes(t0);
+    await runTrimTick(() => t0);
 
-    expect(await trimCompletedResultBytes(t0)).toBe(10);
-  });
-
-  it('reports the stall signature — rows selected, none released', async () => {
-    // The original bug in one line: a full batch selected on every pass, every row already
-    // trimmed, nothing reclaimed. Before this warning it was indistinguishable from a healthy
-    // idle tick, which is why it shipped.
-    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
-    // TRIM_BATCH_SIZE already-trimmed rows: the select fills a batch, the write releases nothing.
-    await Repo.transactions.bulkPut(
-      Array.from({ length: TRIM_BATCH_SIZE }, (_, i) => row(i, { resultBytes: undefined }))
-    );
-    __resetTrimThrottleForTests();
-
-    // ...with one eligible row behind them so the select returns a FULL batch.
-    await Repo.transactions.bulkPut([row(1, { id: 'eligible', completedAt: AGED } as Partial<ITransaction>)]);
-    const spy = jest.spyOn(Repo.transactions, 'where').mockImplementationOnce(
-      () =>
-        ({
-          below: () => ({
-            filter: () => ({
-              limit: () => ({
-                primaryKeys: async () =>
-                  Array.from({ length: TRIM_BATCH_SIZE }, (_, i) => `tx-${String(i).padStart(5, '0')}`)
-              })
-            })
-          })
-        }) as unknown as ReturnType<typeof Repo.transactions.where>
-    );
-
-    await trimCompletedResultBytes();
-
-    spy.mockRestore();
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('may be stalled'));
-    warn.mockRestore();
+    expect(await runTrimTick(() => t0)).toBe(10);
   });
 
   it('reports progress when a pass releases blobs', async () => {
@@ -300,7 +259,7 @@ describe('trimCompletedResultBytes', () => {
     await Repo.transactions.bulkPut(Array.from({ length: 3 }, (_, i) => row(i)));
     __resetTrimThrottleForTests();
 
-    await trimCompletedResultBytes();
+    await runTrimTick();
 
     expect(info).toHaveBeenCalledWith(expect.stringContaining('released 3'));
     info.mockRestore();
@@ -309,7 +268,7 @@ describe('trimCompletedResultBytes', () => {
   it('re-checks inside the write, and still reports the range as unexhausted', async () => {
     // The select and the write run in DIFFERENT transactions, so a row chosen by the select can
     // stop being eligible before the write sees it. The in-write re-check is the whole safety
-    // argument for that split — and no other test makes the two disagree, so deleting the re-check
+    // argument for that split - and no other test makes the two disagree, so deleting the re-check
     // outright passes the rest of the suite.
     //
     // The fixture size is load-bearing: with fewer than TRIM_BATCH_SIZE eligible rows the select
@@ -319,7 +278,14 @@ describe('trimCompletedResultBytes', () => {
     await Repo.transactions.bulkPut(Array.from({ length: n }, (_, i) => row(i)));
     __resetTrimThrottleForTests();
 
-    // Make one selected row ineligible between primaryKeys() and modify.
+    // Make one selected row ineligible between primaryKeys() and modify, then count only the
+    // reaper's own writes: dexie re-puts a row for any callback result but `false`, so a declined row
+    // must not appear here.
+    const written: string[] = [];
+    const recordWrite = (_mods: unknown, primKey: string) => {
+      written.push(primKey);
+    };
+    let demoted: string | undefined;
     // Dexie's query builders are overloaded, so the wrapper is typed through one alias rather
     // than casting at each link. Test-side only: every call delegates to the real collection.
     type Chain = {
@@ -343,8 +309,9 @@ describe('trimCompletedResultBytes', () => {
             const pk = kc.primaryKeys.bind(kc);
             kc.primaryKeys = async () => {
               const ids = await pk();
-              const first = ids[0];
-              if (first) await Repo.transactions.update(first, { status: ITransactionStatus.Queued });
+              demoted = ids[0];
+              if (demoted) await Repo.transactions.update(demoted, { status: ITransactionStatus.Queued });
+              Repo.transactions.hook('updating', recordWrite);
               return ids;
             };
             return kc;
@@ -356,21 +323,27 @@ describe('trimCompletedResultBytes', () => {
       return collection as unknown as ReturnType<typeof realWhere>;
     });
 
-    const trimmed = await trimCompletedResultBytes();
+    const trimmed = await runTrimTick();
     spy.mockRestore();
+    Repo.transactions.hook('updating').unsubscribe(recordWrite);
 
-    // One selected row was declined inside the write...
+    // The wrapper hooks one exact builder order, so first prove it intercepted at all: otherwise a
+    // harmless reordering of filter and limit would fail below exactly like a deleted re-check.
+    expect(demoted).toBeDefined();
+    // One selected row was declined inside the write, and left unwritten...
     expect(trimmed).toBe(TRIM_BATCH_SIZE - 1);
+    expect(written).toHaveLength(TRIM_BATCH_SIZE - 1);
+    expect(written).not.toContain(demoted);
     // ...but the range was NOT exhausted, so the floor must not have been stamped. Inferring
     // exhaustion from `trimmed < TRIM_BATCH_SIZE` would park the remaining rows for the interval.
-    expect(await trimCompletedResultBytes()).toBeGreaterThan(0);
+    expect(await runTrimTick()).toBeGreaterThan(0);
   });
 
-  it('does not select a row until one second past the nominal window', async () => {
-    // The exact half of the TTL. `completedAt` is whole seconds and the cutoff floors, so
-    // eligibility cannot begin until the next whole second — a full second later than the window
-    // the module advertises. That slack is what makes the deferred-first-read race improbable
-    // rather than impossible, so it is worth pinning rather than leaving to arithmetic.
+  it('does not select a row until the first whole second after its window', async () => {
+    // The exact half of the TTL. `completedAt` floors the completion to whole seconds and the
+    // cutoff floors too, so eligibility begins at the first whole second after the window. This
+    // fixture completes on an exact second, the one case where that slack is a full second; for a
+    // completion at .999 it is a single millisecond.
     const completedAtMs = 1_700_000_000_000;
     const completedAt = Math.floor(completedAtMs / 1000);
     await Repo.transactions.bulkPut([
@@ -379,19 +352,18 @@ describe('trimCompletedResultBytes', () => {
 
     // exactly at the nominal window: not yet selectable
     __resetTrimThrottleForTests();
-    expect(await trimCompletedResultBytes(completedAtMs + RESULT_BYTES_RETENTION_MS)).toBe(0);
+    expect(await runTrimTick(() => completedAtMs + RESULT_BYTES_RETENTION_MS)).toBe(0);
     // one millisecond short of the real boundary: still not selectable
     __resetTrimThrottleForTests();
-    expect(await trimCompletedResultBytes(completedAtMs + RESULT_BYTES_RETENTION_MS + 999)).toBe(0);
+    expect(await runTrimTick(() => completedAtMs + RESULT_BYTES_RETENTION_MS + 999)).toBe(0);
     // and at the boundary itself
     __resetTrimThrottleForTests();
-    expect(await trimCompletedResultBytes(completedAtMs + RESULT_BYTES_RETENTION_MS + 1000)).toBe(1);
+    expect(await runTrimTick(() => completedAtMs + RESULT_BYTES_RETENTION_MS + 1000)).toBe(1);
   });
 
-  it('reports one failed pass once, however many callers adopted it', async () => {
-    // The module logs its own failures for the same reason it logs the other two outcomes: only
-    // the originating caller reaches that catch. When the drivers each logged instead, two
-    // overlapping ticks reported one failure twice — measured, before this moved.
+  it('reports a failed pass once when two callers overlap', async () => {
+    // Both drivers call bare, so the module is the only reporter; the caller that skips the running
+    // pass must not report its failure a second time.
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
     await Repo.transactions.bulkPut([row(1)]);
     __resetTrimThrottleForTests();
@@ -416,46 +388,32 @@ describe('trimCompletedResultBytes', () => {
       throw new Error('indexeddb unavailable');
     });
 
-    await expect(runTrimTick()).resolves.toBeUndefined();
+    await expect(runTrimTick()).resolves.toBe(0);
 
     spy.mockRestore();
     warn.mockRestore();
   });
 
-  it('coalesces two overlapping callers onto one pass', async () => {
+  it('runs one pass for two overlapping callers', async () => {
     // Both drivers fire and forget, so on the extension the miden-sync alarm and the popup's 3s
-    // SyncRequest can overlap. Asserting the SECOND CALL'S COUNT is what discriminates: blobsLeft
-    // reaches 0 with or without coalescing, so a store assertion cannot see the mutant.
+    // SyncRequest can overlap. Counting selects is what discriminates: without the guard the second
+    // pass's in-write re-check declines every row, so the store and the returned counts are the same.
     await Repo.transactions.bulkPut(Array.from({ length: 10 }, (_, i) => row(i)));
     __resetTrimThrottleForTests();
+    const where = jest.spyOn(Repo.transactions, 'where');
 
-    const [a, b] = await Promise.all([trimCompletedResultBytes(), trimCompletedResultBytes()]);
+    const counts = await Promise.all([runTrimTick(), runTrimTick()]);
 
-    expect([a, b]).toEqual([10, 10]);
+    const selects = where.mock.calls.filter(c => String(c[0]) === 'completedAt').length;
+    where.mockRestore();
+    expect(counts).toEqual([10, 0]);
+    expect(selects).toBe(1);
   });
 
-  it('hands the failure to a caller that adopted the in-flight pass', async () => {
-    // The adopting caller must see the rejection, not a silently resolved 0 — otherwise a failing
-    // store looks healthy to whichever driver arrived second, which is the population this module
-    // targets.
-    await Repo.transactions.bulkPut(Array.from({ length: 5 }, (_, i) => row(i)));
-    __resetTrimThrottleForTests();
-    const spy = jest.spyOn(Repo.transactions, 'where').mockImplementation(() => {
-      throw new Error('indexeddb unavailable');
-    });
-
-    const first = trimCompletedResultBytes();
-    const second = trimCompletedResultBytes();
-
-    await expect(first).rejects.toThrow('indexeddb unavailable');
-    await expect(second).rejects.toThrow('indexeddb unavailable');
-    expect(spy).toHaveBeenCalledTimes(1);
-    spy.mockRestore();
-  });
-
-  it('backs a failed pass off for the retry floor, not for the full interval', async () => {
-    // The failure must be PERSISTENT: with a single throw the retry succeeds on a short pass, and
-    // that success stamps the ordinary floor — which passes even with no failure throttle at all.
+  it('backs a failed pass off for the interval', async () => {
+    // A failed pass and a throttled call both resolve to 0, so the store-query count is what
+    // discriminates.
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
     await Repo.transactions.bulkPut(Array.from({ length: 5 }, (_, i) => row(i)));
     const t0 = Date.now();
     __resetTrimThrottleForTests();
@@ -463,12 +421,95 @@ describe('trimCompletedResultBytes', () => {
       throw new Error('indexeddb unavailable');
     });
 
-    await expect(trimCompletedResultBytes(t0)).rejects.toThrow('indexeddb unavailable');
-    // still failing, still inside the retry floor: must not reach the store again
-    await expect(trimCompletedResultBytes(t0 + TRIM_FAILURE_RETRY_MS - 1)).resolves.toBe(0);
+    expect(await runTrimTick(() => t0)).toBe(0);
+    // still failing, still inside the floor: must not reach the store again
+    expect(await runTrimTick(() => t0 + TRIM_MIN_INTERVAL_MS - 1)).toBe(0);
+    const queries = spy.mock.calls.length;
 
     spy.mockRestore();
-    // at the retry boundary it runs again
-    expect(await trimCompletedResultBytes(t0 + TRIM_FAILURE_RETRY_MS)).toBe(5);
+    warn.mockRestore();
+    expect(queries).toBe(1);
+    // at the floor it runs again
+    expect(await runTrimTick(() => t0 + TRIM_MIN_INTERVAL_MS)).toBe(5);
+  });
+
+  it('measures the floor from when an exhausted pass settles', async () => {
+    // A pass that outlasts the interval must still leave the floor in place: stamped from the clock
+    // reading taken when the pass started, it would already be lifted for the next caller.
+    await Repo.transactions.bulkPut([row(1)]);
+    __resetTrimThrottleForTests();
+    let t = Date.now();
+    const clock = () => t;
+    const realWhere = Repo.transactions.where.bind(Repo.transactions);
+    const slowSelect = jest.spyOn(Repo.transactions, 'where').mockImplementationOnce(index => {
+      t += TRIM_MIN_INTERVAL_MS;
+      return realWhere(index as never) as unknown as ReturnType<typeof realWhere>;
+    });
+
+    expect(await runTrimTick(clock)).toBe(1);
+    slowSelect.mockRestore();
+
+    const where = jest.spyOn(Repo.transactions, 'where');
+    expect(await runTrimTick(clock)).toBe(0);
+    const queries = where.mock.calls.length;
+    where.mockRestore();
+    expect(queries).toBe(0);
+  });
+
+  it('measures the floor from when a failed pass settles', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    __resetTrimThrottleForTests();
+    let t = Date.now();
+    const clock = () => t;
+    const spy = jest.spyOn(Repo.transactions, 'where').mockImplementation(() => {
+      t += TRIM_MIN_INTERVAL_MS;
+      throw new Error('indexeddb unavailable');
+    });
+
+    expect(await runTrimTick(clock)).toBe(0);
+    expect(await runTrimTick(clock)).toBe(0);
+    const queries = spy.mock.calls.length;
+
+    spy.mockRestore();
+    warn.mockRestore();
+    expect(queries).toBe(1);
+  });
+
+  it('writes a full batch in modify chunks of at most 25 rows', async () => {
+    // `modifyChunkSize` in repo.ts is all that bounds how many ~237 KB rows one modify holds at
+    // once; dexie falls back to 200, the whole batch, if the option is dropped or stops being read.
+    // A dbcore middleware only joins the stack when the database opens, hence the reopen.
+    await Repo.transactions.bulkPut(Array.from({ length: TRIM_BATCH_SIZE }, (_, i) => row(i)));
+    const chunks: number[] = [];
+    const probe = {
+      stack: 'dbcore' as const,
+      name: 'modify-chunk-probe',
+      create: (down: DBCore): DBCore => ({
+        ...down,
+        table: name => {
+          const table = down.table(name);
+          return {
+            ...table,
+            getMany: req => {
+              chunks.push(req.keys.length);
+              return table.getMany(req);
+            }
+          };
+        }
+      })
+    };
+    Repo.db.close();
+    Repo.db.use(probe);
+    await Repo.db.open();
+    try {
+      expect(await runTrimTick()).toBe(TRIM_BATCH_SIZE);
+    } finally {
+      Repo.db.close();
+      Repo.db.unuse(probe);
+      await Repo.db.open();
+    }
+
+    expect(chunks.length).toBeGreaterThan(1);
+    expect(Math.max(...chunks)).toBeLessThanOrEqual(25);
   });
 });

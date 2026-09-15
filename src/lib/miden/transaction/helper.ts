@@ -5,6 +5,7 @@ import * as Repo from 'lib/miden/repo';
 import { u8ToB64 } from 'lib/shared/helpers';
 
 import { type SignCallbackReason } from './sign-callback';
+import { RESULT_BYTES_RETENTION_MS } from './trim-result-bytes';
 import { splitExecutedOutputNotes } from '../activity/fee-notes';
 import {
   INoteDeliveryState,
@@ -343,7 +344,7 @@ export const completeVerifiedLandedTransaction = async (
   otherValues: Partial<ITransaction> = {}
 ): Promise<void> => {
   await Repo.transactions.where({ id }).modify(tx => {
-    // `false`, not a bare return — dexie re-puts the deep clone for any other value. The row
+    // `false`, not a bare return - dexie re-puts the deep clone for any other value. The row
     // declined here is an already-Completed one, i.e. exactly the row still carrying the ~237 KB
     // `resultBytes`, and `useTransactionRow` observes this table.
     if (tx.status !== ITransactionStatus.Failed) return false;
@@ -517,11 +518,11 @@ export const waitForConsumeTx = async (id: string, signal?: AbortSignal): Promis
   });
 };
 
-/**
- * How long a single wait may last. Note this bounds the wait's DURATION, not when it reads the
- * row: an already-Completed row is read on the first emission, so this never gates the reaper.
- */
-export const WAIT_FOR_TX_TIMEOUT = 5 * 60_000;
+const WAIT_FOR_TX_TIMEOUT = 5 * 60_000; // 5 minutes
+
+const RESULT_EXPIRED_MESSAGE = `Transaction result expired: results are kept for ${
+  RESULT_BYTES_RETENTION_MS / 60_000
+} minutes after completion`;
 
 export const waitForTransactionCompletion = async (transactionId: string) => {
   return new Promise<TransactionOutput>(resolve => {
@@ -552,14 +553,21 @@ export const waitForTransactionCompletion = async (transactionId: string) => {
           // the timeout, and dexie runs `next` inside its own promise chain — so an
           // exception here settles the wait promise as neither success NOR timeout
           // and the awaiting caller (the Epoch bridge/earn note builders) hangs
-          // forever while the activity row reads Completed. The known trigger is a
-          // row marked Completed by a post-submit failure path with no
-          // `resultBytes`; `isResultAwaitingRow` in `transaction/index.ts` now
-          // Fails those rows instead, and this is the backstop for any other route
-          // to a result-less Completed row.
+          // forever while the activity row reads Completed.
+          //
+          // A Completed row arrives here without `resultBytes` by two routes. The reaper
+          // (`trim-result-bytes.ts`) releases the blob after the retention window and stamps
+          // `resultReleasedAt`, which answers as an expiry. Otherwise the row never stored a result:
+          // post-submit paths in `transaction/index.ts` and `complete.ts` mark landed rows Completed
+          // without one, so they keep the generic message at any age.
           try {
             if (!tx.resultBytes) {
-              resolve({ errorMessage: 'Transaction completed without a transaction result' });
+              resolve({
+                errorMessage:
+                  tx.resultReleasedAt != null
+                    ? RESULT_EXPIRED_MESSAGE
+                    : 'Transaction completed without a transaction result'
+              });
               return;
             }
             const txResult = TransactionResult.deserialize(tx.resultBytes);

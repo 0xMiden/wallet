@@ -9,7 +9,7 @@ export enum Table {
 // `modifyChunkSize` caps how many records dexie's `modify` materialises at once (`getMany` +
 // `deepClone` per chunk). It defaults to 200, which is also the reaper's batch size, so one trim
 // held ~200 x ~237 KB of result blobs resident inside a single write transaction. Capping the
-// chunk bounds that without changing how many rows a pass selects — the reaper's drain rate is
+// chunk bounds that without changing how many rows a pass selects - the reaper's drain rate is
 // governed by its own batch size, and tuning one constant from two directions is how these two
 // concerns collide. It applies to every `modify` on this database, including the schema upgrades
 // below, which walk the whole table.
@@ -59,7 +59,7 @@ db.version(1.3)
       .table<any, string>(Table.Transactions)
       .toCollection()
       .modify(t => {
-        // `false`, not a bare return — dexie re-puts an unchanged deep clone for anything else, so
+        // `false`, not a bare return - dexie re-puts an unchanged deep clone for anything else, so
         // a bare return here rewrote EVERY transaction row, `resultBytes` blobs included, inside
         // the versionchange transaction on the critical path of `db.open()`. Same rule as
         // `setTransactionStage` and `markCancelledInFlight` in transaction/helper.ts.

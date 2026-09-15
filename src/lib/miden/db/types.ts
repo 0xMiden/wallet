@@ -445,6 +445,11 @@ export interface ITransaction {
   restoredFromBackup?: boolean;
   resultBytes?: Uint8Array;
   /**
+   * Whole seconds at which the reaper (`transaction/trim-result-bytes.ts`) released `resultBytes`. A Completed row
+   * without `resultBytes` carries it only if the result was released; otherwise it never stored one.
+   */
+  resultReleasedAt?: number;
+  /**
    * Current sub-phase during active processing. Readers should treat this
    * as informational only — it is overwritten without coordination with
    * `status`, and is stale once `status` reaches `Completed`/`Failed`.

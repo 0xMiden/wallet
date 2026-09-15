@@ -1,7 +1,7 @@
 /**
  * The v1.3/v1.4 upgrades walk the whole transactions table with `.modify()`. Dexie re-puts a deep
  * clone of every row whose callback returns anything but `false`, so a bare return there rewrote
- * every row — `resultBytes` blobs included — inside the `versionchange` transaction on the critical
+ * every row - `resultBytes` blobs included - inside the `versionchange` transaction on the critical
  * path of `db.open()`. This asserts only the rows that actually change are written.
  */
 import Dexie from 'dexie';
@@ -22,7 +22,7 @@ describe('transactions upgrades', () => {
   it('writes only the rows the upgrade changes, and writes them correctly', async () => {
     await Dexie.delete(DB_NAME);
 
-    // Seed at v1.2 — before the v1.3 bridge rename and the v1.4 consume backfill. A fixture per
+    // Seed at v1.2 - before the v1.3 bridge rename and the v1.4 consume backfill. A fixture per
     // ARM, not per row type: every `??` fallback in the upgrade has both sides represented, and
     // each declining condition has a row that takes it. A write-count assertion alone is
     // satisfied equally by a correct migration and by a deleted one.
@@ -41,9 +41,9 @@ describe('transactions upgrades', () => {
       },
       // v1.4: the backfill arm
       { ...bigRow('consume-1', 'consume'), noteId: 'note-1' },
-      // v1.4: declines — already has noteIds
+      // v1.4: declines - already has noteIds
       { ...bigRow('consume-done', 'consume'), noteId: 'note-2', noteIds: ['note-2'] },
-      // v1.4: declines — consume with no noteId
+      // v1.4: declines - consume with no noteId
       bigRow('consume-bare', 'consume'),
       // neither upgrade touches these
       bigRow('send-1', 'send'),

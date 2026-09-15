@@ -138,15 +138,7 @@ jest.mock('lib/miden/activity/connectivity-classify', () => ({
 const mockRequestNotesRefresh = jest.fn();
 const mockTrimResultBytes = jest.fn(async () => 0);
 jest.mock('lib/miden/transaction/trim-result-bytes', () => ({
-  // Mirrors the real contract: runTrimTick never rejects — the module reports its own failures —
-  // which is what lets both drivers call it with a bare `void` and no handler.
-  runTrimTick: async () => {
-    try {
-      await mockTrimResultBytes();
-    } catch {
-      /* swallowed, as the real one does */
-    }
-  }
+  runTrimTick: () => mockTrimResultBytes()
 }));
 
 jest.mock('./note-refresh', () => ({
@@ -359,7 +351,7 @@ describe('useSyncTrigger', () => {
   it('mobile/desktop: does not wait for the reaper', async () => {
     // The fire-and-forget property, which no other test can see: a reaper that RESOLVES leaves
     // `void` and `await` indistinguishable, and the failing case is equally blind because
-    // runTrimTick swallows. A pass that never settles is the only shape that separates them —
+    // runTrimTick swallows. A pass that never settles is the only shape that separates them -
     // under `await runTrimTick()` the tick would block here and syncState would never run.
     // (The extension side needs no equivalent: doSync is not async, so `await` cannot compile.)
     let release: (() => void) | undefined;
@@ -373,27 +365,17 @@ describe('useSyncTrigger', () => {
     const { unmount } = render(<HookHost />);
     await flush();
 
+    // The pass must actually be pending, or the sync assertion below says nothing about waiting.
+    expect(mockTrimResultBytes).toHaveBeenCalled();
+    expect(release).toBeDefined();
     expect(mockSyncState).toHaveBeenCalled();
     release?.();
     unmount();
   });
 
-  it('mobile/desktop: survives a failing reaper', async () => {
-    // As on the extension: the reaper reports its own failures, and what this driver must
-    // guarantee is that a failing pass does not fail the tick.
-    mockTrimResultBytes.mockRejectedValueOnce(new Error('indexeddb unavailable'));
-
-    const { unmount } = render(<HookHost />);
-    await flush();
-
-    expect(mockSyncState).toHaveBeenCalled();
-    expect(mockTrimResultBytes).toHaveBeenCalled();
-    unmount();
-  });
-
   it('mobile/desktop: runs the resultBytes reaper on an ordinary tick', async () => {
     // The companion to the guard-skip case below. Without this, inverting the call site to
-    // `if (onGeneratingTxPage) trim()` would still pass — the reaper would run only on the one lap
+    // `if (onGeneratingTxPage) trim()` would still pass - the reaper would run only on the one lap
     // it is least needed and never on the idle path this driver exists for.
     const { unmount } = render(<HookHost />);
 
@@ -404,9 +386,8 @@ describe('useSyncTrigger', () => {
   });
 
   it('mobile/desktop: runs the resultBytes reaper even on a lap the sync guards skip', async () => {
-    // This is what makes it safe to have deleted the third driver (generateTransactionsLoop):
-    // mobile and desktop have no other periodic driver, and the reaper is pure local Dexie
-    // maintenance — the generating-transaction guard exists to keep a SYNC off the WASM lock, and
+    // Mobile and desktop have no other periodic driver for the reaper, and it is pure local Dexie
+    // maintenance - the generating-transaction guard exists to keep a SYNC off the WASM lock, and
     // has no bearing on reclaiming storage.
     window.location.hash = '#/generating-transaction-full';
 

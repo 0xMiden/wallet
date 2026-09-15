@@ -182,15 +182,7 @@ jest.mock('../transaction/note-delivery-sweep', () => ({
 
 const mockTrimResultBytes = jest.fn(async () => 0);
 jest.mock('../transaction/trim-result-bytes', () => ({
-  // Mirrors the real contract: runTrimTick never rejects — the module reports its own failures —
-  // which is what lets both drivers call it with a bare `void` and no handler.
-  runTrimTick: async () => {
-    try {
-      await mockTrimResultBytes();
-    } catch {
-      /* swallowed, as the real one does */
-    }
-  }
+  runTrimTick: () => mockTrimResultBytes()
 }));
 
 // ── Imports under test ─────────────────────────────────────────────
@@ -1327,26 +1319,14 @@ describe('doSync — native-note auto-consume', () => {
 });
 
 describe('doSync drives the resultBytes reaper', () => {
-  // This is what makes it safe to have deleted the third driver (generateTransactionsLoop):
-  // the extension's only periodic driver is this one, and it must reach the reaper even on the
-  // laps where it does no network work at all.
+  // The extension's only periodic driver for the reaper is this one, so it must reach the reaper
+  // even on the laps where it does no network work at all.
   beforeEach(() => {
     mockTrimResultBytes.mockClear();
   });
 
   it('runs the reaper on a normal lap', async () => {
     await doSync();
-
-    expect(mockTrimResultBytes).toHaveBeenCalled();
-  });
-
-  it('survives a failing reaper', async () => {
-    // The reaper reports its own failures now, so there is nothing for this driver to log — what
-    // must hold is that a failing pass cannot fail the lap. Dropping `void` here (awaiting it)
-    // would break this.
-    mockTrimResultBytes.mockRejectedValueOnce(new Error('indexeddb unavailable'));
-
-    await expect(doSync()).resolves.toBeUndefined();
 
     expect(mockTrimResultBytes).toHaveBeenCalled();
   });

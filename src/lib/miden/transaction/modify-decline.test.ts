@@ -1,15 +1,16 @@
 /**
  * Dexie re-puts a deep clone of the row whenever a `.modify()` callback returns anything but
  * exactly `false`. A declining path that falls through therefore rewrites the row it meant to leave
- * alone — and for a Completed transaction that means rewriting the ~237 KB `resultBytes` this
+ * alone - and for a Completed transaction that means rewriting the ~237 KB `resultBytes` this
  * module exists to reclaim, plus a `liveQuery` event for every observer of the table.
  *
  * Counted through the `updating` hook, which fires once per row dexie actually writes.
  */
 import { ITransactionStatus } from 'lib/miden/db/types';
-import type { ITransaction } from 'lib/miden/db/types';
+import type { IEarnWithdrawPhase, ITransaction } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 
+import { updateEarnWithdrawPhase } from './complete';
 import { completeVerifiedLandedTransaction } from './helper';
 
 const row = (over: Partial<ITransaction>): ITransaction =>
@@ -23,6 +24,20 @@ const row = (over: Partial<ITransaction>): ITransaction =>
     resultBytes: new Uint8Array(1024),
     ...over
   }) as unknown as ITransaction;
+
+const earnWithdrawRow = (phase: IEarnWithdrawPhase): ITransaction =>
+  row({
+    type: 'earn-withdraw',
+    resultBytes: undefined,
+    extraInputs: {
+      evmOwner: '0xowner',
+      marketUid: 'market',
+      destinationFaucetId: 'faucet',
+      sourceAmount: '1',
+      sourceSymbol: 'USDC',
+      phase
+    }
+  } as Partial<ITransaction>);
 
 describe('declining .modify() callbacks do not rewrite the row', () => {
   let written: string[];
@@ -59,5 +74,27 @@ describe('declining .modify() callbacks do not rewrite the row', () => {
 
     expect(written).toEqual(['tx-1']);
     expect((await Repo.transactions.get('tx-1'))?.status).toBe(ITransactionStatus.Completed);
+  });
+
+  it('updateEarnWithdrawPhase leaves the row untouched when it refuses a downgrade', async () => {
+    // The delivery poller can still write `delivering` after auto-consume flipped the row to
+    // `received`. The refusal keeps the phase, and it must not rewrite the row either.
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    await Repo.transactions.put(earnWithdrawRow('received'));
+
+    await updateEarnWithdrawPhase('tx-1', 'delivering');
+
+    warn.mockRestore();
+    expect(written).toEqual([]);
+    expect((await Repo.transactions.get('tx-1'))?.extraInputs?.phase).toBe('received');
+  });
+
+  it('updateEarnWithdrawPhase still writes a forward move', async () => {
+    await Repo.transactions.put(earnWithdrawRow('redeeming'));
+
+    await updateEarnWithdrawPhase('tx-1', 'delivering');
+
+    expect(written).toEqual(['tx-1']);
+    expect((await Repo.transactions.get('tx-1'))?.extraInputs?.phase).toBe('delivering');
   });
 });

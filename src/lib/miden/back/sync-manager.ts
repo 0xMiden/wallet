@@ -157,13 +157,13 @@ async function getVault() {
 
 export function doSync(force = false): Promise<void> {
   // Reclaim finished transactions' result blobs. This is the extension realm's ONLY driver for it
-  // — the `miden-sync` alarm and the popup's SyncRequest both arrive here — so removing this call
+  // - the `miden-sync` alarm and the popup's SyncRequest both arrive here - so removing this call
   // stops the extension reclaiming anything at all.
   //
   // Ahead of every early return below, and deliberately not inside `runSync`: this is pure local
   // Dexie maintenance with no network dependency and no WASM lock, so neither the in-flight
-  // coalescing, nor the circuit breaker, nor the #777 fuse — which can hold this realm off the
-  // node for 30 minutes at a time — has any business gating it. Self-throttled and fire-and-forget,
+  // coalescing, nor the circuit breaker, nor the #777 fuse - which can hold this realm off the
+  // node for 30 minutes at a time - has any business gating it. Self-throttled and fire-and-forget,
   // so it can neither slow a sync nor fail one.
   void runTrimTick();
 
