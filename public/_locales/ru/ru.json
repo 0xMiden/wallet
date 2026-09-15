@@ -1038,9 +1038,6 @@
   "activityTransferAccepted": "Перевод принят",
   "activityTransferDetails": "Подробности",
   "activityRejectExplanation": "Скрыть этот перевод из раздела «Активность» на этом устройстве? Это не приводит к возврату средств отправителю и не удаляет запись «note». Вы можете восстановить скрытые переводы в разделе «Активность».",
-  "activityClaimFee": "Максимальная сетевая комиссия за один принятый перевод: $fee$",
   "activityHiddenNotesError": "Не удалось сохранить скрытые переводы. Пожалуйста, попробуйте ещё раз.",
-  "activityPendingTransfersInList": "Входящие переводы",
-  "activityManagePendingNotes": "Управление notes",
   "activityDateUnavailable": "Дата отсутствует"
 }

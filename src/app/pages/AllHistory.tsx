@@ -4,12 +4,14 @@ import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import { IconName } from 'app/icons/v2';
+import { usePageActive } from 'app/layouts/page-active';
 import { ActivityPendingHistory } from 'app/templates/history/ActivityPendingHistory';
 import type { ActivityFilter } from 'app/templates/history/History';
 import { DeadletteredNotesNotice } from 'components/DeadletteredNotesNotice';
 import { TabHeader, TabHeaderAction } from 'components/ui';
 import { reconcileAgglayerBridgedReceives } from 'lib/miden/activity';
 import { useAccount } from 'lib/miden/front';
+import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { hapticSelection } from 'lib/mobile/haptics';
 
 type AllHistoryProps = {
@@ -23,7 +25,12 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
   const [filter, setFilter] = useState<ActivityFilter>('all');
   const [searchOpen, setSearchOpen] = useState(false);
 
+  // TabLayout keeps a visited tab mounted and a slide page keeps the page beneath it mounted, so the
+  // reconciliation runs only while Activity is on screen, as it did when leaving the page unmounted it.
+  const onScreen = usePageActive();
+
   useEffect(() => {
+    if (!onScreen) return;
     let cancelled = false;
     let running = false;
 
@@ -45,7 +52,7 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
       cancelled = true;
       clearInterval(timer);
     };
-  }, []);
+  }, [onScreen]);
 
   const filters = useMemo<Array<{ id: ActivityFilter; label: string }>>(
     () => [
@@ -116,7 +123,13 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
         })}
       </div>
 
-      <ActivityPendingHistory key={account.publicKey} search={search} filter={filter} programId={programId} />
+      {/* Keyed by account and endpoint: its claim receipts belong to one account on one chain. */}
+      <ActivityPendingHistory
+        key={`${account.publicKey}|${getEffectiveRpcUrl()}|${getEffectiveNetworkName()}`}
+        search={search}
+        filter={filter}
+        programId={programId}
+      />
     </div>
   );
 };

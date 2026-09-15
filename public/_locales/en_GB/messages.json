@@ -4642,26 +4642,9 @@
     "message": "Hide this transfer from Activity on this device? This does not return funds to the sender or delete the note. You can restore hidden transfers in Activity.",
     "englishSource": "Hide this transfer from Activity on this device? This does not return funds to the sender or delete the note. You can restore hidden transfers in Activity."
   },
-  "activityClaimFee": {
-    "message": "Maximum network fee per accepted transfer: $fee$",
-    "englishSource": "Maximum network fee per accepted transfer: $fee$",
-    "placeholders": {
-      "fee": {
-        "content": "$1"
-      }
-    }
-  },
   "activityHiddenNotesError": {
     "message": "Could not save hidden transfers. Please try again.",
     "englishSource": "Could not save hidden transfers. Please try again."
-  },
-  "activityPendingTransfersInList": {
-    "message": "Incoming transfers",
-    "englishSource": "Incoming transfers"
-  },
-  "activityManagePendingNotes": {
-    "message": "Manage notes",
-    "englishSource": "Manage notes"
   },
   "activityDateUnavailable": {
     "message": "Date unavailable",

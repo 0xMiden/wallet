@@ -145,6 +145,39 @@ describe('keyboard-inset', () => {
     expect(input.scrollIntoView).not.toHaveBeenCalled();
   });
 
+  it('measures against the visual viewport that the keyboard shrinks, not the layout viewport', async () => {
+    isMobileMock.mockReturnValue(true);
+    // A WebView reports the area left above the keyboard as the visual viewport; jsdom has none.
+    const top = 100;
+    const bottom = window.innerHeight - 300;
+    Object.defineProperty(window, 'visualViewport', {
+      configurable: true,
+      value: { offsetTop: top, height: bottom - top }
+    });
+    try {
+      await initKeyboardInset();
+
+      const field = (rectTop: number) => {
+        const input = document.createElement('input');
+        input.scrollIntoView = jest.fn();
+        input.getBoundingClientRect = () => new DOMRect(0, rectTop, 300, 36);
+        document.body.appendChild(input);
+        input.focus();
+        jest.advanceTimersByTime(300);
+        return input;
+      };
+      const above = field(top - 40);
+      const inside = field(bottom - 40);
+      const covered = field(bottom + 50);
+
+      expect(above.scrollIntoView).toHaveBeenCalledWith({ block: 'nearest', behavior: 'smooth' });
+      expect(inside.scrollIntoView).not.toHaveBeenCalled();
+      expect(covered.scrollIntoView).toHaveBeenCalledWith({ block: 'nearest', behavior: 'smooth' });
+    } finally {
+      Reflect.deleteProperty(window, 'visualViewport');
+    }
+  });
+
   it('does not scroll if the input lost focus before the delay elapsed', async () => {
     isMobileMock.mockReturnValue(true);
 

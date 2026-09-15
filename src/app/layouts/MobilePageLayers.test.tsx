@@ -8,22 +8,22 @@ import { LocationState, useLocation } from 'lib/woozie/location';
 
 import FullScreenPage from './FullScreenPage';
 import MobilePageLayers from './MobilePageLayers';
+import { usePageActive } from './page-active';
 
 const mockMotion = { reduce: false };
 
-jest.mock('lib/platform', () => ({ isMobile: () => true }));
 jest.mock('framer-motion', () => {
   const actual = jest.requireActual<typeof import('framer-motion')>('framer-motion');
   return { ...actual, useReducedMotion: () => mockMotion.reduce };
 });
 
-function location(pathname: string): LocationState {
+function location(pathname: string, trigger = HistoryAction.Push): LocationState {
   return {
     pathname,
     search: '',
     hash: '',
     state: null,
-    trigger: HistoryAction.Push,
+    trigger,
     historyLength: 1,
     historyPosition: 0
   };
@@ -31,13 +31,18 @@ function location(pathname: string): LocationState {
 
 function Page() {
   const { pathname } = useLocation();
+  const onScreen = usePageActive();
   const [count, setCount] = useState(0);
-  return <button onClick={() => setCount(count + 1)}>{`${pathname} count ${count}`}</button>;
+  return (
+    <button data-on-screen={String(onScreen)} onClick={() => setCount(count + 1)}>
+      {`${pathname} count ${count}`}
+    </button>
+  );
 }
 
-function view(pathname: string, slide = false, key = pathname) {
+function view(pathname: string, slide = false, key = pathname, trigger = HistoryAction.Push) {
   return (
-    <MobilePageLayers location={location(pathname)} pageKey={key} slide={slide}>
+    <MobilePageLayers location={location(pathname, trigger)} pageKey={key} slide={slide}>
       {slide ? (
         <FullScreenPage entrance="slide">
           <Page />
@@ -74,6 +79,7 @@ it('keeps the original page under the slide and reveals the same instance on pop
   expect(previous).toHaveAttribute('inert');
   expect(previous).toHaveAttribute('aria-hidden', 'true');
   expect(previous).toHaveStyle({ zIndex: '1', pointerEvents: 'none' });
+  expect(previous?.querySelector('button')).toHaveAttribute('data-on-screen', 'false');
   expect(screen.getByRole('button')).toHaveTextContent('/history-details/one count 0');
   expect(document.body).not.toHaveAttribute('data-hide-navbar');
   await waitFor(() => expect(document.body).toHaveAttribute('data-hide-navbar'));
@@ -84,6 +90,7 @@ it('keeps the original page under the slide and reveals the same instance on pop
   expect(revealed).toHaveTextContent('/history count 1');
   expect(revealed).not.toHaveAttribute('inert');
   expect(revealed).toHaveStyle({ zIndex: '2', pointerEvents: 'auto' });
+  expect(revealed?.querySelector('button')).toHaveAttribute('data-on-screen', 'true');
   expect(document.body).not.toHaveAttribute('data-hide-navbar');
   const leaving = container.querySelector('[data-page-layer="/history-details/one"]');
   expect(leaving).toHaveStyle({ zIndex: '3' });
@@ -105,7 +112,32 @@ it('slides a popped slide page out instead of parking it under the page beneath'
   expect(home).toHaveAttribute('inert');
   await waitFor(() => expect(popped).toHaveStyle({ transform: 'translateX(100%)' }));
   expect(home).toHaveStyle({ transform: 'translateX(-24%)' });
-  expect(container.querySelector('[data-page-layer="/settings"]')).toHaveStyle({ zIndex: '2' });
+  const revealed = container.querySelector('[data-page-layer="/settings"]');
+  expect(revealed).toHaveStyle({ zIndex: '2', pointerEvents: 'auto' });
+  expect(revealed).not.toHaveAttribute('inert');
+  expect(revealed).not.toHaveAttribute('aria-hidden');
+  await waitFor(() => expect(revealed).toHaveStyle({ transform: 'none' }));
+});
+
+it('plays no Back animation on a push from a slide page to a plain page, and covers nothing after popping back', async () => {
+  const { container, rerender } = render(view('/history'));
+  rerender(view('/history-details/one', true));
+  await act(async () => {
+    await new Promise(resolve => setTimeout(resolve, 600));
+  });
+
+  rerender(view('/pending-notes'));
+  expect(container.querySelector('[data-page-layer="/pending-notes"]')).not.toHaveStyle({
+    transform: 'translateX(-24%)'
+  });
+  expect(container.querySelector('[data-page-layer="/history-details/one"][style*="z-index: 3"]')).toBeNull();
+  await waitFor(() =>
+    expect(container.querySelector('[data-page-layer="/history-details/one"]')).not.toBeInTheDocument()
+  );
+
+  rerender(view('/history-details/one', true, '/history-details/one', HistoryAction.Pop));
+  await waitFor(() => expect(container.querySelector('[data-page-layer="/pending-notes"]')).not.toBeInTheDocument());
+  expect(container.querySelectorAll('[data-page-layer]')).toHaveLength(1);
 });
 
 it('keeps one tab layout when only the selected tab changes', () => {

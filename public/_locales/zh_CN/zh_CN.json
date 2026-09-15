@@ -1038,9 +1038,6 @@
   "activityTransferAccepted": "转账已接受",
   "activityTransferDetails": "详情",
   "activityRejectExplanation": "“将此转账从本设备的‘活动’中隐藏？”此操作不会将资金退还给发件人，也不会删除note。您可以在“活动”中恢复已隐藏的转账。",
-  "activityClaimFee": "每笔成功转账的最高网络手续费：$fee$",
   "activityHiddenNotesError": "无法保存隐藏转账。请重试。",
-  "activityPendingTransfersInList": "入账转账",
-  "activityManagePendingNotes": "管理 notes",
   "activityDateUnavailable": "日期不可用"
 }

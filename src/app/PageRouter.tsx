@@ -162,7 +162,7 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
   [
     '/settings/network-endpoints',
     onlyReady(() => (
-      <FullScreenPage>
+      <FullScreenPage entrance="slide">
         <DeveloperSettings readOnly />
       </FullScreenPage>
     ))

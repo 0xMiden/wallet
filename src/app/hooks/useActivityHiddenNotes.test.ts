@@ -42,14 +42,20 @@ it('restores the previous notes if storage fails', async () => {
   log.mockRestore();
 });
 
-it('reports a storage read failure and still finishes loading', async () => {
+it('reports a storage read failure and never overwrites the list it could not read', async () => {
   const log = jest.spyOn(console, 'warn').mockImplementation(() => {});
   read.mockRejectedValueOnce(new Error('Read unavailable'));
   const { result } = renderHook(() => useActivityHiddenNotes('account'));
 
-  await waitFor(() => expect(result.current.loaded).toBe(true));
-  expect(result.current.failed).toBe(true);
+  await waitFor(() => expect(result.current.failed).toBe(true));
+  expect(result.current.loaded).toBe(false);
+  await act(async () => {
+    await result.current.hide('new');
+    await result.current.restore();
+  });
+  expect(write).not.toHaveBeenCalled();
   expect(result.current.ids.size).toBe(0);
+  expect(result.current.failed).toBe(true);
   log.mockRestore();
 });
 
@@ -67,22 +73,32 @@ it('accepts only string ids from an array and treats other payloads as empty', a
   await waitFor(() => expect(result.current.ids.size).toBe(0));
 });
 
-it('does not publish a storage read that settles after unmount', async () => {
-  let releaseRead: (ids: string[]) => void = () => {};
-  read.mockImplementationOnce(
-    () =>
-      new Promise<string[]>(resolve => {
-        releaseRead = resolve;
+it('keeps the current address when a read for an earlier address settles late', async () => {
+  const log = jest.spyOn(console, 'warn').mockImplementation(() => {});
+  const pending = new Map<string, { resolve: (ids: string[]) => void; reject: (error: Error) => void }>();
+  read.mockImplementation(
+    (key: string) =>
+      new Promise<string[]>((resolve, reject) => {
+        pending.set(key, { resolve, reject });
       })
   );
-  const { unmount } = renderHook(() => useActivityHiddenNotes('account'));
+  const { result, rerender } = renderHook(({ address }) => useActivityHiddenNotes(address), {
+    initialProps: { address: 'first' }
+  });
+  rerender({ address: 'second' });
+  rerender({ address: 'third' });
 
-  unmount();
-  await act(async () => releaseRead(['late']));
-  expect(write).not.toHaveBeenCalled();
+  await act(async () => pending.get('activity-hidden-notes:third')?.resolve(['third-note']));
+  await act(async () => {
+    pending.get('activity-hidden-notes:first')?.resolve(['first-note']);
+    pending.get('activity-hidden-notes:second')?.reject(new Error('Late read failure'));
+  });
+  expect([...result.current.ids]).toEqual(['third-note']);
+  expect(result.current.failed).toBe(false);
+  log.mockRestore();
 });
 
-it('ignores save requests until loading completes and while another write is active', async () => {
+it('ignores saves before the list is read and runs saves made during a write after it, in order', async () => {
   let releaseRead: (ids: string[]) => void = () => {};
   read.mockImplementationOnce(
     () =>
@@ -106,58 +122,16 @@ it('ignores save requests until loading completes and while another write is act
   await act(async () => releaseRead(['old']));
   await waitFor(() => expect(result.current.loaded).toBe(true));
 
-  let firstWrite: Promise<void> = Promise.resolve();
+  let saves: Promise<unknown> = Promise.resolve();
   act(() => {
-    firstWrite = result.current.hide('first');
+    saves = Promise.all([result.current.hide('first'), result.current.hide('second'), result.current.restore()]);
   });
-  await act(async () => {
-    await result.current.hide('ignored');
-  });
-  expect(write).toHaveBeenCalledTimes(1);
+  await waitFor(() => expect(write).toHaveBeenCalledTimes(1));
+  expect(write).toHaveBeenLastCalledWith('activity-hidden-notes:account', ['old', 'first']);
   await act(async () => {
     releaseWrite();
-    await firstWrite;
+    await saves;
   });
-});
-
-it('does not publish a storage read failure after unmount', async () => {
-  const log = jest.spyOn(console, 'warn').mockImplementation(() => {});
-  let rejectRead: (error: Error) => void = () => {};
-  read.mockImplementationOnce(
-    () =>
-      new Promise<string[]>((_resolve, reject) => {
-        rejectRead = reject;
-      })
-  );
-  const { unmount } = renderHook(() => useActivityHiddenNotes('account'));
-
-  unmount();
-  await act(async () => rejectRead(new Error('Late read failure')));
-  expect(log).toHaveBeenCalled();
-  log.mockRestore();
-});
-
-it('does not publish a storage write failure after unmount', async () => {
-  const log = jest.spyOn(console, 'warn').mockImplementation(() => {});
-  let rejectWrite: (error: Error) => void = () => {};
-  write.mockImplementationOnce(
-    () =>
-      new Promise<void>((_resolve, reject) => {
-        rejectWrite = reject;
-      })
-  );
-  const { result, unmount } = renderHook(() => useActivityHiddenNotes('account'));
-  await waitFor(() => expect(result.current.loaded).toBe(true));
-
-  let save: Promise<void> = Promise.resolve();
-  act(() => {
-    save = result.current.hide('new');
-  });
-  unmount();
-  await act(async () => {
-    rejectWrite(new Error('Late write failure'));
-    await save;
-  });
-  expect(log).toHaveBeenCalled();
-  log.mockRestore();
+  expect(write.mock.calls.map(call => call[1])).toEqual([['old', 'first'], ['old', 'first', 'second'], []]);
+  expect(result.current.ids.size).toBe(0);
 });

@@ -1038,9 +1038,6 @@
   "activityTransferAccepted": "Przelew zaakceptowany",
   "activityTransferDetails": "Szczegóły",
   "activityRejectExplanation": "Czy chcesz ukryć ten transfer w sekcji „Aktywność” na tym urządzeniu? Nie spowoduje to zwrotu środków nadawcy ani usunięcia adresu note. Ukryte transfery można przywrócić w sekcji „Aktywność”.",
-  "activityClaimFee": "Maksymalna opłata sieciowa za każdy zaakceptowany transfer: $fee$",
   "activityHiddenNotesError": "Nie udało się zapisać ukrytych transferów. Spróbuj ponownie.",
-  "activityPendingTransfersInList": "Przelewy przychodzące",
-  "activityManagePendingNotes": "Zarządzaj notes",
   "activityDateUnavailable": "Data niedostępna"
 }

@@ -1038,9 +1038,6 @@
   "activityTransferAccepted": "Überweisung akzeptiert",
   "activityTransferDetails": "Details",
   "activityRejectExplanation": "Diese Überweisung in „Aktivität“ auf diesem Gerät ausblenden? Dadurch werden keine Gelder an den Absender zurücküberwiesen und die „note“ wird nicht gelöscht. Sie können ausgeblendete Überweisungen in „Aktivität“ wiederherstellen.",
-  "activityClaimFee": "Maximale Netzwerkgebühr pro akzeptierter Überweisung: $fee$",
   "activityHiddenNotesError": "Versteckte Überweisungen konnten nicht gespeichert werden. Bitte versuchen Sie es erneut.",
-  "activityPendingTransfersInList": "Eingehende Überweisungen",
-  "activityManagePendingNotes": "notes verwalten",
   "activityDateUnavailable": "Datum nicht verfügbar"
 }

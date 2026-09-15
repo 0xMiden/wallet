@@ -1038,9 +1038,6 @@
   "activityTransferAccepted": "Transfert accepté",
   "activityTransferDetails": "Détails",
   "activityRejectExplanation": "Masquer ce transfert dans l’historique d’activité sur cet appareil ? Cela ne restitue pas les fonds à l’expéditeur et ne supprime pas l’note. Vous pouvez restaurer les transferts masqués dans l’historique d’activité.",
-  "activityClaimFee": "Frais de réseau maximaux par transfert accepté : $fee$",
   "activityHiddenNotesError": "Impossible d'enregistrer les transferts masqués. Veuillez réessayer.",
-  "activityPendingTransfersInList": "Virements entrants",
-  "activityManagePendingNotes": "Gérer l’notes",
   "activityDateUnavailable": "Date indisponible"
 }

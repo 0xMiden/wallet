@@ -41,7 +41,6 @@ type HistoryViewProps = {
   tokenId?: string;
   fullHistory?: boolean;
   centerEmptyState?: boolean;
-  hideEmptyState?: boolean;
   pendingItems?: PendingActivityItem[];
   renderPendingItem?: (item: PendingActivityItem) => React.ReactNode;
   className?: string;
@@ -360,7 +359,6 @@ const HistoryView = memo<HistoryViewProps>(
     tokenId,
     fullHistory,
     centerEmptyState,
-    hideEmptyState,
     pendingItems,
     renderPendingItem,
     className
@@ -393,7 +391,6 @@ const HistoryView = memo<HistoryViewProps>(
     const groupedEntries = useMemo(() => groupEntriesByDate(timeline), [timeline]);
 
     if (noEntries) {
-      if (hideEmptyState) return null;
       if (initialLoading) return <ActivitySpinner />;
       if (centerEmptyState) {
         return (

@@ -8,6 +8,7 @@ import { useAppEnv } from 'app/env';
 import { useHasUnclaimedNotes } from 'app/hooks/useHasUnclaimedNotes';
 import { Icon, IconName } from 'app/icons/v2';
 import HomeSwipeContainer from 'app/layouts/HomeSwipeContainer';
+import { PageActiveContext, usePageActive } from 'app/layouts/page-active';
 import { BottomNav, SegmentedActionBar } from 'components/ui';
 import { useMotion } from 'lib/animation';
 import { pageAppearance } from 'lib/animation/page-appearance';
@@ -50,11 +51,6 @@ const ACTION_ROUTES: Record<string, string> = {
 
 const HOME_GROUP_ROUTES = new Set(['/', '/send', '/receive', '/earn', '/swap']);
 
-// Render order of the tab panes. Each pane stays mounted after its first
-// visit, like a native tab controller, so a tab change is one visibility
-// swap and each tab keeps its scroll position and state.
-const TAB_ORDER = ['home', 'explore', 'activity', 'settings'];
-
 interface TabPaneProps extends PropsWithChildren {
   id: string;
   active: boolean;
@@ -63,6 +59,7 @@ interface TabPaneProps extends PropsWithChildren {
 // One tab's content. An inactive pane keeps its layout but is not painted,
 // not focusable and not read by assistive tech.
 const TabPane: FC<TabPaneProps> = ({ id, active, children }) => {
+  const layerActive = usePageActive();
   const ref = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     ref.current?.toggleAttribute('inert', !active);
@@ -78,7 +75,7 @@ const TabPane: FC<TabPaneProps> = ({ id, active, children }) => {
       aria-hidden={!active || undefined}
       style={{ visibility: active ? 'visible' : 'hidden' }}
     >
-      {children}
+      <PageActiveContext.Provider value={active && layerActive}>{children}</PageActiveContext.Provider>
     </div>
   );
 };
@@ -249,7 +246,10 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
   ) : (
     children
   );
-  const panes = TAB_ORDER.filter(id => id in panesRef.current);
+  // Each pane stays mounted after its first visit, like a native tab controller, so a tab change is
+  // one visibility swap and each tab keeps its scroll position and state. Panes render in visit
+  // order: a tab only ever joins the end, so no pane moves and no list of tab ids can fall behind.
+  const panes = Object.keys(panesRef.current);
 
   return (
     <div

@@ -1038,9 +1038,6 @@
   "activityTransferAccepted": "Transfer accepted",
   "activityTransferDetails": "Details",
   "activityRejectExplanation": "Hide this transfer from Activity on this device? This does not return funds to the sender or delete the note. You can restore hidden transfers in Activity.",
-  "activityClaimFee": "Maximum network fee per accepted transfer: $fee$",
   "activityHiddenNotesError": "Could not save hidden transfers. Please try again.",
-  "activityPendingTransfersInList": "Incoming transfers",
-  "activityManagePendingNotes": "Manage notes",
   "activityDateUnavailable": "Date unavailable"
 }

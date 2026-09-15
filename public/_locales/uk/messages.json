@@ -4642,26 +4642,9 @@
     "message": "Приховати цей переказ у розділі «Активність» на цьому пристрої? Це не повертає кошти відправнику та не видаляє запис «note». Ви можете відновити приховані перекази в розділі «Активність».",
     "englishSource": "Hide this transfer from Activity on this device? This does not return funds to the sender or delete the note. You can restore hidden transfers in Activity."
   },
-  "activityClaimFee": {
-    "message": "Максимальна комісія мережі за кожен прийнятий переказ: $fee$",
-    "englishSource": "Maximum network fee per accepted transfer: $fee$",
-    "placeholders": {
-      "fee": {
-        "content": "$1"
-      }
-    }
-  },
   "activityHiddenNotesError": {
     "message": "Не вдалося зберегти приховані перекази. Спробуйте ще раз.",
     "englishSource": "Could not save hidden transfers. Please try again."
-  },
-  "activityPendingTransfersInList": {
-    "message": "Вхідні перекази",
-    "englishSource": "Incoming transfers"
-  },
-  "activityManagePendingNotes": {
-    "message": "Управління «notes»",
-    "englishSource": "Manage notes"
   },
   "activityDateUnavailable": {
     "message": "Дата недоступна",

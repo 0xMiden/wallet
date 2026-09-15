@@ -4642,26 +4642,9 @@
     "message": "Bu aktarımı bu cihazdaki Etkinlik bölümünden gizlemek ister misiniz? Bu işlem, parayı gönderene iade etmez veya note adresini silmez. Gizlenen aktarımları Etkinlik bölümünden geri yükleyebilirsiniz.",
     "englishSource": "Hide this transfer from Activity on this device? This does not return funds to the sender or delete the note. You can restore hidden transfers in Activity."
   },
-  "activityClaimFee": {
-    "message": "Kabul edilen her transfer için maksimum ağ ücreti: $fee$",
-    "englishSource": "Maximum network fee per accepted transfer: $fee$",
-    "placeholders": {
-      "fee": {
-        "content": "$1"
-      }
-    }
-  },
   "activityHiddenNotesError": {
     "message": "Gizli transferler kaydedilemedi. Lütfen tekrar deneyin.",
     "englishSource": "Could not save hidden transfers. Please try again."
-  },
-  "activityPendingTransfersInList": {
-    "message": "Gelen transferler",
-    "englishSource": "Incoming transfers"
-  },
-  "activityManagePendingNotes": {
-    "message": "notes'i yönetin",
-    "englishSource": "Manage notes"
   },
   "activityDateUnavailable": {
     "message": "Tarih mevcut değil",

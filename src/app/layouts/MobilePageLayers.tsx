@@ -2,10 +2,12 @@ import React, { createContext, FC, useContext, useEffect, useLayoutEffect, useMe
 
 import { AnimatePresence, motion, TargetAndTransition, usePresence, useReducedMotion } from 'framer-motion';
 
+import { PageActiveContext } from 'app/layouts/page-active';
 import { useMotion } from 'lib/animation';
 import { pageSlideDim, pageSlideEntrance, pageSlideParallax } from 'lib/animation/page-appearance';
 import { isReturningFromWebview } from 'lib/mobile/webview-state';
 import { PropsWithChildren } from 'lib/props-with-children';
+import { HistoryAction } from 'lib/woozie/history';
 import { LocationProvider, LocationState } from 'lib/woozie/location';
 
 interface LayerStack {
@@ -13,9 +15,8 @@ interface LayerStack {
   // this is true stays mounted underneath it, like a navigation stack, so a
   // pop reveals the same instance with its scroll and state intact.
   retain: boolean;
-  // The key of the slide page that a pop removed. The current page was
-  // already mounted under it, so this layer must slide out, not stay
-  // covered under a page it was on top of.
+  // The key of the page a return left. A slide page slides out, and no page a
+  // return left stays covered under the page it went back to.
   poppedKey: string | null;
   // Keys of every mounted layer, present or retained.
   mounted: Set<string>;
@@ -26,8 +27,8 @@ const LayerStackContext = createContext<LayerStack>({ retain: false, poppedKey: 
 // How a layer moves while another layer slides over or off it.
 // - `still`: no motion. The layer shows or is removed at once.
 // - `cover`: a page slides in above this layer. It moves left and dims.
-// - `uncover`: this slide page pops. It slides out to the right.
-// - `reveal`: a slide page pops above this layer. It comes back from the left.
+// - `uncover`: a return leaves this slide page. It slides out to the right.
+// - `reveal`: a return leaves the slide page above this layer. It comes back from the left.
 type LayerMotion = 'still' | 'cover' | 'uncover' | 'reveal';
 
 interface PageLayerProps extends PropsWithChildren {
@@ -60,11 +61,8 @@ const PageLayer: FC<PageLayerProps> = ({ layerKey, location, slide, revealed, an
     case !present && slide && animated && (uncovering.current || layerKey === poppedKey):
       layerMotion = 'uncover';
       break;
-    case !present && retain:
+    case !present && retain && layerKey !== poppedKey:
       layerMotion = 'cover';
-      break;
-    case !present && slide && animated:
-      layerMotion = 'uncover';
       break;
   }
   if (layerMotion === 'uncover') uncovering.current = true;
@@ -119,7 +117,9 @@ const PageLayer: FC<PageLayerProps> = ({ layerKey, location, slide, revealed, an
         if (!present && layerMotion === 'uncover') remove?.();
       }}
     >
-      <LocationProvider snapshot={location}>{children}</LocationProvider>
+      <LocationProvider snapshot={location}>
+        <PageActiveContext.Provider value={present}>{children}</PageActiveContext.Provider>
+      </LocationProvider>
       <motion.div
         aria-hidden
         className="absolute inset-0 bg-pure-black pointer-events-none"
@@ -140,11 +140,10 @@ interface MobilePageLayersProps extends PropsWithChildren {
 interface PageEntry {
   key: string;
   slide: boolean;
-  // The page before this one was a slide page and this one is not.
-  // The slide page pops, so this page comes back from under it.
+  // A return left a slide page for this page, which is not one, so this page
+  // comes back from under it.
   revealed: boolean;
-  // The slide page this page came back from under, when this page was
-  // already mounted beneath it. That page slides out; it is not covered.
+  // The page a return left for this one.
   poppedKey: string | null;
 }
 
@@ -154,8 +153,16 @@ const MobilePageLayers: FC<MobilePageLayersProps> = ({ pageKey, slide, location,
   const mounted = useRef(new Set<string>()).current;
   const [entry, setEntry] = useState<PageEntry>({ key: pageKey, slide, revealed: false, poppedKey: null });
   if (entry.key !== pageKey) {
-    const pop = entry.slide && mounted.has(pageKey);
-    setEntry({ key: pageKey, slide, revealed: entry.slide && !slide, poppedKey: pop ? entry.key : null });
+    // A return goes back down the stack: the router popped, or the page is still mounted beneath (a close
+    // that navigates to it). Only a return plays the Back animation; a push from a slide page to a plain
+    // page releases the stack without it.
+    const returning = location.trigger === HistoryAction.Pop || mounted.has(pageKey);
+    setEntry({
+      key: pageKey,
+      slide,
+      revealed: returning && entry.slide && !slide,
+      poppedKey: returning ? entry.key : null
+    });
   }
   const retain = slide && animated;
   const stack = useMemo<LayerStack>(

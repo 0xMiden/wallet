@@ -2,6 +2,7 @@ import React from 'react';
 
 import { act, fireEvent, render, screen } from '@testing-library/react';
 
+import { PageActiveContext } from 'app/layouts/page-active';
 import { hapticSelection } from 'lib/mobile/haptics';
 
 import AllHistory from './AllHistory';
@@ -51,15 +52,21 @@ jest.mock('components/ui', () => ({
   )
 }));
 
+// Counts mounts, so a test can tell a remount from a re-render.
+const mockPendingMounts = { count: 0 };
 jest.mock('app/templates/history/ActivityPendingHistory', () => ({
-  ActivityPendingHistory: (props: { programId?: string | null; search: string; filter: string }) => (
-    <div
-      data-testid="history"
-      data-program-id={props.programId ?? ''}
-      data-search-query={props.search}
-      data-filter={props.filter}
-    />
-  )
+  ActivityPendingHistory: (props: { programId?: string | null; search: string; filter: string }) => {
+    const [instance] = jest.requireActual<typeof import('react')>('react').useState(() => ++mockPendingMounts.count);
+    return (
+      <div
+        data-testid="history"
+        data-instance={instance}
+        data-program-id={props.programId ?? ''}
+        data-search-query={props.search}
+        data-filter={props.filter}
+      />
+    );
+  }
 }));
 
 // The page owns an 8s AggLayer reconciliation poll; stub the reconciler so the
@@ -72,6 +79,12 @@ jest.mock('lib/miden/activity', () => ({
 
 jest.mock('lib/miden/front', () => ({
   useAccount: () => ({ publicKey: 'test-public-key' })
+}));
+
+const mockEndpoint = { rpcUrl: 'https://rpc-a.example' };
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  getEffectiveRpcUrl: () => mockEndpoint.rpcUrl,
+  getEffectiveNetworkName: () => 'testnet'
 }));
 
 jest.mock('lib/mobile/haptics', () => ({
@@ -90,6 +103,8 @@ describe('AllHistory', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockReconcile.mockResolvedValue(undefined);
+    mockEndpoint.rpcUrl = 'https://rpc-a.example';
+    mockPendingMounts.count = 0;
   });
 
   it('renders the activity header, filter chips and search field', () => {
@@ -115,6 +130,17 @@ describe('AllHistory', () => {
     expect(history.getAttribute('data-program-id')).toBe('prog-42');
     expect(history.getAttribute('data-search-query')).toBe('');
     expect(history.getAttribute('data-filter')).toBe('all');
+  });
+
+  it('remounts the pending list when the endpoint changes, so claim receipts never cross chains', () => {
+    const { rerender } = render(<AllHistory />);
+    expect(getHistory()).toHaveAttribute('data-instance', '1');
+    rerender(<AllHistory />);
+    expect(getHistory()).toHaveAttribute('data-instance', '1');
+
+    mockEndpoint.rpcUrl = 'https://rpc-b.example';
+    rerender(<AllHistory />);
+    expect(getHistory()).toHaveAttribute('data-instance', '2');
   });
 
   it('defaults the programId attribute to empty when the prop is omitted', () => {
@@ -187,7 +213,7 @@ describe('AllHistory', () => {
   });
 
   // AggLayer bridge-in rows only become claimable once reconciled, so the page
-  // keeps a poll running for as long as it is mounted.
+  // keeps a poll running while it is on screen.
   describe('AggLayer reconciliation poll', () => {
     beforeEach(() => {
       jest.useFakeTimers();
@@ -256,6 +282,27 @@ describe('AllHistory', () => {
       await tick(8_000);
 
       expect(mockReconcile).toHaveBeenCalledTimes(1);
+    });
+
+    it('pauses while the page is off screen and reconciles as soon as it is back', async () => {
+      const page = (onScreen: boolean) => (
+        <PageActiveContext.Provider value={onScreen}>
+          <AllHistory />
+        </PageActiveContext.Provider>
+      );
+      const { rerender } = render(page(true));
+      await act(async () => {});
+      expect(mockReconcile).toHaveBeenCalledTimes(1);
+
+      rerender(page(false));
+      await tick(24_000);
+      expect(mockReconcile).toHaveBeenCalledTimes(1);
+
+      rerender(page(true));
+      await act(async () => {});
+      expect(mockReconcile).toHaveBeenCalledTimes(2);
+      await tick(8_000);
+      expect(mockReconcile).toHaveBeenCalledTimes(3);
     });
   });
 });

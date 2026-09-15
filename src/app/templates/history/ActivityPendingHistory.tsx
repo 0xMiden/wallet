@@ -1,4 +1,4 @@
-import React, { useMemo, useRef } from 'react';
+import React, { useCallback, useMemo, useRef } from 'react';
 
 import classNames from 'clsx';
 import { motion, useReducedMotion } from 'framer-motion';
@@ -7,19 +7,24 @@ import { useTranslation } from 'react-i18next';
 import { useActivityClaims } from 'app/hooks/useActivityClaims';
 import { useActivityHiddenNotes } from 'app/hooks/useActivityHiddenNotes';
 import type { NoteWithMetadata } from 'app/pages/Receive/PendingTab';
-import { Button } from 'components/Button';
+import { Button, ButtonVariant } from 'components/Button';
 import { durations, useMotion } from 'lib/animation';
 import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
 import { useConfirm } from 'lib/ui/dialog';
 import { useLocation } from 'lib/woozie';
 
 import History, { ActivityFilter } from './History';
-import { PendingActivityCard } from './PendingActivityCard';
+import { PendingActivityCard, type PendingActivityItem } from './PendingActivityCard';
 
 interface ActivityPendingHistoryProps {
   search: string;
   filter: ActivityFilter;
   programId?: string | null;
+}
+
+function isShown(item: PendingActivityItem, hiddenIds: ReadonlySet<string>): boolean {
+  if (item.status === 'checking' || item.status === 'unavailable') return false;
+  return !hiddenIds.has(item.note.id) || item.status === 'claimed' || item.status === 'claiming';
 }
 
 export const ActivityPendingHistory = ({ search, filter, programId }: ActivityPendingHistoryProps) => {
@@ -37,43 +42,44 @@ export const ActivityPendingHistory = ({ search, filter, programId }: ActivityPe
   const currentItems = useRef(items);
   currentItems.current = items;
 
-  const shown = items.filter(item => {
-    if (item.status === 'checking' || item.status === 'unavailable') return false;
-    return !hidden.ids.has(item.note.id) || item.status === 'claimed' || item.status === 'claiming';
-  });
   const query = search.trim().toLowerCase();
-  const listItems = shown.filter(item => {
-    if (filter === 'sent' || filter === 'faucet') return false;
-    if (filter === 'pending' && item.status === 'claimed') return false;
-    return (
-      !query ||
-      [item.note.metadata.symbol, item.note.metadata.name, item.note.senderAddress].some(value =>
-        value?.toLowerCase().includes(query)
-      )
-    );
-  });
-  const pendingCount = shown.filter(item => item.status !== 'claimed').length;
+  // Memoized with the card renderer below, so a render that changes no pending item keeps
+  // History's props identical and the timeline does not re-render.
+  const listItems = useMemo(
+    () =>
+      items.filter(item => {
+        if (!isShown(item, hidden.ids)) return false;
+        if (filter === 'sent' || filter === 'faucet') return false;
+        if (filter === 'pending' && item.status === 'claimed') return false;
+        return (
+          !query ||
+          [item.note.metadata.symbol, item.note.metadata.name, item.note.senderAddress].some(value =>
+            value?.toLowerCase().includes(query)
+          )
+        );
+      }),
+    [items, hidden.ids, filter, query]
+  );
+  // Declined transfers that could still be accepted. The Decline dialog promises they can be
+  // brought back, so the Pending filter offers Restore while any exist.
+  const hiddenCount = items.filter(
+    item => hidden.ids.has(item.note.id) && (item.status === 'pending' || item.status === 'failed')
+  ).length;
   // Claim All on the Pending tab takes every listed note that can be accepted.
   const claimableNotes = listItems
     .filter(item => (item.status === 'pending' || item.status === 'failed') && item.note.fromCache !== true)
     .map(item => item.note);
   const claimingCount = listItems.filter(item => item.status === 'claiming').length;
   // Accept All is the page's primary action, so it sits at the bottom edge in
-  // place of the tab navbar, the way the send flow pins its CTA. The navbar is
-  // hidden only while the Activity tab is the ACTIVE route: TabLayout keeps a
-  // visited tab mounted under the others, so without the route gate a pending
-  // list on a hidden Activity tab would hide the navbar on Home.
-  const showAcceptAll = filter === 'pending' && pendingCount > 0;
+  // place of the tab navbar, the way the send flow pins its CTA. It follows the
+  // listed notes, search included, so a search that lists nothing gives the
+  // navbar back. The navbar is hidden only while the Activity tab is the ACTIVE
+  // route: TabLayout keeps a visited tab mounted under the others, so without the
+  // route gate a pending list on a hidden Activity tab would hide the navbar on Home.
+  const showAcceptAll = filter === 'pending' && listItems.length > 0;
   const { pathname } = useLocation();
   const onActivityTab = pathname.split('/')[1] === 'history';
   useHideNavbarWhileOpen(showAcceptAll && onActivityTab);
-  const excludedTransactions = useMemo(
-    () =>
-      items
-        .filter(item => item.status === 'claimed' && item.replaceHistoryRow)
-        .flatMap(item => (item.txId ? [item.txId] : [])),
-    [items]
-  );
 
   const reject = async (note: NoteWithMetadata) => {
     const accepted = await confirm({ title: t('activityRejectTransfer'), children: t('activityRejectExplanation') });
@@ -82,6 +88,21 @@ export const ActivityPendingHistory = ({ search, filter, programId }: ActivityPe
     if (!latest || (latest.status !== 'pending' && latest.status !== 'failed')) return;
     await hidden.hide(note.id);
   };
+  const acceptRef = useRef(accept);
+  acceptRef.current = accept;
+  const rejectRef = useRef(reject);
+  rejectRef.current = reject;
+  const hiddenLoaded = hidden.loaded;
+  const renderPendingItem = useCallback(
+    (item: PendingActivityItem) => (
+      <PendingActivityCard
+        item={item}
+        onAccept={note => acceptRef.current(note)}
+        onReject={hiddenLoaded ? note => rejectRef.current(note) : undefined}
+      />
+    ),
+    [hiddenLoaded]
+  );
 
   return (
     <>
@@ -106,6 +127,17 @@ export const ActivityPendingHistory = ({ search, filter, programId }: ActivityPe
             {t('activityHiddenNotesError')}
           </p>
         )}
+        {filter === 'pending' && hiddenCount > 0 && (
+          <div className="flex items-center justify-between gap-2 px-4 pt-3 text-xs text-text-secondary-token">
+            <span>{t('activityHiddenTransfers', { count: hiddenCount })}</span>
+            <Button
+              variant={ButtonVariant.Secondary}
+              className="w-auto px-3 py-2 text-xs"
+              title={t('activityRestoreTransfers')}
+              onClick={() => hidden.restore()}
+            />
+          </div>
+        )}
         <div className="px-4">
           <History
             address={account.publicKey}
@@ -116,10 +148,7 @@ export const ActivityPendingHistory = ({ search, filter, programId }: ActivityPe
             searchQuery={search}
             filter={filter}
             pendingItems={listItems}
-            renderPendingItem={item => (
-              <PendingActivityCard item={item} onAccept={accept} onReject={hidden.loaded ? reject : undefined} />
-            )}
-            excludeTransactionIds={excludedTransactions}
+            renderPendingItem={renderPendingItem}
           />
         </div>
       </div>

@@ -1038,9 +1038,6 @@
   "activityTransferAccepted": "Переказ прийнято",
   "activityTransferDetails": "Деталі",
   "activityRejectExplanation": "Приховати цей переказ у розділі «Активність» на цьому пристрої? Це не повертає кошти відправнику та не видаляє запис «note». Ви можете відновити приховані перекази в розділі «Активність».",
-  "activityClaimFee": "Максимальна комісія мережі за кожен прийнятий переказ: $fee$",
   "activityHiddenNotesError": "Не вдалося зберегти приховані перекази. Спробуйте ще раз.",
-  "activityPendingTransfersInList": "Вхідні перекази",
-  "activityManagePendingNotes": "Управління «notes»",
   "activityDateUnavailable": "Дата недоступна"
 }

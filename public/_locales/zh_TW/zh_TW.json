@@ -1038,9 +1038,6 @@
   "activityTransferAccepted": "轉帳已接受",
   "activityTransferDetails": "詳細說明",
   "activityRejectExplanation": "要將此轉帳從本裝置的「活動」中隱藏嗎？此操作不會將資金退還給寄件者，也不會刪除該筆note。您可以在「活動」中還原已隱藏的轉帳。",
-  "activityClaimFee": "每筆成功轉帳的最高網路手續費：$fee$",
   "activityHiddenNotesError": "無法儲存隱藏轉帳。請重試。",
-  "activityPendingTransfersInList": "入帳轉帳",
-  "activityManagePendingNotes": "管理 notes",
   "activityDateUnavailable": "日期不詳"
 }

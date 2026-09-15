@@ -1,6 +1,7 @@
-import React, { memo, RefObject, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { memo, RefObject, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import { HISTORY_PAGE_SIZE } from 'app/defaults';
+import { usePageActive } from 'app/layouts/page-active';
 import {
   cancelTransactionById,
   getCompletedTransactions,
@@ -46,10 +47,8 @@ type HistoryProps = {
   className?: string;
   fullHistory?: boolean;
   centerEmptyState?: boolean;
-  hideEmptyState?: boolean;
   pendingItems?: PendingActivityItem[];
   renderPendingItem?: (item: PendingActivityItem) => React.ReactNode;
-  excludeTransactionIds?: readonly string[];
   tokenId?: string;
   searchQuery?: string;
   filter?: ActivityFilter;
@@ -70,8 +69,6 @@ const History = memo<HistoryProps>(
     tokenId,
     searchQuery,
     filter,
-    hideEmptyState,
-    excludeTransactionIds,
     pendingItems,
     renderPendingItem
   }) => {
@@ -109,14 +106,24 @@ const History = memo<HistoryProps>(
       setIsLoading(false);
     }, [safeStateKey]);
 
-    const { data: latestTransactions, isLoading: transactionsLoading } = useRetryableSWR(
+    const onScreen = usePageActive();
+    // The Pending filter shows transfer cards only, and a retained page off screen shows nothing, so the
+    // transaction reads run only while neither holds.
+    const reading = onScreen && filter !== 'pending';
+
+    const {
+      data: latestTransactions,
+      isLoading: transactionsLoading,
+      mutate: mutateLatest
+    } = useRetryableSWR(
       [`latest-transactions`, address, tokenId],
       async () => fetchTransactionsAsHistoryEntries(address, undefined, undefined, tokenId),
       {
         revalidateOnMount: true,
         refreshInterval: 10_000,
         dedupingInterval: 3_000,
-        keepPreviousData: true
+        keepPreviousData: true,
+        isPaused: () => !reading
       }
     );
 
@@ -127,9 +134,21 @@ const History = memo<HistoryProps>(
         revalidateOnMount: true,
         refreshInterval: 5_000,
         dedupingInterval: 3_000,
-        keepPreviousData: true
+        keepPreviousData: true,
+        isPaused: () => !reading
       }
     );
+    // A paused read only ticks again on its next interval, so reads that resume refresh at once: a page back on
+    // screen, or a filter moved off Pending.
+    const wasReading = useRef(reading);
+    useEffect(() => {
+      if (reading && !wasReading.current) {
+        void mutateLatest();
+        void mutateTx();
+      }
+      wasReading.current = reading;
+    }, [reading, mutateLatest, mutateTx]);
+
     const pendingTransactions = useMemo(
       () =>
         latestPendingTransactions?.map(tx => {
@@ -201,17 +220,20 @@ const History = memo<HistoryProps>(
       }
     };
 
+    // A card carries its claim's outcome, failed included, so the row that outcome would repeat stays hidden.
     const representedNotes = new Set(
-      pendingItems?.filter(item => item.status === 'claiming' || item.status === 'claimed').map(item => item.note.id)
+      pendingItems
+        ?.filter(item => item.status === 'claiming' || item.status === 'claimed' || item.status === 'failed')
+        .map(item => item.note.id)
     );
-    let entries: IHistoryEntry[] = allEntries.filter(entry => {
-      if (entry.txId && excludeTransactionIds?.includes(entry.txId)) return false;
-      return !(
-        entry.txType === 'consume' &&
-        entry.noteIds?.length &&
-        entry.noteIds.every(id => representedNotes.has(id))
-      );
-    });
+    let entries: IHistoryEntry[] = allEntries.filter(
+      entry =>
+        !(
+          entry.txType === 'consume' &&
+          entry.consumedNoteIds?.length &&
+          entry.consumedNoteIds.every(id => representedNotes.has(id))
+        )
+    );
     if (searchQuery?.trim()) {
       const query = searchQuery.toLowerCase();
       entries = entries.filter(
@@ -251,14 +273,16 @@ const History = memo<HistoryProps>(
     return (
       <HistoryView
         entries={entries ?? []}
-        initialLoading={transactionsLoading}
+        // Under Pending both reads are paused, and one that never ran reports loading until they resume.
+        initialLoading={filter !== 'pending' && transactionsLoading}
         loadMore={loadMore}
-        hasMore={hasMore}
+        // Paging reads transaction rows too, so it stops wherever the reads above pause: under Pending, where every
+        // row is filtered out, and off screen.
+        hasMore={reading && hasMore}
         scrollParentRef={scrollParentRef}
         tokenId={tokenId}
         fullHistory={fullHistory}
         centerEmptyState={centerEmptyState}
-        hideEmptyState={hideEmptyState}
         pendingItems={pendingItems}
         renderPendingItem={renderPendingItem}
         className={className}
@@ -354,7 +378,7 @@ async function fetchTransactionsAsHistoryEntries(
       // Bridge rows have no Miden recipient — surface the EVM destination instead.
       secondaryAddress: bridge?.destinationAddress ?? tx.secondaryAccountId,
       txId: tx.id,
-      noteIds: tx.noteIds ?? (tx.noteId ? [tx.noteId] : []),
+      consumedNoteIds: tx.type === 'consume' ? (tx.noteIds ?? (tx.noteId ? [tx.noteId] : [])) : undefined,
       noteType: tx.noteType,
       faucetId: tx.faucetId,
       txType: tx.type,
@@ -429,7 +453,7 @@ async function fetchPendingTransactionsAsHistoryEntries(address: string, tokenId
       // Bridge rows have no Miden recipient — surface the EVM destination instead.
       secondaryAddress: bridge?.destinationAddress ?? tx.secondaryAccountId,
       txId: tx.id,
-      noteIds: tx.noteIds ?? (tx.noteId ? [tx.noteId] : []),
+      consumedNoteIds: tx.type === 'consume' ? (tx.noteIds ?? (tx.noteId ? [tx.noteId] : [])) : undefined,
       type: entryType,
       noteType: tx.noteType,
       faucetId: tx.faucetId,

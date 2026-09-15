@@ -685,6 +685,7 @@ const DetailNoteRow: React.FC<DetailNoteRowProps> = ({
             className="w-auto shrink-0 px-4 h-8 text-sm leading-none"
             variant={ButtonVariant.Primary}
             onClick={handleClaim}
+            disabled={note.fromCache === true}
             title={isRetriable ? t('retry') : t('claim')}
           />
         ) : showSpinner && note.claimingTxId ? (

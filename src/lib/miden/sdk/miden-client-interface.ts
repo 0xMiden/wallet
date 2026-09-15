@@ -462,7 +462,6 @@ export function getRealmReaderClient(): Promise<WasmWebClient> {
 export class MidenClientInterface {
   client: MidenClient;
   network: string;
-  private readonly noteBlockDates = new Map<number, number>();
 
   private constructor(client: MidenClient, network: string, liveness: ClientLiveness = { disposed: false }) {
     this.client = client;
@@ -1270,29 +1269,7 @@ export class MidenClientInterface {
     // the realm's separate reader client, not this client's RefCell.
     assertLive('after the listing');
     const syncHeight = await this.client.getSyncHeight();
-    const notes = reduceConsumableNoteRecords(records, syncHeight);
-    const missingBlocks = [...new Set(notes.flatMap(note => (note.blockNum === undefined ? [] : [note.blockNum])))]
-      .filter(blockNum => !this.noteBlockDates.has(blockNum))
-      .slice(0, 8);
-    for (const blockNum of missingBlocks) {
-      const rpc = new RpcClient(new Endpoint(getEffectiveRpcUrl()));
-      assertLive();
-      try {
-        const header = await withRpcTimeout(() => rpc.getBlockHeaderByNumber(blockNum), 'pendingNoteDate', {
-          timeoutMs: 3_000,
-          retries: 0
-        });
-        this.noteBlockDates.set(blockNum, header.timestamp());
-      } catch (error) {
-        console.warn('[activity] Could not read the note block date', error);
-        break;
-      }
-    }
-    for (const note of notes) {
-      if (note.blockNum !== undefined) note.receivedAt = this.noteBlockDates.get(note.blockNum);
-    }
-    if (this.noteBlockDates.size > 512) this.noteBlockDates.clear();
-    return notes;
+    return reduceConsumableNoteRecords(records, syncHeight);
   }
 
   async getConsumableNotes(accountId: string, assertLive: AssertLive = noAssertLive): Promise<InputNoteRecord[]> {

@@ -61,7 +61,6 @@ export type ConsumableNoteAsset = {
 export type ConsumableNoteDto = {
   noteId: string | null;
   blockNum?: number;
-  receivedAt?: number;
   nullifier: string | null;
   noteType: NoteType | undefined;
   senderAccountId: string | undefined;

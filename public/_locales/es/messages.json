@@ -4642,26 +4642,9 @@
     "message": "¿Ocultar esta transferencia de la sección «Actividad» en este dispositivo? Esto no devuelve los fondos al remitente ni elimina el «note». Puedes restaurar las transferencias ocultas en la sección «Actividad».",
     "englishSource": "Hide this transfer from Activity on this device? This does not return funds to the sender or delete the note. You can restore hidden transfers in Activity."
   },
-  "activityClaimFee": {
-    "message": "Tarifa máxima de red por transferencia aceptada: $fee$",
-    "englishSource": "Maximum network fee per accepted transfer: $fee$",
-    "placeholders": {
-      "fee": {
-        "content": "$1"
-      }
-    }
-  },
   "activityHiddenNotesError": {
     "message": "No se han podido guardar las transferencias ocultas. Inténtalo de nuevo.",
     "englishSource": "Could not save hidden transfers. Please try again."
-  },
-  "activityPendingTransfersInList": {
-    "message": "Transferencias entrantes",
-    "englishSource": "Incoming transfers"
-  },
-  "activityManagePendingNotes": {
-    "message": "Gestionar notes",
-    "englishSource": "Manage notes"
   },
   "activityDateUnavailable": {
     "message": "Fecha no disponible",

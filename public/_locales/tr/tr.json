@@ -1038,9 +1038,6 @@
   "activityTransferAccepted": "Transfer kabul edildi",
   "activityTransferDetails": "Ayrıntılar",
   "activityRejectExplanation": "Bu aktarımı bu cihazdaki Etkinlik bölümünden gizlemek ister misiniz? Bu işlem, parayı gönderene iade etmez veya note adresini silmez. Gizlenen aktarımları Etkinlik bölümünden geri yükleyebilirsiniz.",
-  "activityClaimFee": "Kabul edilen her transfer için maksimum ağ ücreti: $fee$",
   "activityHiddenNotesError": "Gizli transferler kaydedilemedi. Lütfen tekrar deneyin.",
-  "activityPendingTransfersInList": "Gelen transferler",
-  "activityManagePendingNotes": "notes'i yönetin",
   "activityDateUnavailable": "Tarih mevcut değil"
 }

@@ -4642,26 +4642,9 @@
     "message": "Diese Überweisung in „Aktivität“ auf diesem Gerät ausblenden? Dadurch werden keine Gelder an den Absender zurücküberwiesen und die „note“ wird nicht gelöscht. Sie können ausgeblendete Überweisungen in „Aktivität“ wiederherstellen.",
     "englishSource": "Hide this transfer from Activity on this device? This does not return funds to the sender or delete the note. You can restore hidden transfers in Activity."
   },
-  "activityClaimFee": {
-    "message": "Maximale Netzwerkgebühr pro akzeptierter Überweisung: $fee$",
-    "englishSource": "Maximum network fee per accepted transfer: $fee$",
-    "placeholders": {
-      "fee": {
-        "content": "$1"
-      }
-    }
-  },
   "activityHiddenNotesError": {
     "message": "Versteckte Überweisungen konnten nicht gespeichert werden. Bitte versuchen Sie es erneut.",
     "englishSource": "Could not save hidden transfers. Please try again."
-  },
-  "activityPendingTransfersInList": {
-    "message": "Eingehende Überweisungen",
-    "englishSource": "Incoming transfers"
-  },
-  "activityManagePendingNotes": {
-    "message": "notes verwalten",
-    "englishSource": "Manage notes"
   },
   "activityDateUnavailable": {
     "message": "Datum nicht verfügbar",

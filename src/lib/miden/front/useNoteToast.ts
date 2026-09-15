@@ -14,7 +14,7 @@ import { useClaimableNotes } from './claimable-notes';
  * @param enabled - Whether to enable monitoring (default: true)
  */
 export function useNoteToastMonitor(publicAddress: string, enabled: boolean = true) {
-  const { data: claimableNotes } = useClaimableNotes(publicAddress, enabled);
+  const { data: claimableNotes, isFallback } = useClaimableNotes(publicAddress, enabled);
   const checkForNewNotes = useWalletStore(state => state.checkForNewNotes);
   const isFirstFetch = useRef(true);
   const hydratedFromStorage = useRef(false);
@@ -36,7 +36,9 @@ export function useNoteToastMonitor(publicAddress: string, enabled: boolean = tr
   }, []);
 
   useEffect(() => {
-    if (!enabled || !claimableNotes) return;
+    // The persisted list served before the first live read is not what exists at load: seeding from it
+    // would raise a notification for every note received while the app was closed.
+    if (!enabled || !claimableNotes || isFallback) return;
 
     const currentNoteIds = claimableNotes.map(note => note.id);
 
@@ -59,7 +61,7 @@ export function useNoteToastMonitor(publicAddress: string, enabled: boolean = tr
 
     // Check for new notes and show toast if any
     checkForNewNotes(currentNoteIds);
-  }, [claimableNotes, enabled, checkForNewNotes]);
+  }, [claimableNotes, enabled, checkForNewNotes, isFallback]);
 
   // Reset isFirstFetch when publicAddress changes (new account selected)
   useEffect(() => {

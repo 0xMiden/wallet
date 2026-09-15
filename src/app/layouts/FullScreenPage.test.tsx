@@ -4,17 +4,15 @@ import { render, screen, waitFor } from '@testing-library/react';
 
 import FullScreenPage from './FullScreenPage';
 
-const mockPlatform = { mobile: false, reduce: false };
+const mockMotion = { reduce: false };
 
-jest.mock('lib/platform', () => ({ isMobile: () => mockPlatform.mobile }));
 jest.mock('framer-motion', () => {
   const actual = jest.requireActual<typeof import('framer-motion')>('framer-motion');
-  return { ...actual, useReducedMotion: () => mockPlatform.reduce };
+  return { ...actual, useReducedMotion: () => mockMotion.reduce };
 });
 
 afterEach(() => {
-  mockPlatform.mobile = false;
-  mockPlatform.reduce = false;
+  mockMotion.reduce = false;
 });
 
 it('shows the page and releases the navbar when the page unmounts', () => {
@@ -30,17 +28,15 @@ it('shows the page and releases the navbar when the page unmounts', () => {
   expect(document.body).not.toHaveAttribute('data-hide-navbar');
 });
 
-it('brings the mobile Settings page in from the right without vertical movement', async () => {
-  mockPlatform.mobile = true;
+it('brings a slide page in from the right without vertical movement', async () => {
   const { container } = render(<FullScreenPage entrance="slide">Settings</FullScreenPage>);
   const page = container.firstElementChild;
   expect(page).toHaveStyle({ transform: 'translateX(100%)', opacity: '1' });
   await waitFor(() => expect(page).toHaveStyle({ transform: 'none' }));
 });
 
-it('shows Settings immediately when reduced motion is enabled', () => {
-  mockPlatform.mobile = true;
-  mockPlatform.reduce = true;
+it('shows a slide page immediately when reduced motion is enabled', () => {
+  mockMotion.reduce = true;
   const { container } = render(<FullScreenPage entrance="slide">Settings</FullScreenPage>);
   expect(container.firstElementChild).toHaveStyle({ opacity: '1' });
   expect(container.firstElementChild).not.toHaveStyle({ transform: 'translateX(100%)' });

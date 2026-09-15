@@ -23,7 +23,6 @@ export interface PendingActivityItem {
   status: PendingActivityStatus;
   txId?: string;
   claimedAt?: number;
-  replaceHistoryRow?: boolean;
 }
 
 interface PendingActivityCardProps {

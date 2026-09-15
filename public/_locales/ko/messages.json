@@ -4642,26 +4642,9 @@
     "message": "이 기기의 ‘활동’에서 이 전송 내역을 숨기시겠습니까? 이 작업을 수행해도 자금이 발신자에게 반환되거나 ‘note’가 삭제되지는 않습니다. ‘활동’에서 숨겨진 전송 내역을 복원할 수 있습니다.",
     "englishSource": "Hide this transfer from Activity on this device? This does not return funds to the sender or delete the note. You can restore hidden transfers in Activity."
   },
-  "activityClaimFee": {
-    "message": "승인된 이체 건당 최대 네트워크 수수료: $fee$",
-    "englishSource": "Maximum network fee per accepted transfer: $fee$",
-    "placeholders": {
-      "fee": {
-        "content": "$1"
-      }
-    }
-  },
   "activityHiddenNotesError": {
     "message": "숨겨진 전송 내역을 저장할 수 없습니다. 다시 시도해 주십시오.",
     "englishSource": "Could not save hidden transfers. Please try again."
-  },
-  "activityPendingTransfersInList": {
-    "message": "입금",
-    "englishSource": "Incoming transfers"
-  },
-  "activityManagePendingNotes": {
-    "message": "notes 관리",
-    "englishSource": "Manage notes"
   },
   "activityDateUnavailable": {
     "message": "날짜 미확인",

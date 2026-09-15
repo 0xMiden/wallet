@@ -6,6 +6,7 @@ import type { Transition } from 'framer-motion';
 import { hapticSelection } from 'lib/mobile/haptics';
 import { navigate } from 'lib/woozie';
 
+import { PageActiveContext, usePageActive } from './page-active';
 import TabLayout from './TabLayout';
 
 // ---------------------------------------------------------------------------
@@ -512,16 +513,46 @@ describe('TabLayout — mount fade and tab panes', () => {
     expect(paneOf('activity')).toHaveStyle({ visibility: 'hidden' });
   });
 
-  it('renders a visible pane for every tab destination, including settings', () => {
-    // Settings joined the bottom nav after the pane list was written. A tab
-    // whose id is missing from the render order lights up in the nav but
-    // never gets a pane, so the page shows nothing.
+  // Every route PageRouter wraps in TabLayout. A tab that lights up in the nav without a pane shows a
+  // blank page, which is how Settings once shipped.
+  it.each([
+    ['/', 'home'],
+    ['/send', 'home'],
+    ['/receive', 'home'],
+    ['/earn', 'home'],
+    ['/swap', 'home'],
+    ['/browser', 'explore'],
+    ['/history', 'activity'],
+    ['/history/program-1', 'activity'],
+    ['/settings', 'settings']
+  ])('renders %s in a visible, interactive %s pane', (pathname, tab) => {
+    mockLocation.pathname = pathname;
+    renderLayout(<div data-testid="routed-content" />);
+    const pane = paneOf(tab);
+    expect(pane?.querySelector('[data-testid="routed-content"], [data-testid="home-swipe"]')).not.toBeNull();
+    expect(pane).toHaveStyle({ visibility: 'visible' });
+    expect(pane).not.toHaveAttribute('inert');
+  });
+
+  it('tells each pane whether it is on screen, and no pane is on screen under a covered layer', () => {
+    function Probe({ name }: { name: string }) {
+      return <span data-testid={`probe-${name}`}>{usePageActive() ? 'on screen' : 'off screen'}</span>;
+    }
+    mockLocation.pathname = '/history';
+    const { rerender } = renderLayout(<Probe name="activity" />);
+    expect(screen.getByTestId('probe-activity')).toHaveTextContent('on screen');
+
     mockLocation.pathname = '/settings';
-    renderLayout(<div data-testid="settings-content" />);
-    const settingsPane = paneOf('settings');
-    expect(settingsPane).toContainElement(screen.getByTestId('settings-content'));
-    expect(settingsPane).toHaveStyle({ visibility: 'visible' });
-    expect(settingsPane).not.toHaveAttribute('inert');
+    rerender(<TabLayout>{<Probe name="settings" />}</TabLayout>);
+    expect(screen.getByTestId('probe-activity')).toHaveTextContent('off screen');
+    expect(screen.getByTestId('probe-settings')).toHaveTextContent('on screen');
+
+    rerender(
+      <PageActiveContext.Provider value={false}>
+        <TabLayout>{<Probe name="settings" />}</TabLayout>
+      </PageActiveContext.Provider>
+    );
+    expect(screen.getByTestId('probe-settings')).toHaveTextContent('off screen');
   });
 
   it('refreshes the active tab content on every render', () => {

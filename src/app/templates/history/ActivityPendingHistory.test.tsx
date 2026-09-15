@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
 import { ActivityPendingHistory } from './ActivityPendingHistory';
 import type { PendingActivityItem } from './PendingActivityCard';
@@ -22,6 +22,9 @@ const mockItems: PendingActivityItem[] = ['first', 'second', 'third'].map(id => 
   },
   status: 'pending'
 }));
+// Items the claims hook returns. A test that changes statuses between renders swaps in a new array,
+// the way the hook publishes a change, so the memoized list sees it.
+const mockState = { items: mockItems };
 const mockHidden = { ids: new Set<string>(), loaded: true, failed: false, hide: mockHide, restore: mockRestore };
 const mockHideNavbar = jest.fn();
 let mockPathname = '/history';
@@ -29,7 +32,7 @@ let mockPathname = '/history';
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 jest.mock('app/hooks/useActivityClaims', () => ({
   useActivityClaims: () => ({
-    items: mockItems,
+    items: mockState.items,
     accept: mockAccept,
     acceptMany: mockAcceptMany,
     account: { publicKey: 'account' }
@@ -49,6 +52,7 @@ jest.mock('lib/mobile/useHideNavbarWhileOpen', () => ({
 }));
 jest.mock('app/icons/v2', () => ({ Icon: () => null, IconName: {} }));
 jest.mock('lib/i18n/numbers', () => ({ formatBigInt: () => '1', getAdaptiveDecimalPlaces: () => 3 }));
+const mockHistoryRenders: Array<{ pendingItems: PendingActivityItem[]; renderPendingItem: unknown }> = [];
 jest.mock('./History', () => ({
   __esModule: true,
   default: ({
@@ -57,15 +61,18 @@ jest.mock('./History', () => ({
   }: {
     pendingItems: PendingActivityItem[];
     renderPendingItem: (item: PendingActivityItem) => React.ReactNode;
-  }) => (
-    <div data-testid="timeline">
-      {pendingItems.map(item => (
-        <div key={item.note.id} data-pending-note-id={item.note.id}>
-          {renderPendingItem(item)}
-        </div>
-      ))}
-    </div>
-  )
+  }) => {
+    mockHistoryRenders.push({ pendingItems, renderPendingItem });
+    return (
+      <div data-testid="timeline">
+        {pendingItems.map(item => (
+          <div key={item.note.id} data-pending-note-id={item.note.id}>
+            {renderPendingItem(item)}
+          </div>
+        ))}
+      </div>
+    );
+  }
 }));
 jest.mock('components/Loader', () => ({ Loader: () => <span data-testid="claim-spinner" /> }));
 jest.mock('components/Button', () => ({
@@ -87,7 +94,9 @@ beforeEach(() => {
   mockItems.forEach(item => {
     item.status = 'pending';
   });
+  mockState.items = mockItems;
   mockHidden.ids = new Set();
+  mockHistoryRenders.length = 0;
   mockConfirm.mockResolvedValue(true);
 });
 
@@ -105,6 +114,35 @@ it('requires confirmation before hiding a transfer', async () => {
   fireEvent.click(within(card).getByRole('button', { name: 'activityRejectTransfer' }));
   await waitFor(() => expect(mockHide).toHaveBeenCalledWith('first'));
   expect(mockConfirm).toHaveBeenCalledWith({ title: 'activityRejectTransfer', children: 'activityRejectExplanation' });
+});
+
+it('leaves a transfer in place when the decline is cancelled', async () => {
+  mockConfirm.mockResolvedValueOnce(false);
+  render(<ActivityPendingHistory search="" filter="all" />);
+  const card = expandCard('first');
+  fireEvent.click(within(card).getByRole('button', { name: 'activityRejectTransfer' }));
+  await waitFor(() => expect(mockConfirm).toHaveBeenCalled());
+  await act(async () => {});
+  expect(mockHide).not.toHaveBeenCalled();
+});
+
+it('does not hide a transfer claimed while the decline dialog was open', async () => {
+  let answer: (accepted: boolean) => void = () => {};
+  mockConfirm.mockImplementationOnce(
+    () =>
+      new Promise<boolean>(resolve => {
+        answer = resolve;
+      })
+  );
+  const { rerender } = render(<ActivityPendingHistory search="" filter="all" />);
+  const card = expandCard('first');
+  fireEvent.click(within(card).getByRole('button', { name: 'activityRejectTransfer' }));
+  await waitFor(() => expect(mockConfirm).toHaveBeenCalled());
+
+  mockState.items = mockItems.map(item => (item.note.id === 'first' ? { ...item, status: 'claiming' as const } : item));
+  rerender(<ActivityPendingHistory search="" filter="all" />);
+  await act(async () => answer(true));
+  expect(mockHide).not.toHaveBeenCalled();
 });
 
 it('hides pending notes when the activity filter excludes incoming transfers', () => {
@@ -127,10 +165,18 @@ it('shows Accept All on the pending tab and claims every listed note that can be
 it('pins Accept All below the list and hides the navbar while the pending tab has notes', () => {
   render(<ActivityPendingHistory search="" filter="pending" />);
   const button = screen.getByRole('button', { name: 'acceptAll' });
-  const timeline = screen.getByTestId('timeline');
-  // The footer follows the scroller in the DOM, so it sits at the bottom edge.
-  expect(timeline.compareDocumentPosition(button) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  // The footer is a sibling after the scroller, not a row inside it, so it stays at the bottom edge.
+  const scroller = screen.getByTestId('timeline').closest('.overflow-y-auto');
+  if (!scroller) throw new Error('The timeline is not inside the scroller');
+  expect(scroller).not.toContainElement(button);
+  expect(scroller.compareDocumentPosition(button) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   expect(mockHideNavbar).toHaveBeenLastCalledWith(true);
+});
+
+it('gives the navbar back when a Pending search lists no transfer', () => {
+  render(<ActivityPendingHistory search="zzz" filter="pending" />);
+  expect(screen.queryByRole('button', { name: 'acceptAll' })).not.toBeInTheDocument();
+  expect(mockHideNavbar).toHaveBeenLastCalledWith(false);
 });
 
 it('keeps the navbar on the other filters and when every note is claimed', () => {
@@ -190,6 +236,7 @@ it('hides checking and unavailable notes, then shows notes that can be accepted'
   expect(container.querySelector('[data-pending-note-id="second"]')).toBeNull();
   expect(screen.queryByText('activityCheckingTransfer')).not.toBeInTheDocument();
   checking.status = 'pending';
+  mockState.items = [...mockItems];
   rerender(<ActivityPendingHistory search="" filter="all" />);
   expect(container.querySelector('[data-pending-note-id="first"]')).not.toBeNull();
 });
@@ -204,4 +251,54 @@ it('uses the full action area for the claim spinner', () => {
   expect(within(card).getAllByRole('button')).toHaveLength(2);
   expect(within(card).getByTestId('claim-spinner')).toBeInTheDocument();
   expect(within(card).queryByText('claiming')).not.toBeInTheDocument();
+});
+
+it('offers Restore under the Pending filter while declined transfers can still be accepted', () => {
+  const [, failed] = mockItems;
+  if (!failed) throw new Error('Missing note fixtures');
+  failed.status = 'failed';
+  mockHidden.ids = new Set(['first', 'second', 'gone']);
+  const { rerender } = render(<ActivityPendingHistory search="" filter="all" />);
+  expect(screen.queryByRole('button', { name: 'activityRestoreTransfers' })).not.toBeInTheDocument();
+
+  rerender(<ActivityPendingHistory search="" filter="pending" />);
+  expect(screen.getByTestId('timeline').querySelector('[data-pending-note-id="first"]')).toBeNull();
+  expect(screen.getByText('activityHiddenTransfers')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'activityRestoreTransfers' }));
+  expect(mockRestore).toHaveBeenCalledTimes(1);
+});
+
+it('does not offer Restore when every declined transfer is gone or already claimed', () => {
+  const [, , claimed] = mockItems;
+  if (!claimed) throw new Error('Missing note fixtures');
+  claimed.status = 'claimed';
+  mockHidden.ids = new Set(['third', 'gone']);
+  render(<ActivityPendingHistory search="" filter="pending" />);
+  expect(screen.queryByRole('button', { name: 'activityRestoreTransfers' })).not.toBeInTheDocument();
+});
+
+it('hands the timeline the same pending items and renderer when a render changes no pending item', () => {
+  const { rerender } = render(<ActivityPendingHistory search="" filter="all" />);
+  rerender(<ActivityPendingHistory search="" filter="all" />);
+  expect(mockHistoryRenders).toHaveLength(2);
+  const [first, second] = mockHistoryRenders;
+  expect(second?.pendingItems).toBe(first?.pendingItems);
+  expect(second?.renderPendingItem).toBe(first?.renderPendingItem);
+});
+
+it('keeps cached, unconfirmed notes out of Accept All and off the card actions', () => {
+  const [cached] = mockItems;
+  if (!cached) throw new Error('Missing note fixtures');
+  const confirmed = cached.note;
+  cached.note = { ...confirmed, fromCache: true };
+  try {
+    render(<ActivityPendingHistory search="" filter="pending" />);
+    fireEvent.click(screen.getByRole('button', { name: 'acceptAll' }));
+    expect(mockAcceptMany.mock.calls[0]?.[0].map((note: { id: string }) => note.id)).toEqual(['second', 'third']);
+    const card = expandCard('first');
+    expect(within(card).getByRole('button', { name: 'activityAcceptTransfer' })).toBeDisabled();
+    expect(within(card).getByRole('button', { name: 'activityRejectTransfer' })).toBeDisabled();
+  } finally {
+    cached.note = confirmed;
+  }
 });
