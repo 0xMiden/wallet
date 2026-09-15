@@ -4258,10 +4258,6 @@
     "message": "Miden'e ve Miden'den varlık aktarmak için bir cüzdan bağlayın.",
     "englishSource": "Connect a wallet to bridge assets to and from Miden."
   },
-  "onlyBridgeableTokenSupported": {
-    "message": "Yavaş (Agglayer) yolu yalnızca köprülenebilir token’ları destekler. Diğer token’ları göndermek için Hızlı seçeneğini kullanın.",
-    "englishSource": "The Slow (Agglayer) route only supports the bridgeable token. Use Fast to send other tokens."
-  },
   "connectDestinationWalletToClaim": {
     "message": "Talep etmek için hedef cüzdanı bağlayın.",
     "englishSource": "Connect the destination wallet to claim."
@@ -4337,10 +4333,6 @@
   "delivering": {
     "message": "Teslimat",
     "englishSource": "Delivering"
-  },
-  "slowNeedsNativeEth": {
-    "message": "Slow (Agglayer) rotası, test ağında yalnızca yerel ETH’yi desteklemektedir. Kullanmak için ETH’yi seçin.",
-    "englishSource": "The Slow (Agglayer) route only supports native ETH on testnet. Choose ETH to use it."
   },
   "fastEthWrapNotice": {
     "message": "Hızlı yoldan ETH köprüleme işlemi, ETH’yi önce WETH’e dönüştürür, ardından WETH’i köprüler. Bu yol henüz kullanıma açık değildir.",

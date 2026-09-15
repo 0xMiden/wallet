@@ -1,7 +1,6 @@
 import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
 
-import { setAgglayerFaucetForE2E } from 'lib/agglayer/b2agg/constant';
 import { createIntercomClient, IIntercomClient } from 'lib/intercom/client';
 import { clearPersistedSeenNoteIds, persistSeenNoteIds } from 'lib/miden/back/note-checker-storage';
 import type { IConsumeBridgeInExtraInputs, IEarnWithdrawExtraInputs, ITransaction } from 'lib/miden/db/types';
@@ -849,10 +848,6 @@ if (process.env.MIDEN_E2E_TEST === 'true') {
       setTestSyncPaused(false);
     }
   });
-  // Point the bridge-OUT AggLayer "Slow" route at a runtime-created test faucet
-  // (the real bridge faucet is un-mintable). Read front-side by createB2AggNote +
-  // the send-flow route gate. Zero production impact (E2E-gated).
-  (globalThis as any).__TEST_SET_AGGLAYER_FAUCET__ = setAgglayerFaucetForE2E;
   // Point the earn (Epoch lending) collateral faucet at a runtime-created test faucet.
   // `openEarnPosition` runs page-side (EarnDepositReview), so the override must be set in
   // THIS (page) realm. The import is LAZY (like the bridge-in hooks) so the Epoch/EVM SDK

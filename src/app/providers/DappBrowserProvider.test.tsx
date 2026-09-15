@@ -420,6 +420,44 @@ describe('park / restore lifecycle', () => {
 
     expect(hook.result.current.session?.id).toBe('dapp-a');
   });
+
+  it('restores a dApp that was minimized while its surface was still measuring the slot', async () => {
+    const hook = renderHook(() => useDappBrowser(), { wrapper });
+    await openAndWaitForInstance(hook, makeSession('dapp-a'));
+    let releaseSnapshot: (dataUrl: string) => void = () => undefined;
+    mockCaptureSnapshot.mockImplementationOnce(
+      () =>
+        new Promise<string>(resolve => {
+          releaseSnapshot = resolve;
+        })
+    );
+
+    let parking: Promise<void> = Promise.resolve();
+    act(() => {
+      parking = hook.result.current.park('dapp-a');
+    });
+    // DappActive re-measures the slot on timers after it mounts, so a minimize right after opening can land one
+    // while park waits for the snapshot.
+    act(() => hook.result.current.setSlotRect({ ...SLOT_RECT }));
+    await act(async () => {
+      releaseSnapshot('data:image/jpeg;base64,AAAA');
+      await parking;
+    });
+    // Parking swaps DappActive for the launcher, and its unmount clears the slot.
+    act(() => hook.result.current.setSlotRect(null));
+    mockCaptureSnapshot.mockClear();
+    mockSetVisible.mockClear();
+
+    await act(async () => {
+      await hook.result.current.restore('dapp-a');
+    });
+    expect(hook.result.current.session?.id).toBe('dapp-a');
+    expect(mockCaptureSnapshot).not.toHaveBeenCalled();
+
+    act(() => hook.result.current.setSlotRect(SLOT_RECT));
+    await waitFor(() => expect(mockSetVisible).toHaveBeenCalledWith('dapp-a', true));
+    expect(hook.result.current.session?.id).toBe('dapp-a');
+  });
 });
 
 // ── SEC-03: the security principal must follow the page actually loaded ──

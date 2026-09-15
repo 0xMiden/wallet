@@ -4258,10 +4258,6 @@
     "message": "Conecta un monedero para transferir activos desde y hacia Miden.",
     "englishSource": "Connect a wallet to bridge assets to and from Miden."
   },
-  "onlyBridgeableTokenSupported": {
-    "message": "La ruta «Lenta (Agglayer)» solo admite el token «bridgeable». Utiliza la ruta «Rápida» para enviar otros tokens.",
-    "englishSource": "The Slow (Agglayer) route only supports the bridgeable token. Use Fast to send other tokens."
-  },
   "connectDestinationWalletToClaim": {
     "message": "Conecta la cartera de destino para reclamar.",
     "englishSource": "Connect the destination wallet to claim."
@@ -4337,10 +4333,6 @@
   "delivering": {
     "message": "Entrega",
     "englishSource": "Delivering"
-  },
-  "slowNeedsNativeEth": {
-    "message": "La ruta Slow (Agglayer) solo admite ETH nativo en la red de pruebas. Elige ETH para utilizarla.",
-    "englishSource": "The Slow (Agglayer) route only supports native ETH on testnet. Choose ETH to use it."
   },
   "fastEthWrapNotice": {
     "message": "Al realizar un puente de ETH por la ruta rápida, primero se envuelve en WETH y, a continuación, se realiza el puente con el WETH. Esta ruta aún no está disponible.",

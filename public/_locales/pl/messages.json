@@ -4258,10 +4258,6 @@
     "message": "Podłącz portfel, aby przesyłać aktywa do i z Miden.",
     "englishSource": "Connect a wallet to bridge assets to and from Miden."
   },
-  "onlyBridgeableTokenSupported": {
-    "message": "Trasa „Slow” (Agglayer) obsługuje wyłącznie tokeny, które można mostkować. Aby wysłać inne tokeny, należy skorzystać z trasy „Fast”.",
-    "englishSource": "The Slow (Agglayer) route only supports the bridgeable token. Use Fast to send other tokens."
-  },
   "connectDestinationWalletToClaim": {
     "message": "Aby odebrać środki, podłącz portfel docelowy.",
     "englishSource": "Connect the destination wallet to claim."
@@ -4337,10 +4333,6 @@
   "delivering": {
     "message": "Dostawa",
     "englishSource": "Delivering"
-  },
-  "slowNeedsNativeEth": {
-    "message": "Trasa Slow (Agglayer) obsługuje wyłącznie natywne ETH w sieci testowej. Aby z niej skorzystać, wybierz ETH.",
-    "englishSource": "The Slow (Agglayer) route only supports native ETH on testnet. Choose ETH to use it."
   },
   "fastEthWrapNotice": {
     "message": "Przenoszenie ETH trasą „Fast” polega najpierw na zamianie go na WETH, a następnie na przeniesieniu WETH. Ta trasa nie jest jeszcze dostępna.",

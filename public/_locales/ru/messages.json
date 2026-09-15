@@ -4258,10 +4258,6 @@
     "message": "Подключите кошелек, чтобы переводить активы в Miden и из него.",
     "englishSource": "Connect a wallet to bridge assets to and from Miden."
   },
-  "onlyBridgeableTokenSupported": {
-    "message": "Маршрут «Медленный» (Agglayer) поддерживает только токены, которые можно переводить через мост. Для отправки других токенов используйте маршрут «Быстрый».",
-    "englishSource": "The Slow (Agglayer) route only supports the bridgeable token. Use Fast to send other tokens."
-  },
   "connectDestinationWalletToClaim": {
     "message": "Подключите конечный кошелек, чтобы получить вознаграждение.",
     "englishSource": "Connect the destination wallet to claim."
@@ -4337,10 +4333,6 @@
   "delivering": {
     "message": "Доставка",
     "englishSource": "Delivering"
-  },
-  "slowNeedsNativeEth": {
-    "message": "Маршрут Slow (Agglayer) поддерживает только нативный ETH в тестовой сети. Чтобы воспользоваться им, выберите ETH.",
-    "englishSource": "The Slow (Agglayer) route only supports native ETH on testnet. Choose ETH to use it."
   },
   "fastEthWrapNotice": {
     "message": "Перенос ETH по «быстрому» маршруту сначала преобразует его в WETH, а затем осуществляет перенос WETH. Этот маршрут пока недоступен.",
