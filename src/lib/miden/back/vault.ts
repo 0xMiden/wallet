@@ -33,6 +33,7 @@ import { b64ToU8, bytesToHex, u8ToB64 } from 'lib/shared/helpers';
 import { AuthScheme, GuardianSyncStatus, SignEvmOperation, WalletAccount, WalletSettings } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
+import { getAccountsWriteQueue } from './accounts-write-queue';
 import { midenClientProxy } from './miden-client-proxy';
 import { compareAccountIds } from '../activity/utils';
 import { fetchFromStorage } from '../front/storage';
@@ -45,8 +46,14 @@ import {
 import { buildOperatorKeyMap, normalizeHex } from '../guardian/operator-map';
 import { deriveClientSeed, makeColdSeedDeriver, walletTypeIndex } from '../sdk/derive-seed';
 import { getBech32AddressFromAccountId, sameWalletAccountId } from '../sdk/helpers';
-import { assertWasmHoldCurrent, getMidenClient, withWasmClientLock } from '../sdk/miden-client';
-import { MidenClientCreateOptions } from '../sdk/miden-client-interface';
+import {
+  assertWasmHoldCurrent,
+  getMidenClient,
+  installRealmKeystore,
+  isRealmKeystoreInstalled,
+  uninstallRealmKeystore,
+  withWasmClientLock
+} from '../sdk/miden-client';
 import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 // AUTH SCHEME POLICY
@@ -215,8 +222,50 @@ export type GuardianBindingPatch = {
   guardianOperatorCommitment?: string;
 };
 
+type AppliedGuardianBinding = {
+  outcome: 'applied';
+  accounts: WalletAccount[];
+  currentAccount: WalletAccount;
+};
+
 export class Vault {
-  constructor(private vaultKey: CryptoKey) {}
+  // Where the SDK hands this vault's new account secrets. Three transitions move
+  // the realm's slot: the constructor installs this sink (a spawn inserts before
+  // the store adopts it); lock retires it by identity (`retire`, so a newer vault's
+  // stays); and when the flow that constructed a vault ends, adopted or not, the
+  // slot is re-derived from the store (the Ready vault's sink or null, actions.ts
+  // `syncRealmInsertKeySink`). An adopted vault asserts the slot is its own first
+  // inside every hold in which it inserts (#878).
+  readonly insertKeySink: ReturnType<typeof insertKeyCallbackWrapper>;
+
+  constructor(private vaultKey: CryptoKey) {
+    this.insertKeySink = insertKeyCallbackWrapper(vaultKey);
+    installRealmKeystore({ insertKey: this.insertKeySink });
+  }
+
+  /**
+   * Drop this vault's insert-key sink from the realm. A sink a newer vault
+   * installed meanwhile (an unlock in flight when the lock landed) stays.
+   */
+  retire(): void {
+    uninstallRealmKeystore({ insertKey: this.insertKeySink });
+  }
+
+  /**
+   * The first statement of every hold in which an ADOPTED vault inserts key
+   * material (a spawn's holds run before adoption, where a lock retires by
+   * identity and cannot touch the spawn's sink). A lock that landed while this
+   * write waited on the accounts queue retired the sink, and the write refuses
+   * here, before any irreversible step, instead of failing at the SDK's insert
+   * with an account row already landed. A lock cannot land during the hold (it
+   * takes the same mutex), so the sink asserted is the sink the insert reaches
+   * (#878).
+   */
+  private assertRealmSinkIsMine(): void {
+    if (!isRealmKeystoreInstalled({ insertKey: this.insertKeySink })) {
+      throw Object.assign(new PublicError('Wallet is locked'), { reason: 'locked' as const });
+    }
+  }
 
   static async isExist() {
     const stored = await isStored(checkStrgKey);
@@ -247,6 +296,10 @@ export class Vault {
   /**
    * Try to unlock the vault using hardware-backed security (biometric)
    * This will trigger Touch ID / Face ID / Windows Hello prompt
+   *
+   * Constructing the Vault installs its insert-key sink for the realm (#878);
+   * a caller that does not adopt the result must run inside a flow whose
+   * `syncRealmInsertKeySink` re-derives the sink from the store.
    *
    * @returns Vault instance if successful, null if hardware unlock not available/failed
    */
@@ -287,6 +340,10 @@ export class Vault {
    *
    * Tries hardware unlock first if available, then falls back to password.
    * If password is provided, skips hardware unlock attempt.
+   *
+   * Constructing the Vault installs its insert-key sink for the realm (#878);
+   * `syncRealmInsertKeySink` (actions.ts) is the only restore, so call this
+   * inside the try it compensates.
    */
   static async setup(password?: string): Promise<Vault> {
     return withError('Failed to unlock wallet', async () => {
@@ -359,6 +416,9 @@ export class Vault {
       const vaultKeyBytes = Passworder.generateVaultKey();
       const vaultKey = await Passworder.importVaultKey(vaultKeyBytes);
       console.log('[Vault.spawn] Step 2: vault key generated');
+      // Constructed as soon as the key exists: the constructor installs the realm's
+      // insert-key sink, and the recovery and creation below already insert secrets (#878).
+      const spawned = new Vault(vaultKey);
 
       if (!mnemonic) {
         mnemonic = Bip39.generateMnemonic(128);
@@ -415,14 +475,14 @@ export class Vault {
         await savePlain(VAULT_KEY_PASSWORD_STORAGE_KEY, passwordProtectedVaultKey);
       }
 
-      const options: MidenClientCreateOptions = {
-        insertKeyCallback: insertKeyCallbackWrapper(vaultKey)
-      };
       const hdAccIndex = 0;
       const walletSeed = deriveClientSeed(walletType, mnemonic, 0);
 
       console.log('[Vault.spawn] Step 5: getting miden client...');
-      let midenClient = await getMidenClient(options);
+      // Under a labelled hold: a first creation fetches genesis and can park, and this
+      // flow rides the accounts write queue, so the hold's ceiling is what bounds it.
+      // Released before the recovery scan below, which takes the mutex per match (#878).
+      let midenClient = await withWasmClientLock(async () => getMidenClient(), { label: 'spawn-client-build' });
       // Spawn holds this reference across long unlocked stretches (a guardian
       // recovery probes up to 20 HD indices on-chain), and lock recovery can
       // dispose the singletons from a timer or an error listener at any point in
@@ -431,7 +491,7 @@ export class Vault {
       // set up for exactly this (issue #775). Cheap because it only fires when a
       // dispose actually happened.
       const liveClient = async () => {
-        if (midenClient.isDisposed) midenClient = await getMidenClient(options);
+        if (midenClient.isDisposed) midenClient = await getMidenClient();
         return midenClient;
       };
       console.log('[Vault.spawn] Step 6: client ready, network:', midenClient.network, 'ownMnemonic:', ownMnemonic);
@@ -473,6 +533,10 @@ export class Vault {
         // only thing the user has left. "No Guardian accounts found at this
         // guardian endpoint for this seed" is actionable (wrong seed, or the
         // wrong operator); "Failed to create wallet" is not (#630).
+        // These holds take the mutex granularly (released between matches) and insert
+        // through the realm sink this spawn installed: safe because lock() retires by
+        // identity and never re-derives the sink from the store, and because the
+        // constructing flows ride the accounts queue, so nothing resyncs under a spawn (#878).
         const recovered = await (await liveClient())
           .recoverGuardianAccountsBySeed(makeColdSeedDeriver(mnemonic!, WalletType.Guardian), resolvedGuardianEndpoint)
           .catch((err: unknown) => {
@@ -593,7 +657,8 @@ export class Vault {
             console.log('[Vault.spawn] Step 9: creating miden wallet...');
             const id = await client.createMidenWallet(walletType, walletSeed, NEW_ACCOUNT_AUTH_SCHEME);
             return { accountId: id, accAuthScheme: NEW_ACCOUNT_AUTH_SCHEME };
-          }
+          },
+          { label: 'vault-spawn' }
         );
         createdAccounts = [
           {
@@ -664,8 +729,8 @@ export class Vault {
       await savePlain(currentAccPubKeyStrgKey, initialAccounts[0]!.publicKey);
       await savePlain(ownMnemonicStrgKey, ownMnemonic ?? false);
 
-      // Return the vault instance so caller doesn't need to call unlock() separately
-      return new Vault(vaultKey);
+      // The instance constructed when its key was made, so the caller need not unlock() separately.
+      return spawned;
     });
   }
 
@@ -678,6 +743,9 @@ export class Vault {
       // Generate random vault key (256-bit)
       const vaultKeyBytes = Passworder.generateVaultKey();
       const vaultKey = await Passworder.importVaultKey(vaultKeyBytes);
+      // Constructed as soon as the key exists: the constructor installs the realm's
+      // insert-key sink, and the restore below already inserts the derived secrets (#878).
+      const spawned = new Vault(vaultKey);
 
       await clearStorage(false);
 
@@ -703,68 +771,66 @@ export class Vault {
         await savePlain(VAULT_KEY_PASSWORD_STORAGE_KEY, passwordProtectedVaultKey);
       }
 
-      // insert keys
-      const options: MidenClientCreateOptions = {
-        insertKeyCallback: insertKeyCallbackWrapper(vaultKey)
-      };
-
       // Wrap WASM client operations in a lock to prevent concurrent access
-      await withWasmClientLock(async hold => {
-        const midenClient = await getMidenClient(options);
-        // The client build can park (a genesis fetch against a slow node); a
-        // watchdog eviction during it hands the mutex to a successor, and the
-        // reads below would then be a second borrow of a client somebody else
-        // is inside. Every guard in this restore is provably pre-write for the
-        // account it protects, and aborting mid-loop is safe: the whole spawn
-        // rejects, so a partial keystore is never surfaced as a finished
-        // wallet — the user simply retries the import.
-        assertWasmHoldCurrent(hold, 'in spawnFromMidenClient after the client build');
-        const accountHeaders = await midenClient.getAccounts();
+      await withWasmClientLock(
+        async hold => {
+          const midenClient = await getMidenClient();
+          // The client build can park (a genesis fetch against a slow node); a
+          // watchdog eviction during it hands the mutex to a successor, and the
+          // reads below would then be a second borrow of a client somebody else
+          // is inside. Every guard in this restore is provably pre-write for the
+          // account it protects, and aborting mid-loop is safe: the whole spawn
+          // rejects, so a partial keystore is never surfaced as a finished
+          // wallet — the user simply retries the import.
+          assertWasmHoldCurrent(hold, 'in spawnFromMidenClient after the client build');
+          const accountHeaders = await midenClient.getAccounts();
 
-        // Have to do this sequentially else the wasm fails
-        for (const accountHeader of accountHeaders) {
-          // Per-iteration: each pass parks twice (getAccount, keystore.insert),
-          // and an eviction during account N must not let account N+1 re-borrow
-          // the client.
-          assertWasmHoldCurrent(hold, 'in spawnFromMidenClient before an account read');
-          const account = await midenClient.getAccount(getBech32AddressFromAccountId(accountHeader.id()));
-          // Before touching the returned Account: `isFaucet()`/`id()` are WASM
-          // calls on an object borrowed from the client's RefCell, so reading
-          // them after an eviction is the double borrow, not merely a stale
-          // read. This also covers the keystore insert below — nothing between
-          // here and it parks.
-          assertWasmHoldCurrent(hold, 'in spawnFromMidenClient after an account read');
-          if (!account || account.isFaucet()) {
-            continue;
+          // Have to do this sequentially else the wasm fails
+          for (const accountHeader of accountHeaders) {
+            // Per-iteration: each pass parks twice (getAccount, keystore.insert),
+            // and an eviction during account N must not let account N+1 re-borrow
+            // the client.
+            assertWasmHoldCurrent(hold, 'in spawnFromMidenClient before an account read');
+            const account = await midenClient.getAccount(getBech32AddressFromAccountId(accountHeader.id()));
+            // Before touching the returned Account: `isFaucet()`/`id()` are WASM
+            // calls on an object borrowed from the client's RefCell, so reading
+            // them after an eviction is the double borrow, not merely a stale
+            // read. This also covers the keystore insert below — nothing between
+            // here and it parks.
+            assertWasmHoldCurrent(hold, 'in spawnFromMidenClient after an account read');
+            if (!account || account.isFaucet()) {
+              continue;
+            }
+            const walletAccount = walletAccounts.find(wa =>
+              compareAccountIds(wa.publicKey, getBech32AddressFromAccountId(account.id()))
+            );
+            if (!walletAccount) {
+              // Account exists in the restored miden-client DB but has no
+              // matching `WalletAccount` entry — either orphan data or (by
+              // design) an imported account the exporter filtered out
+              // because the encrypted-file format can't carry its raw
+              // secret. Skip silently; the account stays invisible in the
+              // wallet UI (which reads from `walletAccounts`).
+              continue;
+            }
+            if (walletAccount.hdIndex < 0) {
+              // Belt-and-suspenders: an imported account's key is NOT
+              // derivable from the mnemonic. Writing a freshly-generated
+              // secret into the keystore under its account id would
+              // overwrite any preserved real secret with a garbage key
+              // the vault can never sign with. Skip.
+              continue;
+            }
+            const walletSeed = deriveClientSeed(walletAccount.type, mnemonic, walletAccount.hdIndex);
+            // Each WalletAccount carries the auth scheme it was created
+            // under (legacy entries default to Falcon). Re-derive the
+            // matching secret key so the keystore entry signs correctly.
+            const secretKey = authSecretKeyFromSeed(getAccountAuthScheme(walletAccount), walletSeed);
+            await midenClient.client.keystore.insert(account.id(), secretKey);
           }
-          const walletAccount = walletAccounts.find(wa =>
-            compareAccountIds(wa.publicKey, getBech32AddressFromAccountId(account.id()))
-          );
-          if (!walletAccount) {
-            // Account exists in the restored miden-client DB but has no
-            // matching `WalletAccount` entry — either orphan data or (by
-            // design) an imported account the exporter filtered out
-            // because the encrypted-file format can't carry its raw
-            // secret. Skip silently; the account stays invisible in the
-            // wallet UI (which reads from `walletAccounts`).
-            continue;
-          }
-          if (walletAccount.hdIndex < 0) {
-            // Belt-and-suspenders: an imported account's key is NOT
-            // derivable from the mnemonic. Writing a freshly-generated
-            // secret into the keystore under its account id would
-            // overwrite any preserved real secret with a garbage key
-            // the vault can never sign with. Skip.
-            continue;
-          }
-          const walletSeed = deriveClientSeed(walletAccount.type, mnemonic, walletAccount.hdIndex);
-          // Each WalletAccount carries the auth scheme it was created
-          // under (legacy entries default to Falcon). Re-derive the
-          // matching secret key so the keystore entry signs correctly.
-          const secretKey = authSecretKeyFromSeed(getAccountAuthScheme(walletAccount), walletSeed);
-          await midenClient.client.keystore.insert(account.id(), secretKey);
-        }
-      });
+        },
+        { label: 'vault-spawn-from-client' }
+      );
 
       if (walletAccounts.length === 0) {
         // The encrypted file had no HD accounts to restore — every
@@ -806,8 +872,8 @@ export class Vault {
       await savePlain(currentAccPubKeyStrgKey, accountsToSave[0]!.publicKey);
       await savePlain(ownMnemonicStrgKey, true);
 
-      // Return the vault instance so caller doesn't need to call unlock() separately
-      return new Vault(vaultKey);
+      // The instance constructed when its key was made, so the caller need not unlock() separately.
+      return spawned;
     });
   }
 
@@ -846,9 +912,6 @@ export class Vault {
       console.log('[Vault.createHDAccount] Step 4: hdAccIndex =', hdAccIndex);
 
       const walletSeed = deriveClientSeed(walletType, mnemonic, hdAccIndex);
-      const options: MidenClientCreateOptions = {
-        insertKeyCallback: insertKeyCallbackWrapper(this.vaultKey)
-      };
 
       // A second Guardian account must bind to the SAME operator endpoint as the
       // wallet's existing Guardian account(s). Source it from a sibling's
@@ -888,8 +951,9 @@ export class Vault {
           guardianKeys?: CreatedGuardianKeys;
           guardianEndpoint?: string;
         }> => {
+          this.assertRealmSinkIsMine();
           console.log('[Vault.createHDAccount] Step 6: WASM lock acquired, getting client');
-          const midenClient = await getMidenClient(options);
+          const midenClient = await getMidenClient();
           // The client build is the only parking await before the create/import
           // calls below; a watchdog eviction during it hands the mutex to a
           // successor, and each of those calls would then be a second borrow of
@@ -945,7 +1009,8 @@ export class Vault {
           const id = await midenClient.createMidenWallet(walletType, walletSeed, newScheme);
           console.log('[Vault.createHDAccount] Step 9: createMidenWallet returned', id);
           return { accountId: id };
-        }
+        },
+        { label: 'vault-create-hd-account' }
       );
       const walletId = created.accountId;
       console.log('[Vault.createHDAccount] Step 10: walletId =', walletId);
@@ -1025,42 +1090,42 @@ export class Vault {
 
       const secretKeyBytes = new Uint8Array(Buffer.from(trimmed, 'hex'));
 
-      const options: MidenClientCreateOptions = {
-        insertKeyCallback: insertKeyCallbackWrapper(this.vaultKey)
-      };
+      const { publicKey, importedAuthScheme } = await withWasmClientLock(
+        async hold => {
+          this.assertRealmSinkIsMine();
+          const midenClient = await getMidenClient();
+          // The client build is the only parking await before the WASM work
+          // below: the deserialize/builder chain is synchronous and runs straight
+          // into the two inserts. Deliberately NO guard between accounts.insert
+          // and keystore.insert — once the account row has landed, completing the
+          // key write beats aborting (an account without its key cannot sign, and
+          // this path has no way to re-attach one later).
+          assertWasmHoldCurrent(hold, 'in importAccountFromPrivateKey after the client build');
+          let secretKey: AuthSecretKey;
+          try {
+            secretKey = AuthSecretKey.deserialize(secretKeyBytes);
+          } catch {
+            throw new PublicError('Invalid private key');
+          }
 
-      const { publicKey, importedAuthScheme } = await withWasmClientLock(async hold => {
-        const midenClient = await getMidenClient(options);
-        // The client build is the only parking await before the WASM work
-        // below: the deserialize/builder chain is synchronous and runs straight
-        // into the two inserts. Deliberately NO guard between accounts.insert
-        // and keystore.insert — once the account row has landed, completing the
-        // key write beats aborting (an account without its key cannot sign, and
-        // this path has no way to re-attach one later).
-        assertWasmHoldCurrent(hold, 'in importAccountFromPrivateKey after the client build');
-        let secretKey: AuthSecretKey;
-        try {
-          secretKey = AuthSecretKey.deserialize(secretKeyBytes);
-        } catch {
-          throw new PublicError('Invalid private key');
-        }
+          const detectedScheme = detectAuthScheme(secretKey);
 
-        const detectedScheme = detectAuthScheme(secretKey);
+          const builder = new AccountBuilder(new Uint8Array(32).fill(0))
+            .storageMode(AccountStorageMode.public())
+            .withAuthComponent(AccountComponent.createAuthComponentFromSecretKey(secretKey))
+            .withBasicWalletComponent();
 
-        const builder = new AccountBuilder(new Uint8Array(32).fill(0))
-          .storageMode(AccountStorageMode.public())
-          .withAuthComponent(AccountComponent.createAuthComponentFromSecretKey(secretKey))
-          .withBasicWalletComponent();
+          const account = builder.build().account;
+          await midenClient.client.accounts.insert({ account });
+          await midenClient.client.keystore.insert(account.id(), secretKey);
 
-        const account = builder.build().account;
-        await midenClient.client.accounts.insert({ account });
-        await midenClient.client.keystore.insert(account.id(), secretKey);
-
-        return {
-          publicKey: getBech32AddressFromAccountId(account.id()),
-          importedAuthScheme: detectedScheme
-        };
-      });
+          return {
+            publicKey: getBech32AddressFromAccountId(account.id()),
+            importedAuthScheme: detectedScheme
+          };
+        },
+        { label: 'vault-import-private-key' }
+      );
 
       // Re-read the accounts list AFTER the WASM lock released. The
       // pre-read above was only to validate a user-supplied name early;
@@ -1193,32 +1258,40 @@ export class Vault {
   }
 
   /**
-   * The ONE write path for an account's guardian BINDING (endpoint and/or
+   * The one write path for an account's guardian binding (endpoint and
    * commitment baseline), guarded by a per-account epoch.
    *
-   * Guardian binding writes follow read-snapshot → long HTTP probe →
-   * independent write, with minutes between snapshot and write (drift
-   * reconciliation probes operators; a rotation waits on chain commitment). A
-   * write whose snapshot predates a rotation used to WIN over the rotation —
-   * last-write-wins resurrected the dead operator's endpoint with an in-sync
-   * status (#786 review, F-220). The epoch closes that by construction: every
-   * applied binding write bumps `guardianEpoch`, and a CAS-gated write whose
-   * `expectedEpoch` no longer matches returns `stale` without writing,
-   * regardless of realm, timing or probe duration.
+   * A repair snapshots the account, probes operators over HTTP, and writes
+   * minutes later. Every applied write bumps `guardianEpoch`, and a write whose
+   * `expectedEpoch` no longer matches returns `stale` without writing, so a
+   * repair that snapshotted before a rotation cannot bring back the old
+   * operator's endpoint. The compare and the save are one step only inside
+   * `getAccountsWriteQueue`, so every caller runs this there; queueing in here
+   * would deadlock the callers that already hold the queue.
    *
-   * `expectedEpoch: 'force'` is for the AUTHORITATIVE events — a rotation's
-   * completion, a user-typed endpoint apply through the legacy setters — which
-   * must never lose. They still bump, which is precisely what invalidates
-   * every stale repair in flight.
+   * `expectedEpoch: 'force'` is for rotation completion, which must never lose;
+   * it still bumps, and that bump is what turns a stale repair's write `stale`.
+   * The whole patch lands in one save.
    *
-   * The whole patch lands in one `encryptAndSaveMany`, eliminating the torn
-   * endpoint-then-baseline write sequences callers used to order by hand.
-   *
-   * `guardianSyncStatus` is deliberately NOT part of the binding: status is
-   * advisory and self-correcting on the next tick, and gating it (or bumping
-   * on it) would let two healthy loops starve each other's writes.
+   * `guardianSyncStatus` is not part of the binding: status is advisory and
+   * self-correcting on the next tick, and gating it would let two healthy loops
+   * starve each other's writes.
    */
-  async updateGuardianBinding(accountPublicKey: string, expectedEpoch: number | 'force', patch: GuardianBindingPatch) {
+  updateGuardianBinding(
+    accountPublicKey: string,
+    expectedEpoch: 'force',
+    patch: GuardianBindingPatch
+  ): Promise<AppliedGuardianBinding>;
+  updateGuardianBinding(
+    accountPublicKey: string,
+    expectedEpoch: number,
+    patch: GuardianBindingPatch
+  ): Promise<AppliedGuardianBinding | { outcome: 'stale' }>;
+  async updateGuardianBinding(
+    accountPublicKey: string,
+    expectedEpoch: number | 'force',
+    patch: GuardianBindingPatch
+  ): Promise<AppliedGuardianBinding | { outcome: 'stale' }> {
     return withError('Failed to update guardian binding', async () => {
       const allAccounts = await this.fetchAccounts();
       const account = allAccounts.find(acc => acc.publicKey === accountPublicKey);
@@ -1227,15 +1300,13 @@ export class Vault {
       }
       const currentEpoch = account.guardianEpoch ?? 0;
       if (expectedEpoch !== 'force' && currentEpoch !== expectedEpoch) {
-        const currentAccount = await this.getCurrentAccount();
-        return { outcome: 'stale' as const, epoch: currentEpoch, accounts: allAccounts, currentAccount };
+        return { outcome: 'stale' as const };
       }
-      const newAllAccounts = allAccounts.map(acc =>
+      const accounts = allAccounts.map(acc =>
         acc.publicKey === accountPublicKey ? { ...acc, ...patch, guardianEpoch: currentEpoch + 1 } : acc
       );
-      await encryptAndSaveMany([[accountsStrgKey, newAllAccounts]], this.vaultKey);
-      const currentAccount = await this.getCurrentAccount();
-      return { outcome: 'applied' as const, epoch: currentEpoch + 1, accounts: newAllAccounts, currentAccount };
+      await encryptAndSaveMany([[accountsStrgKey, accounts]], this.vaultKey);
+      return { outcome: 'applied' as const, accounts, currentAccount: await this.getCurrentAccount() };
     });
   }
 
@@ -1243,14 +1314,12 @@ export class Vault {
    * Persist a per-account guardian endpoint after a switch-guardian lands, so
    * runtime endpoint resolution (and the next service init) point at the new
    * operator. Returns the updated accounts so the caller can broadcast
-   * `accountsUpdated` — without that the Effector snapshot keeps the stale
+   * `accountsUpdated`; without that the Effector snapshot keeps the stale
    * endpoint and the popup rebuilds a service against the old guardian.
    *
-   * Force-with-bump: this setter serves the authoritative writers (rotation
-   * completion, the user-typed endpoint apply), which must never lose to a
-   * concurrent repair — and whose bump is what turns that repair's own write
-   * `stale`. A snapshot-based writer belongs on `updateGuardianBinding` with a
-   * real `expectedEpoch` instead.
+   * A forced write: rotation completion must never lose to a concurrent repair,
+   * and its bump turns that repair's write `stale`. A writer that reasons from a
+   * snapshot calls `updateGuardianBinding` with that snapshot's epoch instead.
    */
   async setGuardianEndpoint(accountPublicKey: string, guardianEndpoint: string) {
     const { accounts, currentAccount } = await this.updateGuardianBinding(accountPublicKey, 'force', {
@@ -1264,7 +1333,7 @@ export class Vault {
    * used by out-of-band-switch detection to know whether the on-chain guardian
    * signer still matches the account's stored `guardianEndpoint`.
    *
-   * Force-with-bump, same contract as `setGuardianEndpoint` above.
+   * A forced write, like `setGuardianEndpoint`.
    */
   async setGuardianOperatorCommitment(accountPublicKey: string, guardianOperatorCommitment: string) {
     const { accounts, currentAccount } = await this.updateGuardianBinding(accountPublicKey, 'force', {
@@ -1523,16 +1592,17 @@ export class Vault {
           const operator = operatorMap.get(normalizeHex(onChainCommitment));
           if (!operator) continue;
 
-          // One epoch-guarded patch: endpoint + baseline land atomically, and
-          // the CAS covers the minutes this loop's probes may have taken. The
-          // epoch was snapshotted before this pass's operator round; a rotation
-          // (or drift repair) landing meanwhile turns this stamp `stale` and the
-          // account simply retries next unlock — the same designed failure mode
-          // as every other skip in this loop.
-          const stamp = await this.updateGuardianBinding(acc.publicKey, acc.guardianEpoch ?? 0, {
-            guardianEndpoint: operator.endpoint,
-            guardianOperatorCommitment: onChainCommitment
-          });
+          // The epoch is the one read before this pass's probes, and the compare
+          // and save wait for the accounts write queue, so a rotation or drift
+          // repair that landed meanwhile turns this stamp `stale` and the account
+          // retries next unlock. Unlock does not await this detached pass, so the
+          // wait cannot deadlock it.
+          const stamp = await getAccountsWriteQueue().add(() =>
+            this.updateGuardianBinding(acc.publicKey, acc.guardianEpoch ?? 0, {
+              guardianEndpoint: operator.endpoint,
+              guardianOperatorCommitment: onChainCommitment
+            })
+          );
           if (stamp.outcome === 'stale') {
             console.warn('[Vault.backfillGuardianEndpoints] binding changed mid-backfill; skipping:', acc.publicKey);
           }
@@ -1945,7 +2015,7 @@ function isValidHex(s: string): boolean {
  * One-time derivation of the wallet's EVM identity for a Miden HD account,
  * at account creation / unlock backfill. BIP-44 Ethereum path
  * m/44'/60'/{walletTypeIndex}'/0/{hdIndex}, deliberately independent of the
- * bls12_377 SLIP-0010 branch used by `deriveClientSeed` (coin type 60 vs 0), so
+ * bls12_377 SLIP-0010 branch used by `deriveClientSeed` (coin type 60 vs Miden's), so
  * the Miden and EVM key families can never collide. The walletTypeIndex segment
  * mirrors getMainDerivationPath: hdIndex is allocated per privacy bucket, so
  * without it an OnChain and an OffChain account at the same bucket index would

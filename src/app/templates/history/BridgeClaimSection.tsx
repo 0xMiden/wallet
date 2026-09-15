@@ -2,6 +2,7 @@ import React, { FC, useCallback, useEffect, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
+import { useNetworkFeeEstimate } from 'app/hooks/useNetworkFeeEstimate';
 import { AgglayerDeposit, claimAgglayerDeposit, findClaimableMidenToEvmDeposit, useBridgeTracker } from 'lib/agglayer';
 import { getCurrentMidenBlock, pollEpochIntentFill } from 'lib/epoch';
 import {
@@ -54,8 +55,6 @@ interface BridgeClaimSectionProps {
    * `undefined` and did nothing. A required prop makes the compiler ask.
    */
   restoredFromBackup: boolean;
-  /** Re-load the transaction so persisted claim-status changes are reflected. */
-  onUpdated: () => void;
 }
 
 /**
@@ -67,8 +66,9 @@ interface BridgeClaimSectionProps {
  * connected address matching the bridge destination. Epoch (Fast) auto-settles,
  * so it shows "no manual claim required" instead.
  */
-export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restoredFromBackup, onUpdated }) => {
+export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restoredFromBackup }) => {
   const { t } = useTranslation();
+  const maxNetworkFee = useNetworkFeeEstimate();
   const { provider: evmProvider, address: evmAddress, isConnected, connect } = useEvmWalletProvider();
   const account = useAccount();
 
@@ -121,15 +121,13 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
       if (status === 'pending' && entry.txId) {
         setStatus('ready');
         await updateBridgeClaimStatus(entry.txId, 'ready', { depositReady: true });
-        onUpdated();
       }
       return true;
     }
   });
 
   // Epoch fill poll. Runs on mount + every 8s while still pending; persists the
-  // receiving tx hash / terminal status and reloads the row once it settles so
-  // the hero pill flips to Confirmed.
+  // receiving tx hash / terminal status for the live transaction-row observer.
   const intentNonce = entry.bridgeIntentNonce;
   const txId = entry.txId;
   useEffect(() => {
@@ -154,7 +152,6 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
           fillChainId: fill.fillChainId
         });
       }
-      if (fill.status === 'confirmed' || fill.status === 'failed') onUpdated();
     };
     tick();
     const id = setInterval(tick, 8000);
@@ -162,7 +159,7 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
       cancelled = true;
       clearInterval(id);
     };
-  }, [isEpoch, restoredFromBackup, epochStatus, intentNonce, destination, txId, onUpdated]);
+  }, [isEpoch, restoredFromBackup, epochStatus, intentNonce, destination, txId]);
 
   const handleClaim = useCallback(async () => {
     if (!claimable || !evmProvider || !entry.txId || restoredFromBackup) return;
@@ -176,14 +173,13 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
       setStatus('claimed');
       await updateBridgeClaimStatus(entry.txId, 'claimed', { claimTxHash: tx.hash });
       setClaimable(null);
-      onUpdated();
     } catch (err) {
       console.error('[bridge-claim] claim failed', err);
       setStatus('failed');
       await updateBridgeClaimStatus(entry.txId, 'failed');
       setError(err instanceof Error ? err.message : 'Claim failed');
     }
-  }, [claimable, evmProvider, entry.txId, restoredFromBackup, onUpdated]);
+  }, [claimable, evmProvider, entry.txId, restoredFromBackup]);
 
   // Read the current Miden block once, to know whether the reclaim window has opened.
   useEffect(() => {
@@ -296,9 +292,18 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
             </p>
           )}
           {reclaimReached ? (
-            <Button variant="default" size="lg" onClick={handleReclaim} disabled={reclaiming}>
-              {reclaiming ? t('reclaiming') : t('reclaimFunds')}
-            </Button>
+            <>
+              {maxNetworkFee && (
+                // Reclaiming consumes the recallable note -- a real transaction with a
+                // real fee, submitted on this tap with no review step in between.
+                <div className="text-center text-xs text-heading-gray">
+                  {t('networkFeeMax')} · {maxNetworkFee}
+                </div>
+              )}
+              <Button variant="default" size="lg" onClick={handleReclaim} disabled={reclaiming}>
+                {reclaiming ? t('reclaiming') : t('reclaimFunds')}
+              </Button>
+            </>
           ) : (
             <p className="text-xs text-heading-gray/60">
               {t('reclaimableAfterBlock')} {reclaimHeight}

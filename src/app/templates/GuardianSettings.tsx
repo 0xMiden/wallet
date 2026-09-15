@@ -40,7 +40,7 @@ function formatLastSync(timestamp: number, locale: string): string {
 const GuardianSettings: FC = () => {
   const { t, i18n } = useTranslation();
   const { endpoint: currentEndpoint } = useCurrentGuardianEndpoint();
-  // The ONE derivation of the guardian's status — pill, fault treatment and the
+  // The ONE derivation of the guardian's status - pill, fault treatment and the
   // "Last sync" reading come from `deriveGuardianPresentation` (see that module
   // for the precedence rules and their history: drift outranks liveness,
   // `resolving` reads Checking not Online, a stamp has a freshness lifetime).

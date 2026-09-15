@@ -2,6 +2,7 @@ import React, { memo, RefObject, useMemo } from 'react';
 
 import classNames from 'clsx';
 import { format } from 'date-fns';
+import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import InfiniteScroll from 'react-infinite-scroller';
 
@@ -11,11 +12,13 @@ import { Icon, IconName } from 'app/icons/v2';
 import { ReactComponent as FailedCrossIcon } from 'app/icons/v2/failed-cross.svg';
 import { ReactComponent as SwapIcon } from 'app/icons/v2/swap.svg';
 import { ActivityRow, ActivityRowProps, ActivityStatusTone } from 'components/ui';
+import { springs, useMotion } from 'lib/animation';
 import { rotationChip, rotationRowTitleKey } from 'lib/miden/guardian/rotation-verdict';
 import { navigate } from 'lib/woozie';
 
 import HistoryItem from './HistoryItem';
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
+import type { PendingActivityItem } from './PendingActivityCard';
 import {
   BRIDGE_STATUS_LABEL_KEY,
   bridgeInRowDisplay,
@@ -39,11 +42,15 @@ type HistoryViewProps = {
   tokenId?: string;
   fullHistory?: boolean;
   centerEmptyState?: boolean;
+  pendingItems?: PendingActivityItem[];
+  renderPendingItem?: (item: PendingActivityItem) => React.ReactNode;
   className?: string;
 };
 
-function groupEntriesByDate(entries: IHistoryEntry[]): Map<number, IHistoryEntry[]> {
-  const groups = new Map<number, IHistoryEntry[]>();
+type TimelineEntry = IHistoryEntry & { pendingActivity?: PendingActivityItem };
+
+function groupEntriesByDate(entries: TimelineEntry[]): Map<number, TimelineEntry[]> {
+  const groups = new Map<number, TimelineEntry[]>();
   for (const entry of entries) {
     // A timestamp that isn't a usable number yields an Invalid Date, and
     // `DateSeparator` formats the group key with date-fns, which THROWS on one —
@@ -54,7 +61,10 @@ function groupEntriesByDate(entries: IHistoryEntry[]): Map<number, IHistoryEntry
     // first and test THAT, which is the only thing date-fns actually sees.
     const candidate = new Date(entry.timestamp * 1000);
     const d = Number.isFinite(candidate.getTime()) ? candidate : new Date();
-    const key = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+    const key =
+      entry.pendingActivity && !Number.isFinite(candidate.getTime())
+        ? -1
+        : new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
     const existing = groups.get(key);
     if (existing) existing.push(entry);
     else groups.set(key, [entry]);
@@ -191,7 +201,7 @@ function buildRowProps(
   const isSwap = !faucet && !isFailed && !isCancelled && entry.txType === 'swap';
 
   // A completed rotation's title derives from its verdict at render, not from
-  // the frozen `displayMessage` snapshot — the claim stays attached to the
+  // the frozen `displayMessage` snapshot - the claim stays attached to the
   // evidence rather than to whatever the row said the day it completed.
   const guardianTitleKey =
     entry.txType === 'switch-guardian' && !isFailed && !isCancelled && entry.guardianSwitchVerdict
@@ -315,7 +325,7 @@ function buildRowProps(
     statusLabel = t('pending');
   } else if (entry.txType === 'switch-guardian' && entry.guardianSwitchVerdict) {
     // A submitted-unconfirmed rotation is Completed in the DB, which the
-    // generic fallthrough below renders as a green "Confirmed" — the one claim
+    // generic fallthrough below renders as a green "Confirmed" - the one claim
     // that row cannot make. The override table lives with the verdict module.
     const chip = rotationChip(entry.guardianSwitchVerdict);
     if (chip) {
@@ -368,14 +378,36 @@ const HistoryView = memo<HistoryViewProps>(
     tokenId,
     fullHistory,
     centerEmptyState,
+    pendingItems,
+    renderPendingItem,
     className
   }) => {
     const { t } = useTranslation();
-    const noEntries = entries.length === 0;
+    // Same spring as the rows, so a date group and the rows inside it move
+    // together when a filter empties part of the list.
+    const layoutTransition = useMotion(springs.settle);
+    const timeline = useMemo(() => {
+      if (!pendingItems?.length) return entries;
+      const pending: TimelineEntry[] = pendingItems.map(item => ({
+        key: `note-${item.note.id}`,
+        address: '',
+        timestamp: item.note.receivedAt ?? Number.NaN,
+        message: '',
+        type: HistoryEntryType.PendingTransaction,
+        txType: 'consume',
+        pendingActivity: item
+      }));
+      return [...entries, ...pending].sort(
+        (a, b) =>
+          (Number.isFinite(b.timestamp) ? b.timestamp : -Infinity) -
+          (Number.isFinite(a.timestamp) ? a.timestamp : -Infinity)
+      );
+    }, [entries, pendingItems]);
+    const noEntries = timeline.length === 0;
     const noOperationsClass = fullHistory
       ? 'mt-8 items-center text-left text-black'
       : 'm-4 items-start text-left text-black';
-    const groupedEntries = useMemo(() => groupEntriesByDate(entries), [entries]);
+    const groupedEntries = useMemo(() => groupEntriesByDate(timeline), [timeline]);
 
     if (noEntries) {
       if (initialLoading) return <ActivitySpinner />;
@@ -417,20 +449,40 @@ const HistoryView = memo<HistoryViewProps>(
 
     const list = (
       <div data-testid="history-view" className="flex flex-col">
+        {/* Each row is a layout-animated Framer element (`ActivityRow`), and
+            `layout` on the date group moves the groups below into the space a
+            removed row leaves. Rows and groups slide; nothing fades, so a
+            filter change behaves like a native list update. */}
         {dateGroups.map(([dateMs, dateEntries], index) => (
-          <div
+          <motion.div
+            layout
+            transition={layoutTransition}
             key={dateMs}
-            className={classNames('flex flex-col gap-1 py-3 border-b-[#BABABA33] border-b', index === 0 && 'pt-4')}
+            className={classNames('flex flex-col gap-3 py-3', index === 0 && 'pt-4')}
           >
-            <DateSeparator dateMs={dateMs} />
-            <div className="flex flex-col divide-y divide-rule-default dark:divide-pure-white">
+            {dateMs === -1 ? (
+              <span className="font-heading font-extrabold text-heading-gray text-base">
+                {t('activityDateUnavailable')}
+              </span>
+            ) : (
+              <DateSeparator dateMs={dateMs} />
+            )}
+            <div className="flex flex-col gap-3">
               {dateEntries.map(entry => {
+                if (entry.pendingActivity && renderPendingItem) {
+                  return (
+                    <div key={entry.key} data-pending-note-id={entry.pendingActivity.note.id}>
+                      {renderPendingItem(entry.pendingActivity)}
+                    </div>
+                  );
+                }
                 const props = buildRowProps(entry, t, tokenId);
                 return (
                   <ActivityRow
                     key={entry.key}
                     entryKey={entry.key}
                     testId="activity-row"
+                    className="rounded-2xl border border-rule-default bg-white px-3"
                     icon={props.icon}
                     iconBg={props.iconBg}
                     title={props.title}
@@ -442,7 +494,7 @@ const HistoryView = memo<HistoryViewProps>(
                 );
               })}
             </div>
-          </div>
+          </motion.div>
         ))}
       </div>
     );

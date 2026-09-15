@@ -19,6 +19,8 @@ import EarnPositionDetail from './EarnPositionDetail';
 //     every branch of `if (!active || !payload?.[0]) return null` runs.
 // The factory references no out-of-scope bindings (only `require('react')`) so
 // swc's jest-hoist is happy (mirrors the sibling `lib/ui/charts.test.tsx`).
+jest.mock('app/hooks/useVerificationBaseFee', () => ({ __esModule: true, default: () => 0 }));
+jest.mock('app/hooks/useMidenFaucetId', () => ({ __esModule: true, default: () => 'MIDEN-ID' }));
 jest.mock('recharts', () => {
   const R = require('react');
   return {

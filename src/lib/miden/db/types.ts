@@ -1,3 +1,4 @@
+import type { PreparedExecution } from '@epoch-protocol/epoch-intents-sdk';
 import { v4 as uuid } from 'uuid';
 
 import { ConsumableNote, NoteType } from '../types';
@@ -207,6 +208,18 @@ export interface IEarnDepositExtraInputs {
  */
 export type IEarnWithdrawPhase = 'redeeming' | 'delivering' | 'received' | 'failed';
 
+export interface IEarnWithdrawPreparedExecution extends PreparedExecution {
+  readonly attemptId: string;
+  readonly delivery: {
+    readonly allocationIndex: number;
+    readonly owner: string;
+    readonly nonce: string;
+    readonly destinationChainId: number;
+    readonly recipientAccountId: string;
+    readonly destinationFaucetId: string;
+  };
+}
+
 /**
  * `extraInputs` shape for an `EarnWithdrawTransaction`. Smart Withdraw redeems an
  * Epoch lending position and bridges the underlying back to Miden as a single
@@ -227,6 +240,10 @@ export interface IEarnWithdrawExtraInputs {
   phase: IEarnWithdrawPhase;
   /** intent nonce (SIO `userAddress:intentNonce`) used to poll `getIntentStatus`. */
   withdrawIntentNonce?: string;
+  submissionAttemptId?: string;
+  attemptStartedAt?: number;
+  submissionState?: 'preparing' | 'prepared' | 'accepted';
+  preparedExecution?: IEarnWithdrawPreparedExecution;
   /** solver/settlement EVM tx hash, once known. */
   evmTxHash?: string;
   /** Miden note id of the bridged-in note, once it lands and is consumed. */
@@ -253,9 +270,11 @@ export interface IBridgeInInfo {
   sourceSymbol?: string;
   /** epoch: intent nonce (SIO `userAddress:intentNonce`) of the originating intent. */
   intentNonce?: string;
+  intentOwner?: string;
+  earnWithdrawAttemptId?: string;
   /** EVM-side deposit/fill tx hash, when known. */
   evmTxHash?: string;
-  /** Miden-side note id the bridge-in resolved to, copied on by `takeBridgeInInfoForNotes`. */
+  /** Miden-side note id the bridge-in resolved to, copied on by `applyBridgeInInfoForNotes`. */
   midenNoteId?: string;
   /**
    * When the bridged note originates from a Smart Withdraw, the `earn-withdraw`
@@ -395,9 +414,34 @@ export interface ITransaction {
   /** Consume only: per-faucet totals of a batch claim (see `ConsumeTransaction`). */
   assetTotals?: IConsumedAssetTotal[];
   transactionId?: string;
+  /**
+   * Fee this transaction actually paid, in the fee asset's smallest unit.
+   *
+   * Read from the emitted TX_FEE note rather than computed: the charge scales
+   * with the transaction's cycle count, which is only known after it runs.
+   * Absent on rows written before fees, and on zero-fee chains.
+   */
+  feeAmount?: bigint;
+  feeFaucetId?: string;
   requestBytes?: Uint8Array;
   status: ITransactionStatus;
   initiatedAt: number;
+  /**
+   * Monotonic enqueue sequence, in milliseconds, used ONLY to break `initiatedAt`
+   * ties when the processing loop picks the next queued row.
+   *
+   * `initiatedAt` is whole seconds, so every row queued within the same second ties.
+   * `Array.prototype.sort` is stable, so a tie preserved whatever order Dexie
+   * returned — primary-key order, and the primary key is a random `uuid()`. FIFO was
+   * therefore only approximate, and any caller that enqueued in a deliberate order had
+   * that order silently randomized. Claim All depends on exactly this: it queues the
+   * native-asset group FIRST so the claim that funds the vault runs before the claims
+   * that must pay a fee out of it.
+   *
+   * Optional because rows written before this field exist; they sort as `0`, i.e. ahead
+   * of new rows within the same second, which is true of them.
+   */
+  queuedSeq?: number;
   processingStartedAt?: number;
   completedAt?: number;
   displayMessage?: string;
@@ -419,6 +463,11 @@ export interface ITransaction {
    */
   restoredFromBackup?: boolean;
   resultBytes?: Uint8Array;
+  /**
+   * Whole seconds at which the reaper (`transaction/trim-result-bytes.ts`) released `resultBytes`. A Completed row
+   * without `resultBytes` carries it only if the result was released; otherwise it never stored one.
+   */
+  resultReleasedAt?: number;
   /**
    * Current sub-phase during active processing. Readers should treat this
    * as informational only — it is overwritten without coordination with
@@ -570,6 +619,24 @@ export interface ITransaction {
   cancelledInFlightAt?: number;
 }
 
+/**
+ * Strictly increasing enqueue stamp for `ITransaction.queuedSeq`.
+ *
+ * Wall-clock milliseconds, nudged forward on a collision so two rows created in the
+ * same millisecond still differ. `Date.now()` alone is not enough: `initiateConsume-
+ * NotesTransaction` opens a Dexie transaction per group and consecutive groups can
+ * commit inside one millisecond, which is the tie this field exists to break.
+ *
+ * Per-realm, so it orders rows the same realm created — which is what every ordered
+ * enqueue in the app does. Across realms it stays comparable because it is wall clock.
+ */
+let lastQueuedSeq = 0;
+export const nextQueuedSeq = (): number => {
+  const now = Date.now();
+  lastQueuedSeq = now > lastQueuedSeq ? now : lastQueuedSeq + 1;
+  return lastQueuedSeq;
+};
+
 export interface ISuccessTransactionOutput {
   txHash: string;
   outputNotes: string[];
@@ -594,6 +661,8 @@ export class Transaction implements ITransaction {
   outputNoteIds?: string[];
   status: ITransactionStatus;
   initiatedAt: number;
+  /** Tie-break for `initiatedAt`, which is whole seconds. See `ITransaction.queuedSeq`. */
+  queuedSeq?: number;
   processingStartedAt?: number;
   completedAt?: number;
   displayMessage?: string;
@@ -615,6 +684,7 @@ export class Transaction implements ITransaction {
     this.secondaryAccountId = recipientAccountId;
     this.status = ITransactionStatus.Queued;
     this.initiatedAt = Math.floor(Date.now() / 1000); // seconds
+    this.queuedSeq = nextQueuedSeq();
     this.displayIcon = 'DEFAULT';
     this.displayMessage = 'Executing';
   }
@@ -631,6 +701,8 @@ export class SendTransaction implements ITransaction {
   transactionId?: string;
   status: ITransactionStatus;
   initiatedAt: number;
+  /** Tie-break for `initiatedAt`, which is whole seconds. See `ITransaction.queuedSeq`. */
+  queuedSeq?: number;
   processingStartedAt?: number;
   completedAt?: number;
   displayMessage?: string;
@@ -658,6 +730,7 @@ export class SendTransaction implements ITransaction {
     this.noteType = noteType;
     this.status = ITransactionStatus.Queued;
     this.initiatedAt = Math.floor(Date.now() / 1000); // seconds
+    this.queuedSeq = nextQueuedSeq();
     this.displayIcon = 'SEND';
     this.displayMessage = 'Sending';
     this.extraInputs.recallBlocks = recallBlocks;
@@ -694,6 +767,8 @@ export class ConsumeTransaction implements ITransaction {
   transactionId?: string;
   status: ITransactionStatus;
   initiatedAt: number;
+  /** Tie-break for `initiatedAt`, which is whole seconds. See `ITransaction.queuedSeq`. */
+  queuedSeq?: number;
   processingStartedAt?: number;
   completedAt?: number;
   displayMessage?: string;
@@ -741,6 +816,7 @@ export class ConsumeTransaction implements ITransaction {
     this.assetTotals = identifiedTotals.length > 0 ? identifiedTotals : undefined;
     this.status = ITransactionStatus.Queued;
     this.initiatedAt = Math.floor(Date.now() / 1000); // seconds
+    this.queuedSeq = nextQueuedSeq();
     this.displayIcon = 'RECEIVE';
     this.displayMessage = 'Consuming';
     this.delegateTransaction = delegateTransaction;
@@ -788,6 +864,8 @@ export class SwapTransaction implements ITransaction {
   faucetId: string;
   status: ITransactionStatus;
   initiatedAt: number;
+  /** Tie-break for `initiatedAt`, which is whole seconds. See `ITransaction.queuedSeq`. */
+  queuedSeq?: number;
   processingStartedAt?: number;
   completedAt?: number;
   displayMessage?: string;
@@ -821,6 +899,7 @@ export class SwapTransaction implements ITransaction {
     this.extraInputs = { requestedFaucetId, requestedAmount, expirySeconds, autoConsume };
     this.status = ITransactionStatus.Queued;
     this.initiatedAt = Math.floor(Date.now() / 1000); // seconds
+    this.queuedSeq = nextQueuedSeq();
     this.displayIcon = 'SWAP';
     this.displayMessage = 'Swapping';
     this.delegateTransaction = delegateTransaction;
@@ -865,6 +944,8 @@ export class BridgedSendTransaction implements ITransaction {
   outputNoteIds?: string[];
   status: ITransactionStatus;
   initiatedAt: number;
+  /** Tie-break for `initiatedAt`, which is whole seconds. See `ITransaction.queuedSeq`. */
+  queuedSeq?: number;
   processingStartedAt?: number;
   completedAt?: number;
   displayMessage?: string;
@@ -893,6 +974,7 @@ export class BridgedSendTransaction implements ITransaction {
     this.noteType = sendParams?.noteType;
     this.status = ITransactionStatus.Queued;
     this.initiatedAt = Math.floor(Date.now() / 1000); // seconds
+    this.queuedSeq = nextQueuedSeq();
     this.displayIcon = 'SEND';
     this.displayMessage = 'Bridging';
     this.delegateTransaction = delegateTransaction;
@@ -935,6 +1017,8 @@ export class EarnDepositTransaction implements ITransaction {
   requestBytes?: Uint8Array;
   status: ITransactionStatus;
   initiatedAt: number;
+  /** Tie-break for `initiatedAt`, which is whole seconds. See `ITransaction.queuedSeq`. */
+  queuedSeq?: number;
   processingStartedAt?: number;
   completedAt?: number;
   displayMessage?: string;
@@ -962,6 +1046,7 @@ export class EarnDepositTransaction implements ITransaction {
     this.requestBytes = requestBytes;
     this.status = ITransactionStatus.Queued;
     this.initiatedAt = Math.floor(Date.now() / 1000); // seconds
+    this.queuedSeq = nextQueuedSeq();
     this.displayIcon = 'DEFAULT';
     this.displayMessage = 'Depositing';
     this.delegateTransaction = delegateTransaction;
@@ -1003,7 +1088,9 @@ export class EarnWithdrawTransaction implements ITransaction {
     marketUid: string,
     faucetId: string,
     sourceAmount: string,
-    sourceSymbol = 'USDC'
+    sourceSymbol = 'USDC',
+    submissionAttemptId?: string,
+    attemptStartedAt?: number
   ) {
     const now = Math.floor(Date.now() / 1000); // seconds
     this.id = uuid();
@@ -1022,7 +1109,10 @@ export class EarnWithdrawTransaction implements ITransaction {
       destinationFaucetId: faucetId,
       sourceAmount,
       sourceSymbol,
-      phase: 'redeeming'
+      phase: 'redeeming',
+      submissionState: 'preparing',
+      submissionAttemptId,
+      attemptStartedAt: attemptStartedAt ?? now
     };
   }
 }
@@ -1085,6 +1175,8 @@ export class SwitchGuardianTransaction implements ITransaction {
   transactionId?: string;
   status: ITransactionStatus;
   initiatedAt: number;
+  /** Tie-break for `initiatedAt`, which is whole seconds. See `ITransaction.queuedSeq`. */
+  queuedSeq?: number;
   processingStartedAt?: number;
   completedAt?: number;
   displayMessage?: string;
@@ -1103,6 +1195,7 @@ export class SwitchGuardianTransaction implements ITransaction {
     this.accountId = accountId;
     this.status = ITransactionStatus.Queued;
     this.initiatedAt = Math.floor(Date.now() / 1000); // seconds
+    this.queuedSeq = nextQueuedSeq();
     this.displayIcon = 'DEFAULT';
     this.displayMessage = 'Switching guardian';
     this.extraInputs = { previousGuardianEndpoint, newGuardianEndpoint };
@@ -1124,6 +1217,8 @@ export class ReplaceHotKeyTransaction implements ITransaction {
   transactionId?: string;
   status: ITransactionStatus;
   initiatedAt: number;
+  /** Tie-break for `initiatedAt`, which is whole seconds. See `ITransaction.queuedSeq`. */
+  queuedSeq?: number;
   processingStartedAt?: number;
   completedAt?: number;
   displayMessage?: string;
@@ -1142,6 +1237,7 @@ export class ReplaceHotKeyTransaction implements ITransaction {
     this.accountId = accountId;
     this.status = ITransactionStatus.Queued;
     this.initiatedAt = Math.floor(Date.now() / 1000);
+    this.queuedSeq = nextQueuedSeq();
     this.displayIcon = 'DEFAULT';
     this.displayMessage = 'Rotating device key';
     this.extraInputs = {};
@@ -1162,6 +1258,8 @@ export class UpdateProcedureThresholdTransaction implements ITransaction {
   transactionId?: string;
   status: ITransactionStatus;
   initiatedAt: number;
+  /** Tie-break for `initiatedAt`, which is whole seconds. See `ITransaction.queuedSeq`. */
+  queuedSeq?: number;
   processingStartedAt?: number;
   completedAt?: number;
   displayMessage?: string;
@@ -1175,6 +1273,7 @@ export class UpdateProcedureThresholdTransaction implements ITransaction {
     this.accountId = accountId;
     this.status = ITransactionStatus.Queued;
     this.initiatedAt = Math.floor(Date.now() / 1000);
+    this.queuedSeq = nextQueuedSeq();
     this.displayIcon = 'DEFAULT';
     this.displayMessage = 'Securing account';
     this.extraInputs = { procedure, threshold };

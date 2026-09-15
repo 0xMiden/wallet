@@ -302,7 +302,7 @@ describe('isDirectGuardianSwitch', () => {
 
 describe('isUnconfirmedGuardianSwitch', () => {
   // The flag is only ever written by the completion handler, so it exists on
-  // Completed rows alone — the verdict this wrapper consults keys on that.
+  // Completed rows alone - the verdict this wrapper consults keys on that.
   const completed = ITransactionStatus.Completed;
   it('is true only for a completed switch-guardian row whose commit was never confirmed', () => {
     expect(isUnconfirmedGuardianSwitch(undefined)).toBe(false);
@@ -343,7 +343,7 @@ describe('isUnconfirmedGuardianSwitch', () => {
       } as never)
     ).toBe(false);
     // An in-flight or failed row never qualifies, whatever its extraInputs
-    // claim — the verdict speaks only about completed rotations.
+    // claim - the verdict speaks only about completed rotations.
     expect(
       isUnconfirmedGuardianSwitch({ type: 'switch-guardian', extraInputs: { commitUnconfirmed: true } } as never)
     ).toBe(false);

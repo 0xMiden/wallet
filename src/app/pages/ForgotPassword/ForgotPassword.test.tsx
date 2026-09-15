@@ -365,6 +365,17 @@ describe('ForgotPassword', () => {
     expect(mockNavigate).not.toHaveBeenCalled();
   });
 
+  it('falls back to translated copy when a failure carries no text', async () => {
+    mockRegisterWallet.mockRejectedValue(new Error(''));
+    renderPage();
+    await dispatch({ id: 'create-wallet' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'secret' } });
+    await dispatch({ id: 'confirmation' });
+
+    // An empty message used to reach the screen as '', which renders nothing.
+    expect(captured.props?.recoveryError).toBe('smthWentWrong');
+  });
+
   it('confirmation (Import-from-seed flow): registers with ownMnemonic=true (Import ternary)', async () => {
     renderPage();
     await dispatch({ id: 'select-import-type' });
@@ -384,7 +395,7 @@ describe('ForgotPassword', () => {
     // namespace, so a user who onboarded with "no guardian" had their wallet
     // wiped by clearClientStorage() and then hit "No Guardian accounts found at
     // this guardian endpoint for this seed" — their OffChain account at
-    // m/44'/0'/1'/0' was never derived or looked up.
+    // getMainDerivationPath(WalletType.OffChain, 0) was never derived or looked up.
     const { container } = renderPage();
     await dispatch({ id: 'select-import-type' });
     await dispatch({ id: 'import-seed-phrase-submit', payload: 'seed words here' });

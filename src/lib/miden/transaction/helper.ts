@@ -5,6 +5,8 @@ import * as Repo from 'lib/miden/repo';
 import { u8ToB64 } from 'lib/shared/helpers';
 
 import { type SignCallbackReason } from './sign-callback';
+import { RESULT_BYTES_RETENTION_MS } from './trim-result-bytes';
+import { splitExecutedOutputNotes } from '../activity/fee-notes';
 import {
   INoteDeliveryState,
   ITransaction,
@@ -12,28 +14,16 @@ import {
   ITransactionStatus,
   TransactionOutput
 } from '../db/types';
-import { getMidenClient } from '../sdk/miden-client';
 import { errorMessageParts } from '../sdk/sdk-error-code';
 import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
-
-/**
- * Feature flag: is the offscreen WASM client active? Read as a module constant
- * (mirroring `back/miden-client-proxy.ts`) so a flag-OFF build dead-code-
- * eliminates the flag-on branch of {@link readLastAuthReason}. Defaults ON in
- * the service-worker bundle that runs the transaction loop, OFF elsewhere and
- * hardcoded OFF on mobile — see the defines in the vite configs.
- */
-const USE_OFFSCREEN_CLIENT = process.env.MIDEN_USE_OFFSCREEN_CLIENT === 'true';
 
 // Re-export the sign-callback classification from its leaf home (issue #260,
 // slice 5). It moved to `./sign-callback` to break a `helper ↔ proxy` import
 // cycle (the offscreen write proxy needs the classifier). Re-exporting keeps
 // every existing caller — `import { buildSignCallbackError, ... } from './helper'`
 // / `./index` — unchanged.
-export { buildSignCallbackError, buildSignCallbackOptions, type SignCallbackError } from './sign-callback';
-// `SignCallbackReason` is imported locally (used in `readLastAuthReason`'s
-// return type) and re-exported from that local binding to avoid naming it in
-// two separate re-export statements.
+export { buildSignCallbackError, buildSdkSignCallback, type SignCallbackError } from './sign-callback';
+// `SignCallbackReason` is imported locally and re-exported from that binding.
 export type { SignCallbackReason };
 
 /**
@@ -126,9 +116,13 @@ export function isGuardianUnauthorizedExecutionError(error: unknown): boolean {
  * auto-consume cycle retries it after unlock, instead of marking it Failed.
  *
  * Two signals, mirroring `buildSignCallbackError`'s locked classification:
- *   - a `reason: 'locked'` tag (attached by `buildSignCallbackError` or by
- *     the vault-backed guardian provider's null-vault guard), or
- *   - an explicit "locked" / "not initialized" message.
+ *   - a `reason: 'locked'` tag, attached to the write's own rejection by
+ *     `withWasmClientLock` (from the record its sign trampoline keyed by the
+ *     hold) or by `dispatchOffscreenWrite` (from its op-keyed record), through
+ *     `tagLockedSignReason`; the vault-backed guardian provider's null-vault
+ *     guard throws it directly, or
+ *   - an explicit "locked" / "not initialized" message, which is all the SDK
+ *     forwards from a sign callback's throw.
  *
  * Deliberately NARROWER than `buildSignCallbackError`: it does NOT treat a
  * bare `Cannot read properties of null` TypeError as locked. That regex is
@@ -342,7 +336,10 @@ export const completeVerifiedLandedTransaction = async (
   otherValues: Partial<ITransaction> = {}
 ): Promise<void> => {
   await Repo.transactions.where({ id }).modify(tx => {
-    if (tx.status !== ITransactionStatus.Failed) return;
+    // `false`, not a bare return - dexie re-puts the deep clone for any other value. The row
+    // declined here is an already-Completed one, i.e. exactly the row still carrying the ~237 KB
+    // `resultBytes`, and `useTransactionRow` observes this table.
+    if (tx.status !== ITransactionStatus.Failed) return false;
     Object.assign(tx, otherValues);
     tx.status = ITransactionStatus.Completed;
     tx.stage = 'complete';
@@ -350,6 +347,7 @@ export const completeVerifiedLandedTransaction = async (
     // completed transaction with an error on it.
     tx.error = undefined;
     tx.rawError = undefined;
+    return undefined;
   });
 };
 
@@ -427,46 +425,6 @@ export const clearCancelledInFlight = async (id: string) => {
   });
 };
 
-/**
- * Reads the last sign-callback failure reason (`locked` / `rejected` / …) from
- * the SW-inline WASM client, used by the transaction loop to DEFER a
- * locked-mid-sign tx instead of Failing it (issue #313 note-loss guard).
- *
- * Invariant (issue #260 flip-prep #2): consult the SW client's `lastAuthError()`
- * IFF the SW client actually did the sign — i.e. the FLAG-OFF (inline) write path.
- * Under the flag-ON offscreen write the sign runs in the OFFSCREEN realm and the
- * SDK captures the error on the OFFSCREEN client; the SW-inline client NEVER
- * signed for that op, so its `lastAuthError()` is stale / another op's. Deferring
- * a genuinely-failed offscreen write on that stale slot would leave it Queued
- * FOREVER (never Failed). So under flag-on this returns `undefined` and the loop
- * relies solely on the op-keyed error tag (`isLockedError(e)`, set by
- * `dispatchOffscreenWrite` when the reverse-IPC sign reported 'locked').
- *
- * Flag-OFF is byte-identical to before: `USE_OFFSCREEN_CLIENT` is false, the
- * guard below dead-code-eliminates, and this reads the SW client exactly as it
- * always has.
- */
-export async function readLastAuthReason(): Promise<SignCallbackReason | undefined> {
-  // Flag-on: the offscreen realm signed, not this SW client — its lastAuthError()
-  // is not authoritative for the failing op. The locked signal (if any) rides the
-  // op-keyed error tag instead.
-  if (USE_OFFSCREEN_CLIENT) return undefined;
-  try {
-    const midenClient = await getMidenClient();
-    const rawClient = (midenClient as any).client;
-    if (!rawClient || typeof rawClient.lastAuthError !== 'function') return undefined;
-    const raw = rawClient.lastAuthError();
-    if (!raw || typeof raw !== 'object') return undefined;
-    const reason = (raw as { reason?: unknown }).reason;
-    if (reason === 'locked' || reason === 'rejected' || reason === 'not_found' || reason === 'internal') {
-      return reason;
-    }
-    return undefined;
-  } catch {
-    return undefined;
-  }
-}
-
 // Timeout for waiting on consume transactions (5 minutes)
 const WAIT_FOR_CONSUME_TX_TIMEOUT = 5 * 60_000;
 
@@ -514,6 +472,10 @@ export const waitForConsumeTx = async (id: string, signal?: AbortSignal): Promis
 
 const WAIT_FOR_TX_TIMEOUT = 5 * 60_000; // 5 minutes
 
+const RESULT_EXPIRED_MESSAGE = `Transaction result expired: results are kept for ${
+  RESULT_BYTES_RETENTION_MS / 60_000
+} minutes after completion`;
+
 export const waitForTransactionCompletion = async (transactionId: string) => {
   return new Promise<TransactionOutput>(resolve => {
     let subscription: { unsubscribe: () => void } | null = null;
@@ -543,23 +505,35 @@ export const waitForTransactionCompletion = async (transactionId: string) => {
           // the timeout, and dexie runs `next` inside its own promise chain — so an
           // exception here settles the wait promise as neither success NOR timeout
           // and the awaiting caller (the Epoch bridge/earn note builders) hangs
-          // forever while the activity row reads Completed. The known trigger is a
-          // row marked Completed by a post-submit failure path with no
-          // `resultBytes`; `isResultAwaitingRow` in `transaction/index.ts` now
-          // Fails those rows instead, and this is the backstop for any other route
-          // to a result-less Completed row.
+          // forever while the activity row reads Completed.
+          //
+          // A Completed row arrives here without `resultBytes` by two routes. The reaper
+          // (`trim-result-bytes.ts`) releases the blob after the retention window and stamps
+          // `resultReleasedAt`, which answers as an expiry. Otherwise the row never stored a result:
+          // post-submit paths in `transaction/index.ts` and `complete.ts` mark landed rows Completed
+          // without one, so they keep the generic message at any age.
           try {
             if (!tx.resultBytes) {
-              resolve({ errorMessage: 'Transaction completed without a transaction result' });
+              resolve({
+                errorMessage:
+                  tx.resultReleasedAt != null
+                    ? RESULT_EXPIRED_MESSAGE
+                    : 'Transaction completed without a transaction result'
+              });
               return;
             }
             const txResult = TransactionResult.deserialize(tx.resultBytes);
+            // The kernel's fee note is an output note too, and this array is the wallet's
+            // PUBLIC dApp API (`window.miden.waitForTransaction`). Handing it out unsplit
+            // invited the very bug this module's siblings were hardened against: a site
+            // doing `outputNotes[0]` -- the obvious "the note my transaction created" --
+            // would get the fee note whenever the kernel ordered it first, and every site
+            // reading `.length` counted one note too many. Silent at fee 0, since the
+            // kernel skips the fee branch entirely.
+            const { userNotes } = splitExecutedOutputNotes(txResult.executedTransaction());
             const res = {
               txHash: tx.transactionId!,
-              outputNotes: txResult
-                .executedTransaction()
-                .outputNotes()
-                .notes()
+              outputNotes: userNotes
                 .map(no => no.intoFull())
                 .filter(no => !!no)
                 .map(fullNote => u8ToB64(fullNote.serialize()))

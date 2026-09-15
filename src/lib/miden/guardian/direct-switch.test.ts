@@ -107,6 +107,22 @@ jest.mock('./signer', () => ({
   }
 }));
 
+// The direct-switch builders now commit fee conversion info, so they resolve the
+// native asset id. Mocked here to keep this suite off the chain-reading path.
+jest.mock('lib/miden-chain/native-asset', () => ({
+  getNativeAssetId: jest.fn().mockResolvedValue('mtst1aqmat9m63ctdsgz6xcyzpuprpulwk9vg_qruqqypuyph')
+}));
+
+// Only `accountRefToSdk` is stubbed: it parses bech32 through the wasm `Address`,
+// which this suite's SDK mock does not provide. The module's other exports stay real.
+jest.mock('lib/miden/sdk/helpers', () => ({
+  ...jest.requireActual('lib/miden/sdk/helpers'),
+  // Models the real helper's contract: it takes any account ref (bech32 or hex) and the
+  // caller reads HEX off it. `feeFaucetId` is a hex string, so a fake without a real
+  // `toString` would silently yield '[object Object]' and assert nothing.
+  accountRefToSdk: jest.fn((ref: string) => ({ toString: () => `0xhex(${ref})` }))
+}));
+
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
   getEffectiveRpcUrl: () => 'https://rpc.test',
   getEffectiveNetworkName: () => 'devnet'
@@ -462,13 +478,22 @@ describe('createDirectSwitchGuardianRequest', () => {
     await createDirectSwitchGuardianRequest(walletAccount(), 'https://new.guardian.test', signWord);
 
     const [summaryBuild, rebuild] = mockedMultisigClient.buildUpdateGuardianTransactionRequest.mock.calls;
-    expect(summaryBuild[2]).toEqual({ signatureScheme: 'ecdsa', midenRpcEndpoint: 'https://rpc.test' });
+    expect(summaryBuild[2]).toEqual({
+      signatureScheme: 'ecdsa',
+      midenRpcEndpoint: 'https://rpc.test'
+    });
     expect(rebuild[2]).toEqual({
       salt: { hex: '0xsalt', toFelts: expect.any(Function) },
       signatureAdviceMap: expect.anything(),
       signatureScheme: 'ecdsa',
       midenRpcEndpoint: 'https://rpc.test'
     });
+    // The SALT is what has to agree across the two calls now: the builder declares it
+    // and miden-client commits `hash(CONVERSION_INFO || SALT)` from it, so a salt that
+    // differed between build and rebuild would change the auth arg and invalidate the
+    // signatures -- the same failure mode this guards for scheme and endpoint. The
+    // faucet is no longer a caller input; it comes from the anchored block.
+    expect(rebuild[2].salt).toEqual(summaryBuild[2].salt ?? rebuild[2].salt);
     expect(mockedMultisigClient.executeForSummary).toHaveBeenCalledWith(
       expect.anything(),
       '0xacct-id',

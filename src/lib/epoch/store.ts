@@ -3,6 +3,8 @@ import { sepolia } from 'viem/chains';
 import { create } from 'zustand';
 
 import { registerPendingBridgeIn, resolveBridgeInNoteId } from 'lib/miden/activity/bridge-in';
+import type { IBridgedReceiveExtraInputs } from 'lib/miden/db/types';
+import * as Repo from 'lib/miden/repo';
 import { updateBridgedReceivePhase } from 'lib/miden/transaction/complete';
 
 import {
@@ -15,6 +17,7 @@ import {
 } from './bridge';
 import { getEvmConnection } from './client';
 import { MIDEN_DESTINATION_CHAIN_ID } from './config';
+import { readEpochIntentStatus } from './intent-status';
 import { getEpochSdk } from './sdk';
 import type { CrossChainIntentParams, EVMToMidenIntentParams, IntentResult } from './types';
 
@@ -151,10 +154,22 @@ function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : 'Unknown error';
 }
 
+// The deposit screen re-quotes on every debounced amount change and polls a pending deposit every 3 s,
+// so a response can land after a newer quote request, or a reset, has replaced what it was for. Only
+// the latest request writes: an older quote left in the store keeps Fast unconfirmable until the
+// amount is edited, and a stale poll would put a reset screen back into a deposit it no longer shows.
+let latestRequest = 0;
+// The request whose status read is running: the screen's interval must not start a second read of it,
+// and a read that a reset replaced must not hold up the next request's.
+let pollInFlight: number | undefined;
+
+const POLL_TIMEOUT_ERROR = 'Timed out waiting for the bridge to settle. Your deposit can be reclaimed.';
+
 export const useEpochStore = create<EpochStore>((set, get) => ({
   ...INITIAL_STATE,
 
   async quoteEVMToMiden(params, sponsorAddress) {
+    const request = ++latestRequest;
     set({
       status: 'quoting',
       flow: 'evm-to-miden',
@@ -168,10 +183,18 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
       const sdk = await getEpochSdk();
       if (!sdk) throw new Error('Connect an EVM wallet first');
       const quote = await getEVMToMidenQuote(sdk, params, sponsorAddress);
-      console.log('[epoch] EVM→Miden quote', quote);
+      const superseded = request !== latestRequest;
+      console.log(`[epoch] EVM→Miden quote${superseded ? ' (superseded)' : ''}`, quote);
+      if (superseded) return;
       set({ status: 'quoted', quote });
     } catch (err) {
-      console.error('[epoch] quoteEVMToMiden failed', err);
+      const superseded = request !== latestRequest;
+      console.error(
+        `[epoch] quoteEVMToMiden failed${superseded ? ' (superseded)' : ''}`,
+        { intent: params, sponsorAddress },
+        err
+      );
+      if (superseded) return;
       set({ status: 'failed', error: errorMessage(err) });
     }
   },
@@ -228,11 +251,17 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
         });
       }
       if (nonce) {
-        const evmParams = (quote as EVMToMidenQuote).params;
+        // Amount and symbol come from the tracking row, which the deposit screen
+        // wrote from the reverse quote (the exact EVM `tokenIn`) and the token the
+        // user picked. The quote's `tokenInSymbol` is the allocator's own `name`
+        // for the token, and for Sepolia USDC that is the contract address.
+        const trackingRow = bridgeReceiveTxId ? await Repo.transactions.get(bridgeReceiveTxId) : undefined;
+        const trackingInputs: IBridgedReceiveExtraInputs | undefined =
+          trackingRow?.type === 'bridged-receive' ? trackingRow.extraInputs : undefined;
         await registerPendingBridgeIn(connection.address, nonce, {
           provider: 'epoch',
-          sourceAmount: evmParams.evmAmount,
-          sourceSymbol: quote.quoteResult.tokenInSymbol,
+          sourceAmount: trackingInputs?.sourceAmount,
+          sourceSymbol: trackingInputs?.sourceSymbol,
           intentNonce: nonce,
           evmTxHash,
           bridgeReceiveTxId
@@ -249,15 +278,20 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
   },
 
   async quoteMidenToEVM(params, sponsorAddress) {
+    const request = ++latestRequest;
     set({ status: 'quoting', flow: 'miden-to-evm', error: null, intent: null, pollResults: null, midenNoteId: null });
     try {
       const sdk = await getEpochSdk({ forMidenFlow: true });
       if (!sdk) throw new Error('Connect an EVM wallet first');
       const quote = await getCrossChainQuote(sdk, params, sponsorAddress);
-      console.log('[epoch] Miden→EVM quote', quote);
+      const superseded = request !== latestRequest;
+      console.log(`[epoch] Miden→EVM quote${superseded ? ' (superseded)' : ''}`, quote);
+      if (superseded) return;
       set({ status: 'quoted', quote });
     } catch (err) {
-      console.error('[epoch] quoteMidenToEVM failed', err);
+      const superseded = request !== latestRequest;
+      console.error(`[epoch] quoteMidenToEVM failed${superseded ? ' (superseded)' : ''}`, err);
+      if (superseded) return;
       set({ status: 'failed', error: errorMessage(err) });
     }
   },
@@ -291,45 +325,59 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
   },
 
   async poll() {
-    const { intent } = get();
+    const request = latestRequest;
+    if (pollInFlight === request) return;
+    const { intent, flow, pollStartedAt } = get();
+    const pastPollLimit = () => pollStartedAt != null && Date.now() - pollStartedAt > MAX_POLL_MS;
     const { address } = await getEvmConnection();
     const nonce = intent?.intentNonce ?? intent?.solveResult?.nonce;
     if (!address || !nonce) return;
     try {
       const sdk = await getEpochSdk();
       if (!sdk) return;
-      const results = await sdk.getIntentStatus(address, nonce);
-      console.log('[epoch] poll', results);
-      const allDone = isIntentDone(results, get().flow);
-      // EVM→Miden fills carry the Miden-side note id as an extra field the SDK
-      // type doesn't declare (the allocator JSON passes through untouched).
-      const discoveredNoteId = results.map(r => firstString(r, ['midenNoteId'])).find(Boolean);
-      if (get().flow === 'evm-to-miden' && discoveredNoteId && discoveredNoteId !== get().midenNoteId) {
-        // Opportunistic: record the note id on the parked intent (and tag the
-        // consume row if auto-consume already claimed it).
-        resolveBridgeInNoteId(nonce, discoveredNoteId).catch(err =>
-          console.warn('[epoch] resolveBridgeInNoteId failed', err)
-        );
+      // Held only across the bounded read, so a connection or SDK setup that never settles cannot hold it. A
+      // poll that a reset or a quote replaced while it set up neither reads nor takes the slot.
+      if (request !== latestRequest || pollInFlight === request) return;
+      pollInFlight = request;
+      try {
+        const results = await readEpochIntentStatus(sdk, address, nonce);
+        console.log('[epoch] poll', results);
+        const allDone = isIntentDone(results, flow);
+        // EVM→Miden fills carry the Miden-side note id as an extra field the SDK
+        // type doesn't declare (the allocator JSON passes through untouched).
+        const discoveredNoteId = results.map(r => firstString(r, ['midenNoteId'])).find(Boolean);
+        if (flow === 'evm-to-miden' && discoveredNoteId && discoveredNoteId !== get().midenNoteId) {
+          // Opportunistic: record the note id on the parked intent (and tag the
+          // consume row if auto-consume already claimed it). A fact about the
+          // intent, so it is recorded even when a reset replaced this poll.
+          resolveBridgeInNoteId(address, nonce, discoveredNoteId).catch(err =>
+            console.warn('[epoch] resolveBridgeInNoteId failed', err)
+          );
+        }
+        if (request !== latestRequest) return;
+        const failed = !allDone && isIntentFailed(results, flow);
+        const timedOut = !allDone && !failed && pastPollLimit();
+        set({
+          pollResults: results,
+          midenNoteId: discoveredNoteId ?? get().midenNoteId,
+          status: allDone ? 'done' : failed || timedOut ? 'failed' : 'pending',
+          error: failed
+            ? 'The bridge intent failed on the destination chain. Your deposit can be reclaimed.'
+            : timedOut
+              ? POLL_TIMEOUT_ERROR
+              : get().error
+        });
+      } finally {
+        if (pollInFlight === request) pollInFlight = undefined;
       }
-      const failed = !allDone && isIntentFailed(results, get().flow);
-      const startedAt = get().pollStartedAt;
-      const timedOut = !allDone && !failed && startedAt != null && Date.now() - startedAt > MAX_POLL_MS;
-      set({
-        pollResults: results,
-        midenNoteId: discoveredNoteId ?? get().midenNoteId,
-        status: allDone ? 'done' : failed || timedOut ? 'failed' : 'pending',
-        error: failed
-          ? 'The bridge intent failed on the destination chain. Your deposit can be reclaimed.'
-          : timedOut
-            ? 'Timed out waiting for the bridge to settle. Your deposit can be reclaimed.'
-            : get().error
-      });
     } catch (err) {
+      // No answer says nothing about the intent: the deposit stays pending for the next tick.
       console.error('[epoch] poll failed', err);
     }
   },
 
   reset() {
+    latestRequest += 1;
     set({ ...INITIAL_STATE });
   }
 }));

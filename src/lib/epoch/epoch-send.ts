@@ -13,6 +13,7 @@ import {
   isBridgeableEvmTokenConfigured
 } from './bridgeable-token';
 import { getCurrentMidenBlock, MIDEN_MIN_RECLAIM_BLOCKS, MIDEN_RECLAIM_BUFFER_BLOCKS } from './chain';
+import { readEpochIntentStatus } from './intent-status';
 import { createBridgeP2IDENote, type BridgeNoteDeps } from './miden-note';
 import { getEpochReadOnlySdk } from './sdk';
 import type { CrossChainIntentParams } from './types';
@@ -243,7 +244,7 @@ export async function pollEpochIntentFill(args: {
   if (!args.intentNonce || !isEvmAddress(args.destinationAddress)) return null;
   try {
     const sdk = await getEpochReadOnlySdk(args.destinationAddress);
-    const results = await sdk.getIntentStatus(args.destinationAddress, args.intentNonce);
+    const results = await readEpochIntentStatus(sdk, args.destinationAddress, args.intentNonce);
     if (!results || results.length === 0) return { status: 'pending' };
 
     // Only the destination (Sepolia) leg decides the fill. Falling back to an
@@ -265,7 +266,7 @@ export async function pollEpochIntentFill(args: {
       fillChainId: onDest.chainId
     };
   } catch (err) {
-    console.error('[epoch] pollEpochIntentFill failed', err);
+    console.error('[epoch] pollEpochIntentFill failed', args.destinationAddress, args.intentNonce, err);
     return null;
   }
 }

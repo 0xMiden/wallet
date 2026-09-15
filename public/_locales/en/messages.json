@@ -388,8 +388,8 @@
     "englishSource": "Collateral"
   },
   "earnCollateralValue": {
-    "message": "Miden P2IDE (gasless)",
-    "englishSource": "Miden P2IDE (gasless)"
+    "message": "Miden P2IDE",
+    "englishSource": "Miden P2IDE"
   },
   "earnDepositRoute": {
     "message": "Miden -> $protocol$ ($network$)",
@@ -785,6 +785,14 @@
   "retry": {
     "message": "Retry",
     "englishSource": "Retry"
+  },
+  "retryEarnDelivery": {
+    "message": "Retry delivery",
+    "englishSource": "Retry delivery"
+  },
+  "withdrawalRecoveryUnavailable": {
+    "message": "This withdrawal cannot be retried safely. Check its status before starting another withdrawal.",
+    "englishSource": "This withdrawal cannot be retried safely. Check its status before starting another withdrawal."
   },
   "retryAnyway": {
     "message": "Retry anyway",
@@ -2449,17 +2457,24 @@
     "englishSource": "You've successfully rotated your Guardian!"
   },
   "guardianSwitchedRowTitle": {
-    "message": "Guardian switched"
+    "message": "Guardian switched",
+    "englishSource": "Guardian switched"
   },
   "guardianSwitchSubmittedRowTitle": {
-    "message": "Guardian switch submitted"
+    "message": "Guardian switch submitted",
+    "englishSource": "Guardian switch submitted"
   },
   "guardianSwitchSubmittedChip": {
-    "message": "Submitted"
+    "message": "Submitted",
+    "englishSource": "Submitted"
   },
   "guardianSwitchSuccessInfoTitle": {
     "message": "What changes now",
     "englishSource": "What changes now"
+  },
+  "guardianSwitchSetupIncompleteTitle": {
+    "message": "Setup unfinished.",
+    "englishSource": "Setup unfinished."
   },
   "guardianSwitchUnconfirmedHeading": {
     "message": "Guardian switch submitted",
@@ -2484,10 +2499,6 @@
   "guardianSwitchUnconfirmedInfo1": {
     "message": "Once the switch is confirmed on chain, your new Guardian co-signs every transaction and your old Guardian can no longer co-sign for your account.",
     "englishSource": "Once the switch is confirmed on chain, your new Guardian co-signs every transaction and your old Guardian can no longer co-sign for your account."
-  },
-  "guardianSwitchSetupIncompleteTitle": {
-    "message": "Setup unfinished.",
-    "englishSource": "Setup unfinished."
   },
   "guardianSwitchEndpointNotSavedBody": {
     "message": "The switch is confirmed on chain, but this device couldn't save the new Guardian's address. The wallet checks for this automatically and will prompt you to re-enter it if needed — this won't start another switch. If no prompt appears, contact support.",
@@ -2581,6 +2592,10 @@
     "message": "Your guardian was switched and we couldn't identify the new operator. Enter its URL to reconnect.",
     "englishSource": "Your guardian was switched and we couldn't identify the new operator. Enter its URL to reconnect."
   },
+  "guardianUrlMismatch": {
+    "message": "That operator doesn't match your account's on-chain guardian.",
+    "englishSource": "That operator doesn't match your account's on-chain guardian."
+  },
   "guardianUrlUnreachable": {
     "message": "Couldn't reach that operator. Check the URL and your connection, then try again.",
     "englishSource": "Couldn't reach that operator. Check the URL and your connection, then try again."
@@ -2590,11 +2605,8 @@
     "englishSource": "This account has no on-chain guardian to verify against yet."
   },
   "guardianUrlStaleRetry": {
-    "message": "Your Guardian changed while the address was being checked. Please try again."
-  },
-  "guardianUrlMismatch": {
-    "message": "That operator doesn't match your account's on-chain guardian.",
-    "englishSource": "That operator doesn't match your account's on-chain guardian."
+    "message": "Your Guardian changed while the address was being checked. Please try again.",
+    "englishSource": "Your Guardian changed while the address was being checked. Please try again."
   },
   "connectivityGuardianTitle": {
     "message": "Guardian unreachable",
@@ -2688,6 +2700,38 @@
     "message": "You can't send to your own address",
     "englishSource": "You can't send to your own address"
   },
+  "networkFee": {
+    "message": "Network Fee",
+    "englishSource": "Network Fee"
+  },
+  "networkFeeMax": {
+    "message": "Max network fee",
+    "englishSource": "Max network fee"
+  },
+  "networkFeeEstimateNote": {
+    "message": "The exact fee depends on the transaction and is usually lower. You will see what you paid on the receipt.",
+    "englishSource": "The exact fee depends on the transaction and is usually lower. You will see what you paid on the receipt."
+  },
+  "feeReserveBlocksSend": {
+    "message": "Your MIDEN is reserved for the network fee. Receive more MIDEN to send.",
+    "englishSource": "Your MIDEN is reserved for the network fee. Receive more MIDEN to send."
+  },
+  "notWorthClaiming": {
+    "message": "Worth less than the network fee to claim",
+    "englishSource": "Worth less than the network fee to claim"
+  },
+  "feeChargedPerClaim": {
+    "message": "Each claim pays its own fee. Claiming them together pays one.",
+    "englishSource": "Each claim pays its own fee. Claiming them together pays one."
+  },
+  "feeChargedPerAsset": {
+    "message": "Charged once per asset claimed.",
+    "englishSource": "Charged once per asset claimed."
+  },
+  "insufficientFeeAsset": {
+    "message": "You need MIDEN to pay the network fee. Receive some MIDEN to continue.",
+    "englishSource": "You need MIDEN to pay the network fee. Receive some MIDEN to continue."
+  },
   "amountMustBeLessThanBalance": {
     "message": "Amount must be less than balance",
     "englishSource": "Amount must be less than balance"
@@ -2697,8 +2741,8 @@
     "englishSource": "Auto Consume MIDEN notes"
   },
   "autoConsumeSettingsDescription": {
-    "message": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't spend your funds or add any fee.",
-    "englishSource": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't spend your funds or add any fee."
+    "message": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't claim any more often, or cost any more in fees, than tapping Claim yourself.",
+    "englishSource": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't claim any more often, or cost any more in fees, than tapping Claim yourself."
   },
   "encryptedWalletFileExporting": {
     "message": "Creating your wallet file…",
@@ -3786,6 +3830,127 @@
     "message": "Testnet",
     "englishSource": "Testnet"
   },
+  "devnet": {
+    "message": "Devnet",
+    "englishSource": "Devnet"
+  },
+  "localnet": {
+    "message": "Localnet",
+    "englishSource": "Localnet"
+  },
+  "networkModeBanner": {
+    "message": "You are using Bread on Miden $network$",
+    "englishSource": "You are using Bread on Miden $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "networkNoticeChip": {
+    "message": "Miden $network$",
+    "englishSource": "Miden $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "networkNoticeBody": {
+    "message": "This environment is for testing. Everything you hold here is a test token with no monetary value.",
+    "englishSource": "This environment is for testing. Everything you hold here is a test token with no monetary value."
+  },
+  "networkNoticeNoValueTitle": {
+    "message": "Test tokens are not money",
+    "englishSource": "Test tokens are not money"
+  },
+  "networkNoticeNoValueBody": {
+    "message": "Balances and prices shown here are simulated and cannot be redeemed.",
+    "englishSource": "Balances and prices shown here are simulated and cannot be redeemed."
+  },
+  "networkNoticeNoRealFundsTitle": {
+    "message": "Do not send real funds",
+    "englishSource": "Do not send real funds"
+  },
+  "networkNoticeNoRealFundsBody": {
+    "message": "Anything sent from a real network to a test address is lost.",
+    "englishSource": "Anything sent from a real network to a test address is lost."
+  },
+  "networkNoticeResetTitle": {
+    "message": "The network can reset",
+    "englishSource": "The network can reset"
+  },
+  "networkNoticeResetBody": {
+    "message": "A reset clears balances and history. Test balances never carry over to Mainnet.",
+    "englishSource": "A reset clears balances and history. Test balances never carry over to Mainnet."
+  },
+  "iUnderstand": {
+    "message": "I understand",
+    "englishSource": "I understand"
+  },
+  "receiveTestFundsTitle": {
+    "message": "Test tokens only",
+    "englishSource": "Test tokens only"
+  },
+  "receiveTestFundsBody": {
+    "message": "Only send Miden $network$ tokens here. Real funds sent to this address cannot be recovered.",
+    "englishSource": "Only send Miden $network$ tokens here. Real funds sent to this address cannot be recovered.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "crossChainFromNetwork": {
+    "message": "from $network$",
+    "englishSource": "from $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "ethereumSepolia": {
+    "message": "Ethereum Sepolia",
+    "englishSource": "Ethereum Sepolia"
+  },
+  "bridgeTestFundsTitle": {
+    "message": "Test funds only",
+    "englishSource": "Test funds only"
+  },
+  "bridgeTestFundsBody": {
+    "message": "This bridge moves Ethereum Sepolia test tokens to Miden. Never bridge from Ethereum mainnet or any other real network.",
+    "englishSource": "This bridge moves Ethereum Sepolia test tokens to Miden. Never bridge from Ethereum mainnet or any other real network."
+  },
+  "shareAddressText": {
+    "message": "My Miden $network$ address (test tokens only): $address$",
+    "englishSource": "My Miden $network$ address (test tokens only): $address$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      },
+      "address": {
+        "content": "$2"
+      }
+    }
+  },
+  "qrNetworkCaption": {
+    "message": "Miden $network$",
+    "englishSource": "Miden $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "evmConnectTestWalletTitle": {
+    "message": "Connect a test wallet only",
+    "englishSource": "Connect a test wallet only"
+  },
+  "evmConnectTestWalletBody": {
+    "message": "This bridge runs on Ethereum Sepolia. Do not connect a wallet that holds real funds. Create a fresh wallet and fund it with Sepolia ETH only.",
+    "englishSource": "This bridge runs on Ethereum Sepolia. Do not connect a wallet that holds real funds. Create a fresh wallet and fund it with Sepolia ETH only."
+  },
   "browser": {
     "message": "Browser",
     "englishSource": "Browser"
@@ -4041,10 +4206,6 @@
     "message": "Connect a wallet to bridge assets to and from Miden.",
     "englishSource": "Connect a wallet to bridge assets to and from Miden."
   },
-  "onlyBridgeableTokenSupported": {
-    "message": "The Slow (Agglayer) route only supports the bridgeable token. Use Fast to send other tokens.",
-    "englishSource": "The Slow (Agglayer) route only supports the bridgeable token. Use Fast to send other tokens."
-  },
   "connectDestinationWalletToClaim": {
     "message": "Connect the destination wallet to claim.",
     "englishSource": "Connect the destination wallet to claim."
@@ -4074,8 +4235,8 @@
     }
   },
   "noFee": {
-    "message": "No fee",
-    "englishSource": "No fee"
+    "message": "No bridge fee",
+    "englishSource": "No bridge fee"
   },
   "fastArrival": {
     "message": "~30 sec",
@@ -4120,10 +4281,6 @@
   "delivering": {
     "message": "Delivering",
     "englishSource": "Delivering"
-  },
-  "slowNeedsNativeEth": {
-    "message": "The Slow (Agglayer) route only supports native ETH on testnet. Choose ETH to use it.",
-    "englishSource": "The Slow (Agglayer) route only supports native ETH on testnet. Choose ETH to use it."
   },
   "fastEthWrapNotice": {
     "message": "Bridging ETH on the Fast route wraps it to WETH first, then bridges the WETH. This route isn't available yet.",
@@ -4317,6 +4474,10 @@
     "message": "Processing Withdrawal",
     "englishSource": "Processing Withdrawal"
   },
+  "withdrawalCheckingDescription": {
+    "message": "Checking your withdrawal. Keep the wallet open while delivery is confirmed.",
+    "englishSource": "Checking your withdrawal. Keep the wallet open while delivery is confirmed."
+  },
   "withdrawalProcessingDescription": {
     "message": "Signing and submitting the gasless withdrawal intent to Epoch. This usually takes a few seconds.",
     "englishSource": "Signing and submitting the gasless withdrawal intent to Epoch. This usually takes a few seconds."
@@ -4440,5 +4601,78 @@
   "devEndpointResetConfirm": {
     "message": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it.",
     "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
+  },
+  "activityAcceptTransfer": {
+    "message": "Accept Transfer",
+    "englishSource": "Accept Transfer"
+  },
+  "activityRejectTransfer": {
+    "message": "Decline",
+    "englishSource": "Decline"
+  },
+  "activityCheckingTransfer": {
+    "message": "Checking…",
+    "englishSource": "Checking…"
+  },
+  "activityTransferClaimed": {
+    "message": "Claimed",
+    "englishSource": "Claimed"
+  },
+  "activityClaimedOn": {
+    "message": "Claimed on",
+    "englishSource": "Claimed on"
+  },
+  "activityReceivedOn": {
+    "message": "Received on",
+    "englishSource": "Received on"
+  },
+  "activityNotYetAccepted": {
+    "message": "Not yet accepted — review and accept to claim these funds.",
+    "englishSource": "Not yet accepted — review and accept to claim these funds."
+  },
+  "acceptAll": {
+    "message": "Accept All",
+    "englishSource": "Accept All"
+  },
+  "activitySearch": {
+    "message": "Search activity",
+    "englishSource": "Search activity"
+  },
+  "activityTransferAccepted": {
+    "message": "Transfer accepted",
+    "englishSource": "Transfer accepted"
+  },
+  "activityTransferDetails": {
+    "message": "Details",
+    "englishSource": "Details"
+  },
+  "activityRejectExplanation": {
+    "message": "Hide this transfer from Activity on this device? This does not return funds to the sender or delete the note. You can restore hidden transfers in Activity.",
+    "englishSource": "Hide this transfer from Activity on this device? This does not return funds to the sender or delete the note. You can restore hidden transfers in Activity."
+  },
+  "activityHiddenTransfers": {
+    "message": "Hidden transfers: $count$",
+    "englishSource": "Hidden transfers: $count$",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "activityRestoreTransfers": {
+    "message": "Restore",
+    "englishSource": "Restore"
+  },
+  "activityHiddenNotesError": {
+    "message": "Could not save hidden transfers. Please try again.",
+    "englishSource": "Could not save hidden transfers. Please try again."
+  },
+  "activityDateUnavailable": {
+    "message": "Date unavailable",
+    "englishSource": "Date unavailable"
+  },
+  "walletSetupDidNotComplete": {
+    "message": "Your wallet was created but did not finish starting up. Check your connection and try again.",
+    "englishSource": "Your wallet was created but did not finish starting up. Check your connection and try again."
   }
 }

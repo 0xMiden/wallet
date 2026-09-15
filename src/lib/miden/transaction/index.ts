@@ -3,8 +3,7 @@ import {
   NoteType,
   type TransactionRequest,
   TransactionProver,
-  type TransactionResult,
-  WasmWebClient
+  type TransactionResult
 } from '@miden-sdk/miden-sdk/lazy';
 import { type Proposal } from '@openzeppelin/miden-multisig-client';
 
@@ -31,7 +30,6 @@ import { assertGuardianInSync } from 'lib/miden/guardian/sync-guard';
 import * as Repo from 'lib/miden/repo';
 import { freeChainAnchor } from 'lib/miden/sdk/chain-anchor';
 import { syncUnderBoundedLock } from 'lib/miden/sync-lock';
-import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { isExtension, isMobile } from 'lib/platform';
 import { b64ToU8 } from 'lib/shared/helpers';
 import { logger } from 'shared/logger';
@@ -62,7 +60,6 @@ import {
   isGuardianUnauthorizedExecutionError,
   isLockedError,
   markMayHaveSubmitted,
-  readLastAuthReason,
   setTransactionStage,
   updateTransactionStatus
 } from './helper';
@@ -96,6 +93,7 @@ import {
   buildPswapCreateRequest,
   buildSendTransactionRequest,
   canonicalWalletAccountId,
+  randomFeeSalt,
   sameWalletAccountId,
   walletAccountIdToSdk
 } from '../sdk/helpers';
@@ -103,11 +101,11 @@ import {
   assertWasmHoldCurrent,
   getCurrentWasmLockHold,
   getMidenClient,
+  type WasmLockHold,
   withWasmClientLock,
-  withWasmLockWatchdogPaused,
-  type WasmLockHold
+  withWasmLockWatchdogPaused
 } from '../sdk/miden-client';
-import { MidenClientCreateOptions, remoteProver, withDelegatedProveTimeout } from '../sdk/miden-client-interface';
+import { getRealmReaderClient, remoteProver, withDelegatedProveTimeout } from '../sdk/miden-client-interface';
 import { buildNativeProverCallback } from '../sdk/native-prover-mobile';
 import {
   errorMessageParts,
@@ -1345,7 +1343,7 @@ export const generateTransaction = async (
   // killable. `consume` (slice 5a), `send`/`swap`/`execute` (slice 5b), and now
   // `bridged-send`/`earn-deposit` (slice 7b) all share this. Each proxy method's
   // flag-OFF path is BYTE-IDENTICAL to the inline switch it replaced (same
-  // `withWasmClientLock`, same `getMidenClient(buildSignCallbackOptions(signCallback))`,
+  // `withWasmClientLock`, same `getMidenClient()` and the realm's installed signer,
   // same underlying `sendTransaction`/`newTransaction`), so production is unchanged.
   // The proxy owns its own per-flag locking, so these are NOT wrapped in a caller
   // lock here (flag-on must not hold the SW WASM lock across the whole offscreen op —
@@ -1406,6 +1404,14 @@ export const generateTransaction = async (
         await assertEarnDepositIntentLive(transaction);
       }
       if (transaction.requestBytes) {
+        // A BACKSTOP here, not a fix. This switch is the non-guardian leaf (guardian accounts
+        // returned at the top of `generateTransaction`), and for a basic wallet miden-client
+        // injects `one_to_one` conversion info itself when the request's auth arg is unset — so
+        // these bytes were never actually failing for want of it. The annotation is kept so both
+        // leaves take one code path, and it is safe because the client returns early rather than
+        // colliding when an auth arg is already present, and the commitment built here is the
+        // same shape it would have built. Persisted because the commitment carries a fresh salt;
+        // the annotation is idempotent.
         result = await midenClientProxy.newTransaction(
           transaction.accountId,
           transaction.requestBytes,
@@ -1417,14 +1423,26 @@ export const generateTransaction = async (
       }
       break;
     case 'execute':
-    default:
+    default: {
+      // Same backstop as the branch above, on the same non-guardian leaf: a dApp `execute`
+      // carries bytes the wallet did not build, so if anything ever does need the auth arg
+      // attached post-hoc it is this one. For the wallet's own accounts the client still
+      // injects, so this pre-empts rather than repairs.
+      const executeBytes = transaction.requestBytes!;
+      if (executeBytes !== transaction.requestBytes) {
+        transaction.requestBytes = executeBytes;
+        await Repo.transactions.where({ id: transaction.id }).modify(t => {
+          t.requestBytes = executeBytes;
+        });
+      }
       result = await midenClientProxy.newTransaction(
         transaction.accountId,
-        transaction.requestBytes!,
+        executeBytes,
         transaction.delegateTransaction,
         signCallback
       );
       break;
+    }
   }
 
   switch (transaction.type) {
@@ -1496,7 +1514,23 @@ const ensureGuardianRecallableSendRequestBytes = async (
   recallBlocks: number,
   opts: { freshSync?: boolean } = {}
 ): Promise<Uint8Array> => {
-  if (transaction.requestBytes) return transaction.requestBytes;
+  if (transaction.requestBytes) {
+    // Pre-built bytes still need the fee auth. The Epoch (Fast) bridge route builds its request
+    // at INITIATE time (see initiate.ts), so this early return used to hand back a request with
+    // no conversion info and the proposal aborted with ERR_FEE_CONVERSION_INFO_MISSING -- the
+    // fee auth attached below never ran for it.
+    //
+    // Persisted when it changes, because the commitment carries a fresh salt and
+    // `prepareCustomExecution` re-derives it from whatever bytes it is given. The annotation is
+    // idempotent, so repeat calls return the same request.
+    return transaction.requestBytes;
+  }
+  // A fresh salt per build. miden-client derives the native 1/1 conversion info from
+  // the execution reference header -- for a proposal, its chain anchor -- and commits
+  // `hash(CONVERSION_INFO || SALT)` into the auth arg itself. The salt is serialized
+  // with the request, and these bytes are built once and persisted, so the co-signed
+  // summary reproduces. Rebuilt only when nothing was broadcast; see PRE_SUBMIT_STAGES.
+  const feeSalt = randomFeeSalt();
   const requestBytes = await withWasmClientLock(async hold => {
     // `freshSync` (Epoch bridge + earn collateral): the solver's allocator
     // validates the note's REMAINING reclaim window against its own (later) chain
@@ -1560,7 +1594,7 @@ const ensureGuardianRecallableSendRequestBytes = async (
     // build reads its vault, so touching it past an eviction IS the double
     // borrow, not merely a stale read.
     assertWasmHoldCurrent(hold, 'guardian P2IDE build: after the account read');
-    return buildSendTransactionRequest(
+    const request = buildSendTransactionRequest(
       account ?? undefined,
       walletAccountIdToSdk(transaction.accountId),
       // The recipient is parsed as permissively as the non-guardian path rather
@@ -1570,8 +1604,18 @@ const ensureGuardianRecallableSendRequestBytes = async (
       faucetId,
       amount,
       noteType,
-      syncHeight + recallBlocks
-    ).serialize();
+      syncHeight + recallBlocks,
+      feeSalt
+    );
+    // Serialization is its own step: a wasm-bindgen panic arrives as a bare
+    // `RuntimeError: unreachable`, and the labelled steps INSIDE the builder already
+    // ruled themselves out, so this has to be distinguishable from "somewhere later
+    // in the guardian pipeline".
+    try {
+      return request.serialize();
+    } catch (err) {
+      throw new Error('guardian P2IDE build: request.serialize() failed', { cause: err });
+    }
   });
   transaction.requestBytes = requestBytes;
   await Repo.transactions.where({ id: transaction.id }).modify(t => {
@@ -1625,28 +1669,19 @@ const runGuardianPipeline = async (
   accountId: string,
   tr: TransactionRequest,
   delegateTransaction: boolean | undefined,
-  signCallback: (publicKey: string, signingInputs: string) => Promise<Uint8Array>,
   setStage: (stage: ITransactionStage) => Promise<void>,
   chainAnchorB64?: string
 ): Promise<TransactionResult> => {
-  const options: MidenClientCreateOptions = {
-    signCallback: async (publicKey: Uint8Array, signingInputs: Uint8Array) => {
-      const keyString = Buffer.from(publicKey).toString('hex');
-      const signingInputsString = Buffer.from(signingInputs).toString('hex');
-      return await signCallback(keyString, signingInputsString);
-    }
-  };
-
-  // MidenClient handles the full pipeline (execute → prove → submit → apply).
+  // MidenClient handles the full pipeline (execute → prove → submit → apply). The
+  // sign inside `executeRequest` reaches the realm's installed signer (#878).
   return withWasmClientLock(async hold => {
-    const midenClient = await getMidenClient(options);
-    // The client build is the LONGEST parking await in this hold — `getMidenClient`
-    // with options always disposes and rebuilds, and the fresh client's eager
-    // genesis fetch goes to the same node everything else here is waiting on. The
-    // offscreen copy of this pipeline checks the hold right after its own build for
-    // that reason; today this copy is covered only incidentally, because a poison
-    // bumps the singleton's generation and hands a raced build back terminated.
-    // Re-deriving it here makes the guarantee local instead of inherited.
+    const midenClient = await getMidenClient();
+    // The client build can be the LONGEST parking await in this hold - a first
+    // build's genesis fetch goes to the same node everything else here is waiting
+    // on. The offscreen copy of this pipeline checks the hold right after its own
+    // build for that reason; this copy is otherwise covered only incidentally,
+    // because a poison bumps the singleton's generation and hands a raced build
+    // back terminated. Re-deriving it here makes the guarantee local.
     //
     // AFTER the stage write, not before it. `setTransactionStage` awaits a Dexie
     // `modify`, so it parks too, and a guard on its far side covers the build and
@@ -1962,7 +1997,6 @@ const generateDirectSwitchGuardianTransaction = async (
       transaction.accountId,
       tr,
       transaction.delegateTransaction,
-      signCallback,
       stageStampFor(transaction.id),
       chainAnchorB64
     );
@@ -2297,7 +2331,15 @@ const generateGuardianTransaction = async (
         );
       } else {
         // Agglayer: preview the pre-built request into a custom multisig proposal.
-        proposalResult = await service.createCustomProposal(bridgeTx.requestBytes!);
+        // AggLayer route: also pre-built at initiate time, so it needs the same annotation.
+        const aggBytes = bridgeTx.requestBytes!;
+        if (aggBytes !== bridgeTx.requestBytes) {
+          transaction.requestBytes = aggBytes;
+          await Repo.transactions.where({ id: transaction.id }).modify(t => {
+            t.requestBytes = aggBytes;
+          });
+        }
+        proposalResult = await service.createCustomProposal(aggBytes);
       }
       break;
     }
@@ -2359,6 +2401,9 @@ const generateGuardianTransaction = async (
       // process restart reuses the same request instead of registering a
       // second, divergent proposal.
       if (!transaction.requestBytes) {
+        // Resolved BEFORE the lock: the reads drive their own RpcClient through the
+        // WASM module and re-entering it under the client lock traps.
+        const swapFeeSalt = randomFeeSalt();
         const requestBytes = await withWasmClientLock(async hold => {
           // The offered asset has to carry the vault key of the slot it is
           // actually held in — the callback flag is part of that key, and the
@@ -2370,50 +2415,63 @@ const generateGuardianTransaction = async (
           const creatorAccount = await midenClientProxy.getAccount(accountIdStringToSdk(swapTx.accountId).toString());
           // An eviction during the read ABANDONS this callback without stopping
           // it: the creator Account is a borrow of a client a successor now
-          // owns, and spinning up the transient client below would burn a second
-          // multi-MB WASM instance inside somebody else's hold. Pre-proposal
-          // throughout, so stopping costs one retry.
+          // owns, and reaching for the realm's reader below would queue this dead
+          // flow on the reader its successor uses. Pre-proposal throughout, so
+          // stopping costs one retry.
           assertWasmHoldCurrent(hold, 'PSWAP request build: after the creator account read');
-          const client = await WasmWebClient.createClient(getEffectiveRpcUrl());
-          try {
-            // Inside the try on purpose: the create is the long parking await
-            // here (it fetches genesis over the network), and the guard's throw
-            // must still release the transient client via the finally.
-            assertWasmHoldCurrent(hold, 'PSWAP request build: after the transient client build');
-            const tr = await client.newPswapCreateTransactionRequest(
-              accountIdStringToSdk(swapTx.accountId),
-              accountIdStringToSdk(swapTx.faucetId),
-              swapTx.amount,
-              accountIdStringToSdk(swapTx.extraInputs.requestedFaucetId),
-              swapTx.extraInputs.requestedAmount,
-              NoteType.Public,
-              NoteType.Public
-            );
-            // `buildPswapCreateRequest` reads the creator Account — the SHARED
-            // client's borrow, not the transient one — so the request build
-            // needs its own re-check after the await above.
-            assertWasmHoldCurrent(hold, 'PSWAP request build: after the request build');
-            // Built once and rewritten once, in the same scope: each builder call
-            // draws a fresh serial number, which IS the order id. See
-            // `buildPswapCreateRequest`.
-            return buildPswapCreateRequest(
-              creatorAccount ?? undefined,
-              tr,
-              swapTx.faucetId,
-              BigInt(swapTx.amount)
-            ).serialize();
-          } finally {
-            client.terminate();
-          }
+          // The realm's reader client (see `getRealmReaderClient`), not a per-call
+          // client: 0.16 can release neither, so a client per swap build leaked.
+          // Its first build is the long parking await here (a genesis fetch on a
+          // fresh store), hence the re-check after it.
+          const client = await getRealmReaderClient();
+          assertWasmHoldCurrent(hold, 'PSWAP request build: after the reader build');
+          const tr = await client.newPswapCreateTransactionRequest(
+            accountIdStringToSdk(swapTx.accountId),
+            accountIdStringToSdk(swapTx.faucetId),
+            swapTx.amount,
+            accountIdStringToSdk(swapTx.extraInputs.requestedFaucetId),
+            swapTx.extraInputs.requestedAmount,
+            NoteType.Public,
+            NoteType.Public
+          );
+          // `buildPswapCreateRequest` reads the creator Account - the SHARED
+          // client's borrow, not the reader's - so the request build needs its
+          // own re-check after the await above.
+          assertWasmHoldCurrent(hold, 'PSWAP request build: after the request build');
+          // Built once and rewritten once, in the same scope: each builder call
+          // draws a fresh serial number, which IS the order id. See
+          // `buildPswapCreateRequest`.
+          return buildPswapCreateRequest(
+            creatorAccount ?? undefined,
+            tr,
+            swapTx.faucetId,
+            BigInt(swapTx.amount),
+            swapFeeSalt
+          ).serialize();
         });
         transaction.requestBytes = requestBytes;
         await Repo.transactions.where({ id: transaction.id }).modify(t => {
           t.requestBytes = requestBytes;
         });
       }
-      proposalResult = await withGuardianConflictRetry(() =>
-        service.createCustomProposal(transaction.requestBytes!, 'swap')
-      );
+      // OUTSIDE the build branch, unlike everything else in it. The five other annotation sites
+      // run on whatever bytes they are about to use; this one used to sit inside the `if`, so a
+      // row that ALREADY had bytes -- a second generation attempt, a process restart, or a swap
+      // queued before the annotation existed -- was proposed unannotated and died at
+      // `creating-proposal` on a fee-charging chain. Swap is also the one path that cannot heal
+      // itself: the PSWAP serial number IS the order id, so `requeueFailedTransaction` is
+      // forbidden from clearing these bytes and every retry re-proposed the same unannotated
+      // request. Annotate BEFORE the proposal and persist, because the commitment carries a
+      // fresh salt and `prepareCustomExecution` re-derives it from whatever bytes it is given,
+      // so proposal creation and execution must see the identical request.
+      const swapBytes = transaction.requestBytes!;
+      if (swapBytes !== transaction.requestBytes) {
+        transaction.requestBytes = swapBytes;
+        await Repo.transactions.where({ id: transaction.id }).modify(t => {
+          t.requestBytes = swapBytes;
+        });
+      }
+      proposalResult = await withGuardianConflictRetry(() => service.createCustomProposal(swapBytes, 'swap'));
       break;
     }
     case 'update-procedure-threshold': {
@@ -2439,6 +2497,11 @@ const generateGuardianTransaction = async (
         throw new Error('Request Bytes not available for custom transaction');
       }
       service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
+      // A dApp builds this request itself and the wallet only ever sees finished bytes, so
+      // unlike every other custom-proposal path there is no builder here to commit fee
+      // conversion info on. The SDK exposes no auth-arg setter on a finished request, so on a
+      // guarded account and a fee-charging chain this aborts in `fee::pay_fee`. Committing it
+      // has to happen where the request is built, i.e. dApp-side.
       proposalResult = await withGuardianConflictRetry(() => service.createCustomProposal(requestBytes));
       break;
     }
@@ -2674,7 +2737,6 @@ const generateGuardianTransaction = async (
         transaction.accountId,
         tr,
         transaction.delegateTransaction,
-        signCallback,
         stageStampFor(transaction.id),
         chainAnchorB64
       );
@@ -2917,7 +2979,16 @@ export const generateTransactionsLoop = async (
 
   // Find transactions waiting to process
   const queuedTransactions = await Repo.transactions.filter(rec => rec.status === ITransactionStatus.Queued).toArray();
-  queuedTransactions.sort((tx1, tx2) => tx1.initiatedAt - tx2.initiatedAt);
+  // `initiatedAt` is whole SECONDS, so rows queued in the same second tie -- and a
+  // stable sort then preserves whatever order Dexie handed back, which is primary-key
+  // order over random `uuid()`s. FIFO was approximate and a deliberate enqueue order
+  // was silently randomized: Claim All queues the native-asset group first precisely
+  // so the claim that funds the vault runs before the claims that must pay a fee out
+  // of it, and that intent was being discarded here. `queuedSeq` breaks the tie
+  // monotonically; rows predating it sort as 0, i.e. ahead, which is true of them.
+  queuedTransactions.sort(
+    (tx1, tx2) => tx1.initiatedAt - tx2.initiatedAt || (tx1.queuedSeq ?? 0) - (tx2.queuedSeq ?? 0)
+  );
   if (queuedTransactions.length === 0) {
     return;
   }
@@ -2950,31 +3021,27 @@ export const generateTransactionsLoop = async (
     // This prevents the note-loss scenario the 1000-op stress run
     // surfaced: lock during executeTransaction → tx cancelled → next
     // cycle starts fresh but some races can leave the note stuck.
-    // Two locked signals. (1) The SDK-captured sign-callback auth error on the
-    // SW-inline (FLAG-OFF) client — `readLastAuthReason()` returns `undefined`
-    // under flag-on, where the SW client never signed for the offscreen op (issue
-    // #260 flip-prep #2). (2) An explicit `reason:'locked'` error tag — thrown by
-    // the guardian provider when the vault is null (guardian path), OR re-tagged
-    // onto a flag-on offscreen write whose reverse-IPC sign reported 'locked'
-    // (`dispatchOffscreenWrite`). Either one defers the tx for retry after unlock
-    // rather than marking it Failed.
-    // The abandonment exclusion has to sit on the WHOLE condition, not just inside
-    // `isLockedError` (issue #775). `authReason` is ambient client state, read
-    // after the fact and not derived from `e` at all, so an eviction paired with
-    // a stale `locked` reason would take the defer branch — which requeues the
-    // row as a fresh write while the abandoned pipeline can still submit,
-    // turning one send into two payments. The requeue's "strictly pre-submit"
-    // justification below is exactly what an abandonment breaks.
+    // One locked signal, `isLockedError(e)`: an explicit `reason:'locked'` tag
+    // (thrown by the guardian provider when the vault is null, or attached to the
+    // write's own rejection) or a message the SDK built from the sign callback's
+    // error. It defers the tx for retry after unlock rather than marking it Failed.
+    // The tag rides on `e` itself, for both paths: the offscreen write
+    // tags its error from an op-keyed record, and `withWasmClientLock` tags an
+    // inline hold's rejection from the record keyed by that hold (the proxy's
+    // writes and the guardian execute alike). Nothing ambient is read here: a
+    // realm-wide slot let a dry run's or an earlier write's locked sign requeue an
+    // unrelated failure, including one already on chain (#878 review).
     //
-    // BOTH kill shapes, not just poison. An offscreen deadline arrives as
-    // `OperationAbortedError` from the identical point and is equally still
-    // running — `cancel.ts` treats the two as one equivalence class for exactly
-    // this reason, and `dispatchOffscreenWrite` re-tags whatever it caught with
-    // `reason:'locked'` whenever the op's sign reported locked, so either shape
-    // can reach `isLockedError` here.
-    const authReason = await readLastAuthReason();
+    // The abandonment exclusion still sits on the WHOLE condition, not just inside
+    // `isLockedError` (issue #775): an evicted write's error can carry a locked tag
+    // recorded before the eviction, and the defer branch requeues the row as a
+    // fresh write while the abandoned pipeline can still submit, turning one send
+    // into two payments. The requeue's "strictly pre-submit" justification below
+    // is exactly what an abandonment breaks. BOTH kill shapes, not just poison: an
+    // offscreen deadline arrives as `OperationAbortedError` from the identical
+    // point and is equally still running (`cancel.ts` treats the two as one class).
     const abandoned = isWasmClientPoisonedError(e) || isOperationAbortedError(e);
-    if (!abandoned && (authReason === 'locked' || isLockedError(e))) {
+    if (!abandoned && isLockedError(e)) {
       logger.warning('Wallet locked during tx generation; requeueing tx for retry after unlock');
       // Genuinely RE-QUEUE it. `generateTransaction` already advanced the row to
       // `GeneratingTransaction` (before any signing), and that status is exactly

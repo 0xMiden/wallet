@@ -136,6 +136,24 @@ function resetControl() {
       remainingOffered: () => 10n,
       remainingRequested: () => 20n
     })),
+    inlineLineages: jest.fn(async () => [
+      {
+        orderId: () => '77',
+        currentTipNoteId: () => ({ toString: () => '0xtip' }),
+        currentDepth: () => 2,
+        state: () => 1,
+        remainingOffered: () => 9007199254740993n,
+        remainingRequested: () => 20n
+      },
+      {
+        orderId: () => '88',
+        currentTipNoteId: () => ({ toString: () => '0xtip88' }),
+        currentDepth: () => 0,
+        state: () => 0,
+        remainingOffered: () => 30n,
+        remainingRequested: () => 40n
+      }
+    ]),
     inlineGetInputNote: jest.fn(async () => ({ metadata: () => ({ noteType: () => 1 }) })),
     inlineGetTransactionCommitState: jest.fn(async () => 'committed'),
     inlineImportNoteBytes: jest.fn(async () => '0ximportedid'),
@@ -172,7 +190,10 @@ function resetControl() {
       client: {
         getSyncHeight: (...a: any[]) => G.__px.inlineGetSyncHeight(...a),
         sync: (...a: any[]) => G.__px.inlineSync(...a),
-        pswap: { lineage: (...a: any[]) => G.__px.inlineLineage(...a) }
+        pswap: {
+          lineage: (orderId: string | bigint) => G.__px.inlineLineage(orderId),
+          lineages: () => G.__px.inlineLineages()
+        }
       }
     }))
   };
@@ -1216,6 +1237,114 @@ describe('MidenClientProxy — slice-7a reach-through reads', () => {
     expect(await p).toBeNull();
   });
 
+  it('reads all inline lineages once without IPC and preserves decimal amounts', async () => {
+    const { midenClientProxy } = await loadProxy(false);
+    const result = await midenClientProxy.getPswapLineages(() => {});
+
+    expect(G.__px.inlineLineages).toHaveBeenCalledTimes(1);
+    expect(G.__px.inlineLineage).not.toHaveBeenCalled();
+    expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
+    expect(result).toEqual([
+      {
+        orderId: '77',
+        currentTipNoteId: '0xtip',
+        currentDepth: 2,
+        state: 1,
+        remainingOffered: '9007199254740993',
+        remainingRequested: '20'
+      },
+      {
+        orderId: '88',
+        currentTipNoteId: '0xtip88',
+        currentDepth: 0,
+        state: 0,
+        remainingOffered: '30',
+        remainingRequested: '40'
+      }
+    ]);
+  });
+
+  it('does not start a bulk SDK read after the client acquisition loses its hold', async () => {
+    const { midenClientProxy } = await loadProxy(false);
+    let live = true;
+    const acquire = G.__px.getMidenClient;
+    G.__px.getMidenClient = jest.fn(async () => {
+      const client = await acquire();
+      live = false;
+      return client;
+    });
+    await expect(
+      midenClientProxy.getPswapLineages(() => {
+        if (!live) throw new Error('abandoned hold');
+      })
+    ).rejects.toThrow('abandoned hold');
+    expect(G.__px.inlineLineages).not.toHaveBeenCalled();
+  });
+
+  it('does not reduce bulk live records after the SDK read loses its hold', async () => {
+    const { midenClientProxy } = await loadProxy(false);
+    let live = true;
+    const readRecord = jest.fn(() => '77');
+    G.__px.inlineLineages = jest.fn(async () => {
+      live = false;
+      return [{ orderId: readRecord }];
+    });
+    await expect(
+      midenClientProxy.getPswapLineages(() => {
+        if (!live) throw new Error('abandoned hold');
+      })
+    ).rejects.toThrow('abandoned hold');
+    expect(readRecord).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [],
+    [
+      {
+        orderId: '77',
+        currentTipNoteId: '0xtip',
+        currentDepth: 2,
+        state: 1,
+        remainingOffered: '9007199254740993',
+        remainingRequested: '20'
+      }
+    ]
+  ])('routes a bulk lineage snapshot through offscreen with no arguments', async (...rows) => {
+    const { midenClientProxy } = await loadProxy(true);
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: { op_id: string }) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: Buffer.from(JSON.stringify(rows)).toString('base64'),
+      durationMs: 1
+    }));
+    const pending = midenClientProxy.getPswapLineages(() => {});
+    await flush();
+    fireReady();
+    expect(await pending).toEqual(rows);
+    expect(fakeChrome.runtime.sendMessage.mock.calls[0][0]).toEqual(
+      expect.objectContaining({
+        method: 'getPswapLineages',
+        argsB64: [],
+        deadline_ms: 15_000
+      })
+    );
+    expect(G.__px.inlineLineages).not.toHaveBeenCalled();
+  });
+
+  it('rejects an absent offscreen bulk snapshot instead of reporting no tracked orders', async () => {
+    const { midenClientProxy } = await loadProxy(true);
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: { op_id: string }) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: null,
+      durationMs: 1
+    }));
+    const pending = midenClientProxy.getPswapLineages(() => {}).catch((error: Error) => error);
+    await flush();
+    fireReady();
+    expect(await pending).toEqual(new Error('getPswapLineages: offscreen document returned no snapshot'));
+  });
+
   // ── getInputNoteSummary ───────────────────────────────────────────────────
   it('flag OFF → getInputNoteSummary reduces the inline live InputNoteRecord to its noteType', async () => {
     const { midenClientProxy } = await loadProxy(false);
@@ -1582,44 +1711,27 @@ const consumeTx = () => ({
   displayIcon: 'RECEIVE'
 });
 
-describe('MidenClientProxy — slice-5a consumeNoteId flag routing + byte-identity', () => {
-  it('flag OFF → consumeNoteId runs inline under withWasmClientLock with the wrapped sign options (byte-identical)', async () => {
+describe('MidenClientProxy — slice-5a consumeNoteId flag routing', () => {
+  it('flag OFF → consumeNoteId runs inline under withWasmClientLock, the per-write signer unused', async () => {
     const { midenClientProxy } = await loadProxy(false);
     const signCallback = jest.fn(async () => new Uint8Array([1]));
     const tx = consumeTx();
     const result = await midenClientProxy.consumeNoteId(tx as any, signCallback);
+    expect(signCallback).not.toHaveBeenCalled();
 
     // The caller lock wraps the op (exactly as the old switch-under-lock did).
     expect(G.__px.withWasmClientLock).toHaveBeenCalledTimes(1);
-    // getMidenClient was resolved WITH the wrapped sign-callback options.
     expect(G.__px.getMidenClient).toHaveBeenCalledTimes(1);
-    const opts = G.__px.getMidenClient.mock.calls[0][0];
-    expect(typeof opts.signCallback).toBe('function');
+    // The write hands the lock nothing but the op, and asks for the singleton with no
+    // options: no per-write signer anywhere, the realm's installed one signs (#878).
+    expect(G.__px.withWasmClientLock.mock.calls[0]).toHaveLength(1);
+    expect(G.__px.getMidenClient.mock.calls[0]).toHaveLength(0);
     // The inline client's consumeNoteId ran on the full tx object.
     expect(G.__px.inlineConsumeNoteId).toHaveBeenCalledWith(tx);
     expect(result).toEqual({ __inlineTxResult: true });
     // Offscreen never touched.
     expect(fakeChrome.offscreen.createDocument).not.toHaveBeenCalled();
     expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
-  });
-
-  it('flag OFF → the wrapped sign option hex-converts args and tags a thrown error via buildSignCallbackError', async () => {
-    const { midenClientProxy } = await loadProxy(false);
-    const rawSign = jest.fn(async () => {
-      throw new Error('wallet is locked');
-    });
-    await midenClientProxy.consumeNoteId(consumeTx() as any, rawSign);
-    const opts = G.__px.getMidenClient.mock.calls[0][0];
-    // The SDK keystore would call opts.signCallback with BYTES; assert it hex-
-    // converts and wraps a throw with a `reason` tag (the #313 classification).
-    let thrown: any;
-    try {
-      await opts.signCallback(new Uint8Array([0xab, 0xcd]), new Uint8Array([0x01]));
-    } catch (e) {
-      thrown = e;
-    }
-    expect(rawSign).toHaveBeenCalledWith('abcd', '01');
-    expect(thrown.reason).toBe('locked');
   });
 
   it('flag ON but no chrome.offscreen API → consumeNoteId falls back inline', async () => {
@@ -2142,14 +2254,14 @@ describe('MidenClientProxy — slice-5a §5 write kill window', () => {
 
 // ─── Slice 5b: send / swap / newTransaction (the remaining WRITE pipeline) ────
 //
-// Each mirrors the slice-5a consumeNoteId contract exactly: flag-OFF is
-// BYTE-IDENTICAL to production (inline under withWasmClientLock with the wrapped
-// sign options); flag-ON is a whole-op OFFSCREEN_CALL (minimal DTO / raw bytes in,
+// Each mirrors the slice-5a consumeNoteId contract exactly: flag-OFF runs inline
+// under withWasmClientLock on the realm's one client, signed by the realm signer
+// (the per-write signCallback unused, #878); flag-ON is a whole-op OFFSCREEN_CALL (minimal DTO / raw bytes in,
 // serialized TransactionResult out) run on the SHARED critical machinery (write-deadline
 // deadline, criticalOp bracketing, op-scoped sign callback). The kill-window /
 // sign-pause / read-downgrade matrix is the SAME shared `dispatchOp` path the
 // slice-5a tests exercise via `__test.dispatchCritical` (method-agnostic); the
-// per-method tests below prove the ROUTING, DTO field-set, byte-identity, and that
+// per-method tests below prove the ROUTING, DTO field-set, the unused flag-OFF signer, and that
 // a killed write rejects with OperationAbortedError (→ the loop marks it Failed).
 
 const sendTx = () => ({
@@ -2180,17 +2292,20 @@ const swapTx = () => ({
   displayIcon: 'SWAP'
 });
 
-describe('MidenClientProxy — slice-5b sendTransaction flag routing + byte-identity', () => {
-  it('flag OFF → sendTransaction runs inline under withWasmClientLock with wrapped sign options (byte-identical)', async () => {
+describe('MidenClientProxy — slice-5b sendTransaction flag routing', () => {
+  it('flag OFF → sendTransaction runs inline under withWasmClientLock, the per-write signer unused', async () => {
     const { midenClientProxy } = await loadProxy(false);
     const signCallback = jest.fn(async () => new Uint8Array([1]));
     const tx = sendTx();
     const result = await midenClientProxy.sendTransaction(tx as any, signCallback);
+    expect(signCallback).not.toHaveBeenCalled();
 
     expect(G.__px.withWasmClientLock).toHaveBeenCalledTimes(1);
     expect(G.__px.getMidenClient).toHaveBeenCalledTimes(1);
-    const opts = G.__px.getMidenClient.mock.calls[0][0];
-    expect(typeof opts.signCallback).toBe('function');
+    // The write hands the lock nothing but the op, and asks for the singleton with no
+    // options: no per-write signer anywhere, the realm's installed one signs (#878).
+    expect(G.__px.withWasmClientLock.mock.calls[0]).toHaveLength(1);
+    expect(G.__px.getMidenClient.mock.calls[0]).toHaveLength(0);
     // The inline client's sendTransaction ran on the full tx object. The trailing
     // `onStage` is the PR #524 stage stamp, passed straight through (undefined here
     // — this caller supplied none).
@@ -2475,17 +2590,20 @@ describe('MidenClientProxy — sendTransaction per-step stage stamps (PR #524)',
   });
 });
 
-describe('MidenClientProxy — slice-5b swapTransaction flag routing + byte-identity', () => {
-  it('flag OFF → swapTransaction runs inline under withWasmClientLock with wrapped sign options (byte-identical)', async () => {
+describe('MidenClientProxy — slice-5b swapTransaction flag routing', () => {
+  it('flag OFF → swapTransaction runs inline under withWasmClientLock, the per-write signer unused', async () => {
     const { midenClientProxy } = await loadProxy(false);
     const signCallback = jest.fn(async () => new Uint8Array([1]));
     const tx = swapTx();
     const result = await midenClientProxy.swapTransaction(tx as any, signCallback);
+    expect(signCallback).not.toHaveBeenCalled();
 
     expect(G.__px.withWasmClientLock).toHaveBeenCalledTimes(1);
     expect(G.__px.getMidenClient).toHaveBeenCalledTimes(1);
-    const opts = G.__px.getMidenClient.mock.calls[0][0];
-    expect(typeof opts.signCallback).toBe('function');
+    // The write hands the lock nothing but the op, and asks for the singleton with no
+    // options: no per-write signer anywhere, the realm's installed one signs (#878).
+    expect(G.__px.withWasmClientLock.mock.calls[0]).toHaveLength(1);
+    expect(G.__px.getMidenClient.mock.calls[0]).toHaveLength(0);
     expect(G.__px.inlineSwapTransaction).toHaveBeenCalledWith(tx);
     expect(result).toEqual({ __inlineSwapResult: true });
     expect(fakeChrome.offscreen.createDocument).not.toHaveBeenCalled();
@@ -2564,18 +2682,21 @@ describe('MidenClientProxy — slice-5b swapTransaction flag routing + byte-iden
   });
 });
 
-describe('MidenClientProxy — slice-5b newTransaction (execute) flag routing + byte-identity', () => {
+describe('MidenClientProxy — slice-5b newTransaction (execute) flag routing', () => {
   const reqBytes = new Uint8Array([0xde, 0xad, 0xbe, 0xef]);
 
-  it('flag OFF → newTransaction runs inline under withWasmClientLock with wrapped sign options (byte-identical)', async () => {
+  it('flag OFF → newTransaction runs inline under withWasmClientLock, the per-write signer unused', async () => {
     const { midenClientProxy } = await loadProxy(false);
     const signCallback = jest.fn(async () => new Uint8Array([1]));
     const result = await midenClientProxy.newTransaction('mtst1qacc', reqBytes, false, signCallback);
+    expect(signCallback).not.toHaveBeenCalled();
 
     expect(G.__px.withWasmClientLock).toHaveBeenCalledTimes(1);
     expect(G.__px.getMidenClient).toHaveBeenCalledTimes(1);
-    const opts = G.__px.getMidenClient.mock.calls[0][0];
-    expect(typeof opts.signCallback).toBe('function');
+    // The write hands the lock nothing but the op, and asks for the singleton with no
+    // options: no per-write signer anywhere, the realm's installed one signs (#878).
+    expect(G.__px.withWasmClientLock.mock.calls[0]).toHaveLength(1);
+    expect(G.__px.getMidenClient.mock.calls[0]).toHaveLength(0);
     // Positional passthrough — accountId, requestBytes, delegateTransaction — verbatim.
     expect(G.__px.inlineNewTransaction).toHaveBeenCalledWith('mtst1qacc', reqBytes, false);
     expect(result).toEqual({ __inlineNewResult: true });

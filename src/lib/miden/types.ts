@@ -29,10 +29,21 @@ export interface ConsumableNote {
   amount: string;
   senderAddress: string;
   isBeingClaimed: boolean;
+  /** When `isBeingClaimed`, the id of the consume transaction claiming it, for linking to its progress. */
+  claimingTxId?: string;
   type: NoteType | 'unknown';
   swapOrder?: SwapOrderNoteMetadata;
   /** Estimated epoch ms when the sender can reclaim this P2IDE note; absent for non-recallable notes. */
   recallableAtMs?: number;
+  /** Note inclusion time, in Unix seconds. */
+  receivedAt?: number;
+  /**
+   * Set when the entry comes from the persisted last-known list (mobile/desktop
+   * cache-first render) and no live read has confirmed it yet. Such an entry is
+   * safe to DISPLAY but must never START a claim: the note can already be spent,
+   * consumed or recalled. Every claim gate drops entries carrying this flag.
+   */
+  fromCache?: boolean;
 }
 
 export interface SwapOrderNoteMetadata {

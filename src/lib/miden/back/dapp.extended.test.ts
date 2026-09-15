@@ -72,9 +72,19 @@ jest.mock('lib/platform/storage-adapter', () => ({
   })
 }));
 
+// Consume previews quote a MAX fee bound, so the base fee has to be steerable.
+// Default null = undiscovered, which is what every pre-existing test in this file
+// implicitly assumed when the row did not exist.
+let mockBaseFee: number | null = null;
+jest.mock('lib/miden-chain/native-asset', () => ({
+  getVerificationBaseFee: async () => mockBaseFee,
+  getNativeAssetId: async () => 'native-faucet'
+}));
+
 const mockGetTokenMetadata = jest.fn();
 jest.mock('lib/miden/metadata/utils', () => ({
-  getTokenMetadata: (...args: unknown[]) => mockGetTokenMetadata(...args)
+  getTokenMetadata: (...args: unknown[]) => mockGetTokenMetadata(...args),
+  getAssetSymbol: (metadata?: { symbol?: string }) => metadata?.symbol ?? 'Unknown'
 }));
 
 // Mock lib/i18n/numbers so requestConsumeTransaction can run formatBigInt
@@ -145,7 +155,7 @@ jest.mock('../sdk/miden-client', () => ({
     getAccount: (id: string) => (globalThis as any).__dappTestMockGetAccount(id),
     getOutputNotes: (id: string) => (globalThis as any).__dappTestMockGetOutputNotes(id),
     getInputNoteDetails: (q: unknown) => (globalThis as any).__dappTestMockGetInputNoteDetails(q),
-    getConsumableNoteDtos: (id: string) => (globalThis as any).__dappTestMockGetConsumableNotes(id),
+    getConsumableNoteDtos: (...a: unknown[]) => (globalThis as any).__dappTestMockGetConsumableNotes(...a),
     importNoteBytes: (b: Uint8Array) => (globalThis as any).__dappTestMockImportNoteBytes(b),
     syncState: () => (globalThis as any).__dappTestMockSyncState(),
     on: jest.fn()
@@ -163,9 +173,9 @@ jest.mock('../sdk/miden-client', () => ({
   // Re-implements the real comparison against this mock's hold, and throws the
   // REAL poison class so dapp.ts's `isWasmClientPoisonedError` routing sees the
   // shape the poison contract promises.
-  assertWasmHoldCurrent: (hold: object | null, where: string): void => {
+  assertWasmHoldCurrent: (hold: object | null, where: string, step?: string): void => {
     if (hold !== null && hold === currentWasmHold) return;
-    throw new WasmClientPoisonedError('watchdog', new Error(`operation abandoned ${where}`));
+    throw new WasmClientPoisonedError('watchdog', new Error(`operation abandoned ${where}${step ? `, ${step}` : ''}`));
   },
   runWhenClientIdle: () => {}
 }));
@@ -1004,7 +1014,7 @@ describe('requestPrivateNotes account scoping', () => {
       privateNotes: [CONNECTED_ACCOUNT_NOTE]
     });
     // Scoped against the SESSION's account, never the request's own field.
-    expect(mockGetConsumableNotes).toHaveBeenCalledWith('miden-account-1');
+    expect(mockGetConsumableNotes).toHaveBeenCalledWith('miden-account-1', expect.any(Function));
   });
 
   it('returns only the connected account notes on the prompted UponRequest permission', async () => {
@@ -1071,6 +1081,49 @@ describe('requestConsumeTransaction', () => {
     // And the amount is the resolved 7, not the declared 500000000.
     expect(messages.some(m => m.startsWith('Amount, ') && m.includes('7'))).toBe(true);
     expect(messages.some(m => m.includes('500'))).toBe(false);
+  });
+
+  // These rows ARE the approval prompt off-extension -- there is no other surface --
+  // and a consume preview is built before the transaction exists, so no real fee can be
+  // read from it. The bound is the only honest figure available before the tap.
+  const consumeMessages = async (): Promise<string[]> => {
+    mockGetInputNoteDetails.mockImplementation(async () => [
+      {
+        noteId: 'note-1',
+        noteType: 'Private',
+        senderAccountId: 's1',
+        nullifier: 'nf1',
+        state: 1,
+        assets: [{ faucetId: 'real-faucet', amount: '7' }]
+      }
+    ]);
+    await dapp.requestConsumeTransaction('https://miden.xyz', {
+      type: MidenDAppMessageType.ConsumeRequest,
+      sourcePublicKey: 'miden-account-1',
+      transaction: { accountAddress: 'miden-account-1', noteId: 'note-1', noteType: 'Private' }
+    } as never);
+    return mockRequestConfirmation.mock.calls[0]![0].transactionMessages;
+  };
+
+  it('states the maximum network fee the consume can cost', async () => {
+    // Breaks if the `Network fee (max)` row is dropped from the consume preview.
+    mockBaseFee = 2000000;
+    mockGetTokenMetadata.mockResolvedValue({ decimals: 6, symbol: 'MIDEN' });
+
+    const feeRow = (await consumeMessages()).find(m => m.startsWith('Network fee (max), '));
+    // 2000000 x FEE_RESERVE_MULTIPLE(30). This suite stubs `formatBigInt` to raw units,
+    // so the bound shows unscaled; the decimal formatting is that helper's own job. The
+    // minus prefix matches the existing `Network fee` row, which formats fees the same way.
+    expect(feeRow).toBe('Network fee (max), -60000000 MIDEN');
+    mockBaseFee = null;
+  });
+
+  it('omits the fee row while the base fee is undiscovered', async () => {
+    // House convention: no row beats a zero or a guess. Breaks if the null guard goes.
+    mockBaseFee = null;
+    mockGetTokenMetadata.mockResolvedValue({ decimals: 6, symbol: 'MIDEN' });
+
+    expect((await consumeMessages()).some(m => m.startsWith('Network fee (max)'))).toBe(false);
   });
 
   it('refuses noteBytes that describe a different note than the noteId being consumed', async () => {
@@ -1598,5 +1651,60 @@ describe('a watchdog eviction mid-read abandons the dApp flow instead of double-
       } as never)
     ).rejects.toThrow(WasmClientPoisonedError);
     expect(_g.__dappTestMockGetConsumableNotes).not.toHaveBeenCalled();
+  });
+
+  it('requestConsumableNotes (Auto) forwards the reader check that parked into its own read label', async () => {
+    (storageState[STORAGE_KEY] as any)['https://miden.xyz'] = [
+      { ...SESSION, privateDataPermission: 'AUTO', allowedPrivateData: 2 }
+    ];
+    let thrown: unknown;
+    _g.__dappTestMockGetConsumableNotes.mockImplementationOnce(async (...called: unknown[]) => {
+      const assertLive = called[1] as (step?: string) => void;
+      revokeWasmHold();
+      try {
+        assertLive('after the reader build');
+      } catch (e) {
+        thrown = e;
+        throw e;
+      }
+      return [];
+    });
+    await expect(
+      dapp.requestConsumableNotes('https://miden.xyz', {
+        type: MidenDAppMessageType.ConsumableNotesRequest,
+        sourcePublicKey: 'miden-account-1'
+      } as never)
+    ).rejects.toThrow(WasmClientPoisonedError);
+    expect(((thrown as Error).cause as Error).message).toBe(
+      'operation abandoned inside the consumable-notes read, after the reader build'
+    );
+  });
+
+  it('requestPrivateNotes (Auto) forwards the reader check that parked into its own read label', async () => {
+    (storageState[STORAGE_KEY] as any)['https://miden.xyz'] = [
+      { ...SESSION, privateDataPermission: 'AUTO', allowedPrivateData: 65535 }
+    ];
+    let thrown: unknown;
+    _g.__dappTestMockGetConsumableNotes.mockImplementationOnce(async (...called: unknown[]) => {
+      const assertLive = called[1] as (step?: string) => void;
+      revokeWasmHold();
+      try {
+        assertLive('after the reader build');
+      } catch (e) {
+        thrown = e;
+        throw e;
+      }
+      return [];
+    });
+    await expect(
+      dapp.requestPrivateNotes('https://miden.xyz', {
+        type: MidenDAppMessageType.PrivateNotesRequest,
+        sourcePublicKey: 'miden-account-1',
+        notefilterType: 'All'
+      } as never)
+    ).rejects.toThrow(WasmClientPoisonedError);
+    expect(((thrown as Error).cause as Error).message).toBe(
+      'operation abandoned inside the consumable-notes read, after the reader build'
+    );
   });
 });

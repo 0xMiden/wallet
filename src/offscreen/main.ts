@@ -245,7 +245,29 @@ async function init() {
   }
   const initThreadPool = (sdk as any).initThreadPool;
   if (typeof initThreadPool === 'function') {
-    const threads = navigator.hardwareConcurrency ?? 4;
+    // Cap the rayon pool at 6 threads. Spawning one per logical core is
+    // counter-productive: the pool competes with this document's own main thread
+    // and the browser compositor, and on Apple Silicon `hardwareConcurrency`
+    // counts efficiency cores that are ~2-3x slower than the performance ones.
+    // rayon splits work evenly, so a chunk landing on an E-core becomes the
+    // critical path the whole proof waits on.
+    //
+    // Measured, web-sdk proving benchmark (single-sig ECDSA consume, MT dist,
+    // quiet machine, 4P+6E so hardwareConcurrency = 10), three sweeps:
+    //    threads   2      4      6      8      10
+    //    ms      7280   5428   5386   5802   6424   (sweep 1)
+    //                   5530   5524   5860          (sweep 2)
+    //                   5367   5401   5742          (sweep 3)
+    // 4 and 6 are indistinguishable (ranges overlap); 8 is consistently worse
+    // with no overlap; 10 is ~19% worse than 6. Scaling saturates at the
+    // performance-core count and goes NEGATIVE beyond it.
+    //
+    // 6 rather than 4 because the error is asymmetric — too high measurably
+    // hurts, too low costs nothing here — and 6 leaves headroom on machines with
+    // more fast cores. CAVEAT: this curve is from ONE heterogeneous machine. A
+    // homogeneous many-core desktop is untested and might prefer more.
+    const cores = navigator.hardwareConcurrency ?? 4;
+    const threads = Math.min(cores, 6);
     const t = performance.now();
     await initThreadPool(threads);
     console.log(`${TAG} initThreadPool(${threads}) took ${(performance.now() - t).toFixed(0)}ms`);
@@ -577,11 +599,11 @@ const DISPATCH: Record<string, DispatchFn> = {
   // serializer and callers reaching through to `.id()/.metadata()/…` — cannot
   // itself cross the boundary; the reduced DTO can).
   getConsumableNotes: async (context, client, accountId: string) => {
-    // The reducer's records come from a transient client, but the sync height
-    // the gate compares them against is a SECOND call on the shared client after
-    // the listing's await — so that call needs the hold to still be ours (#788).
-    const dtos = await client.getConsumableNoteDtos(accountId, () =>
-      assertWasmHoldCurrent(context.hold, 'in offscreen getConsumableNotes before reading the sync height')
+    // The listing runs on the realm's separate reader client, but the reads around
+    // it are calls on this shared client (and the reader lookup itself must not be
+    // reached by a dead flow), so each needs the hold to still be ours (#788).
+    const dtos = await client.getConsumableNoteDtos(accountId, step =>
+      assertWasmHoldCurrent(context.hold, 'in offscreen getConsumableNotes', step)
     );
     return new TextEncoder().encode(JSON.stringify(dtos));
   },
@@ -623,6 +645,12 @@ const DISPATCH: Record<string, DispatchFn> = {
     assertWasmHoldCurrent(context.hold, 'in offscreen getPswapLineage before reducing the record');
     const dto = reducePswapLineage(record);
     return dto ? new TextEncoder().encode(JSON.stringify(dto)) : null;
+  },
+
+  getPswapLineages: async (context, client) => {
+    const records = await client.client.pswap.lineages();
+    assertWasmHoldCurrent(context.hold, 'in offscreen getPswapLineages before reducing the records');
+    return new TextEncoder().encode(JSON.stringify(records.map(reducePswapLineage)));
   },
 
   // A to-be-consumed note's summary, reduced in-realm to a minimal JSON DTO carrying

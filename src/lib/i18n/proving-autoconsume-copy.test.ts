@@ -36,6 +36,15 @@ describe('auto-consume + proving settings copy accuracy (#478)', () => {
     expect(desc).toMatch(/fee/i); // addresses the "absorbs fees" misconception
   });
 
+  it('does not promise auto-consume is free, which is false on a fee-charging chain', () => {
+    const desc = msg('autoConsumeSettingsDescription');
+    // Claiming a note IS a transaction, and since protocol 0.16 every transaction
+    // pays a fee out of the acting account's own vault. The copy may still say
+    // auto-consume costs no MORE than claiming by hand -- that stays true, and it
+    // is what #478 was actually correcting. It may not say it costs nothing.
+    expect(desc).not.toMatch(/(doesn't|does not|no)\s+\w*\s*(spend|add|charge|cost)[^.]*fee/i);
+  });
+
   it('keeps en/messages.json and en/en.json in sync for the edited keys', () => {
     for (const key of ['delegateProofSettingsDescription', 'autoConsumeSettingsDescription']) {
       expect(enJson[key]).toBe(msg(key));

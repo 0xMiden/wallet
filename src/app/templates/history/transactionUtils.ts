@@ -226,6 +226,14 @@ export const bridgeRowDisplay = (entry: IHistoryEntry): BridgeRowDisplay => {
   return { inSymbol, outSymbol, outAmount, providerLabel, network: 'Sepolia', status: bridgeStatusOf(entry) };
 };
 
+/**
+ * A stored bridge symbol that is really an EVM contract address is not shown.
+ * Rows written before the fix carry the allocator's token `name`, which for
+ * Sepolia USDC is the address, in place of a symbol.
+ */
+const symbolOrUndefined = (symbol: string | undefined): string | undefined =>
+  symbol === undefined || /^0x[0-9a-fA-F]{40}$/.test(symbol) ? undefined : symbol;
+
 /** `consume` rows that claimed a bridged-in (EVM → Miden) note render as bridge rows. */
 export const isBridgeInEntry = (entry: IHistoryEntry): boolean =>
   entry.txType === 'bridged-receive' || (entry.txType === 'consume' && entry.bridgeInProvider !== undefined);
@@ -237,8 +245,8 @@ export const isBridgeInEntry = (entry: IHistoryEntry): boolean =>
  * confirmed.
  */
 export const bridgeInRowDisplay = (entry: IHistoryEntry): BridgeRowDisplay => {
-  const inSymbol = entry.bridgeInSourceSymbol ?? 'USDC';
-  const outSymbol = entry.bridgeInOutputSymbol ?? entry.token ?? '—';
+  const inSymbol = symbolOrUndefined(entry.bridgeInSourceSymbol) ?? 'USDC';
+  const outSymbol = symbolOrUndefined(entry.bridgeInOutputSymbol) ?? entry.token ?? '—';
   const outAmount =
     entry.bridgeInPhase === 'received' || entry.txType === 'consume'
       ? entry.amount?.toString()

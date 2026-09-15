@@ -64,6 +64,7 @@ import {
 import { formatBigInt } from 'lib/i18n/numbers';
 import { intercom } from 'lib/miden/back/defaults';
 import { Vault } from 'lib/miden/back/vault';
+import { FEE_RESERVE_MULTIPLE } from 'lib/miden/fees/spendable';
 import { guardianProviderFromEndpoint, resolveGuardianEndpoint } from 'lib/miden/guardian/account';
 import { dappGuardianSyncStatus } from 'lib/miden/guardian/sync-guard';
 import { MIDEN_METADATA } from 'lib/miden/metadata';
@@ -80,6 +81,7 @@ import {
   MidenMessageType,
   MidenRequest
 } from 'lib/miden/types';
+import { getNativeAssetId, getVerificationBaseFee } from 'lib/miden-chain/native-asset';
 import { isDesktop, isExtension } from 'lib/platform';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
 import { DEFAULT_DELEGATE_PROOF } from 'lib/settings/constants';
@@ -256,7 +258,8 @@ async function getBrowser(): Promise<Browser> {
 }
 
 const CONFIRM_WINDOW_WIDTH = 380;
-const CONFIRM_WINDOW_HEIGHT = 632;
+// 632 plus the 44px network banner (#875) that tops the confirm window.
+const CONFIRM_WINDOW_HEIGHT = 676;
 const AUTODECLINE_AFTER = 120_000;
 const STORAGE_KEY = 'dapp_sessions';
 
@@ -932,8 +935,8 @@ async function getPrivateNoteDetails(
         assertWasmHoldCurrent(hold, 'after the private-note read');
         const ownNoteIds = new Set(
           (
-            await midenClientProxy.getConsumableNotes(accountId, () =>
-              assertWasmHoldCurrent(hold, 'inside the consumable-notes read, before the sync-height read')
+            await midenClientProxy.getConsumableNotes(accountId, step =>
+              assertWasmHoldCurrent(hold, 'inside the consumable-notes read', step)
             )
           ).flatMap(note => (note.noteId ? [note.noteId] : []))
         );
@@ -1082,8 +1085,8 @@ async function getConsumableNotes(accountId: string): Promise<InputNoteDetails[]
         // reduction ran in the client's realm (offscreen when the flag is on, so
         // it uses the same realm that just ran syncState above — no stale height).
         // The DTO is a strict superset of InputNoteDetails; map it 1:1.
-        const notes = await midenClientProxy.getConsumableNotes(accountId, () =>
-          assertWasmHoldCurrent(hold, 'inside the consumable-notes read, before the sync-height read')
+        const notes = await midenClientProxy.getConsumableNotes(accountId, step =>
+          assertWasmHoldCurrent(hold, 'inside the consumable-notes read', step)
         );
         return notes.flatMap<InputNoteDetails>(note => {
           // Partial (metadata-less) notes have no ID — and, since 0.15
@@ -2490,7 +2493,43 @@ async function formatConsumeTransactionPreview(transaction: MidenConsumeTransact
     );
   }
   messages.push(`Note Type, ${capitalizeFirstLetter(noteType)}`);
+  const maxFee = await formatMaxNetworkFee();
+  if (maxFee) {
+    messages.push(`Network fee (max), ${maxFee}`);
+  }
   return messages;
+}
+
+/**
+ * Upper bound on what consuming a note will cost, for a sheet with no decoded
+ * transaction to read a real fee from.
+ *
+ * `formatAssetViewRows` prints `view.fee` because a decoded view already carries the
+ * charged amount. A consume preview is built BEFORE the transaction exists, so the only
+ * honest figure is the bound every review screen quotes: the kernel charges
+ * `baseFee x (floor(log2(cycles)) + 1)` and the VM caps cycles at 2^29, which makes
+ * `FEE_RESERVE_MULTIPLE` a ceiling no transaction can exceed.
+ *
+ * `null` -- omit the row -- on a chain that charges nothing, before the fee is
+ * discovered, and when the native asset's scale is unknown, matching the house
+ * convention everywhere else a fee is shown. The label carries no comma of its own:
+ * `ConfirmPage` splits these rows on the first `, `.
+ */
+async function formatMaxNetworkFee(): Promise<string | null> {
+  try {
+    const baseFee = await getVerificationBaseFee();
+    if (baseFee === null || baseFee <= 0) return null;
+
+    const feeMetadata = await getTokenMetadata(await getNativeAssetId());
+    if (!hasKnownScale(feeMetadata)) return null;
+
+    const bound = BigInt(Math.round(baseFee * FEE_RESERVE_MULTIPLE));
+    return `${formatAmountSafe(bound, 'send', feeMetadata?.decimals, true)} ${getAssetSymbol(feeMetadata)}`;
+  } catch {
+    // Discovery is a network call on a path whose job is to render an approval prompt.
+    // A prompt missing one row beats a prompt that fails to open.
+    return null;
+  }
 }
 
 /**
@@ -2528,6 +2567,15 @@ async function formatAssetViewRows(view: TxAssetView): Promise<string[]> {
     rows.push('Assets, no fungible asset moves');
   }
   rows.push(`Notes, ${view.inputNotesConsumed} consumed / ${view.outputNotesCreated} created`);
+  // A cost the user pays, and `outgoing` deliberately excludes it on both decode paths — so
+  // if it is not printed here it is not on this sheet at all. Off-extension has no other
+  // surface: these rows ARE the approval prompt.
+  if (view.fee) {
+    const feeMetadata = await getTokenMetadata(view.fee.faucetId);
+    rows.push(
+      `Network fee, ${formatAmountSafe(view.fee.amount, 'send', feeMetadata?.decimals, hasKnownScale(feeMetadata))} ${getAssetSymbol(feeMetadata)}`
+    );
+  }
   return rows;
 }
 
@@ -2666,6 +2714,16 @@ async function formatSimulatedCustomEffects(payload: MidenCustomTransaction): Pr
       ...(await Promise.all(view.outgoing.map(asset => movement(asset, 'send')))),
       ...(await Promise.all(view.incoming.map(asset => movement(asset, 'consume'))))
     ];
+    // BEFORE the "nothing moves" check, and separate from it. `summaryToView` subtracts the
+    // fee out of `outgoing` so it is not double-counted against the transfer, which means a
+    // transaction whose ONLY movement is the fee arrives here with two empty lists -- and
+    // "No assets move" is exactly the reading most likely to get an approval for something
+    // that does in fact cost the user money.
+    if (view.fee) {
+      const feeMetadata = await getTokenMetadata(view.fee.faucetId);
+      const feeAmount = formatAmountSafe(view.fee.amount, 'send', feeMetadata?.decimals, hasKnownScale(feeMetadata));
+      effects.push(`Network fee, ${feeAmount} ${feeMetadata?.symbol ?? ''}`.trimEnd());
+    }
     if (effects.length === 0) {
       effects.push('No assets move');
     }

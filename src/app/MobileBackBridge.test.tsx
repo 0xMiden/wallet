@@ -137,11 +137,26 @@ describe('MobileBackBridge', () => {
     const { handler } = renderAt('/settings', 0);
 
     // /settings does NOT start with '/settings/', so it falls through to the
-    // tab-page branch and goes home rather than replacing to itself.
+    // tab-page branch and goes home rather than replacing to itself. Settings
+    // is a bottom-nav destination now, so this is the same back behaviour the
+    // other tab roots (/history, /browser) get.
     const result = handler();
 
     expect(result).toBe(true);
     expect(navigateMock).toHaveBeenCalledWith('/', HistoryAction.Replace);
+  });
+
+  it('leaves the /settings tab root on the tab-page branch even with history behind it', () => {
+    // Regression guard for the fourth-tab change: a user who reached Settings
+    // by tapping the tab still lands on Home, not one step back into whatever
+    // tab they came from.
+    const { handler } = renderAt('/settings', 3);
+
+    const result = handler();
+
+    expect(result).toBe(true);
+    expect(navigateMock).toHaveBeenCalledWith('/', HistoryAction.Replace);
+    expect(goBackMock).not.toHaveBeenCalled();
   });
 
   it('on a non-tab page with history: goes back and consumes', () => {

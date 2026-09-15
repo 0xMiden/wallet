@@ -99,6 +99,9 @@ jest.mock('app/pages/Unlock', () => ({
     <div data-testid="unlock" data-full-page={String(openForgotPasswordInFullPage)} />
   )
 }));
+jest.mock('components/NetworkModeBanner', () => ({
+  NetworkModeBanner: () => <div data-testid="network-mode-banner" />
+}));
 
 jest.mock('components/Button', () => ({
   ButtonVariant: { Primary: 'primary', Secondary: 'secondary', Ghost: 'ghost' },
@@ -314,6 +317,7 @@ describe('ConfirmPage gate', () => {
 
     expect(screen.getByTestId('unlock')).toHaveAttribute('data-full-page', 'true');
     expect(screen.queryByTestId('content-container')).not.toBeInTheDocument();
+    expect(screen.getByTestId('network-mode-banner')).toBeInTheDocument();
   });
 
   it('renders the confirm form inside the container/boundary/suspense when ready', () => {
@@ -323,6 +327,11 @@ describe('ConfirmPage gate', () => {
     expect(screen.getByTestId('content-container')).toBeInTheDocument();
     expect(screen.getByTestId('error-boundary')).toBeInTheDocument();
     expect(screen.queryByTestId('unlock')).not.toBeInTheDocument();
+    // The banner (#875) tops the window, above the confirm form.
+    const banner = screen.getByTestId('network-mode-banner');
+    expect(banner.compareDocumentPosition(screen.getByTestId('content-container'))).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING
+    );
   });
 });
 
@@ -739,7 +748,16 @@ describe('sign payload — signingInputs', () => {
     const ts = {
       accountDelta: () => accountDelta,
       inputNotes: () => ({ numNotes: () => 2 }),
-      outputNotes: () => ({ numNotes: () => 3 })
+      // `notes()` as well: summary output notes now go through the fee split, because
+      // `fee::pay_fee` runs in auth BEFORE the summary is built.
+      outputNotes: () => ({
+        numNotes: () => 3,
+        notes: () => [
+          { assets: () => ({ fungibleAssets: () => [] }), metadata: () => ({ tag: () => ({ asU32: () => 0 }) }) },
+          { assets: () => ({ fungibleAssets: () => [] }), metadata: () => ({ tag: () => ({ asU32: () => 0 }) }) },
+          { assets: () => ({ fungibleAssets: () => [] }), metadata: () => ({ tag: () => ({ asU32: () => 0 }) }) }
+        ]
+      })
     };
     return { variantType: SigningInputsType.TransactionSummary, transactionSummaryPayload: () => ts };
   };

@@ -64,6 +64,9 @@ function failedRow(overrides: Partial<ITransaction> = {}): ITransaction {
     accountId: 'acct-1',
     status: ITransactionStatus.Failed,
     initiatedAt: 1000,
+    // Every row that enters the queue is stamped with one (see `nextQueuedSeq`);
+    // a low literal here stands in for "queued long ago".
+    queuedSeq: 1,
     processingStartedAt: 1100,
     completedAt: 1200,
     stage: 'sending',
@@ -427,6 +430,11 @@ describe('requeueFailedTransaction', () => {
 
     expect(row.status).toBe(ITransactionStatus.Queued);
     expect(row.initiatedAt).toBeGreaterThanOrEqual(before);
+    // Re-stamped alongside the timestamp. `initiatedAt` is whole seconds, so the
+    // processing loop breaks ties on `queuedSeq` — keeping the original (smaller)
+    // sequence would sort this requeue AHEAD of anything queued in the same
+    // second, inverting the FIFO order the tie-break exists to impose.
+    expect(row.queuedSeq).toBeGreaterThan(1);
     expect(row.processingStartedAt).toBeUndefined();
     expect(row.completedAt).toBeUndefined();
     expect(row.stage).toBeUndefined();

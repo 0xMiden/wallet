@@ -94,13 +94,10 @@ export async function start() {
   await Actions.init();
 
   // E2E-only (dead-stripped in prod): expose the swap taker discovery + fill in
-  // the SW, where the vault signs SW-direct. Signer mirrors swSignCallback.
+  // the SW, where the vault signs through the realm signer Actions.init installed.
   if (process.env.MIDEN_E2E_TEST === 'true') {
     const { installSwapConsumeHooks } = await import('lib/miden/swap/test-hooks');
-    installSwapConsumeHooks(async (pk, si) => {
-      const sigHex = await Actions.signTransaction(Buffer.from(pk).toString('hex'), Buffer.from(si).toString('hex'));
-      return new Uint8Array(Buffer.from(sigHex, 'hex'));
-    });
+    installSwapConsumeHooks();
     const { installBridgeInTestHooks } = await import('lib/miden/activity/bridge-in-test-hooks');
     installBridgeInTestHooks();
     const { installEarnTestHooks } = await import('lib/miden/activity/earn-test-hooks');
@@ -339,10 +336,16 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
       //     this realm now writes to as well: the note-import pass runs in the service
       //     worker on the extension, so a fuse lit there would otherwise outlive the node
       //     it was earned against with nothing in this realm able to clear it.
+      //   - primeNativeAssetId() rediscovers the native faucet and its base fee for the
+      //     new node. The caches invalidate themselves lazily on the next read, but this
+      //     realm's auto-consume decides what to claim from that fee, so leaving the
+      //     rediscovery to whoever happens to ask next means the first sync after a
+      //     repoint judges notes against the old chain's fee.
       await loadEndpointOverrides();
       resetSyncBackoffForEndpointChange();
       clearSyncFuseForEndpointChange();
       await resetMidenClient();
+      primeNativeAssetId();
       await reloadOffscreenEndpointOverrides();
       return { type: WalletMessageType.ReloadEndpointOverridesResponse };
     case WalletMessageType.ImportNoteBytesRequest: {

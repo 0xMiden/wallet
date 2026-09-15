@@ -90,10 +90,9 @@ export function getPendingNotesUsdTotal(notes: readonly PendingNoteValue[], toke
 
 function isBridgePromptActive(tx: ITransaction): boolean {
   if (tx.status === ITransactionStatus.Failed) return false;
-  // A restored row still DISPLAYS whatever the backup recorded — that is
-  // deliberate — but it must not drive work. This prompt polls the bridge
-  // indexer against dump-supplied values on a timer and surfaces a Claim
-  // affordance that signs an EVM transaction.
+  // A restored row still DISPLAYS whatever the backup recorded, deliberately,
+  // but it must not drive work: this prompt surfaces a Claim affordance that
+  // signs an EVM transaction.
   if (tx.restoredFromBackup) return false;
   if (tx.type !== 'bridged-send') return false;
   if (tx.status !== ITransactionStatus.Completed) return true;
@@ -106,7 +105,9 @@ function isBridgePromptActive(tx: ITransaction): boolean {
 
 export async function fetchActiveBridgePrompts(accountId: string): Promise<ITransaction[]> {
   const rows = await Repo.transactions
-    .filter(tx => tx.type === 'bridged-send' && compareAccountIds(tx.accountId, accountId))
+    .where('type')
+    .equals('bridged-send')
+    .filter(tx => compareAccountIds(tx.accountId, accountId))
     .toArray();
   return rows.filter(isBridgePromptActive).sort((left, right) => right.initiatedAt - left.initiatedAt);
 }
@@ -147,13 +148,24 @@ async function pollBridgedSend(tx: ITransaction): Promise<void> {
   });
 }
 
-export async function pollActiveBridgePrompts(transactions: ITransaction[]): Promise<void> {
-  // Filtered here as well as in `isBridgePromptActive`: this is exported and
-  // takes a caller-supplied list, and `pollBridgedSend` hits the allocator and
-  // writes the result back onto the row. Today's only caller passes the already
-  // filtered list; a second one would not have to.
+/**
+ * Poll every Miden→EVM bridge row once, for every account. The app-root
+ * `BridgeIntentWatcher` runs this on an interval, so a pending Epoch fill or
+ * AggLayer claim is tracked whichever screen is open. `pollBridgedSend` returns
+ * early for a row with nothing left to settle.
+ */
+export async function reconcileBridgedSends(): Promise<void> {
+  const rows = await Repo.transactions.where('type').equals('bridged-send').toArray();
+  // A restored row keeps what the backup recorded, but must not drive work:
+  // `pollBridgedSend` queries the bridge services with those values and writes
+  // the answer back onto the row.
   await Promise.all(
-    transactions.filter(tx => tx.type === 'bridged-send' && !tx.restoredFromBackup).map(pollBridgedSend)
+    rows
+      .filter(tx => !tx.restoredFromBackup)
+      .map(tx =>
+        // One row's failing indexer or allocator call must not reject the pass for the others.
+        pollBridgedSend(tx).catch(error => console.warn('[wallet-prompts] bridged-send poll failed', tx.id, error))
+      )
   );
 }
 

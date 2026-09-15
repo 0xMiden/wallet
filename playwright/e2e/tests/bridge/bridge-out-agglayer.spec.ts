@@ -18,13 +18,23 @@ import { newEvmDestination } from '../../helpers/sepolia';
  * would assert the fake, not wallet code. It is deliberately NOT covered here.
  *
  * The real AggLayer bridge faucet is a custom transfer-policy faucet the test
- * can't mint, so an E2E override (`__TEST_SET_AGGLAYER_FAUCET__`) points the Slow
- * route at a runtime-created test faucet (and flips the note's asset-callback
- * flag so the CLI-minted balance is found). Requires public Miden testnet + the
- * delegated prover, so this is testnet/nightly, not a per-PR gate.
+ * can't mint, so the test bridges a runtime-created faucet token instead: the
+ * Slow route carries whichever token is picked. Requires public Miden testnet +
+ * the delegated prover, so this is testnet/nightly, not a per-PR gate.
  */
 test.describe('bridge-out Miden to EVM (Slow AggLayer)', () => {
   test.describe.configure({ mode: 'serial' });
+
+  // The header's "requires public Miden testnet" was prose only, so this ran against a local
+  // chain and spent six minutes failing deep in the kernel with
+  //   before_foreign_load -> account 0xa22ec1... not found at block N
+  // because the real AggLayer bridge account it loads as a FOREIGN account exists only on
+  // testnet. That reads like a wallet bug and is not one. `e2e-bridge.yml` runs this suite with
+  // E2E_NETWORK=testnet; nothing else should.
+  test.skip(
+    (process.env.E2E_NETWORK ?? 'testnet') !== 'testnet',
+    'needs public Miden testnet: the AggLayer bridge account is loaded as a foreign account and does not exist on a local chain'
+  );
 
   const TOKEN_SYMBOL = 'AGG';
   const BRIDGE_AMOUNT = '1';
@@ -38,14 +48,13 @@ test.describe('bridge-out Miden to EVM (Slow AggLayer)', () => {
     timeline
   }) => {
     await walletA.createNewWallet();
-    const { faucetHex } = await fundBridgeToken(midenCli, walletA, { symbol: TOKEN_SYMBOL, decimals: 6 }, timeline);
+    await fundBridgeToken(midenCli, walletA, { symbol: TOKEN_SYMBOL, decimals: 6 }, timeline);
 
     const destination = newEvmDestination();
 
     await bridgeOutSlow(walletA, {
       destAddress: destination,
       tokenSymbol: TOKEN_SYMBOL,
-      faucetHex,
       amount: BRIDGE_AMOUNT
     });
 
@@ -55,6 +64,13 @@ test.describe('bridge-out Miden to EVM (Slow AggLayer)', () => {
       .poll(
         async () => {
           const row = (await readBridgedSendRows(walletA.page)).find(r => r.extraInputs?.provider === 'agglayer');
+          // Carry the REASON in the polled value. `.poll().toBe(2)` can only report the value it
+          // saw, so a Failed row otherwise surfaces as a bare `Received: 3` -- a status code with
+          // no cause, which is exactly what made the last bridge failure need a code read to
+          // diagnose. Returning the error here puts it straight in the assertion message.
+          if (row?.status === 3) {
+            return `Failed(3): ${row.rawError ?? row.error ?? 'no error recorded on the row'}`;
+          }
           return row?.status ?? null;
         },
         { timeout: 300_000, intervals: [3000] }

@@ -4,6 +4,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 
 import type { TokenBalanceData } from 'lib/miden/front';
 import type { WalletAccount } from 'lib/shared/types';
+import { useWalletStore } from 'lib/store';
 import type { PendingNoteValue } from 'lib/wallet-prompts';
 import { WalletPromptStatus, WalletPromptType } from 'lib/wallet-prompts';
 
@@ -11,10 +12,12 @@ import { HomePrompts } from './HomePrompts';
 
 const mockFaucet = jest.fn();
 const mockFetchActiveBridgePrompts = jest.fn();
-const mockPollActiveBridgePrompts = jest.fn();
 const mockUseWalletPromptStorage = jest.fn();
 const mockFetchHotKeyHardwareError = jest.fn();
 
+let mockBaseFee: number | null = 0;
+jest.mock('app/hooks/useVerificationBaseFee', () => ({ __esModule: true, default: () => mockBaseFee }));
+jest.mock('app/hooks/useMidenFaucetId', () => ({ __esModule: true, default: () => 'MIDEN-ID' }));
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, values?: { amount?: string }) => (values?.amount === undefined ? key : `${key}:${values.amount}`)
@@ -68,7 +71,6 @@ jest.mock('lib/wallet-prompts', () => {
     faucet: (address: string) => mockFaucet(address),
     fetchActiveBridgePrompts: (address: string) => mockFetchActiveBridgePrompts(address),
     fetchHotKeyHardwareError: () => mockFetchHotKeyHardwareError(),
-    pollActiveBridgePrompts: (transactions: unknown[]) => mockPollActiveBridgePrompts(transactions),
     useWalletPromptStorage: () => mockUseWalletPromptStorage()
   };
 });
@@ -81,16 +83,7 @@ jest.mock('lib/miden/activity', () => ({
   initiateReplaceHotKeyTransaction: (...args: unknown[]) => mockInitiateReplaceHotKeyTransaction(...args),
   requestSWTransactionProcessing: () => mockRequestSWTransactionProcessing()
 }));
-jest.mock('lib/miden/front/guardian-sync', () => ({
-  zustandProvider: { tag: 'zustand-provider' },
-  // The presentation hook (drift-banner gate) subscribes to the sync module's
-  // realm-local state; a quiet realm is the baseline for every prompt test.
-  subscribeGuardianSyncOutage: () => () => {},
-  isGuardianSyncOutage: () => false,
-  isGuardianUnrepairable: () => false,
-  getGuardianLastSyncAt: () => undefined,
-  isGuardianLastSyncFresh: () => false
-}));
+jest.mock('lib/miden/front/guardian-sync', () => ({ zustandProvider: { tag: 'zustand-provider' } }));
 jest.mock('lib/settings/helpers', () => ({ isDelegateProofEnabled: () => true }));
 jest.mock('lib/platform', () => ({ isExtension: () => false }));
 // FundWalletDrawer — passthrough stub exposing the funding lifecycle props so
@@ -119,6 +112,11 @@ jest.mock('app/templates/FundWalletDrawer', () => ({
       <button data-testid="fund-drawer-close" onClick={() => onOpenChange(false)} />
     </div>
   )
+}));
+
+// The banner has its own suite; here only whether Home mounts it matters.
+jest.mock('app/templates/GuardianNeedsUrlBanner', () => ({
+  GuardianNeedsUrlBanner: () => <div data-testid="guardian-needs-url-banner" />
 }));
 
 const account = {
@@ -154,11 +152,10 @@ describe('HomePrompts', () => {
     jest.clearAllMocks();
     mockFaucet.mockResolvedValue(undefined);
     mockFetchActiveBridgePrompts.mockResolvedValue([]);
-    mockPollActiveBridgePrompts.mockResolvedValue(undefined);
     mockFetchHotKeyHardwareError.mockResolvedValue(null);
   });
 
-  it('polls and dismisses a pending bridge through the wallet prompt type', async () => {
+  it('shows and dismisses a pending bridge through the wallet prompt type', async () => {
     const dismissPrompt = jest.fn();
     const bridgeTransaction = { id: 'bridge-1', type: 'bridged-send' };
     mockFetchActiveBridgePrompts.mockResolvedValue([bridgeTransaction]);
@@ -185,7 +182,6 @@ describe('HomePrompts', () => {
     );
 
     const bridgeCard = await screen.findByText('bridgePromptTitle');
-    await waitFor(() => expect(mockPollActiveBridgePrompts).toHaveBeenCalledWith([bridgeTransaction]));
     fireEvent.click(bridgeCard);
     expect(jest.requireMock('lib/woozie').navigate).toHaveBeenCalledWith('/history-details/bridge-1');
 
@@ -212,6 +208,53 @@ describe('HomePrompts', () => {
       'verifySeedPhrasePromptTitle'
     ]);
     expect(promptState.setPromptStatus).toHaveBeenCalledWith(WalletPromptType.Faucet, WalletPromptStatus.Pending);
+  });
+
+  it('re-offers a dismissed faucet prompt once the account can no longer pay a fee', () => {
+    // Dismiss means "not now", not "never again". An account that has run its
+    // native balance to zero on a fee-charging chain is stuck, and the prompt is
+    // the way out -- keeping it hidden strands the user with no affordance.
+    mockBaseFee = 10000;
+    mockUseWalletPromptStorage.mockReturnValue(
+      makePromptState({
+        storage: {
+          version: 1,
+          prompts: { [WalletPromptType.Faucet]: WalletPromptStatus.Dismissed },
+          pendingNotesDismissedIds: []
+        }
+      })
+    );
+    render(
+      <HomePrompts
+        account={account}
+        balances={[{ tokenId: 'MIDEN-ID', balance: 0 }] as TokenBalanceData[]}
+        balancesLoading={false}
+        claimableNotes={[]}
+        tokenPrices={{}}
+      />
+    );
+    expect(screen.getByText('faucetPromptTitle')).toBeInTheDocument();
+  });
+
+  it('still offers the faucet when the account holds tokens but none of the fee asset', () => {
+    // Holding USDC is not the same as being funded: the fee comes out of the
+    // native balance, so this account cannot transact and needs the faucet.
+    mockBaseFee = 10000;
+    render(
+      <HomePrompts
+        account={account}
+        balances={
+          [
+            { tokenId: 'token', balance: 5 },
+            { tokenId: 'MIDEN-ID', balance: 0 }
+          ] as TokenBalanceData[]
+        }
+        balancesLoading={false}
+        claimableNotes={[]}
+        tokenPrices={{}}
+      />
+    );
+    expect(screen.getByText('faucetPromptTitle')).toBeInTheDocument();
   });
 
   it('does not show the faucet while balances load or when the account has funds', () => {
@@ -593,11 +636,11 @@ describe('HomePrompts', () => {
     );
 
     await waitFor(() => expect(completePrompt).toHaveBeenCalledWith(WalletPromptType.Bridge));
-    expect(mockPollActiveBridgePrompts).not.toHaveBeenCalled();
     expect(screen.queryByText('bridgePromptTitle')).not.toBeInTheDocument();
   });
 
-  it('completes the bridge prompt once the poll settles the last bridge', async () => {
+  it('completes the bridge prompt once a later read finds the last bridge settled', async () => {
+    jest.useFakeTimers();
     const completePrompt = jest.fn();
     const bridgeTransaction = { id: 'bridge-1', type: 'bridged-send' };
     mockFetchActiveBridgePrompts.mockResolvedValueOnce([bridgeTransaction]).mockResolvedValueOnce([]);
@@ -623,8 +666,18 @@ describe('HomePrompts', () => {
       />
     );
 
-    await waitFor(() => expect(mockPollActiveBridgePrompts).toHaveBeenCalledWith([bridgeTransaction]));
-    await waitFor(() => expect(completePrompt).toHaveBeenCalledWith(WalletPromptType.Bridge));
+    await act(async () => {});
+    expect(await screen.findByText('bridgePromptTitle')).toBeInTheDocument();
+    expect(completePrompt).not.toHaveBeenCalled();
+
+    // The app-root watcher settles the row; the next read sees it gone.
+    await act(async () => {
+      jest.advanceTimersByTime(8_000);
+    });
+    await act(async () => {});
+    expect(mockFetchActiveBridgePrompts).toHaveBeenCalledTimes(2);
+    expect(completePrompt).toHaveBeenCalledWith(WalletPromptType.Bridge);
+    jest.useRealTimers();
   });
 
   it('survives a bridge poll failure without completing the prompt', async () => {
@@ -795,5 +848,41 @@ describe('HomePrompts', () => {
       expect(screen.getByTestId('prompt-card')).toHaveAttribute('data-status', 'failure');
     });
     errorSpy.mockRestore();
+  });
+
+  it('mounts the guardian URL prompt only while the account is drifted', () => {
+    mockUseWalletPromptStorage.mockReturnValue(makePromptState());
+    const props = { balances: fundedBalance, balancesLoading: false, claimableNotes: [], tokenPrices: {} };
+    const { rerender } = render(
+      <HomePrompts {...props} account={{ ...account, guardianSyncStatus: 'needs-user-input' }} />
+    );
+    expect(screen.getByTestId('guardian-needs-url-banner')).toBeInTheDocument();
+
+    rerender(<HomePrompts {...props} account={{ ...account, guardianSyncStatus: 'in-sync' }} />);
+    expect(screen.queryByTestId('guardian-needs-url-banner')).toBeNull();
+  });
+
+  it('runs no guardian status clock on Home', () => {
+    // The drift gate needs no freshness, so nothing on Home may re-render on the 15 s status tick.
+    const drifted = { ...account, guardianSyncStatus: 'needs-user-input' as const };
+    const previous = useWalletStore.getState().currentAccount;
+    useWalletStore.setState({ currentAccount: drifted });
+    const intervalSpy = jest.spyOn(global, 'setInterval');
+    try {
+      mockUseWalletPromptStorage.mockReturnValue(makePromptState());
+      render(
+        <HomePrompts
+          account={drifted}
+          balances={fundedBalance}
+          balancesLoading={false}
+          claimableNotes={[]}
+          tokenPrices={{}}
+        />
+      );
+      expect(intervalSpy.mock.calls.filter(([, delay]) => delay === 15_000)).toEqual([]);
+    } finally {
+      intervalSpy.mockRestore();
+      useWalletStore.setState({ currentAccount: previous });
+    }
   });
 });

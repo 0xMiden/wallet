@@ -251,7 +251,6 @@ export interface ExtensionSyncSlice {
   /** Claimable notes pushed from service worker (null = not yet received) */
   extensionClaimableNotes: SerializedConsumableNote[] | null;
   /** Note IDs being claimed (optimistic, cleared on each SyncCompleted) */
-  extensionClaimingNoteIds: Set<string>;
 }
 
 /**
@@ -259,18 +258,15 @@ export interface ExtensionSyncSlice {
  */
 export interface ExtensionSyncActions {
   setExtensionClaimableNotes: (notes: SerializedConsumableNote[]) => void;
-  addExtensionClaimingNoteId: (noteId: string) => void;
   /** Remove specific note IDs from the claiming set (e.g. those no longer consumable). */
-  removeExtensionClaimingNoteIds: (noteIds: string[]) => void;
-  clearExtensionClaimingNoteIds: () => void;
 }
 
 /**
  * Note toast actions (mobile only)
  */
 export interface NoteToastActions {
-  /** Check if new notes have been received and show toast if so */
-  checkForNewNotes: (currentNoteIds: string[]) => void;
+  /** Record new note IDs as seen; toast only for one in notifiableNoteIds (any new note when omitted) */
+  checkForNewNotes: (currentNoteIds: string[], notifiableNoteIds?: readonly string[]) => void;
   /** Dismiss the note received toast */
   dismissNoteToast: () => void;
   /** Reset all seen notes (used when switching accounts) */

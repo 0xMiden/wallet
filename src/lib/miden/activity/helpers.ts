@@ -1,6 +1,7 @@
 import { TransactionResult } from '@miden-sdk/miden-sdk/lazy';
 import BigNumber from 'bignumber.js';
 
+import { splitExecutedOutputNotes } from './fee-notes';
 import { compareAccountIds } from './utils';
 import { ITransaction } from '../db/types';
 import { getBech32AddressFromAccountId } from '../sdk/helpers';
@@ -97,7 +98,7 @@ export const interpretTransactionResult = <K extends keyof ITransaction>(
   let displayIcon = transaction.displayIcon;
   let secondaryAccountId = transaction.secondaryAccountId;
   const inputNotes = result.executedTransaction().inputNotes().notes();
-  const outputNotes = result.executedTransaction().outputNotes().notes();
+  const { userNotes: userOutputNotes } = splitExecutedOutputNotes(result.executedTransaction());
 
   // Both totals ACCUMULATE across notes, and both faucet sets are deduped across
   // the whole loop (not per note). A custom (`execute`) transaction can consume or
@@ -116,7 +117,17 @@ export const interpretTransactionResult = <K extends keyof ITransaction>(
     inputAmount += assets.reduce((acc, asset) => acc + BigInt(asset.amount()), BigInt(0));
     assets.forEach(asset => inputFaucetIds.add(getBech32AddressFromAccountId(asset.faucetId())));
   });
-  outputNotes.forEach(outputNote => {
+  // The kernel's fee note is an output note too, but it is not value the user sent:
+  // folding it into the totals inflates the amount and adds the native faucet to the
+  // set, which can flip a single-faucet send into the generic 'Executed' label. It is
+  // excluded from the recorded note ids for the same reason -- the row's
+  // `outputNoteIds` is rendered as the count of notes the transaction CREATED, so
+  // leaving the fee note in reported one note too many on every fee-charging chain.
+  //
+  // Identified by tag PLUS corroboration (see `partitionFeeNote`) rather than by tag
+  // alone, so a dApp-supplied note carrying the fee tag cannot get itself erased from
+  // the transaction it belongs to.
+  userOutputNotes.forEach(outputNote => {
     const assets = outputNote.assets()!.fungibleAssets();
     outputAmount += assets.reduce((acc, asset) => acc + BigInt(asset.amount()), BigInt(0));
     assets.forEach(asset => outputFaucetIds.add(getBech32AddressFromAccountId(asset.faucetId())));
@@ -152,7 +163,7 @@ export const interpretTransactionResult = <K extends keyof ITransaction>(
     transactionId: result.executedTransaction().id().toHex(),
     inputNoteIds: inputNotes.map(note => note.id().toString()),
     amount: absoluteTransactionAmount !== BigInt(0) ? absoluteTransactionAmount : undefined,
-    outputNoteIds: outputNotes.map(note => note.id().toString()),
+    outputNoteIds: userOutputNotes.map(note => note.id().toString()),
     faucetId,
     resultBytes: result.serialize()
   };

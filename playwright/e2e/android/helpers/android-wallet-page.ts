@@ -302,8 +302,8 @@ export class AndroidWalletPage implements WalletPage {
     await pumpProveTimings();
 
     // Nothing authoritative has been read yet. The loop above polls the store IN
-    // PLACE, and for the whole of a claim this page sits on /pending-notes (or
-    // the transaction-progress route), where no mounted screen refreshes
+    // PLACE, and for the whole of a claim this page stays on /pending-notes,
+    // where no mounted screen refreshes
     // `st.balances` — that projection is written only by the `useAllBalances`
     // poll in Balance/Explore/TokenDetail. So the loop can report 0 for a
     // consume that has already landed on chain. Confirm with `getBalance()`,
@@ -331,7 +331,9 @@ export class AndroidWalletPage implements WalletPage {
       .eval<string>(
         `var h = String(location.hash || ''); ` +
           `var claimAll = document.querySelector('[data-testid="claim-all-button"]'); ` +
-          `return 'hash=' + h + ' claimAllButton=' + (claimAll ? 'present' : 'absent');`
+          `var inFlight = document.querySelector('[data-testid="claim-all-status"]'); ` +
+          `return 'hash=' + h + ' claimAllButton=' + (claimAll ? 'present' : 'absent') + ` +
+          `' claimAllStatus=' + (inFlight ? 'present' : 'absent');`
       )
       .catch(() => 'unreadable');
     await this.navigateHome();

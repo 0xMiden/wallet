@@ -218,6 +218,8 @@ export interface SerializedConsumableNote {
   noteType?: string; // 'public' | 'private' | 'unknown'
   /** Estimated epoch ms when the sender can reclaim this P2IDE note; absent for non-recallable notes. */
   recallableAtMs?: number;
+  /** Note inclusion time, in Unix seconds. */
+  receivedAt?: number;
   swapOrder?: {
     orderId: string;
     depth: number;
@@ -472,7 +474,7 @@ export interface WalletAccount {
    * by every applied binding write (`Vault.updateGuardianBinding`). A writer
    * that snapshotted the account before a rotation carries a dead epoch and
    * its write returns `stale` instead of resurrecting the old operator.
-   * Absent means 0 — pre-epoch records need no migration write.
+   * Absent means 0 - pre-epoch records need no migration write.
    */
   guardianEpoch?: number;
   /** Reconciliation state; see GuardianSyncStatus. Defaults to 'in-sync'. */

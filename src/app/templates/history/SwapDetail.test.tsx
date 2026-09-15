@@ -17,7 +17,7 @@ jest.mock('react-i18next', () => ({
 }));
 
 // The formatter keeps its DECIMALS argument visible. The parent's suite stubs it
-// as `String(amount)`, which silently accepts a row rendered at the wrong scale —
+// as `String(amount)`, which silently accepts a row rendered at the wrong scale -
 // the whole reason this file exists.
 jest.mock('lib/shared/format', () => ({
   formatAmount: jest.fn((amount: bigint | number | string, decimals?: number) => `${amount}@${decimals ?? 'default'}`)
@@ -129,7 +129,7 @@ describe('SwapDetail amounts', () => {
   it('prints every amount at the scale of the token it belongs to', () => {
     renderDetail({ settledTransactions: [consume()] });
 
-    // The requested side — total, fill and the per-row receipt — is denominated
+    // The requested side - total, fill and the per-row receipt - is denominated
     // in the requested token, so all three must carry ITS decimals. Falling back
     // to the wallet's default scale misstates funds by orders of magnitude, and
     // a formatter stub that drops the argument cannot see the difference.
@@ -152,21 +152,21 @@ describe('SwapDetail amounts', () => {
     expect(screen.queryByText(/^swapReceivedAmount/)).not.toBeInTheDocument();
   });
 
-  // Every quantity on this screen — the order's requested size, how much of it
-  // filled, and each settlement note's payout — is scaled by the SAME requested
+  // Every quantity on this screen - the order's requested size, how much of it
+  // filled, and each settlement note's payout - is scaled by the SAME requested
   // decimals, so an unresolved requested faucet makes them all wrong together.
   // The token is still named; only the numbers go.
   it('withholds every quantity when the requested token has no resolved scale', () => {
     renderDetail({ requestedScaleIsKnown: false, settledTransactions: [consume()] });
 
-    expect(screen.getByTestId('swap-order-amount-filled').textContent).toBe('swapAmountProgress_—_—_ ETH');
+    expect(screen.getByTestId('swap-order-amount-filled').textContent).toBe('swapAmountProgress_-_-_ ETH');
     expect(screen.queryByText(/^swapReceivedAmount/)).not.toBeInTheDocument();
   });
 
   it('says nothing rather than zero when a side is unknown', () => {
     renderDetail({ requestedAmount: undefined, filledAmount: undefined });
 
-    expect(screen.getByTestId('swap-order-amount-filled').textContent).toBe('swapAmountProgress_—_—_ ETH');
+    expect(screen.getByTestId('swap-order-amount-filled').textContent).toBe('swapAmountProgress_-_-_ ETH');
     expect(screen.queryByText(/^swapProgressPercent/)).not.toBeInTheDocument();
     expect(screen.getByRole('progressbar')).not.toHaveAttribute('aria-valuenow');
     expect(screen.queryByTestId('swap-amount-progress-fill')).not.toBeInTheDocument();
@@ -236,7 +236,7 @@ describe('SwapDetail status line', () => {
 
   it('cannot be told a fill is partial against the amounts it is showing', () => {
     // `isPartialFill` used to be a prop, so a caller could assert a partial fill
-    // on a receipt whose own progress line read "— of 1000". It is now derived
+    // on a receipt whose own progress line read "- of 1000". It is now derived
     // from the two amounts rendered right above it.
     renderDetail({ orderState: 'filled', requestedAmount: undefined, filledAmount: undefined });
 
@@ -280,7 +280,7 @@ describe('SwapDetail note rows', () => {
     unmount();
 
     // With no lineage and no rows, "nothing has been bundled" is a confident
-    // denial the receipt cannot support — and is plainly false for an order that
+    // denial the receipt cannot support - and is plainly false for an order that
     // settled before the wallet was restored.
     renderDetail({ orderState: null, trackingLoading: false, filledAmount: undefined });
     expect(screen.queryByText('swapNoBundledNotes')).not.toBeInTheDocument();
@@ -316,7 +316,7 @@ describe('SwapDetail explorer links', () => {
 describe('SwapDetail actions', () => {
   it('always offers a way off the screen when it owns the action bar', () => {
     // An order that reached the DEX has no cancel path, so this must not borrow
-    // the destructive label — and there is no order state in which leaving the
+    // the destructive label - and there is no order state in which leaving the
     // screen stops being available.
     renderDetail({ showActions: true, orderState: 'filled' });
 

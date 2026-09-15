@@ -152,10 +152,18 @@ export async function runDappBrowserJourney({ driver, server, steps }: DappJourn
   });
 
   await steps.step('navigate_away_keeps_tiles_visible', async () => {
-    await driver.minimize();
-    // Leaving the browser tab entirely — the tray is portalled above the whole
-    // shell, so the parked dApps must still be represented on Home.
+    // Leave the browser tab with gamma still in the foreground: leaving parks it, and the tray is portalled
+    // above the whole shell, so all three parked dApps must still be represented on Home.
+    const before = await driver.state();
+    expect(
+      before.foregroundId,
+      'gamma should be in the foreground when the user leaves the browser tab'
+    ).not.toBeNull();
     await driver.navigateAwayToHome();
+    await driver.waitForState(
+      'leaving the browser tab to park the foreground dApp',
+      s => s.foregroundId === null && s.sessions.some(x => x.id === before.foregroundId && x.status === 'parked')
+    );
 
     const cards = await driver.peekCards();
     const urls = cards.map(c => c.url);

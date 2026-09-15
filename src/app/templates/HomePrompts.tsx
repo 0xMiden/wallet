@@ -2,14 +2,17 @@ import React, { FC, useCallback, useEffect, useMemo, useRef, useState } from 're
 
 import { useTranslation } from 'react-i18next';
 
-import { useGuardianPresentation } from 'app/hooks/useGuardianPresentation';
+import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
+import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
 import { FundWalletDrawer } from 'app/templates/FundWalletDrawer';
 import { GuardianNeedsUrlBanner } from 'app/templates/GuardianNeedsUrlBanner';
 import { PromptCard, PromptCardStatus, PromptCarousel, PromptCardVariant } from 'components/ui';
 import { formatUsd } from 'lib/i18n/numbers';
 import { initiateReplaceHotKeyTransaction, requestSWTransactionProcessing } from 'lib/miden/activity';
+import { hasNoFeeAsset } from 'lib/miden/fees/spendable';
 import type { TokenBalanceData } from 'lib/miden/front';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
+import { isGuardianDrifted } from 'lib/miden/guardian/sync-guard';
 import { isExtension } from 'lib/platform';
 import type { TokenPrices } from 'lib/prices';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
@@ -20,7 +23,6 @@ import {
   fetchHotKeyHardwareError,
   getPendingNotesUsdTotal,
   type PendingNoteValue,
-  pollActiveBridgePrompts,
   useGuardianNoteRecoveryProgress,
   useWalletPromptStorage,
   WalletPromptStatus,
@@ -30,6 +32,9 @@ import { navigate } from 'lib/woozie';
 
 type PromptCardOverrides = {
   body?: string;
+  // Overrides `definition.dismissible`. `onDismiss: undefined` cannot express this,
+  // because the render falls through to the definition's default dismiss handler.
+  dismissible?: boolean;
   status?: PromptCardStatus;
   onClick?: () => void;
   onAction?: () => void;
@@ -126,9 +131,6 @@ export const HomePrompts: FC<HomePromptsProps> = ({
   tokenPrices
 }) => {
   const { t } = useTranslation();
-  // Shared guardian-status derivation: the drift-banner gate below fires on the
-  // same decision as the banner's own gate and the settings pill.
-  const guardianPresentation = useGuardianPresentation();
   const { storage, isLoaded, setPromptStatus, dismissPrompt, completePrompt, isPromptPending } =
     useWalletPromptStorage();
   const [faucetStatusIndicator, setFaucetStatusIndicator] = useState<PromptCardStatus>('idle');
@@ -184,10 +186,24 @@ export const HomePrompts: FC<HomePromptsProps> = ({
     }
   }, [noteRecoveryProgress, t]);
 
-  const hasBalance = useMemo(() => balances.some(token => token.balance > 0), [balances]);
+  const nativeFaucetId = useMidenFaucetId();
+  const verificationBaseFee = useVerificationBaseFee();
+  // "Funded" has to mean "can transact". On a fee-charging chain that is the
+  // NATIVE balance specifically -- an account holding only other tokens cannot
+  // move them, so it still needs the faucet. `hasNoFeeAsset` fails open, so a
+  // zero-fee chain keeps the original any-token behaviour.
+  const hasBalance = useMemo(
+    () => balances.some(token => token.balance > 0) && !hasNoFeeAsset(balances, nativeFaucetId, verificationBaseFee),
+    [balances, nativeFaucetId, verificationBaseFee]
+  );
   const faucetStatus = storage.prompts[WalletPromptType.Faucet];
+  // Dismiss means "not now", not "never again". An account that has run its native
+  // balance to zero on a fee-charging chain cannot transact at all, and this prompt
+  // is the way out -- so a previous dismissal stops suppressing it. Without the
+  // re-arm the user is left stuck with no affordance anywhere on Home.
+  const cannotPayFee = hasNoFeeAsset(balances, nativeFaucetId, verificationBaseFee);
   const faucetIsTerminal =
-    faucetStatus === WalletPromptStatus.Dismissed || faucetStatus === WalletPromptStatus.Completed;
+    !cannotPayFee && (faucetStatus === WalletPromptStatus.Dismissed || faucetStatus === WalletPromptStatus.Completed);
   const showFaucetPrompt = isLoaded && !balancesLoading && !hasBalance && !faucetIsTerminal;
 
   useEffect(
@@ -230,16 +246,9 @@ export const HomePrompts: FC<HomePromptsProps> = ({
           return;
         }
 
+        // The app-root `BridgeIntentWatcher` polls the rows; this loop only
+        // re-reads them so the card follows the settlement it writes.
         setBridgeTransactions(active.map(tx => tx.id));
-        await pollActiveBridgePrompts(active);
-        if (cancelled) return;
-        const refreshed = await fetchActiveBridgePrompts(account.publicKey);
-        if (cancelled) return;
-        setBridgeTransactions(refreshed.map(tx => tx.id));
-        if (refreshed.length === 0) {
-          completePrompt(WalletPromptType.Bridge);
-          return;
-        }
       } catch (error) {
         console.warn('[wallet-prompts] bridge poll failed:', error);
       }
@@ -360,7 +369,14 @@ export const HomePrompts: FC<HomePromptsProps> = ({
         case WalletPromptType.Faucet:
           return {
             onAction: fundWallet,
-            actionDisabled: faucetStatusIndicator === 'loading'
+            actionDisabled: faucetStatusIndicator === 'loading',
+            // A user holding tokens but no MIDEN reads "Add tokens" and reasonably
+            // concludes the prompt is not about them. Name the asset that is missing.
+            body: cannotPayFee ? t('insufficientFeeAsset') : undefined,
+            // While the account cannot pay a fee this prompt re-arms on every render
+            // (see `faucetIsTerminal`), so a dismiss X would write storage, fire haptics
+            // and change nothing. Withhold the control rather than ship one that lies.
+            dismissible: cannotPayFee ? false : undefined
           };
         case WalletPromptType.Bridge:
           return {
@@ -389,6 +405,10 @@ export const HomePrompts: FC<HomePromptsProps> = ({
       }
     },
     [
+      // The fee-broke branch changes both the body and whether a dismiss control is
+      // rendered, so a stale value would leave a user who has just run out of MIDEN
+      // reading the generic prompt with a dead X.
+      cannotPayFee,
       bridgeTransactions,
       noteRecoveryBody,
       copyHotKeyError,
@@ -424,11 +444,14 @@ export const HomePrompts: FC<HomePromptsProps> = ({
               onAction={overrides.onAction}
               actionDisabled={overrides.actionDisabled ?? false}
               status={overrides.status}
-              onDismiss={overrides.onDismiss ?? (definition.dismissible ? () => dismissPrompt(type) : undefined)}
+              onDismiss={
+                overrides.onDismiss ??
+                ((overrides.dismissible ?? definition.dismissible) ? () => dismissPrompt(type) : undefined)
+              }
             />
           );
         })}
-        {guardianPresentation.prompt === 'needs-user-input' && <GuardianNeedsUrlBanner />}
+        {isGuardianDrifted(account) && <GuardianNeedsUrlBanner />}
       </PromptCarousel>
       <FundWalletDrawer
         open={fundDrawerOpen}

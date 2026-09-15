@@ -6,7 +6,14 @@ export enum Table {
   Transactions = 'transactions'
 }
 
-export const db = new Dexie('TridentMain');
+// `modifyChunkSize` caps how many records dexie's `modify` materialises at once (`getMany` +
+// `deepClone` per chunk). It defaults to 200, which is also the reaper's batch size, so one trim
+// held ~200 x ~237 KB of result blobs resident inside a single write transaction. Capping the
+// chunk bounds that without changing how many rows a pass selects - the reaper's drain rate is
+// governed by its own batch size, and tuning one constant from two directions is how these two
+// concerns collide. It applies to every `modify` on this database, including the schema upgrades
+// below, which walk the whole table.
+export const db = new Dexie('TridentMain', { modifyChunkSize: 25 });
 
 db.version(1)
   .stores({
@@ -52,7 +59,11 @@ db.version(1.3)
       .table<any, string>(Table.Transactions)
       .toCollection()
       .modify(t => {
-        if (t.type !== 'bridge') return;
+        // `false`, not a bare return - dexie re-puts an unchanged deep clone for anything else, so
+        // a bare return here rewrote EVERY transaction row, `resultBytes` blobs included, inside
+        // the versionchange transaction on the critical path of `db.open()`. Same rule as
+        // `setTransactionStage` and `markCancelledInFlight` in transaction/helper.ts.
+        if (t.type !== 'bridge') return false;
         const prev = t.extraInputs ?? {};
         t.type = 'bridged-send';
         t.extraInputs = {
@@ -64,6 +75,7 @@ db.version(1.3)
           // still need an L1 claim; anything else never reached that point.
           claimStatus: t.status === 2 ? 'pending' : 'not-applicable'
         };
+        return undefined;
       });
   });
 
@@ -89,9 +101,10 @@ db.version(1.4)
       .table<any, string>(Table.Transactions)
       .toCollection()
       .modify(t => {
-        if (t.type === 'consume' && t.noteId && !Array.isArray(t.noteIds)) {
-          t.noteIds = [t.noteId];
-        }
+        // `false` on the declining path, for the same reason as v1.3 above.
+        if (t.type !== 'consume' || !t.noteId || Array.isArray(t.noteIds)) return false;
+        t.noteIds = [t.noteId];
+        return undefined;
       });
   });
 
@@ -112,6 +125,42 @@ db.version(1.5).stores({
     '*noteIds',
     'noteDelivery',
     'extraInputs.destinationAddress'
+  )
+});
+
+// v1.6 - linked swap settlement reads. The history detail live query observes
+// only rows for its order instead of rerunning after every transaction write.
+db.version(1.6).stores({
+  [Table.Transactions]: indexes(
+    'id',
+    'accountId',
+    'transactionId',
+    'initiatedAt',
+    'completedAt',
+    'noteId',
+    '*noteIds',
+    'noteDelivery',
+    'extraInputs.destinationAddress',
+    'extraInputs.swapOrderTxId'
+  )
+});
+
+// v1.7 - type-scoped reads. The app-root bridge watcher asks for the `bridged-receive` and
+// `bridged-send` rows every eight seconds, and without an index each ask walked the whole
+// history. No upgrade step: IndexedDB builds a new index over the rows already stored.
+db.version(1.7).stores({
+  [Table.Transactions]: indexes(
+    'id',
+    'accountId',
+    'transactionId',
+    'initiatedAt',
+    'completedAt',
+    'noteId',
+    '*noteIds',
+    'noteDelivery',
+    'extraInputs.destinationAddress',
+    'extraInputs.swapOrderTxId',
+    'type'
   )
 });
 

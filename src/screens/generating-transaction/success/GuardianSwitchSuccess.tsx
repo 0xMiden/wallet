@@ -37,10 +37,10 @@ export const GuardianSwitchSuccess: FC<TransactionSuccessProps> = ({ transaction
     : undefined;
   const newName = extra ? guardianEndpointDisplayName(extra.newGuardianEndpoint, unknown) : undefined;
 
-  // Every claim below derives from the row's verdict — the single reader of
+  // Every claim below derives from the row's verdict - the single reader of
   // the outcome flags (`rotation-verdict.ts`). The distinctions it carries:
   // `submitted-unconfirmed` outranks the degraded flags because their bodies
-  // open by asserting the commit — the one fact that state lacks; a degraded
+  // open by asserting the commit - the one fact that state lacks; a degraded
   // commit still shows which post-commit step is undone, since the
   // unsaved-address case needs the user and the pending-registration case
   // self-heals from the sync loop.

@@ -1,14 +1,14 @@
 {
   "name": "miden-wallet",
-  "version": "1.16.0",
+  "version": "1.17.0",
   "private": true,
   "engines": {
     "node": ">=22.0.0"
   },
-  "midenClientCliVersion": "0.16.0-rc.2",
+  "midenClientCliVersion": "0.16.0",
   "midenClientCliGit": {
-    "url": "https://github.com/0xMiden/miden-client",
-    "rev": "4872b090a3827474858f2ad30a395ca1af3b98c0"
+    "url": "https://github.com/0xMiden/rust-sdk",
+    "rev": "4e8407b9fa1e21e26eeb3040c915737a1293bde0"
   },
   "scripts": {
     "postinstall": "rimraf node_modules/@miden-sdk/react/node_modules node_modules/@openzeppelin/miden-multisig-client/node_modules/@miden-sdk && patch-package",
@@ -19,7 +19,13 @@
     "watch:dist": "mv3-hot-reload",
     "build": "yarn build:extension && yarn build:mobile",
     "build:extension": "cross-env TARGET_BROWSER=chrome yarn build:bg && cross-env TARGET_BROWSER=chrome yarn build:cs && cross-env TARGET_BROWSER=chrome MANIFEST_VERSION=3 yarn build:ext",
-    "prebuild": "rimraf ./dist && yarn ts",
+    "check:deps": "yarn check --integrity",
+    "prebuild": "yarn -s check:deps && rimraf ./dist && yarn ts",
+    "prebuild:bg": "yarn -s check:deps",
+    "prebuild:cs": "yarn -s check:deps",
+    "prebuild:ext": "yarn -s check:deps",
+    "prebuild:mobile": "yarn -s check:deps",
+    "prebuild:desktop": "yarn -s check:deps",
     "prebuild:extension": "rimraf ./dist",
     "build-all": "rimraf ./dist && run-s build:*",
     "build:bg": "vite build --config vite.background.config.ts",
@@ -135,19 +141,19 @@
     "@dicebear/avatars": "4.2.5",
     "@dicebear/avatars-bottts-sprites": "4.2.5",
     "@dicebear/avatars-jdenticon-sprites": "4.2.5",
-    "@epoch-protocol/epoch-intents-sdk": "1.0.38",
+    "@epoch-protocol/epoch-intents-sdk": "^1.0.39",
     "@floating-ui/react": "^0.27.16",
     "@hookform/resolvers": "^3.9.0",
-    "@miden-sdk/miden-sdk": "0.16.0-rc.4",
-    "@miden-sdk/miden-wallet-adapter-base": "0.16.0-rc.5",
-    "@miden-sdk/miden-wallet-adapter-miden": "0.16.0-rc.5",
-    "@miden-sdk/react": "0.16.0-rc.4",
+    "@miden-sdk/miden-sdk": "0.16.0",
+    "@miden-sdk/miden-wallet-adapter-base": "0.16.0",
+    "@miden-sdk/miden-wallet-adapter-miden": "0.16.0",
+    "@miden-sdk/react": "0.16.0",
     "@miden/dapp-browser": "link:./packages/dapp-browser",
     "@miden/native-prover": "link:./packages/native-prover",
     "@newhighsco/storybook-addon-svgr": "^2.0.7",
     "@noble/hashes": "^1.4.0",
-    "@openzeppelin/guardian-client": "0.17.0-rc.1",
-    "@openzeppelin/miden-multisig-client": "0.17.0-rc.1",
+    "@openzeppelin/guardian-client": "0.17.0",
+    "@openzeppelin/miden-multisig-client": "0.17.0",
     "@peculiar/webcrypto": "1.1.6",
     "@radix-ui/react-slot": "^1.2.3",
     "@reown/appkit": "^1.8.20",
@@ -339,8 +345,8 @@
     ]
   },
   "resolutions": {
-    "@miden-sdk/miden-sdk": "0.16.0-rc.4",
-    "@miden-sdk/react": "0.16.0-rc.4",
+    "@miden-sdk/miden-sdk": "0.16.0",
+    "@miden-sdk/react": "0.16.0",
     "strip-ansi": "6.0.1",
     "webpack": "^5",
     "**/@types/react": "18.2.76",
@@ -365,7 +371,7 @@
     "**/brace-expansion": "^2.0.3",
     "**/minimatch": "^9.0.7",
     "**/tar": "^6.2.1",
-    "**/@miden-sdk/miden-sdk": "0.16.0-rc.4"
+    "**/@miden-sdk/miden-sdk": "0.16.0"
   },
   "packageManager": "yarn@1.22.22+sha512.a6b2f7906b721bba3d67d4aff083df04dad64c399707841b7acf00f6b133b7ac24255f2652fa22ae3534329dc6180534e98d17432037ff6fd140556e2bb3137e"
 }

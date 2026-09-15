@@ -205,9 +205,9 @@ jest.mock('lib/miden/sdk/miden-client', () => {
     // Re-implements the REAL comparison against this mock's own `currentHold` —
     // a no-op here would satisfy every eviction test below vacuously, because the
     // guards under test could then never fire.
-    assertWasmHoldCurrent: (hold: object | null, where: string): void => {
+    assertWasmHoldCurrent: (hold: object | null, where: string, step?: string): void => {
       if (hold !== null && hold === currentHold) return;
-      throw new PoisonError('watchdog', new Error(`operation abandoned ${where}`));
+      throw new PoisonError('watchdog', new Error(`operation abandoned ${where}${step ? `, ${step}` : ''}`));
     },
     onWasmClientPoisoned: (listener: () => void) => {
       g.__off.poisonedListeners = g.__off.poisonedListeners ?? [];
@@ -471,7 +471,10 @@ function resetControl() {
           syncChain: (...a: any[]) => (globalThis as any).__off.clientSyncChain(...a),
           getSyncHeight: (...a: any[]) => (globalThis as any).__off.clientGetSyncHeight(...a),
           sync: (...a: any[]) => (globalThis as any).__off.clientSync(...a),
-          pswap: { lineage: (...a: any[]) => (globalThis as any).__off.clientLineage(...a) }
+          pswap: {
+            lineage: (orderId: string) => G.__off.clientLineage(orderId),
+            lineages: () => G.__off.clientLineages()
+          }
         }
       };
     })
@@ -552,11 +555,11 @@ describe('offscreen/main — startup / init()', () => {
     await loadModule({ coi: true, hwc: 8 });
 
     expect(G.__off.getWasmOrThrow).toHaveBeenCalledTimes(1);
-    expect(G.__off.initThreadPool).toHaveBeenCalledWith(8);
+    expect(G.__off.initThreadPool).toHaveBeenCalledWith(6);
     // COI on → no SharedArrayBuffer warning.
     expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining('crossOriginIsolated=false'));
     // Timing + loaded log fired, plus the ready signal to the SW.
-    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('initThreadPool(8) took'));
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('initThreadPool(6) took'));
     expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('loaded'));
     expect(G.chrome.runtime.sendMessage).toHaveBeenCalledWith({ type: 'OFFSCREEN_READY' });
     // Message listener registered.
@@ -582,8 +585,31 @@ describe('offscreen/main — startup / init()', () => {
     await loadModule({ coi: false });
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('crossOriginIsolated=false'));
     // Still brings up the pool and signals ready.
-    expect(G.__off.initThreadPool).toHaveBeenCalledWith(8);
+    expect(G.__off.initThreadPool).toHaveBeenCalledWith(6);
     expect(G.chrome.runtime.sendMessage).toHaveBeenCalledWith({ type: 'OFFSCREEN_READY' });
+  });
+
+  // Scaling saturates at the performance-core count and goes negative beyond it:
+  // on a 4P+6E machine, 6 threads was 5386-5524ms while 8 was 5742-5860ms and 10
+  // was 6424ms. See the table in main.ts for the full sweep.
+  it.each([
+    [8, 6],
+    [10, 6],
+    [16, 6]
+  ])('caps the pool at 6 when hardwareConcurrency is %i', async (hwc, expected) => {
+    resetControl();
+    await loadModule({ hwc });
+    expect(G.__off.initThreadPool).toHaveBeenCalledWith(expected);
+  });
+
+  it.each([
+    [2, 2],
+    [4, 4],
+    [6, 6]
+  ])('leaves a %i-core machine uncapped', async (hwc, expected) => {
+    resetControl();
+    await loadModule({ hwc });
+    expect(G.__off.initThreadPool).toHaveBeenCalledWith(expected);
   });
 
   it('defaults to 4 threads when navigator.hardwareConcurrency is undefined', async () => {
@@ -922,21 +948,28 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
   // passes a function which never throws satisfies `expect.any(Function)` and
   // guards nothing.
   it.each([
-    ['exportNote', 'clientExportNote', ['note-x', 'Details']],
-    ['getInputNoteDetails', 'clientGetInputNoteDetails', [{ ids: ['0xabc'] }]],
-    ['getConsumableNotes', 'clientGetConsumableNoteDtos', ['mtst1qqaccount']]
+    ['exportNote', 'clientExportNote', ['note-x', 'Details'], undefined, 'in offscreen'],
+    ['getInputNoteDetails', 'clientGetInputNoteDetails', [{ ids: ['0xabc'] }], undefined, 'in offscreen'],
+    // The consumability read names each of its checks; the dispatch forwards that step into its own label.
+    [
+      'getConsumableNotes',
+      'clientGetConsumableNoteDtos',
+      ['mtst1qqaccount'],
+      'after the reader build',
+      'in offscreen getConsumableNotes, after the reader build'
+    ]
   ] as const)(
     '%s: hands the interface a liveness check that refuses after an eviction (#788)',
-    async (method, clientFn, args) => {
+    async (method, clientFn, args, step, expected) => {
       await loadModule();
       const miden: any = await import('lib/miden/sdk/miden-client');
-      let assertLive!: () => void;
+      let assertLive!: (step?: string) => void;
       let releaseRead!: () => void;
       const parkedRead = new Promise<void>(resolve => {
         releaseRead = resolve;
       });
       G.__off[clientFn] = jest.fn(async (...called: unknown[]) => {
-        assertLive = called[called.length - 1] as () => void;
+        assertLive = called[called.length - 1] as (step?: string) => void;
         await parkedRead;
         return [];
       });
@@ -957,14 +990,14 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
       miden.__evictHolder();
       let thrown: unknown;
       try {
-        assertLive();
+        assertLive(step);
       } catch (e) {
         thrown = e;
       }
       // The poison class, so the SW's kill classifiers read it as an abandonment
       // rather than an ordinary failure; the site names itself on the `cause`.
       expect((thrown as Error)?.name).toBe('WasmClientPoisonedError');
-      expect(((thrown as Error).cause as Error).message).toContain('in offscreen');
+      expect(((thrown as Error).cause as Error).message).toContain(expected);
 
       releaseRead();
       await flush();
@@ -2157,6 +2190,84 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     const resp = sendResponse.mock.calls[0][0];
     expect(resp.ok).toBe(false);
     expect(resp.errorName).toBe('WasmClientPoisonedError');
+  });
+
+  it('dispatches one bulk lineage read and reduces every result in the owning realm', async () => {
+    await loadModule();
+    G.__off.clientLineages = jest.fn(async () => [
+      await G.__off.clientLineage(),
+      {
+        orderId: () => '88',
+        currentTipNoteId: () => ({ toString: () => '0xtip88' }),
+        currentDepth: () => 0,
+        state: () => 0,
+        remainingOffered: () => 9007199254740993n,
+        remainingRequested: () => 40n
+      }
+    ]);
+    const sendResponse = jest.fn();
+    capturedListener!(callReq({ method: 'getPswapLineages', argsB64: [] }), {}, sendResponse);
+    await flush();
+    expect(G.__off.clientLineages).toHaveBeenCalledTimes(1);
+    const response = sendResponse.mock.calls[0][0];
+    expect(response.ok).toBe(true);
+    expect(JSON.parse(Buffer.from(response.resultB64, 'base64').toString('utf8'))).toEqual([
+      {
+        orderId: '77',
+        currentTipNoteId: '0xtip',
+        currentDepth: 2,
+        state: 1,
+        remainingOffered: '10',
+        remainingRequested: '20'
+      },
+      {
+        orderId: '88',
+        currentTipNoteId: '0xtip88',
+        currentDepth: 0,
+        state: 0,
+        remainingOffered: '9007199254740993',
+        remainingRequested: '40'
+      }
+    ]);
+  });
+
+  it('serializes an empty bulk lineage snapshot as an array', async () => {
+    await loadModule();
+    G.__off.clientLineages = jest.fn(async () => []);
+    const sendResponse = jest.fn();
+    capturedListener!(callReq({ method: 'getPswapLineages', argsB64: [] }), {}, sendResponse);
+    await flush();
+    const response = sendResponse.mock.calls[0][0];
+    expect(response.ok).toBe(true);
+    expect(JSON.parse(Buffer.from(response.resultB64, 'base64').toString('utf8'))).toEqual([]);
+  });
+
+  it('does not reduce a bulk lineage snapshot after its offscreen hold is evicted', async () => {
+    await loadModule();
+    const miden = await import('lib/miden/sdk/miden-client');
+    const evict: () => void = Reflect.get(miden, '__evictHolder');
+    const recordRead = jest.fn(() => '77');
+    let release!: () => void;
+    const parked = new Promise<void>(resolve => {
+      release = resolve;
+    });
+    G.__off.clientLineages = jest.fn(async () => {
+      await parked;
+      return [{ orderId: recordRead }];
+    });
+    const sendResponse = jest.fn();
+    capturedListener!(callReq({ method: 'getPswapLineages', argsB64: [] }), {}, sendResponse);
+    await flush();
+    evict();
+    release();
+    await flush();
+    expect(recordRead).not.toHaveBeenCalled();
+    expect(sendResponse.mock.calls[0][0]).toEqual(
+      expect.objectContaining({
+        ok: false,
+        errorName: 'WasmClientPoisonedError'
+      })
+    );
   });
 
   it('dispatches getInputNoteSummary → reduces the live record to its noteType (JSON DTO)', async () => {

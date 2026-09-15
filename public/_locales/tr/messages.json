@@ -388,8 +388,8 @@
     "englishSource": "Collateral"
   },
   "earnCollateralValue": {
-    "message": "Miden P2IDE (gazsız)",
-    "englishSource": "Miden P2IDE (gasless)"
+    "message": "Miden P2IDE",
+    "englishSource": "Miden P2IDE"
   },
   "earnDepositRoute": {
     "message": "Miden -> $protocol$ ($network$)",
@@ -785,6 +785,14 @@
   "retry": {
     "message": "Tekrar dene",
     "englishSource": "Retry"
+  },
+  "retryEarnDelivery": {
+    "message": "Teslimatı tekrar dene",
+    "englishSource": "Retry delivery"
+  },
+  "withdrawalRecoveryUnavailable": {
+    "message": "Bu para çekme işlemi güvenli bir şekilde yeniden denenemez. Başka bir para çekme işlemi başlatmadan önce durumunu kontrol edin.",
+    "englishSource": "This withdrawal cannot be retried safely. Check its status before starting another withdrawal."
   },
   "retryAnyway": {
     "message": "Yine de yeniden dene",
@@ -2464,6 +2472,10 @@
     "message": "Şu anda neler değişiyor",
     "englishSource": "What changes now"
   },
+  "guardianSwitchSetupIncompleteTitle": {
+    "message": "Kurulum tamamlanmadı.",
+    "englishSource": "Setup unfinished."
+  },
   "guardianSwitchUnconfirmedHeading": {
     "message": "Guardian değişikliği gönderildi",
     "englishSource": "Guardian switch submitted"
@@ -2487,10 +2499,6 @@
   "guardianSwitchUnconfirmedInfo1": {
     "message": "Değişiklik zincir üzerinde onaylandığında yeni Guardian'ınız her işlemi birlikte imzalar ve eski Guardian'ınız hesabınız için artık birlikte imzalayamaz.",
     "englishSource": "Once the switch is confirmed on chain, your new Guardian co-signs every transaction and your old Guardian can no longer co-sign for your account."
-  },
-  "guardianSwitchSetupIncompleteTitle": {
-    "message": "Kurulum tamamlanmadı.",
-    "englishSource": "Setup unfinished."
   },
   "guardianSwitchEndpointNotSavedBody": {
     "message": "Değişiklik zincir üzerinde onaylandı, ancak bu cihaz yeni Guardian'ın adresini kaydedemedi. Cüzdan bunu otomatik olarak kontrol eder ve gerekirse adresi yeniden girmenizi ister; bu, başka bir değişiklik başlatmaz. İstem görünmezse destek ekibiyle iletişime geçin.",
@@ -2584,6 +2592,10 @@
     "message": "guardian'unuz değiştirildi ve yeni operatörü tanımlayamadık. Yeniden bağlanmak için URL'sini girin.",
     "englishSource": "Your guardian was switched and we couldn't identify the new operator. Enter its URL to reconnect."
   },
+  "guardianUrlMismatch": {
+    "message": "Bu operatör, hesabınızın zincir üzerindeki guardian adresiyle eşleşmiyor.",
+    "englishSource": "That operator doesn't match your account's on-chain guardian."
+  },
   "guardianUrlUnreachable": {
     "message": "Bu operatöre ulaşılamadı. URL'yi ve bağlantınızı kontrol edip tekrar deneyin.",
     "englishSource": "Couldn't reach that operator. Check the URL and your connection, then try again."
@@ -2595,10 +2607,6 @@
   "guardianUrlStaleRetry": {
     "message": "Adres doğrulanırken Guardian'ınız değişti. Lütfen tekrar deneyin.",
     "englishSource": "Your Guardian changed while the address was being checked. Please try again."
-  },
-  "guardianUrlMismatch": {
-    "message": "Bu operatör, hesabınızın zincir üzerindeki guardian adresiyle eşleşmiyor.",
-    "englishSource": "That operator doesn't match your account's on-chain guardian."
   },
   "connectivityGuardianTitle": {
     "message": "Guardian erişilemez",
@@ -2692,6 +2700,38 @@
     "message": "Kendi adresinize gönderim yapamazsınız",
     "englishSource": "You can't send to your own address"
   },
+  "networkFee": {
+    "message": "Network Fee",
+    "englishSource": "Network Fee"
+  },
+  "networkFeeMax": {
+    "message": "Maksimum ağ ücreti",
+    "englishSource": "Max network fee"
+  },
+  "networkFeeEstimateNote": {
+    "message": "Kesin ücret, işleme göre değişir ve genellikle daha düşüktür. Ödediğiniz tutarı makbuzda görebilirsiniz.",
+    "englishSource": "The exact fee depends on the transaction and is usually lower. You will see what you paid on the receipt."
+  },
+  "feeReserveBlocksSend": {
+    "message": "MIDEN'iniz ağ ücreti için ayrılmıştır. Göndermek için daha fazla MIDEN alın.",
+    "englishSource": "Your MIDEN is reserved for the network fee. Receive more MIDEN to send."
+  },
+  "notWorthClaiming": {
+    "message": "Worth less than the network fee to claim",
+    "englishSource": "Worth less than the network fee to claim"
+  },
+  "feeChargedPerClaim": {
+    "message": "Her talep kendi ücretini öder. Bunları toplu olarak talep ettiğinizde tek bir ücret ödenir.",
+    "englishSource": "Each claim pays its own fee. Claiming them together pays one."
+  },
+  "feeChargedPerAsset": {
+    "message": "Talep edilen her varlık için bir kez ücret alınır.",
+    "englishSource": "Charged once per asset claimed."
+  },
+  "insufficientFeeAsset": {
+    "message": "Ağ ücretini ödemek için MIDEN'e ihtiyacınız var. Devam etmek için biraz MIDEN alın.",
+    "englishSource": "You need MIDEN to pay the network fee. Receive some MIDEN to continue."
+  },
   "amountMustBeLessThanBalance": {
     "message": "Tutar, bakiyeden az olmalıdır",
     "englishSource": "Amount must be less than balance"
@@ -2701,8 +2741,8 @@
     "englishSource": "Auto Consume MIDEN notes"
   },
   "autoConsumeSettingsDescription": {
-    "message": "Gelen MIDEN'leri notes otomatik olarak bakiyenize ekler — \"Talep Et\"e dokunmakla aynı işlevi görür. Bu işlem, paranızı harcamaz veya herhangi bir ücret eklemez.",
-    "englishSource": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't spend your funds or add any fee."
+    "message": "Gelen MIDEN'leri notes otomatik olarak bakiyenize ekler — \"Talep Et\" düğmesine dokunmakla aynıdır. Kendiniz \"Talep Et\" düğmesine dokunmaktan daha sık talep etmez veya daha fazla ücret gerektirmez.",
+    "englishSource": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't claim any more often, or cost any more in fees, than tapping Claim yourself."
   },
   "encryptedWalletFileExporting": {
     "message": "Cüzdan dosyanız oluşturuluyor…",
@@ -3790,6 +3830,127 @@
     "message": "Test ağı",
     "englishSource": "Testnet"
   },
+  "devnet": {
+    "message": "Devnet",
+    "englishSource": "Devnet"
+  },
+  "localnet": {
+    "message": "Localnet",
+    "englishSource": "Localnet"
+  },
+  "networkModeBanner": {
+    "message": "Bread'i Miden $network$ üzerinde kullanıyorsunuz",
+    "englishSource": "You are using Bread on Miden $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "networkNoticeChip": {
+    "message": "Miden $network$",
+    "englishSource": "Miden $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "networkNoticeBody": {
+    "message": "Bu ortam test amaçlıdır. Burada sahip olduğunuz her şey, parasal değeri olmayan bir test tokenidir.",
+    "englishSource": "This environment is for testing. Everything you hold here is a test token with no monetary value."
+  },
+  "networkNoticeNoValueTitle": {
+    "message": "Test tokenları para değildir",
+    "englishSource": "Test tokens are not money"
+  },
+  "networkNoticeNoValueBody": {
+    "message": "Burada gösterilen bakiyeler ve fiyatlar simülasyondur ve paraya çevrilemez.",
+    "englishSource": "Balances and prices shown here are simulated and cannot be redeemed."
+  },
+  "networkNoticeNoRealFundsTitle": {
+    "message": "Gerçek para göndermeyin",
+    "englishSource": "Do not send real funds"
+  },
+  "networkNoticeNoRealFundsBody": {
+    "message": "Gerçek bir ağdan test adresine gönderilen her şey kaybolur.",
+    "englishSource": "Anything sent from a real network to a test address is lost."
+  },
+  "networkNoticeResetTitle": {
+    "message": "Ağ sıfırlanabilir",
+    "englishSource": "The network can reset"
+  },
+  "networkNoticeResetBody": {
+    "message": "Sıfırlama işlemi, bakiyeleri ve geçmişi temizler. Test bakiyeleri asla Mainnet’e aktarılmaz.",
+    "englishSource": "A reset clears balances and history. Test balances never carry over to Mainnet."
+  },
+  "iUnderstand": {
+    "message": "Anladım",
+    "englishSource": "I understand"
+  },
+  "receiveTestFundsTitle": {
+    "message": "Yalnızca test token'ları",
+    "englishSource": "Test tokens only"
+  },
+  "receiveTestFundsBody": {
+    "message": "Buraya yalnızca Miden $network$ tokenleri gönderin. Bu adrese gönderilen gerçek fonlar geri alınamaz.",
+    "englishSource": "Only send Miden $network$ tokens here. Real funds sent to this address cannot be recovered.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "crossChainFromNetwork": {
+    "message": "$network$ ağından",
+    "englishSource": "from $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "ethereumSepolia": {
+    "message": "Ethereum Sepolia",
+    "englishSource": "Ethereum Sepolia"
+  },
+  "bridgeTestFundsTitle": {
+    "message": "Yalnızca test fonları",
+    "englishSource": "Test funds only"
+  },
+  "bridgeTestFundsBody": {
+    "message": "Bu köprü, Ethereum Sepolia test tokenlerini Miden’e aktarır. Asla Ethereum ana ağı veya başka herhangi bir gerçek ağdan köprü kurmayın.",
+    "englishSource": "This bridge moves Ethereum Sepolia test tokens to Miden. Never bridge from Ethereum mainnet or any other real network."
+  },
+  "shareAddressText": {
+    "message": "Miden $network$ adresim (sadece test tokenleri): $address$",
+    "englishSource": "My Miden $network$ address (test tokens only): $address$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      },
+      "address": {
+        "content": "$2"
+      }
+    }
+  },
+  "qrNetworkCaption": {
+    "message": "Miden $network$",
+    "englishSource": "Miden $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "evmConnectTestWalletTitle": {
+    "message": "Yalnızca bir test cüzdanını bağlayın",
+    "englishSource": "Connect a test wallet only"
+  },
+  "evmConnectTestWalletBody": {
+    "message": "Bu köprü, Ethereum Sepolia üzerinde çalışır. Gerçek fon içeren bir cüzdanı bağlamayınız. Yeni bir cüzdan oluşturun ve içine yalnızca Sepolia ETH yatırın.",
+    "englishSource": "This bridge runs on Ethereum Sepolia. Do not connect a wallet that holds real funds. Create a fresh wallet and fund it with Sepolia ETH only."
+  },
   "browser": {
     "message": "Tarayıcı",
     "englishSource": "Browser"
@@ -4045,10 +4206,6 @@
     "message": "Miden'e ve Miden'den varlık aktarmak için bir cüzdan bağlayın.",
     "englishSource": "Connect a wallet to bridge assets to and from Miden."
   },
-  "onlyBridgeableTokenSupported": {
-    "message": "Yavaş (Agglayer) yolu yalnızca köprülenebilir token’ları destekler. Diğer token’ları göndermek için Hızlı seçeneğini kullanın.",
-    "englishSource": "The Slow (Agglayer) route only supports the bridgeable token. Use Fast to send other tokens."
-  },
   "connectDestinationWalletToClaim": {
     "message": "Talep etmek için hedef cüzdanı bağlayın.",
     "englishSource": "Connect the destination wallet to claim."
@@ -4078,8 +4235,8 @@
     }
   },
   "noFee": {
-    "message": "Ücret alınmaz",
-    "englishSource": "No fee"
+    "message": "Köprü ücreti yoktur",
+    "englishSource": "No bridge fee"
   },
   "fastArrival": {
     "message": "~30 sn",
@@ -4124,10 +4281,6 @@
   "delivering": {
     "message": "Teslimat",
     "englishSource": "Delivering"
-  },
-  "slowNeedsNativeEth": {
-    "message": "Slow (Agglayer) rotası, test ağında yalnızca yerel ETH’yi desteklemektedir. Kullanmak için ETH’yi seçin.",
-    "englishSource": "The Slow (Agglayer) route only supports native ETH on testnet. Choose ETH to use it."
   },
   "fastEthWrapNotice": {
     "message": "Hızlı yoldan ETH köprüleme işlemi, ETH’yi önce WETH’e dönüştürür, ardından WETH’i köprüler. Bu yol henüz kullanıma açık değildir.",
@@ -4321,6 +4474,10 @@
     "message": "Para Çekme İşlemi",
     "englishSource": "Processing Withdrawal"
   },
+  "withdrawalCheckingDescription": {
+    "message": "Para çekme işleminiz kontrol ediliyor. Teslimat onaylanana kadar cüzdanı açık tutun.",
+    "englishSource": "Checking your withdrawal. Keep the wallet open while delivery is confirmed."
+  },
   "withdrawalProcessingDescription": {
     "message": "Gaz ücreti gerektirmeyen para çekme niyetini imzalamak ve Epoch’a göndermek. Bu işlem genellikle birkaç saniye sürer.",
     "englishSource": "Signing and submitting the gasless withdrawal intent to Epoch. This usually takes a few seconds."
@@ -4444,5 +4601,78 @@
   "devEndpointResetConfirm": {
     "message": "Bu işlem, anahtarlarınız ve işlem geçmişiniz dahil olmak üzere bu cüzdanı kalıcı olarak siler. Cüzdanı geri yüklemek için kurtarma ifadesine ihtiyacınız olacak.",
     "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
+  },
+  "activityAcceptTransfer": {
+    "message": "Aktarımı Kabul Et",
+    "englishSource": "Accept Transfer"
+  },
+  "activityRejectTransfer": {
+    "message": "Reddet",
+    "englishSource": "Decline"
+  },
+  "activityCheckingTransfer": {
+    "message": "Kontrol ediliyor…",
+    "englishSource": "Checking…"
+  },
+  "activityTransferClaimed": {
+    "message": "Talep Edildi",
+    "englishSource": "Claimed"
+  },
+  "activityClaimedOn": {
+    "message": "Talep edildi",
+    "englishSource": "Claimed on"
+  },
+  "activityReceivedOn": {
+    "message": "Alındığı tarih:",
+    "englishSource": "Received on"
+  },
+  "activityNotYetAccepted": {
+    "message": "Henüz kabul edilmedi — bu fonları talep etmek için inceleyin ve kabul edin.",
+    "englishSource": "Not yet accepted — review and accept to claim these funds."
+  },
+  "acceptAll": {
+    "message": "Tümünü Kabul Et",
+    "englishSource": "Accept All"
+  },
+  "activitySearch": {
+    "message": "Arama etkinliği",
+    "englishSource": "Search activity"
+  },
+  "activityTransferAccepted": {
+    "message": "Transfer kabul edildi",
+    "englishSource": "Transfer accepted"
+  },
+  "activityTransferDetails": {
+    "message": "Ayrıntılar",
+    "englishSource": "Details"
+  },
+  "activityRejectExplanation": {
+    "message": "Bu aktarımı bu cihazdaki Etkinlik bölümünden gizlemek ister misiniz? Bu işlem, parayı gönderene iade etmez veya note adresini silmez. Gizlenen aktarımları Etkinlik bölümünden geri yükleyebilirsiniz.",
+    "englishSource": "Hide this transfer from Activity on this device? This does not return funds to the sender or delete the note. You can restore hidden transfers in Activity."
+  },
+  "activityHiddenTransfers": {
+    "message": "Gizli transferler: $count$",
+    "englishSource": "Hidden transfers: $count$",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "activityRestoreTransfers": {
+    "message": "Geri Yükle",
+    "englishSource": "Restore"
+  },
+  "activityHiddenNotesError": {
+    "message": "Gizli transferler kaydedilemedi. Lütfen tekrar deneyin.",
+    "englishSource": "Could not save hidden transfers. Please try again."
+  },
+  "activityDateUnavailable": {
+    "message": "Tarih mevcut değil",
+    "englishSource": "Date unavailable"
+  },
+  "walletSetupDidNotComplete": {
+    "message": "Cüzdanınız oluşturuldu ancak başlatma işlemi tamamlanmadı. Bağlantınızı kontrol edin ve tekrar deneyin.",
+    "englishSource": "Your wallet was created but did not finish starting up. Check your connection and try again."
   }
 }

@@ -96,8 +96,14 @@ jest.mock('./TransactionSuccessLayout', () => ({
   ReceiptRows: ({ rows }: { rows: ReceiptRow[] }) => {
     mockLastRows = rows;
     return <div data-testid="rows" />;
-  }
+  },
+  // Earn derives its own amount (USDC-denominated), so it reaches the fee through
+  // this hook rather than `useReceiptAmount`. Returns a value so the fee row is
+  // exercised here rather than silently absent.
+  useReceiptFeeText: () => mockFeeText
 }));
+
+let mockFeeText: string | undefined = '0.17 MIDEN';
 
 /** A completed earn-deposit row: 10 USDC (6dp base units) into DUMMY_LENDING. */
 const earnDeposit = () =>
@@ -149,7 +155,7 @@ describe('EarnSuccess', () => {
     expect(mockLastPill?.lhs).toBe('10000000 mUSDC');
   });
 
-  it('builds Market, Total Deposited, and Transaction ID rows', () => {
+  it('builds Market, Total Deposited, Network Fee, and Transaction ID rows', () => {
     render(
       <EarnSuccess
         transaction={earnDeposit()}
@@ -160,9 +166,22 @@ describe('EarnSuccess', () => {
     );
 
     const labels = (mockLastRows ?? []).map(row => row.label);
-    expect(labels).toEqual(['Market', 'Total Deposited', 'Transaction ID']);
+    // A deposit pays a network fee like any other transaction and the row records it.
+    // This receipt showed none, because it derives its own USDC-denominated amount and
+    // so never went through the hook that resolved the fee.
+    // `t` is the identity function here, so the fee row asserts on its key.
+    expect(labels).toEqual(['Market', 'Total Deposited', 'networkFee', 'Transaction ID']);
     expect(mockLastRows?.[0]?.value).toBe('DUMMY-LENDING');
     expect(mockLastRows?.[1]?.value).toBe('10000000 USDC');
+    expect(mockLastRows?.[2]?.value).toBe('0.17 MIDEN');
+  });
+
+  it('omits the fee row on a chain that charges nothing', () => {
+    mockFeeText = undefined;
+    render(<EarnSuccess transaction={earnDeposit()} txHash="0xabc" onDoneClick={() => {}} />);
+
+    expect((mockLastRows ?? []).map(row => row.label)).not.toContain('networkFee');
+    mockFeeText = '0.17 MIDEN';
   });
 
   it('wires Done to onDoneClick and View Details to the positions route', () => {

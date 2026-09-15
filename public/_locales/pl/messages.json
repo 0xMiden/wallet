@@ -388,8 +388,8 @@
     "englishSource": "Collateral"
   },
   "earnCollateralValue": {
-    "message": "Miden P2IDE (bez gazu)",
-    "englishSource": "Miden P2IDE (gasless)"
+    "message": "Miden P2IDE",
+    "englishSource": "Miden P2IDE"
   },
   "earnDepositRoute": {
     "message": "Miden -> $protocol$ ($network$)",
@@ -785,6 +785,14 @@
   "retry": {
     "message": "Spróbuj ponownie",
     "englishSource": "Retry"
+  },
+  "retryEarnDelivery": {
+    "message": "Ponów dostarczenie",
+    "englishSource": "Retry delivery"
+  },
+  "withdrawalRecoveryUnavailable": {
+    "message": "Nie można bezpiecznie ponowić tej wypłaty. Sprawdź jej status przed rozpoczęciem kolejnej wypłaty.",
+    "englishSource": "This withdrawal cannot be retried safely. Check its status before starting another withdrawal."
   },
   "retryAnyway": {
     "message": "Ponów mimo to",
@@ -2464,6 +2472,10 @@
     "message": "Co się teraz zmienia",
     "englishSource": "What changes now"
   },
+  "guardianSwitchSetupIncompleteTitle": {
+    "message": "Konfiguracja nieukończona.",
+    "englishSource": "Setup unfinished."
+  },
   "guardianSwitchUnconfirmedHeading": {
     "message": "Zmiana Guardiana wysłana",
     "englishSource": "Guardian switch submitted"
@@ -2487,10 +2499,6 @@
   "guardianSwitchUnconfirmedInfo1": {
     "message": "Gdy zmiana zostanie potwierdzona on-chain, nowy Guardian będzie współpodpisywał każdą transakcję, a poprzedni Guardian nie będzie już mógł współpodpisywać dla Twojego konta.",
     "englishSource": "Once the switch is confirmed on chain, your new Guardian co-signs every transaction and your old Guardian can no longer co-sign for your account."
-  },
-  "guardianSwitchSetupIncompleteTitle": {
-    "message": "Konfiguracja nieukończona.",
-    "englishSource": "Setup unfinished."
   },
   "guardianSwitchEndpointNotSavedBody": {
     "message": "Zmiana została potwierdzona w łańcuchu, ale na tym urządzeniu nie udało się zapisać adresu nowego Guardiana. Portfel sprawdza to automatycznie i w razie potrzeby poprosi o ponowne wprowadzenie adresu — nie rozpocznie to kolejnej zmiany. Jeśli monit się nie pojawi, skontaktuj się z pomocą techniczną.",
@@ -2584,6 +2592,10 @@
     "message": "Twój adres guardian został zmieniony i nie udało nam się zidentyfikować nowego operatora. Wpisz jego adres URL, aby ponownie nawiązać połączenie.",
     "englishSource": "Your guardian was switched and we couldn't identify the new operator. Enter its URL to reconnect."
   },
+  "guardianUrlMismatch": {
+    "message": "Ten operator nie odpowiada adresowi guardian w łańcuchu bloków Twojego konta.",
+    "englishSource": "That operator doesn't match your account's on-chain guardian."
+  },
   "guardianUrlUnreachable": {
     "message": "Nie udało się połączyć z tym operatorem. Sprawdź adres URL i połączenie, a następnie spróbuj ponownie.",
     "englishSource": "Couldn't reach that operator. Check the URL and your connection, then try again."
@@ -2595,10 +2607,6 @@
   "guardianUrlStaleRetry": {
     "message": "Twój Guardian zmienił się podczas sprawdzania adresu. Spróbuj ponownie.",
     "englishSource": "Your Guardian changed while the address was being checked. Please try again."
-  },
-  "guardianUrlMismatch": {
-    "message": "Ten operator nie odpowiada adresowi guardian w łańcuchu bloków Twojego konta.",
-    "englishSource": "That operator doesn't match your account's on-chain guardian."
   },
   "connectivityGuardianTitle": {
     "message": "Guardian niedostępne",
@@ -2692,6 +2700,38 @@
     "message": "Nie można wysłać przesyłki na swój własny adres",
     "englishSource": "You can't send to your own address"
   },
+  "networkFee": {
+    "message": "Network Fee",
+    "englishSource": "Network Fee"
+  },
+  "networkFeeMax": {
+    "message": "Maksymalna opłata sieciowa",
+    "englishSource": "Max network fee"
+  },
+  "networkFeeEstimateNote": {
+    "message": "Dokładna opłata zależy od transakcji i zazwyczaj jest niższa. Kwotę, którą zapłaciłeś, zobaczysz na potwierdzeniu.",
+    "englishSource": "The exact fee depends on the transaction and is usually lower. You will see what you paid on the receipt."
+  },
+  "feeReserveBlocksSend": {
+    "message": "Twoje MIDEN są zarezerwowane na opłatę sieciową. Otrzymaj więcej MIDEN, aby móc je wysłać.",
+    "englishSource": "Your MIDEN is reserved for the network fee. Receive more MIDEN to send."
+  },
+  "notWorthClaiming": {
+    "message": "Worth less than the network fee to claim",
+    "englishSource": "Worth less than the network fee to claim"
+  },
+  "feeChargedPerClaim": {
+    "message": "Każde roszczenie wiąże się z własną opłatą. W przypadku zbiorczego zgłaszania roszczeń opłaca się tylko jedną.",
+    "englishSource": "Each claim pays its own fee. Claiming them together pays one."
+  },
+  "feeChargedPerAsset": {
+    "message": "Opłata pobierana jest raz za każdy odebrany składnik aktywów.",
+    "englishSource": "Charged once per asset claimed."
+  },
+  "insufficientFeeAsset": {
+    "message": "Aby uiścić opłatę sieciową, potrzebujesz MIDEN. Odbierz trochę MIDEN, aby kontynuować.",
+    "englishSource": "You need MIDEN to pay the network fee. Receive some MIDEN to continue."
+  },
   "amountMustBeLessThanBalance": {
     "message": "Kwota musi być mniejsza niż saldo",
     "englishSource": "Amount must be less than balance"
@@ -2701,8 +2741,8 @@
     "englishSource": "Auto Consume MIDEN notes"
   },
   "autoConsumeSettingsDescription": {
-    "message": "Automatycznie księguje przychodzące MIDEN notes na Twoim saldzie — tak samo jak po naciśnięciu przycisku „Claim”. Nie powoduje to wydatkowania Twoich środków ani naliczania żadnych opłat.",
-    "englishSource": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't spend your funds or add any fee."
+    "message": "Automatycznie pobiera przychodzące tokeny MIDEN notes na Twoje saldo — tak samo jak po naciśnięciu przycisku „Pobierz”. Nie pobiera tokenów częściej ani nie generuje wyższych opłat niż samodzielne naciśnięcie przycisku „Pobierz”.",
+    "englishSource": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't claim any more often, or cost any more in fees, than tapping Claim yourself."
   },
   "encryptedWalletFileExporting": {
     "message": "Tworzenie pliku portfela…",
@@ -3790,6 +3830,127 @@
     "message": "Sieć testowa",
     "englishSource": "Testnet"
   },
+  "devnet": {
+    "message": "Devnet",
+    "englishSource": "Devnet"
+  },
+  "localnet": {
+    "message": "Localnet",
+    "englishSource": "Localnet"
+  },
+  "networkModeBanner": {
+    "message": "Korzystasz z Bread na platformie Miden $network$",
+    "englishSource": "You are using Bread on Miden $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "networkNoticeChip": {
+    "message": "Miden $network$",
+    "englishSource": "Miden $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "networkNoticeBody": {
+    "message": "To środowisko służy do testowania. Wszystko, co tu posiadasz, to tokeny testowe bez wartości pieniężnej.",
+    "englishSource": "This environment is for testing. Everything you hold here is a test token with no monetary value."
+  },
+  "networkNoticeNoValueTitle": {
+    "message": "Tokeny testowe nie są pieniędzmi",
+    "englishSource": "Test tokens are not money"
+  },
+  "networkNoticeNoValueBody": {
+    "message": "Przedstawione tutaj salda i ceny są symulowane i nie można ich zrealizować.",
+    "englishSource": "Balances and prices shown here are simulated and cannot be redeemed."
+  },
+  "networkNoticeNoRealFundsTitle": {
+    "message": "Nie wysyłaj prawdziwych środków",
+    "englishSource": "Do not send real funds"
+  },
+  "networkNoticeNoRealFundsBody": {
+    "message": "Wszelkie dane wysłane z prawdziwej sieci na adres testowy zostaną utracone.",
+    "englishSource": "Anything sent from a real network to a test address is lost."
+  },
+  "networkNoticeResetTitle": {
+    "message": "Sieć może się zresetować",
+    "englishSource": "The network can reset"
+  },
+  "networkNoticeResetBody": {
+    "message": "Resetowanie powoduje wyzerowanie sald i historii. Salda testowe nigdy nie są przenoszone do sieci Mainnet.",
+    "englishSource": "A reset clears balances and history. Test balances never carry over to Mainnet."
+  },
+  "iUnderstand": {
+    "message": "Rozumiem",
+    "englishSource": "I understand"
+  },
+  "receiveTestFundsTitle": {
+    "message": "Wyłącznie tokeny testowe",
+    "englishSource": "Test tokens only"
+  },
+  "receiveTestFundsBody": {
+    "message": "Na ten adres należy wysyłać wyłącznie tokeny Miden $network$. Prawdziwe środki wysłane na ten adres nie podlegają zwrotowi.",
+    "englishSource": "Only send Miden $network$ tokens here. Real funds sent to this address cannot be recovered.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "crossChainFromNetwork": {
+    "message": "źródło: $network$",
+    "englishSource": "from $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "ethereumSepolia": {
+    "message": "Ethereum Sepolia",
+    "englishSource": "Ethereum Sepolia"
+  },
+  "bridgeTestFundsTitle": {
+    "message": "Wyłącznie środki testowe",
+    "englishSource": "Test funds only"
+  },
+  "bridgeTestFundsBody": {
+    "message": "Ten most przenosi testowe tokeny Ethereum Sepolia do sieci Miden. Nigdy nie należy tworzyć mostu z sieci głównej Ethereum ani żadnej innej rzeczywistej sieci.",
+    "englishSource": "This bridge moves Ethereum Sepolia test tokens to Miden. Never bridge from Ethereum mainnet or any other real network."
+  },
+  "shareAddressText": {
+    "message": "Mój adres Miden $network$ (wyłącznie tokeny testowe): $address$",
+    "englishSource": "My Miden $network$ address (test tokens only): $address$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      },
+      "address": {
+        "content": "$2"
+      }
+    }
+  },
+  "qrNetworkCaption": {
+    "message": "Miden $network$",
+    "englishSource": "Miden $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "evmConnectTestWalletTitle": {
+    "message": "Podłącz wyłącznie portfel testowy",
+    "englishSource": "Connect a test wallet only"
+  },
+  "evmConnectTestWalletBody": {
+    "message": "Ten most działa na sieci Ethereum Sepolia. Nie podłączaj portfela, w którym przechowujesz prawdziwe środki. Utwórz nowy portfel i zasil go wyłącznie tokenami ETH z sieci Sepolia.",
+    "englishSource": "This bridge runs on Ethereum Sepolia. Do not connect a wallet that holds real funds. Create a fresh wallet and fund it with Sepolia ETH only."
+  },
   "browser": {
     "message": "Przeglądarka",
     "englishSource": "Browser"
@@ -4045,10 +4206,6 @@
     "message": "Podłącz portfel, aby przesyłać aktywa do i z Miden.",
     "englishSource": "Connect a wallet to bridge assets to and from Miden."
   },
-  "onlyBridgeableTokenSupported": {
-    "message": "Trasa „Slow” (Agglayer) obsługuje wyłącznie tokeny, które można mostkować. Aby wysłać inne tokeny, należy skorzystać z trasy „Fast”.",
-    "englishSource": "The Slow (Agglayer) route only supports the bridgeable token. Use Fast to send other tokens."
-  },
   "connectDestinationWalletToClaim": {
     "message": "Aby odebrać środki, podłącz portfel docelowy.",
     "englishSource": "Connect the destination wallet to claim."
@@ -4078,8 +4235,8 @@
     }
   },
   "noFee": {
-    "message": "Bez opłat",
-    "englishSource": "No fee"
+    "message": "Brak opłaty za most",
+    "englishSource": "No bridge fee"
   },
   "fastArrival": {
     "message": "~30 sek.",
@@ -4124,10 +4281,6 @@
   "delivering": {
     "message": "Dostawa",
     "englishSource": "Delivering"
-  },
-  "slowNeedsNativeEth": {
-    "message": "Trasa Slow (Agglayer) obsługuje wyłącznie natywne ETH w sieci testowej. Aby z niej skorzystać, wybierz ETH.",
-    "englishSource": "The Slow (Agglayer) route only supports native ETH on testnet. Choose ETH to use it."
   },
   "fastEthWrapNotice": {
     "message": "Przenoszenie ETH trasą „Fast” polega najpierw na zamianie go na WETH, a następnie na przeniesieniu WETH. Ta trasa nie jest jeszcze dostępna.",
@@ -4321,6 +4474,10 @@
     "message": "Przetwarzanie wypłaty",
     "englishSource": "Processing Withdrawal"
   },
+  "withdrawalCheckingDescription": {
+    "message": "Sprawdzamy Twoją wypłatę. Pozostaw portfel otwarty do czasu potwierdzenia dostarczenia środków.",
+    "englishSource": "Checking your withdrawal. Keep the wallet open while delivery is confirmed."
+  },
   "withdrawalProcessingDescription": {
     "message": "Podpisanie i przesłanie do Epoch zgłoszenia zamiaru wypłaty bez opłaty za gaz. Zazwyczaj zajmuje to kilka sekund.",
     "englishSource": "Signing and submitting the gasless withdrawal intent to Epoch. This usually takes a few seconds."
@@ -4444,5 +4601,78 @@
   "devEndpointResetConfirm": {
     "message": "Spowoduje to trwałe usunięcie tego portfela, w tym kluczy i historii transakcji. Aby go przywrócić, potrzebna będzie fraza odzyskiwania.",
     "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
+  },
+  "activityAcceptTransfer": {
+    "message": "Zaakceptuj transfer",
+    "englishSource": "Accept Transfer"
+  },
+  "activityRejectTransfer": {
+    "message": "Odrzuć",
+    "englishSource": "Decline"
+  },
+  "activityCheckingTransfer": {
+    "message": "Sprawdzam…",
+    "englishSource": "Checking…"
+  },
+  "activityTransferClaimed": {
+    "message": "Odebrane",
+    "englishSource": "Claimed"
+  },
+  "activityClaimedOn": {
+    "message": "Odbiór nastąpił w dniu",
+    "englishSource": "Claimed on"
+  },
+  "activityReceivedOn": {
+    "message": "Otrzymano dnia",
+    "englishSource": "Received on"
+  },
+  "activityNotYetAccepted": {
+    "message": "Jeszcze nie zaakceptowano — sprawdź i zaakceptuj, aby odebrać te środki.",
+    "englishSource": "Not yet accepted — review and accept to claim these funds."
+  },
+  "acceptAll": {
+    "message": "Zaakceptuj wszystko",
+    "englishSource": "Accept All"
+  },
+  "activitySearch": {
+    "message": "Aktywność wyszukiwania",
+    "englishSource": "Search activity"
+  },
+  "activityTransferAccepted": {
+    "message": "Przelew zaakceptowany",
+    "englishSource": "Transfer accepted"
+  },
+  "activityTransferDetails": {
+    "message": "Szczegóły",
+    "englishSource": "Details"
+  },
+  "activityRejectExplanation": {
+    "message": "Czy chcesz ukryć ten transfer w sekcji „Aktywność” na tym urządzeniu? Nie spowoduje to zwrotu środków nadawcy ani usunięcia adresu note. Ukryte transfery można przywrócić w sekcji „Aktywność”.",
+    "englishSource": "Hide this transfer from Activity on this device? This does not return funds to the sender or delete the note. You can restore hidden transfers in Activity."
+  },
+  "activityHiddenTransfers": {
+    "message": "Ukryte transfery: $count$",
+    "englishSource": "Hidden transfers: $count$",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "activityRestoreTransfers": {
+    "message": "Przywróć",
+    "englishSource": "Restore"
+  },
+  "activityHiddenNotesError": {
+    "message": "Nie udało się zapisać ukrytych transferów. Spróbuj ponownie.",
+    "englishSource": "Could not save hidden transfers. Please try again."
+  },
+  "activityDateUnavailable": {
+    "message": "Data niedostępna",
+    "englishSource": "Date unavailable"
+  },
+  "walletSetupDidNotComplete": {
+    "message": "Twój portfel został utworzony, ale nie zakończył procesu uruchamiania. Sprawdź połączenie i spróbuj ponownie.",
+    "englishSource": "Your wallet was created but did not finish starting up. Check your connection and try again."
   }
 }

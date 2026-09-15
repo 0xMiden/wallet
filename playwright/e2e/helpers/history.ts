@@ -92,6 +92,22 @@ export interface TransactionRowSnapshot {
   /** First written by `setTransactionStage(id, 'syncing')`, before the status flip. */
   stage?: string;
   error?: string;
+  /**
+   * The untouched thrown error, kept only when the display message rewrote it
+   * (`cancel.ts`). The friendly copy is deliberately non-technical, so this is the
+   * field that names WHICH procedure root a prover could not resolve, or which
+   * kernel assertion tripped.
+   */
+  rawError?: string;
+  /**
+   * Fee actually paid, in the fee asset's smallest unit, read off the emitted
+   * `0xfee` note at completion (`activity/fee.ts`). `undefined` on a zero-fee chain,
+   * where no fee note is created at all -- so `undefined` and `'0'` mean different
+   * things and a test must not conflate them.
+   */
+  feeAmount?: string;
+  /** Faucet the fee was paid in. Should be the chain's native fee faucet. */
+  feeFaucetId?: string;
   displayMessage?: string;
 }
 
@@ -138,6 +154,10 @@ export async function readTransactionRows(page: Page): Promise<TransactionRowSna
           processingStartedAt: row.processingStartedAt === undefined ? undefined : Number(row.processingStartedAt),
           stage: row.stage === undefined ? undefined : String(row.stage),
           error: row.error === undefined ? undefined : String(row.error),
+          rawError: row.rawError === undefined ? undefined : String(row.rawError),
+          // Stringified like `amount`: a bigint cannot cross the evaluate boundary.
+          feeAmount: row.feeAmount === undefined || row.feeAmount === null ? undefined : String(row.feeAmount),
+          feeFaucetId: row.feeFaucetId === undefined ? undefined : String(row.feeFaucetId),
           displayMessage: row.displayMessage === undefined ? undefined : String(row.displayMessage)
         }));
       } finally {

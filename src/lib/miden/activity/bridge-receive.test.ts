@@ -1,4 +1,7 @@
-import { reconcileAgglayerBridgedReceives, reconcileBridgedReceives } from './bridge-receive';
+import { EPOCH_INTENT_STATUS_TIMEOUT_MS } from 'lib/epoch/intent-status';
+import * as Repo from 'lib/miden/repo';
+
+import { BridgeReceiveLockManager, createBridgeReceiveReconciler, reconcileBridgedReceives } from './bridge-receive';
 
 const rows: any[] = [];
 const waitForReceipt = jest.fn();
@@ -8,10 +11,15 @@ const fetchDeposits = jest.fn();
 const resolveNoteId = jest.fn();
 const getIntentStatus = jest.fn();
 
+// Only the type index is read: a pass that falls back to walking the table has no `filter` to call here.
 jest.mock('lib/miden/repo', () => ({
   transactions: {
-    filter: jest.fn((predicate: (row: any) => boolean) => ({
-      toArray: jest.fn(async () => rows.filter(predicate))
+    where: jest.fn((index: string) => ({
+      equals: (value: string) => ({
+        filter: (predicate: (row: any) => boolean) => ({
+          toArray: async () => rows.filter(row => row[index] === value && predicate(row))
+        })
+      })
     }))
   }
 }));
@@ -75,6 +83,42 @@ describe('reconcileBridgedReceives', () => {
     expect(fetchDeposits).toHaveBeenCalledWith('evm:miden-account');
   });
 
+  it('walks the history once per pass and advances rows of both providers', async () => {
+    const hash = `0x${'2'.repeat(64)}`;
+    rows.push(
+      {
+        id: 'agg-once',
+        type: 'bridged-receive',
+        accountId: 'miden-account',
+        initiatedAt: Math.floor(Date.now() / 1000),
+        extraInputs: { provider: 'agglayer', phase: 'delivering', evmTxHash: hash }
+      },
+      {
+        id: 'epoch-once',
+        type: 'bridged-receive',
+        initiatedAt: Math.floor(Date.now() / 1000),
+        extraInputs: {
+          provider: 'epoch',
+          phase: 'delivering',
+          sourceAddress: '0x1111111111111111111111111111111111111111',
+          intentNonce: 'nonce-once'
+        }
+      }
+    );
+    fetchDeposits.mockResolvedValue([{ tx_hash: hash, ready_for_claim: true }]);
+
+    await reconcileBridgedReceives();
+
+    expect(Repo.transactions.where).toHaveBeenCalledTimes(1);
+    expect(Repo.transactions.where).toHaveBeenCalledWith('type');
+    expect(updatePhase).toHaveBeenCalledWith('agg-once', 'ready');
+    expect(registerBridgeIn).toHaveBeenCalledWith(
+      '0x1111111111111111111111111111111111111111',
+      'nonce-once',
+      expect.objectContaining({ bridgeReceiveTxId: 'epoch-once' })
+    );
+  });
+
   it('marks only the matching AggLayer transaction ready once the indexer finalizes it', async () => {
     const hash = `0x${'a'.repeat(64)}`;
     rows.push({
@@ -89,7 +133,7 @@ describe('reconcileBridgedReceives', () => {
       { tx_hash: hash.toUpperCase(), ready_for_claim: false, status: 'READY_TO_CLAIM' }
     ]);
 
-    await reconcileAgglayerBridgedReceives();
+    await reconcileBridgedReceives();
 
     expect(updatePhase).toHaveBeenCalledWith('agg-ready', 'ready');
   });
@@ -111,9 +155,7 @@ describe('reconcileBridgedReceives', () => {
     it('terminalizes an AggLayer row without waiting on its hash', async () => {
       rows.push(restoredRow('agg-restored', 'agglayer'));
 
-      // Called directly, as AllHistory's 8s poll does — the guard cannot live
-      // only in the `reconcileBridgedReceives` wrapper.
-      await reconcileAgglayerBridgedReceives();
+      await reconcileBridgedReceives();
 
       expect(waitForReceipt).not.toHaveBeenCalled();
       expect(fetchDeposits).not.toHaveBeenCalled();
@@ -148,7 +190,7 @@ describe('reconcileBridgedReceives', () => {
     });
     fetchDeposits.mockResolvedValue([{ tx_hash: hash, ready_for_claim: false }]);
 
-    await reconcileAgglayerBridgedReceives();
+    await reconcileBridgedReceives();
 
     expect(updatePhase).not.toHaveBeenCalled();
   });
@@ -227,7 +269,7 @@ describe('reconcileBridgedReceives', () => {
       extraInputs: { provider: 'agglayer', phase: 'submitting', evmTxHash: `0x${'e'.repeat(64)}` }
     });
 
-    await reconcileAgglayerBridgedReceives();
+    await reconcileBridgedReceives();
 
     expect(updatePhase).toHaveBeenCalledWith('agg-reverted', 'failed', { error: 'reverted on L1' });
     expect(fetchDeposits).not.toHaveBeenCalled();
@@ -243,7 +285,7 @@ describe('reconcileBridgedReceives', () => {
       extraInputs: { provider: 'agglayer', phase: 'delivering', evmTxHash: `0x${'f'.repeat(64)}` }
     });
 
-    await reconcileAgglayerBridgedReceives();
+    await reconcileBridgedReceives();
 
     expect(updatePhase).not.toHaveBeenCalled();
   });
@@ -285,10 +327,131 @@ describe('reconcileBridgedReceives', () => {
 
     await reconcileBridgedReceives();
 
-    expect(resolveNoteId).toHaveBeenCalledWith('nonce-2', '0xnote-1');
+    expect(resolveNoteId).toHaveBeenCalledWith('0x1111111111111111111111111111111111111111', 'nonce-2', '0xnote-1');
     expect(updatePhase).toHaveBeenCalledWith('epoch-failed-leg', 'failed', {
       error: 'The Epoch bridge intent failed.'
     });
+  });
+
+  it('keeps reconciling later rows when one row fails, and names the failing row', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    registerBridgeIn.mockRejectedValueOnce(new Error('registry locked'));
+    const hash = `0x${'5'.repeat(64)}`;
+    rows.push(
+      {
+        id: 'epoch-broken',
+        type: 'bridged-receive',
+        initiatedAt: Math.floor(Date.now() / 1000),
+        extraInputs: {
+          provider: 'epoch',
+          phase: 'delivering',
+          sourceAddress: '0x1111111111111111111111111111111111111111',
+          intentNonce: 'nonce-broken'
+        }
+      },
+      {
+        id: 'agg-after',
+        type: 'bridged-receive',
+        accountId: 'miden-account',
+        initiatedAt: Math.floor(Date.now() / 1000),
+        extraInputs: { provider: 'agglayer', phase: 'delivering', evmTxHash: hash }
+      }
+    );
+    fetchDeposits.mockResolvedValue([{ tx_hash: hash, ready_for_claim: true }]);
+
+    await reconcileBridgedReceives();
+
+    expect(updatePhase).toHaveBeenCalledWith('agg-after', 'ready');
+    expect(warn).toHaveBeenCalledWith('[bridge-receive] reconcile failed', 'epoch-broken', 'epoch', expect.any(Error));
+    warn.mockRestore();
+  });
+
+  it('does not hold the rows after an Epoch status read that never answers', async () => {
+    jest.useFakeTimers();
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      getIntentStatus.mockReturnValueOnce(new Promise(() => {}));
+      const hash = `0x${'2'.repeat(64)}`;
+      rows.push(
+        {
+          id: 'epoch-hung',
+          type: 'bridged-receive',
+          initiatedAt: Math.floor(Date.now() / 1000),
+          extraInputs: {
+            provider: 'epoch',
+            phase: 'delivering',
+            sourceAddress: '0x1111111111111111111111111111111111111111',
+            intentNonce: 'nonce-hung'
+          }
+        },
+        {
+          id: 'agg-after',
+          type: 'bridged-receive',
+          accountId: 'miden-account',
+          initiatedAt: Math.floor(Date.now() / 1000),
+          extraInputs: { provider: 'agglayer', phase: 'delivering', evmTxHash: hash }
+        }
+      );
+      fetchDeposits.mockResolvedValue([{ tx_hash: hash, ready_for_claim: true }]);
+
+      const pass = reconcileBridgedReceives();
+      await jest.advanceTimersByTimeAsync(EPOCH_INTENT_STATUS_TIMEOUT_MS);
+      await pass;
+
+      expect(updatePhase).toHaveBeenCalledWith('agg-after', 'ready');
+      expect(updatePhase).not.toHaveBeenCalledWith('epoch-hung', expect.anything(), expect.anything());
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('reconciles rows at once, so Epoch reads that never answer do not delay the rows after them', async () => {
+    jest.useFakeTimers();
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      getIntentStatus.mockReturnValue(new Promise(() => {}));
+      const hash = `0x${'3'.repeat(64)}`;
+      const hungEpochRow = (id: string) => ({
+        id,
+        type: 'bridged-receive',
+        initiatedAt: Math.floor(Date.now() / 1000),
+        extraInputs: {
+          provider: 'epoch',
+          phase: 'delivering',
+          sourceAddress: '0x1111111111111111111111111111111111111111',
+          intentNonce: id
+        }
+      });
+      rows.push(hungEpochRow('epoch-hung-1'), hungEpochRow('epoch-hung-2'), {
+        id: 'agg-after',
+        type: 'bridged-receive',
+        accountId: 'miden-account',
+        initiatedAt: Math.floor(Date.now() / 1000),
+        extraInputs: { provider: 'agglayer', phase: 'delivering', evmTxHash: hash }
+      });
+      fetchDeposits.mockResolvedValue([{ tx_hash: hash, ready_for_claim: true }]);
+
+      const pass = reconcileBridgedReceives();
+      for (let i = 0; i < 30; i += 1) await Promise.resolve();
+      expect(updatePhase).toHaveBeenCalledWith('agg-after', 'ready');
+      expect(getIntentStatus).toHaveBeenCalledTimes(2);
+
+      await jest.advanceTimersByTimeAsync(EPOCH_INTENT_STATUS_TIMEOUT_MS);
+      await pass;
+      // Rows now warn interleaved, so each warning names its row.
+      expect(warn).toHaveBeenCalledWith(
+        '[bridge-receive] Epoch reconcile poll failed',
+        'epoch-hung-1',
+        expect.any(Error)
+      );
+      expect(warn).toHaveBeenCalledWith(
+        '[bridge-receive] Epoch reconcile poll failed',
+        'epoch-hung-2',
+        expect.any(Error)
+      );
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('survives an Epoch status-poll outage without touching the row', async () => {
@@ -309,5 +472,207 @@ describe('reconcileBridgedReceives', () => {
 
     expect(registerBridgeIn).toHaveBeenCalled();
     expect(updatePhase).not.toHaveBeenCalled();
+  });
+});
+
+// One Web Lock manager shared by every realm in a test: shared holders coexist,
+// an exclusive request waits for them (or is refused with `ifAvailable`).
+class SharedModeLocks implements BridgeReceiveLockManager {
+  private shared = 0;
+  private exclusive = false;
+  private readonly waiting: Array<() => void> = [];
+
+  request(
+    _name: string,
+    options: { mode?: 'exclusive' | 'shared'; ifAvailable?: boolean },
+    callback: (lock: object | null) => Promise<void>
+  ): Promise<void> {
+    const shared = options.mode === 'shared';
+    const free = () => !this.exclusive && (shared || this.shared === 0);
+    if (!free() && options.ifAvailable) return callback(null);
+    return new Promise<void>((resolve, reject) => {
+      const run = () => {
+        if (shared) this.shared += 1;
+        else this.exclusive = true;
+        void callback({})
+          .then(resolve, reject)
+          .finally(() => {
+            if (shared) this.shared -= 1;
+            else this.exclusive = false;
+            this.waiting.splice(0).forEach(retry => retry());
+          });
+      };
+      const attempt = () => (free() ? run() : this.waiting.push(attempt));
+      attempt();
+    });
+  }
+}
+
+const deferred = () => {
+  let resolve!: () => void;
+  const promise = new Promise<void>(res => {
+    resolve = res;
+  });
+  return { promise, resolve };
+};
+
+const settle = async () => {
+  for (let n = 0; n < 12; n += 1) await Promise.resolve();
+};
+
+describe('deposit submissions', () => {
+  const liveRow = (id: string, provider: 'agglayer' | 'epoch') => ({
+    id,
+    type: 'bridged-receive',
+    accountId: 'miden-account',
+    initiatedAt: Math.floor(Date.now() / 1000),
+    extraInputs: { provider, phase: 'submitting', sourceAddress: '0x1' }
+  });
+
+  it.each(['agglayer', 'epoch'] as const)(
+    'leaves a %s row alone while another page still drives it, and resumes it once that page is gone',
+    async provider => {
+      const locks = new SharedModeLocks();
+      const depositPage = createBridgeReceiveReconciler({ getLocks: () => locks });
+      const watcherPage = createBridgeReceiveReconciler({ getLocks: () => locks });
+      const signing = deferred();
+
+      const txId = await depositPage.startSubmission(
+        async () => {
+          rows.push(liveRow('live', provider));
+          return 'live';
+        },
+        () => signing.promise
+      );
+      expect(txId).toBe('live');
+
+      await watcherPage.reconcile();
+      expect(updatePhase).not.toHaveBeenCalled();
+
+      signing.resolve();
+      await settle();
+      await watcherPage.reconcile();
+      expect(updatePhase).toHaveBeenCalledWith(
+        'live',
+        'failed',
+        expect.objectContaining({ error: expect.stringContaining('interrupted') })
+      );
+    }
+  );
+
+  it('does not wait on the hash of a submission that is still being driven', async () => {
+    const locks = new SharedModeLocks();
+    const realm = createBridgeReceiveReconciler({ getLocks: () => locks });
+    const confirming = deferred();
+
+    await realm.startSubmission(
+      async () => {
+        rows.push({
+          ...liveRow('hashed', 'agglayer'),
+          extraInputs: { provider: 'agglayer', phase: 'submitting', evmTxHash: `0x${'3'.repeat(64)}` }
+        });
+        return 'hashed';
+      },
+      () => confirming.promise
+    );
+    await realm.reconcile();
+
+    expect(waitForReceipt).not.toHaveBeenCalled();
+    expect(updatePhase).not.toHaveBeenCalled();
+    confirming.resolve();
+  });
+
+  it('keeps the same rule without Web Locks, including a submission that starts while the rows are read', async () => {
+    const realm = createBridgeReceiveReconciler({ getLocks: () => undefined });
+    const reading = deferred();
+    jest.requireMock('lib/miden/repo').transactions.where.mockImplementationOnce((index: string) => ({
+      equals: (value: string) => ({
+        filter: (predicate: (row: any) => boolean) => ({
+          toArray: async () => {
+            await reading.promise;
+            return rows.filter(row => row[index] === value && predicate(row));
+          }
+        })
+      })
+    }));
+
+    const pass = realm.reconcile();
+    const signing = deferred();
+    await realm.startSubmission(
+      async () => {
+        rows.push(liveRow('mid-read', 'epoch'));
+        return 'mid-read';
+      },
+      () => signing.promise
+    );
+    reading.resolve();
+    await pass;
+    expect(updatePhase).not.toHaveBeenCalled();
+
+    await realm.reconcile();
+    expect(updatePhase).not.toHaveBeenCalled();
+
+    signing.resolve();
+    await settle();
+    await realm.reconcile();
+    expect(updatePhase).toHaveBeenCalledWith(
+      'mid-read',
+      'failed',
+      expect.objectContaining({ error: expect.stringContaining('intent') })
+    );
+  });
+
+  it('does not resume a row read while its submission started and finished during the read', async () => {
+    const realm = createBridgeReceiveReconciler({ getLocks: () => undefined });
+    const beforeRead = deferred();
+    const afterRead = deferred();
+    jest.requireMock('lib/miden/repo').transactions.where.mockImplementationOnce((index: string) => ({
+      equals: (value: string) => ({
+        filter: (predicate: (row: any) => boolean) => ({
+          toArray: async () => {
+            await beforeRead.promise;
+            const snapshot = rows
+              .filter(row => row[index] === value && predicate(row))
+              .map(row => ({ ...row, extraInputs: { ...row.extraInputs } }));
+            await afterRead.promise;
+            return snapshot;
+          }
+        })
+      })
+    }));
+
+    const pass = realm.reconcile();
+    const signing = deferred();
+    const row: any = liveRow('finished', 'agglayer');
+    await realm.startSubmission(
+      async () => {
+        rows.push(row);
+        return 'finished';
+      },
+      async () => {
+        await signing.promise;
+        row.extraInputs = { ...row.extraInputs, phase: 'delivering', evmTxHash: `0x${'4'.repeat(64)}` };
+      }
+    );
+    beforeRead.resolve();
+    await settle();
+    signing.resolve();
+    await settle();
+    afterRead.resolve();
+    await pass;
+
+    expect(updatePhase).not.toHaveBeenCalled();
+  });
+
+  it('rejects with the row-creation error and never drives a row that was not created', async () => {
+    const realm = createBridgeReceiveReconciler({ getLocks: () => new SharedModeLocks() });
+    const drive = jest.fn(async () => undefined);
+
+    await expect(
+      realm.startSubmission(async () => {
+        throw new Error('dexie closed');
+      }, drive)
+    ).rejects.toThrow('dexie closed');
+    expect(drive).not.toHaveBeenCalled();
   });
 });

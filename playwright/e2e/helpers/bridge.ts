@@ -145,11 +145,6 @@ export interface BridgeOutSlowOptions {
   destAddress: `0x${string}`;
   /** Symbol of the funded bridgeable token (matches `fundBridgeToken`). */
   tokenSymbol: string;
-  /**
-   * Hex faucet id of the funded token — the Slow route is hard-gated on the
-   * bridgeable faucet, so this points the E2E override at the funded test faucet.
-   */
-  faucetHex: string;
   /** Human amount to bridge, as typed in the UI (e.g. '1'). */
   amount: string;
   /** Per-step timeout (default 30s). */
@@ -159,12 +154,9 @@ export interface BridgeOutSlowOptions {
 /**
  * Drive the real Send flow to bridge a token to a 0x address via the Slow
  * (AggLayer) route. Unlike Fast, there is NO live quote — the Slow card shows a
- * fixed "no fee" and `bridge-route-confirm` is never disabled — so nothing is
- * waited on beyond the route becoming ENABLED. The Slow route is gated on the
- * bridgeable faucet token (`slowEnabled`), so the caller MUST have set the E2E
- * faucet override (`__TEST_SET_AGGLAYER_FAUCET__`) to the funded token's faucet
- * BEFORE this call — otherwise `bridge-route-slow` stays disabled and this fails
- * fast at the `toBeEnabled` gate (rather than silently taking the Fast fallback).
+ * fixed "no fee" and `bridge-route-confirm` is never disabled, so nothing is
+ * waited on beyond the route becoming enabled. The Slow route carries whichever
+ * token is picked, so the funded test token bridges directly.
  */
 export async function bridgeOutSlow(wallet: Wallet, opts: BridgeOutSlowOptions): Promise<void> {
   const { page, extensionId } = wallet;
@@ -172,14 +164,6 @@ export async function bridgeOutSlow(wallet: Wallet, opts: BridgeOutSlowOptions):
 
   await page.goto(`chrome-extension://${extensionId}/fullpage.html#/send`);
   await expect(page.getByTestId('send-flow')).toBeVisible({ timeout: step });
-
-  // Point the Slow route at the funded test faucet. Set AFTER the page load (the
-  // override is a front module var; `fundBridgeToken`'s claim reloads the page,
-  // which would reset it) and BEFORE the token is picked, so `isBridgeableToken`
-  // is true from the first render and the Slow card is enabled.
-  await page.evaluate(id => {
-    (globalThis as unknown as { __TEST_SET_AGGLAYER_FAUCET__: (v: string) => void }).__TEST_SET_AGGLAYER_FAUCET__(id);
-  }, opts.faucetHex);
 
   const flow = page.getByTestId('send-flow');
 
@@ -189,14 +173,13 @@ export async function bridgeOutSlow(wallet: Wallet, opts: BridgeOutSlowOptions):
   await page.getByTestId('send-network-sepolia').click({ timeout: step });
   await flow.getByTestId('send-recipient-confirm').click({ timeout: step });
 
-  // Amount: pick the bridgeable token, type the amount.
+  // Amount: pick the funded token, type the amount.
   await flow.getByTestId('send-token-selector').click({ timeout: step });
   await page.getByTestId(`send-token-${opts.tokenSymbol}`).click({ timeout: step });
   await flow.getByTestId('send-amount-input').fill(opts.amount);
   await flow.getByTestId('send-amount-confirm').click({ timeout: step });
 
-  // Route: Slow (AggLayer). Enabled only when the token is the bridgeable faucet
-  // (the E2E override) — assert that gate opened before selecting it.
+  // Route: Slow (AggLayer), enabled for every token.
   await expect(flow.getByTestId('bridge-route-slow')).toBeEnabled({ timeout: step });
   await flow.getByTestId('bridge-route-slow').click();
   await flow.getByTestId('bridge-route-confirm').click({ timeout: step });
@@ -209,6 +192,10 @@ export async function bridgeOutSlow(wallet: Wallet, opts: BridgeOutSlowOptions):
 export interface BridgedSendRow {
   /** ITransactionStatus: Queued=0, GeneratingTransaction=1, Completed=2, Failed=3. */
   status: number;
+  /** User-facing failure reason on a Failed row. */
+  error?: string;
+  /** The underlying failure, before any friendly rewrite -- the one worth reading. */
+  rawError?: string;
   displayMessage?: string;
   transactionId?: string;
   outputNoteIds?: string[];
@@ -306,6 +293,11 @@ export async function readBridgedSendRows(page: Page): Promise<BridgedSendRow[]>
         status?: number;
         displayMessage?: string;
         transactionId?: string;
+        // Carried so a Failed row can say WHY. Without these a bridge failure reads as a bare
+        // `Expected: 2 / Received: 3` -- a status code with no cause attached, which is what made
+        // the non-guardian fee-auth gap take a code read rather than a log read to find.
+        error?: string;
+        rawError?: string;
         outputNoteIds?: string[];
         extraInputs?: {
           intentNonce?: string;
@@ -325,6 +317,8 @@ export async function readBridgedSendRows(page: Page): Promise<BridgedSendRow[]>
           status: t.status ?? -1,
           displayMessage: t.displayMessage,
           transactionId: t.transactionId,
+          error: t.error,
+          rawError: t.rawError,
           outputNoteIds: t.outputNoteIds,
           extraInputs: t.extraInputs
         }));

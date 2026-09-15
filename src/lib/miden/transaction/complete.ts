@@ -1,5 +1,12 @@
 import { Note, TransactionResult } from '@miden-sdk/miden-sdk/lazy';
 
+import { earnWithdrawExecutionIdentity, validateEarnWithdrawPreparedExecution } from 'lib/epoch/earn-withdraw-policy';
+import {
+  matchesEarnDepositIntent,
+  matchesEarnWithdrawIntent,
+  type ExpectedEarnDepositIntent,
+  type ExpectedEarnWithdrawIntent
+} from 'lib/epoch/intent-key';
 import { clearGuardianServiceFor, type GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
 import { MultisigService } from 'lib/miden/guardian';
 import { finalizeDirectGuardianSwitch } from 'lib/miden/guardian/direct-switch';
@@ -8,7 +15,8 @@ import * as Repo from 'lib/miden/repo';
 
 import { recordNoteDelivery, setTransactionStage, updateTransactionStatus } from './helper';
 import { ensureGuardianProcedureThresholds } from './initiate';
-import { takeAgglayerBridgeInInfo, takeBridgeInInfoForNotes } from '../activity/bridge-in';
+import { applyBridgeInInfoForNotes, applyBridgeInToConsumeRow, takeAgglayerBridgeInInfo } from '../activity/bridge-in';
+import { feeFieldsFromResult, splitExecutedOutputNotes } from '../activity/fee';
 import { interpretTransactionResult } from '../activity/helpers';
 import { compareAccountIds } from '../activity/utils';
 import { midenClientProxy } from '../back/miden-client-proxy';
@@ -24,6 +32,7 @@ import {
   IEarnDepositExtraInputs,
   IEarnWithdrawExtraInputs,
   IEarnWithdrawPhase,
+  IEarnWithdrawPreparedExecution,
   INoteDeliveryState,
   ITransaction,
   ITransactionStatus,
@@ -40,7 +49,11 @@ import { NoteTypeEnum } from '../types';
 
 export const completeCustomTransaction = async (transaction: ITransaction, result: TransactionResult) => {
   const executedTx = result.executedTransaction();
-  const outputNotes = executedTx.outputNotes().notes();
+  // Fee note excluded, like the other two paths that walk output notes: the loop below
+  // RELAYS every private note to `transaction.secondaryAccountId`, a recipient named by
+  // the requesting site, so a fee note reaching it would be sent to the user's
+  // counterparty. Consistent with `extractFullNote` and `completeSwapTransaction`.
+  const { userNotes: outputNotes } = splitExecutedOutputNotes(executedTx);
 
   // Every private note this transaction produced. Collected first so the relays
   // below are a flat sequence: the commit wait then happens ONCE, after them,
@@ -170,6 +183,11 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
 
   const updatedTransaction = interpretTransactionResult(transaction, result);
   updatedTransaction.completedAt = Math.floor(Date.now() / 1000); // seconds
+  // `interpretTransactionResult` carries type/amount/notes but no fee fields, so this
+  // route — the `execute` and default transaction types — was the one completion path
+  // that recorded no fee, leaving its history row without the fee line every other
+  // type shows.
+  Object.assign(updatedTransaction, feeFieldsFromResult(result));
   // Set explicitly AFTER interpretTransactionResult: that returns the whole
   // pick-time row, which predates every delivery write above and would otherwise
   // hand back the stale (absent) value.
@@ -234,6 +252,7 @@ export const completeConsumeTransaction = async (id: string, result: Transaction
   const uniformNoteType = noteTypes.every(type => type === firstNoteType) ? firstNoteType : undefined;
 
   await updateTransactionStatus(id, ITransactionStatus.Completed, {
+    ...feeFieldsFromResult(result),
     displayMessage,
     transactionId: executedTransaction.id().toHex(),
     secondaryAccountId,
@@ -253,40 +272,14 @@ export const completeConsumeTransaction = async (id: string, result: Transaction
   // fail the consume itself.
   try {
     const consumedNoteIds = inputNotes.map(inputNote => inputNote.note().id().toString());
-    const bridgeIn =
-      (await takeBridgeInInfoForNotes(consumedNoteIds)) ??
-      (await takeAgglayerBridgeInInfo({
+    const applied = await applyBridgeInInfoForNotes(consumedNoteIds, info => applyBridgeInToConsumeRow(id, info));
+    if (!applied) {
+      const info = await takeAgglayerBridgeInInfo({
         accountId: dbTransaction?.accountId ?? '',
         senderAccountId: sender,
         amount
-      }));
-    if (bridgeIn) {
-      await Repo.transactions.where({ id }).modify(tx => {
-        tx.extraInputs = { ...(tx.extraInputs ?? {}), bridgeIn };
-        tx.displayMessage = 'Bridged from EVM';
       });
-      if (bridgeIn.earnWithdrawTxId) {
-        await updateEarnWithdrawPhase(
-          bridgeIn.earnWithdrawTxId,
-          'received',
-          {
-            midenNoteId: bridgeIn.midenNoteId ?? consumedNoteIds[0],
-            outputSymbol: bridgeIn.sourceSymbol
-          },
-          amount
-        );
-      }
-      if (bridgeIn.bridgeReceiveTxId) {
-        await updateBridgedReceivePhase(
-          bridgeIn.bridgeReceiveTxId,
-          'received',
-          {
-            midenNoteId: bridgeIn.midenNoteId ?? consumedNoteIds[0],
-            outputSymbol: bridgeIn.sourceSymbol
-          },
-          { amount, faucetId, transactionId: executedTransaction.id().toHex() }
-        );
-      }
+      if (info) await applyBridgeInToConsumeRow(id, { ...info, midenNoteId: consumedNoteIds[0] });
     }
   } catch (err) {
     console.warn('[bridge-in] consume tagging failed (non-fatal)', err);
@@ -303,11 +296,13 @@ export const completeConsumeTransaction = async (id: string, result: Transaction
     if (settle) {
       const stampedAt = Math.floor(Date.now() / 1000);
       await Repo.transactions.where({ id: settle.swapOrderTxId }).modify(tx => {
-        if (tx.type !== 'swap') return;
+        // `false`, not a bare return - dexie re-puts the deep clone for any other value.
+        if (tx.type !== 'swap') return false;
         tx.extraInputs = {
           ...(tx.extraInputs ?? {}),
           ...(settle.swapSettleKind === 'reclaim' ? { reclaimedAt: stampedAt } : { settledAt: stampedAt })
         };
+        return undefined;
       });
     }
   } catch (err) {
@@ -317,7 +312,13 @@ export const completeConsumeTransaction = async (id: string, result: Transaction
 
 export const completeSwapTransaction = async (tx: SwapTransaction, result: TransactionResult) => {
   const executedTx = result.executedTransaction();
-  const outputNote = executedTx.outputNotes().notes()[0];
+  // The kernel's fee note is an output note of this transaction too, and the order the
+  // notes come back in is the kernel's business, not ours. Taking index 0 blind means
+  // that on a fee-charging chain the `orderId` below -- the serial number this swap is
+  // tracked by for its entire lineage -- can be read off the FEE note instead of the
+  // PSWAP note, which points settlement at a note that will never be filled.
+  const { userNotes } = splitExecutedOutputNotes(executedTx);
+  const outputNote = userNotes[0];
 
   if (!outputNote) {
     throw new Error('Swap Transaction Failed');
@@ -331,6 +332,7 @@ export const completeSwapTransaction = async (tx: SwapTransaction, result: Trans
   // Completed with the output note ids so the swap shows up in history.
   const completedAt = Math.floor(Date.now() / 1000); // seconds
   await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
+    ...feeFieldsFromResult(result),
     displayMessage: 'Swapped',
     transactionId: executedTx.id().toHex(),
     outputNoteIds: [outputNote.id().toString()],
@@ -482,6 +484,7 @@ export const completeReplaceHotKeyTransaction = async (
     clearGuardianServiceFor(tx.accountId);
 
     await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
+      ...feeFieldsFromResult(result),
       displayMessage: 'Device key rotated',
       completedAt: Math.floor(Date.now() / 1000),
       // Preserve newHotPublicKey (updateTransactionStatus Object.assigns the whole
@@ -520,6 +523,7 @@ export const completeUpdateProcedureThresholdTransaction = async (
 ) => {
   const executedTx = result.executedTransaction();
   await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
+    ...feeFieldsFromResult(result),
     displayMessage: 'Account secured',
     transactionId: executedTx.id().toHex(),
     completedAt: Math.floor(Date.now() / 1000),
@@ -703,6 +707,7 @@ export const completeSwitchGuardianTransaction = async (
     }
 
     await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
+      ...feeFieldsFromResult(result),
       // The Activity list renders this string as the row title, so it is a
       // claim about the chain, not a log line. "Guardian switched" is one the
       // unconfirmed path cannot make — and the receipt's recovery copy used to
@@ -771,9 +776,14 @@ export const completeSwitchGuardianTransaction = async (
 
 const extractFullNote = (result: TransactionResult): Note | undefined => {
   try {
-    const outputNotes = result.executedTransaction().outputNotes().notes();
+    // Excluding the kernel's fee note, which is an output note of this transaction like
+    // any other and whose position among them is the kernel's business. The note this
+    // returns is the one a PRIVATE send RELAYS to its recipient, so picking the fee note
+    // here would hand the transport the wrong note and leave the payment undeliverable
+    // while the row still completed.
+    const { userNotes } = splitExecutedOutputNotes(result.executedTransaction());
 
-    const firstOutput = outputNotes?.[0];
+    const firstOutput = userNotes[0];
     if (!firstOutput) {
       console.error('No output notes found for executed transaction');
       return undefined;
@@ -961,6 +971,7 @@ export const completeSendTransaction = async (tx: SendTransaction, result: Trans
 
   try {
     await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
+      ...feeFieldsFromResult(result),
       // Completed is correct even when the relay failed: the assets have left the
       // account, so Failed would be untrue and would offer a Retry that spends a
       // second time. But it must not read as an unqualified success either.
@@ -986,6 +997,7 @@ export const completeBridgedSendTransaction = async (tx: BridgedSendTransaction,
   const outputNoteIds = noteId ? [noteId] : [];
 
   await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
+    ...feeFieldsFromResult(result),
     displayMessage: 'Bridged to EVM',
     transactionId: executedTx.id().toHex(),
     outputNoteIds,
@@ -1002,6 +1014,7 @@ export const completeEarnDepositTransaction = async (tx: EarnDepositTransaction,
   const outputNoteIds = noteId ? [noteId] : [];
 
   await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
+    ...feeFieldsFromResult(result),
     displayMessage: 'Deposited to lending',
     transactionId: executedTx.id().toHex(),
     outputNoteIds,
@@ -1014,9 +1027,19 @@ export const completeEarnDepositTransaction = async (tx: EarnDepositTransaction,
 export const updateEarnDepositStatus = async (
   id: string,
   epochStatus: NonNullable<IEarnDepositExtraInputs['epochStatus']>,
-  extra?: Partial<Pick<IEarnDepositExtraInputs, 'evmTxHash' | 'intentNonce' | 'outputAmount' | 'outputSymbol'>>
+  extra?: Partial<Pick<IEarnDepositExtraInputs, 'evmTxHash' | 'intentNonce' | 'outputAmount' | 'outputSymbol'>>,
+  expected?: ExpectedEarnDepositIntent
 ) => {
   await Repo.transactions.where({ id }).modify(tx => {
+    if (
+      expected &&
+      (tx.restoredFromBackup ||
+        tx.status !== ITransactionStatus.Completed ||
+        !matchesEarnDepositIntent(tx, expected) ||
+        tx.extraInputs?.epochStatus === 'confirmed' ||
+        tx.extraInputs?.epochStatus === 'failed')
+    )
+      return;
     const inputs: IEarnDepositExtraInputs = tx.extraInputs;
     tx.extraInputs = { ...inputs, epochStatus, ...(extra ?? {}) };
   });
@@ -1055,6 +1078,163 @@ export const canAdvanceEarnWithdrawPhase = (current: IEarnWithdrawPhase, next: I
   return EARN_WITHDRAW_PHASE_RANK[next] >= EARN_WITHDRAW_PHASE_RANK[current];
 };
 
+function currentEarnWithdrawExecution(
+  tx: ITransaction,
+  expected: ExpectedEarnWithdrawIntent,
+  isCurrent: () => boolean
+) {
+  if (
+    !isCurrent() ||
+    tx.restoredFromBackup ||
+    tx.status !== ITransactionStatus.Completed ||
+    !matchesEarnWithdrawIntent(tx, expected)
+  )
+    return undefined;
+  return earnWithdrawExecutionIdentity(tx);
+}
+
+function sameEarnWithdrawExecution(left: IEarnWithdrawPreparedExecution, right: IEarnWithdrawPreparedExecution) {
+  return (
+    left.attemptId === right.attemptId &&
+    left.chainId === right.chainId &&
+    left.delivery.allocationIndex === right.delivery.allocationIndex &&
+    left.delivery.owner === right.delivery.owner &&
+    left.delivery.nonce === right.delivery.nonce &&
+    left.delivery.destinationChainId === right.delivery.destinationChainId &&
+    left.delivery.recipientAccountId === right.delivery.recipientAccountId &&
+    left.delivery.destinationFaucetId === right.delivery.destinationFaucetId &&
+    left.allocations.length === right.allocations.length &&
+    left.allocations.every((allocation, index) => {
+      const other = right.allocations[index];
+      return (
+        other !== undefined &&
+        allocation.sponsor === other.sponsor &&
+        allocation.nonce === other.nonce &&
+        allocation.expires === other.expires &&
+        allocation.requestJson === other.requestJson
+      );
+    })
+  );
+}
+
+export async function prepareEarnWithdrawExecution(
+  id: string,
+  preparedExecution: IEarnWithdrawPreparedExecution,
+  expected: ExpectedEarnWithdrawIntent,
+  isCurrent: () => boolean
+): Promise<boolean> {
+  let applied = false;
+  const count = await Repo.transactions.where({ id }).modify(tx => {
+    const identity = currentEarnWithdrawExecution(tx, expected, isCurrent);
+    if (!identity) return;
+    const inputs: IEarnWithdrawExtraInputs = tx.extraInputs;
+    if (inputs.phase !== 'redeeming' && inputs.phase !== 'delivering') return;
+    const validated = validateEarnWithdrawPreparedExecution(preparedExecution, identity);
+    if (!validated || (expected.nonce !== undefined && expected.nonce !== preparedExecution.delivery.nonce)) return;
+    if (inputs.submissionState === 'prepared' || inputs.submissionState === 'accepted') {
+      const stored = validateEarnWithdrawPreparedExecution(inputs.preparedExecution, identity);
+      if (
+        !stored ||
+        inputs.withdrawIntentNonce !== preparedExecution.delivery.nonce ||
+        !sameEarnWithdrawExecution(stored.preparedExecution, preparedExecution)
+      )
+        return;
+      applied = true;
+      return;
+    }
+    if (
+      inputs.submissionState !== 'preparing' ||
+      inputs.withdrawIntentNonce !== undefined ||
+      inputs.preparedExecution !== undefined
+    )
+      return;
+    tx.extraInputs = {
+      ...inputs,
+      withdrawIntentNonce: preparedExecution.delivery.nonce,
+      preparedExecution: validated.preparedExecution,
+      submissionState: 'prepared'
+    };
+    applied = true;
+  });
+  return applied && count > 0;
+}
+
+export async function markEarnWithdrawNotSent(
+  id: string,
+  error: string,
+  expected: ExpectedEarnWithdrawIntent,
+  capturedExecution: IEarnWithdrawPreparedExecution | undefined,
+  mayConfirmNotSent: () => boolean
+): Promise<boolean> {
+  let applied = false;
+  const count = await Repo.transactions.where({ id }).modify(tx => {
+    const identity = currentEarnWithdrawExecution(tx, expected, mayConfirmNotSent);
+    if (!identity) return;
+    const inputs: IEarnWithdrawExtraInputs = tx.extraInputs;
+    if (
+      (inputs.phase !== 'redeeming' && inputs.phase !== 'failed') ||
+      inputs.evmTxHash !== undefined ||
+      inputs.midenNoteId !== undefined ||
+      inputs.outputAmount !== undefined ||
+      inputs.outputSymbol !== undefined
+    )
+      return;
+    if (inputs.submissionState === 'prepared') {
+      const stored = validateEarnWithdrawPreparedExecution(inputs.preparedExecution, identity);
+      const captured = validateEarnWithdrawPreparedExecution(capturedExecution, identity);
+      if (
+        !stored ||
+        !captured ||
+        inputs.withdrawIntentNonce !== captured.preparedExecution.delivery.nonce ||
+        !sameEarnWithdrawExecution(stored.preparedExecution, captured.preparedExecution)
+      )
+        return;
+    } else if (
+      inputs.submissionState !== 'preparing' ||
+      inputs.withdrawIntentNonce !== undefined ||
+      inputs.preparedExecution !== undefined
+    ) {
+      return;
+    }
+    // Only the still-current callback can prove execution permission was never granted.
+    tx.extraInputs = {
+      ...inputs,
+      withdrawIntentNonce: undefined,
+      preparedExecution: undefined,
+      submissionState: 'preparing',
+      phase: 'failed',
+      error
+    };
+    tx.error = error;
+    applied = true;
+  });
+  return applied && count > 0;
+}
+
+export async function markEarnWithdrawAccepted(
+  id: string,
+  expected: ExpectedEarnWithdrawIntent,
+  isCurrent: () => boolean
+): Promise<boolean> {
+  let applied = false;
+  const count = await Repo.transactions.where({ id }).modify(tx => {
+    const identity = currentEarnWithdrawExecution(tx, expected, isCurrent);
+    if (!identity) return;
+    const inputs: IEarnWithdrawExtraInputs = tx.extraInputs;
+    if (inputs.submissionState !== 'prepared' && inputs.submissionState !== 'accepted') return;
+    const stored = validateEarnWithdrawPreparedExecution(inputs.preparedExecution, identity);
+    if (
+      !stored ||
+      !inputs.withdrawIntentNonce ||
+      inputs.withdrawIntentNonce !== stored.preparedExecution.delivery.nonce
+    )
+      return;
+    tx.extraInputs = { ...inputs, submissionState: 'accepted' };
+    applied = true;
+  });
+  return applied && count > 0;
+}
+
 /**
  * Advance an `earn-withdraw` row's lifecycle. The row is finalized (`Completed`)
  * from birth, so this mutates ONLY `extraInputs` (via a direct `modify`) — never
@@ -1078,21 +1258,45 @@ export const updateEarnWithdrawPhase = async (
   >,
   // Actual delivered amount (base units), patched onto the row when the bridged
   // note is consumed so the history hero reflects what really landed.
-  amount?: bigint
+  amount?: bigint,
+  expected?: ExpectedEarnWithdrawIntent
 ) => {
   await Repo.transactions.where({ id }).modify(tx => {
+    if (
+      expected &&
+      (tx.restoredFromBackup || tx.status !== ITransactionStatus.Completed || !matchesEarnWithdrawIntent(tx, expected))
+    )
+      return;
     const inputs: IEarnWithdrawExtraInputs = tx.extraInputs;
     if (!canAdvanceEarnWithdrawPhase(inputs.phase, phase)) {
       console.warn(`[earn-withdraw] refusing phase downgrade ${inputs.phase} -> ${phase} on ${id}`);
-      return;
+      // `false`, not a bare return - dexie re-puts the deep clone for any other value.
+      return false;
     }
     tx.extraInputs = { ...inputs, phase, ...(extra ?? {}) };
     if (amount !== undefined) tx.amount = amount;
     if (phase === 'failed' && extra?.error) tx.error = extra.error;
+    return undefined;
   });
 };
 
 /** Advance a tracking-only EVM → Miden bridge row without touching its terminal DB status. */
+const BRIDGED_RECEIVE_PHASE_ORDER: IBridgedReceivePhase[] = ['submitting', 'delivering', 'ready', 'received'];
+
+/**
+ * A bridged-receive phase only moves forward: `received` is final, and `failed`
+ * gives way only to `received`, the funds having arrived after all. Writers read
+ * the row, await the network or a wallet, then write, so a write can land after
+ * the row moved on (a consume marking it `received` while a reconcile pass still
+ * awaits the indexer); such a write is dropped whole.
+ */
+const canMoveBridgedReceivePhase = (from: IBridgedReceivePhase | undefined, to: IBridgedReceivePhase): boolean => {
+  if (from === 'received') return false;
+  if (from === 'failed') return to === 'received';
+  if (from === undefined || to === 'failed') return true;
+  return BRIDGED_RECEIVE_PHASE_ORDER.indexOf(to) >= BRIDGED_RECEIVE_PHASE_ORDER.indexOf(from);
+};
+
 export const updateBridgedReceivePhase = async (
   id: string,
   phase: IBridgedReceivePhase,
@@ -1105,7 +1309,8 @@ export const updateBridgedReceivePhase = async (
   received?: { amount: bigint; faucetId: string; transactionId?: string }
 ) => {
   await Repo.transactions.where({ id }).modify(tx => {
-    const inputs = tx.extraInputs as IBridgedReceiveExtraInputs;
+    const inputs: IBridgedReceiveExtraInputs | undefined = tx.extraInputs;
+    if (!canMoveBridgedReceivePhase(inputs?.phase, phase)) return;
     tx.extraInputs = { ...inputs, phase, ...(extra ?? {}) };
     if (received) {
       tx.amount = received.amount;

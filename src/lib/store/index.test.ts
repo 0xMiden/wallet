@@ -1207,6 +1207,31 @@ describe('useWalletStore', () => {
       expect(useWalletStore.getState().isNoteToastVisible).toBe(false);
     });
 
+    it('checkForNewNotes records every new note as seen and toasts for a notifiable one', () => {
+      useWalletStore.getState().checkForNewNotes(['auto', 'manual'], ['manual']);
+      const state = useWalletStore.getState();
+      expect(state.isNoteToastVisible).toBe(true);
+      expect(state.seenNoteIds.has('auto')).toBe(true);
+      expect(state.seenNoteIds.has('manual')).toBe(true);
+    });
+
+    it('checkForNewNotes records a new note outside the notifiable set without a toast', () => {
+      useWalletStore.getState().checkForNewNotes(['auto'], []);
+      const state = useWalletStore.getState();
+      expect(state.isNoteToastVisible).toBe(false);
+      expect(state.noteToastShownAt).toBeNull();
+      expect(state.seenNoteIds.has('auto')).toBe(true);
+    });
+
+    it('checkForNewNotes does not toast when the only notifiable id was already seen', () => {
+      useWalletStore.setState({ seenNoteIds: new Set(['manual']) });
+      useWalletStore.getState().checkForNewNotes(['manual', 'auto'], ['manual']);
+      const state = useWalletStore.getState();
+      expect(state.isNoteToastVisible).toBe(false);
+      expect(state.noteToastShownAt).toBeNull();
+      expect(state.seenNoteIds.has('auto')).toBe(true);
+    });
+
     it('dismissNoteToast hides the toast', () => {
       useWalletStore.setState({ isNoteToastVisible: true });
       useWalletStore.getState().dismissNoteToast();
@@ -1238,36 +1263,13 @@ describe('useWalletStore', () => {
   });
 
   describe('extension claimable notes', () => {
-    it('setExtensionClaimableNotes / addExtensionClaimingNoteId / clearExtensionClaimingNoteIds', () => {
+    it('setExtensionClaimableNotes replaces the cached note list', () => {
       useWalletStore
         .getState()
         .setExtensionClaimableNotes([
           { id: 'n1', faucetId: 'f', amountBaseUnits: '1', senderAddress: 's', noteType: 'public' } as any
         ]);
       expect(useWalletStore.getState().extensionClaimableNotes).toHaveLength(1);
-      useWalletStore.getState().addExtensionClaimingNoteId('n1');
-      expect(useWalletStore.getState().extensionClaimingNoteIds.has('n1')).toBe(true);
-      useWalletStore.getState().clearExtensionClaimingNoteIds();
-      expect(useWalletStore.getState().extensionClaimingNoteIds.size).toBe(0);
-    });
-
-    it('removeExtensionClaimingNoteIds removes only the specified ids', () => {
-      useWalletStore.getState().addExtensionClaimingNoteId('n1');
-      useWalletStore.getState().addExtensionClaimingNoteId('n2');
-      useWalletStore.getState().addExtensionClaimingNoteId('n3');
-      useWalletStore.getState().removeExtensionClaimingNoteIds(['n1', 'n3']);
-      const ids = useWalletStore.getState().extensionClaimingNoteIds;
-      expect(ids.has('n1')).toBe(false);
-      expect(ids.has('n2')).toBe(true);
-      expect(ids.has('n3')).toBe(false);
-    });
-
-    it('removeExtensionClaimingNoteIds is a no-op for empty input and unknown ids', () => {
-      useWalletStore.getState().addExtensionClaimingNoteId('n1');
-      const before = useWalletStore.getState().extensionClaimingNoteIds;
-      useWalletStore.getState().removeExtensionClaimingNoteIds([]);
-      useWalletStore.getState().removeExtensionClaimingNoteIds(['unknown']);
-      expect(useWalletStore.getState().extensionClaimingNoteIds).toBe(before);
     });
   });
 

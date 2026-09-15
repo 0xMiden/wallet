@@ -7,7 +7,7 @@
  *  - Renders `<DappLauncher>` when there's no foreground dApp (mode is
  *    `'launcher'`, OR mode is `'parked'` so the bubble shows over the
  *    launcher)
- *  - Renders `<DappActive>` when a dApp is foregrounded (mode `'active'`)
+ *  - Renders `<DappActive>` when a dApp is foregrounded (mode `'active'`) and the page is on screen
  *  - Tells the provider to open a new session when the user taps a tile
  *    or submits a URL
  *
@@ -22,6 +22,7 @@ import React, { type FC, useCallback } from 'react';
 
 import { LayoutGroup } from 'framer-motion';
 
+import { usePageActive } from 'app/layouts/page-active';
 import { useDappBrowser } from 'app/providers/DappBrowserProvider';
 import { createDappSession, getDappDisplayName, recordRecentDapp } from 'lib/dapp-browser';
 import { isDesktop } from 'lib/platform';
@@ -31,6 +32,9 @@ import { DappLauncher } from './DappLauncher';
 
 export const BrowserScreen: FC = () => {
   const { mode, open } = useDappBrowser();
+  // A tab pane or page layer stays mounted off screen, but the dApp surface must not: its unmount clears the slot
+  // rect, which is what parks the foreground dApp and hides its native window.
+  const onScreen = usePageActive();
 
   const handleOpen = useCallback(
     async (url: string) => {
@@ -77,7 +81,7 @@ export const BrowserScreen: FC = () => {
   // tracker to suppress the tile's drop-in entry animation.
   return (
     <LayoutGroup id="dapp-browser">
-      {mode === 'active' ? <DappActive /> : <DappLauncher onOpen={handleOpen} />}
+      {mode === 'active' ? onScreen && <DappActive /> : <DappLauncher onOpen={handleOpen} />}
     </LayoutGroup>
   );
 };
