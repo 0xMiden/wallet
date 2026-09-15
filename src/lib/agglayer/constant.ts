@@ -11,6 +11,12 @@ export const MIDEN_CHAIN_ID = 86;
  * incoming notes cannot be mistaken for bridge deliveries.
  */
 export const AGGLAYER_BRIDGE_NOTE_SENDER_ACCOUNT_ID = 'mtst1aqu8zjdwvcgkeug5a67kpwmnsymvmkg0_qr7qqq9wr6w';
+/**
+ * Source symbol of the only asset that sender delivers. The sender is the
+ * bridged-ETH faucet itself, so its notes can settle only a native ETH deposit
+ * tracker, never an ERC-20 one with the same base-unit amount.
+ */
+export const AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL = 'ETH';
 export const AGGLAYER_CONTRACT_ADDRESS = new Map<string, string>([
   ['sepolia', '0x1348947e282138d8f377b467f7d9c2eb0f335d1f']
 ]);

@@ -9,7 +9,13 @@ import { useWriteContract } from 'wagmi';
 import { ReceiveStep } from 'app/pages/Receive/steps';
 import { Navigator, NavigatorProvider, Route, useNavigator } from 'components/Navigator';
 import { ScreenHeader } from 'components/ScreenHeader';
-import { AGGLAYER_BRIDGE_ABI, AGGLAYER_CONTRACT_ADDRESS, MIDEN_CHAIN_ID, midenAddrToEvmAddr } from 'lib/agglayer';
+import {
+  AGGLAYER_BRIDGE_ABI,
+  AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL,
+  AGGLAYER_CONTRACT_ADDRESS,
+  MIDEN_CHAIN_ID,
+  midenAddrToEvmAddr
+} from 'lib/agglayer';
 import { MIDEN_DESTINATION_CHAIN_ID, useEpochStore } from 'lib/epoch';
 import {
   BRIDGEABLE_EVM_OUTPUT_TOKEN_ADDRESS,
@@ -45,7 +51,8 @@ const MIDEN_USDC_FAUCET_ID = '0x537c15a622074e91188aa894456c52';
 const MIDEN_USDC_FAUCET_DECIMALS = 6;
 
 /** Native-ETH source token symbol/decimals (the non-USDC deposit option). */
-const ETH_SYMBOL = 'ETH';
+// Also the symbol the AggLayer bridge-in matcher requires on a native deposit's tracker.
+const ETH_SYMBOL = AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL;
 const ETH_DECIMALS = 18;
 
 const MOCK_USDC_GET_BALANCE_ABI = [
