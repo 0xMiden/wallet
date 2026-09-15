@@ -492,6 +492,44 @@ describe('deposit submissions', () => {
     );
   });
 
+  it('does not resume a row read while its submission started and finished during the read', async () => {
+    const realm = createBridgeReceiveReconciler({ getLocks: () => undefined });
+    const beforeRead = deferred();
+    const afterRead = deferred();
+    jest
+      .requireMock('lib/miden/repo')
+      .transactions.filter.mockImplementationOnce((predicate: (row: any) => boolean) => ({
+        toArray: async () => {
+          await beforeRead.promise;
+          const snapshot = rows.filter(predicate).map(row => ({ ...row, extraInputs: { ...row.extraInputs } }));
+          await afterRead.promise;
+          return snapshot;
+        }
+      }));
+
+    const pass = realm.reconcile();
+    const signing = deferred();
+    const row: any = liveRow('finished', 'agglayer');
+    await realm.startSubmission(
+      async () => {
+        rows.push(row);
+        return 'finished';
+      },
+      async () => {
+        await signing.promise;
+        row.extraInputs = { ...row.extraInputs, phase: 'delivering', evmTxHash: `0x${'4'.repeat(64)}` };
+      }
+    );
+    beforeRead.resolve();
+    await settle();
+    signing.resolve();
+    await settle();
+    afterRead.resolve();
+    await pass;
+
+    expect(updatePhase).not.toHaveBeenCalled();
+  });
+
   it('rejects with the row-creation error and never drives a row that was not created', async () => {
     const realm = createBridgeReceiveReconciler({ getLocks: () => new SharedModeLocks() });
     const drive = jest.fn(async () => undefined);
