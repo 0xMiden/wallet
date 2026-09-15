@@ -100,6 +100,7 @@ describe('initiateB2AggBridge', () => {
   it('records the faucet id on the row in BECH32 form, never the raw hex constant', async () => {
     const txId = await initiateB2AggBridge({
       amount: 250n,
+      faucetId: MIDEN_AGGLAYER_FAUCET_ID,
       destinationAddress: '0x1111111111111111111111111111111111111111',
       senderPublicKey: 'mlcl1sender',
       destinationNetwork: 0
@@ -112,9 +113,28 @@ describe('initiateB2AggBridge', () => {
     expect(String(faucetArg).startsWith('0x')).toBe(false);
   });
 
+  it('hands the SDK account ids, not addresses: a hex faucet and a composite wallet publicKey both resolve', async () => {
+    await initiateB2AggBridge({
+      amount: 250n,
+      faucetId: MIDEN_AGGLAYER_FAUCET_ID,
+      destinationAddress: '0x1111111111111111111111111111111111111111',
+      senderPublicKey: 'mlcl1sender_qr7qqq9wr6w',
+      destinationNetwork: 0
+    });
+
+    const [sender, bridge] = mockCreateB2AggNote.mock.calls[0]!;
+    // The wallet suffix is stripped before the bech32 parse, and the hex faucet
+    // goes through `AccountId.fromHex`; both land as account ids.
+    expect(sender).toEqual({ hex: '0xsender' });
+    expect(bridge).toEqual({ hex: '0x3b66e20b5088f25133b69216484652' });
+    const faucetArg = mockInitiateBridgedSendTransaction.mock.calls[0]![2];
+    expect(faucetArg).toBe(`mlcl1${MIDEN_AGGLAYER_FAUCET_ID.slice(2)}`);
+  });
+
   it('still queues the row as an agglayer bridged-send with the pre-built request bytes', async () => {
     await initiateB2AggBridge({
       amount: 250n,
+      faucetId: MIDEN_AGGLAYER_FAUCET_ID,
       destinationAddress: '0x1111111111111111111111111111111111111111',
       senderPublicKey: 'mlcl1sender',
       destinationNetwork: 0
@@ -143,6 +163,7 @@ describe('initiateB2AggBridge', () => {
     await expect(
       initiateB2AggBridge({
         amount: 250n,
+        faucetId: MIDEN_AGGLAYER_FAUCET_ID,
         destinationAddress: '0x1111111111111111111111111111111111111111',
         senderPublicKey: 'mlcl1sender',
         destinationNetwork: 0

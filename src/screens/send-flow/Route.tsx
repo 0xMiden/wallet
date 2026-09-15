@@ -15,8 +15,8 @@ export interface RouteStepProps {
   /** Fast-route fee in USD (input value − quoted USDC out). undefined while quoting / unavailable. */
   fastFeeUsd?: number;
   fastQuoteLoading: boolean;
-  /** Whether the Slow (Agglayer) route can carry the selected token. */
-  slowEnabled: boolean;
+  /** Whether the Slow (Agglayer) route can carry the selected token. Defaults to enabled. */
+  slowEnabled?: boolean;
   /** Extra message rendered below the cards (e.g. a route-specific notice). When set, it replaces the default slow-disabled hint. */
   notice?: React.ReactNode;
   /** Disable the confirm button — e.g. the quote isn't ready, or an unsupported route+token combo. */
@@ -69,7 +69,7 @@ export const Route: React.FC<RouteStepProps> = ({
   onRouteChange,
   fastFeeUsd,
   fastQuoteLoading,
-  slowEnabled,
+  slowEnabled = true,
   notice,
   confirmDisabled,
   footerClassName = 'pt-4 pb-24',
