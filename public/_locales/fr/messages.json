@@ -1,4 +1,61 @@
 {
+  "activityFetchingHistoryAndNotes": {
+    "message": "Récupération de l’historique de vos transactions et de vos «notes »",
+    "englishSource": "Fetching your transaction history and notes"
+  },
+  "guardianHistorySwap": {
+    "message": "Swap",
+    "englishSource": "Swap"
+  },
+  "guardianHistoryBridgeOut": {
+    "message": "Transfert sortant",
+    "englishSource": "Bridge out"
+  },
+  "guardianHistoryEarnDeposit": {
+    "message": "Gagner sur un dépôt",
+    "englishSource": "Earn deposit"
+  },
+  "guardianHistoryGuardianChanged": {
+    "message": "Guardian modifié",
+    "englishSource": "Guardian changed"
+  },
+  "guardianHistoryDeviceReplaced": {
+    "message": "Clé de l'appareil remplacée",
+    "englishSource": "Device key replaced"
+  },
+  "guardianHistoryAccountSecured": {
+    "message": "Compte sécurisé",
+    "englishSource": "Account secured"
+  },
+  "guardianHistoryExecuted": {
+    "message": "Exécuté",
+    "englishSource": "Executed"
+  },
+  "guardianHistoryMidenConfirmed": {
+    "message": "Confirmé sur Miden",
+    "englishSource": "Confirmed on Miden"
+  },
+  "guardianHistoryProgress": {
+    "message": "Récupération de l’historique à partir de $operator$. Transactions $count$ restaurées.",
+    "englishSource": "Recovering history from $operator$. $count$ transactions restored.",
+    "placeholders": {
+      "operator": {
+        "content": "$1"
+      },
+      "count": {
+        "content": "$2"
+      }
+    }
+  },
+  "guardianHistoryPartial": {
+    "message": "$count$ Transactions restaurées. Certaines sources d’Guardians n’ont pas pu être lues. La récupération sera relancée lors du prochain déverrouillage du portefeuille.",
+    "englishSource": "$count$ transactions restored. Some Guardian sources could not be read. Recovery will retry when you next unlock the wallet.",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
   "payload": {
     "message": "Charge utile",
     "englishSource": "Payload"

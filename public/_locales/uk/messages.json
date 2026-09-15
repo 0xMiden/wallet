@@ -1,4 +1,61 @@
 {
+  "activityFetchingHistoryAndNotes": {
+    "message": "Отримання історії транзакцій та notes",
+    "englishSource": "Fetching your transaction history and notes"
+  },
+  "guardianHistorySwap": {
+    "message": "Обмін",
+    "englishSource": "Swap"
+  },
+  "guardianHistoryBridgeOut": {
+    "message": "Переказ з ланцюга",
+    "englishSource": "Bridge out"
+  },
+  "guardianHistoryEarnDeposit": {
+    "message": "Заробіток на депозиті",
+    "englishSource": "Earn deposit"
+  },
+  "guardianHistoryGuardianChanged": {
+    "message": "Guardian змінено",
+    "englishSource": "Guardian changed"
+  },
+  "guardianHistoryDeviceReplaced": {
+    "message": "Замінено ключ пристрою",
+    "englishSource": "Device key replaced"
+  },
+  "guardianHistoryAccountSecured": {
+    "message": "Рахунок захищений",
+    "englishSource": "Account secured"
+  },
+  "guardianHistoryExecuted": {
+    "message": "Виконано",
+    "englishSource": "Executed"
+  },
+  "guardianHistoryMidenConfirmed": {
+    "message": "Підтверджено на Miden",
+    "englishSource": "Confirmed on Miden"
+  },
+  "guardianHistoryProgress": {
+    "message": "Відновлення історії з $operator$. Транзакції $count$ відновлено.",
+    "englishSource": "Recovering history from $operator$. $count$ transactions restored.",
+    "placeholders": {
+      "operator": {
+        "content": "$1"
+      },
+      "count": {
+        "content": "$2"
+      }
+    }
+  },
+  "guardianHistoryPartial": {
+    "message": "$count$ Транзакції відновлено. Деякі джерела Guardian не вдалося прочитати. Відновлення буде повторено під час наступного розблокування гаманця.",
+    "englishSource": "$count$ transactions restored. Some Guardian sources could not be read. Recovery will retry when you next unlock the wallet.",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
   "payload": {
     "message": "Корисне навантаження",
     "englishSource": "Payload"
