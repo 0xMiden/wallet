@@ -109,6 +109,7 @@ dependencies {
     implementation 'com.reown:appkit'
     // Biometric authentication for hardware security
     implementation 'androidx.biometric:biometric:1.1.0'
+    implementation 'com.google.android.play:app-update:2.1.0'
     // secp256k1 ECDSA + Keccak-256 for the Guardian hot-key signing path
     // (HotKeyPlugin). Keystore wraps the 32-byte k256 secret with RSA-OAEP;
     // BouncyCastle handles everything outside the Keystore boundary.
