@@ -27,6 +27,12 @@ const setAccessoryBarVisibleMock = Keyboard.setAccessoryBarVisible as jest.Mock;
 /** Keyboard listeners captured per event name by the addListener mock. */
 let listeners: Record<string, (info?: { keyboardHeight?: number }) => void>;
 
+// jsdom reports a zero rect for every element, which reads as "on screen".
+// Put the field below the fold so the nudge has something to do.
+function placeBelowFold(element: HTMLElement) {
+  element.getBoundingClientRect = () => new DOMRect(0, window.innerHeight + 200, 300, 36);
+}
+
 describe('keyboard-inset', () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -89,6 +95,7 @@ describe('keyboard-inset', () => {
 
     const input = document.createElement('input');
     input.scrollIntoView = jest.fn();
+    placeBelowFold(input);
     document.body.appendChild(input);
 
     input.focus();
@@ -113,12 +120,62 @@ describe('keyboard-inset', () => {
 
     const input = document.createElement('input');
     input.scrollIntoView = jest.fn();
+    placeBelowFold(input);
     document.body.appendChild(input);
 
     input.focus();
     jest.advanceTimersByTime(300);
 
     expect(input.scrollIntoView).toHaveBeenCalledWith({ block: 'nearest', behavior: 'smooth' });
+  });
+
+  it('leaves a field that is already on screen where it is', async () => {
+    isMobileMock.mockReturnValue(true);
+
+    await initKeyboardInset();
+
+    const input = document.createElement('input');
+    input.scrollIntoView = jest.fn();
+    input.getBoundingClientRect = () => new DOMRect(0, 40, 300, 36);
+    document.body.appendChild(input);
+
+    input.focus();
+    jest.advanceTimersByTime(300);
+
+    expect(input.scrollIntoView).not.toHaveBeenCalled();
+  });
+
+  it('measures against the visual viewport that the keyboard shrinks, not the layout viewport', async () => {
+    isMobileMock.mockReturnValue(true);
+    // A WebView reports the area left above the keyboard as the visual viewport; jsdom has none.
+    const top = 100;
+    const bottom = window.innerHeight - 300;
+    Object.defineProperty(window, 'visualViewport', {
+      configurable: true,
+      value: { offsetTop: top, height: bottom - top }
+    });
+    try {
+      await initKeyboardInset();
+
+      const field = (rectTop: number) => {
+        const input = document.createElement('input');
+        input.scrollIntoView = jest.fn();
+        input.getBoundingClientRect = () => new DOMRect(0, rectTop, 300, 36);
+        document.body.appendChild(input);
+        input.focus();
+        jest.advanceTimersByTime(300);
+        return input;
+      };
+      const above = field(top - 40);
+      const inside = field(bottom - 40);
+      const covered = field(bottom + 50);
+
+      expect(above.scrollIntoView).toHaveBeenCalledWith({ block: 'nearest', behavior: 'smooth' });
+      expect(inside.scrollIntoView).not.toHaveBeenCalled();
+      expect(covered.scrollIntoView).toHaveBeenCalledWith({ block: 'nearest', behavior: 'smooth' });
+    } finally {
+      Reflect.deleteProperty(window, 'visualViewport');
+    }
   });
 
   it('does not scroll if the input lost focus before the delay elapsed', async () => {
@@ -128,6 +185,7 @@ describe('keyboard-inset', () => {
 
     const input = document.createElement('input');
     input.scrollIntoView = jest.fn();
+    placeBelowFold(input);
     document.body.appendChild(input);
 
     input.focus();
@@ -188,6 +246,7 @@ describe('keyboard-inset', () => {
     // without a native impl must not disable it.
     const input = document.createElement('input');
     input.scrollIntoView = jest.fn();
+    placeBelowFold(input);
     document.body.appendChild(input);
     input.focus();
     jest.advanceTimersByTime(300);

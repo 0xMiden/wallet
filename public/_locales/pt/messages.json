@@ -786,6 +786,14 @@
     "message": "Tentar novamente",
     "englishSource": "Retry"
   },
+  "retryEarnDelivery": {
+    "message": "Tentar a entrega novamente",
+    "englishSource": "Retry delivery"
+  },
+  "withdrawalRecoveryUnavailable": {
+    "message": "Não é possível tentar este saque novamente com segurança. Verifique o status antes de iniciar outro saque.",
+    "englishSource": "This withdrawal cannot be retried safely. Check its status before starting another withdrawal."
+  },
   "retryAnyway": {
     "message": "Tentar novamente mesmo assim",
     "englishSource": "Retry anyway"
@@ -3818,6 +3826,127 @@
     "message": "Rede de teste",
     "englishSource": "Testnet"
   },
+  "devnet": {
+    "message": "Devnet",
+    "englishSource": "Devnet"
+  },
+  "localnet": {
+    "message": "Localnet",
+    "englishSource": "Localnet"
+  },
+  "networkModeBanner": {
+    "message": "Você está usando o Bread no Miden $network$",
+    "englishSource": "You are using Bread on Miden $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "networkNoticeChip": {
+    "message": "Miden $network$",
+    "englishSource": "Miden $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "networkNoticeBody": {
+    "message": "Este ambiente é para testes. Tudo o que você possui aqui é um token de teste sem valor monetário.",
+    "englishSource": "This environment is for testing. Everything you hold here is a test token with no monetary value."
+  },
+  "networkNoticeNoValueTitle": {
+    "message": "Os tokens de teste não são dinheiro",
+    "englishSource": "Test tokens are not money"
+  },
+  "networkNoticeNoValueBody": {
+    "message": "Os saldos e preços exibidos aqui são simulados e não podem ser resgatados.",
+    "englishSource": "Balances and prices shown here are simulated and cannot be redeemed."
+  },
+  "networkNoticeNoRealFundsTitle": {
+    "message": "Não envie fundos reais",
+    "englishSource": "Do not send real funds"
+  },
+  "networkNoticeNoRealFundsBody": {
+    "message": "Qualquer coisa enviada de uma rede real para um endereço de teste está perdida.",
+    "englishSource": "Anything sent from a real network to a test address is lost."
+  },
+  "networkNoticeResetTitle": {
+    "message": "A rede pode ser reiniciada",
+    "englishSource": "The network can reset"
+  },
+  "networkNoticeResetBody": {
+    "message": "Uma reinicialização apaga os saldos e o histórico. Os saldos de teste nunca são transferidos para a Mainnet.",
+    "englishSource": "A reset clears balances and history. Test balances never carry over to Mainnet."
+  },
+  "iUnderstand": {
+    "message": "Entendi",
+    "englishSource": "I understand"
+  },
+  "receiveTestFundsTitle": {
+    "message": "Apenas tokens de teste",
+    "englishSource": "Test tokens only"
+  },
+  "receiveTestFundsBody": {
+    "message": "Envie apenas tokens Miden $network$ para este endereço. Fundos reais enviados para este endereço não podem ser recuperados.",
+    "englishSource": "Only send Miden $network$ tokens here. Real funds sent to this address cannot be recovered.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "crossChainFromNetwork": {
+    "message": "de $network$",
+    "englishSource": "from $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "ethereumSepolia": {
+    "message": "Ethereum Sepolia",
+    "englishSource": "Ethereum Sepolia"
+  },
+  "bridgeTestFundsTitle": {
+    "message": "Apenas fundos de teste",
+    "englishSource": "Test funds only"
+  },
+  "bridgeTestFundsBody": {
+    "message": "Esta ponte transfere tokens de teste da Ethereum Sepolia para a Miden. Nunca faça uma ponte a partir da rede principal da Ethereum ou de qualquer outra rede real.",
+    "englishSource": "This bridge moves Ethereum Sepolia test tokens to Miden. Never bridge from Ethereum mainnet or any other real network."
+  },
+  "shareAddressText": {
+    "message": "Meu endereço Miden $network$ (apenas tokens de teste): $address$",
+    "englishSource": "My Miden $network$ address (test tokens only): $address$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      },
+      "address": {
+        "content": "$2"
+      }
+    }
+  },
+  "qrNetworkCaption": {
+    "message": "Miden $network$",
+    "englishSource": "Miden $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "evmConnectTestWalletTitle": {
+    "message": "Conecte apenas uma carteira de teste",
+    "englishSource": "Connect a test wallet only"
+  },
+  "evmConnectTestWalletBody": {
+    "message": "Esta ponte opera na Ethereum Sepolia. Não conecte uma carteira que contenha fundos reais. Crie uma carteira nova e deposite nela apenas ETH da Sepolia.",
+    "englishSource": "This bridge runs on Ethereum Sepolia. Do not connect a wallet that holds real funds. Create a fresh wallet and fund it with Sepolia ETH only."
+  },
   "browser": {
     "message": "Navegador",
     "englishSource": "Browser"
@@ -4073,10 +4202,6 @@
     "message": "Conecte uma carteira para transferir ativos de e para a Miden.",
     "englishSource": "Connect a wallet to bridge assets to and from Miden."
   },
-  "onlyBridgeableTokenSupported": {
-    "message": "A rota Lenta (Agglayer) suporta apenas o token “bridgeable”. Use a rota Rápida para enviar outros tokens.",
-    "englishSource": "The Slow (Agglayer) route only supports the bridgeable token. Use Fast to send other tokens."
-  },
   "connectDestinationWalletToClaim": {
     "message": "Conecte a carteira de destino para resgatar.",
     "englishSource": "Connect the destination wallet to claim."
@@ -4152,10 +4277,6 @@
   "delivering": {
     "message": "Entrega",
     "englishSource": "Delivering"
-  },
-  "slowNeedsNativeEth": {
-    "message": "A rota Slow (Agglayer) suporta apenas ETH nativo na testnet. Escolha ETH para usá-la.",
-    "englishSource": "The Slow (Agglayer) route only supports native ETH on testnet. Choose ETH to use it."
   },
   "fastEthWrapNotice": {
     "message": "A ponte de ETH pela rota rápida primeiro o converte para WETH e, em seguida, realiza a ponte com o WETH. Essa rota ainda não está disponível.",
@@ -4349,6 +4470,10 @@
     "message": "Processamento de Retirada",
     "englishSource": "Processing Withdrawal"
   },
+  "withdrawalCheckingDescription": {
+    "message": "Verificando seu saque. Mantenha a carteira aberta até que a entrega seja confirmada.",
+    "englishSource": "Checking your withdrawal. Keep the wallet open while delivery is confirmed."
+  },
   "withdrawalProcessingDescription": {
     "message": "Assinar e enviar a intenção de saque sem gás para a Epoch. Isso geralmente leva alguns segundos.",
     "englishSource": "Signing and submitting the gasless withdrawal intent to Epoch. This usually takes a few seconds."
@@ -4472,5 +4597,78 @@
   "devEndpointResetConfirm": {
     "message": "Isso apaga definitivamente esta carteira, incluindo suas chaves e seu histórico de transações. Você precisará da sua frase de recuperação para restaurá-la.",
     "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
+  },
+  "activityAcceptTransfer": {
+    "message": "Aceitar transferência",
+    "englishSource": "Accept Transfer"
+  },
+  "activityRejectTransfer": {
+    "message": "Recusar",
+    "englishSource": "Decline"
+  },
+  "activityCheckingTransfer": {
+    "message": "Verificando…",
+    "englishSource": "Checking…"
+  },
+  "activityTransferClaimed": {
+    "message": "Reivindicado",
+    "englishSource": "Claimed"
+  },
+  "activityClaimedOn": {
+    "message": "Reivindicado em",
+    "englishSource": "Claimed on"
+  },
+  "activityReceivedOn": {
+    "message": "Recebido em",
+    "englishSource": "Received on"
+  },
+  "activityNotYetAccepted": {
+    "message": "Ainda não aceito — analise e aceite para resgatar esses fundos.",
+    "englishSource": "Not yet accepted — review and accept to claim these funds."
+  },
+  "acceptAll": {
+    "message": "Aceitar tudo",
+    "englishSource": "Accept All"
+  },
+  "activitySearch": {
+    "message": "Atividade de pesquisa",
+    "englishSource": "Search activity"
+  },
+  "activityTransferAccepted": {
+    "message": "Transferência aceita",
+    "englishSource": "Transfer accepted"
+  },
+  "activityTransferDetails": {
+    "message": "Detalhes",
+    "englishSource": "Details"
+  },
+  "activityRejectExplanation": {
+    "message": "Ocultar esta transferência da seção “Atividade” neste dispositivo? Isso não devolve fundos ao remetente nem exclui o “note”. Você pode restaurar transferências ocultas na seção “Atividade”.",
+    "englishSource": "Hide this transfer from Activity on this device? This does not return funds to the sender or delete the note. You can restore hidden transfers in Activity."
+  },
+  "activityHiddenTransfers": {
+    "message": "Transferências ocultas: $count$",
+    "englishSource": "Hidden transfers: $count$",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "activityRestoreTransfers": {
+    "message": "Restaurar",
+    "englishSource": "Restore"
+  },
+  "activityHiddenNotesError": {
+    "message": "Não foi possível salvar as transferências ocultas. Tente novamente.",
+    "englishSource": "Could not save hidden transfers. Please try again."
+  },
+  "activityDateUnavailable": {
+    "message": "Data indisponível",
+    "englishSource": "Date unavailable"
+  },
+  "walletSetupDidNotComplete": {
+    "message": "Sua carteira foi criada, mas não concluiu a inicialização. Verifique sua conexão e tente novamente.",
+    "englishSource": "Your wallet was created but did not finish starting up. Check your connection and try again."
   }
 }

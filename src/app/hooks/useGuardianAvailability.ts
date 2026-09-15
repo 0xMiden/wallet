@@ -23,6 +23,20 @@ export type GuardianAvailability = 'online' | 'offline';
 export const GUARDIAN_AVAILABILITY_REPROBE_MS = 30_000;
 
 /**
+ * How long after a round goes out a trigger still counts as part of the burst that
+ * started it. One resume fires both visibilitychange and focus milliseconds apart;
+ * a trigger later than this landed on a round that went out before it (a suspension
+ * froze the round mid-flight), so that round's verdicts can predate the trigger.
+ *
+ * Wall-clock time on purpose: a monotonic clock stops during device sleep on some
+ * platforms, and that suspension is what this window exists to detect. A clock that
+ * steps back counts the round as stale instead.
+ */
+const FOLLOW_UP_COALESCE_MS = 1_000;
+
+type ProbeTrigger = 'reconnect' | 'other';
+
+/**
  * Probe every guardian endpoint's liveness for the picker UI, and keep the
  * verdicts current while the screen is up.
  *
@@ -38,6 +52,11 @@ export const GUARDIAN_AVAILABILITY_REPROBE_MS = 30_000;
  * away and back on each round — so a verdict is only ever replaced by a newer
  * one for the same endpoint. A ping that starts to succeed therefore clears the
  * offline strip.
+ *
+ * Also re-probes when the device comes back online: the picker disables an
+ * offline card, so a round that failed during a connectivity drop must not
+ * stand until the next interval, and a user waiting on that screen fires
+ * neither focus nor visibilitychange.
  *
  * Keyed by CONTENT, not array identity: the effect re-probes only when the
  * endpoint set actually changes, so an inline (fresh-identity) array from the
@@ -55,6 +74,16 @@ export function useGuardianAvailability(endpoints: readonly string[]): Record<st
   // fan-out against a struggling operator is the last thing that helps.
   const roundInFlight = useRef(false);
 
+  // A trigger the in-flight guard turns away is remembered when it can postdate the
+  // round's verdicts: a reconnect (the pings went out before the connection came
+  // back), or any trigger later than FOLLOW_UP_COALESCE_MS after the round went out.
+  // A trigger in the same burst as the round's start is folded into that round, so
+  // one resume probes once. One follow-up runs when the live round settles.
+  const probeRequestedMidRound = useRef(false);
+  const roundStartedAt = useRef(0);
+  // The follow-up calls the current `probe`, assigned below it.
+  const probeRef = useRef<(trigger?: ProbeTrigger) => void>(() => undefined);
+
   // Which endpoint-set GENERATION a verdict belongs to. Bumped whenever the set
   // changes and on unmount, so a ping still out from the previous set resolves
   // into a generation nobody is listening to.
@@ -66,38 +95,56 @@ export function useGuardianAvailability(endpoints: readonly string[]): Record<st
   // the set on screen" from "this verdict is for a set we have moved off".
   const generationRef = useRef(0);
 
-  const probe = useCallback(() => {
-    if (roundInFlight.current) return;
-    const targets = endpointsKey === '' ? [] : endpointsKey.split('\n');
-    if (targets.length === 0) return;
-    const generation = generationRef.current;
-    roundInFlight.current = true;
-
-    // The rejection arm is not dead code insurance for a documented
-    // never-throws contract: `pingGuardianEndpoint` calls
-    // `registerGuardianOrigin` OUTSIDE its own try, so the contract currently
-    // holds only because that helper swallows its own URL-parse failure. A
-    // hostile or malformed endpoint reads as offline rather than becoming an
-    // unhandled rejection per endpoint per round.
-    const settled = targets.map(endpoint =>
-      pingGuardianEndpoint(endpoint).then(
-        online => {
-          if (generationRef.current !== generation) return;
-          setAvailability(prev => ({ ...prev, [endpoint]: online ? 'online' : 'offline' }));
-        },
-        () => {
-          if (generationRef.current !== generation) return;
-          setAvailability(prev => ({ ...prev, [endpoint]: 'offline' }));
+  const probe = useCallback(
+    (trigger: ProbeTrigger = 'other') => {
+      if (roundInFlight.current) {
+        const elapsed = Date.now() - roundStartedAt.current;
+        if (trigger === 'reconnect' || elapsed > FOLLOW_UP_COALESCE_MS || elapsed < 0) {
+          probeRequestedMidRound.current = true;
         }
-      )
-    );
+        return;
+      }
+      const targets = endpointsKey === '' ? [] : endpointsKey.split('\n');
+      if (targets.length === 0) return;
+      const generation = generationRef.current;
+      roundInFlight.current = true;
+      roundStartedAt.current = Date.now();
 
-    // A superseded round must not hand the in-flight slot back, or it would
-    // clear it out from under the round that replaced it.
-    void Promise.all(settled).finally(() => {
-      if (generationRef.current === generation) roundInFlight.current = false;
-    });
-  }, [endpointsKey]);
+      // The rejection arm is not dead code insurance for a documented
+      // never-throws contract: `pingGuardianEndpoint` calls
+      // `registerGuardianOrigin` OUTSIDE its own try, so the contract currently
+      // holds only because that helper swallows its own URL-parse failure. A
+      // hostile or malformed endpoint reads as offline rather than becoming an
+      // unhandled rejection per endpoint per round.
+      const settled = targets.map(endpoint =>
+        pingGuardianEndpoint(endpoint).then(
+          online => {
+            if (generationRef.current !== generation) return;
+            setAvailability(prev => ({ ...prev, [endpoint]: online ? 'online' : 'offline' }));
+          },
+          () => {
+            if (generationRef.current !== generation) return;
+            setAvailability(prev => ({ ...prev, [endpoint]: 'offline' }));
+          }
+        )
+      );
+
+      // A superseded round must not hand the in-flight slot back, or it would
+      // clear it out from under the round that replaced it, nor run a follow-up for
+      // a set it no longer belongs to.
+      void Promise.all(settled).finally(() => {
+        if (generationRef.current !== generation) return;
+        roundInFlight.current = false;
+        if (!probeRequestedMidRound.current) return;
+        probeRequestedMidRound.current = false;
+        // Not while hidden, like the interval: the next foreground return probes.
+        if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+        probeRef.current();
+      });
+    },
+    [endpointsKey]
+  );
+  probeRef.current = probe;
 
   useEffect(() => {
     // Only an endpoint-set CHANGE clears prior verdicts; they describe endpoints
@@ -114,8 +161,13 @@ export function useGuardianAvailability(endpoints: readonly string[]): Record<st
       if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
       probe();
     };
+    const onReconnect = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      probe('reconnect');
+    };
     document.addEventListener('visibilitychange', onForeground);
     window.addEventListener('focus', onForeground);
+    window.addEventListener('online', onReconnect);
 
     // Retiring a round is one concept, so it lives in one place. React runs this
     // cleanup BEFORE re-running the effect for a changed endpoint set, so the
@@ -129,9 +181,12 @@ export function useGuardianAvailability(endpoints: readonly string[]): Record<st
       // no verdict at all until the next interval tick — up to 30s of a picker
       // showing nothing for the very options it had just switched to.
       roundInFlight.current = false;
+      // A follow-up asked of the retired round belongs to it, not to the next set.
+      probeRequestedMidRound.current = false;
       clearInterval(interval);
       document.removeEventListener('visibilitychange', onForeground);
       window.removeEventListener('focus', onForeground);
+      window.removeEventListener('online', onReconnect);
     };
   }, [probe]);
 

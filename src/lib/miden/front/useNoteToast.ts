@@ -4,17 +4,25 @@ import { getPersistedSeenNoteIds, persistSeenNoteIds } from 'lib/miden/back/note
 import { isExtension } from 'lib/platform';
 import { useWalletStore } from 'lib/store';
 
-import { useClaimableNotes } from './claimable-notes';
+import { useManuallyClaimableNotes } from './auto-managed-notes';
 
 /**
  * Hook that monitors for new claimable notes and shows toast notifications.
  * Active on both mobile and extension platforms.
  *
+ * Every listed note is recorded as seen, but only a new note the user has to
+ * claim by hand raises the toast: a note the wallet is about to auto-consume
+ * would otherwise raise a "tap to claim" notification that is stale the moment
+ * it fires (#811). Seen notes come from the full list, as in the service
+ * worker's background push in `sync-manager.ts`, because the filtered list
+ * changes without any note being new: a note first listed while auto-managed
+ * must not toast later, when a fee or setting change makes it manual.
+ *
  * @param publicAddress - The account's public address to monitor notes for
  * @param enabled - Whether to enable monitoring (default: true)
  */
 export function useNoteToastMonitor(publicAddress: string, enabled: boolean = true) {
-  const { data: claimableNotes } = useClaimableNotes(publicAddress, enabled);
+  const { data: manualNotes, allNotes, isFallback } = useManuallyClaimableNotes(publicAddress, enabled);
   const checkForNewNotes = useWalletStore(state => state.checkForNewNotes);
   const isFirstFetch = useRef(true);
   const hydratedFromStorage = useRef(false);
@@ -36,9 +44,11 @@ export function useNoteToastMonitor(publicAddress: string, enabled: boolean = tr
   }, []);
 
   useEffect(() => {
-    if (!enabled || !claimableNotes) return;
+    // The persisted list served before the first live read is not what exists at load: seeding from it
+    // would raise a notification for every note received while the app was closed.
+    if (!enabled || !allNotes || !manualNotes || isFallback) return;
 
-    const currentNoteIds = claimableNotes.map(note => note.id);
+    const currentNoteIds = allNotes.map(note => note.id);
 
     // On first fetch, seed the seen notes without showing toast
     // This prevents toasting for existing notes when the app loads
@@ -57,9 +67,12 @@ export function useNoteToastMonitor(publicAddress: string, enabled: boolean = tr
       return;
     }
 
-    // Check for new notes and show toast if any
-    checkForNewNotes(currentNoteIds);
-  }, [claimableNotes, enabled, checkForNewNotes]);
+    // Record new notes as seen, and show the toast if any of them must be claimed by hand
+    checkForNewNotes(
+      currentNoteIds,
+      manualNotes.map(note => note.id)
+    );
+  }, [allNotes, manualNotes, enabled, checkForNewNotes, isFallback]);
 
   // Reset isFirstFetch when publicAddress changes (new account selected)
   useEffect(() => {

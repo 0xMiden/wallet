@@ -441,7 +441,9 @@ const AssetPendingDetail: React.FC<AssetPendingDetailProps> = ({
   const { price } = getTokenPrice(tokenPrices, symbol);
   const usdValue = numericAmount * price;
 
-  const unclaimedInGroup = notes.filter(n => !isNoteInFlight(n, claimingNoteIds));
+  // `fromCache` notes come from the last-known list and are not confirmed yet: they show,
+  // but they cannot be claimed until the live read replaces them.
+  const unclaimedInGroup = notes.filter(n => !n.fromCache && !isNoteInFlight(n, claimingNoteIds));
   const canClaimAllGroup = unclaimedInGroup.length > 0;
 
   const handleClaimGroup = useCallback(() => {
@@ -613,6 +615,8 @@ const DetailNoteRow: React.FC<DetailNoteRowProps> = ({ note, claimState = 'pendi
   }, []);
 
   const handleClaim = useCallback(async () => {
+    // Cache-first entry: shown, never claimed until a live read confirms it.
+    if (note.fromCache) return;
     setError(null);
     setIsLoading(true);
     hapticLight();
@@ -696,6 +700,7 @@ const DetailNoteRow: React.FC<DetailNoteRowProps> = ({ note, claimState = 'pendi
             className="w-auto shrink-0 px-4 h-8 text-sm leading-none"
             variant={ButtonVariant.Primary}
             onClick={handleClaim}
+            disabled={note.fromCache === true}
             title={isRetriable ? t('retry') : t('claim')}
           />
         ) : showSpinner && note.claimingTxId ? (

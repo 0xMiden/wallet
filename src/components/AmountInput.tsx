@@ -50,6 +50,8 @@ export interface AmountInputProps {
   label?: React.ReactNode;
   /** Already-translated error text. Renders a red row with an info icon below the amount. */
   error?: string;
+  /** Marks the field invalid even when no error text is needed. */
+  invalid?: boolean;
   /** Secondary lines under the amount, e.g. "Available 200 USDC" / "≈ $200 USD". */
   helper?: React.ReactNode;
   /** Token chip rendered under the orange divider (e.g. "Select a token" / "USDC ▾"). */
@@ -76,6 +78,7 @@ export const AmountInput: React.FC<AmountInputProps> = ({
   placeholder = '0.00',
   label,
   error,
+  invalid = false,
   helper,
   tokenSelector,
   showDivider = true,
@@ -105,7 +108,11 @@ export const AmountInput: React.FC<AmountInputProps> = ({
             className={classNames(
               'w-full bg-transparent p-0 outline-none font-heading font-bold leading-none text-left text-[4rem]',
               amountTextSize(value),
-              error ? 'text-red-500 placeholder-red-500' : value ? 'text-black' : 'text-grey-300 placeholder-grey-300'
+              invalid || error
+                ? 'text-red-500 placeholder-red-500'
+                : value
+                  ? 'text-black'
+                  : 'text-grey-300 placeholder-grey-300'
             )}
             value={value}
             onValueChange={onValueChange}
@@ -127,6 +134,7 @@ export const AmountInput: React.FC<AmountInputProps> = ({
             enterKeyHint="done"
             autoFocus={autoFocus}
             disabled={disabled}
+            aria-invalid={invalid || !!error}
             data-testid={dataTestId}
           />
         )}

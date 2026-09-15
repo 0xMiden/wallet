@@ -133,8 +133,8 @@ test.describe('Fullpage UI', () => {
     }
     await page.locator('#import-link').click();
 
-    // Recovery is seed-phrase only — the old "select import type" screen is gone
-    // and the welcome link lands directly on the seed entry form.
+    // Acknowledge the network notice before entering the seed phrase.
+    await page.getByTestId('onboarding-network-notice-acknowledge').click({ timeout: 15000 });
     await page.getByTestId('import-seed-phrase').waitFor({ timeout: 15000 });
 
     const words = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about'.split(
@@ -182,6 +182,7 @@ test.describe('Fullpage UI', () => {
     }
     await page.locator('#import-link').click();
 
+    await page.getByTestId('onboarding-network-notice-acknowledge').click({ timeout: 15000 });
     const seedForm = page.getByTestId('import-seed-phrase');
     await seedForm.waitFor({ timeout: 15000 });
 
