@@ -931,7 +931,6 @@
   "midenBridge": "Miden Bridge",
   "connectEvmWallet": "連接 EVM 錢包",
   "connectEvmWalletDescription": "將錢包連接至 Miden，以便在 Miden 與其他區塊鏈之間進行資產橋接。",
-  "onlyBridgeableTokenSupported": "「慢速（Agglayer）」路線僅支援可橋接的代幣。若要傳送其他代幣，請使用「快速」路線。",
   "connectDestinationWalletToClaim": "請將目標錢包連接至該處以領取代幣。",
   "bridgeDetails": "橋接詳情",
   "route": "路線",
@@ -949,7 +948,6 @@
   "bridgeDepositDeliveryDescription": "Sepolia 交易已確認。待跨鏈轉移完成後，您的資金將顯示於 Miden 上。",
   "viewOnEtherscan": "在 Etherscan 上查看",
   "delivering": "交付",
-  "slowNeedsNativeEth": "Slow（Agglayer）路線在測試網僅支援原生 ETH。請選擇 ETH 以使用此路線。",
   "fastEthWrapNotice": "透過「快速路徑」進行 ETH 跨鏈轉移時，會先將 ETH 封裝為 WETH，再將 WETH 進行跨鏈轉移。此路徑目前尚未開放。",
   "destinationNetwork": "目的地網路",
   "claimStatus": "申領狀態",
@@ -1041,5 +1039,6 @@
   "activityHiddenTransfers": "隱藏轉帳：$count$",
   "activityRestoreTransfers": "還原",
   "activityHiddenNotesError": "無法儲存隱藏轉帳。請重試。",
-  "activityDateUnavailable": "日期不詳"
+  "activityDateUnavailable": "日期不詳",
+  "walletSetupDidNotComplete": "您的錢包已建立，但尚未完成啟動。請檢查網路連線並重新嘗試。"
 }

@@ -931,7 +931,6 @@
   "midenBridge": "Miden Bridge",
   "connectEvmWallet": "EVMウォレットを接続する",
   "connectEvmWalletDescription": "ウォレットを接続して、Midenとの間で資産をブリッジしてください。",
-  "onlyBridgeableTokenSupported": "「スロー（アグレイヤー）」ルートでは、ブリッジ可能なトークンのみがサポートされています。その他のトークンを送信するには、「ファスト」をご利用ください。",
   "connectDestinationWalletToClaim": "受け取りを行うには、宛先ウォレットを接続してください。",
   "bridgeDetails": "ブリッジの詳細",
   "route": "ルート",
@@ -949,7 +948,6 @@
   "bridgeDepositDeliveryDescription": "Sepoliaでの取引は確認されました。ブリッジによる送金が完了次第、Midenに資金が反映されます。",
   "viewOnEtherscan": "Etherscanで表示",
   "delivering": "配送",
-  "slowNeedsNativeEth": "「Slow（Agglayer）」ルートは、テストネットではネイティブETHのみに対応しています。これを利用するには、ETHを選択してください。",
   "fastEthWrapNotice": "「Fast」ルートでのETHのブリッジでは、まずETHをWETHにラップし、その後WETHをブリッジします。このルートは現時点では利用できません。",
   "destinationNetwork": "接続先ネットワーク",
   "claimStatus": "請求ステータス",
@@ -1041,5 +1039,6 @@
   "activityHiddenTransfers": "隠された送金：$count$",
   "activityRestoreTransfers": "復元",
   "activityHiddenNotesError": "非公開の送金を保存できませんでした。もう一度お試しください。",
-  "activityDateUnavailable": "日付不明"
+  "activityDateUnavailable": "日付不明",
+  "walletSetupDidNotComplete": "ウォレットは作成されましたが、起動が完了していません。接続を確認して、もう一度お試しください。"
 }

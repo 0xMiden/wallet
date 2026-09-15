@@ -8,7 +8,7 @@ import { useNetworkFeeEstimate } from 'app/hooks/useNetworkFeeEstimate';
 import { ReviewAmount, ReviewLayout, ReviewRow } from 'components/review';
 import { ScreenHeader } from 'components/ScreenHeader';
 import { initiateB2AggBridge } from 'lib/agglayer/b2agg';
-import { EVM_AGGLAYER_NETWORK_ID, getAgglayerFaucetId } from 'lib/agglayer/b2agg/constant';
+import { EVM_AGGLAYER_NETWORK_ID } from 'lib/agglayer/b2agg/constant';
 import { confirmSensitiveAction } from 'lib/biometric';
 import { bridgeEpochSend } from 'lib/epoch';
 import { stringToBigInt } from 'lib/i18n/numbers';
@@ -21,7 +21,7 @@ import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/
 import { useMidenContext } from 'lib/miden/front/client';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
-import { accountIdStringToSdk, sameWalletAccountId } from 'lib/miden/sdk/helpers';
+import { sameWalletAccountId } from 'lib/miden/sdk/helpers';
 import { NoteTypeEnum } from 'lib/miden/types';
 import { isExtension } from 'lib/platform';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
@@ -87,11 +87,6 @@ export const ReviewTransaction: React.FC = () => {
       scaleIsKnown: hasKnownScale(match.metadata)
     };
   }, [balanceData, tokenId]);
-
-  // Cross-chain sends over the Slow (Agglayer) route only carry the dedicated
-  // bridgeable faucet token; Fast (Epoch) bridges any token.
-  const isBridgeableToken =
-    !!token && accountIdStringToSdk(token.id.toLowerCase()).toString() === getAgglayerFaucetId().toLowerCase();
 
   const amountBaseUnits = useMemo(() => {
     if (!token || !amount) return undefined;
@@ -275,16 +270,11 @@ export const ReviewTransaction: React.FC = () => {
       // the real row (no navigate-first race / success flash). Errors raised
       // before the row exists (e.g. a failed Epoch quote) stay on this page.
       if (isBridge) {
-        // Agglayer (Slow) can only bridge the dedicated agglayer faucet token.
-        if (route === 'agglayer' && !isBridgeableToken) {
-          setSubmitError(t('onlyBridgeableTokenSupported'));
-          setIsSubmitting(false);
-          return;
-        }
         const amountBase = stringToBigInt(amount, token.decimals);
         if (route === 'agglayer') {
           const txId = await initiateB2AggBridge({
             amount: amountBase,
+            faucetId: token.id,
             destinationAddress: to as `0x${string}`,
             senderPublicKey: publicKey,
             destinationNetwork: EVM_AGGLAYER_NETWORK_ID
@@ -339,7 +329,6 @@ export const ReviewTransaction: React.FC = () => {
     recallBlocks,
     isBridge,
     route,
-    isBridgeableToken,
     signTransaction,
     goToGeneratingTransaction,
     t

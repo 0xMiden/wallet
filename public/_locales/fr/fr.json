@@ -931,7 +931,6 @@
   "midenBridge": "Miden Bridge",
   "connectEvmWallet": "Connecter un portefeuille EVM",
   "connectEvmWalletDescription": "Connectez un portefeuille pour transférer des actifs vers et depuis Miden.",
-  "onlyBridgeableTokenSupported": "La méthode « Slow » (Agglayer) ne prend en charge que le jeton « bridgeable ». Utilisez la méthode « Fast » pour envoyer d'autres jetons.",
   "connectDestinationWalletToClaim": "Connectez le portefeuille de destination pour réclamer vos jetons.",
   "bridgeDetails": "Détails du pont",
   "route": "Itinéraire",
@@ -949,7 +948,6 @@
   "bridgeDepositDeliveryDescription": "La transaction Sepolia est confirmée. Vos fonds apparaîtront sur Miden une fois le transfert entre chaînes terminé.",
   "viewOnEtherscan": "Consulter sur Etherscan",
   "delivering": "Livraison",
-  "slowNeedsNativeEth": "La solution « Slow (Agglayer) » ne prend en charge que l'ETH natif sur le testnet. Choisissez « ETH » pour l'utiliser.",
   "fastEthWrapNotice": "Le transfert d’ETH via la voie « Fast » consiste d’abord à le convertir en WETH, puis à transférer ce WETH. Cette voie n’est pas encore disponible.",
   "destinationNetwork": "Réseau de destination",
   "claimStatus": "Statut de la réclamation",
@@ -1041,5 +1039,6 @@
   "activityHiddenTransfers": "Transferts masqués : $count$",
   "activityRestoreTransfers": "Restaurer",
   "activityHiddenNotesError": "Impossible d'enregistrer les transferts masqués. Veuillez réessayer.",
-  "activityDateUnavailable": "Date indisponible"
+  "activityDateUnavailable": "Date indisponible",
+  "walletSetupDidNotComplete": "Votre portefeuille a été créé mais n’a pas terminé son démarrage. Vérifiez votre connexion et réessayez."
 }

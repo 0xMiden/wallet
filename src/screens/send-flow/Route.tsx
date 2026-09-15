@@ -15,9 +15,7 @@ export interface RouteStepProps {
   /** Fast-route fee in USD (input value − quoted USDC out). undefined while quoting / unavailable. */
   fastFeeUsd?: number;
   fastQuoteLoading: boolean;
-  /** Whether the Slow (Agglayer) route can carry the selected token. */
-  slowEnabled: boolean;
-  /** Extra message rendered below the cards (e.g. a route-specific notice). When set, it replaces the default slow-disabled hint. */
+  /** Extra message rendered below the cards (e.g. a route-specific notice). */
   notice?: React.ReactNode;
   /** Disable the confirm button — e.g. the quote isn't ready, or an unsupported route+token combo. */
   confirmDisabled?: boolean;
@@ -31,23 +29,20 @@ interface RouteCardProps {
   emoji: string;
   label: string;
   selected: boolean;
-  disabled?: boolean;
   onSelect: () => void;
   fee: React.ReactNode;
   eta: string;
   testId?: string;
 }
 
-const RouteCard: React.FC<RouteCardProps> = ({ label, selected, disabled, onSelect, fee, eta, testId }) => (
+const RouteCard: React.FC<RouteCardProps> = ({ label, selected, onSelect, fee, eta, testId }) => (
   <button
     type="button"
     data-testid={testId}
-    disabled={disabled}
     onClick={onSelect}
     className={clsx(
       'flex w-full items-center rounded-2xl border bg-pure-white px-4 py-6 transition-colors text-base',
-      selected ? 'border-primary-500' : 'border-[#E8E8E8]',
-      disabled && 'pointer-events-none opacity-40'
+      selected ? 'border-primary-500' : 'border-[#E8E8E8]'
     )}
   >
     <div className="flex flex-1 text-[20px] font-bold text-primary-500">{label}</div>
@@ -61,15 +56,13 @@ const RouteCard: React.FC<RouteCardProps> = ({ label, selected, disabled, onSele
 /**
  * Cross-chain route picker, shown after the destination network is chosen for a
  * 0x recipient. Fast = Epoch (any token → USDC, settles in ~seconds, charges a
- * fee = input value − USDC received); Slow = Agglayer (no fee, ~hours, only the
- * dedicated bridgeable token — disabled otherwise).
+ * fee = input value − USDC received); Slow = Agglayer (no fee, ~hours, any token).
  */
 export const Route: React.FC<RouteStepProps> = ({
   route,
   onRouteChange,
   fastFeeUsd,
   fastQuoteLoading,
-  slowEnabled,
   notice,
   confirmDisabled,
   footerClassName = 'pt-4 pb-24',
@@ -111,17 +104,12 @@ export const Route: React.FC<RouteStepProps> = ({
             emoji="🕐"
             label={t('slow')}
             selected={route === 'agglayer'}
-            disabled={!slowEnabled}
             onSelect={() => select('agglayer')}
             fee={<span className="text-base font-bold text-heading-gray">{t('noFee')}</span>}
             eta={t('slowArrival')}
             testId="bridge-route-slow"
           />
-          {notice ? (
-            <p className="text-xs text-heading-gray/60">{notice}</p>
-          ) : (
-            !slowEnabled && <p className="text-xs text-heading-gray/50">{t('onlyBridgeableTokenSupported')}</p>
-          )}
+          {notice && <p className="text-xs text-heading-gray/60">{notice}</p>}
         </div>
       </div>
 

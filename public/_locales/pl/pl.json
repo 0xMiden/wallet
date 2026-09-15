@@ -931,7 +931,6 @@
   "midenBridge": "Miden Bridge",
   "connectEvmWallet": "Podłącz portfel EVM",
   "connectEvmWalletDescription": "Podłącz portfel, aby przesyłać aktywa do i z Miden.",
-  "onlyBridgeableTokenSupported": "Trasa „Slow” (Agglayer) obsługuje wyłącznie tokeny, które można mostkować. Aby wysłać inne tokeny, należy skorzystać z trasy „Fast”.",
   "connectDestinationWalletToClaim": "Aby odebrać środki, podłącz portfel docelowy.",
   "bridgeDetails": "Szczegóły dotyczące mostu",
   "route": "Trasa",
@@ -949,7 +948,6 @@
   "bridgeDepositDeliveryDescription": "Transakcja Sepolia została potwierdzona. Twoje środki pojawią się na platformie Miden po zakończeniu transferu między łańcuchami.",
   "viewOnEtherscan": "Zobacz na Etherscan",
   "delivering": "Dostawa",
-  "slowNeedsNativeEth": "Trasa Slow (Agglayer) obsługuje wyłącznie natywne ETH w sieci testowej. Aby z niej skorzystać, wybierz ETH.",
   "fastEthWrapNotice": "Przenoszenie ETH trasą „Fast” polega najpierw na zamianie go na WETH, a następnie na przeniesieniu WETH. Ta trasa nie jest jeszcze dostępna.",
   "destinationNetwork": "Sieć docelowa",
   "claimStatus": "Status roszczenia",
@@ -1041,5 +1039,6 @@
   "activityHiddenTransfers": "Ukryte transfery: $count$",
   "activityRestoreTransfers": "Przywróć",
   "activityHiddenNotesError": "Nie udało się zapisać ukrytych transferów. Spróbuj ponownie.",
-  "activityDateUnavailable": "Data niedostępna"
+  "activityDateUnavailable": "Data niedostępna",
+  "walletSetupDidNotComplete": "Twój portfel został utworzony, ale nie zakończył procesu uruchamiania. Sprawdź połączenie i spróbuj ponownie."
 }

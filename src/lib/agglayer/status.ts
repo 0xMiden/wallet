@@ -135,7 +135,7 @@ function sameTxHash(left: string, right: string): boolean {
  * and reports the wrong bridge as claimed, while leaving the row's real deposit
  * unclaimed on L1. `originTxHash` is the row's own `transactionId`, which the
  * indexer echoes as the deposit's `tx_hash` — the same match
- * `reconcileAgglayerBridgedReceives` makes for the EVM→Miden direction.
+ * `reconcileBridgedReceives` makes for the EVM→Miden direction.
  *
  * A row that completed through the apply-after-submit path never recorded a
  * transaction id (see `isApplyAfterSubmitError` in `transaction/index.ts`), so an

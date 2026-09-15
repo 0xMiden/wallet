@@ -931,7 +931,6 @@
   "midenBridge": "Miden Bridge",
   "connectEvmWallet": "Conecte uma carteira EVM",
   "connectEvmWalletDescription": "Conecte uma carteira para transferir ativos de e para a Miden.",
-  "onlyBridgeableTokenSupported": "A rota Lenta (Agglayer) suporta apenas o token “bridgeable”. Use a rota Rápida para enviar outros tokens.",
   "connectDestinationWalletToClaim": "Conecte a carteira de destino para resgatar.",
   "bridgeDetails": "Detalhes da ponte",
   "route": "Rota",
@@ -949,7 +948,6 @@
   "bridgeDepositDeliveryDescription": "A transação na Sepolia está confirmada. Seus fundos aparecerão no Miden assim que a transferência pela ponte for concluída.",
   "viewOnEtherscan": "Ver no Etherscan",
   "delivering": "Entrega",
-  "slowNeedsNativeEth": "A rota Slow (Agglayer) suporta apenas ETH nativo na testnet. Escolha ETH para usá-la.",
   "fastEthWrapNotice": "A ponte de ETH pela rota rápida primeiro o converte para WETH e, em seguida, realiza a ponte com o WETH. Essa rota ainda não está disponível.",
   "destinationNetwork": "Rede de destino",
   "claimStatus": "Status da reivindicação",
@@ -1041,5 +1039,6 @@
   "activityHiddenTransfers": "Transferências ocultas: $count$",
   "activityRestoreTransfers": "Restaurar",
   "activityHiddenNotesError": "Não foi possível salvar as transferências ocultas. Tente novamente.",
-  "activityDateUnavailable": "Data indisponível"
+  "activityDateUnavailable": "Data indisponível",
+  "walletSetupDidNotComplete": "Sua carteira foi criada, mas não concluiu a inicialização. Verifique sua conexão e tente novamente."
 }

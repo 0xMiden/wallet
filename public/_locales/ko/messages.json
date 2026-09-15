@@ -4190,10 +4190,6 @@
     "message": "지갑을 연결하여 Miden과 자산을 주고받으세요.",
     "englishSource": "Connect a wallet to bridge assets to and from Miden."
   },
-  "onlyBridgeableTokenSupported": {
-    "message": "'슬로우(Agglayer)' 경로는 브리지 가능한 토큰만 지원합니다. 다른 토큰을 전송하려면 '패스트'를 사용하세요.",
-    "englishSource": "The Slow (Agglayer) route only supports the bridgeable token. Use Fast to send other tokens."
-  },
   "connectDestinationWalletToClaim": {
     "message": "청구를 하려면 수신 지갑을 연결하십시오.",
     "englishSource": "Connect the destination wallet to claim."
@@ -4269,10 +4265,6 @@
   "delivering": {
     "message": "배송",
     "englishSource": "Delivering"
-  },
-  "slowNeedsNativeEth": {
-    "message": "슬로우(Agglayer) 경로는 테스트넷에서 네이티브 ETH만 지원합니다. 이 경로를 사용하려면 ETH를 선택하세요.",
-    "englishSource": "The Slow (Agglayer) route only supports native ETH on testnet. Choose ETH to use it."
   },
   "fastEthWrapNotice": {
     "message": "Fast 경로를 통해 ETH를 브리징할 경우, 먼저 ETH를 WETH로 래핑한 후 WETH를 브리징합니다. 이 경로는 아직 이용 불가능합니다.",
@@ -4662,5 +4654,9 @@
   "activityDateUnavailable": {
     "message": "날짜 미확인",
     "englishSource": "Date unavailable"
+  },
+  "walletSetupDidNotComplete": {
+    "message": "지갑이 생성되었으나 시작 절차가 완료되지 않았습니다. 연결 상태를 확인하고 다시 시도해 주세요.",
+    "englishSource": "Your wallet was created but did not finish starting up. Check your connection and try again."
   }
 }

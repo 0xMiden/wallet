@@ -931,7 +931,6 @@
   "midenBridge": "Miden Bridge",
   "connectEvmWallet": "Подключить кошелек EVM",
   "connectEvmWalletDescription": "Подключите кошелек, чтобы переводить активы в Miden и из него.",
-  "onlyBridgeableTokenSupported": "Маршрут «Медленный» (Agglayer) поддерживает только токены, которые можно переводить через мост. Для отправки других токенов используйте маршрут «Быстрый».",
   "connectDestinationWalletToClaim": "Подключите конечный кошелек, чтобы получить вознаграждение.",
   "bridgeDetails": "Детали моста",
   "route": "Маршрут",
@@ -949,7 +948,6 @@
   "bridgeDepositDeliveryDescription": "Транзакция Sepolia подтверждена. Ваши средства появятся на Miden после завершения передачи через мост.",
   "viewOnEtherscan": "Просмотреть на Etherscan",
   "delivering": "Доставка",
-  "slowNeedsNativeEth": "Маршрут Slow (Agglayer) поддерживает только нативный ETH в тестовой сети. Чтобы воспользоваться им, выберите ETH.",
   "fastEthWrapNotice": "Перенос ETH по «быстрому» маршруту сначала преобразует его в WETH, а затем осуществляет перенос WETH. Этот маршрут пока недоступен.",
   "destinationNetwork": "Сеть пунктов назначения",
   "claimStatus": "Статус заявки",
@@ -1041,5 +1039,6 @@
   "activityHiddenTransfers": "Скрытые переводы: $count$",
   "activityRestoreTransfers": "Восстановить",
   "activityHiddenNotesError": "Не удалось сохранить скрытые переводы. Пожалуйста, попробуйте ещё раз.",
-  "activityDateUnavailable": "Дата отсутствует"
+  "activityDateUnavailable": "Дата отсутствует",
+  "walletSetupDidNotComplete": "Ваш кошелёк был создан, но не завершил запуск. Проверьте подключение и попробуйте ещё раз."
 }
