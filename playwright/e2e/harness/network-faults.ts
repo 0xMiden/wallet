@@ -1,5 +1,6 @@
-import type { BrowserContext, Route } from '@playwright/test';
+import type { APIResponse, BrowserContext, Route } from '@playwright/test';
 
+import { guardianCommitmentReadOf, observeGuardianRead, type GuardianCommitmentLedger } from './guardian-commitments';
 import {
   applyGuardianFaultAction,
   decideGuardianFault,
@@ -22,7 +23,9 @@ import {
  * (`decideGuardianFault`/`applyGuardianFaultAction`, imported unchanged) so the
  * guardian lifecycle suite keeps its exact behavior. A single handler is
  * required: two catch-all handlers that both `route.continue()` on non-match
- * throw Playwright's "Route is already handled!".
+ * throw Playwright's "Route is already handled!". For a spec that asked
+ * (`trackGuardianCommitments`), the guardian path also records settlement
+ * traffic on its way through (harness/guardian-commitments.ts).
  *
  * MUST be installed on a context that allows service workers (the two-wallets
  * fixture default): node/prover/transport/guardian traffic is issued from the
@@ -169,6 +172,13 @@ export interface NetworkFaultControls {
    * are counted in their own realms (see fetch-faults.ts).
    */
   networkFaultHits(): number;
+  /**
+   * Record this context's guardian pushes and state reads into `ledger`. Off until
+   * called, so no other spec pays for the fetch-through; a request the armed
+   * guardian fault answers or aborts is never recorded, and `clear` leaves
+   * tracking on.
+   */
+  trackGuardianCommitments(ledger: GuardianCommitmentLedger): void;
   /** Disarm everything — all subsequent requests pass through untouched. */
   clear(): void;
 }
@@ -313,6 +323,7 @@ export function installNetworkFaults(
   let networkHits: number[] = [];
   let guardianPolicy: GuardianFaultPolicy | null = null;
   let guardianHits = 0;
+  let guardianLedger: GuardianCommitmentLedger | null = null;
 
   context.route('**/*', async (route: Route) => {
     const url = route.request().url();
@@ -326,7 +337,13 @@ export function installNetworkFaults(
 
     const guardian = decideGuardianFault(url, guardianPolicy, guardianHits, origins.guardian);
     guardianHits = guardian.hits;
-    await applyGuardianFaultAction(route, guardian.action);
+    const ledger = guardianLedger;
+    const read = ledger ? guardianCommitmentReadOf(route.request().method(), url, origins.guardian) : null;
+    await applyGuardianFaultAction(
+      route,
+      guardian.action,
+      ledger && read ? () => observeGuardianRead<APIResponse>(route, read, ledger) : undefined
+    );
   });
 
   return {
@@ -343,6 +360,9 @@ export function installNetworkFaults(
     },
     networkFaultHits() {
       return networkHits.reduce((total, hits) => total + hits, 0);
+    },
+    trackGuardianCommitments(ledger) {
+      guardianLedger = ledger;
     },
     clear() {
       networkPolicies = [];
