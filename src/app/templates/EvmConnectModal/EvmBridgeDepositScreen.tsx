@@ -39,6 +39,7 @@ import { EvmBridgeDepositReview } from './EvmBridgeDepositReview';
 import { EvmBridgeDepositStatus } from './EvmBridgeDepositStatus';
 import { EvmBridgeTokenDrawer, type DepositToken } from './EvmBridgeTokenDrawer';
 import { EvmSwitchWalletDrawer } from './EvmSwitchWalletDrawer';
+import { useDepositToken } from './useDepositToken';
 
 /**
  * Miden testnet faucet the Epoch solver delivers into (hex account id). This is
@@ -225,15 +226,20 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   const poll = useEpochStore(s => s.poll);
   const resetEpoch = useEpochStore(s => s.reset);
 
-  const [token, setToken] = useState<DepositToken>('USDC');
+  const [slowStatus, setSlowStatus] = useState<SlowBridgeStatus>('idle');
+  const [slowError, setSlowError] = useState<string | null>(null);
+  const clearTokenState = useCallback(() => {
+    resetEpoch();
+    setSlowStatus('idle');
+    setSlowError(null);
+  }, [resetEpoch]);
+  const { token, selectToken } = useDepositToken(clearTokenState);
   const [tokenDrawerOpen, setTokenDrawerOpen] = useState(false);
   const [switchDrawerOpen, setSwitchDrawerOpen] = useState(false);
   const [route, setRoute] = useState<BridgeRoute>('epoch');
   const [amount, setAmount] = useState('');
   const [usdcBalance, setUsdcBalance] = useState<BridgeBalance>(EMPTY_BALANCE);
   const [ethBalance, setEthBalance] = useState<BridgeBalance>(EMPTY_BALANCE);
-  const [slowStatus, setSlowStatus] = useState<SlowBridgeStatus>('idle');
-  const [slowError, setSlowError] = useState<string | null>(null);
   const [bridgeTxId, setBridgeTxId] = useState<string | null>(null);
   const [creatingBridgeRow, setCreatingBridgeRow] = useState(false);
 
@@ -341,13 +347,10 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
 
   const handleTokenSelect = useCallback(
     (next: DepositToken) => {
-      setToken(next);
       setTokenDrawerOpen(false);
-      resetEpoch();
-      setSlowStatus('idle');
-      setSlowError(null);
+      selectToken(next);
     },
-    [resetEpoch]
+    [selectToken]
   );
 
   const handleRouteChange = useCallback(

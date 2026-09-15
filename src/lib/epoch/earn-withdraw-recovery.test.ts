@@ -30,6 +30,7 @@ import {
   earnWithdrawExecutionIdentity,
   selectEarnWithdrawPreparedExecution
 } from './earn-withdraw-policy';
+import { EPOCH_INTENT_STATUS_TIMEOUT_MS } from './intent-status';
 import { createIntentPollCoordinator, type IntentPollOptions } from './poll-registry';
 import { deferred, SharedEarnLocks } from './testing/earn-locks';
 import { preparedExecution, PREPARED_FAUCET, PREPARED_OWNER, PREPARED_RECIPIENT } from './testing/earn-prepared';
@@ -150,7 +151,7 @@ function harness() {
     relay();
     return { nonce: '11', hash: 'hash', signature: 'signature', digest: 'digest' };
   });
-  const getIntentStatus = jest.fn<Promise<IntentTransactionStatus[]>, [string, string]>(async () => []);
+  const getIntentStatus = jest.fn<Promise<IntentTransactionStatus[]>, [string, string, AbortSignal?]>(async () => []);
   const retryIntentSolve = jest.fn<Promise<CompactResponse>, [CompactRequest]>(async () => ({
     hash: 'hash',
     signature: 'sig',
@@ -297,7 +298,10 @@ it('continues independent sibling repair after selected receipt is durable', asy
   h.row.extraInputs.midenNoteId = 'note';
   await h.tick();
   expect(h.retryIntentSolve).toHaveBeenCalledWith(JSON.parse(preparedExecution().allocations[0]!.requestJson));
-  expect(h.getIntentStatus).not.toHaveBeenCalledWith(PREPARED_OWNER, '22');
+  expect(h.getIntentStatus.mock.calls.map(([owner, nonce]) => [owner, nonce])).not.toContainEqual([
+    PREPARED_OWNER,
+    '22'
+  ]);
   expect(h.row.extraInputs.phase).toBe('received');
   expect(h.row.extraInputs.submissionState).toBe('accepted');
 });
@@ -307,9 +311,26 @@ it('does not let a hung sibling block selected status or the selected allocation
   const pending = deferred<never>();
   h.getIntentStatus.mockImplementation((_owner, nonce) => (nonce === '11' ? pending.promise : Promise.resolve([])));
   await h.tick();
-  expect(h.getIntentStatus).toHaveBeenCalledWith(PREPARED_OWNER, '22');
+  expect(h.getIntentStatus).toHaveBeenCalledWith(PREPARED_OWNER, '22', expect.any(AbortSignal));
   expect(h.retryIntentSolve).toHaveBeenCalledWith(JSON.parse(preparedExecution().allocations[1]!.requestJson));
   expect(h.row.extraInputs.submissionState).toBe('prepared');
+});
+
+it('repairs a sibling whose status request never answers once that request times out', async () => {
+  jest.useFakeTimers();
+  try {
+    const h = preparedHarness();
+    const pending = deferred<never>();
+    h.getIntentStatus.mockImplementation((_owner, nonce) => (nonce === '11' ? pending.promise : Promise.resolve([])));
+    const sibling = JSON.parse(preparedExecution().allocations[0]!.requestJson);
+    await h.tick();
+    expect(h.retryIntentSolve).not.toHaveBeenCalledWith(sibling);
+    await jest.advanceTimersByTimeAsync(EPOCH_INTENT_STATUS_TIMEOUT_MS);
+    for (let i = 0; i < 60; i++) await Promise.resolve();
+    expect(h.retryIntentSolve).toHaveBeenCalledWith(sibling);
+  } finally {
+    jest.useRealTimers();
+  }
 });
 
 it('repairs a sibling independently while the selected status request is hung', async () => {
@@ -444,7 +465,7 @@ it('polls the selected status while metadata repair rejects', async () => {
   if (!options) throw new Error('poll missing');
   await options.tick({ isCurrent: () => true, markTerminal: jest.fn() });
   expect(registration).toHaveBeenCalledTimes(1);
-  expect(h.getIntentStatus).toHaveBeenCalledWith(PREPARED_OWNER, '22');
+  expect(h.getIntentStatus).toHaveBeenCalledWith(PREPARED_OWNER, '22', expect.any(AbortSignal));
 });
 
 it('preserves a terminal phase write rejection when note resolution also rejects', async () => {

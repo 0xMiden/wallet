@@ -1,3 +1,4 @@
+import { EPOCH_INTENT_STATUS_TIMEOUT_MS } from 'lib/epoch/intent-status';
 import * as Repo from 'lib/miden/repo';
 
 import { BridgeReceiveLockManager, createBridgeReceiveReconciler, reconcileBridgedReceives } from './bridge-receive';
@@ -363,6 +364,94 @@ describe('reconcileBridgedReceives', () => {
     expect(updatePhase).toHaveBeenCalledWith('agg-after', 'ready');
     expect(warn).toHaveBeenCalledWith('[bridge-receive] reconcile failed', 'epoch-broken', 'epoch', expect.any(Error));
     warn.mockRestore();
+  });
+
+  it('does not hold the rows after an Epoch status read that never answers', async () => {
+    jest.useFakeTimers();
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      getIntentStatus.mockReturnValueOnce(new Promise(() => {}));
+      const hash = `0x${'2'.repeat(64)}`;
+      rows.push(
+        {
+          id: 'epoch-hung',
+          type: 'bridged-receive',
+          initiatedAt: Math.floor(Date.now() / 1000),
+          extraInputs: {
+            provider: 'epoch',
+            phase: 'delivering',
+            sourceAddress: '0x1111111111111111111111111111111111111111',
+            intentNonce: 'nonce-hung'
+          }
+        },
+        {
+          id: 'agg-after',
+          type: 'bridged-receive',
+          accountId: 'miden-account',
+          initiatedAt: Math.floor(Date.now() / 1000),
+          extraInputs: { provider: 'agglayer', phase: 'delivering', evmTxHash: hash }
+        }
+      );
+      fetchDeposits.mockResolvedValue([{ tx_hash: hash, ready_for_claim: true }]);
+
+      const pass = reconcileBridgedReceives();
+      await jest.advanceTimersByTimeAsync(EPOCH_INTENT_STATUS_TIMEOUT_MS);
+      await pass;
+
+      expect(updatePhase).toHaveBeenCalledWith('agg-after', 'ready');
+      expect(updatePhase).not.toHaveBeenCalledWith('epoch-hung', expect.anything(), expect.anything());
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('reconciles rows at once, so Epoch reads that never answer do not delay the rows after them', async () => {
+    jest.useFakeTimers();
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      getIntentStatus.mockReturnValue(new Promise(() => {}));
+      const hash = `0x${'3'.repeat(64)}`;
+      const hungEpochRow = (id: string) => ({
+        id,
+        type: 'bridged-receive',
+        initiatedAt: Math.floor(Date.now() / 1000),
+        extraInputs: {
+          provider: 'epoch',
+          phase: 'delivering',
+          sourceAddress: '0x1111111111111111111111111111111111111111',
+          intentNonce: id
+        }
+      });
+      rows.push(hungEpochRow('epoch-hung-1'), hungEpochRow('epoch-hung-2'), {
+        id: 'agg-after',
+        type: 'bridged-receive',
+        accountId: 'miden-account',
+        initiatedAt: Math.floor(Date.now() / 1000),
+        extraInputs: { provider: 'agglayer', phase: 'delivering', evmTxHash: hash }
+      });
+      fetchDeposits.mockResolvedValue([{ tx_hash: hash, ready_for_claim: true }]);
+
+      const pass = reconcileBridgedReceives();
+      for (let i = 0; i < 30; i += 1) await Promise.resolve();
+      expect(updatePhase).toHaveBeenCalledWith('agg-after', 'ready');
+      expect(getIntentStatus).toHaveBeenCalledTimes(2);
+
+      await jest.advanceTimersByTimeAsync(EPOCH_INTENT_STATUS_TIMEOUT_MS);
+      await pass;
+      // Rows now warn interleaved, so each warning names its row.
+      expect(warn).toHaveBeenCalledWith(
+        '[bridge-receive] Epoch reconcile poll failed',
+        'epoch-hung-1',
+        expect.any(Error)
+      );
+      expect(warn).toHaveBeenCalledWith(
+        '[bridge-receive] Epoch reconcile poll failed',
+        'epoch-hung-2',
+        expect.any(Error)
+      );
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('survives an Epoch status-poll outage without touching the row', async () => {

@@ -2,12 +2,7 @@ import React from 'react';
 
 import { act, render } from '@testing-library/react';
 
-import {
-  BridgeIntentWatcher,
-  BridgeWatcherDocument,
-  BridgeWatcherLockManager,
-  startBridgeIntentPolling
-} from './BridgeIntentWatcher';
+import { BridgeIntentWatcher, BridgeWatcherDocument, startBridgeIntentPolling } from './BridgeIntentWatcher';
 
 const mockReconcileReceives = jest.fn();
 const mockReconcileSends = jest.fn();
@@ -34,41 +29,78 @@ const advance = async (ms: number) => {
   await settle();
 };
 
+type LockMode = 'exclusive' | 'shared';
+
 /**
- * One exclusive lock shared by every realm of an origin, granted in request order. A waiting request can be
- * aborted, unless `ignoreAbort` stands in for a grant that raced the abort.
+ * Web Locks for every realm of one origin. Per lock name, requests are granted in order: an exclusive request waits
+ * for every holder, a shared one only for an exclusive holder. A waiting request can be aborted, unless
+ * `ignoreAbort` stands in for a grant that raced the abort.
  */
-function createLockManager({ ignoreAbort = false } = {}): BridgeWatcherLockManager & { waiting(): number } {
-  let held = false;
-  const queue: Array<() => void> = [];
-  const grantNext = () => queue.shift()?.();
+function createLockManager({ ignoreAbort = false } = {}) {
+  const held = new Map<string, { mode: LockMode; count: number }>();
+  const queue: Array<{ name: string; mode: LockMode; grant: () => void }> = [];
+  const grantable = (name: string, mode: LockMode) => {
+    const holder = held.get(name);
+    return !holder || (holder.mode === 'shared' && mode === 'shared');
+  };
+  const release = (name: string) => {
+    const holder = held.get(name);
+    if (!holder || holder.count === 1) held.delete(name);
+    else held.set(name, { mode: holder.mode, count: holder.count - 1 });
+  };
+  const pump = () => {
+    for (const entry of [...queue]) {
+      const index = queue.indexOf(entry);
+      const blockedAhead = queue.slice(0, index).some(other => other.name === entry.name);
+      if (blockedAhead || !grantable(entry.name, entry.mode)) continue;
+      queue.splice(index, 1);
+      entry.grant();
+    }
+  };
   return {
     waiting: () => queue.length,
-    request(_name, options, callback) {
+    request(
+      name: string,
+      options: { mode?: LockMode; signal?: AbortSignal },
+      callback: (lock: object | null) => Promise<void>
+    ) {
+      const mode = options.mode ?? 'exclusive';
       return new Promise<void>((resolve, reject) => {
-        const grant = () => {
-          held = true;
-          callback({})
-            .then(resolve, reject)
-            .finally(() => {
-              held = false;
-              grantNext();
-            });
+        const entry = {
+          name,
+          mode,
+          grant: () => {
+            const holder = held.get(name);
+            held.set(name, { mode, count: (holder?.count ?? 0) + 1 });
+            callback({})
+              .then(resolve, reject)
+              .finally(() => {
+                release(name);
+                pump();
+              });
+          }
         };
-        if (!held) {
-          grant();
+        if (!queue.some(other => other.name === name) && grantable(name, mode)) {
+          entry.grant();
           return;
         }
-        queue.push(grant);
+        queue.push(entry);
         options.signal?.addEventListener('abort', () => {
-          const index = queue.indexOf(grant);
+          const index = queue.indexOf(entry);
           if (ignoreAbort || index < 0) return;
           queue.splice(index, 1);
           reject(new DOMException('The request was aborted.', 'AbortError'));
+          pump();
         });
       });
     }
   };
+}
+
+/** Every realm of an origin shares one lock manager, so the fake stands in for `navigator.locks`. */
+function installLocks<T>(locks: T): T {
+  Object.defineProperty(navigator, 'locks', { value: locks, configurable: true });
+  return locks;
 }
 
 function createRoot(hidden = false): BridgeWatcherDocument & { setHidden(value: boolean): void } {
@@ -207,7 +239,7 @@ describe('BridgeIntentWatcher', () => {
   });
 
   it('lets one mounted root poll when the page has Web Locks', async () => {
-    Object.defineProperty(navigator, 'locks', { value: createLockManager(), configurable: true });
+    installLocks(createLockManager());
     try {
       render(
         <>
@@ -239,12 +271,13 @@ describe('startBridgeIntentPolling - one polling root per origin', () => {
   afterEach(() => {
     jest.runOnlyPendingTimers();
     jest.useRealTimers();
+    Reflect.deleteProperty(navigator, 'locks');
   });
 
   it('polls from the leading root only, and hands over when it stops', async () => {
-    const locks = createLockManager();
-    const stopFirst = startBridgeIntentPolling({ getLocks: () => locks, doc: createRoot() });
-    const stopSecond = startBridgeIntentPolling({ getLocks: () => locks, doc: createRoot() });
+    installLocks(createLockManager());
+    const stopFirst = startBridgeIntentPolling({ doc: createRoot() });
+    const stopSecond = startBridgeIntentPolling({ doc: createRoot() });
     await settle();
     expect(mockReconcileReceives).toHaveBeenCalledTimes(1);
     expect(mockReconcileSends).toHaveBeenCalledTimes(1);
@@ -262,10 +295,10 @@ describe('startBridgeIntentPolling - one polling root per origin', () => {
   });
 
   it('gives the lease up when its root is hidden, so a visible root polls', async () => {
-    const locks = createLockManager();
+    installLocks(createLockManager());
     const leader = createRoot();
-    const stopLeader = startBridgeIntentPolling({ getLocks: () => locks, doc: leader });
-    const stopVisible = startBridgeIntentPolling({ getLocks: () => locks, doc: createRoot() });
+    const stopLeader = startBridgeIntentPolling({ doc: leader });
+    const stopVisible = startBridgeIntentPolling({ doc: createRoot() });
     await settle();
     expect(mockReconcileReceives).toHaveBeenCalledTimes(1);
 
@@ -279,31 +312,28 @@ describe('startBridgeIntentPolling - one polling root per origin', () => {
     stopVisible();
   });
 
-  it('hands over only once the outgoing leader has finished its pass', async () => {
-    const locks = createLockManager();
-    let finishPass: () => void = () => {};
-    mockReconcileReceives.mockImplementationOnce(() => new Promise<void>(resolve => (finishPass = resolve)));
+  it('hands over at once while the outgoing leader still has a pass running', async () => {
+    installLocks(createLockManager());
+    mockReconcileReceives.mockImplementationOnce(() => new Promise<void>(() => {}));
     const leader = createRoot();
-    const stopLeader = startBridgeIntentPolling({ getLocks: () => locks, doc: leader });
-    const stopNext = startBridgeIntentPolling({ getLocks: () => locks, doc: createRoot() });
+    const stopLeader = startBridgeIntentPolling({ doc: leader });
+    const stopNext = startBridgeIntentPolling({ doc: createRoot() });
     await settle();
+    expect(mockReconcileSends).toHaveBeenCalledTimes(1);
 
     leader.setHidden(true);
     await settle();
-    expect(mockReconcileReceives).toHaveBeenCalledTimes(1);
-
-    finishPass();
-    await settle();
     expect(mockReconcileReceives).toHaveBeenCalledTimes(2);
+    expect(mockReconcileSends).toHaveBeenCalledTimes(2);
     stopLeader();
     stopNext();
   });
 
   it('withdraws the waiting request of a root that is hidden, and asks again once it is visible', async () => {
-    const locks = createLockManager();
+    const locks = installLocks(createLockManager());
     const waiting = createRoot();
-    const stopLeader = startBridgeIntentPolling({ getLocks: () => locks, doc: createRoot() });
-    const stopWaiting = startBridgeIntentPolling({ getLocks: () => locks, doc: waiting });
+    const stopLeader = startBridgeIntentPolling({ doc: createRoot() });
+    const stopWaiting = startBridgeIntentPolling({ doc: waiting });
     await settle();
     expect(locks.waiting()).toBe(1);
 
@@ -322,12 +352,15 @@ describe('startBridgeIntentPolling - one polling root per origin', () => {
   });
 
   it('ignores a grant for a request its root withdrew before it was shown again', async () => {
-    const locks = createLockManager({ ignoreAbort: true });
+    installLocks(createLockManager({ ignoreAbort: true }));
     const waiting = createRoot();
-    const stopLeader = startBridgeIntentPolling({ getLocks: () => locks, doc: createRoot() });
-    const stopWaiting = startBridgeIntentPolling({ getLocks: () => locks, doc: waiting });
+    const stopLeader = startBridgeIntentPolling({ doc: createRoot() });
+    const stopWaiting = startBridgeIntentPolling({ doc: waiting });
+    const stopQueued = startBridgeIntentPolling({ doc: createRoot() });
     await settle();
+    expect(mockReconcileReceives).toHaveBeenCalledTimes(1);
 
+    // The withdrawn request stays queued ahead of the third root's; the renewed one queues behind it.
     waiting.setHidden(true);
     waiting.setHidden(false);
     stopLeader();
@@ -337,12 +370,41 @@ describe('startBridgeIntentPolling - one polling root per origin', () => {
     await advance(8_000);
     expect(mockReconcileReceives).toHaveBeenCalledTimes(3);
     stopWaiting();
+    stopQueued();
+  });
+
+  it('resumes a direction once its own unfinished pass settles when a root leads again', async () => {
+    installLocks(createLockManager());
+    let finishOldPass: () => void = () => {};
+    mockReconcileReceives.mockImplementationOnce(() => new Promise<void>(resolve => (finishOldPass = resolve)));
+    const returning = createRoot();
+    const stopReturning = startBridgeIntentPolling({ doc: returning });
+    await settle();
+    const stopOther = startBridgeIntentPolling({ doc: createRoot() });
+    await settle();
+
+    returning.setHidden(true);
+    await settle();
+    expect(mockReconcileReceives).toHaveBeenCalledTimes(2);
+
+    returning.setHidden(false);
+    await settle();
+    stopOther();
+    await settle();
+    expect(mockReconcileSends).toHaveBeenCalledTimes(3);
+    expect(mockReconcileReceives).toHaveBeenCalledTimes(2);
+
+    finishOldPass();
+    await settle();
+    await advance(8_000);
+    expect(mockReconcileReceives).toHaveBeenCalledTimes(3);
+    stopReturning();
   });
 
   it('asks for the lease only once its root is visible', async () => {
-    const locks = createLockManager();
+    installLocks(createLockManager());
     const root = createRoot(true);
-    const stop = startBridgeIntentPolling({ getLocks: () => locks, doc: root });
+    const stop = startBridgeIntentPolling({ doc: root });
     await advance(8_000);
     expect(mockReconcileReceives).not.toHaveBeenCalled();
 

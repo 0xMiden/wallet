@@ -43,6 +43,7 @@ import {
   matchesEarnWithdrawIntent,
   type ExpectedEarnWithdrawIntent
 } from './intent-key';
+import { readEpochIntentStatus } from './intent-status';
 import { startIntentPoll } from './poll-registry';
 import { getEpochReadOnlySdk, ensureEpochSmartAccount } from './sdk';
 
@@ -446,7 +447,7 @@ export function pollEarnWithdrawDelivery(args: {
       if (!execution) {
         const sdk = await getSdk(sponsorAddress);
         if (!context.isCurrent() || !(await liveWithdrawal(txId, expected)) || !context.isCurrent()) return;
-        const results = await sdk.getIntentStatus(sponsorAddress, nonce);
+        const results = await readEpochIntentStatus(sdk, sponsorAddress, nonce);
         if (!context.isCurrent()) return;
         try {
           await applyDelivery(results);
@@ -511,7 +512,7 @@ export function pollEarnWithdrawDelivery(args: {
             if (!context.isCurrent() || !(await liveWithdrawal(txId, expected)) || !context.isCurrent()) return;
             let results: unknown;
             try {
-              results = await sdk.getIntentStatus(request.compact.sponsor, request.compact.nonce);
+              results = await readEpochIntentStatus(sdk, request.compact.sponsor, request.compact.nonce);
             } catch (error) {
               console.warn('[earn-withdraw] allocation status failed', error);
             }

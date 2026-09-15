@@ -9,6 +9,7 @@ import {
   reconcileEarnDeposits,
   resolveEarnIntentOutcome
 } from './earn';
+import { EPOCH_INTENT_STATUS_TIMEOUT_MS } from './intent-status';
 import { clearPollRegistryForTests, createIntentPollCoordinator } from './poll-registry';
 import { getEpochReadOnlySdk } from './sdk';
 import { deferred, SharedEarnLocks } from './testing/earn-locks';
@@ -379,6 +380,24 @@ describe('reconcileEarnDeposits', () => {
     await reconcileEarnDeposits(d);
     await jest.advanceTimersByTimeAsync(0);
     expect(d.getSdk).not.toHaveBeenCalled();
+  });
+
+  it('retries a status request that never answers once it times out', async () => {
+    const warning = jest.spyOn(console, 'warn').mockImplementation();
+    wireRows([depositRow()]);
+    const getIntentStatus = jest
+      .fn()
+      .mockReturnValueOnce(new Promise(() => {}))
+      .mockResolvedValue([{ chainId: SEPOLIA, status: 'failed' }]);
+    const d = { ...deps(), getSdk: jest.fn().mockResolvedValue({ getIntentStatus }) };
+    await reconcileEarnDeposits(d);
+    await jest.advanceTimersByTimeAsync(0);
+    expect(getIntentStatus).toHaveBeenCalledTimes(1);
+    await jest.advanceTimersByTimeAsync(EPOCH_INTENT_STATUS_TIMEOUT_MS + 3000);
+    expect(getIntentStatus).toHaveBeenCalledTimes(2);
+    expect(getIntentStatus).toHaveBeenLastCalledWith(SPONSOR, 'N1', expect.any(AbortSignal));
+    expect(d.updateStatus).toHaveBeenCalledWith('TX1', 'failed', undefined, { owner: SPONSOR, nonce: 'N1' });
+    warning.mockRestore();
   });
 
   it('starts another identity while the first status request never resolves', async () => {

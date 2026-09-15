@@ -4,23 +4,12 @@ const POLL_INTERVAL_MS = 8_000;
 
 const LEADER_LOCK = 'bridge-intent-watcher';
 
-export interface BridgeWatcherLockManager {
-  request(
-    name: string,
-    options: { signal?: AbortSignal },
-    callback: (lock: object | null) => Promise<void>
-  ): Promise<void>;
-}
-
 /** The part of `document` the watcher reads: whether its root is on screen, and when that changes. */
 export interface BridgeWatcherDocument {
   readonly hidden: boolean;
   addEventListener(type: 'visibilitychange', listener: () => void): void;
   removeEventListener(type: 'visibilitychange', listener: () => void): void;
 }
-
-const getNavigatorLocks = (): BridgeWatcherLockManager | undefined =>
-  typeof navigator === 'undefined' ? undefined : navigator.locks;
 
 /**
  * Poll every pending bridge row from the app root, for as long as the wallet is
@@ -40,11 +29,14 @@ const getNavigatorLocks = (): BridgeWatcherLockManager | undefined =>
  * The extension mounts a root per open window (popup, full page, side panel, dApp
  * confirmation), and the rows are shared by all of them, so one visible root
  * polls for the origin: it holds `bridge-intent-watcher` while it stays visible.
- * A root gives the lease up when it is hidden or unmounted, and only once its
- * in-flight passes settle, so two roots never reconcile the same rows at once. A
- * hidden root never keeps the lease: it skips its ticks, and every visible root
- * would wait behind it. Web Locks are released when a page dies; without them
- * the realm polls on its own.
+ * A root gives the lease up as soon as it is hidden or unmounted, without waiting
+ * for a pass it already started: a receive pass can wait minutes on an EVM
+ * receipt, and every visible root would stop polling behind it. That pass can
+ * overlap another root's first one, no more than every open root did before the
+ * lease. A root never overlaps its own pass: one that leads again resumes a
+ * direction once its earlier pass settles, and every wait in a pass times out
+ * (the EVM receipt, the AggLayer indexer, the Epoch allocator). Web Locks are
+ * released when a page dies; without them the realm polls on its own.
  *
  * Both reconcilers are imported lazily: the provider mounts this watcher, and
  * a static import from here back through the transaction pipeline to the
@@ -53,14 +45,11 @@ const getNavigatorLocks = (): BridgeWatcherLockManager | undefined =>
  * Returns the function that stops polling.
  */
 export function startBridgeIntentPolling({
-  getLocks = getNavigatorLocks,
   doc = typeof document === 'undefined' ? undefined : document
 }: {
-  getLocks?: () => BridgeWatcherLockManager | undefined;
   doc?: BridgeWatcherDocument;
 } = {}): () => void {
   let disposed = false;
-  const passes = new Set<Promise<void>>();
   const isHidden = () => doc?.hidden === true;
 
   const guarded = (label: string, poll: () => Promise<void>) => {
@@ -68,13 +57,11 @@ export function startBridgeIntentPolling({
     return () => {
       if (disposed || running || isHidden()) return;
       running = true;
-      const pass: Promise<void> = poll()
+      void poll()
         .catch(error => console.warn(`[bridge-intent-watcher] ${label} failed`, error))
         .finally(() => {
           running = false;
-          passes.delete(pass);
         });
-      passes.add(pass);
     };
   };
   const pollReceives = guarded('receives', async () => {
@@ -95,7 +82,7 @@ export function startBridgeIntentPolling({
     return () => clearInterval(timer);
   };
 
-  const locks = getLocks();
+  const locks = typeof navigator === 'undefined' ? undefined : navigator.locks;
   if (!locks) {
     const stopTicking = startTicking();
     return () => {
@@ -120,7 +107,6 @@ export function startBridgeIntentPolling({
         const stopTicking = startTicking();
         await released;
         stopTicking();
-        await Promise.all(passes);
       })
       .catch(error => {
         if (lease === current) lease = undefined;

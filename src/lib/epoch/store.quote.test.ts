@@ -91,6 +91,8 @@ describe('Epoch quote actions apply only the latest request', () => {
     await first;
     expect(useEpochStore.getState()).toMatchObject({ status: 'quoted', flow: 'evm-to-miden', error: null });
     expect(quotedAmount()).toBe('2000000');
+    expect(console.log).toHaveBeenCalledWith('[epoch] EVM→Miden quote', depositQuote('2000000'));
+    expect(console.log).toHaveBeenCalledWith('[epoch] EVM→Miden quote (superseded)', depositQuote('1000000'));
   });
 
   it('keeps the newer EVM→Miden quote when the older request fails last', async () => {
@@ -100,16 +102,23 @@ describe('Epoch quote actions apply only the latest request', () => {
 
     const first = quoteEVMToMiden(depositParams('1000000'), '0xowner');
     await quoteEVMToMiden(depositParams('2000000'), '0xowner');
-    older.reject(new Error('allocator timeout'));
+    const timeout = new Error('allocator timeout');
+    older.reject(timeout);
     await first;
 
     expect(useEpochStore.getState()).toMatchObject({ status: 'quoted', error: null });
     expect(quotedAmount()).toBe('2000000');
+    expect(console.error).toHaveBeenCalledWith(
+      '[epoch] quoteEVMToMiden failed (superseded)',
+      expect.anything(),
+      timeout
+    );
   });
 
   it('keeps the failure of the latest request when an older quote answers after it', async () => {
     const older = deferred<EVMToMidenQuote>();
-    mockGetEVMToMidenQuote.mockReturnValueOnce(older.promise).mockRejectedValueOnce(new Error('no route'));
+    const noRoute = new Error('no route');
+    mockGetEVMToMidenQuote.mockReturnValueOnce(older.promise).mockRejectedValueOnce(noRoute);
     const { quoteEVMToMiden } = useEpochStore.getState();
 
     const first = quoteEVMToMiden(depositParams('1000000'), '0xowner');
@@ -118,6 +127,8 @@ describe('Epoch quote actions apply only the latest request', () => {
     await first;
 
     expect(useEpochStore.getState()).toMatchObject({ status: 'failed', error: 'no route', quote: null });
+    expect(console.error).toHaveBeenCalledWith('[epoch] quoteEVMToMiden failed', expect.anything(), noRoute);
+    expect(console.log).toHaveBeenCalledWith('[epoch] EVM→Miden quote (superseded)', depositQuote('1000000'));
   });
 
   it('keeps the newer Miden→EVM quote when the older one answers last', async () => {
@@ -132,6 +143,8 @@ describe('Epoch quote actions apply only the latest request', () => {
 
     expect(useEpochStore.getState()).toMatchObject({ status: 'quoted', flow: 'miden-to-evm', error: null });
     expect(quotedAmount()).toBe('2000000');
+    expect(console.log).toHaveBeenCalledWith('[epoch] Miden→EVM quote', withdrawQuote('2000000'));
+    expect(console.log).toHaveBeenCalledWith('[epoch] Miden→EVM quote (superseded)', withdrawQuote('1000000'));
   });
 
   it('keeps the newer Miden→EVM quote when the older request fails last', async () => {
@@ -141,11 +154,13 @@ describe('Epoch quote actions apply only the latest request', () => {
 
     const first = quoteMidenToEVM(withdrawParams('1000000'), '0xowner');
     await quoteMidenToEVM(withdrawParams('2000000'), '0xowner');
-    older.reject(new Error('allocator timeout'));
+    const timeout = new Error('allocator timeout');
+    older.reject(timeout);
     await first;
 
     expect(useEpochStore.getState()).toMatchObject({ status: 'quoted', error: null });
     expect(quotedAmount()).toBe('2000000');
+    expect(console.error).toHaveBeenCalledWith('[epoch] quoteMidenToEVM failed (superseded)', timeout);
   });
 
   it('drops a quote that answers after a reset', async () => {

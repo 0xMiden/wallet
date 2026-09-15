@@ -1,5 +1,6 @@
 import { AGGLAYER_BRIDGE_NOTE_SENDER_ACCOUNT_ID, AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL } from 'lib/agglayer/constant';
 import { effectiveWithdrawAttemptId, intentKey, matchesEarnWithdrawIntent } from 'lib/epoch/intent-key';
+import { readEpochIntentStatus } from 'lib/epoch/intent-status';
 import * as Repo from 'lib/miden/repo';
 
 import { compareAccountIds } from './utils';
@@ -99,10 +100,11 @@ async function pollIntentNoteId(intent: PendingBridgeInIntent): Promise<string |
   try {
     const { getEpochReadOnlySdk } = await import('lib/epoch/sdk');
     const sdk = await getEpochReadOnlySdk(intent.userAddress);
-    const results = await sdk.getIntentStatus(intent.userAddress, intent.intentNonce);
+    // Bounded: consume completion awaits this under the transaction loop's lock.
+    const results = await readEpochIntentStatus(sdk, intent.userAddress, intent.intentNonce);
     return extractMidenNoteId(results ?? []);
   } catch (err) {
-    console.warn('[bridge-in] one-shot intent poll failed', err);
+    console.warn('[bridge-in] one-shot intent poll failed', intent.userAddress, intent.intentNonce, err);
     return undefined;
   }
 }
@@ -264,14 +266,20 @@ export async function applyBridgeInInfoForNotes(
   const consumedKeys = new Set(noteIds.map(noteIdKey));
   const discovered = new Map<string, string>();
   if (!snapshot.some(intent => intent.midenNoteId && consumedKeys.has(noteIdKey(intent.midenNoteId)))) {
-    for (const intent of snapshot) {
-      if (intent.midenNoteId) continue;
-      const noteId = await pollIntentNoteId(intent);
-      if (noteId) {
-        discovered.set(registryIdentity(intent), noteId);
-        if (consumedKeys.has(noteIdKey(noteId))) break;
-      }
-    }
+    // All at once, and only until a read finds a consumed note: consume completion waits here under the transaction
+    // loop's lock, so neither the number of unresolved intents nor an unrelated read that hangs extends the wait.
+    const unresolved = snapshot.filter(intent => !intent.midenNoteId);
+    await new Promise<void>(resolve => {
+      let pending = unresolved.length;
+      if (pending === 0) resolve();
+      unresolved.forEach(intent => {
+        void pollIntentNoteId(intent).then(noteId => {
+          pending -= 1;
+          if (noteId) discovered.set(registryIdentity(intent), noteId);
+          if (pending === 0 || (noteId && consumedKeys.has(noteIdKey(noteId)))) resolve();
+        });
+      });
+    });
   }
   return withBridgeInRegistryLock(async () => {
     const registry = await readRegistry();

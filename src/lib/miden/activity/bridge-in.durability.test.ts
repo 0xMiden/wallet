@@ -34,6 +34,10 @@ jest.mock('../sdk/helpers', () => ({
 }));
 const mockStatus = jest.fn();
 jest.mock('lib/epoch/sdk', () => ({ getEpochReadOnlySdk: async () => ({ getIntentStatus: mockStatus }) }));
+const mockReadIntentStatus = jest.fn();
+jest.mock('lib/epoch/intent-status', () => ({
+  readEpochIntentStatus: (...args: unknown[]) => mockReadIntentStatus(...args)
+}));
 
 const OWNER = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 const OTHER = '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
@@ -96,6 +100,12 @@ beforeEach(async () => {
   mockRegistry.records = [];
   mockFailRemoval = false;
   mockStatus.mockReset().mockResolvedValue([]);
+  mockReadIntentStatus
+    .mockReset()
+    .mockImplementation(
+      (sdk: { getIntentStatus: (address: string, nonce: string) => unknown }, address: string, nonce: string) =>
+        sdk.getIntentStatus(address, nonce)
+    );
   Object.defineProperty(navigator, 'locks', { value: undefined, configurable: true });
   await Repo.transactions.clear();
 });
@@ -174,6 +184,73 @@ it('keeps a discovered note durable when the consume callback fails after taggin
   expect(await applyBridgeInInfoForNotes(['abcd'], applyConsume)).toBe(true);
   expect(mockStatus).not.toHaveBeenCalled();
   expect(mockRegistry.records).toEqual([]);
+});
+
+it('reads through the status timeout, so a timed-out read lets consume discovery finish', async () => {
+  await registerPendingBridgeIn(OWNER, '7', info());
+  mockReadIntentStatus.mockRejectedValueOnce(new Error('Epoch intent status timed out after 15000 ms'));
+  jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+  await expect(applyBridgeInInfoForNotes(['abcd'], applyConsume)).resolves.toBe(false);
+
+  expect(mockReadIntentStatus).toHaveBeenCalledWith(expect.anything(), OWNER, '7');
+  expect(mockStatus).not.toHaveBeenCalled();
+});
+
+it('reads every unresolved intent at once, so discovery waits one status read however many are pending', async () => {
+  await registerPendingBridgeIn(OWNER, '7', info());
+  await registerPendingBridgeIn(OTHER, '8', info({ earnWithdrawTxId: 'other' }));
+  const first = deferred<unknown[]>(),
+    second = deferred<unknown[]>();
+  mockReadIntentStatus.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+
+  const pending = applyBridgeInInfoForNotes(['abcd'], applyConsume);
+  for (let i = 0; i < 50 && mockReadIntentStatus.mock.calls.length < 2; i += 1) {
+    await new Promise(resolve => setTimeout(resolve, 0));
+  }
+  expect(mockReadIntentStatus).toHaveBeenCalledTimes(2);
+
+  first.resolve([]);
+  second.resolve([]);
+  await expect(pending).resolves.toBe(false);
+});
+
+it('names the intent in the warning for each status read that fails', async () => {
+  const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+  await registerPendingBridgeIn(OWNER, '7', info());
+  await registerPendingBridgeIn(OTHER, '8', info({ earnWithdrawTxId: 'other' }));
+  mockReadIntentStatus.mockRejectedValue(new Error('allocator down'));
+
+  await expect(applyBridgeInInfoForNotes(['abcd'], applyConsume)).resolves.toBe(false);
+
+  // The reads run at once, so only the intent tells their warnings apart.
+  expect(warn).toHaveBeenCalledWith('[bridge-in] one-shot intent poll failed', OWNER, '7', expect.any(Error));
+  expect(warn).toHaveBeenCalledWith('[bridge-in] one-shot intent poll failed', OTHER, '8', expect.any(Error));
+  warn.mockRestore();
+});
+
+it('stops waiting on unrelated intents once a read finds the consumed note', async () => {
+  await registerPendingBridgeIn(OTHER, '8', info({ earnWithdrawTxId: 'other' }));
+  await registerPendingBridgeIn(OWNER, '7', info());
+  const matching = deferred<unknown[]>();
+  mockReadIntentStatus.mockReturnValueOnce(new Promise(() => {})).mockReturnValueOnce(matching.promise);
+  const apply = jest.fn(async () => undefined);
+
+  const settled = jest.fn();
+  void applyBridgeInInfoForNotes(['abcd'], apply).then(settled);
+  for (let i = 0; i < 50 && mockReadIntentStatus.mock.calls.length < 2; i += 1) {
+    await new Promise(resolve => setTimeout(resolve, 0));
+  }
+  // The unrelated read started first and never answers.
+  expect(mockReadIntentStatus).toHaveBeenCalledTimes(2);
+
+  matching.resolve([{ midenNoteId: 'abcd' }]);
+  for (let i = 0; i < 50 && settled.mock.calls.length === 0; i += 1) {
+    await new Promise(resolve => setTimeout(resolve, 0));
+  }
+
+  expect(settled).toHaveBeenCalledWith(true);
+  expect(apply).toHaveBeenCalledWith(expect.objectContaining({ intentOwner: OWNER, intentNonce: '7' }));
 });
 
 it('does not lose a registration while consume discovery waits on the network', async () => {
