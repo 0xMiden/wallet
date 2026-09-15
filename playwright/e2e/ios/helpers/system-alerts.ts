@@ -44,6 +44,11 @@ const ALLOW_LABEL = 'Allow';
 const DESCRIBE_TIMEOUT_MS = 15_000;
 const TAP_TIMEOUT_MS = 10_000;
 
+// The wallet's Capacitor bridge logs each native call as it starts and as it returns:
+// `native LocalNotifications.requestPermissions (#12)`, then `result LocalNotifications.requestPermissions (#12)`,
+// each word behind a `%c` style marker. SpringBoard's alert can be up only between the two.
+const PERMISSION_REQUEST_LOG = /(native|result)\s+(?:%c)?LocalNotifications\.requestPermissions\s*\(#(\d+)\)/;
+
 export interface AxElement {
   type?: string;
   AXLabel?: string | null;
@@ -109,6 +114,12 @@ interface GateOptions {
   dismiss?: (udid: string) => Promise<boolean>;
   /** Optional log sink (defaults to console). */
   onLog?: (message: string) => void;
+  /** How long a capture waits, while the app's permission request is open, for the alert to be tapped. */
+  promptWaitMs?: number;
+  /** Pause between looks while the app's permission request is open. */
+  promptPollMs?: number;
+  /** Sleep; injectable for tests. */
+  sleep?: (ms: number) => Promise<void>;
 }
 
 /**
@@ -123,16 +134,24 @@ interface GateOptions {
  * dismissed synchronously rather than racing a background poller.
  *
  * Deliberately capture-driven, not a background watcher: the alert is only a
- * problem because it lands in screenshots, and gating the capture removes it at
- * exactly the moment that matters with no timing race. Never rejects.
+ * problem because it lands in screenshots. One look before a shot is not enough,
+ * though: SpringBoard shows the alert some hundreds of milliseconds after the app
+ * asks, so a look could find nothing and the shot then catch it (dApp Browser iOS
+ * failed its paint check that way). So the gate also reads the wallet's bridge log
+ * (`observeConsole`), and while the app's permission request is open a capture keeps
+ * looking until it has tapped the alert or the request has been answered.
+ * Never rejects.
  */
 export function createNotificationAlertGate(
   udid: string,
   options: GateOptions = {}
-): { beforeCapture(): Promise<void> } {
+): { beforeCapture(): Promise<void>; observeConsole(text: string): void } {
   const {
     maxConsecutiveErrors = 5,
     settleMs = 250,
+    promptWaitMs = 20_000,
+    promptPollMs = 300,
+    sleep: pause = sleep,
     dismiss = dismissNotificationPermissionAlert,
     // eslint-disable-next-line no-console
     onLog = (message: string): void => console.log(message)
@@ -142,6 +161,7 @@ export function createNotificationAlertGate(
   let consecutiveErrors = 0;
   let warnedUnavailable = false;
   let inflight: Promise<void> | null = null;
+  const openPrompts = new Set<string>();
 
   const attempt = async (): Promise<void> => {
     try {
@@ -150,7 +170,7 @@ export function createNotificationAlertGate(
       if (tapped) {
         dismissed = true;
         onLog(`[system-alerts] dismissed notification permission alert on ${udid}`);
-        await sleep(settleMs);
+        await pause(settleMs);
       }
     } catch (err) {
       consecutiveErrors += 1;
@@ -162,18 +182,45 @@ export function createNotificationAlertGate(
     }
   };
 
-  return {
-    beforeCapture(): Promise<void> {
-      if (dismissed || consecutiveErrors >= maxConsecutiveErrors) return Promise.resolve();
-      // Every capture of a wallet shares one gate (the screen poll and the dApp driver both shoot it),
-      // so an overlapping call joins the dismissal in flight: a second describe-and-tap could land on the
-      // app once the alert has animated out.
-      if (!inflight) {
-        inflight = attempt().finally(() => {
-          inflight = null;
-        });
+  const usable = (): boolean => !dismissed && consecutiveErrors < maxConsecutiveErrors;
+
+  const lookUntilAnswered = async (): Promise<void> => {
+    const giveUpAt = Date.now() + promptWaitMs;
+    for (;;) {
+      await attempt();
+      if (!usable() || openPrompts.size === 0) return;
+      if (Date.now() >= giveUpAt) {
+        onLog(
+          `[system-alerts] notification permission request still open after ${promptWaitMs}ms and no alert ` +
+            `found on ${udid}; capturing anyway`
+        );
+        return;
       }
-      return inflight;
+      await pause(promptPollMs);
+      if (openPrompts.size === 0) return;
+    }
+  };
+
+  const beforeCapture = (): Promise<void> => {
+    if (!usable()) return Promise.resolve();
+    // Every capture of a wallet shares one gate (the screen poll and the dApp driver both shoot it),
+    // so an overlapping call joins the dismissal in flight: a second describe-and-tap could land on the
+    // app once the alert has animated out. If the app asked in the meantime, it looks again afterwards.
+    if (inflight) return inflight.then(() => (usable() && openPrompts.size > 0 ? beforeCapture() : undefined));
+    inflight = (openPrompts.size > 0 ? lookUntilAnswered() : attempt()).finally(() => {
+      inflight = null;
+    });
+    return inflight;
+  };
+
+  return {
+    beforeCapture,
+    observeConsole(text: string): void {
+      const call = PERMISSION_REQUEST_LOG.exec(text);
+      const id = call?.[2];
+      if (!call || !id) return;
+      if (call[1] === 'native') openPrompts.add(id);
+      else openPrompts.delete(id);
     }
   };
 }

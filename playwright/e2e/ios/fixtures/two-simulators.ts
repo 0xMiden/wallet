@@ -146,6 +146,9 @@ async function launchSimWalletInstance(
   const alertGate = createNotificationAlertGate(udid, {
     onLog: message => timeline.emit({ category: 'test_lifecycle', severity: 'info', wallet: label, message })
   });
+  // The wallet's bridge log says when the app has asked for notification permission, so a capture waits for the
+  // alert to be tapped instead of racing its appearance (see createNotificationAlertGate).
+  cdp.onConsoleLog(entry => alertGate.observeConsole(entry.text));
   const walletPage = new IosWalletPage({
     cdp,
     sim,

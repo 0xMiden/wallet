@@ -92,4 +92,103 @@ describe('createNotificationAlertGate', () => {
 
     expect(dismiss).toHaveBeenCalledTimes(2);
   });
+
+  describe('while the app has asked for notification permission', () => {
+    const asked = (id: number): string => `%cnative %cLocalNotifications.requestPermissions (#${id})`;
+    const answered = (id: number): string => `%cresult %cLocalNotifications.requestPermissions (#${id})`;
+    const noWait = { ...quiet, promptPollMs: 0, sleep: async (): Promise<void> => undefined };
+
+    it('keeps looking until it taps the alert, so the capture never shoots it', async () => {
+      let looks = 0;
+      const dismiss = async (): Promise<boolean> => {
+        looks += 1;
+        return looks === 3;
+      };
+      const gate = createNotificationAlertGate('udid', { ...noWait, dismiss });
+      gate.observeConsole(asked(7));
+
+      await gate.beforeCapture();
+
+      expect(looks).toBe(3);
+    });
+
+    it('stops looking once the request is answered', async () => {
+      let looks = 0;
+      const dismiss = async (): Promise<boolean> => {
+        looks += 1;
+        return false;
+      };
+      const gate: ReturnType<typeof createNotificationAlertGate> = createNotificationAlertGate('udid', {
+        ...quiet,
+        promptPollMs: 0,
+        dismiss,
+        sleep: async (): Promise<void> => gate.observeConsole(answered(8))
+      });
+      gate.observeConsole(asked(8));
+
+      await gate.beforeCapture();
+
+      expect(looks).toBe(1);
+    });
+
+    it('shoots anyway, and says why, when no alert shows up within the wait', async () => {
+      let looks = 0;
+      const dismiss = async (): Promise<boolean> => {
+        looks += 1;
+        return false;
+      };
+      const logs: string[] = [];
+      const gate = createNotificationAlertGate('udid', {
+        ...noWait,
+        promptWaitMs: 0,
+        onLog: message => {
+          logs.push(message);
+        },
+        dismiss
+      });
+      gate.observeConsole(asked(9));
+
+      await gate.beforeCapture();
+
+      expect(looks).toBe(1);
+      expect(logs.some(message => message.includes('still open'))).toBe(true);
+    });
+
+    it('looks again after a dismissal in flight when the app asked in the meantime', async () => {
+      let looks = 0;
+      let finishFirst: (tapped: boolean) => void = () => undefined;
+      const dismiss = (): Promise<boolean> => {
+        looks += 1;
+        if (looks === 1) {
+          return new Promise<boolean>(resolve => {
+            finishFirst = resolve;
+          });
+        }
+        return Promise.resolve(true);
+      };
+      const gate = createNotificationAlertGate('udid', { ...noWait, dismiss });
+
+      const first = gate.beforeCapture();
+      gate.observeConsole(asked(10));
+      const second = gate.beforeCapture();
+      finishFirst(false);
+      await Promise.all([first, second]);
+
+      expect(looks).toBe(2);
+    });
+
+    it('ignores the other LocalNotifications calls', async () => {
+      let looks = 0;
+      const dismiss = async (): Promise<boolean> => {
+        looks += 1;
+        return false;
+      };
+      const gate = createNotificationAlertGate('udid', { ...noWait, dismiss });
+      gate.observeConsole('%cnative %cLocalNotifications.checkPermissions (#11)');
+
+      await gate.beforeCapture();
+
+      expect(looks).toBe(1);
+    });
+  });
 });
