@@ -1,4 +1,4 @@
-import React, { FC, useLayoutEffect, useMemo } from 'react';
+import React, { FC, useLayoutEffect, useMemo, useRef } from 'react';
 
 import RootSuspenseFallback from 'app/a11y/RootSuspenseFallback';
 import { OpenInFullPage, useAppEnv } from 'app/env';
@@ -10,6 +10,7 @@ import { Receive } from 'app/pages/Receive';
 import Settings from 'app/pages/Settings';
 import Unlock from 'app/pages/Unlock';
 import Welcome from 'app/pages/Welcome';
+import { NetworkModeBanner } from 'components/NetworkModeBanner';
 import { isBridgeDepositEnabled, isSwapEnabled } from 'lib/feature-flags';
 import { useMidenContext } from 'lib/miden/front';
 import * as Woozie from 'lib/woozie';
@@ -45,6 +46,7 @@ interface RouteContext {
   ready: boolean;
   locked: boolean;
   hydrated: boolean;
+  settingsScrollTop: React.MutableRefObject<number>;
 }
 
 type RouteFactory = Woozie.Router.ResolveResult<RouteContext>;
@@ -162,6 +164,18 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
       <FullScreenPage>
         <DeveloperSettings readOnly />
       </FullScreenPage>
+    ))
+  ],
+  // The Settings ROOT is a primary tab destination, so it renders in TabLayout
+  // with the persistent footer. Exact-matched and placed ahead of the generic
+  // route below, which keeps serving every `/settings/<slug>` sub-page in
+  // FullScreenPage — drilling in and backing out is unchanged.
+  [
+    '/settings',
+    onlyReady((_p, ctx) => (
+      <TabLayout>
+        <Settings rootScrollTop={ctx.settingsScrollTop} />
+      </TabLayout>
     ))
   ],
   [
@@ -378,6 +392,7 @@ const PageRouter: FC = () => {
 
   const appEnv = useAppEnv();
   const miden = useMidenContext();
+  const settingsScrollTop = useRef(0);
 
   const ctx = useMemo<RouteContext>(
     () => ({
@@ -385,12 +400,22 @@ const PageRouter: FC = () => {
       fullPage: appEnv.fullPage,
       ready: miden.ready,
       locked: miden.locked,
-      hydrated: miden.hydrated
+      hydrated: miden.hydrated,
+      settingsScrollTop
     }),
     [appEnv.popup, appEnv.fullPage, miden]
   );
 
-  return useMemo(() => Woozie.Router.resolve(ROUTE_MAP, pathname, ctx), [pathname, ctx]);
+  const page = useMemo(() => Woozie.Router.resolve(ROUTE_MAP, pathname, ctx), [pathname, ctx]);
+
+  // The network banner (#875) sits above EVERY routed page, outside the page
+  // layouts, so no screen can forget it. The page takes the remaining height.
+  return (
+    <div className="flex h-full w-full flex-col">
+      <NetworkModeBanner />
+      <div className="relative flex min-h-0 flex-1 flex-col">{page}</div>
+    </div>
+  );
 };
 
 export default PageRouter;

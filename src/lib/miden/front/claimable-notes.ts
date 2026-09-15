@@ -169,8 +169,8 @@ async function fetchNotesFromLocalClient(
     // queue, leaving this poll as the sole occupant of a wallet that looks idle.
     rawNotes = await withWasmClientLock(
       async hold =>
-        midenClientProxy.getConsumableNotes(publicAddress, () =>
-          assertWasmHoldCurrent(hold, 'inside the claimable-notes read, before the sync-height read')
+        midenClientProxy.getConsumableNotes(publicAddress, step =>
+          assertWasmHoldCurrent(hold, 'inside the claimable-notes read', step)
         ),
       {
         watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS,

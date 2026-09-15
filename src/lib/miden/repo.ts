@@ -115,6 +115,23 @@ db.version(1.5).stores({
   )
 });
 
+// v1.6 - linked swap settlement reads. The history detail live query observes
+// only rows for its order instead of rerunning after every transaction write.
+db.version(1.6).stores({
+  [Table.Transactions]: indexes(
+    'id',
+    'accountId',
+    'transactionId',
+    'initiatedAt',
+    'completedAt',
+    'noteId',
+    '*noteIds',
+    'noteDelivery',
+    'extraInputs.destinationAddress',
+    'extraInputs.swapOrderTxId'
+  )
+});
+
 export const transactions = db.table<ITransaction, string>(Table.Transactions);
 
 function indexes(...items: string[]) {

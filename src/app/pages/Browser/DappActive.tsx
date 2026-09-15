@@ -66,8 +66,8 @@ export const DappActive: FC = () => {
 
   // Hardware back from `<DappActive>`: park (not close) so the session
   // stays alive as a bubble. The user can drag-down or tap ✕ for a hard
-  // close. The confirmation modal registers its own back handler that
-  // takes precedence (LIFO) when shown.
+  // close. The confirmation modal registers its back handler in the overlay
+  // tier, so it takes precedence whenever it is shown.
   useMobileBackHandler(() => {
     void park();
     return true;

@@ -43,6 +43,7 @@ const navigateMock = jest.fn();
 const useAccountMock = jest.fn(() => ({ publicKey: 'me-pk' }) as any);
 const useAllAccountsMock = jest.fn(() => [] as any[]);
 const useAllBalancesMock = jest.fn(() => ({ data: undefined as any }));
+let mockBalancesLoading = false;
 const useAllTokensBaseMetadataMock = jest.fn(() => ({}) as any);
 const useFilteredContactsMock = jest.fn(() => ({ contacts: [] as any[] }));
 const useRecentRecipientsMock = jest.fn((_accountId?: string | null) => [] as any[]);
@@ -184,7 +185,7 @@ jest.mock('./useEpochQuote', () => ({
 jest.mock('lib/miden/front', () => ({
   useAccount: () => useAccountMock(),
   useAllAccounts: () => useAllAccountsMock(),
-  useAllBalances: (...a: any[]) => (useAllBalancesMock as jest.Mock)(...a),
+  useAllBalances: () => ({ ...useAllBalancesMock(), isLoading: mockBalancesLoading }),
   useAllTokensBaseMetadata: () => useAllTokensBaseMetadataMock()
 }));
 let mockBaseFee: number | null = 0;
@@ -268,6 +269,7 @@ beforeEach(() => {
   useAccountMock.mockReturnValue({ publicKey: 'me-pk' });
   useAllAccountsMock.mockReturnValue([]);
   mockBaseFee = 0;
+  mockBalancesLoading = false;
   mockNativeId = 'MIDEN-ID';
   useAllBalancesMock.mockReturnValue({ data: undefined });
   useAllTokensBaseMetadataMock.mockReturnValue({});
@@ -812,6 +814,52 @@ describe('amount entry', () => {
     selectToken();
     typeAmount('10');
     expect(screen.getByTestId('sa-error')).not.toHaveTextContent('insufficientFeeAsset');
+  });
+
+  it.each([true, false])('waits for the balance before checking fees (mobile: %s)', mobile => {
+    isMobileMock.mockReturnValue(mobile);
+    mockBaseFee = 10000;
+    mockBalancesLoading = true;
+    useAllBalancesMock.mockReturnValue({
+      data: [{ tokenId: 'MIDEN-ID', metadata: { symbol: 'MIDEN', decimals: 6 }, balance: 0, fiatPrice: 1 }]
+    });
+    const view = renderAmountStep();
+    expect(screen.getByTestId('sa-error')).toBeEmptyDOMElement();
+    expect(screen.getByTestId('sa-valid')).toHaveTextContent('false');
+
+    selectToken();
+    typeAmount('5');
+    expect(screen.getByTestId('sa-error')).toBeEmptyDOMElement();
+
+    mockBalancesLoading = false;
+    useAllBalancesMock.mockReturnValue({
+      data: [{ tokenId: 'MIDEN-ID', metadata: { symbol: 'MIDEN', decimals: 6 }, balance: 10, fiatPrice: 1 }]
+    });
+    view.rerender(<SendFlow isLoading={false} />);
+    typeAmount('');
+    expect(screen.getByTestId('sa-error')).not.toHaveTextContent('insufficientFeeAsset');
+    expect(screen.getByTestId('sa-valid')).toHaveTextContent('false');
+  });
+
+  it('checks the resolved balance even when the amount is still empty', () => {
+    mockBaseFee = 10000;
+    mockBalancesLoading = true;
+    useAllBalancesMock.mockReturnValue({
+      data: [{ tokenId: 'MIDEN-ID', metadata: { symbol: 'MIDEN', decimals: 6 }, balance: 0, fiatPrice: 1 }]
+    });
+    const view = renderAmountStep();
+    expect(screen.getByTestId('sa-error')).toBeEmptyDOMElement();
+
+    mockBalancesLoading = false;
+    view.rerender(<SendFlow isLoading={false} />);
+    expect(screen.getByTestId('sa-error')).toHaveTextContent('insufficientFeeAsset');
+
+    useAllBalancesMock.mockReturnValue({
+      data: [{ tokenId: 'MIDEN-ID', metadata: { symbol: 'MIDEN', decimals: 6 }, balance: 10, fiatPrice: 1 }]
+    });
+    view.rerender(<SendFlow isLoading={false} />);
+    expect(screen.getByTestId('sa-error')).toBeEmptyDOMElement();
+    expect(screen.getByTestId('sa-valid')).toHaveTextContent('false');
   });
 
   it('flags a non-positive amount as invalid', () => {

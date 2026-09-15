@@ -152,7 +152,7 @@ export async function reconcileBridgedReceives(): Promise<void> {
       const sdk = await getEpochReadOnlySdk(inputs.sourceAddress as `0x${string}`);
       const results = await sdk.getIntentStatus(inputs.sourceAddress as `0x${string}`, inputs.intentNonce);
       const noteId = results.map(result => firstString(result, 'midenNoteId')).find(Boolean);
-      if (noteId) await resolveBridgeInNoteId(inputs.intentNonce, noteId);
+      if (noteId) await resolveBridgeInNoteId(inputs.sourceAddress, inputs.intentNonce, noteId);
       const midenLeg = results.find(result => result.chainId === 999999999);
       if (midenLeg && midenLeg.status.toLowerCase() === 'failed') {
         await updateBridgedReceivePhase(row.id, 'failed', { error: 'The Epoch bridge intent failed.' });

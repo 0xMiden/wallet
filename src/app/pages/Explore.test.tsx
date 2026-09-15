@@ -34,6 +34,7 @@ let mockIsMobile = true;
 let mockAutoConsume = false;
 let mockDelegateProof = false;
 let mockTokenPrices: Record<string, unknown> = {};
+let mockBalancesLoading = false;
 
 const mockSignTransaction = jest.fn();
 const mockMutateBalances = jest.fn();
@@ -108,14 +109,16 @@ jest.mock('components/ui', () => ({
     accountNumber,
     accountId,
     amount,
-    onMore
+    onMore,
+    state
   }: {
     accountNumber: string;
     accountId: string;
     amount: string;
     onMore: () => void;
+    state?: string;
   }) => (
-    <div data-testid="balance-card">
+    <div data-testid="balance-card" data-state={state}>
       <span data-testid="balance-account-number">{accountNumber}</span>
       <span data-testid="balance-account-id">{accountId}</span>
       <span data-testid="balance-amount">{amount}</span>
@@ -171,7 +174,7 @@ jest.mock('lib/epoch', () => ({
 
 jest.mock('lib/miden/front', () => ({
   useAccount: () => mockAccount,
-  useAllBalances: () => ({ data: mockAllBalances, mutate: mockMutateBalances }),
+  useAllBalances: () => ({ data: mockAllBalances, mutate: mockMutateBalances, isLoading: mockBalancesLoading }),
   useAllTokensBaseMetadata: () => ({}),
   useMidenContext: () => ({ signTransaction: mockSignTransaction })
 }));
@@ -247,6 +250,7 @@ describe('Explore', () => {
     mockAutoConsume = false;
     mockDelegateProof = false;
     mockTokenPrices = {};
+    mockBalancesLoading = false;
     mockInitiateConsumeTransaction.mockResolvedValue(undefined);
     mockReconcileBridgedReceives.mockResolvedValue(undefined);
     mockMutateBalances.mockResolvedValue(undefined);
@@ -282,6 +286,29 @@ describe('Explore', () => {
       const rows = screen.getAllByTestId('asset-row');
       expect(rows).toHaveLength(3);
       expect(rows[0]).toHaveAttribute('data-token', 'faucet-native');
+    });
+
+    it('puts the balance card in its loading state until the first balance read completes (#844)', async () => {
+      // Right after a recovery the store has no entry for the address yet, so
+      // the hook hands back a zero placeholder with `isLoading: true`. The card
+      // must show its skeleton, not a "$0.00" that reads as lost funds.
+      mockAllBalances = [makeToken('faucet-native', 'MIDEN', 'Miden', 0)];
+      mockTokenPrices = { MIDEN: { price: 1, change24h: 0, percentageChange24h: 0 } };
+      mockBalancesLoading = true;
+
+      await renderExplore();
+
+      expect(screen.getByTestId('balance-card')).toHaveAttribute('data-state', 'loading');
+    });
+
+    it('returns the balance card to its default state once balances have loaded', async () => {
+      mockAllBalances = [makeToken('faucet-native', 'MIDEN', 'Miden', 100)];
+      mockTokenPrices = { MIDEN: { price: 1, change24h: 0, percentageChange24h: 0 } };
+      mockBalancesLoading = false;
+
+      await renderExplore();
+
+      expect(screen.getByTestId('balance-card')).toHaveAttribute('data-state', 'default');
     });
 
     it('shows the portfolio total as "$—" when no prices have loaded, not a fabricated $1-based figure (gap 16)', async () => {
