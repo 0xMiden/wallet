@@ -22,8 +22,9 @@ function sameHash(left: string, right: string): boolean {
 }
 
 /**
- * Poll AggLayer-backed EVM→Miden rows once. The Activity page runs this on an
- * interval; keeping the operation one-shot prevents hidden background timers.
+ * Poll AggLayer-backed EVM→Miden rows once. The app-root `BridgeIntentWatcher`
+ * runs this on an interval through `reconcileBridgedReceives`; keeping the
+ * operation one-shot prevents hidden background timers.
  */
 export async function reconcileAgglayerBridgedReceives(): Promise<void> {
   const rows = await Repo.transactions
@@ -46,8 +47,8 @@ export async function reconcileAgglayerBridgedReceives(): Promise<void> {
 
   for (const row of rows) {
     const inputs = row.extraInputs as IBridgedReceiveExtraInputs;
-    // This loop is the reason the guard cannot live only in `reconcileBridgedReceives`:
-    // it is called both from there AND directly on an 8s interval by `AllHistory`.
+    // Guarded here as well as in `reconcileBridgedReceives`: this function is
+    // exported on its own, so a second caller must not skip the check.
     if (row.restoredFromBackup) {
       await updateBridgedReceivePhase(row.id, 'failed', { error: RESTORED_BRIDGE_UNVERIFIABLE });
       continue;

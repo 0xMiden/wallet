@@ -40,7 +40,6 @@ const mockSignTransaction = jest.fn();
 const mockMutateBalances = jest.fn();
 const mockMutateClaimableNotes = jest.fn();
 const mockInitiateConsumeTransaction = jest.fn();
-const mockReconcileBridgedReceives = jest.fn();
 const mockRequestSWTransactionProcessing = jest.fn();
 const mockStartBackgroundTransactionProcessing = jest.fn();
 const mockNavigate = jest.fn();
@@ -159,7 +158,6 @@ jest.mock('lib/i18n/numbers', () => ({
 
 jest.mock('lib/miden/activity', () => ({
   initiateConsumeTransaction: (...args: any[]) => mockInitiateConsumeTransaction(...args),
-  reconcileBridgedReceives: (...args: any[]) => mockReconcileBridgedReceives(...args),
   requestSWTransactionProcessing: (...args: any[]) => mockRequestSWTransactionProcessing(...args),
   startBackgroundTransactionProcessing: (...args: any[]) => mockStartBackgroundTransactionProcessing(...args)
 }));
@@ -252,7 +250,6 @@ describe('Explore', () => {
     mockTokenPrices = {};
     mockBalancesLoading = false;
     mockInitiateConsumeTransaction.mockResolvedValue(undefined);
-    mockReconcileBridgedReceives.mockResolvedValue(undefined);
     mockMutateBalances.mockResolvedValue(undefined);
     mockMutateClaimableNotes.mockResolvedValue(undefined);
     consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});

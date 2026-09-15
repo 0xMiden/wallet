@@ -1,4 +1,4 @@
-import React, { FC, useEffect, useMemo, useRef, useState } from 'react';
+import React, { FC, useMemo, useRef, useState } from 'react';
 
 import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
@@ -8,7 +8,6 @@ import History from 'app/templates/history/History';
 import PendingNotesInfoDrawer from 'app/templates/PendingNotesInfoDrawer';
 import { DeadletteredNotesNotice } from 'components/DeadletteredNotesNotice';
 import { SearchInput, TabHeader } from 'components/ui';
-import { reconcileAgglayerBridgedReceives } from 'lib/miden/activity';
 import { useAccount } from 'lib/miden/front';
 import { useClaimableNotes } from 'lib/miden/front/claimable-notes';
 import { hapticLight, hapticSelection } from 'lib/mobile/haptics';
@@ -29,30 +28,6 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<FilterId>('all');
   const [infoDrawerOpen, setInfoDrawerOpen] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    let running = false;
-
-    const poll = async () => {
-      if (cancelled || running) return;
-      running = true;
-      try {
-        await reconcileAgglayerBridgedReceives();
-      } catch (error) {
-        console.warn('[activity] AggLayer bridge poll failed', error);
-      } finally {
-        running = false;
-      }
-    };
-
-    void poll();
-    const timer = setInterval(poll, 8_000);
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-    };
-  }, []);
 
   const filters = useMemo<Array<{ id: FilterId; label: string }>>(
     () => [

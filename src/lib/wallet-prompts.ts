@@ -157,6 +157,16 @@ export async function pollActiveBridgePrompts(transactions: ITransaction[]): Pro
   );
 }
 
+/**
+ * Poll every unsettled Miden→EVM bridge row once, for every account. The
+ * app-root `BridgeIntentWatcher` runs this on an interval, so a pending Epoch
+ * fill or AggLayer claim is tracked whichever screen is open.
+ */
+export async function reconcileBridgedSends(): Promise<void> {
+  const rows = await Repo.transactions.filter(tx => tx.type === 'bridged-send').toArray();
+  await pollActiveBridgePrompts(rows.filter(isBridgePromptActive));
+}
+
 export function normalizeWalletPromptStorage(value: unknown): WalletPromptStorage {
   if (!value || typeof value !== 'object') {
     return EMPTY_WALLET_PROMPT_STORAGE;

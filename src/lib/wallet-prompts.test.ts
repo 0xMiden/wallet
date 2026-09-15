@@ -24,6 +24,7 @@ import {
   isWalletPromptPending,
   normalizeWalletPromptStorage,
   pollActiveBridgePrompts,
+  reconcileBridgedSends,
   reportHotKeyHardwareFailure,
   reportHotKeyRotationNeeded,
   seedWalletPrompt,
@@ -556,6 +557,37 @@ describe('bridge prompts', () => {
     const active = await fetchActiveBridgePrompts('acct-1');
 
     expect(active.map(tx => tx.id)).toEqual(['mine']);
+  });
+
+  it('reconciles every unsettled bridged-send across accounts and skips settled or restored rows', async () => {
+    pollEpochIntentFill.mockResolvedValue({ status: 'confirmed', fillTxHash: '0xfill', fillChainId: 11155111 });
+    const pending = (id: string, accountId: string, over: Partial<ITransaction> = {}) =>
+      baseBridge({
+        id,
+        accountId,
+        extraInputs: {
+          provider: 'epoch',
+          epochStatus: 'pending',
+          intentNonce: 'N1',
+          destinationAddress: '0x1111111111111111111111111111111111111111'
+        },
+        ...over
+      });
+    bridgeRows.push(
+      pending('acct-1-pending', 'acct-1'),
+      pending('acct-2-pending', 'acct-2'),
+      pending('restored', 'acct-1', { restoredFromBackup: true }),
+      baseBridge({ id: 'confirmed', extraInputs: { provider: 'epoch', epochStatus: 'confirmed' } }),
+      baseBridge({ id: 'not-a-bridge', type: 'send' })
+    );
+
+    await reconcileBridgedSends();
+
+    expect(pollEpochIntentFill).toHaveBeenCalledTimes(2);
+    expect(updateClaimStatus.mock.calls.map(call => call[0])).toEqual(
+      expect.arrayContaining(['acct-1-pending', 'acct-2-pending'])
+    );
+    expect(updateClaimStatus).toHaveBeenCalledTimes(2);
   });
 
   it('flips a pending AggLayer bridge to ready once its deposit is claimable', async () => {
