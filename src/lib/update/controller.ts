@@ -78,6 +78,7 @@ export class UpdateController {
 
     this.unknownCount = 0;
     this.retryAfter = 0;
+    if (availability.status === 'none') await this.hintAvailableVersion(availability.currentVersion);
     const notice = availability.status === 'available' ? await this.toNotice(availability) : null;
     if (generation !== this.generation) return null;
     this.cached = { notice, expiresAt: this.now() + this.cacheDurationMs };
@@ -125,5 +126,18 @@ export class UpdateController {
       urgency,
       action: availability.action
     };
+  }
+
+  private async hintAvailableVersion(currentVersion: string): Promise<void> {
+    if (!this.adapter.hintAvailableVersion) return;
+    try {
+      const manifest = parseUpdateManifest(await this.loadManifest());
+      const candidate = manifest.releases
+        .filter(release => release.platforms[this.adapter.platform] && semver.gt(release.version, currentVersion))
+        .sort((left, right) => semver.rcompare(left.version, right.version))[0];
+      if (candidate) void this.adapter.hintAvailableVersion(candidate.version).catch(() => undefined);
+    } catch {
+      // Invalid optional metadata cannot create or suppress authoritative availability.
+    }
   }
 }

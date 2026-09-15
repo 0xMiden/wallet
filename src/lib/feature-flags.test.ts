@@ -23,10 +23,11 @@ describe('feature-flags — isBridgeDepositEnabled', () => {
 describe('feature-flags - isUpdateNotificationsEnabled', () => {
   it('uses the build-time flag as the single source of truth', () => {
     const original = process.env.MIDEN_UPDATE_NOTIFICATIONS;
-    process.env.MIDEN_UPDATE_NOTIFICATIONS = 'true';
+    const environment = process.env as Record<string, string | undefined>;
+    environment.MIDEN_UPDATE_NOTIFICATIONS = 'true';
     expect(isUpdateNotificationsEnabled()).toBe(true);
-    process.env.MIDEN_UPDATE_NOTIFICATIONS = 'false';
+    environment.MIDEN_UPDATE_NOTIFICATIONS = 'false';
     expect(isUpdateNotificationsEnabled()).toBe(false);
-    process.env.MIDEN_UPDATE_NOTIFICATIONS = original;
+    environment.MIDEN_UPDATE_NOTIFICATIONS = original;
   });
 });

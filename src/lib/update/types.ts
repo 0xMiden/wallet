@@ -13,6 +13,7 @@ export type UpdateAvailability =
 export interface UpdateAvailabilityAdapter {
   platform: UpdatePlatform;
   check(): Promise<UpdateAvailability>;
+  hintAvailableVersion?(candidateVersion: string): Promise<void>;
 }
 
 export interface UpdateNotice {

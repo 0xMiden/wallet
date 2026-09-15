@@ -153,4 +153,38 @@ describe('UpdateController', () => {
     await expect(pending).resolves.toBeNull();
     jest.useRealTimers();
   });
+
+  it('passes only the newest validated manifest candidate to an adapter hint', async () => {
+    const hintAvailableVersion = jest.fn().mockResolvedValue(undefined);
+    const controller = new UpdateController({
+      adapter: {
+        platform: 'chrome',
+        check: jest.fn().mockResolvedValue({ status: 'none', currentVersion: '1.16.0' }),
+        hintAvailableVersion
+      },
+      loadManifest: async () => ({
+        schemaVersion: 1,
+        releases: [
+          ...manifest.releases,
+          {
+            version: '1.18.0',
+            summary: 'Another safe release.',
+            urgency: 'normal',
+            platforms: { chrome: { version: '1.18.0' } }
+          },
+          {
+            version: 'invalid',
+            summary: '<unsafe>',
+            urgency: 'critical',
+            platforms: { chrome: { version: 'invalid' } }
+          }
+        ]
+      })
+    });
+
+    await controller.check();
+
+    expect(hintAvailableVersion).toHaveBeenCalledTimes(1);
+    expect(hintAvailableVersion).toHaveBeenCalledWith('1.18.0');
+  });
 });
