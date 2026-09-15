@@ -1,0 +1,101 @@
+{
+  "schemaVersion": 1,
+  "checkedAt": "2026-09-15",
+  "maxAgeDays": 180,
+  "sharedSceneOrder": ["wallet-keys", "send-privacy", "receive", "guardian"],
+  "platforms": {
+    "appStore": {
+      "label": "App Store",
+      "sources": [
+        "https://developer.apple.com/help/app-store-connect/reference/app-information/screenshot-specifications",
+        "https://developer.apple.com/help/app-store-connect/reference/app-information/app-information",
+        "https://developer.apple.com/help/app-store-connect/reference/app-information/platform-version-information"
+      ],
+      "allowedPlatformScenes": ["ios-dapp-browser", "ios-protection"],
+      "copyLimits": {
+        "nameCharacters": 30,
+        "subtitleCharacters": 30,
+        "promotionalTextCharacters": 170,
+        "keywordsBytes": 100,
+        "descriptionCharacters": 4000
+      },
+      "screenshots": {
+        "min": 1,
+        "max": 10,
+        "dimensions": [
+          { "width": 1260, "height": 2736 },
+          { "width": 1290, "height": 2796 },
+          { "width": 1320, "height": 2868 }
+        ],
+        "alphaAllowed": false
+      },
+      "requiredKinds": {},
+      "recommendations": {}
+    },
+    "playStore": {
+      "label": "Google Play",
+      "sources": [
+        "https://support.google.com/googleplay/android-developer/answer/9866151",
+        "https://support.google.com/googleplay/android-developer/answer/9859152"
+      ],
+      "allowedPlatformScenes": ["android-dapp-browser", "android-local-proving", "android-protection"],
+      "copyLimits": {
+        "nameCharacters": 30,
+        "shortDescriptionCharacters": 80,
+        "descriptionCharacters": 4000
+      },
+      "screenshots": {
+        "min": 2,
+        "max": 8,
+        "minDimension": 320,
+        "maxDimension": 3840,
+        "maxLongToShortRatio": 2,
+        "alphaAllowed": false
+      },
+      "requiredKinds": {
+        "featureGraphic": { "count": 1, "width": 1024, "height": 500, "alphaAllowed": false },
+        "icon": { "count": 1, "width": 512, "height": 512, "alphaAllowed": true }
+      },
+      "recommendations": {
+        "promotionalScreenshots": {
+          "enforcedForThisPackage": true,
+          "minimumCount": 4,
+          "minimumShortSide": 1080,
+          "orientation": "portrait"
+        }
+      }
+    },
+    "chromeWebStore": {
+      "label": "Chrome Web Store",
+      "sources": [
+        "https://developer.chrome.com/docs/webstore/images",
+        "https://developer.chrome.com/docs/webstore/cws-dashboard-listing",
+        "https://developer.chrome.com/docs/extensions/reference/manifest/description"
+      ],
+      "allowedPlatformScenes": ["chrome-connect", "chrome-confirm", "chrome-side-panel"],
+      "copyLimits": {
+        "nameCharacters": 75,
+        "shortDescriptionCharacters": 132
+      },
+      "screenshots": {
+        "min": 1,
+        "max": 5,
+        "dimensions": [
+          { "width": 1280, "height": 800 },
+          { "width": 640, "height": 400 }
+        ],
+        "alphaAllowed": false
+      },
+      "requiredKinds": {
+        "smallPromo": { "count": 1, "width": 440, "height": 280, "alphaAllowed": false },
+        "marquee": { "count": 1, "width": 1400, "height": 560, "alphaAllowed": false },
+        "icon": { "count": 1, "width": 128, "height": 128, "alphaAllowed": true }
+      },
+      "recommendations": {
+        "fullBleedScreenshots": true,
+        "squareScreenshotCorners": true,
+        "minimalPromoText": true
+      }
+    }
+  }
+}

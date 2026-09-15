@@ -42,7 +42,7 @@ The phrase private-by-design describes product intent without promising that eve
 
 ### iOS
 
-Lead with personal money management and recovery. Name Face ID and passcode, the built-in dApp browser, send and receive, QR sharing, Guardian selection, and recallable transfers. Do not advertise swap while the iOS feature flag excludes it for App Store policy.
+Lead with personal money management and recovery. Name Face ID and passcode, the built-in dApp browser, send and receive, QR sharing, Guardian selection, and recallable transfers. Do not advertise swap in this package. Current main enables swap on iOS, but the approved listing remains deliberately narrower than runtime availability.
 
 ### Android
 
@@ -78,6 +78,15 @@ These scenes use the same headline and order on all three stores, with an iPhone
 - iOS: dApp browser and Face ID or passcode protection.
 - Android: dApp browser, local proving, and Android security settings.
 - Chrome: connect to a site, inspect a confirmation request, and use the side panel.
+
+Chrome permits at most five screenshots, so its approved capacity mapping is:
+
+1. Screenshots 1-4 are the shared scenes in the shared order.
+2. Screenshot 5 is **Connect to Miden sites**.
+3. The required 440 by 280 small promo uses **Review every request** confirmation-window imagery.
+4. The 1400 by 560 marquee uses **Your wallet, close by** side-panel imagery.
+
+This preserves all three Chrome-specific scenes across the listing package without exceeding the screenshot limit.
 
 The first three images prioritize recognizable application UI. Promotional images use the same brand background but minimize text and avoid a generic screenshot pasted into the center.
 

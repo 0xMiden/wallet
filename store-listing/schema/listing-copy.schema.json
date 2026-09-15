@@ -4,7 +4,7 @@
   "title": "Bread Wallet store listing copy",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schemaVersion", "sourceId", "product", "shared", "platforms", "screenshots"],
+  "required": ["schemaVersion", "sourceId", "product", "shared", "platforms", "screenshots", "promotionalArtwork"],
   "properties": {
     "$schema": { "type": "string" },
     "schemaVersion": { "const": 1 },
@@ -54,6 +54,16 @@
             "chromeWebStore": { "$ref": "#/$defs/platformScreenshots" }
           }
         }
+      }
+    },
+    "promotionalArtwork": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["appStore", "playStore", "chromeWebStore"],
+      "properties": {
+        "appStore": { "$ref": "#/$defs/promotionalArtwork" },
+        "playStore": { "$ref": "#/$defs/promotionalArtwork" },
+        "chromeWebStore": { "$ref": "#/$defs/promotionalArtwork" }
       }
     }
   },
@@ -158,6 +168,20 @@
         "id": { "type": "string", "minLength": 1 },
         "headline": { "type": "string", "minLength": 1 },
         "alt": { "type": "string", "minLength": 1 }
+      }
+    },
+    "promotionalArtwork": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "kind", "headline", "alt"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "kind": { "enum": ["featureGraphic", "smallPromo", "marquee"] },
+          "headline": { "type": "string", "minLength": 1 },
+          "alt": { "type": "string", "minLength": 1 }
+        }
       }
     }
   }

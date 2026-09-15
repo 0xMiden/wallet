@@ -80,6 +80,10 @@ Made for Android
 6. **Prove on your device** - Android transaction review showing local proving selected.
 7. **Unlock your way** - Bread Wallet protection setup on Android with biometric and passcode choices.
 
+### Promotional artwork
+
+- **featureGraphic: Self-custody for Miden** - Bread Wallet mark and a current Android wallet surface on an orange background.
+
 ## Chrome Web Store
 
 - **name:** Bread Wallet by Miden
@@ -116,5 +120,8 @@ Made for Chrome
 3. **Receive with confidence** - Receive screen in the Chrome extension with a Miden address.
 4. **Recover with a Guardian** - Guardian security overview in the Chrome extension.
 5. **Connect to Miden sites** - Chrome extension connection request for a Miden site.
-6. **Review every request** - Wallet-owned Chrome confirmation window showing transaction details.
-7. **Your wallet, close by** - Bread Wallet open beside a Miden site in Chrome's side panel.
+
+### Promotional artwork
+
+- **smallPromo: Review every request** - Wallet-owned Chrome confirmation window showing transaction details.
+- **marquee: Your wallet, close by** - Bread Wallet open beside a Miden site in Chrome's side panel.

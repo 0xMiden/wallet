@@ -10,6 +10,8 @@
 
 **Verified store rules:** Apple accepts 1-10 screenshots per display target and forbids alpha. Google Play requires a 512 by 512 icon, 1024 by 500 no-alpha feature graphic, 80-character short description, and at least two screenshots with 320-3840 px dimensions and a long side no more than twice the short side. Chrome requires a 128 icon, 440 by 280 small promo, and 1-5 full-bleed screenshots at 1280 by 800 or 640 by 400; 1400 by 560 marquee is optional but included. Record the official URLs and a 2026-09-15 checked date in the manifest.
 
+**Approved Chrome capacity mapping:** Use the four shared scenes plus **Connect to Miden sites** as the five screenshots. Put **Review every request** confirmation-window imagery in the 440 by 280 small promo and **Your wallet, close by** side-panel imagery in the 1400 by 560 marquee.
+
 ---
 
 ## Task 1: Inventory the current listings and approved claims

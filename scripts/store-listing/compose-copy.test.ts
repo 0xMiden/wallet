@@ -41,6 +41,7 @@ type GeneratedCopy = {
   blockOrder: string[];
   description: string;
   screenshots: Array<{ id: string; headline: string; alt: string }>;
+  promotionalArtwork: Array<{ id: string; kind: string; headline: string; alt: string }>;
 };
 
 const repositoryRoot = path.resolve(__dirname, '../..');
@@ -213,6 +214,24 @@ describe('store listing copy composition', () => {
         expect(screenshot.alt).not.toHaveLength(0);
       }
     }
+  });
+
+  it('uses the approved five-image Chrome sequence and assigns the remaining scenes to promo artwork', () => {
+    const { readOutput, result } = generate(loadCanonicalSource());
+    expect(result.status).toBe(0);
+
+    const chrome = readOutput('chrome-web-store');
+    expect(chrome.screenshots.map(({ id }) => id)).toEqual([
+      'wallet-keys',
+      'send-privacy',
+      'receive',
+      'guardian',
+      'chrome-connect'
+    ]);
+    expect(chrome.promotionalArtwork.map(({ id, kind }) => ({ id, kind }))).toEqual([
+      { id: 'chrome-confirm', kind: 'smallPromo' },
+      { id: 'chrome-side-panel', kind: 'marquee' }
+    ]);
   });
 
   it('describes the canonical source with a JSON schema', () => {

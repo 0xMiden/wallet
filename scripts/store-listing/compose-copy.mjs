@@ -190,6 +190,10 @@ function screenshotsFor(source, platformKey) {
   return [...shared, ...source.screenshots.platforms[platformKey]];
 }
 
+function promotionalArtworkFor(source, platformKey) {
+  return source.promotionalArtwork[platformKey];
+}
+
 function validateScreenshots(source) {
   for (const platformKey of platformKeys) {
     const ids = new Set();
@@ -205,6 +209,27 @@ function validateScreenshots(source) {
       );
       assert(!ids.has(screenshot.id), `${platformKey} screenshot ids must be unique`);
       ids.add(screenshot.id);
+    }
+  }
+
+  for (const platformKey of platformKeys) {
+    for (const artwork of promotionalArtworkFor(source, platformKey)) {
+      assert(
+        typeof artwork.id === 'string' && artwork.id.length > 0,
+        `${platformKey} promotional artwork id is required`
+      );
+      assert(
+        typeof artwork.kind === 'string' && artwork.kind.length > 0,
+        `${platformKey} promotional artwork kind is required`
+      );
+      assert(
+        typeof artwork.headline === 'string' && artwork.headline.length > 0,
+        `${platformKey} promotional artwork headline is required`
+      );
+      assert(
+        typeof artwork.alt === 'string' && artwork.alt.length > 0,
+        `${platformKey} promotional artwork alt text is required`
+      );
     }
   }
 }
@@ -236,6 +261,7 @@ function compose(source) {
   assert(source.product?.valueLine, 'product value line is required');
   assert(source.platforms, 'platforms are required');
   assert(source.screenshots, 'screenshots are required');
+  assert(source.promotionalArtwork, 'promotional artwork is required');
 
   validateTextPolicy(source);
   const sharedBlocks = orderedBlocks(source.shared, 'Shared');
@@ -274,7 +300,8 @@ function compose(source) {
         platformBlocks: platform.blocks,
         blockOrder: [...source.shared.blockOrder, ...platform.blockOrder],
         description: descriptions[platform.key],
-        screenshots: screenshotsFor(source, platform.key)
+        screenshots: screenshotsFor(source, platform.key),
+        promotionalArtwork: promotionalArtworkFor(source, platform.key)
       }
     ])
   );
@@ -302,6 +329,12 @@ function renderMarkdown(outputs) {
     output.screenshots.forEach((screenshot, index) => {
       lines.push(`${index + 1}. **${screenshot.headline}** - ${screenshot.alt}`);
     });
+    if (output.promotionalArtwork.length > 0) {
+      lines.push('', '### Promotional artwork', '');
+      output.promotionalArtwork.forEach(artwork => {
+        lines.push(`- **${artwork.kind}: ${artwork.headline}** - ${artwork.alt}`);
+      });
+    }
     lines.push('');
   }
 

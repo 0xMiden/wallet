@@ -90,5 +90,13 @@
       "headline": "Unlock your way",
       "alt": "Bread Wallet protection setup on Android with biometric and passcode choices."
     }
+  ],
+  "promotionalArtwork": [
+    {
+      "id": "play-feature",
+      "kind": "featureGraphic",
+      "headline": "Self-custody for Miden",
+      "alt": "Bread Wallet mark and a current Android wallet surface on an orange background."
+    }
   ]
 }

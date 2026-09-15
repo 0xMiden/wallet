@@ -196,18 +196,33 @@
           "id": "chrome-connect",
           "headline": "Connect to Miden sites",
           "alt": "Chrome extension connection request for a Miden site."
-        },
-        {
-          "id": "chrome-confirm",
-          "headline": "Review every request",
-          "alt": "Wallet-owned Chrome confirmation window showing transaction details."
-        },
-        {
-          "id": "chrome-side-panel",
-          "headline": "Your wallet, close by",
-          "alt": "Bread Wallet open beside a Miden site in Chrome's side panel."
         }
       ]
     }
+  },
+  "promotionalArtwork": {
+    "appStore": [],
+    "playStore": [
+      {
+        "id": "play-feature",
+        "kind": "featureGraphic",
+        "headline": "Self-custody for Miden",
+        "alt": "Bread Wallet mark and a current Android wallet surface on an orange background."
+      }
+    ],
+    "chromeWebStore": [
+      {
+        "id": "chrome-confirm",
+        "kind": "smallPromo",
+        "headline": "Review every request",
+        "alt": "Wallet-owned Chrome confirmation window showing transaction details."
+      },
+      {
+        "id": "chrome-side-panel",
+        "kind": "marquee",
+        "headline": "Your wallet, close by",
+        "alt": "Bread Wallet open beside a Miden site in Chrome's side panel."
+      }
+    ]
   }
 }
