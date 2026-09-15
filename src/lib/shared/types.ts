@@ -1053,6 +1053,8 @@ export interface ImportFromClientRequest extends WalletMessageBase {
   password?: string; // Optional for hardware-only wallets (mobile/desktop with Secure Enclave)
   mnemonic: string;
   walletAccounts: WalletAccount[];
+  formatVersion?: number;
+  importedAccounts?: ImportedAccountBackup[];
 }
 
 export interface ImportFromClientResponse extends WalletMessageBase {

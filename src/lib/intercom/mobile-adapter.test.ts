@@ -121,14 +121,25 @@ describe('MobileIntercomAdapter', () => {
     });
 
     it('handles ImportFromClientRequest', async () => {
+      const importedAccounts = [
+        { accountId: 'account-id', publicKeyCommitment: 'a1b2', authScheme: 'falcon' as const, secretKeyHex: '0102' }
+      ];
       const response = await adapter.request({
         type: WalletMessageType.ImportFromClientRequest,
         password: 'test123',
         mnemonic: 'word1 word2 word3',
-        walletAccounts: []
+        walletAccounts: [],
+        formatVersion: 2,
+        importedAccounts
       });
 
-      expect(Actions.registerImportedWallet).toHaveBeenCalledWith('test123', 'word1 word2 word3', []);
+      expect(Actions.registerImportedWallet).toHaveBeenCalledWith(
+        'test123',
+        'word1 word2 word3',
+        [],
+        2,
+        importedAccounts
+      );
       expect(response).toEqual({ type: WalletMessageType.ImportFromClientResponse });
     });
 

@@ -115,6 +115,50 @@ it('exposes the authenticated wallet backup snapshot through the React context',
   }
 });
 
+const ImportProbe: React.FC<{ onComplete: () => void }> = ({ onComplete }) => {
+  const { importWalletFromClient, ready } = useMidenContext();
+  React.useEffect(() => {
+    if (ready) {
+      void importWalletFromClient('password', 'mnemonic', [], 2, [
+        { accountId: 'account-id', publicKeyCommitment: 'a1b2', authScheme: 'falcon', secretKeyHex: '0102' }
+      ]).then(onComplete);
+    }
+  }, [importWalletFromClient, onComplete, ready]);
+  return null;
+};
+
+it('passes versioned imported secrets through the React restore action', async () => {
+  const previousState = useWalletStore.getState();
+  const importedAccounts = [
+    { accountId: 'account-id', publicKeyCommitment: 'a1b2', authScheme: 'falcon' as const, secretKeyHex: '0102' }
+  ];
+  const importWalletFromClient = jest.fn().mockResolvedValue(undefined);
+  useWalletStore.setState({ status: WalletStatus.Ready, isInitialized: true, importWalletFromClient });
+  const onComplete = jest.fn();
+  const container = document.createElement('div');
+  const root = createRoot(container);
+
+  try {
+    await act(async () => {
+      root.render(
+        <MidenContextProvider>
+          <ImportProbe onComplete={onComplete} />
+        </MidenContextProvider>
+      );
+    });
+
+    expect(importWalletFromClient).toHaveBeenCalledWith('password', 'mnemonic', [], 2, importedAccounts);
+    expect(onComplete).toHaveBeenCalledTimes(1);
+  } finally {
+    await act(async () => root.unmount());
+    useWalletStore.setState({
+      status: previousState.status,
+      isInitialized: previousState.isInitialized,
+      importWalletFromClient: previousState.importWalletFromClient
+    });
+  }
+});
+
 const ActionProbe: React.FC = () => {
   const ctx = useMidenContext();
   const didRun = React.useRef(false);

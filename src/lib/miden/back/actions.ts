@@ -28,6 +28,7 @@ import { buildSdkSignCallback } from 'lib/miden/transaction/sign-callback';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
 import {
   GuardianSyncStatus,
+  ImportedAccountBackup,
   SignEvmOperation,
   WalletAccount,
   WalletSettings,
@@ -206,19 +207,35 @@ export function registerNewWallet(
   );
 }
 
-export function registerImportedWallet(password?: string, mnemonic?: string, walletAccounts: WalletAccount[] = []) {
+export function registerImportedWallet(
+  password?: string,
+  mnemonic?: string,
+  walletAccounts: WalletAccount[] = [],
+  formatVersion?: number,
+  importedAccounts: ImportedAccountBackup[] = []
+) {
   return withInited(() =>
     getUnlockQueue().add(async () => {
+      let vault: Vault | undefined;
+      let published = false;
       try {
         // Password may be undefined for hardware-only wallets
         // spawnFromMidenClient() returns the vault directly, avoiding a second biometric prompt
-        const vault = await Vault.spawnFromMidenClient(password ?? '', mnemonic ?? '', walletAccounts);
+        vault = await Vault.spawnFromMidenClient(
+          password ?? '',
+          mnemonic ?? '',
+          walletAccounts,
+          formatVersion,
+          importedAccounts
+        );
         const accounts = await vault.fetchAccounts();
         const settings = await vault.fetchSettings();
         const currentAccount = await vault.getCurrentAccount();
         const ownMnemonicFlag = await vault.isOwnMnemonic();
         unlocked({ vault, accounts, settings, currentAccount, ownMnemonic: ownMnemonicFlag });
+        published = true;
       } finally {
+        if (!published) vault?.retire();
         syncRealmInsertKeySink();
       }
     })

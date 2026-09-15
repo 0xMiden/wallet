@@ -559,6 +559,9 @@ describe('actions', () => {
   describe('registerImportedWallet', () => {
     it('imports wallet from miden client and unlocks', async () => {
       const { Vault } = jest.requireMock('lib/miden/back/vault');
+      const importedAccounts = [
+        { accountId: 'account-id', publicKeyCommitment: 'a1b2', authScheme: 'falcon' as const, secretKeyHex: '0102' }
+      ];
       const mockVaultInstance = {
         fetchAccounts: jest.fn().mockResolvedValue([]),
         fetchSettings: jest.fn().mockResolvedValue({}),
@@ -566,13 +569,30 @@ describe('actions', () => {
         isOwnMnemonic: jest.fn().mockResolvedValue(true)
       };
       Vault.spawnFromMidenClient.mockResolvedValueOnce(mockVaultInstance);
+      Vault.setup.mockClear();
 
-      await registerImportedWallet('password123', 'mnemonic words', []);
+      await registerImportedWallet('password123', 'mnemonic words', [], 2, importedAccounts);
 
       expect(mockVaultInstance.fetchAccounts).toHaveBeenCalled();
       expect(mockUnlocked).toHaveBeenCalled();
-      expect(Vault.spawnFromMidenClient).toHaveBeenCalledWith('password123', 'mnemonic words', []);
-      expect(Vault.setup).toHaveBeenCalledWith('password123');
+      expect(Vault.spawnFromMidenClient).toHaveBeenCalledWith('password123', 'mnemonic words', [], 2, importedAccounts);
+      expect(Vault.setup).not.toHaveBeenCalled();
+    });
+
+    it('retires a spawned vault when initialization fails before publication', async () => {
+      const { Vault } = jest.requireMock('lib/miden/back/vault');
+      const provisionalVault = {
+        fetchAccounts: jest.fn().mockRejectedValue(new Error('account read failed')),
+        fetchSettings: jest.fn(),
+        getCurrentAccount: jest.fn(),
+        isOwnMnemonic: jest.fn(),
+        retire: jest.fn()
+      };
+      Vault.spawnFromMidenClient.mockResolvedValueOnce(provisionalVault);
+
+      await expect(registerImportedWallet('password', 'mnemonic', [], 2, [])).rejects.toThrow('account read failed');
+      expect(provisionalVault.retire).toHaveBeenCalledTimes(1);
+      expect(mockUnlocked).not.toHaveBeenCalled();
     });
   });
 
@@ -589,7 +609,7 @@ describe('actions', () => {
 
       await registerImportedWallet(undefined, undefined);
 
-      expect(Vault.spawnFromMidenClient).toHaveBeenCalledWith('', '', []);
+      expect(Vault.spawnFromMidenClient).toHaveBeenCalledWith('', '', [], undefined, []);
     });
   });
 

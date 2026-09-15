@@ -818,15 +818,74 @@ export class Vault {
   static async spawnFromMidenClient(
     password: string,
     mnemonic: string,
-    walletAccounts: WalletAccount[]
+    walletAccounts: WalletAccount[],
+    formatVersion?: number,
+    importedAccounts: ImportedAccountBackup[] = []
   ): Promise<Vault> {
+    let spawned: Vault | undefined;
     return withError('Failed to spawn from miden client', async (): Promise<Vault> => {
+      const failMalformedImport = (): never => {
+        throw new PublicError('Encrypted file contains malformed imported account data');
+      };
+      const failMissingImport = (): never => {
+        throw new PublicError('Encrypted file is missing imported account data');
+      };
+      const failMismatchedImport = (): never => {
+        throw new PublicError('Encrypted file imported account secret does not match its account');
+      };
+      const importedWalletAccounts = walletAccounts.filter(account => account.hdIndex < 0);
+      if (formatVersion !== undefined && formatVersion !== 2) {
+        throw new PublicError('Encrypted file uses an unsupported backup version');
+      }
+      if (formatVersion === undefined && importedAccounts.length > 0) failMalformedImport();
+      if (formatVersion === 2) {
+        if (importedAccounts.length < importedWalletAccounts.length) failMissingImport();
+        if (importedAccounts.length > importedWalletAccounts.length) failMalformedImport();
+        for (let index = 0; index < importedAccounts.length; index++) {
+          const backup = importedAccounts[index]!;
+          const commitment = normalizeBackupHex(backup.publicKeyCommitment);
+          const secretKeyHex = normalizeBackupHex(backup.secretKeyHex);
+          if (
+            commitment.length === 0 ||
+            commitment.length > 32_768 ||
+            commitment.length % 2 !== 0 ||
+            !/^[0-9a-f]+$/.test(commitment) ||
+            secretKeyHex.length === 0 ||
+            secretKeyHex.length > 32_768 ||
+            secretKeyHex.length % 2 !== 0 ||
+            !/^[0-9a-f]+$/.test(secretKeyHex) ||
+            (backup.authScheme !== 'falcon' && backup.authScheme !== 'ecdsa')
+          ) {
+            failMalformedImport();
+          }
+          const matchingWalletAccounts = importedWalletAccounts.filter(account =>
+            compareAccountIds(account.publicKey, backup.accountId)
+          );
+          if (matchingWalletAccounts.length === 0) failMismatchedImport();
+          if (matchingWalletAccounts.length > 1) failMalformedImport();
+          const duplicatesPrevious = importedAccounts.slice(0, index).some(previous => {
+            return (
+              compareAccountIds(previous.accountId, backup.accountId) ||
+              normalizeBackupHex(previous.publicKeyCommitment) === commitment ||
+              normalizeBackupHex(previous.secretKeyHex) === secretKeyHex
+            );
+          });
+          if (duplicatesPrevious) {
+            failMalformedImport();
+          }
+        }
+      }
+
+      if (walletAccounts.length === 0) {
+        throw new PublicError('Encrypted file contains no restorable accounts');
+      }
+
       // Generate random vault key (256-bit)
       const vaultKeyBytes = Passworder.generateVaultKey();
       const vaultKey = await Passworder.importVaultKey(vaultKeyBytes);
       // Constructed as soon as the key exists: the constructor installs the realm's
       // insert-key sink, and the restore below already inserts the derived secrets (#878).
-      const spawned = new Vault(vaultKey);
+      spawned = new Vault(vaultKey);
 
       await clearStorage(false);
 
@@ -859,47 +918,71 @@ export class Vault {
           // The client build can park (a genesis fetch against a slow node); a
           // watchdog eviction during it hands the mutex to a successor, and the
           // reads below would then be a second borrow of a client somebody else
-          // is inside. Every guard in this restore is provably pre-write for the
-          // account it protects, and aborting mid-loop is safe: the whole spawn
-          // rejects, so a partial keystore is never surfaced as a finished
-          // wallet — the user simply retries the import.
+          // is inside. Every guard in this restore is pre-write for the account
+          // it protects, and a rejected spawn never publishes its partial state.
           assertWasmHoldCurrent(hold, 'in spawnFromMidenClient after the client build');
           const accountHeaders = await midenClient.getAccounts();
+          assertWasmHoldCurrent(hold, 'in spawnFromMidenClient after the account list read');
+          const preparedKeys: Array<{
+            accountId: ReturnType<(typeof accountHeaders)[number]['id']>;
+            imported: boolean;
+            secretKey: AuthSecretKey;
+          }> = [];
+          const validatedImportedAccountIds: string[] = [];
 
           // Have to do this sequentially else the wasm fails
           for (const accountHeader of accountHeaders) {
-            // Per-iteration: each pass parks twice (getAccount, keystore.insert),
-            // and an eviction during account N must not let account N+1 re-borrow
-            // the client.
+            // An eviction during an account read must stop before any value
+            // borrowed from that account is inspected.
             assertWasmHoldCurrent(hold, 'in spawnFromMidenClient before an account read');
             const account = await midenClient.getAccount(getBech32AddressFromAccountId(accountHeader.id()));
             // Before touching the returned Account: `isFaucet()`/`id()` are WASM
             // calls on an object borrowed from the client's RefCell, so reading
-            // them after an eviction is the double borrow, not merely a stale
-            // read. This also covers the keystore insert below — nothing between
-            // here and it parks.
+            // them after an eviction is the double borrow, not merely a stale read.
             assertWasmHoldCurrent(hold, 'in spawnFromMidenClient after an account read');
             if (!account || account.isFaucet()) {
               continue;
             }
-            const walletAccount = walletAccounts.find(wa =>
-              compareAccountIds(wa.publicKey, getBech32AddressFromAccountId(account.id()))
-            );
+            const accountId = account.id();
+            const accountAddress = getBech32AddressFromAccountId(accountId);
+            const walletAccount = walletAccounts.find(wa => compareAccountIds(wa.publicKey, accountAddress));
             if (!walletAccount) {
               // Account exists in the restored miden-client DB but has no
-              // matching `WalletAccount` entry — either orphan data or (by
-              // design) an imported account the exporter filtered out
-              // because the encrypted-file format can't carry its raw
-              // secret. Skip silently; the account stays invisible in the
-              // wallet UI (which reads from `walletAccounts`).
+              // matching legacy `WalletAccount` entry. Version 2's complete
+              // imported-account check below rejects any owned omission.
               continue;
             }
             if (walletAccount.hdIndex < 0) {
-              // Belt-and-suspenders: an imported account's key is NOT
-              // derivable from the mnemonic. Writing a freshly-generated
-              // secret into the keystore under its account id would
-              // overwrite any preserved real secret with a garbage key
-              // the vault can never sign with. Skip.
+              if (formatVersion === undefined) continue;
+              if (!walletAccount.isPublic || walletAccount.type !== WalletType.OnChain) failMismatchedImport();
+              const backup = importedAccounts.find(item => compareAccountIds(item.accountId, walletAccount.publicKey));
+              const restoredBackup = backup ?? failMissingImport();
+              if (!compareAccountIds(restoredBackup.accountId, accountAddress)) failMismatchedImport();
+              const commitments = resolvePublicKeyCommitments(account);
+              if (commitments.length !== 1) failMismatchedImport();
+              const publicKeyCommitment = normalizeBackupHex(commitments[0]!.toHex());
+              if (publicKeyCommitment !== normalizeBackupHex(restoredBackup.publicKeyCommitment)) {
+                failMismatchedImport();
+              }
+
+              let secretKey: AuthSecretKey;
+              try {
+                secretKey = AuthSecretKey.deserialize(
+                  new Uint8Array(Buffer.from(normalizeBackupHex(restoredBackup.secretKeyHex), 'hex'))
+                );
+              } catch {
+                failMalformedImport();
+              }
+              if (
+                detectAuthScheme(secretKey!) !== restoredBackup.authScheme ||
+                getAccountAuthScheme(walletAccount) !== restoredBackup.authScheme ||
+                normalizeBackupHex(secretKey!.publicKey().toCommitment().toHex()) !== publicKeyCommitment ||
+                !compareAccountIds(getBech32AddressFromAccountId(buildImportedAccount(secretKey!).id()), accountAddress)
+              ) {
+                failMismatchedImport();
+              }
+              preparedKeys.push({ accountId, imported: true, secretKey: secretKey! });
+              validatedImportedAccountIds.push(walletAccount.publicKey);
               continue;
             }
             const walletSeed = deriveClientSeed(walletAccount.type, mnemonic, walletAccount.hdIndex);
@@ -907,21 +990,35 @@ export class Vault {
             // under (legacy entries default to Falcon). Re-derive the
             // matching secret key so the keystore entry signs correctly.
             const secretKey = authSecretKeyFromSeed(getAccountAuthScheme(walletAccount), walletSeed);
-            await midenClient.client.keystore.insert(account.id(), secretKey);
+            preparedKeys.push({ accountId, imported: false, secretKey });
+          }
+
+          if (
+            formatVersion === 2 &&
+            (validatedImportedAccountIds.length !== importedWalletAccounts.length ||
+              importedWalletAccounts.some(
+                walletAccount =>
+                  !validatedImportedAccountIds.some(accountId => compareAccountIds(accountId, walletAccount.publicKey))
+              ))
+          ) {
+            failMissingImport();
+          }
+
+          for (const prepared of preparedKeys) {
+            assertWasmHoldCurrent(hold, 'in spawnFromMidenClient before a keystore insert');
+            try {
+              await midenClient.client.keystore.insert(prepared.accountId, prepared.secretKey);
+            } catch (error) {
+              if (prepared.imported && !isWasmClientPoisonedError(error)) {
+                throw new PublicError('Failed to restore imported account secret');
+              }
+              throw error;
+            }
+            assertWasmHoldCurrent(hold, 'in spawnFromMidenClient after a keystore insert');
           }
         },
         { label: 'vault-spawn-from-client' }
       );
-
-      if (walletAccounts.length === 0) {
-        // The encrypted file had no HD accounts to restore — every
-        // entry was filtered out on export (e.g. a wallet whose only
-        // account was imported). Without at least one owned account
-        // the wallet has no current-account pointer and sign paths
-        // break. Fail clearly rather than crash on the
-        // `walletAccounts[0]!.publicKey` dereference below.
-        throw new PublicError('Encrypted file contains no restorable accounts');
-      }
 
       // Stamp wallet-derived EVM identities for HD accounts and persist their
       // encrypted key blobs (the encrypted file carries account records only,
@@ -953,8 +1050,10 @@ export class Vault {
       await savePlain(currentAccPubKeyStrgKey, accountsToSave[0]!.publicKey);
       await savePlain(ownMnemonicStrgKey, true);
 
-      // The instance constructed when its key was made, so the caller need not unlock() separately.
       return spawned;
+    }).catch(error => {
+      spawned?.retire();
+      throw error;
     });
   }
 

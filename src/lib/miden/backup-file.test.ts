@@ -113,4 +113,20 @@ describe('parseDecryptedWalletFile', () => {
       })
     ).toThrow(MalformedBackupFileError);
   });
+
+  it('rejects one imported secret bound to multiple account ids', () => {
+    expect(() =>
+      parseDecryptedWalletFile({
+        ...versionTwoPayload,
+        importedAccounts: [
+          importedBackup,
+          {
+            ...importedBackup,
+            accountId: 'miden-account-other',
+            publicKeyCommitment: 'c3d4'
+          }
+        ]
+      })
+    ).toThrow(MalformedBackupFileError);
+  });
 });

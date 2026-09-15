@@ -6,6 +6,7 @@ import constate from 'constate';
 import { createIntercomClient, IIntercomClient } from 'lib/intercom/client';
 import {
   GuardianSyncStatus,
+  ImportedAccountBackup,
   SignEvmOperation,
   WalletAccount,
   WalletRequest,
@@ -123,8 +124,14 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
   );
 
   const importWalletFromClient = useCallback(
-    async (password: string | undefined, mnemonic: string, walletAccounts: WalletAccount[]) => {
-      await storeImportWalletFromClient(password, mnemonic, walletAccounts);
+    async (
+      password: string | undefined,
+      mnemonic: string,
+      walletAccounts: WalletAccount[],
+      formatVersion?: number,
+      importedAccounts?: ImportedAccountBackup[]
+    ) => {
+      await storeImportWalletFromClient(password, mnemonic, walletAccounts, formatVersion, importedAccounts);
     },
     [storeImportWalletFromClient]
   );

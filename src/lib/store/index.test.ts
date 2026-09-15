@@ -299,15 +299,20 @@ describe('useWalletStore', () => {
 
     it('importWalletFromClient sends correct request', async () => {
       mockRequest.mockResolvedValueOnce({ type: WalletMessageType.ImportFromClientResponse });
+      const importedAccounts = [
+        { accountId: 'account-id', publicKeyCommitment: 'a1b2', authScheme: 'falcon' as const, secretKeyHex: '0102' }
+      ];
 
       const { importWalletFromClient } = useWalletStore.getState();
-      await importWalletFromClient('password123', 'mnemonic words', []);
+      await importWalletFromClient('password123', 'mnemonic words', [], 2, importedAccounts);
 
       expect(mockRequest).toHaveBeenCalledWith({
         type: WalletMessageType.ImportFromClientRequest,
         password: 'password123',
         mnemonic: 'mnemonic words',
-        walletAccounts: []
+        walletAccounts: [],
+        formatVersion: 2,
+        importedAccounts
       });
     });
 
@@ -933,9 +938,16 @@ describe('useWalletStore', () => {
 
     it('importWalletFromClient sends ImportFromClientRequest', async () => {
       mockRequest.mockResolvedValueOnce({ type: WalletMessageType.ImportFromClientResponse });
-      await useWalletStore.getState().importWalletFromClient('pw', 'm', []);
+      const importedAccounts = [
+        { accountId: 'account-id', publicKeyCommitment: 'a1b2', authScheme: 'falcon' as const, secretKeyHex: '0102' }
+      ];
+      await useWalletStore.getState().importWalletFromClient('pw', 'm', [], 2, importedAccounts);
       expect(mockRequest).toHaveBeenCalledWith(
-        expect.objectContaining({ type: WalletMessageType.ImportFromClientRequest })
+        expect.objectContaining({
+          type: WalletMessageType.ImportFromClientRequest,
+          formatVersion: 2,
+          importedAccounts
+        })
       );
     });
 

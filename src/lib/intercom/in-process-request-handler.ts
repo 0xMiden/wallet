@@ -45,7 +45,13 @@ export async function processInProcessRequest(req: WalletRequest, label: string)
       return { type: WalletMessageType.NewWalletResponse };
 
     case WalletMessageType.ImportFromClientRequest:
-      await Actions.registerImportedWallet(req.password, req.mnemonic, req.walletAccounts);
+      await Actions.registerImportedWallet(
+        req.password,
+        req.mnemonic,
+        req.walletAccounts,
+        req.formatVersion,
+        req.importedAccounts
+      );
       return { type: WalletMessageType.ImportFromClientResponse };
 
     case WalletMessageType.UnlockRequest:

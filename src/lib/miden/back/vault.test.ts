@@ -3,7 +3,7 @@
 // the real `safe-storage` code runs but writes/reads go to `memoryStore`.
 // ---------------------------------------------------------------------------
 import * as Passworder from 'lib/miden/passworder';
-import { WalletAccount } from 'lib/shared/types';
+import { ImportedAccountBackup, WalletAccount } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
 import { PublicError } from './defaults';
@@ -283,23 +283,30 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => {
     // AccountBuilder records the fluent chain so assertions can verify
     // correct args — auth component type, storage mode, etc.
     AccountBuilder: jest.fn().mockImplementation((_seed: Uint8Array) => {
+      let accountIdMarker = mockBuiltAccountIdMarker;
       const built = {
         account: {
-          id: () => ({ __marker: mockBuiltAccountIdMarker }),
+          id: () => ({ __marker: accountIdMarker }),
           isFaucet: () => false
         }
       };
       const builder: any = {
         accountType: jest.fn(() => builder),
         storageMode: jest.fn(() => builder),
-        withAuthComponent: jest.fn(() => builder),
+        withAuthComponent: jest.fn((component: any) => {
+          accountIdMarker = component.__accountIdMarker ?? mockBuiltAccountIdMarker;
+          return builder;
+        }),
         withBasicWalletComponent: jest.fn(() => builder),
         build: jest.fn(() => built)
       };
       return builder;
     }),
     AccountComponent: {
-      createAuthComponentFromSecretKey: jest.fn(() => ({ __marker: 'auth-component' }))
+      createAuthComponentFromSecretKey: jest.fn((secretKey: any) => ({
+        __marker: 'auth-component',
+        __accountIdMarker: secretKey.__accountIdMarker
+      }))
     },
     AccountStorageMode: {
       public: jest.fn(() => 'public-mode'),
@@ -396,8 +403,8 @@ beforeEach(() => {
       coldSecretKeyHex: GUARDIAN_KEYS_FIXTURE.coldSecretKeyHex
     }
   ]);
-  mockMidenClient.getAccounts.mockResolvedValue([]);
-  mockMidenClient.getAccount.mockResolvedValue(null);
+  mockMidenClient.getAccounts.mockReset().mockResolvedValue([]);
+  mockMidenClient.getAccount.mockReset().mockResolvedValue(null);
   mockMidenClient.syncState.mockResolvedValue(undefined);
   mockMidenClient.network = 'devnet';
   mockDeserializedCommitment = 'a1b2';
@@ -1245,6 +1252,30 @@ describe('Vault.spawn', () => {
 });
 
 describe('Vault.spawnFromMidenClient', () => {
+  const importedWalletAccount: WalletAccount = {
+    publicKey: 'bech32:imported-account-id',
+    name: 'Imported',
+    isPublic: true,
+    type: WalletType.OnChain,
+    hdIndex: -1,
+    authScheme: 'falcon'
+  };
+  const importedBackup: ImportedAccountBackup = {
+    accountId: importedWalletAccount.publicKey,
+    publicKeyCommitment: 'a1b2',
+    authScheme: 'falcon',
+    secretKeyHex: '01020304'
+  };
+  const importedSdkAccount = (marker = 'imported-account-id', commitments = ['0xa1b2']) => ({
+    id: jest.fn(() => ({ __marker: marker })),
+    isFaucet: jest.fn(() => false),
+    getPublicKeyCommitments: jest.fn(() => commitments.map(value => ({ toHex: () => value })))
+  });
+  const restoreVersionTwo = (
+    walletAccounts: WalletAccount[] = [importedWalletAccount],
+    importedAccounts: ImportedAccountBackup[] = [importedBackup]
+  ) => Vault.spawnFromMidenClient('pw', VALID_MNEMONIC, walletAccounts, 2, importedAccounts);
+
   beforeEach(() => {
     // Default: miden client has one account whose id bech32s to 'pk-1'.
     const fakeAcc = {
@@ -1253,6 +1284,191 @@ describe('Vault.spawnFromMidenClient', () => {
     };
     mockMidenClient.getAccounts.mockResolvedValue([fakeAcc]);
     mockMidenClient.getAccount.mockResolvedValue(fakeAcc);
+  });
+
+  it('restores a version 2 Falcon imported account with its original secret', async () => {
+    const account = importedSdkAccount();
+    mockMidenClient.getAccounts.mockResolvedValueOnce([account]);
+    mockMidenClient.getAccount.mockResolvedValueOnce(account);
+
+    await expect(restoreVersionTwo()).resolves.toBeInstanceOf(Vault);
+    expect(mockAuthSecretKeyDeserialize).toHaveBeenCalledWith(new Uint8Array([1, 2, 3, 4]));
+    expect(mockKeystoreInsert).toHaveBeenCalledWith(account.id(), expect.any(Object));
+  });
+
+  it('restores a version 2 ECDSA imported account with its original secret', async () => {
+    const account = importedSdkAccount();
+    const secret = {
+      getEcdsaK256KeccakSecretKeyAsFelts: jest.fn(() => []),
+      publicKey: jest.fn(() => ({ toCommitment: jest.fn(() => ({ toHex: jest.fn(() => '0xa1b2') })) }))
+    };
+    mockMidenClient.getAccounts.mockResolvedValueOnce([account]);
+    mockMidenClient.getAccount.mockResolvedValueOnce(account);
+    mockAuthSecretKeyDeserialize.mockReturnValueOnce(secret as any);
+
+    await expect(
+      restoreVersionTwo(
+        [{ ...importedWalletAccount, authScheme: 'ecdsa' }],
+        [{ ...importedBackup, authScheme: 'ecdsa' }]
+      )
+    ).resolves.toBeInstanceOf(Vault);
+    expect(mockKeystoreInsert).toHaveBeenCalledWith(account.id(), secret);
+  });
+
+  it('rejects a version 2 restore with a missing imported-secret entry', async () => {
+    const account = importedSdkAccount();
+    mockMidenClient.getAccounts.mockResolvedValueOnce([account]);
+    mockMidenClient.getAccount.mockResolvedValueOnce(account);
+
+    await expect(restoreVersionTwo([importedWalletAccount], [])).rejects.toThrow(PublicError);
+    expect(mockKeystoreInsert).not.toHaveBeenCalled();
+  });
+
+  it('rejects a version 2 restore with an extra imported-secret entry', async () => {
+    const hdAccount: WalletAccount = {
+      publicKey: 'pk-1',
+      name: 'HD',
+      isPublic: true,
+      type: WalletType.OnChain,
+      hdIndex: 0
+    };
+
+    await expect(restoreVersionTwo([hdAccount], [importedBackup])).rejects.toThrow(PublicError);
+  });
+
+  it('rejects duplicate imported account ids or commitments defensively', async () => {
+    const secondWallet: WalletAccount = {
+      ...importedWalletAccount,
+      publicKey: 'bech32:other-account-id',
+      name: 'Imported 2'
+    };
+    const secondBackup: ImportedAccountBackup = {
+      ...importedBackup,
+      accountId: secondWallet.publicKey,
+      publicKeyCommitment: 'c3d4',
+      secretKeyHex: '0506'
+    };
+    const walletAccounts = [importedWalletAccount, secondWallet];
+
+    await expect(
+      restoreVersionTwo(walletAccounts, [importedBackup, { ...secondBackup, accountId: importedBackup.accountId }])
+    ).rejects.toThrow(PublicError);
+    await expect(
+      restoreVersionTwo(walletAccounts, [
+        importedBackup,
+        { ...secondBackup, publicKeyCommitment: importedBackup.publicKeyCommitment }
+      ])
+    ).rejects.toThrow(PublicError);
+    expect(mockKeystoreInsert).not.toHaveBeenCalled();
+  });
+
+  it('rejects one imported secret bound to multiple account ids defensively', async () => {
+    const secondWallet: WalletAccount = {
+      ...importedWalletAccount,
+      publicKey: 'bech32:other-account-id',
+      name: 'Imported 2'
+    };
+    const secondBackup: ImportedAccountBackup = {
+      ...importedBackup,
+      accountId: secondWallet.publicKey,
+      publicKeyCommitment: 'c3d4'
+    };
+
+    await expect(
+      restoreVersionTwo([importedWalletAccount, secondWallet], [importedBackup, secondBackup])
+    ).rejects.toThrow(PublicError);
+    expect(mockGetMidenClient).not.toHaveBeenCalled();
+    expect(mockKeystoreInsert).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { label: 'malformed secret', backup: { ...importedBackup, secretKeyHex: 'not-hex' } },
+    { label: 'wrong scheme', backup: { ...importedBackup, authScheme: 'ecdsa' as const } },
+    { label: 'wrong commitment', backup: { ...importedBackup, publicKeyCommitment: 'ffff' } }
+  ])('rejects a version 2 restore with a $label', async ({ backup }) => {
+    const account = importedSdkAccount();
+    mockMidenClient.getAccounts.mockResolvedValueOnce([account]);
+    mockMidenClient.getAccount.mockResolvedValueOnce(account);
+
+    await expect(restoreVersionTwo(undefined, [backup])).rejects.toThrow(PublicError);
+    expect(mockKeystoreInsert).not.toHaveBeenCalled();
+  });
+
+  it('rejects a version 2 restore when deterministic reconstruction changes the account id', async () => {
+    const account = importedSdkAccount();
+    mockMidenClient.getAccounts.mockResolvedValueOnce([account]);
+    mockMidenClient.getAccount.mockResolvedValueOnce(account);
+    mockBuiltAccountIdMarker = 'different-account-id';
+
+    await expect(restoreVersionTwo()).rejects.toThrow(PublicError);
+    expect(mockKeystoreInsert).not.toHaveBeenCalled();
+  });
+
+  it('rejects a version 2 restore when the SDK database lacks the imported account', async () => {
+    mockMidenClient.getAccounts.mockResolvedValueOnce([]);
+
+    await expect(restoreVersionTwo()).rejects.toThrow(PublicError);
+    expect(mockKeystoreInsert).not.toHaveBeenCalled();
+  });
+
+  it('rejects a version 2 imported account with multiple auth commitments', async () => {
+    const account = importedSdkAccount('imported-account-id', ['0xa1b2', '0xc3d4']);
+    mockMidenClient.getAccounts.mockResolvedValueOnce([account]);
+    mockMidenClient.getAccount.mockResolvedValueOnce(account);
+
+    await expect(restoreVersionTwo()).rejects.toThrow(PublicError);
+    expect(mockAuthSecretKeyDeserialize).not.toHaveBeenCalled();
+    expect(mockKeystoreInsert).not.toHaveBeenCalled();
+  });
+
+  it('retires the provisional realm sink when version 2 validation fails', async () => {
+    const account = importedSdkAccount();
+    mockMidenClient.getAccounts.mockResolvedValueOnce([account]);
+    mockMidenClient.getAccount.mockResolvedValueOnce(account);
+    mockBuiltAccountIdMarker = 'different-account-id';
+    (globalThis as any).__vaultTestRealmInsertKey = null;
+    (globalThis as any).__vaultTestRealmUninstalled = null;
+
+    await expect(restoreVersionTwo()).rejects.toThrow(PublicError);
+    expect((globalThis as any).__vaultTestRealmUninstalled).toEqual(expect.any(Function));
+    expect((globalThis as any).__vaultTestRealmInsertKey).toBeNull();
+  });
+
+  it('retires the provisional realm sink when an imported-secret insert fails', async () => {
+    const account = importedSdkAccount();
+    mockMidenClient.getAccounts.mockResolvedValueOnce([account]);
+    mockMidenClient.getAccount.mockResolvedValueOnce(account);
+    mockKeystoreInsert.mockRejectedValueOnce(new Error('keystore rejected insert'));
+    (globalThis as any).__vaultTestRealmInsertKey = null;
+    (globalThis as any).__vaultTestRealmUninstalled = null;
+
+    await expect(restoreVersionTwo()).rejects.toThrow(PublicError);
+    expect((globalThis as any).__vaultTestRealmUninstalled).toEqual(expect.any(Function));
+    expect((globalThis as any).__vaultTestRealmInsertKey).toBeNull();
+  });
+
+  it('validates the entire imported collection before inserting the first secret', async () => {
+    const first = importedSdkAccount();
+    const second = importedSdkAccount('second-account-id', ['0xffff']);
+    const secondWallet: WalletAccount = {
+      ...importedWalletAccount,
+      publicKey: 'bech32:second-account-id',
+      name: 'Imported 2'
+    };
+    const secondBackup: ImportedAccountBackup = {
+      ...importedBackup,
+      accountId: secondWallet.publicKey,
+      publicKeyCommitment: 'ffff',
+      secretKeyHex: '05060708'
+    };
+    mockMidenClient.getAccounts.mockResolvedValueOnce([first, second]);
+    mockMidenClient.getAccount.mockResolvedValueOnce(first).mockResolvedValueOnce(second);
+
+    await expect(
+      restoreVersionTwo([importedWalletAccount, secondWallet], [importedBackup, secondBackup])
+    ).rejects.toThrow(PublicError);
+    expect(mockAuthSecretKeyDeserialize).toHaveBeenCalledTimes(2);
+    expect(mockKeystoreInsert).not.toHaveBeenCalled();
   });
 
   it('silently skips miden-client accounts not present in walletAccounts (post-fix behaviour: no throw)', async () => {
@@ -1922,16 +2138,37 @@ describe('Vault hardware branches', () => {
       hdIndex: -1,
       authScheme: 'falcon'
     };
+    const secondImportedAccount: WalletAccount = {
+      ...importedAccount,
+      publicKey: 'bech32:second-account-id',
+      name: 'Imported account 2'
+    };
     await encryptAndSaveMany(
       [
-        [keys.accounts, [importedAccount]],
-        [keys.accAuthSecretKey('a1b2'), '01020304']
+        [keys.accounts, [importedAccount, secondImportedAccount]],
+        [keys.accAuthSecretKey('a1b2'), '01020304'],
+        [keys.accAuthSecretKey('c3d4'), '05060708']
       ],
       vaultKey
     );
-    mockMidenClient.getAccount.mockResolvedValueOnce({
-      id: () => ({ __marker: 'imported-account-id' }),
-      getPublicKeyCommitments: () => [{ toHex: () => '0xa1b2' }]
+    mockMidenClient.getAccount
+      .mockResolvedValueOnce({
+        id: () => ({ __marker: 'imported-account-id' }),
+        getPublicKeyCommitments: () => [{ toHex: () => '0xa1b2' }]
+      })
+      .mockResolvedValueOnce({
+        id: () => ({ __marker: 'second-account-id' }),
+        getPublicKeyCommitments: () => [{ toHex: () => '0xc3d4' }]
+      });
+    mockAuthSecretKeyDeserialize.mockImplementation(bytes => {
+      const isFirstAccount = bytes?.[0] === 1;
+      return {
+        ...defaultDeserializedSecret(),
+        __accountIdMarker: isFirstAccount ? 'imported-account-id' : 'second-account-id',
+        publicKey: jest.fn(() => ({
+          toCommitment: jest.fn(() => ({ toHex: jest.fn(() => (isFirstAccount ? '0xa1b2' : '0xc3d4')) }))
+        }))
+      };
     });
     mockDesktopSecureStorage.decryptWithHardwareKey.mockClear();
 
@@ -1943,6 +2180,12 @@ describe('Vault hardware branches', () => {
             publicKeyCommitment: 'a1b2',
             authScheme: 'falcon',
             secretKeyHex: '01020304'
+          },
+          {
+            accountId: secondImportedAccount.publicKey,
+            publicKeyCommitment: 'c3d4',
+            authScheme: 'falcon',
+            secretKeyHex: '05060708'
           }
         ]
       })
@@ -2298,7 +2541,7 @@ describe('WASM-lock eviction mid-flow (hold liveness)', () => {
     expect(mockMidenClient.createMidenWallet).not.toHaveBeenCalled();
   });
 
-  it("spawnFromMidenClient: eviction during one account's keystore insert stops the next account's read", async () => {
+  it("spawnFromMidenClient: eviction during one account's keystore insert stops the next insert", async () => {
     const acc1 = { id: () => 'pk-1' as any, isFaucet: () => false };
     const acc2 = { id: () => 'pk-2' as any, isFaucet: () => false };
     mockMidenClient.getAccounts.mockResolvedValueOnce([acc1, acc2]);
@@ -2313,10 +2556,10 @@ describe('WASM-lock eviction mid-flow (hold liveness)', () => {
         { publicKey: 'pk-2', name: 'B', isPublic: true, type: WalletType.OnChain, hdIndex: 1 }
       ])
     ).rejects.toMatchObject({ name: 'WasmClientPoisonedError' });
-    // Account 1's insert landed (a landed write is never rolled back); the
-    // per-iteration guard stops account 2 before its client read.
+    // Full validation reads both accounts before any write. The post-insert
+    // guard stops account 2 before its key can be inserted.
     expect(mockKeystoreInsert).toHaveBeenCalledTimes(1);
-    expect(mockMidenClient.getAccount).toHaveBeenCalledTimes(1);
+    expect(mockMidenClient.getAccount).toHaveBeenCalledTimes(2);
   });
 
   it('spawnFromMidenClient: eviction during an account read stops the isFaucet/id borrows', async () => {
@@ -2340,6 +2583,51 @@ describe('WASM-lock eviction mid-flow (hold liveness)', () => {
     expect(mockKeystoreInsert).not.toHaveBeenCalled();
     // The evicted hold names itself in the record.
     expect((globalThis as any).__vaultTestLockLabels).toContain('vault-spawn-from-client');
+  });
+
+  it('spawnFromMidenClient: eviction during the client build stops the account-list read', async () => {
+    const defaultImpl = mockGetMidenClient.getMockImplementation()!;
+    mockGetMidenClient.mockImplementationOnce(async (options?: any) => {
+      revokeWasmHold();
+      return defaultImpl(options);
+    });
+
+    await expect(
+      Vault.spawnFromMidenClient('pw', VALID_MNEMONIC, [
+        { publicKey: 'pk-1', name: 'A', isPublic: true, type: WalletType.OnChain, hdIndex: 0 }
+      ])
+    ).rejects.toMatchObject({ name: 'WasmClientPoisonedError' });
+    expect(mockMidenClient.getAccounts).not.toHaveBeenCalled();
+  });
+
+  it('spawnFromMidenClient: eviction during the account-list read stops header access', async () => {
+    const id = jest.fn(() => 'pk-1' as any);
+    mockMidenClient.getAccounts.mockImplementationOnce(async () => {
+      revokeWasmHold();
+      return [{ id, isFaucet: () => false }];
+    });
+
+    await expect(
+      Vault.spawnFromMidenClient('pw', VALID_MNEMONIC, [
+        { publicKey: 'pk-1', name: 'A', isPublic: true, type: WalletType.OnChain, hdIndex: 0 }
+      ])
+    ).rejects.toMatchObject({ name: 'WasmClientPoisonedError' });
+    expect(id).not.toHaveBeenCalled();
+    expect(mockMidenClient.getAccount).not.toHaveBeenCalled();
+  });
+
+  it('spawnFromMidenClient: eviction during the final keystore insert rejects the restore', async () => {
+    const account = { id: () => 'pk-1' as any, isFaucet: () => false };
+    mockMidenClient.getAccounts.mockResolvedValueOnce([account]);
+    mockMidenClient.getAccount.mockResolvedValueOnce(account);
+    mockKeystoreInsert.mockImplementationOnce(async () => revokeWasmHold());
+
+    await expect(
+      Vault.spawnFromMidenClient('pw', VALID_MNEMONIC, [
+        { publicKey: 'pk-1', name: 'A', isPublic: true, type: WalletType.OnChain, hdIndex: 0 }
+      ])
+    ).rejects.toMatchObject({ name: 'WasmClientPoisonedError' });
+    expect(mockKeystoreInsert).toHaveBeenCalledTimes(1);
   });
 
   it('createHDAccount: eviction during the client build stops the wallet create', async () => {

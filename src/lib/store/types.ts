@@ -8,6 +8,7 @@ import { type TokenPrices } from 'lib/prices/binance';
 import {
   ApplyUserEndpointOutcome,
   GuardianSyncStatus,
+  ImportedAccountBackup,
   SerializedConsumableNote,
   SignEvmOperation,
   WalletAccount,
@@ -136,7 +137,9 @@ export interface WalletActions {
   importWalletFromClient: (
     password: string | undefined,
     mnemonic: string,
-    walletAccounts: WalletAccount[]
+    walletAccounts: WalletAccount[],
+    formatVersion?: number,
+    importedAccounts?: ImportedAccountBackup[]
   ) => Promise<void>;
   unlock: (password?: string) => Promise<void>;
 

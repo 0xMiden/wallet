@@ -523,13 +523,18 @@ describe('processRequest', () => {
   });
 
   it('ImportFromClientRequest delegates to registerImportedWallet', async () => {
+    const importedAccounts = [
+      { accountId: 'account-id', publicKeyCommitment: 'a1b2', authScheme: 'falcon' as const, secretKeyHex: '0102' }
+    ];
     const res = await dispatch({
       type: WalletMessageType.ImportFromClientRequest,
       password: 'pw',
       mnemonic: 'm',
-      walletAccounts: []
+      walletAccounts: [],
+      formatVersion: 2,
+      importedAccounts
     });
-    expect(Actions.registerImportedWallet).toHaveBeenCalledWith('pw', 'm', []);
+    expect(Actions.registerImportedWallet).toHaveBeenCalledWith('pw', 'm', [], 2, importedAccounts);
     expect(res.type).toBe(WalletMessageType.ImportFromClientResponse);
   });
 

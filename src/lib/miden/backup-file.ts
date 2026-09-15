@@ -140,15 +140,18 @@ export function parseDecryptedWalletFile(value: unknown): DecryptedWalletFile {
   const importedAccounts = value.importedAccounts.map(parseImportedAccount);
   const accountIds = new Set<string>();
   const commitments = new Set<string>();
+  const secrets = new Set<string>();
   for (const account of importedAccounts) {
     // Commitments are hex values, so prefix and case differences cannot make
     // the same signer appear unique within a backup.
     const commitment = normalizeBackupHex(account.publicKeyCommitment);
-    if (accountIds.has(account.accountId) || commitments.has(commitment)) {
+    const secret = normalizeBackupHex(account.secretKeyHex);
+    if (accountIds.has(account.accountId) || commitments.has(commitment) || secrets.has(secret)) {
       throw new MalformedBackupFileError();
     }
     accountIds.add(account.accountId);
     commitments.add(commitment);
+    secrets.add(secret);
   }
 
   return value as VersionTwoDecryptedWalletFile;

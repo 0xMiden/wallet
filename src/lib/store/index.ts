@@ -153,12 +153,14 @@ export const useWalletStore = create<WalletStore>()(
       // State will be synced via StateUpdated notification
     },
 
-    importWalletFromClient: async (password, mnemonic, walletAccounts) => {
+    importWalletFromClient: async (password, mnemonic, walletAccounts, formatVersion, importedAccounts) => {
       const res = await request({
         type: WalletMessageType.ImportFromClientRequest,
         password,
         mnemonic,
-        walletAccounts
+        walletAccounts,
+        formatVersion,
+        importedAccounts
       });
       assertResponse(res.type === WalletMessageType.ImportFromClientResponse);
     },
