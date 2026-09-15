@@ -36,6 +36,19 @@ const malformedRow = (field: string, value: unknown): ITransaction => {
 };
 
 describe('assessSpendingLimit', () => {
+  it('counts equivalent stored account identities in the same rolling allowance', () => {
+    const assessment = assessSpendingLimit(config, [row({ accountId: 'account-a_route', amount: 90n })], {
+      accountId: 'account-a',
+      faucetId: config.faucetId,
+      amount: 11n,
+      now: NOW
+    });
+
+    expect(assessment.breaches).toEqual([
+      { period: '24h', spent: 90n, proposedTotal: 101n, limit: 100n, overBy: 1n, resetAt: NOW - 1 + DAY }
+    ]);
+  });
+
   it.each([
     ITransactionStatus.Queued,
     ITransactionStatus.GeneratingTransaction,

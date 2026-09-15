@@ -36,6 +36,29 @@ const authorization = (overrides: Partial<SpendingLimitAuthorization> = {}): Spe
 });
 
 describe('queueOutgoingTransaction', () => {
+  it('enforces a bare-account policy when the outgoing row uses its composite form', async () => {
+    await spendingLimits.put(config());
+    const candidate = outgoing(101n, 'candidate');
+    candidate.accountId = 'account-a_route';
+
+    await expect(queueOutgoingTransaction(candidate, undefined, NOW)).rejects.toBeInstanceOf(
+      SpendingLimitAuthorizationRequiredError
+    );
+    await expect(transactions.get('candidate')).resolves.toBeUndefined();
+  });
+
+  it('counts history written under an equivalent composite account identity', async () => {
+    await spendingLimits.put(config());
+    const existing = outgoing(90n, 'existing');
+    existing.accountId = 'account-a_route';
+    await transactions.add(existing);
+
+    await expect(queueOutgoingTransaction(outgoing(20n, 'candidate'), undefined, NOW)).rejects.toMatchObject({
+      assessment: { breaches: [{ spent: 90n, proposedTotal: 110n, limit: 100n }] }
+    });
+    await expect(transactions.get('candidate')).resolves.toBeUndefined();
+  });
+
   it('preflights the current policy and history without inserting a row', async () => {
     await spendingLimits.put(config());
     await transactions.add(outgoing(90n, 'existing'));
@@ -122,9 +145,7 @@ describe('queueOutgoingTransaction', () => {
 
   it('turns a history read failure into a fail-closed policy error', async () => {
     await spendingLimits.put(config());
-    const read = jest.spyOn(transactions, 'where').mockImplementationOnce(() => {
-      throw new Error('history offline');
-    });
+    const read = jest.spyOn(transactions, 'toArray').mockRejectedValueOnce(new Error('history offline'));
 
     try {
       await expect(queueOutgoingTransaction(outgoing(20n, 'candidate'), undefined, NOW)).rejects.toThrow(

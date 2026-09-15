@@ -1,3 +1,4 @@
+import { sameSpendingLimitIdentity } from './identity';
 import {
   SpendingLimitAssessment,
   SpendingLimitBreach,
@@ -51,7 +52,10 @@ const validatedConfig = (config: SpendingLimitConfiguration): SpendingLimitConfi
 };
 
 const validateProposal = (config: SpendingLimitConfiguration, proposal: ProposedSpend): void => {
-  if (proposal.accountId !== config.accountId || proposal.faucetId !== config.faucetId) {
+  if (
+    !sameSpendingLimitIdentity(proposal.accountId, config.accountId) ||
+    !sameSpendingLimitIdentity(proposal.faucetId, config.faucetId)
+  ) {
     throw unavailable('proposal identity does not match configuration');
   }
   if (typeof proposal.amount !== 'bigint' || proposal.amount < 0n) throw unavailable('proposed amount is invalid');
@@ -65,7 +69,12 @@ const matchingSpendEntries = (
 ): SpendEntry[] => {
   const entries: SpendEntry[] = [];
   for (const row of rows) {
-    if (row.accountId !== config.accountId || row.faucetId !== config.faucetId) continue;
+    if (
+      !sameSpendingLimitIdentity(row.accountId, config.accountId) ||
+      row.faucetId === undefined ||
+      !sameSpendingLimitIdentity(row.faucetId, config.faucetId)
+    )
+      continue;
     if (!OUTGOING_TYPES.has(row.type) || row.restoredFromBackup === true) continue;
     if (!INCLUDED_STATUSES.has(row.status)) throw unavailable('matching transaction status is invalid');
     if (typeof row.amount !== 'bigint' || row.amount < 0n) throw unavailable('matching transaction amount is invalid');

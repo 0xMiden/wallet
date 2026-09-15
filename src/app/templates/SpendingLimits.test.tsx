@@ -157,6 +157,15 @@ describe('SpendingLimits', () => {
     expect(screen.getByLabelText('ZERO spendingLimitWeekly')).toHaveValue('100');
   });
 
+  it('merges equivalent stored and live faucet identities into one editable row', async () => {
+    mockWalletState.balances['account-a'][0].tokenId = 'faucet-miden_route';
+    mockListSpendingLimits.mockResolvedValue([configured('faucet-miden')]);
+
+    render(<SpendingLimits />);
+
+    expect(await screen.findAllByRole('heading', { name: 'MIDEN' })).toHaveLength(1);
+  });
+
   it('shows loading and fails closed when configurations cannot be read', async () => {
     let reject!: (error: Error) => void;
     mockListSpendingLimits.mockReturnValue(

@@ -9,6 +9,7 @@ import {
 } from './types';
 import { ITransaction } from '../db/types';
 import * as Repo from '../repo';
+import { canonicalSpendingLimitIdentity } from './identity';
 
 const MAX_AUTHORIZATION_LIFETIME_SECONDS = 2 * 60;
 
@@ -22,7 +23,10 @@ const unavailable = (reason: string): SpendingLimitPolicyUnavailableError =>
 
 const readPolicy = async (accountId: string, faucetId: string) => {
   try {
-    return await Repo.spendingLimits.get([accountId, faucetId]);
+    return await Repo.spendingLimits.get([
+      canonicalSpendingLimitIdentity(accountId),
+      canonicalSpendingLimitIdentity(faucetId)
+    ]);
   } catch {
     throw unavailable('configuration storage read failed');
   }
@@ -48,7 +52,7 @@ export const assessOutgoingSpendingLimitDetails = async (
   const config = parsePersistedSpendingLimit(persisted);
   const now = proposal.now ?? Math.floor(Date.now() / 1000);
   return {
-    assessment: assessSpendingLimit(config, await readHistory(proposal.accountId), { ...proposal, now }),
+    assessment: assessSpendingLimit(config, await readHistory(), { ...proposal, now }),
     asset: config.asset
   };
 };
@@ -57,9 +61,11 @@ export const assessOutgoingSpendingLimit = async (
   proposal: SpendingLimitProposal
 ): Promise<SpendingLimitAssessment | undefined> => (await assessOutgoingSpendingLimitDetails(proposal))?.assessment;
 
-const readHistory = async (accountId: string): Promise<ITransaction[]> => {
+const readHistory = async (): Promise<ITransaction[]> => {
   try {
-    return await Repo.transactions.where('accountId').equals(accountId).toArray();
+    // Equivalent account ids can be stored with or without a routing suffix.
+    // The pure policy performs the canonical filter after this atomic read.
+    return await Repo.transactions.toArray();
   } catch {
     throw unavailable('transaction history read failed');
   }
@@ -110,7 +116,7 @@ export const queueOutgoingTransaction = async (
     }
 
     const config = parsePersistedSpendingLimit(persisted);
-    const assessment = assessSpendingLimit(config, await readHistory(transaction.accountId), {
+    const assessment = assessSpendingLimit(config, await readHistory(), {
       accountId: transaction.accountId,
       faucetId: transaction.faucetId,
       amount: transaction.amount,

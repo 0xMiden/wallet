@@ -8,6 +8,7 @@ import { StrictActionAuthentication } from 'components/StrictActionAuthenticatio
 import type { TokenBalanceData } from 'lib/miden/front/balance';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { classifySpendingLimitChange } from 'lib/miden/spending-limits/change';
+import { canonicalSpendingLimitIdentity } from 'lib/miden/spending-limits/identity';
 import type {
   SpendingLimitConfiguration,
   SpendingLimitDraft,
@@ -47,7 +48,7 @@ const mergeAssets = (
 ): SpendingLimitAsset[] => {
   const rows = new Map<string, SpendingLimitAsset>();
   for (const balance of balances) {
-    rows.set(balance.tokenId, {
+    rows.set(canonicalSpendingLimitIdentity(balance.tokenId), {
       faucetId: balance.tokenId,
       asset: {
         symbol: balance.metadata.symbol,
@@ -59,7 +60,7 @@ const mergeAssets = (
   }
   for (const configuration of configurations) {
     // The saved snapshot keeps a zero-balance or temporarily unresolved asset editable.
-    rows.set(configuration.faucetId, {
+    rows.set(canonicalSpendingLimitIdentity(configuration.faucetId), {
       faucetId: configuration.faucetId,
       asset: configuration.asset,
       scaleKnown: true,

@@ -171,4 +171,8 @@ Gates: e2e-bridge-in.yml (IN, iOS) + e2e-bridge.yml (OUT, Chrome), both post-mer
   verify native per-asset daily and weekly settings plus amount-over, reset, and
   raise-in-Settings messaging. The iOS run passed with retries disabled in 4.2
   minutes using the stable 0.16 CLI required by the current testnet node.
+- Task 11: canonical spending-limit identities now bind bare, routed, bech32, and
+  hex account or faucet references to one policy and one history. Five regression
+  assertions failed before the fix; 126 focused policy, settings, and identity
+  tests pass after it, with TypeScript and scoped formatting green.
 - Remaining: full gates, Review Council, and delivery.

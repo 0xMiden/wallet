@@ -45,6 +45,16 @@ const save = (
   });
 
 describe('spending-limit configuration', () => {
+  it('stores and lists one canonical account identity across composite and bare forms', async () => {
+    await save(draft({ accountId: 'account-a_route' }), undefined, true);
+
+    await expect(listSpendingLimits('account-a')).resolves.toEqual([
+      expect.objectContaining({ accountId: 'account-a', faucetId: 'faucet-a' })
+    ]);
+    await expect(spendingLimits.get(['account-a_route', 'faucet-a'])).resolves.toBeUndefined();
+    await expect(spendingLimits.get(['account-a', 'faucet-a'])).resolves.toBeDefined();
+  });
+
   it('lists validated configurations only for the requested account', async () => {
     await spendingLimits.bulkPut([
       {

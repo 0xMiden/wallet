@@ -2,6 +2,7 @@ import { v4 as uuid } from 'uuid';
 
 import { spendingLimits, db } from '../repo';
 import { classifySpendingLimitChange } from './change';
+import { canonicalSpendingLimitIdentity } from './identity';
 import {
   SpendingLimitConfiguration,
   SpendingLimitDraft,
@@ -41,7 +42,7 @@ export interface SaveSpendingLimitOptions {
 }
 
 export const listSpendingLimits = async (accountId: string): Promise<SpendingLimitConfiguration[]> => {
-  const rows = await spendingLimits.where('accountId').equals(accountId).toArray();
+  const rows = await spendingLimits.where('accountId').equals(canonicalSpendingLimitIdentity(accountId)).toArray();
   return rows.map(parsePersistedSpendingLimit).sort((left, right) => left.faucetId.localeCompare(right.faucetId));
 };
 
@@ -49,7 +50,12 @@ export const saveSpendingLimit = async (
   draft: SpendingLimitDraft,
   options: SaveSpendingLimitOptions
 ): Promise<SpendingLimitConfiguration | undefined> => {
-  const validatedDraft = parseSerializedSpendingLimitDraft(toSerializedSpendingLimitDraft(draft));
+  const parsedDraft = parseSerializedSpendingLimitDraft(toSerializedSpendingLimitDraft(draft));
+  const validatedDraft = {
+    ...parsedDraft,
+    accountId: canonicalSpendingLimitIdentity(parsedDraft.accountId),
+    faucetId: canonicalSpendingLimitIdentity(parsedDraft.faucetId)
+  };
   return db.transaction('rw', spendingLimits, async () => {
     const currentRow = await spendingLimits.get([validatedDraft.accountId, validatedDraft.faucetId]);
     const current = currentRow === undefined ? undefined : parsePersistedSpendingLimit(currentRow);
