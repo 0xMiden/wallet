@@ -4190,10 +4190,6 @@
     "message": "Подключите кошелек, чтобы переводить активы в Miden и из него.",
     "englishSource": "Connect a wallet to bridge assets to and from Miden."
   },
-  "onlyBridgeableTokenSupported": {
-    "message": "Маршрут «Медленный» (Agglayer) поддерживает только токены, которые можно переводить через мост. Для отправки других токенов используйте маршрут «Быстрый».",
-    "englishSource": "The Slow (Agglayer) route only supports the bridgeable token. Use Fast to send other tokens."
-  },
   "connectDestinationWalletToClaim": {
     "message": "Подключите конечный кошелек, чтобы получить вознаграждение.",
     "englishSource": "Connect the destination wallet to claim."
@@ -4269,10 +4265,6 @@
   "delivering": {
     "message": "Доставка",
     "englishSource": "Delivering"
-  },
-  "slowNeedsNativeEth": {
-    "message": "Маршрут Slow (Agglayer) поддерживает только нативный ETH в тестовой сети. Чтобы воспользоваться им, выберите ETH.",
-    "englishSource": "The Slow (Agglayer) route only supports native ETH on testnet. Choose ETH to use it."
   },
   "fastEthWrapNotice": {
     "message": "Перенос ETH по «быстрому» маршруту сначала преобразует его в WETH, а затем осуществляет перенос WETH. Этот маршрут пока недоступен.",
@@ -4593,5 +4585,78 @@
   "devEndpointResetConfirm": {
     "message": "Это приведёт к окончательному удалению данного кошелька, включая ваши ключи и историю транзакций. Для его восстановления вам понадобится фраза восстановления.",
     "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
+  },
+  "activityAcceptTransfer": {
+    "message": "Принять перевод",
+    "englishSource": "Accept Transfer"
+  },
+  "activityRejectTransfer": {
+    "message": "Отклонить",
+    "englishSource": "Decline"
+  },
+  "activityCheckingTransfer": {
+    "message": "Проверка…",
+    "englishSource": "Checking…"
+  },
+  "activityTransferClaimed": {
+    "message": "Получено",
+    "englishSource": "Claimed"
+  },
+  "activityClaimedOn": {
+    "message": "Заявлено на",
+    "englishSource": "Claimed on"
+  },
+  "activityReceivedOn": {
+    "message": "Получено",
+    "englishSource": "Received on"
+  },
+  "activityNotYetAccepted": {
+    "message": "Ещё не принято — проверьте и примите, чтобы получить эти средства.",
+    "englishSource": "Not yet accepted — review and accept to claim these funds."
+  },
+  "acceptAll": {
+    "message": "Принять всё",
+    "englishSource": "Accept All"
+  },
+  "activitySearch": {
+    "message": "Активность поиска",
+    "englishSource": "Search activity"
+  },
+  "activityTransferAccepted": {
+    "message": "Перевод принят",
+    "englishSource": "Transfer accepted"
+  },
+  "activityTransferDetails": {
+    "message": "Подробности",
+    "englishSource": "Details"
+  },
+  "activityRejectExplanation": {
+    "message": "Скрыть этот перевод из раздела «Активность» на этом устройстве? Это не приводит к возврату средств отправителю и не удаляет запись «note». Вы можете восстановить скрытые переводы в разделе «Активность».",
+    "englishSource": "Hide this transfer from Activity on this device? This does not return funds to the sender or delete the note. You can restore hidden transfers in Activity."
+  },
+  "activityHiddenTransfers": {
+    "message": "Скрытые переводы: $count$",
+    "englishSource": "Hidden transfers: $count$",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "activityRestoreTransfers": {
+    "message": "Восстановить",
+    "englishSource": "Restore"
+  },
+  "activityHiddenNotesError": {
+    "message": "Не удалось сохранить скрытые переводы. Пожалуйста, попробуйте ещё раз.",
+    "englishSource": "Could not save hidden transfers. Please try again."
+  },
+  "activityDateUnavailable": {
+    "message": "Дата отсутствует",
+    "englishSource": "Date unavailable"
+  },
+  "walletSetupDidNotComplete": {
+    "message": "Ваш кошелёк был создан, но не завершил запуск. Проверьте подключение и попробуйте ещё раз.",
+    "englishSource": "Your wallet was created but did not finish starting up. Check your connection and try again."
   }
 }

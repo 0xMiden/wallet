@@ -117,8 +117,8 @@ jobs:
         # no marker (as here) means the published pin, exactly as before.
         uses: ./.github/actions/install-miden-client-cli
 
-      - name: Drop Google's Chrome apt repository
-        uses: ./.github/actions/apt-drop-google-chrome-repo
+      - name: Drop apt repositories this repo never installs from
+        uses: ./.github/actions/apt-drop-unused-repos
 
       - name: Install xvfb
         # The azure apt mirror intermittently blackholes: runs have stalled ~57 min
@@ -188,8 +188,8 @@ jobs:
         # no marker (as here) means the published pin, exactly as before.
         uses: ./.github/actions/install-miden-client-cli
 
-      - name: Drop Google's Chrome apt repository
-        uses: ./.github/actions/apt-drop-google-chrome-repo
+      - name: Drop apt repositories this repo never installs from
+        uses: ./.github/actions/apt-drop-unused-repos
 
       - name: Install xvfb
         # The azure apt mirror intermittently blackholes: runs have stalled ~57 min
@@ -317,8 +317,8 @@ jobs:
         # no marker (as here) means the published pin, exactly as before.
         uses: ./.github/actions/install-miden-client-cli
 
-      - name: Drop Google's Chrome apt repository
-        uses: ./.github/actions/apt-drop-google-chrome-repo
+      - name: Drop apt repositories this repo never installs from
+        uses: ./.github/actions/apt-drop-unused-repos
 
       - name: Install xvfb
         # The azure apt mirror intermittently blackholes: runs have stalled ~57 min
@@ -392,8 +392,8 @@ jobs:
         # no marker (as here) means the published pin, exactly as before.
         uses: ./.github/actions/install-miden-client-cli
 
-      - name: Drop Google's Chrome apt repository
-        uses: ./.github/actions/apt-drop-google-chrome-repo
+      - name: Drop apt repositories this repo never installs from
+        uses: ./.github/actions/apt-drop-unused-repos
 
       - name: Install xvfb
         # The azure apt mirror intermittently blackholes: runs have stalled ~57 min

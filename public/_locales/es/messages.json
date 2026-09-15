@@ -4190,10 +4190,6 @@
     "message": "Conecta un monedero para transferir activos desde y hacia Miden.",
     "englishSource": "Connect a wallet to bridge assets to and from Miden."
   },
-  "onlyBridgeableTokenSupported": {
-    "message": "La ruta «Lenta (Agglayer)» solo admite el token «bridgeable». Utiliza la ruta «Rápida» para enviar otros tokens.",
-    "englishSource": "The Slow (Agglayer) route only supports the bridgeable token. Use Fast to send other tokens."
-  },
   "connectDestinationWalletToClaim": {
     "message": "Conecta la cartera de destino para reclamar.",
     "englishSource": "Connect the destination wallet to claim."
@@ -4269,10 +4265,6 @@
   "delivering": {
     "message": "Entrega",
     "englishSource": "Delivering"
-  },
-  "slowNeedsNativeEth": {
-    "message": "La ruta Slow (Agglayer) solo admite ETH nativo en la red de pruebas. Elige ETH para utilizarla.",
-    "englishSource": "The Slow (Agglayer) route only supports native ETH on testnet. Choose ETH to use it."
   },
   "fastEthWrapNotice": {
     "message": "Al realizar un puente de ETH por la ruta rápida, primero se envuelve en WETH y, a continuación, se realiza el puente con el WETH. Esta ruta aún no está disponible.",
@@ -4593,5 +4585,78 @@
   "devEndpointResetConfirm": {
     "message": "Esto borrará definitivamente esta cartera, incluidas tus claves y tu historial de transacciones. Necesitarás tu frase de recuperación para restaurarla.",
     "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
+  },
+  "activityAcceptTransfer": {
+    "message": "Aceptar transferencia",
+    "englishSource": "Accept Transfer"
+  },
+  "activityRejectTransfer": {
+    "message": "Rechazar",
+    "englishSource": "Decline"
+  },
+  "activityCheckingTransfer": {
+    "message": "Comprobando…",
+    "englishSource": "Checking…"
+  },
+  "activityTransferClaimed": {
+    "message": "Reclamado",
+    "englishSource": "Claimed"
+  },
+  "activityClaimedOn": {
+    "message": "Reclamado el",
+    "englishSource": "Claimed on"
+  },
+  "activityReceivedOn": {
+    "message": "Recibido el",
+    "englishSource": "Received on"
+  },
+  "activityNotYetAccepted": {
+    "message": "Aún no aceptadas: revísalas y acéptalas para reclamar estos fondos.",
+    "englishSource": "Not yet accepted — review and accept to claim these funds."
+  },
+  "acceptAll": {
+    "message": "Aceptar todo",
+    "englishSource": "Accept All"
+  },
+  "activitySearch": {
+    "message": "Actividad de búsqueda",
+    "englishSource": "Search activity"
+  },
+  "activityTransferAccepted": {
+    "message": "Transferencia aceptada",
+    "englishSource": "Transfer accepted"
+  },
+  "activityTransferDetails": {
+    "message": "Detalles",
+    "englishSource": "Details"
+  },
+  "activityRejectExplanation": {
+    "message": "¿Ocultar esta transferencia de la sección «Actividad» en este dispositivo? Esto no devuelve los fondos al remitente ni elimina el «note». Puedes restaurar las transferencias ocultas en la sección «Actividad».",
+    "englishSource": "Hide this transfer from Activity on this device? This does not return funds to the sender or delete the note. You can restore hidden transfers in Activity."
+  },
+  "activityHiddenTransfers": {
+    "message": "Transferencias ocultas: $count$",
+    "englishSource": "Hidden transfers: $count$",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "activityRestoreTransfers": {
+    "message": "Restaurar",
+    "englishSource": "Restore"
+  },
+  "activityHiddenNotesError": {
+    "message": "No se han podido guardar las transferencias ocultas. Inténtalo de nuevo.",
+    "englishSource": "Could not save hidden transfers. Please try again."
+  },
+  "activityDateUnavailable": {
+    "message": "Fecha no disponible",
+    "englishSource": "Date unavailable"
+  },
+  "walletSetupDidNotComplete": {
+    "message": "Se ha creado tu monedero, pero no se ha completado la puesta en marcha. Comprueba tu conexión e inténtalo de nuevo.",
+    "englishSource": "Your wallet was created but did not finish starting up. Check your connection and try again."
   }
 }

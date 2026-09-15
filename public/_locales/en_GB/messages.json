@@ -4190,10 +4190,6 @@
     "message": "Connect a wallet to bridge assets to and from Miden.",
     "englishSource": "Connect a wallet to bridge assets to and from Miden."
   },
-  "onlyBridgeableTokenSupported": {
-    "message": "The Slow (Agglayer) route only supports the bridgeable token. Use Fast to send other tokens.",
-    "englishSource": "The Slow (Agglayer) route only supports the bridgeable token. Use Fast to send other tokens."
-  },
   "connectDestinationWalletToClaim": {
     "message": "Connect the destination wallet to claim.",
     "englishSource": "Connect the destination wallet to claim."
@@ -4269,10 +4265,6 @@
   "delivering": {
     "message": "Delivering",
     "englishSource": "Delivering"
-  },
-  "slowNeedsNativeEth": {
-    "message": "The Slow (Agglayer) route only supports native ETH on testnet. Choose ETH to use it.",
-    "englishSource": "The Slow (Agglayer) route only supports native ETH on testnet. Choose ETH to use it."
   },
   "fastEthWrapNotice": {
     "message": "Bridging ETH on the Fast route wraps it to WETH first, then bridges the WETH. This route isn't available yet.",
@@ -4593,5 +4585,78 @@
   "devEndpointResetConfirm": {
     "message": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it.",
     "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
+  },
+  "activityAcceptTransfer": {
+    "message": "Accept Transfer",
+    "englishSource": "Accept Transfer"
+  },
+  "activityRejectTransfer": {
+    "message": "Decline",
+    "englishSource": "Decline"
+  },
+  "activityCheckingTransfer": {
+    "message": "Checking…",
+    "englishSource": "Checking…"
+  },
+  "activityTransferClaimed": {
+    "message": "Claimed",
+    "englishSource": "Claimed"
+  },
+  "activityClaimedOn": {
+    "message": "Claimed on",
+    "englishSource": "Claimed on"
+  },
+  "activityReceivedOn": {
+    "message": "Received on",
+    "englishSource": "Received on"
+  },
+  "activityNotYetAccepted": {
+    "message": "Not yet accepted — review and accept to claim these funds.",
+    "englishSource": "Not yet accepted — review and accept to claim these funds."
+  },
+  "acceptAll": {
+    "message": "Accept All",
+    "englishSource": "Accept All"
+  },
+  "activitySearch": {
+    "message": "Search activity",
+    "englishSource": "Search activity"
+  },
+  "activityTransferAccepted": {
+    "message": "Transfer accepted",
+    "englishSource": "Transfer accepted"
+  },
+  "activityTransferDetails": {
+    "message": "Details",
+    "englishSource": "Details"
+  },
+  "activityRejectExplanation": {
+    "message": "Hide this transfer from Activity on this device? This does not return funds to the sender or delete the note. You can restore hidden transfers in Activity.",
+    "englishSource": "Hide this transfer from Activity on this device? This does not return funds to the sender or delete the note. You can restore hidden transfers in Activity."
+  },
+  "activityHiddenTransfers": {
+    "message": "Hidden transfers: $count$",
+    "englishSource": "Hidden transfers: $count$",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "activityRestoreTransfers": {
+    "message": "Restore",
+    "englishSource": "Restore"
+  },
+  "activityHiddenNotesError": {
+    "message": "Could not save hidden transfers. Please try again.",
+    "englishSource": "Could not save hidden transfers. Please try again."
+  },
+  "activityDateUnavailable": {
+    "message": "Date unavailable",
+    "englishSource": "Date unavailable"
+  },
+  "walletSetupDidNotComplete": {
+    "message": "Your wallet was created but did not finish starting up. Check your connection and try again.",
+    "englishSource": "Your wallet was created but did not finish starting up. Check your connection and try again."
   }
 }

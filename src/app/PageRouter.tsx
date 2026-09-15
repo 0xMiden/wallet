@@ -2,7 +2,8 @@ import React, { FC, useLayoutEffect, useMemo, useRef } from 'react';
 
 import RootSuspenseFallback from 'app/a11y/RootSuspenseFallback';
 import { OpenInFullPage, useAppEnv } from 'app/env';
-import FullScreenPage from 'app/layouts/FullScreenPage';
+import FullScreenPage, { FullScreenPageProps } from 'app/layouts/FullScreenPage';
+import MobilePageLayers from 'app/layouts/MobilePageLayers';
 import TabLayout from 'app/layouts/TabLayout';
 import Explore from 'app/pages/Explore';
 import OpenSidePanel from 'app/pages/OpenSidePanel';
@@ -161,7 +162,7 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
   [
     '/settings/network-endpoints',
     onlyReady(() => (
-      <FullScreenPage>
+      <FullScreenPage entrance="slide">
         <DeveloperSettings readOnly />
       </FullScreenPage>
     ))
@@ -181,7 +182,7 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
   [
     '/settings/:tabSlug?',
     onlyReady(({ tabSlug }) => (
-      <FullScreenPage>
+      <FullScreenPage key="settings" entrance="slide">
         <Settings tabSlug={tabSlug} />
       </FullScreenPage>
     ))
@@ -246,7 +247,7 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
     // route change that reconciles in place would therefore keep showing — and
     // keep polling for — the previous transaction indefinitely.
     onlyReady(({ transactionId }) => (
-      <FullScreenPage>
+      <FullScreenPage key={`history-details-${transactionId}`} entrance="slide">
         <HistoryDetails key={transactionId} transactionId={transactionId!} />
       </FullScreenPage>
     ))
@@ -377,7 +378,8 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
 ]);
 
 const PageRouter: FC = () => {
-  const { trigger, pathname } = Woozie.useLocation();
+  const location = Woozie.useLocation();
+  const { trigger, pathname } = location;
 
   // Scroll to top after new location pushed.
   useLayoutEffect(() => {
@@ -408,12 +410,26 @@ const PageRouter: FC = () => {
 
   const page = useMemo(() => Woozie.Router.resolve(ROUTE_MAP, pathname, ctx), [pathname, ctx]);
 
+  // Locking must remove all wallet pages without waiting for an animation, so
+  // the layer stack is skipped until the wallet is ready, unlocked and hydrated.
+  const tabPage = React.isValidElement(page) && page.type === TabLayout;
+  const slide =
+    React.isValidElement<FullScreenPageProps>(page) && page.type === FullScreenPage && page.props.entrance === 'slide';
+  const layered =
+    !ctx.ready || ctx.locked || !ctx.hydrated ? (
+      page
+    ) : (
+      <MobilePageLayers pageKey={tabPage ? 'tabs' : pathname} slide={slide} location={location}>
+        {page}
+      </MobilePageLayers>
+    );
+
   // The network banner (#875) sits above EVERY routed page, outside the page
   // layouts, so no screen can forget it. The page takes the remaining height.
   return (
     <div className="flex h-full w-full flex-col">
       <NetworkModeBanner />
-      <div className="relative flex min-h-0 flex-1 flex-col">{page}</div>
+      <div className="relative flex min-h-0 flex-1 flex-col">{layered}</div>
     </div>
   );
 };

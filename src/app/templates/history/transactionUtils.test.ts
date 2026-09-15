@@ -550,6 +550,24 @@ describe('bridgeInRowDisplay', () => {
     ).toBe('7');
   });
 
+  // Rows written before the fix carry the allocator's token `name` as a symbol,
+  // which for Sepolia USDC is the contract address.
+  it('ignores a stored symbol that is an EVM contract address', () => {
+    const address = '0x2BB4FfD7E2c6D432b697554Efd77fA13bdbefd69';
+    const display = bridgeInRowDisplay(
+      bridgeEntry({
+        txType: 'bridged-receive',
+        bridgeInPhase: 'received',
+        token: 'USDC',
+        bridgeInProvider: 'epoch',
+        bridgeInSourceSymbol: address,
+        bridgeInOutputSymbol: address
+      })
+    );
+    expect(display.inSymbol).toBe('USDC');
+    expect(display.outSymbol).toBe('USDC');
+  });
+
   it('defaults the source symbol to USDC and labels a non-agglayer provider Epoch', () => {
     expect(bridgeInRowDisplay(bridgeEntry({ txType: 'consume', bridgeInProvider: 'epoch' }))).toEqual({
       inSymbol: 'USDC',

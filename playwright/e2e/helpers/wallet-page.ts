@@ -149,8 +149,8 @@ export interface WalletPage {
 
 /**
  * Chrome-specific extension of WalletPage. Kept for spec blocks that
- * reach into the Playwright Page directly (currently multi-account's
- * DOM probe) and for captureStateFrom entries that pass extensionId.
+ * reach into the Playwright Page directly and for captureStateFrom entries
+ * that pass extensionId.
  */
 export interface ChromeWalletPageApi extends WalletPage, IdbDumpSource {
   readonly page: Page;
@@ -311,6 +311,10 @@ export interface ChromeWalletPageApi extends WalletPage, IdbDumpSource {
    * `reopen()`. Returns `''` if unset or the store is unavailable.
    */
   currentGuardianEndpoint(): Promise<string>;
+  /** Create another HD account through the E2E-only frontend store hook. */
+  createAdditionalAccount(walletType: 'off-chain' | 'guardian'): Promise<{ address: string }>;
+  /** Select an account through the E2E-only frontend store hook. */
+  selectAccount(address: string): Promise<void>;
   /**
    * Close and reopen the wallet: closes the current extension page and opens
    * a fresh one navigated back to `fullpage.html` -- mirroring a user closing
@@ -1089,6 +1093,41 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
       ).__TEST_STORE__;
       return store?.getState?.().currentAccount?.guardianEndpoint ?? '';
     });
+  }
+
+  async createAdditionalAccount(walletType: 'off-chain' | 'guardian'): Promise<{ address: string }> {
+    return this.page.evaluate(async requestedType => {
+      type Account = { publicKey?: string };
+      type StoreState = {
+        accounts: Account[];
+        createAccount(type: 'off-chain' | 'guardian'): Promise<void>;
+      };
+      const store = (window as unknown as { __TEST_STORE__?: { getState(): StoreState } }).__TEST_STORE__;
+      if (!store?.getState) throw new Error('createAdditionalAccount requires the E2E wallet store hook');
+
+      const before = new Set(store.getState().accounts.map(account => account.publicKey));
+      await store.getState().createAccount(requestedType);
+      const created = store.getState().accounts.find(account => account.publicKey && !before.has(account.publicKey));
+      if (!created?.publicKey) throw new Error('createAdditionalAccount did not add an account');
+      return { address: created.publicKey };
+    }, walletType);
+  }
+
+  async selectAccount(address: string): Promise<void> {
+    const selected = await this.page.evaluate(async target => {
+      type Account = { publicKey?: string };
+      type StoreState = {
+        currentAccount?: Account | null;
+        updateCurrentAccount(accountPublicKey: string): Promise<void>;
+      };
+      const store = (window as unknown as { __TEST_STORE__?: { getState(): StoreState } }).__TEST_STORE__;
+      if (!store?.getState) throw new Error('selectAccount requires the E2E wallet store hook');
+
+      await store.getState().updateCurrentAccount(target);
+      return store.getState().currentAccount?.publicKey ?? '';
+    }, address);
+    if (selected !== address)
+      throw new Error(`selectAccount selected ${selected || 'no account'} instead of ${address}`);
   }
 
   async reopen(): Promise<boolean> {

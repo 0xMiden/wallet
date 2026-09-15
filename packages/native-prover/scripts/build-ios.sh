@@ -57,6 +57,12 @@ export CARGO_PROFILE_RELEASE_LTO=true
 export CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1
 export CARGO_PROFILE_RELEASE_DEBUG=false
 
+# Ask cargo where the build lands: CARGO_TARGET_DIR or a build.target-dir config moves it out of
+# $WEB_SDK/target, and a hardcoded path then reports a successful build as "produced no library".
+TARGET_DIR="$(cd "$WEB_SDK" && cargo metadata --format-version 1 --no-deps \
+  | node -p 'JSON.parse(require("fs").readFileSync(0, "utf8")).target_directory')"
+[ -n "$TARGET_DIR" ] || { echo "Error: could not resolve cargo's target directory" >&2; exit 1; }
+
 declare -a SLICES=("aarch64-apple-ios:ios-arm64" "aarch64-apple-ios-sim:ios-arm64-simulator")
 
 STAGING="$(mktemp -d)"
@@ -66,7 +72,7 @@ for slice in "${SLICES[@]}"; do
   target="${slice%%:*}"
   echo "Building $target ..."
   ( cd "$WEB_SDK" && cargo build --release -p miden-mobile-prover --target "$target" )
-  built="$WEB_SDK/target/$target/release/libmiden_mobile_prover.a"
+  built="$TARGET_DIR/$target/release/libmiden_mobile_prover.a"
   [ -f "$built" ] || { echo "Error: $target produced no library" >&2; exit 1; }
   # The C ABI the Swift plugin links against. If this is missing the app fails to
   # link, so check here rather than in Xcode.

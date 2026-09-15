@@ -4190,10 +4190,6 @@
     "message": "Podłącz portfel, aby przesyłać aktywa do i z Miden.",
     "englishSource": "Connect a wallet to bridge assets to and from Miden."
   },
-  "onlyBridgeableTokenSupported": {
-    "message": "Trasa „Slow” (Agglayer) obsługuje wyłącznie tokeny, które można mostkować. Aby wysłać inne tokeny, należy skorzystać z trasy „Fast”.",
-    "englishSource": "The Slow (Agglayer) route only supports the bridgeable token. Use Fast to send other tokens."
-  },
   "connectDestinationWalletToClaim": {
     "message": "Aby odebrać środki, podłącz portfel docelowy.",
     "englishSource": "Connect the destination wallet to claim."
@@ -4269,10 +4265,6 @@
   "delivering": {
     "message": "Dostawa",
     "englishSource": "Delivering"
-  },
-  "slowNeedsNativeEth": {
-    "message": "Trasa Slow (Agglayer) obsługuje wyłącznie natywne ETH w sieci testowej. Aby z niej skorzystać, wybierz ETH.",
-    "englishSource": "The Slow (Agglayer) route only supports native ETH on testnet. Choose ETH to use it."
   },
   "fastEthWrapNotice": {
     "message": "Przenoszenie ETH trasą „Fast” polega najpierw na zamianie go na WETH, a następnie na przeniesieniu WETH. Ta trasa nie jest jeszcze dostępna.",
@@ -4593,5 +4585,78 @@
   "devEndpointResetConfirm": {
     "message": "Spowoduje to trwałe usunięcie tego portfela, w tym kluczy i historii transakcji. Aby go przywrócić, potrzebna będzie fraza odzyskiwania.",
     "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
+  },
+  "activityAcceptTransfer": {
+    "message": "Zaakceptuj transfer",
+    "englishSource": "Accept Transfer"
+  },
+  "activityRejectTransfer": {
+    "message": "Odrzuć",
+    "englishSource": "Decline"
+  },
+  "activityCheckingTransfer": {
+    "message": "Sprawdzam…",
+    "englishSource": "Checking…"
+  },
+  "activityTransferClaimed": {
+    "message": "Odebrane",
+    "englishSource": "Claimed"
+  },
+  "activityClaimedOn": {
+    "message": "Odbiór nastąpił w dniu",
+    "englishSource": "Claimed on"
+  },
+  "activityReceivedOn": {
+    "message": "Otrzymano dnia",
+    "englishSource": "Received on"
+  },
+  "activityNotYetAccepted": {
+    "message": "Jeszcze nie zaakceptowano — sprawdź i zaakceptuj, aby odebrać te środki.",
+    "englishSource": "Not yet accepted — review and accept to claim these funds."
+  },
+  "acceptAll": {
+    "message": "Zaakceptuj wszystko",
+    "englishSource": "Accept All"
+  },
+  "activitySearch": {
+    "message": "Aktywność wyszukiwania",
+    "englishSource": "Search activity"
+  },
+  "activityTransferAccepted": {
+    "message": "Przelew zaakceptowany",
+    "englishSource": "Transfer accepted"
+  },
+  "activityTransferDetails": {
+    "message": "Szczegóły",
+    "englishSource": "Details"
+  },
+  "activityRejectExplanation": {
+    "message": "Czy chcesz ukryć ten transfer w sekcji „Aktywność” na tym urządzeniu? Nie spowoduje to zwrotu środków nadawcy ani usunięcia adresu note. Ukryte transfery można przywrócić w sekcji „Aktywność”.",
+    "englishSource": "Hide this transfer from Activity on this device? This does not return funds to the sender or delete the note. You can restore hidden transfers in Activity."
+  },
+  "activityHiddenTransfers": {
+    "message": "Ukryte transfery: $count$",
+    "englishSource": "Hidden transfers: $count$",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "activityRestoreTransfers": {
+    "message": "Przywróć",
+    "englishSource": "Restore"
+  },
+  "activityHiddenNotesError": {
+    "message": "Nie udało się zapisać ukrytych transferów. Spróbuj ponownie.",
+    "englishSource": "Could not save hidden transfers. Please try again."
+  },
+  "activityDateUnavailable": {
+    "message": "Data niedostępna",
+    "englishSource": "Date unavailable"
+  },
+  "walletSetupDidNotComplete": {
+    "message": "Twój portfel został utworzony, ale nie zakończył procesu uruchamiania. Sprawdź połączenie i spróbuj ponownie.",
+    "englishSource": "Your wallet was created but did not finish starting up. Check your connection and try again."
   }
 }
