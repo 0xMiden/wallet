@@ -12,8 +12,8 @@ import { useManuallyClaimableNotes } from './auto-managed-notes';
  *
  * Only notes the user has to claim by hand count: a note the wallet is about
  * to auto-consume would otherwise raise a "tap to claim" notification that is
- * stale the moment it fires (#811) — the same exclusion the service worker
- * applies to its background push in `sync-manager.ts`.
+ * stale the moment it fires (#811). The service worker's background push in
+ * `sync-manager.ts` leaves out the same auto-consumed batch.
  *
  * @param publicAddress - The account's public address to monitor notes for
  * @param enabled - Whether to enable monitoring (default: true)

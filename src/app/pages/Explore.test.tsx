@@ -35,6 +35,7 @@ let mockAutoConsume = false;
 let mockDelegateProof = false;
 let mockTokenPrices: Record<string, unknown> = {};
 let mockBalancesLoading = false;
+let mockBaseFee: number | null = 0;
 
 const mockSignTransaction = jest.fn();
 const mockMutateBalances = jest.fn();
@@ -56,7 +57,7 @@ jest.mock('app/hooks/useMidenFaucetId', () => ({
 }));
 jest.mock('app/hooks/useVerificationBaseFee', () => ({
   __esModule: true,
-  default: () => 0
+  default: () => mockBaseFee
 }));
 
 // Balance is a render-prop that hands its child the total fiat BigNumber; the
@@ -251,6 +252,7 @@ describe('Explore', () => {
     mockDelegateProof = false;
     mockTokenPrices = {};
     mockBalancesLoading = false;
+    mockBaseFee = 0;
     mockInitiateConsumeTransaction.mockResolvedValue(undefined);
     mockReconcileBridgedReceives.mockResolvedValue(undefined);
     mockMutateBalances.mockResolvedValue(undefined);
@@ -364,6 +366,16 @@ describe('Explore', () => {
         makeNote('manual', 'other-faucet'),
         makeNote('manual-swap', 'faucet-native', false, { autoConsume: false })
       ];
+
+      await renderExplore();
+
+      expect(screen.getByTestId('home-prompts')).toHaveAttribute('data-note-count', '2');
+    });
+
+    it('keeps a native note worth too little to auto-consume on home prompts', async () => {
+      mockAutoConsume = true;
+      mockBaseFee = 10;
+      mockClaimableNotes = [{ ...makeNote('dust', 'faucet-native'), amount: '1' }, makeNote('manual', 'other-faucet')];
 
       await renderExplore();
 

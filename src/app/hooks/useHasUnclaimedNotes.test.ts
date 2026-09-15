@@ -17,13 +17,18 @@ jest.mock('lib/miden/front/claimable-notes', () => ({
   useClaimableNotes: (publicKey: string) => mockUseClaimableNotes(publicKey)
 }));
 
-// The hook now reads through `useManuallyClaimableNotes`, which needs the
-// native faucet id and the auto-consume toggle to drop auto-managed notes (#811).
+// The hook now reads through `useManuallyClaimableNotes`, which needs the native
+// faucet id, the chain fee and the auto-consume toggle to drop auto-managed notes (#811).
 let mockFaucetId: string | null = 'faucet-native';
+let mockBaseFee: number | null = null;
 let mockAutoConsume = false;
 jest.mock('app/hooks/useMidenFaucetId', () => ({
   __esModule: true,
   default: () => mockFaucetId
+}));
+jest.mock('app/hooks/useVerificationBaseFee', () => ({
+  __esModule: true,
+  default: () => mockBaseFee
 }));
 jest.mock('lib/settings/helpers', () => ({
   isAutoConsumeEnabled: () => mockAutoConsume
@@ -36,6 +41,7 @@ describe('useHasUnclaimedNotes', () => {
     mockUseAccount.mockReturnValue({ publicKey: 'test-account-123' });
     mockUseClaimableNotes.mockReturnValue({ data: [] });
     mockFaucetId = 'faucet-native';
+    mockBaseFee = null;
     mockAutoConsume = false;
   });
 
@@ -46,6 +52,16 @@ describe('useHasUnclaimedNotes', () => {
     const { result } = renderHook(() => useHasUnclaimedNotes());
 
     expect(result.current).toBe(false);
+  });
+
+  it('still counts a native note worth too little for auto-consume to claim', () => {
+    mockAutoConsume = true;
+    mockBaseFee = 10;
+    mockUseClaimableNotes.mockReturnValue({ data: [{ id: 'dust', faucetId: 'faucet-native', amount: '1' }] });
+
+    const { result } = renderHook(() => useHasUnclaimedNotes());
+
+    expect(result.current).toBe(true);
   });
 
   it('still counts a non-native note while auto-consume is on', () => {

@@ -571,6 +571,10 @@ async function runSync(force: boolean): Promise<void> {
             // lap, for the full timeout, on the sync critical path. Nothing downstream
             // needs the fee unless there is something to claim, and the overwhelmingly
             // common case is nothing to claim.
+            //
+            // The frontend applies the same rule to live notes in `selectAutoConsumeBatch`
+            // (front/auto-managed-notes.ts), which also decides what its claim prompts
+            // leave out; change the two together.
             const candidates = parsedNotes.filter(
               n => n.faucetId === nativeFaucetId && !n.swapOrder && !notesBeingClaimed.has(n.id)
             );

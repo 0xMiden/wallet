@@ -5,6 +5,7 @@ import { renderHook, waitFor } from '@testing-library/react';
 const _g = globalThis as any;
 _g.__noteToastTest = {
   claimableNotes: [] as Array<{ id: string }>,
+  baseFee: null as number | null,
   isExtension: false
 };
 
@@ -39,10 +40,15 @@ jest.mock('./claimable-notes', () => ({
 }));
 
 // `useManuallyClaimableNotes` drops native notes the wallet auto-consumes (#811);
-// default to a known native faucet with auto-consume ON so the exclusion is live.
+// default to a known native faucet with auto-consume ON so the exclusion is live,
+// and to an unknown fee, which lets every native batch through.
 jest.mock('app/hooks/useMidenFaucetId', () => ({
   __esModule: true,
   default: () => 'faucet-native'
+}));
+jest.mock('app/hooks/useVerificationBaseFee', () => ({
+  __esModule: true,
+  default: () => (globalThis as any).__noteToastTest.baseFee
 }));
 jest.mock('lib/settings/helpers', () => ({
   isAutoConsumeEnabled: () => true
@@ -63,6 +69,7 @@ beforeEach(() => {
   mockPersistSeenNoteIds.mockReset().mockResolvedValue(undefined);
   _g.__noteToastTest.isExtension = false;
   _g.__noteToastTest.claimableNotes = [];
+  _g.__noteToastTest.baseFee = null;
 });
 
 describe('useNoteToastMonitor', () => {
@@ -110,6 +117,24 @@ describe('useNoteToastMonitor', () => {
     // auto-consumed native note never reaches it.
     await waitFor(() => {
       expect(mockCheckForNewNotes).toHaveBeenCalledWith(['seeded', 'manual']);
+    });
+  });
+
+  it('still raises a toast for a native note worth too little to auto-consume', async () => {
+    _g.__noteToastTest.baseFee = 10;
+    _g.__noteToastTest.claimableNotes = [];
+    const { rerender } = renderHook(() => useNoteToastMonitor('pk-1'));
+    _g.__noteToastTest.claimableNotes = [{ id: 'seeded', faucetId: 'faucet-other' }];
+    rerender();
+
+    _g.__noteToastTest.claimableNotes = [
+      { id: 'seeded', faucetId: 'faucet-other' },
+      { id: 'dust', faucetId: 'faucet-native', amount: '1' }
+    ];
+    rerender();
+
+    await waitFor(() => {
+      expect(mockCheckForNewNotes).toHaveBeenCalledWith(['seeded', 'dust']);
     });
   });
 

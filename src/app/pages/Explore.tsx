@@ -18,10 +18,9 @@ import {
   requestSWTransactionProcessing,
   startBackgroundTransactionProcessing
 } from 'lib/miden/activity';
-import { isWorthClaiming, totalClaimableAmount } from 'lib/miden/fees/spendable';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata, useMidenContext } from 'lib/miden/front';
 import type { TokenBalanceData } from 'lib/miden/front';
-import { excludeAutoManagedNotes } from 'lib/miden/front/auto-managed-notes';
+import { excludeAutoManagedNotes, selectAutoConsumeBatch } from 'lib/miden/front/auto-managed-notes';
 import { useClaimableNotes } from 'lib/miden/front/claimable-notes';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import { clearNoteReceivedNotification } from 'lib/mobile/native-notifications';
@@ -85,46 +84,20 @@ const Explore: FC = () => {
     if (!shouldAutoConsume || !claimableNotes) {
       return [];
     }
-
-    // Swap-managed notes have their own lineage-aware settlement path. This
-    // explicit guard also protects native-asset swap notes whose per-order
-    // auto-consume setting is off: they remain available for manual settlement
-    // without being picked up by the wallet-wide native-note auto-consumer.
-    // `isBeingClaimed` is filtered HERE, not at the enqueue below, because the value
-    // check that follows has to measure the set that will actually be claimed. A note
-    // already covered by an in-flight consume row stays visible in `claimableNotes`
-    // during chain-sync lag, so counting it inflated the total: a lone newly-arrived
-    // dust note rode in on the in-flight batch's value and was claimed alone for a full
-    // fee. `NativeNoteAutoConsumeManager` has always filtered in this order.
-    const candidates = claimableNotes.filter(
-      note => note!.faucetId === midenFaucetId && !note!.swapOrder && !note!.isBeingClaimed
-    );
-    // A claim worth no more than its own fee costs the user money, and this consumer
-    // runs without asking. Measured on the BATCH TOTAL because these are claimed as one
-    // transaction paying one fee -- per note, a backlog of individually-marginal notes
-    // was refused in full.
-    //
-    // Fails open on an unknown fee, matching `isWorthClaiming`'s contract and the other
-    // two consumers. An earlier revision returned early on `null` instead, which against
-    // an SDK build whose header has no `verificationBaseFee` accessor -- where the fee is
-    // latched null forever -- disabled this consumer permanently.
-    if (!isWorthClaiming(totalClaimableAmount(candidates.map(note => note!.amount)), verificationBaseFee)) {
-      return [];
-    }
-    return candidates;
+    return selectAutoConsumeBatch(claimableNotes, midenFaucetId, verificationBaseFee);
   }, [claimableNotes, midenFaucetId, shouldAutoConsume, verificationBaseFee]);
 
   const hasAutoConsumableNotes = useMemo(() => {
     return midenNotes.length > 0;
   }, [midenNotes]);
 
-  // What the "You have Pending Notes" card may ask the user to act on: the notes
-  // this page (and the SW / NativeNoteAutoConsumeManager) will NOT claim for them.
-  // Feeding it the raw list surfaced a card — and a USD total — for native notes
-  // that were already being auto-consumed (#811).
+  // What the "You have Pending Notes" card may ask the user to act on: the notes this
+  // page, the SW and NativeNoteAutoConsumeManager will NOT claim for them. Feeding it
+  // the raw list surfaced a card, with a USD total, for native notes that were already
+  // being auto-consumed (#811).
   const manuallyClaimableNotes = useMemo(
-    () => excludeAutoManagedNotes(claimableNotes, midenFaucetId, shouldAutoConsume),
-    [claimableNotes, midenFaucetId, shouldAutoConsume]
+    () => excludeAutoManagedNotes(claimableNotes, midenFaucetId, shouldAutoConsume, verificationBaseFee),
+    [claimableNotes, midenFaucetId, shouldAutoConsume, verificationBaseFee]
   );
 
   const autoConsumeMidenNotes = useCallback(async () => {
@@ -132,8 +105,8 @@ const Explore: FC = () => {
       return;
     }
 
-    // Already filtered for `isBeingClaimed` in the memo above, where the value check
-    // needs the same set. Re-filtering here would let the two diverge again.
+    // Already filtered for `isBeingClaimed` by `selectAutoConsumeBatch`, where the value
+    // check needs the same set. Re-filtering here would let the two diverge again.
     const notesToClaim = midenNotes;
     if (notesToClaim.length === 0) {
       return;
