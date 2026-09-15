@@ -11,6 +11,7 @@
 
 import { ITransaction, ITransactionStatus, SendTransaction } from '../db/types';
 import { NoteTypeEnum } from '../types';
+import { isLockedError } from './helper';
 import {
   completeSendTransaction,
   getCompletedTransactions,
@@ -18,8 +19,7 @@ import {
   cancelStaleQueuedTransactions,
   waitForTransactionCompletion,
   generateTransactionsLoop,
-  buildSignCallbackError,
-  readLastAuthReason
+  buildSignCallbackError
 } from './index'; // eslint-disable-line import/order
 
 /**
@@ -55,13 +55,24 @@ jest.mock('lib/miden/repo', () => ({
     filter: jest.fn((fn: (tx: any) => boolean) => ({
       toArray: jest.fn(async () => txStore.filter(fn))
     })),
-    where: jest.fn((query: any) => ({
-      first: jest.fn(async () => txStore.find(t => t.id === query.id)),
-      modify: jest.fn(async (fn: (tx: any) => void) => {
-        const tx = txStore.find(t => t.id === query.id);
-        if (tx) fn(tx);
-      })
-    }))
+    where: jest.fn((query: any) => {
+      if (query === 'extraInputs.swapOrderTxId') {
+        return {
+          equals: jest.fn((value: string) => ({
+            filter: jest.fn((fn: (tx: any) => boolean) => ({
+              toArray: jest.fn(async () => txStore.filter(tx => tx.extraInputs?.swapOrderTxId === value).filter(fn))
+            }))
+          }))
+        };
+      }
+      return {
+        first: jest.fn(async () => txStore.find(t => t.id === query.id)),
+        modify: jest.fn(async (fn: (tx: any) => void) => {
+          const tx = txStore.find(t => t.id === query.id);
+          if (tx) fn(tx);
+        })
+      };
+    })
   }
 }));
 
@@ -98,33 +109,18 @@ jest.mock('dexie', () => ({
 const mockSyncState = jest.fn().mockResolvedValue(undefined);
 const mockWaitForTransactionCommit = jest.fn().mockResolvedValue(undefined);
 const mockSendPrivateNote = jest.fn().mockResolvedValue(undefined);
-// Raw WASM client's lastAuthError(), read by readLastAuthReason in the
-// generate-loop catch. Default null = no auth failure recorded.
-const mockLastAuthError = jest.fn((): unknown => null);
 // The #260 offscreen client proxy (through which non-guardian send/swap/execute
 // now route their flag-off write) imports getMidenClient / withWasmClientLock via
 // the `lib/...` alias, which jest mocks separately from the relative specifier
 // below; bridge the alias to the same mock so the proxy's flag-off passthrough
-// invokes the wrapped sign callback exactly as the old inline switch did.
+// takes the same lock the old inline switch did.
 jest.mock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-client'));
 jest.mock('../sdk/miden-client', () => ({
-  getMidenClient: async (options?: { signCallback?: (pk: Uint8Array, si: Uint8Array) => Promise<Uint8Array> }) => {
-    // Mirror the SDK invoking the wrapped per-tx sign callback so its wrapper
-    // (and buildSignCallbackError on failure) is exercised through the real path.
-    if (options?.signCallback) {
-      try {
-        await options.signCallback(new Uint8Array([1]), new Uint8Array([2]));
-      } catch {
-        /* wrapper threw a typed SignCallbackError; the SDK would capture it */
-      }
-    }
-    return {
-      syncState: mockSyncState,
-      waitForTransactionCommit: mockWaitForTransactionCommit,
-      sendPrivateNote: mockSendPrivateNote,
-      client: { lastAuthError: mockLastAuthError }
-    };
-  },
+  getMidenClient: async () => ({
+    syncState: mockSyncState,
+    waitForTransactionCommit: mockWaitForTransactionCommit,
+    sendPrivateNote: mockSendPrivateNote
+  }),
   withWasmClientLock: async <T>(fn: () => Promise<T>) => fn()
 }));
 
@@ -210,8 +206,6 @@ const stubGuardianProvider = {
 
 beforeEach(() => {
   jest.clearAllMocks();
-  mockLastAuthError.mockReset();
-  mockLastAuthError.mockImplementation((): unknown => null);
   txStore.length = 0;
   _g.__txBrTest.liveQueryCallbacks.length = 0;
 });
@@ -1052,6 +1046,52 @@ describe('generateTransactionsLoop error paths', () => {
     sdk.withWasmClientLock = origLock;
   });
 
+  it('defers on the locked tag the hold carried out, with no locked text in the message (#878)', async () => {
+    const sdk = require('../sdk/miden-client');
+    const origLock = sdk.withWasmClientLock;
+    let callCount = 0;
+    sdk.withWasmClientLock = jest.fn(async (fn: any) => {
+      callCount++;
+      // What withWasmClientLock rejects with once its hold's sign recorded locked.
+      if (callCount >= 2) {
+        throw Object.assign(new Error('failed to execute transaction: JsValue(Error: opaque)'), { reason: 'locked' });
+      }
+      return fn();
+    });
+    txStore.push({
+      id: 'tx-locked-tag',
+      type: 'send',
+      status: ITransactionStatus.Queued,
+      initiatedAt: Math.floor(Date.now() / 1000),
+      accountId: 'acc-1'
+    });
+    const result = await generateTransactionsLoop(dummySign, true, stubGuardianProvider);
+    expect(result).toBe(false);
+    expect(txStore[0]!.status).toBe(ITransactionStatus.Queued);
+    sdk.withWasmClientLock = origLock;
+  });
+
+  it('fails a plain rejection: the loop reads only the error (the hold-keyed isolation is pinned in miden-client.test.ts)', async () => {
+    const sdk = require('../sdk/miden-client');
+    const origLock = sdk.withWasmClientLock;
+    let callCount = 0;
+    sdk.withWasmClientLock = jest.fn(async (fn: any) => {
+      callCount++;
+      if (callCount >= 2) throw new Error('failed to execute transaction: JsValue(Error: node timeout)');
+      return fn();
+    });
+    txStore.push({
+      id: 'tx-plain-failure',
+      type: 'send',
+      status: ITransactionStatus.Queued,
+      initiatedAt: Math.floor(Date.now() / 1000),
+      accountId: 'acc-1'
+    });
+    await generateTransactionsLoop(dummySign, true, stubGuardianProvider);
+    expect(txStore[0]!.status).toBe(ITransactionStatus.Failed);
+    sdk.withWasmClientLock = origLock;
+  });
+
   it('leaves the tx Queued (not Failed) when the wallet was locked mid-sign', async () => {
     const sdk = require('../sdk/miden-client');
     const origLock = sdk.withWasmClientLock;
@@ -1061,9 +1101,6 @@ describe('generateTransactionsLoop error paths', () => {
       if (callCount >= 2) throw new Error('executeTransaction failed: vault is null');
       return fn();
     });
-    // SDK captured a locked-wallet auth failure during the sign callback.
-    mockLastAuthError.mockReturnValueOnce({ reason: 'locked' });
-
     txStore.push({
       id: 'tx-locked',
       type: 'send',
@@ -1091,10 +1128,11 @@ describe('generateTransactionsLoop error paths', () => {
   });
 
   it('does NOT requeue a lock-recovery eviction that lands alongside a stale locked auth reason (#775)', async () => {
-    // The locked-defer branch is reached by an OR: the error looks locked, OR
-    // the client's ambient `lastAuthError()` says 'locked'. The second disjunct
-    // never looks at the error at all, so a WasmClientPoisonedError arriving
-    // while that ambient reason is set would take the defer path — which
+    // The locked-defer branch reads the error alone, and an evicted write's error
+    // can read as locked: `withWasmClientLock` tags the hold's rejection with the
+    // reason its sign recorded before the eviction landed, and the SDK's message
+    // can carry the word. Without the abandonment guard such a
+    // WasmClientPoisonedError would take the defer path, which
     // requeues the row as a fresh write on the argument that a locked vault is
     // strictly pre-submit. An eviction is precisely the failure where that does
     // not hold: the abandoned pipeline runs on and can still submit, so
@@ -1105,10 +1143,15 @@ describe('generateTransactionsLoop error paths', () => {
     let callCount = 0;
     sdk.withWasmClientLock = jest.fn(async (fn: any) => {
       callCount++;
-      if (callCount >= 2) throw new WasmClientPoisonedError('watchdog');
+      // An eviction whose text reads as locked. A conjunction pin: isLockedError's type
+      // guard and the loop's abandonment guard each keep the row Failed on their own, so
+      // this reddens only when both go; the classifier pin owns the type guard, the
+      // abort row below owns the loop guard.
+      const poison = new WasmClientPoisonedError('watchdog');
+      poison.message = 'Wallet is locked: vault unavailable';
+      if (callCount >= 2) throw poison;
       return fn();
     });
-    mockLastAuthError.mockReturnValueOnce({ reason: 'locked' });
 
     txStore.push({
       id: 'tx-poisoned-not-locked',
@@ -1128,10 +1171,10 @@ describe('generateTransactionsLoop error paths', () => {
   });
 
   it('does NOT requeue an offscreen ABORT that lands alongside a stale locked auth reason (#777)', async () => {
-    // The sibling of the poison case above, and it arrives by a shorter route:
+    // The sibling of the poison case above, by the offscreen route:
     // `dispatchOffscreenWrite` re-tags whatever error it caught with `reason:'locked'`
     // whenever the op's reverse-IPC sign reported locked, so a deadline abort reaches
-    // `isLockedError` directly rather than via the ambient reason. An abort is the same
+    // `isLockedError` already tagged. An abort is the same
     // abandonment as an eviction — the offscreen pipeline keeps running and can still
     // submit — so the defer branch's "strictly pre-submit" argument fails identically,
     // and the requeue would clear `requestBytes` and rebuild the send with a fresh
@@ -1142,10 +1185,10 @@ describe('generateTransactionsLoop error paths', () => {
     let callCount = 0;
     sdk.withWasmClientLock = jest.fn(async (fn: any) => {
       callCount++;
-      if (callCount >= 2) throw new OperationAbortedError('op-1', 'deadline');
+      // An abort whose reason text reads as locked: the loop's abandonment guard must win.
+      if (callCount >= 2) throw new OperationAbortedError('op-1', 'wallet is locked');
       return fn();
     });
-    mockLastAuthError.mockReturnValueOnce({ reason: 'locked' });
 
     txStore.push({
       id: 'tx-aborted-not-locked',
@@ -1215,40 +1258,6 @@ describe('generateTransactionsLoop error paths', () => {
     expect(txStore[0]!.status).toBe(ITransactionStatus.Queued);
     expect(txStore.filter(t => t.status === ITransactionStatus.GeneratingTransaction)).toEqual([]);
   });
-
-  it('invokes the wrapped sign callback during dispatch (success path)', async () => {
-    // Default withWasmClientLock runs fn(), so generateTransaction reaches
-    // getMidenClient(options) and the mock invokes the wrapped sign callback.
-    txStore.push({
-      id: 'tx-sign-ok',
-      type: 'send',
-      status: ITransactionStatus.Queued,
-      initiatedAt: Math.floor(Date.now() / 1000),
-      accountId: 'acc-1'
-    });
-    const signOk = jest.fn(async () => new Uint8Array([7]));
-
-    await generateTransactionsLoop(signOk, true, stubGuardianProvider);
-
-    expect(signOk).toHaveBeenCalled();
-  });
-
-  it('wraps a failing sign callback via buildSignCallbackError during dispatch', async () => {
-    txStore.push({
-      id: 'tx-sign-throw',
-      type: 'send',
-      status: ITransactionStatus.Queued,
-      initiatedAt: Math.floor(Date.now() / 1000),
-      accountId: 'acc-1'
-    });
-    const signThrows = jest.fn(async () => {
-      throw new Error('vault is not initialized');
-    });
-
-    await generateTransactionsLoop(signThrows, true, stubGuardianProvider);
-
-    expect(signThrows).toHaveBeenCalled();
-  });
 });
 
 describe('generateTransactionsLoop — head-of-line fairness', () => {
@@ -1311,56 +1320,6 @@ describe('generateTransactionsLoop — head-of-line fairness', () => {
     expect(row!.status).not.toBe(ITransactionStatus.Queued);
   });
 });
-
-describe('readLastAuthReason', () => {
-  it.each(['locked', 'rejected', 'not_found', 'internal'])(
-    "returns the '%s' reason from the SDK's lastAuthError",
-    async reason => {
-      mockLastAuthError.mockReturnValueOnce({ reason });
-      expect(await readLastAuthReason()).toBe(reason);
-    }
-  );
-
-  it('returns undefined for an unrecognized reason', async () => {
-    mockLastAuthError.mockReturnValueOnce({ reason: 'something-else' });
-    expect(await readLastAuthReason()).toBeUndefined();
-  });
-
-  it('returns undefined when there is no recorded auth error', async () => {
-    mockLastAuthError.mockReturnValueOnce(null);
-    expect(await readLastAuthReason()).toBeUndefined();
-  });
-
-  it('returns undefined when lastAuthError throws', async () => {
-    mockLastAuthError.mockImplementationOnce(() => {
-      throw new Error('boom');
-    });
-    expect(await readLastAuthReason()).toBeUndefined();
-  });
-
-  // Issue #260 flip-prep #1+#2: under the flag-on offscreen write the SW-inline
-  // client NEVER signed for the op (the sign ran in the offscreen realm), so its
-  // `lastAuthError()` is STALE / another op's — consulting it would DEFER a
-  // genuinely-failed offscreen write forever on a stale 'locked'. The op's locked
-  // signal is carried instead by the op-keyed error tag (`isLockedError(e)`), so
-  // `readLastAuthReason()` must NOT consult the SW client at all under flag-on.
-  it('flag-on: never consults the stale SW-client lastAuthError (returns undefined)', async () => {
-    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
-    jest.resetModules();
-    try {
-      const { readLastAuthReason: readFlagOn } = await import('./helper');
-      // Seed a STALE 'locked' on the SW client — a genuinely-failed offscreen
-      // write must not be deferred on it.
-      mockLastAuthError.mockReturnValue({ reason: 'locked' });
-      expect(await readFlagOn()).toBeUndefined();
-    } finally {
-      delete process.env.MIDEN_USE_OFFSCREEN_CLIENT;
-      mockLastAuthError.mockReturnValue(null);
-      jest.resetModules();
-    }
-  });
-});
-
 describe('buildSignCallbackError', () => {
   it("classifies a 'not initialized' vault error as locked", () => {
     const wrapped = buildSignCallbackError(new Error('Wallet is not initialized'));
@@ -1389,5 +1348,38 @@ describe('buildSignCallbackError', () => {
   it('tolerates an empty-message Error (falls back to internal)', () => {
     const wrapped = buildSignCallbackError(new Error(''));
     expect(wrapped.reason).toBe('internal');
+  });
+});
+
+describe('isLockedError', () => {
+  it('never classifies an abandonment as locked, whatever it carries', () => {
+    const { WasmClientPoisonedError } = require('../sdk/wasm-client-poison');
+    const { OperationAbortedError } = require('../back/offscreen-codec');
+    // A locked vault is strictly pre-submit; an abandoned pipeline can still submit, so
+    // deferring it would requeue a payment that may land.
+    // A poison error is refused by TYPE, whatever its text says: a locked-reading
+    // message must not get past the guard.
+    const poisonReadingAsLocked = new WasmClientPoisonedError('watchdog');
+    poisonReadingAsLocked.message = 'Wallet is locked: vault unavailable';
+    expect(isLockedError(poisonReadingAsLocked)).toBe(false);
+    // An abort is NOT refused here: with no locked signal it classifies false, with one
+    // it classifies true, and the loop's `!abandoned` is what keeps it out of the
+    // requeue (pinned by the full-loop abort test above).
+    expect(isLockedError(new OperationAbortedError('op-1', 'deadline'))).toBe(false);
+    expect(isLockedError(new OperationAbortedError('op-1', 'wallet is locked'))).toBe(true);
+  });
+
+  it('reads a locked vault out of an inline SDK rejection, whose message carries the sign callback error (#878)', () => {
+    // What the vault throws when locked, classified by the SDK-facing signer, then folded by the SDK
+    // into its executeTransaction rejection. Only the message crosses: in worker mode the main
+    // thread posts `error.message` (SDK dist/st/index.js, EXECUTE_CALLBACK catch), the worker rethrows
+    // `new Error(message)`, and the Rust adapter formats `{context}: JsValue(Error: <message>)`
+    // (web_keystore_callbacks.rs) - the same string the inline mode produces. That adaptation cannot
+    // run under jest (the Node entry is the napi build), so this pins the shape it is known to emit.
+    const classified = buildSignCallbackError(Object.assign(new Error('Wallet is locked'), { reason: 'locked' }));
+    const sdkShaped = (message: string) => new Error(`failed to execute transaction: JsValue(Error: ${message})`);
+    expect(isLockedError(sdkShaped(classified.message))).toBe(true);
+    const other = buildSignCallbackError(new Error('keystore IO failure'));
+    expect(isLockedError(sdkShaped(other.message))).toBe(false);
   });
 });

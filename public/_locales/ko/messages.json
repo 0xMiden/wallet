@@ -786,6 +786,14 @@
     "message": "다시 시도",
     "englishSource": "Retry"
   },
+  "retryEarnDelivery": {
+    "message": "전달 다시 시도",
+    "englishSource": "Retry delivery"
+  },
+  "withdrawalRecoveryUnavailable": {
+    "message": "이 인출은 안전하게 다시 시도할 수 없습니다. 다른 인출을 시작하기 전에 이 인출의 상태를 확인하세요.",
+    "englishSource": "This withdrawal cannot be retried safely. Check its status before starting another withdrawal."
+  },
   "retryAnyway": {
     "message": "그래도 다시 시도",
     "englishSource": "Retry anyway"
@@ -4458,6 +4466,10 @@
     "message": "인출 처리",
     "englishSource": "Processing Withdrawal"
   },
+  "withdrawalCheckingDescription": {
+    "message": "인출 상태를 확인하고 있습니다. 전달이 확인될 때까지 지갑을 열어 두세요.",
+    "englishSource": "Checking your withdrawal. Keep the wallet open while delivery is confirmed."
+  },
   "withdrawalProcessingDescription": {
     "message": "가스 비용이 들지 않는 인출 의향서를 서명하여 Epoch에 제출합니다. 이 과정은 보통 몇 초 정도 소요됩니다.",
     "englishSource": "Signing and submitting the gasless withdrawal intent to Epoch. This usually takes a few seconds."
@@ -4581,6 +4593,75 @@
   "devEndpointResetConfirm": {
     "message": "이렇게 하면 키와 거래 내역을 포함한 이 지갑의 모든 데이터가 영구적으로 삭제됩니다. 지갑을 복원하려면 복구 문구가 필요합니다.",
     "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
+  },
+  "activityAcceptTransfer": {
+    "message": "이체 수락",
+    "englishSource": "Accept Transfer"
+  },
+  "activityRejectTransfer": {
+    "message": "거절",
+    "englishSource": "Decline"
+  },
+  "activityCheckingTransfer": {
+    "message": "확인 중…",
+    "englishSource": "Checking…"
+  },
+  "activityTransferClaimed": {
+    "message": "청구됨",
+    "englishSource": "Claimed"
+  },
+  "activityClaimedOn": {
+    "message": "청구일:",
+    "englishSource": "Claimed on"
+  },
+  "activityReceivedOn": {
+    "message": "수신일:",
+    "englishSource": "Received on"
+  },
+  "activityNotYetAccepted": {
+    "message": "아직 승인되지 않았습니다 — 검토 후 승인하여 해당 자금을 청구하십시오.",
+    "englishSource": "Not yet accepted — review and accept to claim these funds."
+  },
+  "acceptAll": {
+    "message": "모두 수락",
+    "englishSource": "Accept All"
+  },
+  "activitySearch": {
+    "message": "검색 활동",
+    "englishSource": "Search activity"
+  },
+  "activityTransferAccepted": {
+    "message": "이체 승인됨",
+    "englishSource": "Transfer accepted"
+  },
+  "activityTransferDetails": {
+    "message": "상세 정보",
+    "englishSource": "Details"
+  },
+  "activityRejectExplanation": {
+    "message": "이 기기의 ‘활동’에서 이 전송 내역을 숨기시겠습니까? 이 작업을 수행해도 자금이 발신자에게 반환되거나 ‘note’가 삭제되지는 않습니다. ‘활동’에서 숨겨진 전송 내역을 복원할 수 있습니다.",
+    "englishSource": "Hide this transfer from Activity on this device? This does not return funds to the sender or delete the note. You can restore hidden transfers in Activity."
+  },
+  "activityHiddenTransfers": {
+    "message": "숨겨진 전송: $count$",
+    "englishSource": "Hidden transfers: $count$",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "activityRestoreTransfers": {
+    "message": "복원",
+    "englishSource": "Restore"
+  },
+  "activityHiddenNotesError": {
+    "message": "숨겨진 전송 내역을 저장할 수 없습니다. 다시 시도해 주십시오.",
+    "englishSource": "Could not save hidden transfers. Please try again."
+  },
+  "activityDateUnavailable": {
+    "message": "날짜 미확인",
+    "englishSource": "Date unavailable"
   },
   "walletSetupDidNotComplete": {
     "message": "지갑이 생성되었으나 시작 절차가 완료되지 않았습니다. 연결 상태를 확인하고 다시 시도해 주세요.",

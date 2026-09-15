@@ -23,6 +23,9 @@ import {
   TransactionProver,
   TransactionRequest,
   TransactionResult,
+  type GetKeyCallback,
+  type InsertKeyCallback,
+  type SignCallback,
   WasmWebClient
 } from '@miden-sdk/miden-sdk/lazy';
 import { Buffer } from 'buffer';
@@ -143,9 +146,17 @@ const USE_OFFSCREEN_PROVING = process.env.MIDEN_USE_OFFSCREEN_PROVING === 'true'
 
 export type MidenClientCreateOptions = {
   seed?: Uint8Array;
-  insertKeyCallback?: (key: Uint8Array, secretKey: Uint8Array) => void;
-  getKeyCallback?: (key: Uint8Array) => Promise<Uint8Array>;
-  signCallback?: (publicKey: Uint8Array, signingInputs: Uint8Array) => Promise<Uint8Array>;
+  /**
+   * The SDK keystore callbacks, fixed at creation. Supplying any one of them
+   * builds the client on the SDK's external keystore (the SDK's own IndexedDB
+   * keystore is not used; a member left out is refused by name). The realm
+   * singleton always does, passing trampolines that route to
+   * `installRealmKeystore`'s callbacks and refuse `getKey` by name (#878); the
+   * offscreen document passes its reverse-IPC signer directly.
+   */
+  insertKeyCallback?: InsertKeyCallback;
+  getKeyCallback?: GetKeyCallback;
+  signCallback?: SignCallback;
   onConnectivityIssue?: () => void;
   /**
    * Override the SDK's Web-Worker shim (issue #260, slice 5, design §5.2).
@@ -237,6 +248,17 @@ export type AssertLive = (step?: string) => void;
 const noAssertLive: AssertLive = () => {};
 
 /**
+ * A keystore member the creator left out (#878): the SDK's type makes all three
+ * mandatory, so the slot is filled with a refusal that names the member rather
+ * than left `undefined` to fail as a TypeError on its first use.
+ */
+function refuseKeystoreMember(name: 'getKey' | 'insertKey' | 'sign') {
+  return async (): Promise<never> => {
+    throw new Error(`${name} requested on a client created with no ${name} callback`);
+  };
+}
+
+/**
  * Bracket a keystore sign callback with a WASM-lock-watchdog pause (issue
  * #775): the sign fires from inside the SDK mid-execute, while the caller's
  * `withWasmClientLock` hold is live, and can wait as long as the user takes to
@@ -252,14 +274,11 @@ const noAssertLive: AssertLive = () => {};
  * long as the corpse's prompt sits unanswered, re-wedging the lock with the
  * backstop switched off.
  */
-function wrapSignWithWatchdogPause(
-  sign: (publicKey: Uint8Array, signingInputs: Uint8Array) => Promise<Uint8Array>,
-  liveness: ClientLiveness
-): (publicKey: Uint8Array, signingInputs: Uint8Array) => Promise<Uint8Array> {
-  return (publicKey, signingInputs) =>
+function wrapSignWithWatchdogPause(sign: SignCallback, liveness: ClientLiveness): SignCallback {
+  return async (publicKey, signingInputs) =>
     liveness.disposed
       ? sign(publicKey, signingInputs)
-      : withWasmLockWatchdogPaused(() => sign(publicKey, signingInputs));
+      : withWasmLockWatchdogPaused(async () => sign(publicKey, signingInputs));
 }
 
 /**
@@ -345,8 +364,7 @@ let realmReader: RealmReader | undefined;
  * the extension renderer died of OOM after 55 hours. Nothing can release a
  * reader, so the bound is to stop rebuilding it.
  *
- * It is keyed on what makes it stale, not on the MidenClientInterface, which the
- * inline path rebuilds on every signed write:
+ * It is keyed on what makes it stale, not on the MidenClientInterface:
  * - the client generation, bumped by every lock-recovery replacement in this
  *   realm and by the extension SW's pre-wallet endpoint reset;
  * - the effective RPC URL, the ONLY rebuild trigger after an endpoint change in
@@ -471,8 +489,8 @@ export class MidenClientInterface {
       seed: options.seed,
       keystore: hasKeystore
         ? {
-            getKey: options.getKeyCallback!,
-            insertKey: options.insertKeyCallback!,
+            getKey: options.getKeyCallback ?? refuseKeystoreMember('getKey'),
+            insertKey: options.insertKeyCallback ?? refuseKeystoreMember('insertKey'),
             // A sign round-trip can block indefinitely on the user (Face ID,
             // an unlock prompt) while the WASM lock is held — pause the lock
             // watchdog for its duration so a slow sign is never mistaken for
@@ -480,7 +498,7 @@ export class MidenClientInterface {
             // sign pause in miden-client-proxy.ts).
             sign: options.signCallback
               ? wrapSignWithWatchdogPause(options.signCallback, liveness)
-              : options.signCallback!
+              : refuseKeystoreMember('sign')
           }
         : undefined,
       proverUrl: getEffectiveProverUrl(),
@@ -672,7 +690,7 @@ export class MidenClientInterface {
     deriveColdSeed: (hdIndex: number) => Uint8Array,
     guardianEndpoint: string
   ): Promise<RecoveredGuardianAccount[]> {
-    const [{ withWasmClientLock }, { MultisigClient, EcdsaSigner }] = await Promise.all([
+    const [{ assertWasmHoldCurrent, withWasmClientLock }, { MultisigClient, EcdsaSigner }] = await Promise.all([
       import('../sdk/miden-client'),
       import('@openzeppelin/miden-multisig-client')
     ]);
@@ -680,15 +698,19 @@ export class MidenClientInterface {
     const recovered: RecoveredGuardianAccount[] = [];
     let consecutiveMisses = 0;
 
-    registerGuardianOrigin(guardianEndpoint);
-    for (let hdIndex = 0; hdIndex < MAX_RECOVERY_HD_INDEX; hdIndex++) {
-      // The scan holds `this` across many independently-locked ops; a recovery
-      // mid-scan replaces the singleton and leaves later iterations driving a
-      // poisoned client (issue #775). Fail loudly at the next index instead of
-      // producing a confusing partial result on a dead client.
+    // The scan holds `this` across many independently-locked ops; a recovery
+    // mid-scan replaces the singleton and leaves later iterations driving a
+    // poisoned client (issue #775). Fail loudly instead of producing a confusing
+    // partial result on a dead client: at every index, and again after the
+    // lookup, which parks outside the lock and must not adopt on the old client.
+    const refuseIfReplaced = () => {
       if (this.isDisposed) {
         throw new Error('The Miden client was replaced while scanning for Guardian accounts — please try again.');
       }
+    };
+    registerGuardianOrigin(guardianEndpoint);
+    for (let hdIndex = 0; hdIndex < MAX_RECOVERY_HD_INDEX; hdIndex++) {
+      refuseIfReplaced();
       const coldSeed = deriveColdSeed(hdIndex);
       const coldSk = AuthSecretKey.ecdsaWithRNG(coldSeed);
       const coldPublicKey = Buffer.from(coldSk.publicKey().serialize().slice(1)).toString('hex');
@@ -699,7 +721,17 @@ export class MidenClientInterface {
         midenRpcEndpoint: getEffectiveRpcUrl()
       });
       const lookupSigner = new EcdsaSigner(coldSk);
-      const matches = await lookupClient.recoverByKey(lookupSigner);
+      // Bounded like the other recovery RPCs in this file: this scan runs on the
+      // accounts write queue (a spawn), so an operator that never answers must not
+      // park every other accounts write behind it. No retry, as its siblings: an
+      // abandoned attempt is never aborted, so a retry would double the operator's
+      // in-flight lookups; 30 s because this is a lookup plus one getState per match,
+      // the shape recoverySyncNotes is sized for (#878).
+      const matches = await withRpcTimeout(() => lookupClient.recoverByKey(lookupSigner), 'recoverGuardianByKey', {
+        timeoutMs: 30_000,
+        retries: 0
+      });
+      refuseIfReplaced();
 
       if (matches.length === 0) {
         // Tolerate a small gap before giving up, so a non-contiguous index or a
@@ -714,15 +746,19 @@ export class MidenClientInterface {
         // Decode the on-chain account state and adopt it locally so subsequent
         // SDK calls (.load, executeForSummary) can resolve the account.
         const accountBytes = new Uint8Array(Buffer.from(state.stateJson.data, 'base64'));
-        const bech32 = await withWasmClientLock(async () => {
-          const acc = Account.deserialize(accountBytes);
-          // The same account matches at more than one HD index, so this runs
-          // twice per recovery; a plain overwrite lets whichever snapshot
-          // arrives last win, including a creation-time one.
-          await insertGuardianAccountMonotonically(this.client, acc);
-          await this.client.keystore.insert(acc.id(), coldSk);
-          return getBech32AddressFromAccountId(acc.id());
-        });
+        const bech32 = await withWasmClientLock(
+          async hold => {
+            const acc = Account.deserialize(accountBytes);
+            // The same account matches at more than one HD index, so this runs
+            // twice per recovery; a plain overwrite lets whichever snapshot
+            // arrives last win, including a creation-time one.
+            await insertGuardianAccountMonotonically(this.client, acc);
+            assertWasmHoldCurrent(hold, 'recover-guardian-adopt after the adoption');
+            await this.client.keystore.insert(acc.id(), coldSk);
+            return getBech32AddressFromAccountId(acc.id());
+          },
+          { label: 'recover-guardian-adopt' }
+        );
 
         recovered.push({
           accountId: bech32,

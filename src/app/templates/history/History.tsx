@@ -1,13 +1,14 @@
-import React, { memo, RefObject, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { memo, RefObject, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import { HISTORY_PAGE_SIZE } from 'app/defaults';
+import { usePageActive } from 'app/layouts/page-active';
 import {
   cancelTransactionById,
   getCompletedTransactions,
   getUncompletedTransactions,
   isCancellableTransaction,
   isUserCancelledTransaction,
-  suppressingLinkedTxIds,
+  suppressedLinkedConsumeIds,
   USER_CANCELLED_TRANSACTION_REASON
 } from 'lib/miden/activity';
 import {
@@ -29,6 +30,7 @@ import useSafeState from 'lib/ui/useSafeState';
 
 import HistoryView from './HistoryView';
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
+import type { PendingActivityItem } from './PendingActivityCard';
 import {
   earnWithdrawAmountFields,
   isFaucetRequest as isFaucetEntry,
@@ -45,13 +47,31 @@ type HistoryProps = {
   className?: string;
   fullHistory?: boolean;
   centerEmptyState?: boolean;
+  pendingItems?: PendingActivityItem[];
+  renderPendingItem?: (item: PendingActivityItem) => React.ReactNode;
   tokenId?: string;
   searchQuery?: string;
-  filter?: 'all' | 'sent' | 'received' | 'faucet';
+  filter?: ActivityFilter;
 };
 
+// The chips above the activity list. `pending` shows only the notes that
+// wait for a claim, so it removes every settled history row.
+export type ActivityFilter = 'all' | 'pending' | 'sent' | 'received' | 'faucet';
+
 const History = memo<HistoryProps>(
-  ({ address, className, numItems, scrollParentRef, fullHistory, centerEmptyState, tokenId, searchQuery, filter }) => {
+  ({
+    address,
+    className,
+    numItems,
+    scrollParentRef,
+    fullHistory,
+    centerEmptyState,
+    tokenId,
+    searchQuery,
+    filter,
+    pendingItems,
+    renderPendingItem
+  }) => {
     const safeStateKey = useMemo(() => ['history', address, tokenId].join('_'), [address, tokenId]);
     const [isLoading, setIsLoading] = useState(false);
     const [hasMore, setHasMore] = useState(true);
@@ -86,14 +106,24 @@ const History = memo<HistoryProps>(
       setIsLoading(false);
     }, [safeStateKey]);
 
-    const { data: latestTransactions, isLoading: transactionsLoading } = useRetryableSWR(
+    const onScreen = usePageActive();
+    // The Pending filter shows transfer cards only, and a retained page off screen shows nothing, so the
+    // transaction reads run only while neither holds.
+    const reading = onScreen && filter !== 'pending';
+
+    const {
+      data: latestTransactions,
+      isLoading: transactionsLoading,
+      mutate: mutateLatest
+    } = useRetryableSWR(
       [`latest-transactions`, address, tokenId],
       async () => fetchTransactionsAsHistoryEntries(address, undefined, undefined, tokenId),
       {
         revalidateOnMount: true,
         refreshInterval: 10_000,
         dedupingInterval: 3_000,
-        keepPreviousData: true
+        keepPreviousData: true,
+        isPaused: () => !reading
       }
     );
 
@@ -104,9 +134,21 @@ const History = memo<HistoryProps>(
         revalidateOnMount: true,
         refreshInterval: 5_000,
         dedupingInterval: 3_000,
-        keepPreviousData: true
+        keepPreviousData: true,
+        isPaused: () => !reading
       }
     );
+    // A paused read only ticks again on its next interval, so reads that resume refresh at once: a page back on
+    // screen, or a filter moved off Pending.
+    const wasReading = useRef(reading);
+    useEffect(() => {
+      if (reading && !wasReading.current) {
+        void mutateLatest();
+        void mutateTx();
+      }
+      wasReading.current = reading;
+    }, [reading, mutateLatest, mutateTx]);
+
     const pendingTransactions = useMemo(
       () =>
         latestPendingTransactions?.map(tx => {
@@ -178,7 +220,20 @@ const History = memo<HistoryProps>(
       }
     };
 
-    let entries: IHistoryEntry[] = allEntries;
+    // A card carries its claim's outcome, failed included, so the row that outcome would repeat stays hidden.
+    const representedNotes = new Set(
+      pendingItems
+        ?.filter(item => item.status === 'claiming' || item.status === 'claimed' || item.status === 'failed')
+        .map(item => item.note.id)
+    );
+    let entries: IHistoryEntry[] = allEntries.filter(
+      entry =>
+        !(
+          entry.txType === 'consume' &&
+          entry.consumedNoteIds?.length &&
+          entry.consumedNoteIds.every(id => representedNotes.has(id))
+        )
+    );
     if (searchQuery?.trim()) {
       const query = searchQuery.toLowerCase();
       entries = entries.filter(
@@ -196,6 +251,7 @@ const History = memo<HistoryProps>(
       // Failed/cancelled rows lose their directional icon (it becomes FAILED),
       // so the Sent/Received filters fall back to the underlying tx type.
       entries = entries.filter(e => {
+        if (filter === 'pending') return false;
         if (filter === 'sent') {
           return e.transactionIcon === 'SEND' || (e.transactionIcon === 'FAILED' && isSendType(e.txType));
         }
@@ -217,13 +273,18 @@ const History = memo<HistoryProps>(
     return (
       <HistoryView
         entries={entries ?? []}
-        initialLoading={transactionsLoading}
+        // Under Pending both reads are paused, and one that never ran reports loading until they resume.
+        initialLoading={filter !== 'pending' && transactionsLoading}
         loadMore={loadMore}
-        hasMore={hasMore}
+        // Paging reads transaction rows too, so it stops wherever the reads above pause: under Pending, where every
+        // row is filtered out, and off screen.
+        hasMore={reading && hasMore}
         scrollParentRef={scrollParentRef}
         tokenId={tokenId}
         fullHistory={fullHistory}
         centerEmptyState={centerEmptyState}
+        pendingItems={pendingItems}
+        renderPendingItem={renderPendingItem}
         className={className}
       />
     );
@@ -317,6 +378,7 @@ async function fetchTransactionsAsHistoryEntries(
       // Bridge rows have no Miden recipient — surface the EVM destination instead.
       secondaryAddress: bridge?.destinationAddress ?? tx.secondaryAccountId,
       txId: tx.id,
+      consumedNoteIds: tx.type === 'consume' ? (tx.noteIds ?? (tx.noteId ? [tx.noteId] : [])) : undefined,
       noteType: tx.noteType,
       faucetId: tx.faucetId,
       txType: tx.type,
@@ -337,14 +399,14 @@ async function fetchTransactionsAsHistoryEntries(
       bridgeReclaimHeight: bridge?.reclaimHeight,
       restoredFromBackup: tx.restoredFromBackup,
       bridgeInProvider: bridgedReceive?.provider ?? bridgeIn?.provider,
-      bridgeInSourceAddress: bridgedReceive?.sourceAddress,
+      bridgeInSourceAddress: bridgedReceive?.sourceAddress ?? bridgeIn?.intentOwner,
       bridgeInSourceAmount: bridgedReceive?.sourceAmount ?? bridgeIn?.sourceAmount,
       bridgeInSourceSymbol: bridgedReceive?.sourceSymbol ?? bridgeIn?.sourceSymbol,
       bridgeInEvmTxHash: bridgedReceive?.evmTxHash ?? bridgeIn?.evmTxHash,
       bridgeInPhase: bridgedReceive?.phase,
       bridgeInOutputAmount: bridgedReceive?.outputAmount,
       bridgeInOutputSymbol: bridgedReceive?.outputSymbol,
-      bridgeInMidenNoteId: bridgedReceive?.midenNoteId
+      bridgeInMidenNoteId: bridgedReceive?.midenNoteId ?? bridgeIn?.midenNoteId
     } as IHistoryEntry;
 
     return entry;
@@ -391,6 +453,7 @@ async function fetchPendingTransactionsAsHistoryEntries(address: string, tokenId
       // Bridge rows have no Miden recipient — surface the EVM destination instead.
       secondaryAddress: bridge?.destinationAddress ?? tx.secondaryAccountId,
       txId: tx.id,
+      consumedNoteIds: tx.type === 'consume' ? (tx.noteIds ?? (tx.noteId ? [tx.noteId] : [])) : undefined,
       type: entryType,
       noteType: tx.noteType,
       faucetId: tx.faucetId,
@@ -427,32 +490,8 @@ async function fetchPendingTransactionsAsHistoryEntries(address: string, tokenId
  * the swap row on its requested-token page too.
  */
 async function suppressLinkedConsumes<T extends ITransaction>(transactions: T[]): Promise<T[]> {
-  const linkedTrackingIds = transactions.map(linkedPrimaryTxId).filter((id): id is string => Boolean(id));
-  if (linkedTrackingIds.length === 0) return transactions;
-  const suppressingIds = await suppressingLinkedTxIds(linkedTrackingIds);
-  return transactions.filter(tx => {
-    const linkedId = linkedPrimaryTxId(tx);
-    return !(linkedId && suppressingIds.has(linkedId));
-  });
-}
-
-/**
- * The primary row a `consume` transaction is the lifecycle tail of, if any —
- * swap-order settlement consumes (linked via `extraInputs.swapOrderTxId` by
- * `reconcileSwapOrderNotes`), Smart Withdraw delivery consumes (linked via
- * `extraInputs.bridgeIn.earnWithdrawTxId`) and bridged-receive delivery consumes
- * (linked via `extraInputs.bridgeIn.bridgeReceiveTxId`). While the primary row
- * exists AND is a valid trace it is the single trace; a dangling reference — or a
- * terminal-`failed` earn-withdraw primary (see `suppressingLinkedTxIds`) — falls
- * through to a normal receive row so the delivered funds stay visible.
- */
-function linkedPrimaryTxId(tx: ITransaction): string | undefined {
-  if (tx.type !== 'consume') return undefined;
-  return (
-    tx.extraInputs?.swapOrderTxId ??
-    tx.extraInputs?.bridgeIn?.earnWithdrawTxId ??
-    tx.extraInputs?.bridgeIn?.bridgeReceiveTxId
-  );
+  const suppressed = await suppressedLinkedConsumeIds(transactions);
+  return transactions.filter(tx => !suppressed.has(tx.id));
 }
 
 function mergeAndSort(base?: IHistoryEntry[], toAppend: IHistoryEntry[] = []) {

@@ -29,7 +29,7 @@
 
 import React from 'react';
 
-import { act, renderHook } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 
 // ── @miden/dapp-browser (InAppBrowser plugin + dappWebViewManager) ─
 
@@ -392,6 +392,18 @@ describe('park / restore lifecycle', () => {
     await act(async () => {
       await hook.result.current.park('dapp-a');
     });
+    expect(mockSetVisible).toHaveBeenCalledWith('dapp-a', false);
+  });
+
+  it('parks the foreground once its surface clears the slot rect, as leaving the browser page does', async () => {
+    const hook = renderHook(() => useDappBrowser(), { wrapper });
+    await openAndWaitForInstance(hook, makeSession('dapp-a'));
+    mockSetVisible.mockClear();
+
+    act(() => hook.result.current.setSlotRect(null));
+
+    await waitFor(() => expect(hook.result.current.parkedSessions.map(s => s.session.id)).toContain('dapp-a'));
+    expect(hook.result.current.session).toBeNull();
     expect(mockSetVisible).toHaveBeenCalledWith('dapp-a', false);
   });
 

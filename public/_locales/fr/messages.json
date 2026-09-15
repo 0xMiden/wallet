@@ -786,6 +786,14 @@
     "message": "Réessayer",
     "englishSource": "Retry"
   },
+  "retryEarnDelivery": {
+    "message": "Réessayer la livraison",
+    "englishSource": "Retry delivery"
+  },
+  "withdrawalRecoveryUnavailable": {
+    "message": "Ce retrait ne peut pas être réessayé en toute sécurité. Vérifiez son statut avant de lancer un autre retrait.",
+    "englishSource": "This withdrawal cannot be retried safely. Check its status before starting another withdrawal."
+  },
   "retryAnyway": {
     "message": "Réessayer quand même",
     "englishSource": "Retry anyway"
@@ -4458,6 +4466,10 @@
     "message": "Traitement d’un retrait",
     "englishSource": "Processing Withdrawal"
   },
+  "withdrawalCheckingDescription": {
+    "message": "Vérification de votre retrait. Gardez le portefeuille ouvert jusqu’à la confirmation de la livraison.",
+    "englishSource": "Checking your withdrawal. Keep the wallet open while delivery is confirmed."
+  },
   "withdrawalProcessingDescription": {
     "message": "Signature et soumission de l’intention de retrait sans frais de gaz à Epoch. Cela prend généralement quelques secondes.",
     "englishSource": "Signing and submitting the gasless withdrawal intent to Epoch. This usually takes a few seconds."
@@ -4581,6 +4593,75 @@
   "devEndpointResetConfirm": {
     "message": "Cette opération efface définitivement ce portefeuille, y compris vos clés et l'historique de vos transactions. Vous aurez besoin de votre phrase de récupération pour le restaurer.",
     "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
+  },
+  "activityAcceptTransfer": {
+    "message": "Accepter le transfert",
+    "englishSource": "Accept Transfer"
+  },
+  "activityRejectTransfer": {
+    "message": "Refuser",
+    "englishSource": "Decline"
+  },
+  "activityCheckingTransfer": {
+    "message": "Vérification en cours…",
+    "englishSource": "Checking…"
+  },
+  "activityTransferClaimed": {
+    "message": "Réclamé",
+    "englishSource": "Claimed"
+  },
+  "activityClaimedOn": {
+    "message": "Réclamé le",
+    "englishSource": "Claimed on"
+  },
+  "activityReceivedOn": {
+    "message": "Reçu le",
+    "englishSource": "Received on"
+  },
+  "activityNotYetAccepted": {
+    "message": "Pas encore acceptées — examinez-les et acceptez-les pour réclamer ces fonds.",
+    "englishSource": "Not yet accepted — review and accept to claim these funds."
+  },
+  "acceptAll": {
+    "message": "Tout accepter",
+    "englishSource": "Accept All"
+  },
+  "activitySearch": {
+    "message": "Activité de recherche",
+    "englishSource": "Search activity"
+  },
+  "activityTransferAccepted": {
+    "message": "Transfert accepté",
+    "englishSource": "Transfer accepted"
+  },
+  "activityTransferDetails": {
+    "message": "Détails",
+    "englishSource": "Details"
+  },
+  "activityRejectExplanation": {
+    "message": "Masquer ce transfert dans l’historique d’activité sur cet appareil ? Cela ne restitue pas les fonds à l’expéditeur et ne supprime pas l’note. Vous pouvez restaurer les transferts masqués dans l’historique d’activité.",
+    "englishSource": "Hide this transfer from Activity on this device? This does not return funds to the sender or delete the note. You can restore hidden transfers in Activity."
+  },
+  "activityHiddenTransfers": {
+    "message": "Transferts masqués : $count$",
+    "englishSource": "Hidden transfers: $count$",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "activityRestoreTransfers": {
+    "message": "Restaurer",
+    "englishSource": "Restore"
+  },
+  "activityHiddenNotesError": {
+    "message": "Impossible d'enregistrer les transferts masqués. Veuillez réessayer.",
+    "englishSource": "Could not save hidden transfers. Please try again."
+  },
+  "activityDateUnavailable": {
+    "message": "Date indisponible",
+    "englishSource": "Date unavailable"
   },
   "walletSetupDidNotComplete": {
     "message": "Votre portefeuille a été créé mais n’a pas terminé son démarrage. Vérifiez votre connexion et réessayez.",

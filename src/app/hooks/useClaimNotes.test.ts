@@ -172,6 +172,44 @@ describe('useClaimNotes failed-note check (#456)', () => {
     });
   });
 
+  it('reports notes as fetching only while no list has loaded, not during a background refresh', async () => {
+    mockUseClaimableNotes.mockReturnValue({ data: undefined, mutate: jest.fn(), isLoading: true, isValidating: true });
+    const { result, rerender } = renderHook(() => useClaimNotes());
+    expect(result.current.isFetchingNotes).toBe(true);
+
+    mockUseClaimableNotes.mockReturnValue({
+      data: [note('a')],
+      mutate: jest.fn(),
+      isLoading: false,
+      isValidating: true
+    });
+    rerender();
+    expect(result.current.isFetchingNotes).toBe(false);
+    await waitFor(() => expect(mockGetFailedTransactions).toHaveBeenCalled());
+  });
+
+  it('does not report fetching while the persisted list is on screen during the first live read', async () => {
+    mockUseClaimableNotes.mockReturnValue({
+      data: [{ ...note('a'), fromCache: true }],
+      mutate: jest.fn(),
+      isLoading: true,
+      isValidating: true
+    });
+    const { result } = renderHook(() => useClaimNotes());
+    expect(result.current.isFetchingNotes).toBe(false);
+    await act(async () => {});
+  });
+
+  it('never counts a cached, unconfirmed note as unclaimed', async () => {
+    mockUseClaimableNotes.mockReturnValue({
+      data: [{ ...note('cached'), fromCache: true }, note('live')],
+      mutate: jest.fn().mockResolvedValue([])
+    });
+    const { result } = renderHook(() => useClaimNotes());
+    expect(result.current.unclaimedNotes.map(n => n.id)).toEqual(['live']);
+    await waitFor(() => expect(mockGetFailedTransactions).toHaveBeenCalled());
+  });
+
   // "Claim All" can span several faucets, but a completed consume row carries a
   // single (faucetId, amount) pair derived from the FIRST input note, so a
   // mixed-faucet batch recorded only the first asset and dropped the rest from

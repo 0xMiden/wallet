@@ -1,14 +1,17 @@
-import React, { FC, useEffect, useRef } from 'react';
+import React, { FC, ReactNode, useLayoutEffect, useRef } from 'react';
 
 import classNames from 'clsx';
-import { motion } from 'framer-motion';
+import { motion, useReducedMotion } from 'framer-motion';
+import { useTranslation } from 'react-i18next';
 
 import { useAppEnv } from 'app/env';
 import { useHasUnclaimedNotes } from 'app/hooks/useHasUnclaimedNotes';
 import { Icon, IconName } from 'app/icons/v2';
 import HomeSwipeContainer from 'app/layouts/HomeSwipeContainer';
+import { PageActiveContext, usePageActive } from 'app/layouts/page-active';
 import { BottomNav, SegmentedActionBar } from 'components/ui';
-import { springs } from 'lib/animation';
+import { useMotion } from 'lib/animation';
+import { pageAppearance } from 'lib/animation/page-appearance';
 import { isSwapEnabled } from 'lib/feature-flags';
 import { hapticSelection } from 'lib/mobile/haptics';
 import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
@@ -25,12 +28,17 @@ import { navigate, useLocation } from 'lib/woozie';
  * The top action bar is mounted when the route is in the "home"
  * tab group (/, /send, /receive, /earn, /swap) so it stays visible across
  * Overview ↔ Send ↔ Receive ↔ Earn ↔ Swap transitions. Other tabs (Explore,
- * Activity) hide it.
+ * Activity, Settings) hide it.
+ *
+ * Only the Settings ROOT (`/settings`) is a tab destination; `/settings/<slug>`
+ * sub-pages keep their FullScreenPage drill-in so back behaviour and history
+ * depth are unchanged (see PageRouter).
  */
 const TAB_ROUTES: Record<string, string> = {
   home: '/',
   explore: '/browser',
-  activity: '/history'
+  activity: '/history',
+  settings: '/settings'
 };
 
 const ACTION_ROUTES: Record<string, string> = {
@@ -43,10 +51,46 @@ const ACTION_ROUTES: Record<string, string> = {
 
 const HOME_GROUP_ROUTES = new Set(['/', '/send', '/receive', '/earn', '/swap']);
 
+interface TabPaneProps extends PropsWithChildren {
+  id: string;
+  active: boolean;
+}
+
+// One tab's content. An inactive pane keeps its layout but is not painted,
+// not focusable and not read by assistive tech.
+const TabPane: FC<TabPaneProps> = ({ id, active, children }) => {
+  const layerActive = usePageActive();
+  const ref = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    ref.current?.toggleAttribute('inert', !active);
+  }, [active]);
+  return (
+    <div
+      ref={ref}
+      // flex column so children (AllHistory, Browser) that use
+      // `flex-1 min-h-0 overflow-y-auto` for their scroll region can
+      // actually claim the remaining height.
+      className="absolute inset-0 overflow-hidden flex flex-col"
+      data-tab-pane={id}
+      aria-hidden={!active || undefined}
+      style={{ visibility: active ? 'visible' : 'hidden' }}
+    >
+      <PageActiveContext.Provider value={active && layerActive}>{children}</PageActiveContext.Provider>
+    </div>
+  );
+};
+
 function activeTabFromPath(pathname: string): string {
   const segment = pathname.split('/')[1] ?? '';
   if (segment === 'browser') return 'explore';
   if (segment === 'history' || segment === 'activity-details') return 'activity';
+  // Exact, unlike the segment matches above: `/history/:programId` renders
+  // inside this shell, so Activity has sub-paths to stay lit for, whereas the
+  // only Settings route that mounts TabLayout is the bare root — every
+  // `/settings/<slug>` sub-page renders in FullScreenPage (see PageRouter).
+  // Matching the segment here would only ever cover paths that cannot reach
+  // this function.
+  if (pathname === '/settings') return 'settings';
   return 'home';
 }
 
@@ -59,10 +103,13 @@ function activeActionFromPath(pathname: string): string {
 }
 
 const TabLayout: FC<PropsWithChildren> = ({ children }) => {
+  const { t } = useTranslation();
   const { fullPage, sidePanel } = useAppEnv();
   const { pathname } = useLocation();
   const hasUnclaimedNotes = useHasUnclaimedNotes();
-  const prevPathnameRef = useRef<string | null>(null);
+  // Content of each tab that has been shown. The active tab's entry is
+  // refreshed on every render; the others keep their last content mounted.
+  const panesRef = useRef<Partial<Record<string, ReactNode>>>({});
 
   // Hide the floating BottomNav whenever the mobile soft keyboard is up —
   // the keyboard inset (mobile.html) shrinks the layout, and the navbar
@@ -70,23 +117,17 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
   // useHideNavbarWhileOpen callers (drawers, flows), so it composes.
   useHideNavbarWhileOpen(useKeyboardVisible());
 
-  // During render `prevPathnameRef.current` still holds the previous path
-  // (the effect below updates it AFTER commit). That's exactly what we need
-  // to decide whether the incoming page should slide in.
-  const prevPathname = prevPathnameRef.current;
-  const skipSlideIn =
-    isExtension() ||
-    (isMobile() && isReturningFromWebview()) ||
-    (prevPathname !== null && HOME_GROUP_ROUTES.has(prevPathname) && HOME_GROUP_ROUTES.has(pathname));
-
-  useEffect(() => {
-    prevPathnameRef.current = pathname;
-  }, [pathname]);
+  // The fade plays once, when the layout mounts. A tab change swaps panes
+  // with no animation, like a native tab bar.
+  const reduce = useReducedMotion();
+  const appearance = useMotion(pageAppearance);
+  const appear = !reduce && !isReturningFromWebview();
+  const initial = appear ? { opacity: 0 } : false;
 
   const tabs = [
     {
       id: 'home',
-      label: 'Home',
+      label: t('home'),
       icon: <Icon name={IconName.Home} className="w-6 h-6" fill="currentColor" />
     },
     // Explore tab is a dApp browser surface — extension popup has no use
@@ -96,15 +137,20 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
       : [
           {
             id: 'explore',
-            label: 'Explore',
+            label: t('explore'),
             icon: <Icon name={IconName.Explore} className="w-6 h-6" />
           }
         ]),
     {
       id: 'activity',
-      label: 'Activity',
+      label: t('activity'),
       icon: <Icon name={IconName.Activity} className="w-6 h-6" />,
       showDot: hasUnclaimedNotes
+    },
+    {
+      id: 'settings',
+      label: t('settings'),
+      icon: <Icon name={IconName.Settings} className="w-6 h-6" fill="currentColor" />
     }
   ];
 
@@ -180,6 +226,31 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
             // hard-coding 600px and clipping the bottom nav.
             { height: '100%', width: '360px' };
 
+  // The action bar lives inside the Home pane. A tab change swaps whole
+  // panes in one frame, so the bar can never shift the content below it.
+  // The Home pane holds the swipe carousel for every home-group route.
+  panesRef.current[activeTab] = showActionBar ? (
+    <>
+      <div className="shrink-0 relative z-10">
+        <SegmentedActionBar
+          items={actionItems}
+          activeId={activeAction}
+          onChange={handleActionChange}
+          layoutId="tab-layout-action-fill"
+        />
+      </div>
+      <div className="flex-1 min-h-0 flex flex-col">
+        <HomeSwipeContainer />
+      </div>
+    </>
+  ) : (
+    children
+  );
+  // Each pane stays mounted after its first visit, like a native tab controller, so a tab change is
+  // one visibility swap and each tab keeps its scroll position and state. Panes render in visit
+  // order: a tab only ever joins the end, so no pane moves and no list of tab ids can fall behind.
+  const panes = Object.keys(panesRef.current);
+
   return (
     <div
       // Mobile clips horizontally only (`clip` keeps overflow-y visible) so
@@ -192,41 +263,20 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
       )}
       style={containerStyles}
     >
-      {/* Top action bar — sits outside the animated content tree so it
-          stays fixed across intra-home-group navigations. */}
-      {showActionBar && (
-        <div className="shrink-0 relative z-10">
-          <SegmentedActionBar
-            items={actionItems}
-            activeId={activeAction}
-            onChange={handleActionChange}
-            layoutId="tab-layout-action-fill"
-          />
-        </div>
-      )}
-
-      {/* Animated content. For home-group routes we mount the
-          HomeSwipeContainer once (a five-page horizontal carousel) and let it
-          drive intra-group transitions via drag — pathname is just the
-          source of truth for which page is centered. For other routes
-          (Browser, Activity, etc.) we still slide each new page in via
-          framer. The motion.div is keyed by group so the carousel doesn't
-          remount when only the centered page changes. */}
-      <div className="flex-1 min-h-0 relative">
-        <motion.div
-          key={showActionBar ? 'home-group' : pathname}
-          // flex column so non-home children (AllHistory, Browser) that use
-          // `flex-1 min-h-0 overflow-y-auto` for their scroll region can
-          // actually claim the remaining height. Without this their list
-          // collapses to 0 and transactions appear missing.
-          className="absolute inset-0 overflow-hidden flex flex-col"
-          initial={skipSlideIn ? false : { x: '8%', opacity: 0.5 }}
-          animate={{ x: 0, opacity: 1 }}
-          transition={springs.standard}
-        >
-          {showActionBar ? <HomeSwipeContainer /> : children}
-        </motion.div>
-      </div>
+      {/* Every visited tab keeps its pane mounted under the same key, so a tab
+          change is one visibility swap with no remount and no animation. */}
+      <motion.div
+        className="flex-1 min-h-0 relative"
+        initial={initial}
+        animate={{ opacity: 1 }}
+        transition={appearance}
+      >
+        {panes.map(id => (
+          <TabPane key={id} id={id} active={id === activeTab}>
+            {panesRef.current[id]}
+          </TabPane>
+        ))}
+      </motion.div>
 
       {/* Floating bottom nav — overlays content. The data attribute lets
           the dApp bubble host measure footer height for corner snap math.

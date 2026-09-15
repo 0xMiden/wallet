@@ -1,10 +1,12 @@
 import React from 'react';
 
 import { render, screen, fireEvent } from '@testing-library/react';
+import type { Transition } from 'framer-motion';
 
 import { hapticSelection } from 'lib/mobile/haptics';
 import { navigate } from 'lib/woozie';
 
+import { PageActiveContext, usePageActive } from './page-active';
 import TabLayout from './TabLayout';
 
 // ---------------------------------------------------------------------------
@@ -62,7 +64,8 @@ jest.mock('lib/mobile/useKeyboardVisible', () => ({
 
 // `springs` is animation config only; the value is irrelevant to behaviour.
 jest.mock('lib/animation', () => ({
-  springs: { standard: { type: 'spring' } }
+  springs: { standard: { type: 'spring' } },
+  useMotion: (transition: Transition) => transition
 }));
 
 // Icons are SVG re-exports; render nothing but expose the enum keys the layout
@@ -73,12 +76,18 @@ jest.mock('app/icons/v2', () => ({
     Home: 'Home',
     Explore: 'Explore',
     Activity: 'Activity',
+    Settings: 'Settings',
     Wallet: 'Wallet',
     Send: 'Send',
     Receive: 'Receive',
     Earn: 'Earn',
     Convert: 'Convert'
   }
+}));
+
+// Tab labels are localized; echo the key back so assertions read as keys.
+jest.mock('react-i18next', () => ({
+  useTranslation: () => ({ t: (key: string) => key })
 }));
 
 // The home-group carousel is E2E territory; a marker div is enough to assert it
@@ -91,6 +100,7 @@ jest.mock('app/layouts/HomeSwipeContainer', () => ({
 // framer-motion's `motion.div` — forward props onto a plain div and surface the
 // `initial` prop (false = slide-in skipped, object = slide-in) for assertions.
 jest.mock('framer-motion', () => ({
+  useReducedMotion: () => false,
   motion: {
     div: React.forwardRef(({ children, initial, animate, transition, ...props }: any, ref: any) => (
       <div ref={ref} data-testid="motion-div" data-initial={JSON.stringify(initial)} {...props}>
@@ -182,8 +192,23 @@ describe('TabLayout — active tab derivation (activeTabFromPath)', () => {
     expect(screen.getByTestId('bottom-nav')).toHaveAttribute('data-active', 'activity');
   });
 
-  it('maps an unrelated path (e.g. /settings) to the home tab', () => {
+  it('maps /settings to the settings tab', () => {
     mockLocation.pathname = '/settings';
+    renderLayout();
+    expect(screen.getByTestId('bottom-nav')).toHaveAttribute('data-active', 'settings');
+  });
+
+  it('maps only the bare /settings root, since sub-pages never mount this shell', () => {
+    // `/settings/<slug>` renders in FullScreenPage, so it cannot reach
+    // activeTabFromPath at all — asserting a settings tab for it would be
+    // testing a state the app cannot produce.
+    mockLocation.pathname = '/settings/general-settings';
+    renderLayout();
+    expect(screen.getByTestId('bottom-nav')).toHaveAttribute('data-active', 'home');
+  });
+
+  it('maps an unrelated path (e.g. /token-detail) to the home tab', () => {
+    mockLocation.pathname = '/token-detail/0xabc';
     renderLayout();
     expect(screen.getByTestId('bottom-nav')).toHaveAttribute('data-active', 'home');
   });
@@ -248,20 +273,42 @@ describe('TabLayout — action bar visibility (showActionBar)', () => {
 });
 
 describe('TabLayout — tabs list composition', () => {
-  it('includes the Explore tab off-extension (3 tabs)', () => {
+  it('includes the Explore tab off-extension (4 tabs)', () => {
     mockPlatform.isExtension = false;
     renderLayout();
     expect(screen.getByTestId('nav-home')).toBeInTheDocument();
     expect(screen.getByTestId('nav-explore')).toBeInTheDocument();
     expect(screen.getByTestId('nav-activity')).toBeInTheDocument();
+    expect(screen.getByTestId('nav-settings')).toBeInTheDocument();
   });
 
-  it('drops the Explore tab on the extension (2 tabs)', () => {
+  it('drops the Explore tab on the extension (3 tabs)', () => {
     mockPlatform.isExtension = true;
     renderLayout();
     expect(screen.getByTestId('nav-home')).toBeInTheDocument();
     expect(screen.queryByTestId('nav-explore')).toBeNull();
     expect(screen.getByTestId('nav-activity')).toBeInTheDocument();
+    expect(screen.getByTestId('nav-settings')).toBeInTheDocument();
+  });
+
+  it('orders Settings last, after Activity', () => {
+    mockPlatform.isExtension = false;
+    renderLayout();
+    const ids = Array.from(screen.getByTestId('bottom-nav').querySelectorAll('[data-testid^="nav-"]')).map(el =>
+      el.getAttribute('data-testid')
+    );
+    expect(ids).toEqual(['nav-home', 'nav-explore', 'nav-activity', 'nav-settings', 'nav-unknown']);
+  });
+
+  it('localizes every tab label', () => {
+    // The `react-i18next` stub echoes the key, so a hardcoded English literal
+    // would show up here as 'Home'/'Settings' rather than 'home'/'settings'.
+    mockPlatform.isExtension = false;
+    renderLayout();
+    expect(screen.getByTestId('nav-home')).toHaveTextContent('home');
+    expect(screen.getByTestId('nav-explore')).toHaveTextContent('explore');
+    expect(screen.getByTestId('nav-activity')).toHaveTextContent('activity');
+    expect(screen.getByTestId('nav-settings')).toHaveTextContent('settings');
   });
 
   it('shows the unclaimed-notes dot on the Activity tab when notes are pending', () => {
@@ -319,6 +366,22 @@ describe('TabLayout — tab change handling (handleTabChange)', () => {
     mockLocation.pathname = '/';
     renderLayout();
     fireEvent.click(screen.getByTestId('nav-unknown'));
+    expect(mockNavigate).not.toHaveBeenCalled();
+    expect(mockHaptic).not.toHaveBeenCalled();
+  });
+
+  it('navigates to /settings and fires haptics when tapping the Settings tab', () => {
+    mockLocation.pathname = '/';
+    renderLayout();
+    fireEvent.click(screen.getByTestId('nav-settings'));
+    expect(mockHaptic).toHaveBeenCalledTimes(1);
+    expect(mockNavigate).toHaveBeenCalledWith('/settings');
+  });
+
+  it('is a silent no-op when re-tapping Settings while already on /settings', () => {
+    mockLocation.pathname = '/settings';
+    renderLayout();
+    fireEvent.click(screen.getByTestId('nav-settings'));
     expect(mockNavigate).not.toHaveBeenCalled();
     expect(mockHaptic).not.toHaveBeenCalled();
   });
@@ -398,23 +461,17 @@ describe('TabLayout — bottom nav footer padding', () => {
   });
 });
 
-describe('TabLayout — slide-in animation (skipSlideIn)', () => {
+describe('TabLayout — mount fade and tab panes', () => {
   const initialOf = () => screen.getByTestId('motion-div').getAttribute('data-initial');
+  const paneOf = (id: string) => document.querySelector(`[data-tab-pane="${id}"]`);
 
-  it('slides the incoming page in by default (first render, non-home target)', () => {
+  it('fades the layout in once on mount', () => {
     mockLocation.pathname = '/history';
     renderLayout();
-    expect(initialOf()).toBe(JSON.stringify({ x: '8%', opacity: 0.5 }));
+    expect(initialOf()).toBe(JSON.stringify({ opacity: 0 }));
   });
 
-  it('skips the slide-in on the extension', () => {
-    mockPlatform.isExtension = true;
-    mockLocation.pathname = '/history';
-    renderLayout();
-    expect(initialOf()).toBe('false');
-  });
-
-  it('skips the slide-in when returning from a webview on mobile', () => {
+  it('skips the fade when returning from a webview on mobile', () => {
     mockPlatform.isMobile = true;
     mockReturning.value = true;
     mockLocation.pathname = '/history';
@@ -422,42 +479,115 @@ describe('TabLayout — slide-in animation (skipSlideIn)', () => {
     expect(initialOf()).toBe('false');
   });
 
-  it('still slides in on mobile when NOT returning from a webview', () => {
-    mockPlatform.isMobile = true;
-    mockReturning.value = false;
-    mockLocation.pathname = '/history';
-    renderLayout();
-    expect(initialOf()).toBe(JSON.stringify({ x: '8%', opacity: 0.5 }));
-  });
-
-  it('skips the slide-in for intra-home-group navigations (prev + next both home-group)', () => {
+  it('keeps one fade wrapper across a tab change instead of remounting it', () => {
     mockLocation.pathname = '/';
     const { rerender } = renderLayout();
-    // After commit the effect stored '/' as the previous path; navigate within
-    // the home group and the incoming page should not slide.
-    mockLocation.pathname = '/send';
-    rerender(<TabLayout>{<div data-testid="child-content" />}</TabLayout>);
-    expect(initialOf()).toBe('false');
-  });
-
-  it('slides in when the previous path was outside the home group', () => {
+    const wrapper = screen.getByTestId('motion-div');
     mockLocation.pathname = '/history';
-    const { rerender } = renderLayout();
-    mockLocation.pathname = '/send';
     rerender(<TabLayout>{<div data-testid="child-content" />}</TabLayout>);
-    expect(initialOf()).toBe(JSON.stringify({ x: '8%', opacity: 0.5 }));
+    expect(screen.getByTestId('motion-div')).toBe(wrapper);
   });
 
-  it('slides in when navigating from a home-group route out to a non-home route', () => {
+  it('keeps a visited tab mounted but hidden and inert while another tab is active', () => {
     mockLocation.pathname = '/';
     const { rerender } = renderLayout();
+    const homeSwipe = screen.getByTestId('home-swipe');
+
     mockLocation.pathname = '/history';
     rerender(<TabLayout>{<div data-testid="child-content" />}</TabLayout>);
-    expect(initialOf()).toBe(JSON.stringify({ x: '8%', opacity: 0.5 }));
+    expect(screen.getByTestId('home-swipe')).toBe(homeSwipe);
+    const homePane = paneOf('home');
+    expect(homePane).toContainElement(screen.getByTestId('action-bar'));
+    expect(homePane).toHaveStyle({ visibility: 'hidden' });
+    expect(homePane).toHaveAttribute('inert');
+    expect(homePane).toHaveAttribute('aria-hidden', 'true');
+    const activityPane = paneOf('activity');
+    expect(activityPane).toContainElement(screen.getByTestId('child-content'));
+    expect(activityPane).toHaveStyle({ visibility: 'visible' });
+    expect(activityPane).not.toHaveAttribute('inert');
+
+    mockLocation.pathname = '/';
+    rerender(<TabLayout>{<div data-testid="child-content" />}</TabLayout>);
+    expect(screen.getByTestId('home-swipe')).toBe(homeSwipe);
+    expect(paneOf('home')).toHaveStyle({ visibility: 'visible' });
+    expect(paneOf('activity')).toHaveStyle({ visibility: 'hidden' });
+  });
+
+  // Every route PageRouter wraps in TabLayout. A tab that lights up in the nav without a pane shows a
+  // blank page, which is how Settings once shipped.
+  it.each([
+    ['/', 'home'],
+    ['/send', 'home'],
+    ['/receive', 'home'],
+    ['/earn', 'home'],
+    ['/swap', 'home'],
+    ['/browser', 'explore'],
+    ['/history', 'activity'],
+    ['/history/program-1', 'activity'],
+    ['/settings', 'settings']
+  ])('renders %s in a visible, interactive %s pane', (pathname, tab) => {
+    mockLocation.pathname = pathname;
+    renderLayout(<div data-testid="routed-content" />);
+    const pane = paneOf(tab);
+    expect(pane?.querySelector('[data-testid="routed-content"], [data-testid="home-swipe"]')).not.toBeNull();
+    expect(pane).toHaveStyle({ visibility: 'visible' });
+    expect(pane).not.toHaveAttribute('inert');
+  });
+
+  it('tells each pane whether it is on screen, and no pane is on screen under a covered layer', () => {
+    function Probe({ name }: { name: string }) {
+      return <span data-testid={`probe-${name}`}>{usePageActive() ? 'on screen' : 'off screen'}</span>;
+    }
+    mockLocation.pathname = '/history';
+    const { rerender } = renderLayout(<Probe name="activity" />);
+    expect(screen.getByTestId('probe-activity')).toHaveTextContent('on screen');
+
+    mockLocation.pathname = '/settings';
+    rerender(<TabLayout>{<Probe name="settings" />}</TabLayout>);
+    expect(screen.getByTestId('probe-activity')).toHaveTextContent('off screen');
+    expect(screen.getByTestId('probe-settings')).toHaveTextContent('on screen');
+
+    rerender(
+      <PageActiveContext.Provider value={false}>
+        <TabLayout>{<Probe name="settings" />}</TabLayout>
+      </PageActiveContext.Provider>
+    );
+    expect(screen.getByTestId('probe-settings')).toHaveTextContent('off screen');
+  });
+
+  it('refreshes the active tab content on every render', () => {
+    mockLocation.pathname = '/history';
+    const { rerender } = renderLayout(<div data-testid="child-content">one</div>);
+    rerender(
+      <TabLayout>
+        <div data-testid="child-content">two</div>
+      </TabLayout>
+    );
+    expect(screen.getByTestId('child-content')).toHaveTextContent('two');
   });
 });
 
 describe('TabLayout — footer scaffolding', () => {
+  it('keeps the action bar inside the home pane and one navbar across tab changes', () => {
+    mockPlatform.isMobile = true;
+    mockLocation.pathname = '/';
+    const { rerender } = renderLayout();
+    const navbar = screen.getByTestId('bottom-nav');
+    const wrapper = screen.getByTestId('motion-div');
+    expect(wrapper).toContainElement(screen.getByTestId('action-bar'));
+    expect(wrapper).not.toContainElement(navbar);
+
+    mockLocation.pathname = '/history';
+    rerender(
+      <TabLayout>
+        <div data-testid="child-content" />
+      </TabLayout>
+    );
+    expect(screen.getByTestId('bottom-nav')).toBe(navbar);
+    expect(document.querySelector('[data-tab-pane="home"]')).toHaveStyle({ visibility: 'hidden' });
+    expect(document.querySelector('[data-tab-pane="activity"]')).not.toContainElement(screen.getByTestId('action-bar'));
+  });
+
   it('exposes the tabbar footer measurement hook for the dApp bubble host', () => {
     const { container } = renderLayout();
     expect(container.querySelector('[data-tabbar-footer="true"]')).toBeInTheDocument();

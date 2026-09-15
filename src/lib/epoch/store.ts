@@ -307,7 +307,7 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
       if (get().flow === 'evm-to-miden' && discoveredNoteId && discoveredNoteId !== get().midenNoteId) {
         // Opportunistic: record the note id on the parked intent (and tag the
         // consume row if auto-consume already claimed it).
-        resolveBridgeInNoteId(nonce, discoveredNoteId).catch(err =>
+        resolveBridgeInNoteId(address, nonce, discoveredNoteId).catch(err =>
           console.warn('[epoch] resolveBridgeInNoteId failed', err)
         );
       }

@@ -4298,9 +4298,9 @@ describe('generateTransaction — Guardian routing', () => {
   });
 
   it('Guardian send: an eviction during the CLIENT BUILD stops the pipeline before it executes (#777)', async () => {
-    // `getMidenClient(options)` always disposes and rebuilds, and the fresh client's
-    // eager genesis fetch goes to the same node the rest of the hold waits on — so
-    // it is the longest parking await here, and the first place an eviction can land.
+    // A first build's eager genesis fetch goes to the same node the rest of the
+    // hold waits on - so the client build can be the longest parking await here,
+    // and the first place an eviction can land.
     const txId = 'send-evicted-mid-build';
     const result = makeResult();
     txStore.push({

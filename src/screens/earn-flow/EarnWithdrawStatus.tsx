@@ -18,7 +18,7 @@ interface EarnWithdrawStatusProps {
 }
 
 /**
- * Smart Withdraw post-review status screen — mirrors `EvmBridgeDepositStatus`
+ * Smart Withdraw post-review status screen - mirrors `EvmBridgeDepositStatus`
  * (there is NO Miden-side transaction: the withdraw is a gasless EVM intent
  * sign, so the prove/submit step screen would be theatre). Observes the
  * tracking row: spinner while the intent is being signed/submitted, a failure
@@ -33,9 +33,14 @@ export const EarnWithdrawStatus: React.FC<EarnWithdrawStatusProps> = ({ txId }) 
 
   if (!loaded || !row) return <ActivitySpinner />;
 
-  const inputs = row.extraInputs as IEarnWithdrawExtraInputs;
+  const inputs: IEarnWithdrawExtraInputs = row.extraInputs;
   const failed = inputs.phase === 'failed';
-  const submitted = Boolean(inputs.withdrawIntentNonce) || inputs.phase === 'delivering' || inputs.phase === 'received';
+  const prepared = inputs.submissionState === 'prepared';
+  const submitted =
+    inputs.submissionState === 'accepted' ||
+    (inputs.submissionState === undefined && Boolean(inputs.withdrawIntentNonce)) ||
+    inputs.phase === 'delivering' ||
+    inputs.phase === 'received';
   const amountLabel = `${formatEarnWithdrawAmount(inputs.sourceAmount)} ${inputs.sourceSymbol}`;
 
   if (submitted && !failed) {
@@ -83,7 +88,9 @@ export const EarnWithdrawStatus: React.FC<EarnWithdrawStatusProps> = ({ txId }) 
           </h2>
           <TransactionSummaryBadge lhs={amountLabel} rhs="Miden" className="mt-4" />
           <p className="mt-4 text-center text-sm font-medium text-heading-gray">
-            {failed ? (inputs.error ?? t('transactionErrorDescription')) : t('withdrawalProcessingDescription')}
+            {failed
+              ? (inputs.error ?? t('transactionErrorDescription'))
+              : t(prepared ? 'withdrawalCheckingDescription' : 'withdrawalProcessingDescription')}
           </p>
         </section>
         <div className="w-full shrink-0 pt-10 pb-6">

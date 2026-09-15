@@ -786,6 +786,14 @@
     "message": "再試行",
     "englishSource": "Retry"
   },
+  "retryEarnDelivery": {
+    "message": "受け取りを再試行",
+    "englishSource": "Retry delivery"
+  },
+  "withdrawalRecoveryUnavailable": {
+    "message": "この出金は安全に再試行できません。別の出金を開始する前に、この出金の状況を確認してください。",
+    "englishSource": "This withdrawal cannot be retried safely. Check its status before starting another withdrawal."
+  },
   "retryAnyway": {
     "message": "それでも再試行",
     "englishSource": "Retry anyway"
@@ -4458,6 +4466,10 @@
     "message": "出金の処理",
     "englishSource": "Processing Withdrawal"
   },
+  "withdrawalCheckingDescription": {
+    "message": "出金状況を確認しています。資金の受け取りが確認されるまで、ウォレットを開いたままにしてください。",
+    "englishSource": "Checking your withdrawal. Keep the wallet open while delivery is confirmed."
+  },
   "withdrawalProcessingDescription": {
     "message": "ガス料金不要の引き出し意向を署名し、Epochに送信します。これには通常、数秒かかります。",
     "englishSource": "Signing and submitting the gasless withdrawal intent to Epoch. This usually takes a few seconds."
@@ -4581,6 +4593,75 @@
   "devEndpointResetConfirm": {
     "message": "この操作を行うと、このウォレットはキーや取引履歴を含めて完全に消去されます。復元するには、リカバリーフレーズが必要になります。",
     "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
+  },
+  "activityAcceptTransfer": {
+    "message": "送金を受け入れる",
+    "englishSource": "Accept Transfer"
+  },
+  "activityRejectTransfer": {
+    "message": "拒否",
+    "englishSource": "Decline"
+  },
+  "activityCheckingTransfer": {
+    "message": "確認中…",
+    "englishSource": "Checking…"
+  },
+  "activityTransferClaimed": {
+    "message": "請求済み",
+    "englishSource": "Claimed"
+  },
+  "activityClaimedOn": {
+    "message": "請求日：",
+    "englishSource": "Claimed on"
+  },
+  "activityReceivedOn": {
+    "message": "受信日時：",
+    "englishSource": "Received on"
+  },
+  "activityNotYetAccepted": {
+    "message": "まだ承認されていません。確認して承認し、これらの資金を受け取ってください。",
+    "englishSource": "Not yet accepted — review and accept to claim these funds."
+  },
+  "acceptAll": {
+    "message": "すべて承諾",
+    "englishSource": "Accept All"
+  },
+  "activitySearch": {
+    "message": "検索履歴",
+    "englishSource": "Search activity"
+  },
+  "activityTransferAccepted": {
+    "message": "送金受理済み",
+    "englishSource": "Transfer accepted"
+  },
+  "activityTransferDetails": {
+    "message": "詳細",
+    "englishSource": "Details"
+  },
+  "activityRejectExplanation": {
+    "message": "このデバイス上の「アクティビティ」からこの送金を非表示にしますか？ これにより、送金者に資金が返還されたり、noteが削除されたりすることはありません。「アクティビティ」では、非表示にした送金を復元することができます。",
+    "englishSource": "Hide this transfer from Activity on this device? This does not return funds to the sender or delete the note. You can restore hidden transfers in Activity."
+  },
+  "activityHiddenTransfers": {
+    "message": "隠された送金：$count$",
+    "englishSource": "Hidden transfers: $count$",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "activityRestoreTransfers": {
+    "message": "復元",
+    "englishSource": "Restore"
+  },
+  "activityHiddenNotesError": {
+    "message": "非公開の送金を保存できませんでした。もう一度お試しください。",
+    "englishSource": "Could not save hidden transfers. Please try again."
+  },
+  "activityDateUnavailable": {
+    "message": "日付不明",
+    "englishSource": "Date unavailable"
   },
   "walletSetupDidNotComplete": {
     "message": "ウォレットは作成されましたが、起動が完了していません。接続を確認して、もう一度お試しください。",
