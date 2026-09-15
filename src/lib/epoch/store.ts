@@ -3,6 +3,8 @@ import { sepolia } from 'viem/chains';
 import { create } from 'zustand';
 
 import { registerPendingBridgeIn, resolveBridgeInNoteId } from 'lib/miden/activity/bridge-in';
+import type { IBridgedReceiveExtraInputs } from 'lib/miden/db/types';
+import * as Repo from 'lib/miden/repo';
 import { updateBridgedReceivePhase } from 'lib/miden/transaction/complete';
 
 import {
@@ -171,7 +173,7 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
       console.log('[epoch] EVM→Miden quote', quote);
       set({ status: 'quoted', quote });
     } catch (err) {
-      console.error('[epoch] quoteEVMToMiden failed', err);
+      console.error('[epoch] quoteEVMToMiden failed', { intent: params, sponsorAddress }, err);
       set({ status: 'failed', error: errorMessage(err) });
     }
   },
@@ -228,11 +230,17 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
         });
       }
       if (nonce) {
-        const evmParams = (quote as EVMToMidenQuote).params;
+        // Amount and symbol come from the tracking row, which the deposit screen
+        // wrote from the reverse quote (the exact EVM `tokenIn`) and the token the
+        // user picked. The quote's `tokenInSymbol` is the allocator's own `name`
+        // for the token, and for Sepolia USDC that is the contract address.
+        const trackingRow = bridgeReceiveTxId ? await Repo.transactions.get(bridgeReceiveTxId) : undefined;
+        const trackingInputs: IBridgedReceiveExtraInputs | undefined =
+          trackingRow?.type === 'bridged-receive' ? trackingRow.extraInputs : undefined;
         await registerPendingBridgeIn(connection.address, nonce, {
           provider: 'epoch',
-          sourceAmount: evmParams.evmAmount,
-          sourceSymbol: quote.quoteResult.tokenInSymbol,
+          sourceAmount: trackingInputs?.sourceAmount,
+          sourceSymbol: trackingInputs?.sourceSymbol,
           intentNonce: nonce,
           evmTxHash,
           bridgeReceiveTxId

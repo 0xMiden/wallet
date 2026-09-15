@@ -21,5 +21,6 @@ runs:
       run: |
         [ "$RUNNER_OS" = Linux ] || exit 0
         sudo rm -f /etc/apt/sources.list.d/google-chrome*.list /etc/apt/sources.list.d/google-chrome*.sources
-        # Every source that points at packages.microsoft.com, whatever the image named the file.
-        grep -rlE 'packages\.microsoft\.com' /etc/apt/sources.list.d 2>/dev/null | xargs -r sudo rm -f
+        # Every source that points at packages.microsoft.com, whatever the image named the file. grep exits 1 when
+        # none is left (a second call in the same job, or an image without one), which pipefail turns into a failure.
+        { grep -rlE 'packages\.microsoft\.com' /etc/apt/sources.list.d 2>/dev/null || true; } | xargs -r sudo rm -f

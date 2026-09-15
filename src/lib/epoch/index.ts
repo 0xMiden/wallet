@@ -52,6 +52,7 @@ export {
   buildEVMToMidenTaskDataParams,
   buildCrossChainIntent,
   buildEVMToMidenIntent,
+  evmToMidenMinTokenOut,
   formatQuoteTokenIn,
   getCrossChainQuote,
   getEVMToMidenQuote,

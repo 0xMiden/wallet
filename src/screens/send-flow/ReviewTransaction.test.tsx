@@ -149,9 +149,7 @@ jest.mock('lib/agglayer/b2agg', () => ({
 }));
 
 jest.mock('lib/agglayer/b2agg/constant', () => ({
-  EVM_AGGLAYER_NETWORK_ID: 11155111,
-  MIDEN_AGGLAYER_FAUCET_ID: 'agglayer-faucet',
-  getAgglayerFaucetId: () => 'sdk-faucet'
+  EVM_AGGLAYER_NETWORK_ID: 11155111
 }));
 
 jest.mock('lib/epoch', () => ({
@@ -187,7 +185,6 @@ jest.mock('lib/miden/types', () => ({
 }));
 
 jest.mock('lib/miden/sdk/helpers', () => ({
-  accountIdStringToSdk: () => ({ toString: () => 'sdk-faucet' }),
   sameWalletAccountId: (a: string, b: string) => a === b
 }));
 
@@ -620,6 +617,26 @@ describe('ReviewTransaction — onSubmit', () => {
     expect(confirmMock).not.toHaveBeenCalled();
   });
 
+  it('bridges over the Slow route with the faucet of the token being sent', async () => {
+    mockDetectedChain = 'ethereum';
+    mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=agglayer';
+    mockBalanceData = [VALID_TOKEN];
+    initiateB2AggBridgeMock.mockResolvedValue('tx-agg');
+    render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+
+    expect(initiateB2AggBridgeMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        amount: 12345n,
+        faucetId: 'tok1',
+        destinationAddress: '0xrecipient',
+        senderPublicKey: 'pubkey-1'
+      })
+    );
+  });
+
   it('uses strict authentication before building an Agglayer bridge request', async () => {
     mockDetectedChain = 'ethereum';
     mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=agglayer';
@@ -647,6 +664,7 @@ describe('ReviewTransaction — onSubmit', () => {
     expect(initiateB2AggBridgeMock).toHaveBeenCalledWith(
       expect.objectContaining({
         amount: 12345n,
+        faucetId: 'tok1',
         senderPublicKey: 'pubkey-1',
         spendingLimitAuthorization: expect.objectContaining({ id: 'authorization-1', revision: 'revision-1' })
       })

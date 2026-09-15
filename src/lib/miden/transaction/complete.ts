@@ -1277,6 +1277,22 @@ export const updateEarnWithdrawPhase = async (
 };
 
 /** Advance a tracking-only EVM → Miden bridge row without touching its terminal DB status. */
+const BRIDGED_RECEIVE_PHASE_ORDER: IBridgedReceivePhase[] = ['submitting', 'delivering', 'ready', 'received'];
+
+/**
+ * A bridged-receive phase only moves forward: `received` is final, and `failed`
+ * gives way only to `received`, the funds having arrived after all. Writers read
+ * the row, await the network or a wallet, then write, so a write can land after
+ * the row moved on (a consume marking it `received` while a reconcile pass still
+ * awaits the indexer); such a write is dropped whole.
+ */
+const canMoveBridgedReceivePhase = (from: IBridgedReceivePhase | undefined, to: IBridgedReceivePhase): boolean => {
+  if (from === 'received') return false;
+  if (from === 'failed') return to === 'received';
+  if (from === undefined || to === 'failed') return true;
+  return BRIDGED_RECEIVE_PHASE_ORDER.indexOf(to) >= BRIDGED_RECEIVE_PHASE_ORDER.indexOf(from);
+};
+
 export const updateBridgedReceivePhase = async (
   id: string,
   phase: IBridgedReceivePhase,
@@ -1289,7 +1305,8 @@ export const updateBridgedReceivePhase = async (
   received?: { amount: bigint; faucetId: string; transactionId?: string }
 ) => {
   await Repo.transactions.where({ id }).modify(tx => {
-    const inputs = tx.extraInputs as IBridgedReceiveExtraInputs;
+    const inputs: IBridgedReceiveExtraInputs | undefined = tx.extraInputs;
+    if (!canMoveBridgedReceivePhase(inputs?.phase, phase)) return;
     tx.extraInputs = { ...inputs, phase, ...(extra ?? {}) };
     if (received) {
       tx.amount = received.amount;

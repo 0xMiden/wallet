@@ -9,7 +9,7 @@ import { ReviewAmount, ReviewLayout, ReviewRow } from 'components/review';
 import { ScreenHeader } from 'components/ScreenHeader';
 import { SpendingLimitChallenge } from 'components/SpendingLimitChallenge';
 import { initiateB2AggBridge } from 'lib/agglayer/b2agg';
-import { EVM_AGGLAYER_NETWORK_ID, getAgglayerFaucetId } from 'lib/agglayer/b2agg/constant';
+import { EVM_AGGLAYER_NETWORK_ID } from 'lib/agglayer/b2agg/constant';
 import { confirmSensitiveAction } from 'lib/biometric';
 import { bridgeEpochSend } from 'lib/epoch';
 import { stringToBigInt } from 'lib/i18n/numbers';
@@ -22,7 +22,7 @@ import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/
 import { useMidenContext } from 'lib/miden/front/client';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
-import { accountIdStringToSdk, sameWalletAccountId } from 'lib/miden/sdk/helpers';
+import { sameWalletAccountId } from 'lib/miden/sdk/helpers';
 import {
   SpendingLimitAssessment,
   SpendingLimitAuthorization,
@@ -93,11 +93,6 @@ export const ReviewTransaction: React.FC = () => {
       scaleIsKnown: hasKnownScale(match.metadata)
     };
   }, [balanceData, tokenId]);
-
-  // Cross-chain sends over the Slow (Agglayer) route only carry the dedicated
-  // bridgeable faucet token; Fast (Epoch) bridges any token.
-  const isBridgeableToken =
-    !!token && accountIdStringToSdk(token.id.toLowerCase()).toString() === getAgglayerFaucetId().toLowerCase();
 
   const amountBaseUnits = useMemo(() => {
     if (!token || !amount) return undefined;
@@ -312,14 +307,10 @@ export const ReviewTransaction: React.FC = () => {
       setSpendingLimitAssessment(undefined);
       try {
         useWalletStore.getState().setLastCompletedTxHash(null);
-        if (route === 'agglayer' && !isBridgeableToken) {
-          setSubmitError(t('onlyBridgeableTokenSupported'));
-          setIsSubmitting(false);
-          return;
-        }
         if (route === 'agglayer') {
           const txId = await initiateB2AggBridge({
             amount: amountBaseUnits,
+            faucetId: token.id,
             destinationAddress: to as `0x${string}`,
             senderPublicKey: publicKey,
             destinationNetwork: EVM_AGGLAYER_NETWORK_ID,
@@ -349,7 +340,7 @@ export const ReviewTransaction: React.FC = () => {
         setIsSubmitting(false);
       }
     },
-    [amountBaseUnits, goToGeneratingTransaction, isBridgeableToken, publicKey, route, signTransaction, t, to, token]
+    [amountBaseUnits, goToGeneratingTransaction, publicKey, route, signTransaction, to, token]
   );
 
   const onSubmit = useCallback(async () => {
