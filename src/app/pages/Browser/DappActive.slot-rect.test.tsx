@@ -10,7 +10,7 @@
  * faithfully enough because the code under test only ever asks two questions:
  * "is an ancestor still translated" and "what rect does the slot report".
  *
- * The bug this keeps dead: measurements taken during the tab slide-in are
+ * The bug this keeps dead: measurements taken during a page-layer slide are
  * discarded, and nothing guaranteed a later one. A ResizeObserver does not fire
  * on transform changes, so once the three fixed timers were spent `slotRect`
  * stayed null for the lifetime of the screen — leaving the dApp foreground in

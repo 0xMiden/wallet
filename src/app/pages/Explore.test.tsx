@@ -35,6 +35,7 @@ let mockAutoConsume = false;
 let mockDelegateProof = false;
 let mockTokenPrices: Record<string, unknown> = {};
 let mockBalancesLoading = false;
+let mockBaseFee: number | null = 0;
 
 const mockSignTransaction = jest.fn();
 const mockMutateBalances = jest.fn();
@@ -55,7 +56,7 @@ jest.mock('app/hooks/useMidenFaucetId', () => ({
 }));
 jest.mock('app/hooks/useVerificationBaseFee', () => ({
   __esModule: true,
-  default: () => 0
+  default: () => mockBaseFee
 }));
 
 // Balance is a render-prop that hands its child the total fiat BigNumber; the
@@ -249,6 +250,7 @@ describe('Explore', () => {
     mockDelegateProof = false;
     mockTokenPrices = {};
     mockBalancesLoading = false;
+    mockBaseFee = 0;
     mockInitiateConsumeTransaction.mockResolvedValue(undefined);
     mockMutateBalances.mockResolvedValue(undefined);
     mockMutateClaimableNotes.mockResolvedValue(undefined);
@@ -352,6 +354,34 @@ describe('Explore', () => {
 
       expect(screen.getByTestId('home-prompts')).toHaveAttribute('data-note-count', '1');
       expect(screen.getByTestId('home-prompts')).toHaveAttribute('data-price-symbols', 'MIDEN');
+    });
+
+    it('keeps notes the page itself auto-consumes out of home prompts (#811)', async () => {
+      mockAutoConsume = true;
+      mockClaimableNotes = [
+        makeNote('auto', 'faucet-native'),
+        makeNote('manual', 'other-faucet'),
+        makeNote('manual-swap', 'faucet-native', false, { autoConsume: false })
+      ];
+
+      await renderExplore();
+
+      expect(screen.getByTestId('home-prompts')).toHaveAttribute('data-note-count', '2');
+    });
+
+    it('keeps a native note worth too little to auto-consume on home prompts', async () => {
+      mockAutoConsume = true;
+      mockBaseFee = 10;
+      // One render must drop the note a consume already covers and keep the dust note: a raw list would count three.
+      mockClaimableNotes = [
+        { ...makeNote('dust', 'faucet-native'), amount: '1' },
+        { ...makeNote('claiming', 'faucet-native', true), amount: '1000000' },
+        makeNote('manual', 'other-faucet')
+      ];
+
+      await renderExplore();
+
+      expect(screen.getByTestId('home-prompts')).toHaveAttribute('data-note-count', '2');
     });
   });
 
@@ -540,6 +570,17 @@ describe('Explore', () => {
       await renderExplore();
 
       expect(mockInitiateConsumeTransaction).not.toHaveBeenCalled();
+    });
+
+    it('never auto-consumes a native note that only the cached list has shown', async () => {
+      mockAutoConsume = true;
+      mockClaimableNotes = [{ ...makeNote('cached', 'faucet-native'), fromCache: true }];
+
+      await renderExplore();
+
+      expect(mockInitiateConsumeTransaction).not.toHaveBeenCalled();
+      expect(mockRequestSWTransactionProcessing).not.toHaveBeenCalled();
+      expect(mockStartBackgroundTransactionProcessing).not.toHaveBeenCalled();
     });
 
     it('leaves native swap notes to the swap settlement path', async () => {

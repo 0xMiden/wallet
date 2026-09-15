@@ -98,6 +98,7 @@ describe('useGuardianAvailability', () => {
         jest.advanceTimersByTime(GUARDIAN_AVAILABILITY_REPROBE_MS * 3);
         document.dispatchEvent(new Event('visibilitychange'));
         window.dispatchEvent(new Event('focus'));
+        window.dispatchEvent(new Event('online'));
       });
 
       expect(mockPing).toHaveBeenCalledTimes(1);
@@ -205,6 +206,175 @@ describe('useGuardianAvailability', () => {
         document.dispatchEvent(new Event('visibilitychange'));
       });
 
+      expect(mockPing).toHaveBeenCalledTimes(2);
+    } finally {
+      visibility.mockRestore();
+      jest.useRealTimers();
+    }
+  });
+
+  // The picker disables an offline card, and a user waiting on it fires neither
+  // focus nor visibilitychange: a reconnect has to start a round of its own.
+  it('re-probes when the device comes back online and clears the offline verdict', async () => {
+    jest.useFakeTimers();
+    try {
+      const endpoint = 'https://reconnected.example.com';
+      mockPing.mockResolvedValueOnce(false).mockResolvedValue(true);
+      const { result } = renderHook(() => useGuardianAvailability([endpoint]));
+
+      await act(async () => undefined);
+      expect(result.current).toEqual({ [endpoint]: 'offline' });
+
+      await act(async () => {
+        window.dispatchEvent(new Event('online'));
+      });
+
+      expect(mockPing).toHaveBeenCalledTimes(2);
+      expect(result.current).toEqual({ [endpoint]: 'online' });
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  // One resume fires both visibilitychange and focus: the second lands on the round
+  // the first started, and is folded into it rather than booking another.
+  it('folds a foreground return that lands on its own round into that round', async () => {
+    jest.useFakeTimers();
+    try {
+      const resolvers = deferredPings();
+      const endpoint = 'https://resumed-twice.example.com';
+      renderHook(() => useGuardianAvailability([endpoint]));
+      await act(async () => resolvers.get(endpoint)!(true));
+      expect(mockPing).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        document.dispatchEvent(new Event('visibilitychange'));
+        window.dispatchEvent(new Event('focus'));
+      });
+      expect(mockPing).toHaveBeenCalledTimes(2);
+
+      await act(async () => resolvers.get(endpoint)!(true));
+      expect(mockPing).toHaveBeenCalledTimes(2);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  // A suspension can freeze a round mid-flight: a foreground return long after it
+  // went out lands on it, and its verdicts predate the return.
+  it('runs a follow-up when a foreground return lands on a round that went out long before', async () => {
+    const now = jest.spyOn(Date, 'now').mockReturnValue(1_000);
+    try {
+      const resolvers = deferredPings();
+      const endpoint = 'https://suspended.example.com';
+      renderHook(() => useGuardianAvailability([endpoint]));
+      expect(mockPing).toHaveBeenCalledTimes(1);
+
+      now.mockReturnValue(60_000);
+      await act(async () => {
+        window.dispatchEvent(new Event('focus'));
+      });
+      expect(mockPing).toHaveBeenCalledTimes(1);
+
+      await act(async () => resolvers.get(endpoint)!(false));
+      expect(mockPing).toHaveBeenCalledTimes(2);
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  // The window runs on the wall clock, which can step back (a time sync right after a
+  // reconnect); a round whose start now reads as later than the present is stale.
+  it('runs a follow-up when the wall clock stepped back since the round went out', async () => {
+    const now = jest.spyOn(Date, 'now').mockReturnValue(60_000);
+    try {
+      const resolvers = deferredPings();
+      const endpoint = 'https://clock-stepped.example.com';
+      renderHook(() => useGuardianAvailability([endpoint]));
+      expect(mockPing).toHaveBeenCalledTimes(1);
+
+      now.mockReturnValue(1_000);
+      await act(async () => {
+        window.dispatchEvent(new Event('focus'));
+      });
+      expect(mockPing).toHaveBeenCalledTimes(1);
+
+      await act(async () => resolvers.get(endpoint)!(false));
+      expect(mockPing).toHaveBeenCalledTimes(2);
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  // A reconnect that lands while a round is still out must not be lost: that round
+  // can settle on verdicts from before the reconnect.
+  it('runs one follow-up round when a reconnect lands on a round still in flight', async () => {
+    jest.useFakeTimers();
+    try {
+      const resolvers = deferredPings();
+      const endpoint = 'https://reconnecting.example.com';
+      const { result } = renderHook(() => useGuardianAvailability([endpoint]));
+      expect(mockPing).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        window.dispatchEvent(new Event('online'));
+      });
+      expect(mockPing).toHaveBeenCalledTimes(1);
+
+      // The round from before the reconnect settles offline; the follow-up starts.
+      await act(async () => resolvers.get(endpoint)!(false));
+      expect(result.current).toEqual({ [endpoint]: 'offline' });
+      expect(mockPing).toHaveBeenCalledTimes(2);
+
+      await act(async () => resolvers.get(endpoint)!(true));
+      expect(result.current).toEqual({ [endpoint]: 'online' });
+      expect(mockPing).toHaveBeenCalledTimes(2);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('does not carry a follow-up requested mid-round into a replacing endpoint set', async () => {
+    jest.useFakeTimers();
+    try {
+      const resolvers = deferredPings();
+      const { rerender } = renderHook(({ endpoints }) => useGuardianAvailability(endpoints), {
+        initialProps: { endpoints: ['https://old.example.com'] }
+      });
+      await act(async () => {
+        window.dispatchEvent(new Event('online'));
+      });
+      rerender({ endpoints: ['https://new.example.com'] });
+      expect(mockPing).toHaveBeenCalledTimes(2);
+
+      await act(async () => resolvers.get('https://old.example.com')!(false));
+      await act(async () => resolvers.get('https://new.example.com')!(true));
+      expect(mockPing).toHaveBeenCalledTimes(2);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('skips the follow-up while the document is hidden at settle, and the next foreground return probes', async () => {
+    jest.useFakeTimers();
+    const visibility = jest.spyOn(document, 'visibilityState', 'get');
+    try {
+      const resolvers = deferredPings();
+      const endpoint = 'https://backgrounded.example.com';
+      visibility.mockReturnValue('visible');
+      renderHook(() => useGuardianAvailability([endpoint]));
+      await act(async () => {
+        window.dispatchEvent(new Event('online'));
+      });
+
+      visibility.mockReturnValue('hidden');
+      await act(async () => resolvers.get(endpoint)!(false));
+      expect(mockPing).toHaveBeenCalledTimes(1);
+
+      visibility.mockReturnValue('visible');
+      await act(async () => {
+        document.dispatchEvent(new Event('visibilitychange'));
+      });
       expect(mockPing).toHaveBeenCalledTimes(2);
     } finally {
       visibility.mockRestore();
@@ -332,6 +502,31 @@ describe('useGuardianAvailability', () => {
 
     expect(mockPing).not.toHaveBeenCalled();
     expect(result.current).toEqual({});
+  });
+
+  // The follow-up flag belongs to the round that was live when it was set: a
+  // superseded round's settle must not read or clear it.
+  it('keeps a reconnect booked on the live round when a superseded round settles', async () => {
+    jest.useFakeTimers();
+    try {
+      const resolvers = deferredPings();
+      const { rerender } = renderHook(({ endpoints }) => useGuardianAvailability(endpoints), {
+        initialProps: { endpoints: ['https://old.example.com'] }
+      });
+      rerender({ endpoints: ['https://new.example.com'] });
+      expect(mockPing).toHaveBeenCalledTimes(2);
+
+      await act(async () => {
+        window.dispatchEvent(new Event('online'));
+      });
+      await act(async () => resolvers.get('https://old.example.com')!(false));
+      expect(mockPing).toHaveBeenCalledTimes(2);
+
+      await act(async () => resolvers.get('https://new.example.com')!(false));
+      expect(mockPing).toHaveBeenCalledTimes(3);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   // A superseded round handing the in-flight slot back would clear it out from
