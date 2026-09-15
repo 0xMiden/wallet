@@ -22,7 +22,8 @@
     "http://localhost:4180/",
     "http://localhost:3000/",
     "https://faucet-api.forkchoice.xyz/*",
-    "https://*.miden.fi/*"
+    "https://*.miden.fi/*",
+    "https://raw.githubusercontent.com/0xMiden/wallet/*"
   ],
   "content_security_policy": "script-src 'self' 'unsafe-eval'; object-src 'self'",
 

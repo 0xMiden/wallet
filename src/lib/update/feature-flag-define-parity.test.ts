@@ -22,4 +22,10 @@ describe('update notification build-time flag', () => {
   it('declares the flag in ProcessEnv', () => {
     expect(read('src/react-app.d.ts')).toContain('readonly MIDEN_UPDATE_NOTIFICATIONS?: string;');
   });
+
+  it('compiles the E2E injection boundary out of production desktop bundles', () => {
+    const source = read('vite.desktop.config.ts');
+    expect(source).toContain(`'process.env.MIDEN_E2E_TEST':`);
+    expect(source).toContain(`process.env.MIDEN_E2E_TEST ?? 'false'`);
+  });
 });

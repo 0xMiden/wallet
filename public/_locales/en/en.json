@@ -1046,5 +1046,15 @@
   "activityRestoreTransfers": "Restore",
   "activityHiddenNotesError": "Could not save hidden transfers. Please try again.",
   "activityDateUnavailable": "Date unavailable",
-  "walletSetupDidNotComplete": "Your wallet was created but did not finish starting up. Check your connection and try again."
+  "walletSetupDidNotComplete": "Your wallet was created but did not finish starting up. Check your connection and try again.",
+  "updateNotificationTitle": "Update available",
+  "updateNotificationVersion": "Version $version$",
+  "updateNotificationReleaseNotes": "Release notes: $summary$",
+  "updateNotificationGenericSummary": "This update includes fixes and improvements.",
+  "updateNotificationActionChrome": "Restart to update",
+  "updateNotificationActionAndroid": "Update now",
+  "updateNotificationActionIos": "Open App Store",
+  "updateNotificationActionInProgress": "Starting update",
+  "updateNotificationDismiss": "Dismiss this update",
+  "updateNotificationActionFailed": "The update could not be started. Try again."
 }

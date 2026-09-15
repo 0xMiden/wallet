@@ -4658,5 +4658,55 @@
   "walletSetupDidNotComplete": {
     "message": "지갑이 생성되었으나 시작 절차가 완료되지 않았습니다. 연결 상태를 확인하고 다시 시도해 주세요.",
     "englishSource": "Your wallet was created but did not finish starting up. Check your connection and try again."
+  },
+  "updateNotificationTitle": {
+    "message": "Update available",
+    "englishSource": ""
+  },
+  "updateNotificationVersion": {
+    "message": "Version $version$",
+    "englishSource": "",
+    "placeholders": {
+      "version": {
+        "content": "$1"
+      }
+    }
+  },
+  "updateNotificationReleaseNotes": {
+    "message": "Release notes: $summary$",
+    "englishSource": "",
+    "placeholders": {
+      "summary": {
+        "content": "$1"
+      }
+    }
+  },
+  "updateNotificationGenericSummary": {
+    "message": "This update includes fixes and improvements.",
+    "englishSource": ""
+  },
+  "updateNotificationActionChrome": {
+    "message": "Restart to update",
+    "englishSource": ""
+  },
+  "updateNotificationActionAndroid": {
+    "message": "Update now",
+    "englishSource": ""
+  },
+  "updateNotificationActionIos": {
+    "message": "Open App Store",
+    "englishSource": ""
+  },
+  "updateNotificationActionInProgress": {
+    "message": "Starting update",
+    "englishSource": ""
+  },
+  "updateNotificationDismiss": {
+    "message": "Dismiss this update",
+    "englishSource": ""
+  },
+  "updateNotificationActionFailed": {
+    "message": "The update could not be started. Try again.",
+    "englishSource": ""
   }
 }

@@ -4658,5 +4658,55 @@
   "walletSetupDidNotComplete": {
     "message": "Votre portefeuille a été créé mais n’a pas terminé son démarrage. Vérifiez votre connexion et réessayez.",
     "englishSource": "Your wallet was created but did not finish starting up. Check your connection and try again."
+  },
+  "updateNotificationTitle": {
+    "message": "Update available",
+    "englishSource": ""
+  },
+  "updateNotificationVersion": {
+    "message": "Version $version$",
+    "englishSource": "",
+    "placeholders": {
+      "version": {
+        "content": "$1"
+      }
+    }
+  },
+  "updateNotificationReleaseNotes": {
+    "message": "Release notes: $summary$",
+    "englishSource": "",
+    "placeholders": {
+      "summary": {
+        "content": "$1"
+      }
+    }
+  },
+  "updateNotificationGenericSummary": {
+    "message": "This update includes fixes and improvements.",
+    "englishSource": ""
+  },
+  "updateNotificationActionChrome": {
+    "message": "Restart to update",
+    "englishSource": ""
+  },
+  "updateNotificationActionAndroid": {
+    "message": "Update now",
+    "englishSource": ""
+  },
+  "updateNotificationActionIos": {
+    "message": "Open App Store",
+    "englishSource": ""
+  },
+  "updateNotificationActionInProgress": {
+    "message": "Starting update",
+    "englishSource": ""
+  },
+  "updateNotificationDismiss": {
+    "message": "Dismiss this update",
+    "englishSource": ""
+  },
+  "updateNotificationActionFailed": {
+    "message": "The update could not be started. Try again.",
+    "englishSource": ""
   }
 }

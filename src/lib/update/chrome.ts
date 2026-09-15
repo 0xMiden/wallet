@@ -1,10 +1,11 @@
 import semver from 'semver';
 import browser from 'webextension-polyfill';
 
+import { CHROME_UPDATE_AVAILABLE_MESSAGE } from './events';
 import type { UpdateAvailability, UpdateAvailabilityAdapter } from './types';
 
 export const CHROME_UPDATE_STORAGE_KEY = 'miden_update_available_v1';
-export const CHROME_UPDATE_AVAILABLE_MESSAGE = 'MIDEN_UPDATE_AVAILABLE';
+export { CHROME_UPDATE_AVAILABLE_MESSAGE } from './events';
 const CHROME_UPDATE_HINT_KEY = 'miden_update_check_hint_v1';
 
 interface ChromeUpdateEvent {
