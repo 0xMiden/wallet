@@ -16,7 +16,7 @@ import {
   MIDEN_CHAIN_ID,
   midenAddrToEvmAddr
 } from 'lib/agglayer';
-import { MIDEN_DESTINATION_CHAIN_ID, useEpochStore } from 'lib/epoch';
+import { evmToMidenMinTokenOut, MIDEN_DESTINATION_CHAIN_ID, useEpochStore } from 'lib/epoch';
 import {
   BRIDGEABLE_EVM_OUTPUT_TOKEN_ADDRESS,
   BRIDGEABLE_EVM_OUTPUT_TOKEN_DECIMALS,
@@ -304,14 +304,8 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   // re-quote to recover (executeEVMToMiden requires status 'quoted', so without
   // this a failed attempt dead-ends until the amount is edited).
   const requote = useCallback(() => {
-    if (!debouncedAmount) return undefined;
-    let minTokenOut: string;
-    try {
-      minTokenOut = parseUnits(debouncedAmount, MIDEN_USDC_FAUCET_DECIMALS).toString();
-    } catch {
-      return undefined;
-    }
-    if (minTokenOut === '0') return undefined;
+    const minTokenOut = evmToMidenMinTokenOut(debouncedAmount, MIDEN_USDC_FAUCET_DECIMALS);
+    if (!minTokenOut) return undefined;
     return quoteEVMToMiden(
       {
         sourceChainId: DEFAULT_CHAIN_ID,
@@ -328,11 +322,9 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
 
   useEffect(() => {
     if (route !== 'epoch' || token !== 'USDC') return;
-    if (!debouncedAmount) {
-      resetEpoch();
-      return;
-    }
-    void requote();
+    // A declined quote (no amount, or one that rounds to zero faucet units) clears the last one.
+    const quoting = requote();
+    if (quoting === undefined) resetEpoch();
   }, [debouncedAmount, requote, resetEpoch, route, token]);
 
   useEffect(() => {
@@ -506,8 +498,15 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   }, [token, ethBalance.value, usdcBalance.value]);
 
   // Fast (Epoch) only bridges USDC today: ETH-fast needs WETH wrapping, which is not built.
+  // The quote must be for the amount on screen: it lags the input by the debounce, and
+  // an amount that rounds to zero faucet units is never quoted.
   const fastReady =
-    route === 'epoch' && token === 'USDC' && epochFlow === 'evm-to-miden' && epochStatus === 'quoted' && !!epochQuote;
+    route === 'epoch' &&
+    token === 'USDC' &&
+    epochFlow === 'evm-to-miden' &&
+    epochStatus === 'quoted' &&
+    !!epochQuote &&
+    epochQuote.params.minTokenOut === evmToMidenMinTokenOut(amount, MIDEN_USDC_FAUCET_DECIMALS);
   const slowReady = route === 'agglayer' && isValidAmount(amount) && slowStatus !== 'signing';
   const canConfirmRoute = route === 'epoch' ? fastReady : slowReady;
   // Fast (Epoch): the EVM amount the sponsor deposits, from the reverse quote's

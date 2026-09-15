@@ -149,6 +149,21 @@ export function buildEpochTaskDataParams(params: CrossChainIntentParams): GetTas
   return taskDataParams;
 }
 
+/**
+ * The Miden base units a typed EVM->Miden deposit amount asks for, or undefined when
+ * the amount is not a number or rounds to zero at the faucet's decimals. A reverse
+ * quote needs a positive `minTokenOut`, and a quote is only good for the amount it
+ * was made for.
+ */
+export function evmToMidenMinTokenOut(amount: string, faucetDecimals: number): string | undefined {
+  try {
+    const units = parseUnits(amount.trim(), faucetDecimals);
+    return units > 0n ? units.toString() : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export function buildEVMToMidenTaskDataParams(params: EVMToMidenIntentParams) {
   const midenRecipientHex = normalizeMidenIdToHex(params.midenRecipientId);
   const midenFaucetHex = normalizeMidenIdToHex(params.midenFaucetId);

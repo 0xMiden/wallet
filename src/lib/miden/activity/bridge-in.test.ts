@@ -212,7 +212,7 @@ describe('takeAgglayerBridgeInInfo', () => {
       accountId: 'miden-account',
       amount: 5n,
       initiatedAt: 1,
-      extraInputs: { provider: 'agglayer', phase: 'delivering' }
+      extraInputs: { provider: 'agglayer', phase: 'delivering', sourceAmount: '5', sourceSymbol: 'ETH' }
     });
 
     await expect(
@@ -221,6 +221,11 @@ describe('takeAgglayerBridgeInInfo', () => {
     await expect(
       takeAgglayerBridgeInInfo({ accountId: 'miden-account', senderAccountId: 'agg-sender', amount: 6n })
     ).resolves.toBeUndefined();
+
+    // Positive control: the same row matches with the configured sender and its amount.
+    await expect(
+      takeAgglayerBridgeInInfo({ accountId: 'miden-account', senderAccountId: 'agg-sender', amount: 5n })
+    ).resolves.toMatchObject({ bridgeReceiveTxId: 'row' });
   });
 });
 

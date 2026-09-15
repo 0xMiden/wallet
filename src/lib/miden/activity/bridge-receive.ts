@@ -109,6 +109,30 @@ async function reconcileEpochRow(row: ITransaction, inputs: IBridgedReceiveExtra
   }
 }
 
+async function reconcileRow(row: ITransaction, cutoffSec: number, resumeOrphans: boolean): Promise<void> {
+  const inputs: IBridgedReceiveExtraInputs | undefined = row.extraInputs;
+  if (inputs === undefined) return;
+  // Terminalize rather than skip. Resuming would register a pending bridge-in
+  // for the dump's `sourceAddress` and drive the incoming-funds UI off it with
+  // no user action - but merely skipping strands the row: these rows are born
+  // `Completed` with their lifecycle in `extraInputs.phase`, and the only other
+  // writers of that phase are driven by the pending-bridge-in registry, which
+  // lives in platform storage and does NOT travel in the dump. The row would
+  // read "Delivering" forever and keep suppressing its linked consume row.
+  if (row.restoredFromBackup) {
+    await updateBridgedReceivePhase(row.id, 'failed', { error: RESTORED_BRIDGE_UNVERIFIABLE });
+    return;
+  }
+  if (row.initiatedAt < cutoffSec) {
+    await updateBridgedReceivePhase(row.id, 'failed', { error: 'Bridge delivery timed out.' });
+    return;
+  }
+  if (inputs.phase === 'submitting' && !resumeOrphans) return;
+
+  if (inputs.provider === 'agglayer') await reconcileAgglayerRow(row, inputs);
+  else await reconcileEpochRow(row, inputs);
+}
+
 async function readUnsettledRows(): Promise<ITransaction[]> {
   return Repo.transactions
     .filter(tx => {
@@ -204,27 +228,12 @@ export function createBridgeReceiveReconciler({
     const cutoffSec = Math.floor((Date.now() - BRIDGE_RECEIVE_MAX_AGE_MS) / 1000);
 
     for (const row of rows) {
-      const inputs: IBridgedReceiveExtraInputs | undefined = row.extraInputs;
-      if (inputs === undefined) continue;
-      // Terminalize rather than skip. Resuming would register a pending bridge-in
-      // for the dump's `sourceAddress` and drive the incoming-funds UI off it with
-      // no user action - but merely skipping strands the row: these rows are born
-      // `Completed` with their lifecycle in `extraInputs.phase`, and the only other
-      // writers of that phase are driven by the pending-bridge-in registry, which
-      // lives in platform storage and does NOT travel in the dump. The row would
-      // read "Delivering" forever and keep suppressing its linked consume row.
-      if (row.restoredFromBackup) {
-        await updateBridgedReceivePhase(row.id, 'failed', { error: RESTORED_BRIDGE_UNVERIFIABLE });
-        continue;
+      try {
+        await reconcileRow(row, cutoffSec, resumeOrphans);
+      } catch (error) {
+        // One row's failing write or registry call must not end the pass for the rows after it.
+        console.warn('[bridge-receive] reconcile failed', row.id, row.extraInputs?.provider, error);
       }
-      if (row.initiatedAt < cutoffSec) {
-        await updateBridgedReceivePhase(row.id, 'failed', { error: 'Bridge delivery timed out.' });
-        continue;
-      }
-      if (inputs.phase === 'submitting' && !resumeOrphans) continue;
-
-      if (inputs.provider === 'agglayer') await reconcileAgglayerRow(row, inputs);
-      else await reconcileEpochRow(row, inputs);
     }
   }
 

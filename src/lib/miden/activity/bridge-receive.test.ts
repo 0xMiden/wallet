@@ -326,6 +326,39 @@ describe('reconcileBridgedReceives', () => {
     });
   });
 
+  it('keeps reconciling later rows when one row fails, and names the failing row', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    registerBridgeIn.mockRejectedValueOnce(new Error('registry locked'));
+    const hash = `0x${'5'.repeat(64)}`;
+    rows.push(
+      {
+        id: 'epoch-broken',
+        type: 'bridged-receive',
+        initiatedAt: Math.floor(Date.now() / 1000),
+        extraInputs: {
+          provider: 'epoch',
+          phase: 'delivering',
+          sourceAddress: '0x1111111111111111111111111111111111111111',
+          intentNonce: 'nonce-broken'
+        }
+      },
+      {
+        id: 'agg-after',
+        type: 'bridged-receive',
+        accountId: 'miden-account',
+        initiatedAt: Math.floor(Date.now() / 1000),
+        extraInputs: { provider: 'agglayer', phase: 'delivering', evmTxHash: hash }
+      }
+    );
+    fetchDeposits.mockResolvedValue([{ tx_hash: hash, ready_for_claim: true }]);
+
+    await reconcileBridgedReceives();
+
+    expect(updatePhase).toHaveBeenCalledWith('agg-after', 'ready');
+    expect(warn).toHaveBeenCalledWith('[bridge-receive] reconcile failed', 'epoch-broken', 'epoch', expect.any(Error));
+    warn.mockRestore();
+  });
+
   it('survives an Epoch status-poll outage without touching the row', async () => {
     getIntentStatus.mockRejectedValue(new Error('allocator down'));
     rows.push({
