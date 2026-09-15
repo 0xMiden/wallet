@@ -147,7 +147,7 @@ Gates: e2e-bridge-in.yml (IN, iOS) + e2e-bridge.yml (OUT, Chrome), both post-mer
 
 - [x] Inspect the three live listings and current checked-in store assets.
 - [x] Record the approved shared-core and platform-tailored design.
-- [ ] Obtain design approval, then write the implementation plan.
+- [x] Obtain design approval, then write the implementation plan.
 - [ ] Build canonical copy, deterministic captures, compositor, and validators.
 - [ ] Run visual verification and Review Council, then fix every actionable finding.
 - [ ] Push a PR with the publication checklist and babysit CI to green.
