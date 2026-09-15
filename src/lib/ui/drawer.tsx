@@ -78,16 +78,27 @@ function DrawerContent({
   children,
   hideHandle = true,
   onPointerDownOutside,
+  forceMount,
+  style,
   ...props
 }: DrawerContentProps) {
+  const { open } = useContext(DrawerContext);
+  // Once dismissed, the sheet and its `fixed inset-0` overlay stay mounted through the 500ms exit and
+  // would swallow the tap aimed at what they uncover, so they stop taking pointer events. It must be an
+  // inline style spread last: Radix writes inline `pointer-events: auto` on the overlay and on the
+  // content's dismissable layer, and an inline declaration outranks any class.
+  const inertWhileClosing = open ? undefined : ({ pointerEvents: 'none' } as const);
+
   return (
-    <VaulDrawer.Portal>
+    <VaulDrawer.Portal forceMount={forceMount}>
       <VaulDrawer.Overlay
+        style={inertWhileClosing}
         className={cn('fixed inset-0 z-50 bg-black/30 backdrop-blur-sm dark:bg-black/50', overlayClassName)}
       />
       <VaulDrawer.Content
         data-slot="drawer-content"
         aria-describedby={undefined}
+        style={{ ...style, ...inertWhileClosing }}
         className={cn(
           // pb: the sheet is fixed to the viewport bottom, so body's safe-area /
           // keyboard padding (mobile.html) doesn't reach it — pad past the
