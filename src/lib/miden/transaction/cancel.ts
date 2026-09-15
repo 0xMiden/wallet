@@ -695,7 +695,7 @@ export const verifySendLanded = async (tx: { id: string; transactionId?: string 
  *
  * Returns the number of transactions that were resolved.
  */
-export const verifyStuckTransactionsFromNode = async (): Promise<number> => {
+const verifyStuckTransactions = async (): Promise<number> => {
   // Only check GeneratingTransaction status - NOT Queued
   // Queued transactions haven't started processing yet, so the note being claimable is expected
   const inProgressTransactions = await getTransactionsInProgress();
@@ -769,4 +769,16 @@ export const verifyStuckTransactionsFromNode = async (): Promise<number> => {
   }
 
   return resolvedCount;
+};
+
+// One run at a time: callers poll every few seconds, and a run still waiting on the WASM lock would otherwise have
+// another queued behind it on every tick. A caller that arrives mid-run joins it.
+let stuckVerification: Promise<number> | undefined;
+
+/** {@link verifyStuckTransactions}, one run at a time. */
+export const verifyStuckTransactionsFromNode = (): Promise<number> => {
+  stuckVerification ??= verifyStuckTransactions().finally(() => {
+    stuckVerification = undefined;
+  });
+  return stuckVerification;
 };

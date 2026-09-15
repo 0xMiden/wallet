@@ -6,6 +6,7 @@ import { navigate } from 'lib/woozie';
 
 import HistoryView from './HistoryView';
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
+import type { PendingActivityItem } from './PendingActivityCard';
 import { bridgeRowDisplay, isFaucetRequest } from './transactionUtils';
 
 // i18n: identity translator so `t(key)` returns the key verbatim, letting us
@@ -1038,4 +1039,67 @@ describe('HistoryView earn-deposit status chip', () => {
       expect(screen.getAllByTestId('history-item')).toHaveLength(1);
     });
   });
+});
+
+it('places pending notes between transactions by inclusion date in the same date groups', () => {
+  const pending: PendingActivityItem = {
+    note: {
+      id: 'pending-note',
+      faucetId: 'faucet',
+      amount: '100',
+      senderAddress: 'sender',
+      isBeingClaimed: false,
+      type: 'unknown',
+      receivedAt: DAY_A + 60,
+      metadata: { name: 'Token', symbol: 'TOK', decimals: 6 }
+    },
+    status: 'pending'
+  };
+  const { container } = render(
+    <HistoryView
+      fullHistory
+      initialLoading={false}
+      hasMore={false}
+      loadMore={async () => {}}
+      entries={[makeEntry({ key: 'newest', timestamp: DAY_B }), makeEntry({ key: 'oldest', timestamp: DAY_A })]}
+      pendingItems={[pending]}
+      renderPendingItem={() => <span data-testid="pending-date-row">Pending note</span>}
+    />
+  );
+  const rows = [...container.querySelectorAll('[data-testid="activity-row"], [data-testid="pending-date-row"]')];
+  expect(rows.map(row => row.getAttribute('data-testid'))).toEqual([
+    'activity-row',
+    'pending-date-row',
+    'activity-row'
+  ]);
+  expect(screen.getAllByText('January 15, 2024')).toHaveLength(1);
+  expect(screen.getAllByText('January 16, 2024')).toHaveLength(1);
+});
+
+it('keeps an undated note visible without assigning a false date', () => {
+  const pending: PendingActivityItem = {
+    note: {
+      id: 'undated-note',
+      faucetId: 'faucet',
+      amount: '100',
+      senderAddress: 'sender',
+      isBeingClaimed: false,
+      type: 'unknown',
+      metadata: { name: 'Token', symbol: 'TOK', decimals: 6 }
+    },
+    status: 'pending'
+  };
+  render(
+    <HistoryView
+      fullHistory
+      initialLoading={false}
+      hasMore={false}
+      loadMore={async () => {}}
+      entries={[]}
+      pendingItems={[pending]}
+      renderPendingItem={() => <span>Pending note</span>}
+    />
+  );
+  expect(screen.getByText('activityDateUnavailable')).toBeInTheDocument();
+  expect(screen.getByText('Pending note')).toBeInTheDocument();
 });

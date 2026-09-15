@@ -89,7 +89,11 @@ jest.mock('app/a11y/RootSuspenseFallback', () => ({
 // Layouts render their children so the wrapped page stays assertable.
 jest.mock('app/layouts/FullScreenPage', () => ({
   __esModule: true,
-  default: ({ children }: { children?: React.ReactNode }) => <div data-testid="full-screen-page">{children}</div>
+  default: ({ children, entrance }: { children?: React.ReactNode; entrance?: string }) => (
+    <div data-testid="full-screen-page" data-entrance={entrance}>
+      {children}
+    </div>
+  )
 }));
 jest.mock('app/layouts/TabLayout', () => ({
   __esModule: true,
@@ -388,6 +392,24 @@ describe('app/PageRouter — ready tab & full-screen routes', () => {
     expect(el).toHaveAttribute('data-program-id', 'prog-1');
   });
 
+  it('keeps every tab route in one page layer, and keeps that layer mounted under a slide page', () => {
+    const { container, rerender } = renderAt('/history', ready);
+    const tabs = container.querySelector('[data-page-layer]');
+    expect(tabs).not.toBeNull();
+
+    // A tab change swaps panes inside the one tabs layer, never the layer itself.
+    mockLocation.pathname = '/settings';
+    rerender(<PageRouter />);
+    expect(container.querySelectorAll('[data-page-layer]')).toHaveLength(1);
+    expect(container.querySelector('[data-page-layer]')).toBe(tabs);
+
+    // A slide page stacks over the tabs layer, which stays mounted beneath it.
+    mockLocation.pathname = '/settings/general';
+    rerender(<PageRouter />);
+    expect(container.querySelectorAll('[data-page-layer]')).toHaveLength(2);
+    expect(tabs?.isConnected).toBe(true);
+  });
+
   it('/history renders AllHistory with an empty (optional) program id', () => {
     renderAt('/history', ready);
     expect(screen.getByTestId('all-history')).toHaveAttribute('data-program-id', '');
@@ -435,10 +457,12 @@ describe('app/PageRouter — ready tab & full-screen routes', () => {
   // Registered ahead of the generic `/settings/:tabSlug?` route above so it
   // matches first — otherwise that route's pattern would swallow this path
   // with tabSlug='network-endpoints' and render the wrong screen.
-  it('/settings/network-endpoints renders DeveloperSettings in readOnly mode inside FullScreenPage', () => {
+  it('/settings/network-endpoints renders DeveloperSettings in readOnly mode inside a sliding FullScreenPage', () => {
     renderAt('/settings/network-endpoints', ready);
     const el = screen.getByTestId('developer-settings');
     expect(screen.getByTestId('full-screen-page')).toContainElement(el);
+    // Like every Settings sub-page it slides, so the tabs stay retained beneath it.
+    expect(screen.getByTestId('full-screen-page')).toHaveAttribute('data-entrance', 'slide');
     expect(el).toHaveAttribute('data-read-only', 'true');
     expect(screen.queryByTestId('settings')).not.toBeInTheDocument();
   });

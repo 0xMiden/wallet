@@ -805,7 +805,6 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
               amount={amount || ''}
               isValidAmount={!errors.amount && validations.amount.isValidSync(amount)}
               error={errors.amount?.message?.toString()}
-              footerClassName="pt-4 pb-[max(0px,calc(1.5rem-var(--keyboard-height,0px)))]"
               onAmountChange={onAmountChange}
               onSelectToken={() => setShowTokenDrawer(true)}
               onConfirm={onConfirmAmount}
@@ -819,7 +818,6 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
               fastFeeUsd={fastFeeUsd}
               fastQuoteLoading={epochQuote.loading}
               slowEnabled={isBridgeableToken}
-              footerClassName="pt-4 pb-[max(0px,calc(1.5rem-var(--keyboard-height,0px)))]"
               onConfirm={goToReview}
             />
           );

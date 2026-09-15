@@ -545,6 +545,17 @@ describe('Explore', () => {
       expect(mockInitiateConsumeTransaction).not.toHaveBeenCalled();
     });
 
+    it('never auto-consumes a native note that only the cached list has shown', async () => {
+      mockAutoConsume = true;
+      mockClaimableNotes = [{ ...makeNote('cached', 'faucet-native'), fromCache: true }];
+
+      await renderExplore();
+
+      expect(mockInitiateConsumeTransaction).not.toHaveBeenCalled();
+      expect(mockRequestSWTransactionProcessing).not.toHaveBeenCalled();
+      expect(mockStartBackgroundTransactionProcessing).not.toHaveBeenCalled();
+    });
+
     it('leaves native swap notes to the swap settlement path', async () => {
       mockAutoConsume = true;
       mockClaimableNotes = [makeNote('swap-note', 'faucet-native', false, { autoConsume: false })];

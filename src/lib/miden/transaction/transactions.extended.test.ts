@@ -242,6 +242,30 @@ describe('verifyStuckTransactionsFromNode', () => {
     expect(await verifyStuckTransactionsFromNode()).toBe(0);
   });
 
+  it('joins a run still in progress instead of starting another', async () => {
+    txStore.push({
+      id: 'tx-1',
+      type: 'consume',
+      noteId: 'note-1',
+      status: ITransactionStatus.GeneratingTransaction,
+      initiatedAt: 100
+    });
+    let release: (notes: unknown[]) => void = () => {};
+    mockGetInputNoteDetails.mockImplementationOnce(
+      () =>
+        new Promise(resolve => {
+          release = resolve;
+        })
+    );
+    const first = verifyStuckTransactionsFromNode();
+    const second = verifyStuckTransactionsFromNode();
+    expect(second).toBe(first);
+    await new Promise(resolve => setTimeout(resolve, 0));
+    release([]);
+    await Promise.all([first, second]);
+    expect(mockGetInputNoteDetails).toHaveBeenCalledTimes(1);
+  });
+
   it('returns 0 when in-progress transactions are not consume type', async () => {
     txStore.push({
       id: 'tx-1',
