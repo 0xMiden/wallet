@@ -1,0 +1,90 @@
+{
+  "schemaVersion": 1,
+  "generatedFrom": "store-listing/listing-copy.json",
+  "store": "App Store",
+  "storeUrl": "https://apps.apple.com/us/app/bread-wallet-by-miden/id6789341854",
+  "product": {
+    "name": "Bread Wallet by Miden",
+    "valueLine": "Self-custody and private-by-design payments for the Miden network.",
+    "sourceUrls": {
+      "website": "https://miden.fi/",
+      "source": "https://github.com/0xMiden/wallet",
+      "privacy": "https://0xmiden.github.io/wallet/privacy/"
+    }
+  },
+  "fields": {
+    "name": "Bread Wallet by Miden",
+    "subtitle": "Private self-custody",
+    "promotionalText": "Self-custody and private-by-design payments for the Miden network, with recovery options and a built-in dApp browser.",
+    "keywords": "miden,wallet,self-custody,privacy,crypto,blockchain,recovery,guardian,dapp"
+  },
+  "sharedBlocks": [
+    { "id": "identity", "text": "Bread Wallet by Miden is the official self-custodial wallet for the Miden network." },
+    {
+      "id": "security",
+      "heading": "Self-custody by default",
+      "text": "Your wallet keys are generated on your device and kept there in encrypted storage. No account or sign-up is required."
+    },
+    {
+      "id": "payments",
+      "heading": "Choose how you pay",
+      "text": "Send and receive Miden assets, with public or private transfer behavior available where the selected flow supports it."
+    },
+    {
+      "id": "recovery",
+      "heading": "Recovery that keeps you in control",
+      "text": "Your recovery phrase restores key ownership. Guardian accounts can add recovery and private-state continuity through your selected operator, while neither your device nor the Guardian can spend alone."
+    },
+    {
+      "id": "open-source",
+      "heading": "Open source",
+      "text": "Bread Wallet is open source. Review the code and follow development on GitHub."
+    }
+  ],
+  "platformBlocks": [
+    {
+      "id": "ios-features",
+      "heading": "Made for iPhone",
+      "bullets": [
+        "Unlock with Face ID or your device passcode.",
+        "Share an address by QR code and choose recall timing for supported transfers.",
+        "Browse Miden dApps inside the wallet and review requests before confirming them.",
+        "Choose a Guardian operator when creating a Guardian account."
+      ]
+    }
+  ],
+  "blockOrder": ["identity", "security", "payments", "recovery", "open-source", "ios-features"],
+  "description": "Bread Wallet by Miden is the official self-custodial wallet for the Miden network.\n\nSelf-custody by default\nYour wallet keys are generated on your device and kept there in encrypted storage. No account or sign-up is required.\n\nChoose how you pay\nSend and receive Miden assets, with public or private transfer behavior available where the selected flow supports it.\n\nRecovery that keeps you in control\nYour recovery phrase restores key ownership. Guardian accounts can add recovery and private-state continuity through your selected operator, while neither your device nor the Guardian can spend alone.\n\nOpen source\nBread Wallet is open source. Review the code and follow development on GitHub.\n\nMade for iPhone\n\n- Unlock with Face ID or your device passcode.\n- Share an address by QR code and choose recall timing for supported transfers.\n- Browse Miden dApps inside the wallet and review requests before confirming them.\n- Choose a Guardian operator when creating a Guardian account.",
+  "screenshots": [
+    {
+      "id": "wallet-keys",
+      "headline": "Your wallet, your keys",
+      "alt": "Bread Wallet account home on iPhone, showing wallet controls and an account balance."
+    },
+    {
+      "id": "send-privacy",
+      "headline": "Send publicly or privately",
+      "alt": "Send review on iPhone with the public or private transfer choice visible."
+    },
+    {
+      "id": "receive",
+      "headline": "Receive with confidence",
+      "alt": "Receive screen on iPhone with a Miden address and QR code."
+    },
+    {
+      "id": "guardian",
+      "headline": "Recover with a Guardian",
+      "alt": "Guardian selection on iPhone with operator choices."
+    },
+    {
+      "id": "ios-dapp-browser",
+      "headline": "Explore Miden dApps",
+      "alt": "Built-in dApp browser on iPhone with the Miden ecosystem page open."
+    },
+    {
+      "id": "ios-protection",
+      "headline": "Unlock your way",
+      "alt": "Bread Wallet protection setup on iPhone with Face ID and passcode choices."
+    }
+  ]
+}

@@ -1,0 +1,164 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/0xMiden/wallet/store-listing/schema/listing-copy.schema.json",
+  "title": "Bread Wallet store listing copy",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "sourceId", "product", "shared", "platforms", "screenshots"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "schemaVersion": { "const": 1 },
+    "sourceId": { "type": "string", "minLength": 1 },
+    "product": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "valueLine", "sourceUrls"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "valueLine": { "type": "string", "minLength": 1 },
+        "sourceUrls": {
+          "type": "object",
+          "additionalProperties": { "type": "string", "format": "uri" },
+          "required": ["website", "source", "privacy"]
+        }
+      }
+    },
+    "shared": { "$ref": "#/$defs/blockCollection" },
+    "platforms": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["appStore", "playStore", "chromeWebStore"],
+      "properties": {
+        "appStore": { "$ref": "#/$defs/platform" },
+        "playStore": { "$ref": "#/$defs/platform" },
+        "chromeWebStore": { "$ref": "#/$defs/platform" }
+      }
+    },
+    "screenshots": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["shared", "platforms"],
+      "properties": {
+        "shared": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/sharedScreenshot" }
+        },
+        "platforms": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["appStore", "playStore", "chromeWebStore"],
+          "properties": {
+            "appStore": { "$ref": "#/$defs/platformScreenshots" },
+            "playStore": { "$ref": "#/$defs/platformScreenshots" },
+            "chromeWebStore": { "$ref": "#/$defs/platformScreenshots" }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "block": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "heading": { "type": "string", "minLength": 1 },
+        "text": { "type": "string", "minLength": 1 },
+        "bullets": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 }
+        }
+      },
+      "anyOf": [{ "required": ["text"] }, { "required": ["bullets"] }]
+    },
+    "blockCollection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["blockOrder", "blocks"],
+      "properties": {
+        "blockOrder": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "blocks": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/block" }
+        }
+      }
+    },
+    "platform": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["label", "slug", "storeUrl", "fields", "blockOrder", "blocks"],
+      "properties": {
+        "label": { "type": "string", "minLength": 1 },
+        "slug": { "type": "string", "minLength": 1 },
+        "storeUrl": { "type": "string", "format": "uri" },
+        "fields": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {
+            "oneOf": [
+              { "type": "string", "minLength": 1 },
+              {
+                "type": "array",
+                "minItems": 1,
+                "items": { "type": "string", "minLength": 1 }
+              }
+            ]
+          }
+        },
+        "blockOrder": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "blocks": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/block" }
+        }
+      }
+    },
+    "sharedScreenshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "headline", "alt"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "headline": { "type": "string", "minLength": 1 },
+        "alt": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["appStore", "playStore", "chromeWebStore"],
+          "properties": {
+            "appStore": { "type": "string", "minLength": 1 },
+            "playStore": { "type": "string", "minLength": 1 },
+            "chromeWebStore": { "type": "string", "minLength": 1 }
+          }
+        }
+      }
+    },
+    "platformScreenshots": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/platformScreenshot" }
+    },
+    "platformScreenshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "headline", "alt"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "headline": { "type": "string", "minLength": 1 },
+        "alt": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

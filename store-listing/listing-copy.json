@@ -1,0 +1,213 @@
+{
+  "$schema": "./schema/listing-copy.schema.json",
+  "schemaVersion": 1,
+  "sourceId": "store-listing/listing-copy.json",
+  "product": {
+    "name": "Bread Wallet by Miden",
+    "valueLine": "Self-custody and private-by-design payments for the Miden network.",
+    "sourceUrls": {
+      "website": "https://miden.fi/",
+      "source": "https://github.com/0xMiden/wallet",
+      "privacy": "https://0xmiden.github.io/wallet/privacy/"
+    }
+  },
+  "shared": {
+    "blockOrder": ["identity", "security", "payments", "recovery", "open-source"],
+    "blocks": [
+      {
+        "id": "identity",
+        "text": "Bread Wallet by Miden is the official self-custodial wallet for the Miden network."
+      },
+      {
+        "id": "security",
+        "heading": "Self-custody by default",
+        "text": "Your wallet keys are generated on your device and kept there in encrypted storage. No account or sign-up is required."
+      },
+      {
+        "id": "payments",
+        "heading": "Choose how you pay",
+        "text": "Send and receive Miden assets, with public or private transfer behavior available where the selected flow supports it."
+      },
+      {
+        "id": "recovery",
+        "heading": "Recovery that keeps you in control",
+        "text": "Your recovery phrase restores key ownership. Guardian accounts can add recovery and private-state continuity through your selected operator, while neither your device nor the Guardian can spend alone."
+      },
+      {
+        "id": "open-source",
+        "heading": "Open source",
+        "text": "Bread Wallet is open source. Review the code and follow development on GitHub."
+      }
+    ]
+  },
+  "platforms": {
+    "appStore": {
+      "label": "App Store",
+      "slug": "app-store",
+      "storeUrl": "https://apps.apple.com/us/app/bread-wallet-by-miden/id6789341854",
+      "fields": {
+        "name": "Bread Wallet by Miden",
+        "subtitle": "Private self-custody",
+        "promotionalText": "Self-custody and private-by-design payments for the Miden network, with recovery options and a built-in dApp browser.",
+        "keywords": [
+          "miden",
+          "wallet",
+          "self-custody",
+          "privacy",
+          "crypto",
+          "blockchain",
+          "recovery",
+          "guardian",
+          "dapp"
+        ]
+      },
+      "blockOrder": ["ios-features"],
+      "blocks": [
+        {
+          "id": "ios-features",
+          "heading": "Made for iPhone",
+          "bullets": [
+            "Unlock with Face ID or your device passcode.",
+            "Share an address by QR code and choose recall timing for supported transfers.",
+            "Browse Miden dApps inside the wallet and review requests before confirming them.",
+            "Choose a Guardian operator when creating a Guardian account."
+          ]
+        }
+      ]
+    },
+    "playStore": {
+      "label": "Google Play",
+      "slug": "play-store",
+      "storeUrl": "https://play.google.com/store/apps/details?id=com.miden.wallet",
+      "fields": {
+        "name": "Bread Wallet by Miden",
+        "shortDescription": "Self-custody and private-by-design payments for the Miden network."
+      },
+      "blockOrder": ["android-features"],
+      "blocks": [
+        {
+          "id": "android-features",
+          "heading": "Made for Android",
+          "bullets": [
+            "Unlock with biometric authentication or your device passcode.",
+            "Share an address by QR code and choose recall timing for supported transfers.",
+            "Browse Miden dApps and review supported actions before confirming them.",
+            "Create proofs locally or use a configured proving service.",
+            "Swap supported Miden assets from the wallet."
+          ]
+        }
+      ]
+    },
+    "chromeWebStore": {
+      "label": "Chrome Web Store",
+      "slug": "chrome-web-store",
+      "storeUrl": "https://chromewebstore.google.com/detail/bread-wallet-by-miden/coajhopfooegmaifelglfboehacldcbo",
+      "fields": {
+        "name": "Bread Wallet by Miden",
+        "shortDescription": "Self-custody and private-by-design payments for Miden, built for your browser."
+      },
+      "blockOrder": ["chrome-features"],
+      "blocks": [
+        {
+          "id": "chrome-features",
+          "heading": "Made for Chrome",
+          "bullets": [
+            "Connect to Miden sites and review each request in a wallet-owned confirmation window.",
+            "Keep the wallet close in Chrome's side panel.",
+            "Protect wallet access with your password.",
+            "Create proofs locally or use a configured proving service.",
+            "Send Miden assets and confirm supported dApp flows."
+          ]
+        }
+      ]
+    }
+  },
+  "screenshots": {
+    "shared": [
+      {
+        "id": "wallet-keys",
+        "headline": "Your wallet, your keys",
+        "alt": {
+          "appStore": "Bread Wallet account home on iPhone, showing wallet controls and an account balance.",
+          "playStore": "Bread Wallet account home on Android, showing wallet controls and an account balance.",
+          "chromeWebStore": "Bread Wallet account home in the Chrome side panel, showing wallet controls and an account balance."
+        }
+      },
+      {
+        "id": "send-privacy",
+        "headline": "Send publicly or privately",
+        "alt": {
+          "appStore": "Send review on iPhone with the public or private transfer choice visible.",
+          "playStore": "Send review on Android with the public or private transfer choice visible.",
+          "chromeWebStore": "Send review in the Chrome extension with the public or private transfer choice visible."
+        }
+      },
+      {
+        "id": "receive",
+        "headline": "Receive with confidence",
+        "alt": {
+          "appStore": "Receive screen on iPhone with a Miden address and QR code.",
+          "playStore": "Receive screen on Android with a Miden address and QR code.",
+          "chromeWebStore": "Receive screen in the Chrome extension with a Miden address."
+        }
+      },
+      {
+        "id": "guardian",
+        "headline": "Recover with a Guardian",
+        "alt": {
+          "appStore": "Guardian selection on iPhone with operator choices.",
+          "playStore": "Guardian selection on Android with operator choices.",
+          "chromeWebStore": "Guardian security overview in the Chrome extension."
+        }
+      }
+    ],
+    "platforms": {
+      "appStore": [
+        {
+          "id": "ios-dapp-browser",
+          "headline": "Explore Miden dApps",
+          "alt": "Built-in dApp browser on iPhone with the Miden ecosystem page open."
+        },
+        {
+          "id": "ios-protection",
+          "headline": "Unlock your way",
+          "alt": "Bread Wallet protection setup on iPhone with Face ID and passcode choices."
+        }
+      ],
+      "playStore": [
+        {
+          "id": "android-dapp-browser",
+          "headline": "Explore Miden dApps",
+          "alt": "Built-in dApp browser on Android with the Miden ecosystem page open."
+        },
+        {
+          "id": "android-local-proving",
+          "headline": "Prove on your device",
+          "alt": "Android transaction review showing local proving selected."
+        },
+        {
+          "id": "android-protection",
+          "headline": "Unlock your way",
+          "alt": "Bread Wallet protection setup on Android with biometric and passcode choices."
+        }
+      ],
+      "chromeWebStore": [
+        {
+          "id": "chrome-connect",
+          "headline": "Connect to Miden sites",
+          "alt": "Chrome extension connection request for a Miden site."
+        },
+        {
+          "id": "chrome-confirm",
+          "headline": "Review every request",
+          "alt": "Wallet-owned Chrome confirmation window showing transaction details."
+        },
+        {
+          "id": "chrome-side-panel",
+          "headline": "Your wallet, close by",
+          "alt": "Bread Wallet open beside a Miden site in Chrome's side panel."
+        }
+      ]
+    }
+  }
+}
