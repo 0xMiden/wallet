@@ -40,11 +40,13 @@ export const ExternalLinkValue: FC<{
 export const transactionStatusOf = ({
   status,
   isCancelled,
-  swapSettlement: reportedSettlement
+  swapSettlement: reportedSettlement,
+  guardianRecovered
 }: {
   status?: ITransactionStatus;
   isCancelled?: boolean;
   swapSettlement?: 'pending' | 'reclaimed';
+  guardianRecovered?: boolean;
 }): Status => {
   // A user cancellation is recorded as a failure (`cancel.ts`), so it is checked first.
   if (isCancelled) return 'cancelled';
@@ -57,6 +59,7 @@ export const transactionStatusOf = ({
   // the same neutral treatment as a cancellation — the history list already
   // tones it that way.
   if (reportedSettlement !== undefined) return reportedSettlement;
+  if (status === ITransactionStatus.Completed && guardianRecovered) return 'midenConfirmed';
   return status === ITransactionStatus.Completed ? 'confirmed' : 'inProgress';
 };
 
@@ -66,11 +69,12 @@ export const StatusPill: FC<{
   isCancelled?: boolean;
   swapSettlement?: 'pending' | 'reclaimed';
   testId?: string;
-}> = memo(({ status, isCancelled, swapSettlement, testId }) => (
+  guardianRecovered?: boolean;
+}> = memo(({ status, isCancelled, swapSettlement, testId, guardianRecovered }) => (
   <StatusBadge
     size="md"
     live
-    status={transactionStatusOf({ status, isCancelled, swapSettlement })}
+    status={transactionStatusOf({ status, isCancelled, swapSettlement, guardianRecovered })}
     data-testid={testId}
   />
 ));

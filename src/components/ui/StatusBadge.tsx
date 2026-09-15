@@ -13,6 +13,7 @@ export type Status =
   | 'pending'
   | 'inProgress'
   | 'confirmed'
+  | 'midenConfirmed'
   | 'failed'
   | 'cancelled'
   | 'reclaimed'
@@ -63,6 +64,7 @@ export const STATUS_BADGE: Record<Status, { labelKey: string; tone: StatusTone }
   pending: { labelKey: 'pending', tone: 'pending' },
   inProgress: { labelKey: 'inProgress', tone: 'pending' },
   confirmed: { labelKey: 'confirmed', tone: 'positive' },
+  midenConfirmed: { labelKey: 'guardianHistoryMidenConfirmed', tone: 'positive' },
   failed: { labelKey: 'failed', tone: 'negative' },
   cancelled: { labelKey: 'cancelled', tone: 'neutral' },
   reclaimed: { labelKey: 'reclaimed', tone: 'neutral' },

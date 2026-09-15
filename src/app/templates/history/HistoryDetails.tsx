@@ -67,6 +67,7 @@ import AddressChip from '../AddressChip';
 import HashChip from '../HashChip';
 import { BridgeClaimSection } from './BridgeClaimSection';
 import { DetailSection } from './DetailSection';
+import { guardianHistoryActionKey, guardianHistoryIcon } from './guardianHistoryLabels';
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
 import { SwapDetail } from './SwapDetail';
 import { deriveSwapReceipt } from './swapReceipt';
@@ -370,10 +371,10 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           restoredFromBackup: tx.restoredFromBackup === true,
           key: `completed-${tx.id}`,
           timestamp: tx.completedAt ?? tx.initiatedAt,
-          message: tx.displayMessage ?? '',
+          message: tx.recovery ? t(guardianHistoryActionKey(tx.type, tx.recovery.reclaimed)) : tx.displayMessage ?? '',
           type: HistoryEntryType.CompletedTransaction,
           status: tx.status,
-          transactionIcon: tx.displayIcon,
+          transactionIcon: tx.recovery ? guardianHistoryIcon(tx.type) : tx.displayIcon,
           amount: earnWithdrawFields
             ? earnWithdrawFields.amount
             : tx.amount !== undefined && (offeredSwapToken !== undefined || hasKnownScale(tokenMetadata))
@@ -399,8 +400,8 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           faucetId: tx.faucetId,
           outputNoteIds: tx.outputNoteIds,
           txType: tx.type,
-          previousGuardianEndpoint: guardianSwitchExtra?.previousGuardianEndpoint,
-          newGuardianEndpoint: guardianSwitchExtra?.newGuardianEndpoint,
+          previousGuardianEndpoint: guardianSwitchExtra?.previousGuardianEndpoint ?? tx.recovery?.operators[0],
+          newGuardianEndpoint: guardianSwitchExtra?.newGuardianEndpoint ?? tx.recovery?.proposal?.newGuardianEndpoint,
           errorMessage: tx.error,
           rawErrorMessage: tx.rawError,
           isCancelled: isUserCancelledTransaction(tx.error),
@@ -525,7 +526,9 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
 
   // Settlement consumes are Dexie-backed too, so liveQuery replaces the old
   // bounded interval and updates the receipt whenever a consume row changes.
-  const settlementNotes = useSwapSettlementNotes(transaction?.type === 'swap' ? transaction.id : undefined);
+  const settlementNotes = useSwapSettlementNotes(
+    transaction?.type === 'swap' && !transaction.recovery ? transaction.id : undefined
+  );
 
   const swapTracking = trackingEntry?.tracking ?? null;
   const trackingLoading =
@@ -543,7 +546,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   // For an outbound bridge the sender is the Miden account; the EVM destination is
   // shown in the BridgeClaimSection (with the right explorer link), so the Miden
   // "to" row is omitted here.
-  const isBridgeOut = entry?.txType === 'bridged-send' && !entry.isCancelled;
+  const isBridgeOut = entry?.txType === 'bridged-send' && !entry.isCancelled && !transaction?.recovery;
   const isBridgeIn = entry ? isBridgeInEntry(entry) : false;
   const isBridge = isBridgeOut || isBridgeIn;
   const isEarnWithdraw = entry?.txType === 'earn-withdraw' && earnWithdraw !== null;
@@ -657,7 +660,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           <div className="flex h-8 justify-center pt-5">
             <Spinner />
           </div>
-        ) : entry.txType === 'swap' && requestedToken ? (
+        ) : entry.txType === 'swap' && requestedToken && !transaction?.recovery ? (
           <SwapDetail
             entry={entry}
             requestedAmount={requestedToken.amount}
@@ -721,7 +724,12 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                     data-testid="history-status-pill"
                   />
                 ) : (
-                  <StatusPill status={entry.status} isCancelled={entry.isCancelled} testId="history-status-pill" />
+                  <StatusPill
+                    status={entry.status}
+                    isCancelled={entry.isCancelled}
+                    guardianRecovered={Boolean(transaction?.recovery)}
+                    testId="history-status-pill"
+                  />
                 )}
               </div>
             </div>

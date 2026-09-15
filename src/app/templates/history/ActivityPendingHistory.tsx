@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useRef } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 
 import classNames from 'clsx';
 import { motion, useReducedMotion } from 'framer-motion';
@@ -12,6 +12,7 @@ import { durations, useMotion } from 'lib/animation';
 import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
 import { useConfirm } from 'lib/ui/dialog';
 import { useLocation } from 'lib/woozie';
+import { useGuardianNoteRecoveryProgress } from 'lib/wallet-prompts';
 
 import History, { ActivityFilter } from './History';
 import { PendingActivityCard, type PendingActivityItem } from './PendingActivityCard';
@@ -32,6 +33,12 @@ function isShown(item: PendingActivityItem, hiddenIds: ReadonlySet<string>): boo
 export const ActivityPendingHistory = ({ search, filter, programId, onInitialLoad }: ActivityPendingHistoryProps) => {
   const { t } = useTranslation();
   const { items, accept, acceptMany, account, isLoadingNotes } = useActivityClaims();
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+  const recovery = useGuardianNoteRecoveryProgress(
+    account.guardianNoteRecoveryPending || account.coldPublicKey ? account.publicKey : null
+  );
+  const isRecovering = recovery !== null && recovery.step !== 'history-partial';
+  const isFetching = isLoadingNotes || isLoadingHistory || isRecovering;
   const reducedMotion = useReducedMotion();
   const loadingTransition = useMotion({
     duration: durations.extraSlow * 2,
@@ -114,16 +121,19 @@ export const ActivityPendingHistory = ({ search, filter, programId, onInitialLoa
   return (
     <>
       <div className="mx-4 h-0.5 shrink-0 overflow-hidden rounded-full">
-        {isLoadingNotes && (
+        {isFetching && (
           <motion.div
             role="progressbar"
-            aria-label={t('loading')}
+            aria-label={t('activityFetchingHistoryAndNotes')}
             className={reducedMotion ? 'h-full w-full bg-accent-primary' : 'h-full w-1/3 bg-accent-primary'}
             initial={false}
             animate={{ x: reducedMotion ? '0%' : ['-100%', '300%'] }}
             transition={loadingTransition}
           />
         )}
+      </div>
+      <div role="status" aria-live="polite" className="shrink-0 px-4 text-xs text-text-secondary-token">
+        {isFetching && <p className="pt-2 pb-1">{t('activityFetchingHistoryAndNotes')}</p>}
       </div>
 
       {/* `pb-28` clears the floating navbar; with the Accept All footer in its
@@ -158,6 +168,8 @@ export const ActivityPendingHistory = ({ search, filter, programId, onInitialLoa
             pendingItems={listItems}
             renderPendingItem={renderPendingItem}
             onInitialLoad={onInitialLoad}
+            onLoadingChange={setIsLoadingHistory}
+            externalLoading={isLoadingNotes || isRecovering}
           />
         </div>
       </div>

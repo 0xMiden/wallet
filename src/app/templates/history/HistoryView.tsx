@@ -16,6 +16,7 @@ import { springs, useMotion } from 'lib/animation';
 import { navigate } from 'lib/woozie';
 
 import HistoryItem from './HistoryItem';
+import { guardianHistoryActionKey } from './guardianHistoryLabels';
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
 import type { PendingActivityItem } from './PendingActivityCard';
 import {
@@ -30,6 +31,7 @@ import {
 type HistoryViewProps = {
   entries: IHistoryEntry[];
   initialLoading: boolean;
+  hideLoadingSpinner?: boolean;
   loadMore: (page: number) => Promise<void>;
   hasMore: boolean;
   scrollParentRef?: RefObject<HTMLDivElement>;
@@ -92,7 +94,7 @@ function buildRowProps(
   // (SEND) and signed amount don't apply. Bridge-in consumes (auto-consumed
   // EVM→Miden deposits) reuse the same layout with the direction flipped.
   // A user-cancelled bridge falls through to the plain cancelled row below.
-  if (!entry.isCancelled && (entry.txType === 'bridged-send' || isBridgeInEntry(entry))) {
+  if (!entry.guardianRecovered && !entry.isCancelled && (entry.txType === 'bridged-send' || isBridgeInEntry(entry))) {
     const bridgeIn = entry.txType !== 'bridged-send';
     const d = bridgeIn ? bridgeInRowDisplay(entry) : bridgeRowDisplay(entry);
     const failed = d.status === 'failed';
@@ -203,7 +205,9 @@ function buildRowProps(
       ? t('faucetRequestTitle')
       : isSwap && entry.token && entry.requestedToken
         ? `${t('swap')} ${entry.token} → ${entry.requestedToken}`
-        : entry.message || '';
+        : entry.guardianRecovered
+          ? t(guardianHistoryActionKey(entry.txType, entry.guardianReclaimed))
+          : entry.message || '';
   const subtitle =
     entry.txType === 'switch-guardian'
       ? `${guardianEndpointDisplayName(
@@ -297,7 +301,7 @@ function buildRowProps(
     }
   }
 
-  let status: Status = 'confirmed';
+  let status: Status = entry.guardianRecovered ? 'midenConfirmed' : 'confirmed';
   if (isCancelled) {
     status = 'cancelled';
   } else if (isFailed) {
@@ -307,7 +311,7 @@ function buildRowProps(
     entry.type === HistoryEntryType.ProcessingTransaction
   ) {
     status = 'pending';
-  } else if (entry.txType === 'earn-deposit' && earnDepositSettlementOf(entry) !== 'confirmed') {
+  } else if (!entry.guardianRecovered && entry.txType === 'earn-deposit' && earnDepositSettlementOf(entry) !== 'confirmed') {
     // A deposit row completes when the Miden collateral note lands, but the
     // position only exists once the solver-fulfilled Sepolia lending leg settles —
     // the badge tracks that leg, as the details page does. Deliberately checked
@@ -343,6 +347,7 @@ const HistoryView = memo<HistoryViewProps>(
   ({
     entries,
     initialLoading,
+    hideLoadingSpinner,
     loadMore,
     hasMore,
     scrollParentRef,
@@ -378,6 +383,7 @@ const HistoryView = memo<HistoryViewProps>(
     const groupedEntries = useMemo(() => groupEntriesByDate(timeline), [timeline]);
 
     if (noEntries) {
+      if (initialLoading && hideLoadingSpinner) return null;
       if (initialLoading)
         return (
           <div className="flex h-8 justify-center pt-5">

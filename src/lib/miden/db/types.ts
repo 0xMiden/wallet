@@ -1,4 +1,5 @@
 import type { PreparedExecution } from '@epoch-protocol/epoch-intents-sdk';
+import type { GuardianHistoryRecovery } from '../guardian/history';
 import { v4 as uuid } from 'uuid';
 
 import { ConsumableNote, NoteType } from '../types';
@@ -400,6 +401,7 @@ export type ITransactionStage = (typeof TRANSACTION_STAGES)[number];
 export type INoteDeliveryState = 'pending' | 'relayed' | 'confirmed' | 'undelivered';
 
 export interface ITransaction {
+  recovery?: GuardianHistoryRecovery;
   id: string;
   type: ITransactionType;
   accountId: string;
@@ -666,6 +668,7 @@ export interface IFailedTransactionOutput {
 export type TransactionOutput = ISuccessTransactionOutput | IFailedTransactionOutput;
 
 export class Transaction implements ITransaction {
+  recovery?: GuardianHistoryRecovery;
   id: string;
   type: ITransactionType;
   accountId: string;
