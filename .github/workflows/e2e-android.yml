@@ -67,7 +67,9 @@ concurrency:
 jobs:
   android-e2e:
     name: Android E2E (${{ github.event.inputs.network || 'testnet' }})
-    runs-on: warp-ubuntu-latest-x64-8x
+    # The emulator needs KVM. GitHub's ubuntu runners have it; the WarpBuild hosts behind
+    # warp-ubuntu-latest-x64-8x stopped exposing /dev/kvm on 2026-09-15 ("Enable KVM" failed before any build).
+    runs-on: ubuntu-latest
     # Two emulator boots + an APK assemble + a live-chain spec.
     timeout-minutes: 60
     env:
