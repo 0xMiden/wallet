@@ -1,12 +1,12 @@
 import { useEffect, useRef } from 'react';
 
 import { getFaucetIdSetting } from 'lib/miden/assets';
-import { isWorthClaiming, totalClaimableAmount } from 'lib/miden/fees/spendable';
 import { getVerificationBaseFee } from 'lib/miden-chain/native-asset';
 import { clearNoteReceivedNotification } from 'lib/mobile/native-notifications';
 import { isExtension } from 'lib/platform';
 import { isAutoConsumeEnabled, isDelegateProofEnabled } from 'lib/settings/helpers';
 
+import { selectAutoConsumeBatch } from './auto-managed-notes';
 import { useClaimableNotes } from './claimable-notes';
 import { useMidenContext } from './client';
 import { zustandProvider } from './guardian-sync';
@@ -52,20 +52,13 @@ export function NativeNoteAutoConsumeManager(): null {
         const nativeFaucetId = await getFaucetIdSetting();
         if (disposed || !nativeFaucetId) return;
         // A claim worth no more than its own fee makes the balance go DOWN. This runs
-        // unattended, so the wallet must not collect on the user's behalf at a loss;
-        // `isWorthClaiming` fails open on an unknown fee.
+        // unattended, so the wallet must not collect on the user's behalf at a loss, nor
+        // start a claim from the cache-first list; `selectAutoConsumeBatch` judges the batch
+        // total, fails open on an unknown fee and never takes a `fromCache` entry.
         const baseFee = await getVerificationBaseFee();
         if (disposed) return;
-        // `fromCache` entries are the cache-first list the UI shows before the first live
-        // read lands. They are displayable, not claimable — this pass runs unattended.
-        const nativeNotes: ConsumableNote[] = notes.filter(
-          n => n.faucetId === nativeFaucetId && !n.swapOrder && !n.isBeingClaimed && !n.fromCache
-        );
+        const nativeNotes: ConsumableNote[] = selectAutoConsumeBatch(notes, nativeFaucetId, baseFee);
         if (nativeNotes.length === 0) return;
-        // Value check on the BATCH TOTAL, not per note: these are claimed as ONE
-        // transaction paying one fee (see below), so the total is what must clear it.
-        // Per note, a backlog of individually-marginal notes was refused in full.
-        if (!isWorthClaiming(totalClaimableAmount(nativeNotes.map(n => n.amount)), baseFee)) return;
         const {
           initiateConsumeTransaction,
           initiateConsumeNotesTransaction,
