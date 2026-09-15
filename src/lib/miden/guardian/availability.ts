@@ -10,16 +10,16 @@
  * Deliberately tiny and dependency-light: plain HTTP only, no WASM, no
  * intercom — it runs from onboarding screens where none of that is loaded.
  * A ping that fails for ANY reason (network error, timeout, non-guardian
- * response) reports offline; the caller treats that as advisory UI state,
- * never as a hard block on selecting the operator.
+ * response) reports offline, and the picker then disables that operator's
+ * card until a later round reports it online.
  */
 import { GuardianHttpClient } from '@openzeppelin/guardian-client';
 
 import { registerGuardianOrigin } from 'lib/miden/guardian/native-http';
 
 /**
- * Per-ping deadline. Short on purpose: this drives a "offline" chip on the
- * picker, and a guardian that can't answer an unauthenticated GET in this
+ * Per-ping deadline. Short on purpose: this verdict disables an operator's card
+ * on the picker, and a guardian that can't answer an unauthenticated GET in this
  * window is effectively down for the co-signing flows that follow. The
  * guardian client exposes no abort, so a late response is simply dropped.
  */

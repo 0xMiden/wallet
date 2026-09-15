@@ -2,7 +2,7 @@
  * `pingGuardianEndpoint` answers "is this operator responding right now?" via
  * the unauthenticated `GET /pubkey` — a real guardian answers with a key
  * commitment; anything else (error, timeout, empty commitment) is offline.
- * It must never throw: the result drives an advisory chip in the picker.
+ * It must never throw: the result decides whether the picker lets an operator be selected.
  */
 import { pingGuardianEndpoint } from './availability';
 

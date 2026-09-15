@@ -44,7 +44,10 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
+      # The action's default packages include the retired 'tools' package, which sdkmanager no longer finds.
       - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
       - uses: gradle/actions/setup-gradle@v4
       # These surfaces compile wallet code that imports unreleased APIs from
       # both the web SDK and the guardian multisig client. Without the
