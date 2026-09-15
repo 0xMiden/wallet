@@ -145,6 +145,25 @@ db.version(1.6).stores({
   )
 });
 
+// v1.7 - type-scoped reads. The app-root bridge watcher asks for the `bridged-receive` and
+// `bridged-send` rows every eight seconds, and without an index each ask walked the whole
+// history. No upgrade step: IndexedDB builds a new index over the rows already stored.
+db.version(1.7).stores({
+  [Table.Transactions]: indexes(
+    'id',
+    'accountId',
+    'transactionId',
+    'initiatedAt',
+    'completedAt',
+    'noteId',
+    '*noteIds',
+    'noteDelivery',
+    'extraInputs.destinationAddress',
+    'extraInputs.swapOrderTxId',
+    'type'
+  )
+});
+
 export const transactions = db.table<ITransaction, string>(Table.Transactions);
 
 function indexes(...items: string[]) {

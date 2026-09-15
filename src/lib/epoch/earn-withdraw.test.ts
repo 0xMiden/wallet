@@ -25,6 +25,7 @@ import {
   selectEarnWithdrawPreparedExecution
 } from './earn-withdraw-policy';
 import { matchesEarnWithdrawIntent } from './intent-key';
+import { EPOCH_INTENT_STATUS_TIMEOUT_MS } from './intent-status';
 import { clearPollRegistryForTests, createIntentPollCoordinator } from './poll-registry';
 import { deferred, SharedEarnLocks } from './testing/earn-locks';
 import { preparedExecution, PREPARED_FAUCET, PREPARED_RECIPIENT } from './testing/earn-prepared';
@@ -462,6 +463,33 @@ describe('pollEarnWithdrawDelivery', () => {
       { chainId: MIDEN_CHAIN_ID, status: 'pending', transactionHash: '' }
     ]);
     expect(deps.updatePhase).not.toHaveBeenCalled();
+  });
+
+  it('retries a delivery status request that never answers once it times out', async () => {
+    const warning = jest.spyOn(console, 'warn').mockImplementation();
+    const getIntentStatus = jest
+      .fn()
+      .mockReturnValueOnce(new Promise(() => {}))
+      .mockResolvedValue([{ chainId: MIDEN_CHAIN_ID, status: 'failed' }]);
+    const deps = {
+      getSdk: jest.fn().mockResolvedValue({ getIntentStatus }),
+      updatePhase: jest.fn().mockResolvedValue(undefined),
+      resolveNoteId: jest.fn().mockResolvedValue(undefined)
+    };
+    pollEarnWithdrawDelivery({ sponsorAddress: EVM_OWNER, nonce: 'NONCE1', txId: 'TX1', intervalMs: 10, deps });
+    await jest.advanceTimersByTimeAsync(10);
+    expect(getIntentStatus).toHaveBeenCalledTimes(1);
+    await jest.advanceTimersByTimeAsync(EPOCH_INTENT_STATUS_TIMEOUT_MS + 10);
+    expect(getIntentStatus.mock.calls.length).toBeGreaterThanOrEqual(2);
+    expect(getIntentStatus).toHaveBeenLastCalledWith(EVM_OWNER, 'NONCE1', expect.any(AbortSignal));
+    expect(deps.updatePhase).toHaveBeenCalledWith(
+      'TX1',
+      'failed',
+      expect.objectContaining({ error: expect.any(String) }),
+      undefined,
+      expect.objectContaining({ owner: EVM_OWNER })
+    );
+    warning.mockRestore();
   });
 
   it('advances to delivering once the Miden destination leg completes', async () => {
@@ -1015,8 +1043,8 @@ describe('withdrawal ownership across independent document factories', () => {
       submissionState: 'accepted',
       withdrawIntentNonce: '22'
     });
-    expect(getIntentStatus).toHaveBeenCalledWith(EVM_OWNER, '11');
-    expect(getIntentStatus).toHaveBeenCalledWith(EVM_OWNER, '22');
+    expect(getIntentStatus).toHaveBeenCalledWith(EVM_OWNER, '11', expect.any(AbortSignal));
+    expect(getIntentStatus).toHaveBeenCalledWith(EVM_OWNER, '22', expect.any(AbortSignal));
     expect(h.registerBridgeIn).toHaveBeenCalledTimes(1);
     writingAcceptance.resolve(true);
     await jest.advanceTimersByTimeAsync(0);
@@ -1089,7 +1117,7 @@ describe('withdrawal ownership across independent document factories', () => {
       tryWithSubmissionLock: d.submissionB.tryWithEarnSubmissionLock
     });
     await jest.advanceTimersByTimeAsync(0);
-    expect(getIntentStatus).toHaveBeenCalledWith(EVM_OWNER, '22');
+    expect(getIntentStatus).toHaveBeenCalledWith(EVM_OWNER, '22', expect.any(AbortSignal));
     expect(h.rows.get('TX1')?.extraInputs.phase).toBe('redeeming');
     expect(h.registry).toHaveLength(failure === 'registry' ? 0 : 1);
     if (failure === 'registry') {
@@ -1210,8 +1238,8 @@ describe('withdrawal ownership across independent document factories', () => {
     });
     await jest.advanceTimersByTimeAsync(0);
     expect(getIntentStatus).toHaveBeenCalledTimes(2);
-    expect(getIntentStatus).toHaveBeenCalledWith(ownerA, 'SAME');
-    expect(getIntentStatus).toHaveBeenCalledWith(ownerB, 'SAME');
+    expect(getIntentStatus).toHaveBeenCalledWith(ownerA, 'SAME', expect.any(AbortSignal));
+    expect(getIntentStatus).toHaveBeenCalledWith(ownerB, 'SAME', expect.any(AbortSignal));
   });
 
   it.each(['received', 'restored', 'deleted', 'owner', 'nonce', 'attempt'])(
@@ -1269,7 +1297,8 @@ describe('withdrawal ownership across independent document factories', () => {
       immediate: true
     };
     pollEarnWithdrawDelivery({ ...args, deps: { ...deps, startPoll: d.pollA.startIntentPoll } });
-    await jest.advanceTimersByTimeAsync(30_000);
+    // Short of the status timeout, which ends a read that never answers.
+    await jest.advanceTimersByTimeAsync(EPOCH_INTENT_STATUS_TIMEOUT_MS - 1);
     expect(getIntentStatus).toHaveBeenCalledTimes(1);
     status.resolve([{ chainId: MIDEN_CHAIN_ID, status: 'completed', midenNoteId: '0xnote' }]);
     await jest.advanceTimersByTimeAsync(0);

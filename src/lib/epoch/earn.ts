@@ -16,6 +16,7 @@ import { getCurrentMidenBlock, MIDEN_MIN_RECLAIM_BLOCKS, MIDEN_RECLAIM_BUFFER_BL
 import { createEarnP2IDENote } from './earn-note';
 import { isEvmAddress } from './evm-address';
 import { earnDepositPollKey, matchesEarnDepositIntent, type ExpectedEarnDepositIntent } from './intent-key';
+import { readEpochIntentStatus } from './intent-status';
 import type { BridgeNoteDeps } from './miden-note';
 import { startIntentPoll } from './poll-registry';
 import { getEpochReadOnlySdk } from './sdk';
@@ -310,7 +311,7 @@ export function pollEarnIntentStatus(args: {
         return;
       }
       if (!context.isCurrent()) return;
-      const results = await sdk.getIntentStatus(sponsorAddress, nonce);
+      const results = await readEpochIntentStatus(sdk, sponsorAddress, nonce);
       if (!context.isCurrent()) return;
       if (!(await stillLive())) {
         context.markTerminal();

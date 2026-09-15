@@ -51,10 +51,19 @@ const findClaimableDeposit = jest.fn();
 const updateClaimStatus = jest.fn();
 const pollEpochIntentFill = jest.fn();
 
+// Only indexed reads exist: a read that falls back to walking the table has no `filter` to call here.
 jest.mock('lib/miden/repo', () => ({
   transactions: {
-    filter: (predicate: (row: ITransaction) => boolean) => ({
-      toArray: async () => bridgeRows.filter(predicate)
+    where: (index: string) => ({
+      equals: (value: string) => {
+        const matching = () => bridgeRows.filter(row => Reflect.get(row, index) === value);
+        return {
+          filter: (predicate: (row: ITransaction) => boolean) => ({
+            toArray: async () => matching().filter(predicate)
+          }),
+          toArray: async () => matching()
+        };
+      }
     })
   }
 }));

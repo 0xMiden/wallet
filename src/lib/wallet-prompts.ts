@@ -105,7 +105,9 @@ function isBridgePromptActive(tx: ITransaction): boolean {
 
 export async function fetchActiveBridgePrompts(accountId: string): Promise<ITransaction[]> {
   const rows = await Repo.transactions
-    .filter(tx => tx.type === 'bridged-send' && compareAccountIds(tx.accountId, accountId))
+    .where('type')
+    .equals('bridged-send')
+    .filter(tx => compareAccountIds(tx.accountId, accountId))
     .toArray();
   return rows.filter(isBridgePromptActive).sort((left, right) => right.initiatedAt - left.initiatedAt);
 }
@@ -153,7 +155,7 @@ async function pollBridgedSend(tx: ITransaction): Promise<void> {
  * early for a row with nothing left to settle.
  */
 export async function reconcileBridgedSends(): Promise<void> {
-  const rows = await Repo.transactions.filter(tx => tx.type === 'bridged-send').toArray();
+  const rows = await Repo.transactions.where('type').equals('bridged-send').toArray();
   // A restored row keeps what the backup recorded, but must not drive work:
   // `pollBridgedSend` queries the bridge services with those values and writes
   // the answer back onto the row.

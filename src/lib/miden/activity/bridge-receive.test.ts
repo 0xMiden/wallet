@@ -1,3 +1,4 @@
+import { EPOCH_INTENT_STATUS_TIMEOUT_MS } from 'lib/epoch/intent-status';
 import * as Repo from 'lib/miden/repo';
 
 import { BridgeReceiveLockManager, createBridgeReceiveReconciler, reconcileBridgedReceives } from './bridge-receive';
@@ -10,10 +11,15 @@ const fetchDeposits = jest.fn();
 const resolveNoteId = jest.fn();
 const getIntentStatus = jest.fn();
 
+// Only the type index is read: a pass that falls back to walking the table has no `filter` to call here.
 jest.mock('lib/miden/repo', () => ({
   transactions: {
-    filter: jest.fn((predicate: (row: any) => boolean) => ({
-      toArray: jest.fn(async () => rows.filter(predicate))
+    where: jest.fn((index: string) => ({
+      equals: (value: string) => ({
+        filter: (predicate: (row: any) => boolean) => ({
+          toArray: async () => rows.filter(row => row[index] === value && predicate(row))
+        })
+      })
     }))
   }
 }));
@@ -103,7 +109,8 @@ describe('reconcileBridgedReceives', () => {
 
     await reconcileBridgedReceives();
 
-    expect(Repo.transactions.filter).toHaveBeenCalledTimes(1);
+    expect(Repo.transactions.where).toHaveBeenCalledTimes(1);
+    expect(Repo.transactions.where).toHaveBeenCalledWith('type');
     expect(updatePhase).toHaveBeenCalledWith('agg-once', 'ready');
     expect(registerBridgeIn).toHaveBeenCalledWith(
       '0x1111111111111111111111111111111111111111',
@@ -359,6 +366,94 @@ describe('reconcileBridgedReceives', () => {
     warn.mockRestore();
   });
 
+  it('does not hold the rows after an Epoch status read that never answers', async () => {
+    jest.useFakeTimers();
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      getIntentStatus.mockReturnValueOnce(new Promise(() => {}));
+      const hash = `0x${'2'.repeat(64)}`;
+      rows.push(
+        {
+          id: 'epoch-hung',
+          type: 'bridged-receive',
+          initiatedAt: Math.floor(Date.now() / 1000),
+          extraInputs: {
+            provider: 'epoch',
+            phase: 'delivering',
+            sourceAddress: '0x1111111111111111111111111111111111111111',
+            intentNonce: 'nonce-hung'
+          }
+        },
+        {
+          id: 'agg-after',
+          type: 'bridged-receive',
+          accountId: 'miden-account',
+          initiatedAt: Math.floor(Date.now() / 1000),
+          extraInputs: { provider: 'agglayer', phase: 'delivering', evmTxHash: hash }
+        }
+      );
+      fetchDeposits.mockResolvedValue([{ tx_hash: hash, ready_for_claim: true }]);
+
+      const pass = reconcileBridgedReceives();
+      await jest.advanceTimersByTimeAsync(EPOCH_INTENT_STATUS_TIMEOUT_MS);
+      await pass;
+
+      expect(updatePhase).toHaveBeenCalledWith('agg-after', 'ready');
+      expect(updatePhase).not.toHaveBeenCalledWith('epoch-hung', expect.anything(), expect.anything());
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('reconciles rows at once, so Epoch reads that never answer do not delay the rows after them', async () => {
+    jest.useFakeTimers();
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      getIntentStatus.mockReturnValue(new Promise(() => {}));
+      const hash = `0x${'3'.repeat(64)}`;
+      const hungEpochRow = (id: string) => ({
+        id,
+        type: 'bridged-receive',
+        initiatedAt: Math.floor(Date.now() / 1000),
+        extraInputs: {
+          provider: 'epoch',
+          phase: 'delivering',
+          sourceAddress: '0x1111111111111111111111111111111111111111',
+          intentNonce: id
+        }
+      });
+      rows.push(hungEpochRow('epoch-hung-1'), hungEpochRow('epoch-hung-2'), {
+        id: 'agg-after',
+        type: 'bridged-receive',
+        accountId: 'miden-account',
+        initiatedAt: Math.floor(Date.now() / 1000),
+        extraInputs: { provider: 'agglayer', phase: 'delivering', evmTxHash: hash }
+      });
+      fetchDeposits.mockResolvedValue([{ tx_hash: hash, ready_for_claim: true }]);
+
+      const pass = reconcileBridgedReceives();
+      for (let i = 0; i < 30; i += 1) await Promise.resolve();
+      expect(updatePhase).toHaveBeenCalledWith('agg-after', 'ready');
+      expect(getIntentStatus).toHaveBeenCalledTimes(2);
+
+      await jest.advanceTimersByTimeAsync(EPOCH_INTENT_STATUS_TIMEOUT_MS);
+      await pass;
+      // Rows now warn interleaved, so each warning names its row.
+      expect(warn).toHaveBeenCalledWith(
+        '[bridge-receive] Epoch reconcile poll failed',
+        'epoch-hung-1',
+        expect.any(Error)
+      );
+      expect(warn).toHaveBeenCalledWith(
+        '[bridge-receive] Epoch reconcile poll failed',
+        'epoch-hung-2',
+        expect.any(Error)
+      );
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it('survives an Epoch status-poll outage without touching the row', async () => {
     getIntentStatus.mockRejectedValue(new Error('allocator down'));
     rows.push({
@@ -490,14 +585,16 @@ describe('deposit submissions', () => {
   it('keeps the same rule without Web Locks, including a submission that starts while the rows are read', async () => {
     const realm = createBridgeReceiveReconciler({ getLocks: () => undefined });
     const reading = deferred();
-    jest
-      .requireMock('lib/miden/repo')
-      .transactions.filter.mockImplementationOnce((predicate: (row: any) => boolean) => ({
-        toArray: async () => {
-          await reading.promise;
-          return rows.filter(predicate);
-        }
-      }));
+    jest.requireMock('lib/miden/repo').transactions.where.mockImplementationOnce((index: string) => ({
+      equals: (value: string) => ({
+        filter: (predicate: (row: any) => boolean) => ({
+          toArray: async () => {
+            await reading.promise;
+            return rows.filter(row => row[index] === value && predicate(row));
+          }
+        })
+      })
+    }));
 
     const pass = realm.reconcile();
     const signing = deferred();
@@ -529,16 +626,20 @@ describe('deposit submissions', () => {
     const realm = createBridgeReceiveReconciler({ getLocks: () => undefined });
     const beforeRead = deferred();
     const afterRead = deferred();
-    jest
-      .requireMock('lib/miden/repo')
-      .transactions.filter.mockImplementationOnce((predicate: (row: any) => boolean) => ({
-        toArray: async () => {
-          await beforeRead.promise;
-          const snapshot = rows.filter(predicate).map(row => ({ ...row, extraInputs: { ...row.extraInputs } }));
-          await afterRead.promise;
-          return snapshot;
-        }
-      }));
+    jest.requireMock('lib/miden/repo').transactions.where.mockImplementationOnce((index: string) => ({
+      equals: (value: string) => ({
+        filter: (predicate: (row: any) => boolean) => ({
+          toArray: async () => {
+            await beforeRead.promise;
+            const snapshot = rows
+              .filter(row => row[index] === value && predicate(row))
+              .map(row => ({ ...row, extraInputs: { ...row.extraInputs } }));
+            await afterRead.promise;
+            return snapshot;
+          }
+        })
+      })
+    }));
 
     const pass = realm.reconcile();
     const signing = deferred();

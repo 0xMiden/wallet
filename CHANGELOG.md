@@ -27,6 +27,7 @@
 
 ### Fixes
 
+- [FIX][all] Bridge polling reads only bridge rows through a new `type` index instead of walking the whole transaction history every 8 s, runs from one visible wallet window instead of every open one, and an Epoch quote for an earlier amount that answers late no longer replaces the current quote and blocks Fast confirmation.
 - [FIX][all] Fix the Epoch (Fast) EVM→Miden deposit quote, which the allocator refused with "A quote isn't available for this intent": reverse-quote from the typed Miden output like the Epoch integration example, send only the SDK's canonical EVM→Miden witness fields, deliver into the example's testnet faucet, show the quoted EVM spend on review, and log the intent alongside a failed quote.
 - [FEATURE][all] The AggLayer (Slow) route bridges any asset in both directions: the send flow no longer restricts Slow to the dedicated bridge faucet and the B2AGG note carries the selected token's faucet, and the EVM deposit screen offers Slow for USDC (ERC-20 approve, then `bridgeAsset`) as well as ETH. The Miden bridge account id is updated to `0x3b66e20b5088f25133b69216484652`.
 - [FIX][all] Point AggLayer (Slow) EVM→Miden deposits at Miden Testnet rollup 86, the rollupID the AggLayer now assigns to Miden, instead of the retired rollup 78.

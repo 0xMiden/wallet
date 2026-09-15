@@ -1,5 +1,6 @@
 import { midenAddrToEvmAddr } from 'lib/agglayer/contract';
 import { fetchDeposits, isAgglayerDepositReady } from 'lib/agglayer/status';
+import { readEpochIntentStatus } from 'lib/epoch/intent-status';
 import * as Repo from 'lib/miden/repo';
 import { waitForSepoliaReceipt } from 'lib/walletconnect/receipt';
 
@@ -71,7 +72,7 @@ async function reconcileAgglayerRow(row: ITransaction, inputs: IBridgedReceiveEx
   } catch (error) {
     // Indexer outages are transient. Leave the row pending so the next tick can
     // retry instead of incorrectly failing delivery.
-    console.warn('[bridge-receive] AggLayer status poll failed', error);
+    console.warn('[bridge-receive] AggLayer status poll failed', row.id, error);
   }
 }
 
@@ -97,7 +98,7 @@ async function reconcileEpochRow(row: ITransaction, inputs: IBridgedReceiveExtra
   try {
     const { getEpochReadOnlySdk } = await import('lib/epoch/sdk');
     const sdk = await getEpochReadOnlySdk(inputs.sourceAddress as `0x${string}`);
-    const results = await sdk.getIntentStatus(inputs.sourceAddress as `0x${string}`, inputs.intentNonce);
+    const results = await readEpochIntentStatus(sdk, inputs.sourceAddress, inputs.intentNonce);
     const noteId = results.map(result => firstString(result, 'midenNoteId')).find(Boolean);
     if (noteId) await resolveBridgeInNoteId(inputs.sourceAddress, inputs.intentNonce, noteId);
     const midenLeg = results.find(result => result.chainId === 999999999);
@@ -105,7 +106,7 @@ async function reconcileEpochRow(row: ITransaction, inputs: IBridgedReceiveExtra
       await updateBridgedReceivePhase(row.id, 'failed', { error: 'The Epoch bridge intent failed.' });
     }
   } catch (error) {
-    console.warn('[bridge-receive] Epoch reconcile poll failed', error);
+    console.warn('[bridge-receive] Epoch reconcile poll failed', row.id, error);
   }
 }
 
@@ -135,8 +136,9 @@ async function reconcileRow(row: ITransaction, cutoffSec: number, resumeOrphans:
 
 async function readUnsettledRows(): Promise<ITransaction[]> {
   return Repo.transactions
+    .where('type')
+    .equals('bridged-receive')
     .filter(tx => {
-      if (tx.type !== 'bridged-receive') return false;
       // Optional-chained: a throw in here rejects the whole `toArray()`, which
       // this function's only caller swallows - so one legacy or partially
       // written row without `extraInputs` would silently disable reconciliation
@@ -220,21 +222,23 @@ export function createBridgeReceiveReconciler({
    * Poll every unsettled EVM→Miden row once, for both providers, without ever
    * queueing a Miden transaction. The app-root `BridgeIntentWatcher` runs this on
    * an interval; keeping the operation one-shot prevents hidden background
-   * timers, and one enumeration per pass keeps the tick to a single walk of the
-   * history.
+   * timers, and one read per pass keeps the tick to a single query of the `type`
+   * index.
    */
   async function reconcile(): Promise<void> {
     const { rows, resumeOrphans } = await readRows();
     const cutoffSec = Math.floor((Date.now() - BRIDGE_RECEIVE_MAX_AGE_MS) / 1000);
 
-    for (const row of rows) {
-      try {
-        await reconcileRow(row, cutoffSec, resumeOrphans);
-      } catch (error) {
-        // One row's failing write or registry call must not end the pass for the rows after it.
-        console.warn('[bridge-receive] reconcile failed', row.id, row.extraInputs?.provider, error);
-      }
-    }
+    // All at once: each row waits only on its own provider, so a slow receipt or a timed-out status read never delays
+    // another row. Each row writes only itself, and registry writes take the registry lock.
+    await Promise.all(
+      rows.map(row =>
+        reconcileRow(row, cutoffSec, resumeOrphans).catch((error: unknown) => {
+          // One row's failing write or registry call must not end the pass for the other rows.
+          console.warn('[bridge-receive] reconcile failed', row.id, row.extraInputs?.provider, error);
+        })
+      )
+    );
   }
 
   return { startSubmission, reconcile };

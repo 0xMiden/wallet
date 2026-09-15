@@ -117,7 +117,7 @@ export function installBridgeInTestHooks(): void {
   globalThis.__TEST_LATEST_BRIDGE_RECEIVE__ = async (
     provider?: IBridgeProvider
   ): Promise<LatestBridgeReceive | null> => {
-    const rows = await Repo.transactions.filter(tx => tx.type === 'bridged-receive').toArray();
+    const rows = await Repo.transactions.where('type').equals('bridged-receive').toArray();
     const filtered = provider
       ? rows.filter(row => (row.extraInputs as IBridgedReceiveExtraInputs | undefined)?.provider === provider)
       : rows;
