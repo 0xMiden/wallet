@@ -204,16 +204,24 @@ const CONFLICT_PENDING_DELTA_BODY = JSON.stringify({
   meta: { retryable: true }
 });
 
-/** Apply a fault decision to a live route (or a unit-test fake satisfying GuardianRouteLike). */
-export async function applyGuardianFaultAction(route: GuardianRouteLike, action: GuardianFaultAction): Promise<void> {
+/**
+ * Apply a fault decision to a live route (or a unit-test fake satisfying GuardianRouteLike). `passThrough` is how
+ * a request that still reaches the guardian (unfaulted or only delayed) is sent on; a caller that observes such
+ * requests passes its own, and a request the fault answers or aborts never reaches it.
+ */
+export async function applyGuardianFaultAction(
+  route: GuardianRouteLike,
+  action: GuardianFaultAction,
+  passThrough: () => Promise<void> = () => route.continue()
+): Promise<void> {
   switch (action.kind) {
     case 'continue':
-      return route.continue();
+      return passThrough();
     case 'abort':
       return route.abort('failed');
     case 'delay':
       await new Promise<void>(resolve => setTimeout(resolve, action.delayMs));
-      return route.continue();
+      return passThrough();
     case 'fulfill500':
       return route.fulfill({ status: 500, body: 'injected guardian fault' });
     case 'fulfillConflictPendingDelta':
