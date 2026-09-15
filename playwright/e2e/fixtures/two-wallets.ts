@@ -14,6 +14,11 @@ import { CLIRunner } from '../harness/cli-runner';
 import { assertExtensionNetworkMatches } from '../harness/extension-network';
 import { buildFailureReport, saveFailureReport } from '../harness/failure-report';
 import { installFetchFaultControls, isFetchFaultTarget, toFetchWire } from '../harness/fetch-faults';
+import {
+  createGuardianCommitmentLedger,
+  waitForGuardianLedgerSettled,
+  type GuardianCommitmentLedger
+} from '../harness/guardian-commitments';
 import { type GuardianFaultPolicy, type GuardianOrigins } from '../harness/guardian-fault';
 import {
   SW_FETCH_LOG_PREFIX,
@@ -83,6 +88,21 @@ export interface GuardianFaultTestApi {
    */
   networkFaultHits(): Promise<number>;
   clearFaults(): Promise<void>;
+  /**
+   * Start recording this wallet's guardian pushes and state reads, for
+   * `waitForGuardianSettled`. Call it before the wallet's first guardian
+   * transaction; it survives a relaunch.
+   */
+  trackGuardianCommitments(): void;
+  /**
+   * Resolve once nothing is left settling on this wallet's guardian: the
+   * transaction queue has drained and the guardian's canonical state has caught
+   * up with the last delta the wallet pushed. A spec that hands the account to
+   * another wallet waits on this, since the guardian refuses a new proposal
+   * (a recovered wallet's hot-key rotation among them) while a candidate is
+   * pending.
+   */
+  waitForGuardianSettled(timeoutMs?: number): Promise<void>;
 }
 
 export type GuardianAwareWalletPage = ChromeWalletPageApi & GuardianFaultTestApi;
@@ -111,6 +131,11 @@ type TwoWalletFixtures = {
 };
 
 // ── Constants ───────────────────────────────────────────────────────────────
+
+// Budget for `waitForGuardianSettled`'s queue drain and then its canonicalization
+// wait. The guardian promotes a candidate within seconds once the chain has it, so
+// two minutes runs out only on a discarded candidate or a stalled guardian.
+const GUARDIAN_SETTLE_TIMEOUT_MS = 120_000;
 
 // The guardian operator origins fault injection keys on, for the active
 // E2E_NETWORK: local containers on localhost, the real operators on
@@ -583,6 +608,8 @@ async function launchWalletInstance(
   // `let`: relaunch swaps in the new context's faults so armGuardianFault()/
   // clearFaults() (captured by reference below) keep targeting the live context.
   let faults = installNetworkFaults(context, { network: networkOrigins(), guardian: guardianOrigins() });
+  // Outlives `faults`: a relaunch re-attaches it to the new context's handler.
+  let guardianLedger: GuardianCommitmentLedger | undefined;
 
   // Fetch-layer faults for node/prover/transport (gRPC-web inside the SW / SDK
   // worker — context.route can't reach it). Live SW via the context thunk so it
@@ -611,6 +638,7 @@ async function launchWalletInstance(
     context = next.context;
     page = next.page;
     faults = next.faults;
+    if (guardianLedger) faults.trackGuardianCommitments(guardianLedger);
     // Fresh Page instance -- re-install the screen-change capture binding.
     await installScreenCapture(page, label, outputDir);
     return page;
@@ -632,6 +660,23 @@ async function launchWalletInstance(
       clearFaults: async () => {
         faults.clear();
         await fetchFaults.clear();
+      },
+      trackGuardianCommitments: () => {
+        guardianLedger ??= createGuardianCommitmentLedger();
+        faults.trackGuardianCommitments(guardianLedger);
+      },
+      waitForGuardianSettled: async (timeoutMs: number = GUARDIAN_SETTLE_TIMEOUT_MS) => {
+        if (!guardianLedger) {
+          throw new Error('waitForGuardianSettled: call trackGuardianCommitments() before the wallet transacts');
+        }
+        await walletPage.waitForQueueDrained(timeoutMs);
+        const waitedMs = await waitForGuardianLedgerSettled(guardianLedger, { timeoutMs });
+        timeline.emit({
+          category: 'test_lifecycle',
+          severity: 'info',
+          wallet: label,
+          message: `Wallet ${label}: guardian canonicalized its last pushed delta ${waitedMs}ms after the queue drained`
+        });
       }
     }
   );
