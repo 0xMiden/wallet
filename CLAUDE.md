@@ -159,6 +159,14 @@ Two systems:
 
 Onboarding (`Welcome.tsx`) and `ForgotPassword.tsx` use hash-based state (`/#step-name`), NOT Navigator.
 
+**Tab panes stay mounted.** `TabLayout` keeps every visited tab (home carousel, Explore, Activity) mounted in a `TabPane` and swaps them with `visibility` + `inert`, no animation, like a native tab controller. Consequences: a hidden tab page keeps running its effects and polls, and any hook that hides the navbar or reads the route from inside a tab page must gate on `pathname` (see `SendManager`'s `pastRecipientStep`), because the page is still mounted while another tab is active.
+
+Work a page does only for display (a poll, a reconciliation) pauses through `usePageActive()` (`app/layouts/page-active.ts`), which is false in a hidden `TabPane` and in a `PageLayer` that is not the current page; `History` and `AllHistory` use it. The dApp browser mounts `DappActive` only while its page is on screen, because that unmount is what parks the foreground dApp and hides its native window.
+
+**Slide pages stack on top of the page beneath.** `MobilePageLayers` keeps the covered layer mounted (inert, at -24% with a dim) for as long as a slide `FullScreenPage` is above it, and a pop re-enters that same layer through `AnimatePresence` — no remount, no fade, scroll and state intact. The layer is released only when the page above is not a slide page (or under reduced motion / webview return). Do not add per-mount work to a tab page on the assumption that back navigation remounts it.
+
+Whether a navigation goes back is read from the router: a pop, or a navigation to a page still mounted beneath (a close), reveals that page and slides the slide page out, and the page a return leaves is never kept covered. A push from a slide page to a plain page plays no Back animation; it releases the stack, so a later Back remounts the slide page.
+
 The in-progress transaction view is a routed full-screen page at `/generating-transaction/:txId` (desktop `keepOpen` variant: `/generating-transaction-full/:txId`). Send and swap `navigate` here with the id path param after initiating; it observes that one row to completion (see the Transaction summary badge section). `onClose` guards on `hash.includes('generating-transaction')`, so the substring must stay in any future route rename.
 
 Send flow: only recipient → amount remain Navigator steps inside `/send`; the token and contact pickers are fixed-height bottom-sheet drawers (`SelectTokenDrawer`, `AccountsListDrawer`) closed first by SendManager's mobile back handler; the review step is a routed full-screen page (`/send/review?amount=…&to=…&tokenId=…`, `ReviewTransaction.tsx`) that owns the transaction pipeline. Backing out restores the form via `send-flow/send-draft.ts` (SendManager reopens on the Amount step). Hardware back on review is covered by `MobileBackBridge` (history pop).

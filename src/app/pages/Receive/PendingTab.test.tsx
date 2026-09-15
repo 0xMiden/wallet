@@ -2,6 +2,8 @@ import React from 'react';
 
 import { fireEvent, render, screen, within } from '@testing-library/react';
 
+import { initiateConsumeTransaction } from 'lib/miden/activity';
+
 import { PendingTab, NoteWithMetadata } from './PendingTab';
 
 // PendingTab renders the pending-notes summary + per-asset detail. We render the
@@ -68,8 +70,14 @@ jest.mock('components/SyncWaveBackground', () => ({
 
 jest.mock('components/Button', () => ({
   ButtonVariant: { Primary: 'primary', Secondary: 'secondary', Ghost: 'ghost' },
-  Button: ({ title, onClick, ...props }: { title?: string; onClick?: () => void }) => (
-    <button data-testid={(props as Record<string, string>)['data-testid']} onClick={onClick}>
+  // `disabled` is reported as data, not applied, so a test can still tap a disabled Claim and prove
+  // the handler's own check.
+  Button: ({ title, onClick, disabled, ...props }: { title?: string; onClick?: () => void; disabled?: boolean }) => (
+    <button
+      data-testid={(props as Record<string, string>)['data-testid']}
+      data-disabled={disabled ? 'true' : undefined}
+      onClick={onClick}
+    >
       {title}
     </button>
   )
@@ -234,6 +242,33 @@ describe('PendingTab — DetailNoteRow treatment (#456)', () => {
     const row = screen.getByTestId('detail-note-row');
     expect(within(row).queryByTestId('claim-button')).not.toBeInTheDocument();
     expect(within(row).getByTestId('sync-wave')).toHaveAttribute('data-syncing', 'true');
+  });
+});
+
+describe('PendingTab - cache-first notes', () => {
+  it('shows a cached note with a disabled Claim that queues nothing when tapped', () => {
+    jest.mocked(initiateConsumeTransaction).mockClear();
+    renderTab({ safeClaimableNotes: [makeNote('a', { fromCache: true })] });
+    openDetail();
+
+    const button = within(screen.getByTestId('detail-note-row')).getByTestId('claim-button');
+    expect(button).toHaveAttribute('data-disabled', 'true');
+    fireEvent.click(button);
+    expect(initiateConsumeTransaction).not.toHaveBeenCalled();
+  });
+
+  it('disables the group Claim All while every note in the group is cached', () => {
+    const onClaimGroup = jest.fn();
+    renderTab({
+      safeClaimableNotes: [makeNote('a', { fromCache: true }), makeNote('b', { fromCache: true })],
+      onClaimGroup
+    });
+    openDetail();
+
+    const button = screen.getByTestId('claim-group-button');
+    expect(button).toBeDisabled();
+    fireEvent.click(button);
+    expect(onClaimGroup).not.toHaveBeenCalled();
   });
 });
 

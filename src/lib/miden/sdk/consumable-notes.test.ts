@@ -43,6 +43,7 @@ function fakeRecord(
     // undefined metadata models a partial (metadata-less) note.
     metadata?: { sender: string; noteType: number } | null;
     state?: number;
+    blockNum?: number;
     assets?: FakeAsset[];
     attachments?: FakeAttachmentWord[][]; // outer = attachments, inner = words
   } = {}
@@ -57,6 +58,8 @@ function fakeRecord(
   } = opts;
 
   return {
+    inclusionProof: () =>
+      opts.blockNum === undefined ? undefined : { location: () => ({ blockNum: () => opts.blockNum }) },
     id: () => (id == null ? undefined : { toString: () => id }),
     nullifier: () => (nullifier == null ? undefined : nullifier),
     metadata: () =>
@@ -283,4 +286,8 @@ describe('reduceConsumableNoteRecords — batch', () => {
     expect(result.map(d => d.noteId)).toEqual(['good', 'good2']);
     warn.mockRestore();
   });
+});
+
+it('retains the inclusion block for activity date lookup', () => {
+  expect(reduceConsumableNoteRecord(fakeRecord({ blockNum: 321 }))).toMatchObject({ blockNum: 321 });
 });

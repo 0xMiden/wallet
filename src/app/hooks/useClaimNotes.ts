@@ -12,6 +12,7 @@ import {
 } from 'lib/miden/activity';
 import { midenClientProxy } from 'lib/miden/back/miden-client-proxy';
 import { useAccount } from 'lib/miden/front';
+import { groupNotesForClaim } from 'lib/miden/front/claim-groups';
 import { useClaimableNotes } from 'lib/miden/front/claimable-notes';
 import { assertWasmHoldCurrent, withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import { isExtension } from 'lib/platform';
@@ -22,6 +23,7 @@ import { navigate } from 'lib/woozie';
 
 export interface ClaimNotesState {
   account: WalletAccount;
+  isFetchingNotes: boolean;
   safeClaimableNotes: NoteWithMetadata[];
   unclaimedNotes: NoteWithMetadata[];
   isDelegatedProvingEnabled: boolean;
@@ -49,7 +51,7 @@ export function useClaimNotes(): ClaimNotesState {
   const nativeFaucetId = useMidenFaucetId();
   const address = account.publicKey;
 
-  const { data: claimableNotes, mutate: mutateClaimableNotes } = useClaimableNotes(address);
+  const { data: claimableNotes, mutate: mutateClaimableNotes, isLoading } = useClaimableNotes(address);
   const isDelegatedProvingEnabled = isDelegateProofEnabled();
 
   const safeClaimableNotes = useMemo(
@@ -88,8 +90,10 @@ export function useClaimNotes(): ClaimNotesState {
   // - IndexedDB (isBeingClaimed) - from previous sessions or after tx queued
   // - Claim All operation (claimingNoteIds) - current batch operation
   // - Individual claim (individualClaimingIds) - user clicked single Claim button
+  // - the cache-first list (fromCache) — an entry no live read has confirmed yet is
+  //   shown, never claimed: it may already be spent, consumed or recalled.
   const unclaimedNotes = safeClaimableNotes.filter(
-    n => !n.isBeingClaimed && !claimingNoteIds.has(n.id) && !individualClaimingIds.has(n.id)
+    n => !n.fromCache && !n.isBeingClaimed && !claimingNoteIds.has(n.id) && !individualClaimingIds.has(n.id)
   );
 
   useEffect(() => {
@@ -258,7 +262,8 @@ export function useClaimNotes(): ClaimNotesState {
       const freshNotes = await mutateClaimableNotes();
       let freshUnclaimedNotes = freshNotes
         ? freshNotes.filter(
-            n => n && !n.isBeingClaimed && !claimingNoteIds.has(n.id) && !individualClaimingIds.has(n.id)
+            n =>
+              n && !n.fromCache && !n.isBeingClaimed && !claimingNoteIds.has(n.id) && !individualClaimingIds.has(n.id)
           )
         : unclaimedNotes;
 
@@ -282,41 +287,8 @@ export function useClaimNotes(): ClaimNotesState {
 
       try {
         let batchTxId: string | null = null;
-        // One consume transaction PER FAUCET, not one for the whole batch.
-        //
-        // A completed consume row carries a single (faucetId, amount) pair:
-        // `completeConsumeTransaction` takes the faucet from the FIRST input
-        // note and then sums only the assets whose faucet matches it. A
-        // mixed-faucet batch therefore recorded "Received 10 MIDEN" for a
-        // transaction that also delivered 25 USDC, and nothing else ever
-        // creates a row for the dropped asset — it is absent from the activity
-        // list and from the detail screen, and `tx.faucetId` reconciliation
-        // (swap/bridge) never sees it. Grouping makes each row's asset
-        // attribution correct BY CONSTRUCTION, which is the shape
-        // `handleClaimGroup` already produced; the cost is one proof per
-        // distinct asset instead of one for the batch. Notes sharing a faucet
-        // still go out in a single proof/submit.
-        const byFaucet = new Map<string, NoteWithMetadata[]>();
-        for (const note of notesToClaim) {
-          const group = byFaucet.get(note.faucetId);
-          if (group) {
-            group.push(note);
-          } else {
-            byFaucet.set(note.faucetId, [note]);
-          }
-        }
-
-        // Native-asset group FIRST. The fee is withdrawn from this account's own vault,
-        // and a consume credits that vault before `pay_fee` takes from it -- so claiming
-        // the native note funds the groups that follow. Attempt a non-native group first
-        // on an empty vault and it fails on the fee, with a native note sitting unclaimed
-        // that would have paid for it. Map order is note-arrival order, so before this the
-        // outcome depended on which note happened to land first.
-        const orderedGroups = [...byFaucet.entries()]
-          .sort(([a], [b]) => Number(b === nativeFaucetId) - Number(a === nativeFaucetId))
-          .map(([, groupNotes]) => groupNotes);
-
-        for (const groupNotes of orderedGroups) {
+        // One consume per faucet, native asset first (see `groupNotesForClaim`).
+        for (const groupNotes of groupNotesForClaim(notesToClaim, nativeFaucetId)) {
           const groupNoteIds = groupNotes.map(n => n.id);
           try {
             // User tapped Claim All — bypass the auto-consume backoff gate so
@@ -391,6 +363,10 @@ export function useClaimNotes(): ClaimNotesState {
 
   return {
     account,
+    // Only a read with no list on screen yet counts: the 5 s background revalidation must not
+    // animate a loading bar or re-render the list on every lap, and SWR still reports the first read
+    // as loading while the persisted list is on screen.
+    isFetchingNotes: Boolean(isLoading) && claimableNotes === undefined,
     safeClaimableNotes,
     unclaimedNotes,
     isDelegatedProvingEnabled,

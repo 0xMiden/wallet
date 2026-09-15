@@ -12,6 +12,8 @@ import {
   MAX_CONSECUTIVE_WATCHDOG_EVICTIONS,
   monotonicNowMs
 } from 'lib/miden/sync-backoff';
+import { getBlockTimestamps } from 'lib/miden-chain/block-timestamps';
+import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { getVerificationBaseFee } from 'lib/miden-chain/native-asset';
 import {
   areBackgroundSettingsMirrored,
@@ -390,6 +392,9 @@ async function runSync(force: boolean): Promise<void> {
       // localSwapOrders is an unindexed full scan of the transactions table.
       const swapOrderRows = await localSwapOrders(accountPubKey);
 
+      // Block numbers only name blocks on the endpoint the notes are read from.
+      const notesScope = getEffectiveRpcUrl();
+
       // [Lock 2] Read notes + vault assets from the WASM client — warm on the happy
       // path, but NOT after [Lock 1] was evicted: that eviction poisons the client and
       // clears the slot, so this read rebuilds, and the new client's genesis fetch goes
@@ -398,11 +403,15 @@ async function runSync(force: boolean): Promise<void> {
       // instead of the ~30s the old JS timeout bounded it to — strictly worse than
       // before the ceiling was added, on the one path (#777) that has no offscreen
       // realm to absorb it.
-      const { parsedNotes, vaultAssets } = await withWasmClientLock(
+      const { parsedNotes, vaultAssets, noteBlocks } = await withWasmClientLock(
         async hold => {
           const client = await getMidenClient();
           if (!client)
-            return { parsedNotes: [] as SerializedConsumableNote[], vaultAssets: [] as SerializedVaultAsset[] };
+            return {
+              parsedNotes: [] as SerializedConsumableNote[],
+              vaultAssets: [] as SerializedVaultAsset[],
+              noteBlocks: new Map<string, number>()
+            };
           // The client build is an await, and on the inline path it can be the long one
           // (a genesis fetch against a parked node). If this hold was evicted while it
           // ran, the mutex is already released and a successor may be inside the client
@@ -449,6 +458,8 @@ async function runSync(force: boolean): Promise<void> {
           stillOurs('after the quarantine read');
           const swapOrders = await classifySwapOrderNotes(rawNotes, accountPubKey, swapOrderRows, hold);
           stillOurs('after the swap-order lineage read');
+          // Inclusion block of each note, dated once this hold has released the client (below).
+          const noteBlocks = new Map<string, number>();
           const notes: SerializedConsumableNote[] = rawNotes
             .map((note): SerializedConsumableNote | null => {
               // Partial (metadata-less) notes have no ID yet and cannot be
@@ -460,6 +471,7 @@ async function runSync(force: boolean): Promise<void> {
               // asset set means the note can't be displayed — skip it.
               const firstAsset = note.assets[0];
               if (!firstAsset) return null;
+              if (note.blockNum !== undefined) noteBlocks.set(noteId, note.blockNum);
               return {
                 id: noteId,
                 faucetId: firstAsset.faucetId,
@@ -489,10 +501,13 @@ async function runSync(force: boolean): Promise<void> {
             }
           }
 
-          return { parsedNotes: notes, vaultAssets: assets };
+          return { parsedNotes: notes, vaultAssets: assets, noteBlocks };
         },
         inlineWasm ? { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'sw-notes-read' } : undefined
       );
+
+      // Receive dates from the notes' inclusion blocks, read alongside the metadata below (RPC, outside lock).
+      const blockTimesRead = getBlockTimestamps([...noteBlocks.values()], notesScope);
 
       // Fetch metadata for all faucets in parallel (RPC, outside lock — no WASM needed)
       // Collect all unique faucet IDs from both notes and vault assets
@@ -522,6 +537,12 @@ async function runSync(force: boolean): Promise<void> {
         if (metadataCache[note.faucetId]) {
           note.metadata = metadataCache[note.faucetId];
         }
+      }
+
+      const blockTimes = await blockTimesRead;
+      for (const note of parsedNotes) {
+        const block = noteBlocks.get(note.id);
+        if (block !== undefined) note.receivedAt = blockTimes.get(block);
       }
 
       // Attach metadata to vault assets
