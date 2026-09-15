@@ -22,7 +22,6 @@ import {
   fetchHotKeyHardwareError,
   getPendingNotesUsdTotal,
   type PendingNoteValue,
-  pollActiveBridgePrompts,
   useGuardianNoteRecoveryProgress,
   useWalletPromptStorage,
   WalletPromptStatus,
@@ -246,16 +245,9 @@ export const HomePrompts: FC<HomePromptsProps> = ({
           return;
         }
 
+        // The app-root `BridgeIntentWatcher` polls the rows; this loop only
+        // re-reads them so the card follows the settlement it writes.
         setBridgeTransactions(active.map(tx => tx.id));
-        await pollActiveBridgePrompts(active);
-        if (cancelled) return;
-        const refreshed = await fetchActiveBridgePrompts(account.publicKey);
-        if (cancelled) return;
-        setBridgeTransactions(refreshed.map(tx => tx.id));
-        if (refreshed.length === 0) {
-          completePrompt(WalletPromptType.Bridge);
-          return;
-        }
       } catch (error) {
         console.warn('[wallet-prompts] bridge poll failed:', error);
       }

@@ -117,9 +117,7 @@ jest.mock('lib/agglayer/b2agg', () => ({
 }));
 
 jest.mock('lib/agglayer/b2agg/constant', () => ({
-  EVM_AGGLAYER_NETWORK_ID: 11155111,
-  MIDEN_AGGLAYER_FAUCET_ID: 'agglayer-faucet',
-  getAgglayerFaucetId: () => 'agglayer-faucet'
+  EVM_AGGLAYER_NETWORK_ID: 11155111
 }));
 
 jest.mock('lib/epoch', () => ({
@@ -539,6 +537,27 @@ describe('ReviewTransaction — onSubmit', () => {
     expect(requestSWMock).not.toHaveBeenCalled();
     expect(clearSendDraftMock).toHaveBeenCalled();
     expect(navigateMock).toHaveBeenCalledWith('/generating-transaction/tx-abc', 'replacestate');
+  });
+
+  it('bridges over the Slow route with the faucet of the token being sent', async () => {
+    mockDetectedChain = 'ethereum';
+    mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=agglayer';
+    mockBalanceData = [VALID_TOKEN];
+    const { initiateB2AggBridge } = jest.requireMock('lib/agglayer/b2agg');
+    initiateB2AggBridge.mockResolvedValue('tx-agg');
+    render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+
+    expect(initiateB2AggBridge).toHaveBeenCalledWith(
+      expect.objectContaining({
+        amount: 12345n,
+        faucetId: 'tok1',
+        destinationAddress: '0xrecipient',
+        senderPublicKey: 'pubkey-1'
+      })
+    );
   });
 
   it('nudges the service worker and uses the full-page route on extension', async () => {

@@ -30,7 +30,10 @@ const mockModify = jest.fn(async (mutate: (row: ITransaction) => void, index: un
   if (row) mutate(row);
   return row ? 1 : 0;
 });
-jest.mock('lib/agglayer/constant', () => ({ AGGLAYER_BRIDGE_NOTE_SENDER_ACCOUNT_ID: 'agg-sender' }));
+jest.mock('lib/agglayer/constant', () => ({
+  AGGLAYER_BRIDGE_NOTE_SENDER_ACCOUNT_ID: 'agg-sender',
+  AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL: 'ETH'
+}));
 jest.mock('lib/miden/repo', () => ({
   transactions: {
     where: jest.fn((index?: unknown) => ({
@@ -148,6 +151,33 @@ describe('takeAgglayerBridgeInInfo', () => {
   // Matching rewrites the tracker row to `received` and makes the real consume
   // hide beneath it in history, so a restored tracker would adopt a genuine
   // incoming note and file the user's money under whatever the dump said.
+  // The sender delivers bridged ETH, so an ERC-20 tracker must not adopt its note
+  // even when it is older and its base-unit amount is the same.
+  it('settles the ETH tracker, never an older ERC-20 tracker with the same amount', async () => {
+    mockTransactions.push(
+      {
+        id: 'usdc',
+        type: 'bridged-receive',
+        accountId: 'miden-account',
+        amount: 5n,
+        initiatedAt: 1,
+        extraInputs: { provider: 'agglayer', phase: 'delivering', sourceAmount: '5', sourceSymbol: 'USDC' }
+      },
+      {
+        id: 'eth',
+        type: 'bridged-receive',
+        accountId: 'miden-account',
+        amount: 5n,
+        initiatedAt: 2,
+        extraInputs: { provider: 'agglayer', phase: 'delivering', sourceAmount: '5', sourceSymbol: 'ETH' }
+      }
+    );
+
+    await expect(
+      takeAgglayerBridgeInInfo({ accountId: 'miden-account', senderAccountId: 'agg-sender', amount: 5n })
+    ).resolves.toMatchObject({ bridgeReceiveTxId: 'eth' });
+  });
+
   it('never adopts a genuine note into a restored tracker', async () => {
     mockTransactions.push(
       {
@@ -182,7 +212,7 @@ describe('takeAgglayerBridgeInInfo', () => {
       accountId: 'miden-account',
       amount: 5n,
       initiatedAt: 1,
-      extraInputs: { provider: 'agglayer', phase: 'delivering' }
+      extraInputs: { provider: 'agglayer', phase: 'delivering', sourceAmount: '5', sourceSymbol: 'ETH' }
     });
 
     await expect(
@@ -191,6 +221,11 @@ describe('takeAgglayerBridgeInInfo', () => {
     await expect(
       takeAgglayerBridgeInInfo({ accountId: 'miden-account', senderAccountId: 'agg-sender', amount: 6n })
     ).resolves.toBeUndefined();
+
+    // Positive control: the same row matches with the configured sender and its amount.
+    await expect(
+      takeAgglayerBridgeInInfo({ accountId: 'miden-account', senderAccountId: 'agg-sender', amount: 5n })
+    ).resolves.toMatchObject({ bridgeReceiveTxId: 'row' });
   });
 });
 
