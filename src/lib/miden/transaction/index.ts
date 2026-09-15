@@ -258,6 +258,11 @@ const PENDING_CONFLICT_REQUEUE_COOLDOWN_SEC = 15;
 // avoid hammering a downed prover; MAX_QUEUED_AGE stays the terminal cap.
 const PROVER_OUTAGE_REQUEUE_COOLDOWN_SEC = 30;
 
+// Cooldown (seconds) applied after an ordinary pre-send sync failure. It matches
+// the sync circuit breaker's first backoff window: long enough not to hammer a
+// temporarily inconsistent RPC pool, while MAX_QUEUED_AGE remains the terminal cap.
+const SYNC_FAILURE_REQUEUE_COOLDOWN_SEC = 30;
+
 // Fallback cooldown (seconds) for a tx requeued after a guardian 429 (#617),
 // used only when the guardian didn't send a `retry_after_secs`. The guardian
 // declares rate-limit rejections retryable, so terminal-failing a value-moving
@@ -957,9 +962,8 @@ export const generateTransaction = async (
 ) => {
   // Sync state first to ensure we have latest account state
   // Separate lock acquisition to avoid holding lock during network call
-  // If sync fails (e.g. network down), the error propagates to generateTransactionsLoop's
-  // catch block which cancels the transaction — this is intentional fail-fast behavior,
-  // since the transaction can't be submitted without network anyway
+  // Errors propagate to the loop, which requeues ordinary transient failures
+  // while preserving the terminal handling for abandoned operations.
   await setTransactionStage(transaction.id, 'syncing');
   await syncUnderBoundedLock();
 
@@ -3041,6 +3045,35 @@ export const generateTransactionsLoop = async (
     // offscreen deadline arrives as `OperationAbortedError` from the identical
     // point and is equally still running (`cancel.ts` treats the two as one class).
     const abandoned = isWasmClientPoisonedError(e) || isOperationAbortedError(e);
+
+    // The initial sync is the only pipeline step that runs while the committed
+    // row is still Queued at `syncing`. An ordinary failure at that boundary is
+    // strictly pre-build for every transaction type, so defer it instead of
+    // turning a transient RPC error into a terminal failure. Re-read the row:
+    // `nextTransaction` predates the stage stamp, and a concurrent user cancel
+    // must win over this retry. Abandoned operations remain on the existing kill
+    // path even here, since they may still be running after their caller rejects.
+    const currentRow = await Repo.transactions.where({ id: nextTransaction.id }).first();
+    if (
+      !abandoned &&
+      !isLockedError(e) &&
+      currentRow?.status === ITransactionStatus.Queued &&
+      currentRow.stage === 'syncing'
+    ) {
+      logger.warning('Pre-send sync failed; requeueing transaction for a later cycle');
+      try {
+        await requeueTransactionForRetry(
+          nextTransaction.id,
+          nextTransaction.type,
+          'syncing',
+          SYNC_FAILURE_REQUEUE_COOLDOWN_SEC
+        );
+      } catch (requeueError) {
+        logger.warning('Failed to requeue transaction after pre-send sync failure', requeueError);
+      }
+      return false;
+    }
+
     if (!abandoned && isLockedError(e)) {
       logger.warning('Wallet locked during tx generation; requeueing tx for retry after unlock');
       // Genuinely RE-QUEUE it. `generateTransaction` already advanced the row to
