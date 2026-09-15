@@ -66,6 +66,7 @@ import { intercom } from 'lib/miden/back/defaults';
 import { Vault } from 'lib/miden/back/vault';
 import { FEE_RESERVE_MULTIPLE } from 'lib/miden/fees/spendable';
 import { guardianProviderFromEndpoint, resolveGuardianEndpoint } from 'lib/miden/guardian/account';
+import { dappGuardianSyncStatus } from 'lib/miden/guardian/sync-guard';
 import { MIDEN_METADATA } from 'lib/miden/metadata';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { getAssetSymbol, getTokenMetadata } from 'lib/miden/metadata/utils';
@@ -1303,12 +1304,11 @@ async function getGuardianInfoData(accountId: string): Promise<GuardianInfo> {
     }
 
     const guardianEndpoint = await resolveGuardianEndpoint(account);
-    const status = account.guardianSyncStatus ?? 'in-sync';
     return {
       isGuardianAccount: true,
       guardianEndpoint: guardianEndpoint || null,
       guardianProvider: guardianProviderFromEndpoint(guardianEndpoint || null),
-      guardianSyncStatus: status === 'in-sync' ? 'in-sync' : 'out-of-sync'
+      guardianSyncStatus: dappGuardianSyncStatus(account)
     };
   });
 }

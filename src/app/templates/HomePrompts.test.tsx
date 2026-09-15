@@ -4,6 +4,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 
 import type { TokenBalanceData } from 'lib/miden/front';
 import type { WalletAccount } from 'lib/shared/types';
+import { useWalletStore } from 'lib/store';
 import type { PendingNoteValue } from 'lib/wallet-prompts';
 import { WalletPromptStatus, WalletPromptType } from 'lib/wallet-prompts';
 
@@ -113,6 +114,11 @@ jest.mock('app/templates/FundWalletDrawer', () => ({
       <button data-testid="fund-drawer-close" onClick={() => onOpenChange(false)} />
     </div>
   )
+}));
+
+// The banner has its own suite; here only whether Home mounts it matters.
+jest.mock('app/templates/GuardianNeedsUrlBanner', () => ({
+  GuardianNeedsUrlBanner: () => <div data-testid="guardian-needs-url-banner" />
 }));
 
 const account = {
@@ -836,5 +842,41 @@ describe('HomePrompts', () => {
       expect(screen.getByTestId('prompt-card')).toHaveAttribute('data-status', 'failure');
     });
     errorSpy.mockRestore();
+  });
+
+  it('mounts the guardian URL prompt only while the account is drifted', () => {
+    mockUseWalletPromptStorage.mockReturnValue(makePromptState());
+    const props = { balances: fundedBalance, balancesLoading: false, claimableNotes: [], tokenPrices: {} };
+    const { rerender } = render(
+      <HomePrompts {...props} account={{ ...account, guardianSyncStatus: 'needs-user-input' }} />
+    );
+    expect(screen.getByTestId('guardian-needs-url-banner')).toBeInTheDocument();
+
+    rerender(<HomePrompts {...props} account={{ ...account, guardianSyncStatus: 'in-sync' }} />);
+    expect(screen.queryByTestId('guardian-needs-url-banner')).toBeNull();
+  });
+
+  it('runs no guardian status clock on Home', () => {
+    // The drift gate needs no freshness, so nothing on Home may re-render on the 15 s status tick.
+    const drifted = { ...account, guardianSyncStatus: 'needs-user-input' as const };
+    const previous = useWalletStore.getState().currentAccount;
+    useWalletStore.setState({ currentAccount: drifted });
+    const intervalSpy = jest.spyOn(global, 'setInterval');
+    try {
+      mockUseWalletPromptStorage.mockReturnValue(makePromptState());
+      render(
+        <HomePrompts
+          account={drifted}
+          balances={fundedBalance}
+          balancesLoading={false}
+          claimableNotes={[]}
+          tokenPrices={{}}
+        />
+      );
+      expect(intervalSpy.mock.calls.filter(([, delay]) => delay === 15_000)).toEqual([]);
+    } finally {
+      intervalSpy.mockRestore();
+      useWalletStore.setState({ currentAccount: previous });
+    }
   });
 });

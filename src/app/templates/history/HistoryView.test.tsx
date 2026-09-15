@@ -961,6 +961,54 @@ describe('HistoryView Guardian switch audit trail', () => {
 
     expect(screen.getByTestId('activity-row')).toHaveAttribute('data-subtitle', 'unknown → destination.example');
   });
+
+  it('titles and chips a rotation row by its verdict', () => {
+    const rotation = { txType: 'switch-guardian' as const, newGuardianEndpoint: 'https://new.example/guardian' };
+    const entries = [
+      makeEntry({
+        ...rotation,
+        key: 'unconfirmed',
+        message: 'Guardian switch submitted',
+        guardianSwitchVerdict: 'submitted-unconfirmed'
+      }),
+      makeEntry({ ...rotation, key: 'confirmed', message: 'Guardian switched', guardianSwitchVerdict: 'confirmed' }),
+      makeEntry({
+        ...rotation,
+        key: 'degraded',
+        message: 'Guardian switched',
+        guardianSwitchVerdict: 'completed-degraded'
+      }),
+      makeEntry({
+        ...rotation,
+        key: 'queued',
+        message: 'Switching guardian',
+        type: HistoryEntryType.PendingTransaction,
+        guardianSwitchVerdict: 'in-flight'
+      }),
+      makeEntry({
+        ...rotation,
+        key: 'failed',
+        message: 'Transaction failed',
+        transactionIcon: 'FAILED',
+        guardianSwitchVerdict: 'failed'
+      })
+    ];
+
+    render(<HistoryView {...baseProps} entries={entries} fullHistory />);
+
+    const [unconfirmed, confirmed, degraded, queued, failed] = screen.getAllByTestId('activity-row');
+    expect(unconfirmed).toHaveAttribute('data-title', 'guardianSwitchSubmittedRowTitle');
+    expect(unconfirmed).toHaveAttribute('data-status-tone', 'pending');
+    expect(unconfirmed).toHaveAttribute('data-status-label', 'guardianSwitchSubmittedChip');
+    expect(confirmed).toHaveAttribute('data-title', 'guardianSwitchedRowTitle');
+    expect(confirmed).toHaveAttribute('data-status-label', 'confirmed');
+    expect(degraded).toHaveAttribute('data-title', 'guardianSwitchedRowTitle');
+    expect(degraded).toHaveAttribute('data-status-label', 'confirmed');
+    expect(queued).toHaveAttribute('data-title', 'Switching guardian');
+    expect(queued).toHaveAttribute('data-status-tone', 'pending');
+    expect(failed).toHaveAttribute('data-title', 'Transaction failed');
+    expect(failed).toHaveAttribute('data-status-tone', 'failed');
+  });
 });
 
 // A Smart Deposit row goes database-Completed as soon as the Miden collateral

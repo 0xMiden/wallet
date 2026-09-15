@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { Button } from 'components/Button';
 import { Input } from 'components/Input';
 import { useAccount } from 'lib/miden/front';
+import { isGuardianDrifted } from 'lib/miden/guardian/sync-guard';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isValidGuardianUrl, sanitizeGuardianUrl } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
@@ -83,7 +84,7 @@ export const GuardianNeedsUrlBanner: FC<Props> = ({ className }) => {
     }
   }, [account.publicKey, applyUserGuardianEndpoint, t, urlInput]);
 
-  if (account.guardianSyncStatus !== 'needs-user-input') return null;
+  if (!isGuardianDrifted(account)) return null;
 
   return (
     <div className={classNames('w-full bg-surface-input rounded-10 flex flex-col gap-3 px-4 py-3', className)}>

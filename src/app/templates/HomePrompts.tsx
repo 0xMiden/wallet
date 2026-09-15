@@ -12,6 +12,7 @@ import { initiateReplaceHotKeyTransaction, requestSWTransactionProcessing } from
 import { hasNoFeeAsset } from 'lib/miden/fees/spendable';
 import type { TokenBalanceData } from 'lib/miden/front';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
+import { isGuardianDrifted } from 'lib/miden/guardian/sync-guard';
 import { isExtension } from 'lib/platform';
 import type { TokenPrices } from 'lib/prices';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
@@ -458,7 +459,7 @@ export const HomePrompts: FC<HomePromptsProps> = ({
             />
           );
         })}
-        {account.guardianSyncStatus === 'needs-user-input' && <GuardianNeedsUrlBanner />}
+        {isGuardianDrifted(account) && <GuardianNeedsUrlBanner />}
       </PromptCarousel>
       <FundWalletDrawer
         open={fundDrawerOpen}
