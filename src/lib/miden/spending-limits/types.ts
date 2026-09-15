@@ -20,6 +20,7 @@ export interface SpendingLimitConfiguration extends SpendingLimitPeriods {
   updatedAt: number;
 }
 
+/** IndexedDB shape. Decimal strings avoid browser-specific bigint serialization. */
 export interface PersistedSpendingLimit {
   accountId: string;
   faucetId: string;
@@ -36,7 +37,8 @@ export interface SpendingLimitBreach {
   spent: bigint;
   proposedTotal: bigint;
   limit: bigint;
-  resetAt: number;
+  /** Null when the proposed transaction alone is larger than the cap. */
+  resetAt: number | null;
 }
 
 export interface SpendingLimitAssessment {
@@ -58,6 +60,7 @@ export interface SpendingLimitAuthorization {
   expiresAt: number;
 }
 
+/** A fail-closed signal for corrupt configuration, history, or storage reads. */
 export class SpendingLimitPolicyUnavailableError extends Error {
   readonly code = 'SPENDING_LIMIT_POLICY_UNAVAILABLE';
 
