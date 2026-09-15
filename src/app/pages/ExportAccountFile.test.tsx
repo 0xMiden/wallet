@@ -15,7 +15,8 @@ const messages = {
   saveAccountFile: 'Save account file',
   password: 'Password',
   error: 'Error',
-  accountFileExportSuccess: 'Account file saved.'
+  accountFileDownloadStarted: 'Account file download started.',
+  accountFileShareSuccess: 'Account file shared.'
 } as const;
 
 jest.mock('react-i18next', () => ({
@@ -151,7 +152,8 @@ it('requires the explicit funds warning acknowledgement and password before desk
   expect(saveButton).toBeEnabled();
   fireEvent.click(saveButton);
 
-  await screen.findByText(messages.accountFileExportSuccess);
+  await screen.findByText(messages.accountFileDownloadStarted);
+  expect(screen.queryByText(messages.accountFileShareSuccess)).not.toBeInTheDocument();
   expect(mockExportAccountFile).toHaveBeenCalledWith('mtst1account_suffix', 'wallet-password');
   expect(clickedAnchor?.download).toBe('mtst1account.mac');
   expect(clickedAnchor?.href).toBe('blob:account-file');
@@ -194,6 +196,8 @@ it('uses the mobile passcode, writes raw bytes as base64, and opens the share sh
   fireEvent.click(passcodeButton);
 
   await waitFor(() => expect(mockShare).toHaveBeenCalled());
+  expect(await screen.findByText(messages.accountFileShareSuccess)).toBeInTheDocument();
+  expect(screen.queryByText(messages.accountFileDownloadStarted)).not.toBeInTheDocument();
   expect(mockExportAccountFile).toHaveBeenCalledWith('mtst1account_suffix', '123456');
   expect(mockWriteFile).toHaveBeenCalledWith({
     path: 'mtst1account.mac',
@@ -218,7 +222,8 @@ it('deletes the sensitive mobile cache file when sharing fails', async () => {
 
   expect(await screen.findByText('Share failed')).toBeInTheDocument();
   expect(mockDeleteFile).toHaveBeenCalledWith({ path: 'mtst1account.mac', directory: 'CACHE' });
-  expect(screen.queryByText(messages.accountFileExportSuccess)).not.toBeInTheDocument();
+  expect(screen.queryByText(messages.accountFileDownloadStarted)).not.toBeInTheDocument();
+  expect(screen.queryByText(messages.accountFileShareSuccess)).not.toBeInTheDocument();
 });
 
 it('reports export failures and does not claim the file was saved', async () => {
@@ -230,6 +235,7 @@ it('reports export failures and does not claim the file was saved', async () => 
   fireEvent.click(screen.getByRole('button', { name: messages.saveAccountFile }));
 
   expect(await screen.findByText('Export failed')).toBeInTheDocument();
-  expect(screen.queryByText(messages.accountFileExportSuccess)).not.toBeInTheDocument();
+  expect(screen.queryByText(messages.accountFileDownloadStarted)).not.toBeInTheDocument();
+  expect(screen.queryByText(messages.accountFileShareSuccess)).not.toBeInTheDocument();
   expect(global.URL.createObjectURL).not.toHaveBeenCalled();
 });

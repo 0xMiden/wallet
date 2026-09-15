@@ -16,7 +16,7 @@
 - [x] RED: prove an in-flight `getKey` result escaped after its client generation was replaced.
 - [x] GREEN: add the universal post-await generation check to the per-client `getKey` trampoline.
 - [x] Run all affected tests and static gates, the configured 95% coverage gate, affected builds with artifact/error checks, and visual verification.
-- [ ] Inspect the final diff, scan authored text for U+2014/U+2013 and attribution, and create the signed implementation commit.
+- [x] Inspect the final diff, scan authored text for U+2014/U+2013 and attribution, and create the signed implementation commit.
 - [ ] Run the four-seat Review Council from a fresh session, apply all actionable findings, and reverify.
 - [ ] Push once, open the non-draft PR with `Closes #537`, babysit CI/review/conflicts to green, and admin squash merge.
 
@@ -34,8 +34,10 @@ The wallet's singleton client already uses the supported web-client `accounts.ex
 - RED watchdog cleanup: a parked SDK export survived the lock watchdog without uninstalling its scoped callback; the outer identity-safe `finally` now removes it before the action rejects.
 - RED interaction cleanup: the export row and acknowledgement emitted no haptics, and a thrown browser download click left its temporary anchor attached.
 - RED dark-theme contrast: the new export page's account address inherited black text until the page supplied the established heading color token.
+- RED completion semantics: the desktop path still claimed the account file was saved after only dispatching an anchor download, while the mobile path did not distinguish a completed share.
+- GREEN completion semantics: desktop reports that the download started and mobile reports that the file was shared; neither path claims confirmed browser persistence.
 - GREEN: 611 tests pass across 11 affected suites. TypeScript, full source ESLint, scoped Prettier, i18n lint, and dependency integrity pass.
-- Full pre-translation coverage: 11,175 tests pass across 656 suites; statements 97.41%, branches 95.37%, functions 96.42%, and lines 97.41%. The sole expected failure is source/generated locale parity for the nine new English keys; the verified translation workflow generates and commits those bundles before every downstream coverage and build gate.
+- Full pre-translation coverage: 11,175 tests pass across 656 suites; statements 97.41%, branches 95.37%, functions 96.42%, and lines 97.41%. The sole expected failure is source/generated locale parity for the new English keys; the verified translation workflow generates and commits those bundles before every downstream coverage and build gate.
 - Final production builds pass for Chrome, mobile, desktop, Android, and iOS. Targeted error scans are empty, and the Chrome manifest/zip, mobile and desktop bundles/WASM, Android APK, and iOS app executable/Info.plist all exist.
 - Fresh routed light/dark visual checks pass at the supported 640 px fullpage width: the exact fund-access warning, acknowledgement, password step-up, disabled-to-enabled save transition, account identity contrast, and horizontal geometry are visible and correct.
 - Final comment density: TypeScript 20%, TSX 10%, `miden-client.ts` 55%, `vault.ts` 30%, `actions.ts` 25%, `AdvancedSettings.tsx` 4%, `ExportAccountFile.tsx` 0%, and `Settings.tsx` 16%. New comments are limited to lifecycle rationale.

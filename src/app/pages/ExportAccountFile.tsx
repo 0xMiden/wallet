@@ -16,7 +16,13 @@ import { hapticMedium } from 'lib/mobile/haptics';
 import { useHideDappBubblesWhileOpen } from 'lib/mobile/useHideDappBubblesWhileOpen';
 import { isMobile } from 'lib/platform';
 
-async function saveAccountFile(bytes: Uint8Array, fileName: string, dialogTitle: string): Promise<void> {
+type AccountFileSaveResult = 'download-started' | 'shared';
+
+async function saveAccountFile(
+  bytes: Uint8Array,
+  fileName: string,
+  dialogTitle: string
+): Promise<AccountFileSaveResult> {
   if (isMobile()) {
     const { uri } = await Filesystem.writeFile({
       path: fileName,
@@ -28,7 +34,7 @@ async function saveAccountFile(bytes: Uint8Array, fileName: string, dialogTitle:
     } finally {
       await Filesystem.deleteFile({ path: fileName, directory: Directory.Cache });
     }
-    return;
+    return 'shared';
   }
 
   const url = URL.createObjectURL(new Blob([new Uint8Array(bytes)], { type: 'application/octet-stream' }));
@@ -43,6 +49,7 @@ async function saveAccountFile(bytes: Uint8Array, fileName: string, dialogTitle:
     anchor.remove();
     setTimeout(() => URL.revokeObjectURL(url), 0);
   }
+  return 'download-started';
 }
 
 const ExportAccountFile: FC = () => {
@@ -54,7 +61,7 @@ const ExportAccountFile: FC = () => {
   const [password, setPassword] = useState('');
   const [isExporting, setIsExporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
+  const [saveResult, setSaveResult] = useState<AccountFileSaveResult | null>(null);
   const usePasscodeEntry = isMobile() && hasHardwareProtector === false;
   useHideDappBubblesWhileOpen(true);
 
@@ -67,12 +74,12 @@ const ExportAccountFile: FC = () => {
       if (isExporting || !acknowledged) return;
       setIsExporting(true);
       setError(null);
-      setSaved(false);
+      setSaveResult(null);
       try {
         const bytes = await exportAccountFile(account.publicKey, stepUpSecret);
         const accountId = account.publicKey.split('_')[0] ?? account.publicKey;
-        await saveAccountFile(bytes, `${accountId}.mac`, t('saveAccountFile'));
-        setSaved(true);
+        const result = await saveAccountFile(bytes, `${accountId}.mac`, t('saveAccountFile'));
+        setSaveResult(result);
       } catch (cause: unknown) {
         setError(cause instanceof Error ? cause.message : String(cause));
       } finally {
@@ -109,7 +116,13 @@ const ExportAccountFile: FC = () => {
       </label>
 
       {error && <Alert type="error" title={t('error')} description={error} className="mb-4 rounded-lg text-black" />}
-      {saved && <Alert type="success" description={t('accountFileExportSuccess')} className="mb-4 rounded-lg" />}
+      {saveResult && (
+        <Alert
+          type="success"
+          description={t(saveResult === 'shared' ? 'accountFileShareSuccess' : 'accountFileDownloadStarted')}
+          className="mb-4 rounded-lg"
+        />
+      )}
 
       {hasHardwareProtector ? (
         <p className="text-sm text-heading-gray">{t('exportAccountFileHardwareDescription')}</p>

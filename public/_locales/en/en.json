@@ -1055,5 +1055,6 @@
   "exportAccountFileHardwareDescription": "Confirm with your device security to export this account.",
   "exportAccountFilePasscodeDescription": "Enter your wallet passcode to export this account.",
   "saveAccountFile": "Save account file",
-  "accountFileExportSuccess": "Account file saved."
+  "accountFileDownloadStarted": "Account file download started.",
+  "accountFileShareSuccess": "Account file shared."
 }
