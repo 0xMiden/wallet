@@ -1,0 +1,25 @@
+name: Drop apt repositories this repo never installs from
+description: >
+  Removes the Google Chrome and Microsoft package sources that the ubuntu runner
+  images ship, so `apt-get update` - and everything that shells out to it:
+  Playwright's `--with-deps`, the xvfb install, the local node's build deps -
+  stops depending on their CDNs. Nothing in this repo installs from either
+  (Playwright brings its own Chromium, browser-actions/setup-chrome downloads
+  Chrome directly, and no job installs a Microsoft package from apt), yet both
+  have killed jobs while the tree was fine: on 2026-09-09 Google's repository
+  served a Packages.gz whose hash did not match its Release file for over an
+  hour, and every ubuntu job on both branches died at apt with `Hash Sum
+  mismatch` (exit 100); on 2026-09-15 packages.microsoft.com answered its
+  InRelease with 403 Forbidden, apt refused the repository as no longer signed,
+  and the local node's build-deps install died the same way. A mirror we never
+  read from must not be able to fail a job. No-op off Linux, so the macOS jobs
+  can share the same step list.
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        [ "$RUNNER_OS" = Linux ] || exit 0
+        sudo rm -f /etc/apt/sources.list.d/google-chrome*.list /etc/apt/sources.list.d/google-chrome*.sources
+        # Every source that points at packages.microsoft.com, whatever the image named the file.
+        grep -rlE 'packages\.microsoft\.com' /etc/apt/sources.list.d 2>/dev/null | xargs -r sudo rm -f
