@@ -1070,20 +1070,68 @@
     "englishSource": "Import with key instead"
   },
   "importHotKeyTitle": {
-    "message": "Mit Schlüssel importieren",
-    "englishSource": "Import with Key"
+    "message": "Private Schlüssel importieren",
+    "englishSource": "Import private keys"
   },
   "importHotKeyDescription": {
-    "message": "Fügen Sie den täglichen (Hot-)Schlüssel Ihres Kontos ein. Die Wallet findet Ihr Konto unter Guardian und importiert es ohne seed phrase.",
-    "englishSource": "Paste your account's everyday (hot) key. The wallet finds your account at your Guardian and imports it without a seed phrase."
+    "message": "Scannen Sie den QR-Code Ihres privaten Schlüssels oder geben Sie Ihre Miden-Hot- und EVM-Schlüssel ein. Ihr Hot-Schlüssel findet Ihr Konto unter Guardian. Der angegebene EVM-Schlüssel stellt die zugehörige EVM-Adresse wieder her; die Wallet kann nicht überprüfen, ob diese Schlüssel zusammengehören.",
+    "englishSource": "Scan your private-key QR or enter your Miden hot and EVM private keys. Your hot key finds your Guardian account. The supplied EVM key restores its EVM address; the wallet cannot verify that these keys belong together."
   },
   "importHotKeyPlaceholder": {
     "message": "Alltagsschlüssel (hex)",
     "englishSource": "Everyday key (hex)"
   },
   "importHotKeyInvalid": {
-    "message": "Geben Sie den Alltagsschlüssel als 64 oder 66 hexadezimale Zeichen ein.",
-    "englishSource": "Enter the everyday key as 64 or 66 hexadecimal characters."
+    "message": "Geben Sie beide privaten Schlüssel als gültige, von Null verschiedene 32-Byte-secp256k1-Skalarwerte an (jeweils 64 hexadezimale Zeichen). QR-Codes müssen genau die Form „Hot-Key:EVM-Key“ enthalten.",
+    "englishSource": "Provide both private keys as valid, nonzero 32-byte secp256k1 scalars (64 hexadecimal characters each). QR codes must contain exactly hot-key:evm-key."
+  },
+  "midenHotPrivateKey": {
+    "message": "Miden-Hot-Private-Key",
+    "englishSource": "Miden hot private key"
+  },
+  "evmPrivateKey": {
+    "message": "EVM-Privatschlüssel",
+    "englishSource": "EVM private key"
+  },
+  "evmPrivateKeyMissing": {
+    "message": "Der private EVM-Schlüssel dieses Kontos fehlt. Für den Export sind beide Schlüssel erforderlich. Stellen Sie den ursprünglichen EVM-Schlüssel aus Ihrem Backup wieder her.",
+    "englishSource": "This account's EVM private key is missing. Both keys are required for export. Restore the original EVM key from your backup."
+  },
+  "privateKeyPairQr": {
+    "message": "QR-Code für private Schlüssel",
+    "englishSource": "Private keys QR code"
+  },
+  "privateKeyPairWarning": {
+    "message": "Bewahren Sie beide Schlüssel geheim auf. Jeder, der im Besitz dieser Schlüssel ist, kann Ihre Miden- und EVM-Vermögenswerte kontrollieren. Dieser Export enthält nicht Ihren Wiederherstellungsschlüssel „Guardian“.",
+    "englishSource": "Keep both keys secret. Anyone with them can control your Miden and EVM assets. This export does not include your Guardian recovery key."
+  },
+  "showPrivateKeyText": {
+    "message": "Schlüssel als Text anzeigen",
+    "englishSource": "Show keys as text"
+  },
+  "showQrCode": {
+    "message": "QR-Code anzeigen",
+    "englishSource": "Show QR code"
+  },
+  "uploadQrImage": {
+    "message": "QR-Bild hochladen",
+    "englishSource": "Upload QR image"
+  },
+  "enterKeysManually": {
+    "message": "Geben Sie die Schlüssel manuell ein",
+    "englishSource": "Enter keys manually"
+  },
+  "keyCameraUnavailable": {
+    "message": "Das Scannen mit der Kamera ist hier nicht verfügbar. Laden Sie ein QR-Bild hoch oder geben Sie beide Schlüssel manuell ein.",
+    "englishSource": "Camera scanning is unavailable here. Upload a QR image or enter both keys manually."
+  },
+  "invalidQrImage": {
+    "message": "Der QR-Code aus diesem Bild konnte nicht gelesen werden. Wählen Sie ein klares QR-Bild mit einer Größe von bis zu 20 MB aus oder geben Sie beide Schlüssel manuell ein.",
+    "englishSource": "Could not read a QR code from this image. Choose a clear QR image up to 20 MB or enter both keys manually."
+  },
+  "privateKeyPairReady": {
+    "message": "Beide Schlüssel können importiert werden.",
+    "englishSource": "Both keys are ready to import."
   },
   "importHotKeyError": {
     "message": "Ein Konto mit diesem Schlüssel konnte nicht importiert werden.",
@@ -2669,12 +2717,12 @@
     "englishSource": "Your Guardian account is protected by three keys: a device (hot) key for routine signing, a recovery (cold) key derived from your seed phrase for account-management operations, and an external guardian co-signer. Below are your cold private key plus both public keys. To reveal the device private key, use Settings → Reveal Device Key."
   },
   "hotKeyRevealWarningTitle": {
-    "message": "Bevor Sie Ihren Geräteschlüssel preisgeben",
-    "englishSource": "Before you reveal your device key"
+    "message": "Bevor Sie Ihre privaten Schlüssel preisgeben",
+    "englishSource": "Before you reveal your private keys"
   },
   "hotKeyRevealWarningBody": {
-    "message": "Jeder, der diesen Schlüssel besitzt, kann Transaktionen signieren, bis Sie ihn aktualisieren. Sollte der Schlüssel in fremde Hände geraten sein, aktualisieren Sie ihn über „Einstellungen“ → „Geräteschlüssel aktualisieren“.",
-    "englishSource": "Anyone with this key can sign transactions until you rotate it. If the key is leaked, rotate it via Settings → Rotate Device Key."
+    "message": "Jeder, der über diese Schlüssel verfügt, kann Ihre Miden- und EVM-Vermögenswerte kontrollieren. Das Rotieren Ihres Miden-Geräteschlüssels ändert nichts an einem durchgesickerten EVM-Schlüssel und schützt diesen auch nicht.",
+    "englishSource": "Anyone with these keys can control your Miden and EVM assets. Rotating your Miden device key does not change or protect a leaked EVM key."
   },
   "invalidUrl": {
     "message": "Geben Sie eine gültige URL ein, die mit http:// oder https:// beginnt.",

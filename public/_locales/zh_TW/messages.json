@@ -1070,20 +1070,68 @@
     "englishSource": "Import with key instead"
   },
   "importHotKeyTitle": {
-    "message": "使用金鑰匯入",
-    "englishSource": "Import with Key"
+    "message": "匯入私鑰",
+    "englishSource": "Import private keys"
   },
   "importHotKeyDescription": {
-    "message": "貼上您帳戶的日常（熱）金鑰。錢包會根據您的 Guardian 找到您的帳戶，並在無需 seed phrase 的情況下將其匯入。",
-    "englishSource": "Paste your account's everyday (hot) key. The wallet finds your account at your Guardian and imports it without a seed phrase."
+    "message": "掃描您的私鑰 QR 碼，或輸入您的 Miden 熱私鑰及 EVM 私鑰。您的熱私鑰將定位您的 Guardian 帳戶；提供的 EVM 私鑰則會還原其 EVM 地址；錢包無法驗證這些私鑰是否屬於同一個帳戶。",
+    "englishSource": "Scan your private-key QR or enter your Miden hot and EVM private keys. Your hot key finds your Guardian account. The supplied EVM key restores its EVM address; the wallet cannot verify that these keys belong together."
   },
   "importHotKeyPlaceholder": {
     "message": "日常金鑰 (十六進位)",
     "englishSource": "Everyday key (hex)"
   },
   "importHotKeyInvalid": {
-    "message": "請以 64 或 66 個十六進位字元輸入日常金鑰。",
-    "englishSource": "Enter the everyday key as 64 or 66 hexadecimal characters."
+    "message": "請提供兩組私鑰，格式須為有效的、非零的 32 位元組 secp256k1 標量（每組 64 個十六進位字元）。QR 碼必須精確包含 hot-key:evm-key 格式。",
+    "englishSource": "Provide both private keys as valid, nonzero 32-byte secp256k1 scalars (64 hexadecimal characters each). QR codes must contain exactly hot-key:evm-key."
+  },
+  "midenHotPrivateKey": {
+    "message": "Miden 熱私鑰",
+    "englishSource": "Miden hot private key"
+  },
+  "evmPrivateKey": {
+    "message": "EVM 私鑰",
+    "englishSource": "EVM private key"
+  },
+  "evmPrivateKeyMissing": {
+    "message": "此帳戶的 EVM 私鑰遺失。匯出時需同時提供兩把金鑰。請從您的備份中還原原始的 EVM 私鑰。",
+    "englishSource": "This account's EVM private key is missing. Both keys are required for export. Restore the original EVM key from your backup."
+  },
+  "privateKeyPairQr": {
+    "message": "私鑰 QR 碼",
+    "englishSource": "Private keys QR code"
+  },
+  "privateKeyPairWarning": {
+    "message": "請將兩把金鑰嚴加保密。任何持有這些金鑰的人都能控制您的 Miden 和 EVM 資產。此匯出檔案不包含您的 Guardian 恢復金鑰。",
+    "englishSource": "Keep both keys secret. Anyone with them can control your Miden and EVM assets. This export does not include your Guardian recovery key."
+  },
+  "showPrivateKeyText": {
+    "message": "以純文字顯示金鑰",
+    "englishSource": "Show keys as text"
+  },
+  "showQrCode": {
+    "message": "顯示 QR 碼",
+    "englishSource": "Show QR code"
+  },
+  "uploadQrImage": {
+    "message": "上傳 QR 圖像",
+    "englishSource": "Upload QR image"
+  },
+  "enterKeysManually": {
+    "message": "請手動輸入關鍵字",
+    "englishSource": "Enter keys manually"
+  },
+  "keyCameraUnavailable": {
+    "message": "此處無法使用相機掃描。請上傳 QR 碼圖片或手動輸入兩組金鑰。",
+    "englishSource": "Camera scanning is unavailable here. Upload a QR image or enter both keys manually."
+  },
+  "invalidQrImage": {
+    "message": "無法讀取此圖片中的 QR 碼。請選擇一張清晰且大小不超過 20 MB 的 QR 碼圖片，或手動輸入兩組金鑰。",
+    "englishSource": "Could not read a QR code from this image. Choose a clear QR image up to 20 MB or enter both keys manually."
+  },
+  "privateKeyPairReady": {
+    "message": "兩組金鑰均已準備就緒，可進行匯入。",
+    "englishSource": "Both keys are ready to import."
   },
   "importHotKeyError": {
     "message": "無法使用此金鑰匯入帳戶。",
@@ -2669,12 +2717,12 @@
     "englishSource": "Your Guardian account is protected by three keys: a device (hot) key for routine signing, a recovery (cold) key derived from your seed phrase for account-management operations, and an external guardian co-signer. Below are your cold private key plus both public keys. To reveal the device private key, use Settings → Reveal Device Key."
   },
   "hotKeyRevealWarningTitle": {
-    "message": "在您揭露裝置金鑰之前",
-    "englishSource": "Before you reveal your device key"
+    "message": "在您揭露私鑰之前",
+    "englishSource": "Before you reveal your private keys"
   },
   "hotKeyRevealWarningBody": {
-    "message": "在您進行金鑰輪替之前，任何持有此金鑰的人都能簽署交易。若金鑰外洩，請透過「設定」→「輪替裝置金鑰」進行金鑰輪替。",
-    "englishSource": "Anyone with this key can sign transactions until you rotate it. If the key is leaked, rotate it via Settings → Rotate Device Key."
+    "message": "任何持有這些金鑰的人都能控制您的 Miden 和 EVM 資產。輪替您的 Miden 裝置金鑰並不會改變或保護已外洩的 EVM 金鑰。",
+    "englishSource": "Anyone with these keys can control your Miden and EVM assets. Rotating your Miden device key does not change or protect a leaked EVM key."
   },
   "invalidUrl": {
     "message": "請輸入以 http:// 或 https:// 開頭的有效網址",

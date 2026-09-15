@@ -1070,20 +1070,68 @@
     "englishSource": "Import with key instead"
   },
   "importHotKeyTitle": {
-    "message": "キーを使用してインポート",
-    "englishSource": "Import with Key"
+    "message": "秘密鍵のインポート",
+    "englishSource": "Import private keys"
   },
   "importHotKeyDescription": {
-    "message": "アカウントの日常用（ホット）キーを貼り付けてください。ウォレットは Guardian でアカウントを検索し、seed phrase なしでインポートします。",
-    "englishSource": "Paste your account's everyday (hot) key. The wallet finds your account at your Guardian and imports it without a seed phrase."
+    "message": "秘密鍵のQRコードをスキャンするか、MidenのホットキーおよびEVM秘密鍵を入力してください。ホットキーを入力すると、Guardianアカウントが検出されます。指定されたEVMキーにより、そのEVMアドレスが復元されます。ただし、ウォレット側では、これらのキーが同一のものかどうかを検証することはできません。",
+    "englishSource": "Scan your private-key QR or enter your Miden hot and EVM private keys. Your hot key finds your Guardian account. The supplied EVM key restores its EVM address; the wallet cannot verify that these keys belong together."
   },
   "importHotKeyPlaceholder": {
     "message": "デイリーキー（16進数）",
     "englishSource": "Everyday key (hex)"
   },
   "importHotKeyInvalid": {
-    "message": "日常用キーを64または66文字の16進数で入力してください。",
-    "englishSource": "Enter the everyday key as 64 or 66 hexadecimal characters."
+    "message": "両方の秘密鍵を、有効な、0以外の32バイトのsecp256k1スカラー（各64文字の16進数）として提供してください。QRコードには、正確に「hot-key:evm-key」が含まれている必要があります。",
+    "englishSource": "Provide both private keys as valid, nonzero 32-byte secp256k1 scalars (64 hexadecimal characters each). QR codes must contain exactly hot-key:evm-key."
+  },
+  "midenHotPrivateKey": {
+    "message": "Midenのホットプライベートキー",
+    "englishSource": "Miden hot private key"
+  },
+  "evmPrivateKey": {
+    "message": "EVM秘密鍵",
+    "englishSource": "EVM private key"
+  },
+  "evmPrivateKeyMissing": {
+    "message": "このアカウントのEVM秘密鍵が欠落しています。エクスポートには両方の鍵が必要です。バックアップから元のEVM鍵を復元してください。",
+    "englishSource": "This account's EVM private key is missing. Both keys are required for export. Restore the original EVM key from your backup."
+  },
+  "privateKeyPairQr": {
+    "message": "秘密鍵のQRコード",
+    "englishSource": "Private keys QR code"
+  },
+  "privateKeyPairWarning": {
+    "message": "両方の鍵は秘密にしておいてください。これらを所持する者は誰でも、あなたのMidenおよびEVM資産を管理することができます。このエクスポートには、Guardianのリカバリーキーは含まれていません。",
+    "englishSource": "Keep both keys secret. Anyone with them can control your Miden and EVM assets. This export does not include your Guardian recovery key."
+  },
+  "showPrivateKeyText": {
+    "message": "キーをテキストとして表示",
+    "englishSource": "Show keys as text"
+  },
+  "showQrCode": {
+    "message": "QRコードを表示",
+    "englishSource": "Show QR code"
+  },
+  "uploadQrImage": {
+    "message": "QRコード画像をアップロード",
+    "englishSource": "Upload QR image"
+  },
+  "enterKeysManually": {
+    "message": "キーは手動で入力してください",
+    "englishSource": "Enter keys manually"
+  },
+  "keyCameraUnavailable": {
+    "message": "ここではカメラによるスキャンはご利用いただけません。QRコードの画像をアップロードするか、両方のキーを手動で入力してください。",
+    "englishSource": "Camera scanning is unavailable here. Upload a QR image or enter both keys manually."
+  },
+  "invalidQrImage": {
+    "message": "この画像のQRコードを読み取ることができませんでした。20 MB以下の鮮明なQRコード画像を選択するか、両方のキーを手動で入力してください。",
+    "englishSource": "Could not read a QR code from this image. Choose a clear QR image up to 20 MB or enter both keys manually."
+  },
+  "privateKeyPairReady": {
+    "message": "両方のキーはインポート可能な状態です。",
+    "englishSource": "Both keys are ready to import."
   },
   "importHotKeyError": {
     "message": "このキーではアカウントをインポートできませんでした。",
@@ -2669,12 +2717,12 @@
     "englishSource": "Your Guardian account is protected by three keys: a device (hot) key for routine signing, a recovery (cold) key derived from your seed phrase for account-management operations, and an external guardian co-signer. Below are your cold private key plus both public keys. To reveal the device private key, use Settings → Reveal Device Key."
   },
   "hotKeyRevealWarningTitle": {
-    "message": "デバイスのキーを公開する前に",
-    "englishSource": "Before you reveal your device key"
+    "message": "秘密鍵を開示する前に",
+    "englishSource": "Before you reveal your private keys"
   },
   "hotKeyRevealWarningBody": {
-    "message": "この鍵を持っている人なら誰でも、鍵を更新するまでは取引に署名することができます。鍵が漏洩した場合は、「設定」→「デバイス鍵の更新」から鍵を更新してください。",
-    "englishSource": "Anyone with this key can sign transactions until you rotate it. If the key is leaked, rotate it via Settings → Rotate Device Key."
+    "message": "これらの鍵を所持する者は誰でも、あなたのMidenおよびEVM資産を制御できます。Midenデバイスの鍵をローテーションしても、漏洩したEVM鍵は変更されず、保護されることもありません。",
+    "englishSource": "Anyone with these keys can control your Miden and EVM assets. Rotating your Miden device key does not change or protect a leaked EVM key."
   },
   "invalidUrl": {
     "message": "http:// または https:// で始まる有効な URL を入力してください",

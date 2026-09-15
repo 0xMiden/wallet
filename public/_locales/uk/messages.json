@@ -1070,20 +1070,68 @@
     "englishSource": "Import with key instead"
   },
   "importHotKeyTitle": {
-    "message": "Імпорт за допомогою ключа",
-    "englishSource": "Import with Key"
+    "message": "Імпортувати приватні ключі",
+    "englishSource": "Import private keys"
   },
   "importHotKeyDescription": {
-    "message": "Вставте щоденний (гарячий) ключ вашого облікового запису. Гаманець знайде ваш обліковий запис за адресою Guardian та імпортує його без seed phrase.",
-    "englishSource": "Paste your account's everyday (hot) key. The wallet finds your account at your Guardian and imports it without a seed phrase."
+    "message": "Відскануйте QR-код вашого приватного ключа або введіть ваші гарячі ключі Miden та приватні ключі EVM. Ваш гарячий ключ знайде ваш обліковий запис Guardian. Введений ключ EVM відновлює відповідну адресу EVM; гаманець не може перевірити, чи належать ці ключі один до одного.",
+    "englishSource": "Scan your private-key QR or enter your Miden hot and EVM private keys. Your hot key finds your Guardian account. The supplied EVM key restores its EVM address; the wallet cannot verify that these keys belong together."
   },
   "importHotKeyPlaceholder": {
     "message": "Повсякденний ключ (шестнадцятковий)",
     "englishSource": "Everyday key (hex)"
   },
   "importHotKeyInvalid": {
-    "message": "Введіть повсякденний ключ у вигляді 64 або 66 шістнадцяткових символів.",
-    "englishSource": "Enter the everyday key as 64 or 66 hexadecimal characters."
+    "message": "Надайте обидва приватні ключі у вигляді дійсних скалярних значень формату secp256k1 довжиною 32 байти, що не дорівнюють нулю (по 64 шестнадцяткових символів кожен). QR-коди повинні містити саме послідовність «hot-key:evm-key».",
+    "englishSource": "Provide both private keys as valid, nonzero 32-byte secp256k1 scalars (64 hexadecimal characters each). QR codes must contain exactly hot-key:evm-key."
+  },
+  "midenHotPrivateKey": {
+    "message": "Приватний ключ Miden",
+    "englishSource": "Miden hot private key"
+  },
+  "evmPrivateKey": {
+    "message": "Приватний ключ EVM",
+    "englishSource": "EVM private key"
+  },
+  "evmPrivateKeyMissing": {
+    "message": "Приватний ключ EVM цього облікового запису відсутній. Для експорту потрібні обидва ключі. Відновіть оригінальний ключ EVM із вашої резервної копії.",
+    "englishSource": "This account's EVM private key is missing. Both keys are required for export. Restore the original EVM key from your backup."
+  },
+  "privateKeyPairQr": {
+    "message": "QR-код приватного ключа",
+    "englishSource": "Private keys QR code"
+  },
+  "privateKeyPairWarning": {
+    "message": "Зберігайте обидва ключі в таємниці. Будь-хто, хто їх має, може контролювати ваші активи Miden та EVM. Цей експорт не включає ваш ключ відновлення Guardian.",
+    "englishSource": "Keep both keys secret. Anyone with them can control your Miden and EVM assets. This export does not include your Guardian recovery key."
+  },
+  "showPrivateKeyText": {
+    "message": "Показати ключі у вигляді тексту",
+    "englishSource": "Show keys as text"
+  },
+  "showQrCode": {
+    "message": "Показати QR-код",
+    "englishSource": "Show QR code"
+  },
+  "uploadQrImage": {
+    "message": "Завантажити зображення QR-коду",
+    "englishSource": "Upload QR image"
+  },
+  "enterKeysManually": {
+    "message": "Введіть ключі вручну",
+    "englishSource": "Enter keys manually"
+  },
+  "keyCameraUnavailable": {
+    "message": "Сканування камерою тут недоступне. Завантажте зображення QR-коду або введіть обидва ключі вручну.",
+    "englishSource": "Camera scanning is unavailable here. Upload a QR image or enter both keys manually."
+  },
+  "invalidQrImage": {
+    "message": "Не вдалося зчитати QR-код із цього зображення. Оберіть чітке зображення QR-коду розміром до 20 МБ або введіть обидва ключі вручну.",
+    "englishSource": "Could not read a QR code from this image. Choose a clear QR image up to 20 MB or enter both keys manually."
+  },
+  "privateKeyPairReady": {
+    "message": "Обидва ключі готові до імпорту.",
+    "englishSource": "Both keys are ready to import."
   },
   "importHotKeyError": {
     "message": "Не вдалося імпортувати обліковий запис із цим ключем.",
@@ -2669,12 +2717,12 @@
     "englishSource": "Your Guardian account is protected by three keys: a device (hot) key for routine signing, a recovery (cold) key derived from your seed phrase for account-management operations, and an external guardian co-signer. Below are your cold private key plus both public keys. To reveal the device private key, use Settings → Reveal Device Key."
   },
   "hotKeyRevealWarningTitle": {
-    "message": "Перш ніж розкрити ключ вашого пристрою",
-    "englishSource": "Before you reveal your device key"
+    "message": "Перш ніж розкривати свої приватні ключі",
+    "englishSource": "Before you reveal your private keys"
   },
   "hotKeyRevealWarningBody": {
-    "message": "Будь-хто, хто має цей ключ, може підписувати транзакції, доки ви його не оновите. Якщо ключ потрапив у чужі руки, оновіть його в меню «Налаштування» → «Оновити ключ пристрою».",
-    "englishSource": "Anyone with this key can sign transactions until you rotate it. If the key is leaked, rotate it via Settings → Rotate Device Key."
+    "message": "Будь-хто, хто має ці ключі, може контролювати ваші активи Miden та EVM. Зміна ключа вашого пристрою Miden не змінює і не захищає витік ключа EVM.",
+    "englishSource": "Anyone with these keys can control your Miden and EVM assets. Rotating your Miden device key does not change or protect a leaked EVM key."
   },
   "invalidUrl": {
     "message": "Введіть дійсну URL-адресу, що починається з http:// або https://",

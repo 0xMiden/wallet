@@ -1070,20 +1070,68 @@
     "englishSource": "Import with key instead"
   },
   "importHotKeyTitle": {
-    "message": "Anahtarla İçe Aktar",
-    "englishSource": "Import with Key"
+    "message": "Özel anahtarları içe aktarın",
+    "englishSource": "Import private keys"
   },
   "importHotKeyDescription": {
-    "message": "Hesabınızın günlük (hot) anahtarını yapıştırın. Cüzdan, Guardian adresinde hesabınızı bulur ve seed phrase olmadan içe aktarır.",
-    "englishSource": "Paste your account's everyday (hot) key. The wallet finds your account at your Guardian and imports it without a seed phrase."
+    "message": "Özel anahtarınızın QR kodunu tarayın veya Miden hot anahtarınızı ve EVM özel anahtarınızı girin. Hot anahtarınız, Guardian hesabınızı bulur. Sağlanan EVM anahtarı, EVM adresini geri yükler; cüzdan, bu anahtarların birbirine ait olduğunu doğrulayamaz.",
+    "englishSource": "Scan your private-key QR or enter your Miden hot and EVM private keys. Your hot key finds your Guardian account. The supplied EVM key restores its EVM address; the wallet cannot verify that these keys belong together."
   },
   "importHotKeyPlaceholder": {
     "message": "Günlük anahtar (hex)",
     "englishSource": "Everyday key (hex)"
   },
   "importHotKeyInvalid": {
-    "message": "Günlük anahtarı 64 veya 66 onaltılık karakter olarak girin.",
-    "englishSource": "Enter the everyday key as 64 or 66 hexadecimal characters."
+    "message": "Her iki özel anahtarı da geçerli, sıfırdan farklı 32 baytlık secp256k1 skalerleri (her biri 64 onaltılık karakter) olarak sağlayın. QR kodları tam olarak hot-key:evm-key biçimini içermelidir.",
+    "englishSource": "Provide both private keys as valid, nonzero 32-byte secp256k1 scalars (64 hexadecimal characters each). QR codes must contain exactly hot-key:evm-key."
+  },
+  "midenHotPrivateKey": {
+    "message": "Miden sıcak özel anahtarı",
+    "englishSource": "Miden hot private key"
+  },
+  "evmPrivateKey": {
+    "message": "EVM özel anahtarı",
+    "englishSource": "EVM private key"
+  },
+  "evmPrivateKeyMissing": {
+    "message": "Bu hesabın EVM özel anahtarı eksik. Dışa aktarım için her iki anahtar da gereklidir. Yedeklemenizden orijinal EVM anahtarını geri yükleyin.",
+    "englishSource": "This account's EVM private key is missing. Both keys are required for export. Restore the original EVM key from your backup."
+  },
+  "privateKeyPairQr": {
+    "message": "Özel anahtarlar QR kodu",
+    "englishSource": "Private keys QR code"
+  },
+  "privateKeyPairWarning": {
+    "message": "Her iki anahtarı da gizli tutun. Bu anahtarlara sahip olan herhangi bir kişi, Miden ve EVM varlıklarınızı kontrol edebilir. Bu dışa aktarım, Guardian kurtarma anahtarınızı içermez.",
+    "englishSource": "Keep both keys secret. Anyone with them can control your Miden and EVM assets. This export does not include your Guardian recovery key."
+  },
+  "showPrivateKeyText": {
+    "message": "Anahtarları metin olarak göster",
+    "englishSource": "Show keys as text"
+  },
+  "showQrCode": {
+    "message": "QR kodunu göster",
+    "englishSource": "Show QR code"
+  },
+  "uploadQrImage": {
+    "message": "QR görüntüsünü yükle",
+    "englishSource": "Upload QR image"
+  },
+  "enterKeysManually": {
+    "message": "Anahtarları manuel olarak girin",
+    "englishSource": "Enter keys manually"
+  },
+  "keyCameraUnavailable": {
+    "message": "Burada kamera tarama özelliği kullanılamaz. Bir QR görüntüsü yükleyin veya her iki anahtarı da manuel olarak girin.",
+    "englishSource": "Camera scanning is unavailable here. Upload a QR image or enter both keys manually."
+  },
+  "invalidQrImage": {
+    "message": "Bu görseldeki QR kodunu okuyamadım. En fazla 20 MB boyutunda net bir QR görseli seçin veya her iki anahtarı da manuel olarak girin.",
+    "englishSource": "Could not read a QR code from this image. Choose a clear QR image up to 20 MB or enter both keys manually."
+  },
+  "privateKeyPairReady": {
+    "message": "Her iki anahtar da içe aktarılmaya hazırdır.",
+    "englishSource": "Both keys are ready to import."
   },
   "importHotKeyError": {
     "message": "Bu anahtarla bir hesap içe aktarılamadı.",
@@ -2669,12 +2717,12 @@
     "englishSource": "Your Guardian account is protected by three keys: a device (hot) key for routine signing, a recovery (cold) key derived from your seed phrase for account-management operations, and an external guardian co-signer. Below are your cold private key plus both public keys. To reveal the device private key, use Settings → Reveal Device Key."
   },
   "hotKeyRevealWarningTitle": {
-    "message": "Cihaz anahtarınızı açıklamadan önce",
-    "englishSource": "Before you reveal your device key"
+    "message": "Özel anahtarlarınızı ifşa etmeden önce",
+    "englishSource": "Before you reveal your private keys"
   },
   "hotKeyRevealWarningBody": {
-    "message": "Bu anahtara sahip olan herkes, siz anahtarı değiştirene kadar işlemleri imzalayabilir. Anahtar sızdırılırsa, Ayarlar → Cihaz Anahtarını Değiştir seçeneğinden anahtarı değiştirin.",
-    "englishSource": "Anyone with this key can sign transactions until you rotate it. If the key is leaked, rotate it via Settings → Rotate Device Key."
+    "message": "Bu anahtarlara sahip olan herhangi bir kişi, Miden ve EVM varlıklarınızı kontrol edebilir. Miden cihaz anahtarınızı değiştirmek, sızdırılmış bir EVM anahtarını değiştirmez veya korumaz.",
+    "englishSource": "Anyone with these keys can control your Miden and EVM assets. Rotating your Miden device key does not change or protect a leaked EVM key."
   },
   "invalidUrl": {
     "message": "http:// veya https:// ile başlayan geçerli bir URL girin",
