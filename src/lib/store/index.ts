@@ -96,7 +96,6 @@ export const useWalletStore = create<WalletStore>()(
 
     // Initial extension sync state
     extensionClaimableNotes: null,
-    extensionClaimingNoteIds: new Set<string>(),
 
     // Sync action - updates store from backend state
     syncFromBackend: (state: MidenState) => {
@@ -754,28 +753,6 @@ export const useWalletStore = create<WalletStore>()(
     // Extension sync actions
     setExtensionClaimableNotes: notes => {
       set({ extensionClaimableNotes: notes });
-    },
-
-    addExtensionClaimingNoteId: noteId => {
-      set(state => ({
-        extensionClaimingNoteIds: new Set([...state.extensionClaimingNoteIds, noteId])
-      }));
-    },
-
-    removeExtensionClaimingNoteIds: noteIds => {
-      if (noteIds.length === 0) return;
-      set(state => {
-        const next = new Set(state.extensionClaimingNoteIds);
-        let changed = false;
-        for (const id of noteIds) {
-          if (next.delete(id)) changed = true;
-        }
-        return changed ? { extensionClaimingNoteIds: next } : {};
-      });
-    },
-
-    clearExtensionClaimingNoteIds: () => {
-      set({ extensionClaimingNoteIds: new Set<string>() });
     }
   }))
 );

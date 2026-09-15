@@ -388,8 +388,8 @@
     "englishSource": "Collateral"
   },
   "earnCollateralValue": {
-    "message": "Miden P2IDE（無氣體）",
-    "englishSource": "Miden P2IDE (gasless)"
+    "message": "Miden P2IDE",
+    "englishSource": "Miden P2IDE"
   },
   "earnDepositRoute": {
     "message": "Miden -> $protocol$ ($network$)",
@@ -2688,6 +2688,38 @@
     "message": "您無法寄送至您自己的地址",
     "englishSource": "You can't send to your own address"
   },
+  "networkFee": {
+    "message": "Network Fee",
+    "englishSource": "Network Fee"
+  },
+  "networkFeeMax": {
+    "message": "最高網路手續費",
+    "englishSource": "Max network fee"
+  },
+  "networkFeeEstimateNote": {
+    "message": "實際手續費取決於交易內容，通常會比上述金額更低。您將在收據上看到實際支付的金額。",
+    "englishSource": "The exact fee depends on the transaction and is usually lower. You will see what you paid on the receipt."
+  },
+  "feeReserveBlocksSend": {
+    "message": "您的 MIDEN 已預留作為網路手續費。欲進行轉帳，請先取得更多 MIDEN。",
+    "englishSource": "Your MIDEN is reserved for the network fee. Receive more MIDEN to send."
+  },
+  "notWorthClaiming": {
+    "message": "Worth less than the network fee to claim",
+    "englishSource": "Worth less than the network fee to claim"
+  },
+  "feeChargedPerClaim": {
+    "message": "每筆索取皆需支付相應手續費。若將多筆索取合併處理，則僅需支付一次手續費。",
+    "englishSource": "Each claim pays its own fee. Claiming them together pays one."
+  },
+  "feeChargedPerAsset": {
+    "message": "每項申領的資產僅收取一次費用。",
+    "englishSource": "Charged once per asset claimed."
+  },
+  "insufficientFeeAsset": {
+    "message": "您需要 MIDEN 來支付網路手續費。請領取一些 MIDEN 以繼續操作。",
+    "englishSource": "You need MIDEN to pay the network fee. Receive some MIDEN to continue."
+  },
   "amountMustBeLessThanBalance": {
     "message": "金額必須小於餘額",
     "englishSource": "Amount must be less than balance"
@@ -2697,8 +2729,8 @@
     "englishSource": "Auto Consume MIDEN notes"
   },
   "autoConsumeSettingsDescription": {
-    "message": "會自動將收到的 MIDEN notes 計入您的餘額中 —— 效果等同於點擊「領取」。此過程不會消耗您的資金，也不會產生任何手續費。",
-    "englishSource": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't spend your funds or add any fee."
+    "message": "會自動將收到的 MIDEN notes 兌換至您的餘額中——效果與手動點擊「兌換」相同。其兌換頻率不會比您手動點擊「兌換」更高，所產生的手續費也不會比手動操作更多。",
+    "englishSource": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't claim any more often, or cost any more in fees, than tapping Claim yourself."
   },
   "encryptedWalletFileExporting": {
     "message": "正在建立您的錢包檔案……",
@@ -4074,8 +4106,8 @@
     }
   },
   "noFee": {
-    "message": "免收費用",
-    "englishSource": "No fee"
+    "message": "無橋接手續費",
+    "englishSource": "No bridge fee"
   },
   "fastArrival": {
     "message": "約 30 秒",

@@ -13,6 +13,8 @@ import { EarnSummary, EarnVault } from './types';
 // trailing `.svg`), and the `^app/` path mapper would point at a non-existent
 // `aave.svg?url` file. A virtual mock short-circuits resolution and gives the
 // import a distinct, assertable value (mirrors `Logo.test.tsx`).
+jest.mock('app/hooks/useVerificationBaseFee', () => ({ __esModule: true, default: () => 0 }));
+jest.mock('app/hooks/useMidenFaucetId', () => ({ __esModule: true, default: () => 'MIDEN-ID' }));
 jest.mock('app/icons/earn-provider-logos/aave.svg?url', () => 'aave-logo-url-stub', { virtual: true });
 
 // `EarnFlowHeader` wires the back button's `onClick` to `lib/woozie`'s `goBack`,

@@ -9,14 +9,20 @@ const mockInitiateConsume = jest.fn(
 );
 const mockStartBg = jest.fn();
 const mockGetUncompleted = jest.fn(async (..._args: unknown[]): Promise<unknown[]> => [{ id: 'tx' }]);
+const mockInitiateConsumeBatch = jest.fn(async (..._a: any[]) => 'batch-tx');
 jest.mock('../transaction', () => ({
   initiateConsumeTransaction: mockInitiateConsume,
+  initiateConsumeNotesTransaction: mockInitiateConsumeBatch,
   startBackgroundTransactionProcessing: (...args: unknown[]) => mockStartBg(...args),
   getUncompletedTransactions: (...args: unknown[]) => mockGetUncompleted(...args)
 }));
 
 const mockGetFaucetIdSetting = jest.fn(async (): Promise<string | null> => 'native-faucet');
 jest.mock('lib/miden/assets', () => ({ getFaucetIdSetting: () => mockGetFaucetIdSetting() }));
+let mockBaseFee: number | null = 0;
+jest.mock('lib/miden-chain/native-asset', () => ({
+  getVerificationBaseFee: () => Promise.resolve(mockBaseFee)
+}));
 
 let mockExtension = false;
 jest.mock('lib/platform', () => ({ isExtension: () => mockExtension }));
@@ -65,7 +71,70 @@ describe('NativeNoteAutoConsumeManager', () => {
     mockGetUncompleted.mockResolvedValue([{ id: 'tx' }]);
   });
 
-  it('consumes the eligible native notes ONE TX PER NOTE (not a batch), skipping the rest', async () => {
+  it('claims every eligible note in ONE transaction, paying one fee', async () => {
+    mockClaimable = [note('a'), note('b'), note('c')];
+
+    render(<NativeNoteAutoConsumeManager />);
+
+    await waitFor(() => expect(mockInitiateConsumeBatch).toHaveBeenCalledTimes(1));
+    expect(mockInitiateConsumeBatch.mock.calls[0]![1].map((n: any) => n.id)).toEqual(['a', 'b', 'c']);
+  });
+
+  it('falls back to one transaction per note when the batch fails', async () => {
+    // A Miden transaction is atomic, so one unconsumable note fails the whole
+    // batch. Splitting isolates the poison note instead of letting it throttle
+    // its healthy mates through the shared per-note backoff.
+    mockClaimable = [note('a'), note('b')];
+    mockInitiateConsumeBatch.mockRejectedValueOnce(new Error('one note is unconsumable'));
+
+    render(<NativeNoteAutoConsumeManager />);
+
+    await waitFor(() => expect(mockInitiateConsume.mock.calls.length).toBe(2));
+    expect(new Set(mockInitiateConsume.mock.calls.map(c => c[1].id))).toEqual(new Set(['a', 'b']));
+  });
+
+  it('does not auto-consume a native backlog worth less than the fee to claim it', async () => {
+    // Auto-consume runs unattended, so claiming for more in fee than it yields silently
+    // moves the balance DOWN. The whole backlog is ONE transaction paying ONE fee, so
+    // the BATCH TOTAL is what must clear the floor -- a pile of dust that sums to less
+    // than one transaction's cost must not be swept.
+    mockBaseFee = 10000;
+    mockClaimable = [
+      note('dust', 'native-faucet', { amount: '1' }),
+      note('overBaseFee', 'native-faucet', { amount: String(10000 + 1) })
+    ];
+
+    render(<NativeNoteAutoConsumeManager />);
+
+    await waitFor(() => expect(mockGetFaucetIdSetting).toHaveBeenCalled());
+    expect(mockInitiateConsumeBatch).not.toHaveBeenCalled();
+  });
+
+  it('auto-consumes a backlog of individually-marginal notes, since one fee settles it', async () => {
+    // The stranding bug: judged per note these were ALL refused, yet they total well
+    // above one transaction's cost and a single transaction collects them.
+    mockBaseFee = 10000;
+    mockClaimable = Array.from({ length: 20 }, (_unused, index) =>
+      note(`n${index}`, 'native-faucet', { amount: String(10000 * 5) })
+    );
+
+    render(<NativeNoteAutoConsumeManager />);
+
+    await waitFor(() => expect(mockInitiateConsumeBatch).toHaveBeenCalledTimes(1));
+    expect(mockInitiateConsumeBatch.mock.calls[0]![1]).toHaveLength(20);
+  });
+
+  it('auto-consumes every native note on a chain that charges no fee', async () => {
+    mockBaseFee = 0;
+    mockClaimable = [note('a', 'native-faucet', { amount: '1' }), note('b', 'native-faucet', { amount: '2' })];
+
+    render(<NativeNoteAutoConsumeManager />);
+
+    await waitFor(() => expect(mockInitiateConsumeBatch).toHaveBeenCalledTimes(1));
+    expect(mockInitiateConsumeBatch.mock.calls[0]![1].map((n: any) => n.id)).toEqual(['a', 'b']);
+  });
+
+  it('claims exactly the eligible native notes, in one transaction, skipping the rest', async () => {
     mockClaimable = [
       note('n1'), // native ✓
       note('n1b'), // native ✓ (second eligible so per-note vs batch is distinguishable)
@@ -76,14 +145,10 @@ describe('NativeNoteAutoConsumeManager', () => {
 
     render(<NativeNoteAutoConsumeManager />);
 
-    await waitFor(() => expect(mockInitiateConsume.mock.calls.length).toBeGreaterThanOrEqual(2));
-    // Per-note: each call takes a single note object (never a batch array), for pk-1.
-    mockInitiateConsume.mock.calls.forEach(c => {
-      expect(c[0]).toBe('pk-1');
-      expect(Array.isArray(c[1])).toBe(false);
-    });
-    // Exactly the two eligible native notes — never n2/n3/n4.
-    expect(new Set(mockInitiateConsume.mock.calls.map(c => c[1].id))).toEqual(new Set(['n1', 'n1b']));
+    await waitFor(() => expect(mockInitiateConsumeBatch).toHaveBeenCalledTimes(1));
+    expect(mockInitiateConsumeBatch.mock.calls[0]![0]).toBe('pk-1');
+    // Exactly the two eligible native notes — never n2/n3/n4 — and in ONE tx.
+    expect(new Set(mockInitiateConsumeBatch.mock.calls[0]![1].map((n: any) => n.id))).toEqual(new Set(['n1', 'n1b']));
     expect(mockStartBg).toHaveBeenCalled();
   });
 
@@ -92,7 +157,7 @@ describe('NativeNoteAutoConsumeManager', () => {
 
     render(<NativeNoteAutoConsumeManager />);
 
-    await waitFor(() => expect(mockInitiateConsume).toHaveBeenCalled());
+    await waitFor(() => expect(mockInitiateConsumeBatch).toHaveBeenCalled());
     // This route-independent consumer must dismiss the "click to claim"
     // notification too — it's the path that runs when the user isn't on Home.
     await waitFor(() => expect(mockClearNoteReceived).toHaveBeenCalled());
@@ -105,7 +170,7 @@ describe('NativeNoteAutoConsumeManager', () => {
 
     // Give the tick a chance to run and bail.
     await waitFor(() => expect(mockGetFaucetIdSetting).toHaveBeenCalled());
-    expect(mockInitiateConsume).not.toHaveBeenCalled();
+    expect(mockInitiateConsumeBatch).not.toHaveBeenCalled();
     expect(mockClearNoteReceived).not.toHaveBeenCalled();
   });
 
@@ -115,7 +180,7 @@ describe('NativeNoteAutoConsumeManager', () => {
 
     render(<NativeNoteAutoConsumeManager />);
 
-    await waitFor(() => expect(mockInitiateConsume).toHaveBeenCalled());
+    await waitFor(() => expect(mockInitiateConsumeBatch).toHaveBeenCalled());
     expect(mockStartBg).not.toHaveBeenCalled();
   });
 
@@ -125,8 +190,8 @@ describe('NativeNoteAutoConsumeManager', () => {
 
     render(<NativeNoteAutoConsumeManager />);
 
-    await waitFor(() => expect(mockInitiateConsume).toHaveBeenCalled());
-    expect(mockInitiateConsume.mock.calls[0]![2]).toBe(false);
+    await waitFor(() => expect(mockInitiateConsumeBatch).toHaveBeenCalled());
+    expect(mockInitiateConsumeBatch.mock.calls[0]![2]).toBe(false);
   });
 
   it('is a no-op on the extension (the service worker owns that path)', async () => {
@@ -136,7 +201,7 @@ describe('NativeNoteAutoConsumeManager', () => {
     render(<NativeNoteAutoConsumeManager />);
 
     await new Promise(resolve => setTimeout(resolve, 20));
-    expect(mockInitiateConsume).not.toHaveBeenCalled();
+    expect(mockInitiateConsumeBatch).not.toHaveBeenCalled();
   });
 
   it('is a no-op when auto-consume is disabled', async () => {
@@ -146,6 +211,6 @@ describe('NativeNoteAutoConsumeManager', () => {
     render(<NativeNoteAutoConsumeManager />);
 
     await new Promise(resolve => setTimeout(resolve, 20));
-    expect(mockInitiateConsume).not.toHaveBeenCalled();
+    expect(mockInitiateConsumeBatch).not.toHaveBeenCalled();
   });
 });

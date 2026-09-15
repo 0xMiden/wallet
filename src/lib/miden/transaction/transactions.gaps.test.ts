@@ -185,6 +185,9 @@ jest.mock('../sdk/helpers', () => ({
   walletAccountIdToSdk: (id: string) => ({ toString: () => `sdk-${id.split('_')[0] ?? id}` }),
   canonicalWalletAccountId: (id: string) => id.split('_')[0] ?? id,
   sameWalletAccountId: (a: string, b: string) => (a.split('_')[0] ?? a) === (b.split('_')[0] ?? b),
+  // The guardian send and swap builds declare a fee conversion salt; this used to be
+  // produced inside the (separately mocked) fee-auth helper.
+  randomFeeSalt: () => ({ kind: 'fee-salt' }),
   buildSendTransactionRequest: (...args: unknown[]) => mockGapsBuildSendRequest(...(args as [])),
   buildPswapCreateRequest: (...args: unknown[]) => mockGapsBuildPswapRequest(...(args as []))
 }));

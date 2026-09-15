@@ -14,7 +14,8 @@ import {
   SuccessDivider,
   SuccessSummaryPill,
   TransactionSuccessLayout,
-  TransactionSuccessProps
+  TransactionSuccessProps,
+  useReceiptFeeText
 } from './TransactionSuccessLayout';
 import { earnMarketLabel, EarnDepositArrowGlyph } from '../TransactionSummaryBadge';
 
@@ -57,10 +58,16 @@ export const EarnSuccess: FC<TransactionSuccessProps> = ({ transaction, txHash, 
   const marketUid: unknown = transaction?.extraInputs?.marketUid;
   const market = typeof marketUid === 'string' ? earnMarketLabel(marketUid) : undefined;
 
+  // A deposit pays a network fee like any other transaction, and the row records it.
+  // Resolved on its own rather than through `useReceiptAmount`, whose amount is
+  // native-denominated and wrong for a USDC deposit.
+  const feeText = useReceiptFeeText(transaction);
+
   const rows = useMemo(() => {
     const receiptRows = buildReceiptRows(t, {
       amountText,
       amountLabel: t('earnTotalDeposited', { defaultValue: 'Total Deposited' }),
+      feeText,
       txHash,
       onViewExplorer
     });
@@ -68,7 +75,7 @@ export const EarnSuccess: FC<TransactionSuccessProps> = ({ transaction, txHash, 
       receiptRows.unshift({ label: t('earnMarketLabel', { defaultValue: 'Market' }), value: market });
     }
     return receiptRows;
-  }, [amountText, market, onViewExplorer, t, txHash]);
+  }, [amountText, feeText, market, onViewExplorer, t, txHash]);
 
   return (
     <TransactionSuccessLayout

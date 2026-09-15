@@ -388,8 +388,8 @@
     "englishSource": "Collateral"
   },
   "earnCollateralValue": {
-    "message": "Miden P2IDE (gasfrei)",
-    "englishSource": "Miden P2IDE (gasless)"
+    "message": "Miden P2IDE",
+    "englishSource": "Miden P2IDE"
   },
   "earnDepositRoute": {
     "message": "Miden -> $protocol$ ($network$)",
@@ -2688,6 +2688,38 @@
     "message": "Du kannst nicht an deine eigene Adresse senden.",
     "englishSource": "You can't send to your own address"
   },
+  "networkFee": {
+    "message": "Network Fee",
+    "englishSource": "Network Fee"
+  },
+  "networkFeeMax": {
+    "message": "Maximale Netzwerkgebühr",
+    "englishSource": "Max network fee"
+  },
+  "networkFeeEstimateNote": {
+    "message": "Die genaue Gebühr hängt von der Transaktion ab und ist in der Regel niedriger. Auf dem Beleg sehen Sie, was Sie bezahlt haben.",
+    "englishSource": "The exact fee depends on the transaction and is usually lower. You will see what you paid on the receipt."
+  },
+  "feeReserveBlocksSend": {
+    "message": "Ihr MIDEN ist für die Netzwerkgebühr reserviert. Erhalten Sie mehr MIDEN, um Guthaben zu versenden.",
+    "englishSource": "Your MIDEN is reserved for the network fee. Receive more MIDEN to send."
+  },
+  "notWorthClaiming": {
+    "message": "Worth less than the network fee to claim",
+    "englishSource": "Worth less than the network fee to claim"
+  },
+  "feeChargedPerClaim": {
+    "message": "Für jeden Anspruch fällt eine eigene Gebühr an. Werden sie gemeinsam geltend gemacht, fällt nur eine Gebühr an.",
+    "englishSource": "Each claim pays its own fee. Claiming them together pays one."
+  },
+  "feeChargedPerAsset": {
+    "message": "Die Gebühr wird einmal pro beanspruchter Anlage erhoben.",
+    "englishSource": "Charged once per asset claimed."
+  },
+  "insufficientFeeAsset": {
+    "message": "Sie benötigen MIDEN, um die Netzwerkgebühr zu bezahlen. Erhalten Sie etwas MIDEN, um fortzufahren.",
+    "englishSource": "You need MIDEN to pay the network fee. Receive some MIDEN to continue."
+  },
   "amountMustBeLessThanBalance": {
     "message": "Der Betrag muss geringer sein als der Kontostand.",
     "englishSource": "Amount must be less than balance"
@@ -2697,8 +2729,8 @@
     "englishSource": "Auto Consume MIDEN notes"
   },
   "autoConsumeSettingsDescription": {
-    "message": "Führt automatisch die Einlösung eingehender MIDEN-notesen in Ihr Guthaben durch – genau wie beim Antippen von „Einlösen“. Dabei werden weder Ihre Gelder ausgegeben noch Gebühren erhoben.",
-    "englishSource": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't spend your funds or add any fee."
+    "message": "Führt die automatische Einlösung eingehender MIDEN-notesen in Ihr Guthaben durch – genau wie beim Antippen von „Einlösen“. Es erfolgt keine häufigere Einlösung und es fallen keine höheren Gebühren an als beim manuellen Antippen von „Einlösen“.",
+    "englishSource": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't claim any more often, or cost any more in fees, than tapping Claim yourself."
   },
   "encryptedWalletFileExporting": {
     "message": "Erstellen Ihrer Wallet-Datei…",
@@ -4074,8 +4106,8 @@
     }
   },
   "noFee": {
-    "message": "Keine Gebühr",
-    "englishSource": "No fee"
+    "message": "Keine Brückengebühr",
+    "englishSource": "No bridge fee"
   },
   "fastArrival": {
     "message": "~30 Sek.",

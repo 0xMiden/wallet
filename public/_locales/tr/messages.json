@@ -388,8 +388,8 @@
     "englishSource": "Collateral"
   },
   "earnCollateralValue": {
-    "message": "Miden P2IDE (gazsız)",
-    "englishSource": "Miden P2IDE (gasless)"
+    "message": "Miden P2IDE",
+    "englishSource": "Miden P2IDE"
   },
   "earnDepositRoute": {
     "message": "Miden -> $protocol$ ($network$)",
@@ -2688,6 +2688,38 @@
     "message": "Kendi adresinize gönderim yapamazsınız",
     "englishSource": "You can't send to your own address"
   },
+  "networkFee": {
+    "message": "Network Fee",
+    "englishSource": "Network Fee"
+  },
+  "networkFeeMax": {
+    "message": "Maksimum ağ ücreti",
+    "englishSource": "Max network fee"
+  },
+  "networkFeeEstimateNote": {
+    "message": "Kesin ücret, işleme göre değişir ve genellikle daha düşüktür. Ödediğiniz tutarı makbuzda görebilirsiniz.",
+    "englishSource": "The exact fee depends on the transaction and is usually lower. You will see what you paid on the receipt."
+  },
+  "feeReserveBlocksSend": {
+    "message": "MIDEN'iniz ağ ücreti için ayrılmıştır. Göndermek için daha fazla MIDEN alın.",
+    "englishSource": "Your MIDEN is reserved for the network fee. Receive more MIDEN to send."
+  },
+  "notWorthClaiming": {
+    "message": "Worth less than the network fee to claim",
+    "englishSource": "Worth less than the network fee to claim"
+  },
+  "feeChargedPerClaim": {
+    "message": "Her talep kendi ücretini öder. Bunları toplu olarak talep ettiğinizde tek bir ücret ödenir.",
+    "englishSource": "Each claim pays its own fee. Claiming them together pays one."
+  },
+  "feeChargedPerAsset": {
+    "message": "Talep edilen her varlık için bir kez ücret alınır.",
+    "englishSource": "Charged once per asset claimed."
+  },
+  "insufficientFeeAsset": {
+    "message": "Ağ ücretini ödemek için MIDEN'e ihtiyacınız var. Devam etmek için biraz MIDEN alın.",
+    "englishSource": "You need MIDEN to pay the network fee. Receive some MIDEN to continue."
+  },
   "amountMustBeLessThanBalance": {
     "message": "Tutar, bakiyeden az olmalıdır",
     "englishSource": "Amount must be less than balance"
@@ -2697,8 +2729,8 @@
     "englishSource": "Auto Consume MIDEN notes"
   },
   "autoConsumeSettingsDescription": {
-    "message": "Gelen MIDEN'leri notes otomatik olarak bakiyenize ekler — \"Talep Et\"e dokunmakla aynı işlevi görür. Bu işlem, paranızı harcamaz veya herhangi bir ücret eklemez.",
-    "englishSource": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't spend your funds or add any fee."
+    "message": "Gelen MIDEN'leri notes otomatik olarak bakiyenize ekler — \"Talep Et\" düğmesine dokunmakla aynıdır. Kendiniz \"Talep Et\" düğmesine dokunmaktan daha sık talep etmez veya daha fazla ücret gerektirmez.",
+    "englishSource": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't claim any more often, or cost any more in fees, than tapping Claim yourself."
   },
   "encryptedWalletFileExporting": {
     "message": "Cüzdan dosyanız oluşturuluyor…",
@@ -4074,8 +4106,8 @@
     }
   },
   "noFee": {
-    "message": "Ücret alınmaz",
-    "englishSource": "No fee"
+    "message": "Köprü ücreti yoktur",
+    "englishSource": "No bridge fee"
   },
   "fastArrival": {
     "message": "~30 sn",

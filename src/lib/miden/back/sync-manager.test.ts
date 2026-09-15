@@ -143,6 +143,12 @@ jest.mock('lib/settings/helpers', () => ({
   areBackgroundSettingsMirrored: () => mockAreBgMirrored()
 }));
 
+let mockBaseFee: number | null = 0;
+jest.mock('lib/miden-chain/native-asset', () => ({
+  ...jest.requireActual('lib/miden-chain/native-asset'),
+  getVerificationBaseFee: () => Promise.resolve(mockBaseFee)
+}));
+
 const mockGetFaucetIdSetting = jest.fn(async (): Promise<string | null> => null);
 jest.mock('../assets', () => ({
   ...jest.requireActual('../assets'),
@@ -150,8 +156,10 @@ jest.mock('../assets', () => ({
 }));
 
 const mockInitiateConsume = jest.fn((..._args: any[]) => Promise.resolve('consume-tx'));
+const mockInitiateConsumeBatch = jest.fn((..._args: any[]) => Promise.resolve('consume-batch-tx'));
 jest.mock('../transaction/initiate', () => ({
   ...jest.requireActual('../transaction/initiate'),
+  initiateConsumeNotesTransaction: (...a: any[]) => mockInitiateConsumeBatch(...a),
   // Lazy wrapper (not a direct ref): a direct `mockInitiateConsume` here hits a
   // temporal-dead-zone error because requireActual('../assets') transitively loads this
   // mocked module before the const is initialized. The native pass consumes per-note via
@@ -170,6 +178,11 @@ jest.mock('./transaction-processor', () => ({
 const mockSweepNoteDeliveries = jest.fn(() => Promise.resolve());
 jest.mock('../transaction/note-delivery-sweep', () => ({
   sweepNoteDeliveries: () => mockSweepNoteDeliveries()
+}));
+
+const mockTrimResultBytes = jest.fn(async () => 0);
+jest.mock('../transaction/trim-result-bytes', () => ({
+  runTrimTick: () => mockTrimResultBytes()
 }));
 
 // ── Imports under test ─────────────────────────────────────────────
@@ -214,6 +227,8 @@ function fakeNote({
 }
 
 beforeEach(() => {
+  mockInitiateConsumeBatch.mockClear();
+  mockBaseFee = 0;
   jest.clearAllMocks();
   mockIsExist.mockResolvedValue(true);
   mockGetCurrentAccountPublicKey.mockResolvedValue('pk-1');
@@ -1174,7 +1189,44 @@ describe('doSync — syncState timeout + circuit breaker', () => {
 });
 
 describe('doSync — native-note auto-consume', () => {
-  it('auto-consumes native notes PER NOTE, following the user delegated-proving setting', async () => {
+  it('does not auto-consume a native backlog worth less than the fee to claim it', async () => {
+    mockIsAutoConsumeAsync.mockResolvedValue(true);
+    mockIsDelegateProofAsync.mockResolvedValue(false);
+    mockGetFaucetIdSetting.mockResolvedValue('native-faucet');
+    mockBaseFee = 10000;
+    // The backlog is claimed as ONE transaction paying ONE fee, so the BATCH TOTAL is
+    // what has to clear the cost. Dust that sums to less than one transaction's cost
+    // must not be swept on the user's behalf by an unattended pass.
+    mockClient.getConsumableNoteDtos.mockResolvedValueOnce([
+      fakeNote({ id: 'dust', faucetId: 'native-faucet', amount: '1' }),
+      fakeNote({ id: 'overBaseFee', faucetId: 'native-faucet', amount: String(10000 + 1) })
+    ]);
+
+    await doSync();
+
+    expect(mockInitiateConsumeBatch).not.toHaveBeenCalled();
+  });
+
+  it('auto-consumes a backlog of individually-marginal native notes in one transaction', async () => {
+    // Judged per note these were ALL refused; together they are comfortably worth one
+    // transaction, which is what the wallet actually pays for.
+    mockIsAutoConsumeAsync.mockResolvedValue(true);
+    mockIsDelegateProofAsync.mockResolvedValue(false);
+    mockGetFaucetIdSetting.mockResolvedValue('native-faucet');
+    mockBaseFee = 10000;
+    mockClient.getConsumableNoteDtos.mockResolvedValueOnce(
+      Array.from({ length: 20 }, (_unused, index) =>
+        fakeNote({ id: `n${index}`, faucetId: 'native-faucet', amount: String(10000 * 5) })
+      )
+    );
+
+    await doSync();
+
+    expect(mockInitiateConsumeBatch).toHaveBeenCalledTimes(1);
+    expect(mockInitiateConsumeBatch.mock.calls[0]![1] as { id: string }[]).toHaveLength(20);
+  });
+
+  it('auto-consumes native notes in ONE transaction, following the user delegated-proving setting', async () => {
     mockIsAutoConsumeAsync.mockResolvedValue(true);
     mockIsDelegateProofAsync.mockResolvedValue(false); // user picked LOCAL proving
     mockGetFaucetIdSetting.mockResolvedValue('native-faucet');
@@ -1188,13 +1240,11 @@ describe('doSync — native-note auto-consume', () => {
 
     // One consume tx PER native note (not a batch, so a poison note can't block its
     // mates), and proving honors the user's LOCAL choice rather than forced delegated.
-    expect(mockInitiateConsume).toHaveBeenCalledTimes(2);
-    const consumed = mockInitiateConsume.mock.calls.map(c => (c[1] as { id: string }).id).sort();
-    expect(consumed).toEqual(['native-a', 'native-b']);
-    mockInitiateConsume.mock.calls.forEach((c: unknown[]) => {
-      expect(c[0]).toBe('pk-1');
-      expect(c[2]).toBe(false); // delegate follows the user setting
-    });
+    expect(mockInitiateConsumeBatch).toHaveBeenCalledTimes(1);
+    const call = mockInitiateConsumeBatch.mock.calls[0]!;
+    expect((call[1] as { id: string }[]).map(n => n.id).sort()).toEqual(['native-a', 'native-b']);
+    expect(call[0]).toBe('pk-1');
+    expect(call[2]).toBe(false); // delegate follows the user setting
   });
 
   it('does not auto-consume when the toggle is off', async () => {
@@ -1206,7 +1256,7 @@ describe('doSync — native-note auto-consume', () => {
 
     await doSync();
 
-    expect(mockInitiateConsume).not.toHaveBeenCalled();
+    expect(mockInitiateConsumeBatch).not.toHaveBeenCalled();
   });
 
   it('suppresses the "click to claim" notification for a native note it is auto-consuming', async () => {
@@ -1224,8 +1274,8 @@ describe('doSync — native-note auto-consume', () => {
     // It is being auto-consumed, so it is excluded from newIds and must NOT also raise a
     // "click to claim" prompt — while still being consumed.
     expect((globalThis as any).chrome.notifications.create).not.toHaveBeenCalled();
-    expect(mockInitiateConsume).toHaveBeenCalledTimes(1);
-    expect((mockInitiateConsume.mock.calls[0]![1] as { id: string }).id).toBe('native-note');
+    expect(mockInitiateConsumeBatch).toHaveBeenCalledTimes(1);
+    expect((mockInitiateConsumeBatch.mock.calls[0]![1] as { id: string }[])[0]!.id).toBe('native-note');
   });
 
   it('holds off until the popup has mirrored the user settings (migration window)', async () => {
@@ -1239,7 +1289,7 @@ describe('doSync — native-note auto-consume', () => {
     await doSync();
 
     // Never act on read-miss defaults for a user who may have opted out.
-    expect(mockInitiateConsume).not.toHaveBeenCalled();
+    expect(mockInitiateConsumeBatch).not.toHaveBeenCalled();
   });
 
   it('resolves cleanly when the eligibility resolve (getFaucetIdSetting) rejects', async () => {
@@ -1251,7 +1301,7 @@ describe('doSync — native-note auto-consume', () => {
 
     await expect(doSync()).resolves.toBeUndefined();
     expect(mockGetFaucetIdSetting).toHaveBeenCalled(); // the rejecting path WAS exercised
-    expect(mockInitiateConsume).not.toHaveBeenCalled();
+    expect(mockInitiateConsumeBatch).not.toHaveBeenCalled();
     expect(mockStorageSet).toHaveBeenCalled(); // sync still completed
   });
 
@@ -1264,6 +1314,31 @@ describe('doSync — native-note auto-consume', () => {
     ]);
 
     await expect(doSync()).resolves.toBeUndefined();
-    expect(mockInitiateConsume).toHaveBeenCalled(); // the rejecting path WAS exercised
+    expect(mockInitiateConsumeBatch).toHaveBeenCalled(); // the rejecting path WAS exercised
+  });
+});
+
+describe('doSync drives the resultBytes reaper', () => {
+  // The extension's only periodic driver for the reaper is this one, so it must reach the reaper
+  // even on the laps where it does no network work at all.
+  beforeEach(() => {
+    mockTrimResultBytes.mockClear();
+  });
+
+  it('runs the reaper on a normal lap', async () => {
+    await doSync();
+
+    expect(mockTrimResultBytes).toHaveBeenCalled();
+  });
+
+  it('runs the reaper even when the lap is short-circuited before any sync work', async () => {
+    // doSync coalesces onto an in-flight pass and returns early; the reaper is pure local Dexie
+    // maintenance and must not be gated behind that, or an extension whose node is unreachable
+    // would never reclaim a byte.
+    const first = doSync();
+    const second = doSync();
+    await Promise.all([first, second]);
+
+    expect(mockTrimResultBytes).toHaveBeenCalledTimes(2);
   });
 });

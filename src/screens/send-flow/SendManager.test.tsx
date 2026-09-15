@@ -187,6 +187,16 @@ jest.mock('lib/miden/front', () => ({
   useAllBalances: (...a: any[]) => (useAllBalancesMock as jest.Mock)(...a),
   useAllTokensBaseMetadata: () => useAllTokensBaseMetadataMock()
 }));
+let mockBaseFee: number | null = 0;
+jest.mock('app/hooks/useVerificationBaseFee', () => ({
+  __esModule: true,
+  default: () => mockBaseFee
+}));
+let mockNativeId: string | null = 'MIDEN-ID';
+jest.mock('app/hooks/useMidenFaucetId', () => ({
+  __esModule: true,
+  default: () => mockNativeId
+}));
 jest.mock('lib/miden/front/use-filtered-contacts.hook', () => ({
   useFilteredContacts: () => useFilteredContactsMock()
 }));
@@ -257,6 +267,8 @@ beforeEach(() => {
 
   useAccountMock.mockReturnValue({ publicKey: 'me-pk' });
   useAllAccountsMock.mockReturnValue([]);
+  mockBaseFee = 0;
+  mockNativeId = 'MIDEN-ID';
   useAllBalancesMock.mockReturnValue({ data: undefined });
   useAllTokensBaseMetadataMock.mockReturnValue({});
   useFilteredContactsMock.mockReturnValue({ contacts: [] });
@@ -751,6 +763,56 @@ describe('amount entry', () => {
       fireEvent.change(screen.getByTestId('sa-input'), { target: { value } });
     });
   };
+
+  it('blocks the amount step when the account holds no MIDEN to pay the fee', () => {
+    // The fee is withdrawn from the account's own vault, so a token-only holder
+    // cannot move anything. Without this the form stays enabled and the failure
+    // lands after biometric confirmation, reading as a lost transaction.
+    mockBaseFee = 10000;
+    useAllBalancesMock.mockReturnValue({
+      data: [
+        { tokenId: 'T1', metadata: { symbol: 'TKN', decimals: 2 }, balance: 50, fiatPrice: 1 },
+        { tokenId: 'MIDEN-ID', metadata: { symbol: 'MIDEN', decimals: 6 }, balance: 0, fiatPrice: 1 }
+      ]
+    });
+    renderAmountStep();
+    selectToken();
+    typeAmount('10');
+    expect(screen.getByTestId('sa-error')).toHaveTextContent('insufficientFeeAsset');
+    expect(screen.getByTestId('sa-valid')).toHaveTextContent('false');
+  });
+
+  it('says so before any amount is typed, not after the send is composed', () => {
+    // The blocker used to wait for an amount, so a token-only holder filled in a recipient
+    // and an amount before learning nothing was sendable. Nothing about that verdict depends
+    // on the amount -- swap and earn deposit both say it on mount. Breaks if the check moves
+    // back below the empty-amount guard.
+    mockBaseFee = 10000;
+    useAllBalancesMock.mockReturnValue({
+      data: [
+        { tokenId: 'T1', metadata: { symbol: 'TKN', decimals: 2 }, balance: 50, fiatPrice: 1 },
+        { tokenId: 'MIDEN-ID', metadata: { symbol: 'MIDEN', decimals: 6 }, balance: 0, fiatPrice: 1 }
+      ]
+    });
+    renderAmountStep();
+    selectToken();
+
+    expect(screen.getByTestId('sa-error')).toHaveTextContent('insufficientFeeAsset');
+  });
+
+  it('does not block on a chain that charges no fee', () => {
+    mockBaseFee = 0;
+    useAllBalancesMock.mockReturnValue({
+      data: [
+        { tokenId: 'T1', metadata: { symbol: 'TKN', decimals: 2 }, balance: 50, fiatPrice: 1 },
+        { tokenId: 'MIDEN-ID', metadata: { symbol: 'MIDEN', decimals: 6 }, balance: 0, fiatPrice: 1 }
+      ]
+    });
+    renderAmountStep();
+    selectToken();
+    typeAmount('10');
+    expect(screen.getByTestId('sa-error')).not.toHaveTextContent('insufficientFeeAsset');
+  });
 
   it('flags a non-positive amount as invalid', () => {
     renderAmountStep();

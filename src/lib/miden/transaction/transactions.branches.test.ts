@@ -859,8 +859,42 @@ describe('waitForTransactionCompletion — error subscription', () => {
     // INSIDE dexie's `next` callback, after `cleanup()` has cleared the 5-minute
     // timeout. The promise then settles as neither success nor timeout and the
     // awaiting Epoch bridge/earn note builder blocks forever.
-    txStore.push({ id: 'tx-no-result', status: ITransactionStatus.Completed, transactionId: '0xabc' });
+    txStore.push({
+      id: 'tx-no-result',
+      status: ITransactionStatus.Completed,
+      transactionId: '0xabc',
+      completedAt: Math.floor(Date.now() / 1000)
+    });
     const result = await waitForTransactionCompletion('tx-no-result');
+    expect(result).toEqual({ errorMessage: 'Transaction completed without a transaction result' });
+  });
+
+  it('answers a result the reaper released as expired, not as a missing result', async () => {
+    // The reaper stamps resultReleasedAt when it deletes the blob, and a dApp polling
+    // window.miden.waitForTransaction must be able to tell that from the defect above.
+    txStore.push({
+      id: 'tx-expired',
+      status: ITransactionStatus.Completed,
+      transactionId: '0xabc',
+      completedAt: Math.floor(Date.now() / 1000) - 3600,
+      resultReleasedAt: Math.floor(Date.now() / 1000) - 3000
+    });
+    const result = await waitForTransactionCompletion('tx-expired');
+    expect(result).toEqual({
+      errorMessage: 'Transaction result expired: results are kept for 10 minutes after completion'
+    });
+  });
+
+  it('keeps the missing-result answer for an old row that never stored a result', async () => {
+    // Landed rows marked Completed by a post-submit path carry no result from the start, so age
+    // alone must not turn that into an expiry.
+    txStore.push({
+      id: 'tx-never-stored',
+      status: ITransactionStatus.Completed,
+      transactionId: '0xabc',
+      completedAt: Math.floor(Date.now() / 1000) - 3600
+    });
+    const result = await waitForTransactionCompletion('tx-never-stored');
     expect(result).toEqual({ errorMessage: 'Transaction completed without a transaction result' });
   });
 

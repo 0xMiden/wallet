@@ -72,9 +72,19 @@ jest.mock('lib/platform/storage-adapter', () => ({
   })
 }));
 
+// Consume previews quote a MAX fee bound, so the base fee has to be steerable.
+// Default null = undiscovered, which is what every pre-existing test in this file
+// implicitly assumed when the row did not exist.
+let mockBaseFee: number | null = null;
+jest.mock('lib/miden-chain/native-asset', () => ({
+  getVerificationBaseFee: async () => mockBaseFee,
+  getNativeAssetId: async () => 'native-faucet'
+}));
+
 const mockGetTokenMetadata = jest.fn();
 jest.mock('lib/miden/metadata/utils', () => ({
-  getTokenMetadata: (...args: unknown[]) => mockGetTokenMetadata(...args)
+  getTokenMetadata: (...args: unknown[]) => mockGetTokenMetadata(...args),
+  getAssetSymbol: (metadata?: { symbol?: string }) => metadata?.symbol ?? 'Unknown'
 }));
 
 // Mock lib/i18n/numbers so requestConsumeTransaction can run formatBigInt
@@ -1071,6 +1081,49 @@ describe('requestConsumeTransaction', () => {
     // And the amount is the resolved 7, not the declared 500000000.
     expect(messages.some(m => m.startsWith('Amount, ') && m.includes('7'))).toBe(true);
     expect(messages.some(m => m.includes('500'))).toBe(false);
+  });
+
+  // These rows ARE the approval prompt off-extension -- there is no other surface --
+  // and a consume preview is built before the transaction exists, so no real fee can be
+  // read from it. The bound is the only honest figure available before the tap.
+  const consumeMessages = async (): Promise<string[]> => {
+    mockGetInputNoteDetails.mockImplementation(async () => [
+      {
+        noteId: 'note-1',
+        noteType: 'Private',
+        senderAccountId: 's1',
+        nullifier: 'nf1',
+        state: 1,
+        assets: [{ faucetId: 'real-faucet', amount: '7' }]
+      }
+    ]);
+    await dapp.requestConsumeTransaction('https://miden.xyz', {
+      type: MidenDAppMessageType.ConsumeRequest,
+      sourcePublicKey: 'miden-account-1',
+      transaction: { accountAddress: 'miden-account-1', noteId: 'note-1', noteType: 'Private' }
+    } as never);
+    return mockRequestConfirmation.mock.calls[0]![0].transactionMessages;
+  };
+
+  it('states the maximum network fee the consume can cost', async () => {
+    // Breaks if the `Network fee (max)` row is dropped from the consume preview.
+    mockBaseFee = 2000000;
+    mockGetTokenMetadata.mockResolvedValue({ decimals: 6, symbol: 'MIDEN' });
+
+    const feeRow = (await consumeMessages()).find(m => m.startsWith('Network fee (max), '));
+    // 2000000 x FEE_RESERVE_MULTIPLE(30). This suite stubs `formatBigInt` to raw units,
+    // so the bound shows unscaled; the decimal formatting is that helper's own job. The
+    // minus prefix matches the existing `Network fee` row, which formats fees the same way.
+    expect(feeRow).toBe('Network fee (max), -60000000 MIDEN');
+    mockBaseFee = null;
+  });
+
+  it('omits the fee row while the base fee is undiscovered', async () => {
+    // House convention: no row beats a zero or a guess. Breaks if the null guard goes.
+    mockBaseFee = null;
+    mockGetTokenMetadata.mockResolvedValue({ decimals: 6, symbol: 'MIDEN' });
+
+    expect((await consumeMessages()).some(m => m.startsWith('Network fee (max)'))).toBe(false);
   });
 
   it('refuses noteBytes that describe a different note than the noteId being consumed', async () => {

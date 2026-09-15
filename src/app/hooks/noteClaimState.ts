@@ -23,7 +23,7 @@ export interface NoteClaimStateSets {
   retriableNoteIds: Set<string>;
   /** Ids the node/client reports as terminally Invalid — retry cannot help. */
   invalidNoteIds: Set<string>;
-  /** Ids in a batch/group claim currently in flight. */
+  /** Ids held by a claim this page queued: Claim All, a group or a single row. */
   claimingNoteIds: Set<string>;
   /** Ids currently being checked against local + node state (mount spinner). */
   checkingNoteIds: Set<string>;
@@ -42,4 +42,13 @@ export function deriveNoteClaimState(note: NoteClaimStateNote, sets: NoteClaimSt
     return 'retriable';
   }
   return 'pending';
+}
+
+/**
+ * Whether a note has a claim in flight: a live consume row, or a claim this page queued, which `claimingNoteIds` holds
+ * from the tap until live state or the claim's outcome arrives. This is the one definition of the claimable and
+ * in-flight split, shared by the claim handlers, the summary and the group view.
+ */
+export function isNoteInFlight(note: NoteClaimStateNote, claimingNoteIds: Set<string>): boolean {
+  return note.isBeingClaimed === true || claimingNoteIds.has(note.id);
 }

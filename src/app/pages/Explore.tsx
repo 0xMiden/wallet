@@ -3,6 +3,7 @@ import React, { FC, useCallback, useEffect, useMemo, useRef, useState } from 're
 import { useTranslation } from 'react-i18next';
 
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
+import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
 import Balance from 'app/templates/Balance';
 import HomePrompts from 'app/templates/HomePrompts';
 import { AssetRow } from 'components/AssetRow';
@@ -11,11 +12,13 @@ import { Loader } from 'components/Loader';
 import { AccountsDrawer, BalanceCard, SearchInput } from 'components/ui';
 import { toLocalFormat } from 'lib/i18n/numbers';
 import {
+  initiateConsumeNotesTransaction,
   initiateConsumeTransaction,
   reconcileBridgedReceives,
   requestSWTransactionProcessing,
   startBackgroundTransactionProcessing
 } from 'lib/miden/activity';
+import { isWorthClaiming, totalClaimableAmount } from 'lib/miden/fees/spendable';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata, useMidenContext } from 'lib/miden/front';
 import type { TokenBalanceData } from 'lib/miden/front';
 import { useClaimableNotes } from 'lib/miden/front/claimable-notes';
@@ -56,6 +59,7 @@ const Explore: FC = () => {
   const isMobileApp = isMobile();
   const account = useAccount();
   const midenFaucetId = useMidenFaucetId();
+  const verificationBaseFee = useVerificationBaseFee();
   const { signTransaction } = useMidenContext();
   const allTokensBaseMetadata = useAllTokensBaseMetadata();
   const {
@@ -86,8 +90,29 @@ const Explore: FC = () => {
     // explicit guard also protects native-asset swap notes whose per-order
     // auto-consume setting is off: they remain available for manual settlement
     // without being picked up by the wallet-wide native-note auto-consumer.
-    return claimableNotes.filter(note => note!.faucetId === midenFaucetId && !note!.swapOrder);
-  }, [claimableNotes, midenFaucetId, shouldAutoConsume]);
+    // `isBeingClaimed` is filtered HERE, not at the enqueue below, because the value
+    // check that follows has to measure the set that will actually be claimed. A note
+    // already covered by an in-flight consume row stays visible in `claimableNotes`
+    // during chain-sync lag, so counting it inflated the total: a lone newly-arrived
+    // dust note rode in on the in-flight batch's value and was claimed alone for a full
+    // fee. `NativeNoteAutoConsumeManager` has always filtered in this order.
+    const candidates = claimableNotes.filter(
+      note => note!.faucetId === midenFaucetId && !note!.swapOrder && !note!.isBeingClaimed
+    );
+    // A claim worth no more than its own fee costs the user money, and this consumer
+    // runs without asking. Measured on the BATCH TOTAL because these are claimed as one
+    // transaction paying one fee -- per note, a backlog of individually-marginal notes
+    // was refused in full.
+    //
+    // Fails open on an unknown fee, matching `isWorthClaiming`'s contract and the other
+    // two consumers. An earlier revision returned early on `null` instead, which against
+    // an SDK build whose header has no `verificationBaseFee` accessor -- where the fee is
+    // latched null forever -- disabled this consumer permanently.
+    if (!isWorthClaiming(totalClaimableAmount(candidates.map(note => note!.amount)), verificationBaseFee)) {
+      return [];
+    }
+    return candidates;
+  }, [claimableNotes, midenFaucetId, shouldAutoConsume, verificationBaseFee]);
 
   const hasAutoConsumableNotes = useMemo(() => {
     return midenNotes.length > 0;
@@ -98,15 +123,42 @@ const Explore: FC = () => {
       return;
     }
 
-    const notesToClaim = midenNotes!.filter(note => !note.isBeingClaimed);
+    // Already filtered for `isBeingClaimed` in the memo above, where the value check
+    // needs the same set. Re-filtering here would let the two diverge again.
+    const notesToClaim = midenNotes;
     if (notesToClaim.length === 0) {
       return;
     }
 
-    const promises = notesToClaim.map(async note => {
-      await initiateConsumeTransaction(account.publicKey, note, isDelegatedProvingEnabled);
-    });
-    await Promise.all(promises);
+    // ONE transaction for the batch, matching the other two native auto-consumers
+    // (`NativeNoteAutoConsumeManager`, the SW sync pass): every consume pays its own
+    // fee, so a backlog claimed note-by-note charges N fees for what settles in one.
+    // This consumer runs on Home and fires on render, so it usually WINS the race
+    // against the others -- leaving it per-note meant the batching those two do was
+    // defeated in the common case.
+    //
+    // Poison-note isolation is the LAST argument, not this catch: an un-consumable note
+    // fails at generation time, long after this queue write returned, so the catch here
+    // only ever sees a DB error. See `initiateConsumeNotesTransaction`.
+    try {
+      await initiateConsumeNotesTransaction(
+        account.publicKey,
+        notesToClaim,
+        isDelegatedProvingEnabled,
+        false,
+        true,
+        verificationBaseFee
+      );
+    } catch (batchErr) {
+      console.warn('[native-auto-consume] batch enqueue failed, falling back to per-note enqueue', batchErr);
+      for (const note of notesToClaim) {
+        try {
+          await initiateConsumeTransaction(account.publicKey, note, isDelegatedProvingEnabled);
+        } catch (noteErr) {
+          console.warn('[native-auto-consume] enqueue failed for note', note.id, noteErr);
+        }
+      }
+    }
     // The wallet is now auto-claiming these notes, so the "click to claim"
     // notification is stale — dismiss it so it doesn't linger (#459).
     clearNoteReceivedNotification();
@@ -124,7 +176,8 @@ const Explore: FC = () => {
     account.publicKey,
     shouldAutoConsume,
     hasAutoConsumableNotes,
-    signTransaction
+    signTransaction,
+    verificationBaseFee
   ]);
 
   useEffect(() => {

@@ -388,8 +388,8 @@
     "englishSource": "Collateral"
   },
   "earnCollateralValue": {
-    "message": "Miden P2IDE (sans gaz)",
-    "englishSource": "Miden P2IDE (gasless)"
+    "message": "Miden P2IDE",
+    "englishSource": "Miden P2IDE"
   },
   "earnDepositRoute": {
     "message": "Miden -> $protocol$ ($network$)",
@@ -2688,6 +2688,38 @@
     "message": "Vous ne pouvez pas envoyer de colis à votre propre adresse",
     "englishSource": "You can't send to your own address"
   },
+  "networkFee": {
+    "message": "Network Fee",
+    "englishSource": "Network Fee"
+  },
+  "networkFeeMax": {
+    "message": "Frais de réseau maximaux",
+    "englishSource": "Max network fee"
+  },
+  "networkFeeEstimateNote": {
+    "message": "Le montant exact des frais dépend de la transaction et est généralement inférieur. Le montant que vous avez payé figurera sur le reçu.",
+    "englishSource": "The exact fee depends on the transaction and is usually lower. You will see what you paid on the receipt."
+  },
+  "feeReserveBlocksSend": {
+    "message": "Votre MIDEN est réservé aux frais de réseau. Recevez davantage de MIDEN pour effectuer des envois.",
+    "englishSource": "Your MIDEN is reserved for the network fee. Receive more MIDEN to send."
+  },
+  "notWorthClaiming": {
+    "message": "Worth less than the network fee to claim",
+    "englishSource": "Worth less than the network fee to claim"
+  },
+  "feeChargedPerClaim": {
+    "message": "Chaque réclamation donne lieu au paiement de ses propres frais. Les réclamer ensemble ne donne lieu qu’au paiement d’une seule fois.",
+    "englishSource": "Each claim pays its own fee. Claiming them together pays one."
+  },
+  "feeChargedPerAsset": {
+    "message": "Facturé une fois par actif réclamé.",
+    "englishSource": "Charged once per asset claimed."
+  },
+  "insufficientFeeAsset": {
+    "message": "Vous avez besoin de MIDEN pour payer les frais de réseau. Recevez des MIDEN pour continuer.",
+    "englishSource": "You need MIDEN to pay the network fee. Receive some MIDEN to continue."
+  },
   "amountMustBeLessThanBalance": {
     "message": "Le montant doit être inférieur au solde",
     "englishSource": "Amount must be less than balance"
@@ -2697,8 +2729,8 @@
     "englishSource": "Auto Consume MIDEN notes"
   },
   "autoConsumeSettingsDescription": {
-    "message": "Intègre automatiquement les « MIDEN » (notes) entrants dans votre solde — comme si vous appuyiez sur « Réclamer ». Cela ne dépense pas vos fonds et n’ajoute aucun frais.",
-    "englishSource": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't spend your funds or add any fee."
+    "message": "Réclame automatiquement les « MIDEN » (notes) entrants sur votre solde — comme si vous appuyiez sur « Réclamer ». Cela ne se fait pas plus souvent, ni n’entraîne de frais supplémentaires, par rapport à lorsque vous appuyez vous-même sur « Réclamer ».",
+    "englishSource": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't claim any more often, or cost any more in fees, than tapping Claim yourself."
   },
   "encryptedWalletFileExporting": {
     "message": "Création de votre fichier de portefeuille…",
@@ -4074,8 +4106,8 @@
     }
   },
   "noFee": {
-    "message": "Sans frais",
-    "englishSource": "No fee"
+    "message": "Pas de frais de pont",
+    "englishSource": "No bridge fee"
   },
   "fastArrival": {
     "message": "environ 30 secondes",

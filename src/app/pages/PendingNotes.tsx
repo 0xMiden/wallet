@@ -33,14 +33,11 @@ const PendingNotes: FC = () => {
       <NavigationHeader title={t('pendingNotes')} onBack={handleBack} variant="prominent" titleAlign="left" />
       <PendingTab
         safeClaimableNotes={claim.safeClaimableNotes}
-        unclaimedNotesCount={claim.unclaimedNotes.length}
-        account={claim.account}
-        isDelegatedProvingEnabled={claim.isDelegatedProvingEnabled}
         claimingNoteIds={claim.claimingNoteIds}
         retriableNoteIds={claim.retriableNoteIds}
         invalidNoteIds={claim.invalidNoteIds}
         checkingNoteIds={claim.checkingNoteIds}
-        onClaimingStateChange={claim.handleClaimingStateChange}
+        onClaimNote={claim.handleClaimNote}
         onClaimAll={claim.handleClaimAll}
         onClaimGroup={claim.handleClaimGroup}
       />

@@ -5,6 +5,8 @@ import * as Repo from 'lib/miden/repo';
 import { u8ToB64 } from 'lib/shared/helpers';
 
 import { type SignCallbackReason } from './sign-callback';
+import { RESULT_BYTES_RETENTION_MS } from './trim-result-bytes';
+import { splitExecutedOutputNotes } from '../activity/fee-notes';
 import {
   INoteDeliveryState,
   ITransaction,
@@ -342,7 +344,10 @@ export const completeVerifiedLandedTransaction = async (
   otherValues: Partial<ITransaction> = {}
 ): Promise<void> => {
   await Repo.transactions.where({ id }).modify(tx => {
-    if (tx.status !== ITransactionStatus.Failed) return;
+    // `false`, not a bare return - dexie re-puts the deep clone for any other value. The row
+    // declined here is an already-Completed one, i.e. exactly the row still carrying the ~237 KB
+    // `resultBytes`, and `useTransactionRow` observes this table.
+    if (tx.status !== ITransactionStatus.Failed) return false;
     Object.assign(tx, otherValues);
     tx.status = ITransactionStatus.Completed;
     tx.stage = 'complete';
@@ -350,6 +355,7 @@ export const completeVerifiedLandedTransaction = async (
     // completed transaction with an error on it.
     tx.error = undefined;
     tx.rawError = undefined;
+    return undefined;
   });
 };
 
@@ -514,6 +520,10 @@ export const waitForConsumeTx = async (id: string, signal?: AbortSignal): Promis
 
 const WAIT_FOR_TX_TIMEOUT = 5 * 60_000; // 5 minutes
 
+const RESULT_EXPIRED_MESSAGE = `Transaction result expired: results are kept for ${
+  RESULT_BYTES_RETENTION_MS / 60_000
+} minutes after completion`;
+
 export const waitForTransactionCompletion = async (transactionId: string) => {
   return new Promise<TransactionOutput>(resolve => {
     let subscription: { unsubscribe: () => void } | null = null;
@@ -543,23 +553,35 @@ export const waitForTransactionCompletion = async (transactionId: string) => {
           // the timeout, and dexie runs `next` inside its own promise chain — so an
           // exception here settles the wait promise as neither success NOR timeout
           // and the awaiting caller (the Epoch bridge/earn note builders) hangs
-          // forever while the activity row reads Completed. The known trigger is a
-          // row marked Completed by a post-submit failure path with no
-          // `resultBytes`; `isResultAwaitingRow` in `transaction/index.ts` now
-          // Fails those rows instead, and this is the backstop for any other route
-          // to a result-less Completed row.
+          // forever while the activity row reads Completed.
+          //
+          // A Completed row arrives here without `resultBytes` by two routes. The reaper
+          // (`trim-result-bytes.ts`) releases the blob after the retention window and stamps
+          // `resultReleasedAt`, which answers as an expiry. Otherwise the row never stored a result:
+          // post-submit paths in `transaction/index.ts` and `complete.ts` mark landed rows Completed
+          // without one, so they keep the generic message at any age.
           try {
             if (!tx.resultBytes) {
-              resolve({ errorMessage: 'Transaction completed without a transaction result' });
+              resolve({
+                errorMessage:
+                  tx.resultReleasedAt != null
+                    ? RESULT_EXPIRED_MESSAGE
+                    : 'Transaction completed without a transaction result'
+              });
               return;
             }
             const txResult = TransactionResult.deserialize(tx.resultBytes);
+            // The kernel's fee note is an output note too, and this array is the wallet's
+            // PUBLIC dApp API (`window.miden.waitForTransaction`). Handing it out unsplit
+            // invited the very bug this module's siblings were hardened against: a site
+            // doing `outputNotes[0]` -- the obvious "the note my transaction created" --
+            // would get the fee note whenever the kernel ordered it first, and every site
+            // reading `.length` counted one note too many. Silent at fee 0, since the
+            // kernel skips the fee branch entirely.
+            const { userNotes } = splitExecutedOutputNotes(txResult.executedTransaction());
             const res = {
               txHash: tx.transactionId!,
-              outputNotes: txResult
-                .executedTransaction()
-                .outputNotes()
-                .notes()
+              outputNotes: userNotes
                 .map(no => no.intoFull())
                 .filter(no => !!no)
                 .map(fullNote => u8ToB64(fullNote.serialize()))

@@ -217,7 +217,14 @@ describe('dApp sign approval names the assets the signature authorizes', () => {
         storage: () => ({ isEmpty: () => true })
       }),
       inputNotes: () => ({ numNotes: () => 0 }),
-      outputNotes: () => ({ numNotes: () => 1 })
+      // `notes()` as well: summary output notes now go through the fee split, because
+      // `fee::pay_fee` runs in auth BEFORE the summary is built.
+      outputNotes: () => ({
+        numNotes: () => 1,
+        notes: () => [
+          { assets: () => ({ fungibleAssets: () => [] }), metadata: () => ({ tag: () => ({ asU32: () => 0 }) }) }
+        ]
+      })
     })
   });
 

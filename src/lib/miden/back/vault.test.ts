@@ -3,6 +3,7 @@
 // the real `safe-storage` code runs but writes/reads go to `memoryStore`.
 // ---------------------------------------------------------------------------
 import * as Passworder from 'lib/miden/passworder';
+import { deriveClientSeed } from 'lib/miden/sdk/derive-seed';
 import { WalletAccount } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
@@ -898,15 +899,13 @@ describe('Vault.createHDAccount', () => {
     const vaultKey = (vault as any).vaultKey as CryptoKey;
     const m = await fetchAndDecryptOneWithLegacyFallBack<string>(keys.mnemonic, vaultKey);
     expect(m).toBe(VALID_MNEMONIC);
-    const Bip39 = require('bip39');
-    const seed = Bip39.mnemonicToSeedSync(m);
-    expect(seed.length).toBe(64);
-    const { derivePath } = require('@demox-labs/aleo-hd-key');
-    const d = derivePath("m/44'/0'/0'/1'", seed.toString('hex'));
-    expect(d.seed.length).toBe(32);
+    const seed = deriveClientSeed(WalletType.OnChain, m, 1);
+    expect(seed).toHaveLength(32);
 
-    // And run the full HD flow
+    // And run the full HD flow. The seeded vault already holds one public
+    // account, so the new one takes hdIndex 1 and must be created from that seed.
     const accounts = await vault.createHDAccount(WalletType.OnChain);
+    expect(mockMidenClient.createMidenWallet).toHaveBeenCalledWith(WalletType.OnChain, seed, expect.anything());
     expect(accounts).toHaveLength(2);
     expect(accounts[1]!.publicKey).toBe('acc-pub-key-2');
     expect(accounts[1]!.name).toMatch(/Account 2/);
@@ -1124,7 +1123,7 @@ describe('Vault.spawnFromMidenClient', () => {
   it('skips walletAccount entries with hdIndex < 0 (imported accounts) instead of deriving garbage keys', async () => {
     // Caller passes an imported-account entry matching the miden-client's
     // `pk-1`. Without the `hdIndex < 0` skip, spawnFromMidenClient would
-    // call `deriveClientSeed(type, mnemonic, -1)` → `m/44'/0'/0'/-1'`
+    // call `deriveClientSeed(type, mnemonic, -1)` → `getMainDerivationPath(type, -1)`
     // and write a mnemonic-derived key over the imported account's
     // real secret. With the skip, keystore.insert is never called for
     // that account.
