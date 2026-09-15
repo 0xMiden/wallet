@@ -14,9 +14,36 @@ export type CapturePlanEntry = {
   outputPath: string;
   ready: {
     testId: string;
+    text?: string;
     hiddenTestIds: string[];
   };
 };
+
+type PointerPage = {
+  mouse: { move(x: number, y: number): Promise<void> };
+};
+
+type MotionPage = {
+  waitForTimeout(milliseconds: number): Promise<void>;
+};
+
+// Playwright keeps the pointer at the last clicked coordinates across route
+// changes. Parking it on inert page chrome prevents native title tooltips from
+// becoming part of a later product capture.
+export async function parkCapturePointer(page: PointerPage): Promise<void> {
+  await page.mouse.move(0, 0);
+}
+
+// Framer Motion uses requestAnimationFrame, which Playwright's disabled CSS
+// animations do not fast-forward. This exceeds the app's longest 300 ms
+// transition so capture never samples a moving pill or progress bar.
+export async function settleCaptureMotion(page: MotionPage): Promise<void> {
+  await page.waitForTimeout(500);
+}
+
+// GuardianClient appends `?scheme=ecdsa`; missing that query leaks a live
+// liveness verdict into otherwise deterministic operator captures.
+export const guardianPubkeyRoute = /\/pubkey(?:\?.*)?$/;
 
 const runtimes = {
   appStore: {
@@ -59,6 +86,7 @@ function entry(platform: StorePlatform, input: EntryInput): CapturePlanEntry {
     outputPath: input.outputPath,
     ready: {
       testId: input.ready.testId,
+      text: input.ready.text,
       hiddenTestIds: [...hiddenTestIds, ...input.ready.hiddenTestIds]
     }
   };
@@ -77,7 +105,11 @@ function mobileEntries(platform: 'appStore' | 'playStore', slug: 'app-store' | '
       sceneId,
       fixtureState,
       outputPath: `store-listing/raw/${slug}/${sceneId}.png`,
-      ready: { testId, hiddenTestIds: [] }
+      ready: {
+        testId,
+        text: sceneId === 'wallet-keys' ? '+0.00 (0.00%)' : undefined,
+        hiddenTestIds: []
+      }
     })
   );
 }
@@ -119,7 +151,7 @@ export const capturePlan: CapturePlanEntry[] = [
     sceneId: 'wallet-keys',
     fixtureState: 'deterministic-fixture-home',
     outputPath: 'store-listing/raw/chrome-web-store/wallet-keys.png',
-    ready: { testId: 'explore-page', hiddenTestIds: [] }
+    ready: { testId: 'explore-page', text: '+0.00 (0.00%)', hiddenTestIds: [] }
   }),
   entry('chromeWebStore', {
     sceneId: 'send-privacy',
@@ -159,7 +191,7 @@ export const capturePlan: CapturePlanEntry[] = [
     sceneId: 'chrome-side-panel',
     fixtureState: 'deterministic-fixture-side-panel',
     outputPath: 'store-listing/raw/chrome-web-store/chrome-side-panel.png',
-    ready: { testId: 'explore-page', hiddenTestIds: [] }
+    ready: { testId: 'explore-page', text: '+0.00 (0.00%)', hiddenTestIds: [] }
   })
 ];
 

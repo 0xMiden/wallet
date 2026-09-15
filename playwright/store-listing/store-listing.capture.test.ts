@@ -1,7 +1,13 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
-import { capturePlan, validateCapturePlan } from './store-listing.capture';
+import {
+  capturePlan,
+  guardianPubkeyRoute,
+  parkCapturePointer,
+  settleCaptureMotion,
+  validateCapturePlan
+} from './store-listing.capture';
 
 type ManifestAsset = {
   kind: string;
@@ -39,6 +45,37 @@ const expectedRuntime = {
 } as const;
 
 describe('store listing capture plan', () => {
+  it('parks the browser pointer away from product controls before capture', async () => {
+    const move = jest.fn().mockResolvedValue(undefined);
+
+    await parkCapturePointer({ mouse: { move } });
+
+    expect(move).toHaveBeenCalledWith(0, 0);
+  });
+
+  it('waits past the longest product transition before capture', async () => {
+    const waitForTimeout = jest.fn().mockResolvedValue(undefined);
+
+    await settleCaptureMotion({ waitForTimeout });
+
+    expect(waitForTimeout).toHaveBeenCalledWith(500);
+  });
+
+  it('stabilizes guardian probes with and without the signature-scheme query', () => {
+    expect(guardianPubkeyRoute.test('https://guardian.example/pubkey')).toBe(true);
+    expect(guardianPubkeyRoute.test('https://guardian.example/pubkey?scheme=ecdsa')).toBe(true);
+    expect(guardianPubkeyRoute.test('https://guardian.example/accounts')).toBe(false);
+  });
+
+  it('waits for the final wallet balance state before dependent captures', () => {
+    const walletEntries = capturePlan.filter(
+      item => item.sceneId === 'wallet-keys' || item.sceneId === 'chrome-side-panel'
+    );
+
+    expect(walletEntries).not.toHaveLength(0);
+    expect(walletEntries.every(item => item.ready.text === '+0.00 (0.00%)')).toBe(true);
+  });
+
   it('covers every unique non-icon raw product capture in the scene manifest', () => {
     const manifestPaths = new Set(
       Object.values(scenes.platforms)

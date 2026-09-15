@@ -3,7 +3,14 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { capturePlan, type CapturePlanEntry, type StorePlatform } from './store-listing.capture';
+import {
+  capturePlan,
+  guardianPubkeyRoute,
+  parkCapturePointer,
+  settleCaptureMotion,
+  type CapturePlanEntry,
+  type StorePlatform
+} from './store-listing.capture';
 
 const repositoryRoot = path.resolve(__dirname, '../..');
 const mobileBaseUrl = 'http://127.0.0.1:4173/';
@@ -37,16 +44,20 @@ async function settle(page: Page, item: CapturePlanEntry): Promise<void> {
     await ready.waitFor({ state: 'visible', timeout: 30_000 });
   } catch (error) {
     const state = await page.evaluate(() => ({
-      hash: location.hash,
-      href: location.href,
+      hash: window.location.hash,
+      href: window.location.href,
       testIds: Array.from(document.querySelectorAll('[data-testid]'), node => node.getAttribute('data-testid'))
     }));
     throw new Error(`${item.id} did not reach ${item.ready.testId}: ${JSON.stringify(state)}`, { cause: error });
+  }
+  if (item.ready.text) {
+    await expect(page.getByText(item.ready.text, { exact: true }).first()).toBeVisible({ timeout: 30_000 });
   }
   await page.evaluate(async () => {
     await document.fonts.ready;
     await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
   });
+  await settleCaptureMotion(page);
 
   for (const testId of item.ready.hiddenTestIds) {
     const candidates = page.getByTestId(testId);
@@ -55,9 +66,11 @@ async function settle(page: Page, item: CapturePlanEntry): Promise<void> {
     }
   }
   await expect(page.locator('[role="alert"]:visible')).toHaveCount(0);
+  await expect(page.locator('[role="tooltip"]:visible')).toHaveCount(0);
 }
 
 async function capture(page: Page, item: CapturePlanEntry): Promise<void> {
+  await parkCapturePointer(page);
   await settle(page, item);
   const destination = path.join(repositoryRoot, item.outputPath);
   mkdirSync(path.dirname(destination), { recursive: true });
@@ -108,7 +121,7 @@ async function newMobileContext(platform: 'ios' | 'android', item: CapturePlanEn
       localStorage.setItem('theme_setting_key', JSON.stringify('light'));
     } catch {}
   }, platform);
-  await context.route('**/pubkey', route =>
+  await context.route(guardianPubkeyRoute, route =>
     route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -131,7 +144,7 @@ async function createMobileWallet(platform: 'ios' | 'android', item: CapturePlan
   await page.getByTestId('onboarding-confirmation').waitFor({ state: 'visible' });
   await page.getByTestId('onboarding-confirmation-submit').click();
   await page.getByTestId('explore-page').waitFor({ state: 'visible', timeout: 120_000 });
-  await page.evaluate(() => history.replaceState(null, '', '/'));
+  await page.evaluate(() => window.history.replaceState(null, '', '/'));
   return context;
 }
 
@@ -181,46 +194,49 @@ async function openMobileTransaction(page: Page): Promise<void> {
     )
     .toBe(true);
 
-  await page.evaluate(({ faucet, recipient }) => {
-    const scope = globalThis as typeof globalThis & {
-      __TEST_INTERCOM__?: { request(payload: unknown): Promise<unknown> };
-      __TEST_STORE__?: {
-        getState(): {
-          currentAccount: { publicKey: string } | null;
+  await page.evaluate(
+    ({ faucet, recipient }) => {
+      const scope = globalThis as typeof globalThis & {
+        __TEST_INTERCOM__?: { request(payload: unknown): Promise<unknown> };
+        __TEST_STORE__?: {
+          getState(): {
+            currentAccount: { publicKey: string } | null;
+          };
         };
+        __listingConnectResponse?: { payload?: { accountId?: string } };
+        __listingSendResponse?: unknown;
+        __listingSendError?: string;
       };
-      __listingConnectResponse?: { payload?: { accountId?: string } };
-      __listingSendResponse?: unknown;
-      __listingSendError?: string;
-    };
-    const intercom = scope.__TEST_INTERCOM__;
-    const state = scope.__TEST_STORE__?.getState();
-    const sender = scope.__listingConnectResponse?.payload?.accountId ?? state?.currentAccount?.publicKey;
-    if (!intercom || !sender) throw new Error('Deterministic transaction fixture is incomplete');
-    void intercom
-      .request({
-        type: 'MIDEN_PAGE_REQUEST',
-        origin: 'https://miden.xyz',
-        payload: {
-          type: 'SEND_TRANSACTION_REQUEST',
-          sourcePublicKey: sender,
-          transaction: {
-            senderAddress: sender,
-            recipientAddress: recipient,
-            faucetId: faucet,
-            noteType: 'private',
-            amount: '1000000',
-            recallBlocks: 0
+      const intercom = scope.__TEST_INTERCOM__;
+      const state = scope.__TEST_STORE__?.getState();
+      const sender = scope.__listingConnectResponse?.payload?.accountId ?? state?.currentAccount?.publicKey;
+      if (!intercom || !sender) throw new Error('Deterministic transaction fixture is incomplete');
+      void intercom
+        .request({
+          type: 'MIDEN_PAGE_REQUEST',
+          origin: 'https://miden.xyz',
+          payload: {
+            type: 'SEND_TRANSACTION_REQUEST',
+            sourcePublicKey: sender,
+            transaction: {
+              senderAddress: sender,
+              recipientAddress: recipient,
+              faucetId: faucet,
+              noteType: 'private',
+              amount: '1000000',
+              recallBlocks: 0
+            }
           }
-        }
-      })
-      .then(response => {
-        scope.__listingSendResponse = response;
-      })
-      .catch(error => {
-        scope.__listingSendError = String(error);
-      });
-  }, { faucet: fixtureFaucet, recipient: fixtureRecipient });
+        })
+        .then(response => {
+          scope.__listingSendResponse = response;
+        })
+        .catch(error => {
+          scope.__listingSendError = String(error);
+        });
+    },
+    { faucet: fixtureFaucet, recipient: fixtureRecipient }
+  );
   await page.getByRole('dialog').waitFor({ state: 'visible' });
   await expect(page.getByRole('dialog')).toContainText('Note Type, Private');
 }
@@ -237,7 +253,7 @@ async function captureMobile(platform: 'appStore' | 'playStore', flag: 'ios' | '
   await onboarding.getByRole('button', { name: 'Get started' }).click();
   await onboarding.getByTestId('onboarding-network-notice-acknowledge').click();
   await capture(onboarding, protection);
-  await onboarding.evaluate(() => history.pushState(null, '', '/#/#choose-guardian'));
+  await onboarding.evaluate(() => window.history.pushState(null, '', '/#/#choose-guardian'));
   await capture(onboarding, guardian);
   await onboardingContext.browser()?.close();
 
@@ -292,7 +308,7 @@ async function captureChrome(): Promise<void> {
     const extensionId = await waitForExtensionWorker(context);
     const fullpageUrl = `chrome-extension://${extensionId}/fullpage.html`;
     const sidepanelUrl = `chrome-extension://${extensionId}/sidepanel.html`;
-    await context.route('**/pubkey', route =>
+    await context.route(guardianPubkeyRoute, route =>
       route.fulfill({
         status: 200,
         contentType: 'application/json',
