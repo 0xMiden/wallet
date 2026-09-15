@@ -103,7 +103,10 @@ jobs:
           distribution: temurin
           java-version: '21'
 
+      # The action's default packages include the retired 'tools' package, which sdkmanager no longer finds.
       - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
 
       - name: Install SDK packages
         run: |

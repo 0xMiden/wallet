@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
 import { PendingTab, NoteWithMetadata } from './PendingTab';
 
@@ -39,10 +39,9 @@ jest.mock('lib/i18n/numbers', () => ({
   formatUsd: (value: number) => `$${value}`
 }));
 
-jest.mock('lib/miden/activity', () => ({
-  initiateConsumeTransaction: jest.fn().mockResolvedValue('tx-id'),
-  requestSWTransactionProcessing: jest.fn()
-}));
+// Claims arrive through the onClaimNote prop, but PendingTab still loads this module transitively (useNetworkFeeEstimate
+// -> lib/shared/format -> lib/miden/front), and loading it for real runs platform checks this suite does not mock.
+jest.mock('lib/miden/activity', () => ({}));
 
 jest.mock('lib/mobile/haptics', () => ({
   hapticLight: jest.fn()
@@ -68,9 +67,23 @@ jest.mock('components/SyncWaveBackground', () => ({
 
 jest.mock('components/Button', () => ({
   ButtonVariant: { Primary: 'primary', Secondary: 'secondary', Ghost: 'ghost' },
-  Button: ({ title, onClick, ...props }: { title?: string; onClick?: () => void }) => (
-    <button data-testid={(props as Record<string, string>)['data-testid']} onClick={onClick}>
-      {title}
+  // Mirrors the real Button (components/Button.tsx): `isLoading` renders a Loader INSTEAD of the
+  // title. A mock that always renders `title` makes any assertion on the label a false positive --
+  // which is how a labelless "Claiming…" pill once passed this suite.
+  Button: ({
+    title,
+    onClick,
+    disabled,
+    isLoading,
+    ...props
+  }: {
+    title?: string;
+    onClick?: () => void;
+    disabled?: boolean;
+    isLoading?: boolean;
+  }) => (
+    <button data-testid={(props as Record<string, string>)['data-testid']} onClick={onClick} disabled={disabled}>
+      {isLoading ? <span data-testid="btn-loader" /> : title}
     </button>
   )
 }));
@@ -89,14 +102,11 @@ const makeNote = (id: string, over: Partial<NoteWithMetadata> = {}): NoteWithMet
 
 const baseProps = {
   safeClaimableNotes: [] as NoteWithMetadata[],
-  account: { publicKey: 'mtst1account' } as never,
-  isDelegatedProvingEnabled: false,
-  unclaimedNotesCount: 1,
   claimingNoteIds: new Set<string>(),
   retriableNoteIds: new Set<string>(),
   invalidNoteIds: new Set<string>(),
   checkingNoteIds: new Set<string>(),
-  onClaimingStateChange: jest.fn(),
+  onClaimNote: jest.fn().mockResolvedValue('tx-id'),
   onClaimAll: jest.fn(),
   onClaimGroup: jest.fn()
 };
@@ -106,6 +116,12 @@ const renderTab = (props: Partial<React.ComponentProps<typeof PendingTab>> = {})
 
 /** Enter the per-asset detail view by tapping its summary row. */
 const openDetail = () => fireEvent.click(screen.getByTestId('pending-asset-row'));
+
+beforeEach(() => {
+  // Module-level fixtures with no reset: a describe otherwise inherits whatever the previously-run
+  // test left, which silently made a fee assertion unreachable in a later block.
+  mockBaseFee = 0;
+});
 
 describe('PendingTab — dust notes', () => {
   it('marks a NATIVE group the wallet will not auto-claim because it is worth less than the fee', () => {
@@ -294,5 +310,153 @@ describe('PendingTab — fee disclosure on the claim buttons', () => {
     expect(screen.queryByText('networkFeeMax')).not.toBeInTheDocument();
     expect(screen.queryByText('feeChargedPerAsset')).not.toBeInTheDocument();
     mockBaseFee = 0;
+  });
+});
+
+describe('PendingTab - the group view counts every in-flight signal', () => {
+  it('disables the group claim when its only unclaimed note is held by a claim this page queued', () => {
+    // The group view kept its own copy of the in-flight filter, so a note already being claimed still counted as
+    // claimable there while the summary counted it as in flight.
+    const { rerender } = renderTab({ safeClaimableNotes: [makeNote('n1')] });
+    openDetail();
+    // Positive control: with no in-flight signal the group claim is actionable.
+    expect(screen.getByTestId('claim-group-button')).not.toBeDisabled();
+
+    rerender(<PendingTab {...baseProps} safeClaimableNotes={[makeNote('n1')]} claimingNoteIds={new Set(['n1'])} />);
+
+    expect(screen.getByTestId('claim-group-button')).toBeDisabled();
+  });
+});
+
+describe('PendingTab - a row claim', () => {
+  const mockNavigate = jest.requireMock('lib/woozie').navigate as jest.Mock;
+  const claimRow = () => fireEvent.click(within(screen.getByTestId('detail-note-row')).getByTestId('claim-button'));
+
+  beforeEach(() => {
+    mockNavigate.mockClear();
+  });
+
+  it('claims through onClaimNote and opens the progress screen for the row it returns', async () => {
+    const onClaimNote = jest.fn().mockResolvedValue('tx-1');
+    renderTab({ safeClaimableNotes: [makeNote('n1')], onClaimNote });
+    openDetail();
+
+    claimRow();
+
+    await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/generating-transaction-full/tx-1'));
+    expect(onClaimNote).toHaveBeenCalledWith(expect.objectContaining({ id: 'n1' }));
+  });
+
+  it('does not navigate when the row unmounts before its claim settles', async () => {
+    // Unmounting cancels only the row's navigation: the claim and the note's gate belong to the hook.
+    let settle: (id: string) => void = () => {};
+    const onClaimNote = jest.fn(
+      () =>
+        new Promise<string>(resolve => {
+          settle = resolve;
+        })
+    );
+    const { unmount } = renderTab({ safeClaimableNotes: [makeNote('n1')], onClaimNote });
+    openDetail();
+    claimRow();
+    expect(onClaimNote).toHaveBeenCalled();
+
+    unmount();
+    await act(async () => {
+      settle('tx-1');
+    });
+
+    expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  it('does not navigate when nothing was queued', async () => {
+    // A queue-time failure resolves to null: the hook has already flagged the note, so there is no row to show.
+    const onClaimNote = jest.fn().mockResolvedValue(null);
+    renderTab({ safeClaimableNotes: [makeNote('n1')], onClaimNote });
+    openDetail();
+
+    claimRow();
+    await act(async () => {
+      await onClaimNote.mock.results[0]?.value;
+    });
+
+    expect(onClaimNote).toHaveBeenCalled();
+    expect(mockNavigate).not.toHaveBeenCalled();
+  });
+});
+
+describe('PendingTab - the summary while a claim is in flight', () => {
+  // Claiming no longer navigates away, so this screen has to say what is happening. Every note
+  // being claimed drops out of `unclaimedNotesCount` (useClaimNotes filters `isBeingClaimed`),
+  // so gating the CTA on that count alone left the user tapping "Claim All" and watching the
+  // button vanish with nothing in its place.
+  it('keeps a control and reports progress when every note is being claimed', () => {
+    renderTab({
+      safeClaimableNotes: [makeNote('n1', { isBeingClaimed: true })]
+    });
+
+    // Its own id: the E2E helper treats a visible `claim-all-button` as permission to click, so
+    // a disabled button under that id would make it click a control it cannot action.
+    expect(screen.queryByTestId('claim-all-button')).not.toBeInTheDocument();
+    const status = screen.getByTestId('claim-all-status');
+    expect(status).toBeDisabled();
+    expect(status).toHaveTextContent('claiming');
+  });
+
+  it('announces the claiming state through a region that is already in the tree', () => {
+    // A live region only announces changes to a region that EXISTED beforehand, so the
+    // announcement cannot live on the control that appears -- it has to be a node that is always
+    // mounted and whose text changes.
+    const { rerender } = renderTab({ safeClaimableNotes: [makeNote('n1')] });
+    const region = document.querySelector('[role="status"]');
+    expect(region).toBeInTheDocument();
+    expect(region).toHaveTextContent('');
+
+    rerender(<PendingTab {...baseProps} safeClaimableNotes={[makeNote('n1', { isBeingClaimed: true })]} />);
+
+    expect(document.querySelector('[role="status"]')).toHaveTextContent('claiming');
+  });
+
+  it('still offers Claim All when only SOME notes are in flight', () => {
+    // Keying the actionable button on the in-flight count made one background auto-consume, which
+    // Explore runs for native notes without any user action, disable Claim All for every other
+    // claimable note, with the fee text still quoted above a button that could not be pressed.
+    renderTab({
+      safeClaimableNotes: [makeNote('n1', { isBeingClaimed: true }), makeNote('n2')]
+    });
+
+    // Present is not enough: the regression this pins made the control render DISABLED for every
+    // other note whenever one was in flight, so it has to assert actionable, and that tapping it
+    // actually reaches the handler.
+    const button = screen.getByTestId('claim-all-button');
+    expect(button).toBeInTheDocument();
+    expect(button).not.toBeDisabled();
+    expect(button).toHaveTextContent('claimAll');
+    fireEvent.click(button);
+    expect(baseProps.onClaimAll).toHaveBeenCalled();
+    expect(screen.queryByTestId('claim-all-status')).not.toBeInTheDocument();
+  });
+
+  it('keeps the status control in the window before the poll reports the note as claiming', () => {
+    // The gap all four review seats found. `isBeingClaimed` comes from a 3s/5s poll, so right after
+    // the tap the note is in `claimingNoteIds` but NOT yet isBeingClaimed. Counting only the polled
+    // flag left both counts at 0 -- the whole block unmounted -- and once the hook's `finally`
+    // cleared the batch set, an ENABLED "Claim All" came back over a live consume.
+    renderTab({
+      safeClaimableNotes: [makeNote('n1', { isBeingClaimed: false })],
+      claimingNoteIds: new Set(['n1'])
+    });
+
+    expect(screen.queryByTestId('claim-all-button')).not.toBeInTheDocument();
+    expect(screen.getByTestId('claim-all-status')).toHaveTextContent('claiming');
+  });
+
+  it('offers Claim All again once a note is claimable', () => {
+    renderTab({ safeClaimableNotes: [makeNote('n1')] });
+
+    const button = screen.getByTestId('claim-all-button');
+    expect(button).not.toBeDisabled();
+    expect(button).toHaveTextContent('claimAll');
+    expect(screen.queryByTestId('claim-all-status')).not.toBeInTheDocument();
   });
 });

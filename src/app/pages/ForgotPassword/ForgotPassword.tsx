@@ -22,13 +22,13 @@ const ForgotPassword: FC = () => {
   const [seedPhrase, setSeedPhrase] = useState<string[]>([]);
   const [onboardingType, setOnboardingType] = useState<OnboardingType | null>(null);
   // Which BIP-44 namespace to recover into. `Vault.spawn` derives the account at
-  // `m/44'/0'/<walletTypeIndex>'/0'` from this, and only runs the Guardian
+  // `getMainDerivationPath(walletType, 0)` from this, and only runs the Guardian
   // lookup for `WalletType.Guardian`. It used to be hardcoded to Guardian, so a
   // user who onboarded with "no guardian" had their wallet wiped by
   // `clearClientStorage()` and then hit "No Guardian accounts found at this
   // guardian endpoint for this seed" — the OffChain account at
-  // `m/44'/0'/1'/0'` was never derived or looked up. The recovery-method step
-  // below now sets this the same way onboarding's
+  // `getMainDerivationPath(WalletType.OffChain, 0)` was never derived or looked
+  // up. The recovery-method step below now sets this the same way onboarding's
   // `import-select-recovery-method` does.
   const [walletType, setWalletType] = useState<WalletType>(WalletType.Guardian);
   /** Endpoint the user picked on the recovery-method step; overrides the probe. */
