@@ -1,4 +1,4 @@
-import { isBridgeDepositEnabled, isSwapEnabled } from './feature-flags';
+import { isBridgeDepositEnabled, isSwapEnabled, isUpdateNotificationsEnabled } from './feature-flags';
 
 describe('feature-flags — isSwapEnabled', () => {
   it('enables swap on every platform (including iOS)', () => {
@@ -17,5 +17,16 @@ describe('feature-flags — isBridgeDepositEnabled', () => {
     expect(isBridgeDepositEnabled()).toBe(true);
     process.env.MIDEN_E2E_TEST = original.e2e;
     process.env.MIDEN_ENABLE_BRIDGE_UI = original.dev;
+  });
+});
+
+describe('feature-flags - isUpdateNotificationsEnabled', () => {
+  it('uses the build-time flag as the single source of truth', () => {
+    const original = process.env.MIDEN_UPDATE_NOTIFICATIONS;
+    process.env.MIDEN_UPDATE_NOTIFICATIONS = 'true';
+    expect(isUpdateNotificationsEnabled()).toBe(true);
+    process.env.MIDEN_UPDATE_NOTIFICATIONS = 'false';
+    expect(isUpdateNotificationsEnabled()).toBe(false);
+    process.env.MIDEN_UPDATE_NOTIFICATIONS = original;
   });
 });
