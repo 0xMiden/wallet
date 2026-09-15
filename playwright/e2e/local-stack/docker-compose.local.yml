@@ -112,6 +112,13 @@ services:
       - GUARDIAN_NETWORK_TYPE=MidenLocal
       - GUARDIAN_KEYSTORE_PATH=/var/guardian/keystore
       - DATABASE_URL=postgres://guardian:guardian@guardian-postgres:5432/guardian
+      # The guardian's production rate-limit profile, the values its own .env.example sets for
+      # local runs. The code defaults (10/s per IP and endpoint, 60/min per IP) are far below
+      # production, and every wallet in a run reaches this container from the same host, so
+      # back-to-back specs drew on one 60-per-minute budget: a wallet create that landed in a
+      # spent window failed outright with 429.
+      - GUARDIAN_RATE_BURST_PER_SEC=200
+      - GUARDIAN_RATE_PER_MIN=5000
 
   # --- Tier-3: second guardian for switch/recovery specs (HTTP :3001) --------
   # Discovery (Step 1 of the switch-container task): the guardian image has NO
@@ -209,6 +216,9 @@ services:
       - GUARDIAN_NETWORK_TYPE=MidenLocal
       - GUARDIAN_KEYSTORE_PATH=/var/guardian/keystore
       - DATABASE_URL=postgres://guardian:guardian@guardian-b-postgres:5432/guardian_b
+      # Same production rate-limit profile as `guardian` above, for the same reason.
+      - GUARDIAN_RATE_BURST_PER_SEC=200
+      - GUARDIAN_RATE_PER_MIN=5000
 
 volumes:
   guardian-keystore:
