@@ -49,24 +49,42 @@ describe('BridgeIntentWatcher', () => {
     expect(mockReconcileSends).toHaveBeenCalledTimes(3);
   });
 
-  it('skips a tick while the previous run is still in flight', async () => {
+  it('skips receives while their pass is in flight and keeps polling sends on every tick', async () => {
     let release: () => void = () => {};
     mockReconcileReceives.mockImplementation(() => new Promise<void>(resolve => (release = resolve)));
 
     render(<BridgeIntentWatcher />);
     await act(async () => {});
     expect(mockReconcileReceives).toHaveBeenCalledTimes(1);
-    expect(mockReconcileSends).not.toHaveBeenCalled();
+    expect(mockReconcileSends).toHaveBeenCalledTimes(1);
 
     await tick(8_000);
+    await tick(8_000);
     expect(mockReconcileReceives).toHaveBeenCalledTimes(1);
+    expect(mockReconcileSends).toHaveBeenCalledTimes(3);
 
     await act(async () => {
       release();
     });
-    expect(mockReconcileSends).toHaveBeenCalledTimes(1);
     await tick(8_000);
     expect(mockReconcileReceives).toHaveBeenCalledTimes(2);
+  });
+
+  it('skips sends while their pass is in flight and keeps polling receives on every tick', async () => {
+    let release: () => void = () => {};
+    mockReconcileSends.mockImplementation(() => new Promise<void>(resolve => (release = resolve)));
+
+    render(<BridgeIntentWatcher />);
+    await act(async () => {});
+    await tick(8_000);
+    expect(mockReconcileSends).toHaveBeenCalledTimes(1);
+    expect(mockReconcileReceives).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      release();
+    });
+    await tick(8_000);
+    expect(mockReconcileSends).toHaveBeenCalledTimes(2);
   });
 
   it('still polls sends when receives reject, and keeps polling afterwards', async () => {

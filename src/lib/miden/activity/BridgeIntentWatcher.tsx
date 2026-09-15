@@ -12,9 +12,10 @@ const POLL_INTERVAL_MS = 8_000;
  *
  * Before this watcher the polling lived on the Home, Explore and Activity pages,
  * so a bridge started from the deposit screen was not tracked until the user
- * opened one of them. The two reconcilers run in sequence under one `running`
- * guard: `reconcileBridgedReceives` can wait on an EVM receipt, and an
- * overlapping tick would poll the same rows twice.
+ * opened one of them. Each direction has its own in-flight guard: a pass must
+ * not overlap itself (`reconcileBridgedReceives` can wait on an EVM receipt, and
+ * an overlapping tick would poll the same rows twice), but a slow pass in one
+ * direction must not skip the other direction's ticks.
  *
  * Both reconcilers are imported lazily: the provider mounts this watcher, and
  * a static import from here back through the transaction pipeline to the
@@ -23,32 +24,36 @@ const POLL_INTERVAL_MS = 8_000;
 export function BridgeIntentWatcher(): null {
   useEffect(() => {
     let disposed = false;
-    let running = false;
 
-    const tick = async () => {
-      if (disposed || running || (typeof document !== 'undefined' && document.hidden)) return;
-      running = true;
-      try {
-        const { reconcileBridgedReceives } = await import('./bridge-receive');
-        if (!disposed) await reconcileBridgedReceives();
-      } catch (error) {
-        console.warn('[bridge-intent-watcher] receives failed', error);
-      }
-      if (!disposed) {
+    const guarded = (label: string, poll: () => Promise<void>) => {
+      let running = false;
+      return async () => {
+        if (disposed || running || (typeof document !== 'undefined' && document.hidden)) return;
+        running = true;
         try {
-          const { reconcileBridgedSends } = await import('lib/wallet-prompts');
-          await reconcileBridgedSends();
+          await poll();
         } catch (error) {
-          console.warn('[bridge-intent-watcher] sends failed', error);
+          console.warn(`[bridge-intent-watcher] ${label} failed`, error);
+        } finally {
+          running = false;
         }
-      }
-      running = false;
+      };
+    };
+    const pollReceives = guarded('receives', async () => {
+      const { reconcileBridgedReceives } = await import('./bridge-receive');
+      if (!disposed) await reconcileBridgedReceives();
+    });
+    const pollSends = guarded('sends', async () => {
+      const { reconcileBridgedSends } = await import('lib/wallet-prompts');
+      if (!disposed) await reconcileBridgedSends();
+    });
+    const tick = () => {
+      void pollReceives();
+      void pollSends();
     };
 
-    void tick();
-    const timer = setInterval(() => {
-      void tick();
-    }, POLL_INTERVAL_MS);
+    tick();
+    const timer = setInterval(tick, POLL_INTERVAL_MS);
     return () => {
       disposed = true;
       clearInterval(timer);
