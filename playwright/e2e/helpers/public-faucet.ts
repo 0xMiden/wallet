@@ -87,14 +87,15 @@ export async function solvePow(
         return nonce;
       }
     }
-    // A `target` of 0 is unsatisfiable by any nonce; bound the solve rather than spin.
+    // Yield before the deadline check, so timers and sockets in this process get a turn between slices however
+    // slow the machine is. A `target` of 0 is unsatisfiable by any nonce; bound the solve rather than spin.
+    await new Promise<void>(resolve => setTimeout(resolve, 0));
     if (Date.now() >= deadline) {
       throw new Error(
         `Public faucet PoW unsolved within ${deadlineMs}ms (target=${target}); ` +
           'the challenge is malformed or the difficulty was raised.'
       );
     }
-    await new Promise<void>(resolve => setImmediate(resolve));
   }
 }
 

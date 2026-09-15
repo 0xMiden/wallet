@@ -39,14 +39,15 @@ describe('solvePow', () => {
     );
   });
 
-  it('lets timers run while it solves', async () => {
+  it('lets a due timer run before it gives up, however slow its first slice is', async () => {
     let timerRan = false;
-    const solving = solvePow(randomBytes(32).toString('hex'), 0n, 100);
     setTimeout(() => {
       timerRan = true;
     }, 0);
 
-    await expect(solving).rejects.toThrow('unsolved');
+    // A deadline of 0 has passed by the end of the first slice, so only the yield between slices can let the
+    // timer run before the rejection.
+    await expect(solvePow(randomBytes(32).toString('hex'), 0n, 0)).rejects.toThrow('unsolved');
     expect(timerRan).toBe(true);
   });
 });
