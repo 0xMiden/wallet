@@ -69,7 +69,8 @@ jest.mock('components/Button', () => ({
   ButtonVariant: { Primary: 'primary', Secondary: 'secondary', Ghost: 'ghost' },
   // Mirrors the real Button (components/Button.tsx): `isLoading` renders a Loader INSTEAD of the
   // title. A mock that always renders `title` makes any assertion on the label a false positive --
-  // which is how a labelless "Claiming…" pill once passed this suite.
+  // which is how a labelless "Claiming…" pill once passed this suite. `disabled` is reported as data,
+  // not applied, so a test can still tap a disabled Claim and prove the handler's own check.
   Button: ({
     title,
     onClick,
@@ -82,7 +83,11 @@ jest.mock('components/Button', () => ({
     disabled?: boolean;
     isLoading?: boolean;
   }) => (
-    <button data-testid={(props as Record<string, string>)['data-testid']} onClick={onClick} disabled={disabled}>
+    <button
+      data-testid={(props as Record<string, string>)['data-testid']}
+      data-disabled={disabled ? 'true' : undefined}
+      onClick={onClick}
+    >
       {isLoading ? <span data-testid="btn-loader" /> : title}
     </button>
   )
@@ -253,6 +258,33 @@ describe('PendingTab — DetailNoteRow treatment (#456)', () => {
   });
 });
 
+describe('PendingTab - cache-first notes', () => {
+  it('shows a cached note with a disabled Claim that queues nothing when tapped', () => {
+    const onClaimNote = jest.fn().mockResolvedValue('tx-id');
+    renderTab({ safeClaimableNotes: [makeNote('a', { fromCache: true })], onClaimNote });
+    openDetail();
+
+    const button = within(screen.getByTestId('detail-note-row')).getByTestId('claim-button');
+    expect(button).toHaveAttribute('data-disabled', 'true');
+    fireEvent.click(button);
+    expect(onClaimNote).not.toHaveBeenCalled();
+  });
+
+  it('disables the group Claim All while every note in the group is cached', () => {
+    const onClaimGroup = jest.fn();
+    renderTab({
+      safeClaimableNotes: [makeNote('a', { fromCache: true }), makeNote('b', { fromCache: true })],
+      onClaimGroup
+    });
+    openDetail();
+
+    const button = screen.getByTestId('claim-group-button');
+    expect(button).toBeDisabled();
+    fireEvent.click(button);
+    expect(onClaimGroup).not.toHaveBeenCalled();
+  });
+});
+
 describe('PendingTab — fee disclosure on the claim buttons', () => {
   // Every claim button on these screens submits with NO review step in between, so
   // this is the only place the cost can be stated before the user commits.
@@ -399,7 +431,7 @@ describe('PendingTab - the summary while a claim is in flight', () => {
     // a disabled button under that id would make it click a control it cannot action.
     expect(screen.queryByTestId('claim-all-button')).not.toBeInTheDocument();
     const status = screen.getByTestId('claim-all-status');
-    expect(status).toBeDisabled();
+    expect(status).toHaveAttribute('data-disabled', 'true');
     expect(status).toHaveTextContent('claiming');
   });
 
@@ -430,7 +462,7 @@ describe('PendingTab - the summary while a claim is in flight', () => {
     // actually reaches the handler.
     const button = screen.getByTestId('claim-all-button');
     expect(button).toBeInTheDocument();
-    expect(button).not.toBeDisabled();
+    expect(button).not.toHaveAttribute('data-disabled');
     expect(button).toHaveTextContent('claimAll');
     fireEvent.click(button);
     expect(baseProps.onClaimAll).toHaveBeenCalled();
@@ -455,7 +487,7 @@ describe('PendingTab - the summary while a claim is in flight', () => {
     renderTab({ safeClaimableNotes: [makeNote('n1')] });
 
     const button = screen.getByTestId('claim-all-button');
-    expect(button).not.toBeDisabled();
+    expect(button).not.toHaveAttribute('data-disabled');
     expect(button).toHaveTextContent('claimAll');
     expect(screen.queryByTestId('claim-all-status')).not.toBeInTheDocument();
   });

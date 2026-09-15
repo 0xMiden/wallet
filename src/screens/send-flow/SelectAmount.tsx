@@ -220,7 +220,8 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
     <AmountInput
       label={label ?? (title ? undefined : t('selectAmount'))}
       value={amount}
-      error={error ? t(error) : undefined}
+      invalid={!!error}
+      error={error && (amount || error !== 'invalidAmount') ? t(error) : undefined}
       // The helper (available balance) is controlled by `showBalanceHelper`, not
       // by `embedded`: the swap "You Pay" field is embedded but must still show
       // how much is spendable (#461). Embedded callers that don't want it (e.g.
@@ -251,7 +252,10 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
         {children}
       </div>
 
-      <div className={clsx('shrink-0 transition-[padding-bottom] duration-[250ms] ease-out', footerClassName)}>
+      <div
+        className={clsx('shrink-0 transition-[padding-bottom] duration-[250ms] ease-out', footerClassName)}
+        data-navbar-cushion="true"
+      >
         <Button
           title={confirmTitle ?? t('confirm')}
           variant={ButtonVariant.Primary}

@@ -29,7 +29,7 @@
 
 import React from 'react';
 
-import { act, renderHook } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 
 // ── @miden/dapp-browser (InAppBrowser plugin + dappWebViewManager) ─
 
@@ -67,8 +67,9 @@ jest.mock('@miden/dapp-browser', () => ({
 }));
 
 // ── isMobile must be true so the provider runs its full lifecycle ──
+const mockIsMobile = jest.fn(() => true);
 jest.mock('lib/platform', () => ({
-  isMobile: () => true,
+  isMobile: () => mockIsMobile(),
   isExtension: () => false,
   isDesktop: () => false,
   isIOS: () => false,
@@ -157,6 +158,9 @@ const mockHandleWebViewMessage: jest.Mock = jest.fn(() =>
   })
 );
 
+// A pending dApp confirmation for the foreground session; tests set it and rerender.
+let mockConfirmationRequest: unknown = null;
+
 jest.mock('lib/dapp-browser', () => ({
   INJECTION_SCRIPT: 'INJECTED;',
   // Real implementation — the provider derives a session's security principal
@@ -195,16 +199,17 @@ jest.mock('lib/dapp-browser', () => ({
     status: 'parked' as const,
     openedAt: 0
   }),
-  useDappConfirmation: () => ({ request: null, resolve: jest.fn() })
+  useDappConfirmation: () => ({ request: mockConfirmationRequest, resolve: jest.fn() })
 }));
 
 // ── confirmation-store: REAL module so we can assert against it ────
 import { dappConfirmationStore, type DAppConfirmationRequest } from 'lib/dapp-browser/confirmation-store';
 // ── screen-key: REAL module — the E2E signal under test below ──────
 import { getCurrentScreen, setRoutePart, __resetScreenKeyForTest } from 'lib/e2e/screen-key';
+import { useHideDappBubblesWhileOpen } from 'lib/mobile/useHideDappBubblesWhileOpen';
 
 // Imports under test come LAST, after all mocks.
-import { DappBrowserProvider, useDappBrowser } from './DappBrowserProvider';
+import { DappBrowserProvider, useDappBrowser, useHideForegroundDappWhileOpen } from './DappBrowserProvider';
 
 // Harness for exercising the provider via its context.
 function wrapper({ children }: { children: React.ReactNode }) {
@@ -390,6 +395,18 @@ describe('park / restore lifecycle', () => {
     expect(mockSetVisible).toHaveBeenCalledWith('dapp-a', false);
   });
 
+  it('parks the foreground once its surface clears the slot rect, as leaving the browser page does', async () => {
+    const hook = renderHook(() => useDappBrowser(), { wrapper });
+    await openAndWaitForInstance(hook, makeSession('dapp-a'));
+    mockSetVisible.mockClear();
+
+    act(() => hook.result.current.setSlotRect(null));
+
+    await waitFor(() => expect(hook.result.current.parkedSessions.map(s => s.session.id)).toContain('dapp-a'));
+    expect(hook.result.current.session).toBeNull();
+    expect(mockSetVisible).toHaveBeenCalledWith('dapp-a', false);
+  });
+
   it('restore brings a parked session back to the foreground', async () => {
     const hook = renderHook(() => useDappBrowser(), { wrapper });
     await openAndWaitForInstance(hook, makeSession('dapp-a'));
@@ -401,6 +418,44 @@ describe('park / restore lifecycle', () => {
       await hook.result.current.restore('dapp-a');
     });
 
+    expect(hook.result.current.session?.id).toBe('dapp-a');
+  });
+
+  it('restores a dApp that was minimized while its surface was still measuring the slot', async () => {
+    const hook = renderHook(() => useDappBrowser(), { wrapper });
+    await openAndWaitForInstance(hook, makeSession('dapp-a'));
+    let releaseSnapshot: (dataUrl: string) => void = () => undefined;
+    mockCaptureSnapshot.mockImplementationOnce(
+      () =>
+        new Promise<string>(resolve => {
+          releaseSnapshot = resolve;
+        })
+    );
+
+    let parking: Promise<void> = Promise.resolve();
+    act(() => {
+      parking = hook.result.current.park('dapp-a');
+    });
+    // DappActive re-measures the slot on timers after it mounts, so a minimize right after opening can land one
+    // while park waits for the snapshot.
+    act(() => hook.result.current.setSlotRect({ ...SLOT_RECT }));
+    await act(async () => {
+      releaseSnapshot('data:image/jpeg;base64,AAAA');
+      await parking;
+    });
+    // Parking swaps DappActive for the launcher, and its unmount clears the slot.
+    act(() => hook.result.current.setSlotRect(null));
+    mockCaptureSnapshot.mockClear();
+    mockSetVisible.mockClear();
+
+    await act(async () => {
+      await hook.result.current.restore('dapp-a');
+    });
+    expect(hook.result.current.session?.id).toBe('dapp-a');
+    expect(mockCaptureSnapshot).not.toHaveBeenCalled();
+
+    act(() => hook.result.current.setSlotRect(SLOT_RECT));
+    await waitFor(() => expect(mockSetVisible).toHaveBeenCalledWith('dapp-a', true));
     expect(hook.result.current.session?.id).toBe('dapp-a');
   });
 });
@@ -673,5 +728,251 @@ describe('useDappBrowser', () => {
       /useDappBrowser must be used inside <DappBrowserProvider>/
     );
     errorSpy.mockRestore();
+  });
+});
+
+// ── Host overlays (#875): the network banner's sheet over a foregrounded dApp ──
+
+describe('host overlays (useHideForegroundDappWhileOpen)', () => {
+  const SLOT_RECT = { x: 0, y: 0, width: 375, height: 600 };
+  const LANDSCAPE = { x: 0, y: 0, width: 667, height: 375 };
+
+  function useOverlayHarness(open: boolean) {
+    const browser = useDappBrowser();
+    useHideForegroundDappWhileOpen(open);
+    return browser;
+  }
+
+  function renderHarness(open = false) {
+    return renderHook(({ overlay }: { overlay: boolean }) => useOverlayHarness(overlay), {
+      wrapper,
+      initialProps: { overlay: open }
+    });
+  }
+
+  async function openForeground(hook: ReturnType<typeof renderHarness>, id = 'dapp-a') {
+    act(() => hook.result.current.open(makeSession(id)));
+    act(() => hook.result.current.setSlotRect(SLOT_RECT));
+    // Let the foreground-driving effect run and the plugin open resolve.
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 0));
+    });
+  }
+
+  const lastVisibility = (id: string) => {
+    const calls = mockSetVisible.mock.calls.filter(([callId]) => callId === id);
+    return calls.length ? calls[calls.length - 1][1] : undefined;
+  };
+
+  afterEach(() => {
+    mockConfirmationRequest = null;
+  });
+
+  it('hides the foreground window while held and shows it on release', async () => {
+    const hook = renderHarness();
+    await openForeground(hook);
+    mockSetVisible.mockClear();
+
+    hook.rerender({ overlay: true });
+    expect(lastVisibility('dapp-a')).toBe(false);
+
+    hook.rerender({ overlay: false });
+    expect(lastVisibility('dapp-a')).toBe(true);
+  });
+
+  it('moves but does not re-show the window when the slot rect changes while held (rotation)', async () => {
+    const hook = renderHarness();
+    await openForeground(hook);
+    hook.rerender({ overlay: true });
+    mockSetVisible.mockClear();
+    mockSetRect.mockClear();
+
+    act(() => hook.result.current.setSlotRect(LANDSCAPE));
+
+    expect(mockSetRect).toHaveBeenCalledWith('dapp-a', LANDSCAPE);
+    expect(mockSetVisible).not.toHaveBeenCalledWith('dapp-a', true);
+  });
+
+  it('does not re-show the window on a rect change while a confirmation is pending', async () => {
+    const hook = renderHarness();
+    await openForeground(hook);
+    mockConfirmationRequest = makeConfirmationRequest('dapp-a');
+    hook.rerender({ overlay: false });
+    expect(lastVisibility('dapp-a')).toBe(false);
+    mockSetVisible.mockClear();
+
+    act(() => hook.result.current.setSlotRect(LANDSCAPE));
+
+    expect(mockSetVisible).not.toHaveBeenCalledWith('dapp-a', true);
+  });
+
+  it('stays hidden when the overlay is released while a confirmation is pending', async () => {
+    const hook = renderHarness();
+    await openForeground(hook);
+    hook.rerender({ overlay: true });
+    mockConfirmationRequest = makeConfirmationRequest('dapp-a');
+    hook.rerender({ overlay: true });
+    mockSetVisible.mockClear();
+
+    hook.rerender({ overlay: false });
+    expect(mockSetVisible).not.toHaveBeenCalledWith('dapp-a', true);
+
+    mockConfirmationRequest = null;
+    hook.rerender({ overlay: false });
+    expect(lastVisibility('dapp-a')).toBe(true);
+  });
+
+  it('does not re-show the window when the switcher closes while held', async () => {
+    const hook = renderHarness();
+    await openForeground(hook);
+    hook.rerender({ overlay: true });
+    act(() => hook.result.current.openSwitcher());
+    mockSetVisible.mockClear();
+
+    act(() => hook.result.current.closeSwitcher());
+
+    expect(mockSetVisible).not.toHaveBeenCalledWith('dapp-a', true);
+  });
+
+  it('hides a window created while held (the plugin opens it visible)', async () => {
+    const hook = renderHarness(true);
+    await openForeground(hook);
+
+    expect(lastVisibility('dapp-a')).toBe(false);
+  });
+
+  it('hides a window created while the switcher is open, and shows it when the switcher closes', async () => {
+    const hook = renderHarness();
+    act(() => hook.result.current.open(makeSession('dapp-a')));
+    act(() => hook.result.current.setSlotRect(SLOT_RECT));
+    // The switcher opens during the plugin's openWebView round trip.
+    act(() => hook.result.current.openSwitcher());
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 0));
+    });
+
+    expect(lastVisibility('dapp-a')).toBe(false);
+
+    act(() => hook.result.current.closeSwitcher());
+    expect(lastVisibility('dapp-a')).toBe(true);
+  });
+
+  describe('logs native window failures instead of dropping them', () => {
+    let warnSpy: jest.SpyInstance;
+    const warned = (op: string) =>
+      warnSpy.mock.calls.filter(([message]) => message === `[DappBrowserProvider] ${op} failed:`).length;
+    const failNative = () => {
+      const reject = () => Promise.reject(new Error('native window gone'));
+      mockSetVisible.mockImplementation(reject);
+      mockSetRect.mockImplementation(reject);
+      mockExecuteScript.mockImplementation(reject);
+    };
+    const settle = () =>
+      act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+    beforeEach(() => {
+      warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+      warnSpy.mockRestore();
+      const resolve = () => Promise.resolve();
+      mockSetVisible.mockImplementation(resolve);
+      mockSetRect.mockImplementation(resolve);
+      mockExecuteScript.mockImplementation(resolve);
+    });
+
+    it('on the slot restore', async () => {
+      const hook = renderHarness();
+      await openForeground(hook);
+      failNative();
+
+      act(() => hook.result.current.setSlotRect(LANDSCAPE));
+      await settle();
+
+      expect([warned('setRect'), warned('setVisible(true)'), warned('executeScript')]).toEqual([1, 1, 1]);
+    });
+
+    it('when the switcher opens', async () => {
+      const hook = renderHarness();
+      await openForeground(hook);
+      failNative();
+
+      act(() => hook.result.current.openSwitcher());
+      await settle();
+
+      // The switcher effect hides every active window; the visibility effect the foreground one.
+      expect(warned('setVisible(false)')).toBe(2);
+    });
+
+    it('when the switcher closes', async () => {
+      const hook = renderHarness();
+      await openForeground(hook);
+      act(() => hook.result.current.openSwitcher());
+      await settle();
+      failNative();
+
+      act(() => hook.result.current.closeSwitcher());
+      await settle();
+
+      expect([warned('setVisible(true)'), warned('setRect')]).toEqual([2, 1]);
+    });
+
+    it('when an overlay is held', async () => {
+      const hook = renderHarness();
+      await openForeground(hook);
+      failNative();
+
+      hook.rerender({ overlay: true });
+      await settle();
+
+      expect(warned('setVisible(false)')).toBe(1);
+    });
+
+    it('when an overlay is released', async () => {
+      const hook = renderHarness(true);
+      await openForeground(hook);
+      failNative();
+
+      hook.rerender({ overlay: false });
+      await settle();
+
+      expect(warned('setVisible(true)')).toBe(1);
+    });
+  });
+
+  it('does not require the provider', () => {
+    expect(() => renderHook(() => useHideForegroundDappWhileOpen(true))).not.toThrow();
+  });
+
+  it('is a no-op outside the provider off mobile (extension, desktop, confirm window)', () => {
+    mockIsMobile.mockReturnValue(false);
+    try {
+      renderHook(() => useHideForegroundDappWhileOpen(true));
+      expect(document.body.hasAttribute('data-drawer-open')).toBe(false);
+    } finally {
+      mockIsMobile.mockReturnValue(true);
+    }
+  });
+
+  it('shares the parked-bubble flag with the other holders, in either order', () => {
+    const modal = renderHook(() => useHideDappBubblesWhileOpen(true));
+    const sheet = renderHarness(true);
+    expect(document.body.hasAttribute('data-drawer-open')).toBe(true);
+
+    sheet.rerender({ overlay: false });
+    expect(document.body.hasAttribute('data-drawer-open')).toBe(true);
+    modal.unmount();
+    expect(document.body.hasAttribute('data-drawer-open')).toBe(false);
+
+    const sheet2 = renderHarness(true);
+    const modal2 = renderHook(() => useHideDappBubblesWhileOpen(true));
+    modal2.unmount();
+    expect(document.body.hasAttribute('data-drawer-open')).toBe(true);
+    sheet2.rerender({ overlay: false });
+    expect(document.body.hasAttribute('data-drawer-open')).toBe(false);
   });
 });

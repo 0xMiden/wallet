@@ -184,6 +184,120 @@ describe('QRCode', () => {
     });
   });
 
+  describe('caption (#875)', () => {
+    it('renders the caption under the modules and omits it when absent', () => {
+      const { container, rerender } = render(<QRCode address={ADDRESS} size={200} caption="Miden Testnet" />);
+      const caption = container.querySelector('[data-testid="qr-code-caption"]');
+      expect(caption).toHaveTextContent('Miden Testnet');
+
+      rerender(<QRCode address={ADDRESS} size={200} />);
+      expect(container.querySelector('[data-testid="qr-code-caption"]')).toBeNull();
+    });
+
+    it('falls back to the raw PNG when the realm has no createImageBitmap', async () => {
+      // jsdom has no createImageBitmap, so composeCaptionedPng returns null at its
+      // first guard and the share still gets the plain QR instead of nothing.
+      const blob = new Blob(['png-bytes'], { type: 'image/png' });
+      mockGetRawData.mockResolvedValue(blob);
+      const getContext = jest.spyOn(HTMLCanvasElement.prototype, 'getContext');
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        const ref = React.createRef<QRCodeHandle>();
+        render(<QRCode ref={ref} address={ADDRESS} size={200} caption="Miden Testnet" />);
+
+        expect(await ref.current!.getImageBlob()).toBe(blob);
+        expect(getContext).not.toHaveBeenCalled();
+        expect(warn).toHaveBeenCalledWith('[QRCode] caption compose unavailable, sharing the raw QR');
+      } finally {
+        getContext.mockRestore();
+        warn.mockRestore();
+      }
+    });
+
+    describe('composing the captioned PNG', () => {
+      const SIZE = 200;
+      const STRIP = Math.round(SIZE * 0.14);
+      const raw = new Blob(['png-bytes'], { type: 'image/png' });
+      const composed = new Blob(['captioned'], { type: 'image/png' });
+      const close = jest.fn();
+      const originalGetContext = HTMLCanvasElement.prototype.getContext;
+      const originalToBlob = HTMLCanvasElement.prototype.toBlob;
+      let ctx: { fillText: jest.Mock; drawImage: jest.Mock; fillRect: jest.Mock };
+      let canvasSize: { width: number; height: number } | null;
+
+      beforeEach(() => {
+        close.mockClear();
+        canvasSize = null;
+        ctx = { fillText: jest.fn(), drawImage: jest.fn(), fillRect: jest.fn() };
+        mockGetRawData.mockResolvedValue(raw);
+        (globalThis as any).createImageBitmap = jest.fn().mockResolvedValue({ close });
+        HTMLCanvasElement.prototype.getContext = jest.fn(() => ctx) as any;
+        HTMLCanvasElement.prototype.toBlob = function (this: HTMLCanvasElement, callback: BlobCallback) {
+          canvasSize = { width: this.width, height: this.height };
+          callback(composed);
+        };
+      });
+
+      afterEach(() => {
+        delete (globalThis as any).createImageBitmap;
+        HTMLCanvasElement.prototype.getContext = originalGetContext;
+        HTMLCanvasElement.prototype.toBlob = originalToBlob;
+      });
+
+      const imageBlob = async () => {
+        const ref = React.createRef<QRCodeHandle>();
+        render(<QRCode ref={ref} address={ADDRESS} size={SIZE} caption="Miden Devnet" />);
+        return ref.current!.getImageBlob();
+      };
+
+      it('paints the upper-cased caption into a strip under the QR', async () => {
+        expect(await imageBlob()).toBe(composed);
+        expect(canvasSize).toEqual({ width: SIZE, height: SIZE + STRIP });
+        expect(ctx.drawImage).toHaveBeenCalledWith({ close }, 0, 0, SIZE, SIZE);
+        expect(ctx.fillText).toHaveBeenCalledWith('MIDEN DEVNET', SIZE / 2, SIZE + STRIP / 2);
+        expect(close).toHaveBeenCalledTimes(1);
+      });
+
+      it('shares the raw PNG when composing throws, and says so', async () => {
+        const failure = new Error('decode failed');
+        (globalThis as any).createImageBitmap = jest.fn().mockRejectedValue(failure);
+        const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+        try {
+          expect(await imageBlob()).toBe(raw);
+          expect(warn).toHaveBeenCalledWith('[QRCode] caption compose failed, sharing the raw QR:', failure);
+        } finally {
+          warn.mockRestore();
+        }
+      });
+
+      it('shares the raw PNG when the canvas has no 2d context', async () => {
+        HTMLCanvasElement.prototype.getContext = jest.fn(() => null) as any;
+        const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+        try {
+          expect(await imageBlob()).toBe(raw);
+          expect((globalThis as any).createImageBitmap).not.toHaveBeenCalled();
+          expect(warn).toHaveBeenCalledWith('[QRCode] caption compose unavailable, sharing the raw QR');
+        } finally {
+          warn.mockRestore();
+        }
+      });
+
+      it('shares the raw PNG when the canvas cannot encode', async () => {
+        HTMLCanvasElement.prototype.toBlob = function (callback: BlobCallback) {
+          callback(null);
+        };
+        const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+        try {
+          expect(await imageBlob()).toBe(raw);
+          expect(close).toHaveBeenCalledTimes(1);
+          expect(warn).toHaveBeenCalledWith('[QRCode] caption compose unavailable, sharing the raw QR');
+        } finally {
+          warn.mockRestore();
+        }
+      });
+    });
+  });
+
   describe('imperative handle: getImageBlob', () => {
     it('resolves to the PNG Blob when getRawData yields a Blob', async () => {
       const blob = new Blob(['png-bytes'], { type: 'image/png' });

@@ -221,6 +221,7 @@ describe('transaction models', () => {
         destinationFaucetId: 'miden-usdc',
         sourceAmount: '42.25',
         sourceSymbol: 'USDC',
+        submissionState: 'preparing',
         phase: 'redeeming'
       }
     });

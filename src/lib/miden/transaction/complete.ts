@@ -1,5 +1,12 @@
 import { Note, TransactionResult } from '@miden-sdk/miden-sdk/lazy';
 
+import { earnWithdrawExecutionIdentity, validateEarnWithdrawPreparedExecution } from 'lib/epoch/earn-withdraw-policy';
+import {
+  matchesEarnDepositIntent,
+  matchesEarnWithdrawIntent,
+  type ExpectedEarnDepositIntent,
+  type ExpectedEarnWithdrawIntent
+} from 'lib/epoch/intent-key';
 import { clearGuardianServiceFor, type GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
 import { MultisigService } from 'lib/miden/guardian';
 import { finalizeDirectGuardianSwitch } from 'lib/miden/guardian/direct-switch';
@@ -8,7 +15,7 @@ import * as Repo from 'lib/miden/repo';
 
 import { recordNoteDelivery, setTransactionStage, updateTransactionStatus } from './helper';
 import { ensureGuardianProcedureThresholds } from './initiate';
-import { takeAgglayerBridgeInInfo, takeBridgeInInfoForNotes } from '../activity/bridge-in';
+import { applyBridgeInInfoForNotes, applyBridgeInToConsumeRow, takeAgglayerBridgeInInfo } from '../activity/bridge-in';
 import { feeFieldsFromResult, splitExecutedOutputNotes } from '../activity/fee';
 import { interpretTransactionResult } from '../activity/helpers';
 import { compareAccountIds } from '../activity/utils';
@@ -25,6 +32,7 @@ import {
   IEarnDepositExtraInputs,
   IEarnWithdrawExtraInputs,
   IEarnWithdrawPhase,
+  IEarnWithdrawPreparedExecution,
   INoteDeliveryState,
   ITransaction,
   ITransactionStatus,
@@ -264,40 +272,14 @@ export const completeConsumeTransaction = async (id: string, result: Transaction
   // fail the consume itself.
   try {
     const consumedNoteIds = inputNotes.map(inputNote => inputNote.note().id().toString());
-    const bridgeIn =
-      (await takeBridgeInInfoForNotes(consumedNoteIds)) ??
-      (await takeAgglayerBridgeInInfo({
+    const applied = await applyBridgeInInfoForNotes(consumedNoteIds, info => applyBridgeInToConsumeRow(id, info));
+    if (!applied) {
+      const info = await takeAgglayerBridgeInInfo({
         accountId: dbTransaction?.accountId ?? '',
         senderAccountId: sender,
         amount
-      }));
-    if (bridgeIn) {
-      await Repo.transactions.where({ id }).modify(tx => {
-        tx.extraInputs = { ...(tx.extraInputs ?? {}), bridgeIn };
-        tx.displayMessage = 'Bridged from EVM';
       });
-      if (bridgeIn.earnWithdrawTxId) {
-        await updateEarnWithdrawPhase(
-          bridgeIn.earnWithdrawTxId,
-          'received',
-          {
-            midenNoteId: bridgeIn.midenNoteId ?? consumedNoteIds[0],
-            outputSymbol: bridgeIn.sourceSymbol
-          },
-          amount
-        );
-      }
-      if (bridgeIn.bridgeReceiveTxId) {
-        await updateBridgedReceivePhase(
-          bridgeIn.bridgeReceiveTxId,
-          'received',
-          {
-            midenNoteId: bridgeIn.midenNoteId ?? consumedNoteIds[0],
-            outputSymbol: bridgeIn.sourceSymbol
-          },
-          { amount, faucetId, transactionId: executedTransaction.id().toHex() }
-        );
-      }
+      if (info) await applyBridgeInToConsumeRow(id, { ...info, midenNoteId: consumedNoteIds[0] });
     }
   } catch (err) {
     console.warn('[bridge-in] consume tagging failed (non-fatal)', err);
@@ -1045,9 +1027,19 @@ export const completeEarnDepositTransaction = async (tx: EarnDepositTransaction,
 export const updateEarnDepositStatus = async (
   id: string,
   epochStatus: NonNullable<IEarnDepositExtraInputs['epochStatus']>,
-  extra?: Partial<Pick<IEarnDepositExtraInputs, 'evmTxHash' | 'intentNonce' | 'outputAmount' | 'outputSymbol'>>
+  extra?: Partial<Pick<IEarnDepositExtraInputs, 'evmTxHash' | 'intentNonce' | 'outputAmount' | 'outputSymbol'>>,
+  expected?: ExpectedEarnDepositIntent
 ) => {
   await Repo.transactions.where({ id }).modify(tx => {
+    if (
+      expected &&
+      (tx.restoredFromBackup ||
+        tx.status !== ITransactionStatus.Completed ||
+        !matchesEarnDepositIntent(tx, expected) ||
+        tx.extraInputs?.epochStatus === 'confirmed' ||
+        tx.extraInputs?.epochStatus === 'failed')
+    )
+      return;
     const inputs: IEarnDepositExtraInputs = tx.extraInputs;
     tx.extraInputs = { ...inputs, epochStatus, ...(extra ?? {}) };
   });
@@ -1086,6 +1078,163 @@ export const canAdvanceEarnWithdrawPhase = (current: IEarnWithdrawPhase, next: I
   return EARN_WITHDRAW_PHASE_RANK[next] >= EARN_WITHDRAW_PHASE_RANK[current];
 };
 
+function currentEarnWithdrawExecution(
+  tx: ITransaction,
+  expected: ExpectedEarnWithdrawIntent,
+  isCurrent: () => boolean
+) {
+  if (
+    !isCurrent() ||
+    tx.restoredFromBackup ||
+    tx.status !== ITransactionStatus.Completed ||
+    !matchesEarnWithdrawIntent(tx, expected)
+  )
+    return undefined;
+  return earnWithdrawExecutionIdentity(tx);
+}
+
+function sameEarnWithdrawExecution(left: IEarnWithdrawPreparedExecution, right: IEarnWithdrawPreparedExecution) {
+  return (
+    left.attemptId === right.attemptId &&
+    left.chainId === right.chainId &&
+    left.delivery.allocationIndex === right.delivery.allocationIndex &&
+    left.delivery.owner === right.delivery.owner &&
+    left.delivery.nonce === right.delivery.nonce &&
+    left.delivery.destinationChainId === right.delivery.destinationChainId &&
+    left.delivery.recipientAccountId === right.delivery.recipientAccountId &&
+    left.delivery.destinationFaucetId === right.delivery.destinationFaucetId &&
+    left.allocations.length === right.allocations.length &&
+    left.allocations.every((allocation, index) => {
+      const other = right.allocations[index];
+      return (
+        other !== undefined &&
+        allocation.sponsor === other.sponsor &&
+        allocation.nonce === other.nonce &&
+        allocation.expires === other.expires &&
+        allocation.requestJson === other.requestJson
+      );
+    })
+  );
+}
+
+export async function prepareEarnWithdrawExecution(
+  id: string,
+  preparedExecution: IEarnWithdrawPreparedExecution,
+  expected: ExpectedEarnWithdrawIntent,
+  isCurrent: () => boolean
+): Promise<boolean> {
+  let applied = false;
+  const count = await Repo.transactions.where({ id }).modify(tx => {
+    const identity = currentEarnWithdrawExecution(tx, expected, isCurrent);
+    if (!identity) return;
+    const inputs: IEarnWithdrawExtraInputs = tx.extraInputs;
+    if (inputs.phase !== 'redeeming' && inputs.phase !== 'delivering') return;
+    const validated = validateEarnWithdrawPreparedExecution(preparedExecution, identity);
+    if (!validated || (expected.nonce !== undefined && expected.nonce !== preparedExecution.delivery.nonce)) return;
+    if (inputs.submissionState === 'prepared' || inputs.submissionState === 'accepted') {
+      const stored = validateEarnWithdrawPreparedExecution(inputs.preparedExecution, identity);
+      if (
+        !stored ||
+        inputs.withdrawIntentNonce !== preparedExecution.delivery.nonce ||
+        !sameEarnWithdrawExecution(stored.preparedExecution, preparedExecution)
+      )
+        return;
+      applied = true;
+      return;
+    }
+    if (
+      inputs.submissionState !== 'preparing' ||
+      inputs.withdrawIntentNonce !== undefined ||
+      inputs.preparedExecution !== undefined
+    )
+      return;
+    tx.extraInputs = {
+      ...inputs,
+      withdrawIntentNonce: preparedExecution.delivery.nonce,
+      preparedExecution: validated.preparedExecution,
+      submissionState: 'prepared'
+    };
+    applied = true;
+  });
+  return applied && count > 0;
+}
+
+export async function markEarnWithdrawNotSent(
+  id: string,
+  error: string,
+  expected: ExpectedEarnWithdrawIntent,
+  capturedExecution: IEarnWithdrawPreparedExecution | undefined,
+  mayConfirmNotSent: () => boolean
+): Promise<boolean> {
+  let applied = false;
+  const count = await Repo.transactions.where({ id }).modify(tx => {
+    const identity = currentEarnWithdrawExecution(tx, expected, mayConfirmNotSent);
+    if (!identity) return;
+    const inputs: IEarnWithdrawExtraInputs = tx.extraInputs;
+    if (
+      (inputs.phase !== 'redeeming' && inputs.phase !== 'failed') ||
+      inputs.evmTxHash !== undefined ||
+      inputs.midenNoteId !== undefined ||
+      inputs.outputAmount !== undefined ||
+      inputs.outputSymbol !== undefined
+    )
+      return;
+    if (inputs.submissionState === 'prepared') {
+      const stored = validateEarnWithdrawPreparedExecution(inputs.preparedExecution, identity);
+      const captured = validateEarnWithdrawPreparedExecution(capturedExecution, identity);
+      if (
+        !stored ||
+        !captured ||
+        inputs.withdrawIntentNonce !== captured.preparedExecution.delivery.nonce ||
+        !sameEarnWithdrawExecution(stored.preparedExecution, captured.preparedExecution)
+      )
+        return;
+    } else if (
+      inputs.submissionState !== 'preparing' ||
+      inputs.withdrawIntentNonce !== undefined ||
+      inputs.preparedExecution !== undefined
+    ) {
+      return;
+    }
+    // Only the still-current callback can prove execution permission was never granted.
+    tx.extraInputs = {
+      ...inputs,
+      withdrawIntentNonce: undefined,
+      preparedExecution: undefined,
+      submissionState: 'preparing',
+      phase: 'failed',
+      error
+    };
+    tx.error = error;
+    applied = true;
+  });
+  return applied && count > 0;
+}
+
+export async function markEarnWithdrawAccepted(
+  id: string,
+  expected: ExpectedEarnWithdrawIntent,
+  isCurrent: () => boolean
+): Promise<boolean> {
+  let applied = false;
+  const count = await Repo.transactions.where({ id }).modify(tx => {
+    const identity = currentEarnWithdrawExecution(tx, expected, isCurrent);
+    if (!identity) return;
+    const inputs: IEarnWithdrawExtraInputs = tx.extraInputs;
+    if (inputs.submissionState !== 'prepared' && inputs.submissionState !== 'accepted') return;
+    const stored = validateEarnWithdrawPreparedExecution(inputs.preparedExecution, identity);
+    if (
+      !stored ||
+      !inputs.withdrawIntentNonce ||
+      inputs.withdrawIntentNonce !== stored.preparedExecution.delivery.nonce
+    )
+      return;
+    tx.extraInputs = { ...inputs, submissionState: 'accepted' };
+    applied = true;
+  });
+  return applied && count > 0;
+}
+
 /**
  * Advance an `earn-withdraw` row's lifecycle. The row is finalized (`Completed`)
  * from birth, so this mutates ONLY `extraInputs` (via a direct `modify`) — never
@@ -1109,9 +1258,15 @@ export const updateEarnWithdrawPhase = async (
   >,
   // Actual delivered amount (base units), patched onto the row when the bridged
   // note is consumed so the history hero reflects what really landed.
-  amount?: bigint
+  amount?: bigint,
+  expected?: ExpectedEarnWithdrawIntent
 ) => {
   await Repo.transactions.where({ id }).modify(tx => {
+    if (
+      expected &&
+      (tx.restoredFromBackup || tx.status !== ITransactionStatus.Completed || !matchesEarnWithdrawIntent(tx, expected))
+    )
+      return;
     const inputs: IEarnWithdrawExtraInputs = tx.extraInputs;
     if (!canAdvanceEarnWithdrawPhase(inputs.phase, phase)) {
       console.warn(`[earn-withdraw] refusing phase downgrade ${inputs.phase} -> ${phase} on ${id}`);
@@ -1126,6 +1281,22 @@ export const updateEarnWithdrawPhase = async (
 };
 
 /** Advance a tracking-only EVM → Miden bridge row without touching its terminal DB status. */
+const BRIDGED_RECEIVE_PHASE_ORDER: IBridgedReceivePhase[] = ['submitting', 'delivering', 'ready', 'received'];
+
+/**
+ * A bridged-receive phase only moves forward: `received` is final, and `failed`
+ * gives way only to `received`, the funds having arrived after all. Writers read
+ * the row, await the network or a wallet, then write, so a write can land after
+ * the row moved on (a consume marking it `received` while a reconcile pass still
+ * awaits the indexer); such a write is dropped whole.
+ */
+const canMoveBridgedReceivePhase = (from: IBridgedReceivePhase | undefined, to: IBridgedReceivePhase): boolean => {
+  if (from === 'received') return false;
+  if (from === 'failed') return to === 'received';
+  if (from === undefined || to === 'failed') return true;
+  return BRIDGED_RECEIVE_PHASE_ORDER.indexOf(to) >= BRIDGED_RECEIVE_PHASE_ORDER.indexOf(from);
+};
+
 export const updateBridgedReceivePhase = async (
   id: string,
   phase: IBridgedReceivePhase,
@@ -1138,7 +1309,8 @@ export const updateBridgedReceivePhase = async (
   received?: { amount: bigint; faucetId: string; transactionId?: string }
 ) => {
   await Repo.transactions.where({ id }).modify(tx => {
-    const inputs = tx.extraInputs as IBridgedReceiveExtraInputs;
+    const inputs: IBridgedReceiveExtraInputs | undefined = tx.extraInputs;
+    if (!canMoveBridgedReceivePhase(inputs?.phase, phase)) return;
     tx.extraInputs = { ...inputs, phase, ...(extra ?? {}) };
     if (received) {
       tx.amount = received.amount;

@@ -1,3 +1,4 @@
+import { Buffer } from 'buffer';
 import PQueue from 'p-queue';
 
 import { ACCOUNT_NAME_PATTERN } from 'app/defaults';
@@ -22,9 +23,17 @@ import {
   currentAccountUpdated
 } from 'lib/miden/back/store';
 import { Vault, type GuardianBindingPatch } from 'lib/miden/back/vault';
-import { withWasmClientLock } from 'lib/miden/sdk/miden-client';
+import { installRealmKeystore, withWasmClientLock } from 'lib/miden/sdk/miden-client';
+import { buildSdkSignCallback } from 'lib/miden/transaction/sign-callback';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
-import { GuardianSyncStatus, SignEvmOperation, WalletAccount, WalletSettings, WalletState } from 'lib/shared/types';
+import {
+  GuardianSyncStatus,
+  SignEvmOperation,
+  WalletAccount,
+  WalletSettings,
+  WalletState,
+  WalletStatus
+} from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
 import { MidenSharedStorageKey } from '../types';
@@ -87,8 +96,35 @@ async function getVault() {
   return _vault;
 }
 
+/**
+ * The realm's insert-key sink follows the store: the Ready vault's, else none.
+ * Called when a flow that constructed a vault ends, adopted or not, so a vault
+ * that never became the store's (a failed unlock, a failed spawn) cannot leave
+ * its sink installed, and a re-unlock that fails over a Ready vault leaves the
+ * Ready vault's sink in place. Not called by lock(), which retires only the vault
+ * it locks: a flow still constructing (a spawn between its key and its adoption,
+ * with storage already wiped) keeps its sink through a lock landing mid-way (#878).
+ */
+function syncRealmInsertKeySink() {
+  const state = store.getState();
+  installRealmKeystore({
+    insertKey: state.status === WalletStatus.Ready && state.vault ? state.vault.insertKeySink : null
+  });
+}
+
 export async function init() {
   console.log('[Actions.init] Starting...');
+  // This realm's one SDK client signs every inline write with the vault (#878):
+  // installed once, here, before anything can ask it to sign. Every realm that
+  // writes runs init (the service worker, mobile and desktop); the extension
+  // popup never does and never signs; the offscreen document builds its own
+  // client with its reverse-IPC signer.
+  installRealmKeystore({
+    sign: buildSdkSignCallback(
+      async (publicKey, signingInputs) =>
+        new Uint8Array(Buffer.from(await signTransaction(publicKey, signingInputs), 'hex'))
+    )
+  });
   const vault = await getVault(); // wait for vault initialization
   const vaultExist = await vault.isExist();
   console.log('[Actions.init] Vault exists:', vaultExist);
@@ -146,35 +182,47 @@ export function registerNewWallet(
     'ownMnemonic flag:',
     ownMnemonic
   );
-  return withInited(async () => {
-    console.log('[Actions.registerNewWallet] Starting...');
-    try {
-      const vault = await Vault.spawn(walletType, password ?? '', mnemonic, ownMnemonic, guardianEndpoint);
-      console.log('[Actions.registerNewWallet] Vault.spawn completed, initializing state...');
-      const accounts = await vault.fetchAccounts();
-      const settings = await vault.fetchSettings();
-      const currentAccount = await vault.getCurrentAccount();
-      const ownMnemonicFlag = await vault.isOwnMnemonic();
-      unlocked({ vault, accounts, settings, currentAccount, ownMnemonic: ownMnemonicFlag });
-      console.log('[Actions.registerNewWallet] Completed');
-    } catch (err: unknown) {
-      console.error('[Actions.registerNewWallet] FAILED:', err);
-      throw err;
-    }
-  });
+  // On the accounts write queue, like unlock and imports: an adopted vault's
+  // queued account creation must not run through a spawn's provisional sink.
+  return withInited(() =>
+    getUnlockQueue().add(async () => {
+      console.log('[Actions.registerNewWallet] Starting...');
+      try {
+        const vault = await Vault.spawn(walletType, password ?? '', mnemonic, ownMnemonic, guardianEndpoint);
+        console.log('[Actions.registerNewWallet] Vault.spawn completed, initializing state...');
+        const accounts = await vault.fetchAccounts();
+        const settings = await vault.fetchSettings();
+        const currentAccount = await vault.getCurrentAccount();
+        const ownMnemonicFlag = await vault.isOwnMnemonic();
+        unlocked({ vault, accounts, settings, currentAccount, ownMnemonic: ownMnemonicFlag });
+        console.log('[Actions.registerNewWallet] Completed');
+      } catch (err: unknown) {
+        console.error('[Actions.registerNewWallet] FAILED:', err);
+        throw err;
+      } finally {
+        syncRealmInsertKeySink();
+      }
+    })
+  );
 }
 
 export function registerImportedWallet(password?: string, mnemonic?: string, walletAccounts: WalletAccount[] = []) {
-  return withInited(async () => {
-    // Password may be undefined for hardware-only wallets
-    // spawnFromMidenClient() returns the vault directly, avoiding a second biometric prompt
-    const vault = await Vault.spawnFromMidenClient(password ?? '', mnemonic ?? '', walletAccounts);
-    const accounts = await vault.fetchAccounts();
-    const settings = await vault.fetchSettings();
-    const currentAccount = await vault.getCurrentAccount();
-    const ownMnemonicFlag = await vault.isOwnMnemonic();
-    unlocked({ vault, accounts, settings, currentAccount, ownMnemonic: ownMnemonicFlag });
-  });
+  return withInited(() =>
+    getUnlockQueue().add(async () => {
+      try {
+        // Password may be undefined for hardware-only wallets
+        // spawnFromMidenClient() returns the vault directly, avoiding a second biometric prompt
+        const vault = await Vault.spawnFromMidenClient(password ?? '', mnemonic ?? '', walletAccounts);
+        const accounts = await vault.fetchAccounts();
+        const settings = await vault.fetchSettings();
+        const currentAccount = await vault.getCurrentAccount();
+        const ownMnemonicFlag = await vault.isOwnMnemonic();
+        unlocked({ vault, accounts, settings, currentAccount, ownMnemonic: ownMnemonicFlag });
+      } finally {
+        syncRealmInsertKeySink();
+      }
+    })
+  );
 }
 
 export function lock() {
@@ -186,7 +234,11 @@ export function lock() {
     // stuck. Seen in the 1000-op stress run: 7/7 executeTransaction errors
     // coincided with LOCK_REQUEST arriving while a consume loop was active.
     await withWasmClientLock(async () => {
+      const { vault } = store.getState();
       locked();
+      // Only the vault being locked gives up its insert-key sink; one an unlock in
+      // flight just installed stays (#878).
+      vault?.retire();
     });
   });
 }
@@ -194,29 +246,36 @@ export function lock() {
 export function unlock(password?: string) {
   return withInited(() =>
     getUnlockQueue().add(async () => {
-      const vault = await Vault.setup(password);
-      // Bring any pre-3-key Guardian accounts into the 3-key model in place
-      // (best-effort, never throws) so they surface the Activate Device Key
-      // banner instead of being unreachable. See Vault.migrateLegacyGuardianAccounts.
-      await vault.migrateLegacyGuardianAccounts();
-      // Stamp wallet-derived EVM addresses on pre-existing HD accounts
-      // (best-effort, never throws) before the accounts list is read below.
-      await vault.backfillEvmAddresses();
-      const accounts = await vault.fetchAccounts();
-      const settings = await vault.fetchSettings();
-      const currentAccount = await vault.getCurrentAccount();
-      const ownMnemonic = await vault.isOwnMnemonic();
-      unlocked({ vault, accounts, settings, currentAccount, ownMnemonic });
-      // Stamp a per-account guardianEndpoint onto legacy Guardian accounts that
-      // predate the field, by resolving their on-chain guardian commitment to a
-      // built-in operator (#408 stage 2). Fired detached AFTER unlocked() —
-      // unlike the local-only migrations above it makes external guardian HTTP,
-      // which must never gate the unlock UI transition. Best-effort +
-      // idempotent; resolveGuardianDrift and the next unlock reconcile anything
-      // left unresolved.
-      void vault
-        .backfillGuardianEndpoints()
-        .catch(e => console.warn('[unlock] guardian-endpoint backfill failed (non-fatal):', e));
+      // Constructed inside the try: the constructor installs the candidate's sink,
+      // and the finally below is what puts the store's back if anything after the
+      // construction throws (#878).
+      try {
+        const vault = await Vault.setup(password);
+        // Bring any pre-3-key Guardian accounts into the 3-key model in place
+        // (best-effort, never throws) so they surface the Activate Device Key
+        // banner instead of being unreachable. See Vault.migrateLegacyGuardianAccounts.
+        await vault.migrateLegacyGuardianAccounts();
+        // Stamp wallet-derived EVM addresses on pre-existing HD accounts
+        // (best-effort, never throws) before the accounts list is read below.
+        await vault.backfillEvmAddresses();
+        const accounts = await vault.fetchAccounts();
+        const settings = await vault.fetchSettings();
+        const currentAccount = await vault.getCurrentAccount();
+        const ownMnemonic = await vault.isOwnMnemonic();
+        unlocked({ vault, accounts, settings, currentAccount, ownMnemonic });
+        // Stamp a per-account guardianEndpoint onto legacy Guardian accounts that
+        // predate the field, by resolving their on-chain guardian commitment to a
+        // built-in operator (#408 stage 2). Fired detached AFTER unlocked() —
+        // unlike the local-only migrations above it makes external guardian HTTP,
+        // which must never gate the unlock UI transition. Best-effort +
+        // idempotent; resolveGuardianDrift and the next unlock reconcile anything
+        // left unresolved.
+        void vault
+          .backfillGuardianEndpoints()
+          .catch(e => console.warn('[unlock] guardian-endpoint backfill failed (non-fatal):', e));
+      } finally {
+        syncRealmInsertKeySink();
+      }
     })
   );
 }

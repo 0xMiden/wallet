@@ -3,7 +3,9 @@ import React, { FC, useEffect, useMemo, useState } from 'react';
 import { MidenProvider as SdkMidenProvider } from '@miden-sdk/react/lazy';
 
 import { NoteToastProvider } from 'components/NoteToastProvider';
+import { EarnIntentWatcher } from 'lib/epoch/EarnIntentWatcher';
 import { FiatCurrencyProvider } from 'lib/fiat-currency';
+import { BridgeIntentWatcher } from 'lib/miden/activity/BridgeIntentWatcher';
 import { MidenContextProvider, useMidenContext } from 'lib/miden/front/client';
 import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
 import {
@@ -22,6 +24,7 @@ import { WalletStoreProvider } from 'lib/store/WalletStoreProvider';
 import { TokensMetadataProvider } from './assets';
 import { NativeNoteAutoConsumeManager } from './NativeNoteAutoConsumeManager';
 import { OrphanedTransactionRecovery } from './OrphanedTransactionRecovery';
+import { SwapOrderTrackingManager } from './SwapOrderTrackingManager';
 import { SwapSettlementManager } from './SwapSettlementManager';
 import { useForegroundRefresh } from './useForegroundRefresh';
 import { useSyncTrigger } from './useSyncTrigger';
@@ -171,7 +174,10 @@ const ConditionalProviders: FC<PropsWithChildren> = ({ children }) => {
             <PriceProvider />
             {children}
             <SwapSettlementManager />
+            <SwapOrderTrackingManager />
             <NativeNoteAutoConsumeManager />
+            <EarnIntentWatcher />
+            <BridgeIntentWatcher />
             {/* Startup recovery for transactions orphaned by an app kill. No-op on
                 the extension, where the service worker's `setupTransactionProcessor`
                 already does this. */}

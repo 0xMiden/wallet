@@ -786,6 +786,14 @@
     "message": "Спробувати ще раз",
     "englishSource": "Retry"
   },
+  "retryEarnDelivery": {
+    "message": "Повторити доставку",
+    "englishSource": "Retry delivery"
+  },
+  "withdrawalRecoveryUnavailable": {
+    "message": "Це виведення коштів неможливо безпечно повторити. Перевірте його статус, перш ніж розпочинати інше виведення коштів.",
+    "englishSource": "This withdrawal cannot be retried safely. Check its status before starting another withdrawal."
+  },
   "retryAnyway": {
     "message": "Усе одно повторити",
     "englishSource": "Retry anyway"
@@ -3822,6 +3830,127 @@
     "message": "Тестова мережа",
     "englishSource": "Testnet"
   },
+  "devnet": {
+    "message": "Devnet",
+    "englishSource": "Devnet"
+  },
+  "localnet": {
+    "message": "Localnet",
+    "englishSource": "Localnet"
+  },
+  "networkModeBanner": {
+    "message": "Ви користуєтеся сервісом Bread на платформі Miden $network$",
+    "englishSource": "You are using Bread on Miden $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "networkNoticeChip": {
+    "message": "Miden $network$",
+    "englishSource": "Miden $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "networkNoticeBody": {
+    "message": "Це середовище призначене для тестування. Усе, що ви тут маєте, — це тестові токени, які не мають грошової вартості.",
+    "englishSource": "This environment is for testing. Everything you hold here is a test token with no monetary value."
+  },
+  "networkNoticeNoValueTitle": {
+    "message": "Тестові токени не є грошима",
+    "englishSource": "Test tokens are not money"
+  },
+  "networkNoticeNoValueBody": {
+    "message": "Зазначені тут залишки та ціни є модельованими і не підлягають обміну.",
+    "englishSource": "Balances and prices shown here are simulated and cannot be redeemed."
+  },
+  "networkNoticeNoRealFundsTitle": {
+    "message": "Не надсилайте реальні кошти",
+    "englishSource": "Do not send real funds"
+  },
+  "networkNoticeNoRealFundsBody": {
+    "message": "Усе, що надсилається з реальної мережі на тестову адресу, втрачається.",
+    "englishSource": "Anything sent from a real network to a test address is lost."
+  },
+  "networkNoticeResetTitle": {
+    "message": "Мережа може скинути налаштування",
+    "englishSource": "The network can reset"
+  },
+  "networkNoticeResetBody": {
+    "message": "Скидання очищає залишки та історію. Тестові залишки ніколи не переносяться до Mainnet.",
+    "englishSource": "A reset clears balances and history. Test balances never carry over to Mainnet."
+  },
+  "iUnderstand": {
+    "message": "Я розумію",
+    "englishSource": "I understand"
+  },
+  "receiveTestFundsTitle": {
+    "message": "Тільки тестові токени",
+    "englishSource": "Test tokens only"
+  },
+  "receiveTestFundsBody": {
+    "message": "Надсилайте на цю адресу лише токени Miden $network$. Реальні кошти, надіслані на цю адресу, не підлягають поверненню.",
+    "englishSource": "Only send Miden $network$ tokens here. Real funds sent to this address cannot be recovered.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "crossChainFromNetwork": {
+    "message": "з $network$",
+    "englishSource": "from $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "ethereumSepolia": {
+    "message": "Ethereum Sepolia",
+    "englishSource": "Ethereum Sepolia"
+  },
+  "bridgeTestFundsTitle": {
+    "message": "Тільки тестові кошти",
+    "englishSource": "Test funds only"
+  },
+  "bridgeTestFundsBody": {
+    "message": "Цей міст переміщує тестові токени Ethereum Sepolia до Miden. Ніколи не здійснюйте міст з основної мережі Ethereum або будь-якої іншої реальної мережі.",
+    "englishSource": "This bridge moves Ethereum Sepolia test tokens to Miden. Never bridge from Ethereum mainnet or any other real network."
+  },
+  "shareAddressText": {
+    "message": "Моя адреса Miden $network$ (лише тестові токени): $address$",
+    "englishSource": "My Miden $network$ address (test tokens only): $address$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      },
+      "address": {
+        "content": "$2"
+      }
+    }
+  },
+  "qrNetworkCaption": {
+    "message": "Miden $network$",
+    "englishSource": "Miden $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "evmConnectTestWalletTitle": {
+    "message": "Підключайте лише тестовий гаманець",
+    "englishSource": "Connect a test wallet only"
+  },
+  "evmConnectTestWalletBody": {
+    "message": "Цей міст працює на Ethereum Sepolia. Не підключайте гаманець, на якому зберігаються реальні кошти. Створіть новий гаманець і поповніть його виключно ETH мережі Sepolia.",
+    "englishSource": "This bridge runs on Ethereum Sepolia. Do not connect a wallet that holds real funds. Create a fresh wallet and fund it with Sepolia ETH only."
+  },
   "browser": {
     "message": "Браузер",
     "englishSource": "Browser"
@@ -4077,10 +4206,6 @@
     "message": "Підключіть гаманець, щоб переносити активи до та з Miden.",
     "englishSource": "Connect a wallet to bridge assets to and from Miden."
   },
-  "onlyBridgeableTokenSupported": {
-    "message": "Маршрут «Повільний» (Agglayer) підтримує лише токени, які можна переносити через міст. Для надсилання інших токенів використовуйте маршрут «Швидкий».",
-    "englishSource": "The Slow (Agglayer) route only supports the bridgeable token. Use Fast to send other tokens."
-  },
   "connectDestinationWalletToClaim": {
     "message": "Підключіть гаманець-отримувач, щоб отримати виплату.",
     "englishSource": "Connect the destination wallet to claim."
@@ -4156,10 +4281,6 @@
   "delivering": {
     "message": "Доставка",
     "englishSource": "Delivering"
-  },
-  "slowNeedsNativeEth": {
-    "message": "Маршрут Slow (Agglayer) у тестовій мережі підтримує лише нативну ETH. Щоб скористатися ним, оберіть ETH.",
-    "englishSource": "The Slow (Agglayer) route only supports native ETH on testnet. Choose ETH to use it."
   },
   "fastEthWrapNotice": {
     "message": "Перенесення ETH за швидким маршрутом спочатку перетворює його на WETH, а потім здійснює перенесення WETH. Цей маршрут поки що недоступний.",
@@ -4353,6 +4474,10 @@
     "message": "Обробка виведення коштів",
     "englishSource": "Processing Withdrawal"
   },
+  "withdrawalCheckingDescription": {
+    "message": "Перевіряємо ваше виведення коштів. Тримайте гаманець відкритим, доки доставку не буде підтверджено.",
+    "englishSource": "Checking your withdrawal. Keep the wallet open while delivery is confirmed."
+  },
   "withdrawalProcessingDescription": {
     "message": "Підписання та надсилання наміру виведення без газу до Epoch. Зазвичай це займає кілька секунд.",
     "englishSource": "Signing and submitting the gasless withdrawal intent to Epoch. This usually takes a few seconds."
@@ -4476,5 +4601,78 @@
   "devEndpointResetConfirm": {
     "message": "Це призведе до остаточного видалення цього гаманця, включаючи ваші ключі та історію транзакцій. Для його відновлення вам знадобиться фраза відновлення.",
     "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
+  },
+  "activityAcceptTransfer": {
+    "message": "Прийняти переказ",
+    "englishSource": "Accept Transfer"
+  },
+  "activityRejectTransfer": {
+    "message": "Відхилити",
+    "englishSource": "Decline"
+  },
+  "activityCheckingTransfer": {
+    "message": "Перевіряю…",
+    "englishSource": "Checking…"
+  },
+  "activityTransferClaimed": {
+    "message": "Отримано",
+    "englishSource": "Claimed"
+  },
+  "activityClaimedOn": {
+    "message": "Отримано",
+    "englishSource": "Claimed on"
+  },
+  "activityReceivedOn": {
+    "message": "Отримано",
+    "englishSource": "Received on"
+  },
+  "activityNotYetAccepted": {
+    "message": "Ще не прийнято — перегляньте та прийміть, щоб отримати ці кошти.",
+    "englishSource": "Not yet accepted — review and accept to claim these funds."
+  },
+  "acceptAll": {
+    "message": "Прийняти все",
+    "englishSource": "Accept All"
+  },
+  "activitySearch": {
+    "message": "Активність пошуку",
+    "englishSource": "Search activity"
+  },
+  "activityTransferAccepted": {
+    "message": "Переказ прийнято",
+    "englishSource": "Transfer accepted"
+  },
+  "activityTransferDetails": {
+    "message": "Деталі",
+    "englishSource": "Details"
+  },
+  "activityRejectExplanation": {
+    "message": "Приховати цей переказ у розділі «Активність» на цьому пристрої? Це не повертає кошти відправнику та не видаляє запис «note». Ви можете відновити приховані перекази в розділі «Активність».",
+    "englishSource": "Hide this transfer from Activity on this device? This does not return funds to the sender or delete the note. You can restore hidden transfers in Activity."
+  },
+  "activityHiddenTransfers": {
+    "message": "Приховані перекази: $count$",
+    "englishSource": "Hidden transfers: $count$",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "activityRestoreTransfers": {
+    "message": "Відновити",
+    "englishSource": "Restore"
+  },
+  "activityHiddenNotesError": {
+    "message": "Не вдалося зберегти приховані перекази. Спробуйте ще раз.",
+    "englishSource": "Could not save hidden transfers. Please try again."
+  },
+  "activityDateUnavailable": {
+    "message": "Дата недоступна",
+    "englishSource": "Date unavailable"
+  },
+  "walletSetupDidNotComplete": {
+    "message": "Ваш гаманець було створено, але його запуск не завершився. Перевірте підключення та спробуйте ще раз.",
+    "englishSource": "Your wallet was created but did not finish starting up. Check your connection and try again."
   }
 }

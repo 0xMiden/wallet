@@ -8,14 +8,13 @@ import * as yup from 'yup';
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
 import { Navigator, NavigatorProvider, Route, useNavigator } from 'components/Navigator';
-import { getAgglayerFaucetId } from 'lib/agglayer/b2agg/constant';
 import { stringToBigInt } from 'lib/i18n/numbers';
 import { requestSpeculateInvalidate, requestSpeculateSend } from 'lib/miden/activity';
 import { hasNoFeeAsset, maxSendableNative } from 'lib/miden/fees/spendable';
 import { useAccount, useAllAccounts, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { useFilteredContacts } from 'lib/miden/front/use-filtered-contacts.hook';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
-import { accountIdStringToSdk, sameWalletAccountId } from 'lib/miden/sdk/helpers';
+import { sameWalletAccountId } from 'lib/miden/sdk/helpers';
 import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isExtension, isMobile } from 'lib/platform';
@@ -269,11 +268,6 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
     [recentSendRecipients, allContactsList]
   );
 
-  // Cross-chain sends over the Slow (Agglayer) route are restricted to the single
-  // bridgeable faucet token; Fast (Epoch) bridges any token.
-  const isBridgeableToken =
-    !!token && accountIdStringToSdk(token.id.toLowerCase()).toString() === getAgglayerFaucetId().toLowerCase();
-
   // A destination selected before typing can carry into an EVM address. Once a
   // non-empty Miden address is entered, the EVM destination is no longer meaningful.
   useEffect(() => {
@@ -288,14 +282,6 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
       setShowNetworkDrawer(false);
     }
   }, [recipientAddress, isBridge, bridgeNetwork, recipientNetwork, setValue, showNetworkDrawer]);
-
-  // If Slow was selected and the token changes to one it can't bridge, fall back
-  // to Fast so Review/submit don't dead-end on the bridgeable-token guard.
-  useEffect(() => {
-    if (isBridge && bridgeRoute === 'agglayer' && !isBridgeableToken) {
-      setValue('bridgeRoute', 'epoch');
-    }
-  }, [isBridge, bridgeRoute, isBridgeableToken, setValue]);
 
   // Forward-quote the USDC output for the Fast (Epoch) route, so the Route
   // screen can show a live fee regardless of which route is selected.
@@ -462,7 +448,7 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
 
   // Pre-select token when navigating from token detail page
   const allTokensBaseMetadata = useAllTokensBaseMetadata();
-  const { data: balanceData } = useAllBalances(publicKey, allTokensBaseMetadata);
+  const { data: balanceData, isLoading: balancesLoading } = useAllBalances(publicKey, allTokensBaseMetadata);
   const nativeFaucetId = useMidenFaucetId();
   const verificationBaseFee = useVerificationBaseFee();
   useEffect(() => {
@@ -508,16 +494,18 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
   // Without this, an over-balance amount could reach Review with Confirm
   // still enabled.
   useEffect(() => {
-    // Checked BEFORE the empty-amount guard, deliberately. The fee comes out of this
-    // account's own vault, so with no native asset nothing is sendable -- and that is
-    // already true before the user types. Withholding it until an amount existed made them
-    // compose a whole send and only then learn it could never submit; swap and earn deposit
-    // both say so on mount, and this was the screen that did not.
-    if (hasNoFeeAsset(balanceData ?? [], nativeFaucetId, verificationBaseFee)) {
+    // A resolved fee shortfall matters before typing, but the balance hook's
+    // initial zero is a loading placeholder, not evidence of missing MIDEN.
+    if (!balancesLoading && hasNoFeeAsset(balanceData ?? [], nativeFaucetId, verificationBaseFee)) {
       setError('amount', { type: 'manual', message: 'insufficientFeeAsset' });
       return;
     }
-    if (!amount) return;
+    if (amount === undefined) {
+      // Clear a previous shortfall once funds arrive, even before typing.
+      // A cleared field ('') still follows the invalid-amount path below.
+      if (errors.amount) clearErrors('amount');
+      return;
+    }
     if (!validations.amount.isValidSync(amount)) {
       setError('amount', { type: 'manual', message: 'invalidAmount' });
     } else if (token && parseFloat(amount) > spendableBalance) {
@@ -538,7 +526,7 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
     // asynchronously, so an amount typed before they landed was validated against an
     // empty balance list and an unknown fee and then never re-checked.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, spendableBalance, balanceData, nativeFaucetId, verificationBaseFee]);
+  }, [token, spendableBalance, balanceData, balancesLoading, nativeFaucetId, verificationBaseFee]);
 
   const onAction = useCallback(
     (action: SendFlowAction) => {
@@ -729,7 +717,7 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
       const amount = parseFloat(amountString || '0');
       if (!validations.amount.isValidSync(amountString)) {
         setError('amount', { type: 'manual', message: 'invalidAmount' });
-      } else if (hasNoFeeAsset(balanceData ?? [], nativeFaucetId, verificationBaseFee)) {
+      } else if (!balancesLoading && hasNoFeeAsset(balanceData ?? [], nativeFaucetId, verificationBaseFee)) {
         // The fee is taken from this account's own vault, so with no native
         // asset the transaction cannot succeed however small the amount.
         setError('amount', { type: 'manual', message: 'insufficientFeeAsset' });
@@ -755,11 +743,12 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
       clearErrors,
       // The fee-reserved cap, not the raw balance (see `spendableBalance`).
       spendableBalance,
-      // All three feed the `insufficientFeeAsset` branch above. Omitted, the check
+      // These feed the `insufficientFeeAsset` branch above. Omitted, the check
       // runs against first-render values -- an empty balance list and an unresolved
       // base fee -- so it either blocks a send that can pay its fee or admits one
       // that cannot, and the amount field's error stops tracking reality.
       balanceData,
+      balancesLoading,
       nativeFaucetId,
       verificationBaseFee
     ]
@@ -802,7 +791,6 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
               amount={amount || ''}
               isValidAmount={!errors.amount && validations.amount.isValidSync(amount)}
               error={errors.amount?.message?.toString()}
-              footerClassName="pt-4 pb-[max(0px,calc(1.5rem-var(--keyboard-height,0px)))]"
               onAmountChange={onAmountChange}
               onSelectToken={() => setShowTokenDrawer(true)}
               onConfirm={onConfirmAmount}
@@ -815,8 +803,6 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
               onRouteChange={onRouteChange}
               fastFeeUsd={fastFeeUsd}
               fastQuoteLoading={epochQuote.loading}
-              slowEnabled={isBridgeableToken}
-              footerClassName="pt-4 pb-[max(0px,calc(1.5rem-var(--keyboard-height,0px)))]"
               onConfirm={goToReview}
             />
           );
@@ -849,7 +835,6 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
       onRouteChange,
       fastFeeUsd,
       epochQuote.loading,
-      isBridgeableToken,
       goToReview
     ]
   );

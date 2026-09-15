@@ -786,6 +786,14 @@
     "message": "다시 시도",
     "englishSource": "Retry"
   },
+  "retryEarnDelivery": {
+    "message": "전달 다시 시도",
+    "englishSource": "Retry delivery"
+  },
+  "withdrawalRecoveryUnavailable": {
+    "message": "이 인출은 안전하게 다시 시도할 수 없습니다. 다른 인출을 시작하기 전에 이 인출의 상태를 확인하세요.",
+    "englishSource": "This withdrawal cannot be retried safely. Check its status before starting another withdrawal."
+  },
   "retryAnyway": {
     "message": "그래도 다시 시도",
     "englishSource": "Retry anyway"
@@ -3822,6 +3830,127 @@
     "message": "테스트넷",
     "englishSource": "Testnet"
   },
+  "devnet": {
+    "message": "개발자 네트워크(Devnet)",
+    "englishSource": "Devnet"
+  },
+  "localnet": {
+    "message": "Localnet",
+    "englishSource": "Localnet"
+  },
+  "networkModeBanner": {
+    "message": "현재 Miden $network$에서 Bread를 이용 중이십니다",
+    "englishSource": "You are using Bread on Miden $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "networkNoticeChip": {
+    "message": "Miden $network$",
+    "englishSource": "Miden $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "networkNoticeBody": {
+    "message": "이 환경은 테스트용입니다. 이곳에서 보유하는 모든 것은 금전적 가치가 없는 테스트 토큰입니다.",
+    "englishSource": "This environment is for testing. Everything you hold here is a test token with no monetary value."
+  },
+  "networkNoticeNoValueTitle": {
+    "message": "테스트 토큰은 화폐가 아닙니다",
+    "englishSource": "Test tokens are not money"
+  },
+  "networkNoticeNoValueBody": {
+    "message": "여기에 표시된 잔액과 가격은 시뮬레이션된 것이며 실제로 환전할 수 없습니다.",
+    "englishSource": "Balances and prices shown here are simulated and cannot be redeemed."
+  },
+  "networkNoticeNoRealFundsTitle": {
+    "message": "실제 자금을 보내지 마십시오",
+    "englishSource": "Do not send real funds"
+  },
+  "networkNoticeNoRealFundsBody": {
+    "message": "실제 네트워크에서 테스트 주소로 전송된 모든 것은 손실됩니다.",
+    "englishSource": "Anything sent from a real network to a test address is lost."
+  },
+  "networkNoticeResetTitle": {
+    "message": "네트워크는 재설정될 수 있습니다",
+    "englishSource": "The network can reset"
+  },
+  "networkNoticeResetBody": {
+    "message": "리셋은 잔액과 내역을 초기화합니다. 테스트망의 잔액은 메인넷으로 이월되지 않습니다.",
+    "englishSource": "A reset clears balances and history. Test balances never carry over to Mainnet."
+  },
+  "iUnderstand": {
+    "message": "알겠습니다",
+    "englishSource": "I understand"
+  },
+  "receiveTestFundsTitle": {
+    "message": "테스트 토큰 전용",
+    "englishSource": "Test tokens only"
+  },
+  "receiveTestFundsBody": {
+    "message": "이 주소로는 Miden $network$ 토큰만 보내주십시오. 이 주소로 실제 자금을 보내면 복구할 수 없습니다.",
+    "englishSource": "Only send Miden $network$ tokens here. Real funds sent to this address cannot be recovered.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "crossChainFromNetwork": {
+    "message": "$network$에서",
+    "englishSource": "from $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "ethereumSepolia": {
+    "message": "이더리움 세폴리아",
+    "englishSource": "Ethereum Sepolia"
+  },
+  "bridgeTestFundsTitle": {
+    "message": "테스트 자금 전용",
+    "englishSource": "Test funds only"
+  },
+  "bridgeTestFundsBody": {
+    "message": "이 브리지는 이더리움 세폴리아 테스트 토큰을 Miden으로 이동시킵니다. 이더리움 메인넷이나 그 밖의 실제 네트워크에서는 절대 브리지를 사용하지 마십시오.",
+    "englishSource": "This bridge moves Ethereum Sepolia test tokens to Miden. Never bridge from Ethereum mainnet or any other real network."
+  },
+  "shareAddressText": {
+    "message": "제 Miden $network$ 주소(테스트 토큰 전용): $address$",
+    "englishSource": "My Miden $network$ address (test tokens only): $address$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      },
+      "address": {
+        "content": "$2"
+      }
+    }
+  },
+  "qrNetworkCaption": {
+    "message": "Miden $network$",
+    "englishSource": "Miden $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "evmConnectTestWalletTitle": {
+    "message": "테스트 지갑만 연결하십시오",
+    "englishSource": "Connect a test wallet only"
+  },
+  "evmConnectTestWalletBody": {
+    "message": "이 브리지는 이더리움 세폴리아(Sepolia)에서 운영됩니다. 실제 자금이 들어 있는 지갑은 연결하지 마십시오. 새로운 지갑을 생성하고 세폴리아 ETH로만 자금을 입금하십시오.",
+    "englishSource": "This bridge runs on Ethereum Sepolia. Do not connect a wallet that holds real funds. Create a fresh wallet and fund it with Sepolia ETH only."
+  },
   "browser": {
     "message": "브라우저",
     "englishSource": "Browser"
@@ -4077,10 +4206,6 @@
     "message": "지갑을 연결하여 Miden과 자산을 주고받으세요.",
     "englishSource": "Connect a wallet to bridge assets to and from Miden."
   },
-  "onlyBridgeableTokenSupported": {
-    "message": "'슬로우(Agglayer)' 경로는 브리지 가능한 토큰만 지원합니다. 다른 토큰을 전송하려면 '패스트'를 사용하세요.",
-    "englishSource": "The Slow (Agglayer) route only supports the bridgeable token. Use Fast to send other tokens."
-  },
   "connectDestinationWalletToClaim": {
     "message": "청구를 하려면 수신 지갑을 연결하십시오.",
     "englishSource": "Connect the destination wallet to claim."
@@ -4156,10 +4281,6 @@
   "delivering": {
     "message": "배송",
     "englishSource": "Delivering"
-  },
-  "slowNeedsNativeEth": {
-    "message": "슬로우(Agglayer) 경로는 테스트넷에서 네이티브 ETH만 지원합니다. 이 경로를 사용하려면 ETH를 선택하세요.",
-    "englishSource": "The Slow (Agglayer) route only supports native ETH on testnet. Choose ETH to use it."
   },
   "fastEthWrapNotice": {
     "message": "Fast 경로를 통해 ETH를 브리징할 경우, 먼저 ETH를 WETH로 래핑한 후 WETH를 브리징합니다. 이 경로는 아직 이용 불가능합니다.",
@@ -4353,6 +4474,10 @@
     "message": "인출 처리",
     "englishSource": "Processing Withdrawal"
   },
+  "withdrawalCheckingDescription": {
+    "message": "인출 상태를 확인하고 있습니다. 전달이 확인될 때까지 지갑을 열어 두세요.",
+    "englishSource": "Checking your withdrawal. Keep the wallet open while delivery is confirmed."
+  },
   "withdrawalProcessingDescription": {
     "message": "가스 비용이 들지 않는 인출 의향서를 서명하여 Epoch에 제출합니다. 이 과정은 보통 몇 초 정도 소요됩니다.",
     "englishSource": "Signing and submitting the gasless withdrawal intent to Epoch. This usually takes a few seconds."
@@ -4476,5 +4601,78 @@
   "devEndpointResetConfirm": {
     "message": "이렇게 하면 키와 거래 내역을 포함한 이 지갑의 모든 데이터가 영구적으로 삭제됩니다. 지갑을 복원하려면 복구 문구가 필요합니다.",
     "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
+  },
+  "activityAcceptTransfer": {
+    "message": "이체 수락",
+    "englishSource": "Accept Transfer"
+  },
+  "activityRejectTransfer": {
+    "message": "거절",
+    "englishSource": "Decline"
+  },
+  "activityCheckingTransfer": {
+    "message": "확인 중…",
+    "englishSource": "Checking…"
+  },
+  "activityTransferClaimed": {
+    "message": "청구됨",
+    "englishSource": "Claimed"
+  },
+  "activityClaimedOn": {
+    "message": "청구일:",
+    "englishSource": "Claimed on"
+  },
+  "activityReceivedOn": {
+    "message": "수신일:",
+    "englishSource": "Received on"
+  },
+  "activityNotYetAccepted": {
+    "message": "아직 승인되지 않았습니다 — 검토 후 승인하여 해당 자금을 청구하십시오.",
+    "englishSource": "Not yet accepted — review and accept to claim these funds."
+  },
+  "acceptAll": {
+    "message": "모두 수락",
+    "englishSource": "Accept All"
+  },
+  "activitySearch": {
+    "message": "검색 활동",
+    "englishSource": "Search activity"
+  },
+  "activityTransferAccepted": {
+    "message": "이체 승인됨",
+    "englishSource": "Transfer accepted"
+  },
+  "activityTransferDetails": {
+    "message": "상세 정보",
+    "englishSource": "Details"
+  },
+  "activityRejectExplanation": {
+    "message": "이 기기의 ‘활동’에서 이 전송 내역을 숨기시겠습니까? 이 작업을 수행해도 자금이 발신자에게 반환되거나 ‘note’가 삭제되지는 않습니다. ‘활동’에서 숨겨진 전송 내역을 복원할 수 있습니다.",
+    "englishSource": "Hide this transfer from Activity on this device? This does not return funds to the sender or delete the note. You can restore hidden transfers in Activity."
+  },
+  "activityHiddenTransfers": {
+    "message": "숨겨진 전송: $count$",
+    "englishSource": "Hidden transfers: $count$",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "activityRestoreTransfers": {
+    "message": "복원",
+    "englishSource": "Restore"
+  },
+  "activityHiddenNotesError": {
+    "message": "숨겨진 전송 내역을 저장할 수 없습니다. 다시 시도해 주십시오.",
+    "englishSource": "Could not save hidden transfers. Please try again."
+  },
+  "activityDateUnavailable": {
+    "message": "날짜 미확인",
+    "englishSource": "Date unavailable"
+  },
+  "walletSetupDidNotComplete": {
+    "message": "지갑이 생성되었으나 시작 절차가 완료되지 않았습니다. 연결 상태를 확인하고 다시 시도해 주세요.",
+    "englishSource": "Your wallet was created but did not finish starting up. Check your connection and try again."
   }
 }

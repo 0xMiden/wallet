@@ -149,6 +149,20 @@ jest.mock('lib/miden-chain/native-asset', () => ({
   getVerificationBaseFee: () => Promise.resolve(mockBaseFee)
 }));
 
+const mockGetBlockTimestamps = jest.fn(
+  async (_blocks: readonly number[], _readScope: string) => new Map<number, number>()
+);
+jest.mock('lib/miden-chain/block-timestamps', () => ({
+  getBlockTimestamps: (blocks: readonly number[], readScope: string) => mockGetBlockTimestamps(blocks, readScope)
+}));
+
+// Unset, the real effective RPC URL; a test sets it to move the wallet to another endpoint mid-read.
+let mockRpcUrl: string | undefined;
+jest.mock('lib/miden-chain/effective-endpoints', () => {
+  const actual = jest.requireActual('lib/miden-chain/effective-endpoints');
+  return { ...actual, getEffectiveRpcUrl: () => mockRpcUrl ?? actual.getEffectiveRpcUrl() };
+});
+
 const mockGetFaucetIdSetting = jest.fn(async (): Promise<string | null> => null);
 jest.mock('../assets', () => ({
   ...jest.requireActual('../assets'),
@@ -229,6 +243,7 @@ function fakeNote({
 beforeEach(() => {
   mockInitiateConsumeBatch.mockClear();
   mockBaseFee = 0;
+  mockRpcUrl = undefined;
   jest.clearAllMocks();
   mockIsExist.mockResolvedValue(true);
   mockGetCurrentAccountPublicKey.mockResolvedValue('pk-1');
@@ -354,6 +369,43 @@ describe('doSync', () => {
     const call = mockStorageSet.mock.calls.find(c => 'miden_cached_consumable_notes' in c[0]);
     const cached = call?.[0]?.miden_cached_consumable_notes as Array<{ id: string }>;
     expect(cached.map(n => n.id)).toEqual(['visible-note']);
+  });
+
+  it('dates cached notes on the endpoint they were read from, even if the wallet moves during the read', async () => {
+    mockRpcUrl = 'https://rpc-a.test';
+    mockClient.getConsumableNoteDtos.mockImplementationOnce(async () => {
+      mockRpcUrl = 'https://rpc-b.test';
+      return [{ ...fakeNote({ id: 'dated', faucetId: 'f1' }), blockNum: 42 }];
+    });
+
+    await doSync();
+
+    expect(mockGetBlockTimestamps).toHaveBeenCalledWith([42], 'https://rpc-a.test');
+  });
+
+  it('dates cached notes from their inclusion block after the note read releases the client', async () => {
+    mockClient.getConsumableNoteDtos.mockResolvedValueOnce([
+      { ...fakeNote({ id: 'dated', faucetId: 'f1' }), blockNum: 42 },
+      { ...fakeNote({ id: 'undated-block', faucetId: 'f1' }), blockNum: 43 },
+      fakeNote({ id: 'no-block', faucetId: 'f1' })
+    ]);
+    let holdDuringLookup: object | null | undefined;
+    mockGetBlockTimestamps.mockImplementationOnce(async () => {
+      holdDuringLookup = swLockHold;
+      return new Map([[42, 1_700_000_000]]);
+    });
+
+    await doSync();
+
+    expect(mockGetBlockTimestamps.mock.calls.map(([blocks]) => blocks)).toEqual([[42, 43]]);
+    expect(holdDuringLookup).toBeNull();
+    const call = mockStorageSet.mock.calls.find(c => 'miden_cached_consumable_notes' in c[0]);
+    const cached = call?.[0]?.miden_cached_consumable_notes as Array<{ id: string; receivedAt?: number }>;
+    expect(cached.map(n => [n.id, n.receivedAt])).toEqual([
+      ['dated', 1_700_000_000],
+      ['undated-block', undefined],
+      ['no-block', undefined]
+    ]);
   });
 
   it('shows a desktop notification when a new note arrives and no frontends are connected', async () => {
@@ -530,6 +582,34 @@ describe('doSync', () => {
     mockClient.getAccount.mockClear();
     await doSync();
     expect(mockClient.getAccount).toHaveBeenCalled();
+    jest.restoreAllMocks();
+  });
+
+  it('names the reader check that parked in the note read eviction message', async () => {
+    jest.spyOn(console, 'warn').mockImplementation();
+    mockClient.syncState.mockReset();
+    mockClient.syncState.mockResolvedValue(undefined);
+    mockClient.getConsumableNoteDtos.mockClear();
+    let thrown: unknown;
+    mockClient.getConsumableNoteDtos.mockImplementationOnce(async (...called: unknown[]) => {
+      const assertLive = called[1] as (step?: string) => void;
+      evictSwLockHold();
+      try {
+        assertLive('after the reader build');
+      } catch (e) {
+        thrown = e;
+        throw e;
+      }
+      return [];
+    });
+
+    await doSync();
+
+    // The interface names the check; the sync read forwards it into its own label.
+    expect(thrown).toBeInstanceOf(WasmClientPoisonedError);
+    expect(((thrown as Error).cause as Error).message).toBe(
+      'sync note read abandoned inside the consumable-note read, after the reader build'
+    );
     jest.restoreAllMocks();
   });
 

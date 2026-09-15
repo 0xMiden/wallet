@@ -31,6 +31,7 @@ export {
   pollEarnWithdrawDelivery,
   resumeEarnWithdrawal,
   resubmitEarnWithdrawal,
+  retryEarnWithdrawal,
   reconcileEarnWithdrawals
 } from './earn-withdraw';
 export type { GaslessEarnWithdrawalArgs, GaslessEarnWithdrawalResult } from './earn-withdraw';
@@ -49,6 +50,7 @@ export {
   buildEVMToMidenTaskDataParams,
   buildCrossChainIntent,
   buildEVMToMidenIntent,
+  evmToMidenMinTokenOut,
   formatQuoteTokenIn,
   getCrossChainQuote,
   getEVMToMidenQuote,

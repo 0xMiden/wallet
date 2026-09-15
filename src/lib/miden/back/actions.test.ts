@@ -54,7 +54,9 @@ const mockVault = {
   setGuardianEndpoint: jest.fn(),
   setGuardianOperatorCommitment: jest.fn(),
   setGuardianSyncStatus: jest.fn(),
-  updateGuardianBinding: jest.fn()
+  updateGuardianBinding: jest.fn(),
+  retire: jest.fn(),
+  insertKeySink: jest.fn()
 };
 
 // Mock store callbacks
@@ -74,6 +76,22 @@ let mockStoreState = {
   settings: null,
   ownMnemonic: null
 };
+
+// The realm keystore (#878): init installs the signer; lock retires the vault, which uninstalls its sink.
+// The store's real `locked` drops the vault and the Ready status, so an action that
+// needs the vault it locks must read it first; the mock models that transition.
+mockLocked.mockImplementation(() => {
+  mockStoreState.status = WalletStatus.Locked;
+  delete (mockStoreState as { vault?: unknown }).vault;
+});
+
+const mockInstallRealmKeystore = jest.fn();
+const mockUninstallRealmKeystore = jest.fn();
+jest.mock('lib/miden/sdk/miden-client', () => ({
+  ...jest.requireActual('lib/miden/sdk/miden-client'),
+  installRealmKeystore: (...a: unknown[]) => mockInstallRealmKeystore(...a),
+  uninstallRealmKeystore: (...a: unknown[]) => mockUninstallRealmKeystore(...a)
+}));
 
 jest.mock('lib/miden/back/guardian-drift', () => ({
   resolveGuardianDrift: jest.fn(),
@@ -174,6 +192,24 @@ describe('actions', () => {
   });
 
   describe('init', () => {
+    it('installs the vault signer as the realm signer, before anything can ask the SDK client to sign (#878)', async () => {
+      mockInstallRealmKeystore.mockClear();
+      await init();
+      expect(mockInstallRealmKeystore).toHaveBeenCalledWith({ sign: expect.any(Function) });
+      const { sign } = mockInstallRealmKeystore.mock.calls[0]![0];
+      // The SDK's byte shape over the vault's hex signer: hex in, bytes out.
+      mockVault.signTransaction.mockResolvedValueOnce('abcd');
+      await expect(sign(new Uint8Array([0x01, 0x02]), new Uint8Array([0x10]))).resolves.toEqual(
+        new Uint8Array([0xab, 0xcd])
+      );
+      expect(mockVault.signTransaction).toHaveBeenCalledWith('0102', '10');
+      // A locked vault reaches the SDK as a classified error, which the transaction loop defers on.
+      mockVault.signTransaction.mockRejectedValueOnce(
+        Object.assign(new Error('Wallet is locked'), { reason: 'locked' })
+      );
+      await expect(sign(new Uint8Array([1]), new Uint8Array([2]))).rejects.toMatchObject({ reason: 'locked' });
+    });
+
     it('calls Vault.isExist and inited', async () => {
       const { Vault } = jest.requireMock('lib/miden/back/vault');
       Vault.isExist.mockResolvedValueOnce(true);
@@ -277,9 +313,103 @@ describe('actions', () => {
 
       expect(mockLocked).toHaveBeenCalled();
     });
+
+    it('retires the vault it locks: its insert-key sink leaves the realm with it (#878)', async () => {
+      Object.assign(mockStoreState, { vault: mockVault });
+      await lock();
+      expect(mockLocked).toHaveBeenCalled();
+      expect(mockVault.retire).toHaveBeenCalledTimes(1);
+    });
+
+    it('retires nothing when no vault is held: an unlock or spawn in flight keeps the sink it installed (#878)', async () => {
+      mockUninstallRealmKeystore.mockClear();
+      mockInstallRealmKeystore.mockClear();
+      await lock();
+      expect(mockVault.retire).not.toHaveBeenCalled();
+      expect(mockUninstallRealmKeystore).not.toHaveBeenCalled();
+      // And never re-derives the sink from a store that holds nothing: that would
+      // null a spawn's sink between its key and its adoption (a store resync in lock
+      // was proposed and rejected under review; F-025 in the #878 ledger).
+      expect(mockInstallRealmKeystore).not.toHaveBeenCalled();
+    });
   });
 
   describe('unlock', () => {
+    const unlockableVault = () => ({
+      migrateLegacyGuardianAccounts: jest.fn().mockResolvedValue(undefined),
+      backfillEvmAddresses: jest.fn().mockResolvedValue(undefined),
+      backfillGuardianEndpoints: jest.fn().mockResolvedValue(undefined),
+      fetchAccounts: jest.fn().mockResolvedValue([]),
+      fetchSettings: jest.fn().mockResolvedValue({}),
+      getCurrentAccount: jest.fn().mockResolvedValue(null),
+      isOwnMnemonic: jest.fn().mockResolvedValue(true),
+      insertKeySink: jest.fn()
+    });
+
+    it('adopting the vault installs its insert-key sink for the realm (#878)', async () => {
+      const { Vault } = jest.requireMock('lib/miden/back/vault');
+      const adopted = unlockableVault();
+      Vault.setup.mockResolvedValueOnce(adopted);
+      mockUnlocked.mockImplementationOnce(({ vault }: { vault: unknown }) => {
+        mockStoreState.status = WalletStatus.Ready;
+        Object.assign(mockStoreState, { vault });
+      });
+      mockInstallRealmKeystore.mockClear();
+      await unlock('pw');
+      expect(mockInstallRealmKeystore).toHaveBeenLastCalledWith({ insertKey: adopted.insertKeySink });
+    });
+
+    it('a failed unlock leaves the realm sink as the store has it: none while Locked (#878)', async () => {
+      const { Vault } = jest.requireMock('lib/miden/back/vault');
+      const candidate = unlockableVault();
+      candidate.fetchAccounts.mockRejectedValueOnce(new Error('storage read failed'));
+      Vault.setup.mockResolvedValueOnce(candidate);
+      mockStoreState.status = WalletStatus.Locked;
+      mockInstallRealmKeystore.mockClear();
+      await expect(unlock('pw')).rejects.toThrow('storage read failed');
+      expect(mockUnlocked).not.toHaveBeenCalled();
+      expect(mockInstallRealmKeystore).toHaveBeenLastCalledWith({ insertKey: null });
+    });
+
+    it('a failed unlock while Locked over a vault the store still holds installs no sink (#878)', async () => {
+      const { Vault } = jest.requireMock('lib/miden/back/vault');
+      const candidate = unlockableVault();
+      candidate.fetchAccounts.mockRejectedValueOnce(new Error('storage read failed'));
+      Vault.setup.mockResolvedValueOnce(candidate);
+      // A lock landed before this flow's finally: the vault is still on the state
+      // object but the status is not Ready, and the status alone decides.
+      mockStoreState.status = WalletStatus.Locked;
+      Object.assign(mockStoreState, { vault: mockVault });
+      mockInstallRealmKeystore.mockClear();
+      await expect(unlock('pw')).rejects.toThrow('storage read failed');
+      expect(mockInstallRealmKeystore).toHaveBeenLastCalledWith({ insertKey: null });
+    });
+
+    it("a setup that constructs its vault and then throws, over a Ready vault, keeps the Ready vault's sink (#878)", async () => {
+      const { Vault } = jest.requireMock('lib/miden/back/vault');
+      const candidateSink = jest.fn();
+      // The constructor installed the candidate's sink; setup then failed before returning it.
+      Vault.setup.mockImplementationOnce(async () => {
+        mockInstallRealmKeystore({ insertKey: candidateSink });
+        throw new Error('setup failed after construction');
+      });
+      Object.assign(mockStoreState, { vault: mockVault });
+      mockInstallRealmKeystore.mockClear();
+      await expect(unlock('pw')).rejects.toThrow('setup failed after construction');
+      expect(mockInstallRealmKeystore).toHaveBeenLastCalledWith({ insertKey: mockVault.insertKeySink });
+    });
+
+    it("a failed re-unlock over a Ready vault keeps the Ready vault's sink (#878)", async () => {
+      const { Vault } = jest.requireMock('lib/miden/back/vault');
+      const candidate = unlockableVault();
+      candidate.fetchSettings.mockRejectedValueOnce(new Error('storage read failed'));
+      Vault.setup.mockResolvedValueOnce(candidate);
+      Object.assign(mockStoreState, { vault: mockVault });
+      mockInstallRealmKeystore.mockClear();
+      await expect(unlock('pw')).rejects.toThrow('storage read failed');
+      expect(mockInstallRealmKeystore).toHaveBeenLastCalledWith({ insertKey: mockVault.insertKeySink });
+    });
+
     it('calls Vault.setup and unlocked with password', async () => {
       const { Vault } = jest.requireMock('lib/miden/back/vault');
       // The guardian-endpoint backfill makes external HTTP and must NOT gate the
@@ -321,6 +451,70 @@ describe('actions', () => {
   });
 
   describe('registerNewWallet', () => {
+    it('a spawn that fails leaves the realm sink as the store has it (#878)', async () => {
+      const { Vault } = jest.requireMock('lib/miden/back/vault');
+      Vault.spawn.mockRejectedValueOnce(new Error('hardware setup failed'));
+      mockStoreState.status = WalletStatus.Idle;
+      mockInstallRealmKeystore.mockClear();
+      await expect(registerNewWallet(0 as any, 'pw')).rejects.toThrow('hardware setup failed');
+      expect(mockInstallRealmKeystore).toHaveBeenLastCalledWith({ insertKey: null });
+    });
+
+    it('adopting the spawned vault installs its insert-key sink for the realm (#878)', async () => {
+      const { Vault } = jest.requireMock('lib/miden/back/vault');
+      const spawned = { ...mockVault, insertKeySink: jest.fn() };
+      Vault.spawn.mockResolvedValueOnce(spawned);
+      mockUnlocked.mockImplementationOnce(({ vault }: { vault: unknown }) => {
+        mockStoreState.status = WalletStatus.Ready;
+        Object.assign(mockStoreState, { vault });
+      });
+      mockInstallRealmKeystore.mockClear();
+      await registerNewWallet(0 as any, 'pw');
+      expect(mockInstallRealmKeystore).toHaveBeenLastCalledWith({ insertKey: spawned.insertKeySink });
+    });
+
+    it('an import whose spawn fails leaves the realm sink as the store has it (#878)', async () => {
+      const { Vault } = jest.requireMock('lib/miden/back/vault');
+      Vault.spawnFromMidenClient.mockRejectedValueOnce(new Error('restore failed'));
+      mockStoreState.status = WalletStatus.Idle;
+      mockInstallRealmKeystore.mockClear();
+      await expect(registerImportedWallet('pw', 'mnemonic', [])).rejects.toThrow('restore failed');
+      expect(mockInstallRealmKeystore).toHaveBeenLastCalledWith({ insertKey: null });
+    });
+
+    it('adopting the imported vault installs its insert-key sink for the realm (#878)', async () => {
+      const { Vault } = jest.requireMock('lib/miden/back/vault');
+      const imported = { ...mockVault, insertKeySink: jest.fn() };
+      Vault.spawnFromMidenClient.mockResolvedValueOnce(imported);
+      mockUnlocked.mockImplementationOnce(({ vault }: { vault: unknown }) => {
+        mockStoreState.status = WalletStatus.Ready;
+        Object.assign(mockStoreState, { vault });
+      });
+      mockInstallRealmKeystore.mockClear();
+      await registerImportedWallet('pw', 'mnemonic', []);
+      expect(mockInstallRealmKeystore).toHaveBeenLastCalledWith({ insertKey: imported.insertKeySink });
+    });
+
+    it('rides the accounts write queue: an import queued behind a spawn waits for it (#878)', async () => {
+      const { Vault } = jest.requireMock('lib/miden/back/vault');
+      let spawnInFlight = false;
+      let importStartedWhileSpawnInFlight = false;
+      Vault.spawn.mockImplementationOnce(async () => {
+        spawnInFlight = true;
+        await new Promise(r => setTimeout(r, 20));
+        spawnInFlight = false;
+        throw new Error('spawn failed after its window');
+      });
+      mockVault.importAccountFromPrivateKey.mockImplementationOnce(async () => {
+        if (spawnInFlight) importStartedWhileSpawnInFlight = true;
+        return [{ publicKey: 'pk1', name: 'A', isPublic: true, hdIndex: -1 }];
+      });
+      const spawning = registerNewWallet(0 as any, 'pw').catch(() => {});
+      await importAccount('deadbeef', 'A');
+      await spawning;
+      expect(importStartedWhileSpawnInFlight).toBe(false);
+    });
+
     it('creates new vault and unlocks', async () => {
       const { Vault } = jest.requireMock('lib/miden/back/vault');
       const mockVaultInstance = {
