@@ -147,6 +147,8 @@ export interface WalletPage {
   getGuardianAuthInfo(accountPublicKey: string): Promise<GuardianAuthInfo>;
 }
 
+export type BalanceSnapshotScope = { symbol: string; faucetId?: never } | { faucetId: string; symbol?: never };
+
 /**
  * Chrome-specific extension of WalletPage. Kept for spec blocks that
  * reach into the Playwright Page directly (currently multi-account's
@@ -172,7 +174,7 @@ export interface ChromeWalletPageApi extends WalletPage, IdbDumpSource {
    */
   createGuardianWallet(guardianUrl: string, password?: string): Promise<{ address: string; seedPhrase: string[] }>;
   /** Fast, non-invasive balance + pending-notes + outgoing-tx snapshot. */
-  quickBalanceSnapshot(opts?: { symbol?: string }): Promise<{
+  quickBalanceSnapshot(scope?: BalanceSnapshotScope): Promise<{
     balance: number;
     pendingNotes: Array<{ id: string; amount: number; faucetId: string }>;
     pendingSum: number;
@@ -746,7 +748,7 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
    * need an authoritative total (e.g. a conservation assertion) must call
    * refreshBalances() first — unlike getBalance(), which refreshes internally.
    */
-  async quickBalanceSnapshot(opts?: { symbol?: string }): Promise<{
+  async quickBalanceSnapshot(scope?: BalanceSnapshotScope): Promise<{
     balance: number;
     pendingNotes: Array<{ id: string; amount: number; faucetId: string }>;
     pendingSum: number;
@@ -767,7 +769,7 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
   }> {
     try {
       return await this.page.evaluate(
-        async ({ wanted }) => {
+        async ({ wantedFaucetId, wantedSymbol }) => {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const store = (window as any).__TEST_STORE__;
           const state = store?.getState?.();
@@ -776,11 +778,12 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
           for (const tokenList of Object.values(state?.balances || {}) as unknown[]) {
             if (!Array.isArray(tokenList)) continue;
             for (const token of tokenList) {
-              // Optional SYMBOL scope. Unscoped this sums every asset the account holds,
-              // which silently includes the native fee asset -- so a caller conserving a
-              // total across a fee-charging chain measures its own fees as missing value.
-              if (wanted && token?.metadata?.symbol === undefined) unidentified++;
-              if (wanted && String(token?.metadata?.symbol ?? '').toLowerCase() !== wanted) continue;
+              // A faucet ID isolates one asset even when faucets share a symbol. Unscoped,
+              // this sums every asset the account holds, including the native fee asset.
+              const faucetId = String(token?.tokenId ?? '').toLowerCase();
+              if (wantedFaucetId && faucetId !== wantedFaucetId) continue;
+              if (wantedSymbol && token?.metadata?.symbol === undefined) unidentified++;
+              if (wantedSymbol && String(token?.metadata?.symbol ?? '').toLowerCase() !== wantedSymbol) continue;
               const amount = parseFloat(String(token.amount ?? token.balance ?? '0'));
               if (amount > 0) balance += amount;
             }
@@ -794,10 +797,13 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
           const pendingNotes: Array<{ id: string; amount: number; faucetId: string }> = [];
           let pendingSum = 0;
           for (const note of notes) {
-            if (wanted && note?.metadata?.symbol === undefined) unidentified++;
-            if (wanted && String(note?.metadata?.symbol ?? '').toLowerCase() !== wanted) continue;
+            const faucetId = String(note?.faucetId ?? '').toLowerCase();
+            if (wantedFaucetId && faucetId !== wantedFaucetId) continue;
+            if (wantedSymbol && note?.metadata?.symbol === undefined) unidentified++;
+            if (wantedSymbol && String(note?.metadata?.symbol ?? '').toLowerCase() !== wantedSymbol) continue;
             const baseUnits = parseInt(String(note.amountBaseUnits ?? '0'), 10);
-            const decimals = note.metadata?.decimals ?? 8;
+            const decimals =
+              note.metadata?.decimals ?? state?.assetsMetadata?.[String(note?.faucetId ?? '')]?.decimals ?? 8;
             const amount = baseUnits / Math.pow(10, decimals);
             pendingNotes.push({ id: String(note.id ?? ''), amount, faucetId: String(note.faucetId ?? '') });
             pendingSum += amount;
@@ -832,7 +838,10 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
             unidentified
           };
         },
-        { wanted: opts?.symbol?.toLowerCase() }
+        {
+          wantedFaucetId: scope?.faucetId?.toLowerCase(),
+          wantedSymbol: scope?.symbol?.toLowerCase()
+        }
       );
     } catch (e) {
       return {
@@ -1552,11 +1561,11 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
   }
 
   /**
-   * Get the balance for a specific token from the Explore page.
-   * If tokenSymbol is not given, returns the balance of the first token row.
+   * Get the reportable balance for a specific token from the Explore page.
+   * If tokenSymbol is not given, returns the total across all assets.
    * Returns 0 if no matching token found.
    */
-  async getBalance(_tokenSymbol?: string): Promise<number> {
+  async getBalance(tokenSymbol?: string): Promise<number> {
     await this.navigateHome();
     // The evaluate below needs `__TEST_STORE__` with an account on it; wait for
     // that rather than for a second of wall clock (this runs on every poll of
@@ -1567,56 +1576,65 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
       // Read balances from the Zustand store (consumed assets) AND from
       // chrome.storage.local sync data (consumable notes not yet consumed).
       // The transaction processor auto-consumes notes but may not run in SW.
-      const result = await this.page.evaluate(async () => {
-        const store = (window as any).__TEST_STORE__;
-        if (!store) return { balance: 0, debug: 'no store' };
-        const state = store.getState();
+      const result = await this.page.evaluate(
+        async ({ wantedSymbol }) => {
+          const store = (window as any).__TEST_STORE__;
+          if (!store) return { balance: 0, debug: 'no store' };
+          const state = store.getState();
 
-        // Trigger a fresh balance fetch
-        try {
-          if (state.currentAccount?.publicKey && state.fetchBalances) {
-            await state.fetchBalances(state.currentAccount.publicKey, state.assetsMetadata || {});
-          }
-        } catch {}
-
-        const freshState = store.getState();
-        let totalBalance = 0;
-
-        // 1. Read consumed assets from store
-        for (const tokenList of Object.values(freshState.balances || {}) as any[]) {
-          if (!Array.isArray(tokenList)) continue;
-          for (const token of tokenList) {
-            const amount = parseFloat(String(token.amount ?? token.balance ?? '0'));
-            if (amount > 0) {
-              totalBalance += amount;
+          // Trigger a fresh balance fetch
+          try {
+            if (state.currentAccount?.publicKey && state.fetchBalances) {
+              await state.fetchBalances(state.currentAccount.publicKey, state.assetsMetadata || {});
             }
-          }
-        }
+          } catch {}
 
-        // 2. Also check consumable notes from sync data (pending incoming tokens)
-        // These are notes that have been discovered but not yet consumed.
-        try {
-          const storage = await new Promise<any>(resolve => {
-            chrome.storage.local.get(['miden_sync_data'], resolve);
-          });
-          const syncData = storage?.miden_sync_data;
-          if (syncData?.notes?.length > 0) {
-            for (const note of syncData.notes) {
-              const baseUnits = parseInt(note.amountBaseUnits || '0', 10);
-              const decimals = note.metadata?.decimals ?? 8;
-              const noteBalance = baseUnits / Math.pow(10, decimals);
-              if (noteBalance > 0) {
-                totalBalance += noteBalance;
+          const freshState = store.getState();
+          let totalBalance = 0;
+
+          // 1. Read consumed assets from store
+          for (const tokenList of Object.values(freshState.balances || {}) as any[]) {
+            if (!Array.isArray(tokenList)) continue;
+            for (const token of tokenList) {
+              const faucetId = String(token?.tokenId ?? '');
+              const metadata = token?.metadata ?? freshState.assetsMetadata?.[faucetId];
+              if (wantedSymbol && String(metadata?.symbol ?? '').toLowerCase() !== wantedSymbol) continue;
+              const amount = parseFloat(String(token.amount ?? token.balance ?? '0'));
+              if (amount > 0) {
+                totalBalance += amount;
               }
             }
           }
-        } catch {}
 
-        return {
-          balance: totalBalance,
-          debug: `consumed=${totalBalance - 0}, notes pending, total=${totalBalance}`
-        };
-      });
+          // 2. Also check consumable notes from sync data (pending incoming tokens)
+          // These are notes that have been discovered but not yet consumed.
+          try {
+            const storage = await new Promise<any>(resolve => {
+              chrome.storage.local.get(['miden_sync_data'], resolve);
+            });
+            const syncData = storage?.miden_sync_data;
+            if (syncData?.notes?.length > 0) {
+              for (const note of syncData.notes) {
+                const faucetId = String(note?.faucetId ?? '');
+                const metadata = note?.metadata ?? freshState.assetsMetadata?.[faucetId];
+                if (wantedSymbol && String(metadata?.symbol ?? '').toLowerCase() !== wantedSymbol) continue;
+                const baseUnits = parseInt(note.amountBaseUnits || '0', 10);
+                const decimals = metadata?.decimals ?? 8;
+                const noteBalance = baseUnits / Math.pow(10, decimals);
+                if (noteBalance > 0) {
+                  totalBalance += noteBalance;
+                }
+              }
+            }
+          } catch {}
+
+          return {
+            balance: totalBalance,
+            debug: `consumed=${totalBalance - 0}, notes pending, total=${totalBalance}`
+          };
+        },
+        { wantedSymbol: tokenSymbol?.toLowerCase() }
+      );
 
       return typeof result === 'object' ? result.balance : result;
     } catch (e) {

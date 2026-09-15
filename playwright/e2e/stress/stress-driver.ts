@@ -121,6 +121,8 @@ export interface StressDriverInputs {
   addressB: string;
   /** Token symbol to send (defaults to the custom-faucet "TST"). */
   tokenSymbol?: string;
+  /** Exact bech32 faucet ID whose value this run conserves. */
+  faucetId: string;
 }
 
 export async function runStressDriver(
@@ -128,7 +130,7 @@ export async function runStressDriver(
   timeline: TimelineRecorder,
   opts: StressOptions
 ): Promise<StressResult> {
-  const { walletA, walletB, addressA, addressB, tokenSymbol = 'TST' } = inputs;
+  const { walletA, walletB, addressA, addressB, tokenSymbol = 'TST', faucetId } = inputs;
   const rng = makeRng(opts.seed);
   const wallets: Record<'A' | 'B', ChromeWalletPageApi> = { A: walletA, B: walletB };
   const addrs: Record<'A' | 'B', string> = { A: addressA, B: addressB };
@@ -149,8 +151,8 @@ export async function runStressDriver(
   // so it can maintain expected deltas and compare against the wallet's
   // actual reported state (consumed + pending). First divergent op pinpoints
   // where tokens started going missing.
-  const initA = await walletA.quickBalanceSnapshot();
-  const initB = await walletB.quickBalanceSnapshot();
+  const initA = await walletA.quickBalanceSnapshot({ faucetId });
+  const initB = await walletB.quickBalanceSnapshot({ faucetId });
   const initialA = initA.totalReportable;
   const initialB = initB.totalReportable;
   let expectedDeltaA = 0;
@@ -369,7 +371,10 @@ export async function runStressDriver(
     }
 
     // Read actual — parallel, ~100ms total
-    const [snapA, snapB] = await Promise.all([walletA.quickBalanceSnapshot(), walletB.quickBalanceSnapshot()]);
+    const [snapA, snapB] = await Promise.all([
+      walletA.quickBalanceSnapshot({ faucetId }),
+      walletB.quickBalanceSnapshot({ faucetId })
+    ]);
     const observedDeltaA = snapA.totalReportable - initialA;
     const observedDeltaB = snapB.totalReportable - initialB;
     const divergenceA = observedDeltaA - expectedDeltaA;

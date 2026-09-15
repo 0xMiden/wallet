@@ -3,19 +3,14 @@
  *
  * WHY THIS EXISTS
  *
- * `WalletPage.getBalance(_tokenSymbol?)` (wallet-page.ts) has two properties that
- * make it unusable as a correctness oracle, and 60+ assertions in this suite are
- * built on it:
- *
- *   1. It takes a token symbol and **discards it** (the parameter is `_`-prefixed).
- *      It sums every token of every faucet, so a send that credits the WRONG TOKEN
- *      still moves the number.
- *   2. It **adds unconsumed notes** to the balance. A note that was discovered but
- *      never successfully consumed counts as if it were spendable, so a broken
- *      consume still reads as a balance increase.
+ * `WalletPage.getBalance(tokenSymbol?)` (wallet-page.ts) has a property that makes
+ * it unusable as a correctness oracle, and 60+ assertions in this suite are built
+ * on it: it **adds unconsumed notes** to the balance. A note that was discovered but
+ * never successfully consumed counts as if it were spendable, so a broken consume
+ * still reads as a balance increase.
  *
  * Combined with `expect(balance).toBeGreaterThan(0)`, that is an assertion which
- * cannot fail for a wrong-amount, wrong-token, or never-actually-claimed bug.
+ * cannot fail for a wrong-amount or never-actually-claimed bug.
  *
  * These helpers keep the two quantities strictly separate and work in **base units
  * as bigint** — no float division, so a 6-decimal and an 8-decimal token can't

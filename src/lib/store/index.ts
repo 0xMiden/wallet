@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
 
 import { setAgglayerFaucetForE2E } from 'lib/agglayer/b2agg/constant';
+import { hexFaucetIdToBech32 } from 'lib/e2e/faucet-address';
 import { createIntercomClient, IIntercomClient } from 'lib/intercom/client';
 import { clearPersistedSeenNoteIds, persistSeenNoteIds } from 'lib/miden/back/note-checker-storage';
 import type { IConsumeBridgeInExtraInputs, IEarnWithdrawExtraInputs, ITransaction } from 'lib/miden/db/types';
@@ -885,12 +886,8 @@ if (process.env.MIDEN_E2E_TEST === 'true') {
       const sdk = await import('@miden-sdk/miden-sdk/lazy');
       (globalThis as any).__TEST_HEX_TO_BECH32_FAUCET__ = (
         hex: string,
-        network: 'testnet' | 'devnet' = 'testnet'
-      ): string => {
-        const id = sdk.AccountId.fromHex(hex);
-        const netId = network === 'devnet' ? sdk.NetworkId.devnet() : sdk.NetworkId.testnet();
-        return sdk.Address.fromAccountId(id, 'BasicWallet').toBech32(netId);
-      };
+        network: 'testnet' | 'devnet' | 'localnet' = 'testnet'
+      ): string => hexFaucetIdToBech32(sdk, hex, network);
     } catch (e) {
       // E2E-only path; failure here just means the iOS metadata-injection
       // workaround won't work and we'd hit the original symptom (note
