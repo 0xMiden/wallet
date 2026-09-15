@@ -574,6 +574,7 @@
   "guardianUrlMismatch": "Dieser Betreiber stimmt nicht mit dem On-Chain-guardian Ihres Kontos überein.",
   "guardianUrlUnreachable": "Dieser Betreiber war nicht erreichbar. Prüfe die URL und deine Verbindung und versuche es erneut.",
   "guardianUrlNoOnChainGuardian": "Für dieses Konto gibt es noch keinen Guardian on-chain, gegen den geprüft werden könnte.",
+  "guardianUrlStaleRetry": "Ihr Guardian hat sich geändert, während die Adresse geprüft wurde. Bitte versuchen Sie es erneut.",
   "connectivityGuardianTitle": "Guardian nicht erreichbar",
   "connectivityGuardianBody": "Ihr „guardian“ reagiert nicht, daher können Transaktionen nicht mitunterzeichnet werden.",
   "connectivityGuardianCta": "Guardian wechseln",

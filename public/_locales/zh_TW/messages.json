@@ -2604,6 +2604,10 @@
     "message": "此帳戶尚未設定可用於核對的鏈上 Guardian。",
     "englishSource": "This account has no on-chain guardian to verify against yet."
   },
+  "guardianUrlStaleRetry": {
+    "message": "在核對地址時，您的 Guardian 已發生變化。請重試。",
+    "englishSource": "Your Guardian changed while the address was being checked. Please try again."
+  },
   "connectivityGuardianTitle": {
     "message": "Guardian 無法連線",
     "englishSource": "Guardian unreachable"

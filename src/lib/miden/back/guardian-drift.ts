@@ -102,6 +102,12 @@ export const SILENT_DRIFT_WINDOWS_BEFORE_PROMPT = 5;
 const nextDriftProbeAt = new Map<string, number>();
 
 /**
+ * The drift pass running for each account. A second call joins it, so a pass's
+ * stale discard never releases a cooldown or takes back a marker another pass set.
+ */
+const driftPasses = new Map<string, Promise<{ status: GuardianSyncStatus; changed: boolean }>>();
+
+/**
  * The longest gap between two counted windows that still leaves the run
  * "unbroken". Beyond it the run restarts, because nothing was observed during
  * the gap and the endpoint may well have been answering throughout it.
@@ -216,6 +222,7 @@ const driftProbeEndpoint = new Map<string, string>();
 export async function __resetGuardianDriftProbeCooldownForTest(): Promise<void> {
   nextDriftProbeAt.clear();
   driftProbeEndpoint.clear();
+  driftPasses.clear();
   try {
     await putToStorage(SILENT_DRIFT_RUN_STORAGE_KEY, {});
   } catch {
@@ -230,18 +237,80 @@ async function clearDriftProbeState(accountPublicKey: string): Promise<void> {
   await writeSilentDriftRun(accountPublicKey, undefined);
 }
 
+/**
+ * A pass whose binding write came back `stale`, or whose status write was
+ * refused, reasoned from a binding that no longer exists: a rotation, a repair
+ * or a user's apply landed during this pass's probes. The repair is discarded,
+ * not retried against state it never looked at; the next tick re-derives
+ * everything from a fresh snapshot.
+ *
+ * The probe cooldown armed earlier in this pass is released: the pass
+ * established nothing about the new binding, and serving out its cooldown would
+ * leave the new endpoint unprobed, and any real drift unrepaired, for up to a
+ * full window. A repair that kept losing the race would otherwise keep
+ * re-arming its own delay.
+ *
+ * A denial marks the account `resolving` before the lookup. A discard after one
+ * puts back the status the snapshot held, in the same queued step as the check
+ * that the marker is still there, so no status from a discarded repair outlives
+ * it and a status another writer set meanwhile stands. The pass wrote, so it
+ * reports `changed` and the caller broadcasts what the account now holds. Passes
+ * for one account never overlap (resolveGuardianDrift joins a running one), so
+ * the cooldown and a marker the check finds belong to no other live pass.
+ */
+async function discardStaleRepair(
+  vault: GuardianDriftVault,
+  accountPublicKey: string,
+  account: { guardianSyncStatus?: GuardianSyncStatus },
+  markedResolving: boolean
+): Promise<{ status: GuardianSyncStatus; changed: boolean }> {
+  nextDriftProbeAt.delete(accountPublicKey);
+  console.warn(
+    `[GuardianDrift] discarding a repair for ${accountPublicKey}: the guardian binding changed during the probe`
+  );
+  const status = account.guardianSyncStatus ?? 'in-sync';
+  if (!markedResolving) return { status, changed: false };
+  // The check runs inside the queued step, so `held` is what the account held then.
+  let held: GuardianSyncStatus = 'resolving';
+  const restored = await vault.setGuardianSyncStatusIf(accountPublicKey, status, stored => {
+    held = stored?.guardianSyncStatus ?? 'in-sync';
+    return held === 'resolving';
+  });
+  return { status: restored ? status : held, changed: true };
+}
+
 interface GuardianDriftVault {
   getAccount(pk: string): Promise<
     | {
         guardianEndpoint?: string;
         guardianOperatorCommitment?: string;
         guardianSyncStatus?: GuardianSyncStatus;
+        guardianEpoch?: number;
       }
     | undefined
   >;
-  setGuardianEndpoint(pk: string, endpoint: string): Promise<unknown>;
-  setGuardianOperatorCommitment(pk: string, commitment: string): Promise<unknown>;
+  /**
+   * CAS-guarded binding write (`Vault.updateGuardianBinding`). Every repair
+   * this module makes snapshots the account, spends seconds-to-minutes in HTTP
+   * probes, then writes - so each write carries the epoch of the snapshot it
+   * reasoned from, and a rotation landing in between turns the write `stale`
+   * instead of letting it resurrect the pre-rotation operator (F-220).
+   */
+  updateGuardianBinding(
+    pk: string,
+    expectedEpoch: number,
+    patch: { guardianEndpoint?: string; guardianOperatorCommitment?: string }
+  ): Promise<{ outcome: 'applied' | 'stale' }>;
   setGuardianSyncStatus(pk: string, status: GuardianSyncStatus): Promise<unknown>;
+  /**
+   * Sets `status` only while `holds` accepts the stored account, checked and
+   * written in one queued step; resolves to whether it wrote.
+   */
+  setGuardianSyncStatusIf(
+    pk: string,
+    status: GuardianSyncStatus,
+    holds: (account?: { guardianSyncStatus?: GuardianSyncStatus; guardianEpoch?: number }) => boolean
+  ): Promise<boolean>;
 }
 
 /**
@@ -267,8 +336,8 @@ interface GuardianDriftVault {
  * the availability of operators it does not use; see the `'unavailable'` branch,
  * which is the authority on this rule. If the stored endpoint
  * answers with a different key, the built-ins are asked to name the new operator
- * (`identifyGuardianOperator`); on a match the new endpoint + status +
- * commitment are persisted and the account is back in sync, otherwise the
+ * (`identifyGuardianOperator`); on a match the new endpoint and commitment are
+ * persisted, then the status, and the account is back in sync, otherwise the
  * account is flagged `needs-user-input` for manual resolution. A stored
  * endpoint that cannot be reached at all is still followed by the built-in
  * lookup — a positive match there is evidence in its own right, and skipping it
@@ -282,12 +351,11 @@ interface GuardianDriftVault {
  * rate-limited per account by {@link DRIFT_PROBE_COOLDOWN_MS}, because the state
  * that reaches them persists until it is resolved and the caller ticks every ~3s.
  *
- * Write order matters: the commitment baseline is always written LAST, after
- * the status is finalized to `'in-sync'`. If the final write fails, the
- * account is left with the correct endpoint/status but a stale commitment —
- * the next tick re-detects drift and idempotently retries, rather than
- * leaving the account stuck at `'resolving'` with no banner and no recovery
- * path (see the self-heal branch above).
+ * Write order matters: endpoint and commitment land in one binding patch, and
+ * the status is written after it. If the status write fails, the baseline
+ * already matches the chain, so the next tick's self-heal branch sets the
+ * status back to `'in-sync'` rather than leaving the account stuck at
+ * `'resolving'` with no banner and no recovery path.
  *
  * Returns the resulting sync status plus `changed`: whether this call wrote
  * anything to the vault. Callers (e.g. the periodic guardian-sync loop) use
@@ -297,12 +365,23 @@ interface GuardianDriftVault {
  * The WASM account read is lock-guarded; the built-in-operator HTTP probe
  * runs outside the lock.
  */
-export async function resolveGuardianDrift(
+async function runGuardianDriftPass(
   vault: GuardianDriftVault,
   accountPublicKey: string
 ): Promise<{ status: GuardianSyncStatus; changed: boolean }> {
   const account = await vault.getAccount(accountPublicKey);
   if (!account) return { status: 'in-sync', changed: false };
+  // Everything this pass writes reasons from THIS snapshot; the epoch rides
+  // along so a rotation completing during the probes turns the write stale.
+  const snapshotEpoch = account.guardianEpoch ?? 0;
+  // A status this pass decides from its snapshot lands only while the account
+  // still holds the binding it looked at; a refused write means the pass is stale.
+  const writeSnapshotStatus = (status: GuardianSyncStatus) =>
+    vault.setGuardianSyncStatusIf(
+      accountPublicKey,
+      status,
+      stored => stored !== undefined && (stored.guardianEpoch ?? 0) === snapshotEpoch
+    );
 
   const onChain = await withWasmClientLock(async () => {
     const sdkAccount = await midenClientProxy.getAccount(accountPublicKey);
@@ -312,7 +391,7 @@ export async function resolveGuardianDrift(
 
   if (account.guardianOperatorCommitment && normalizedEqual(onChain, account.guardianOperatorCommitment)) {
     if (account.guardianSyncStatus && account.guardianSyncStatus !== 'in-sync') {
-      await vault.setGuardianSyncStatus(accountPublicKey, 'in-sync');
+      if (!(await writeSnapshotStatus('in-sync'))) return discardStaleRepair(vault, accountPublicKey, account, false);
       await clearDriftProbeState(accountPublicKey);
       return { status: 'in-sync', changed: true };
     }
@@ -500,29 +579,35 @@ export async function resolveGuardianDrift(
         // permanent latch the corroboration rule exists to prevent needs the
         // baseline, not the status.
         if (account.guardianSyncStatus && account.guardianSyncStatus !== 'in-sync') {
-          await vault.setGuardianSyncStatus(accountPublicKey, 'in-sync');
+          if (!(await writeSnapshotStatus('in-sync')))
+            return discardStaleRepair(vault, accountPublicKey, account, false);
           return { status: 'in-sync', changed: true };
         }
         return { status: account.guardianSyncStatus ?? 'in-sync', changed: false };
       }
       // A built-in serves the on-chain commitment and it is not the endpoint on
       // the account: the stored endpoint is lying or stale either way, so prefer
-      // the built-in and repair the account to it.
-      if (
-        corroboration.outcome === 'identified' &&
-        !sameGuardianEndpoint(corroboration.operator.endpoint, storedEndpoint)
-      ) {
-        await vault.setGuardianEndpoint(accountPublicKey, corroboration.operator.endpoint);
-      }
-      // Otherwise the stored endpoint stands. Either it IS the built-in that
-      // serves this commitment, or a COMPLETE round of built-ins established
-      // that none does — in which case its self-report is the only evidence in
-      // existence, this is a genuine custom operator, and it is exactly the trust
-      // level `applyUserGuardianEndpoint` already accepts for a URL the user
-      // typed. This is also what keeps a deliberate rotation to a custom operator
-      // from being flagged `needs-user-input` on the very next tick.
+      // the built-in and repair the account to it. Otherwise the stored endpoint
+      // stands: either it IS the built-in that serves this commitment, or a
+      // COMPLETE round of built-ins established that none does - in which case
+      // its self-report is the only evidence in existence, this is a genuine
+      // custom operator, and it is exactly the trust level
+      // `applyUserGuardianEndpoint` already accepts for a URL the user typed.
+      // This is also what keeps a deliberate rotation to a custom operator from
+      // being flagged `needs-user-input` on the very next tick.
+      //
+      // One patch and one epoch check: the endpoint (when repairing) and the
+      // baseline land together.
+      const repairEndpoint =
+        corroboration.outcome === 'identified' && !sameGuardianEndpoint(corroboration.operator.endpoint, storedEndpoint)
+          ? corroboration.operator.endpoint
+          : undefined;
+      const write = await vault.updateGuardianBinding(accountPublicKey, snapshotEpoch, {
+        ...(repairEndpoint !== undefined ? { guardianEndpoint: repairEndpoint } : {}),
+        guardianOperatorCommitment: onChain
+      });
+      if (write.outcome === 'stale') return discardStaleRepair(vault, accountPublicKey, account, false);
       await vault.setGuardianSyncStatus(accountPublicKey, 'in-sync');
-      await vault.setGuardianOperatorCommitment(accountPublicKey, onChain);
       await clearDriftProbeState(accountPublicKey);
       return { status: 'in-sync', changed: true };
     }
@@ -559,7 +644,7 @@ export async function resolveGuardianDrift(
     // through this function, so a stale run would otherwise survive the repair
     // and be inherited by the account's next drift.
     await writeSilentDriftRun(accountPublicKey, undefined);
-    await vault.setGuardianSyncStatus(accountPublicKey, 'resolving');
+    if (!(await writeSnapshotStatus('resolving'))) return discardStaleRepair(vault, accountPublicKey, account, false);
   }
   // Only `'identified'` repairs. What `'unavailable'` means for the accusation
   // depends on where the evidence of drift came from, which is why the three
@@ -569,9 +654,14 @@ export async function resolveGuardianDrift(
   // there is, and an incomplete round establishes nothing at all.
   const lookup = await identifyGuardianOperator(onChain);
   if (lookup.outcome === 'identified') {
-    await vault.setGuardianEndpoint(accountPublicKey, lookup.operator.endpoint);
+    const write = await vault.updateGuardianBinding(accountPublicKey, snapshotEpoch, {
+      guardianEndpoint: lookup.operator.endpoint,
+      guardianOperatorCommitment: onChain
+    });
+    if (write.outcome === 'stale') {
+      return discardStaleRepair(vault, accountPublicKey, account, storedEndpointEvidence === 'denied');
+    }
     await vault.setGuardianSyncStatus(accountPublicKey, 'in-sync');
-    await vault.setGuardianOperatorCommitment(accountPublicKey, onChain);
     await clearDriftProbeState(accountPublicKey);
     return { status: 'in-sync', changed: true };
   }
@@ -653,12 +743,33 @@ export async function resolveGuardianDrift(
     // minute for as long as the account stays stranded.
     if (account.guardianSyncStatus === 'needs-user-input') return unchanged;
 
-    await vault.setGuardianSyncStatus(accountPublicKey, 'needs-user-input');
+    if (!(await writeSnapshotStatus('needs-user-input'))) {
+      return discardStaleRepair(vault, accountPublicKey, account, false);
+    }
     return { status: 'needs-user-input', changed: true };
   }
 
-  await vault.setGuardianSyncStatus(accountPublicKey, 'needs-user-input');
+  // The marker landed above, so a refused accusation takes it back.
+  if (!(await writeSnapshotStatus('needs-user-input'))) {
+    return discardStaleRepair(vault, accountPublicKey, account, true);
+  }
   return { status: 'needs-user-input', changed: true };
+}
+
+/**
+ * Resolves guardian drift for an account with {@link runGuardianDriftPass}, one
+ * pass per account at a time: a call made while a pass for the account is
+ * running joins that pass instead of probing again.
+ */
+export function resolveGuardianDrift(
+  vault: GuardianDriftVault,
+  accountPublicKey: string
+): Promise<{ status: GuardianSyncStatus; changed: boolean }> {
+  const running = driftPasses.get(accountPublicKey);
+  if (running) return running;
+  const pass = runGuardianDriftPass(vault, accountPublicKey).finally(() => driftPasses.delete(accountPublicKey));
+  driftPasses.set(accountPublicKey, pass);
+  return pass;
 }
 
 /**
@@ -668,15 +779,10 @@ export async function resolveGuardianDrift(
  * one of the built-in providers): the user pastes the operator's URL, and
  * this checks it before ever writing it to the vault.
  *
- * On a match, persists the endpoint + `'in-sync'` status + commitment, in
- * that order — the commitment baseline is written LAST (mirrors
- * `resolveGuardianDrift`'s ordering) so that if the final write fails, the
- * account is left with the correct endpoint/status and a stale commitment,
- * which the next `resolveGuardianDrift` tick idempotently repairs, instead
- * of stuck stranded at `needs-user-input` with a commitment that already
- * matches on-chain. Anything other than `'applied'` persists nothing.
+ * On a match, persists endpoint + commitment in ONE epoch-guarded patch, then
+ * the `'in-sync'` status. Anything other than `'applied'` persists nothing.
  *
- * The outcome is four states rather than a boolean because the banner that
+ * The outcome is five states rather than a boolean because the banner that
  * calls this ACCUSES the user's typed URL on failure, and only ONE of those
  * states is evidence against it. `'mismatch'` means the operator answered and
  * declared a different commitment — that is a real mismatch. `'unreachable'`
@@ -696,6 +802,14 @@ export async function applyUserGuardianEndpoint(
   accountPublicKey: string,
   endpoint: string
 ): Promise<ApplyUserEndpointOutcome> {
+  // Snapshot before the reads this apply reasons from. The URL below is
+  // verified against the on-chain commitment as of now; if a rotation lands
+  // during the verification round trip, that evidence describes a guardian the
+  // account no longer has, so the write refuses (`'stale'`) and the banner asks
+  // for one retry rather than binding a stale-verified endpoint. An account the
+  // vault does not hold fails at the write with the vault's own error.
+  const snapshotEpoch = (await vault.getAccount(accountPublicKey))?.guardianEpoch ?? 0;
+
   const onChain = await withWasmClientLock(async () => {
     const sdkAccount = await midenClientProxy.getAccount(accountPublicKey);
     return sdkAccount ? getGuardianCommitmentFromAccount(sdkAccount) : undefined;
@@ -705,9 +819,15 @@ export async function applyUserGuardianEndpoint(
   const verdict = await verifyEndpointMatchesCommitment(endpoint, onChain);
   if (verdict !== 'match') return verdict;
 
-  await vault.setGuardianEndpoint(accountPublicKey, endpoint);
+  // Endpoint and baseline in one guarded patch. Status stays a separate
+  // last-write-wins write: if it fails after the binding landed, the next drift
+  // tick sees baseline == chain with a blocking status and repairs it.
+  const write = await vault.updateGuardianBinding(accountPublicKey, snapshotEpoch, {
+    guardianEndpoint: endpoint,
+    guardianOperatorCommitment: onChain
+  });
+  if (write.outcome === 'stale') return 'stale';
   await vault.setGuardianSyncStatus(accountPublicKey, 'in-sync');
-  await vault.setGuardianOperatorCommitment(accountPublicKey, onChain);
   return 'applied';
 }
 

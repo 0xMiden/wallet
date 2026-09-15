@@ -574,6 +574,7 @@
   "guardianUrlMismatch": "Цей оператор не збігається з ланцюговим ідентифікатором вашого облікового запису (guardian).",
   "guardianUrlUnreachable": "Не вдалося зв'язатися з цим оператором. Перевірте URL-адресу та з'єднання, а потім спробуйте ще раз.",
   "guardianUrlNoOnChainGuardian": "Цей обліковий запис ще не має ончейн-Guardian, з яким можна звірити адресу.",
+  "guardianUrlStaleRetry": "Ваш Guardian змінився під час перевірки адреси. Спробуйте ще раз.",
   "connectivityGuardianTitle": "Guardian недоступний",
   "connectivityGuardianBody": "Ваш «guardian» не відповідає, тому транзакції не можуть бути підписані спільно.",
   "connectivityGuardianCta": "Змінити Guardian",

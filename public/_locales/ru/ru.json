@@ -574,6 +574,7 @@
   "guardianUrlMismatch": "Этот оператор не совпадает с кодом операции в цепочке блоков (guardian) вашего счёта.",
   "guardianUrlUnreachable": "Не удалось связаться с этим оператором. Проверьте URL-адрес и подключение, затем повторите попытку.",
   "guardianUrlNoOnChainGuardian": "У этого аккаунта пока нет ончейн-Guardian, с которым можно было бы сверить адрес.",
+  "guardianUrlStaleRetry": "Ваш Guardian изменился во время проверки адреса. Попробуйте ещё раз.",
   "connectivityGuardianTitle": "Guardian недоступно",
   "connectivityGuardianBody": "Ваш «guardian» не отвечает, поэтому транзакции не могут быть соподписаны.",
   "connectivityGuardianCta": "Переключить Guardian",

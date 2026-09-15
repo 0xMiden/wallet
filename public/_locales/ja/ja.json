@@ -574,6 +574,7 @@
   "guardianUrlMismatch": "そのオペレーターは、お客様のアカウントのオンチェーンguardianと一致しません。",
   "guardianUrlUnreachable": "その事業者に接続できませんでした。URL と接続状況を確認してから、もう一度お試しください。",
   "guardianUrlNoOnChainGuardian": "このアカウントには、照合できるオンチェーンの Guardian がまだ設定されていません。",
+  "guardianUrlStaleRetry": "アドレスの確認中にGuardianが変更されました。もう一度お試しください。",
   "connectivityGuardianTitle": "Guardian アクセス不可",
   "connectivityGuardianBody": "guardianが応答していないため、取引の共同署名を行うことができません。",
   "connectivityGuardianCta": "Guardian を切り替える",

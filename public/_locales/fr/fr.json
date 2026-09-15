@@ -574,6 +574,7 @@
   "guardianUrlMismatch": "Cet opérateur ne correspond pas à l’guardian sur la blockchain de votre compte.",
   "guardianUrlUnreachable": "Impossible de joindre cet opérateur. Vérifiez l'URL et votre connexion, puis réessayez.",
   "guardianUrlNoOnChainGuardian": "Ce compte n'a pas encore de Guardian on-chain permettant la vérification.",
+  "guardianUrlStaleRetry": "Votre Guardian a changé pendant la vérification de l'adresse. Veuillez réessayer.",
   "connectivityGuardianTitle": "Guardian inaccessible",
   "connectivityGuardianBody": "Votre « guardian » ne répond pas ; les transactions ne peuvent donc pas être cosignées.",
   "connectivityGuardianCta": "Changer de Guardian",

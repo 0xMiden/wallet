@@ -1,4 +1,5 @@
 import { MidenDAppMessageType } from 'lib/adapter/types';
+import { getAccountsWriteQueue } from 'lib/miden/back/accounts-write-queue';
 import { WalletStatus } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
@@ -53,6 +54,7 @@ const mockVault = {
   setGuardianEndpoint: jest.fn(),
   setGuardianOperatorCommitment: jest.fn(),
   setGuardianSyncStatus: jest.fn(),
+  updateGuardianBinding: jest.fn(),
   retire: jest.fn(),
   insertKeySink: jest.fn()
 };
@@ -717,23 +719,30 @@ describe('actions', () => {
       ];
       mockVault.fetchAccounts.mockResolvedValue(accounts);
       mockVault.getCurrentAccount.mockResolvedValue(undefined);
-      mockVault.setGuardianEndpoint.mockResolvedValueOnce({ accounts, currentAccount: undefined });
-      mockVault.setGuardianOperatorCommitment.mockResolvedValueOnce({ accounts, currentAccount: undefined });
+      mockVault.updateGuardianBinding.mockResolvedValueOnce({
+        outcome: 'applied',
+        accounts,
+        currentAccount: undefined
+      });
       mockVault.setGuardianSyncStatus.mockResolvedValueOnce({ accounts, currentAccount: undefined });
 
       resolveGuardianDrift.mockImplementationOnce(async (driftVault: any, pk: string) => {
         const account = await driftVault.getAccount(pk);
         expect(account).toEqual(accounts[0]);
-        await driftVault.setGuardianEndpoint(pk, 'https://new-operator');
-        await driftVault.setGuardianOperatorCommitment(pk, 'newC');
+        await driftVault.updateGuardianBinding(pk, 7, {
+          guardianEndpoint: 'https://new-operator',
+          guardianOperatorCommitment: 'newC'
+        });
         await driftVault.setGuardianSyncStatus(pk, 'in-sync');
         return { status: 'in-sync', changed: true };
       });
 
       await checkGuardianDrift('pk1');
 
-      expect(mockVault.setGuardianEndpoint).toHaveBeenCalledWith('pk1', 'https://new-operator');
-      expect(mockVault.setGuardianOperatorCommitment).toHaveBeenCalledWith('pk1', 'newC');
+      expect(mockVault.updateGuardianBinding).toHaveBeenCalledWith('pk1', 7, {
+        guardianEndpoint: 'https://new-operator',
+        guardianOperatorCommitment: 'newC'
+      });
       expect(mockVault.setGuardianSyncStatus).toHaveBeenCalledWith('pk1', 'in-sync');
     });
 
@@ -749,6 +758,67 @@ describe('actions', () => {
       });
 
       await checkGuardianDrift('missing-pk');
+    });
+
+    it("adapter's setGuardianSyncStatusIf writes only when the check accepts the stored account", async () => {
+      const { resolveGuardianDrift } = jest.requireMock('lib/miden/back/guardian-drift');
+      const accounts = [{ publicKey: 'pk1' }];
+      mockVault.fetchAccounts.mockResolvedValue(accounts);
+      mockVault.getCurrentAccount.mockResolvedValue(undefined);
+      mockVault.setGuardianSyncStatus.mockResolvedValue({ accounts, currentAccount: undefined });
+      const holds = jest.fn((account?: { publicKey: string }) => account === accounts[0]);
+
+      resolveGuardianDrift.mockImplementationOnce(async (driftVault: any, pk: string) => {
+        expect(await driftVault.setGuardianSyncStatusIf(pk, 'in-sync', holds)).toBe(true);
+        expect(await driftVault.setGuardianSyncStatusIf('missing-pk', 'in-sync', holds)).toBe(false);
+        return { status: 'in-sync', changed: false };
+      });
+
+      await checkGuardianDrift('pk1');
+
+      expect(holds.mock.calls).toEqual([[accounts[0]], [undefined]]);
+      expect(mockVault.setGuardianSyncStatus).toHaveBeenCalledTimes(1);
+      expect(mockVault.setGuardianSyncStatus).toHaveBeenCalledWith('pk1', 'in-sync');
+    });
+
+    it("runs the adapter's binding write and conditional status write inside the accounts write queue", async () => {
+      const { resolveGuardianDrift } = jest.requireMock('lib/miden/back/guardian-drift');
+      mockVault.fetchAccounts.mockResolvedValue([{ publicKey: 'pk1' }]);
+      mockVault.getCurrentAccount.mockResolvedValue(undefined);
+      mockVault.updateGuardianBinding.mockResolvedValue({
+        outcome: 'applied',
+        accounts: [],
+        currentAccount: undefined
+      });
+      const holds = jest.fn(() => true);
+      let releaseQueue!: () => void;
+      const queueHeld = new Promise<void>(resolve => {
+        releaseQueue = resolve;
+      });
+      // Another accounts writer holds the queue while the resolver writes.
+      const writer = getAccountsWriteQueue().add(() => queueHeld);
+      let writes: Promise<unknown> | undefined;
+      resolveGuardianDrift.mockImplementationOnce(async (driftVault: any, pk: string) => {
+        writes = Promise.all([
+          driftVault.updateGuardianBinding(pk, 7, { guardianOperatorCommitment: 'newC' }),
+          driftVault.setGuardianSyncStatusIf(pk, 'in-sync', holds)
+        ]);
+        return { status: 'in-sync', changed: false };
+      });
+
+      try {
+        await checkGuardianDrift('pk1');
+        await new Promise(resolve => setTimeout(resolve, 0));
+        expect(mockVault.updateGuardianBinding).not.toHaveBeenCalled();
+        expect(holds).not.toHaveBeenCalled();
+      } finally {
+        releaseQueue();
+      }
+      await writer;
+      await writes;
+      expect(mockVault.updateGuardianBinding).toHaveBeenCalledWith('pk1', 7, { guardianOperatorCommitment: 'newC' });
+      expect(holds).toHaveBeenCalledTimes(1);
+      expect(mockVault.setGuardianSyncStatus).toHaveBeenCalledWith('pk1', 'in-sync');
     });
   });
 
@@ -785,23 +855,30 @@ describe('actions', () => {
       const accounts = [{ publicKey: 'pk1', guardianOperatorCommitment: 'abc' }];
       mockVault.fetchAccounts.mockResolvedValue(accounts);
       mockVault.getCurrentAccount.mockResolvedValue(undefined);
-      mockVault.setGuardianEndpoint.mockResolvedValueOnce({ accounts, currentAccount: undefined });
-      mockVault.setGuardianOperatorCommitment.mockResolvedValueOnce({ accounts, currentAccount: undefined });
+      mockVault.updateGuardianBinding.mockResolvedValueOnce({
+        outcome: 'applied',
+        accounts,
+        currentAccount: undefined
+      });
       mockVault.setGuardianSyncStatus.mockResolvedValueOnce({ accounts, currentAccount: undefined });
 
       applyVerified.mockImplementationOnce(async (driftVault: any, pk: string) => {
         const account = await driftVault.getAccount(pk);
         expect(account).toEqual(accounts[0]);
-        await driftVault.setGuardianEndpoint(pk, 'https://new-operator');
-        await driftVault.setGuardianOperatorCommitment(pk, 'newC');
+        await driftVault.updateGuardianBinding(pk, 7, {
+          guardianEndpoint: 'https://new-operator',
+          guardianOperatorCommitment: 'newC'
+        });
         await driftVault.setGuardianSyncStatus(pk, 'in-sync');
         return true;
       });
 
       await applyUserGuardianEndpoint('pk1', 'https://new-operator');
 
-      expect(mockVault.setGuardianEndpoint).toHaveBeenCalledWith('pk1', 'https://new-operator');
-      expect(mockVault.setGuardianOperatorCommitment).toHaveBeenCalledWith('pk1', 'newC');
+      expect(mockVault.updateGuardianBinding).toHaveBeenCalledWith('pk1', 7, {
+        guardianEndpoint: 'https://new-operator',
+        guardianOperatorCommitment: 'newC'
+      });
       expect(mockVault.setGuardianSyncStatus).toHaveBeenCalledWith('pk1', 'in-sync');
     });
   });

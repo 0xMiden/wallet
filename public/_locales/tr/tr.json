@@ -574,6 +574,7 @@
   "guardianUrlMismatch": "Bu operatör, hesabınızın zincir üzerindeki guardian adresiyle eşleşmiyor.",
   "guardianUrlUnreachable": "Bu operatöre ulaşılamadı. URL'yi ve bağlantınızı kontrol edip tekrar deneyin.",
   "guardianUrlNoOnChainGuardian": "Bu hesabın henüz doğrulama yapılabilecek bir zincir üstü Guardian'ı yok.",
+  "guardianUrlStaleRetry": "Adres doğrulanırken Guardian'ınız değişti. Lütfen tekrar deneyin.",
   "connectivityGuardianTitle": "Guardian erişilemez",
   "connectivityGuardianBody": "guardian'ınız yanıt vermiyor, bu nedenle işlemler ortak imzalanamıyor.",
   "connectivityGuardianCta": "Guardian’ı değiştir",
