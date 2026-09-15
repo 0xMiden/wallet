@@ -12,7 +12,6 @@ import { HomePrompts } from './HomePrompts';
 
 const mockFaucet = jest.fn();
 const mockFetchActiveBridgePrompts = jest.fn();
-const mockPollActiveBridgePrompts = jest.fn();
 const mockUseWalletPromptStorage = jest.fn();
 const mockFetchHotKeyHardwareError = jest.fn();
 
@@ -72,7 +71,6 @@ jest.mock('lib/wallet-prompts', () => {
     faucet: (address: string) => mockFaucet(address),
     fetchActiveBridgePrompts: (address: string) => mockFetchActiveBridgePrompts(address),
     fetchHotKeyHardwareError: () => mockFetchHotKeyHardwareError(),
-    pollActiveBridgePrompts: (transactions: unknown[]) => mockPollActiveBridgePrompts(transactions),
     useWalletPromptStorage: () => mockUseWalletPromptStorage()
   };
 });
@@ -154,11 +152,10 @@ describe('HomePrompts', () => {
     jest.clearAllMocks();
     mockFaucet.mockResolvedValue(undefined);
     mockFetchActiveBridgePrompts.mockResolvedValue([]);
-    mockPollActiveBridgePrompts.mockResolvedValue(undefined);
     mockFetchHotKeyHardwareError.mockResolvedValue(null);
   });
 
-  it('polls and dismisses a pending bridge through the wallet prompt type', async () => {
+  it('shows and dismisses a pending bridge through the wallet prompt type', async () => {
     const dismissPrompt = jest.fn();
     const bridgeTransaction = { id: 'bridge-1', type: 'bridged-send' };
     mockFetchActiveBridgePrompts.mockResolvedValue([bridgeTransaction]);
@@ -185,7 +182,6 @@ describe('HomePrompts', () => {
     );
 
     const bridgeCard = await screen.findByText('bridgePromptTitle');
-    await waitFor(() => expect(mockPollActiveBridgePrompts).toHaveBeenCalledWith([bridgeTransaction]));
     fireEvent.click(bridgeCard);
     expect(jest.requireMock('lib/woozie').navigate).toHaveBeenCalledWith('/history-details/bridge-1');
 
@@ -640,11 +636,11 @@ describe('HomePrompts', () => {
     );
 
     await waitFor(() => expect(completePrompt).toHaveBeenCalledWith(WalletPromptType.Bridge));
-    expect(mockPollActiveBridgePrompts).not.toHaveBeenCalled();
     expect(screen.queryByText('bridgePromptTitle')).not.toBeInTheDocument();
   });
 
-  it('completes the bridge prompt once the poll settles the last bridge', async () => {
+  it('completes the bridge prompt once a later read finds the last bridge settled', async () => {
+    jest.useFakeTimers();
     const completePrompt = jest.fn();
     const bridgeTransaction = { id: 'bridge-1', type: 'bridged-send' };
     mockFetchActiveBridgePrompts.mockResolvedValueOnce([bridgeTransaction]).mockResolvedValueOnce([]);
@@ -670,8 +666,18 @@ describe('HomePrompts', () => {
       />
     );
 
-    await waitFor(() => expect(mockPollActiveBridgePrompts).toHaveBeenCalledWith([bridgeTransaction]));
-    await waitFor(() => expect(completePrompt).toHaveBeenCalledWith(WalletPromptType.Bridge));
+    await act(async () => {});
+    expect(await screen.findByText('bridgePromptTitle')).toBeInTheDocument();
+    expect(completePrompt).not.toHaveBeenCalled();
+
+    // The app-root watcher settles the row; the next read sees it gone.
+    await act(async () => {
+      jest.advanceTimersByTime(8_000);
+    });
+    await act(async () => {});
+    expect(mockFetchActiveBridgePrompts).toHaveBeenCalledTimes(2);
+    expect(completePrompt).toHaveBeenCalledWith(WalletPromptType.Bridge);
+    jest.useRealTimers();
   });
 
   it('survives a bridge poll failure without completing the prompt', async () => {

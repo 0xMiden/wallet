@@ -59,6 +59,8 @@ export interface DappDriverOpts {
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 const POLL_INTERVAL_MS = 250;
+/** How long a screenshot assertion keeps re-capturing for the frame to settle before it fails. */
+const VISUAL_SETTLE_MS = 5_000;
 
 export class DappBrowserDriver {
   private readonly target: DappDriverTarget;
@@ -339,6 +341,24 @@ export class DappBrowserDriver {
   }
 
   /**
+   * Run a screenshot check until it holds or the settle budget is spent, and return its last attempt.
+   *
+   * A state change reaches the screen a beat after the state itself: a peek tile paints its snapshot, a webview
+   * brought back from home presents again, and a fixture page paints a generation before its report reaches the
+   * server. One screenshot taken at once can land in that beat, so a check re-captures within a short budget. The
+   * budget stays short, so a frame that never arrives, or arrives seconds late, still fails, and retries keep their
+   * screenshots (suffixed `-settle<n>`), so a slow settle stays visible in the artifacts.
+   */
+  private async settleVisual<T extends { ok: boolean }>(attempt: (tag: string) => Promise<T>): Promise<T> {
+    const deadline = Date.now() + VISUAL_SETTLE_MS;
+    for (let n = 1; ; n += 1) {
+      const result = await attempt(n === 1 ? '' : `-settle${n}`);
+      if (result.ok || Date.now() >= deadline) return result;
+      await this.target.delay(POLL_INTERVAL_MS);
+    }
+  }
+
+  /**
    * Assert the dApp slot is actually showing `dappId`'s page.
    *
    * Checks two independent things, because they fail differently:
@@ -351,12 +371,15 @@ export class DappBrowserDriver {
    */
   async expectDappPainted(dappId: string, label: string): Promise<void> {
     const dapp = fixtureDapp(dappId);
-    const state = await this.state();
-    expect(state.slotRect, `[${label}] the wallet should have a slot rect while a dApp is foreground`).not.toBeNull();
-    const slot = state.slotRect!;
-    const viewport = await this.cssViewport();
-    const shot = await this.capture(label);
-    const stats = await sampleRegion(shot, slot, viewport, dapp.rgb);
+    const { stats, shot } = await this.settleVisual(async tag => {
+      const state = await this.state();
+      expect(state.slotRect, `[${label}] the wallet should have a slot rect while a dApp is foreground`).not.toBeNull();
+      const slot = state.slotRect!;
+      const viewport = await this.cssViewport();
+      const frame = await this.capture(`${label}${tag}`);
+      const sample = await sampleRegion(frame, slot, viewport, dapp.rgb);
+      return { stats: sample, shot: frame, ok: sample.blankFraction < 0.5 && sample.matchFraction > 0.7 };
+    });
 
     expect(
       stats.blankFraction,
@@ -435,27 +458,34 @@ export class DappBrowserDriver {
    */
   async expectFreshFrame(dappId: string, label: string): Promise<void> {
     const dapp = fixtureDapp(dappId);
-    const report = this.server.lastReport(dappId);
-    expect(report, `[${label}] ${dappId} has never reported, so no generation is expected yet`).toBeTruthy();
-    const expected = GENERATION_COLORS[(report!.seq - 1) % GENERATION_COLORS.length]!;
+    expect(
+      this.server.lastReport(dappId),
+      `[${label}] ${dappId} has never reported, so no generation is expected yet`
+    ).toBeTruthy();
+    const { stats, shot, report, expected } = await this.settleVisual(async tag => {
+      const state = await this.state();
+      expect(state.slotRect, `[${label}] expected a slot rect`).not.toBeNull();
+      const slot = state.slotRect!;
+      const viewport = await this.cssViewport();
+      const frame = await this.capture(`${label}-generation${tag}`);
+      // Read the report after the capture: the page paints a generation before its report reaches the server, so a
+      // screen that is ahead of the server is retried until the report lands, while a stale screen never matches.
+      const latest = this.server.lastReport(dappId);
+      const colour = GENERATION_COLORS[(latest!.seq - 1) % GENERATION_COLORS.length]!;
 
-    const state = await this.state();
-    expect(state.slotRect, `[${label}] expected a slot rect`).not.toBeNull();
-    const slot = state.slotRect!;
-    const viewport = await this.cssViewport();
-    const shot = await this.capture(`${label}-generation`);
-
-    const offsetY = await measureVerticalOffsetCss(shot, slot, viewport, dapp.rgb);
-    const marker = {
-      x: slot.x,
-      y: slot.y,
-      width: GENERATION_MARKER_PX,
-      height: GENERATION_MARKER_PX
-    };
-    const stats = await sampleRegion(shot, marker, viewport, expected, {
-      tolerance: 70,
-      insetPx: 12,
-      offsetCss: { y: offsetY }
+      const offsetY = await measureVerticalOffsetCss(frame, slot, viewport, dapp.rgb);
+      const marker = {
+        x: slot.x,
+        y: slot.y,
+        width: GENERATION_MARKER_PX,
+        height: GENERATION_MARKER_PX
+      };
+      const sample = await sampleRegion(frame, marker, viewport, colour, {
+        tolerance: 70,
+        insetPx: 12,
+        offsetCss: { y: offsetY }
+      });
+      return { stats: sample, shot: frame, report: latest, expected: colour, ok: sample.matchFraction > 0.6 };
     });
 
     expect(
@@ -472,9 +502,12 @@ export class DappBrowserDriver {
    * A tray of empty white cards is the failure this catches.
    */
   async expectRegionNotBlank(rect: Rect, label: string): Promise<void> {
-    const viewport = await this.cssViewport();
-    const shot = await this.capture(label);
-    const stats = await sampleRegion(shot, rect, viewport);
+    const { stats, shot } = await this.settleVisual(async tag => {
+      const viewport = await this.cssViewport();
+      const frame = await this.capture(`${label}${tag}`);
+      const sample = await sampleRegion(frame, rect, viewport);
+      return { stats: sample, shot: frame, ok: sample.blankFraction < 0.75 };
+    });
     expect(stats.blankFraction, `[${label}] region is blank. ${describeStats(stats)} (${shot})`).toBeLessThan(0.75);
   }
 }

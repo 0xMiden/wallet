@@ -2,6 +2,7 @@ import React, { FC, useCallback, useRef, useState } from 'react';
 
 import { generateMnemonic } from 'bip39';
 import wordsList from 'bip39/src/wordlists/english.json';
+import { useTranslation } from 'react-i18next';
 
 import { formatMnemonic } from 'app/defaults';
 import { postOnboardingRoute } from 'lib/extension/side-panel-handoff';
@@ -14,10 +15,12 @@ import { ENDPOINT_OVERRIDE_STORAGE_KEY } from 'lib/miden-chain/effective-endpoin
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isMobile } from 'lib/platform';
 import { navigate } from 'lib/woozie';
+import { errorToMessage } from 'screens/onboarding/error-message';
 import { OnboardingFlow } from 'screens/onboarding/navigator';
 import { OnboardingAction, OnboardingStep, OnboardingType, WalletType } from 'screens/onboarding/types';
 
 const ForgotPassword: FC = () => {
+  const { t } = useTranslation();
   const [step, setStep] = useState(OnboardingStep.Welcome);
   const [seedPhrase, setSeedPhrase] = useState<string[]>([]);
   const [onboardingType, setOnboardingType] = useState<OnboardingType | null>(null);
@@ -127,7 +130,7 @@ const ForgotPassword: FC = () => {
         // empty wallet with no explanation — indistinguishable from data loss.
         // Surface it and stay put so Retry is reachable (#630).
         console.error(e);
-        setRecoveryError(e instanceof Error ? e.message : String(e));
+        setRecoveryError(errorToMessage(e) ?? t('smthWentWrong'));
         return 'failed';
       }
     }
@@ -139,7 +142,8 @@ const ForgotPassword: FC = () => {
     onboardingType,
     detectGuardianEndpoint,
     walletType,
-    selectedGuardianEndpoint
+    selectedGuardianEndpoint,
+    t
   ]);
 
   const onAction = useCallback(

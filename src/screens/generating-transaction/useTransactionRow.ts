@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 
-import { liveQuery } from 'dexie';
-
+import { subscribeToLiveQuery } from 'lib/dexie-live-query';
 import type { ITransaction } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 
@@ -14,7 +13,7 @@ export interface TransactionRowState {
 
 /**
  * Subscribes to a single transaction row by id via Dexie `liveQuery` (push,
- * not polling — same mechanism as `waitForTransactionCompletion`). Unlike the
+ * not polling - same mechanism as `waitForTransactionCompletion`). Unlike the
  * old `getAllUncompletedTransactions` list, the row never disappears when the
  * tx completes: it just advances Queued → GeneratingTransaction → Completed |
  * Failed, so status alone tells the page everything it needs.
@@ -25,12 +24,10 @@ export const useTransactionRow = (txId: string): TransactionRowState => {
   useEffect(() => {
     setState({ row: undefined, loaded: false });
 
-    const subscription = liveQuery(() => Repo.transactions.where({ id: txId }).first()).subscribe({
+    return subscribeToLiveQuery(() => Repo.transactions.where({ id: txId }).first(), {
       next: row => setState({ row: row ?? undefined, loaded: true }),
-      error: () => setState({ row: undefined, loaded: true })
+      error: error => console.error('[useTransactionRow] Failed to read transaction:', error)
     });
-
-    return () => subscription.unsubscribe();
   }, [txId]);
 
   return state;

@@ -139,6 +139,8 @@ describe('Dialogs', () => {
     expect(useMobileBackHandler).toHaveBeenCalledTimes(1);
     // deps: [confirmParams.isOpen, alertParams.isOpen]
     expect(getBackDeps()).toEqual([false, true]);
+    // Alert and confirm dialogs float above any page, so they register in the overlay tier.
+    expect(useMobileBackHandler.mock.calls[0][2]).toEqual({ overlay: true });
   });
 
   describe('mobile back handler', () => {

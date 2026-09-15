@@ -1207,6 +1207,31 @@ describe('useWalletStore', () => {
       expect(useWalletStore.getState().isNoteToastVisible).toBe(false);
     });
 
+    it('checkForNewNotes records every new note as seen and toasts for a notifiable one', () => {
+      useWalletStore.getState().checkForNewNotes(['auto', 'manual'], ['manual']);
+      const state = useWalletStore.getState();
+      expect(state.isNoteToastVisible).toBe(true);
+      expect(state.seenNoteIds.has('auto')).toBe(true);
+      expect(state.seenNoteIds.has('manual')).toBe(true);
+    });
+
+    it('checkForNewNotes records a new note outside the notifiable set without a toast', () => {
+      useWalletStore.getState().checkForNewNotes(['auto'], []);
+      const state = useWalletStore.getState();
+      expect(state.isNoteToastVisible).toBe(false);
+      expect(state.noteToastShownAt).toBeNull();
+      expect(state.seenNoteIds.has('auto')).toBe(true);
+    });
+
+    it('checkForNewNotes does not toast when the only notifiable id was already seen', () => {
+      useWalletStore.setState({ seenNoteIds: new Set(['manual']) });
+      useWalletStore.getState().checkForNewNotes(['manual', 'auto'], ['manual']);
+      const state = useWalletStore.getState();
+      expect(state.isNoteToastVisible).toBe(false);
+      expect(state.noteToastShownAt).toBeNull();
+      expect(state.seenNoteIds.has('auto')).toBe(true);
+    });
+
     it('dismissNoteToast hides the toast', () => {
       useWalletStore.setState({ isNoteToastVisible: true });
       useWalletStore.getState().dismissNoteToast();
