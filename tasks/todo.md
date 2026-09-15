@@ -146,12 +146,12 @@ Gates: e2e-bridge-in.yml (IN, iOS) + e2e-bridge.yml (OUT, Chrome), both post-mer
 
 - [x] Confirm platform update APIs and current release/build wiring.
 - [x] Write the Superpowers design for platform-authoritative availability plus Miden-owned presentation metadata.
-- [ ] Obtain design approval.
-- [ ] Write the implementation plan.
+- [x] Obtain design approval.
+- [x] Write the implementation plan.
 - [ ] Implement with TDD in this worktree.
 - [ ] Run local verification, Review Council, and apply every actionable finding.
 - [ ] Push, open a PR with a standalone `Closes #821`, babysit CI to green, and admin squash-merge.
 
 ## Review
 
-- Pending design approval.
+- Design and implementation plan approved. Implementation and verification pending.
