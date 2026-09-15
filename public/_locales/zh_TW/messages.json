@@ -517,6 +517,26 @@
     "message": "匯入帳戶",
     "englishSource": "Import account"
   },
+  "accountName": {
+    "message": "帳戶名稱",
+    "englishSource": "Account name"
+  },
+  "accountNameInputPlaceholder": {
+    "message": "例如：儲蓄",
+    "englishSource": "e.g. Savings"
+  },
+  "accountNameInputInvalid": {
+    "message": "請輸入 1 至 16 個字元，且不要以空格或連字號開頭。",
+    "englishSource": "Use 1 to 16 characters and do not start with whitespace or a hyphen."
+  },
+  "privateKeyInputDescription": {
+    "message": "要匯入的帳戶私鑰。",
+    "englishSource": "The private key of the account you want to import."
+  },
+  "privateKeyInputPlaceholder": {
+    "message": "例如：APrivateKey1zkp...",
+    "englishSource": "e.g. APrivateKey1zkp..."
+  },
   "settings": {
     "message": "設定",
     "englishSource": "Settings"

@@ -517,6 +517,26 @@
     "message": "Importuj konto",
     "englishSource": "Import account"
   },
+  "accountName": {
+    "message": "Nazwa konta",
+    "englishSource": "Account name"
+  },
+  "accountNameInputPlaceholder": {
+    "message": "np. Oszczędności",
+    "englishSource": "e.g. Savings"
+  },
+  "accountNameInputInvalid": {
+    "message": "Użyj od 1 do 16 znaków. Nazwa nie może zaczynać się od spacji ani łącznika.",
+    "englishSource": "Use 1 to 16 characters and do not start with whitespace or a hyphen."
+  },
+  "privateKeyInputDescription": {
+    "message": "Klucz prywatny konta, które chcesz zaimportować.",
+    "englishSource": "The private key of the account you want to import."
+  },
+  "privateKeyInputPlaceholder": {
+    "message": "np. APrivateKey1zkp...",
+    "englishSource": "e.g. APrivateKey1zkp..."
+  },
   "settings": {
     "message": "Ustawienia",
     "englishSource": "Settings"

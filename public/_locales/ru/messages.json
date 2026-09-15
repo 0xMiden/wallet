@@ -517,6 +517,26 @@
     "message": "Импортировать учетную запись",
     "englishSource": "Import account"
   },
+  "accountName": {
+    "message": "Название аккаунта",
+    "englishSource": "Account name"
+  },
+  "accountNameInputPlaceholder": {
+    "message": "например, Сбережения",
+    "englishSource": "e.g. Savings"
+  },
+  "accountNameInputInvalid": {
+    "message": "Используйте от 1 до 16 символов. Название не должно начинаться с пробела или дефиса.",
+    "englishSource": "Use 1 to 16 characters and do not start with whitespace or a hyphen."
+  },
+  "privateKeyInputDescription": {
+    "message": "Приватный ключ аккаунта, который вы хотите импортировать.",
+    "englishSource": "The private key of the account you want to import."
+  },
+  "privateKeyInputPlaceholder": {
+    "message": "например, APrivateKey1zkp...",
+    "englishSource": "e.g. APrivateKey1zkp..."
+  },
   "settings": {
     "message": "Настройки",
     "englishSource": "Settings"

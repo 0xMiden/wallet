@@ -517,6 +517,26 @@
     "message": "Імпортувати обліковий запис",
     "englishSource": "Import account"
   },
+  "accountName": {
+    "message": "Назва облікового запису",
+    "englishSource": "Account name"
+  },
+  "accountNameInputPlaceholder": {
+    "message": "наприклад, Заощадження",
+    "englishSource": "e.g. Savings"
+  },
+  "accountNameInputInvalid": {
+    "message": "Використовуйте від 1 до 16 символів. Назва не повинна починатися з пробілу чи дефіса.",
+    "englishSource": "Use 1 to 16 characters and do not start with whitespace or a hyphen."
+  },
+  "privateKeyInputDescription": {
+    "message": "Приватний ключ облікового запису, який ви хочете імпортувати.",
+    "englishSource": "The private key of the account you want to import."
+  },
+  "privateKeyInputPlaceholder": {
+    "message": "наприклад, APrivateKey1zkp...",
+    "englishSource": "e.g. APrivateKey1zkp..."
+  },
   "settings": {
     "message": "Налаштування",
     "englishSource": "Settings"

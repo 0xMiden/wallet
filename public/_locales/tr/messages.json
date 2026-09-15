@@ -517,6 +517,26 @@
     "message": "Hesabı içe aktar",
     "englishSource": "Import account"
   },
+  "accountName": {
+    "message": "Hesap adı",
+    "englishSource": "Account name"
+  },
+  "accountNameInputPlaceholder": {
+    "message": "örn. Birikim",
+    "englishSource": "e.g. Savings"
+  },
+  "accountNameInputInvalid": {
+    "message": "1 ile 16 karakter kullanın ve boşluk veya kısa çizgiyle başlamayın.",
+    "englishSource": "Use 1 to 16 characters and do not start with whitespace or a hyphen."
+  },
+  "privateKeyInputDescription": {
+    "message": "İçe aktarmak istediğiniz hesabın özel anahtarı.",
+    "englishSource": "The private key of the account you want to import."
+  },
+  "privateKeyInputPlaceholder": {
+    "message": "örn. APrivateKey1zkp...",
+    "englishSource": "e.g. APrivateKey1zkp..."
+  },
   "settings": {
     "message": "Ayarlar",
     "englishSource": "Settings"

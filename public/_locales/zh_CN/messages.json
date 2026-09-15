@@ -517,6 +517,26 @@
     "message": "导入账户",
     "englishSource": "Import account"
   },
+  "accountName": {
+    "message": "账户名称",
+    "englishSource": "Account name"
+  },
+  "accountNameInputPlaceholder": {
+    "message": "例如：储蓄",
+    "englishSource": "e.g. Savings"
+  },
+  "accountNameInputInvalid": {
+    "message": "请输入 1 至 16 个字符，且不要以空格或连字符开头。",
+    "englishSource": "Use 1 to 16 characters and do not start with whitespace or a hyphen."
+  },
+  "privateKeyInputDescription": {
+    "message": "要导入的账户的私钥。",
+    "englishSource": "The private key of the account you want to import."
+  },
+  "privateKeyInputPlaceholder": {
+    "message": "例如：APrivateKey1zkp...",
+    "englishSource": "e.g. APrivateKey1zkp..."
+  },
   "settings": {
     "message": "设置",
     "englishSource": "Settings"
