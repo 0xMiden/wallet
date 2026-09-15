@@ -14,7 +14,6 @@
     "playwright/e2e/helpers/swap.ts": "TODO: funding waits before the swap under test. Known — the spec does not yet know the expected funded amount, so it cannot ask for one. Migrate to waitForVaultBalance once the fixture publishes the mint amount.",
     "playwright/e2e/helpers/bridge.ts": "TODO: same funding wait as swap.ts — waits for the bridge deposit to land before the assertion that matters.",
     "playwright/e2e/helpers/wallet-page.ts": "TODO: the long waits here are poll intervals inside bounded retry loops (claimAllNotes and friends), not naked sleeps, but they still add minutes to every mobile run and hide how long the underlying condition really takes. The conditional expect at ~974 is inside a helper, so a skipped branch silently weakens every caller.",
-    "playwright/e2e/tests/multi-account.spec.ts": "TODO: the whole spec's money assertions are toBeGreaterThan(0) — it currently proves only that some account somewhere is non-zero, for either account, in any token.",
     "playwright/tests/popup-smoke.spec.ts": "TODO: the if (visible) { expect } shapes at ~217-240 report PASS when the send/receive UI never renders. This is the case the no-conditional-expect rule was written from."
   },
   "counts": {
@@ -55,9 +54,6 @@
     "playwright/e2e/stress/stress.spec.ts": {
       "no-conditional-expect": 1,
       "no-unfalsifiable-balance-assertion": 3
-    },
-    "playwright/e2e/tests/multi-account.spec.ts": {
-      "no-unfalsifiable-balance-assertion": 2
     },
     "playwright/tests/popup-smoke.spec.ts": {
       "no-conditional-expect": 5
