@@ -1066,5 +1066,6 @@
   "spendingLimitOverBy": "Over by",
   "spendingLimitResets": "Available again",
   "spendingLimitNoAutomaticReset": "This amount exceeds the limit on its own",
+  "spendingLimitChangeInSettings": "To raise the limit, go to Settings > Spending limits.",
   "spendingLimitTransactionAuthenticationReason": "Authenticate to continue with this transaction. This does not change or disable your spending limit."
 }

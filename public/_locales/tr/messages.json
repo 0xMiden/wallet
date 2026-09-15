@@ -4723,6 +4723,10 @@
     "message": "Bu tutar tek başına limiti aşıyor",
     "englishSource": "This amount exceeds the limit on its own"
   },
+  "spendingLimitChangeInSettings": {
+    "message": "Limiti yükseltmek için Ayarlar > Harcama limitleri bölümüne gidin.",
+    "englishSource": "To raise the limit, go to Settings > Spending limits."
+  },
   "spendingLimitTransactionAuthenticationReason": {
     "message": "Bu işleme devam etmek için kimliğinizi doğrulayın. Bu işlem harcama limitinizi değiştirmez veya devre dışı bırakmaz.",
     "englishSource": "Authenticate to continue with this transaction. This does not change or disable your spending limit."

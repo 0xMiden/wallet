@@ -4723,6 +4723,10 @@
     "message": "Ця сума сама по собі перевищує ліміт",
     "englishSource": "This amount exceeds the limit on its own"
   },
+  "spendingLimitChangeInSettings": {
+    "message": "Щоб збільшити ліміт, відкрийте Налаштування > Ліміти витрат.",
+    "englishSource": "To raise the limit, go to Settings > Spending limits."
+  },
   "spendingLimitTransactionAuthenticationReason": {
     "message": "Пройдіть автентифікацію, щоб продовжити цю транзакцію. Це не змінить і не вимкне ваш ліміт витрат.",
     "englishSource": "Authenticate to continue with this transaction. This does not change or disable your spending limit."

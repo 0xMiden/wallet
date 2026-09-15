@@ -1060,5 +1060,6 @@
   "spendingLimitOverBy": "Excedido em",
   "spendingLimitResets": "Disponível novamente",
   "spendingLimitNoAutomaticReset": "Este valor, por si só, excede o limite",
+  "spendingLimitChangeInSettings": "Para aumentar o limite, acesse Configurações > Limites de gastos.",
   "spendingLimitTransactionAuthenticationReason": "Autentique-se para continuar esta transação. Isto não altera nem desativa o seu limite de gastos."
 }

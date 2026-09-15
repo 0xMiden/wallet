@@ -4723,6 +4723,10 @@
     "message": "This amount exceeds the limit on its own",
     "englishSource": "This amount exceeds the limit on its own"
   },
+  "spendingLimitChangeInSettings": {
+    "message": "To raise the limit, go to Settings > Spending limits.",
+    "englishSource": "To raise the limit, go to Settings > Spending limits."
+  },
   "spendingLimitTransactionAuthenticationReason": {
     "message": "Authenticate to continue with this transaction. This does not change or disable your spending limit.",
     "englishSource": "Authenticate to continue with this transaction. This does not change or disable your spending limit."

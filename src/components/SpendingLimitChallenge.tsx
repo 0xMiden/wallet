@@ -83,6 +83,7 @@ export const SpendingLimitChallenge: React.FC<SpendingLimitChallengeProps> = ({
               </div>
             ))}
           </dl>
+          <p className="text-sm text-text-secondary-token">{t('spendingLimitChangeInSettings')}</p>
           <StrictActionAuthentication
             reason={t('spendingLimitTransactionAuthenticationReason')}
             onResult={handleAuthentication}

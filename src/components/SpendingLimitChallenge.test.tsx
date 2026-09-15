@@ -67,6 +67,7 @@ describe('SpendingLimitChallenge', () => {
     expect(screen.getByText('spendingLimitPeriod24h')).toBeInTheDocument();
     expect(screen.getByText('spendingLimitPeriod7d')).toBeInTheDocument();
     expect(screen.getByText('spendingLimitNoAutomaticReset')).toBeInTheDocument();
+    expect(screen.getByText('spendingLimitChangeInSettings')).toBeInTheDocument();
     expect(screen.getByText('spendingLimitTransactionAuthenticationReason')).toBeInTheDocument();
   });
 

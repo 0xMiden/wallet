@@ -1060,5 +1060,6 @@
   "spendingLimitOverBy": "超出金額",
   "spendingLimitResets": "再次可用",
   "spendingLimitNoAutomaticReset": "此金額本身已超過限額",
+  "spendingLimitChangeInSettings": "若要提高限額，請前往「設定」>「支出限額」。",
   "spendingLimitTransactionAuthenticationReason": "進行身分驗證以繼續此交易。這不會變更或停用您的支出限額。"
 }

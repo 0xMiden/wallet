@@ -1060,5 +1060,6 @@
   "spendingLimitOverBy": "Превышение",
   "spendingLimitResets": "Снова доступно",
   "spendingLimitNoAutomaticReset": "Эта сумма сама по себе превышает лимит",
+  "spendingLimitChangeInSettings": "Чтобы увеличить лимит, откройте Настройки > Лимиты расходов.",
   "spendingLimitTransactionAuthenticationReason": "Пройдите аутентификацию, чтобы продолжить эту транзакцию. Это не изменит и не отключит ваш лимит расходов."
 }

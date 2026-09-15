@@ -1060,5 +1060,6 @@
   "spendingLimitOverBy": "초과 금액",
   "spendingLimitResets": "다시 사용 가능",
   "spendingLimitNoAutomaticReset": "이 금액만으로 한도를 초과합니다",
+  "spendingLimitChangeInSettings": "한도를 높이려면 설정 > 지출 한도로 이동하세요.",
   "spendingLimitTransactionAuthenticationReason": "이 거래를 계속하려면 인증하세요. 이 작업은 지출 한도를 변경하거나 비활성화하지 않습니다."
 }

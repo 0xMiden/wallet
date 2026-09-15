@@ -4723,6 +4723,10 @@
     "message": "此金额本身已超过限额",
     "englishSource": "This amount exceeds the limit on its own"
   },
+  "spendingLimitChangeInSettings": {
+    "message": "要提高限额，请前往“设置”>“支出限额”。",
+    "englishSource": "To raise the limit, go to Settings > Spending limits."
+  },
   "spendingLimitTransactionAuthenticationReason": {
     "message": "进行身份验证以继续此交易。这不会更改或停用您的支出限额。",
     "englishSource": "Authenticate to continue with this transaction. This does not change or disable your spending limit."

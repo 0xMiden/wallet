@@ -152,7 +152,7 @@ Gates: e2e-bridge-in.yml (IN, iOS) + e2e-bridge.yml (OUT, Chrome), both post-mer
 - [x] Implement validated configuration reads, writes, revision checks, and all runtime transports.
 - [x] Implement strict authentication and Security settings UI.
 - [x] Integrate send, swap, bridge, Earn, and dApp flows.
-- [ ] Run visual checks, full local gates, Review Council, and fix every actionable finding.
+- [ ] Run full local gates, Review Council, and fix every actionable finding.
 - [ ] Push a PR with Closes #646, babysit CI, admin squash merge, and verify closure.
 
 ## Review
@@ -166,4 +166,9 @@ Gates: e2e-bridge-in.yml (IN, iOS) + e2e-bridge.yml (OUT, Chrome), both post-mer
 - Task 7: structured send and swap preflight challenges, exact one-time authorization threading, draft-preserving cancellation, and race or expiry re-challenge. 530 affected tests green; new spending-limit modules clear the 95% gate at 99.73% statements, 97.29% branches, 100% functions, and 99.73% lines.
 - Task 8: Agglayer, Epoch bridge, and Earn preflight before external work; exact authorization threading through SDK callbacks; structured final-race re-challenge; cancellation and below-limit regression coverage. 110 focused tests, TypeScript, and scoped lint green.
 - Task 9: extension, mobile, and desktop dApp preflight; wallet-owned strict authorization; disconnect and account-switch revalidation; one-shot modal handoff; structured race retry; generalized-send parity. 726 tests across all 37 dApp and confirmation suites, TypeScript, and scoped lint green.
-- Remaining: E2E, visual checks, full gates, Review Council, and delivery.
+- Task 10: real testnet iOS and Chrome E2E coverage for settings, over-limit
+  authentication, dApp sends, and atomic concurrent sends. Fresh iOS screenshots
+  verify native per-asset daily and weekly settings plus amount-over, reset, and
+  raise-in-Settings messaging. The iOS run passed with retries disabled in 4.2
+  minutes using the stable 0.16 CLI required by the current testnet node.
+- Remaining: full gates, Review Council, and delivery.

@@ -4723,6 +4723,10 @@
     "message": "이 금액만으로 한도를 초과합니다",
     "englishSource": "This amount exceeds the limit on its own"
   },
+  "spendingLimitChangeInSettings": {
+    "message": "한도를 높이려면 설정 > 지출 한도로 이동하세요.",
+    "englishSource": "To raise the limit, go to Settings > Spending limits."
+  },
   "spendingLimitTransactionAuthenticationReason": {
     "message": "이 거래를 계속하려면 인증하세요. 이 작업은 지출 한도를 변경하거나 비활성화하지 않습니다.",
     "englishSource": "Authenticate to continue with this transaction. This does not change or disable your spending limit."
