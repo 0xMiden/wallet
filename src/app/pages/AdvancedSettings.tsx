@@ -44,6 +44,11 @@ const AdvancedSettings: FC = () => {
     copy();
   }, [publicKey, copy]);
 
+  const handleExportAccountFile = useCallback(() => {
+    hapticLight();
+    navigate('/settings/export-account-file');
+  }, []);
+
   // Truncate to a chip-friendly form: 0x + first 6 + ... + last 4.
   // Until the WASM client resolves the key we render a non-breaking space so
   // the row keeps its height and doesn't jump on first paint.
@@ -72,6 +77,15 @@ const AdvancedSettings: FC = () => {
         <div className="flex items-center justify-between text-heading-gray">
           <div className="flex flex-col">
             <span className="font-medium text-base">{t('editMidenFaucetId')}</span>
+          </div>
+          <Icon name={IconName.ChevronRightLucide} className="w-5 h-5 stroke-black" fill="none" />
+        </div>
+      </button>
+
+      <button type="button" onClick={handleExportAccountFile} className="w-full">
+        <div className="flex items-center justify-between text-heading-gray">
+          <div className="flex flex-col">
+            <span className="font-medium text-base">{t('exportAccountFile')}</span>
           </div>
           <Icon name={IconName.ChevronRightLucide} className="w-5 h-5 stroke-black" fill="none" />
         </div>

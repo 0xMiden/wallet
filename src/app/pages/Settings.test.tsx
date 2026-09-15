@@ -230,6 +230,10 @@ jest.mock('./AdvancedSettings', () => ({
   __esModule: true,
   default: () => <div data-testid="advanced-settings" />
 }));
+jest.mock('./ExportAccountFile', () => ({
+  __esModule: true,
+  default: () => <div data-testid="export-account-file" />
+}));
 jest.mock('./Networks', () => ({
   __esModule: true,
   default: () => <div data-testid="networks-settings" />
@@ -657,6 +661,13 @@ describe('Settings page — active tab routing', () => {
     render(<Settings tabSlug="edit-miden-faucet-id" />);
 
     expect(screen.getByTestId('edit-faucet')).toBeInTheDocument();
+  });
+
+  it('renders the hidden account-file export tab', () => {
+    render(<Settings tabSlug="export-account-file" />);
+
+    expect(screen.getByTestId('nav-title')).toHaveTextContent('exportAccountFile');
+    expect(screen.getByTestId('export-account-file')).toBeInTheDocument();
   });
 
   it('resolves the hidden dapps slug to the connected-dApps list page', () => {

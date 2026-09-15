@@ -80,6 +80,14 @@ export async function processInProcessRequest(req: WalletRequest, label: string)
       };
     }
 
+    case WalletMessageType.ExportAccountFileRequest: {
+      const accountFileBase64 = await Actions.exportAccountFile(req.accountPublicKey, req.password);
+      return {
+        type: WalletMessageType.ExportAccountFileResponse,
+        accountFileBase64
+      };
+    }
+
     case WalletMessageType.RevealHotKeyRequest: {
       const hotPrivateKey = await Actions.revealHotKey(req.accountPublicKey, req.password);
       return {

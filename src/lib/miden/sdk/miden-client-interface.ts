@@ -151,8 +151,9 @@ export type MidenClientCreateOptions = {
    * builds the client on the SDK's external keystore (the SDK's own IndexedDB
    * keystore is not used; a member left out is refused by name). The realm
    * singleton always does, passing trampolines that route to
-   * `installRealmKeystore`'s callbacks and refuse `getKey` by name (#878); the
-   * offscreen document passes its reverse-IPC signer directly.
+   * `installRealmKeystore`'s callbacks. Its `getKey` slot is empty during normal
+   * operation and installed only for an authenticated, mutex-held account-file
+   * export; the offscreen document passes its reverse-IPC signer directly.
    */
   insertKeyCallback?: InsertKeyCallback;
   getKeyCallback?: GetKeyCallback;
@@ -641,6 +642,20 @@ export class MidenClientInterface {
     const accountFile = AccountFile.deserialize(accountBytes);
     const wallet: Account = await this.client.accounts.import({ file: accountFile });
     return getBech32AddressFromAccountId(wallet.id());
+  }
+
+  async exportAccountFile(accountPublicKey: string, assertLive: AssertLive = noAssertLive): Promise<Uint8Array> {
+    const accountId = accountPublicKey.split('_')[0] ?? accountPublicKey;
+    const accountFile = await this.client.accounts.export(accountId);
+    try {
+      assertLive('after account export');
+      if (accountFile.authSecretKeyCount() === 0) {
+        throw new Error('Account file does not contain an authentication secret key');
+      }
+      return accountFile.serialize();
+    } finally {
+      accountFile.free();
+    }
   }
 
   async importPublicMidenWalletFromSeed(seed: Uint8Array, auth?: AuthScheme) {

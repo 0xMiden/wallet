@@ -715,6 +715,34 @@ describe('Vault.revealPrivateKey', () => {
   });
 });
 
+describe('Vault.withAccountFileKeyReader', () => {
+  it('authenticates once and supplies the serialized auth key requested by the SDK', async () => {
+    const vault = await seedVault('pw');
+    const vaultKey = (vault as any).vaultKey as CryptoKey;
+    await encryptAndSaveMany([[keys.accAuthSecretKey('aabb'), '010203']], vaultKey);
+
+    const result = await Vault.withAccountFileKeyReader('pw', async getKey => getKey(new Uint8Array([0xaa, 0xbb])));
+
+    expect(result).toEqual(new Uint8Array([1, 2, 3]));
+  });
+
+  it('fails closed when the SDK requests a key the vault does not hold', async () => {
+    await seedVault('pw');
+
+    await expect(
+      Vault.withAccountFileKeyReader('pw', async getKey => getKey(new Uint8Array([0xaa, 0xbb])))
+    ).rejects.toThrow('Authentication key not found for account export');
+  });
+
+  it('does not expose a key reader when the step-up password is invalid', async () => {
+    await seedVault('right-password');
+    const operation = jest.fn();
+
+    await expect(Vault.withAccountFileKeyReader('wrong-password', operation)).rejects.toThrow('Invalid password');
+    expect(operation).not.toHaveBeenCalled();
+  });
+});
+
 describe('Vault.revealHotKey', () => {
   it('unwraps the hot ciphertext via the secure-hot-key facade and returns plaintext hex', async () => {
     const vault = await seedVault('pw');

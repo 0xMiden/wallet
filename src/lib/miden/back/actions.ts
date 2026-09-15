@@ -23,7 +23,13 @@ import {
   currentAccountUpdated
 } from 'lib/miden/back/store';
 import { Vault } from 'lib/miden/back/vault';
-import { installRealmKeystore, withWasmClientLock } from 'lib/miden/sdk/miden-client';
+import {
+  assertWasmHoldCurrent,
+  getMidenClient,
+  installRealmKeystore,
+  uninstallRealmKeystore,
+  withWasmClientLock
+} from 'lib/miden/sdk/miden-client';
 import { buildSdkSignCallback } from 'lib/miden/transaction/sign-callback';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
 import {
@@ -328,6 +334,29 @@ export function revealMnemonic(password?: string) {
 
 export function revealPrivateKey(accPubKeyCommitment: string, password?: string) {
   return withInited(() => Vault.revealPrivateKey(accPubKeyCommitment, password));
+}
+
+export function exportAccountFile(accountPublicKey: string, password?: string) {
+  return withInited(() =>
+    Vault.withAccountFileKeyReader(password, async getKey => {
+      try {
+        return await withWasmClientLock(
+          async hold => {
+            installRealmKeystore({ getKey });
+            const client = await getMidenClient();
+            assertWasmHoldCurrent(hold, 'export-account-file', 'after client acquisition');
+            const bytes = await client.exportAccountFile(accountPublicKey, step =>
+              assertWasmHoldCurrent(hold, 'export-account-file', step)
+            );
+            return Buffer.from(bytes).toString('base64');
+          },
+          { label: 'export-account-file' }
+        );
+      } finally {
+        uninstallRealmKeystore({ getKey });
+      }
+    })
+  );
 }
 
 export function revealHotKey(accountPublicKey: string, password?: string) {

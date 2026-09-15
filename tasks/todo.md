@@ -1,3 +1,49 @@
+# Issue #537 - guarded .mac account export
+
+## Plan
+
+- [x] Read the issue, repository instructions, decision profile, frontend guidance, and required TDD references.
+- [x] Trace the supported web-client `accounts.export()` path, wallet vault key storage, realm keystore lifecycle, intercom actions, and Advanced Settings routing.
+- [x] Measure TypeScript and TSX comment density before editing production code.
+- [x] RED: add focused tests for a scoped vault-backed `getKey` callback and serialized account-file export, then run them and record the expected failures.
+- [x] GREEN: implement scoped realm `getKey` installation, authenticated vault key reads, and `MidenClientInterface` account-file serialization.
+- [x] RED: add request, store, and context tests for a base64-safe account-file export action, then run them and record the expected failures.
+- [x] GREEN: wire the export through the backend, both intercom paths, Zustand, and `useMidenContext`.
+- [x] RED: add Advanced Settings and export-screen tests covering warning acknowledgement, credential step-up, binary download/share, success, and failure.
+- [x] GREEN: add the routed export screen under Advanced Settings with localized fund-access warning copy.
+- [x] Add the issue changelog entry under the unreleased version.
+- [x] Run focused Jest suites, scoped type and lint gates, i18n lint, and formatting checks.
+- [x] RED: prove an in-flight `getKey` result escaped after its client generation was replaced.
+- [x] GREEN: add the universal post-await generation check to the per-client `getKey` trampoline.
+- [x] Run all affected tests and static gates, the configured 95% coverage gate, affected builds with artifact/error checks, and visual verification.
+- [ ] Inspect the final diff, scan authored text for U+2014/U+2013 and attribution, and create the signed implementation commit.
+- [ ] Run the four-seat Review Council from a fresh session, apply all actionable findings, and reverify.
+- [ ] Push once, open the non-draft PR with `Closes #537`, babysit CI/review/conflicts to green, and admin squash merge.
+
+## Architecture
+
+The wallet's singleton client already uses the supported web-client `accounts.export()` API, but its external keystore intentionally refuses `getKey` during normal operation. The export action will authenticate first, install a vault-backed key reader only for one mutex-held export, remove it by identity in `finally`, serialize the returned `AccountFile`, and carry the bytes through intercom as base64. A routed Advanced Settings screen will require an explicit fund-access acknowledgement plus password, passcode, or device-security confirmation before downloading or sharing `<account-id>.mac`.
+
+## Review
+
+- RED core: 10 expected failures across four suites because the realm `getKey` slot, vault reader, SDK export method, and action did not exist.
+- RED transport: three expected failures because the request enum, dispatch cases, and store action did not exist.
+- RED UI: the new page module and route were absent, and Advanced Settings had no export row.
+- RED hardening: one callback-install cleanup test and two mobile cache-cleanup assertions failed before their guards existed.
+- RED 537A race: one parked-key test resolved stale secret bytes after the client generation changed.
+- RED watchdog cleanup: a parked SDK export survived the lock watchdog without uninstalling its scoped callback; the outer identity-safe `finally` now removes it before the action rejects.
+- RED interaction cleanup: the export row and acknowledgement emitted no haptics, and a thrown browser download click left its temporary anchor attached.
+- RED dark-theme contrast: the new export page's account address inherited black text until the page supplied the established heading color token.
+- GREEN: 611 tests pass across 11 affected suites. TypeScript, full source ESLint, scoped Prettier, i18n lint, and dependency integrity pass.
+- Full pre-translation coverage: 11,175 tests pass across 656 suites; statements 97.41%, branches 95.37%, functions 96.42%, and lines 97.41%. The sole expected failure is source/generated locale parity for the nine new English keys; the verified translation workflow generates and commits those bundles before every downstream coverage and build gate.
+- Final production builds pass for Chrome, mobile, desktop, Android, and iOS. Targeted error scans are empty, and the Chrome manifest/zip, mobile and desktop bundles/WASM, Android APK, and iOS app executable/Info.plist all exist.
+- Fresh routed light/dark visual checks pass at the supported 640 px fullpage width: the exact fund-access warning, acknowledgement, password step-up, disabled-to-enabled save transition, account identity contrast, and horizontal geometry are visible and correct.
+- Final comment density: TypeScript 20%, TSX 10%, `miden-client.ts` 55%, `vault.ts` 30%, `actions.ts` 25%, `AdvancedSettings.tsx` 4%, `ExportAccountFile.tsx` 0%, and `Settings.tsx` 16%. New comments are limited to lifecycle rationale.
+- Mobile share files are deleted from app cache in `finally`, including when the share fails.
+- Remaining verification risk: the tests exercise the supported web-client `accounts.export()` API and byte-preserving save paths with doubles; a live wallet-to-CLI import round trip and native share sheet were not run in this worktree. After the translation commit, the exact remote branch tree still requires a fully green coverage rerun before merge.
+
+---
+
 # Bridge-IN e2e harness — REAL WalletConnect on iOS simulator
 
 ## ✅ PROVEN (both make-or-break unknowns resolved)

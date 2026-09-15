@@ -3,6 +3,7 @@ import {
   AccountComponent,
   AccountStorageMode,
   AuthSecretKey,
+  type GetKeyCallback,
   SigningInputs,
   Word
 } from '@miden-sdk/miden-sdk/lazy';
@@ -1777,6 +1778,29 @@ export class Vault {
         throw new PublicError('Private key not found for this account');
       }
       return secretKeyHex;
+    });
+  }
+
+  static async withAccountFileKeyReader<T>(
+    password: string | undefined,
+    operation: (getKey: GetKeyCallback) => Promise<T>
+  ): Promise<T> {
+    return withError('Failed to export account file', async () => {
+      const vaultKey = password ? await Vault.unlockWithPassword(password) : await Vault.getHardwareVaultKey();
+      const getKey: GetKeyCallback = async publicKey => {
+        const commitment = Buffer.from(publicKey).toString('hex');
+        try {
+          const secretKeyHex = await fetchAndDecryptOneWithLegacyFallBack<string>(
+            accAuthSecretKeyStrgKey(commitment),
+            vaultKey
+          );
+          if (!secretKeyHex) throw new Error('empty key');
+          return new Uint8Array(Buffer.from(secretKeyHex, 'hex'));
+        } catch {
+          throw new PublicError('Authentication key not found for account export');
+        }
+      };
+      return operation(getKey);
     });
   }
 

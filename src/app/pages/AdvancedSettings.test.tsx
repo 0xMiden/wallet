@@ -88,11 +88,12 @@ beforeEach(() => {
 });
 
 describe('AdvancedSettings (page)', () => {
-  it('renders both section labels', async () => {
+  it('renders all section labels', async () => {
     await renderWithResolvedKey();
 
     expect(screen.getByText('accountPublicKey')).toBeInTheDocument();
     expect(screen.getByText('editMidenFaucetId')).toBeInTheDocument();
+    expect(screen.getByText('exportAccountFile')).toBeInTheDocument();
   });
 
   it('resolves the account public key and displays the truncated chip', async () => {
@@ -183,5 +184,14 @@ describe('AdvancedSettings (page)', () => {
 
     expect(mockNavigate).toHaveBeenCalledTimes(1);
     expect(mockNavigate).toHaveBeenCalledWith('/settings/edit-miden-faucet-id');
+  });
+
+  it('navigates to the guarded account-file export when its row is pressed', async () => {
+    await renderWithResolvedKey();
+
+    fireEvent.click(screen.getByText('exportAccountFile'));
+
+    expect(mockHapticLight).toHaveBeenCalledTimes(1);
+    expect(mockNavigate).toHaveBeenCalledWith('/settings/export-account-file');
   });
 });

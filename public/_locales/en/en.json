@@ -1046,5 +1046,14 @@
   "activityRestoreTransfers": "Restore",
   "activityHiddenNotesError": "Could not save hidden transfers. Please try again.",
   "activityDateUnavailable": "Date unavailable",
-  "walletSetupDidNotComplete": "Your wallet was created but did not finish starting up. Check your connection and try again."
+  "walletSetupDidNotComplete": "Your wallet was created but did not finish starting up. Check your connection and try again.",
+  "exportAccountFile": "Export account file",
+  "exportAccountFileWarningTitle": "This file controls your funds",
+  "exportAccountFileWarningBody": "This file grants access to funds for the exported account. Do not share it with anyone.",
+  "exportAccountFileAcknowledge": "I understand that anyone with this file can access the account funds.",
+  "exportAccountFilePasswordDescription": "Enter your wallet password to export this account.",
+  "exportAccountFileHardwareDescription": "Confirm with your device security to export this account.",
+  "exportAccountFilePasscodeDescription": "Enter your wallet passcode to export this account.",
+  "saveAccountFile": "Save account file",
+  "accountFileExportSuccess": "Account file saved."
 }

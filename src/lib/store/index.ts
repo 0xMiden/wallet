@@ -256,6 +256,16 @@ export const useWalletStore = create<WalletStore>()(
       return res.privateKey;
     },
 
+    exportAccountFile: async (accountPublicKey, password) => {
+      const res = await request({
+        type: WalletMessageType.ExportAccountFileRequest,
+        accountPublicKey,
+        password
+      });
+      assertResponse(res.type === WalletMessageType.ExportAccountFileResponse);
+      return new Uint8Array(Buffer.from(res.accountFileBase64, 'base64'));
+    },
+
     revealHotKey: async (accountPublicKey, password) => {
       const res = await request({
         type: WalletMessageType.RevealHotKeyRequest,

@@ -383,6 +383,23 @@ describe('useWalletStore', () => {
       });
     });
 
+    it('exportAccountFile decodes the base64 response into bytes', async () => {
+      mockRequest.mockResolvedValueOnce({
+        type: WalletMessageType.ExportAccountFileResponse,
+        accountFileBase64: 'BAUG'
+      });
+
+      const { exportAccountFile } = useWalletStore.getState();
+      const result = await exportAccountFile('mtst1account', 'password123');
+
+      expect(result).toEqual(new Uint8Array([4, 5, 6]));
+      expect(mockRequest).toHaveBeenCalledWith({
+        type: WalletMessageType.ExportAccountFileRequest,
+        accountPublicKey: 'mtst1account',
+        password: 'password123'
+      });
+    });
+
     it('importAccount returns new account public key from response', async () => {
       mockRequest.mockResolvedValueOnce({
         type: WalletMessageType.ImportAccountResponse,

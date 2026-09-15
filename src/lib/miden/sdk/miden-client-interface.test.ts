@@ -347,6 +347,50 @@ describe('MidenClientInterface', () => {
     expect(fakeMidenClient.accounts.import).toHaveBeenCalled();
   });
 
+  it('exports a serialized account file through the supported SDK account export path', async () => {
+    const accountFile = {
+      authSecretKeyCount: jest.fn(() => 1),
+      serialize: jest.fn(() => new Uint8Array([4, 5, 6])),
+      free: jest.fn()
+    };
+    const fakeMidenClient = buildFakeMidenClient({
+      accounts: { export: jest.fn(async () => accountFile) }
+    });
+    const assertLive = jest.fn();
+
+    const { MidenClientInterface } = await import('./miden-client-interface');
+    const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
+
+    await expect(client.exportAccountFile('mtst1account_suffix', assertLive)).resolves.toEqual(
+      new Uint8Array([4, 5, 6])
+    );
+    expect(fakeMidenClient.accounts.export).toHaveBeenCalledWith('mtst1account');
+    expect(assertLive).toHaveBeenCalledWith('after account export');
+    expect(accountFile.authSecretKeyCount).toHaveBeenCalledTimes(1);
+    expect(accountFile.serialize).toHaveBeenCalledTimes(1);
+    expect(accountFile.free).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses an account file with no authentication secret key and frees it', async () => {
+    const accountFile = {
+      authSecretKeyCount: jest.fn(() => 0),
+      serialize: jest.fn(),
+      free: jest.fn()
+    };
+    const fakeMidenClient = buildFakeMidenClient({
+      accounts: { export: jest.fn(async () => accountFile) }
+    });
+
+    const { MidenClientInterface } = await import('./miden-client-interface');
+    const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
+
+    await expect(client.exportAccountFile('mtst1account')).rejects.toThrow(
+      'Account file does not contain an authentication secret key'
+    );
+    expect(accountFile.serialize).not.toHaveBeenCalled();
+    expect(accountFile.free).toHaveBeenCalledTimes(1);
+  });
+
   it('sends private note', async () => {
     const fakeMidenClient = buildFakeMidenClient();
 

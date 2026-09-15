@@ -512,6 +512,13 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
         type: WalletMessageType.RevealPrivateKeyResponse,
         privateKey: privateKey ?? ''
       };
+    case WalletMessageType.ExportAccountFileRequest: {
+      const accountFileBase64 = await Actions.exportAccountFile(req.accountPublicKey, req.password);
+      return {
+        type: WalletMessageType.ExportAccountFileResponse,
+        accountFileBase64
+      };
+    }
     case WalletMessageType.RevealHotKeyRequest: {
       const hotPrivateKey = await Actions.revealHotKey(req.accountPublicKey, req.password);
       return {
