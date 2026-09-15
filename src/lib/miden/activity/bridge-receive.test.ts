@@ -1,4 +1,6 @@
-import { reconcileAgglayerBridgedReceives, reconcileBridgedReceives } from './bridge-receive';
+import * as Repo from 'lib/miden/repo';
+
+import { reconcileBridgedReceives } from './bridge-receive';
 
 const rows: any[] = [];
 const waitForReceipt = jest.fn();
@@ -75,6 +77,41 @@ describe('reconcileBridgedReceives', () => {
     expect(fetchDeposits).toHaveBeenCalledWith('evm:miden-account');
   });
 
+  it('walks the history once per pass and advances rows of both providers', async () => {
+    const hash = `0x${'2'.repeat(64)}`;
+    rows.push(
+      {
+        id: 'agg-once',
+        type: 'bridged-receive',
+        accountId: 'miden-account',
+        initiatedAt: Math.floor(Date.now() / 1000),
+        extraInputs: { provider: 'agglayer', phase: 'delivering', evmTxHash: hash }
+      },
+      {
+        id: 'epoch-once',
+        type: 'bridged-receive',
+        initiatedAt: Math.floor(Date.now() / 1000),
+        extraInputs: {
+          provider: 'epoch',
+          phase: 'delivering',
+          sourceAddress: '0x1111111111111111111111111111111111111111',
+          intentNonce: 'nonce-once'
+        }
+      }
+    );
+    fetchDeposits.mockResolvedValue([{ tx_hash: hash, ready_for_claim: true }]);
+
+    await reconcileBridgedReceives();
+
+    expect(Repo.transactions.filter).toHaveBeenCalledTimes(1);
+    expect(updatePhase).toHaveBeenCalledWith('agg-once', 'ready');
+    expect(registerBridgeIn).toHaveBeenCalledWith(
+      '0x1111111111111111111111111111111111111111',
+      'nonce-once',
+      expect.objectContaining({ bridgeReceiveTxId: 'epoch-once' })
+    );
+  });
+
   it('marks only the matching AggLayer transaction ready once the indexer finalizes it', async () => {
     const hash = `0x${'a'.repeat(64)}`;
     rows.push({
@@ -89,7 +126,7 @@ describe('reconcileBridgedReceives', () => {
       { tx_hash: hash.toUpperCase(), ready_for_claim: false, status: 'READY_TO_CLAIM' }
     ]);
 
-    await reconcileAgglayerBridgedReceives();
+    await reconcileBridgedReceives();
 
     expect(updatePhase).toHaveBeenCalledWith('agg-ready', 'ready');
   });
@@ -111,9 +148,7 @@ describe('reconcileBridgedReceives', () => {
     it('terminalizes an AggLayer row without waiting on its hash', async () => {
       rows.push(restoredRow('agg-restored', 'agglayer'));
 
-      // Called directly, as AllHistory's 8s poll does — the guard cannot live
-      // only in the `reconcileBridgedReceives` wrapper.
-      await reconcileAgglayerBridgedReceives();
+      await reconcileBridgedReceives();
 
       expect(waitForReceipt).not.toHaveBeenCalled();
       expect(fetchDeposits).not.toHaveBeenCalled();
@@ -148,7 +183,7 @@ describe('reconcileBridgedReceives', () => {
     });
     fetchDeposits.mockResolvedValue([{ tx_hash: hash, ready_for_claim: false }]);
 
-    await reconcileAgglayerBridgedReceives();
+    await reconcileBridgedReceives();
 
     expect(updatePhase).not.toHaveBeenCalled();
   });
@@ -227,7 +262,7 @@ describe('reconcileBridgedReceives', () => {
       extraInputs: { provider: 'agglayer', phase: 'submitting', evmTxHash: `0x${'e'.repeat(64)}` }
     });
 
-    await reconcileAgglayerBridgedReceives();
+    await reconcileBridgedReceives();
 
     expect(updatePhase).toHaveBeenCalledWith('agg-reverted', 'failed', { error: 'reverted on L1' });
     expect(fetchDeposits).not.toHaveBeenCalled();
@@ -243,7 +278,7 @@ describe('reconcileBridgedReceives', () => {
       extraInputs: { provider: 'agglayer', phase: 'delivering', evmTxHash: `0x${'f'.repeat(64)}` }
     });
 
-    await reconcileAgglayerBridgedReceives();
+    await reconcileBridgedReceives();
 
     expect(updatePhase).not.toHaveBeenCalled();
   });
