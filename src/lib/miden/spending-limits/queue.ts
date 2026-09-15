@@ -1,6 +1,7 @@
 import { assessSpendingLimit } from './policy';
 import {
   SpendingLimitAuthorization,
+  SpendingLimitAssessment,
   SpendingLimitAuthorizationRequiredError,
   SpendingLimitPolicyUnavailableError,
   parsePersistedSpendingLimit
@@ -18,12 +19,29 @@ export interface QueueableOutgoingTransaction extends ITransaction {
 const unavailable = (reason: string): SpendingLimitPolicyUnavailableError =>
   new SpendingLimitPolicyUnavailableError(`Spending limit policy is unavailable: ${reason}`);
 
-const readPolicy = async (transaction: QueueableOutgoingTransaction) => {
+const readPolicy = async (accountId: string, faucetId: string) => {
   try {
-    return await Repo.spendingLimits.get([transaction.accountId, transaction.faucetId]);
+    return await Repo.spendingLimits.get([accountId, faucetId]);
   } catch {
     throw unavailable('configuration storage read failed');
   }
+};
+
+export interface SpendingLimitProposal {
+  accountId: string;
+  faucetId: string;
+  amount: bigint;
+  now?: number;
+}
+
+export const assessOutgoingSpendingLimit = async (
+  proposal: SpendingLimitProposal
+): Promise<SpendingLimitAssessment | undefined> => {
+  const persisted = await readPolicy(proposal.accountId, proposal.faucetId);
+  if (persisted === undefined) return undefined;
+  const config = parsePersistedSpendingLimit(persisted);
+  const now = proposal.now ?? Math.floor(Date.now() / 1000);
+  return assessSpendingLimit(config, await readHistory(proposal.accountId), { ...proposal, now });
 };
 
 const readHistory = async (accountId: string): Promise<ITransaction[]> => {
@@ -72,7 +90,7 @@ export const queueOutgoingTransaction = async (
   now: number = Math.floor(Date.now() / 1000)
 ): Promise<void> => {
   await Repo.db.transaction('rw', Repo.spendingLimits, Repo.transactions, async () => {
-    const persisted = await readPolicy(transaction);
+    const persisted = await readPolicy(transaction.accountId, transaction.faucetId);
     if (persisted === undefined) {
       await Repo.transactions.add(transaction);
       return;

@@ -1054,5 +1054,13 @@
   "spendingLimitLocalDisclosure": "Limity i historia wydatków są przechowywane tylko w tej instalacji. Zresetowanie danych aplikacji lub ponowna instalacja portfela je usuwa.",
   "spendingLimitNotOnChain": "Te limity są lokalną kontrolą bezpieczeństwa, a nie ograniczeniem on-chain. Każda osoba z bezpośrednim dostępem do kluczy może je ominąć.",
   "spendingLimitNoAssets": "Brak zasobów dostępnych do skonfigurowania.",
-  "spendingLimitSave": "Zapisz"
+  "spendingLimitSave": "Zapisz",
+  "spendingLimitChallengeTitle": "Przekroczono limit wydatków",
+  "spendingLimitPeriod24h": "Ostatnie 24 godziny",
+  "spendingLimitPeriod7d": "Ostatnie 7 dni",
+  "spendingLimitCap": "Limit",
+  "spendingLimitOverBy": "Przekroczenie",
+  "spendingLimitResets": "Dostępne ponownie",
+  "spendingLimitNoAutomaticReset": "Ta kwota sama przekracza limit",
+  "spendingLimitTransactionAuthenticationReason": "Uwierzytelnij się, aby kontynuować tę transakcję. Nie zmieni to ani nie wyłączy limitu wydatków."
 }

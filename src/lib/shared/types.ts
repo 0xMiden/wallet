@@ -1,5 +1,9 @@
 import type { StrictAuthenticationProtectors } from 'lib/auth/strict-action-authentication';
-import type { PersistedSpendingLimit, SerializedSpendingLimitDraft } from 'lib/miden/spending-limits/types';
+import type {
+  PersistedSpendingLimit,
+  SerializedSpendingLimitAssessment,
+  SerializedSpendingLimitDraft
+} from 'lib/miden/spending-limits/types';
 import { MidenMessageType, MidenRequest, MidenResponse } from 'lib/miden/types';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/constants';
 import { WalletType } from 'screens/onboarding/types';
@@ -63,6 +67,8 @@ export enum WalletMessageType {
   GetSpendingLimitsResponse = 'GET_SPENDING_LIMITS_RESPONSE',
   SaveSpendingLimitRequest = 'SAVE_SPENDING_LIMIT_REQUEST',
   SaveSpendingLimitResponse = 'SAVE_SPENDING_LIMIT_RESPONSE',
+  AssessSpendingLimitRequest = 'ASSESS_SPENDING_LIMIT_REQUEST',
+  AssessSpendingLimitResponse = 'ASSESS_SPENDING_LIMIT_RESPONSE',
   GetStrictAuthenticationProtectorsRequest = 'GET_STRICT_AUTHENTICATION_PROTECTORS_REQUEST',
   GetStrictAuthenticationProtectorsResponse = 'GET_STRICT_AUTHENTICATION_PROTECTORS_RESPONSE',
   VerifyStrictActionAuthenticationRequest = 'VERIFY_STRICT_ACTION_AUTHENTICATION_REQUEST',
@@ -735,6 +741,18 @@ export interface SaveSpendingLimitResponse extends WalletMessageBase {
   configuration?: PersistedSpendingLimit;
 }
 
+export interface AssessSpendingLimitRequest extends WalletMessageBase {
+  type: WalletMessageType.AssessSpendingLimitRequest;
+  accountId: string;
+  faucetId: string;
+  amount: string;
+}
+
+export interface AssessSpendingLimitResponse extends WalletMessageBase {
+  type: WalletMessageType.AssessSpendingLimitResponse;
+  assessment?: SerializedSpendingLimitAssessment;
+}
+
 export interface GetStrictAuthenticationProtectorsRequest extends WalletMessageBase {
   type: WalletMessageType.GetStrictAuthenticationProtectorsRequest;
 }
@@ -1113,6 +1131,7 @@ export type WalletRequest =
   | UpdateSettingsRequest
   | GetSpendingLimitsRequest
   | SaveSpendingLimitRequest
+  | AssessSpendingLimitRequest
   | GetStrictAuthenticationProtectorsRequest
   | VerifyStrictActionAuthenticationRequest
   | SignDataRequest
@@ -1182,6 +1201,7 @@ export type WalletResponse =
   | UpdateSettingsResponse
   | GetSpendingLimitsResponse
   | SaveSpendingLimitResponse
+  | AssessSpendingLimitResponse
   | GetStrictAuthenticationProtectorsResponse
   | VerifyStrictActionAuthenticationResponse
   | SignDataResponse

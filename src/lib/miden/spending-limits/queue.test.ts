@@ -1,7 +1,7 @@
 import { SendTransaction } from '../db/types';
 import { spendingLimits, transactions } from '../repo';
 import { NoteTypeEnum } from '../types';
-import { queueOutgoingTransaction } from './queue';
+import { assessOutgoingSpendingLimit, queueOutgoingTransaction } from './queue';
 import { PersistedSpendingLimit, SpendingLimitAuthorization, SpendingLimitAuthorizationRequiredError } from './types';
 
 const NOW = 2_000_000;
@@ -36,6 +36,26 @@ const authorization = (overrides: Partial<SpendingLimitAuthorization> = {}): Spe
 });
 
 describe('queueOutgoingTransaction', () => {
+  it('preflights the current policy and history without inserting a row', async () => {
+    await spendingLimits.put(config());
+    await transactions.add(outgoing(90n, 'existing'));
+
+    await expect(
+      assessOutgoingSpendingLimit({ accountId: 'account-a', faucetId: 'faucet-a', amount: 20n, now: NOW })
+    ).resolves.toMatchObject({
+      amount: 20n,
+      revision: 'revision-1',
+      breaches: [{ period: '24h', overBy: 10n }]
+    });
+    await expect(transactions.count()).resolves.toBe(1);
+  });
+
+  it('returns no preflight assessment when no policy is configured', async () => {
+    await expect(
+      assessOutgoingSpendingLimit({ accountId: 'account-a', faucetId: 'faucet-a', amount: 20n, now: NOW })
+    ).resolves.toBeUndefined();
+  });
+
   it('queues when no spending limit is configured', async () => {
     await queueOutgoingTransaction(outgoing(20n, 'candidate'), undefined, NOW);
 

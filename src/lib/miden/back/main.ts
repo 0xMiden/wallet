@@ -577,6 +577,13 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
         ...(configuration !== undefined && { configuration })
       };
     }
+    case WalletMessageType.AssessSpendingLimitRequest: {
+      const assessment = await Actions.assessOutgoingSpendingLimit(req.accountId, req.faucetId, req.amount);
+      return {
+        type: WalletMessageType.AssessSpendingLimitResponse,
+        ...(assessment !== undefined && { assessment })
+      };
+    }
     case WalletMessageType.GetStrictAuthenticationProtectorsRequest:
       return {
         type: WalletMessageType.GetStrictAuthenticationProtectorsResponse,

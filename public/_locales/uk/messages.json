@@ -4703,4 +4703,36 @@
     "englishSource": "No assets are available to configure."
   },
   "spendingLimitSave": { "message": "Зберегти", "englishSource": "Save" }
+  "spendingLimitChallengeTitle": {
+    "message": "Ліміт витрат перевищено",
+    "englishSource": "Spending limit exceeded"
+  },
+  "spendingLimitPeriod24h": {
+    "message": "Останні 24 години",
+    "englishSource": "Past 24 hours"
+  },
+  "spendingLimitPeriod7d": {
+    "message": "Останні 7 днів",
+    "englishSource": "Past 7 days"
+  },
+  "spendingLimitCap": {
+    "message": "Ліміт",
+    "englishSource": "Limit"
+  },
+  "spendingLimitOverBy": {
+    "message": "Перевищення",
+    "englishSource": "Over by"
+  },
+  "spendingLimitResets": {
+    "message": "Знову доступно",
+    "englishSource": "Available again"
+  },
+  "spendingLimitNoAutomaticReset": {
+    "message": "Ця сума сама по собі перевищує ліміт",
+    "englishSource": "This amount exceeds the limit on its own"
+  },
+  "spendingLimitTransactionAuthenticationReason": {
+    "message": "Пройдіть автентифікацію, щоб продовжити цю транзакцію. Це не змінить і не вимкне ваш ліміт витрат.",
+    "englishSource": "Authenticate to continue with this transaction. This does not change or disable your spending limit."
+  }
 }

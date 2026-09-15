@@ -50,7 +50,7 @@ describe('assessSpendingLimit', () => {
     });
 
     expect(assessment.breaches).toEqual([
-      { period: '24h', spent: 90n, proposedTotal: 101n, limit: 100n, resetAt: NOW - 1 + DAY }
+      { period: '24h', spent: 90n, proposedTotal: 101n, limit: 100n, overBy: 1n, resetAt: NOW - 1 + DAY }
     ]);
   });
 
@@ -110,8 +110,15 @@ describe('assessSpendingLimit', () => {
       revision: config.revision,
       assessedAt: NOW,
       breaches: [
-        { period: '24h', spent: 90n, proposedTotal: 140n, limit: 100n, resetAt: NOW - 20 + DAY },
-        { period: '7d', spent: 170n, proposedTotal: 220n, limit: 200n, resetAt: NOW - 6 * DAY + WEEK }
+        { period: '24h', spent: 90n, proposedTotal: 140n, limit: 100n, overBy: 40n, resetAt: NOW - 20 + DAY },
+        {
+          period: '7d',
+          spent: 170n,
+          proposedTotal: 220n,
+          limit: 200n,
+          overBy: 20n,
+          resetAt: NOW - 6 * DAY + WEEK
+        }
       ]
     });
   });
@@ -134,6 +141,7 @@ describe('assessSpendingLimit', () => {
         spent: 90n,
         proposedTotal: 140n,
         limit: 100n,
+        overBy: 40n,
         resetAt: NOW - 5 * DAY + WEEK
       }
     ]);
@@ -152,6 +160,9 @@ describe('assessSpendingLimit', () => {
 
   it.each([
     ['negative proposed amount', [row()], { amount: -1n, now: NOW }],
+    ['non-bigint proposed amount', [row()], { amount: 1 as unknown as bigint, now: NOW }],
+    ['negative assessment time', [row()], { amount: 1n, now: -1 }],
+    ['fractional assessment time', [row()], { amount: 1n, now: 1.5 }],
     ['future row', [row({ initiatedAt: NOW + 1 })], { amount: 1n, now: NOW }],
     ['negative row amount', [row({ amount: -1n })], { amount: 1n, now: NOW }],
     ['missing row amount', [row({ amount: undefined })], { amount: 1n, now: NOW }],
@@ -171,6 +182,17 @@ describe('assessSpendingLimit', () => {
     expect(() =>
       assessSpendingLimit(config, [], {
         accountId: 'account-b',
+        faucetId: config.faucetId,
+        amount: 1n,
+        now: NOW
+      })
+    ).toThrow(SpendingLimitPolicyUnavailableError);
+  });
+
+  it('fails closed when no rolling period is configured', () => {
+    expect(() =>
+      assessSpendingLimit({ ...config, dailyLimit: undefined, weeklyLimit: undefined }, [], {
+        accountId: config.accountId,
         faucetId: config.faucetId,
         amount: 1n,
         now: NOW

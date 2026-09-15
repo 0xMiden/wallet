@@ -190,6 +190,7 @@ jest.mock('lib/miden/back/actions', () => ({
   updateSettings: jest.fn(),
   listSpendingLimits: jest.fn(),
   saveSpendingLimit: jest.fn(),
+  assessOutgoingSpendingLimit: jest.fn(),
   getStrictAuthenticationProtectors: jest.fn(),
   verifyStrictActionAuthentication: jest.fn(),
   signTransaction: jest.fn(),
@@ -239,6 +240,7 @@ beforeEach(async () => {
   Actions.processDApp.mockResolvedValue({ payload: 'response' });
   Actions.listSpendingLimits.mockResolvedValue([{ revision: 'revision-1' }]);
   Actions.saveSpendingLimit.mockResolvedValue({ revision: 'revision-2' });
+  Actions.assessOutgoingSpendingLimit.mockResolvedValue({ revision: 'revision-1', breaches: [{}] });
   Actions.getStrictAuthenticationProtectors.mockResolvedValue({ hardware: true, password: false });
   Actions.verifyStrictActionAuthentication.mockResolvedValue(undefined);
   mockClient.importNoteBytes.mockResolvedValue('note-id-1');
@@ -638,6 +640,21 @@ describe('processRequest', () => {
     expect(saved).toEqual({
       type: WalletMessageType.SaveSpendingLimitResponse,
       configuration: { revision: 'revision-2' }
+    });
+  });
+
+  it('dispatches a serializable spending-limit preflight request', async () => {
+    const assessed = await dispatch({
+      type: WalletMessageType.AssessSpendingLimitRequest,
+      accountId: 'account-a',
+      faucetId: 'faucet-a',
+      amount: '20'
+    });
+
+    expect(Actions.assessOutgoingSpendingLimit).toHaveBeenCalledWith('account-a', 'faucet-a', '20');
+    expect(assessed).toEqual({
+      type: WalletMessageType.AssessSpendingLimitResponse,
+      assessment: { revision: 'revision-1', breaches: [{}] }
     });
   });
 

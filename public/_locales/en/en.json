@@ -1060,5 +1060,13 @@
   "spendingLimitLocalDisclosure": "Limits and spending history are stored only on this installation. Resetting app data or reinstalling the wallet removes them.",
   "spendingLimitNotOnChain": "These limits are a local safety check, not an on-chain restriction. Anyone with direct access to your keys can bypass them.",
   "spendingLimitNoAssets": "No assets are available to configure.",
-  "spendingLimitSave": "Save"
+  "spendingLimitSave": "Save",
+  "spendingLimitChallengeTitle": "Spending limit exceeded",
+  "spendingLimitPeriod24h": "Past 24 hours",
+  "spendingLimitPeriod7d": "Past 7 days",
+  "spendingLimitCap": "Limit",
+  "spendingLimitOverBy": "Over by",
+  "spendingLimitResets": "Available again",
+  "spendingLimitNoAutomaticReset": "This amount exceeds the limit on its own",
+  "spendingLimitTransactionAuthenticationReason": "Authenticate to continue with this transaction. This does not change or disable your spending limit."
 }

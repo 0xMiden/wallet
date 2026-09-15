@@ -51,6 +51,7 @@ export interface SpendingLimitBreach {
   spent: bigint;
   proposedTotal: bigint;
   limit: bigint;
+  overBy: bigint;
   /** Null when the proposed transaction alone is larger than the cap. */
   resetAt: number | null;
 }
@@ -62,6 +63,24 @@ export interface SpendingLimitAssessment {
   revision: string;
   assessedAt: number;
   breaches: SpendingLimitBreach[];
+}
+
+export interface SerializedSpendingLimitBreach {
+  period: SpendingLimitPeriod;
+  spent: string;
+  proposedTotal: string;
+  limit: string;
+  overBy: string;
+  resetAt: number | null;
+}
+
+export interface SerializedSpendingLimitAssessment {
+  accountId: string;
+  faucetId: string;
+  amount: string;
+  revision: string;
+  assessedAt: number;
+  breaches: SerializedSpendingLimitBreach[];
 }
 
 export interface SpendingLimitAuthorization {
@@ -133,11 +152,26 @@ const domainAmount = (value: unknown, field: string): bigint | undefined => {
   return value;
 };
 
+const requiredDomainAmount = (value: unknown, field: string): bigint => {
+  const amount = domainAmount(value, field);
+  if (amount === undefined) throw unavailable(`${field} is invalid`);
+  return amount;
+};
+
 const persistedAmount = (value: unknown, field: string): bigint | undefined => {
   if (value === undefined) return undefined;
   if (typeof value !== 'string' || !CANONICAL_AMOUNT.test(value)) throw unavailable(`${field} is invalid`);
   return BigInt(value);
 };
+
+const requiredPersistedAmount = (value: unknown, field: string): bigint => {
+  const amount = persistedAmount(value, field);
+  if (amount === undefined) throw unavailable(`${field} is invalid`);
+  return amount;
+};
+
+export const parseSerializedSpendingAmount = (value: unknown): bigint =>
+  requiredPersistedAmount(value, 'proposal amount');
 
 interface CommonFields {
   accountId: string;
@@ -213,4 +247,96 @@ export const parseSerializedSpendingLimitDraft = (value: unknown): SpendingLimit
     ...(dailyLimit !== undefined && { dailyLimit }),
     ...(weeklyLimit !== undefined && { weeklyLimit })
   };
+};
+
+const parseBreach = (value: unknown, parseAmount: (value: unknown, field: string) => bigint): SpendingLimitBreach => {
+  if (!isRecord(value)) throw unavailable('breach is invalid');
+  const period = Reflect.get(value, 'period');
+  if (period !== '24h' && period !== '7d') throw unavailable('breach period is invalid');
+  const reset = Reflect.get(value, 'resetAt');
+  const resetAt = reset === null ? null : timestamp(reset, 'breach resetAt');
+  return {
+    period,
+    spent: parseAmount(Reflect.get(value, 'spent'), 'breach spent'),
+    proposedTotal: parseAmount(Reflect.get(value, 'proposedTotal'), 'breach proposedTotal'),
+    limit: parseAmount(Reflect.get(value, 'limit'), 'breach limit'),
+    overBy: parseAmount(Reflect.get(value, 'overBy'), 'breach overBy'),
+    resetAt
+  };
+};
+
+const validateAssessment = (assessment: SpendingLimitAssessment): SpendingLimitAssessment => {
+  if (assessment.breaches.length > 2) throw unavailable('too many breach periods');
+  const periods = new Set<SpendingLimitPeriod>();
+  for (const breach of assessment.breaches) {
+    if (
+      periods.has(breach.period) ||
+      breach.proposedTotal !== breach.spent + assessment.amount ||
+      breach.proposedTotal <= breach.limit ||
+      breach.overBy !== breach.proposedTotal - breach.limit ||
+      (breach.resetAt !== null && breach.resetAt <= assessment.assessedAt)
+    ) {
+      throw unavailable('breach values are inconsistent');
+    }
+    periods.add(breach.period);
+  }
+  if (assessment.breaches.length === 2 && assessment.breaches[0]?.period !== '24h') {
+    throw unavailable('breach periods are out of order');
+  }
+  return assessment;
+};
+
+export const parseSpendingLimitAssessment = (value: unknown): SpendingLimitAssessment => {
+  if (!isRecord(value)) throw unavailable('assessment is invalid');
+  const breaches = Reflect.get(value, 'breaches');
+  if (!Array.isArray(breaches)) throw unavailable('assessment breaches are invalid');
+  return validateAssessment({
+    accountId: requiredString(Reflect.get(value, 'accountId'), 'accountId'),
+    faucetId: requiredString(Reflect.get(value, 'faucetId'), 'faucetId'),
+    amount: requiredDomainAmount(Reflect.get(value, 'amount'), 'amount'),
+    revision: requiredString(Reflect.get(value, 'revision'), 'revision'),
+    assessedAt: timestamp(Reflect.get(value, 'assessedAt'), 'assessedAt'),
+    breaches: breaches.map(breach => parseBreach(breach, requiredDomainAmount))
+  });
+};
+
+export const toSerializedSpendingLimitAssessment = (
+  value: SpendingLimitAssessment
+): SerializedSpendingLimitAssessment => {
+  const assessment = parseSpendingLimitAssessment(value);
+  return {
+    ...assessment,
+    amount: assessment.amount.toString(),
+    breaches: assessment.breaches.map(breach => ({
+      period: breach.period,
+      spent: breach.spent.toString(),
+      proposedTotal: breach.proposedTotal.toString(),
+      limit: breach.limit.toString(),
+      overBy: breach.overBy.toString(),
+      resetAt: breach.resetAt
+    }))
+  };
+};
+
+export const parseSerializedSpendingLimitAssessment = (value: unknown): SpendingLimitAssessment => {
+  if (!isRecord(value)) throw unavailable('assessment is invalid');
+  const breaches = Reflect.get(value, 'breaches');
+  if (!Array.isArray(breaches)) throw unavailable('assessment breaches are invalid');
+  return validateAssessment({
+    accountId: requiredString(Reflect.get(value, 'accountId'), 'accountId'),
+    faucetId: requiredString(Reflect.get(value, 'faucetId'), 'faucetId'),
+    amount: requiredPersistedAmount(Reflect.get(value, 'amount'), 'amount'),
+    revision: requiredString(Reflect.get(value, 'revision'), 'revision'),
+    assessedAt: timestamp(Reflect.get(value, 'assessedAt'), 'assessedAt'),
+    breaches: breaches.map(breach => parseBreach(breach, requiredPersistedAmount))
+  });
+};
+
+export const spendingLimitAssessmentFromError = (error: unknown): SpendingLimitAssessment | undefined => {
+  if (!isRecord(error) || Reflect.get(error, 'code') !== 'SPENDING_LIMIT_AUTHORIZATION_REQUIRED') return undefined;
+  try {
+    return parseSpendingLimitAssessment(Reflect.get(error, 'assessment'));
+  } catch {
+    return undefined;
+  }
 };

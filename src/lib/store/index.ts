@@ -7,7 +7,11 @@ import { clearPersistedSeenNoteIds, persistSeenNoteIds } from 'lib/miden/back/no
 import type { IConsumeBridgeInExtraInputs, IEarnWithdrawExtraInputs, ITransaction } from 'lib/miden/db/types';
 import { setTestSyncPaused } from 'lib/miden/front/test-sync-pause';
 import { fetchTokenMetadata } from 'lib/miden/metadata';
-import { parsePersistedSpendingLimit, toSerializedSpendingLimitDraft } from 'lib/miden/spending-limits/types';
+import {
+  parsePersistedSpendingLimit,
+  parseSerializedSpendingLimitAssessment,
+  toSerializedSpendingLimitDraft
+} from 'lib/miden/spending-limits/types';
 import { describeHookError, installSwapTestHooks } from 'lib/miden/swap/test-hooks';
 import { MidenMessageType, MidenState } from 'lib/miden/types';
 import { isExtension } from 'lib/platform';
@@ -333,6 +337,17 @@ export const useWalletStore = create<WalletStore>()(
       });
       assertResponse(res.type === WalletMessageType.SaveSpendingLimitResponse);
       return res.configuration === undefined ? undefined : parsePersistedSpendingLimit(res.configuration);
+    },
+
+    assessSpendingLimit: async (accountId, faucetId, amount) => {
+      const res = await request({
+        type: WalletMessageType.AssessSpendingLimitRequest,
+        accountId,
+        faucetId,
+        amount: amount.toString()
+      });
+      assertResponse(res.type === WalletMessageType.AssessSpendingLimitResponse);
+      return res.assessment === undefined ? undefined : parseSerializedSpendingLimitAssessment(res.assessment);
     },
 
     getStrictAuthenticationProtectors: async () => {

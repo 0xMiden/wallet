@@ -1,5 +1,7 @@
 import { MidenDAppMessageType } from 'lib/adapter/types';
-import { spendingLimits } from 'lib/miden/repo';
+import { SendTransaction } from 'lib/miden/db/types';
+import { spendingLimits, transactions } from 'lib/miden/repo';
+import { NoteTypeEnum } from 'lib/miden/types';
 import { WalletStatus } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
@@ -38,6 +40,7 @@ import {
   importWatchOnlyAccount,
   listSpendingLimits,
   saveSpendingLimit,
+  assessOutgoingSpendingLimit,
   getStrictAuthenticationProtectors,
   verifyStrictActionAuthentication
 } from './actions';
@@ -675,6 +678,34 @@ describe('actions', () => {
         )
       ).rejects.toThrow(/policy is unavailable/i);
       await expect(spendingLimits.count()).resolves.toBe(0);
+    });
+
+    it('returns a serializable preflight assessment from the current transaction history', async () => {
+      const now = Math.floor(Date.now() / 1000);
+      await saveSpendingLimit(
+        {
+          accountId: 'account-a',
+          faucetId: 'faucet-a',
+          dailyLimit: '100',
+          asset: { symbol: 'MIDEN', decimals: 8 }
+        },
+        undefined,
+        true
+      );
+      const previous = new SendTransaction('account-a', 90n, 'account-b', 'faucet-a', NoteTypeEnum.Public);
+      previous.initiatedAt = now - 1;
+      await transactions.add(previous);
+
+      await expect(assessOutgoingSpendingLimit('account-a', 'faucet-a', '20')).resolves.toMatchObject({
+        amount: '20',
+        breaches: [{ period: '24h', overBy: '10' }]
+      });
+    });
+
+    it('rejects a non-canonical preflight proposal amount', async () => {
+      await expect(assessOutgoingSpendingLimit('account-a', 'faucet-a', '020')).rejects.toThrow(
+        /policy is unavailable/i
+      );
     });
   });
 

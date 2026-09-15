@@ -116,6 +116,7 @@ const assessWindow = (
     spent,
     proposedTotal,
     limit: definition.limit,
+    overBy: proposedTotal - definition.limit,
     resetAt: resetAfterEnoughSpendExpires(included, proposal.amount, definition.limit, definition.seconds)
   };
 };

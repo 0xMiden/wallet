@@ -1054,5 +1054,13 @@
   "spendingLimitLocalDisclosure": "Limitler ve harcama geçmişi yalnızca bu kurulumda saklanır. Uygulama verilerini sıfırlamak veya wallet'ı yeniden yüklemek bunları kaldırır.",
   "spendingLimitNotOnChain": "Bu limitler yerel bir güvenlik kontrolüdür, on-chain kısıtlaması değildir. Anahtarlarınıza doğrudan erişimi olan herkes bunları aşabilir.",
   "spendingLimitNoAssets": "Yapılandırılabilecek varlık yok.",
-  "spendingLimitSave": "Kaydet"
+  "spendingLimitSave": "Kaydet",
+  "spendingLimitChallengeTitle": "Harcama limiti aşıldı",
+  "spendingLimitPeriod24h": "Son 24 saat",
+  "spendingLimitPeriod7d": "Son 7 gün",
+  "spendingLimitCap": "Limit",
+  "spendingLimitOverBy": "Aşılan miktar",
+  "spendingLimitResets": "Yeniden kullanılabilir",
+  "spendingLimitNoAutomaticReset": "Bu tutar tek başına limiti aşıyor",
+  "spendingLimitTransactionAuthenticationReason": "Bu işleme devam etmek için kimliğinizi doğrulayın. Bu işlem harcama limitinizi değiştirmez veya devre dışı bırakmaz."
 }

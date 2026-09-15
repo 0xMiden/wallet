@@ -4,7 +4,11 @@ import type { StrictAuthenticationProtectors } from 'lib/auth/strict-action-auth
 import { ExchangeRateRecord, FiatCurrencyOption } from 'lib/fiat-currency';
 import { TokenBalanceData } from 'lib/miden/front/balance';
 import { AssetMetadata } from 'lib/miden/metadata';
-import type { SpendingLimitConfiguration, SpendingLimitDraft } from 'lib/miden/spending-limits/types';
+import type {
+  SpendingLimitAssessment,
+  SpendingLimitConfiguration,
+  SpendingLimitDraft
+} from 'lib/miden/spending-limits/types';
 import { MidenDAppSessions, MidenNetwork, MidenState } from 'lib/miden/types';
 import { type TokenPrices } from 'lib/prices/binance';
 import {
@@ -162,6 +166,11 @@ export interface WalletActions {
     observedRevision: string | undefined,
     strictlyAuthenticated: boolean
   ) => Promise<SpendingLimitConfiguration | undefined>;
+  assessSpendingLimit: (
+    accountId: string,
+    faucetId: string,
+    amount: bigint
+  ) => Promise<SpendingLimitAssessment | undefined>;
   getStrictAuthenticationProtectors: () => Promise<StrictAuthenticationProtectors>;
   verifyStrictActionAuthentication: (credential?: string) => Promise<void>;
 

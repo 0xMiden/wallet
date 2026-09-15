@@ -4703,4 +4703,36 @@
     "englishSource": "No assets are available to configure."
   },
   "spendingLimitSave": { "message": "Kaydet", "englishSource": "Save" }
+  "spendingLimitChallengeTitle": {
+    "message": "Harcama limiti aşıldı",
+    "englishSource": "Spending limit exceeded"
+  },
+  "spendingLimitPeriod24h": {
+    "message": "Son 24 saat",
+    "englishSource": "Past 24 hours"
+  },
+  "spendingLimitPeriod7d": {
+    "message": "Son 7 gün",
+    "englishSource": "Past 7 days"
+  },
+  "spendingLimitCap": {
+    "message": "Limit",
+    "englishSource": "Limit"
+  },
+  "spendingLimitOverBy": {
+    "message": "Aşılan miktar",
+    "englishSource": "Over by"
+  },
+  "spendingLimitResets": {
+    "message": "Yeniden kullanılabilir",
+    "englishSource": "Available again"
+  },
+  "spendingLimitNoAutomaticReset": {
+    "message": "Bu tutar tek başına limiti aşıyor",
+    "englishSource": "This amount exceeds the limit on its own"
+  },
+  "spendingLimitTransactionAuthenticationReason": {
+    "message": "Bu işleme devam etmek için kimliğinizi doğrulayın. Bu işlem harcama limitinizi değiştirmez veya devre dışı bırakmaz.",
+    "englishSource": "Authenticate to continue with this transaction. This does not change or disable your spending limit."
+  }
 }

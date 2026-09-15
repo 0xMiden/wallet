@@ -299,6 +299,40 @@ describe('useWalletStore', () => {
         strictlyAuthenticated: false
       });
     });
+
+    it('serializes a proposal and parses its structured preflight assessment', async () => {
+      mockRequest.mockResolvedValueOnce({
+        type: WalletMessageType.AssessSpendingLimitResponse,
+        assessment: {
+          accountId: 'account-a',
+          faucetId: 'faucet-a',
+          amount: '20',
+          revision: 'revision-1',
+          assessedAt: 100,
+          breaches: [
+            {
+              period: '24h',
+              spent: '90',
+              proposedTotal: '110',
+              limit: '100',
+              overBy: '10',
+              resetAt: 200
+            }
+          ]
+        }
+      });
+
+      await expect(useWalletStore.getState().assessSpendingLimit('account-a', 'faucet-a', 20n)).resolves.toMatchObject({
+        amount: 20n,
+        breaches: [{ overBy: 10n }]
+      });
+      expect(mockRequest).toHaveBeenCalledWith({
+        type: WalletMessageType.AssessSpendingLimitRequest,
+        accountId: 'account-a',
+        faucetId: 'faucet-a',
+        amount: '20'
+      });
+    });
   });
 
   describe('strict authentication actions', () => {

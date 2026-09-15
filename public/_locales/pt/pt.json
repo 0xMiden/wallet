@@ -1054,5 +1054,13 @@
   "spendingLimitLocalDisclosure": "Os limites e o histórico de gastos são armazenados apenas nesta instalação. Redefinir os dados do aplicativo ou reinstalar a carteira os remove.",
   "spendingLimitNotOnChain": "Estes limites são uma verificação de segurança local, não uma restrição on-chain. Qualquer pessoa com acesso direto às suas chaves pode ignorá-los.",
   "spendingLimitNoAssets": "Não há ativos disponíveis para configurar.",
-  "spendingLimitSave": "Salvar"
+  "spendingLimitSave": "Salvar",
+  "spendingLimitChallengeTitle": "Limite de gastos excedido",
+  "spendingLimitPeriod24h": "Últimas 24 horas",
+  "spendingLimitPeriod7d": "Últimos 7 dias",
+  "spendingLimitCap": "Limite",
+  "spendingLimitOverBy": "Excedido em",
+  "spendingLimitResets": "Disponível novamente",
+  "spendingLimitNoAutomaticReset": "Este valor, por si só, excede o limite",
+  "spendingLimitTransactionAuthenticationReason": "Autentique-se para continuar esta transação. Isto não altera nem desativa o seu limite de gastos."
 }

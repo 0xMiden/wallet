@@ -1054,5 +1054,13 @@
   "spendingLimitLocalDisclosure": "Limits und Ausgabenverlauf werden nur in dieser Installation gespeichert. Beim Zurücksetzen der App-Daten oder einer Neuinstallation der Wallet werden sie gelöscht.",
   "spendingLimitNotOnChain": "Diese Limits sind eine lokale Sicherheitsprüfung, keine On-Chain-Beschränkung. Wer direkten Zugriff auf Ihre Schlüssel hat, kann sie umgehen.",
   "spendingLimitNoAssets": "Es sind keine Assets zum Konfigurieren verfügbar.",
-  "spendingLimitSave": "Speichern"
+  "spendingLimitSave": "Speichern",
+  "spendingLimitChallengeTitle": "Ausgabenlimit überschritten",
+  "spendingLimitPeriod24h": "Letzte 24 Stunden",
+  "spendingLimitPeriod7d": "Letzte 7 Tage",
+  "spendingLimitCap": "Limit",
+  "spendingLimitOverBy": "Überschreitung",
+  "spendingLimitResets": "Wieder verfügbar",
+  "spendingLimitNoAutomaticReset": "Dieser Betrag überschreitet das Limit bereits allein",
+  "spendingLimitTransactionAuthenticationReason": "Authentifizieren Sie sich, um mit dieser Transaktion fortzufahren. Dadurch wird Ihr Ausgabenlimit weder geändert noch deaktiviert."
 }

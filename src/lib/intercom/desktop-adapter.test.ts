@@ -35,6 +35,7 @@ jest.mock('lib/miden/back/actions', () => ({
     }
   ]),
   saveSpendingLimit: jest.fn().mockResolvedValue(undefined),
+  assessOutgoingSpendingLimit: jest.fn().mockResolvedValue({ revision: 'revision-1', breaches: [{}] }),
   getStrictAuthenticationProtectors: jest.fn().mockResolvedValue({ hardware: false, password: true }),
   verifyStrictActionAuthentication: jest.fn().mockResolvedValue(undefined),
   signTransaction: jest.fn().mockResolvedValue('signature'),
@@ -360,6 +361,20 @@ describe('DesktopIntercomAdapter', () => {
         protectors: { hardware: false, password: true }
       });
       expect(verified).toEqual({ type: WalletMessageType.VerifyStrictActionAuthenticationResponse });
+    });
+
+    it('returns the current preflight assessment', async () => {
+      const response = await adapter.request({
+        type: WalletMessageType.AssessSpendingLimitRequest,
+        accountId: 'account-a',
+        faucetId: 'faucet-a',
+        amount: '20'
+      });
+
+      expect(response).toEqual({
+        type: WalletMessageType.AssessSpendingLimitResponse,
+        assessment: { revision: 'revision-1', breaches: [{}] }
+      });
     });
 
     it('handles SignTransactionRequest', async () => {

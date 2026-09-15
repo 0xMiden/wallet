@@ -1054,5 +1054,13 @@
   "spendingLimitLocalDisclosure": "限额和消费历史仅存储在此安装中。重置应用数据或重新安装钱包会将其删除。",
   "spendingLimitNotOnChain": "这些限额是本地安全检查，并非 on-chain 限制。任何可直接访问您密钥的人都能绕过它们。",
   "spendingLimitNoAssets": "没有可配置的资产。",
-  "spendingLimitSave": "保存"
+  "spendingLimitSave": "保存",
+  "spendingLimitChallengeTitle": "支出限额已超出",
+  "spendingLimitPeriod24h": "过去24小时",
+  "spendingLimitPeriod7d": "过去7天",
+  "spendingLimitCap": "限额",
+  "spendingLimitOverBy": "超出金额",
+  "spendingLimitResets": "再次可用",
+  "spendingLimitNoAutomaticReset": "此金额本身已超过限额",
+  "spendingLimitTransactionAuthenticationReason": "进行身份验证以继续此交易。这不会更改或停用您的支出限额。"
 }

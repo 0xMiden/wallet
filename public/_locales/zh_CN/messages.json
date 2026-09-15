@@ -4703,4 +4703,36 @@
     "englishSource": "No assets are available to configure."
   },
   "spendingLimitSave": { "message": "保存", "englishSource": "Save" }
+  "spendingLimitChallengeTitle": {
+    "message": "支出限额已超出",
+    "englishSource": "Spending limit exceeded"
+  },
+  "spendingLimitPeriod24h": {
+    "message": "过去24小时",
+    "englishSource": "Past 24 hours"
+  },
+  "spendingLimitPeriod7d": {
+    "message": "过去7天",
+    "englishSource": "Past 7 days"
+  },
+  "spendingLimitCap": {
+    "message": "限额",
+    "englishSource": "Limit"
+  },
+  "spendingLimitOverBy": {
+    "message": "超出金额",
+    "englishSource": "Over by"
+  },
+  "spendingLimitResets": {
+    "message": "再次可用",
+    "englishSource": "Available again"
+  },
+  "spendingLimitNoAutomaticReset": {
+    "message": "此金额本身已超过限额",
+    "englishSource": "This amount exceeds the limit on its own"
+  },
+  "spendingLimitTransactionAuthenticationReason": {
+    "message": "进行身份验证以继续此交易。这不会更改或停用您的支出限额。",
+    "englishSource": "Authenticate to continue with this transaction. This does not change or disable your spending limit."
+  }
 }

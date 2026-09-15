@@ -1054,5 +1054,13 @@
   "spendingLimitLocalDisclosure": "Лимиты и история расходов хранятся только в этой установке. Сброс данных приложения или переустановка кошелька удаляет их.",
   "spendingLimitNotOnChain": "Эти лимиты являются локальной проверкой безопасности, а не ограничением on-chain. Любой, у кого есть прямой доступ к вашим ключам, может их обойти.",
   "spendingLimitNoAssets": "Нет активов, доступных для настройки.",
-  "spendingLimitSave": "Сохранить"
+  "spendingLimitSave": "Сохранить",
+  "spendingLimitChallengeTitle": "Лимит расходов превышен",
+  "spendingLimitPeriod24h": "Последние 24 часа",
+  "spendingLimitPeriod7d": "Последние 7 дней",
+  "spendingLimitCap": "Лимит",
+  "spendingLimitOverBy": "Превышение",
+  "spendingLimitResets": "Снова доступно",
+  "spendingLimitNoAutomaticReset": "Эта сумма сама по себе превышает лимит",
+  "spendingLimitTransactionAuthenticationReason": "Пройдите аутентификацию, чтобы продолжить эту транзакцию. Это не изменит и не отключит ваш лимит расходов."
 }

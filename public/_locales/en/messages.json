@@ -4703,4 +4703,36 @@
     "englishSource": "No assets are available to configure."
   },
   "spendingLimitSave": { "message": "Save", "englishSource": "Save" }
+  "spendingLimitChallengeTitle": {
+    "message": "Spending limit exceeded",
+    "englishSource": "Spending limit exceeded"
+  },
+  "spendingLimitPeriod24h": {
+    "message": "Past 24 hours",
+    "englishSource": "Past 24 hours"
+  },
+  "spendingLimitPeriod7d": {
+    "message": "Past 7 days",
+    "englishSource": "Past 7 days"
+  },
+  "spendingLimitCap": {
+    "message": "Limit",
+    "englishSource": "Limit"
+  },
+  "spendingLimitOverBy": {
+    "message": "Over by",
+    "englishSource": "Over by"
+  },
+  "spendingLimitResets": {
+    "message": "Available again",
+    "englishSource": "Available again"
+  },
+  "spendingLimitNoAutomaticReset": {
+    "message": "This amount exceeds the limit on its own",
+    "englishSource": "This amount exceeds the limit on its own"
+  },
+  "spendingLimitTransactionAuthenticationReason": {
+    "message": "Authenticate to continue with this transaction. This does not change or disable your spending limit.",
+    "englishSource": "Authenticate to continue with this transaction. This does not change or disable your spending limit."
+  }
 }

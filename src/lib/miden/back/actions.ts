@@ -29,12 +29,16 @@ import {
   listSpendingLimits as listStoredSpendingLimits,
   saveSpendingLimit as saveStoredSpendingLimit
 } from 'lib/miden/spending-limits/config';
+import { assessOutgoingSpendingLimit as assessStoredOutgoingSpendingLimit } from 'lib/miden/spending-limits/queue';
 import {
   PersistedSpendingLimit,
+  SerializedSpendingLimitAssessment,
   SerializedSpendingLimitDraft,
   SpendingLimitPolicyUnavailableError,
+  parseSerializedSpendingAmount,
   parseSerializedSpendingLimitDraft,
-  toPersistedSpendingLimit
+  toPersistedSpendingLimit,
+  toSerializedSpendingLimitAssessment
 } from 'lib/miden/spending-limits/types';
 import { buildSdkSignCallback } from 'lib/miden/transaction/sign-callback';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
@@ -437,6 +441,19 @@ export async function saveSpendingLimit(
     strictlyAuthenticated
   });
   return saved === undefined ? undefined : serializeSpendingLimit(saved);
+}
+
+export async function assessOutgoingSpendingLimit(
+  accountId: string,
+  faucetId: string,
+  serializedAmount: string
+): Promise<SerializedSpendingLimitAssessment | undefined> {
+  const assessment = await assessStoredOutgoingSpendingLimit({
+    accountId,
+    faucetId,
+    amount: parseSerializedSpendingAmount(serializedAmount)
+  });
+  return assessment === undefined ? undefined : toSerializedSpendingLimitAssessment(assessment);
 }
 
 export async function getStrictAuthenticationProtectors(): Promise<StrictAuthenticationProtectors> {

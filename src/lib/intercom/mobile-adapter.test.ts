@@ -41,6 +41,7 @@ jest.mock('lib/miden/back/actions', () => ({
     createdAt: 1,
     updatedAt: 2
   }),
+  assessOutgoingSpendingLimit: jest.fn().mockResolvedValue(undefined),
   getStrictAuthenticationProtectors: jest.fn().mockResolvedValue({ hardware: true, password: false }),
   verifyStrictActionAuthentication: jest.fn().mockResolvedValue(undefined),
   signTransaction: jest.fn().mockResolvedValue('signature'),
@@ -286,6 +287,18 @@ describe('MobileIntercomAdapter', () => {
         type: WalletMessageType.SaveSpendingLimitResponse,
         configuration: { revision: 'revision-2' }
       });
+    });
+
+    it('returns an empty preflight response when no spending limit is configured', async () => {
+      const response = await adapter.request({
+        type: WalletMessageType.AssessSpendingLimitRequest,
+        accountId: 'account-a',
+        faucetId: 'faucet-a',
+        amount: '20'
+      });
+
+      expect(Actions.assessOutgoingSpendingLimit).toHaveBeenCalledWith('account-a', 'faucet-a', '20');
+      expect(response).toEqual({ type: WalletMessageType.AssessSpendingLimitResponse });
     });
 
     it('handles strict authentication protector and verification requests', async () => {

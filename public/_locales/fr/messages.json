@@ -4703,4 +4703,36 @@
     "englishSource": "No assets are available to configure."
   },
   "spendingLimitSave": { "message": "Enregistrer", "englishSource": "Save" }
+  "spendingLimitChallengeTitle": {
+    "message": "Limite de dépenses dépassée",
+    "englishSource": "Spending limit exceeded"
+  },
+  "spendingLimitPeriod24h": {
+    "message": "Dernières 24 heures",
+    "englishSource": "Past 24 hours"
+  },
+  "spendingLimitPeriod7d": {
+    "message": "7 derniers jours",
+    "englishSource": "Past 7 days"
+  },
+  "spendingLimitCap": {
+    "message": "Limite",
+    "englishSource": "Limit"
+  },
+  "spendingLimitOverBy": {
+    "message": "Dépassement",
+    "englishSource": "Over by"
+  },
+  "spendingLimitResets": {
+    "message": "À nouveau disponible",
+    "englishSource": "Available again"
+  },
+  "spendingLimitNoAutomaticReset": {
+    "message": "Ce montant dépasse à lui seul la limite",
+    "englishSource": "This amount exceeds the limit on its own"
+  },
+  "spendingLimitTransactionAuthenticationReason": {
+    "message": "Authentifiez-vous pour poursuivre cette transaction. Cela ne modifie ni ne désactive votre limite de dépenses.",
+    "englishSource": "Authenticate to continue with this transaction. This does not change or disable your spending limit."
+  }
 }

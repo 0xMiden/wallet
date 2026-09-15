@@ -4703,4 +4703,36 @@
     "englishSource": "No assets are available to configure."
   },
   "spendingLimitSave": { "message": "Сохранить", "englishSource": "Save" }
+  "spendingLimitChallengeTitle": {
+    "message": "Лимит расходов превышен",
+    "englishSource": "Spending limit exceeded"
+  },
+  "spendingLimitPeriod24h": {
+    "message": "Последние 24 часа",
+    "englishSource": "Past 24 hours"
+  },
+  "spendingLimitPeriod7d": {
+    "message": "Последние 7 дней",
+    "englishSource": "Past 7 days"
+  },
+  "spendingLimitCap": {
+    "message": "Лимит",
+    "englishSource": "Limit"
+  },
+  "spendingLimitOverBy": {
+    "message": "Превышение",
+    "englishSource": "Over by"
+  },
+  "spendingLimitResets": {
+    "message": "Снова доступно",
+    "englishSource": "Available again"
+  },
+  "spendingLimitNoAutomaticReset": {
+    "message": "Эта сумма сама по себе превышает лимит",
+    "englishSource": "This amount exceeds the limit on its own"
+  },
+  "spendingLimitTransactionAuthenticationReason": {
+    "message": "Пройдите аутентификацию, чтобы продолжить эту транзакцию. Это не изменит и не отключит ваш лимит расходов.",
+    "englishSource": "Authenticate to continue with this transaction. This does not change or disable your spending limit."
+  }
 }

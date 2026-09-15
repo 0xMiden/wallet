@@ -4703,4 +4703,36 @@
     "englishSource": "No assets are available to configure."
   },
   "spendingLimitSave": { "message": "저장", "englishSource": "Save" }
+  "spendingLimitChallengeTitle": {
+    "message": "지출 한도 초과",
+    "englishSource": "Spending limit exceeded"
+  },
+  "spendingLimitPeriod24h": {
+    "message": "지난 24시간",
+    "englishSource": "Past 24 hours"
+  },
+  "spendingLimitPeriod7d": {
+    "message": "지난 7일",
+    "englishSource": "Past 7 days"
+  },
+  "spendingLimitCap": {
+    "message": "한도",
+    "englishSource": "Limit"
+  },
+  "spendingLimitOverBy": {
+    "message": "초과 금액",
+    "englishSource": "Over by"
+  },
+  "spendingLimitResets": {
+    "message": "다시 사용 가능",
+    "englishSource": "Available again"
+  },
+  "spendingLimitNoAutomaticReset": {
+    "message": "이 금액만으로 한도를 초과합니다",
+    "englishSource": "This amount exceeds the limit on its own"
+  },
+  "spendingLimitTransactionAuthenticationReason": {
+    "message": "이 거래를 계속하려면 인증하세요. 이 작업은 지출 한도를 변경하거나 비활성화하지 않습니다.",
+    "englishSource": "Authenticate to continue with this transaction. This does not change or disable your spending limit."
+  }
 }

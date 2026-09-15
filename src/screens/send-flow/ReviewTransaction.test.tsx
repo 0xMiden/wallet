@@ -35,7 +35,8 @@ let mockEpochQuote: { amount?: string; loading: boolean; error: null } = {
 };
 
 const mockWalletStoreState = {
-  setLastCompletedTxHash: jest.fn()
+  setLastCompletedTxHash: jest.fn(),
+  assessSpendingLimit: jest.fn()
 };
 
 // ---------------------------------------------------------------------------
@@ -75,6 +76,35 @@ jest.mock('components/ScreenHeader', () => ({
       </button>
     </div>
   )
+}));
+
+jest.mock('components/SpendingLimitChallenge', () => ({
+  SpendingLimitChallenge: (props: any) => {
+    return (
+      <div data-testid="spending-limit-challenge">
+        <span>{props.assessment.revision}</span>
+        <button
+          type="button"
+          onClick={() =>
+            props.onResult({
+              id: 'authorization-1',
+              accountId: props.assessment.accountId,
+              faucetId: props.assessment.faucetId,
+              amount: props.assessment.amount,
+              revision: props.assessment.revision,
+              issuedAt: 120,
+              expiresAt: 240
+            })
+          }
+        >
+          authorize-limit
+        </button>
+        <button type="button" onClick={() => props.onResult(undefined)}>
+          cancel-limit
+        </button>
+      </div>
+    );
+  }
 }));
 
 jest.mock('components/review', () => ({
@@ -285,6 +315,7 @@ beforeEach(() => {
   isDelegateProofEnabledMock.mockReturnValue(false);
   isValidMidenAddressMock.mockReturnValue(true);
   mockWalletStoreState.setLastCompletedTxHash.mockReset();
+  mockWalletStoreState.assessSpendingLimit.mockResolvedValue(undefined);
 
   // Base route state.
   mockSearch = '';
@@ -533,12 +564,109 @@ describe('ReviewTransaction — onSubmit', () => {
 
     await clickSubmit();
 
+    expect(mockWalletStoreState.assessSpendingLimit).toHaveBeenCalledWith('pubkey-1', 'tok1', 12345n);
     expect(confirmMock).toHaveBeenCalledWith('Confirm your send');
     expect(mockWalletStoreState.setLastCompletedTxHash).toHaveBeenCalledWith(null);
     expect(initiateMock).toHaveBeenCalledWith('pubkey-1', '0xrecipient', 'tok1', 'private', 12345n, 999, false);
     expect(requestSWMock).not.toHaveBeenCalled();
     expect(clearSendDraftMock).toHaveBeenCalled();
     expect(navigateMock).toHaveBeenCalledWith('/generating-transaction/tx-abc', 'replacestate');
+  });
+
+  it('uses strict authentication instead of the ordinary confirmation for a spending-limit breach', async () => {
+    setValidRoute();
+    mockWalletStoreState.assessSpendingLimit.mockResolvedValue({
+      accountId: 'pubkey-1',
+      faucetId: 'tok1',
+      amount: 12345n,
+      revision: 'revision-1',
+      assessedAt: 100,
+      breaches: [{ period: '24h', spent: 90n, proposedTotal: 12435n, limit: 100n, overBy: 12335n, resetAt: 200 }]
+    });
+    render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+
+    expect(screen.getByTestId('spending-limit-challenge')).toBeInTheDocument();
+    expect(confirmMock).not.toHaveBeenCalled();
+    expect(initiateMock).not.toHaveBeenCalled();
+
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'authorize-limit' })));
+    await flush();
+
+    expect(initiateMock).toHaveBeenCalledWith(
+      'pubkey-1',
+      '0xrecipient',
+      'tok1',
+      'private',
+      12345n,
+      999,
+      false,
+      expect.objectContaining({
+        id: 'authorization-1',
+        accountId: 'pubkey-1',
+        faucetId: 'tok1',
+        amount: 12345n,
+        revision: 'revision-1'
+      })
+    );
+    expect(confirmMock).not.toHaveBeenCalled();
+  });
+
+  it('cancels a spending-limit challenge without queueing or losing the review draft', async () => {
+    setValidRoute();
+    mockWalletStoreState.assessSpendingLimit.mockResolvedValue({
+      accountId: 'pubkey-1',
+      faucetId: 'tok1',
+      amount: 12345n,
+      revision: 'revision-1',
+      assessedAt: 100,
+      breaches: [{ period: '7d', spent: 90n, proposedTotal: 12435n, limit: 100n, overBy: 12335n, resetAt: null }]
+    });
+    render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+    fireEvent.click(screen.getByRole('button', { name: 'cancel-limit' }));
+    await flush();
+
+    expect(screen.queryByTestId('spending-limit-challenge')).not.toBeInTheDocument();
+    expect(initiateMock).not.toHaveBeenCalled();
+    expect(screen.getByTestId('review-amount')).toHaveTextContent('youAreSending|5|MDN');
+  });
+
+  it('reopens the challenge with the final atomic assessment when authorization expires or loses a race', async () => {
+    setValidRoute();
+    const firstAssessment = {
+      accountId: 'pubkey-1',
+      faucetId: 'tok1',
+      amount: 12345n,
+      revision: 'revision-1',
+      assessedAt: 100,
+      breaches: [{ period: '24h', spent: 90n, proposedTotal: 12435n, limit: 100n, overBy: 12335n, resetAt: 200 }]
+    };
+    const finalAssessment = {
+      ...firstAssessment,
+      revision: 'revision-2',
+      assessedAt: 121,
+      breaches: [{ ...firstAssessment.breaches[0], spent: 95n, proposedTotal: 12440n, overBy: 12340n }]
+    };
+    mockWalletStoreState.assessSpendingLimit.mockResolvedValue(firstAssessment);
+    initiateMock.mockRejectedValue({
+      code: 'SPENDING_LIMIT_AUTHORIZATION_REQUIRED',
+      assessment: finalAssessment
+    });
+    render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'authorize-limit' })));
+    await flush();
+
+    expect(screen.getByTestId('spending-limit-challenge')).toHaveTextContent('revision-2');
+    expect(screen.getByTestId('review-amount')).toHaveTextContent('youAreSending|5|MDN');
+    expect(navigateMock).not.toHaveBeenCalled();
   });
 
   it('nudges the service worker and uses the full-page route on extension', async () => {
