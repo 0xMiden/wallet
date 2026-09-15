@@ -28,6 +28,7 @@
 - [FIX][all] Pending Earn deposits and withdrawals keep checking with bounded backoff while the wallet stays open. Interrupted withdrawals recover their saved delivery requests without repeating the source withdrawal. Activity details recover from temporary database errors and update as status, receipts and token metadata change.
 - [FIX][mobile] **The balance card shows a skeleton, not "$0.00", until the first balance read completes.** After a recovery the store has no balance entry for the new address, so the card summed a zero placeholder row and printed "$0.00" for the seconds it took the first read to win the WASM lock from the mount-time sync. The card already had a loading state; the home screen now drives it from `useAllBalances`' loading flag (#844).
 - [FIX][e2e] The iOS dApp browser suite no longer checks the dApp slot's paint with the notification-permission alert over it: every iOS wallet screenshot now dismisses that alert first, not only the screen poll's, so the slot the #875 banner shortened no longer drops under the match bar.
+- [FIX][mobile] A dApp minimized shortly after it opened reopens from its recents tile or peek card. Before, the restore could show it and park it again at once: parking waits for a snapshot while the dApp is still in the foreground, and a slot measurement landing in that wait marked it as already shown, so the next restore parked it before its slot was measured.
 
 ## 1.16.0 (2026-09-09)
 
