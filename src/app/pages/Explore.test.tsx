@@ -375,7 +375,12 @@ describe('Explore', () => {
     it('keeps a native note worth too little to auto-consume on home prompts', async () => {
       mockAutoConsume = true;
       mockBaseFee = 10;
-      mockClaimableNotes = [{ ...makeNote('dust', 'faucet-native'), amount: '1' }, makeNote('manual', 'other-faucet')];
+      // One render must drop the note a consume already covers and keep the dust note: a raw list would count three.
+      mockClaimableNotes = [
+        { ...makeNote('dust', 'faucet-native'), amount: '1' },
+        { ...makeNote('claiming', 'faucet-native', true), amount: '1000000' },
+        makeNote('manual', 'other-faucet')
+      ];
 
       await renderExplore();
 

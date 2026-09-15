@@ -57,14 +57,16 @@ export function selectAutoConsumeBatch<T extends AutoConsumeNoteShape>(
 
 /**
  * The subset of `notes` the user has to claim by hand (#811): every note except the
- * batch the auto-consumers claim and the native notes a consume already covers. A
- * native note worth too little to auto-claim therefore still asks, as does a native
- * swap note whose per-order auto-consume is off; swap notes that settle automatically
- * never reach this list, because `useClaimableNotes` drops them. A cache-first list is
- * judged as if a live read had confirmed it: nothing claims those entries yet, but a
- * prompt raised for them would vanish as soon as the live read hands the same notes to
- * an auto-consumer. `undefined` stays `undefined` so callers keep their "not loaded
- * yet" branch.
+ * native notes a consume already covers, whatever the auto-consume setting (turning it
+ * off cancels no queued consume), and, while auto-consume is on, the batch the
+ * auto-consumers claim. A native note worth too little to auto-claim therefore still
+ * asks, as does a native swap note whose per-order auto-consume is off; swap notes that
+ * settle automatically never reach this list, because `useClaimableNotes` drops them. A
+ * cache-first list, every entry cached, is judged as if a live read had confirmed it:
+ * nothing claims those entries yet, but a prompt raised for them would vanish as soon as
+ * the live read hands the same notes to an auto-consumer. A list with any live entry is
+ * judged exactly as the auto-consumers judge it, cached entries left out of the batch
+ * total. `undefined` stays `undefined` so callers keep their "not loaded yet" branch.
  */
 export function excludeAutoManagedNotes<T extends AutoConsumeNoteShape>(
   notes: readonly T[] | undefined,
@@ -73,8 +75,10 @@ export function excludeAutoManagedNotes<T extends AutoConsumeNoteShape>(
   verificationBaseFee: number | null
 ): T[] | undefined {
   if (!notes) return undefined;
-  if (!autoConsumeEnabled) return [...notes];
-  const autoConsumed = new Set(nativeBatchWorthClaiming(notes, nativeFaucetId, verificationBaseFee));
+  const judged = notes.every(note => note.fromCache) ? notes : notes.filter(note => !note.fromCache);
+  const autoConsumed = new Set(
+    autoConsumeEnabled ? nativeBatchWorthClaiming(judged, nativeFaucetId, verificationBaseFee) : []
+  );
   return notes.filter(
     note => !autoConsumed.has(note) && !(note.isBeingClaimed && isNativeNonSwapNote(note, nativeFaucetId))
   );
@@ -85,19 +89,20 @@ export function excludeAutoManagedNotes<T extends AutoConsumeNoteShape>(
  * attention surfaces: the home "You have Pending Notes" card, the received-note
  * notification, the unclaimed red dots. The pending-notes page deliberately keeps
  * reading the full list: an auto-consume that keeps failing (a spent note resurrected
- * by recovery, #742) must stay visible and retriable. `isFallback` passes through for
- * the notification, which must not take the persisted list for what exists at load.
+ * by recovery, #742) must stay visible and retriable. The notification also reads
+ * `allNotes`, to record every listed note as seen, and `isFallback`, so it never takes
+ * the persisted list for what exists at load.
  */
 export function useManuallyClaimableNotes(publicAddress: string, enabled: boolean = true) {
-  const { data: claimableNotes, isFallback } = useClaimableNotes(publicAddress, enabled);
+  const { data: allNotes, isFallback } = useClaimableNotes(publicAddress, enabled);
   const nativeFaucetId = useMidenFaucetId();
   const verificationBaseFee = useVerificationBaseFee();
   const autoConsumeEnabled = isAutoConsumeEnabled();
 
   const data = useMemo(
-    () => excludeAutoManagedNotes(claimableNotes, nativeFaucetId, autoConsumeEnabled, verificationBaseFee),
-    [claimableNotes, nativeFaucetId, autoConsumeEnabled, verificationBaseFee]
+    () => excludeAutoManagedNotes(allNotes, nativeFaucetId, autoConsumeEnabled, verificationBaseFee),
+    [allNotes, nativeFaucetId, autoConsumeEnabled, verificationBaseFee]
   );
 
-  return { data, isFallback };
+  return { data, allNotes, isFallback };
 }

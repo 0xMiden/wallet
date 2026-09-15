@@ -64,6 +64,17 @@ describe('useHasUnclaimedNotes', () => {
     expect(result.current).toBe(true);
   });
 
+  it('does not count a native note already being claimed after auto-consume is turned off', () => {
+    mockAutoConsume = false;
+    mockUseClaimableNotes.mockReturnValue({
+      data: [{ id: 'claiming', faucetId: 'faucet-native', amount: '1000000', isBeingClaimed: true }]
+    });
+
+    const { result } = renderHook(() => useHasUnclaimedNotes());
+
+    expect(result.current).toBe(false);
+  });
+
   it('still counts a non-native note while auto-consume is on', () => {
     mockAutoConsume = true;
     mockUseClaimableNotes.mockReturnValue({ data: [{ id: 'note-1', faucetId: 'faucet-other' }] });

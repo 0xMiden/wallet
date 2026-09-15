@@ -125,12 +125,18 @@ describe('excludeAutoManagedNotes', () => {
     expect(excludeAutoManagedNotes([nativeCached, otherCached], 'faucet-native', true, FEE)).toEqual([otherCached]);
   });
 
-  it('returns every note when auto-consume is off', () => {
-    expect(excludeAutoManagedNotes([native, other, nativeInFlight], 'faucet-native', false, FEE)).toEqual([
-      native,
-      other,
-      nativeInFlight
+  it('judges a list with any live entry as the auto-consumers do, leaving cached entries out of the total', () => {
+    expect(excludeAutoManagedNotes([nativeCached, nativeDust], 'faucet-native', true, FEE)).toEqual([
+      nativeCached,
+      nativeDust
     ]);
+  });
+
+  it('with auto-consume off keeps every note except a native note a consume already covers', () => {
+    const otherInFlight = note('other-in-flight', 'faucet-other', '1000000', { isBeingClaimed: true });
+    expect(
+      excludeAutoManagedNotes([native, other, nativeInFlight, otherInFlight], 'faucet-native', false, FEE)
+    ).toEqual([native, other, otherInFlight]);
   });
 });
 
