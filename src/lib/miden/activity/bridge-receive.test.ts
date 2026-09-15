@@ -10,10 +10,15 @@ const fetchDeposits = jest.fn();
 const resolveNoteId = jest.fn();
 const getIntentStatus = jest.fn();
 
+// Only the type index is read: a pass that falls back to walking the table has no `filter` to call here.
 jest.mock('lib/miden/repo', () => ({
   transactions: {
-    filter: jest.fn((predicate: (row: any) => boolean) => ({
-      toArray: jest.fn(async () => rows.filter(predicate))
+    where: jest.fn((index: string) => ({
+      equals: (value: string) => ({
+        filter: (predicate: (row: any) => boolean) => ({
+          toArray: async () => rows.filter(row => row[index] === value && predicate(row))
+        })
+      })
     }))
   }
 }));
@@ -103,7 +108,8 @@ describe('reconcileBridgedReceives', () => {
 
     await reconcileBridgedReceives();
 
-    expect(Repo.transactions.filter).toHaveBeenCalledTimes(1);
+    expect(Repo.transactions.where).toHaveBeenCalledTimes(1);
+    expect(Repo.transactions.where).toHaveBeenCalledWith('type');
     expect(updatePhase).toHaveBeenCalledWith('agg-once', 'ready');
     expect(registerBridgeIn).toHaveBeenCalledWith(
       '0x1111111111111111111111111111111111111111',
@@ -490,14 +496,16 @@ describe('deposit submissions', () => {
   it('keeps the same rule without Web Locks, including a submission that starts while the rows are read', async () => {
     const realm = createBridgeReceiveReconciler({ getLocks: () => undefined });
     const reading = deferred();
-    jest
-      .requireMock('lib/miden/repo')
-      .transactions.filter.mockImplementationOnce((predicate: (row: any) => boolean) => ({
-        toArray: async () => {
-          await reading.promise;
-          return rows.filter(predicate);
-        }
-      }));
+    jest.requireMock('lib/miden/repo').transactions.where.mockImplementationOnce((index: string) => ({
+      equals: (value: string) => ({
+        filter: (predicate: (row: any) => boolean) => ({
+          toArray: async () => {
+            await reading.promise;
+            return rows.filter(row => row[index] === value && predicate(row));
+          }
+        })
+      })
+    }));
 
     const pass = realm.reconcile();
     const signing = deferred();
@@ -529,16 +537,20 @@ describe('deposit submissions', () => {
     const realm = createBridgeReceiveReconciler({ getLocks: () => undefined });
     const beforeRead = deferred();
     const afterRead = deferred();
-    jest
-      .requireMock('lib/miden/repo')
-      .transactions.filter.mockImplementationOnce((predicate: (row: any) => boolean) => ({
-        toArray: async () => {
-          await beforeRead.promise;
-          const snapshot = rows.filter(predicate).map(row => ({ ...row, extraInputs: { ...row.extraInputs } }));
-          await afterRead.promise;
-          return snapshot;
-        }
-      }));
+    jest.requireMock('lib/miden/repo').transactions.where.mockImplementationOnce((index: string) => ({
+      equals: (value: string) => ({
+        filter: (predicate: (row: any) => boolean) => ({
+          toArray: async () => {
+            await beforeRead.promise;
+            const snapshot = rows
+              .filter(row => row[index] === value && predicate(row))
+              .map(row => ({ ...row, extraInputs: { ...row.extraInputs } }));
+            await afterRead.promise;
+            return snapshot;
+          }
+        })
+      })
+    }));
 
     const pass = realm.reconcile();
     const signing = deferred();

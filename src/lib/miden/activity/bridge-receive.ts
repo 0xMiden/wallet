@@ -135,8 +135,9 @@ async function reconcileRow(row: ITransaction, cutoffSec: number, resumeOrphans:
 
 async function readUnsettledRows(): Promise<ITransaction[]> {
   return Repo.transactions
+    .where('type')
+    .equals('bridged-receive')
     .filter(tx => {
-      if (tx.type !== 'bridged-receive') return false;
       // Optional-chained: a throw in here rejects the whole `toArray()`, which
       // this function's only caller swallows - so one legacy or partially
       // written row without `extraInputs` would silently disable reconciliation
@@ -220,8 +221,8 @@ export function createBridgeReceiveReconciler({
    * Poll every unsettled EVM→Miden row once, for both providers, without ever
    * queueing a Miden transaction. The app-root `BridgeIntentWatcher` runs this on
    * an interval; keeping the operation one-shot prevents hidden background
-   * timers, and one enumeration per pass keeps the tick to a single walk of the
-   * history.
+   * timers, and one read per pass keeps the tick to a single query of the `type`
+   * index.
    */
   async function reconcile(): Promise<void> {
     const { rows, resumeOrphans } = await readRows();

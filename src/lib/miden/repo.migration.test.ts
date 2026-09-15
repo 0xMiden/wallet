@@ -100,4 +100,39 @@ describe('transactions upgrades', () => {
     repo!.db.close();
     await Dexie.delete(DB_NAME);
   });
+
+  it('indexes the rows stored before v1.7 by type', async () => {
+    await Dexie.delete(DB_NAME);
+
+    const legacy = new Dexie(DB_NAME);
+    legacy.version(1.6).stores({
+      transactions:
+        'id, accountId, transactionId, initiatedAt, completedAt, noteId, *noteIds, noteDelivery, extraInputs.destinationAddress, extraInputs.swapOrderTxId'
+    });
+    await legacy.open();
+    await legacy
+      .table('transactions')
+      .bulkPut([
+        bigRow('send-1', 'send'),
+        bigRow('receive-1', 'bridged-receive'),
+        bigRow('bridge-out-1', 'bridged-send'),
+        bigRow('bridge-out-2', 'bridged-send')
+      ]);
+    legacy.close();
+
+    let repo: typeof import('./repo');
+    jest.isolateModules(() => {
+      repo = require('./repo');
+    });
+    await repo!.db.open();
+
+    expect((await repo!.transactions.where('type').equals('bridged-send').primaryKeys()).sort()).toEqual([
+      'bridge-out-1',
+      'bridge-out-2'
+    ]);
+    expect(await repo!.transactions.where('type').equals('bridged-receive').primaryKeys()).toEqual(['receive-1']);
+
+    repo!.db.close();
+    await Dexie.delete(DB_NAME);
+  });
 });
