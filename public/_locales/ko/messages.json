@@ -1,4 +1,61 @@
 {
+  "activityFetchingHistoryAndNotes": {
+    "message": "거래 내역 조회 및 notes",
+    "englishSource": "Fetching your transaction history and notes"
+  },
+  "guardianHistorySwap": {
+    "message": "스왑",
+    "englishSource": "Swap"
+  },
+  "guardianHistoryBridgeOut": {
+    "message": "브리지 아웃",
+    "englishSource": "Bridge out"
+  },
+  "guardianHistoryEarnDeposit": {
+    "message": "예치 수익",
+    "englishSource": "Earn deposit"
+  },
+  "guardianHistoryGuardianChanged": {
+    "message": "Guardian 수정됨",
+    "englishSource": "Guardian changed"
+  },
+  "guardianHistoryDeviceReplaced": {
+    "message": "기기 키 교체됨",
+    "englishSource": "Device key replaced"
+  },
+  "guardianHistoryAccountSecured": {
+    "message": "계정 보안 확보",
+    "englishSource": "Account secured"
+  },
+  "guardianHistoryExecuted": {
+    "message": "실행됨",
+    "englishSource": "Executed"
+  },
+  "guardianHistoryMidenConfirmed": {
+    "message": "Miden에서 확인됨",
+    "englishSource": "Confirmed on Miden"
+  },
+  "guardianHistoryProgress": {
+    "message": "$operator$에서 내역을 복원 중입니다. $count$ 거래 내역이 복원되었습니다.",
+    "englishSource": "Recovering history from $operator$. $count$ transactions restored.",
+    "placeholders": {
+      "operator": {
+        "content": "$1"
+      },
+      "count": {
+        "content": "$2"
+      }
+    }
+  },
+  "guardianHistoryPartial": {
+    "message": "$count$ 거래 내역이 복원되었습니다. 일부 Guardian 소스를 읽을 수 없었습니다. 다음에 지갑을 잠금 해제할 때 복구가 다시 시도됩니다.",
+    "englishSource": "$count$ transactions restored. Some Guardian sources could not be read. Recovery will retry when you next unlock the wallet.",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
   "payload": {
     "message": "페이로드",
     "englishSource": "Payload"

@@ -1,4 +1,61 @@
 {
+  "activityFetchingHistoryAndNotes": {
+    "message": "İşlem geçmişinizi ve \"notes\" bilgilerinizi alma",
+    "englishSource": "Fetching your transaction history and notes"
+  },
+  "guardianHistorySwap": {
+    "message": "Takas",
+    "englishSource": "Swap"
+  },
+  "guardianHistoryBridgeOut": {
+    "message": "Köprüden Çıkış",
+    "englishSource": "Bridge out"
+  },
+  "guardianHistoryEarnDeposit": {
+    "message": "Mevduat kazanın",
+    "englishSource": "Earn deposit"
+  },
+  "guardianHistoryGuardianChanged": {
+    "message": "Guardian değiştirildi",
+    "englishSource": "Guardian changed"
+  },
+  "guardianHistoryDeviceReplaced": {
+    "message": "Cihaz anahtarı değiştirildi",
+    "englishSource": "Device key replaced"
+  },
+  "guardianHistoryAccountSecured": {
+    "message": "Hesap güvende",
+    "englishSource": "Account secured"
+  },
+  "guardianHistoryExecuted": {
+    "message": "Yürütüldü",
+    "englishSource": "Executed"
+  },
+  "guardianHistoryMidenConfirmed": {
+    "message": "Miden'de onaylandı",
+    "englishSource": "Confirmed on Miden"
+  },
+  "guardianHistoryProgress": {
+    "message": "$operator$ adresinden geçmiş veriler kurtarılıyor. $count$ adresindeki işlemler geri yüklendi.",
+    "englishSource": "Recovering history from $operator$. $count$ transactions restored.",
+    "placeholders": {
+      "operator": {
+        "content": "$1"
+      },
+      "count": {
+        "content": "$2"
+      }
+    }
+  },
+  "guardianHistoryPartial": {
+    "message": "$count$ İşlemler geri yüklendi. Bazı Guardian kaynakları okunamadı. Cüzdanın kilidini bir sonraki açışınızda kurtarma işlemi yeniden denenecektir.",
+    "englishSource": "$count$ transactions restored. Some Guardian sources could not be read. Recovery will retry when you next unlock the wallet.",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
   "payload": {
     "message": "Yük",
     "englishSource": "Payload"

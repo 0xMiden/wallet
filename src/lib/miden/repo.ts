@@ -428,6 +428,8 @@ export async function importDb(dump: string): Promise<void> {
     // `clear()` covers what `db.delete()` did: `transactions` is the only live
     // table (`transactionRequests` was dropped in v1.1), and the rows are
     // written into the current schema either way.
+    const { clearGuardianHistoryCheckpoints } = await import('./guardian/history-storage');
+    await clearGuardianHistoryCheckpoints();
     await db.transaction('rw', transactions, async () => {
       await transactions.clear();
       await transactions.bulkAdd(transactionsToImport);
