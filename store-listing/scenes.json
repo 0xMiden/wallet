@@ -29,7 +29,7 @@
         "crop": { "x": 0, "y": 0, "width": 1320, "height": 2868 },
         "surface": "iphone-6.9-inch",
         "headline": "Send publicly or privately",
-        "alt": "Send review on iPhone with the public or private transfer choice visible.",
+        "alt": "Transaction request on iPhone showing private note visibility before confirmation.",
         "width": 1320,
         "height": 2868,
         "output": "store-listing/generated/app-store/02-send-privacy.png"
@@ -74,7 +74,7 @@
         "crop": { "x": 0, "y": 0, "width": 1320, "height": 2868 },
         "surface": "iphone-6.9-inch",
         "headline": "Explore Miden dApps",
-        "alt": "Built-in dApp browser on iPhone with the Miden ecosystem page open.",
+        "alt": "Built-in dApp browser launcher on iPhone with search and Miden dApp shortcuts.",
         "width": 1320,
         "height": 2868,
         "output": "store-listing/generated/app-store/05-ios-dapp-browser.png"
@@ -121,7 +121,7 @@
         "crop": { "x": 0, "y": 0, "width": 1080, "height": 1920 },
         "surface": "android-phone",
         "headline": "Send publicly or privately",
-        "alt": "Send review on Android with the public or private transfer choice visible.",
+        "alt": "Transaction request on Android showing private note visibility before confirmation.",
         "width": 1080,
         "height": 1920,
         "output": "store-listing/generated/play-store/02-send-privacy.png"
@@ -166,7 +166,7 @@
         "crop": { "x": 0, "y": 0, "width": 1080, "height": 1920 },
         "surface": "android-phone",
         "headline": "Explore Miden dApps",
-        "alt": "Built-in dApp browser on Android with the Miden ecosystem page open.",
+        "alt": "Built-in dApp browser launcher on Android with search and Miden dApp shortcuts.",
         "width": 1080,
         "height": 1920,
         "output": "store-listing/generated/play-store/05-android-dapp-browser.png"
@@ -181,7 +181,7 @@
         "crop": { "x": 0, "y": 0, "width": 1080, "height": 1920 },
         "surface": "android-phone",
         "headline": "Prove on your device",
-        "alt": "Android transaction review showing local proving selected.",
+        "alt": "Android general settings with delegated proving switched off for local proving.",
         "width": 1080,
         "height": 1920,
         "output": "store-listing/generated/play-store/06-android-local-proving.png"
@@ -256,7 +256,7 @@
         "crop": { "x": 0, "y": 0, "width": 400, "height": 600 },
         "surface": "chrome-extension",
         "headline": "Send publicly or privately",
-        "alt": "Send review in the Chrome extension with the public or private transfer choice visible.",
+        "alt": "Chrome transaction request showing private note visibility before confirmation.",
         "width": 1280,
         "height": 800,
         "output": "store-listing/generated/chrome-web-store/02-send-privacy.png"
