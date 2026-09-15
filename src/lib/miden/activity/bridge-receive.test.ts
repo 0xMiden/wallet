@@ -1,6 +1,6 @@
 import * as Repo from 'lib/miden/repo';
 
-import { reconcileBridgedReceives } from './bridge-receive';
+import { BridgeReceiveLockManager, createBridgeReceiveReconciler, reconcileBridgedReceives } from './bridge-receive';
 
 const rows: any[] = [];
 const waitForReceipt = jest.fn();
@@ -344,5 +344,163 @@ describe('reconcileBridgedReceives', () => {
 
     expect(registerBridgeIn).toHaveBeenCalled();
     expect(updatePhase).not.toHaveBeenCalled();
+  });
+});
+
+// One Web Lock manager shared by every realm in a test: shared holders coexist,
+// an exclusive request waits for them (or is refused with `ifAvailable`).
+class SharedModeLocks implements BridgeReceiveLockManager {
+  private shared = 0;
+  private exclusive = false;
+  private readonly waiting: Array<() => void> = [];
+
+  request(
+    _name: string,
+    options: { mode?: 'exclusive' | 'shared'; ifAvailable?: boolean },
+    callback: (lock: object | null) => Promise<void>
+  ): Promise<void> {
+    const shared = options.mode === 'shared';
+    const free = () => !this.exclusive && (shared || this.shared === 0);
+    if (!free() && options.ifAvailable) return callback(null);
+    return new Promise<void>((resolve, reject) => {
+      const run = () => {
+        if (shared) this.shared += 1;
+        else this.exclusive = true;
+        void callback({})
+          .then(resolve, reject)
+          .finally(() => {
+            if (shared) this.shared -= 1;
+            else this.exclusive = false;
+            this.waiting.splice(0).forEach(retry => retry());
+          });
+      };
+      const attempt = () => (free() ? run() : this.waiting.push(attempt));
+      attempt();
+    });
+  }
+}
+
+const deferred = () => {
+  let resolve!: () => void;
+  const promise = new Promise<void>(res => {
+    resolve = res;
+  });
+  return { promise, resolve };
+};
+
+const settle = async () => {
+  for (let n = 0; n < 12; n += 1) await Promise.resolve();
+};
+
+describe('deposit submissions', () => {
+  const liveRow = (id: string, provider: 'agglayer' | 'epoch') => ({
+    id,
+    type: 'bridged-receive',
+    accountId: 'miden-account',
+    initiatedAt: Math.floor(Date.now() / 1000),
+    extraInputs: { provider, phase: 'submitting', sourceAddress: '0x1' }
+  });
+
+  it.each(['agglayer', 'epoch'] as const)(
+    'leaves a %s row alone while another page still drives it, and resumes it once that page is gone',
+    async provider => {
+      const locks = new SharedModeLocks();
+      const depositPage = createBridgeReceiveReconciler({ getLocks: () => locks });
+      const watcherPage = createBridgeReceiveReconciler({ getLocks: () => locks });
+      const signing = deferred();
+
+      const txId = await depositPage.startSubmission(
+        async () => {
+          rows.push(liveRow('live', provider));
+          return 'live';
+        },
+        () => signing.promise
+      );
+      expect(txId).toBe('live');
+
+      await watcherPage.reconcile();
+      expect(updatePhase).not.toHaveBeenCalled();
+
+      signing.resolve();
+      await settle();
+      await watcherPage.reconcile();
+      expect(updatePhase).toHaveBeenCalledWith(
+        'live',
+        'failed',
+        expect.objectContaining({ error: expect.stringContaining('interrupted') })
+      );
+    }
+  );
+
+  it('does not wait on the hash of a submission that is still being driven', async () => {
+    const locks = new SharedModeLocks();
+    const realm = createBridgeReceiveReconciler({ getLocks: () => locks });
+    const confirming = deferred();
+
+    await realm.startSubmission(
+      async () => {
+        rows.push({
+          ...liveRow('hashed', 'agglayer'),
+          extraInputs: { provider: 'agglayer', phase: 'submitting', evmTxHash: `0x${'3'.repeat(64)}` }
+        });
+        return 'hashed';
+      },
+      () => confirming.promise
+    );
+    await realm.reconcile();
+
+    expect(waitForReceipt).not.toHaveBeenCalled();
+    expect(updatePhase).not.toHaveBeenCalled();
+    confirming.resolve();
+  });
+
+  it('keeps the same rule without Web Locks, including a submission that starts while the rows are read', async () => {
+    const realm = createBridgeReceiveReconciler({ getLocks: () => undefined });
+    const reading = deferred();
+    jest
+      .requireMock('lib/miden/repo')
+      .transactions.filter.mockImplementationOnce((predicate: (row: any) => boolean) => ({
+        toArray: async () => {
+          await reading.promise;
+          return rows.filter(predicate);
+        }
+      }));
+
+    const pass = realm.reconcile();
+    const signing = deferred();
+    await realm.startSubmission(
+      async () => {
+        rows.push(liveRow('mid-read', 'epoch'));
+        return 'mid-read';
+      },
+      () => signing.promise
+    );
+    reading.resolve();
+    await pass;
+    expect(updatePhase).not.toHaveBeenCalled();
+
+    await realm.reconcile();
+    expect(updatePhase).not.toHaveBeenCalled();
+
+    signing.resolve();
+    await settle();
+    await realm.reconcile();
+    expect(updatePhase).toHaveBeenCalledWith(
+      'mid-read',
+      'failed',
+      expect.objectContaining({ error: expect.stringContaining('intent') })
+    );
+  });
+
+  it('rejects with the row-creation error and never drives a row that was not created', async () => {
+    const realm = createBridgeReceiveReconciler({ getLocks: () => new SharedModeLocks() });
+    const drive = jest.fn(async () => undefined);
+
+    await expect(
+      realm.startSubmission(async () => {
+        throw new Error('dexie closed');
+      }, drive)
+    ).rejects.toThrow('dexie closed');
+    expect(drive).not.toHaveBeenCalled();
   });
 });

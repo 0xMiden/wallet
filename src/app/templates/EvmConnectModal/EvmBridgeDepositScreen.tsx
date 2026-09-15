@@ -18,6 +18,7 @@ import {
 } from 'lib/epoch/bridgeable-token';
 import { toAdaptiveFixed } from 'lib/i18n/numbers';
 import { initiateBridgedReceiveTransaction, updateBridgedReceivePhase } from 'lib/miden/activity';
+import { startBridgeReceiveSubmission } from 'lib/miden/activity/bridge-receive';
 import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { WalletAccount } from 'lib/shared/types';
@@ -608,24 +609,25 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
         route === 'agglayer'
           ? parseUnits(amount.trim(), token === 'ETH' ? ETH_DECIMALS : BRIDGEABLE_EVM_OUTPUT_TOKEN_DECIMALS)
           : BigInt(String(epochQuote?.quoteResult.tokenOut ?? '0'));
-      const txId = await initiateBridgedReceiveTransaction({
-        accountId: midenAccount.publicKey,
-        amount: expectedAmount,
-        faucetId: route === 'epoch' ? MIDEN_USDC_FAUCET_ID : '',
-        provider: route,
-        sourceAddress: evmAddress,
-        sourceAmount: depositAmount.trim(),
-        sourceSymbol: token === 'ETH' ? ETH_SYMBOL : BRIDGEABLE_EVM_OUTPUT_TOKEN_SYMBOL,
-        outputAmount,
-        outputSymbol: token === 'ETH' ? ETH_SYMBOL : BRIDGEABLE_EVM_OUTPUT_TOKEN_SYMBOL
-      });
+      // The row is born `submitting`; the submission keeps the app-root watcher
+      // from resuming it as an orphan while this flow still signs and writes it.
+      const txId = await startBridgeReceiveSubmission(
+        () =>
+          initiateBridgedReceiveTransaction({
+            accountId: midenAccount.publicKey,
+            amount: expectedAmount,
+            faucetId: route === 'epoch' ? MIDEN_USDC_FAUCET_ID : '',
+            provider: route,
+            sourceAddress: evmAddress,
+            sourceAmount: depositAmount.trim(),
+            sourceSymbol: token === 'ETH' ? ETH_SYMBOL : BRIDGEABLE_EVM_OUTPUT_TOKEN_SYMBOL,
+            outputAmount,
+            outputSymbol: token === 'ETH' ? ETH_SYMBOL : BRIDGEABLE_EVM_OUTPUT_TOKEN_SYMBOL
+          }),
+        id => (route === 'agglayer' ? handleSlowBridge(id) : executeEVMToMiden(id))
+      );
       setBridgeTxId(txId);
       navigateTo(ReceiveStep.ShowBridgePageStatus);
-      if (route === 'agglayer') {
-        void handleSlowBridge(txId);
-      } else {
-        void executeEVMToMiden(txId);
-      }
     } catch (err) {
       console.error('[EvmBridgeDepositScreen] bridge row creation failed', err);
       setSlowError(errorMessage(err));
