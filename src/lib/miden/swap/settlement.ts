@@ -226,8 +226,8 @@ export async function settleSwapOrders(
     // classifySwapOrderNotes (slice 7a) now route through the proxy, so flag-ON they
     // read the offscreen client's canonical state; no live client is threaded here.
     // The caller lock still serializes the flag-OFF inline reads (byte-identical).
-    const rawNotes = await midenClientProxy.getConsumableNotes(accountId, () =>
-      assertWasmHoldCurrent(hold, 'inside the settlement consumable-notes read, before the sync-height read')
+    const rawNotes = await midenClientProxy.getConsumableNotes(accountId, step =>
+      assertWasmHoldCurrent(hold, 'inside the settlement consumable-notes read', step)
     );
     // An eviction during that read hands the mutex on while this callback keeps going;
     // the lineage read below is more WASM work, so it would run unmutexed.

@@ -2,9 +2,12 @@ import React from 'react';
 
 import { render, screen, act, waitFor, cleanup } from '@testing-library/react';
 
+import { PageActiveContext } from 'app/layouts/page-active';
+
 // Imported AFTER the mocks are registered.
 import History from './History';
 import { HistoryEntryType } from './IHistoryEntry';
+import type { PendingActivityItem } from './PendingActivityCard';
 
 // ---------------------------------------------------------------------------
 // Mock-prefixed collaborators (so the hoisted jest.mock factories may close
@@ -15,7 +18,7 @@ import { HistoryEntryType } from './IHistoryEntry';
 const mockGetCompletedTransactions = jest.fn();
 const mockGetUncompletedTransactions = jest.fn();
 const mockCancelTransactionById = jest.fn().mockResolvedValue(undefined);
-const mockSuppressingLinkedTxIds = jest.fn();
+const mockSuppressedLinkedConsumeIds = jest.fn();
 const mockGetTokenMetadata = jest.fn();
 const mockFormatAmount = jest.fn();
 const mockResolveSwapHistoryFields = jest.fn();
@@ -34,32 +37,35 @@ let mockHistoryViewProps: any;
 // module-internal `fetchTransactionsAsHistoryEntries` /
 // `fetchPendingTransactionsAsHistoryEntries` helpers.
 // ---------------------------------------------------------------------------
-const mockUseRetryableSWR = jest.fn((key: unknown, fetcher: () => Promise<unknown>) => {
-  const keyStr = JSON.stringify(key);
-  const [state, setState] = React.useState<{ data: unknown; isLoading: boolean }>({
-    data: undefined,
-    isLoading: true
-  });
-  const [tick, setTick] = React.useState(0);
-  const mutateRef = React.useRef<jest.Mock>();
-  if (!mutateRef.current) mutateRef.current = jest.fn(() => setTick(t => t + 1));
-
-  React.useEffect(() => {
-    let active = true;
-    Promise.resolve(fetcher()).then(data => {
-      if (active) setState({ data, isLoading: false });
+const mockUseRetryableSWR = jest.fn(
+  (key: unknown, fetcher: () => Promise<unknown>, _config?: { isPaused?: () => boolean }) => {
+    const keyStr = JSON.stringify(key);
+    const [state, setState] = React.useState<{ data: unknown; isLoading: boolean }>({
+      data: undefined,
+      isLoading: true
     });
-    return () => {
-      active = false;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [keyStr, tick]);
+    const [tick, setTick] = React.useState(0);
+    const mutateRef = React.useRef<jest.Mock>();
+    if (!mutateRef.current) mutateRef.current = jest.fn(() => setTick(t => t + 1));
 
-  return { data: state.data, isLoading: state.isLoading, mutate: mutateRef.current };
-});
+    React.useEffect(() => {
+      let active = true;
+      Promise.resolve(fetcher()).then(data => {
+        if (active) setState({ data, isLoading: false });
+      });
+      return () => {
+        active = false;
+      };
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [keyStr, tick]);
+
+    return { data: state.data, isLoading: state.isLoading, mutate: mutateRef.current };
+  }
+);
 
 jest.mock('lib/swr', () => ({
-  useRetryableSWR: (...args: [unknown, () => Promise<unknown>]) => mockUseRetryableSWR(...args)
+  useRetryableSWR: (...args: [unknown, () => Promise<unknown>, { isPaused?: () => boolean }?]) =>
+    mockUseRetryableSWR(...args)
 }));
 
 // `react-i18next` is imported (top-level) by `app/defaults`; echo keys back.
@@ -69,7 +75,7 @@ jest.mock('react-i18next', () => ({
 
 jest.mock('lib/miden/activity', () => ({
   cancelTransactionById: (...args: unknown[]) => mockCancelTransactionById(...args),
-  suppressingLinkedTxIds: (...args: unknown[]) => mockSuppressingLinkedTxIds(...args),
+  suppressedLinkedConsumeIds: (...args: unknown[]) => mockSuppressedLinkedConsumeIds(...args),
   getCompletedTransactions: (...args: unknown[]) => mockGetCompletedTransactions(...args),
   getUncompletedTransactions: (...args: unknown[]) => mockGetUncompletedTransactions(...args),
   // The REAL predicate: which rows may be cancelled is exactly what these
@@ -292,7 +298,10 @@ beforeEach(() => {
     (entry: any) => entry.faucetId === 'NATIVE' && entry.transactionIcon === 'RECEIVE'
   );
   mockFormatTransactionStatus.mockImplementation((s: number) => `status-${s}`);
-  mockSuppressingLinkedTxIds.mockImplementation(async (ids: string[]) => new Set(ids.filter(id => id === 'BR-KEEP')));
+  mockSuppressedLinkedConsumeIds.mockImplementation(
+    async (transactions: Array<{ id: string; extraInputs?: { bridgeIn?: { bridgeReceiveTxId?: string } } }>) =>
+      new Set(transactions.filter(tx => tx.extraInputs?.bridgeIn?.bridgeReceiveTxId === 'BR-KEEP').map(tx => tx.id))
+  );
   mockResolveConsumeExtraAmounts.mockResolvedValue([]);
 });
 
@@ -865,6 +874,8 @@ describe('History', () => {
                   sourceAmount: '3',
                   sourceSymbol: 'USDC',
                   evmTxHash: '0xebd',
+                  intentOwner: '0xold-owner',
+                  midenNoteId: '0xold-note',
                   bridgeReceiveTxId: 'BR-GONE'
                 }
               }
@@ -966,7 +977,9 @@ describe('History', () => {
       bridgeInProvider: 'epoch',
       bridgeInSourceAmount: '3',
       bridgeInSourceSymbol: 'USDC',
-      bridgeInEvmTxHash: '0xebd'
+      bridgeInEvmTxHash: '0xebd',
+      bridgeInSourceAddress: '0xold-owner',
+      bridgeInMidenNoteId: '0xold-note'
     });
     expect(byKey('completed-CONS-SWAP-GONE')).toBeDefined();
 
@@ -1181,4 +1194,230 @@ describe('History earn entries', () => {
     const entry = mockHistoryViewProps.entries.find((e: any) => e.key === 'pending-EDP');
     expect(entry.earnDepositStatus).toBe('failed');
   });
+});
+
+it('suppresses a consume row represented by its claiming note, but retains a batch with other notes', async () => {
+  mockGetCompletedTransactions.mockResolvedValue([]);
+  mockGetUncompletedTransactions.mockResolvedValue([
+    { id: 'single', status: STATUS.Queued, type: 'consume', noteIds: ['note-one'], initiatedAt: 500 },
+    { id: 'batch', status: STATUS.Queued, type: 'consume', noteIds: ['note-one', 'note-two'], initiatedAt: 600 }
+  ]);
+  const item: PendingActivityItem = {
+    note: {
+      id: 'note-one',
+      faucetId: 'fa1',
+      amount: '100',
+      senderAddress: 'sender',
+      isBeingClaimed: true,
+      type: 'unknown',
+      metadata: { name: 'Token', symbol: 'TOK', decimals: 6 }
+    },
+    status: 'claiming'
+  };
+  await renderHistory({ pendingItems: [item] });
+  expect(entryKeys()).not.toContain('pending-single');
+  expect(entryKeys()).toHaveLength(1);
+  expect(mockHistoryViewProps.entries[0].txId).toBe('batch');
+});
+
+it('suppresses legacy single-note consume rows behind a claimed card, keeps rows no card represents, and hides history under Pending', async () => {
+  mockGetCompletedTransactions.mockResolvedValue([
+    {
+      id: 'legacy',
+      status: STATUS.Completed,
+      displayMessage: 'Received',
+      displayIcon: 'RECEIVE',
+      type: 'consume',
+      noteId: 'note-claimed',
+      completedAt: 700
+    },
+    {
+      id: 'no-notes',
+      status: STATUS.Completed,
+      displayMessage: 'Received',
+      displayIcon: 'RECEIVE',
+      type: 'consume',
+      completedAt: 650
+    }
+  ]);
+  mockGetUncompletedTransactions.mockResolvedValue([
+    {
+      id: 'queued-legacy',
+      status: STATUS.Queued,
+      displayMessage: '',
+      type: 'consume',
+      noteId: 'note-claimed',
+      initiatedAt: 800
+    },
+    {
+      id: 'queued-send',
+      status: STATUS.Queued,
+      displayMessage: '',
+      faucetId: 'fa1',
+      type: 'send',
+      amount: 10n,
+      initiatedAt: 900
+    }
+  ]);
+  const claimed: PendingActivityItem = {
+    note: {
+      id: 'note-claimed',
+      faucetId: 'fa1',
+      amount: '100',
+      senderAddress: 'sender',
+      isBeingClaimed: false,
+      type: 'unknown',
+      metadata: { name: 'Token', symbol: 'TOK', decimals: 6 }
+    },
+    status: 'claimed',
+    txId: 'legacy'
+  };
+  const { rerender } = await renderHistory({ pendingItems: [claimed] });
+  await waitFor(() =>
+    expect(entryKeys()).toEqual(expect.arrayContaining(['pending-queued-send', 'completed-no-notes']))
+  );
+  expect(new Set(entryKeys())).toEqual(new Set(['pending-queued-send', 'completed-no-notes']));
+
+  await act(async () => {
+    rerender(<History address="0xme" pendingItems={[claimed]} filter="pending" />);
+  });
+  expect(entryKeys()).toEqual([]);
+});
+
+it('hides a failed consume row while its failed card offers the retry, and shows it again once no card does', async () => {
+  mockGetCompletedTransactions.mockResolvedValue([
+    {
+      id: 'failed-claim',
+      status: STATUS.Failed,
+      displayMessage: 'Failed',
+      displayIcon: 'FAILED',
+      type: 'consume',
+      noteIds: ['note-failed'],
+      completedAt: 700
+    }
+  ]);
+  mockGetUncompletedTransactions.mockResolvedValue([]);
+  const failed: PendingActivityItem = {
+    note: {
+      id: 'note-failed',
+      faucetId: 'fa1',
+      amount: '100',
+      senderAddress: 'sender',
+      isBeingClaimed: false,
+      type: 'unknown',
+      metadata: { name: 'Token', symbol: 'TOK', decimals: 6 }
+    },
+    status: 'failed',
+    txId: 'failed-claim'
+  };
+  const { rerender } = await renderHistory({ pendingItems: [], filter: 'received' });
+  await waitFor(() => expect(entryKeys()).toEqual(['completed-failed-claim']));
+
+  await act(async () => {
+    rerender(<History address="0xme" pendingItems={[failed]} filter="received" />);
+  });
+  expect(entryKeys()).toEqual([]);
+  await act(async () => {
+    rerender(<History address="0xme" pendingItems={[failed]} />);
+  });
+  expect(entryKeys()).toEqual([]);
+  await act(async () => {
+    rerender(<History address="0xme" pendingItems={[]} />);
+  });
+  expect(entryKeys()).toEqual(['completed-failed-claim']);
+});
+
+it('stops paging and polling transaction history while the Pending filter shows only transfer cards', async () => {
+  const { rerender } = await renderHistory({ filter: 'pending' });
+  expect(mockHistoryViewProps.hasMore).toBe(false);
+  expect(mockUseRetryableSWR.mock.calls.slice(-2).map(call => call[2]?.isPaused?.())).toEqual([true, true]);
+
+  await act(async () => {
+    rerender(<History address="0xme" filter="all" />);
+  });
+  expect(mockHistoryViewProps.hasMore).toBe(true);
+  expect(mockUseRetryableSWR.mock.calls.slice(-2).map(call => call[2]?.isPaused?.())).toEqual([false, false]);
+});
+
+it('pauses both transaction polls while the page is off screen and refreshes them when it returns', async () => {
+  const view = (onScreen: boolean) => (
+    <PageActiveContext.Provider value={onScreen}>
+      <History address="0xme" />
+    </PageActiveContext.Provider>
+  );
+  let utils: ReturnType<typeof render> | undefined;
+  await act(async () => {
+    utils = render(view(false));
+  });
+  await waitFor(() => expect(screen.getByTestId('history-view')).toBeTruthy());
+  expect(mockUseRetryableSWR.mock.calls.slice(-2).map(call => call[2]?.isPaused?.())).toEqual([true, true]);
+
+  const reads = () => mockGetCompletedTransactions.mock.calls.length + mockGetUncompletedTransactions.mock.calls.length;
+  const before = reads();
+  await act(async () => {
+    utils?.rerender(view(true));
+  });
+  expect(mockUseRetryableSWR.mock.calls.slice(-2).map(call => call[2]?.isPaused?.())).toEqual([false, false]);
+  await waitFor(() => expect(reads()).toBeGreaterThan(before));
+});
+
+it('refreshes both transaction reads whenever they resume, and only then', async () => {
+  const view = (onScreen: boolean, filter: 'pending' | 'all') => (
+    <PageActiveContext.Provider value={onScreen}>
+      <History address="0xme" filter={filter} />
+    </PageActiveContext.Provider>
+  );
+  const refreshes = () =>
+    mockUseRetryableSWR.mock.results.slice(-2).map(result => result.value.mutate?.mock.calls.length);
+  let utils: ReturnType<typeof render> | undefined;
+  await act(async () => {
+    utils = render(view(true, 'pending'));
+  });
+  await waitFor(() => expect(screen.getByTestId('history-view')).toBeTruthy());
+
+  // Off screen and back with Pending still selected: the reads never resumed, so nothing refreshes.
+  await act(async () => {
+    utils?.rerender(view(false, 'pending'));
+  });
+  await act(async () => {
+    utils?.rerender(view(true, 'pending'));
+  });
+  expect(refreshes()).toEqual([0, 0]);
+
+  // Leaving Pending resumes both reads, and each refreshes at once rather than on its next interval.
+  await act(async () => {
+    utils?.rerender(view(true, 'all'));
+  });
+  expect(refreshes()).toEqual([1, 1]);
+});
+
+it('shows no transaction loading state under Pending, whose list is transfer cards only', async () => {
+  // A read that never settles keeps reporting loading, as a paused read that never ran does.
+  mockGetCompletedTransactions.mockImplementation(() => new Promise(() => {}));
+  const { rerender } = await renderHistory({ filter: 'pending', pendingItems: [] });
+  expect(mockHistoryViewProps.initialLoading).toBe(false);
+
+  await act(async () => {
+    rerender(<History address="0xme" filter="all" pendingItems={[]} />);
+  });
+  expect(mockHistoryViewProps.initialLoading).toBe(true);
+});
+
+it('offers no more pages while its page is off screen', async () => {
+  const view = (onScreen: boolean) => (
+    <PageActiveContext.Provider value={onScreen}>
+      <History address="0xme" />
+    </PageActiveContext.Provider>
+  );
+  let utils: ReturnType<typeof render> | undefined;
+  await act(async () => {
+    utils = render(view(false));
+  });
+  await waitFor(() => expect(screen.getByTestId('history-view')).toBeTruthy());
+  expect(mockHistoryViewProps.hasMore).toBe(false);
+
+  await act(async () => {
+    utils?.rerender(view(true));
+  });
+  expect(mockHistoryViewProps.hasMore).toBe(true);
 });

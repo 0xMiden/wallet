@@ -4,9 +4,10 @@ import { subscribeWithSelector } from 'zustand/middleware';
 import { setAgglayerFaucetForE2E } from 'lib/agglayer/b2agg/constant';
 import { createIntercomClient, IIntercomClient } from 'lib/intercom/client';
 import { clearPersistedSeenNoteIds, persistSeenNoteIds } from 'lib/miden/back/note-checker-storage';
+import type { IConsumeBridgeInExtraInputs, IEarnWithdrawExtraInputs, ITransaction } from 'lib/miden/db/types';
 import { setTestSyncPaused } from 'lib/miden/front/test-sync-pause';
 import { fetchTokenMetadata } from 'lib/miden/metadata';
-import { installSwapTestHooks } from 'lib/miden/swap/test-hooks';
+import { describeHookError, installSwapTestHooks } from 'lib/miden/swap/test-hooks';
 import { MidenMessageType, MidenState } from 'lib/miden/types';
 import { isExtension } from 'lib/platform';
 import { WalletMessageType, WalletRequest, WalletResponse, WalletStatus } from 'lib/shared/types';
@@ -742,23 +743,27 @@ export const useWalletStore = create<WalletStore>()(
     },
 
     // Note toast actions (mobile only)
-    checkForNewNotes: (currentNoteIds: string[]) => {
+    checkForNewNotes: (currentNoteIds: string[], notifiableNoteIds?: readonly string[]) => {
       const { seenNoteIds } = get();
 
       // Find note IDs that weren't previously seen
       const newNoteIds = currentNoteIds.filter(id => !seenNoteIds.has(id));
 
       if (newNoteIds.length > 0) {
-        // Update seen notes and show toast
         const updatedSeenNotes = new Set(seenNoteIds);
         for (const id of newNoteIds) {
           updatedSeenNotes.add(id);
         }
-        set({
-          seenNoteIds: updatedSeenNotes,
-          isNoteToastVisible: true,
-          noteToastShownAt: Date.now()
-        });
+        // Every new note is recorded as seen, but only one the user has to claim by hand shows the
+        // toast: a note first listed while the wallet was claiming it must not toast later, when a fee
+        // or setting change makes it manual (#811).
+        const notifiable = notifiableNoteIds ? new Set(notifiableNoteIds) : null;
+        const showToast = !notifiable || newNoteIds.some(id => notifiable.has(id));
+        set(
+          showToast
+            ? { seenNoteIds: updatedSeenNotes, isNoteToastVisible: true, noteToastShownAt: Date.now() }
+            : { seenNoteIds: updatedSeenNotes }
+        );
 
         // Persist to chrome.storage.local so service worker can read them
         if (isExtension()) {
@@ -864,18 +869,49 @@ if (process.env.MIDEN_E2E_TEST === 'true') {
   // note-id reconcile flips it), so the SW's Repo view never sees it. The e2e
   // reads these via `walletA.page.evaluate` (the deposit rows, created SW-side,
   // stay on the SW hooks). Lazy Repo import — E2E-gated, zero prod impact.
-  (globalThis as any).__TEST_LATEST_EARN_WITHDRAW__ = async () => {
+  const toEarnWithdrawView = async (row: ITransaction | undefined) => {
+    if (!row || row.type !== 'earn-withdraw') return null;
+    const inputs: IEarnWithdrawExtraInputs | undefined = row.extraInputs;
     const Repo = await import('lib/miden/repo');
-    const rows = await Repo.transactions.filter((tx: any) => tx.type === 'earn-withdraw').toArray();
-    rows.sort((a: any, b: any) => (b.initiatedAt ?? 0) - (a.initiatedAt ?? 0));
-    const row: any = rows[0];
-    return row ? { id: row.id, phase: row.extraInputs?.phase, displayMessage: row.displayMessage } : null;
+    const consumes = await Repo.transactions
+      .filter(tx => {
+        const extra: IConsumeBridgeInExtraInputs | undefined = tx.extraInputs;
+        return tx.type === 'consume' && extra?.bridgeIn?.earnWithdrawTxId === row.id;
+      })
+      .toArray();
+    return {
+      id: row.id,
+      phase: inputs?.phase,
+      displayMessage: row.displayMessage,
+      submissionState: inputs?.submissionState,
+      withdrawIntentNonce: inputs?.withdrawIntentNonce,
+      preparedExecution: inputs?.preparedExecution,
+      midenNoteId: inputs?.midenNoteId,
+      receipts: consumes.map(tx => {
+        const extra: IConsumeBridgeInExtraInputs | undefined = tx.extraInputs;
+        return {
+          id: tx.id,
+          status: tx.status,
+          transactionId: tx.transactionId,
+          noteIds: tx.inputNoteIds ?? tx.noteIds ?? (tx.noteId ? [tx.noteId] : []),
+          intentOwner: extra?.bridgeIn?.intentOwner,
+          intentNonce: extra?.bridgeIn?.intentNonce,
+          attemptId: extra?.bridgeIn?.earnWithdrawAttemptId,
+          midenNoteId: extra?.bridgeIn?.midenNoteId
+        };
+      })
+    };
   };
-  (globalThis as any).__TEST_EARN_WITHDRAW_STATE__ = async (txId: string) => {
+  Reflect.set(globalThis, '__TEST_LATEST_EARN_WITHDRAW__', async () => {
     const Repo = await import('lib/miden/repo');
-    const row: any = await Repo.transactions.where({ id: txId }).first();
-    return row ? { id: row.id, phase: row.extraInputs?.phase, displayMessage: row.displayMessage } : null;
-  };
+    const rows = await Repo.transactions.filter(tx => tx.type === 'earn-withdraw').toArray();
+    rows.sort((a, b) => b.initiatedAt - a.initiatedAt);
+    return toEarnWithdrawView(rows[0]);
+  });
+  Reflect.set(globalThis, '__TEST_EARN_WITHDRAW_STATE__', async (txId: string) => {
+    const Repo = await import('lib/miden/repo');
+    return toEarnWithdrawView(await Repo.transactions.where({ id: txId }).first());
+  });
   // Hex→bech32 faucet-id conversion. iOS E2E needs this to inject
   // synthetic metadata for the CLI-deployed test faucet (whose on-chain
   // procedure layout the SDK can't parse, so the real metadata RPC fails
@@ -964,28 +1000,43 @@ if (process.env.MIDEN_E2E_TEST === 'true') {
     // on MIDEN_E2E_TEST, tree-shaken from production.
     setTestSyncPaused(true);
     try {
-      const [{ AccountInspector }, { getMidenClient }, { getGuardianCommitmentFromAccount }] = await Promise.all([
+      const [
+        { AccountInspector },
+        { assertWasmHoldCurrent, getMidenClient, withWasmClientLock },
+        { getGuardianCommitmentFromAccount }
+      ] = await Promise.all([
         import('@openzeppelin/miden-multisig-client'),
         import('lib/miden/sdk/miden-client'),
         import('lib/miden/guardian/account')
       ]);
-      const account = await (await getMidenClient()).getAccount(accountPublicKey);
-      if (!account) {
-        return { error: `Guardian account ${accountPublicKey} not found in local client` };
-      }
-      const config = AccountInspector.fromAccount(account);
-      return {
-        threshold: config.threshold,
-        signerCommitments: config.signerCommitments,
-        procedureThresholds: Object.fromEntries(config.procedureThresholds),
-        // Active guardian-operator commitment — a SEPARATE storage slot
-        // (`GUARDIAN_SLOT_NAMES.PUBLIC_KEY`) from `signerCommitments` above.
-        // A guardian switch changes this while the signer set / threshold
-        // stay put, so this is the field that actually verifies a switch.
-        guardianCommitment: getGuardianCommitmentFromAccount(account)
-      };
+      // One hold from the read through the inspection of the account it returned
+      // (borrowed from the client's RefCell): this realm's reads and writes share one
+      // client, and the transaction loop holds this lock on mobile and desktop (#878).
+      return await withWasmClientLock(
+        async hold => {
+          const mc = await getMidenClient();
+          assertWasmHoldCurrent(hold, 'e2e-guardian-auth after the client build');
+          const account = await mc.getAccount(accountPublicKey);
+          assertWasmHoldCurrent(hold, 'e2e-guardian-auth after the account read');
+          if (!account) {
+            return { error: `Guardian account ${accountPublicKey} not found in local client` };
+          }
+          const config = AccountInspector.fromAccount(account);
+          return {
+            threshold: config.threshold,
+            signerCommitments: config.signerCommitments,
+            procedureThresholds: Object.fromEntries(config.procedureThresholds),
+            // Active guardian-operator commitment — a SEPARATE storage slot
+            // (`GUARDIAN_SLOT_NAMES.PUBLIC_KEY`) from `signerCommitments` above.
+            // A guardian switch changes this while the signer set / threshold
+            // stay put, so this is the field that actually verifies a switch.
+            guardianCommitment: getGuardianCommitmentFromAccount(account)
+          };
+        },
+        { label: 'e2e-guardian-auth' }
+      );
     } catch (e) {
-      return { error: e instanceof Error ? e.message : String(e) };
+      return { error: describeHookError(e) };
     } finally {
       setTestSyncPaused(false);
     }

@@ -28,6 +28,7 @@ export enum WalletType {
 
 export enum OnboardingStep {
   Welcome = 'welcome',
+  NetworkNotice = 'network-notice',
   SelectWalletType = 'select-wallet-type',
   ChooseProtection = 'choose-protection',
   SetupPasscode = 'setup-passcode',
@@ -44,32 +45,8 @@ export enum OnboardingStep {
   ImportSelectRecoveryMethod = 'import-select-recovery-method',
   Confirmation = 'confirmation'
 }
-export type OnboardingActionId =
-  | 'select-wallet-type'
-  | 'select-import-type'
-  | 'choose-protection'
-  | 'setup-passcode'
-  | 'setup-passcode-submit'
-  | 'setup-biometric'
-  | 'setup-biometric-submit'
-  | 'choose-guardian'
-  | 'choose-guardian-submit'
-  | 'create-wallet'
-  | 'import-wallet'
-  | 'backup-seed-phrase'
-  | 'verify-seed-phrase'
-  | 'create-password'
-  | 'create-password-submit'
-  | 'biometric-setup-submit'
-  | 'select-transaction-type'
-  | 'select-recovery-method'
-  | 'choose-guardian'
-  | 'import-select-recovery-method'
-  | 'confirmation'
-  | 'retry-guardian-probe'
-  | 'import-from-seed'
-  | 'import-with-key'
-  | 'import-hot-key-submit';
+/** Every onboarding action id, derived from the action union so the two cannot drift. */
+export type OnboardingActionId = OnboardingAction['id'];
 
 export type CreateWalletAction = {
   id: 'create-wallet';
@@ -103,6 +80,10 @@ export type ChooseGuardianSubmitAction = {
 
 export type SelectImportTypeAction = {
   id: 'select-import-type';
+};
+
+export type NetworkNoticeAcknowledgeAction = {
+  id: 'network-notice-acknowledge';
 };
 
 export type ImportFromSeedAction = {
@@ -196,6 +177,7 @@ export type OnboardingAction =
   | ChooseGuardianSubmitAction
   | BackupSeedPhraseAction
   | SelectImportTypeAction
+  | NetworkNoticeAcknowledgeAction
   | VerifySeedPhraseAction
   | CreatePasswordAction
   | CreatePasswordSubmitAction

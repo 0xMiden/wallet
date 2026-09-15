@@ -18,7 +18,7 @@ import { PromptCarousel } from './PromptCarousel';
 import { SearchInput } from './SearchInput';
 import { SegmentedActionBar } from './SegmentedActionBar';
 import { Sparkline } from './Sparkline';
-import { TabHeader } from './TabHeader';
+import { TabHeader, TabHeaderAction } from './TabHeader';
 
 // vaul (the drawer primitive AccountsDrawer pulls in) walks the DOM on load;
 // jsdom lacks the layout APIs it probes, so stub it to a passthrough. This
@@ -42,6 +42,7 @@ describe('components/ui barrel', () => {
     SegmentedActionBar,
     BottomNav,
     TabHeader,
+    TabHeaderAction,
     SearchInput,
     Sparkline,
     ActivityRow

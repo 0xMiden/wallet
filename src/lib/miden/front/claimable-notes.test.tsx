@@ -61,11 +61,18 @@ jest.mock('lib/swr', () => ({
       (globalThis as any).__cnTest.lastFetchPromise = result
         .then((data: any) => {
           (globalThis as any).__cnTest.lastFetchData = data;
+          (globalThis as any).__cnTest.liveDataByKey[JSON.stringify(_key)] = data;
         })
         .catch((e: any) => {
           config?.onError?.(e);
         });
-      return { data: undefined, mutate: jest.fn(), isLoading: true, isValidating: false };
+      // Real SWR serves `fallbackData` while the first read is in flight, and the
+      // cache-first path is only observable through that — a mock that always
+      // returned `undefined` here would make it untestable. Once a live read has
+      // settled it wins for its own key, which is what SWR does on revalidation.
+      const settled = (globalThis as any).__cnTest.liveDataByKey[JSON.stringify(_key)];
+      const data = settled ?? config?.fallbackData;
+      return { data, mutate: jest.fn(), isLoading: data === undefined, isValidating: false };
     }
     return { data: result, mutate: jest.fn(), isLoading: false, isValidating: false };
   })
@@ -91,18 +98,18 @@ jest.mock('../sdk/miden-client', () => ({
       if ((globalThis as any).__cnTest.currentHold === hold) (globalThis as any).__cnTest.currentHold = null;
     }
   },
+  // Records its arguments, so a test can see the step a forwarded check carries.
+  assertWasmHoldCurrent: (...a: unknown[]) => (globalThis as any).__cnTest.assertWasmHoldCurrent(...a),
   runWhenClientIdle: (fn: () => Promise<any>) => mockRunWhenClientIdle(fn)
 }));
 
 // Since slice 4 (issue #260) claimable-notes reads consumable notes through the
 // proxy (reduced DTOs) rather than getMidenClient().getConsumableNotes; since slice
-// 7a the swap-classification per-order PSWAP lineage also routes through the proxy
-// (getPswapLineage) instead of a live client — so the hook no longer calls
-// getMidenClient directly at all. Mock both proxy reads.
+// Swap classification reads a complete lineage snapshot through the same proxy.
 jest.mock('../back/miden-client-proxy', () => ({
   midenClientProxy: {
     getConsumableNotes: (...a: any[]) => (globalThis as any).__cnTest.proxyGetConsumableNotes(...a),
-    getPswapLineage: jest.fn(async () => null)
+    getPswapLineages: jest.fn(async () => [])
   }
 }));
 
@@ -133,6 +140,29 @@ jest.mock('../sdk/helpers', () => ({
   getBech32AddressFromAccountId: (x: any) => (typeof x === 'string' ? x : 'bech-stub')
 }));
 
+// Path matches the import in `claimable-notes.ts` ('./storage'). Backs the per-account
+// cache-first list with a plain in-memory key-value store.
+jest.mock('./storage', () => ({
+  fetchFromStorage: async (key: string) => (globalThis as any).__cnTest.kv[key] ?? null,
+  putToStorage: async (key: string, value: any) => {
+    (globalThis as any).__cnTest.puts += 1;
+    const override = (globalThis as any).__cnTest.putOverride;
+    if (override) return override(key, value);
+    (globalThis as any).__cnTest.kv[key] = value;
+  }
+}));
+
+// Display dates are resolved after the note read; tests hand back a fixed block-to-time map.
+jest.mock('lib/miden-chain/block-timestamps', () => ({
+  getBlockTimestamps: (...a: any[]) => (globalThis as any).__cnTest.getBlockTimestamps(...a)
+}));
+
+// The cache is scoped by endpoint; a test switches endpoints through this value.
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  getEffectiveRpcUrl: () => (globalThis as any).__cnTest.rpcUrl,
+  getEffectiveNetworkName: () => 'testnet'
+}));
+
 jest.mock('./assets', () => ({
   useTokensMetadata: () => ({
     allTokensBaseMetadataRef: { current: (globalThis as any).__cnTest.metadataCache },
@@ -141,9 +171,24 @@ jest.mock('./assets', () => ({
   })
 }));
 
-import { useClaimableNotes } from './claimable-notes';
+import { __resetClaimableNotesCacheForTests, useClaimableNotes } from './claimable-notes';
+
+// A test can leave a fetch in flight (RTL unmounts the hook, the promise chain keeps
+// going). Such a straggler still writes the module-level last-known-list cache, so it
+// has to settle BEFORE the next test's reset — otherwise it lands in the next test and
+// serves it the previous one's list.
+afterEach(async () => {
+  await new Promise(resolve => setTimeout(resolve, 0));
+});
 
 beforeEach(() => {
+  _g.__cnTest.kv = {};
+  _g.__cnTest.puts = 0;
+  _g.__cnTest.putOverride = undefined;
+  _g.__cnTest.liveDataByKey = {};
+  _g.__cnTest.rpcUrl = 'https://rpc-a.example';
+  _g.__cnTest.getBlockTimestamps = jest.fn(async () => new Map());
+  __resetClaimableNotesCacheForTests();
   _g.__cnTest.isExtension = false;
   _g.__cnTest.isIOS = false;
   _g.__cnTest.storage = {};
@@ -163,6 +208,7 @@ beforeEach(() => {
   mockGetMidenClient.mockReset().mockResolvedValue({});
   // Default proxy read: return the fixture DTO list; individual tests override.
   _g.__cnTest.proxyGetConsumableNotes = jest.fn(async () => _g.__cnTest.consumableNotes);
+  _g.__cnTest.assertWasmHoldCurrent = jest.fn();
 });
 
 describe('useClaimableNotes (extension mode)', () => {
@@ -268,6 +314,36 @@ describe('useClaimableNotes (extension mode)', () => {
     const { result } = renderHook(() => useClaimableNotes('pk-1'));
     expect(result.current.data).toHaveLength(1);
     expect(result.current.data?.[0]?.id).toBe('n1');
+  });
+
+  it('publishes the extension list in the fixed order, however the service worker stored it', () => {
+    const metadata = { decimals: 6, symbol: 'TOK', name: 'Token' };
+    const note = (id: string, receivedAt?: number) => ({
+      id,
+      faucetId: 'f1',
+      amountBaseUnits: '100',
+      senderAddress: 's1',
+      noteType: 'public',
+      receivedAt,
+      metadata
+    });
+    _g.__cnTest.walletState.extensionClaimableNotes = [
+      note('b', 10),
+      note('a', 10),
+      note('old', 5),
+      note('newest', 20)
+    ];
+    const { result, rerender } = renderHook(() => useClaimableNotes('pk-1'));
+    expect(result.current.data?.map((n: any) => n.id)).toEqual(['newest', 'a', 'b', 'old']);
+
+    _g.__cnTest.walletState.extensionClaimableNotes = [
+      note('old', 5),
+      note('a', 10),
+      note('newest', 20),
+      note('b', 10)
+    ];
+    rerender();
+    expect(result.current.data?.map((n: any) => n.id)).toEqual(['newest', 'a', 'b', 'old']);
   });
 
   it('hides swap-managed notes while leaving unrelated notes visible', () => {
@@ -444,6 +520,16 @@ describe('useClaimableNotes (local mode — mobile/desktop)', () => {
     };
   }
 
+  it('dates notes on the endpoint they were read from, even if the wallet moves during the read', async () => {
+    _g.__cnTest.proxyGetConsumableNotes = jest.fn(async () => {
+      _g.__cnTest.rpcUrl = 'https://rpc-b.example';
+      return [{ ...makeMockNote({ id: 'dated' }), blockNum: 42 }];
+    });
+    renderHook(() => useClaimableNotes('pk-1'));
+    await _g.__cnTest.lastFetchPromise;
+    expect(_g.__cnTest.getBlockTimestamps).toHaveBeenCalledWith([42], 'https://rpc-a.example');
+  });
+
   it('fetches notes from the WASM client and parses them', async () => {
     _g.__cnTest.consumableNotes = [makeMockNote({ id: 'local-1' })];
     renderHook(() => useClaimableNotes('pk-1'));
@@ -535,6 +621,23 @@ describe('useClaimableNotes (local mode — mobile/desktop)', () => {
     // The fetch rejects → onError fires (covered by the SWR mock).
     await _g.__cnTest.lastFetchPromise;
     expect(_g.__cnTest.proxyGetConsumableNotes).toHaveBeenCalled();
+  });
+
+  it('forwards the reader check that parked into its own read label', async () => {
+    let forwarded: ((step?: string) => void) | undefined;
+    _g.__cnTest.proxyGetConsumableNotes = jest.fn(async (...called: unknown[]) => {
+      forwarded = called[1] as (step?: string) => void;
+      return [];
+    });
+    renderHook(() => useClaimableNotes('pk-1'));
+    await _g.__cnTest.lastFetchPromise;
+    expect(forwarded).toBeDefined();
+    forwarded?.('after the reader build');
+    expect(_g.__cnTest.assertWasmHoldCurrent).toHaveBeenCalledWith(
+      expect.objectContaining({ id: expect.stringMatching(/^cn-hold-/) }),
+      'inside the claimable-notes read',
+      'after the reader build'
+    );
   });
 
   it('bounds and labels BOTH of its WASM holds, not just the note read (#777)', async () => {
@@ -646,6 +749,282 @@ describe('useClaimableNotes (local mode — mobile/desktop)', () => {
     await _g.__cnTest.lastFetchPromise;
     expect(_g.__cnTest.lastFetchData).toEqual([
       expect.objectContaining({ id: 'no-meta', senderAddress: '', type: 'unknown' })
+    ]);
+  });
+
+  // -------------------- Cache-first list --------------------
+
+  const CACHE_KEY = 'claimable_notes:v1:https://rpc-a.example|testnet:pk-1';
+
+  function makeCachedNote(id: string, receivedAt?: number): any {
+    return {
+      id,
+      faucetId: 'miden-faucet',
+      amount: '100',
+      senderAddress: 'sender-1',
+      isBeingClaimed: false,
+      type: 'public',
+      receivedAt,
+      metadata: { decimals: 6, symbol: 'MIDEN', name: 'Miden' }
+    };
+  }
+
+  /** A live read that never settles, so only the cached list can be observed. */
+  function neverSettlingRead() {
+    _g.__cnTest.proxyGetConsumableNotes = jest.fn(() => new Promise(() => {}));
+  }
+
+  it('serves the persisted list on the first render, before the live read lands', async () => {
+    _g.__cnTest.kv[CACHE_KEY] = [makeCachedNote('cached-1', 20), makeCachedNote('cached-2', 10)];
+    neverSettlingRead();
+    const { result } = renderHook(() => useClaimableNotes('pk-1'));
+    await waitFor(() => {
+      expect(result.current.data?.map((n: any) => n.id)).toEqual(['cached-1', 'cached-2']);
+    });
+  });
+
+  it('marks cached entries fromCache so every claim gate drops them, and live entries not at all', async () => {
+    _g.__cnTest.kv[CACHE_KEY] = [makeCachedNote('cached-1')];
+    neverSettlingRead();
+    const { result } = renderHook(() => useClaimableNotes('pk-1'));
+    await waitFor(() => {
+      expect(result.current.data).toHaveLength(1);
+    });
+    expect(result.current.data?.every((n: any) => n.fromCache === true)).toBe(true);
+
+    // The live read carries no flag, so the same gates admit it.
+    _g.__cnTest.consumableNotes = [makeMockNote({ id: 'live-1' })];
+    _g.__cnTest.proxyGetConsumableNotes = jest.fn(async () => _g.__cnTest.consumableNotes);
+    renderHook(() => useClaimableNotes('pk-1'));
+    await _g.__cnTest.lastFetchPromise;
+    expect(_g.__cnTest.lastFetchData.map((n: any) => [n.id, n.fromCache])).toEqual([['live-1', undefined]]);
+  });
+
+  it('reports the persisted list as a fallback until a live read replaces it', async () => {
+    _g.__cnTest.kv[CACHE_KEY] = [makeCachedNote('cached-1')];
+    neverSettlingRead();
+    const { result, rerender } = renderHook(() => useClaimableNotes('pk-1'));
+    await waitFor(() => {
+      expect(result.current.data?.map((n: any) => n.id)).toEqual(['cached-1']);
+    });
+    expect(result.current.isFallback).toBe(true);
+
+    _g.__cnTest.consumableNotes = [makeMockNote({ id: 'live-1' })];
+    _g.__cnTest.proxyGetConsumableNotes = jest.fn(async () => _g.__cnTest.consumableNotes);
+    rerender();
+    await _g.__cnTest.lastFetchPromise;
+    rerender();
+    expect(result.current.data?.map((n: any) => n.id)).toEqual(['live-1']);
+    expect(result.current.isFallback).toBe(false);
+  });
+
+  it('replaces the cached list with the live result and rewrites the cache', async () => {
+    _g.__cnTest.kv[CACHE_KEY] = [makeCachedNote('stale-1')];
+    _g.__cnTest.consumableNotes = [makeMockNote({ id: 'live-1' })];
+    const { result, rerender } = renderHook(() => useClaimableNotes('pk-1'));
+    await _g.__cnTest.lastFetchPromise;
+    rerender();
+    expect(result.current.data?.map((n: any) => n.id)).toEqual(['live-1']);
+    // The cache now holds the live list, stored as plain JSON with no cache flag.
+    expect(_g.__cnTest.kv[CACHE_KEY].map((n: any) => n.id)).toEqual(['live-1']);
+    expect(_g.__cnTest.kv[CACHE_KEY][0].fromCache).toBeUndefined();
+  });
+
+  it('never serves one account cached notes belonging to another', async () => {
+    _g.__cnTest.kv[CACHE_KEY] = [makeCachedNote('cached-1')];
+    neverSettlingRead();
+    const { result, rerender } = renderHook(({ address }) => useClaimableNotes(address), {
+      initialProps: { address: 'pk-1' }
+    });
+    await waitFor(() => {
+      expect(result.current.data?.map((n: any) => n.id)).toEqual(['cached-1']);
+    });
+    // The fallback state still holds pk-1's list during the render that switches accounts.
+    rerender({ address: 'pk-2' });
+    expect(result.current.data).toBeUndefined();
+    await Promise.resolve();
+    expect(result.current.data).toBeUndefined();
+  });
+
+  it('keeps the cached list per endpoint, so a switch neither serves nor overwrites the previous chain list', async () => {
+    _g.__cnTest.kv[CACHE_KEY] = [makeCachedNote('chain-a')];
+    neverSettlingRead();
+    const { result, rerender } = renderHook(() => useClaimableNotes('pk-1'));
+    await waitFor(() => {
+      expect(result.current.data?.map((n: any) => n.id)).toEqual(['chain-a']);
+    });
+
+    _g.__cnTest.rpcUrl = 'https://rpc-b.example';
+    rerender();
+    expect(result.current.data).toBeUndefined();
+    await Promise.resolve();
+    expect(result.current.data).toBeUndefined();
+
+    _g.__cnTest.consumableNotes = [makeMockNote({ id: 'chain-b' })];
+    _g.__cnTest.proxyGetConsumableNotes = jest.fn(async () => _g.__cnTest.consumableNotes);
+    rerender();
+    await _g.__cnTest.lastFetchPromise;
+    rerender();
+    const chainBKey = 'claimable_notes:v1:https://rpc-b.example|testnet:pk-1';
+    await waitFor(() => expect(_g.__cnTest.kv[chainBKey]?.map((n: any) => n.id)).toEqual(['chain-b']));
+    expect(_g.__cnTest.kv[CACHE_KEY].map((n: any) => n.id)).toEqual(['chain-a']);
+  });
+
+  it('does not serve the previous endpoint live list while the new endpoint is read', async () => {
+    _g.__cnTest.consumableNotes = [makeMockNote({ id: 'chain-a' })];
+    const { result, rerender } = renderHook(() => useClaimableNotes('pk-1'));
+    await _g.__cnTest.lastFetchPromise;
+    rerender();
+    expect(result.current.data?.map((n: any) => n.id)).toEqual(['chain-a']);
+
+    _g.__cnTest.rpcUrl = 'https://rpc-b.example';
+    neverSettlingRead();
+    rerender();
+    expect(result.current.data).toBeUndefined();
+  });
+
+  it('publishes at most 300 cached notes, newest first, however many were stored', async () => {
+    _g.__cnTest.kv[CACHE_KEY] = Array.from({ length: 305 }, (_, index) => makeCachedNote(`cached-${index}`, index + 1));
+    neverSettlingRead();
+    const { result } = renderHook(() => useClaimableNotes('pk-1'));
+    await waitFor(() => expect(result.current.data).toHaveLength(300));
+    expect(result.current.data?.[0]?.id).toBe('cached-304');
+  });
+
+  it('drops persisted entries whose fields would throw or misorder while rendering', async () => {
+    _g.__cnTest.kv[CACHE_KEY] = [
+      makeCachedNote('valid', 20),
+      { ...makeCachedNote('bad-amount'), amount: 'not-a-number' },
+      { ...makeCachedNote('string-decimals'), metadata: { decimals: '6', symbol: 'X', name: 'X' } },
+      { ...makeCachedNote('fractional-decimals'), metadata: { decimals: 1.5, symbol: 'X', name: 'X' } },
+      { ...makeCachedNote('negative-decimals'), metadata: { decimals: -1, symbol: 'X', name: 'X' } },
+      { ...makeCachedNote('numeric-name'), metadata: { decimals: 6, symbol: 'X', name: 7 } },
+      { ...makeCachedNote('huge-decimals'), metadata: { decimals: 1_000_000_000, symbol: 'X', name: 'X' } },
+      { ...makeCachedNote('string-received-at'), receivedAt: 'yesterday' },
+      { ...makeCachedNote('string-recallable-at'), recallableAtMs: 'soon' }
+    ];
+    neverSettlingRead();
+    const { result } = renderHook(() => useClaimableNotes('pk-1'));
+    await waitFor(() => {
+      expect(result.current.data?.map((n: any) => n.id)).toEqual(['valid']);
+    });
+  });
+
+  it('overwrites the cache with an empty list when the published live read finds no notes', async () => {
+    _g.__cnTest.kv[CACHE_KEY] = [makeCachedNote('stale-1')];
+    _g.__cnTest.consumableNotes = [];
+    const { rerender } = renderHook(() => useClaimableNotes('pk-1'));
+    await _g.__cnTest.lastFetchPromise;
+    rerender();
+    await waitFor(() => expect(_g.__cnTest.kv[CACHE_KEY]).toEqual([]));
+  });
+
+  it('leaves the cache alone for a live read the hook has not published', async () => {
+    _g.__cnTest.kv[CACHE_KEY] = [makeCachedNote('stale-1')];
+    _g.__cnTest.consumableNotes = [makeMockNote({ id: 'live-1' })];
+    renderHook(() => useClaimableNotes('pk-1'));
+    await _g.__cnTest.lastFetchPromise;
+    expect(_g.__cnTest.kv[CACHE_KEY].map((n: any) => n.id)).toEqual(['stale-1']);
+    expect(_g.__cnTest.puts).toBe(0);
+  });
+
+  it('writes the published list once, however many refreshes return it unchanged', async () => {
+    _g.__cnTest.consumableNotes = [makeMockNote({ id: 'live-1' })];
+    const { rerender } = renderHook(() => useClaimableNotes('pk-1'));
+    await _g.__cnTest.lastFetchPromise;
+    rerender();
+    await waitFor(() => expect(_g.__cnTest.puts).toBe(1));
+
+    await _g.__cnTest.lastFetchPromise;
+    rerender();
+    await _g.__cnTest.lastFetchPromise;
+    rerender();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(_g.__cnTest.puts).toBe(1);
+  });
+
+  it('keeps a newer write marker when an older write fails, so an equal list is not written again', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    let failFirstWrite: (error: Error) => void = () => {};
+    _g.__cnTest.putOverride = (key: string, value: any) => {
+      if (_g.__cnTest.puts === 1) {
+        return new Promise<void>((_resolve, reject) => {
+          failFirstWrite = reject;
+        });
+      }
+      _g.__cnTest.kv[key] = value;
+      return Promise.resolve();
+    };
+    _g.__cnTest.consumableNotes = [makeMockNote({ id: 'first' })];
+    const { rerender } = renderHook(() => useClaimableNotes('pk-1'));
+    await _g.__cnTest.lastFetchPromise;
+    rerender();
+    await waitFor(() => expect(_g.__cnTest.puts).toBe(1));
+
+    _g.__cnTest.consumableNotes = [makeMockNote({ id: 'second' })];
+    rerender();
+    await _g.__cnTest.lastFetchPromise;
+    rerender();
+    await waitFor(() => expect(_g.__cnTest.puts).toBe(2));
+
+    failFirstWrite(new Error('Storage unavailable'));
+    await new Promise(resolve => setTimeout(resolve, 0));
+    await _g.__cnTest.lastFetchPromise;
+    rerender();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(_g.__cnTest.puts).toBe(2);
+    expect(_g.__cnTest.kv[CACHE_KEY].map((n: any) => n.id)).toEqual(['second']);
+    warn.mockRestore();
+  });
+
+  it('keeps only the first 300 notes of the published order in the cache', async () => {
+    _g.__cnTest.consumableNotes = Array.from({ length: 305 }, (_, index) =>
+      makeMockNote({ id: `note-${String(index).padStart(3, '0')}` })
+    );
+    const { rerender } = renderHook(() => useClaimableNotes('pk-1'));
+    await _g.__cnTest.lastFetchPromise;
+    rerender();
+    await waitFor(() => expect(_g.__cnTest.kv[CACHE_KEY]).toHaveLength(300));
+    const ids = _g.__cnTest.kv[CACHE_KEY].map((n: any) => n.id);
+    expect([ids[0], ids[299]]).toEqual(['note-000', 'note-299']);
+  });
+
+  it('orders both the cached and the live list by receivedAt, then by note id', async () => {
+    _g.__cnTest.kv[CACHE_KEY] = [
+      makeCachedNote('b-note', 10),
+      makeCachedNote('newest', 30),
+      makeCachedNote('a-note', 10)
+    ];
+    neverSettlingRead();
+    const { result } = renderHook(() => useClaimableNotes('pk-1'));
+    await waitFor(() => {
+      expect(result.current.data?.map((n: any) => n.id)).toEqual(['newest', 'a-note', 'b-note']);
+    });
+
+    // Same order out of the live read, whatever order the client returned them in. Dates come from
+    // each note's block once the read is done; a block with no known time leaves its note undated.
+    _g.__cnTest.consumableNotes = [
+      { ...makeMockNote({ id: 'b-note' }), blockNum: 1 },
+      { ...makeMockNote({ id: 'undated' }), blockNum: 3 },
+      { ...makeMockNote({ id: 'a-note' }), blockNum: 1 },
+      { ...makeMockNote({ id: 'newest' }), blockNum: 2 }
+    ];
+    _g.__cnTest.getBlockTimestamps = jest.fn(
+      async () =>
+        new Map([
+          [1, 10],
+          [2, 30]
+        ])
+    );
+    _g.__cnTest.proxyGetConsumableNotes = jest.fn(async () => _g.__cnTest.consumableNotes);
+    renderHook(() => useClaimableNotes('pk-1'));
+    await _g.__cnTest.lastFetchPromise;
+    expect(_g.__cnTest.getBlockTimestamps).toHaveBeenCalledWith([1, 3, 1, 2], 'https://rpc-a.example');
+    expect(_g.__cnTest.lastFetchData.map((n: any) => [n.id, n.receivedAt])).toEqual([
+      ['newest', 30],
+      ['a-note', 10],
+      ['b-note', 10],
+      ['undated', undefined]
     ]);
   });
 

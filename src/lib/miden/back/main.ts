@@ -94,13 +94,10 @@ export async function start() {
   await Actions.init();
 
   // E2E-only (dead-stripped in prod): expose the swap taker discovery + fill in
-  // the SW, where the vault signs SW-direct. Signer mirrors swSignCallback.
+  // the SW, where the vault signs through the realm signer Actions.init installed.
   if (process.env.MIDEN_E2E_TEST === 'true') {
     const { installSwapConsumeHooks } = await import('lib/miden/swap/test-hooks');
-    installSwapConsumeHooks(async (pk, si) => {
-      const sigHex = await Actions.signTransaction(Buffer.from(pk).toString('hex'), Buffer.from(si).toString('hex'));
-      return new Uint8Array(Buffer.from(sigHex, 'hex'));
-    });
+    installSwapConsumeHooks();
     const { installBridgeInTestHooks } = await import('lib/miden/activity/bridge-in-test-hooks');
     installBridgeInTestHooks();
     const { installEarnTestHooks } = await import('lib/miden/activity/earn-test-hooks');

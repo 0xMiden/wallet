@@ -4576,5 +4576,211 @@
   "recoveryActionUnavailable": {
     "message": "この復旧措置は利用できなくなりました。",
     "englishSource": "This recovery action is no longer available."
+  },
+  "devnet": {
+    "message": "Devnet",
+    "englishSource": "Devnet"
+  },
+  "activityTransferAccepted": {
+    "message": "送金受理済み",
+    "englishSource": "Transfer accepted"
+  },
+  "networkNoticeChip": {
+    "message": "Miden $network$",
+    "englishSource": "Miden $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "withdrawalRecoveryUnavailable": {
+    "message": "この出金は安全に再試行できません。別の出金を開始する前に、この出金の状況を確認してください。",
+    "englishSource": "This withdrawal cannot be retried safely. Check its status before starting another withdrawal."
+  },
+  "networkNoticeNoRealFundsTitle": {
+    "message": "実際の資金を送金しないでください",
+    "englishSource": "Do not send real funds"
+  },
+  "activityReceivedOn": {
+    "message": "受信日時：",
+    "englishSource": "Received on"
+  },
+  "walletSetupDidNotComplete": {
+    "message": "ウォレットは作成されましたが、起動が完了していません。接続を確認して、もう一度お試しください。",
+    "englishSource": "Your wallet was created but did not finish starting up. Check your connection and try again."
+  },
+  "activityClaimedOn": {
+    "message": "請求日：",
+    "englishSource": "Claimed on"
+  },
+  "evmConnectTestWalletTitle": {
+    "message": "テスト用ウォレットのみを接続してください",
+    "englishSource": "Connect a test wallet only"
+  },
+  "bridgeTestFundsTitle": {
+    "message": "テスト用資金のみ",
+    "englishSource": "Test funds only"
+  },
+  "qrNetworkCaption": {
+    "message": "Miden $network$",
+    "englishSource": "Miden $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "activityRejectExplanation": {
+    "message": "このデバイス上の「アクティビティ」からこの送金を非表示にしますか？ これにより、送金者に資金が返還されたり、noteが削除されたりすることはありません。「アクティビティ」では、非表示にした送金を復元することができます。",
+    "englishSource": "Hide this transfer from Activity on this device? This does not return funds to the sender or delete the note. You can restore hidden transfers in Activity."
+  },
+  "activitySearch": {
+    "message": "検索履歴",
+    "englishSource": "Search activity"
+  },
+  "evmConnectTestWalletBody": {
+    "message": "このブリッジはイーサリアム・セポリア上で動作します。実際の資金を保有しているウォレットを接続しないでください。新しいウォレットを作成し、セポリアETHのみをそのウォレットに入金してください。",
+    "englishSource": "This bridge runs on Ethereum Sepolia. Do not connect a wallet that holds real funds. Create a fresh wallet and fund it with Sepolia ETH only."
+  },
+  "activityAcceptTransfer": {
+    "message": "送金を受け入れる",
+    "englishSource": "Accept Transfer"
+  },
+  "activityDateUnavailable": {
+    "message": "日付不明",
+    "englishSource": "Date unavailable"
+  },
+  "networkNoticeNoValueTitle": {
+    "message": "テスト用トークンは通貨ではありません",
+    "englishSource": "Test tokens are not money"
+  },
+  "networkNoticeNoValueBody": {
+    "message": "ここに表示されている残高および価格はシミュレーションによるものであり、換金することはできません。",
+    "englishSource": "Balances and prices shown here are simulated and cannot be redeemed."
+  },
+  "activityNotYetAccepted": {
+    "message": "まだ承認されていません。確認して承認し、これらの資金を受け取ってください。",
+    "englishSource": "Not yet accepted — review and accept to claim these funds."
+  },
+  "networkNoticeResetTitle": {
+    "message": "ネットワークはリセットされる可能性があります",
+    "englishSource": "The network can reset"
+  },
+  "activityCheckingTransfer": {
+    "message": "確認中…",
+    "englishSource": "Checking…"
+  },
+  "networkNoticeResetBody": {
+    "message": "リセットを行うと、残高と履歴がクリアされます。テスト環境の残高はメインネットには引き継がれません。",
+    "englishSource": "A reset clears balances and history. Test balances never carry over to Mainnet."
+  },
+  "receiveTestFundsTitle": {
+    "message": "テスト用トークンのみ",
+    "englishSource": "Test tokens only"
+  },
+  "withdrawalCheckingDescription": {
+    "message": "出金状況を確認しています。資金の受け取りが確認されるまで、ウォレットを開いたままにしてください。",
+    "englishSource": "Checking your withdrawal. Keep the wallet open while delivery is confirmed."
+  },
+  "retryEarnDelivery": {
+    "message": "受け取りを再試行",
+    "englishSource": "Retry delivery"
+  },
+  "activityTransferDetails": {
+    "message": "詳細",
+    "englishSource": "Details"
+  },
+  "acceptAll": {
+    "message": "すべて承諾",
+    "englishSource": "Accept All"
+  },
+  "networkNoticeBody": {
+    "message": "この環境はテスト用です。ここで保有しているものはすべて、金銭的価値のないテスト用トークンです。",
+    "englishSource": "This environment is for testing. Everything you hold here is a test token with no monetary value."
+  },
+  "networkNoticeNoRealFundsBody": {
+    "message": "実稼働ネットワークからテスト用アドレスへ送信されたものはすべて失われます。",
+    "englishSource": "Anything sent from a real network to a test address is lost."
+  },
+  "iUnderstand": {
+    "message": "理解しました",
+    "englishSource": "I understand"
+  },
+  "crossChainFromNetwork": {
+    "message": "$network$から",
+    "englishSource": "from $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "localnet": {
+    "message": "Localnet",
+    "englishSource": "Localnet"
+  },
+  "ethereumSepolia": {
+    "message": "イーサリアム・セポリア",
+    "englishSource": "Ethereum Sepolia"
+  },
+  "shareAddressText": {
+    "message": "私のMiden $network$アドレス（テストトークンのみ）：$address$",
+    "englishSource": "My Miden $network$ address (test tokens only): $address$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      },
+      "address": {
+        "content": "$2"
+      }
+    }
+  },
+  "networkModeBanner": {
+    "message": "あなたはMiden $network$上のBreadを利用しています",
+    "englishSource": "You are using Bread on Miden $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "activityRestoreTransfers": {
+    "message": "復元",
+    "englishSource": "Restore"
+  },
+  "activityHiddenNotesError": {
+    "message": "非公開の送金を保存できませんでした。もう一度お試しください。",
+    "englishSource": "Could not save hidden transfers. Please try again."
+  },
+  "activityRejectTransfer": {
+    "message": "拒否",
+    "englishSource": "Decline"
+  },
+  "bridgeTestFundsBody": {
+    "message": "このブリッジは、イーサリアム・セポリアのテストトークンをMidenへ移動させるものです。イーサリアムのメインネットやその他の実稼働ネットワークからブリッジを行わないでください。",
+    "englishSource": "This bridge moves Ethereum Sepolia test tokens to Miden. Never bridge from Ethereum mainnet or any other real network."
+  },
+  "activityHiddenTransfers": {
+    "message": "隠された送金：$count$",
+    "englishSource": "Hidden transfers: $count$",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "activityTransferClaimed": {
+    "message": "請求済み",
+    "englishSource": "Claimed"
+  },
+  "receiveTestFundsBody": {
+    "message": "このアドレスには、Miden $network$のトークンのみを送付してください。このアドレスに実資金を送金した場合、その資金は回収できません。",
+    "englishSource": "Only send Miden $network$ tokens here. Real funds sent to this address cannot be recovered.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
   }
 }

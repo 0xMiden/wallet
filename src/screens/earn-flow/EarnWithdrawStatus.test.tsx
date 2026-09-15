@@ -195,6 +195,25 @@ describe('EarnWithdrawStatus', () => {
     expect(navigate).toHaveBeenNthCalledWith(3, '/');
   });
 
+  it('keeps a saved but unaccepted withdrawal in processing until acceptance arrives', () => {
+    mockRowState = {
+      row: makeRow(makeInputs({ submissionState: 'prepared', withdrawIntentNonce: '22' })),
+      loaded: true
+    };
+    const { rerender } = render(<EarnWithdrawStatus txId="withdraw-1" />);
+
+    expect(screen.queryByTestId('success-layout')).toBeNull();
+    expect(screen.getByText('withdrawalCheckingDescription')).toBeInTheDocument();
+    expect(screen.getByTestId('hero-state')).toHaveTextContent('processing');
+
+    mockRowState = {
+      row: makeRow(makeInputs({ submissionState: 'accepted', withdrawIntentNonce: '22' })),
+      loaded: true
+    };
+    rerender(<EarnWithdrawStatus txId="withdraw-1" />);
+    expect(screen.getByTestId('success-layout')).toBeInTheDocument();
+  });
+
   it('shows the delivering status after Epoch settlement', () => {
     mockRowState = { row: makeRow(makeInputs({ phase: 'delivering' })), loaded: true };
     render(<EarnWithdrawStatus txId="withdraw-1" />);

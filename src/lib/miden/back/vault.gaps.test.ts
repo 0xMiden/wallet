@@ -68,6 +68,9 @@ jest.mock('../sdk/miden-client', () => ({
       keystore: { insert: mockKeystoreInsert }
     }
   })),
+  installRealmKeystore: jest.fn(),
+  uninstallRealmKeystore: jest.fn(),
+  isRealmKeystoreInstalled: () => true,
   getCurrentWasmLockHold: () => currentWasmHold,
   assertWasmHoldCurrent: (hold: object | null, where: string) => {
     if (hold !== null && hold === currentWasmHold) return;

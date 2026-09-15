@@ -27,7 +27,7 @@ jest.mock('app/atoms/Spinner/Spinner', () => ({
 }));
 
 // `Button` — render the title and forward the click so each handler wiring,
-// the chosen variant, the loading state, and the forwarded `data-testid` can
+// the chosen variant, the loading and disabled states, and the forwarded `data-testid` can
 // all be verified. Falls back to a `btn-<title>` test id when no explicit
 // `data-testid` is provided (the password-fallback buttons).
 jest.mock('components/Button', () => ({
@@ -36,6 +36,7 @@ jest.mock('components/Button', () => ({
     onClick,
     variant,
     isLoading,
+    disabled,
     tabIndex,
     ...rest
   }: {
@@ -43,6 +44,7 @@ jest.mock('components/Button', () => ({
     onClick?: () => void;
     variant?: string;
     isLoading?: boolean;
+    disabled?: boolean;
     tabIndex?: number;
     'data-testid'?: string;
   }) => (
@@ -51,6 +53,7 @@ jest.mock('components/Button', () => ({
       data-variant={variant ?? 'default'}
       data-loading={isLoading ? 'true' : 'false'}
       data-tabindex={String(tabIndex)}
+      disabled={disabled}
       onClick={onClick}
     >
       {title}
@@ -270,6 +273,71 @@ describe('ConfirmationScreen', () => {
         renderComponent({});
 
         expect(screen.queryByText('guardian not found')).not.toBeInTheDocument();
+      });
+    });
+
+    describe('failure state copy', () => {
+      // "Your wallet is ready" above a failure contradicts the reason shown under it.
+      it('replaces the ready heading and reminders while a recovery error shows', () => {
+        renderComponent({ recoveryError: 'boom' });
+
+        expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('smthWentWrong');
+        expect(screen.queryByText('yourWalletIsReady')).not.toBeInTheDocument();
+        expect(screen.queryByText('recoveryPhraseSevenDayReminder')).not.toBeInTheDocument();
+        expect(screen.queryByText('recoveryPhraseDailyReminder')).not.toBeInTheDocument();
+        expect(screen.getByRole('alert')).toHaveTextContent('boom');
+      });
+
+      it('replaces the ready heading and reminders after a failed biometric attempt', () => {
+        renderComponent({ biometricError: 'boom', biometricAttempts: 1 });
+
+        expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('smthWentWrong');
+        expect(screen.queryByText('yourWalletIsReady')).not.toBeInTheDocument();
+        expect(screen.queryByText('recoveryPhraseSevenDayReminder')).not.toBeInTheDocument();
+        expect(screen.queryByText('recoveryPhraseDailyReminder')).not.toBeInTheDocument();
+        expect(screen.getByRole('alert')).toHaveTextContent('biometricFailed');
+      });
+
+      it('announces a registration failure that is also a biometric attempt as one alert', () => {
+        renderComponent({ recoveryError: 'hardware key rejected', biometricError: 'boom', biometricAttempts: 1 });
+
+        const alerts = screen.getAllByRole('alert');
+        expect(alerts).toHaveLength(1);
+        expect(alerts[0]).toHaveTextContent('hardware key rejected');
+        expect(alerts[0]).toHaveTextContent('biometricFailed');
+      });
+    });
+
+    describe('while the action runs', () => {
+      // Confirmation starts a destructive registration; a second tap must not start another.
+      it('disables the submit button', () => {
+        const onSubmit = jest.fn();
+        renderComponent({ onSubmit, isLoading: true });
+
+        const button = screen.getByTestId('onboarding-confirmation-submit');
+        expect(button).toBeDisabled();
+        fireEvent.click(button);
+        expect(onSubmit).not.toHaveBeenCalled();
+      });
+
+      it('disables the try-again button', () => {
+        const onSubmit = jest.fn();
+        renderComponent({ biometricAttempts: 3, onSubmit, isLoading: true });
+
+        const button = screen.getByTestId('btn-tryBiometricAgain');
+        expect(button).toBeDisabled();
+        fireEvent.click(button);
+        expect(onSubmit).not.toHaveBeenCalled();
+      });
+
+      it('disables Continue with Password', () => {
+        const onSwitchToPassword = jest.fn();
+        renderComponent({ biometricAttempts: 3, onSwitchToPassword, isLoading: true });
+
+        const button = screen.getByTestId('btn-continueWithPassword');
+        expect(button).toBeDisabled();
+        fireEvent.click(button);
+        expect(onSwitchToPassword).not.toHaveBeenCalled();
       });
     });
   });

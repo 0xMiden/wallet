@@ -278,8 +278,8 @@ export interface ExtensionSyncActions {
  * Note toast actions (mobile only)
  */
 export interface NoteToastActions {
-  /** Check if new notes have been received and show toast if so */
-  checkForNewNotes: (currentNoteIds: string[]) => void;
+  /** Record new note IDs as seen; toast only for one in notifiableNoteIds (any new note when omitted) */
+  checkForNewNotes: (currentNoteIds: string[], notifiableNoteIds?: readonly string[]) => void;
   /** Dismiss the note received toast */
   dismissNoteToast: () => void;
   /** Reset all seen notes (used when switching accounts) */

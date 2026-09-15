@@ -13,6 +13,7 @@ import { ChooseGuardianScreen } from './common/ChooseGuardian';
 import { ChooseProtectionScreen } from './common/ChooseProtection';
 import { ConfirmationScreen } from './common/Confirmation';
 import { CreatePasswordScreen } from './common/CreatePassword';
+import { NetworkNoticeScreen } from './common/NetworkNotice';
 import { SetupBiometricScreen } from './common/SetupBiometric';
 import { SetupPasscodeScreen } from './common/SetupPasscode';
 import { WelcomeScreen } from './common/Welcome';
@@ -160,6 +161,8 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
       }
     };
 
+    const onNetworkNoticeSubmit = () => onForwardAction?.({ id: 'network-notice-acknowledge' });
+
     const onBackupSeedPhraseSubmit = () =>
       onForwardAction?.({
         id: 'verify-seed-phrase'
@@ -198,6 +201,8 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
     switch (step) {
       case OnboardingStep.Welcome:
         return <WelcomeScreen onSubmit={onWelcomeAction} />;
+      case OnboardingStep.NetworkNotice:
+        return <NetworkNoticeScreen onSubmit={onNetworkNoticeSubmit} />;
       case OnboardingStep.ChooseProtection:
         return <ChooseProtectionScreen onSelectBiometric={onSelectBiometric} onSelectPasscode={onSelectPasscode} />;
       case OnboardingStep.SetupPasscode:
@@ -348,6 +353,7 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
           >
             {renderStep()}
             {step !== OnboardingStep.Welcome &&
+              step !== OnboardingStep.NetworkNotice &&
               step !== OnboardingStep.ChooseProtection &&
               step !== OnboardingStep.SetupPasscode &&
               step !== OnboardingStep.SetupBiometric &&

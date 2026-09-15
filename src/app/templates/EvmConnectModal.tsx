@@ -3,9 +3,10 @@ import React, { useCallback } from 'react';
 import { useAppKit } from '@reown/appkit/react';
 import { useTranslation } from 'react-i18next';
 
+import { TestNetworkWarning } from 'components/TestNetworkWarning';
 import { hapticMedium } from 'lib/mobile/haptics';
 import { Button } from 'lib/ui/button';
-import { Drawer, DrawerContent, DrawerDescription, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
+import { Drawer, DrawerContent, DrawerDescription, DrawerFooter, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 import { useEvmWalletConnection } from 'lib/walletconnect/useEvmWalletConnection';
 
 interface EvmConnectModalProps {
@@ -33,26 +34,48 @@ export const EvmConnectModal: React.FC<EvmConnectModalProps> = ({ open, onOpenCh
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange} screenKey="evm-connect">
-      <DrawerContent className="pb-[calc(1.5rem+env(safe-area-inset-bottom))]">
-        <DrawerHeader>
-          <DrawerTitle>{t('connectEvmWallet')}</DrawerTitle>
-          <DrawerDescription>{t('connectEvmWalletDescription')}</DrawerDescription>
-        </DrawerHeader>
+      {/* The body scrolls and "Open wallet" stays pinned: in landscape 80vh is
+          short enough for the warning to push the button out of view. */}
+      <DrawerContent className="overflow-hidden pb-[calc(0.5rem+env(safe-area-inset-bottom))]">
+        <div className="flex min-h-0 flex-1 flex-col">
+          <div className="min-h-0 flex-1 overflow-y-auto" data-testid="evm-connect-body">
+            <DrawerHeader>
+              <DrawerTitle>{t('connectEvmWallet')}</DrawerTitle>
+              <DrawerDescription>{t('connectEvmWalletDescription')}</DrawerDescription>
+            </DrawerHeader>
 
-        <div className="flex flex-col gap-4 px-4">
-          {status === 'connecting' && (
-            <div className="flex items-center justify-center py-12 text-sm text-grey-500">{t('preparing')}</div>
-          )}
+            <div className="flex flex-col gap-4 px-4">
+              {/* Shown before the WalletConnect handshake (#875): the bridge only
+                  works on Ethereum Sepolia, so a wallet that holds real funds has
+                  nothing to gain here and everything to lose. */}
+              <TestNetworkWarning
+                titleKey="evmConnectTestWalletTitle"
+                bodyKey="evmConnectTestWalletBody"
+                data-testid="evm-connect-test-wallet-warning"
+              />
 
-          {nativeReown.error && (
-            <div className="rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-500" role="alert">
-              {nativeReown.error}
+              {status === 'connecting' && (
+                <div className="flex items-center justify-center py-12 text-sm text-grey-500">{t('preparing')}</div>
+              )}
+
+              {nativeReown.error && (
+                <div className="rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-500" role="alert">
+                  {nativeReown.error}
+                </div>
+              )}
             </div>
-          )}
-
-          <Button variant="default" size="lg" onClick={handleConnect} className="w-full">
-            {t('openWallet')}
-          </Button>
+          </div>
+          <DrawerFooter className="shrink-0">
+            <Button
+              variant="default"
+              size="lg"
+              onClick={handleConnect}
+              className="w-full"
+              data-testid="evm-connect-open-wallet"
+            >
+              {t('openWallet')}
+            </Button>
+          </DrawerFooter>
         </div>
       </DrawerContent>
     </Drawer>

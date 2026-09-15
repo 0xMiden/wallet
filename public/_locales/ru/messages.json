@@ -4576,5 +4576,211 @@
   "recoveryActionUnavailable": {
     "message": "Эта операция по восстановлению больше недоступна.",
     "englishSource": "This recovery action is no longer available."
+  },
+  "devnet": {
+    "message": "Devnet",
+    "englishSource": "Devnet"
+  },
+  "activityTransferAccepted": {
+    "message": "Перевод принят",
+    "englishSource": "Transfer accepted"
+  },
+  "networkNoticeChip": {
+    "message": "Miden $network$",
+    "englishSource": "Miden $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "withdrawalRecoveryUnavailable": {
+    "message": "Этот вывод средств нельзя безопасно повторить. Проверьте его статус, прежде чем начать другой вывод средств.",
+    "englishSource": "This withdrawal cannot be retried safely. Check its status before starting another withdrawal."
+  },
+  "networkNoticeNoRealFundsTitle": {
+    "message": "Не отправляйте реальные средства",
+    "englishSource": "Do not send real funds"
+  },
+  "activityReceivedOn": {
+    "message": "Получено",
+    "englishSource": "Received on"
+  },
+  "walletSetupDidNotComplete": {
+    "message": "Ваш кошелёк был создан, но не завершил запуск. Проверьте подключение и попробуйте ещё раз.",
+    "englishSource": "Your wallet was created but did not finish starting up. Check your connection and try again."
+  },
+  "activityClaimedOn": {
+    "message": "Заявлено на",
+    "englishSource": "Claimed on"
+  },
+  "evmConnectTestWalletTitle": {
+    "message": "Подключайте только тестовый кошелек",
+    "englishSource": "Connect a test wallet only"
+  },
+  "bridgeTestFundsTitle": {
+    "message": "Только тестовые средства",
+    "englishSource": "Test funds only"
+  },
+  "qrNetworkCaption": {
+    "message": "Miden $network$",
+    "englishSource": "Miden $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "activityRejectExplanation": {
+    "message": "Скрыть этот перевод из раздела «Активность» на этом устройстве? Это не приводит к возврату средств отправителю и не удаляет запись «note». Вы можете восстановить скрытые переводы в разделе «Активность».",
+    "englishSource": "Hide this transfer from Activity on this device? This does not return funds to the sender or delete the note. You can restore hidden transfers in Activity."
+  },
+  "activitySearch": {
+    "message": "Активность поиска",
+    "englishSource": "Search activity"
+  },
+  "evmConnectTestWalletBody": {
+    "message": "Этот мост работает на Ethereum Sepolia. Не подключайте кошелек, в котором хранятся реальные средства. Создайте новый кошелек и пополните его исключительно токенами Sepolia ETH.",
+    "englishSource": "This bridge runs on Ethereum Sepolia. Do not connect a wallet that holds real funds. Create a fresh wallet and fund it with Sepolia ETH only."
+  },
+  "activityAcceptTransfer": {
+    "message": "Принять перевод",
+    "englishSource": "Accept Transfer"
+  },
+  "activityDateUnavailable": {
+    "message": "Дата отсутствует",
+    "englishSource": "Date unavailable"
+  },
+  "networkNoticeNoValueTitle": {
+    "message": "Тестовые токены не являются деньгами",
+    "englishSource": "Test tokens are not money"
+  },
+  "networkNoticeNoValueBody": {
+    "message": "Отображаемые здесь остатки и цены являются моделируемыми и не подлежат обмену на реальные средства.",
+    "englishSource": "Balances and prices shown here are simulated and cannot be redeemed."
+  },
+  "activityNotYetAccepted": {
+    "message": "Ещё не принято — проверьте и примите, чтобы получить эти средства.",
+    "englishSource": "Not yet accepted — review and accept to claim these funds."
+  },
+  "networkNoticeResetTitle": {
+    "message": "Сеть может сбросить настройки",
+    "englishSource": "The network can reset"
+  },
+  "activityCheckingTransfer": {
+    "message": "Проверка…",
+    "englishSource": "Checking…"
+  },
+  "networkNoticeResetBody": {
+    "message": "Сброс очищает балансы и историю. Тестовые балансы никогда не переносятся в Mainnet.",
+    "englishSource": "A reset clears balances and history. Test balances never carry over to Mainnet."
+  },
+  "receiveTestFundsTitle": {
+    "message": "Только тестовые токены",
+    "englishSource": "Test tokens only"
+  },
+  "withdrawalCheckingDescription": {
+    "message": "Проверяем ваш вывод средств. Держите кошелёк открытым, пока доставка не будет подтверждена.",
+    "englishSource": "Checking your withdrawal. Keep the wallet open while delivery is confirmed."
+  },
+  "retryEarnDelivery": {
+    "message": "Повторить доставку",
+    "englishSource": "Retry delivery"
+  },
+  "activityTransferDetails": {
+    "message": "Подробности",
+    "englishSource": "Details"
+  },
+  "acceptAll": {
+    "message": "Принять всё",
+    "englishSource": "Accept All"
+  },
+  "networkNoticeBody": {
+    "message": "Эта среда предназначена для тестирования. Всё, что у вас здесь находится, представляет собой тестовые токены, не имеющие денежной стоимости.",
+    "englishSource": "This environment is for testing. Everything you hold here is a test token with no monetary value."
+  },
+  "networkNoticeNoRealFundsBody": {
+    "message": "Всё, что отправляется из реальной сети на тестовый адрес, теряется.",
+    "englishSource": "Anything sent from a real network to a test address is lost."
+  },
+  "iUnderstand": {
+    "message": "Я понимаю",
+    "englishSource": "I understand"
+  },
+  "crossChainFromNetwork": {
+    "message": "Источник: $network$",
+    "englishSource": "from $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "localnet": {
+    "message": "Localnet",
+    "englishSource": "Localnet"
+  },
+  "ethereumSepolia": {
+    "message": "Ethereum Sepolia",
+    "englishSource": "Ethereum Sepolia"
+  },
+  "shareAddressText": {
+    "message": "Мой адрес Miden $network$ (только тестовые токены): $address$",
+    "englishSource": "My Miden $network$ address (test tokens only): $address$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      },
+      "address": {
+        "content": "$2"
+      }
+    }
+  },
+  "networkModeBanner": {
+    "message": "Вы используете Bread на Miden $network$",
+    "englishSource": "You are using Bread on Miden $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "activityRestoreTransfers": {
+    "message": "Восстановить",
+    "englishSource": "Restore"
+  },
+  "activityHiddenNotesError": {
+    "message": "Не удалось сохранить скрытые переводы. Пожалуйста, попробуйте ещё раз.",
+    "englishSource": "Could not save hidden transfers. Please try again."
+  },
+  "activityRejectTransfer": {
+    "message": "Отклонить",
+    "englishSource": "Decline"
+  },
+  "bridgeTestFundsBody": {
+    "message": "Этот мост перемещает тестовые токены Ethereum Sepolia в Miden. Никогда не осуществляйте мостиковую передачу из основной сети Ethereum или любой другой реальной сети.",
+    "englishSource": "This bridge moves Ethereum Sepolia test tokens to Miden. Never bridge from Ethereum mainnet or any other real network."
+  },
+  "activityHiddenTransfers": {
+    "message": "Скрытые переводы: $count$",
+    "englishSource": "Hidden transfers: $count$",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "activityTransferClaimed": {
+    "message": "Получено",
+    "englishSource": "Claimed"
+  },
+  "receiveTestFundsBody": {
+    "message": "Отправляйте на этот адрес только токены Miden $network$. Реальные средства, отправленные на этот адрес, не подлежат возврату.",
+    "englishSource": "Only send Miden $network$ tokens here. Real funds sent to this address cannot be recovered.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
   }
 }

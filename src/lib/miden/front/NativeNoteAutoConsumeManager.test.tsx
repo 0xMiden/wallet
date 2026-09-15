@@ -80,6 +80,15 @@ describe('NativeNoteAutoConsumeManager', () => {
     expect(mockInitiateConsumeBatch.mock.calls[0]![1].map((n: any) => n.id)).toEqual(['a', 'b', 'c']);
   });
 
+  it('never claims a native note that only the cached list has shown', async () => {
+    mockClaimable = [note('cached', 'native-faucet', { fromCache: true }), note('live')];
+
+    render(<NativeNoteAutoConsumeManager />);
+
+    await waitFor(() => expect(mockInitiateConsumeBatch).toHaveBeenCalledTimes(1));
+    expect(mockInitiateConsumeBatch.mock.calls[0]![1].map((n: any) => n.id)).toEqual(['live']);
+  });
+
   it('falls back to one transaction per note when the batch fails', async () => {
     // A Miden transaction is atomic, so one unconsumable note fails the whole
     // batch. Splitting isolates the poison note instead of letting it throttle
