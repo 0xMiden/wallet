@@ -8,6 +8,7 @@ import {
 import { ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import { putToStorage } from 'lib/miden/front/storage';
 import { mintFromMidenFaucet } from 'lib/miden-chain/faucet-api';
+import { getStorageProvider } from 'lib/platform/storage-adapter';
 
 import {
   EMPTY_WALLET_PROMPT_STORAGE,
@@ -106,8 +107,36 @@ describe('wallet prompts', () => {
     ).toEqual({
       version: 1,
       prompts: { [WalletPromptType.PendingNotes]: WalletPromptStatus.Dismissed },
-      pendingNotesDismissedIds: ['note-1', 'note-2']
+      pendingNotesDismissedIds: ['note-1', 'note-2'],
+      faucetByAccount: {}
     });
+  });
+
+  it('drops a wallet-wide faucet status: that status lives per account', () => {
+    // Written by a build that kept one faucet status for the whole wallet (#921).
+    const storage = normalizeWalletPromptStorage({
+      version: 1,
+      prompts: { [WalletPromptType.Faucet]: 'completed', [WalletPromptType.Bridge]: 'pending' },
+      pendingNotesDismissedIds: [],
+      faucetByAccount: { accountA: 'dismissed' }
+    });
+
+    expect(storage.prompts).toEqual({ [WalletPromptType.Bridge]: WalletPromptStatus.Pending });
+    expect(storage.faucetByAccount).toEqual({ accountA: WalletPromptStatus.Dismissed });
+  });
+
+  it('keeps valid per-account faucet statuses and drops malformed ones', () => {
+    expect(
+      normalizeWalletPromptStorage({
+        version: 1,
+        prompts: {},
+        pendingNotesDismissedIds: [],
+        faucetByAccount: { accountA: 'completed', accountB: 'bogus', '': 'dismissed', accountC: 7 }
+      }).faucetByAccount
+    ).toEqual({ accountA: WalletPromptStatus.Completed });
+
+    // An older build's storage has no map at all.
+    expect(normalizeWalletPromptStorage({ version: 1, prompts: {} }).faucetByAccount).toEqual({});
   });
 
   it('calculates the aggregate pending-note USD value across token decimals and prices', () => {
@@ -169,13 +198,13 @@ describe('wallet prompts', () => {
     );
   });
 
-  it('stores the faucet alongside the other prompts', async () => {
-    await seedWalletPrompt(WalletPromptType.Faucet);
+  it('stores several prompts side by side', async () => {
+    await seedWalletPrompt(WalletPromptType.Bridge);
     await seedWalletPrompt(WalletPromptType.VerifySeedPhrase);
 
     const storage = await fetchWalletPromptStorage();
     expect(storage.prompts).toEqual({
-      [WalletPromptType.Faucet]: WalletPromptStatus.Pending,
+      [WalletPromptType.Bridge]: WalletPromptStatus.Pending,
       [WalletPromptType.VerifySeedPhrase]: WalletPromptStatus.Pending
     });
   });
@@ -338,12 +367,336 @@ describe('wallet prompts', () => {
     expect(result.current.storage).toEqual({
       version: 1,
       prompts: { [WalletPromptType.PendingNotes]: WalletPromptStatus.Dismissed },
-      pendingNotesDismissedIds: ['note-1', 'note-2']
+      pendingNotesDismissedIds: ['note-1', 'note-2'],
+      faucetByAccount: {}
     });
 
     await waitFor(async () => {
       expect(await fetchWalletPromptStorage()).toEqual(result.current.storage);
     });
+  });
+
+  it('stores the faucet prompt status per account, without touching other accounts or prompts', async () => {
+    const { result } = renderHook(() => useWalletPromptStorage());
+    await waitFor(() => expect(result.current.isLoaded).toBe(true));
+
+    act(() => {
+      result.current.setPromptStatus(WalletPromptType.VerifySeedPhrase, WalletPromptStatus.Pending);
+      result.current.setFaucetStatus('accountA', WalletPromptStatus.Completed);
+      result.current.setFaucetStatus('accountB', WalletPromptStatus.Pending);
+    });
+
+    // One account's completion is not every account's (#921).
+    expect(result.current.storage.faucetByAccount).toEqual({
+      accountA: WalletPromptStatus.Completed,
+      accountB: WalletPromptStatus.Pending
+    });
+    expect(result.current.storage.prompts[WalletPromptType.VerifySeedPhrase]).toBe(WalletPromptStatus.Pending);
+    // The last of the three writes landing is what the stored record must show.
+    await waitFor(async () => {
+      const stored = await fetchWalletPromptStorage();
+      expect(stored.faucetByAccount).toEqual({
+        accountA: WalletPromptStatus.Completed,
+        accountB: WalletPromptStatus.Pending
+      });
+      expect(stored.prompts[WalletPromptType.VerifySeedPhrase]).toBe(WalletPromptStatus.Pending);
+    });
+  });
+
+  it('keeps per-account faucet statuses when an unrelated prompt is written', async () => {
+    const { result } = renderHook(() => useWalletPromptStorage());
+    await waitFor(() => expect(result.current.isLoaded).toBe(true));
+    act(() => result.current.setFaucetStatus('accountA', WalletPromptStatus.Dismissed));
+    await waitFor(async () =>
+      expect((await fetchWalletPromptStorage()).faucetByAccount).toEqual({ accountA: 'dismissed' })
+    );
+
+    // Every writer rebuilds the whole storage object; one that forgot the map would
+    // silently wipe every account's faucet status on an unrelated write. Checked
+    // after EACH writer: the hook rebuilds storage from its own state, so a later
+    // hook write would quietly restore what an earlier writer had wiped.
+    const expected = { accountA: WalletPromptStatus.Dismissed };
+
+    await setWalletPromptStatus(WalletPromptType.Bridge, WalletPromptStatus.Pending);
+    expect((await fetchWalletPromptStorage()).faucetByAccount).toEqual(expected);
+
+    await seedWalletPrompt(WalletPromptType.HotKeyHardwareUnavailable);
+    expect((await fetchWalletPromptStorage()).faucetByAccount).toEqual(expected);
+
+    act(() => result.current.setPromptStatus(WalletPromptType.VerifySeedPhrase, WalletPromptStatus.Completed));
+    // Wait for this write to land before checking what it had to keep.
+    await waitFor(async () => {
+      const stored = await fetchWalletPromptStorage();
+      expect(stored.prompts[WalletPromptType.VerifySeedPhrase]).toBe(WalletPromptStatus.Completed);
+      expect(stored.faucetByAccount).toEqual(expected);
+    });
+  });
+
+  it('keeps a slow prompt write ahead of every later one, so it never lands over a newer change', async () => {
+    jest.useFakeTimers();
+    const provider = getStorageProvider();
+    const realGet = provider.get.bind(provider);
+    let release = () => {};
+    const released = new Promise<void>(resolve => {
+      release = resolve;
+    });
+    // The first read takes its copy of the record at once and answers only much later.
+    const get = jest.spyOn(provider, 'get').mockImplementationOnce(async keys => {
+      const snapshot = await realGet(keys);
+      await released;
+      return snapshot;
+    });
+    try {
+      const slow = setWalletPromptStatus(WalletPromptType.Bridge, WalletPromptStatus.Pending);
+      let seeded = false;
+      const seed = seedWalletPrompt(WalletPromptType.VerifySeedPhrase).then(() => {
+        seeded = true;
+      });
+
+      await jest.advanceTimersByTimeAsync(15_000);
+      expect(seeded).toBe(false);
+
+      release();
+      await slow;
+      await seed;
+      const { prompts } = await fetchWalletPromptStorage();
+      expect(prompts[WalletPromptType.Bridge]).toBe(WalletPromptStatus.Pending);
+      expect(prompts[WalletPromptType.VerifySeedPhrase]).toBe(WalletPromptStatus.Pending);
+    } finally {
+      release();
+      get.mockRestore();
+      jest.useRealTimers();
+    }
+  });
+
+  it('writes nothing when seeding a prompt that is already dismissed or completed', async () => {
+    await setWalletPromptStatus(WalletPromptType.VerifySeedPhrase, WalletPromptStatus.Completed);
+    const set = jest.spyOn(getStorageProvider(), 'set').mockRejectedValue(new Error('storage unavailable'));
+    try {
+      await expect(seedWalletPrompt(WalletPromptType.VerifySeedPhrase)).resolves.toMatchObject({
+        prompts: { [WalletPromptType.VerifySeedPhrase]: WalletPromptStatus.Completed }
+      });
+      expect(set).not.toHaveBeenCalled();
+    } finally {
+      set.mockRestore();
+    }
+  });
+
+  it('never lets an earlier write take back a newer change shown in hook state', async () => {
+    const { result } = renderHook(() => useWalletPromptStorage());
+    await waitFor(() => expect(result.current.isLoaded).toBe(true));
+    const provider = getStorageProvider();
+    const writeRecord = provider.set.bind(provider);
+    const readRecord = provider.get.bind(provider);
+    let releaseFirstWrite = () => {};
+    const set = jest.spyOn(provider, 'set').mockImplementationOnce(
+      items =>
+        new Promise(resolve => {
+          releaseFirstWrite = () => resolve(writeRecord(items));
+        })
+    );
+    const get = jest.spyOn(provider, 'get');
+    // Released in `finally` too: a held storage call left pending would stall the shared
+    // write queue for every later test.
+    let releaseSecondRead = () => undefined;
+
+    try {
+      act(() => result.current.setPromptStatus(WalletPromptType.PendingNotes, WalletPromptStatus.Dismissed));
+      act(() => result.current.setFaucetStatus('accountA', WalletPromptStatus.Dismissed));
+      await waitFor(() => expect(set).toHaveBeenCalledTimes(1));
+      // The second write's read is held, so the first write's result lands on its own.
+      get.mockImplementationOnce(keys => {
+        const record = readRecord(keys);
+        return new Promise(resolve => {
+          releaseSecondRead = () => {
+            resolve(record);
+            return undefined;
+          };
+        });
+      });
+
+      await act(async () => {
+        releaseFirstWrite();
+      });
+      // The first write predates the faucet change, so its result must not replace the state.
+      expect(result.current.storage.faucetByAccount).toEqual({ accountA: WalletPromptStatus.Dismissed });
+
+      await act(async () => {
+        releaseSecondRead();
+      });
+      await waitFor(async () =>
+        expect((await fetchWalletPromptStorage()).faucetByAccount).toEqual({ accountA: WalletPromptStatus.Dismissed })
+      );
+      expect(result.current.storage.prompts[WalletPromptType.PendingNotes]).toBe(WalletPromptStatus.Dismissed);
+      expect(result.current.storage.faucetByAccount).toEqual({ accountA: WalletPromptStatus.Dismissed });
+    } finally {
+      releaseFirstWrite();
+      releaseSecondRead();
+      set.mockRestore();
+      get.mockRestore();
+    }
+  });
+
+  it('keeps a faucet status the hook writes while another writer is still reading the record', async () => {
+    const { result } = renderHook(() => useWalletPromptStorage());
+    await waitFor(() => expect(result.current.isLoaded).toBe(true));
+    const provider = getStorageProvider();
+    const readRecord = provider.get.bind(provider);
+    // Released in `finally` too, so a held read cannot stall the shared queue for later tests.
+    let releaseRead = () => {};
+    // The read happens now; only its result is held back.
+    const get = jest.spyOn(provider, 'get').mockImplementationOnce(keys => {
+      const record = readRecord(keys);
+      return new Promise(resolve => {
+        releaseRead = () => resolve(record);
+      });
+    });
+
+    try {
+      // A module writer reads the record first; the hook writes a faucet status before
+      // that read returns. Both writers own different fields of one record.
+      const bridge = setWalletPromptStatus(WalletPromptType.Bridge, WalletPromptStatus.Pending);
+      await act(async () => {
+        result.current.setFaucetStatus('accountA', WalletPromptStatus.Completed);
+      });
+      releaseRead();
+      await bridge;
+
+      await waitFor(async () => {
+        const stored = await fetchWalletPromptStorage();
+        expect(stored.prompts[WalletPromptType.Bridge]).toBe(WalletPromptStatus.Pending);
+        expect(stored.faucetByAccount).toEqual({ accountA: WalletPromptStatus.Completed });
+      });
+    } finally {
+      releaseRead();
+      get.mockRestore();
+    }
+  });
+
+  it('reloads hook state from storage when a status write fails', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const { result } = renderHook(() => useWalletPromptStorage());
+    await waitFor(() => expect(result.current.isLoaded).toBe(true));
+    const set = jest.spyOn(getStorageProvider(), 'set').mockRejectedValueOnce(new Error('storage unavailable'));
+
+    try {
+      act(() => result.current.setFaucetStatus('accountA', WalletPromptStatus.Dismissed));
+      // Shown at once, then taken back once storage says it never landed.
+      expect(result.current.storage.faucetByAccount).toEqual({ accountA: WalletPromptStatus.Dismissed });
+      await waitFor(() => expect(result.current.storage.faucetByAccount).toEqual({}));
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('failed to persist'), expect.any(Error));
+    } finally {
+      set.mockRestore();
+      warn.mockRestore();
+    }
+  });
+
+  it('logs, and lets nothing escape, when the reload after a failed write fails too', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const { result } = renderHook(() => useWalletPromptStorage());
+    await waitFor(() => expect(result.current.isLoaded).toBe(true));
+    const provider = getStorageProvider();
+    const readRecord = provider.get.bind(provider);
+    const set = jest.spyOn(provider, 'set').mockRejectedValueOnce(new Error('storage unavailable'));
+    // The write's own read works; the reload after it fails.
+    const get = jest
+      .spyOn(provider, 'get')
+      .mockImplementationOnce(keys => readRecord(keys))
+      .mockRejectedValueOnce(new Error('storage unreadable'));
+
+    try {
+      act(() => result.current.setFaucetStatus('accountA', WalletPromptStatus.Dismissed));
+      await waitFor(() =>
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining('failed to reload'), expect.any(Error))
+      );
+    } finally {
+      set.mockRestore();
+      get.mockRestore();
+      warn.mockRestore();
+    }
+  });
+
+  it('does not let the first load take back a change made before it lands', async () => {
+    const provider = getStorageProvider();
+    const readRecord = provider.get.bind(provider);
+    const writeRecord = provider.set.bind(provider);
+    // Released in `finally` too, so a held call cannot stall the shared queue for later tests.
+    let releaseLoad = () => {};
+    let releaseWrite = () => {};
+    const get = jest.spyOn(provider, 'get').mockImplementationOnce(keys => {
+      const record = readRecord(keys);
+      return new Promise(resolve => {
+        releaseLoad = () => resolve(record);
+      });
+    });
+    const set = jest.spyOn(provider, 'set').mockImplementationOnce(
+      items =>
+        new Promise(resolve => {
+          releaseWrite = () => resolve(writeRecord(items));
+        })
+    );
+
+    try {
+      const { result } = renderHook(() => useWalletPromptStorage());
+      await waitFor(() => expect(get).toHaveBeenCalledTimes(1));
+      act(() => result.current.setFaucetStatus('accountA', WalletPromptStatus.Dismissed));
+      await act(async () => {
+        releaseLoad();
+      });
+      await waitFor(() => expect(set).toHaveBeenCalledTimes(1));
+
+      // The load read the record from before the change, whose write has not landed yet.
+      expect(result.current.isLoaded).toBe(true);
+      expect(result.current.storage.faucetByAccount).toEqual({ accountA: WalletPromptStatus.Dismissed });
+    } finally {
+      releaseLoad();
+      releaseWrite();
+      get.mockRestore();
+      set.mockRestore();
+    }
+  });
+
+  it('does not let a refresh take back a change made before it lands', async () => {
+    const { result } = renderHook(() => useWalletPromptStorage());
+    await waitFor(() => expect(result.current.isLoaded).toBe(true));
+    const provider = getStorageProvider();
+    const readRecord = provider.get.bind(provider);
+    const writeRecord = provider.set.bind(provider);
+    let releaseRefresh = () => {};
+    let releaseWrite = () => {};
+    const get = jest.spyOn(provider, 'get').mockImplementationOnce(keys => {
+      const record = readRecord(keys);
+      return new Promise(resolve => {
+        releaseRefresh = () => resolve(record);
+      });
+    });
+    const set = jest.spyOn(provider, 'set').mockImplementationOnce(
+      items =>
+        new Promise(resolve => {
+          releaseWrite = () => resolve(writeRecord(items));
+        })
+    );
+
+    try {
+      let refresh: Promise<unknown> = Promise.resolve();
+      act(() => {
+        refresh = result.current.refreshPrompts();
+      });
+      await waitFor(() => expect(get).toHaveBeenCalledTimes(1));
+      act(() => result.current.setFaucetStatus('accountA', WalletPromptStatus.Dismissed));
+      await act(async () => {
+        releaseRefresh();
+        await refresh;
+      });
+      await waitFor(() => expect(set).toHaveBeenCalledTimes(1));
+
+      expect(result.current.storage.faucetByAccount).toEqual({ accountA: WalletPromptStatus.Dismissed });
+    } finally {
+      releaseRefresh();
+      releaseWrite();
+      get.mockRestore();
+      set.mockRestore();
+    }
   });
 
   it('refreshes hook state on demand', async () => {
@@ -765,6 +1118,34 @@ describe('hot-key rotation-needed report', () => {
 
     const storage = await fetchWalletPromptStorage();
     expect(storage.prompts[WalletPromptType.HotKeyRotationNeeded]).toBe(WalletPromptStatus.Pending);
+  });
+
+  it('re-arms for a failure reported while a completion of the prompt is still being stored', async () => {
+    await setWalletPromptStatus(WalletPromptType.HotKeyRotationNeeded, WalletPromptStatus.Pending);
+    const provider = getStorageProvider();
+    const writeRecord = provider.set.bind(provider);
+    let releaseCompletion = () => {};
+    const set = jest.spyOn(provider, 'set').mockImplementationOnce(
+      items =>
+        new Promise(resolve => {
+          releaseCompletion = () => resolve(writeRecord(items));
+        })
+    );
+    try {
+      const completion = completeWalletPrompt(WalletPromptType.HotKeyRotationNeeded);
+      await waitFor(() => expect(set).toHaveBeenCalledTimes(1));
+      // A new failure after the rotation that completed the prompt: a new incident.
+      const report = reportHotKeyRotationNeeded();
+      releaseCompletion();
+      await completion;
+      await report;
+
+      const storage = await fetchWalletPromptStorage();
+      expect(storage.prompts[WalletPromptType.HotKeyRotationNeeded]).toBe(WalletPromptStatus.Pending);
+    } finally {
+      releaseCompletion();
+      set.mockRestore();
+    }
   });
 
   it('does not re-seed after the user dismissed it', async () => {

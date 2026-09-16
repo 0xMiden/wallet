@@ -135,14 +135,20 @@ const tokenPrices = {
   USDC: { price: 1, change24h: 0, percentageChange24h: 0 }
 };
 
-const makePromptState = (overrides: Record<string, unknown> = {}) => ({
-  storage: { version: 1, prompts: {}, pendingNotesDismissedIds: [] },
+// The faucet prompt's status is per account, so its writes are asserted with the
+// account they belong to rather than through the wallet-wide prompt spies.
+const mockSetFaucetStatus = jest.fn();
+
+const makePromptState = ({ storage, ...overrides }: { storage?: object } & Record<string, unknown> = {}) => ({
   isLoaded: true,
   setPromptStatus: jest.fn(),
+  setFaucetStatus: mockSetFaucetStatus,
   dismissPrompt: jest.fn(),
   completePrompt: jest.fn(),
   isPromptPending: (type: WalletPromptType) => type === WalletPromptType.VerifySeedPhrase,
-  ...overrides
+  ...overrides,
+  // Merged, so a fixture states only the storage fields its test is about.
+  storage: { version: 1, prompts: {}, pendingNotesDismissedIds: [], faucetByAccount: {}, ...storage }
 });
 
 describe('HomePrompts', () => {
@@ -210,23 +216,50 @@ describe('HomePrompts', () => {
       'faucetPromptTitle',
       'verifySeedPhrasePromptTitle'
     ]);
-    expect(promptState.setPromptStatus).toHaveBeenCalledWith(WalletPromptType.Faucet, WalletPromptStatus.Pending);
+    expect(mockSetFaucetStatus).toHaveBeenCalledWith('accountA', WalletPromptStatus.Pending);
   });
 
   it('re-offers a dismissed faucet prompt once the account can no longer pay a fee', () => {
     // Dismiss means "not now", not "never again". An account that has run its
     // native balance to zero on a fee-charging chain is stuck, and the prompt is
     // the way out -- keeping it hidden strands the user with no affordance.
-    mockBaseFee = 10000;
     mockUseWalletPromptStorage.mockReturnValue(
       makePromptState({
         storage: {
           version: 1,
-          prompts: { [WalletPromptType.Faucet]: WalletPromptStatus.Dismissed },
-          pendingNotesDismissedIds: []
+          prompts: {},
+          pendingNotesDismissedIds: [],
+          faucetByAccount: { accountA: WalletPromptStatus.Dismissed }
         }
       })
     );
+    const renderCard = () => (
+      <HomePrompts
+        account={account}
+        balances={[{ tokenId: NATIVE_FAUCET_ID, balance: 0 }] as TokenBalanceData[]}
+        balancesLoading={false}
+        claimableNotes={[]}
+        fundingNotes={[]}
+        tokenPrices={{}}
+      />
+    );
+    // While fees cost nothing, this account's own dismissal keeps the card away...
+    mockBaseFee = 0;
+    const { rerender } = render(renderCard());
+    expect(screen.queryByText('faucetPromptTitle')).not.toBeInTheDocument();
+
+    // ...and once the account cannot pay a fee, the prompt is back despite it.
+    mockBaseFee = 10000;
+    rerender(renderCard());
+    expect(screen.getByText('faucetPromptTitle')).toBeInTheDocument();
+  });
+
+  it('withholds the faucet dismiss control while the account cannot pay a fee', () => {
+    // The card re-arms on every render while fee-broke, so a dismiss X would write
+    // storage and change nothing: it is withheld, and a per-account dismiss handler
+    // must not quietly put it back.
+    mockBaseFee = 10000;
+    mockUseWalletPromptStorage.mockReturnValue(makePromptState());
     render(
       <HomePrompts
         account={account}
@@ -238,6 +271,7 @@ describe('HomePrompts', () => {
       />
     );
     expect(screen.getByText('faucetPromptTitle')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'dismiss-faucetPromptTitle' })).not.toBeInTheDocument();
   });
 
   it('still offers the faucet when the account holds tokens but none of the fee asset', () => {
@@ -262,15 +296,58 @@ describe('HomePrompts', () => {
     expect(screen.getByText('faucetPromptTitle')).toBeInTheDocument();
   });
 
-  it('does not show the faucet while balances load or when the account has funds', () => {
-    const completePrompt = jest.fn();
+  it('still offers Fund on an unfunded account after another account completed its prompt (#921)', () => {
     mockUseWalletPromptStorage.mockReturnValue(
       makePromptState({
-        completePrompt,
         storage: {
           version: 1,
-          prompts: { [WalletPromptType.Faucet]: WalletPromptStatus.Pending },
-          pendingNotesDismissedIds: []
+          // An older build stored the faucet status once for the whole wallet...
+          prompts: { [WalletPromptType.Faucet]: WalletPromptStatus.Completed },
+          pendingNotesDismissedIds: [],
+          // ...and account A completed its own.
+          faucetByAccount: { accountA: WalletPromptStatus.Completed }
+        }
+      })
+    );
+
+    // A funded account: its card is done.
+    const { unmount } = render(
+      <HomePrompts
+        account={account}
+        balances={zeroBalance}
+        balancesLoading={false}
+        claimableNotes={[]}
+        fundingNotes={[]}
+        tokenPrices={{}}
+      />
+    );
+    expect(screen.queryByText('faucetPromptTitle')).not.toBeInTheDocument();
+    unmount();
+
+    // Account B has never been funded: A's completion must not hide Fund here, and
+    // B's own status is seeded for B.
+    render(
+      <HomePrompts
+        account={accountB}
+        balances={zeroBalance}
+        balancesLoading={false}
+        claimableNotes={[]}
+        fundingNotes={[]}
+        tokenPrices={{}}
+      />
+    );
+    expect(screen.getByText('faucetPromptTitle')).toBeInTheDocument();
+    expect(mockSetFaucetStatus).toHaveBeenCalledWith('accountB', WalletPromptStatus.Pending);
+  });
+
+  it('does not show the faucet while balances load or when the account has funds', () => {
+    mockUseWalletPromptStorage.mockReturnValue(
+      makePromptState({
+        storage: {
+          version: 1,
+          prompts: {},
+          pendingNotesDismissedIds: [],
+          faucetByAccount: { accountA: WalletPromptStatus.Pending }
         }
       })
     );
@@ -298,12 +375,11 @@ describe('HomePrompts', () => {
       />
     );
     expect(screen.queryByText('faucetPromptTitle')).not.toBeInTheDocument();
-    expect(completePrompt).toHaveBeenCalledWith(WalletPromptType.Faucet);
+    expect(mockSetFaucetStatus).toHaveBeenCalledWith('accountA', WalletPromptStatus.Completed);
   });
 
   it('funds on card tap, holds the Funding hero, then plays Funded! and completes when notes arrive', async () => {
-    const completePrompt = jest.fn();
-    mockUseWalletPromptStorage.mockReturnValue(makePromptState({ completePrompt }));
+    mockUseWalletPromptStorage.mockReturnValue(makePromptState());
 
     const { rerender } = render(
       <HomePrompts
@@ -327,7 +403,7 @@ describe('HomePrompts', () => {
     // holds until the minted funds are actually visible.
     await waitFor(() => expect(faucetCard).toHaveAttribute('data-hero', 'faucetPromptFunding'));
     expect(faucetCard).toHaveAttribute('data-status', 'loading');
-    expect(completePrompt).not.toHaveBeenCalled();
+    expect(mockSetFaucetStatus).not.toHaveBeenCalledWith('accountA', WalletPromptStatus.Completed);
 
     // The minted note becomes claimable → Funded! beat, then completion.
     rerender(
@@ -345,7 +421,7 @@ describe('HomePrompts', () => {
     // The prompt is completed AT ARRIVAL, while the beat is still on screen: the
     // marker is cleared in the same pass, so deferring completion to the beat's
     // in-memory timer lost it whenever the app closed on this screen.
-    expect(completePrompt).toHaveBeenCalledWith(WalletPromptType.Faucet);
+    expect(mockSetFaucetStatus).toHaveBeenCalledWith('accountA', WalletPromptStatus.Completed);
     // The pending-notes card must hold back while the success beat plays —
     // it sorts first in the carousel and would push the hero off-screen.
     expect(screen.queryByText('pendingNotesPromptTitle')).not.toBeInTheDocument();
@@ -354,14 +430,13 @@ describe('HomePrompts', () => {
   });
 
   it('plays the Funded! beat and completes when the balance arrives directly', async () => {
-    const completePrompt = jest.fn();
     mockUseWalletPromptStorage.mockReturnValue(
       makePromptState({
-        completePrompt,
         storage: {
           version: 1,
-          prompts: { [WalletPromptType.Faucet]: WalletPromptStatus.Pending },
-          pendingNotesDismissedIds: []
+          prompts: {},
+          pendingNotesDismissedIds: [],
+          faucetByAccount: { accountA: WalletPromptStatus.Pending }
         }
       })
     );
@@ -382,7 +457,7 @@ describe('HomePrompts', () => {
     await act(async () => {});
     fireEvent.click(within(faucetCard).getByRole('button', { name: 'faucetPromptTitle' }));
     await waitFor(() => expect(mockFaucet).toHaveBeenCalledWith('accountA'));
-    expect(completePrompt).not.toHaveBeenCalled();
+    expect(mockSetFaucetStatus).not.toHaveBeenCalledWith('accountA', WalletPromptStatus.Completed);
 
     rerender(
       <HomePrompts
@@ -395,19 +470,20 @@ describe('HomePrompts', () => {
       />
     );
     await waitFor(() => expect(faucetCard).toHaveAttribute('data-hero', 'faucetPromptFunded'));
-    await waitFor(() => expect(completePrompt).toHaveBeenCalledWith(WalletPromptType.Faucet), { timeout: 3000 });
+    await waitFor(() => expect(mockSetFaucetStatus).toHaveBeenCalledWith('accountA', WalletPromptStatus.Completed), {
+      timeout: 3000
+    });
   });
 
   it('resumes the Funding hero from a persisted marker after a remount mid-wait', async () => {
-    const completePrompt = jest.fn();
     mockFetchFaucetFundingMarker.mockResolvedValue({ requestedAt: Date.now() - 5_000, baselineNoteIds: [] });
     mockUseWalletPromptStorage.mockReturnValue(
       makePromptState({
-        completePrompt,
         storage: {
           version: 1,
-          prompts: { [WalletPromptType.Faucet]: WalletPromptStatus.Pending },
-          pendingNotesDismissedIds: []
+          prompts: {},
+          pendingNotesDismissedIds: [],
+          faucetByAccount: { accountA: WalletPromptStatus.Pending }
         }
       })
     );
@@ -440,7 +516,9 @@ describe('HomePrompts', () => {
     );
     await waitFor(() => expect(faucetCard).toHaveAttribute('data-hero', 'faucetPromptFunded'));
     expect(mockSetFaucetFundingMarker).toHaveBeenCalledWith('accountA', null);
-    await waitFor(() => expect(completePrompt).toHaveBeenCalledWith(WalletPromptType.Faucet), { timeout: 3500 });
+    await waitFor(() => expect(mockSetFaucetStatus).toHaveBeenCalledWith('accountA', WalletPromptStatus.Completed), {
+      timeout: 3500
+    });
   });
 
   it('keeps one account Funding wait off another account and resumes it on switch-back', async () => {
@@ -505,8 +583,7 @@ describe('HomePrompts', () => {
   });
 
   it('does not treat a pre-existing claimable note as the faucet mint landing', async () => {
-    const completePrompt = jest.fn();
-    mockUseWalletPromptStorage.mockReturnValue(makePromptState({ completePrompt }));
+    mockUseWalletPromptStorage.mockReturnValue(makePromptState());
     const preexistingNote = pendingNotes[0]!;
 
     const { rerender } = render(
@@ -530,7 +607,7 @@ describe('HomePrompts', () => {
     await waitFor(() => expect(faucetCard).toHaveAttribute('data-hero', 'faucetPromptFunding'));
     await act(async () => {});
     expect(faucetCard).toHaveAttribute('data-hero', 'faucetPromptFunding');
-    expect(completePrompt).not.toHaveBeenCalled();
+    expect(mockSetFaucetStatus).not.toHaveBeenCalledWith('accountA', WalletPromptStatus.Completed);
 
     // Only a NEW note (beyond the request-time baseline) lands the funds.
     rerender(
@@ -655,8 +732,7 @@ describe('HomePrompts', () => {
   });
 
   it('still completes the prompt when the account is switched during the Funded beat', async () => {
-    const completePrompt = jest.fn();
-    mockUseWalletPromptStorage.mockReturnValue(makePromptState({ completePrompt }));
+    mockUseWalletPromptStorage.mockReturnValue(makePromptState());
 
     const { rerender } = render(
       <HomePrompts
@@ -707,7 +783,9 @@ describe('HomePrompts', () => {
       />
     );
 
-    await waitFor(() => expect(completePrompt).toHaveBeenCalledWith(WalletPromptType.Faucet), { timeout: 3500 });
+    await waitFor(() => expect(mockSetFaucetStatus).toHaveBeenCalledWith('accountA', WalletPromptStatus.Completed), {
+      timeout: 3500
+    });
   });
 
   it('does not offer the Fund card as actionable until the claimable notes have loaded', async () => {
@@ -791,8 +869,7 @@ describe('HomePrompts', () => {
   });
 
   it('treats a balance as arrival even while the claimable notes are still loading', async () => {
-    const completePrompt = jest.fn();
-    mockUseWalletPromptStorage.mockReturnValue(makePromptState({ completePrompt }));
+    mockUseWalletPromptStorage.mockReturnValue(makePromptState());
     // Resume a wait whose notes never load: only the balance can signal arrival.
     mockFetchFaucetFundingMarker.mockResolvedValue({ requestedAt: Date.now() - 10_000, baselineNoteIds: [] });
 
@@ -1047,8 +1124,7 @@ describe('HomePrompts', () => {
   });
 
   it('keeps the prompt completed when the app closes during the Funds deposited beat', async () => {
-    const completePrompt = jest.fn();
-    mockUseWalletPromptStorage.mockReturnValue(makePromptState({ completePrompt }));
+    mockUseWalletPromptStorage.mockReturnValue(makePromptState());
     const renderIt = (notes: typeof pendingNotes) => (
       <HomePrompts
         account={account}
@@ -1079,7 +1155,7 @@ describe('HomePrompts', () => {
     // - a completion held for the beat's in-memory timer would be lost here, and
     // the next open would re-offer Fund for a mint that has landed.
     unmount();
-    expect(completePrompt).toHaveBeenCalledWith(WalletPromptType.Faucet);
+    expect(mockSetFaucetStatus).toHaveBeenCalledWith('accountA', WalletPromptStatus.Completed);
   });
 
   it('does not re-offer Fund after completion while the minted note is still claimable', async () => {
@@ -1090,8 +1166,9 @@ describe('HomePrompts', () => {
       makePromptState({
         storage: {
           version: 1,
-          prompts: { [WalletPromptType.Faucet]: WalletPromptStatus.Completed },
-          pendingNotesDismissedIds: []
+          prompts: {},
+          pendingNotesDismissedIds: [],
+          faucetByAccount: { accountA: WalletPromptStatus.Completed }
         }
       })
     );
@@ -1116,8 +1193,7 @@ describe('HomePrompts', () => {
   });
 
   it('does not count a non-native note as the mint arriving', async () => {
-    const completePrompt = jest.fn();
-    mockUseWalletPromptStorage.mockReturnValue(makePromptState({ completePrompt }));
+    mockUseWalletPromptStorage.mockReturnValue(makePromptState());
 
     const { rerender } = render(
       <HomePrompts
@@ -1150,7 +1226,7 @@ describe('HomePrompts', () => {
       />
     );
     expect(faucetCard).toHaveAttribute('data-hero', 'faucetPromptFunding');
-    expect(completePrompt).not.toHaveBeenCalled();
+    expect(mockSetFaucetStatus).not.toHaveBeenCalledWith('accountA', WalletPromptStatus.Completed);
 
     // The native mint landing still completes the lifecycle.
     rerender(
@@ -1164,7 +1240,9 @@ describe('HomePrompts', () => {
       />
     );
     await waitFor(() => expect(faucetCard).toHaveAttribute('data-hero', 'faucetPromptFunded'));
-    await waitFor(() => expect(completePrompt).toHaveBeenCalledWith(WalletPromptType.Faucet), { timeout: 3500 });
+    await waitFor(() => expect(mockSetFaucetStatus).toHaveBeenCalledWith('accountA', WalletPromptStatus.Completed), {
+      timeout: 3500
+    });
   });
 
   it('stops suppressing pending notes once the faucet card itself is gone', async () => {
@@ -1363,7 +1441,7 @@ describe('HomePrompts', () => {
     );
     fireEvent.click(screen.getByRole('button', { name: 'dismiss-faucetPromptTitle' }));
 
-    expect(dismissPrompt).toHaveBeenCalledWith(WalletPromptType.Faucet);
+    expect(mockSetFaucetStatus).toHaveBeenCalledWith('accountA', WalletPromptStatus.Dismissed);
     expect(mockFaucet).not.toHaveBeenCalled();
   });
 
