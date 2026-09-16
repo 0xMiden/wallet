@@ -33,7 +33,8 @@ import {
   setFaucetFundingMarker,
   setWalletPromptStatus,
   useGuardianNoteRecoveryProgress,
-  useWalletPromptStorage
+  useWalletPromptStorage,
+  WALLET_PROMPT_TURN_WAIT_MS
 } from './wallet-prompts';
 
 jest.mock('lib/platform', () => ({
@@ -430,6 +431,30 @@ describe('wallet prompts', () => {
       expect(stored.prompts[WalletPromptType.VerifySeedPhrase]).toBe(WalletPromptStatus.Completed);
       expect(stored.faucetByAccount).toEqual(expected);
     });
+  });
+
+  it('does not let one storage call that never settles hold every later prompt write', async () => {
+    jest.useFakeTimers();
+    const provider = getStorageProvider();
+    const get = jest.spyOn(provider, 'get').mockImplementationOnce(() => new Promise(() => undefined));
+    try {
+      setWalletPromptStatus(WalletPromptType.Bridge, WalletPromptStatus.Pending).catch(() => undefined);
+      let seeded = false;
+      const seed = seedWalletPrompt(WalletPromptType.VerifySeedPhrase).then(() => {
+        seeded = true;
+      });
+
+      await jest.advanceTimersByTimeAsync(WALLET_PROMPT_TURN_WAIT_MS);
+      await seed;
+
+      expect(seeded).toBe(true);
+      expect((await fetchWalletPromptStorage()).prompts[WalletPromptType.VerifySeedPhrase]).toBe(
+        WalletPromptStatus.Pending
+      );
+    } finally {
+      get.mockRestore();
+      jest.useRealTimers();
+    }
   });
 
   it('never lets an earlier write take back a newer change shown in hook state', async () => {

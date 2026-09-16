@@ -222,10 +222,20 @@ export async function fetchWalletPromptStorage(): Promise<WalletPromptStorage> {
 // as it is now, one operation at a time. A writer building on a copy read before another
 // writer's put would store the old value of every field it does not own. The hook's own
 // reads take their turn too, so a load never lands after a write it predates.
+// A turn waits for the one before it only so long: a storage call that never settles
+// would otherwise hold every later prompt write, and the rest of the wallet with it.
 let walletPromptStorageTurn: Promise<unknown> = Promise.resolve();
+export const WALLET_PROMPT_TURN_WAIT_MS = 10_000;
 
 function inWalletPromptStorageTurn<T>(operation: () => Promise<T>): Promise<T> {
-  const result = walletPromptStorageTurn.then(operation);
+  const previous = walletPromptStorageTurn;
+  const result = new Promise<void>(resolve => {
+    const timer = setTimeout(resolve, WALLET_PROMPT_TURN_WAIT_MS);
+    previous.then(() => {
+      clearTimeout(timer);
+      resolve();
+    });
+  }).then(operation);
   walletPromptStorageTurn = result.catch(() => undefined);
   return result;
 }
