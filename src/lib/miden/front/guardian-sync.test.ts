@@ -37,6 +37,7 @@ import {
   guardianDriftFuseKey,
   guardianSyncFuseKey,
   __resetSyncFuseStateForTests,
+  grantManualSyncProbe,
   isSyncFused,
   noteSyncWatchdogEviction,
   pendingRotationRecheckFuseKey,
@@ -2126,8 +2127,15 @@ describe('syncGuardianAccounts — missing-registration self-heal', () => {
       expect(mockGetOrCreateMultisigService).toHaveBeenCalledTimes(
         (MISSING_REGISTRATION_PERSISTENCE_THRESHOLD - 1) * 2 + 1
       );
-      expect(mockGetOrCreateMultisigService).not.toHaveBeenCalledWith(
-        expect.objectContaining({ publicKey: secondAccount.publicKey }),
+      // The LAST call is the first account, because the eviction broke the loop before the
+      // second one got its turn. Asserted on the last call rather than as a blanket "never
+      // called with the second account": it IS called with it on the earlier passes (calls 2
+      // and 4 of 5). The original matcher compared an `objectContaining` against a string and
+      // two arguments against three, so it could not match anything and could not fail - and
+      // the claim it appeared to make was false all along.
+      expect(mockGetOrCreateMultisigService).toHaveBeenLastCalledWith(
+        account.publicKey,
+        expect.anything(),
         expect.anything()
       );
       expect(mockFinalizeDirectGuardianSwitch).not.toHaveBeenCalled();
@@ -3190,7 +3198,11 @@ describe('syncGuardianAccounts - guards a mutation probe found unexercised', () 
     expect(isSyncFused(guardianDriftFuseKey(only.publicKey))).toBe(true);
 
     // A user gesture buys one probe through the fuse; that probe now succeeds.
-    __resetSyncFuseStateForTests();
+    // `grantManualSyncProbe`, NOT `__resetSyncFuseStateForTests()`: the wipe drops the
+    // eviction count too, so the re-park below could not reach the threshold whether or
+    // not the success was ever booked, and the assertion could not fail. A gesture
+    // expires the deadline and KEEPS the evidence, so only the success withdraws it.
+    grantManualSyncProbe(guardianDriftFuseKey(only.publicKey));
     storeState.checkGuardianDrift.mockReset();
     storeState.checkGuardianDrift.mockResolvedValue(undefined);
     await syncGuardianAccounts();
