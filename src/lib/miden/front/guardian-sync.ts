@@ -746,8 +746,13 @@ async function runPendingRotationRecheck(
     // per-pass cap below would make it a lasting choice rather than a transient
     // one: the two rows it defers are the two it never looks at.
     //
-    // `initiatedAt` (seconds) over `completedAt`, which is optional on the row.
-    const ordered = [...rows].sort((a, b) => b.initiatedAt - a.initiatedAt);
+    // `initiatedAt` (seconds) over `completedAt`, which is optional on the row - and
+    // `queuedSeq` behind it, because whole seconds TIE. Two rotations initiated in the
+    // same second fell back to whatever order Dexie returned, which is primary-key order
+    // over random uuids: exactly the arbitrary order this sort exists to remove, and the
+    // chained rollback above is the case that cannot survive it. Descending like the key
+    // it breaks, so a row predating the field sorts last, which is what it is: older.
+    const ordered = [...rows].sort((a, b) => b.initiatedAt - a.initiatedAt || (b.queuedSeq ?? 0) - (a.queuedSeq ?? 0));
     // A retired pass must not keep settling rows. This probe writes more durable
     // state than any other arm of the loop - it demotes transaction rows, rolls the
     // account's guardian endpoint back, spends per-row budgets and notifies the

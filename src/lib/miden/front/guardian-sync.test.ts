@@ -102,6 +102,11 @@ const mockListUnconfirmedSwitchRows = jest.fn(
     [] as Array<{
       id: string;
       transactionId?: string;
+      // Undeclared until #800's review, so no case could express an ordering at all and the
+      // recheck's LIFO sort went unexercised. Optional, because the rows above this one care
+      // about identity rather than order and should not have to carry a stamp to say so.
+      initiatedAt?: number;
+      queuedSeq?: number;
       extraInputs?: { newGuardianEndpoint: string; previousGuardianEndpoint?: string };
     }>
 );
@@ -3447,6 +3452,30 @@ describe('syncGuardianAccounts - guards a mutation probe found unexercised', () 
   // generation check at all, and it writes more durable state than any other: it
   // demotes transaction rows, rolls the account's guardian endpoint back, and
   // spends per-row budgets.
+  // THE TIE THE SORT COULD NOT SEE. `initiatedAt` is whole seconds, so two rotations
+  // initiated in the same second compare equal and fall back to whatever order Dexie
+  // returned - primary-key order over random uuids. That is the arbitrary order the sort
+  // exists to remove, and the chained rollback (A->B and B->C both discarded) is exactly
+  // the case that cannot survive it: taking A->B first finds the account on C and can
+  // conclude nothing. The per-pass cap makes the choice lasting rather than transient,
+  // because the rows it defers are the rows it never looks at.
+  it('breaks an initiatedAt tie by queuedSeq, newest first, so a rollback chain unwinds LIFO', async () => {
+    storeState.accounts = [only] as never;
+    mockListUnconfirmedSwitchRows.mockResolvedValue([
+      { id: 'row-oldest', transactionId: '0xoldest', initiatedAt: 100, queuedSeq: 1 },
+      { id: 'row-newest', transactionId: '0xnewest', initiatedAt: 100, queuedSeq: 3 },
+      { id: 'row-middle', transactionId: '0xmiddle', initiatedAt: 100, queuedSeq: 2 }
+    ]);
+    mockReadDirectSwitchCommitState.mockResolvedValue('pending');
+
+    await syncGuardianAccounts();
+
+    // Newest first, and the cap of two means the oldest is never reached this pass. Drop
+    // the tie-break and the input order survives, probing oldest then newest; invert it
+    // and the chain unwinds forwards, probing oldest then middle.
+    expect(mockReadDirectSwitchCommitState.mock.calls.map(call => call[0])).toEqual(['0xnewest', '0xmiddle']);
+  });
+
   it('does not charge the row budget when the pass is retired during the node read', async () => {
     storeState.accounts = [only] as never;
     mockListUnconfirmedSwitchRows.mockResolvedValue([{ id: 'row-a', transactionId: '0xa' }]);
