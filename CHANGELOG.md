@@ -4,6 +4,8 @@
 
 ### Changes
 
+- [CHANGE][all] The four hand-rolled guardian retry/budget ledgers (cold re-register, missing-registration push, 429 cooldown - plus their charge/refund/keying rules, each re-fixed separately in the #786 review) are replaced by one `AttemptLedger` module with settle-time charging, preflight refunds, budget closing, full-subject keying and account-scoped reset encoded once, and a clock-injected `RateCooldown` for the 429 path; a fence test pins the repair modules to zero new hand-rolled ledger maps.
+
 - [CHANGE][all] Guardian binding writes (endpoint + commitment baseline) are now guarded by a per-account `guardianEpoch` compare-and-swap in the vault: a drift repair or backfill that snapshotted the account before a rotation gets `stale` instead of resurrecting the old operator's endpoint over the new one, endpoint and baseline land in one atomic patch (no more torn hand-ordered writes), and rotation completion force-bumps so it can never lose. A stale-discarded repair releases its probe cooldown so the next tick re-derives immediately.
 
 - [CHANGE][all] A guardian rotation's outcome now comes from one derivation (`rotationVerdict`) and the settings page's guardian status from another (`deriveGuardianPresentation`), and a syntax-tree fence fails CI when any other module reads the rotation flags or the sync status. Closes the three surfaces that still certified an unconfirmed rotation: the Activity chip and details status pill now read "Submitted" instead of a green "Confirmed", and the Activity row title derives from the row's verdict at render rather than the frozen `displayMessage` snapshot.

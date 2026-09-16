@@ -789,7 +789,7 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
 
   // F-137 called the spent budget "the sharp one": with it kept across a
   // rotation, the NEW operator's first 401 re-marks the account unrepairable on a
-  // verdict the OLD operator earned, and `decideColdReRegisterSelfHeal` refuses
+  // verdict the OLD operator earned, and the ledger refuses
   // forever because the attempt cap is already reached.
   it('gives the new operator its own re-register budget after a rotation', async () => {
     let now = 7_000_000;
@@ -837,7 +837,7 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
     // to itself. `/configure` is account-wide, so re-registering here would
     // revoke the device that now legitimately owns the account — and that device
     // would heal right back, livelocking both (a successful sync in between
-    // clears selfHealState, so the attempt cap never accumulates).
+    // clears selfHealLedger, so the attempt cap never accumulates).
     mockGetSignerDetails.mockResolvedValue({ commitment: '0xsomeotherdeviceshotkey' });
     mockGetOrCreateMultisigService.mockResolvedValue({
       sync: jest.fn(async () => {
