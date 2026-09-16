@@ -6,9 +6,11 @@ import {
   __resetSyncFuseStateForTests,
   clearSyncFuseForEndpointChange,
   isSyncFused,
+  noteAbandonedSyncProbe,
   noteNonEvictionSyncFailure,
   noteSyncSuccess,
   noteSyncWatchdogEviction,
+  retireSyncFuse,
   syncFuseUntilMs
 } from './sync-fuse';
 
@@ -258,5 +260,85 @@ describe('sync fuse (#777)', () => {
   it('says nothing when an endpoint change finds no conclusions to discard', () => {
     clearSyncFuseForEndpointChange();
     expect(console.warn).not.toHaveBeenCalled();
+  });
+
+  // The THIRD outcome, and the ledger had only two. A probe that was ABANDONED rather
+  // than answered learned nothing about the node, so it may neither withdraw evidence
+  // like a returned failure nor clear it like a success.
+  describe('noteAbandonedSyncProbe', () => {
+    it('re-arms a LIT fuse, so one probe per interval holds until one SUCCEEDS', () => {
+      evictUntilLit('idle-sync');
+      fakeNow += FUSED_SYNC_PROBE_INTERVAL_MS - 5_000;
+
+      noteAbandonedSyncProbe('idle-sync');
+
+      expect(isSyncFused('idle-sync')).toBe(true);
+      expect(syncFuseUntilMs('idle-sync')).toBe(fakeNow + FUSED_SYNC_PROBE_INTERVAL_MS);
+    });
+
+    it('leaves an UNLIT key evidence exactly as it stands, neither adding nor zeroing', () => {
+      // Part-way through the budget. Zeroing here is what made the loop-terminating
+      // breaks unbounded over half their trigger set: with a recurring realm trap the
+      // count could never reach the threshold, so the pass aborted at the same account
+      // every lap and the accounts after it were never synced again.
+      for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS - 1; i++) noteSyncWatchdogEviction('idle-sync');
+
+      noteAbandonedSyncProbe('idle-sync');
+      expect(syncFuseUntilMs('idle-sync')).toBeNull();
+
+      // The run it did not interrupt still lights on the very next eviction.
+      noteSyncWatchdogEviction('idle-sync');
+      expect(isSyncFused('idle-sync')).toBe(true);
+    });
+
+    it('is a no-op on a key with no entry at all', () => {
+      noteAbandonedSyncProbe('idle-sync');
+
+      expect(syncFuseUntilMs('idle-sync')).toBeNull();
+      expect(isSyncFused('idle-sync')).toBe(false);
+    });
+  });
+
+  // Retirement is about the SUBJECT disappearing, which is why it is not spelled as a
+  // success: a success claims a round trip reached the node, and booking one because a
+  // probe found nothing to do would withdraw parked-node evidence on the strength of a
+  // local read.
+  describe('retireSyncFuse', () => {
+    it('drops the entry, so a later ordinary failure cannot arm on a stale deadline', () => {
+      evictUntilLit(GUARDIAN_A);
+
+      retireSyncFuse(GUARDIAN_A);
+      expect(syncFuseUntilMs(GUARDIAN_A)).toBeNull();
+
+      // An EXPIRED non-null deadline reads as unlit to `isSyncFused` but as lit to the
+      // writers, so a probe whose subject vanished while its fuse was lit left that
+      // field non-null forever and one ordinary failure much later armed a full
+      // interval on a question that had since been answered.
+      noteNonEvictionSyncFailure(GUARDIAN_A);
+      expect(isSyncFused(GUARDIAN_A)).toBe(false);
+    });
+
+    it('takes the EVIDENCE with it, so a retired key starts a fresh run', () => {
+      evictUntilLit(GUARDIAN_A);
+
+      retireSyncFuse(GUARDIAN_A);
+
+      // The discriminator between dropping the entry and merely nulling its deadline:
+      // nulling keeps the eviction count, so the very next eviction re-lights on
+      // evidence about a subject that no longer exists. Same shape as the cleared-
+      // evidence assertion a success gets.
+      noteSyncWatchdogEviction(GUARDIAN_A);
+      expect(isSyncFused(GUARDIAN_A)).toBe(MAX_CONSECUTIVE_WATCHDOG_EVICTIONS === 1);
+    });
+
+    it('retires only its own key', () => {
+      evictUntilLit(GUARDIAN_A);
+      evictUntilLit(GUARDIAN_B);
+
+      retireSyncFuse(GUARDIAN_A);
+
+      expect(isSyncFused(GUARDIAN_A)).toBe(false);
+      expect(isSyncFused(GUARDIAN_B)).toBe(true);
+    });
   });
 });
