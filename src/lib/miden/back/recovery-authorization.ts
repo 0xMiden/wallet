@@ -2,6 +2,18 @@ import { ITransaction } from 'lib/miden/db/types';
 import type { GuardianRecoveryAction } from 'lib/shared/types';
 
 const IDLE_TIMEOUT_MS = 5 * 60 * 1000;
+/**
+ * Ceiling for an authorization a pipeline has started. It is RELAXED, never
+ * removed: a run can legitimately park for a long time (a local prove, a
+ * user-facing sign), but a pipeline that never settles, a release that fails on
+ * the intercom path, and a cancelled row all leave the key resident otherwise,
+ * because none of them reaches `clearRecoveryAuthorization`. Same rule the WASM
+ * lock watchdog learned in #775 - stopping the clock makes the backstop optional
+ * through the escape hatch the fix itself added - and the same 30 minutes its
+ * paused ceiling uses (WASM_LOCK_PAUSED_WATCHDOG_MS), since that bounds the
+ * longest wait a pipeline can legitimately take.
+ */
+const ACTIVE_TIMEOUT_MS = 30 * 60 * 1000;
 
 interface Authorization {
   binding: string;
@@ -96,8 +108,11 @@ export function beginRecoveryAuthorization(transaction: ITransaction, publicKey:
   if (!getRecoveryAuthorization(transaction, publicKey)) return false;
   const authorization = authorizations.get(transaction.id);
   if (!authorization) return false;
-  // Keep the key until the current pipeline stops. It can need several signatures.
+  // Keep the key until the current pipeline stops. It can need several signatures,
+  // so the idle timeout is replaced by the relaxed active ceiling rather than
+  // dropped: nothing else guarantees the key is ever zeroed.
   authorization.active = true;
   clearTimeout(authorization.timer);
+  authorization.timer = setTimeout(() => clearRecoveryAuthorization(transaction.id), ACTIVE_TIMEOUT_MS);
   return true;
 }

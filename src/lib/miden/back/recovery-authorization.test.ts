@@ -56,6 +56,28 @@ it('keeps an active key until the pipeline finishes', () => {
   expect([...secret]).toEqual([0, 0]);
 });
 
+// An active key is RELAXED, not unbounded. Three separate paths never reach
+// clearRecoveryAuthorization: a pipeline that never settles (a gRPC call the node
+// accepted and will never answer), a release that rejects on the intercom path,
+// and a cancelled row. Without a re-armed ceiling the derived cold key stays
+// resident in a long-lived realm until the wallet locks.
+it('zeroes an active key at the relaxed ceiling when nothing releases it', () => {
+  jest.useFakeTimers();
+  const transaction = new ReplaceHotKeyTransaction('account', false);
+  const secret = new Uint8Array([7, 8]);
+  authorizeRecovery(transaction, 'key', secret);
+  expect(beginRecoveryAuthorization(transaction, 'key')).toBe(true);
+
+  // Well past the 5-minute idle timeout: an active key must survive this.
+  jest.advanceTimersByTime(29 * 60 * 1000);
+  expect(getRecoveryAuthorization(transaction, 'key')).toBe(secret);
+
+  // Past the 30-minute active ceiling, with no release ever arriving.
+  jest.advanceTimersByTime(2 * 60 * 1000);
+  expect(getRecoveryAuthorization(transaction, 'key')).toBeUndefined();
+  expect([...secret]).toEqual([0, 0]);
+});
+
 it('clears all keys on lock and clears a replaced permission', () => {
   const transaction = new ReplaceHotKeyTransaction('account', false);
   const first = new Uint8Array([1]);
