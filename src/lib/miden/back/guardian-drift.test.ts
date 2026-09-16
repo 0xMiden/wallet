@@ -1408,6 +1408,102 @@ describe('revertGuardianEndpointAfterDiscard', () => {
  * handle that comes back is borrowed from a client the mutex has already handed to a successor, so
  * reading its storage is the double borrow itself, not a stale value.
  */
+/**
+ * EVERY CHARGE NAMES ITSELF. The rollback has eight ways to answer `'stale'`, each one charged
+ * against a per-row budget whose fifteenth charge tells the user the account is unrepairable, and
+ * only the pointer-read failure said anything at all. A prompt you cannot trace to a cause is a
+ * support ticket with no evidence in it.
+ *
+ * One case per arm rather than one for the helper: all eight route through the same `stale()`, so
+ * a single case would prove the helper logs while leaving seven reasons deletable in silence.
+ */
+describe('every stale rollback exit says which one it was', () => {
+  const reasonFrom = (warn: jest.SpyInstance) => warn.mock.calls.map(call => String(call[0])).join(' | ');
+
+  const chainSays = (commitment: string | undefined) =>
+    (getMidenClient as jest.Mock).mockResolvedValue({ getAccount: async () => (commitment ? {} : undefined) });
+
+  let warn: jest.SpyInstance;
+  beforeEach(() => {
+    warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('cc');
+  });
+  afterEach(() => warn.mockRestore());
+
+  const rollback = (vault: unknown) =>
+    revertGuardianEndpointAfterDiscard(vault as never, 'pk', 'https://new', 'https://old');
+
+  it('names a vault that has no record of the account', async () => {
+    expect(await rollback(makeVault(undefined))).toBe('stale');
+    expect(reasonFrom(warn)).toContain('holds no record of this account');
+  });
+
+  it('names an account bound to no endpoint at all', async () => {
+    expect(await rollback(makeVault({ publicKey: 'pk', guardianEndpoint: '' }))).toBe('stale');
+    expect(reasonFrom(warn)).toContain('names no guardian endpoint');
+  });
+
+  it('names an account with no on-chain guardian to check against', async () => {
+    chainSays(undefined);
+    expect(await rollback(makeVault({ publicKey: 'pk', guardianEndpoint: 'https://new', guardianEpoch: 4 }))).toBe(
+      'stale'
+    );
+    expect(reasonFrom(warn)).toContain('no on-chain guardian');
+  });
+
+  it('names an operator that could not be reached to prove the mismatch', async () => {
+    chainSays('cc');
+    (verifyEndpointMatchesCommitment as jest.Mock).mockResolvedValue('unreachable');
+    expect(await rollback(makeVault({ publicKey: 'pk', guardianEndpoint: 'https://new', guardianEpoch: 4 }))).toBe(
+      'stale'
+    );
+    expect(reasonFrom(warn)).toContain('could not be reached');
+  });
+
+  it('names a binding that moved on to a third operator', async () => {
+    chainSays('cc');
+    (verifyEndpointMatchesCommitment as jest.Mock).mockResolvedValue('mismatch');
+    expect(await rollback(makeVault({ publicKey: 'pk', guardianEndpoint: 'https://newer', guardianEpoch: 7 }))).toBe(
+      'stale'
+    );
+    expect(reasonFrom(warn)).toContain('moved on to a third operator');
+  });
+
+  it('names a rollback target that does not hold the current commitment', async () => {
+    chainSays('cc');
+    (verifyEndpointMatchesCommitment as jest.Mock).mockResolvedValue('mismatch');
+    expect(await rollback(makeVault({ publicKey: 'pk', guardianEndpoint: 'https://new', guardianEpoch: 4 }))).toBe(
+      'stale'
+    );
+    expect(reasonFrom(warn)).toContain('does not hold the current on-chain commitment');
+  });
+
+  it('names a realm that repointed while the rollback was being decided', async () => {
+    chainSays('cc');
+    (verifyEndpointMatchesCommitment as jest.Mock).mockImplementation(async (endpoint: string) => {
+      if (endpoint !== 'https://old') return 'mismatch';
+      retireGuardianWritesForEndpointChange();
+      return 'match';
+    });
+    expect(await rollback(makeVault({ publicKey: 'pk', guardianEndpoint: 'https://new', guardianEpoch: 4 }))).toBe(
+      'stale'
+    );
+    expect(reasonFrom(warn)).toContain('repointed at another node');
+  });
+
+  it('names an epoch that moved between the read and the write', async () => {
+    chainSays('cc');
+    (verifyEndpointMatchesCommitment as jest.Mock).mockImplementation(async (endpoint: string) =>
+      endpoint === 'https://old' ? 'match' : 'mismatch'
+    );
+    const vault = makeVault({ publicKey: 'pk', guardianEndpoint: 'https://new', guardianEpoch: 4 });
+    vault.updateGuardianBinding.mockResolvedValueOnce({ outcome: 'stale' });
+
+    expect(await rollback(vault)).toBe('stale');
+    expect(reasonFrom(warn)).toContain('epoch moved between the read and the write');
+  });
+});
+
 describe('post-await liveness guards refuse a hold the mutex has moved on from', () => {
   const stealTheHoldDuringTheAccountRead = () =>
     (getMidenClient as jest.Mock).mockResolvedValue({

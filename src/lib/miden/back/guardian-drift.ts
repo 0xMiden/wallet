@@ -918,6 +918,14 @@ export async function revertGuardianEndpointAfterDiscard(
   discardedEndpoint: string,
   revertTo: string
 ): Promise<RevertDiscardedEndpointOutcome> {
+  // ONE REASON PER EXIT, on one channel. Every `'stale'` below is charged against a finite per-row
+  // budget whose fifteenth charge tells the user the account is unrepairable, and until now only
+  // the pointer-read failure said anything at all - so the state that raises that prompt could not
+  // be told apart from the six other states that also produce it.
+  const stale = (reason: string): 'stale' => {
+    console.warn(`[Guardian Drift] rollback for ${accountPublicKey} stays pending: ${reason}`);
+    return 'stale';
+  };
   // CAPTURED BEFORE EVERY READ THIS DECIDES FROM. The frontend loop retires itself on an endpoint
   // change, but the loop is not where this write happens: its own retirement check runs after this
   // call returns, so it can suppress the row settlement and not the rebinding. Nor can the epoch
@@ -932,7 +940,7 @@ export async function revertGuardianEndpointAfterDiscard(
   // rotation, and only `'superseded'` licenses the caller to spend its one
   // irreversible demote. Answering it here traded a re-read on the next pass for
   // a permanently unrepairable binding.
-  if (!account) return 'stale';
+  if (!account) return stale('the vault holds no record of this account');
   // NOT `'superseded'` on its own. "The account names something other than this
   // rotation's target" is only good news if the something else has authority -
   // and with two rotations unconfirmed at once it usually does not.
@@ -983,7 +991,7 @@ export async function revertGuardianEndpointAfterDiscard(
   }
   // No pointer at all, by either route. Unchanged answer, but now for the right
   // reason: there is genuinely nothing to compare the row against.
-  if (!boundEndpoint) return 'stale';
+  if (!boundEndpoint) return stale('the account names no guardian endpoint to compare against');
   // ALREADY WHERE THE ROLLBACK WOULD PUT IT. `'superseded'`, not `'stale'`: the
   // write is a no-op, so the row is finished and the caller should settle it
   // rather than spend fifteen more laps re-establishing that. This is the arm the
@@ -1008,7 +1016,7 @@ export async function revertGuardianEndpointAfterDiscard(
   // endpoint either - but it also cannot corroborate the rollback target, and a
   // read that came back empty is as likely to be a cold local client as a real
   // absence. Leave it pending rather than rebinding on no evidence.
-  if (!onChain) return 'stale';
+  if (!onChain) return stale('the account has no on-chain guardian to check against');
   // THE LONG TIMEOUT, deliberately, even though this runs off a repeating tick.
   //
   // The tick's usual 5 s default is right for a probe whose only cost of being
@@ -1025,13 +1033,13 @@ export async function revertGuardianEndpointAfterDiscard(
   // caller may settle. This is the one answer that licenses the demote, and it is
   // now the only path to it.
   if (authority === 'match') return 'superseded';
-  if (authority !== 'mismatch') return 'stale';
+  if (authority !== 'mismatch') return stale('the bound operator could not be reached to prove the mismatch');
   // Unauthorized, but not by this row's doing: the binding has moved to a third
   // value since, so `revertTo` is two rotations stale and writing it would undo
   // whatever the later row is still trying to repair. Leave it to that row, and
   // report `'stale'` so this one keeps its budget moving toward the manual
   // prompt instead of being demoted on a conclusion it did not establish.
-  if (bindingMovedOn) return 'stale';
+  if (bindingMovedOn) return stale('the binding moved on to a third operator, so this is not the rotation to unwind');
   // NEITHER CHECK ABOVE SAYS ANYTHING ABOUT `revertTo` ITSELF. One establishes that
   // the BOUND endpoint lost authority, the other that the binding still names this
   // rotation's target. The chain may meanwhile have moved to a third operator, and
@@ -1041,18 +1049,19 @@ export async function revertGuardianEndpointAfterDiscard(
   // second probe is affordable because it is reached only when the rollback would
   // otherwise fire, which the caller's per-row cooldown and per-pass cap already bound.
   const targetAuthority = await verifyEndpointMatchesCommitment(revertTo, onChain);
-  if (targetAuthority !== 'match') return 'stale';
+  if (targetAuthority !== 'match') return stale('the rollback target does not hold the current on-chain commitment');
   // RE-CHECKED HERE, NOT AT ENTRY, because the window IS this function's own awaits: a chain read
   // the code deliberately gives a long ceiling, plus two operator probes. Everything above was
   // decided against a node the realm may have left while we were asking. `'stale'` rather than a
   // throw, so the caller charges a retry against the row's budget exactly as it does for every
   // other unproven answer, instead of treating a deliberate retirement as an abandoned operation.
-  if (writeGeneration !== currentGuardianWriteGeneration()) return 'stale';
+  if (writeGeneration !== currentGuardianWriteGeneration())
+    return stale('the realm repointed at another node while this was being decided');
 
   const write = await vault.updateGuardianBinding(accountPublicKey, account.guardianEpoch ?? 0, {
     guardianEndpoint: revertTo
   });
-  return write.outcome === 'applied' ? 'reverted' : 'stale';
+  return write.outcome === 'applied' ? 'reverted' : stale('the guardian epoch moved between the read and the write');
 }
 
 function normalizedEqual(a: string, b: string): boolean {
