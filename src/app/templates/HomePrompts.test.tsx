@@ -774,7 +774,7 @@ describe('HomePrompts', () => {
     // A mint that acked before a remount has no in-flight join left; only the
     // persisted marker says it is still inbound. Until that read settles, a tap
     // must not be able to start a second real mint.
-    let settleRead!: (marker: { requestedAt: number; baselineNoteIds: string[] } | null) => void;
+    let settleRead!: (marker: { requestedAt: number; baselineNoteIds: string[]; submittedAt?: number } | null) => void;
     mockFetchFaucetFundingMarker.mockImplementation(
       () =>
         new Promise(resolve => {

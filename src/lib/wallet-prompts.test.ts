@@ -285,7 +285,7 @@ describe('wallet prompts', () => {
       const onBeforeSubmit = jest.fn(async () => undefined);
       // The proof of work finishes and the token request is sent, then hangs.
       mintFromMidenFaucetMock.mockImplementation(
-        async (_address: string, _amount: bigint, _signal: AbortSignal, beforeSubmit?: () => Promise<void>) => {
+        async (_address: string, _amount: bigint, _signal?: AbortSignal, beforeSubmit?: () => Promise<void>) => {
           await beforeSubmit?.();
           return new Promise(() => {});
         }
