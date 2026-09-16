@@ -392,8 +392,14 @@ describe('wallet prompts', () => {
       accountB: WalletPromptStatus.Pending
     });
     expect(result.current.storage.prompts[WalletPromptType.VerifySeedPhrase]).toBe(WalletPromptStatus.Pending);
+    // The last of the three writes landing is what the stored record must show.
     await waitFor(async () => {
-      expect(await fetchWalletPromptStorage()).toEqual(result.current.storage);
+      const stored = await fetchWalletPromptStorage();
+      expect(stored.faucetByAccount).toEqual({
+        accountA: WalletPromptStatus.Completed,
+        accountB: WalletPromptStatus.Pending
+      });
+      expect(stored.prompts[WalletPromptType.VerifySeedPhrase]).toBe(WalletPromptStatus.Pending);
     });
   });
 
@@ -418,7 +424,12 @@ describe('wallet prompts', () => {
     expect((await fetchWalletPromptStorage()).faucetByAccount).toEqual(expected);
 
     act(() => result.current.setPromptStatus(WalletPromptType.VerifySeedPhrase, WalletPromptStatus.Completed));
-    await waitFor(async () => expect((await fetchWalletPromptStorage()).faucetByAccount).toEqual(expected));
+    // Wait for this write to land before checking what it had to keep.
+    await waitFor(async () => {
+      const stored = await fetchWalletPromptStorage();
+      expect(stored.prompts[WalletPromptType.VerifySeedPhrase]).toBe(WalletPromptStatus.Completed);
+      expect(stored.faucetByAccount).toEqual(expected);
+    });
   });
 
   it('never lets an earlier write take back a newer change shown in hook state', async () => {
