@@ -56,6 +56,12 @@ export type WalletPromptStorage = {
   version: 1;
   prompts: Partial<Record<WalletPromptType, WalletPromptStatus>>;
   pendingNotesDismissedIds: string[];
+  // The faucet prompt is about one account's balance, so its status is kept per
+  // account address. A wallet-wide status let one account's completion or dismiss
+  // hide Fund on every other account (#921). Any `prompts.faucet` left by an older
+  // build is ignored: the card only ever shows on an unfunded account, so offering
+  // it once more is the safe direction.
+  faucetByAccount: Record<string, WalletPromptStatus>;
 };
 
 export const WALLET_PROMPTS_STORAGE_KEY = 'wallet_prompts_v1';
@@ -63,7 +69,8 @@ export const WALLET_PROMPTS_STORAGE_KEY = 'wallet_prompts_v1';
 export const EMPTY_WALLET_PROMPT_STORAGE: WalletPromptStorage = {
   version: 1,
   prompts: {},
-  pendingNotesDismissedIds: []
+  pendingNotesDismissedIds: [],
+  faucetByAccount: {}
 };
 
 export type PendingNoteValue = Pick<ConsumableNote, 'id' | 'amount' | 'faucetId'> & {
@@ -183,8 +190,19 @@ export function normalizeWalletPromptStorage(value: unknown): WalletPromptStorag
       }
       return acc;
     }, {}),
-    pendingNotesDismissedIds: normalizePendingNotesDismissedIds(Reflect.get(value, 'pendingNotesDismissedIds'))
+    pendingNotesDismissedIds: normalizePendingNotesDismissedIds(Reflect.get(value, 'pendingNotesDismissedIds')),
+    faucetByAccount: normalizeFaucetByAccount(Reflect.get(value, 'faucetByAccount'))
   };
+}
+
+function normalizeFaucetByAccount(value: unknown): Record<string, WalletPromptStatus> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  return Object.entries(value).reduce<Record<string, WalletPromptStatus>>((acc, [address, status]) => {
+    if (address && typeof status === 'string' && VALID_STATUSES.has(status)) {
+      acc[address] = status as WalletPromptStatus;
+    }
+    return acc;
+  }, {});
 }
 
 export function isWalletPromptPending(storage: WalletPromptStorage, type: WalletPromptType): boolean {
@@ -205,13 +223,14 @@ export async function setWalletPromptStatus(
   status: WalletPromptStatus
 ): Promise<WalletPromptStorage> {
   const storage = await fetchWalletPromptStorage();
+  // Spread first: a writer carries every field it does not own, or it silently
+  // drops them (a per-account faucet status included) on each unrelated write.
   return putWalletPromptStorage({
-    version: 1,
+    ...storage,
     prompts: {
       ...storage.prompts,
       [type]: status
-    },
-    pendingNotesDismissedIds: storage.pendingNotesDismissedIds
+    }
   });
 }
 
@@ -223,12 +242,11 @@ export async function seedWalletPrompt(type: WalletPromptType): Promise<WalletPr
   }
 
   return putWalletPromptStorage({
-    version: 1,
+    ...storage,
     prompts: {
       ...storage.prompts,
       [type]: WalletPromptStatus.Pending
-    },
-    pendingNotesDismissedIds: storage.pendingNotesDismissedIds
+    }
   });
 }
 
@@ -475,7 +493,7 @@ export function useWalletPromptStorage() {
       setStorage(prev => {
         const current = normalizeWalletPromptStorage(prev);
         const next: WalletPromptStorage = {
-          version: 1,
+          ...current,
           prompts: {
             ...current.prompts,
             [type]: status
@@ -487,6 +505,25 @@ export function useWalletPromptStorage() {
         };
         putWalletPromptStorage(next).catch(error => {
           console.warn('[wallet-prompts] failed to persist prompt status:', error);
+          refreshPrompts();
+        });
+        return next;
+      });
+    },
+    [refreshPrompts]
+  );
+
+  // The faucet prompt's status for one account address; see `faucetByAccount`.
+  const setFaucetStatus = useCallback(
+    (address: string, status: WalletPromptStatus) => {
+      setStorage(prev => {
+        const current = normalizeWalletPromptStorage(prev);
+        const next: WalletPromptStorage = {
+          ...current,
+          faucetByAccount: { ...current.faucetByAccount, [address]: status }
+        };
+        putWalletPromptStorage(next).catch(error => {
+          console.warn('[wallet-prompts] failed to persist faucet prompt status:', error);
           refreshPrompts();
         });
         return next;
@@ -512,6 +549,7 @@ export function useWalletPromptStorage() {
     isLoaded,
     refreshPrompts,
     setPromptStatus,
+    setFaucetStatus,
     dismissPrompt,
     completePrompt,
     isPromptPending

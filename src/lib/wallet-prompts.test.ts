@@ -106,8 +106,23 @@ describe('wallet prompts', () => {
     ).toEqual({
       version: 1,
       prompts: { [WalletPromptType.PendingNotes]: WalletPromptStatus.Dismissed },
-      pendingNotesDismissedIds: ['note-1', 'note-2']
+      pendingNotesDismissedIds: ['note-1', 'note-2'],
+      faucetByAccount: {}
     });
+  });
+
+  it('keeps valid per-account faucet statuses and drops malformed ones', () => {
+    expect(
+      normalizeWalletPromptStorage({
+        version: 1,
+        prompts: {},
+        pendingNotesDismissedIds: [],
+        faucetByAccount: { accountA: 'completed', accountB: 'bogus', '': 'dismissed', accountC: 7 }
+      }).faucetByAccount
+    ).toEqual({ accountA: WalletPromptStatus.Completed });
+
+    // An older build's storage has no map at all.
+    expect(normalizeWalletPromptStorage({ version: 1, prompts: {} }).faucetByAccount).toEqual({});
   });
 
   it('calculates the aggregate pending-note USD value across token decimals and prices', () => {
@@ -338,12 +353,58 @@ describe('wallet prompts', () => {
     expect(result.current.storage).toEqual({
       version: 1,
       prompts: { [WalletPromptType.PendingNotes]: WalletPromptStatus.Dismissed },
-      pendingNotesDismissedIds: ['note-1', 'note-2']
+      pendingNotesDismissedIds: ['note-1', 'note-2'],
+      faucetByAccount: {}
     });
 
     await waitFor(async () => {
       expect(await fetchWalletPromptStorage()).toEqual(result.current.storage);
     });
+  });
+
+  it('stores the faucet prompt status per account, without touching other accounts or prompts', async () => {
+    const { result } = renderHook(() => useWalletPromptStorage());
+    await waitFor(() => expect(result.current.isLoaded).toBe(true));
+
+    act(() => {
+      result.current.setPromptStatus(WalletPromptType.VerifySeedPhrase, WalletPromptStatus.Pending);
+      result.current.setFaucetStatus('accountA', WalletPromptStatus.Completed);
+      result.current.setFaucetStatus('accountB', WalletPromptStatus.Pending);
+    });
+
+    // One account's completion is not every account's (#921).
+    expect(result.current.storage.faucetByAccount).toEqual({
+      accountA: WalletPromptStatus.Completed,
+      accountB: WalletPromptStatus.Pending
+    });
+    expect(result.current.storage.prompts[WalletPromptType.VerifySeedPhrase]).toBe(WalletPromptStatus.Pending);
+    await waitFor(async () => {
+      expect(await fetchWalletPromptStorage()).toEqual(result.current.storage);
+    });
+  });
+
+  it('keeps per-account faucet statuses when an unrelated prompt is written', async () => {
+    const { result } = renderHook(() => useWalletPromptStorage());
+    await waitFor(() => expect(result.current.isLoaded).toBe(true));
+    act(() => result.current.setFaucetStatus('accountA', WalletPromptStatus.Dismissed));
+    await waitFor(async () =>
+      expect((await fetchWalletPromptStorage()).faucetByAccount).toEqual({ accountA: 'dismissed' })
+    );
+
+    // Every writer rebuilds the whole storage object; one that forgot the map would
+    // silently wipe every account's faucet status on an unrelated write. Checked
+    // after EACH writer: the hook rebuilds storage from its own state, so a later
+    // hook write would quietly restore what an earlier writer had wiped.
+    const expected = { accountA: WalletPromptStatus.Dismissed };
+
+    await setWalletPromptStatus(WalletPromptType.Bridge, WalletPromptStatus.Pending);
+    expect((await fetchWalletPromptStorage()).faucetByAccount).toEqual(expected);
+
+    await seedWalletPrompt(WalletPromptType.HotKeyHardwareUnavailable);
+    expect((await fetchWalletPromptStorage()).faucetByAccount).toEqual(expected);
+
+    act(() => result.current.setPromptStatus(WalletPromptType.VerifySeedPhrase, WalletPromptStatus.Completed));
+    await waitFor(async () => expect((await fetchWalletPromptStorage()).faucetByAccount).toEqual(expected));
   });
 
   it('refreshes hook state on demand', async () => {

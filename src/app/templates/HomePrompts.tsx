@@ -156,7 +156,7 @@ export const HomePrompts: FC<HomePromptsProps> = ({
   tokenPrices
 }) => {
   const { t } = useTranslation();
-  const { storage, isLoaded, setPromptStatus, dismissPrompt, completePrompt, isPromptPending } =
+  const { storage, isLoaded, setPromptStatus, setFaucetStatus, dismissPrompt, completePrompt, isPromptPending } =
     useWalletPromptStorage();
   const [faucetStatusIndicator, setFaucetStatusIndicator] = useState<PromptCardStatus>('idle');
   // Non-null between a successful faucet request and the minted funds becoming
@@ -269,7 +269,8 @@ export const HomePrompts: FC<HomePromptsProps> = ({
     () => balances.some(token => token.balance > 0) && !hasNoFeeAsset(balances, midenFaucetId, verificationBaseFee),
     [balances, midenFaucetId, verificationBaseFee]
   );
-  const faucetStatus = storage.prompts[WalletPromptType.Faucet];
+  // Per account: one account's completion or dismiss must not hide Fund on another.
+  const faucetStatus = storage.faucetByAccount[account.publicKey];
   // Dismiss means "not now", not "never again". An account that has run its native
   // balance to zero on a fee-charging chain cannot transact at all, and this prompt
   // is the way out -- so a previous dismissal stops suppressing it. Without the
@@ -377,7 +378,7 @@ export const HomePrompts: FC<HomePromptsProps> = ({
   useEffect(() => {
     if (!isLoaded || balancesLoading) return;
     if (!hasBalance && faucetStatus === undefined) {
-      setPromptStatus(WalletPromptType.Faucet, WalletPromptStatus.Pending);
+      setFaucetStatus(account.publicKey, WalletPromptStatus.Pending);
     } else if (
       hasBalance &&
       faucetStatus === WalletPromptStatus.Pending &&
@@ -385,17 +386,17 @@ export const HomePrompts: FC<HomePromptsProps> = ({
       !awaitingFaucetFunds &&
       !faucetFundsArrived
     ) {
-      completePrompt(WalletPromptType.Faucet);
+      setFaucetStatus(account.publicKey, WalletPromptStatus.Completed);
     }
   }, [
+    account.publicKey,
     awaitingFaucetFunds,
     balancesLoading,
-    completePrompt,
     faucetFundsArrived,
     faucetStatus,
     hasBalance,
     isLoaded,
-    setPromptStatus
+    setFaucetStatus
   ]);
 
   // An account switch re-renders this component in place (it is not keyed by
@@ -571,8 +572,9 @@ export const HomePrompts: FC<HomePromptsProps> = ({
     // already gone, the prompt stayed Pending, and the next open re-offered Fund
     // for a mint that had landed. `fundsArrivedFor` keeps the card on stage for
     // the beat regardless, so this changes nothing on screen.
-    completePrompt(WalletPromptType.Faucet);
-  }, [awaitingFaucetFunds, completePrompt, fundingNotes, fundingWait, hasBalance, midenFaucetId]);
+    // Completed for the account whose funds landed, which is the one on screen.
+    setFaucetStatus(fundingWait.address, WalletPromptStatus.Completed);
+  }, [awaitingFaucetFunds, fundingNotes, fundingWait, hasBalance, midenFaucetId, setFaucetStatus]);
 
   // After the success beat, hand the stage to the pending-notes card / balance.
   // Pure presentation: the prompt was already completed at arrival.
@@ -671,6 +673,11 @@ export const HomePrompts: FC<HomePromptsProps> = ({
         case WalletPromptType.Faucet: {
           const funding = awaitingFaucetFunds || faucetStatusIndicator === 'loading';
           return {
+            // Only when dismissible: an onDismiss here would take precedence over the
+            // withheld control below, putting the dead X back on a fee-broke account.
+            onDismiss: cannotPayFee
+              ? undefined
+              : () => setFaucetStatus(account.publicKey, WalletPromptStatus.Dismissed),
             // The whole card is the trigger; no CTA button. While the hero is
             // up (Funding / Funded!) taps are inert.
             onClick:
@@ -737,6 +744,7 @@ export const HomePrompts: FC<HomePromptsProps> = ({
       }
     },
     [
+      account.publicKey,
       awaitingFaucetFunds,
       // The fee-broke branch changes both the body and whether a dismiss control is
       // rendered, so a stale value would leave a user who has just run out of MIDEN
@@ -758,6 +766,7 @@ export const HomePrompts: FC<HomePromptsProps> = ({
       pendingNoteIds,
       rotateHotKey,
       rotationStatusIndicator,
+      setFaucetStatus,
       setPromptStatus,
       t
     ]
