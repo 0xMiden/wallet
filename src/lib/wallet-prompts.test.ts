@@ -8,9 +8,13 @@ import {
 import { ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import { putToStorage } from 'lib/miden/front/storage';
 import { FaucetOutcomeUnknownError, mintFromMidenFaucet } from 'lib/miden-chain/faucet-api';
+import { getStorageProvider } from 'lib/platform/storage-adapter';
 
 import {
   EMPTY_WALLET_PROMPT_STORAGE,
+  FAUCET_FUNDS_ARRIVAL_TIMEOUT_MS,
+  FAUCET_UNSUBMITTED_MARKER_MS,
+  FaucetRequestInProgressError,
   WalletPromptStatus,
   WalletPromptType,
   __resetInFlightFaucetRequestsForTest,
@@ -21,8 +25,11 @@ import {
   fetchFaucetFundingMarker,
   fetchHotKeyHardwareError,
   fetchWalletPromptStorage,
+  getFaucetRequestSettledAt,
+  getInFlightFaucetMarker,
   getInFlightFaucetRequest,
   getPendingNotesUsdTotal,
+  isFaucetFundingMarkerLive,
   isWalletPromptPending,
   normalizeWalletPromptStorage,
   reconcileBridgedSends,
@@ -191,6 +198,7 @@ describe('wallet prompts', () => {
       'mtst1testaddress',
       100_000_000n,
       expect.any(AbortSignal),
+      expect.any(Function),
       expect.any(Function)
     );
   });
@@ -223,6 +231,52 @@ describe('wallet prompts', () => {
     mintFromMidenFaucetMock.mockResolvedValue({ txId: '0xtx', noteId: '0xnote' });
     await faucet('mtst1testaddress');
     expect(mintFromMidenFaucetMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('keeps the marker a request was started with beside it, and ignores a joiner marker', async () => {
+    let finish!: () => void;
+    mintFromMidenFaucetMock.mockImplementation(
+      () =>
+        new Promise(resolve => {
+          finish = () => resolve({ txId: '0xtx', noteId: '0xnote' });
+        })
+    );
+    const marker = { requestedAt: 1_000, baselineNoteIds: ['note-1'] };
+
+    const request = faucet('accountJoin', marker);
+    faucet('accountJoin', { requestedAt: 2_000, baselineNoteIds: [] });
+    expect(getInFlightFaucetMarker('accountJoin')).toBe(marker);
+    await waitFor(() => expect(mintFromMidenFaucetMock).toHaveBeenCalledTimes(1));
+
+    await act(async () => {
+      finish();
+      await request;
+    });
+    expect(getInFlightFaucetMarker('accountJoin')).toBeNull();
+  });
+
+  it('remembers when a request settled, for the request it was started with', async () => {
+    mintFromMidenFaucetMock.mockResolvedValue({ txId: '0xtx', noteId: '0xnote' });
+    const before = Date.now();
+
+    await faucet('accountSettled', { requestedAt: 1_000, baselineNoteIds: [] });
+
+    const settledAt = getFaucetRequestSettledAt('accountSettled', 1_000);
+    expect(settledAt).not.toBeNull();
+    expect(settledAt!).toBeGreaterThanOrEqual(before);
+    expect(getFaucetRequestSettledAt('accountSettled', 2_000)).toBeNull();
+
+    // A request sent and never answered settles too: its mint may land from here on.
+    mintFromMidenFaucetMock.mockRejectedValueOnce(
+      new FaucetOutcomeUnknownError('Faucet token request got no response')
+    );
+    await faucet('accountUnknown', { requestedAt: 4_000, baselineNoteIds: [] }).catch(() => undefined);
+    expect(getFaucetRequestSettledAt('accountUnknown', 4_000)).not.toBeNull();
+
+    // A refused request went nowhere, so there is no settle to anchor a wait to.
+    mintFromMidenFaucetMock.mockRejectedValueOnce(new Error('rate limited'));
+    await faucet('accountRefused', { requestedAt: 3_000, baselineNoteIds: [] }).catch(() => undefined);
+    expect(getFaucetRequestSettledAt('accountRefused', 3_000)).toBeNull();
   });
 
   it('clears the in-flight join when the request rejects', async () => {
@@ -279,10 +333,166 @@ describe('wallet prompts', () => {
     }
   });
 
+  it('fails before the proof of work, with the storage error, when the marker cannot be stored', async () => {
+    const provider = getStorageProvider();
+    const writeRecord = provider.set.bind(provider);
+    const set = jest.spyOn(provider, 'set').mockImplementation(async items => {
+      if (Object.keys(items).some(key => key.startsWith('faucet_funding_v2:'))) throw new Error('storage unavailable');
+      await writeRecord(items);
+    });
+    try {
+      const error = await faucet('accountWriteFail', { requestedAt: Date.now(), baselineNoteIds: [] }).catch(
+        (e: unknown) => e
+      );
+
+      // The pre-send check needs this request's marker stored: without it the request can
+      // only fail after the proof of work, blaming another surface.
+      expect(error).toEqual(new Error('storage unavailable'));
+      expect(mintFromMidenFaucetMock).not.toHaveBeenCalled();
+    } finally {
+      set.mockRestore();
+    }
+  });
+
+  it('writes no marker for a request its timeout ended during the first check', async () => {
+    jest.useFakeTimers();
+    const provider = getStorageProvider();
+    const readRecord = provider.get.bind(provider);
+    let releaseCheck = () => {};
+    const get = jest.spyOn(provider, 'get').mockImplementationOnce(keys => {
+      const record = readRecord(keys);
+      return new Promise(resolve => {
+        releaseCheck = () => resolve(record);
+      });
+    });
+    try {
+      const request = faucet('accountSlowCheck', { requestedAt: Date.now(), baselineNoteIds: [] });
+      request.catch(() => undefined);
+      await jest.advanceTimersByTimeAsync(60_000);
+      await expect(request).rejects.not.toBeInstanceOf(FaucetOutcomeUnknownError);
+
+      // A retry may have stored its own marker by now; the ended request must not write over it.
+      releaseCheck();
+      await jest.advanceTimersByTimeAsync(0);
+      expect(await fetchFaucetFundingMarker('accountSlowCheck')).toBeNull();
+      expect(mintFromMidenFaucetMock).not.toHaveBeenCalled();
+    } finally {
+      releaseCheck();
+      get.mockRestore();
+      jest.useRealTimers();
+    }
+  });
+
+  it('stores no submitted flag for a request its timeout already ended', async () => {
+    jest.useFakeTimers();
+    const provider = getStorageProvider();
+    const readRecord = provider.get.bind(provider);
+    let releaseCheck = () => {};
+    try {
+      mintFromMidenFaucetMock.mockImplementation(
+        async (_address: string, _amount: bigint, _signal?: AbortSignal, beforeSubmit?: () => Promise<void>) => {
+          // The pre-send check's read is slow: the request times out while it is out.
+          const get = jest.spyOn(provider, 'get').mockImplementationOnce(keys => {
+            const record = readRecord(keys);
+            return new Promise(resolve => {
+              releaseCheck = () => resolve(record);
+            });
+          });
+          try {
+            await beforeSubmit?.();
+          } finally {
+            get.mockRestore();
+          }
+          return { txId: '0xtx', noteId: '0xnote' };
+        }
+      );
+
+      const request = faucet('accountLate', { requestedAt: Date.now(), baselineNoteIds: [] });
+      request.catch(() => undefined);
+      await jest.advanceTimersByTimeAsync(60_000);
+      const error = await request.catch((e: unknown) => e);
+      expect(error).not.toBeInstanceOf(FaucetOutcomeUnknownError);
+
+      // The abandoned work goes on once the read returns: a flag stored now would read
+      // as a sent request on every surface, for a request that reported a safe failure.
+      releaseCheck();
+      await jest.advanceTimersByTimeAsync(0);
+      expect((await fetchFaucetFundingMarker('accountLate'))?.submitted).toBeUndefined();
+    } finally {
+      releaseCheck();
+      jest.useRealTimers();
+    }
+  });
+
+  it('reports a timeout that lands while the submitted flag is being stored as an unknown outcome', async () => {
+    jest.useFakeTimers();
+    const provider = getStorageProvider();
+    const writeRecord = provider.set.bind(provider);
+    let releaseFlag = () => {};
+    try {
+      mintFromMidenFaucetMock.mockImplementation(
+        async (_address: string, _amount: bigint, _signal?: AbortSignal, beforeSubmit?: () => Promise<void>) => {
+          const set = jest.spyOn(provider, 'set').mockImplementationOnce(
+            items =>
+              new Promise(resolve => {
+                releaseFlag = () => resolve(writeRecord(items));
+              })
+          );
+          try {
+            await beforeSubmit?.();
+          } finally {
+            set.mockRestore();
+          }
+          return new Promise(() => {});
+        }
+      );
+
+      const request = faucet('accountFlagging', { requestedAt: Date.now(), baselineNoteIds: [] });
+      request.catch(() => undefined);
+      await jest.advanceTimersByTimeAsync(60_000);
+
+      // The flag may still land, and every surface would then read the request as sent.
+      await expect(request).rejects.toBeInstanceOf(FaucetOutcomeUnknownError);
+    } finally {
+      releaseFlag();
+      jest.useRealTimers();
+    }
+  });
+
+  it('reports a timeout after the faucet refused the token request as a plain failure, safe to retry', async () => {
+    jest.useFakeTimers();
+    try {
+      // Refused, then the refusal's body (or a rate-limit back-off) outlasts the request time.
+      mintFromMidenFaucetMock.mockImplementation(
+        async (
+          _address: string,
+          _amount: bigint,
+          _signal?: AbortSignal,
+          beforeSubmit?: () => Promise<void>,
+          onMayMint?: (mayMint: boolean) => void
+        ) => {
+          await beforeSubmit?.();
+          onMayMint?.(true);
+          onMayMint?.(false);
+          return new Promise(() => {});
+        }
+      );
+
+      const request = faucet('accountRefusedSlow', { requestedAt: Date.now(), baselineNoteIds: [] });
+      request.catch(() => undefined);
+      await jest.advanceTimersByTimeAsync(60_000);
+
+      const error = await request.catch((e: unknown) => e);
+      expect(error).toBeInstanceOf(Error);
+      expect(error).not.toBeInstanceOf(FaucetOutcomeUnknownError);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it('reports a timeout after the token request went out as an unknown outcome', async () => {
     jest.useFakeTimers();
     try {
-      const onBeforeSubmit = jest.fn(async () => undefined);
       // The proof of work finishes and the token request is sent, then hangs.
       mintFromMidenFaucetMock.mockImplementation(
         async (_address: string, _amount: bigint, _signal?: AbortSignal, beforeSubmit?: () => Promise<void>) => {
@@ -291,32 +501,139 @@ describe('wallet prompts', () => {
         }
       );
 
-      const request = faucet('mtst1testaddress', { onBeforeSubmit });
+      const request = faucet('mtst1testaddress', { requestedAt: 1_000, baselineNoteIds: [] });
       request.catch(() => undefined);
       await jest.advanceTimersByTimeAsync(60_000);
 
       // The faucet may have minted, so this must not read as a refusal a retry
       // can safely follow.
       await expect(request).rejects.toBeInstanceOf(FaucetOutcomeUnknownError);
-      expect(onBeforeSubmit).toHaveBeenCalledTimes(1);
     } finally {
       jest.useRealTimers();
     }
   });
 
-  it('runs onStart only once the request is already the account in-flight join', async () => {
-    let joinDuringStart: Promise<void> | null = null;
-    mintFromMidenFaucetMock.mockResolvedValue({ txId: '0xtx', noteId: '0xnote' });
-
-    await faucet('mtst1joinfirst', {
-      onStart: async () => {
-        joinDuringStart = getInFlightFaucetRequest('mtst1joinfirst');
+  it('persists the funding marker, and flags it submitted before the token request goes out', async () => {
+    const marker = { requestedAt: 1_000, baselineNoteIds: ['note-1'] };
+    const seen: Array<Awaited<ReturnType<typeof fetchFaucetFundingMarker>>> = [];
+    mintFromMidenFaucetMock.mockImplementation(
+      async (_address: string, _amount: bigint, _signal?: AbortSignal, beforeSubmit?: () => Promise<void>) => {
+        seen.push(await fetchFaucetFundingMarker('accountMarker'));
+        await beforeSubmit?.();
+        // What a resume reads once the token request is out.
+        seen.push(await fetchFaucetFundingMarker('accountMarker'));
+        return { txId: '0xtx', noteId: '0xnote' };
       }
-    });
+    );
 
-    // State the hook persists is therefore always backed by a live request: a
-    // resumed marker with no submit stamp and no join really was abandoned.
-    expect(joinDuringStart).not.toBeNull();
+    await faucet('accountMarker', marker);
+
+    // The flag carries when the token request went out: its mint's arrival window starts there.
+    expect(seen).toEqual([marker, { ...marker, submitted: true, submittedAt: expect.any(Number) }]);
+  });
+
+  it.each([
+    ['sent', true],
+    ['still before its token request', false]
+  ])(
+    'sends nothing over another request that is live and %s, and leaves its marker alone',
+    async (_state, submitted) => {
+      // A surface that read no marker before another surface's tap still offers Fund.
+      const running = {
+        requestedAt: Date.now() - 20_000,
+        baselineNoteIds: ['note-1'],
+        ...(submitted && { submitted })
+      };
+      await setFaucetFundingMarker('accountBusy', running);
+      mintFromMidenFaucetMock.mockResolvedValue({ txId: '0xtx', noteId: '0xnote' });
+
+      const error = await faucet('accountBusy', { requestedAt: Date.now(), baselineNoteIds: [] }).catch(
+        (e: unknown) => e
+      );
+
+      expect(error).toBeInstanceOf(FaucetRequestInProgressError);
+      expect(error).toMatchObject({ marker: running });
+      expect(mintFromMidenFaucetMock).not.toHaveBeenCalled();
+      expect(await fetchFaucetFundingMarker('accountBusy')).toEqual(running);
+    }
+  );
+
+  it.each([
+    ['a sent request past its arrival window', FAUCET_FUNDS_ARRIVAL_TIMEOUT_MS, true],
+    ['an unsent request past its own timeout', FAUCET_UNSUBMITTED_MARKER_MS, false]
+  ])('starts a new request over %s', async (_state, ageMs, submitted) => {
+    const stale = { requestedAt: Date.now() - ageMs - 1, baselineNoteIds: [], ...(submitted && { submitted }) };
+    await setFaucetFundingMarker('accountStale', stale);
+    const marker = { requestedAt: Date.now(), baselineNoteIds: [] };
+    mintFromMidenFaucetMock.mockImplementation(
+      async (_address: string, _amount: bigint, _signal?: AbortSignal, beforeSubmit?: () => Promise<void>) => {
+        await beforeSubmit?.();
+        return { txId: '0xtx', noteId: '0xnote' };
+      }
+    );
+
+    await faucet('accountStale', marker);
+
+    expect(mintFromMidenFaucetMock).toHaveBeenCalledTimes(1);
+    expect(await fetchFaucetFundingMarker('accountStale')).toEqual({
+      ...marker,
+      submitted: true,
+      submittedAt: expect.any(Number)
+    });
+  });
+
+  it('does not send a request another surface already ended as abandoned', async () => {
+    let sent = false;
+    mintFromMidenFaucetMock.mockImplementation(
+      async (_address: string, _amount: bigint, _signal?: AbortSignal, beforeSubmit?: () => Promise<void>) => {
+        // This realm's timers were held back; meanwhile another surface found the marker
+        // unflagged past the request timeout, cleared it and offered Fund again.
+        await setFaucetFundingMarker('accountFenced', null);
+        await beforeSubmit?.();
+        sent = true;
+        return { txId: '0xtx', noteId: '0xnote' };
+      }
+    );
+
+    const error = await faucet('accountFenced', { requestedAt: 1_000, baselineNoteIds: [] }).catch((e: unknown) => e);
+
+    expect(sent).toBe(false);
+    expect(error).toBeInstanceOf(Error);
+    expect(error).not.toBeInstanceOf(FaucetOutcomeUnknownError);
+    expect(await fetchFaucetFundingMarker('accountFenced')).toBeNull();
+  });
+
+  it('fails before the token request, safe to retry, when the submitted flag cannot be stored', async () => {
+    const provider = getStorageProvider();
+    const writeRecord = provider.set.bind(provider);
+    const set = jest.spyOn(provider, 'set');
+    // Every write lands except the one that flags the request submitted.
+    set.mockImplementation(async items => {
+      if (Object.values(items).some(value => Reflect.get(Object(value), 'submitted') !== undefined)) {
+        throw new Error('storage unavailable');
+      }
+      await writeRecord(items);
+    });
+    let sent = false;
+    mintFromMidenFaucetMock.mockImplementation(
+      async (_address: string, _amount: bigint, _signal?: AbortSignal, beforeSubmit?: () => Promise<void>) => {
+        await beforeSubmit?.();
+        sent = true;
+        return { txId: '0xtx', noteId: '0xnote' };
+      }
+    );
+
+    try {
+      const error = await faucet('accountNoFlag', { requestedAt: 1_000, baselineNoteIds: [] }).catch((e: unknown) => e);
+
+      // A later open would read the unflagged marker as abandoned and offer Fund,
+      // so the request must not go out without the flag.
+      expect(sent).toBe(false);
+      expect(error).toEqual(new Error('storage unavailable'));
+      expect(error).not.toBeInstanceOf(FaucetOutcomeUnknownError);
+    } finally {
+      set.mockRestore();
+    }
   });
 
   it('refuses a funding marker stamped in the future', async () => {
@@ -330,25 +647,86 @@ describe('wallet prompts', () => {
     expect(await fetchFaucetFundingMarker('accountClock')).toBeNull();
   });
 
-  it('keeps the submit stamp, and reads a malformed one as submitted', async () => {
-    await setFaucetFundingMarker('accountStamp', { requestedAt: 1_000, baselineNoteIds: [], submittedAt: 1_500 });
-    expect(await fetchFaucetFundingMarker('accountStamp')).toEqual({
+  it('keeps when a flagged request went out, and ignores a send time it cannot trust', async () => {
+    const submittedAt = Date.now() - 30_000;
+    await setFaucetFundingMarker('accountSent', {
       requestedAt: 1_000,
       baselineNoteIds: [],
-      submittedAt: 1_500
+      submitted: true,
+      submittedAt
+    });
+    expect(await fetchFaucetFundingMarker('accountSent')).toEqual({
+      requestedAt: 1_000,
+      baselineNoteIds: [],
+      submitted: true,
+      submittedAt
     });
 
-    // A garbled stamp still means the request may have gone out; reading it as
+    // A send time in the future (a forward clock step), before the request (a backward one) or
+    // not a number falls back to the request time.
+    for (const bad of [Date.now() + 60_000, 999, 'soon']) {
+      await putToStorage('faucet_funding_v2:accountBadSend', {
+        requestedAt: 1_000,
+        baselineNoteIds: [],
+        submitted: true,
+        submittedAt: bad
+      });
+      expect(await fetchFaucetFundingMarker('accountBadSend')).toEqual({
+        requestedAt: 1_000,
+        baselineNoteIds: [],
+        submitted: true
+      });
+    }
+  });
+
+  it.each<[string, { submitted?: true; age: number; sentAgo?: number }, boolean, boolean]>([
+    ['a request still running here, whatever its age', { submitted: true, age: 4 * 60_000 }, true, true],
+    ['an unsent request still running here, past its arrival window', { age: 4 * 60_000 }, true, true],
+    [
+      'a sent request whose window runs from its late send',
+      { submitted: true, age: 5 * 60_000, sentAgo: 30_000 },
+      false,
+      true
+    ],
+    [
+      'a sent request past its window from its send',
+      { submitted: true, age: 5 * 60_000, sentAgo: 3 * 60_000 + 1 },
+      false,
+      false
+    ]
+  ])(
+    'judges %s',
+    (_case, { submitted, age, sentAgo }: { submitted?: true; age: number; sentAgo?: number }, runningHere, live) => {
+      const now = Date.now();
+      const marker = {
+        requestedAt: now - age,
+        baselineNoteIds: [],
+        ...(submitted && { submitted }),
+        ...(sentAgo !== undefined && { submittedAt: now - sentAgo })
+      };
+      expect(isFaucetFundingMarkerLive(marker, { runningHere, settledAt: null })).toBe(live);
+    }
+  );
+
+  it('keeps the submitted flag, and reads a malformed one as submitted', async () => {
+    await setFaucetFundingMarker('accountFlag', { requestedAt: 1_000, baselineNoteIds: [], submitted: true });
+    expect(await fetchFaucetFundingMarker('accountFlag')).toEqual({
+      requestedAt: 1_000,
+      baselineNoteIds: [],
+      submitted: true
+    });
+
+    // A garbled flag still means the request may have gone out; reading it as
     // absent would clear a marker for a mint that could still land.
     await putToStorage('faucet_funding_v2:accountGarbled', {
       requestedAt: 1_000,
       baselineNoteIds: [],
-      submittedAt: 'x'
+      submitted: 'x'
     });
     expect(await fetchFaucetFundingMarker('accountGarbled')).toEqual({
       requestedAt: 1_000,
       baselineNoteIds: [],
-      submittedAt: 1_000
+      submitted: true
     });
   });
 

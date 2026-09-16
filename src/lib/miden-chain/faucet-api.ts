@@ -39,6 +39,12 @@ function retryAfterMs(response: Response): number | null {
   return null;
 }
 
+/** Called around each attempt: before its fetch goes out, and once its status arrives. */
+export type FaucetFetchHooks = {
+  onAttempt?: () => void;
+  onStatus?: (status: number) => void;
+};
+
 /**
  * `fetch` bounded by a timeout, honoring a single `429 Retry-After` back-off.
  *
@@ -51,7 +57,8 @@ function retryAfterMs(response: Response): number | null {
 export async function faucetFetch(
   url: string,
   init?: RequestInit,
-  timeoutMs: number = FAUCET_FETCH_TIMEOUT_MS
+  timeoutMs: number = FAUCET_FETCH_TIMEOUT_MS,
+  hooks?: FaucetFetchHooks
 ): Promise<Response> {
   // The timeout needs its own controller, so a caller-provided `init.signal`
   // can't ride through to `fetch` directly — link it to the internal one
@@ -64,7 +71,10 @@ export async function faucetFetch(
     external?.addEventListener('abort', abortFromExternal, { once: true });
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      return await fetch(url, { ...init, signal: controller.signal });
+      hooks?.onAttempt?.();
+      const response = await fetch(url, { ...init, signal: controller.signal });
+      hooks?.onStatus?.(response.status);
+      return response;
     } finally {
       clearTimeout(timer);
       external?.removeEventListener('abort', abortFromExternal);
@@ -133,15 +143,16 @@ export async function solvePowChallenge(
 
 /**
  * A token request that was sent but never answered (aborted, timed out, or the
- * connection failed). The faucet may already have queued the mint, so a retry is
- * not safe: it could mint a second time. Distinct from a response with an error
- * status, which is a definitive refusal and safe to retry.
+ * connection failed), answered with a server or gateway error other than 503, or
+ * accepted with a body that could not be read. The faucet may already have queued
+ * the mint, so a retry is not safe: it could mint a second time. Distinct from a
+ * 4xx or 503, which the faucet sends before or instead of queueing the mint: a
+ * definitive refusal, safe to retry.
  */
 export class FaucetOutcomeUnknownError extends Error {
-  constructor(message: string, options?: { cause?: unknown }) {
-    super(message);
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
     this.name = 'FaucetOutcomeUnknownError';
-    if (options?.cause !== undefined) Reflect.set(this, 'cause', options.cause);
   }
 }
 
@@ -151,7 +162,10 @@ export async function requestTokens(
   amount: bigint,
   challenge: string,
   nonce: number,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  // Told whether a token request may be minting right now: true while one is out, false
+  // once a status that refuses it arrives (before its body, and through a 429 back-off).
+  onMayMint?: (mayMint: boolean) => void
 ): Promise<MintedNote> {
   const params = new URLSearchParams({
     account_id: accountId,
@@ -162,18 +176,39 @@ export async function requestTokens(
   });
   let response: Response;
   try {
-    response = await faucetFetch(`${baseUrl}/get_tokens?${params}`, { signal });
+    response = await faucetFetch(`${baseUrl}/get_tokens?${params}`, { signal }, undefined, {
+      onAttempt: () => onMayMint?.(true),
+      onStatus: status => onMayMint?.(faucetStatusMayHaveMinted(status))
+    });
   } catch (error) {
     // No response means no way to know whether the faucet received the request.
     throw new FaucetOutcomeUnknownError('Faucet token request got no response', { cause: error });
   }
 
   if (!response.ok) {
-    throw new Error(`Faucet token request failed with status ${response.status}: ${await response.text()}`);
+    // The status decides what happened; an unreadable body only loses the explanation.
+    const detail = await response.text().catch(() => '');
+    const failure = new Error(`Faucet token request failed with status ${response.status}: ${detail}`);
+    if (faucetStatusMayHaveMinted(response.status)) {
+      throw new FaucetOutcomeUnknownError(failure.message, { cause: failure });
+    }
+    throw failure;
   }
 
-  const json: { tx_id: string; note_id: string } = await response.json();
-  return { txId: json.tx_id, noteId: json.note_id };
+  try {
+    const json: { tx_id: string; note_id: string } = await response.json();
+    return { txId: json.tx_id, noteId: json.note_id };
+  } catch (error) {
+    // The faucet accepted the request, so it may have minted; only the ids were lost.
+    throw new FaucetOutcomeUnknownError('Faucet token response could not be read', { cause: error });
+  }
+}
+
+// 0xMiden/faucet answers 503 when it cannot queue the mint, and 500 once a queued mint's
+// result is lost; a gateway 502 or 504 says nothing about the faucet behind it. Any other
+// non-OK status is sent before a mint is queued.
+function faucetStatusMayHaveMinted(status: number): boolean {
+  return status < 300 || (status >= 500 && status !== 503);
 }
 
 export async function mintFromMidenFaucet(
@@ -182,13 +217,14 @@ export async function mintFromMidenFaucet(
   signal?: AbortSignal,
   // Awaited after the proof of work and immediately before the token request is
   // sent: the last point at which nothing can have been minted yet.
-  onBeforeSubmit?: () => Promise<void>
+  onBeforeSubmit?: () => Promise<void>,
+  onMayMint?: (mayMint: boolean) => void
 ): Promise<MintedNote> {
   const baseUrl = getFaucetApiUrl();
   const { challenge, target } = await getPowChallenge(baseUrl, address, amount, signal);
   const nonce = await solvePowChallenge(challenge, target, { signal });
   await onBeforeSubmit?.();
-  return requestTokens(baseUrl, address, amount, challenge, nonce, signal);
+  return requestTokens(baseUrl, address, amount, challenge, nonce, signal, onMayMint);
 }
 
 function hexToBytes(hex: string): Uint8Array {
