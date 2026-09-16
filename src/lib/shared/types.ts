@@ -195,6 +195,11 @@ export interface SyncData {
   notes: SerializedConsumableNote[];
   vaultAssets: SerializedVaultAsset[];
   accountPublicKey: string;
+  // When the service worker's last successful sync finished, so a reader can tell a
+  // live result from the snapshot persisted by an earlier session. A pass whose sync
+  // failed repeats the previous value. Absent before this service worker's first
+  // successful sync, and from snapshots written before the field existed.
+  syncedAt?: number;
 }
 
 export interface SyncCompleted extends WalletMessageBase {
