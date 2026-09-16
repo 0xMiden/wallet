@@ -4659,9 +4659,18 @@
     "message": "您的錢包已建立，但尚未完成啟動。請檢查網路連線並重新嘗試。",
     "englishSource": "Your wallet was created but did not finish starting up. Check your connection and try again."
   },
-  "spendingLimits": { "message": "支出限額", "englishSource": "Spending limits" },
-  "spendingLimitDaily": { "message": "滾動 24 小時限額", "englishSource": "Rolling 24-hour limit" },
-  "spendingLimitWeekly": { "message": "滾動 7 天限額", "englishSource": "Rolling 7-day limit" },
+  "spendingLimits": {
+    "message": "支出限額",
+    "englishSource": "Spending limits"
+  },
+  "spendingLimitDaily": {
+    "message": "滾動 24 小時限額",
+    "englishSource": "Rolling 24-hour limit"
+  },
+  "spendingLimitWeekly": {
+    "message": "滾動 7 天限額",
+    "englishSource": "Rolling 7-day limit"
+  },
   "spendingLimitUnknownDecimals": {
     "message": "在解析此資產的小數位元資料之前，無法設定限額。",
     "englishSource": "Limits are unavailable until this asset's decimal metadata is resolved."
@@ -4694,7 +4703,10 @@
     "message": "沒有可設定的資產。",
     "englishSource": "No assets are available to configure."
   },
-  "spendingLimitSave": { "message": "儲存", "englishSource": "Save" },
+  "spendingLimitSave": {
+    "message": "儲存",
+    "englishSource": "Save"
+  },
   "spendingLimitChallengeTitle": {
     "message": "支出限額已超出",
     "englishSource": "Spending limit exceeded"

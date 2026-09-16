@@ -4659,9 +4659,18 @@
     "message": "Ihre Wallet wurde erstellt, der Startvorgang wurde jedoch nicht abgeschlossen. Überprüfen Sie Ihre Verbindung und versuchen Sie es erneut.",
     "englishSource": "Your wallet was created but did not finish starting up. Check your connection and try again."
   },
-  "spendingLimits": { "message": "Ausgabenlimits", "englishSource": "Spending limits" },
-  "spendingLimitDaily": { "message": "Gleitendes 24-Stunden-Limit", "englishSource": "Rolling 24-hour limit" },
-  "spendingLimitWeekly": { "message": "Gleitendes 7-Tage-Limit", "englishSource": "Rolling 7-day limit" },
+  "spendingLimits": {
+    "message": "Ausgabenlimits",
+    "englishSource": "Spending limits"
+  },
+  "spendingLimitDaily": {
+    "message": "Gleitendes 24-Stunden-Limit",
+    "englishSource": "Rolling 24-hour limit"
+  },
+  "spendingLimitWeekly": {
+    "message": "Gleitendes 7-Tage-Limit",
+    "englishSource": "Rolling 7-day limit"
+  },
   "spendingLimitUnknownDecimals": {
     "message": "Limits sind erst verfügbar, wenn die Dezimalstellen-Metadaten dieses Assets aufgelöst wurden.",
     "englishSource": "Limits are unavailable until this asset's decimal metadata is resolved."
@@ -4694,7 +4703,10 @@
     "message": "Es sind keine Assets zum Konfigurieren verfügbar.",
     "englishSource": "No assets are available to configure."
   },
-  "spendingLimitSave": { "message": "Speichern", "englishSource": "Save" },
+  "spendingLimitSave": {
+    "message": "Speichern",
+    "englishSource": "Save"
+  },
   "spendingLimitChallengeTitle": {
     "message": "Ausgabenlimit überschritten",
     "englishSource": "Spending limit exceeded"
