@@ -69,15 +69,15 @@ it('zeroes an active key when the pipeline stalls, but never while it is still s
   expect(beginRecoveryAuthorization(transaction, 'key')).toBe(true);
 
   // Still signing. A recovery run can need several signatures and can legitimately
-  // park for a long time, so each use must push the ceiling out: 60 minutes of
-  // live progress here, well past the ceiling itself, and the key survives.
+  // park for a long time, so each use must push the ceiling out: six hours of live
+  // progress here, far past the ceiling itself, and the key survives.
   for (let lap = 0; lap < 3; lap++) {
-    jest.advanceTimersByTime(20 * 60 * 1000);
+    jest.advanceTimersByTime(110 * 60 * 1000);
     expect(getRecoveryAuthorization(transaction, 'key')).toBe(secret);
   }
 
   // Now it stalls: no release, no further signature. The key must not outlive it.
-  jest.advanceTimersByTime(31 * 60 * 1000);
+  jest.advanceTimersByTime(2 * 60 * 60 * 1000 + 60 * 1000);
   expect(getRecoveryAuthorization(transaction, 'key')).toBeUndefined();
   expect([...secret]).toEqual([0, 0]);
 });
@@ -92,7 +92,8 @@ it('zeroes a key whose pipeline began and then died before signing', () => {
   authorizeRecovery(transaction, 'key', secret);
   expect(beginRecoveryAuthorization(transaction, 'key')).toBe(true);
 
-  jest.advanceTimersByTime(31 * 60 * 1000);
+  // Nothing re-arms, so only the ceiling `begin` set is left. It must still fire.
+  jest.advanceTimersByTime(2 * 60 * 60 * 1000 + 60 * 1000);
 
   expect(getRecoveryAuthorization(transaction, 'key')).toBeUndefined();
   expect([...secret]).toEqual([0, 0]);

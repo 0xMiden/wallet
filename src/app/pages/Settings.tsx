@@ -356,6 +356,13 @@ const Settings: FC<SettingsProps> = ({ tabSlug, rootScrollTop: savedRootScrollTo
   // menu once the phrase is gone, but its panel is the ONLY place that reports an
   // interrupted removal ('removing', which unlock retries) or a completed one, so
   // the route has to keep resolving or that state has no surface at all.
+  //
+  // This deliberately re-adds EVERY seed-gated tab, not just the removal pages,
+  // and that is safe because each destination reports the non-stored state itself:
+  // RevealSecret gates on revealUnavailable (:42, covered for all three reveal
+  // modes by its own test), RevealSeedPhrase at :139 and VerifySeedPhraseFlow at
+  // :172. Reaching one of them and being told why is better than a silent bounce
+  // back to the menu, which is what invalidTab does.
   const allTabs = useMemo(
     () => [
       ...tabGroups.flatMap(g => g.tabs),

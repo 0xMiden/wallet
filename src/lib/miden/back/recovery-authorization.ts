@@ -8,12 +8,19 @@ const IDLE_TIMEOUT_MS = 5 * 60 * 1000;
  * user-facing sign), but a pipeline that never settles, a release that fails on
  * the intercom path, and a cancelled row all leave the key resident otherwise,
  * because none of them reaches `clearRecoveryAuthorization`. Same rule the WASM
- * lock watchdog learned in #775 - stopping the clock makes the backstop optional
- * through the escape hatch the fix itself added - and the same 30 minutes its
- * paused ceiling uses (WASM_LOCK_PAUSED_WATCHDOG_MS), since that bounds the
- * longest wait a pipeline can legitimately take.
+ * lock watchdog learned in #775: stopping the clock makes the backstop optional
+ * through the escape hatch the fix itself added.
+ *
+ * It is deliberately LONGER than every other bound that governs a live recovery
+ * transaction, so it can only ever fire on a pipeline nothing else reclaimed:
+ * MAX_QUEUED_AGE caps a queued row at 30 min, the WASM paused watchdog caps a
+ * single hold at 30 min, and same-account Guardian ops serialize behind a lock a
+ * sibling can hold through an unbounded local prove. A ceiling equal to any of
+ * those could zero a key between `beginRecoveryAuthorization` and the first
+ * signature, which is a worse failure than the one this exists to prevent: the
+ * user would have to re-enter a seed phrase mid-recovery.
  */
-const ACTIVE_TIMEOUT_MS = 30 * 60 * 1000;
+const ACTIVE_TIMEOUT_MS = 2 * 60 * 60 * 1000;
 
 interface Authorization {
   binding: string;
