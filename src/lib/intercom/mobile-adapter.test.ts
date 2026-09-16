@@ -21,6 +21,29 @@ jest.mock('lib/miden/back/actions', () => ({
   editAccount: jest.fn().mockResolvedValue(undefined),
   importAccount: jest.fn().mockResolvedValue('mtst1imported-pk'),
   updateSettings: jest.fn().mockResolvedValue(undefined),
+  listSpendingLimits: jest.fn().mockResolvedValue([
+    {
+      accountId: 'account-a',
+      faucetId: 'faucet-a',
+      dailyLimit: '100',
+      asset: { symbol: 'MIDEN', decimals: 8 },
+      revision: 'revision-1',
+      createdAt: 1,
+      updatedAt: 1
+    }
+  ]),
+  saveSpendingLimit: jest.fn().mockResolvedValue({
+    accountId: 'account-a',
+    faucetId: 'faucet-a',
+    dailyLimit: '90',
+    asset: { symbol: 'MIDEN', decimals: 8 },
+    revision: 'revision-2',
+    createdAt: 1,
+    updatedAt: 2
+  }),
+  assessOutgoingSpendingLimit: jest.fn().mockResolvedValue(undefined),
+  getStrictAuthenticationProtectors: jest.fn().mockResolvedValue({ hardware: true, password: false }),
+  verifyStrictActionAuthentication: jest.fn().mockResolvedValue(undefined),
   signTransaction: jest.fn().mockResolvedValue('signature'),
   signWord: jest.fn().mockResolvedValue('word-signature'),
   getAuthSecretKey: jest.fn().mockResolvedValue('secret-key'),
@@ -236,6 +259,62 @@ describe('MobileIntercomAdapter', () => {
 
       expect(Actions.updateSettings).toHaveBeenCalledWith(settings);
       expect(response).toEqual({ type: WalletMessageType.UpdateSettingsResponse });
+    });
+
+    it('handles spending-limit list and save requests', async () => {
+      const draft = {
+        accountId: 'account-a',
+        faucetId: 'faucet-a',
+        dailyLimit: '90',
+        asset: { symbol: 'MIDEN', decimals: 8 }
+      };
+
+      const listed = await adapter.request({
+        type: WalletMessageType.GetSpendingLimitsRequest,
+        accountId: 'account-a'
+      });
+      const saved = await adapter.request({
+        type: WalletMessageType.SaveSpendingLimitRequest,
+        draft,
+        observedRevision: 'revision-1',
+        strictlyAuthenticated: false
+      });
+
+      expect(Actions.listSpendingLimits).toHaveBeenCalledWith('account-a');
+      expect(Actions.saveSpendingLimit).toHaveBeenCalledWith(draft, 'revision-1', false);
+      expect(listed).toMatchObject({ type: WalletMessageType.GetSpendingLimitsResponse, configurations: [{}] });
+      expect(saved).toMatchObject({
+        type: WalletMessageType.SaveSpendingLimitResponse,
+        configuration: { revision: 'revision-2' }
+      });
+    });
+
+    it('returns an empty preflight response when no spending limit is configured', async () => {
+      const response = await adapter.request({
+        type: WalletMessageType.AssessSpendingLimitRequest,
+        accountId: 'account-a',
+        faucetId: 'faucet-a',
+        amount: '20'
+      });
+
+      expect(Actions.assessOutgoingSpendingLimit).toHaveBeenCalledWith('account-a', 'faucet-a', '20');
+      expect(response).toEqual({ type: WalletMessageType.AssessSpendingLimitResponse });
+    });
+
+    it('handles strict authentication protector and verification requests', async () => {
+      const protectors = await adapter.request({ type: WalletMessageType.GetStrictAuthenticationProtectorsRequest });
+      const verified = await adapter.request({
+        type: WalletMessageType.VerifyStrictActionAuthenticationRequest,
+        credential: '123456'
+      });
+
+      expect(Actions.getStrictAuthenticationProtectors).toHaveBeenCalled();
+      expect(Actions.verifyStrictActionAuthentication).toHaveBeenCalledWith('123456');
+      expect(protectors).toEqual({
+        type: WalletMessageType.GetStrictAuthenticationProtectorsResponse,
+        protectors: { hardware: true, password: false }
+      });
+      expect(verified).toEqual({ type: WalletMessageType.VerifyStrictActionAuthenticationResponse });
     });
 
     it('handles SignTransactionRequest', async () => {

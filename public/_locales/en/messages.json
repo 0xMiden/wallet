@@ -4658,5 +4658,89 @@
   "walletSetupDidNotComplete": {
     "message": "Your wallet was created but did not finish starting up. Check your connection and try again.",
     "englishSource": "Your wallet was created but did not finish starting up. Check your connection and try again."
+  },
+  "spendingLimits": {
+    "message": "Spending limits",
+    "englishSource": "Spending limits"
+  },
+  "spendingLimitDaily": {
+    "message": "Rolling 24-hour limit",
+    "englishSource": "Rolling 24-hour limit"
+  },
+  "spendingLimitWeekly": {
+    "message": "Rolling 7-day limit",
+    "englishSource": "Rolling 7-day limit"
+  },
+  "spendingLimitUnknownDecimals": {
+    "message": "Limits are unavailable until this asset's decimal metadata is resolved.",
+    "englishSource": "Limits are unavailable until this asset's decimal metadata is resolved."
+  },
+  "spendingLimitAuthenticationReason": {
+    "message": "Authenticate to apply a change that weakens this spending limit.",
+    "englishSource": "Authenticate to apply a change that weakens this spending limit."
+  },
+  "spendingLimitLoadFailed": {
+    "message": "Spending limits could not be loaded. Try again.",
+    "englishSource": "Spending limits could not be loaded. Try again."
+  },
+  "spendingLimitInvalidAmount": {
+    "message": "Enter a positive amount with no more decimal places than this asset supports.",
+    "englishSource": "Enter a positive amount with no more decimal places than this asset supports."
+  },
+  "spendingLimitSaveFailed": {
+    "message": "This spending limit could not be saved. Try again.",
+    "englishSource": "This spending limit could not be saved. Try again."
+  },
+  "spendingLimitLocalDisclosure": {
+    "message": "Limits and spending history are stored only on this installation. Resetting app data or reinstalling the wallet removes them.",
+    "englishSource": "Limits and spending history are stored only on this installation. Resetting app data or reinstalling the wallet removes them."
+  },
+  "spendingLimitNotOnChain": {
+    "message": "These limits are a local safety check, not an on-chain restriction. Anyone with direct access to your keys can bypass them.",
+    "englishSource": "These limits are a local safety check, not an on-chain restriction. Anyone with direct access to your keys can bypass them."
+  },
+  "spendingLimitNoAssets": {
+    "message": "No assets are available to configure.",
+    "englishSource": "No assets are available to configure."
+  },
+  "spendingLimitSave": {
+    "message": "Save",
+    "englishSource": "Save"
+  },
+  "spendingLimitChallengeTitle": {
+    "message": "Spending limit exceeded",
+    "englishSource": "Spending limit exceeded"
+  },
+  "spendingLimitPeriod24h": {
+    "message": "Past 24 hours",
+    "englishSource": "Past 24 hours"
+  },
+  "spendingLimitPeriod7d": {
+    "message": "Past 7 days",
+    "englishSource": "Past 7 days"
+  },
+  "spendingLimitCap": {
+    "message": "Limit",
+    "englishSource": "Limit"
+  },
+  "spendingLimitOverBy": {
+    "message": "Over by",
+    "englishSource": "Over by"
+  },
+  "spendingLimitResets": {
+    "message": "Available again",
+    "englishSource": "Available again"
+  },
+  "spendingLimitNoAutomaticReset": {
+    "message": "This amount exceeds the limit on its own",
+    "englishSource": "This amount exceeds the limit on its own"
+  },
+  "spendingLimitChangeInSettings": {
+    "message": "To raise the limit, go to Settings > Spending limits.",
+    "englishSource": "To raise the limit, go to Settings > Spending limits."
+  },
+  "spendingLimitTransactionAuthenticationReason": {
+    "message": "Authenticate to continue with this transaction. This does not change or disable your spending limit.",
+    "englishSource": "Authenticate to continue with this transaction. This does not change or disable your spending limit."
   }
 }

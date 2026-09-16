@@ -52,6 +52,21 @@ jest.mock('app/icons/v2', () => ({
   IconName: {}
 }));
 
+jest.mock('components/SpendingLimitChallenge', () => ({
+  SpendingLimitChallenge: (props: any) => (
+    <div data-testid="spending-limit-challenge">
+      <span>{props.assessment.revision}</span>
+      <span>{props.asset.symbol}</span>
+      <button type="button" onClick={() => props.onResult({ id: 'ui-only-authorization' })}>
+        authenticate-limit
+      </button>
+      <button type="button" onClick={() => props.onResult(undefined)}>
+        cancel-limit
+      </button>
+    </div>
+  )
+}));
+
 const FULL_ACCOUNT_ID = 'mtst1apsnkg6x57mhxyrq09aavyq08yu5dy4p_qr7qqq9wr6w';
 
 function buildRequest(overrides: Partial<DAppConfirmationRequest> = {}): DAppConfirmationRequest {
@@ -74,6 +89,22 @@ const autoRequest = () =>
   buildRequest({
     privateDataPermission: PrivateDataPermission.Auto,
     allowedPrivateData: AllowedPrivateData.Notes | AllowedPrivateData.Assets
+  });
+
+const limitedTransactionRequest = () =>
+  buildRequest({
+    type: 'transaction',
+    sourcePublicKey: FULL_ACCOUNT_ID,
+    transactionMessages: ['Send 5 MIDEN'],
+    spendingLimitAssessment: {
+      accountId: FULL_ACCOUNT_ID,
+      faucetId: 'mtst1faucet',
+      amount: 5n,
+      revision: 'revision-1',
+      assessedAt: 100,
+      breaches: [{ period: '24h', spent: 8n, proposedTotal: 13n, limit: 10n, overBy: 3n, resetAt: 200 }]
+    },
+    spendingLimitAsset: { symbol: 'MIDEN', decimals: 6 }
   });
 
 describe('DappConfirmationModal', () => {
@@ -178,5 +209,60 @@ describe('DappConfirmationModal', () => {
 
     expect(onResolve.mock.calls[0]![0].delegate).toBe(false);
     localStorage.removeItem(DELEGATE_PROOF_STORAGE_KEY);
+  });
+
+  it('does not resolve an over-limit approval until strict authentication succeeds', () => {
+    const onResolve = jest.fn();
+    render(
+      <DappConfirmationModal request={limitedTransactionRequest()} accountId={FULL_ACCOUNT_ID} onResolve={onResolve} />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /confirm/i }));
+
+    expect(screen.getByTestId('spending-limit-challenge')).toHaveTextContent('revision-1');
+    expect(screen.getByTestId('spending-limit-challenge')).toHaveTextContent('MIDEN');
+    expect(onResolve).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'authenticate-limit' }));
+
+    expect(onResolve).toHaveBeenCalledWith(
+      expect.objectContaining({ confirmed: true, spendingLimitAuthenticated: true })
+    );
+    expect(onResolve.mock.calls[0]![0]).not.toHaveProperty('spendingLimitAuthorization');
+  });
+
+  it('denies an over-limit request when strict authentication is cancelled', () => {
+    const onResolve = jest.fn();
+    render(
+      <DappConfirmationModal request={limitedTransactionRequest()} accountId={FULL_ACCOUNT_ID} onResolve={onResolve} />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /confirm/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'cancel-limit' }));
+
+    expect(onResolve).toHaveBeenCalledWith({ confirmed: false });
+  });
+
+  it('resolves only once when a strict-authentication completion is delivered twice', () => {
+    const onResolve = jest.fn();
+    render(
+      <DappConfirmationModal request={limitedTransactionRequest()} accountId={FULL_ACCOUNT_ID} onResolve={onResolve} />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /confirm/i }));
+    const authenticate = screen.getByRole('button', { name: 'authenticate-limit' });
+    fireEvent.click(authenticate);
+    fireEvent.click(authenticate);
+
+    expect(onResolve).toHaveBeenCalledTimes(1);
+  });
+
+  it('denies a transaction when the active account changed while the request was open', () => {
+    const onResolve = jest.fn();
+    render(
+      <DappConfirmationModal request={limitedTransactionRequest()} accountId="mtst1different" onResolve={onResolve} />
+    );
+
+    expect(onResolve).toHaveBeenCalledWith({ confirmed: false });
   });
 });

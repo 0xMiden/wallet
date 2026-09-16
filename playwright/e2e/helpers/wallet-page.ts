@@ -156,6 +156,26 @@ export interface ChromeWalletPageApi extends WalletPage, IdbDumpSource {
   readonly page: Page;
   readonly extensionId: string;
   readonly userDataDir: string;
+  configureSpendingLimitForTest(params: {
+    tokenSymbol: string;
+    dailyLimitBaseUnits?: string;
+    weeklyLimitBaseUnits?: string;
+  }): Promise<{ accountId: string; faucetId: string; decimals: number }>;
+  runSpendingLimitRaceForTest(params: {
+    recipientAddress: string;
+    faucetId: string;
+    amountBaseUnits: string;
+  }): Promise<{ fulfilledCount: number; rejectedCount: number; insertedCount: number; rejectionCodes: string[] }>;
+  prepareSendReview(params: {
+    recipientAddress: string;
+    amount: string;
+    isPrivate: boolean;
+    tokenSymbol?: string;
+  }): Promise<void>;
+  submitSendReview(): Promise<void>;
+  waitForSendSubmissionAccepted(timeoutMs?: number): Promise<void>;
+  authenticateSpendingLimitForTest(password?: string): Promise<void>;
+  cancelSpendingLimitChallenge(): Promise<void>;
   /**
    * The wallet's derived EVM address (`0x…`) — the Epoch earn EVM owner. Chrome
    * only (the earn e2e is Chrome); add to WalletPage + the mobile POMs when earn
@@ -2433,14 +2453,87 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
 
   // ── Send Flow ─────────────────────────────────────────────────────────────
 
+  async configureSpendingLimitForTest(params: {
+    tokenSymbol: string;
+    dailyLimitBaseUnits?: string;
+    weeklyLimitBaseUnits?: string;
+  }): Promise<{ accountId: string; faucetId: string; decimals: number }> {
+    return this.page.evaluate(async input => {
+      type Balance = {
+        tokenId: string;
+        metadata: { symbol: string; decimals: number; name?: string };
+      };
+      type ExistingLimit = { faucetId: string; revision: string };
+      type TestStore = {
+        getState(): {
+          currentAccount: { publicKey: string } | null;
+          balances: Record<string, Balance[]>;
+          listSpendingLimits(accountId: string): Promise<ExistingLimit[]>;
+          saveSpendingLimit(
+            draft: {
+              accountId: string;
+              faucetId: string;
+              asset: { symbol: string; decimals: number; name?: string };
+              dailyLimit?: bigint;
+              weeklyLimit?: bigint;
+            },
+            observedRevision: string | undefined,
+            strictlyAuthenticated: boolean
+          ): Promise<unknown>;
+        };
+      };
+
+      const store = (globalThis as unknown as { __TEST_STORE__?: TestStore }).__TEST_STORE__;
+      if (store === undefined) throw new Error('configureSpendingLimitForTest requires an E2E build');
+      const state = store.getState();
+      const accountId = state.currentAccount?.publicKey;
+      if (accountId === undefined) throw new Error('configureSpendingLimitForTest found no current account');
+      const balance = (state.balances[accountId] ?? []).find(row => row.metadata.symbol === input.tokenSymbol);
+      if (balance === undefined) {
+        throw new Error(`configureSpendingLimitForTest found no ${input.tokenSymbol} balance row`);
+      }
+      const existing = (await state.listSpendingLimits(accountId)).find(row => row.faucetId === balance.tokenId);
+      await state.saveSpendingLimit(
+        {
+          accountId,
+          faucetId: balance.tokenId,
+          asset: balance.metadata,
+          ...(input.dailyLimitBaseUnits === undefined ? {} : { dailyLimit: BigInt(input.dailyLimitBaseUnits) }),
+          ...(input.weeklyLimitBaseUnits === undefined ? {} : { weeklyLimit: BigInt(input.weeklyLimitBaseUnits) })
+        },
+        existing?.revision,
+        true
+      );
+      return { accountId, faucetId: balance.tokenId, decimals: balance.metadata.decimals };
+    }, params);
+  }
+
+  async runSpendingLimitRaceForTest(params: {
+    recipientAddress: string;
+    faucetId: string;
+    amountBaseUnits: string;
+  }): Promise<{ fulfilledCount: number; rejectedCount: number; insertedCount: number; rejectionCodes: string[] }> {
+    return this.page.evaluate(async input => {
+      type RaceResult = {
+        fulfilledCount: number;
+        rejectedCount: number;
+        insertedCount: number;
+        rejectionCodes: string[];
+      };
+      const hook = (
+        globalThis as unknown as {
+          __TEST_RUN_SPENDING_LIMIT_RACE__?: (value: typeof input) => Promise<RaceResult>;
+        }
+      ).__TEST_RUN_SPENDING_LIMIT_RACE__;
+      if (hook === undefined) throw new Error('runSpendingLimitRaceForTest requires an E2E build');
+      return hook(input);
+    }, params);
+  }
+
   /**
-   * Execute the full send flow: SelectToken -> SendDetails -> ReviewTransaction.
-   *
-   * Post-condition: the review screen accepted the submit (its button detached)
-   * and the wallet is not sitting on a rendered error surface. Both are thrown,
-   * not logged — see the comment on step 6.
+   * Drive the send flow through ReviewTransaction without submitting it.
    */
-  async sendTokens(params: {
+  async prepareSendReview(params: {
     recipientAddress: string;
     amount: string;
     isPrivate: boolean;
@@ -2514,16 +2607,16 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
         ),
       params.isPrivate
     );
+  }
 
-    // 5. ReviewTransaction: submit. Page-scoped — the review page renders
-    // outside the send-flow container now.
-    await this.page.getByTestId('send-review-submit').click({ timeout: STEP_TIMEOUT_MS });
+  async submitSendReview(): Promise<void> {
+    await this.page.getByTestId('send-review-submit').click({ timeout: 30_000 });
+  }
 
-    // 6. Treat the submit button detaching as the "submit accepted" signal — the
-    // send flow navigates to home/completion once the request is dispatched.
+  async waitForSendSubmissionAccepted(timeoutMs = 120_000): Promise<void> {
     const submitAccepted = await this.page
       .getByTestId('send-review-submit')
-      .waitFor({ state: 'detached', timeout: 120_000 })
+      .waitFor({ state: 'detached', timeout: timeoutMs })
       .then(() => true)
       .catch(() => false);
 
@@ -2561,10 +2654,36 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     }
     if (!submitAccepted) {
       throw new Error(
-        `WalletPage.sendTokens: the review screen's submit button was still attached 120s after clicking it, ` +
+        `WalletPage.sendTokens: the review screen's submit button was still attached ${timeoutMs}ms after clicking it, ` +
           `so the send was never dispatched. On-screen text (first 800): ${bodyText.slice(0, 800)}`
       );
     }
+  }
+
+  async authenticateSpendingLimitForTest(password = PASSWORD): Promise<void> {
+    const drawer = this.page.locator('[data-slot="drawer-content"]');
+    await drawer.locator('#strict-action-password').fill(password);
+    await drawer.getByRole('button', { name: 'Continue', exact: true }).click();
+  }
+
+  async cancelSpendingLimitChallenge(): Promise<void> {
+    const drawer = this.page.locator('[data-slot="drawer-content"]');
+    await drawer.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await drawer.waitFor({ state: 'detached' });
+  }
+
+  /**
+   * Execute the full send flow and require the review submission to be accepted.
+   */
+  async sendTokens(params: {
+    recipientAddress: string;
+    amount: string;
+    isPrivate: boolean;
+    tokenSymbol?: string;
+  }): Promise<void> {
+    await this.prepareSendReview(params);
+    await this.submitSendReview();
+    await this.waitForSendSubmissionAccepted();
   }
 
   /**

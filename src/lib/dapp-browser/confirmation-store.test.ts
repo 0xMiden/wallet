@@ -57,6 +57,32 @@ describe('requestConfirmation / resolveConfirmation', () => {
     await promise;
   });
 
+  it('keeps breach details in the wallet and returns only the strict-authentication result', async () => {
+    const store = await freshStore();
+    const request = makeRequest({
+      sessionId: 's1',
+      type: 'transaction',
+      spendingLimitAssessment: {
+        accountId: 'account-a',
+        faucetId: 'faucet-a',
+        amount: 5n,
+        revision: 'revision-1',
+        assessedAt: 100,
+        breaches: [{ period: '24h', spent: 8n, proposedTotal: 13n, limit: 10n, overBy: 3n, resetAt: 200 }]
+      },
+      spendingLimitAsset: { symbol: 'MIDEN', decimals: 6 }
+    });
+    const promise = store.requestConfirmation(request);
+
+    expect(store.getPendingRequest('s1')).toMatchObject({
+      spendingLimitAssessment: { amount: 5n, revision: 'revision-1' },
+      spendingLimitAsset: { symbol: 'MIDEN', decimals: 6 }
+    });
+    store.resolveConfirmation('s1', { confirmed: true, spendingLimitAuthenticated: true });
+
+    await expect(promise).resolves.toEqual({ confirmed: true, spendingLimitAuthenticated: true });
+  });
+
   it('routes callers without a sessionId through the legacy default slot', async () => {
     const store = await freshStore();
     const promise = store.requestConfirmation(makeRequest()); // no sessionId

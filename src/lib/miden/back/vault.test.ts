@@ -469,6 +469,25 @@ describe('Vault (static)', () => {
     });
   });
 
+  describe('verifyProtector', () => {
+    it('verifies the password without replacing the installed vault or storage', async () => {
+      await seedVault('pw-correct');
+      const installedSink = (globalThis as any).__vaultTestRealmInsertKey;
+      const storedBefore = { ...memoryStore };
+
+      await expect(Vault.verifyProtector('pw-correct')).resolves.toBeUndefined();
+
+      expect(memoryStore).toEqual(storedBefore);
+      expect((globalThis as any).__vaultTestRealmInsertKey).toBe(installedSink);
+    });
+
+    it('rejects an invalid password', async () => {
+      await seedVault('pw-correct');
+
+      await expect(Vault.verifyProtector('pw-wrong')).rejects.toThrow(PublicError);
+    });
+  });
+
   describe('tryHardwareUnlock', () => {
     it('returns null on extension (no hardware branch)', async () => {
       (isDesktop as jest.Mock).mockReturnValue(false);

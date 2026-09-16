@@ -20,6 +20,7 @@ import LanguageSettings from 'app/templates/LanguageSettings';
 import MenuItem from 'app/templates/MenuItem';
 import RevealSecret from 'app/templates/RevealSecret';
 import RevealSeedPhraseFlow from 'app/templates/RevealSeedPhrase';
+import SpendingLimits from 'app/templates/SpendingLimits';
 import VerifySeedPhraseFlow from 'app/templates/VerifySeedPhraseFlow';
 import { Button, ButtonVariant } from 'components/Button';
 import { NavigationHeader } from 'components/NavigationHeader';
@@ -154,6 +155,12 @@ const TAB_GROUPS: TabGroup[] = [
         titleI18nKey: 'keys',
         Component: KeysSettings,
         testID: SettingsSelectors.KeysButton
+      },
+      {
+        slug: 'spending-limits',
+        titleI18nKey: 'spendingLimits',
+        Component: SpendingLimits,
+        testID: SettingsSelectors.SpendingLimitsButton
       },
       {
         slug: 'guardian-settings',

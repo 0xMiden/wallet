@@ -245,6 +245,120 @@ describe('useWalletStore', () => {
     });
   });
 
+  describe('spending-limit actions', () => {
+    const draft = {
+      accountId: 'account-a',
+      faucetId: 'faucet-a',
+      dailyLimit: 90n,
+      asset: { symbol: 'MIDEN', decimals: 8 }
+    };
+
+    it('lists configurations through a serializable transport response', async () => {
+      mockRequest.mockResolvedValueOnce({
+        type: WalletMessageType.GetSpendingLimitsResponse,
+        configurations: [
+          {
+            ...draft,
+            dailyLimit: '90',
+            revision: 'revision-1',
+            createdAt: 1,
+            updatedAt: 2
+          }
+        ]
+      });
+
+      await expect(useWalletStore.getState().listSpendingLimits('account-a')).resolves.toEqual([
+        { ...draft, revision: 'revision-1', createdAt: 1, updatedAt: 2 }
+      ]);
+      expect(mockRequest).toHaveBeenCalledWith({
+        type: WalletMessageType.GetSpendingLimitsRequest,
+        accountId: 'account-a'
+      });
+    });
+
+    it('serializes bigint limits and parses the saved response', async () => {
+      mockRequest.mockResolvedValueOnce({
+        type: WalletMessageType.SaveSpendingLimitResponse,
+        configuration: {
+          ...draft,
+          dailyLimit: '90',
+          revision: 'revision-2',
+          createdAt: 1,
+          updatedAt: 2
+        }
+      });
+
+      await expect(useWalletStore.getState().saveSpendingLimit(draft, 'revision-1', false)).resolves.toMatchObject({
+        dailyLimit: 90n,
+        revision: 'revision-2'
+      });
+      expect(mockRequest).toHaveBeenCalledWith({
+        type: WalletMessageType.SaveSpendingLimitRequest,
+        draft: { ...draft, dailyLimit: '90' },
+        observedRevision: 'revision-1',
+        strictlyAuthenticated: false
+      });
+    });
+
+    it('serializes a proposal and parses its structured preflight assessment', async () => {
+      mockRequest.mockResolvedValueOnce({
+        type: WalletMessageType.AssessSpendingLimitResponse,
+        assessment: {
+          accountId: 'account-a',
+          faucetId: 'faucet-a',
+          amount: '20',
+          revision: 'revision-1',
+          assessedAt: 100,
+          breaches: [
+            {
+              period: '24h',
+              spent: '90',
+              proposedTotal: '110',
+              limit: '100',
+              overBy: '10',
+              resetAt: 200
+            }
+          ]
+        }
+      });
+
+      await expect(useWalletStore.getState().assessSpendingLimit('account-a', 'faucet-a', 20n)).resolves.toMatchObject({
+        amount: 20n,
+        breaches: [{ overBy: 10n }]
+      });
+      expect(mockRequest).toHaveBeenCalledWith({
+        type: WalletMessageType.AssessSpendingLimitRequest,
+        accountId: 'account-a',
+        faucetId: 'faucet-a',
+        amount: '20'
+      });
+    });
+  });
+
+  describe('strict authentication actions', () => {
+    it('loads protectors and verifies a credential', async () => {
+      mockRequest
+        .mockResolvedValueOnce({
+          type: WalletMessageType.GetStrictAuthenticationProtectorsResponse,
+          protectors: { hardware: false, password: true }
+        })
+        .mockResolvedValueOnce({ type: WalletMessageType.VerifyStrictActionAuthenticationResponse });
+
+      await expect(useWalletStore.getState().getStrictAuthenticationProtectors()).resolves.toEqual({
+        hardware: false,
+        password: true
+      });
+      await expect(useWalletStore.getState().verifyStrictActionAuthentication('secret')).resolves.toBeUndefined();
+      expect(mockRequest).toHaveBeenNthCalledWith(1, {
+        type: WalletMessageType.GetStrictAuthenticationProtectorsRequest
+      });
+      expect(mockRequest).toHaveBeenNthCalledWith(2, {
+        type: WalletMessageType.VerifyStrictActionAuthenticationRequest,
+        credential: 'secret'
+      });
+    });
+  });
+
   describe('setAssetsMetadata', () => {
     it('merges new metadata with existing', () => {
       useWalletStore.setState({
@@ -728,19 +842,20 @@ describe('useWalletStore', () => {
       });
     });
 
-    it('confirmDAppTransaction sends correct request with delegate', async () => {
+    it('confirmDAppTransaction sends strict-authentication success only when supplied', async () => {
       mockRequest.mockResolvedValueOnce({
         type: MidenMessageType.DAppTransactionConfirmationResponse
       });
 
       const { confirmDAppTransaction } = useWalletStore.getState();
-      await confirmDAppTransaction('req-id', true, true);
+      await confirmDAppTransaction('req-id', true, true, true);
 
       expect(mockRequest).toHaveBeenCalledWith({
         type: MidenMessageType.DAppTransactionConfirmationRequest,
         id: 'req-id',
         confirmed: true,
-        delegate: true
+        delegate: true,
+        spendingLimitAuthenticated: true
       });
     });
 
