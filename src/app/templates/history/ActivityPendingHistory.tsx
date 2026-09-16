@@ -11,8 +11,8 @@ import { Button, ButtonVariant } from 'components/Button';
 import { durations, useMotion } from 'lib/animation';
 import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
 import { useConfirm } from 'lib/ui/dialog';
-import { useLocation } from 'lib/woozie';
 import { useGuardianNoteRecoveryProgress } from 'lib/wallet-prompts';
+import { useLocation } from 'lib/woozie';
 
 import History, { ActivityFilter } from './History';
 import { PendingActivityCard, type PendingActivityItem } from './PendingActivityCard';
@@ -32,9 +32,7 @@ export const ActivityPendingHistory = ({ search, filter, programId }: ActivityPe
   const { t } = useTranslation();
   const { items, accept, acceptMany, account, isLoadingNotes } = useActivityClaims();
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
-  const recovery = useGuardianNoteRecoveryProgress(
-    account.guardianNoteRecoveryPending || account.coldPublicKey ? account.publicKey : null
-  );
+  const recovery = useGuardianNoteRecoveryProgress(account.guardianNoteRecoveryPending ? account.publicKey : null);
   const isRecovering = recovery !== null && recovery.step !== 'history-partial';
   const isFetching = isLoadingNotes || isLoadingHistory || isRecovering;
   const reducedMotion = useReducedMotion();
