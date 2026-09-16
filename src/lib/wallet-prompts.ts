@@ -17,7 +17,7 @@ import type { AssetMetadata } from 'lib/miden/metadata';
 import * as Repo from 'lib/miden/repo';
 import { updateBridgeClaimStatus } from 'lib/miden/transaction/complete';
 import type { ConsumableNote } from 'lib/miden/types';
-import { mintFromMidenFaucet } from 'lib/miden-chain/faucet-api';
+import { FaucetOutcomeUnknownError, mintFromMidenFaucet } from 'lib/miden-chain/faucet-api';
 import { getTokenPrice } from 'lib/prices';
 import type { TokenPrices } from 'lib/prices';
 
@@ -330,11 +330,18 @@ export async function reportHotKeyRotationNeeded(): Promise<void> {
 // account's "Funding" presentation after a remount or app restart mid-wait.
 // `baselineNoteIds` records the claimable notes that already existed at
 // request time: arrival requires a note NOT in this set (or a balance), so a
-// pre-existing unclaimed note can't fake an instant success.
+// pre-existing unclaimed note can't fake an instant success. `submitted` is set
+// just before the token request goes out: without it nothing can have been
+// minted, so a marker with no request left running is abandoned rather than a
+// mint still on its way.
 
 export type FaucetFundingMarker = {
   requestedAt: number;
   baselineNoteIds: readonly string[];
+  submitted?: true;
+  // When the token request went out, stored with the flag: a request held back for
+  // minutes before sending is judged from here, not from when it was asked for.
+  submittedAt?: number;
 };
 
 const faucetFundingMarkerKey = (address: string) => `faucet_funding_v2:${address}`;
@@ -350,7 +357,24 @@ export async function fetchFaucetFundingMarker(address: string): Promise<FaucetF
   // fresh" and would wedge the wait past its own timeout.
   if (requestedAt > Date.now()) return null;
   if (!Array.isArray(baselineNoteIds)) return null;
-  return { requestedAt, baselineNoteIds: baselineNoteIds.filter((id): id is string => typeof id === 'string') };
+  const marker: FaucetFundingMarker = {
+    requestedAt,
+    baselineNoteIds: baselineNoteIds.filter((id): id is string => typeof id === 'string')
+  };
+  // Any stored value reads as submitted: erring the other way would clear a marker
+  // for a mint that could still land.
+  if (Reflect.get(raw, 'submitted') !== undefined) marker.submitted = true;
+  // Untrusted like requestedAt; an unusable send time falls back to the request time.
+  const submittedAt = Reflect.get(raw, 'submittedAt');
+  if (
+    typeof submittedAt === 'number' &&
+    Number.isFinite(submittedAt) &&
+    submittedAt >= requestedAt &&
+    submittedAt <= Date.now()
+  ) {
+    marker.submittedAt = submittedAt;
+  }
+  return marker;
 }
 
 export async function setFaucetFundingMarker(address: string, marker: FaucetFundingMarker | null): Promise<void> {
@@ -365,21 +389,130 @@ const MIDEN_FAUCET_AMOUNT = 100_000_000n;
 // cancellation of the work can lag the wrapper's rejection by up to that
 // capped wait — the next fetch attempt then aborts immediately.)
 const FAUCET_REQUEST_TIMEOUT_MS = 60_000;
+/**
+ * How long a funding marker not flagged `submitted` may still belong to a live
+ * request, in this surface or another one sharing storage (the extension popup, side
+ * panel and tabs each run their own requests). Past its request's timeout the work
+ * was aborted before any token request, so the marker is abandoned. The grace covers
+ * the request starting a moment after the marker's `requestedAt`.
+ */
+export const FAUCET_UNSUBMITTED_MARKER_MS = FAUCET_REQUEST_TIMEOUT_MS + 5_000;
+/**
+ * How long after a request went out a surface keeps showing the "Funding" wait before
+ * giving the Fund action back. Arrival normally takes ~30-60s (chain inclusion + client sync).
+ */
+export const FAUCET_FUNDS_ARRIVAL_TIMEOUT_MS = 3 * 60_000;
 
-async function runFaucetRequest(address: string): Promise<void> {
+/**
+ * Whether a stored marker may still stand for a mint on its way, so a surface waits for
+ * it rather than offering Fund. While a request still runs in this realm (`runningHere`:
+ * held back, as in a backgrounded app) it has not settled, so its window has not started.
+ * Otherwise a marker not flagged submitted is abandoned once its request's timeout has
+ * certainly passed, and a flagged one waits out the arrival window from when it went out.
+ */
+export function isFaucetFundingMarkerLive(
+  marker: FaucetFundingMarker,
+  { runningHere, settledAt }: { runningHere: boolean; settledAt: number | null }
+): boolean {
+  if (runningHere) return true;
+  const now = Date.now();
+  if (!marker.submitted) return now - marker.requestedAt < FAUCET_UNSUBMITTED_MARKER_MS;
+  return now - faucetArrivalWindowStart(marker, settledAt) < FAUCET_FUNDS_ARRIVAL_TIMEOUT_MS;
+}
+
+/** Where a sent request's arrival window starts: its settle as this realm saw it, else when it went out. */
+export function faucetArrivalWindowStart(marker: FaucetFundingMarker, settledAt: number | null | undefined): number {
+  return settledAt ?? marker.submittedAt ?? marker.requestedAt;
+}
+
+/** A request refused because another request for the account is still live; `marker` is that request's. */
+export class FaucetRequestInProgressError extends Error {
+  readonly marker: FaucetFundingMarker;
+
+  constructor(marker: FaucetFundingMarker) {
+    super('Another faucet request for this account is still running');
+    this.name = 'FaucetRequestInProgressError';
+    this.marker = marker;
+  }
+}
+
+async function runFaucetRequest(address: string, marker?: FaucetFundingMarker): Promise<void> {
   const controller = new AbortController();
+  let submitted = false;
+  // Set once the submitted flag is being stored: from then on the flag may land, and every
+  // surface would read the request as sent.
+  let flagging = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
   // The race guarantees the wrapper rejects on time even if the underlying
   // work fails to observe the abort promptly.
   const timedOut = new Promise<never>((_, reject) => {
     timer = setTimeout(() => {
-      const timeoutError = new Error('Faucet request timed out');
+      // Once the token request is out, a timeout says nothing about whether the
+      // faucet minted - so it must not read as a refusal a retry can safely follow.
+      const timeoutError = submitted
+        ? new FaucetOutcomeUnknownError('Faucet request timed out after the token request was sent')
+        : flagging
+          ? new FaucetOutcomeUnknownError('Faucet request timed out while it was being marked sent')
+          : new Error('Faucet request timed out');
       controller.abort(timeoutError);
       reject(timeoutError);
     }, FAUCET_REQUEST_TIMEOUT_MS);
   });
+  const work = (async () => {
+    if (marker) {
+      // Another surface's request may already be minting: a surface that read no marker
+      // before that tap still offers Fund, and overwriting its marker would let this one
+      // pass its own check below and mint again. Nothing of that request runs here.
+      const stored = await fetchFaucetFundingMarker(address);
+      if (
+        stored !== null &&
+        stored.requestedAt !== marker.requestedAt &&
+        isFaucetFundingMarkerLive(stored, {
+          runningHere: false,
+          settledAt: getFaucetRequestSettledAt(address, stored.requestedAt)
+        })
+      ) {
+        throw new FaucetRequestInProgressError(stored);
+      }
+      // A request its timeout already ended reported a safe failure and writes nothing: a
+      // retry may have stored its own marker by now.
+      if (controller.signal.aborted) throw controller.signal.reason;
+      // Not best effort: the pre-send check needs this request's marker stored, so a request
+      // that cannot store it fails here, before the proof of work.
+      await setFaucetFundingMarker(address, marker);
+    }
+    return mintFromMidenFaucet(
+      address,
+      MIDEN_FAUCET_AMOUNT,
+      controller.signal,
+      async () => {
+        if (marker) {
+          // Another surface ends an unflagged marker as abandoned once its request timeout
+          // has passed; if this realm's timers were held back that long, the request is
+          // over as far as every surface knows, and sending now could mint twice.
+          const stored = await fetchFaucetFundingMarker(address);
+          if (stored?.requestedAt !== marker.requestedAt) {
+            throw new Error('Faucet request was ended before it was sent');
+          }
+          // A request its timeout already ended reported a safe failure: flag nothing.
+          if (controller.signal.aborted) throw controller.signal.reason;
+          // Not best effort: a marker without the flag is cleared as abandoned once no
+          // request runs in its realm. If the flag cannot be stored, fail here, while
+          // nothing can have been minted and a retry is still safe.
+          flagging = true;
+          await setFaucetFundingMarker(address, { ...marker, submitted: true, submittedAt: Date.now() });
+          flagging = false;
+        }
+        submitted = true;
+      },
+      mayMint => {
+        // A refusal status means no mint is on its way, whatever the flag says.
+        submitted = mayMint;
+      }
+    );
+  })();
   try {
-    await Promise.race([mintFromMidenFaucet(address, MIDEN_FAUCET_AMOUNT, controller.signal), timedOut]);
+    await Promise.race([work, timedOut]);
   } finally {
     clearTimeout(timer);
   }
@@ -391,26 +524,60 @@ async function runFaucetRequest(address: string): Promise<void> {
 // next visit, so a returning user could start a second real mint. Module scope
 // also lets the remounted card re-attach to the outcome. Keyed per address so
 // funding one account never blocks funding another.
-const inFlightFaucetRequests = new Map<string, Promise<void>>();
+const inFlightFaucetRequests = new Map<string, { request: Promise<void>; marker?: FaucetFundingMarker }>();
 
 /** The in-flight faucet request for `address`, if any — lets a remounted card re-attach to the outcome. */
 export function getInFlightFaucetRequest(address: string): Promise<void> | null {
-  return inFlightFaucetRequests.get(address) ?? null;
+  return inFlightFaucetRequests.get(address)?.request ?? null;
 }
 
-export function faucet(address: string): Promise<void> {
+/** The marker the in-flight request for `address` was started with, so a remounted card can wait for its mint without reading storage. */
+export function getInFlightFaucetMarker(address: string): FaucetFundingMarker | null {
+  return inFlightFaucetRequests.get(address)?.marker ?? null;
+}
+
+// When this realm saw each account's latest request go out (accepted, or never
+// answered), keyed to that request's `requestedAt`. The wait for its mint runs from
+// here: a request can settle long after it was asked for when the app was away.
+const settledFaucetRequests = new Map<string, { requestedAt: number; settledAt: number }>();
+
+/** When this realm saw the request `requestedAt` for `address` go out, if it did. */
+export function getFaucetRequestSettledAt(address: string, requestedAt: number): number | null {
+  const settled = settledFaucetRequests.get(address);
+  return settled?.requestedAt === requestedAt ? settled.settledAt : null;
+}
+
+/**
+ * Requests test tokens for `address`, or joins the request already running for it.
+ * Given a `marker`, the request persists it and flags it submitted before the token
+ * request goes out, so a later open can tell a mint that may land from one that
+ * never went out.
+ */
+export function faucet(address: string, marker?: FaucetFundingMarker): Promise<void> {
   const existing = inFlightFaucetRequests.get(address);
-  if (existing) return existing;
-  const request: Promise<void> = runFaucetRequest(address).finally(() => {
-    if (inFlightFaucetRequests.get(address) === request) inFlightFaucetRequests.delete(address);
-  });
-  inFlightFaucetRequests.set(address, request);
+  if (existing) return existing.request;
+  const recordSettled = () => {
+    if (marker) settledFaucetRequests.set(address, { requestedAt: marker.requestedAt, settledAt: Date.now() });
+  };
+  // Storage reads settle asynchronously, so a reader of the marker always finds
+  // this request registered by the `set` below. A joiner's marker is ignored: the
+  // request it joins already persists its own.
+  const request: Promise<void> = runFaucetRequest(address, marker)
+    .then(recordSettled, (error: unknown) => {
+      if (error instanceof FaucetOutcomeUnknownError) recordSettled();
+      throw error;
+    })
+    .finally(() => {
+      if (inFlightFaucetRequests.get(address)?.request === request) inFlightFaucetRequests.delete(address);
+    });
+  inFlightFaucetRequests.set(address, { request, marker });
   return request;
 }
 
-/** Test-only: drop in-flight faucet joins between cases. */
+/** Test-only: drop in-flight faucet joins and remembered settles between cases. */
 export function __resetInFlightFaucetRequestsForTest(): void {
   inFlightFaucetRequests.clear();
+  settledFaucetRequests.clear();
 }
 
 /**
