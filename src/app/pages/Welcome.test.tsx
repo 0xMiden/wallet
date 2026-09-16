@@ -2347,6 +2347,7 @@ describe('hot-key import flow', () => {
   });
 
   it('key submit skips the password step entirely when hardware security is available', async () => {
+    mockIsDesktopFn.mockReturnValue(true);
     mockBiometricHW.mockResolvedValue(true);
     mockDesktopHW.mockResolvedValue(true);
     await renderWelcome();

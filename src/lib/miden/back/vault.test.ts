@@ -2609,7 +2609,7 @@ describe('Vault.spawnFromHotKey', () => {
       return fakeHotSecretKey() as any;
     });
 
-    await Vault.spawnFromHotKey('pw', 'beef'.repeat(16), ENDPOINT);
+    await Vault.spawnFromHotKey('pw', PAIR, ENDPOINT);
 
     expect(order).toEqual(['wasm', 'parse']);
   });
@@ -2646,7 +2646,10 @@ describe('Vault.spawnFromHotKey', () => {
     );
     const storageKey = `${ck('accevmsecretkey')}_${evmAddress.toLowerCase()}`;
     await expect(fetchAndDecryptOneWithLegacyFallBack<string>(storageKey, authenticatedKey)).resolves.toBe(EVM_KEY);
-    expect(JSON.stringify(memoryStore[storageKey])).not.toContain(EVM_KEY);
+    const digest = await crypto.subtle.digest('SHA-256', Buffer.from(storageKey, 'utf-8'));
+    const encrypted = memoryStore[Buffer.from(digest).toString('hex')];
+    expect(encrypted).toEqual(expect.any(String));
+    expect(encrypted).not.toContain(EVM_KEY);
 
     // The hot secret is persisted under the accAuthSecretKey slot in its
     // canonical serialized form (signWord's hot path reads exactly this).

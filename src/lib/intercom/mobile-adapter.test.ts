@@ -351,11 +351,22 @@ describe('MobileIntercomAdapter', () => {
         wordHex: '0xabc'
       } as any);
 
-      expect(Actions.signWord).toHaveBeenCalledWith('pub-key-123', '0xabc');
+      expect(Actions.signWord).toHaveBeenCalledWith('pub-key-123', '0xabc', undefined);
       expect(response).toEqual({
         type: WalletMessageType.SignWordResponse,
         signature: 'word-signature'
       });
+    });
+
+    it('passes the recovery transaction ID from SignWordRequest', async () => {
+      await adapter.request({
+        type: WalletMessageType.SignWordRequest,
+        publicKey: 'pub-key-123',
+        wordHex: '0xabc',
+        transactionId: 'recovery-tx'
+      });
+
+      expect(Actions.signWord).toHaveBeenCalledWith('pub-key-123', '0xabc', 'recovery-tx');
     });
 
     it('handles PersistNewHotKeyRequest', async () => {

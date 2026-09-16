@@ -2243,12 +2243,10 @@ export class Vault {
       if (!ciphertext) {
         throw new PublicError('Hot key ciphertext not found');
       }
-      const evmPrivateKey = account.evmAddress
-        ? await fetchAndDecryptOneWithLegacyFallBack<string>(
-            accEvmSecretKeyStrgKey(account.evmAddress.toLowerCase()),
-            vaultKey
-          )
-        : null;
+      if (!account.evmAddress) throw new PublicError(getMessage('evmPrivateKeyMissing'));
+      const evmStorageKey = accEvmSecretKeyStrgKey(account.evmAddress.toLowerCase());
+      if (!(await isStored(evmStorageKey))) throw new PublicError(getMessage('evmPrivateKeyMissing'));
+      const evmPrivateKey = await fetchAndDecryptOneWithLegacyFallBack<string>(evmStorageKey, vaultKey);
       if (!evmPrivateKey) throw new PublicError(getMessage('evmPrivateKeyMissing'));
       const hotPrivateKey = await secureHotKey.revealHotKey(ciphertext);
       const pair = parsePrivateKeyPair(`${hotPrivateKey}:${evmPrivateKey}`);

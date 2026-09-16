@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.16.2 (TBD)
+
+### Fixes
+
+- [FIX][all] Show the missing EVM key error when an imported key pair is incomplete. Update tests for seed phrase removal, key-pair import, and recovery signing.
+
 ## 1.16.1 (TBD)
 
 ### Changes
