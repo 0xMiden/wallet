@@ -304,9 +304,17 @@ export function unlock(password?: string) {
         // status stays 'removing' and every retry re-runs the same failing step.
         // Staying at 'removing' is the designed outcome - it is what the
         // seedRemovalIncomplete notice asks the user to retry.
+        // It also takes the same mutual exclusion the explicit Settings removal
+        // takes, for the same reason: removeSeedPhrase calls
+        // clearRecoveryAuthorizations(), which zeroes a secret without checking
+        // whether a pipeline is mid-sign with it, and unlock() can run over an
+        // already-Ready vault whose transaction loop is live (#878). Declining
+        // the lock leaves the status at 'removing', which is the designed retry.
         if ((await vault.fetchSeedPhraseStatus()) === 'removing') {
-          await vault
-            .removeSeedPhrase()
+          await navigator.locks
+            .request('generate-transactions-loop', { ifAvailable: true }, async lock => {
+              if (lock) await vault.removeSeedPhrase();
+            })
             .catch(e => console.warn('[unlock] seed removal resume failed (non-fatal):', e));
         }
         // Bring any pre-3-key Guardian accounts into the 3-key model in place

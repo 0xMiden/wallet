@@ -167,6 +167,22 @@ jest.mock('webextension-polyfill', () => ({
   }
 }));
 
+// `unlock`'s seed-removal resume and the explicit `removeSeedPhrase` both take
+// the generate-transactions-loop lock. jsdom's `navigator` is non-configurable,
+// so attach `.locks` to whatever object it already is. `lockResult` null models
+// the loop already holding it.
+const installNavigatorLocksMock = (lockResult: unknown = {}) => {
+  const nav = (globalThis as unknown as { navigator?: object }).navigator || {};
+  Object.defineProperty(nav, 'locks', {
+    value: {
+      request: jest.fn(async (_name: string, _opts: unknown, cb: (l: unknown) => unknown) => cb(lockResult))
+    },
+    writable: true,
+    configurable: true
+  });
+};
+installNavigatorLocksMock();
+
 describe('actions', () => {
   let consoleLogSpy: jest.SpyInstance;
 
@@ -496,6 +512,34 @@ describe('actions', () => {
       // The wallet is open, and the unfinished removal is still reported as
       // 'removing' so the Settings notice can ask the user to retry it.
       expect(mockUnlocked).toHaveBeenCalledWith(expect.objectContaining({ seedPhraseStatus: 'removing' }));
+    });
+
+    it('defers the resumed seed removal while the transaction loop holds the lock', async () => {
+      const { Vault } = jest.requireMock('lib/miden/back/vault');
+      // removeSeedPhrase zeroes every recovery authorization without checking
+      // whether a pipeline is mid-sign with one, so it must not run beside the
+      // loop. unlock() can land over an already-Ready vault whose loop is live.
+      const mockVaultInstance = {
+        fetchSeedPhraseStatus: jest.fn().mockResolvedValue('removing'),
+        removeSeedPhrase: jest.fn().mockResolvedValue(undefined),
+        migrateLegacyGuardianAccounts: jest.fn().mockResolvedValue(undefined),
+        backfillEvmAddresses: jest.fn().mockResolvedValue(undefined),
+        backfillGuardianEndpoints: jest.fn().mockResolvedValue(undefined),
+        fetchAccounts: jest.fn().mockResolvedValue([]),
+        fetchSettings: jest.fn().mockResolvedValue({}),
+        getCurrentAccount: jest.fn().mockResolvedValue(null),
+        isOwnMnemonic: jest.fn().mockResolvedValue(true)
+      };
+      Vault.setup.mockResolvedValueOnce(mockVaultInstance);
+      installNavigatorLocksMock(null); // the loop holds it
+      try {
+        await expect(unlock('password123')).resolves.toBeUndefined();
+        expect(mockVaultInstance.removeSeedPhrase).not.toHaveBeenCalled();
+        // Unlock still completes, and the removal stays pending for a later try.
+        expect(mockUnlocked).toHaveBeenCalledWith(expect.objectContaining({ seedPhraseStatus: 'removing' }));
+      } finally {
+        installNavigatorLocksMock();
+      }
     });
   });
 
