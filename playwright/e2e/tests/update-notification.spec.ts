@@ -1,6 +1,6 @@
 import { expect, test } from '../fixtures/two-wallets';
 
-test('shows, acts on, dismisses, and refreshes an authoritative Chrome update', async ({ walletA }) => {
+test('shows, acts on, dismisses, and refreshes an authoritative Chrome update', async ({ walletA, steps }) => {
   await walletA.page.evaluate(() => {
     window.__MIDEN_E2E_UPDATE__ = {
       platform: 'chrome',
@@ -19,8 +19,14 @@ test('shows, acts on, dismisses, and refreshes an authoritative Chrome update', 
   await walletA.createNewWallet();
 
   const card = walletA.page.getByTestId('update-notification-card');
-  await expect(card).toContainText('Version 1.17.0');
-  await expect(card).toContainText('Safer transfers and faster startup.');
+  await steps.step(
+    'update_notice_renders',
+    async () => {
+      await expect(card).toContainText('Version 1.17.0');
+      await expect(card).toContainText('Safer transfers and faster startup.');
+    },
+    { screenshotWallets: [{ target: walletA.page, label: 'A' }] }
+  );
   await walletA.page.getByTestId('update-notification-action').click();
   await expect
     .poll(() =>
