@@ -61,19 +61,39 @@ it('keeps an active key until the pipeline finishes', () => {
 // accepted and will never answer), a release that rejects on the intercom path,
 // and a cancelled row. Without a re-armed ceiling the derived cold key stays
 // resident in a long-lived realm until the wallet locks.
-it('zeroes an active key at the relaxed ceiling when nothing releases it', () => {
+it('zeroes an active key when the pipeline stalls, but never while it is still signing', () => {
   jest.useFakeTimers();
   const transaction = new ReplaceHotKeyTransaction('account', false);
   const secret = new Uint8Array([7, 8]);
   authorizeRecovery(transaction, 'key', secret);
   expect(beginRecoveryAuthorization(transaction, 'key')).toBe(true);
 
-  // Well past the 5-minute idle timeout: an active key must survive this.
-  jest.advanceTimersByTime(29 * 60 * 1000);
-  expect(getRecoveryAuthorization(transaction, 'key')).toBe(secret);
+  // Still signing. A recovery run can need several signatures and can legitimately
+  // park for a long time, so each use must push the ceiling out: 60 minutes of
+  // live progress here, well past the ceiling itself, and the key survives.
+  for (let lap = 0; lap < 3; lap++) {
+    jest.advanceTimersByTime(20 * 60 * 1000);
+    expect(getRecoveryAuthorization(transaction, 'key')).toBe(secret);
+  }
 
-  // Past the 30-minute active ceiling, with no release ever arriving.
-  jest.advanceTimersByTime(2 * 60 * 1000);
+  // Now it stalls: no release, no further signature. The key must not outlive it.
+  jest.advanceTimersByTime(31 * 60 * 1000);
+  expect(getRecoveryAuthorization(transaction, 'key')).toBeUndefined();
+  expect([...secret]).toEqual([0, 0]);
+});
+
+// The narrower case the loop above cannot reach: prepareRecoveryTransaction begins
+// the authorization and the pipeline then dies before it ever signs. No use means
+// nothing re-arms, so the ceiling `begin` itself sets is the only thing left.
+it('zeroes a key whose pipeline began and then died before signing', () => {
+  jest.useFakeTimers();
+  const transaction = new ReplaceHotKeyTransaction('account', false);
+  const secret = new Uint8Array([9, 4]);
+  authorizeRecovery(transaction, 'key', secret);
+  expect(beginRecoveryAuthorization(transaction, 'key')).toBe(true);
+
+  jest.advanceTimersByTime(31 * 60 * 1000);
+
   expect(getRecoveryAuthorization(transaction, 'key')).toBeUndefined();
   expect([...secret]).toEqual([0, 0]);
 });

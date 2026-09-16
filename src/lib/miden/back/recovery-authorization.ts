@@ -89,6 +89,15 @@ export function getRecoveryAuthorization(transaction: ITransaction, publicKey: s
   if (!isRecoveryTransaction(transaction)) return undefined;
   const authorization = authorizations.get(transaction.id);
   if (authorization?.binding !== binding(transaction) || authorization.publicKey !== publicKey) return undefined;
+  // A pipeline that is still signing is making progress. Bound the time since the
+  // LAST use rather than the total, so a legitimately long run is never cut off
+  // mid-transaction while a stalled one still expires: a hold can legitimately
+  // spend its whole paused WASM budget plus unpaused time, and sequential holds
+  // share it, so a total-time ceiling would have a false-positive window.
+  if (authorization.active) {
+    clearTimeout(authorization.timer);
+    authorization.timer = setTimeout(() => clearRecoveryAuthorization(transaction.id), ACTIVE_TIMEOUT_MS);
+  }
   return authorization.secret;
 }
 
