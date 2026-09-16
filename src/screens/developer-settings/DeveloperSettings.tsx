@@ -10,6 +10,7 @@ import { TabPicker } from 'components/TabPicker';
 import { retireGuardianSyncPasses } from 'lib/miden/front/guardian-sync';
 import { clearSyncFuseForEndpointChange } from 'lib/miden/front/sync-fuse';
 import { resetStorageDestructive } from 'lib/miden/reset';
+import { retireGuardianWritesForEndpointChange } from 'lib/miden/sync-backoff';
 import {
   applyEndpointOverride,
   buildDefaultOverrideFor,
@@ -142,6 +143,13 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
     // pending-rotation recheck would otherwise demote rows and roll the guardian
     // binding back from chain reads taken before this save.
     retireGuardianSyncPasses();
+    // And the durable write that loop cannot reach. The discard rollback runs in the BACKEND,
+    // takes no token, and spends a chain read and two operator probes before it rebinds the
+    // account; the loop's own retirement check only runs once that call has returned, so it
+    // suppresses the row settlement while the binding has already been rewritten. Mobile and
+    // desktop share one realm, so this is where their backend hears about the repoint. The
+    // extension hears it from the service worker's endpoint-override handler instead.
+    retireGuardianWritesForEndpointChange();
     // The native asset and its base fee belong to the node too. The caches drop
     // themselves on the next read (`invalidateOnEndpointChange`), but dropping them
     // notifies nobody — and `useVerificationBaseFee` only re-reads when discovery

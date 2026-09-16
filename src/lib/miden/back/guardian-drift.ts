@@ -4,6 +4,7 @@ import {
   identifyGuardianOperator,
   verifyEndpointMatchesCommitment
 } from 'lib/miden/guardian/operator-map';
+import { currentGuardianWriteGeneration } from 'lib/miden/sync-backoff';
 import { sanitizeGuardianUrl } from 'lib/settings/helpers';
 import type { ApplyUserEndpointOutcome, GuardianSyncStatus } from 'lib/shared/types';
 
@@ -917,6 +918,13 @@ export async function revertGuardianEndpointAfterDiscard(
   discardedEndpoint: string,
   revertTo: string
 ): Promise<RevertDiscardedEndpointOutcome> {
+  // CAPTURED BEFORE EVERY READ THIS DECIDES FROM. The frontend loop retires itself on an endpoint
+  // change, but the loop is not where this write happens: its own retirement check runs after this
+  // call returns, so it can suppress the row settlement and not the rebinding. Nor can the epoch
+  // CAS below stand in for it, because an endpoint save never moves `guardianEpoch`. Without this
+  // the settings screen's stated promise - that a repoint stops a rollback decided against the old
+  // node - was a guard that cannot fire.
+  const writeGeneration = currentGuardianWriteGeneration();
   const account = await vault.getAccount(accountPublicKey);
   // `'stale'`, NOT `'superseded'` - the same distinction `applyUserGuardianEndpoint`
   // draws for this exact read. A missing record is a statement about the VAULT (a
@@ -1034,6 +1042,12 @@ export async function revertGuardianEndpointAfterDiscard(
   // otherwise fire, which the caller's per-row cooldown and per-pass cap already bound.
   const targetAuthority = await verifyEndpointMatchesCommitment(revertTo, onChain);
   if (targetAuthority !== 'match') return 'stale';
+  // RE-CHECKED HERE, NOT AT ENTRY, because the window IS this function's own awaits: a chain read
+  // the code deliberately gives a long ceiling, plus two operator probes. Everything above was
+  // decided against a node the realm may have left while we were asking. `'stale'` rather than a
+  // throw, so the caller charges a retry against the row's budget exactly as it does for every
+  // other unproven answer, instead of treating a deliberate retirement as an abandoned operation.
+  if (writeGeneration !== currentGuardianWriteGeneration()) return 'stale';
 
   const write = await vault.updateGuardianBinding(accountPublicKey, account.guardianEpoch ?? 0, {
     guardianEndpoint: revertTo

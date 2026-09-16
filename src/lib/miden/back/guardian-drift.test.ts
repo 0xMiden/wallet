@@ -5,6 +5,7 @@ import {
   verifyEndpointMatchesCommitment
 } from 'lib/miden/guardian/operator-map';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
+import { retireGuardianWritesForEndpointChange } from 'lib/miden/sync-backoff';
 import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
 
 import {
@@ -1163,6 +1164,30 @@ describe('revertGuardianEndpointAfterDiscard', () => {
     expect(vault.updateGuardianBinding).not.toHaveBeenCalled();
   });
 
+  // THE REPOINT THAT LANDS MID-ROLLBACK. Every answer above the write was obtained from a node the
+  // realm has since left, and nothing else in the stack can notice: the frontend loop's own
+  // retirement check runs only after this call RETURNS, so it suppresses the row settlement while
+  // the binding has already been rewritten, and an endpoint save never moves `guardianEpoch`, so
+  // the epoch CAS is blind to it too. Retired here between the two probes and the write, which is
+  // the window the long operator ceilings make wide.
+  it("reports 'stale' when the realm repoints between the authority probe and the write", async () => {
+    (getMidenClient as jest.Mock).mockResolvedValue({ getAccount: async () => ({}) });
+    (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('cc');
+    (verifyEndpointMatchesCommitment as jest.Mock).mockImplementation(async (endpoint: string) => {
+      if (endpoint !== 'https://old') return 'mismatch';
+      // The user saves a different endpoint while the TARGET's authority probe is in flight.
+      retireGuardianWritesForEndpointChange();
+      return 'match';
+    });
+    const vault = boundTo('https://new', 4);
+
+    // Without the re-check this answers 'reverted' and rebinds the account from a chain read
+    // taken against an operator the wallet no longer points at.
+    expect(await revertGuardianEndpointAfterDiscard(vault as never, 'pk', 'https://new', 'https://old')).toBe('stale');
+
+    expect(vault.updateGuardianBinding).not.toHaveBeenCalled();
+  });
+
   // THE CASE A URL COMPARISON CANNOT SEE. The user's switch appeared not to
   // work, so they rotated to the same operator again and THAT one committed.
   // The binding still equals `discardedEndpoint` and the epoch has already
@@ -1369,6 +1394,58 @@ describe('revertGuardianEndpointAfterDiscard', () => {
     await revertGuardianEndpointAfterDiscard(vault as never, 'pk', 'https://new', 'https://old');
 
     expect(vault.updateGuardianBinding).toHaveBeenCalledWith('pk', 0, { guardianEndpoint: 'https://old' });
+  });
+});
+
+/**
+ * THE GUARDS THIS SUITE COULD NOT TRIP. The lock mock hands each hold a fresh object and its own
+ * comment invites a case to reassign `currentWasmHold` to simulate an eviction - and nothing ever
+ * did, so every post-await re-check compared a hold against itself and returned. Deleting all three
+ * `assertWasmHoldCurrent` lines left this file green. The sibling guardian-sync suite closed the
+ * identical gap with `stealTheHoldOnCall`; this is that fix, one module over.
+ *
+ * The steal happens inside the AWAITED account read, which is the window the guard exists for: the
+ * handle that comes back is borrowed from a client the mutex has already handed to a successor, so
+ * reading its storage is the double borrow itself, not a stale value.
+ */
+describe('post-await liveness guards refuse a hold the mutex has moved on from', () => {
+  const stealTheHoldDuringTheAccountRead = () =>
+    (getMidenClient as jest.Mock).mockResolvedValue({
+      getAccount: async () => {
+        currentWasmHold = {};
+        return {};
+      }
+    });
+
+  it('refuses the drift pass when the client was replaced under its account read', async () => {
+    stealTheHoldDuringTheAccountRead();
+    const vault = makeVault({ publicKey: 'pk', guardianOperatorCommitment: 'abc' });
+
+    await expect(resolveGuardianDrift(vault as never, 'pk')).rejects.toMatchObject({
+      name: 'WasmClientPoisonedError'
+    });
+  });
+
+  it('refuses applyUserGuardianEndpoint when the client was replaced under its account read', async () => {
+    stealTheHoldDuringTheAccountRead();
+    const vault = makeVault({ publicKey: 'pk' });
+
+    await expect(applyUserGuardianEndpoint(vault as never, 'pk', 'https://mine')).rejects.toMatchObject({
+      name: 'WasmClientPoisonedError'
+    });
+    // Nothing may be written on a hold that is no longer ours.
+    expect(vault.updateGuardianBinding).not.toHaveBeenCalled();
+  });
+
+  it('refuses the discard rollback when the client was replaced under its account read', async () => {
+    stealTheHoldDuringTheAccountRead();
+    const vault = makeVault({ publicKey: 'pk', guardianEndpoint: 'https://new', guardianEpoch: 4 });
+
+    await expect(
+      revertGuardianEndpointAfterDiscard(vault as never, 'pk', 'https://new', 'https://old')
+    ).rejects.toMatchObject({ name: 'WasmClientPoisonedError' });
+
+    expect(vault.updateGuardianBinding).not.toHaveBeenCalled();
   });
 });
 

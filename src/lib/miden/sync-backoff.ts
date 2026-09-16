@@ -91,6 +91,34 @@ export const MAX_CONSECUTIVE_WATCHDOG_EVICTIONS = MAX_CONSECUTIVE_SYNC_FAILURES 
 export const MAX_CONSECUTIVE_ABANDONED_PROBES = MAX_CONSECUTIVE_WATCHDOG_EVICTIONS * 2;
 
 /**
+ * Bumped whenever the realm stops pointing at the node a guardian write was decided against.
+ *
+ * `retireGuardianSyncPasses` retires the frontend LOOP, but the loop is not where the durable
+ * write happens. The discard rollback runs in the backend, takes no token, and spends a chain read
+ * and two operator probes before `updateGuardianBinding`; the loop's own retirement check sits
+ * after that call returns, so it suppresses the row settlement while the binding has already been
+ * rewritten. Nothing else catches it either: an endpoint save never moves `guardianEpoch`, so the
+ * epoch CAS the write already performs is blind to it. A guard that cannot fire is documentation,
+ * and the settings screen states this protection as fact.
+ *
+ * It lives HERE rather than in either realm's own module because both have to reach it: the
+ * extension bumps it from the service worker's endpoint-override handler, while mobile and desktop
+ * share one realm and bump it from the settings save. This module is dependency-free for exactly
+ * that reason, so neither side drags the other's graph in to read a counter.
+ */
+let guardianWriteGeneration = 0;
+
+/** Retire guardian writes decided against the node the realm has just left. */
+export function retireGuardianWritesForEndpointChange(): void {
+  guardianWriteGeneration += 1;
+}
+
+/** The generation a write should capture before its reads and re-check before it commits. */
+export function currentGuardianWriteGeneration(): number {
+  return guardianWriteGeneration;
+}
+
+/**
  * Probe cadence once the fuse has blown (issue #777) — a STRETCH, not a stop.
  *
  * An earlier shape parked automatic probes entirely and waited for a user
