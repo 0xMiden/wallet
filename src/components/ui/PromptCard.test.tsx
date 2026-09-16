@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 
 import { IconName } from 'app/icons/v2';
 import { hapticLight } from 'lib/mobile/haptics';
@@ -241,5 +241,67 @@ describe('PromptCard', () => {
     expect(live).toBeInTheDocument();
     expect(live).toHaveTextContent('failed');
     expect(live).toHaveTextContent('rate limited');
+  });
+
+  describe('focus when a hero takes over the card (#923)', () => {
+    const funding = { icon: IconName.Loader, label: 'Funding', subLabel: 'soon', tone: 'accent' } as const;
+
+    // Tapping the card swaps in the hero, as the faucet card does.
+    const Harness: React.FC = () => {
+      const [hero, setHero] = React.useState<typeof funding | undefined>(undefined);
+      return (
+        <div>
+          <PromptCard
+            data-testid="card"
+            title="Fund your wallet"
+            hero={hero}
+            onClick={hero ? undefined : () => setHero(funding)}
+          />
+          <button type="button" onClick={() => setHero(undefined)}>
+            end hero
+          </button>
+        </div>
+      );
+    };
+
+    it('keeps keyboard focus in the card when the activated button is replaced by the hero', () => {
+      render(<Harness />);
+      const action = screen.getByRole('button', { name: /Fund your wallet/ });
+      action.focus();
+
+      // Enter on a focused button dispatches a click.
+      fireEvent.click(action);
+
+      const card = screen.getByTestId('card');
+      expect(document.activeElement).not.toBe(document.body);
+      expect(card.contains(document.activeElement)).toBe(true);
+    });
+
+    it('does not move focus for a tap that never focused the card', () => {
+      render(<Harness />);
+      // A pointer tap in Safari does not focus the button.
+      expect(document.activeElement).toBe(document.body);
+
+      fireEvent.click(screen.getByRole('button', { name: /Fund your wallet/ }));
+
+      expect(document.activeElement).toBe(document.body);
+    });
+
+    it('hands focus back to the card action when the hero ends', () => {
+      render(<Harness />);
+      const action = screen.getByRole('button', { name: /Fund your wallet/ });
+      action.focus();
+      fireEvent.click(action);
+      expect(document.activeElement).toBe(screen.getByTestId('card'));
+
+      // The hero ends with the card still there (a failed request, say) and focus
+      // still on the card: it must land on the action again, not fall to the page
+      // when the container stops being focusable. `click()` leaves focus alone.
+      act(() => {
+        screen.getByRole('button', { name: 'end hero' }).click();
+      });
+
+      expect(document.activeElement).toBe(screen.getByRole('button', { name: /Fund your wallet/ }));
+    });
   });
 });

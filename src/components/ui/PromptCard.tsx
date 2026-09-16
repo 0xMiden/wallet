@@ -1,4 +1,4 @@
-import React, { FC } from 'react';
+import React, { FC, useLayoutEffect, useRef } from 'react';
 
 import classNames from 'clsx';
 import { motion, useReducedMotion } from 'framer-motion';
@@ -46,7 +46,7 @@ export interface PromptCardProps {
 }
 
 const CardActionButton: FC<{ className?: string; children?: React.ReactNode }> = ({ className, children }) => (
-  <button type="button" className={className}>
+  <button type="button" data-card-action className={className}>
     {children}
   </button>
 );
@@ -68,8 +68,17 @@ export const PromptCard: FC<PromptCardProps> = ({
 }) => {
   const { t } = useTranslation();
 
+  const containerRef = useRef<HTMLDivElement>(null);
+  // Set when the card is activated with focus inside it, so a hero that replaces
+  // the activated button can keep that focus in the card (#923).
+  const restoreFocusRef = useRef(false);
+
   const handleClick = () => {
     if (!onClick) return;
+    const active = document.activeElement;
+    // Only focus the user actually had: a pointer tap that focused nothing (Safari
+    // does not focus buttons on click) is not moved anywhere.
+    restoreFocusRef.current = !!active && active !== containerRef.current && !!containerRef.current?.contains(active);
     hapticLight();
     onClick();
   };
@@ -105,6 +114,24 @@ export const PromptCard: FC<PromptCardProps> = ({
     : status === 'failure'
       ? [t('failed'), body].filter(Boolean).join('. ')
       : '';
+
+  const heroShown = hero !== undefined;
+  // A hero replaces the lockup outright, so the card-action button a keyboard user
+  // just pressed unmounts and focus falls to the page. Run before paint: keep that
+  // focus in the card while the hero shows, and hand it back to the card's own
+  // action when the hero ends without the card going away.
+  useLayoutEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const active = document.activeElement;
+    if (heroShown) {
+      const focusLeftTheCard = !active || active === document.body || !container.contains(active);
+      if (restoreFocusRef.current && focusLeftTheCard) container.focus({ preventScroll: true });
+      restoreFocusRef.current = false;
+    } else if (active === container) {
+      container.querySelector<HTMLElement>('[data-card-action]')?.focus({ preventScroll: true });
+    }
+  }, [heroShown]);
 
   const reduceMotion = useReducedMotion();
   // A looping flip is exactly what reduced motion asks us not to run.
@@ -148,7 +175,10 @@ export const PromptCard: FC<PromptCardProps> = ({
 
   return (
     <div
+      ref={containerRef}
       data-testid={testId}
+      // Focusable only while a hero holds the card, as the place focus stays.
+      tabIndex={heroShown ? -1 : undefined}
       onClick={onClick ? handleClick : undefined}
       className={classNames(
         'relative overflow-hidden w-full h-[72px] bg-surface-input rounded-10',
