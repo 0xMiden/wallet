@@ -89,7 +89,7 @@ export const zustandProvider: GuardianAccountProvider = {
 const hardeningChecked = new Set<string>();
 
 // `consecutiveAuthFailures` counts 401s in a row (reset on any successful
-// sync) — the PERSISTENCE gate for the cold re-register self-heal. The bounded
+// sync) - the PERSISTENCE gate for the cold re-register self-heal. The bounded
 // retry + cooldown behind that gate live in `selfHealLedger` below.
 const consecutiveAuthFailures = new Map<string, number>();
 
@@ -97,17 +97,23 @@ const consecutiveAuthFailures = new Map<string, number>();
  * Cold re-register budget, keyed (account, endpoint): a 401 streak and its
  * spent budget are statements about ONE operator's allowlist. Flat 60s
  * cooldown measured from each attempt's settle; `'refused-permanently'`
- * settles as `'closed'` (this device is provably not the signer — no retry can
+ * settles as `'closed'` (this device is provably not the signer - no retry can
  * change that), `'refused-transiently'` as `'refunded'` (never reached the
  * operator; three unlucky local reads must not disable the repair whose budget
- * only a successful sync resets). All of that is the AttemptLedger contract —
+ * only a successful sync resets). All of that is the AttemptLedger contract -
  * see `guardian/attempt-ledger.ts` for why it is encoded once.
  */
-const selfHealLedger = createAttemptLedger({
-  maxAttempts: SELF_HEAL_MAX_ATTEMPTS,
-  backoffMs: SELF_HEAL_COOLDOWN_MS,
-  curve: 'flat'
-});
+const selfHealLedger = createAttemptLedger(
+  {
+    maxAttempts: SELF_HEAL_MAX_ATTEMPTS,
+    backoffMs: SELF_HEAL_COOLDOWN_MS,
+    curve: 'flat'
+  },
+  // The wall clock, stated rather than defaulted. Whether these budgets should move to the monotonic clock
+  // the 429 cooldown below uses is a live question for the author; what this argument removes is the silent
+  // default that made the question invisible.
+  () => Date.now()
+);
 
 // Missing-registration self-heal state, mirroring the pair above because the
 // write it guards is strictly more dangerous than a cold re-register:
@@ -120,8 +126,8 @@ const selfHealLedger = createAttemptLedger({
 // `consecutiveUnknownAccount` counts unknown-account verdicts in a row per
 // account (reset by any other outcome, exactly like `consecutiveAuthFailures`).
 // The push budget (`missingRegistrationLedger`, declared under its constants
-// below) is keyed by what the push would actually WRITE — account, endpoint,
-// and the on-chain guardian key the local state names — so a second rotation
+// below) is keyed by what the push would actually WRITE - account, endpoint,
+// and the on-chain guardian key the local state names - so a second rotation
 // in the same session, to a different operator or back again, arrives with
 // its own budget instead of inheriting an exhausted one from the first.
 const consecutiveUnknownAccount = new Map<string, number>();
@@ -158,34 +164,38 @@ export const MISSING_REGISTRATION_MAX_ATTEMPTS = 3;
  */
 export const MISSING_REGISTRATION_BACKOFF_MS = 60_000;
 
-// Doubling backoff (60s, then 120s — ~3 minutes across the three pushes),
+// Doubling backoff (60s, then 120s - ~3 minutes across the three pushes),
 // measured from each attempt's settle so a push that spends minutes in
 // `/configure` deadlines still buys its full gap.
-const missingRegistrationLedger = createAttemptLedger({
-  maxAttempts: MISSING_REGISTRATION_MAX_ATTEMPTS,
-  backoffMs: MISSING_REGISTRATION_BACKOFF_MS,
-  curve: 'doubling'
-});
+const missingRegistrationLedger = createAttemptLedger(
+  {
+    maxAttempts: MISSING_REGISTRATION_MAX_ATTEMPTS,
+    backoffMs: MISSING_REGISTRATION_BACKOFF_MS,
+    curve: 'doubling'
+  },
+  // The wall clock, stated rather than defaulted. Whether these budgets should move to the monotonic clock
+  // the 429 cooldown below uses is a live question for the author; what this argument removes is the silent
+  // default that made the question invisible.
+  () => Date.now()
+);
 
-/**
- * `Date.now()` before which an account's sync is paused because the guardian
- * rate-limited it. This tick runs every ~3s per account, which makes it by far
- * the guardian's most frequent caller — and it was the ONE caller that ignored a
- * 429 completely. The transaction pipeline requeues on the server's own
- * `Retry-After` and `registerOnGuardianWithRetry` honours it too; this path just
- * logged the error and came back 3 seconds later, sustaining the very condition
- * the guardian was complaining about. Two wallets sharing a runner's IP sit at
- * ~40 requests/minute from this poll alone against a 60/minute cap, so once
- * transaction traffic starts, a 429 storm is self-inflicted and self-feeding.
- */
 /** Cooldown when the guardian rate-limits without naming one. */
 export const SYNC_RATE_LIMIT_FALLBACK_COOLDOWN_MS = 30_000;
 /** Ceiling on a server-provided cooldown, so one bad header can't park syncing. */
 export const SYNC_RATE_LIMIT_MAX_COOLDOWN_MS = 120_000;
 
-// Monotonic deadlines, not wall-clock: the cap is 120s, but a wall-clock deadline survives
-// a backward clock correction for the whole size of that correction, so a stale 429 could
-// park an account for hours. Same clock the breaker and the fuse use.
+/**
+ * The 429 cooldown, and why this path needs one at all. This tick runs every ~3s per account, which makes it by
+ * far the guardian's most frequent caller, and it was the ONE caller that ignored a 429 completely. The
+ * transaction pipeline requeues on the server's own `Retry-After` and `registerOnGuardianWithRetry` honours it
+ * too; this path just logged the error and came back 3 seconds later, sustaining the very condition the guardian
+ * was complaining about. Two wallets sharing a runner's IP sit at ~40 requests/minute from this poll alone
+ * against a 60/minute cap, so once transaction traffic starts, a 429 storm is self-inflicted and self-feeding.
+ *
+ * Monotonic deadlines, not wall-clock: the cap is 120s, but a wall-clock deadline survives a backward clock
+ * correction for the whole size of that correction, so a stale 429 could park an account for hours. Same clock
+ * the breaker and the fuse use.
+ */
 const guardianRateLimit = createRateCooldown(
   { floorMs: SYNC_RATE_LIMIT_FALLBACK_COOLDOWN_MS, capMs: SYNC_RATE_LIMIT_MAX_COOLDOWN_MS },
   monotonicNowMs
@@ -276,7 +286,7 @@ export function getGuardianLastSyncAt(accountPublicKey: string): number | undefi
  * green "Online" forever, and two reachable paths do exactly that WITHOUT ever
  * arming the outage or unrepairable flags that would otherwise contradict it:
  *
- *  - a sustained 429, which parks the account on `rateLimitedUntil`, CLEARS the
+ *  - a sustained 429, which parks the account on `guardianRateLimit`, CLEARS the
  *    outage flag (the server answered), stamps nothing, and has no budget that
  *    can exhaust into `markGuardianUnrepairable`;
  *  - any sustained non-server error — a local WASM failure, a repeated
@@ -393,7 +403,7 @@ function recordSuccessfulGuardianSync(accountPublicKey: string): void {
  * `lastGuardianSyncAt`'s own docstring promises it does not make.
  *
  * Two pieces of state are deliberately NOT reset here:
- *  - `missingRegistrationState` is already keyed by (account, endpoint, guardian
+ *  - `missingRegistrationLedger` is already keyed by (account, endpoint, guardian
  *    key), so it never inherits in the first place.
  *  - `hardeningChecked` describes the ACCOUNT's on-chain procedure thresholds,
  *    which a rotation does not change.
@@ -568,8 +578,14 @@ async function attemptMissingRegistrationSelfHeal(account: WalletAccount): Promi
     endpoint,
     guardianKey: onChainGuardian ?? 'no-guardian-key'
   };
-  const now = Date.now();
-  if (!missingRegistrationLedger.mayAttempt(healSubject, now)) {
+  const attempts = missingRegistrationLedger.attempts(healSubject);
+  // Open the attempt BEFORE the guards: `tryBegin` stamps the clock without consuming an attempt. A refusal
+  // is not free, since the endpoint probe below is an HTTP round trip, and a refusal that left the clock
+  // untouched would re-run these checks on every ~3s tick for as long as the condition behind it holds. The
+  // attempt count is spent only on a real push, so three transient refusals cannot burn the budget; a guard
+  // that returns without settling leaves exactly the begin stamp, which is that contract.
+  const attempt = missingRegistrationLedger.tryBegin(healSubject);
+  if (!attempt) {
     // Budget spent on this triple. The operator keeps saying it has no record of
     // an account whose on-chain guardian it is, and this wallet has stopped
     // pushing — a standstill nothing else surfaces, since an unknown-account
@@ -579,16 +595,6 @@ async function attemptMissingRegistrationSelfHeal(account: WalletAccount): Promi
     }
     return;
   }
-
-  // Open the attempt BEFORE the guards — `begin` stamps the clock without
-  // consuming an attempt. A refusal is not free — the endpoint probe below is
-  // an HTTP round trip — and a refusal that left the clock untouched would
-  // re-run these checks on every ~3s tick for as long as the condition behind
-  // it holds. The attempt count is spent only on a real push, so three
-  // transient refusals cannot burn the budget; a guard that returns without
-  // settling leaves exactly the begin stamp, which is that contract.
-  const attempts = missingRegistrationLedger.attempts(healSubject);
-  const attempt = missingRegistrationLedger.begin(healSubject, now);
 
   // STOP unless this device is PROVABLY still the account's on-chain hot signer
   // — same arbiter, same reasoning as the cold re-register self-heal:
@@ -670,11 +676,11 @@ async function attemptMissingRegistrationSelfHeal(account: WalletAccount): Promi
     return;
   }
 
-  // Charged before the await: an attempt that throws — or that is torn down
+  // Charged before the await: an attempt that throws - or that is torn down
   // mid-flight — has still spent one, because `/configure` may have landed.
   // The settle below then re-stamps from when the attempt FINISHED, which is a
   // different time entirely: `finalizeDirectGuardianSwitch` can spend eight
-  // 30s `/configure` deadlines plus backoff — minutes — and measuring the next
+  // 30s `/configure` deadlines plus backoff - minutes - and measuring the next
   // gap from before all of that made the cooldown inert in the one case it
   // exists for. The `MISSING_REGISTRATION_BACKOFF_MS` docstring promises ~3
   // minutes across three pushes; settle-time stamping is what makes that true.
@@ -722,7 +728,7 @@ async function attemptMissingRegistrationSelfHeal(account: WalletAccount): Promi
  *
  * The DECISION of whether to run this — persistence (only after the 401 has
  * repeated, via `consecutiveAuthFailures`), bounded retry, and a cooldown (via
- * `selfHealLedger.mayAttempt`) — is made by the caller; this function only
+ * `selfHealLedger.mayAttempt`) - is made by the caller; this function only
  * performs the attempt and reports what it did as a `SelfHealOutcome`.
  *
  * On guardian v0.16.0 the common post-rotation case never reaches here: the
@@ -835,7 +841,7 @@ async function attemptColdReRegisterSelfHeal(account: WalletAccount): Promise<Se
     // 401s and "heals" by taking authorization back, breaking the device that
     // legitimately owns the account now. Both then heal on their own cooldowns
     // and neither converges (the successful sync in between deletes
-    // `selfHealState`, so SELF_HEAL_MAX_ATTEMPTS never accumulates and the
+    // `selfHealLedger`, so SELF_HEAL_MAX_ATTEMPTS never accumulates and the
     // livelock is unbounded).
     //
     // The on-chain signer set is the arbiter: signer slot 0 is the hot key by
@@ -910,7 +916,7 @@ async function attemptColdReRegisterSelfHeal(account: WalletAccount): Promise<Se
  *    rejection, each incrementing the counter. `GUARDIAN_SYNC_OUTAGE_THRESHOLD`
  *    would then arm after fewer than 6 actual failures and the "~threshold × 3s"
  *    cadence documented above would not hold.
- *  - the `rateLimitedUntil` check reads the cooldown at the top of the loop
+ *  - the `guardianRateLimit` check reads the cooldown at the top of the loop
  *    body, so overlapping runs all read it before any of them writes it and the
  *    429 backoff is bypassed N ways — against an operator that just asked to be
  *    left alone.
@@ -1155,16 +1161,16 @@ async function runGuardianAccountsSync(generation: number): Promise<void> {
         const fails = (consecutiveAuthFailures.get(account.publicKey) ?? 0) + 1;
         consecutiveAuthFailures.set(account.publicKey, fails);
         const healSubject = { accountPublicKey: account.publicKey, endpoint };
-        if (fails >= SELF_HEAL_AUTH_FAILURE_THRESHOLD && selfHealLedger.mayAttempt(healSubject)) {
+        const attempt = fails >= SELF_HEAL_AUTH_FAILURE_THRESHOLD ? selfHealLedger.tryBegin(healSubject) : null;
+        if (attempt) {
           // The ledger books the budget against what the attempt DID, not
           // against the fact that it ran: `'attempted'` charges, a permanent
-          // refusal (rotated out — no tick will make this apply) closes the
+          // refusal (rotated out - no tick will make this apply) closes the
           // budget outright, and a transient refusal that never reached the
-          // guardian refunds — three local read failures must not disable the
+          // guardian refunds - three local read failures must not disable the
           // repair for good. Every outcome re-stamps the cooldown from SETTLE
           // time, so a slow `/configure` still buys its full gap and a refusal
           // does not re-read on every 3s tick.
-          const attempt = selfHealLedger.begin(healSubject);
           const outcome = await attemptColdReRegisterSelfHeal(account);
           attempt.settle(
             outcome === 'attempted' ? 'charged' : outcome === 'refused-permanently' ? 'closed' : 'refunded'
@@ -1183,11 +1189,8 @@ async function runGuardianAccountsSync(generation: number): Promise<void> {
         consecutiveUnknownAccount.delete(account.publicKey);
         clearGuardianServerFailures(account.publicKey);
         const askedMs = (guardianRetryAfterSec(error) ?? 0) * 1000;
-        const cooldown = Math.min(
-          Math.max(askedMs, SYNC_RATE_LIMIT_FALLBACK_COOLDOWN_MS),
-          SYNC_RATE_LIMIT_MAX_COOLDOWN_MS
-        );
-        guardianRateLimit.impose(account.publicKey, askedMs);
+        // The cooldown owns the floor and the cap, so log what it armed instead of clamping a second copy here.
+        const cooldown = guardianRateLimit.impose(account.publicKey, askedMs);
         console.warn(
           `[Guardian Sync] rate limited (429) for ${account.publicKey}; pausing sync for ${Math.round(cooldown / 1000)}s`
         );

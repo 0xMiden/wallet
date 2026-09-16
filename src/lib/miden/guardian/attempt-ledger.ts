@@ -21,7 +21,7 @@
 /**
  * What a budget is spent AGAINST. The key is the whole subject: account plus
  * the operator identity the attempts are about. `endpoint` and `guardianKey`
- * widen the key exactly as far as the repair's writes reach — a
+ * widen the key exactly as far as the repair's writes reach - a
  * registration push names (account, endpoint, on-chain guardian key), so a
  * second rotation in the same session arrives with its own budget instead of
  * inheriting an exhausted one.
@@ -46,13 +46,13 @@ export type AttemptPolicy = {
 
 /**
  * How an attempt settles against the budget:
- *  - `'charged'`  — the attempt really ran (landed or threw after reaching the
+ *  - `'charged'`  - the attempt really ran (landed or threw after reaching the
  *                   operator); one attempt is spent, the clock restarts from
- *                   NOW — settle time, not begin time.
- *  - `'refunded'` — the attempt bailed before any operator traffic; nothing is
+ *                   NOW - settle time, not begin time.
+ *  - `'refunded'` - the attempt bailed before any operator traffic; nothing is
  *                   spent, but the clock still restarts so a persistent local
  *                   failure retries on the cooldown, not on every tick.
- *  - `'closed'`   — the attempt proved no retry can work (this device is not
+ *  - `'closed'`   - the attempt proved no retry can work (this device is not
  *                   the account's signer any more); the budget jumps to spent.
  */
 export type AttemptSettle = 'charged' | 'refunded' | 'closed';
@@ -66,6 +66,9 @@ export interface AttemptHandle {
    */
   chargeEarly(): void;
   settle(outcome: AttemptSettle): void;
+  // Both are ONE-SHOT and scoped to this attempt: once this handle has settled, or once a later
+  // attempt has opened for the same subject, or once the subject has been cleared, they do nothing.
+  // A late settle is a race, not a caller error.
 }
 
 export interface AttemptLedger {
@@ -73,20 +76,23 @@ export interface AttemptLedger {
    * May an attempt run now? False while the budget is spent or the gap since
    * the last stamp has not elapsed. A subject that has never been seen may.
    */
-  mayAttempt(subject: AttemptSubject, now?: number): boolean;
+  mayAttempt(subject: AttemptSubject): boolean;
   /**
-   * Open an attempt: stamps the clock immediately WITHOUT charging, so a guard
-   * that refuses after `begin` still buys the cooldown (an abandoned handle
-   * keeps the begin stamp — that is the contract, not a leak). Charging
+   * THE way in: opens an attempt when the cap and the cooldown allow one, and otherwise returns null
+   * having stamped and charged nothing. The unguarded opener stays private on purpose, because a caller
+   * that has to remember to pair a check with an open is the re-derived rule this module exists to end.
+   *
+   * Opening stamps the clock WITHOUT charging, so a guard that refuses after the attempt is open still
+   * buys the cooldown (an abandoned handle keeps that stamp - the contract, not a leak). Charging
    * happens at settle.
    */
-  begin(subject: AttemptSubject, now?: number): AttemptHandle;
+  tryBegin(subject: AttemptSubject): AttemptHandle | null;
   /** True once the subject's attempts have reached the policy cap. */
   budgetSpent(subject: AttemptSubject): boolean;
-  /** Attempts charged so far — for log lines ("attempt 2/3"), never for gating. */
+  /** Attempts charged so far - for log lines ("attempt 2/3"), never for gating. */
   attempts(subject: AttemptSubject): number;
   /**
-   * Forget every subject of this account — the endpoint-change / successful-
+   * Forget every subject of this account - the endpoint-change / successful-
    * sync reset. Evidence spent against one operator regime must not outlive
    * it (F-137's rule, owned here).
    */
@@ -94,49 +100,74 @@ export interface AttemptLedger {
   clearAll(): void;
 }
 
-type AttemptState = { attempts: number; lastAttemptAt: number };
+type AttemptState = { attempts: number; lastAttemptAt: number; generation: number };
 
 const subjectKey = (s: AttemptSubject): string => `${s.accountPublicKey}|${s.endpoint ?? ''}|${s.guardianKey ?? ''}`;
 
-export function createAttemptLedger(policy: AttemptPolicy, clock?: () => number): AttemptLedger {
+export function createAttemptLedger(policy: AttemptPolicy, clock: () => number): AttemptLedger {
   const state = new Map<string, AttemptState>();
-  // Lazy property read, NOT a captured `Date.now` reference: ledgers are
-  // module-scoped, so a captured reference would be bound before any test's
-  // `jest.spyOn(Date, 'now')` and every timing test would silently run on the
-  // wall clock.
-  const readClock = () => (clock ? clock() : Date.now());
+  // Which attempt an entry belongs to. Monotonic across the whole ledger, so no two live handles can
+  // ever share one, whatever subject they opened against.
+  let generations = 0;
+  // REQUIRED, so no repair is handed a clock it never chose: the sibling `createRateCooldown` has always
+  // demanded one, and the silent default here is what let a caller and this module disagree about which
+  // clock an entry was stamped on. Pass `() => Date.now()` for the wall clock, never `Date.now` itself:
+  // ledgers are module-scoped, so a captured reference binds before any test's `jest.spyOn(Date, 'now')`
+  // and every timing test would silently run on the real clock.
+  const readClock = clock;
 
   const gapMs = (attempts: number): number =>
     policy.curve === 'doubling' ? policy.backoffMs * 2 ** Math.max(attempts - 1, 0) : policy.backoffMs;
 
   const spent = (s: AttemptState | undefined): boolean => (s?.attempts ?? 0) >= policy.maxAttempts;
 
-  return {
-    mayAttempt(subject, now = readClock()) {
-      const s = state.get(subjectKey(subject));
-      if (spent(s)) return false;
-      if (s && now - s.lastAttemptAt < gapMs(s.attempts)) return false;
-      return true;
-    },
+  const mayAttempt = (subject: AttemptSubject, now: number = readClock()): boolean => {
+    const s = state.get(subjectKey(subject));
+    if (spent(s)) return false;
+    if (s && now - s.lastAttemptAt < gapMs(s.attempts)) return false;
+    return true;
+  };
 
-    begin(subject, now = readClock()) {
-      const key = subjectKey(subject);
-      const attemptsAtBegin = state.get(key)?.attempts ?? 0;
-      state.set(key, { attempts: attemptsAtBegin, lastAttemptAt: now });
-      return {
-        chargeEarly() {
-          state.set(key, { attempts: attemptsAtBegin + 1, lastAttemptAt: now });
-        },
-        settle(outcome) {
-          const attempts =
-            outcome === 'charged'
-              ? attemptsAtBegin + 1
-              : outcome === 'closed'
-                ? Math.max(policy.maxAttempts, attemptsAtBegin)
-                : attemptsAtBegin;
-          state.set(key, { attempts, lastAttemptAt: readClock() });
-        }
-      };
+  const begin = (subject: AttemptSubject, now: number = readClock()): AttemptHandle => {
+    const key = subjectKey(subject);
+    const attemptsAtBegin = state.get(key)?.attempts ?? 0;
+    const generation = ++generations;
+    state.set(key, { attempts: attemptsAtBegin, lastAttemptAt: now, generation });
+    let settled = false;
+    // The entry still belongs to THIS attempt, and this attempt has not finished. Anything else means a
+    // newer attempt opened, the subject was cleared, or this handle already settled, and a write now
+    // would undo somebody else's bookkeeping with numbers captured before it existed.
+    const isCurrent = (): boolean => !settled && state.get(key)?.generation === generation;
+    return {
+      chargeEarly() {
+        if (!isCurrent()) return;
+        state.set(key, { attempts: attemptsAtBegin + 1, lastAttemptAt: now, generation });
+      },
+      settle(outcome) {
+        if (!isCurrent()) return;
+        settled = true;
+        const attempts =
+          outcome === 'charged'
+            ? attemptsAtBegin + 1
+            : outcome === 'closed'
+              ? Math.max(policy.maxAttempts, attemptsAtBegin)
+              : attemptsAtBegin;
+        state.set(key, { attempts, lastAttemptAt: readClock(), generation });
+      }
+    };
+  };
+
+  return {
+    mayAttempt,
+
+    tryBegin(subject) {
+      // ONE reading, from the ledger's own clock, for both halves. The clock is deliberately not a
+      // parameter: `settle` stamps from `readClock()`, so a caller passing its own reading could stamp
+      // on one clock and be judged on another, and a gap measured across two clocks is not a gap. That
+      // is not hypothetical - it is what a wall-clock caller did to a monotonic ledger here, and every
+      // cooldown read as already elapsed.
+      const now = readClock();
+      return mayAttempt(subject, now) ? begin(subject, now) : null;
     },
 
     budgetSpent(subject) {
@@ -161,7 +192,7 @@ export function createAttemptLedger(policy: AttemptPolicy, clock?: () => number)
 }
 
 /**
- * A pure server-driven cooldown — a deadline, no attempt count. Kept beside
+ * A pure server-driven cooldown - a deadline, no attempt count. Kept beside
  * the ledger because it shares the keying discipline but none of the budget
  * rules; a 429 is the operator asking for silence, not a failed repair.
  *
@@ -170,8 +201,12 @@ export function createAttemptLedger(policy: AttemptPolicy, clock?: () => number)
  * of the correction, so a stale 429 could park an account for hours.
  */
 export interface RateCooldown {
-  /** Arm the cooldown: `max(askedMs, floorMs)` clamped to `capMs`. */
-  impose(key: string, askedMs: number | undefined): void;
+  /**
+   * Arm the cooldown at `max(askedMs, floorMs)` clamped to `capMs`, and return the milliseconds armed. The
+   * caller reports the pause it actually got rather than keeping a second copy of the clamp, which is the
+   * copy that silently lies once either side moves.
+   */
+  impose(key: string, askedMs: number | undefined): number;
   /** True while armed; expiry is lazy (checking an expired entry clears it). */
   isActive(key: string): boolean;
   clear(key: string): void;
@@ -184,6 +219,7 @@ export function createRateCooldown(bounds: { floorMs: number; capMs: number }, c
     impose(key, askedMs) {
       const cooldown = Math.min(Math.max(askedMs ?? 0, bounds.floorMs), bounds.capMs);
       until.set(key, clock() + cooldown);
+      return cooldown;
     },
     isActive(key) {
       const deadline = until.get(key);

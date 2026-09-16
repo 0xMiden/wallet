@@ -837,7 +837,7 @@ describe('syncGuardianAccounts — cold re-register self-heal', () => {
     // to itself. `/configure` is account-wide, so re-registering here would
     // revoke the device that now legitimately owns the account — and that device
     // would heal right back, livelocking both (a successful sync in between
-    // clears selfHealState, so the attempt cap never accumulates).
+    // clears selfHealLedger, so the attempt cap never accumulates).
     mockGetSignerDetails.mockResolvedValue({ commitment: '0xsomeotherdeviceshotkey' });
     mockGetOrCreateMultisigService.mockResolvedValue({
       sync: jest.fn(async () => {

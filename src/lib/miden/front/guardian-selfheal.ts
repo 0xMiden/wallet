@@ -1,7 +1,9 @@
 /**
- * Pure decision logic for the guardian request-auth self-heal (used by
- * `guardian-sync.ts`). Kept import-free so it is directly unit-testable without
- * mocking the store / SDK / guardian client that the sync module pulls in.
+ * The guardian request-auth self-heal's policy constants and its outcome
+ * contract, read by `guardian-sync.ts`. The decision itself is no longer here:
+ * the PERSISTENCE gate is the caller's `consecutiveAuthFailures` streak, and
+ * the bounded retry and the cooldown are the shared `selfHealLedger`
+ * (`guardian/attempt-ledger.ts`), which these constants configure.
  *
  * Background: a guardian account authenticates every request against a stored
  * `cosigner_commitments` allowlist. That allowlist is written both by an
@@ -18,16 +20,18 @@
  * stale-allowlist, clock-skew, and replay-protection failures into one
  * `authentication_failed`/401. So:
  *
- *  - PERSISTENCE: only after the 401 persists across `AUTH_FAILURE_THRESHOLD`
- *    consecutive sync ticks. Transient skew/replay/pre-canonicalization 401s
- *    clear within a tick or two, so requiring several in a row rules them out.
- *  - BOUNDED RETRY: `reRegisterCurrentStateOnGuardian` re-registers the CURRENT
- *    ON-CHAIN signer set, so it can only ever authorize a real on-chain signer.
- *    If it doesn't clear the 401 within `MAX_ATTEMPTS`, the local signer is
- *    genuinely not the on-chain signer (a corrupted local record) and
- *    re-registering can't help — stop, rather than loop forever.
- *  - COOLDOWN between attempts so a persistently-failing `/configure` can't
- *    storm the guardian.
+ *  - PERSISTENCE (the caller's, against `SELF_HEAL_AUTH_FAILURE_THRESHOLD`):
+ *    only after the 401 persists across that many consecutive sync ticks.
+ *    Transient skew, replay and pre-canonicalization 401s clear within a tick
+ *    or two, so requiring several in a row rules them out.
+ *  - BOUNDED RETRY and COOLDOWN (the ledger's, from `SELF_HEAL_MAX_ATTEMPTS`
+ *    and `SELF_HEAL_COOLDOWN_MS`): `reRegisterCurrentStateOnGuardian`
+ *    re-registers the CURRENT ON-CHAIN signer set, so it can only ever
+ *    authorize a real on-chain signer. If that does not clear the 401 within
+ *    the cap, the local signer genuinely is not the on-chain signer (a
+ *    corrupted local record) and re-registering cannot help, so the budget
+ *    closes rather than looping forever; the gap between attempts keeps a
+ *    persistently-failing `/configure` from storming the guardian.
  */
 
 /** Consecutive auth-rejections (401s) required before the first self-heal attempt. */
@@ -53,8 +57,3 @@ export const SELF_HEAL_COOLDOWN_MS = 60_000;
  *                             guardian traffic happened, so retry later for free.
  */
 export type SelfHealOutcome = 'attempted' | 'refused-permanently' | 'refused-transiently';
-
-// The BOUNDED RETRY and COOLDOWN halves of the decision live in the shared
-// `guardian/attempt-ledger.ts` (the sync module's `selfHealLedger`); the
-// PERSISTENCE gate stays at the caller, against `consecutiveAuthFailures`.
-// This module keeps the constants and the outcome contract.
