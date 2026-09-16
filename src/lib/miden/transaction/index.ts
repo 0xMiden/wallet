@@ -980,7 +980,14 @@ export const generateTransaction = async (
   try {
     await generateTransactionWithProvider(transaction, signCallback, useWorker, provider);
   } finally {
-    await guardianProvider.releaseRecoveryAuthorization?.(transaction.id);
+    // Never let the release become the pipeline's outcome. On mobile and desktop
+    // this is an intercom round trip (store/index.ts), so it can reject; thrown
+    // from `finally` it would replace the generate's own result or error AND
+    // skip the clearing, stranding the derived cold key with its idle timer
+    // already disarmed by beginRecoveryAuthorization.
+    await guardianProvider
+      .releaseRecoveryAuthorization?.(transaction.id)
+      .catch(e => console.warn('[generateTransaction] recovery authorization release failed:', e));
   }
 };
 

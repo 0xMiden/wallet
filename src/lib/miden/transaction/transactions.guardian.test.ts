@@ -889,6 +889,38 @@ describe('generateTransaction — Guardian routing', () => {
     expect(transaction.status).toBe(ITransactionStatus.Queued);
   });
 
+  // The release runs in `finally`. On mobile and desktop it is an intercom round
+  // trip, so it can reject - and a throw out of `finally` replaces whatever the
+  // pipeline itself produced, hiding the real failure from the loop that has to
+  // classify it.
+  it('a failing authorization release does not replace the pipeline outcome', async () => {
+    const transaction = new SwitchGuardianTransaction('guardian-acc', 'https://new.guardian', false);
+    const prepareRecoveryTransaction = jest.fn(async () => ({ ready: true }));
+    const releaseRecoveryAuthorization = jest.fn(async () => {
+      throw new Error('intercom port closed');
+    });
+    const getAccounts = jest.fn(async () => []);
+    // The pre-guardian sync is the first thing the pipeline does, so failing it
+    // gives a deterministic error that is unmistakably the PIPELINE's, not the
+    // release's.
+    mockGetMidenClient.mockResolvedValueOnce({
+      syncState: jest.fn(async () => {
+        throw new Error('pipeline failed for its own reason');
+      })
+    });
+    await expect(
+      generateTransaction(transaction, jest.fn(), false, {
+        prepareRecoveryTransaction,
+        releaseRecoveryAuthorization,
+        getAccounts,
+        getPublicKeyForCommitment: jest.fn(),
+        signWord: jest.fn()
+      })
+    ).rejects.toThrow('pipeline failed for its own reason');
+    // It still ran: the clearing must not be skipped just because it can fail.
+    expect(releaseRecoveryAuthorization).toHaveBeenCalledWith(transaction.id);
+  });
+
   it('Guardian send: builds a proposal, signs it, submits the request, and completes the row', async () => {
     const txId = 'send-guardian-1';
     const result = makeResult();
