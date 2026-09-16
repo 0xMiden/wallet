@@ -349,6 +349,28 @@ describe('guardian-manager', () => {
       expect(mockGetSignerDetailsFromAccount).not.toHaveBeenCalled();
       expect(mockMultisigServiceInit).not.toHaveBeenCalled();
     });
+
+    /**
+     * And the await AFTER it, which one re-check does not cover. The signer read is itself a
+     * WASM call, so an eviction landing while it runs leaves the `id()` read below borrowing a
+     * handle the mutex has already handed on. Dormant only while that callee's body stays
+     * synchronous, which is exactly why it needs a case: a guard whose safety rests on a callee
+     * not growing an await is one edit from being wrong, and nothing would have caught it.
+     */
+    it('refuses the build when the eviction lands during the signer read', async () => {
+      mockGetSignerDetailsFromAccount.mockImplementationOnce(async () => {
+        currentWasmHold = null;
+        return { commitment: 'abc' };
+      });
+      const provider = makeProvider([guardianAccount]);
+
+      await expect(getOrCreateMultisigService(GUARDIAN_PK, provider)).rejects.toMatchObject({
+        name: 'WasmClientPoisonedError'
+      });
+      // Unlike the case above, the signer read DID happen. What must not happen is the build.
+      expect(mockGetSignerDetailsFromAccount).toHaveBeenCalled();
+      expect(mockMultisigServiceInit).not.toHaveBeenCalled();
+    });
   });
 
   describe('isGuardianAccount', () => {

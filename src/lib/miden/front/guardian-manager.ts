@@ -183,6 +183,13 @@ export async function getOrCreateMultisigService(
       assertWasmHoldCurrent(hold, 'guardian service build, after the account read');
       // Hot signer commitment lives at signer index 0 (order is [hot, cold]).
       const { commitment } = await getSignerDetailsFromAccount(sdkAccount);
+      // AND AGAIN AFTER THE SIGNER READ, not only after the account one. The comment above
+      // calls that a genuine WASM call rather than a field access, which is exactly the
+      // category every sibling merged hold in this change re-checks after: the direct-switch
+      // finalizer re-checks after both of its awaits. Dormant only while
+      // `getSignerDetailsFromAccount` happens to have a synchronous body, and a guard whose
+      // safety rests on a callee not growing an await is one edit from being wrong.
+      assertWasmHoldCurrent(hold, 'guardian service build, after the signer read');
       // READ IN HERE, not at the log site below. `id()` is a call on a borrowed
       // handle, so asking for it after this hold released was the very thing the
       // comment above forbids - and a `console.log` is a silly place to take a
