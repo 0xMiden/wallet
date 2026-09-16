@@ -27,6 +27,7 @@ import {
   MISSING_REGISTRATION_PERSISTENCE_THRESHOLD,
   PENDING_ROTATION_RECHECK_BACKOFF_MS,
   PENDING_ROTATION_RECHECK_MAX_ATTEMPTS,
+  retireGuardianSyncPasses,
   subscribeGuardianSyncOutage,
   SYNC_RATE_LIMIT_FALLBACK_COOLDOWN_MS,
   SYNC_RATE_LIMIT_MAX_COOLDOWN_MS,
@@ -3403,6 +3404,60 @@ describe('syncGuardianAccounts - guards a mutation probe found unexercised', () 
   // generation check at all, and it writes more durable state than any other: it
   // demotes transaction rows, rolls the account's guardian endpoint back, and
   // spends per-row budgets.
+  it('does not charge the row budget when the pass is retired during the node read', async () => {
+    storeState.accounts = [only] as never;
+    mockListUnconfirmedSwitchRows.mockResolvedValue([{ id: 'row-a', transactionId: '0xa' }]);
+    // `retireGuardianSyncPasses`, the PRODUCTION entry point, not
+    // `__resetGuardianSyncOutageForTest`: the test-only helper also clears the recheck ledger,
+    // which would wipe the very budget this case exists to watch and let it pass with or
+    // without the guard. Retiring mid-read is what an endpoint change does to a live pass.
+    mockReadDirectSwitchCommitState.mockImplementation(async () => {
+      retireGuardianSyncPasses();
+      return 'pending';
+    });
+    const clock = useFakeClocks(5_000_000);
+
+    // Enough laps to spend the WHOLE budget if every one of them charged. Exhaustion is the
+    // only thing observable from outside the ledger, so a single lap proves nothing: asserting
+    // on one is exactly how the first version of this case passed either way.
+    for (let pass = 0; pass <= PENDING_ROTATION_RECHECK_MAX_ATTEMPTS; pass += 1) {
+      await syncGuardianAccounts();
+      clock.advance(PENDING_ROTATION_RECHECK_BACKOFF_MS);
+    }
+    clock.restore();
+
+    // A charge is durable: fifteen raise the manual-recovery prompt. A pass told to stop
+    // judging this row must not spend one on evidence taken against an endpoint the user has
+    // since replaced.
+    expect(isGuardianUnrepairable(only.publicKey)).toBe(false);
+  });
+
+  it('does not settle the row when the pass is retired during the rollback await', async () => {
+    storeState.accounts = [only] as never;
+    mockListUnconfirmedSwitchRows.mockResolvedValue([
+      {
+        id: 'row-a',
+        transactionId: '0xa',
+        extraInputs: {
+          newGuardianEndpoint: 'https://new.guardian.test',
+          previousGuardianEndpoint: 'https://old.guardian.test'
+        }
+      }
+    ]);
+    mockReadDirectSwitchCommitState.mockResolvedValue('discarded');
+    // The rollback is the await that re-opens the window the block-entry guard closed.
+    storeState.revertGuardianEndpointAfterDiscard.mockImplementation(async () => {
+      __resetGuardianSyncOutageForTest();
+      return 'reverted';
+    });
+
+    await syncGuardianAccounts();
+
+    // `resolveUnconfirmedSwitch` is the point of no return: a demoted row drops out of the
+    // unconfirmed list forever, so a retired pass must not reach it.
+    expect(mockResolveUnconfirmedSwitch).not.toHaveBeenCalled();
+  });
+
   it('stops settling rows once the pass is retired', async () => {
     storeState.accounts = [only] as never;
     mockListUnconfirmedSwitchRows.mockResolvedValue([

@@ -894,6 +894,16 @@ async function runPendingRotationRecheck(
       }
       if (state !== 'committed' && state !== 'discarded') {
         // 'pending' / 'not-found': no verdict either way - spend one recheck.
+        //
+        // RE-CHECKED AFTER THE NODE READ, because a ledger charge IS a durable write: it spends
+        // one of fifteen attempts and exhaustion is what raises the manual-recovery prompt. The
+        // guard at the write block below is too late for it - a pass retired during
+        // `readDirectSwitchCommitState` reached here and charged a row it had been told to stop
+        // judging, on evidence taken against an endpoint the user has since replaced.
+        if (retired()) {
+          unsettled.push(row.id);
+          continue;
+        }
         attempt.settle('charged');
         unsettled.push(row.id);
         continue;
@@ -988,6 +998,15 @@ async function runPendingRotationRecheck(
             // moved the binding off this rotation's target, so demoting the row is
             // all that is left.
           }
+        }
+        // RE-CHECKED AFTER THE ROLLBACK AWAIT. The guard above covered the ENTRY to this block,
+        // but the rollback parks for an operator round trip (the 20 s authority check), and
+        // `resolveUnconfirmedSwitch` below is the point of no return: a demoted row leaves the
+        // unconfirmed list forever and no later pass can re-derive the repair. A block-entry
+        // check does not survive an await inside the block.
+        if (retired()) {
+          unsettled.push(row.id);
+          continue;
         }
         await resolveUnconfirmedSwitch(row.id, landed);
         // Only THIS row's budget and THIS row's prompt: the rows on one account
