@@ -81,6 +81,12 @@ export const PromptCard: FC<PromptCardProps> = ({
     restoreFocusRef.current = !!active && active !== containerRef.current && !!containerRef.current?.contains(active);
     hapticLight();
     onClick();
+    // The activation speaks only for the render it caused, which React flushes in a
+    // microtask queued by that update, ahead of this one. A hero arriving later did
+    // not replace the button the user pressed.
+    queueMicrotask(() => {
+      restoreFocusRef.current = false;
+    });
   };
 
   const handleDismiss = (e: React.MouseEvent<HTMLButtonElement>) => {
@@ -125,9 +131,8 @@ export const PromptCard: FC<PromptCardProps> = ({
     if (!container) return;
     const active = document.activeElement;
     if (heroShown) {
-      const focusLeftTheCard = !active || active === document.body || !container.contains(active);
-      if (restoreFocusRef.current && focusLeftTheCard) container.focus({ preventScroll: true });
-      restoreFocusRef.current = false;
+      // Only focus the unmount dropped to the page; focus the user moved elsewhere stays.
+      if (restoreFocusRef.current && (!active || active === document.body)) container.focus({ preventScroll: true });
     } else if (active === container) {
       container.querySelector<HTMLElement>('[data-card-action]')?.focus({ preventScroll: true });
     }

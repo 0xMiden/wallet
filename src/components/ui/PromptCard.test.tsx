@@ -303,5 +303,60 @@ describe('PromptCard', () => {
 
       expect(document.activeElement).toBe(screen.getByRole('button', { name: /Fund your wallet/ }));
     });
+
+    it('leaves focus where the user moved it when a hero shows after a tap that did not start one', () => {
+      // The tap does not swap in a hero (a request already running elsewhere, say);
+      // the hero arrives later, after the user has tabbed on.
+      const LateHero: React.FC = () => {
+        const [hero, setHero] = React.useState<typeof funding | undefined>(undefined);
+        return (
+          <div>
+            <PromptCard data-testid="card" title="Fund your wallet" hero={hero} onClick={() => undefined} />
+            <button type="button" onClick={() => setHero(funding)}>
+              start hero
+            </button>
+          </div>
+        );
+      };
+      render(<LateHero />);
+      const action = screen.getByRole('button', { name: /Fund your wallet/ });
+      action.focus();
+      fireEvent.click(action);
+
+      const elsewhere = screen.getByRole('button', { name: 'start hero' });
+      elsewhere.focus();
+      act(() => {
+        elsewhere.click();
+      });
+
+      expect(document.activeElement).toBe(elsewhere);
+    });
+
+    it('does not focus the card for a hero that shows after an earlier tap, once focus has left for the page', async () => {
+      const LateHero: React.FC = () => {
+        const [hero, setHero] = React.useState<typeof funding | undefined>(undefined);
+        return (
+          <div>
+            <PromptCard data-testid="card" title="Fund your wallet" hero={hero} onClick={() => undefined} />
+            <button type="button" onClick={() => setHero(funding)}>
+              start hero
+            </button>
+          </div>
+        );
+      };
+      render(<LateHero />);
+      const action = screen.getByRole('button', { name: /Fund your wallet/ });
+      action.focus();
+      fireEvent.click(action);
+      // The user's next action is a later task: let the tap's microtasks run first.
+      await act(async () => {});
+      action.blur();
+
+      act(() => {
+        screen.getByRole('button', { name: 'start hero' }).click();
+      });
+
+      expect(document.activeElement).toBe(document.body);
+    });
   });
 });
