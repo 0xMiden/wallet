@@ -11,20 +11,19 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-import { runStressDriver, type StressOptions } from './stress-driver';
+import { assertFundedExactFaucetBalances, runStressDriver, type StressOptions } from './stress-driver';
 import { expect, test } from '../fixtures/two-wallets';
+import { hexFaucetToBech32 } from '../helpers/faucet-address';
 import { streamIndexedDBToFile } from '../helpers/idb-dump';
 
 const INITIAL_MINT_AMOUNT = 100_000_000_000; // matches mint-and-balance.spec.ts
 
 /**
- * The token this suite trades, and the ONLY asset its conservation identity covers.
+ * The symbol of the token this suite trades.
  *
- * `midenCli.createFaucet()` defaults to this symbol. Scoping matters: the wallet's
- * balance reads are cross-asset by default, and the native fee asset living inside the
- * conserved total is what made a fee-charging run report its own fees as lost notes.
+ * `midenCli.createFaucet()` defaults to this symbol. Conservation is scoped to the exact
+ * faucet deployed for the run because unrelated faucets may reuse the same symbol.
  */
-const TOKEN = 'TST';
 
 function intEnv(key: string, dflt: number): number {
   const raw = process.env[key];
@@ -114,6 +113,7 @@ test.describe('Stress - random send/claim', () => {
 
     let addressA = '';
     let addressB = '';
+    let faucetId = '';
 
     await steps.step('create_wallets', async () => {
       const a = useGuardian ? await walletA.createGuardianWallet(guardianUrl) : await walletA.createNewWallet();
@@ -144,12 +144,13 @@ test.describe('Stress - random send/claim', () => {
 
     await steps.step('deploy_and_fund', async () => {
       await midenCli.init();
-      const faucetId = await midenCli.createFaucet();
+      const faucetHex = await midenCli.createFaucet();
       for (let i = 0; i < initialMintsPerWallet; i++) {
-        await midenCli.mint(faucetId, addressA, INITIAL_MINT_AMOUNT, 'public');
-        await midenCli.mint(faucetId, addressB, INITIAL_MINT_AMOUNT, 'public');
+        await midenCli.mint(faucetHex, addressA, INITIAL_MINT_AMOUNT, 'public');
+        await midenCli.mint(faucetHex, addressB, INITIAL_MINT_AMOUNT, 'public');
       }
       await midenCli.sync();
+      faucetId = await hexFaucetToBech32(walletA, faucetHex);
     });
 
     await steps.step('initial_claim', async () => {
@@ -161,8 +162,8 @@ test.describe('Stress - random send/claim', () => {
       await walletB.claimAllNotes(guardianSyncMs);
     });
 
-    // Conserve the TRADED token only. `getBalance()` and an unscoped
-    // `quickBalanceSnapshot()` sum EVERY asset the account holds, so on a fee-charging
+    // Conserve the deployed faucet only. `getBalance()` and an unscoped
+    // `quickBalanceSnapshot()` sum every asset the account holds, so on a fee-charging
     // chain the native fee asset sits inside the conserved total and the fees this suite
     // itself pays read back as lost value: the run that exposed this reported
     // "balance conservation violated by -5.13; notes lost" with pending=0 and failed=0 --
@@ -170,9 +171,9 @@ test.describe('Stress - random send/claim', () => {
     // loop below waits for `A + B === initialTotal`, a target that can never be reached on
     // such a chain, so every run burned its full settle timeout before failing.
     //
-    // Scoping to the token under test keeps the invariant EXACT on any chain, fee or not,
-    // and it is the honest statement of what this suite detects: lost NOTES. The fee is
-    // not a lost note, and `fee-accounting.spec.ts` proves fee correctness far better.
+    // Exact faucet scoping also excludes unrelated faucets that reuse the TST symbol.
+    // This keeps the invariant exact on any chain, fee or not, and states what this suite
+    // detects: lost notes from the faucet it deployed. Fee accounting is tested elsewhere.
     // Refresh FIRST. `quickBalanceSnapshot` reads the Zustand projection as it stands and
     // does not refresh it, unlike the `getBalance()` this baseline used to call -- its own
     // contract says so, and names a conservation assertion as the case that must refresh.
@@ -181,8 +182,9 @@ test.describe('Stress - random send/claim', () => {
     // and the run burns its whole settle budget before reporting value GAINED -- the mirror
     // image of the phantom loss this baseline was scoped to fix.
     await Promise.all([walletA.refreshBalances(), walletB.refreshBalances()]);
-    const initialA = (await walletA.quickBalanceSnapshot({ symbol: TOKEN })).totalReportable;
-    const initialB = (await walletB.quickBalanceSnapshot({ symbol: TOKEN })).totalReportable;
+    const initialA = (await walletA.quickBalanceSnapshot({ faucetId })).totalReportable;
+    const initialB = (await walletB.quickBalanceSnapshot({ faucetId })).totalReportable;
+    assertFundedExactFaucetBalances(initialA, initialB);
     const initialTotal = initialA + initialB;
 
     console.log(`\n=== INITIAL BALANCES ===\nA=${initialA}\nB=${initialB}\ntotal=${initialTotal}\n`);
@@ -190,7 +192,7 @@ test.describe('Stress - random send/claim', () => {
     let result: Awaited<ReturnType<typeof runStressDriver>> | undefined;
 
     await steps.step('stress_loop', async () => {
-      result = await runStressDriver({ walletA, walletB, addressA, addressB }, timeline, opts);
+      result = await runStressDriver({ walletA, walletB, addressA, addressB, faucetId }, timeline, opts);
     });
 
     await steps.step('verify_and_report', async () => {
@@ -253,7 +255,6 @@ test.describe('Stress - random send/claim', () => {
       };
       let finalA = 0;
       let finalB = 0;
-      let finalUnidentified = 0;
       type UnlandedTotals = Awaited<ReturnType<typeof readUnlanded>>;
       // Sentinels, in case the settle loop cannot run a single iteration. Marked
       // as a failed read for the same reason: unknown, not clean.
@@ -321,8 +322,8 @@ test.describe('Stress - random send/claim', () => {
           await Promise.all([walletA.refreshBalances(), walletB.refreshBalances()]);
           // Read full snapshot so we can log *what's* pending if settle gets stuck.
           const [snapA, snapB] = await Promise.all([
-            walletA.quickBalanceSnapshot({ symbol: TOKEN }),
-            walletB.quickBalanceSnapshot({ symbol: TOKEN })
+            walletA.quickBalanceSnapshot({ faucetId }),
+            walletB.quickBalanceSnapshot({ faucetId })
           ]);
           // `quickBalanceSnapshot` swallows its own failures and reports
           // `totalReportable: 0` with an `error` field rather than throwing, so
@@ -335,11 +336,6 @@ test.describe('Stress - random send/claim', () => {
           }
           finalA = snapA.totalReportable;
           finalB = snapB.totalReportable;
-          // A row with no metadata at all is invisible to the symbol scope, and this
-          // identity is strict — so a `fetchTokenMetadata` miss on the token under test
-          // subtracts real value from the total and reads as a lost note. Carried to the
-          // assertion so the failure names the right subsystem instead of the wrong one.
-          finalUnidentified = snapA.unidentified + snapB.unidentified;
           const readable = unlandedA.readFailed !== true && unlandedB.readFailed !== true;
           const sendsInFlight = unlandedA.pendingCount + unlandedB.pendingCount;
           // Follow the rows' own clock rather than guessing: a pending row whose
@@ -709,14 +705,7 @@ test.describe('Stress - random send/claim', () => {
             `(A: ${unlandedA.pendingCount}, B: ${unlandedB.pendingCount})`
         ).toBe(0);
 
-        expect(
-          delta,
-          `balance conservation violated by ${delta}; notes lost` +
-            (finalUnidentified > 0
-              ? ` — BUT ${finalUnidentified} row(s) carry no token metadata and were excluded by the ` +
-                `'${TOKEN}' scope, so this delta may be a fetchTokenMetadata miss rather than lost value`
-              : '')
-        ).toBe(0);
+        expect(delta, `balance conservation violated by ${delta}; notes lost`).toBe(0);
 
         // Per-wallet placement, which the total alone cannot see: A and B can sum
         // to the right number while value sits on the wrong side. Both sides are

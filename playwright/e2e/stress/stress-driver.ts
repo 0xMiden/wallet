@@ -101,6 +101,14 @@ function sleep(ms: number): Promise<void> {
   return new Promise(r => setTimeout(r, ms));
 }
 
+export function assertFundedExactFaucetBalances(initialA: number, initialB: number): void {
+  if (initialA <= 0 || initialB <= 0) {
+    throw new Error(
+      `Stress test exact faucet must fund both wallets before the run ` + `(walletA=${initialA}, walletB=${initialB})`
+    );
+  }
+}
+
 async function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_, reject) => {
@@ -119,8 +127,8 @@ export interface StressDriverInputs {
   walletB: ChromeWalletPageApi;
   addressA: string;
   addressB: string;
-  /** Token symbol to send (defaults to the custom-faucet "TST"). */
-  tokenSymbol?: string;
+  /** Exact bech32 faucet ID whose value this run conserves. */
+  faucetId: string;
 }
 
 export async function runStressDriver(
@@ -128,7 +136,7 @@ export async function runStressDriver(
   timeline: TimelineRecorder,
   opts: StressOptions
 ): Promise<StressResult> {
-  const { walletA, walletB, addressA, addressB, tokenSymbol = 'TST' } = inputs;
+  const { walletA, walletB, addressA, addressB, faucetId } = inputs;
   const rng = makeRng(opts.seed);
   const wallets: Record<'A' | 'B', ChromeWalletPageApi> = { A: walletA, B: walletB };
   const addrs: Record<'A' | 'B', string> = { A: addressA, B: addressB };
@@ -149,8 +157,8 @@ export async function runStressDriver(
   // so it can maintain expected deltas and compare against the wallet's
   // actual reported state (consumed + pending). First divergent op pinpoints
   // where tokens started going missing.
-  const initA = await walletA.quickBalanceSnapshot();
-  const initB = await walletB.quickBalanceSnapshot();
+  const initA = await walletA.quickBalanceSnapshot({ faucetId });
+  const initB = await walletB.quickBalanceSnapshot({ faucetId });
   const initialA = initA.totalReportable;
   const initialB = initB.totalReportable;
   let expectedDeltaA = 0;
@@ -254,7 +262,12 @@ export async function runStressDriver(
         const secondaryStart = Date.now();
         const [primary, secondary] = await Promise.allSettled([
           withTimeout(
-            sender.sendTokens({ recipientAddress: receiverAddress, amount: String(amount), isPrivate, tokenSymbol }),
+            sender.sendTokens({
+              recipientAddress: receiverAddress,
+              amount: String(amount),
+              isPrivate,
+              tokenId: faucetId
+            }),
             opts.perTurnSendTimeoutMs,
             `op#${idx} concurrent primary (${senderLabel}->${receiverLabel})`
           ),
@@ -263,7 +276,7 @@ export async function runStressDriver(
               recipientAddress: addrs[senderLabel],
               amount: String(secondaryAmount),
               isPrivate: secondaryIsPrivate,
-              tokenSymbol
+              tokenId: faucetId
             }),
             opts.perTurnSendTimeoutMs,
             `op#${idx} concurrent secondary (${receiverLabel}->${senderLabel})`
@@ -300,7 +313,7 @@ export async function runStressDriver(
             recipientAddress: receiverAddress,
             amount: String(amount),
             isPrivate,
-            tokenSymbol
+            tokenId: faucetId
           }),
           opts.perTurnSendTimeoutMs,
           `op#${idx} sendTokens (${senderLabel}->${receiverLabel})`
@@ -369,7 +382,10 @@ export async function runStressDriver(
     }
 
     // Read actual — parallel, ~100ms total
-    const [snapA, snapB] = await Promise.all([walletA.quickBalanceSnapshot(), walletB.quickBalanceSnapshot()]);
+    const [snapA, snapB] = await Promise.all([
+      walletA.quickBalanceSnapshot({ faucetId }),
+      walletB.quickBalanceSnapshot({ faucetId })
+    ]);
     const observedDeltaA = snapA.totalReportable - initialA;
     const observedDeltaB = snapB.totalReportable - initialB;
     const divergenceA = observedDeltaA - expectedDeltaA;

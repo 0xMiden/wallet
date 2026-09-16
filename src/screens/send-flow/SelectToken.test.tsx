@@ -153,6 +153,17 @@ describe('SelectTokenDrawer', () => {
     expect(screen.getByTestId('send-token-XYZ')).toBeInTheDocument();
   });
 
+  it('exposes the exact token id for duplicate-symbol rows', () => {
+    const duplicateBtc = { ...BTC, tokenId: 't-btc-duplicate', balance: 2 };
+    setBalances([BTC, duplicateBtc]);
+    renderDrawer();
+
+    const rows = screen.getAllByTestId('send-token-BTC');
+    expect(rows).toHaveLength(2);
+    expect(rows[0]!.closest('[data-token-id]')).toHaveAttribute('data-token-id', BTC.tokenId);
+    expect(rows[1]!.closest('[data-token-id]')).toHaveAttribute('data-token-id', duplicateBtc.tokenId);
+  });
+
   it('passes the account public key and base metadata through to useAllBalances', () => {
     mockUseAccount.mockReturnValue({ publicKey: 'pk-999' });
     const metadata = { faucet: { symbol: 'M' } };

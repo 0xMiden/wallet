@@ -156,12 +156,12 @@ export class IosWalletPage implements WalletPage {
    * bech32 prefixes, and a minted note's on-chain sender is the faucet. Polls
    * for the hook (it's installed after an async SDK import at wallet init).
    */
-  async hexToBech32Faucet(hex: string, network: 'testnet' | 'devnet' = 'testnet', timeoutMs = 30_000): Promise<string> {
+  async hexToBech32Faucet(hex: string, timeoutMs = 30_000): Promise<string> {
     const deadline = Date.now() + timeoutMs;
     for (;;) {
       const res = await this.cdp.eval<string | null>(
         `return (typeof window.__TEST_HEX_TO_BECH32_FAUCET__ === 'function') ` +
-          `? window.__TEST_HEX_TO_BECH32_FAUCET__(${JSON.stringify(hex)}, ${JSON.stringify(network)}) : null;`
+          `? window.__TEST_HEX_TO_BECH32_FAUCET__(${JSON.stringify(hex)}) : null;`
       );
       if (res) return res;
       if (Date.now() > deadline) throw new Error('hexToBech32Faucet: hook not ready within timeout');
@@ -735,8 +735,6 @@ export class IosWalletPage implements WalletPage {
     // the dynamic `import('@miden-sdk/miden-sdk/lazy')` hits the module
     // cache instantly because the wallet already imported it at boot.
     const hexJson = JSON.stringify(hexFaucetIds);
-    const network = process.env.MIDEN_NETWORK || process.env.E2E_NETWORK || 'testnet';
-    const networkArg = network === 'devnet' ? "'devnet'" : "'testnet'";
     // Poll for the hex→bech32 hook to be exposed — it's set asynchronously
     // when the wallet boots (the SDK eager-import in store/index.ts under
     // MIDEN_E2E_TEST). On a freshly-installed app the SDK chunk takes a few
@@ -761,7 +759,7 @@ export class IosWalletPage implements WalletPage {
     const result = await this.cdp
       .eval<
         { before: string[]; injected: string[]; after: string[] } | { error: string }
-      >(`var conv = window.__TEST_HEX_TO_BECH32_FAUCET__; var bech32 = ${hexJson}.map(hex => conv(hex, ${networkArg})); var injected = {}; for (var i = 0; i < bech32.length; i++) injected[bech32[i]] = { name: 'Test Token', symbol: 'TST', decimals: 8, thumbnailUri: '' }; var s = window.__TEST_STORE__; if (!s) return { error: 'no __TEST_STORE__' }; var st = s.getState(); var before = Object.keys(st.assetsMetadata || {}); if (typeof st.setAssetsMetadata === 'function') { st.setAssetsMetadata(injected); } else { s.setState({ assetsMetadata: Object.assign({}, st.assetsMetadata || {}, injected) }); } var after = Object.keys(s.getState().assetsMetadata || {}); return { before: before, injected: bech32, after: after };`)
+      >(`var conv = window.__TEST_HEX_TO_BECH32_FAUCET__; var bech32 = ${hexJson}.map(hex => conv(hex)); var injected = {}; for (var i = 0; i < bech32.length; i++) injected[bech32[i]] = { name: 'Test Token', symbol: 'TST', decimals: 8, thumbnailUri: '' }; var s = window.__TEST_STORE__; if (!s) return { error: 'no __TEST_STORE__' }; var st = s.getState(); var before = Object.keys(st.assetsMetadata || {}); if (typeof st.setAssetsMetadata === 'function') { st.setAssetsMetadata(injected); } else { s.setState({ assetsMetadata: Object.assign({}, st.assetsMetadata || {}, injected) }); } var after = Object.keys(s.getState().assetsMetadata || {}); return { before: before, injected: bech32, after: after };`)
       .catch((e: Error) => ({ error: e.message }));
     // eslint-disable-next-line no-console
     console.log(`[injectTestMetadataForFaucets] hex=${hexJson} -> ${JSON.stringify(result)}`);

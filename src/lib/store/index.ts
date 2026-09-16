@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
 
+import { installFaucetAddressTestHook } from 'lib/e2e/faucet-address';
 import { createIntercomClient, IIntercomClient } from 'lib/intercom/client';
 import { clearPersistedSeenNoteIds, persistSeenNoteIds } from 'lib/miden/back/note-checker-storage';
 import type { IConsumeBridgeInExtraInputs, IEarnWithdrawExtraInputs, ITransaction } from 'lib/miden/db/types';
@@ -869,7 +870,7 @@ if (process.env.MIDEN_E2E_TEST === 'true') {
     const Repo = await import('lib/miden/repo');
     return toEarnWithdrawView(await Repo.transactions.where({ id: txId }).first());
   });
-  // Hex→bech32 faucet-id conversion. iOS E2E needs this to inject
+  // Hex-to-bech32 faucet-id conversion. iOS E2E needs this to inject
   // synthetic metadata for the CLI-deployed test faucet (whose on-chain
   // procedure layout the SDK can't parse, so the real metadata RPC fails
   // and the wallet's `attachMetadataToNotes` hides the consumable note).
@@ -879,24 +880,12 @@ if (process.env.MIDEN_E2E_TEST === 'true') {
   // Dynamic-import inside the call (used to live here) contended with the
   // wallet's own WASM lock and serialized behind in-flight SDK calls,
   // blowing past the 30s WebDriver execute_async_script budget.
-  void (async () => {
-    try {
-      const sdk = await import('@miden-sdk/miden-sdk/lazy');
-      (globalThis as any).__TEST_HEX_TO_BECH32_FAUCET__ = (
-        hex: string,
-        network: 'testnet' | 'devnet' = 'testnet'
-      ): string => {
-        const id = sdk.AccountId.fromHex(hex);
-        const netId = network === 'devnet' ? sdk.NetworkId.devnet() : sdk.NetworkId.testnet();
-        return sdk.Address.fromAccountId(id, 'BasicWallet').toBech32(netId);
-      };
-    } catch (e) {
-      // E2E-only path; failure here just means the iOS metadata-injection
-      // workaround won't work and we'd hit the original symptom (note
-      // hidden by attachMetadataToNotes filter).
-      console.error('[E2E] Failed to expose __TEST_HEX_TO_BECH32_FAUCET__:', e);
-    }
-  })();
+  void installFaucetAddressTestHook().catch(e => {
+    // E2E-only path; failure here just means the iOS metadata-injection
+    // workaround won't work and we'd hit the original symptom (note
+    // hidden by attachMetadataToNotes filter).
+    console.error('[E2E] Failed to expose __TEST_HEX_TO_BECH32_FAUCET__:', e);
+  });
 
   // Guardian on-chain auth structure (overall threshold + signer set + procedure
   // thresholds + the active guardian-operator commitment) for E2E assertions —
