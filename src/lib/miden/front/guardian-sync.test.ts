@@ -3476,6 +3476,24 @@ describe('syncGuardianAccounts - guards a mutation probe found unexercised', () 
     expect(mockReadDirectSwitchCommitState.mock.calls.map(call => call[0])).toEqual(['0xnewest', '0xmiddle']);
   });
 
+  // THE PRIMARY TERM, which the tie-break case above cannot reach: every row there shares a
+  // second, so `b.initiatedAt - a.initiatedAt` is 0 on every comparison and only `queuedSeq`
+  // decides. Here the NEWER row carries the LOWER `queuedSeq`, so it can win on `initiatedAt`
+  // and on nothing else.
+  it('orders by initiatedAt first, so a newer rotation wins even with a lower queuedSeq', async () => {
+    storeState.accounts = [only] as never;
+    mockListUnconfirmedSwitchRows.mockResolvedValue([
+      { id: 'row-older', transactionId: '0xolder', initiatedAt: 100, queuedSeq: 9 },
+      { id: 'row-newer', transactionId: '0xnewer', initiatedAt: 200, queuedSeq: 1 }
+    ]);
+    mockReadDirectSwitchCommitState.mockResolvedValue('pending');
+
+    await syncGuardianAccounts();
+
+    // Zero the primary term and `queuedSeq` alone decides, which inverts exactly this.
+    expect(mockReadDirectSwitchCommitState.mock.calls.map(call => call[0])).toEqual(['0xnewer', '0xolder']);
+  });
+
   it('does not charge the row budget when the pass is retired during the node read', async () => {
     storeState.accounts = [only] as never;
     mockListUnconfirmedSwitchRows.mockResolvedValue([{ id: 'row-a', transactionId: '0xa' }]);

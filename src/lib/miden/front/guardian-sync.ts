@@ -750,8 +750,9 @@ async function runPendingRotationRecheck(
     // `queuedSeq` behind it, because whole seconds TIE. Two rotations initiated in the
     // same second fell back to whatever order Dexie returned, which is primary-key order
     // over random uuids: exactly the arbitrary order this sort exists to remove, and the
-    // chained rollback above is the case that cannot survive it. Descending like the key
-    // it breaks, so a row predating the field sorts last, which is what it is: older.
+    // chained rollback above is the case that cannot survive it. `queuedSeq` descends like the
+    // key it breaks and is optional on the row, so a row written before the field existed scores
+    // 0 and sorts last among the rows it ties with, which is what such a row is: older.
     const ordered = [...rows].sort((a, b) => b.initiatedAt - a.initiatedAt || (b.queuedSeq ?? 0) - (a.queuedSeq ?? 0));
     // A retired pass must not keep settling rows. This probe writes more durable
     // state than any other arm of the loop - it demotes transaction rows, rolls the
