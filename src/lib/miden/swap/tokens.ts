@@ -84,6 +84,21 @@ export const getSwapTokens = (): SwapToken[] => {
   ];
 };
 
+/**
+ * The pair the swap form opens on. Chosen by SYMBOL, never by list position:
+ * `getSwapTokens()` puts the discovered native asset first once discovery has
+ * landed, so seeding from index 0/1 gave a cold start into /swap a different
+ * default pair than a warm one - same build, same user, different defaults on a
+ * money screen. Falls back to the fixed list when a symbol is not present.
+ */
+export const getDefaultSwapPair = (): { offer: SwapToken; request: SwapToken } => {
+  const tokens = getSwapTokens();
+  const bySymbol = (symbol: string) => tokens.find(token => token.symbol === symbol);
+  const offer = bySymbol(TOKEN_IMIDEN.symbol) ?? tokens[0]!;
+  const request = bySymbol(TOKEN_IETH.symbol) ?? tokens[1]!;
+  return { offer, request };
+};
+
 /** Test-only setter (also driven via the E2E window hook). Pass undefined to reset. */
 export const _setSwapTokensForTest = (tokens: SwapToken[] | undefined): void => {
   _swapTokensOverride = tokens;

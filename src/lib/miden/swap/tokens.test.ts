@@ -2,6 +2,7 @@ import { getNativeAssetIdSync, getNativeAssetMetadataSync } from 'lib/miden-chai
 
 import {
   deriveRequestAmount,
+  getDefaultSwapPair,
   getSwapTokenByFaucetId,
   getSwapTokens,
   getSwapTokenBySymbol,
@@ -127,5 +128,26 @@ describe('deriveRequestAmount', () => {
     // A negative offered amount is truthy (passes the earlier `!offered` guard)
     // but produces a negative quote, so the `quote <= 0` guard returns ''.
     expect(deriveRequestAmount('-5', '2', SWAP_TOKEN_DECIMALS)).toBe('');
+  });
+});
+
+describe('getDefaultSwapPair', () => {
+  it('picks the same pair whether or not native discovery has landed', () => {
+    _setSwapTokensForTest(undefined);
+
+    // Cold start: discovery has not populated the synchronous cache yet.
+    mockGetNativeAssetIdSync.mockReturnValue(null);
+    const cold = getDefaultSwapPair();
+
+    // Warm start: the discovered native asset is now FIRST in the list, which
+    // is what made an index-based default flip between the two.
+    mockGetNativeAssetIdSync.mockReturnValue('0xnative');
+    mockGetNativeAssetMetadataSync.mockReturnValue({ symbol: 'MIDEN', decimals: 6 } as never);
+    const warm = getDefaultSwapPair();
+
+    expect(getSwapTokens()[0]!.faucetId).toBe('0xnative');
+    expect(warm.offer.symbol).toBe(cold.offer.symbol);
+    expect(warm.request.symbol).toBe(cold.request.symbol);
+    expect(warm.offer.symbol).not.toBe(warm.request.symbol);
   });
 });

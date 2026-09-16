@@ -223,10 +223,20 @@ describe('faucet-api', () => {
     });
 
     it('forwards the abort signal to the fetch', async () => {
-      fetchMock.mockResolvedValue(jsonResponse({ tx_id: '0xtx', note_id: '0xnote' }));
+      // Assert LINKAGE, not identity: `faucetFetch` always swaps in its own
+      // timeout controller's signal, and jest structurally equates two
+      // non-aborted AbortSignals - so comparing the caller's signal object
+      // passes even with the `signal` parameter deleted. Aborting the caller
+      // must abort the in-flight request, which only linkage delivers.
+      fetchMock.mockImplementation(
+        (_url: string, init: RequestInit) =>
+          new Promise((_resolve, reject) => {
+            init.signal?.addEventListener('abort', () => reject(init.signal?.reason));
+          })
+      );
       const controller = new AbortController();
 
-      await requestTokens(
+      const request = requestTokens(
         'https://faucet-api.example',
         'mtst1testaddress',
         100_000_000n,
@@ -234,8 +244,9 @@ describe('faucet-api', () => {
         42,
         controller.signal
       );
+      controller.abort(new Error('Faucet request timed out'));
 
-      expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('/get_tokens?'), { signal: controller.signal });
+      await expect(request).rejects.toThrow('Faucet request timed out');
     });
 
     it('rejects with the response text on failure', async () => {

@@ -1,6 +1,7 @@
 import React, { FC } from 'react';
 
 import classNames from 'clsx';
+import { motion, useReducedMotion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
@@ -44,6 +45,12 @@ export interface PromptCardProps {
   actionTestId?: string;
 }
 
+const CardActionButton: FC<{ className?: string; children?: React.ReactNode }> = ({ className, children }) => (
+  <button type="button" className={className}>
+    {children}
+  </button>
+);
+
 export const PromptCard: FC<PromptCardProps> = ({
   title,
   body,
@@ -67,17 +74,6 @@ export const PromptCard: FC<PromptCardProps> = ({
     onClick();
   };
 
-  // The whole card is the tap target, so it must behave like a button for
-  // keyboard users too: Enter/Space activate it. Keys pressed on the inner
-  // real buttons (dismiss X, CTA) bubble up here — ignore those so a single
-  // press doesn't fire both actions.
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
-    if (e.target !== e.currentTarget) return;
-    if (e.key !== 'Enter' && e.key !== ' ') return;
-    e.preventDefault();
-    handleClick();
-  };
-
   const handleDismiss = (e: React.MouseEvent<HTMLButtonElement>) => {
     e.stopPropagation();
     if (!onDismiss) return;
@@ -91,6 +87,28 @@ export const PromptCard: FC<PromptCardProps> = ({
     hapticLight();
     onAction();
   };
+
+  // The card action is a REAL button around the title lockup, not a
+  // `role="button"` on the container: ARIA gives the button role presentational
+  // children, which hid the dismiss X and CTA nested inside it. Its click
+  // bubbles to the container handler, so a pointer tap anywhere on the card and
+  // Enter/Space on this button both run the same action.
+  const Lockup = onClick ? CardActionButton : 'div';
+
+  // Every exit from the hero has to be narrated through the region that existed
+  // BEFORE the change, not only hero-to-hero swaps: a failure drops the hero and
+  // shows the faucet's message as plain body text beside a freshly mounted
+  // failure indicator - which is exactly the node assistive tech does not
+  // announce - so the message is carried here instead.
+  const liveAnnouncement = hero
+    ? [hero.label, hero.subLabel].filter(Boolean).join('. ')
+    : status === 'failure'
+      ? [t('failed'), body].filter(Boolean).join('. ')
+      : '';
+
+  const reduceMotion = useReducedMotion();
+  // A looping flip is exactly what reduced motion asks us not to run.
+  const flipping = status === 'loading' && !reduceMotion;
 
   const ActionButton =
     actionLabel && onAction && status !== 'loading' && status !== 'success' ? (
@@ -131,10 +149,7 @@ export const PromptCard: FC<PromptCardProps> = ({
   return (
     <div
       data-testid={testId}
-      role={onClick ? 'button' : undefined}
-      tabIndex={onClick ? 0 : undefined}
       onClick={onClick ? handleClick : undefined}
-      onKeyDown={onClick ? handleKeyDown : undefined}
       className={classNames(
         'relative overflow-hidden w-full h-[72px] bg-surface-input rounded-10',
         'flex items-center gap-3 px-4',
@@ -153,14 +168,36 @@ export const PromptCard: FC<PromptCardProps> = ({
           <Icon name={icon} size="sm" fill="currentColor" />
         </span>
       )}
+      {/* The hero replaces the title, body and CTA outright, so this is the only
+          thing left to narrate the funding lifecycle. It is rendered on every
+          card and never keyed: a live region is only announced when it already
+          exists before its content changes, and the hero lockup itself is keyed
+          by label, so putting the role there recreated the node on each swap
+          and the "Funds deposited" beat went unannounced. */}
+      <span role="status" aria-live="polite" className="sr-only">
+        {liveAnnouncement}
+      </span>
       {status === 'loading' && (
         <span aria-hidden="true" className="absolute inset-x-0 bottom-0 h-0.5 bg-accent-primary/15">
-          <span className="prompt-progress-runner block h-full w-1/3 rounded-full bg-accent-primary" />
+          <motion.span
+            className="block h-full w-1/3 rounded-full bg-accent-primary"
+            animate={reduceMotion ? { x: 0 } : { x: ['-100%', '300%'] }}
+            transition={reduceMotion ? { duration: 0 } : { duration: 1.4, ease: 'easeInOut', repeat: Infinity }}
+          />
         </span>
       )}
       {hero ? (
         // Keyed so the lockup re-pops when the hero swaps (Funding → Funded!).
-        <div key={hero.label} className="prompt-hero-pop flex flex-1 flex-col items-center justify-center gap-1">
+        <motion.div
+          key={hero.label}
+          // The stable live region below narrates this; the keyed lockup is
+          // recreated on every hero swap, so it must not be read a second time.
+          aria-hidden="true"
+          className="flex flex-1 flex-col items-center justify-center gap-1"
+          initial={reduceMotion ? false : { opacity: 0, scale: 0.92 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={reduceMotion ? { duration: 0 } : { duration: 0.24, ease: [0.23, 1, 0.32, 1] }}
+        >
           <div className="flex items-center gap-2.5">
             <span
               className={classNames(
@@ -168,22 +205,27 @@ export const PromptCard: FC<PromptCardProps> = ({
                 hero.tone === 'positive' ? 'bg-status-positive' : 'bg-accent-primary'
               )}
             >
-              <Icon
-                name={hero.icon}
-                size="xs"
-                fill="currentColor"
-                className={status === 'loading' ? 'prompt-hero-flip' : undefined}
-              />
+              <motion.span
+                className="flex items-center justify-center"
+                animate={flipping ? { rotate: [0, 0, 180, 180, 360] } : { rotate: 0 }}
+                transition={
+                  flipping
+                    ? { duration: 2.2, times: [0, 0.35, 0.5, 0.85, 1], ease: [0.77, 0, 0.175, 1], repeat: Infinity }
+                    : { duration: 0 }
+                }
+              >
+                <Icon name={hero.icon} size="xs" fill="currentColor" />
+              </motion.span>
             </span>
             <span className="font-heading text-xl font-extrabold text-heading-gray">{hero.label}</span>
           </div>
           {hero.subLabel && <span className="text-xs font-normal text-text-tertiary-token">{hero.subLabel}</span>}
-        </div>
+        </motion.div>
       ) : (
-        <div className="flex flex-col gap-1 min-w-0 flex-1 text-black">
+        <Lockup className="flex flex-col gap-1 min-w-0 flex-1 text-left text-black">
           <div className={classNames('text-base font-bold font-heading leading-tight truncate')}>{title}</div>
           {body && <div className="text-xs font-normal line-clamp-2">{body}</div>}
-        </div>
+        </Lockup>
       )}
       {onDismiss && !hero ? (
         // Right rail: a plain dismiss X tucked in the box's top-right corner,

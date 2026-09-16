@@ -365,7 +365,7 @@
   "faucetPromptFunding": "Funding",
   "faucetPromptFundingSub": "Your funds will be available shortly",
   "faucetPromptFunded": "Funds deposited",
-  "faucetPromptFundedSub": "You have  $amount$  ready",
+  "faucetPromptFundedSub": "You have $amount$ ready",
   "faucetPromptFundedSubGeneric": "Your funds are ready",
   "guardianNoteRecoveryPromptTitle": "Account recovery detected",
   "guardianNoteRecoveryTransportStep": "Scanning private notes: draining the note transport…",

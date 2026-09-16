@@ -12,7 +12,7 @@ import { initiateSwapTransaction, requestSWTransactionProcessing } from 'lib/mid
 import { hasNoFeeAsset, maxSendableNative } from 'lib/miden/fees/spendable';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { accountIdStringToSdk, getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
-import { deriveRequestAmount, getSwapTokens, SwapToken } from 'lib/miden/swap/tokens';
+import { deriveRequestAmount, getDefaultSwapPair, SwapToken } from 'lib/miden/swap/tokens';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isExtension } from 'lib/platform';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
@@ -40,8 +40,8 @@ const SwapManager: React.FC = () => {
   const verificationBaseFee = useVerificationBaseFee();
   const feeAssetMissing = hasNoFeeAsset(balanceData, nativeFaucetId, verificationBaseFee);
 
-  const [offerToken, setOfferToken] = useState<SwapToken>(() => getSwapTokens()[0]!);
-  const [requestToken, setRequestToken] = useState<SwapToken>(() => getSwapTokens()[1]!);
+  const [offerToken, setOfferToken] = useState<SwapToken>(() => getDefaultSwapPair().offer);
+  const [requestToken, setRequestToken] = useState<SwapToken>(() => getDefaultSwapPair().request);
   const [offerAmount, setOfferAmount] = useState('');
   const [requestAmount, setRequestAmount] = useState('');
   // True once the user manually edits the receive amount, which pauses the

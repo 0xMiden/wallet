@@ -254,6 +254,17 @@ describe('wallet prompts', () => {
     }
   });
 
+  it('refuses a funding marker stamped in the future', async () => {
+    // A forward clock step leaves a stamp the freshness test reads as always
+    // fresh, which would wedge the Funding wait past its own 3-minute timeout.
+    await setFaucetFundingMarker('accountClock', {
+      requestedAt: Date.now() + 60_000,
+      baselineNoteIds: []
+    });
+
+    expect(await fetchFaucetFundingMarker('accountClock')).toBeNull();
+  });
+
   it('stores the funding marker per account', async () => {
     await setFaucetFundingMarker('accountA', { requestedAt: 1_000, baselineNoteIds: ['note-1'] });
 

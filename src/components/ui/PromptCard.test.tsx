@@ -2,6 +2,7 @@ import React from 'react';
 
 import { fireEvent, render, screen } from '@testing-library/react';
 
+import { IconName } from 'app/icons/v2';
 import { hapticLight } from 'lib/mobile/haptics';
 
 import { PromptCard } from './PromptCard';
@@ -19,8 +20,40 @@ jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
 }));
 
+// framer-motion reads the OS preference through useReducedMotion; drive it from
+// the test so the looping funding animations can be asserted both ways. The
+// motion elements render as their plain tag and publish whether they were asked
+// to LOOP - jsdom applies real transforms asynchronously, so inline style is not
+// an observable a test can rely on.
+let mockReduceMotion = false;
+jest.mock('framer-motion', () => {
+  const react = require('react');
+  return {
+    useReducedMotion: () => mockReduceMotion,
+    motion: new Proxy(
+      {},
+      {
+        get:
+          (_target, tag: string) =>
+          ({ children, animate, initial, transition, ...rest }: Record<string, unknown>) =>
+            react.createElement(
+              tag,
+              {
+                ...rest,
+                'data-loops': String((transition as { repeat?: number } | undefined)?.repeat === Infinity)
+              },
+              children
+            )
+      }
+    )
+  };
+});
+
 describe('PromptCard', () => {
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockReduceMotion = false;
+  });
 
   it('runs the card action when its content is clicked', () => {
     const onClick = jest.fn();
@@ -32,34 +65,57 @@ describe('PromptCard', () => {
     expect(hapticLight).toHaveBeenCalledTimes(1);
   });
 
-  it('runs the card action from the keyboard with Enter and Space', () => {
+  it('exposes the card action as a real button, so the platform gives it keyboard activation', () => {
     const onClick = jest.fn();
     render(<PromptCard title="Fund your wallet" onClick={onClick} />);
 
-    const card = screen.getByRole('button', { name: /Fund your wallet/ });
-    expect(card).toHaveAttribute('tabindex', '0');
+    // A native <button> activates on Enter/Space without a keydown handler.
+    // jsdom does not synthesize that click, so assert the element type that
+    // earns the behaviour, then that activating it runs the card action.
+    const action = screen.getByRole('button', { name: /Fund your wallet/ });
+    expect(action.tagName).toBe('BUTTON');
 
-    fireEvent.keyDown(card, { key: 'Enter' });
-    fireEvent.keyDown(card, { key: ' ' });
+    fireEvent.click(action);
 
-    expect(onClick).toHaveBeenCalledTimes(2);
+    expect(onClick).toHaveBeenCalledTimes(1);
   });
 
   it('is not focusable when the card has no action', () => {
     render(<PromptCard title="Fund your wallet" />);
 
-    expect(screen.getByText('Fund your wallet').closest('div[tabindex]')).toBeNull();
+    // Assert the PROPERTY, not one obsolete shape of it: a `div[tabindex]`
+    // qualifier matched nothing in either configuration once the card action
+    // became a real button, so it could not detect a regression. A card with no
+    // action has no dismiss and no CTA either, so zero focusables is exact.
+    expect(screen.queryAllByRole('button')).toHaveLength(0);
+    expect(screen.getByText('Fund your wallet').closest('[tabindex]')).toBeNull();
   });
 
-  it('ignores keys pressed on the inner buttons and non-activation keys', () => {
+  it('keeps the dismiss and CTA controls outside the card-action button', () => {
     const onClick = jest.fn();
     const onDismiss = jest.fn();
-    render(<PromptCard title="Fund your wallet" onClick={onClick} onDismiss={onDismiss} />);
+    const onAction = jest.fn();
+    render(
+      <PromptCard
+        title="Fund your wallet"
+        onClick={onClick}
+        onDismiss={onDismiss}
+        actionLabel="Fund now"
+        onAction={onAction}
+      />
+    );
 
-    fireEvent.keyDown(screen.getByRole('button', { name: 'promptCardDismiss' }), { key: 'Enter' });
-    fireEvent.keyDown(screen.getByRole('button', { name: /Fund your wallet/ }), { key: 'Escape' });
+    // ARIA gives the button role presentational children: nesting these inside
+    // the card action would stop assistive tech exposing them at all.
+    const action = screen.getByRole('button', { name: /Fund your wallet/ });
+    const dismiss = screen.getByRole('button', { name: 'promptCardDismiss' });
+    const cta = screen.getByRole('button', { name: 'Fund now' });
 
-    expect(onClick).not.toHaveBeenCalled();
+    expect(action.contains(dismiss)).toBe(false);
+    expect(action.contains(cta)).toBe(false);
+    // …and no ancestor re-flattens them by claiming the button role either.
+    expect(dismiss.closest('[role="button"]')).toBeNull();
+    expect(cta.closest('[role="button"]')).toBeNull();
   });
 
   it('runs the CTA exactly once without bubbling to the card action', () => {
@@ -122,5 +178,68 @@ describe('PromptCard', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
 
     expect(onAction).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not loop the funding animations when the user asks for reduced motion', () => {
+    const hero = { icon: IconName.Loader, label: 'Funding', subLabel: 'soon', tone: 'accent' } as const;
+    const loopingCount = () =>
+      screen.queryAllByText((_content, el) => el?.getAttribute('data-loops') === 'true').length;
+
+    mockReduceMotion = false;
+    const { unmount } = render(<PromptCard title="Fund your wallet" hero={hero} status="loading" />);
+    // While motion is allowed, the progress runner and the hourglass both loop.
+    expect(loopingCount()).toBe(2);
+    unmount();
+
+    mockReduceMotion = true;
+    render(<PromptCard title="Fund your wallet" hero={hero} status="loading" />);
+
+    // Reduced motion collapses both - they previously ran for the whole funding
+    // wait, up to 3 minutes, with no way to turn them off.
+    expect(loopingCount()).toBe(0);
+  });
+
+  it('announces each hero state by mutating one stable live region', () => {
+    const funding = { icon: IconName.Loader, label: 'Funding', subLabel: 'available shortly', tone: 'accent' } as const;
+    const funded = {
+      icon: IconName.Checkmark,
+      label: 'Funds deposited',
+      subLabel: '$5 ready',
+      tone: 'positive'
+    } as const;
+
+    const { rerender } = render(<PromptCard title="Fund your wallet" hero={funding} status="loading" />);
+
+    const live = screen.getByRole('status');
+    expect(live).toHaveAttribute('aria-live', 'polite');
+    expect(live).toHaveTextContent('Funding');
+    expect(live).toHaveTextContent('available shortly');
+
+    rerender(<PromptCard title="Fund your wallet" hero={funded} status="success" />);
+
+    // Assistive tech only announces a live region that EXISTED before its
+    // content changed. Asserting the text alone is satisfied by a freshly
+    // mounted node too, so the swap must mutate the very same element.
+    const settled = screen.getByRole('status');
+    expect(settled).toBe(live);
+    expect(settled).toHaveTextContent('Funds deposited');
+    expect(settled).toHaveTextContent('$5 ready');
+  });
+
+  it('announces a failure that follows the Funding hero through the same live region', () => {
+    const funding = { icon: IconName.Loader, label: 'Funding', subLabel: 'available shortly', tone: 'accent' } as const;
+
+    const { rerender } = render(<PromptCard title="Fund your wallet" hero={funding} status="loading" />);
+    const live = screen.getAllByRole('status').find(node => node.getAttribute('aria-live') === 'polite')!;
+    expect(live).toHaveTextContent('Funding');
+
+    // The request fails: the hero drops and the faucet's message becomes the
+    // body. The region that already existed must carry that message - the
+    // failure indicator beside it is newly mounted, so it is not announced.
+    rerender(<PromptCard title="Fund your wallet" body="rate limited" status="failure" />);
+
+    expect(live).toBeInTheDocument();
+    expect(live).toHaveTextContent('failed');
+    expect(live).toHaveTextContent('rate limited');
   });
 });

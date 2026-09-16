@@ -1731,19 +1731,19 @@
     "englishSource": "Add tokens to your wallet to get started."
   },
   "faucetPromptFunding": {
-    "message": "资金",
+    "message": "資金",
     "englishSource": "Funding"
   },
   "faucetPromptFundingSub": {
-    "message": "您的资金很快就会到账",
+    "message": "您的資金很快就會到帳",
     "englishSource": "Your funds will be available shortly"
   },
   "faucetPromptFunded": {
-    "message": "存入资金",
+    "message": "存入資金",
     "englishSource": "Funds deposited"
   },
   "faucetPromptFundedSub": {
-    "message": "你有 $amount$ 准备好",
+    "message": "你有 $amount$ 準備好",
     "englishSource": "You have $amount$ ready",
     "placeholders": {
       "amount": {
@@ -1752,7 +1752,7 @@
     }
   },
   "faucetPromptFundedSubGeneric": {
-    "message": "您的资金已准备好",
+    "message": "您的資金已準備好",
     "englishSource": "Your funds are ready"
   },
   "guardianNoteRecoveryPromptTitle": {

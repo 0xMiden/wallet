@@ -311,6 +311,10 @@ export async function fetchFaucetFundingMarker(address: string): Promise<FaucetF
   const requestedAt = Reflect.get(raw, 'requestedAt');
   const baselineNoteIds = Reflect.get(raw, 'baselineNoteIds');
   if (typeof requestedAt !== 'number' || !Number.isFinite(requestedAt)) return null;
+  // A persisted wall-clock stamp is untrusted input: a forward clock step (NTP,
+  // a manual change) leaves a stamp in the future, which reads as "always
+  // fresh" and would wedge the wait past its own timeout.
+  if (requestedAt > Date.now()) return null;
   if (!Array.isArray(baselineNoteIds)) return null;
   return { requestedAt, baselineNoteIds: baselineNoteIds.filter((id): id is string => typeof id === 'string') };
 }
@@ -347,11 +351,12 @@ async function runFaucetRequest(address: string): Promise<void> {
   }
 }
 
-// One request per address at a time, held at MODULE scope: HomePrompts
-// unmounts on any navigation (TabLayout keys its wrapper by route), so a
-// component-local guard forgets an in-flight request and a returning user
-// could start a second real mint. Keyed per address so funding one account
-// never blocks funding another.
+// One request per address at a time, held at MODULE scope. A component-local
+// guard is not enough: HomePrompts unmounts whenever Home itself is left for a
+// route the tab layout does not keep mounted, and it is remounted fresh on the
+// next visit, so a returning user could start a second real mint. Module scope
+// also lets the remounted card re-attach to the outcome. Keyed per address so
+// funding one account never blocks funding another.
 const inFlightFaucetRequests = new Map<string, Promise<void>>();
 
 /** The in-flight faucet request for `address`, if any — lets a remounted card re-attach to the outcome. */

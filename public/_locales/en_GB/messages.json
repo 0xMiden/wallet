@@ -1743,7 +1743,7 @@
     "englishSource": "Funds deposited"
   },
   "faucetPromptFundedSub": {
-    "message": "You have  $amount$  ready",
+    "message": "You have $amount$ ready",
     "englishSource": "You have $amount$ ready",
     "placeholders": {
       "amount": {

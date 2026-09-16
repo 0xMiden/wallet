@@ -142,6 +142,15 @@ jest.mock('./SelectSwapToken', () => ({
 
 jest.mock('lib/miden/swap/tokens', () => ({
   getSwapTokens: () => mockGetSwapTokens(),
+  // The form seeds its pair by SYMBOL, not list position, so a cold and a warm
+  // start open on the same pair; mirror that here over the mocked registry.
+  getDefaultSwapPair: () => {
+    const tokens = mockGetSwapTokens();
+    const bySymbol = (symbol: string) => tokens.find((token: { symbol: string }) => token.symbol === symbol);
+    const offer = bySymbol('IMIDEN') ?? tokens[0];
+    const request = bySymbol('IETH') ?? tokens[1];
+    return { offer, request };
+  },
   deriveRequestAmount: (...args: unknown[]) => mockDeriveRequestAmount(...args)
 }));
 
