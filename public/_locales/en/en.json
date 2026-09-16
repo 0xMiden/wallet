@@ -7,7 +7,6 @@
   "guardianHistoryDeviceReplaced": "Device key replaced",
   "guardianHistoryAccountSecured": "Account secured",
   "guardianHistoryExecuted": "Executed",
-  "guardianHistoryMidenConfirmed": "Confirmed on Miden",
   "guardianHistoryProgress": "Recovering history from $operator$. $count$ transactions restored.",
   "guardianHistoryPartial": "$count$ transactions restored. Some Guardian sources could not be read. Recovery will retry when you next unlock the wallet.",
   "payload": "Payload",

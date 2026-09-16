@@ -28,8 +28,8 @@ import { formatAmount } from 'lib/shared/format';
 import { useRetryableSWR } from 'lib/swr';
 import useSafeState from 'lib/ui/useSafeState';
 
-import HistoryView from './HistoryView';
 import { guardianHistoryIcon } from './guardianHistoryLabels';
+import HistoryView from './HistoryView';
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
 import type { PendingActivityItem } from './PendingActivityCard';
 import {
@@ -336,9 +336,8 @@ async function fetchTransactionsAsHistoryEntries(
       : tx.status === ITransactionStatus.Failed
         ? 'Transaction failed'
         : tx.displayMessage;
-    const icon = tx.status === ITransactionStatus.Failed
-      ? 'FAILED'
-      : tx.recovery ? guardianHistoryIcon(tx.type) : tx.displayIcon;
+    const icon =
+      tx.status === ITransactionStatus.Failed ? 'FAILED' : tx.recovered ? guardianHistoryIcon(tx.type) : tx.displayIcon;
     const tokenMetadata = tx.faucetId ? await getTokenMetadata(tx.faucetId) : undefined;
     const bridge = tx.type === 'bridged-send' ? (tx.extraInputs as IBridgedSendExtraInputs | undefined) : undefined;
     const bridgeIn: IBridgeInInfo | undefined = tx.type === 'consume' ? tx.extraInputs?.bridgeIn : undefined;
@@ -360,7 +359,7 @@ async function fetchTransactionsAsHistoryEntries(
     const entry = {
       address: address,
       key: `completed-${tx.id}`,
-      guardianRecovered: tx.recovery !== undefined,
+      guardianRecovered: tx.recovered === true,
       guardianReclaimed: tx.recovery?.reclaimed,
       // Same fallback the query sorts by (`getCompletedTransactions`) and the
       // detail view renders. A terminal row is not guaranteed to carry
@@ -409,8 +408,8 @@ async function fetchTransactionsAsHistoryEntries(
       noteType: tx.noteType,
       faucetId: tx.faucetId,
       txType: tx.type,
-      previousGuardianEndpoint: guardianSwitch?.previousGuardianEndpoint ?? tx.recovery?.operators[0],
-      newGuardianEndpoint: guardianSwitch?.newGuardianEndpoint ?? tx.recovery?.proposal?.newGuardianEndpoint,
+      previousGuardianEndpoint: guardianSwitch?.previousGuardianEndpoint,
+      newGuardianEndpoint: guardianSwitch?.newGuardianEndpoint,
       errorMessage: tx.error,
       isCancelled,
       bridgeProvider: bridge?.provider,

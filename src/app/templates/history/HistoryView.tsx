@@ -15,8 +15,8 @@ import { EmptyState } from 'components/ui/EmptyState';
 import { springs, useMotion } from 'lib/animation';
 import { navigate } from 'lib/woozie';
 
-import HistoryItem from './HistoryItem';
 import { guardianHistoryActionKey } from './guardianHistoryLabels';
+import HistoryItem from './HistoryItem';
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
 import type { PendingActivityItem } from './PendingActivityCard';
 import {
@@ -301,7 +301,7 @@ function buildRowProps(
     }
   }
 
-  let status: Status = entry.guardianRecovered ? 'midenConfirmed' : 'confirmed';
+  let status: Status = 'confirmed';
   if (isCancelled) {
     status = 'cancelled';
   } else if (isFailed) {

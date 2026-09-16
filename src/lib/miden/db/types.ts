@@ -1,7 +1,7 @@
 import type { PreparedExecution } from '@epoch-protocol/epoch-intents-sdk';
-import type { GuardianHistoryRecovery } from '../guardian/history';
 import { v4 as uuid } from 'uuid';
 
+import type { GuardianHistoryRecovery } from '../guardian/history';
 import { ConsumableNote, NoteType } from '../types';
 
 export interface IInputNote {
@@ -401,6 +401,13 @@ export type ITransactionStage = (typeof TRANSACTION_STAGES)[number];
 export type INoteDeliveryState = 'pending' | 'relayed' | 'confirmed' | 'undelivered';
 
 export interface ITransaction {
+  /**
+   * Set on a row rebuilt from a Guardian operator's retained history. Such a
+   * row is a RECORD of a transaction that already committed: the processing
+   * loop, the retry path and the delivery sweep must never drive it. The data
+   * the rebuild used is in `recovery`.
+   */
+  recovered?: boolean;
   recovery?: GuardianHistoryRecovery;
   id: string;
   type: ITransactionType;
@@ -668,6 +675,7 @@ export interface IFailedTransactionOutput {
 export type TransactionOutput = ISuccessTransactionOutput | IFailedTransactionOutput;
 
 export class Transaction implements ITransaction {
+  recovered?: boolean;
   recovery?: GuardianHistoryRecovery;
   id: string;
   type: ITransactionType;

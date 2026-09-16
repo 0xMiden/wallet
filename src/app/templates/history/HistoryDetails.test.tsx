@@ -270,20 +270,17 @@ jest.mock('./TransactionStatus', () => ({
   StatusPill: ({
     status,
     isCancelled,
-    swapSettlement,
-    confirmedLabel
+    swapSettlement
   }: {
     status?: number;
     isCancelled?: boolean;
     swapSettlement?: string;
-    confirmedLabel?: string;
   }) => (
     <div
       data-testid="status-pill"
       data-status={String(status)}
       data-cancelled={String(!!isCancelled)}
       data-swap-settlement={String(swapSettlement)}
-      data-confirmed-label={confirmedLabel}
     />
   )
 }));
@@ -465,18 +462,33 @@ describe('HistoryDetails', () => {
     'uses the standard detail card for a recovered %s without external actions',
     async type => {
       setMockRow({
-        id: 'recovered', type, accountId: 'acct-A', status: 2, initiatedAt: 1,
-        amount: 7n, faucetId: 'faucet', displayIcon: 'DEFAULT', restoredFromBackup: true,
+        id: 'recovered',
+        type,
+        accountId: 'acct-A',
+        status: 2,
+        initiatedAt: 1,
+        amount: 7n,
+        faucetId: 'faucet',
+        displayIcon: 'DEFAULT',
+        restoredFromBackup: true,
+        recovered: true,
         recovery: {
-          version: 1, network: 'testnet', operators: ['https://guardian.example'], nonce: 1,
-          inputNotes: [], outputNotes: [], completeness: 'partial', reclaimed: false
+          version: 1,
+          network: 'testnet',
+          operators: ['https://guardian.example'],
+          nonce: 1,
+          inputNotes: [],
+          outputNotes: [],
+          completeness: 'partial',
+          reclaimed: false
         }
       });
       const view = render(<HistoryDetails transactionId="recovered" />);
       await act(async () => {});
       expect(screen.getByTestId('page-layout')).toBeInTheDocument();
-      expect(screen.getAllByTestId('detail-card').some(card => card.getAttribute('data-title') === 'transferDetails')).toBe(true);
-      expect(screen.getByTestId('status-pill')).toHaveAttribute('data-confirmed-label', 'guardianHistoryMidenConfirmed');
+      expect(
+        screen.getAllByTestId('detail-card').some(card => card.getAttribute('data-title') === 'transferDetails')
+      ).toBe(true);
       expect(screen.queryByTestId('bridge-claim-section')).not.toBeInTheDocument();
       expect(screen.queryByTestId('guardian-history-details')).not.toBeInTheDocument();
       expect(mockRequestSWTransactionProcessing).not.toHaveBeenCalled();
