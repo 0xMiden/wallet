@@ -419,6 +419,14 @@ function useExtensionClaimableNotes(publicAddress: string, enabled: boolean) {
   const extensionNotes = useWalletStore(s => s.extensionClaimableNotes);
   const [claimingTxIds, setClaimingTxIds] = useState<ReadonlyMap<string, string>>(new Map());
   const assetsMetadata = useWalletStore(s => s.assetsMetadata);
+  // Whether this VISIT has seen a sync the service worker wrote for this account
+  // after the visit began. miden_sync_data outlives the popup, so the first read
+  // is the snapshot a previous session left behind; a consumer that treats the
+  // first list as what exists now (the faucet baseline, the note toast) must wait
+  // for a live one. Reset during render on an account change, so after A -> B -> A
+  // the earlier visit's proof is never reused.
+  const [freshness, setFreshness] = useState({ address: publicAddress, fresh: false });
+  if (freshness.address !== publicAddress) setFreshness({ address: publicAddress, fresh: false });
 
   // Poll chrome.storage.local for notes on mount + every 3s.
   // The SW writes miden_sync_data on every sync cycle (see sync-manager.ts).
@@ -437,6 +445,9 @@ function useExtensionClaimableNotes(publicAddress: string, enabled: boolean) {
     const g = globalThis as any;
     if (!g.chrome?.storage?.local) return;
 
+    // Same clock as the service worker's stamp: both run in one browser process.
+    const visitStartedAt = Date.now();
+
     const poll = () => {
       g.chrome.storage.local.get('miden_sync_data', (result: any) => {
         const syncData: SyncData | undefined = result?.miden_sync_data;
@@ -448,6 +459,15 @@ function useExtensionClaimableNotes(publicAddress: string, enabled: boolean) {
         const notes: SerializedConsumableNote[] =
           syncData.accountPublicKey === publicAddress ? (syncData.notes ?? []) : [];
         useWalletStore.getState().setExtensionClaimableNotes(notes);
+        if (
+          syncData.accountPublicKey === publicAddress &&
+          typeof syncData.syncedAt === 'number' &&
+          syncData.syncedAt >= visitStartedAt
+        ) {
+          setFreshness(current =>
+            current.address === publicAddress && !current.fresh ? { address: publicAddress, fresh: true } : current
+          );
+        }
       });
     };
 
@@ -526,7 +546,7 @@ function useExtensionClaimableNotes(publicAddress: string, enabled: boolean) {
 
   return {
     data: computedData,
-    isFallback: false,
+    isFallback: !(freshness.address === publicAddress && freshness.fresh),
     mutate,
     isLoading: extensionNotes === null,
     isValidating: false,

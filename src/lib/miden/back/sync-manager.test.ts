@@ -984,6 +984,19 @@ describe('doSync — note metadata branches', () => {
     expect(mockStorageSet).toHaveBeenCalled();
   });
 
+  it('stamps each sync it writes, so readers can tell a live result from an old snapshot', async () => {
+    mockClient.getConsumableNoteDtos.mockResolvedValueOnce([]);
+    const before = Date.now();
+    await doSync();
+    expect(mockStorageSet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        miden_sync_data: expect.objectContaining({ syncedAt: expect.any(Number) })
+      })
+    );
+    const written = mockStorageSet.mock.calls.at(-1)?.[0]?.miden_sync_data;
+    expect(written.syncedAt).toBeGreaterThanOrEqual(before);
+  });
+
   it('handles when no account exists in client (assets array stays empty)', async () => {
     mockClient.getConsumableNoteDtos.mockResolvedValueOnce([]);
     mockClient.getAccount.mockResolvedValueOnce(null);

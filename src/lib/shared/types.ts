@@ -195,6 +195,10 @@ export interface SyncData {
   notes: SerializedConsumableNote[];
   vaultAssets: SerializedVaultAsset[];
   accountPublicKey: string;
+  // When the service worker wrote this sync, so a reader can tell a live result
+  // from the snapshot persisted by an earlier session. Absent from snapshots
+  // written before the field existed.
+  syncedAt?: number;
 }
 
 export interface SyncCompleted extends WalletMessageBase {

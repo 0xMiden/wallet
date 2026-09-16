@@ -643,7 +643,8 @@ async function runSync(force: boolean): Promise<void> {
       const syncData: SyncData = {
         notes: parsedNotes,
         vaultAssets,
-        accountPublicKey: accountPubKey
+        accountPublicKey: accountPubKey,
+        syncedAt: Date.now()
       };
       try {
         // Use the webextension-polyfill `browser` (already imported for alarms)
