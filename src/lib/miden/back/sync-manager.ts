@@ -88,6 +88,11 @@ let queuedForcedSync: Promise<void> | null = null;
 // Circuit-breaker state. Module-level is fine — the SW process is the only
 // doSync caller in the extension path; mobile/desktop runs have one sync loop.
 let consecutiveSyncFailures = 0;
+// When the last successful sync whose note list reached storage finished. A pass whose
+// sync failed writes this again, so a reader can tell a sync that went through from a
+// pass that only re-published the client's cached notes. Taken only once the write
+// lands: a stamp no reader could have seen must not surface on a later failed pass.
+let lastPublishedSyncAt: number | undefined;
 // On the monotonic clock (`monotonicNowMs`), like the inline loop's: a wall-clock
 // deadline stepped backwards keeps this window "open" for the size of the step,
 // and while the alarm keeps firing, every attempt inside it is skipped — so the
@@ -213,6 +218,7 @@ async function runSync(force: boolean): Promise<void> {
     // have changed since the sync that failed to fetch it. Skipping the read is
     // strictly better than bounding it.
     let syncHoldEvicted = false;
+    let syncSucceededAt: number | undefined;
     try {
       // The timeout is only sound when the WASM sync runs in ANOTHER realm. Its
       // rejection propagates out of the lock callback and so RELEASES the mutex
@@ -239,6 +245,7 @@ async function runSync(force: boolean): Promise<void> {
         inlineWasm ? { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'sw-sync' } : undefined
       );
       consecutiveSyncFailures = 0;
+      syncSucceededAt = Date.now();
       syncBackoffUntilMs = null;
       syncFusedUntilMs = null;
       breakerTripCount = 0;
@@ -639,12 +646,13 @@ async function runSync(force: boolean): Promise<void> {
       );
 
       // Write sync data to chrome.storage.local — the reliable data channel.
-      // Frontends read from here via chrome.storage.onChanged (works across all extension contexts).
+      // The popup polls it every 3s (useExtensionClaimableNotes); the stamp is what tells
+      // a new successful sync apart from an otherwise identical write.
       const syncData: SyncData = {
         notes: parsedNotes,
         vaultAssets,
         accountPublicKey: accountPubKey,
-        syncedAt: Date.now()
+        syncedAt: syncSucceededAt ?? lastPublishedSyncAt
       };
       try {
         // Use the webextension-polyfill `browser` (already imported for alarms)
@@ -656,6 +664,7 @@ async function runSync(force: boolean): Promise<void> {
           miden_cached_consumable_notes: parsedNotes,
           miden_sync_data: syncData
         });
+        lastPublishedSyncAt = syncData.syncedAt;
       } catch (err) {
         // A failed write (quota exceeded, storage unavailable) must not be
         // swallowed silently: frontends read this cache, so on failure they keep

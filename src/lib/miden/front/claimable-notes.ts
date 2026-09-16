@@ -419,12 +419,12 @@ function useExtensionClaimableNotes(publicAddress: string, enabled: boolean) {
   const extensionNotes = useWalletStore(s => s.extensionClaimableNotes);
   const [claimingTxIds, setClaimingTxIds] = useState<ReadonlyMap<string, string>>(new Map());
   const assetsMetadata = useWalletStore(s => s.assetsMetadata);
-  // Whether this VISIT has seen a sync the service worker wrote for this account
-  // after the visit began. miden_sync_data outlives the popup, so the first read
-  // is the snapshot a previous session left behind; a consumer that treats the
-  // first list as what exists now (the faucet baseline, the note toast) must wait
-  // for a live one. Reset during render on an account change, so after A -> B -> A
-  // the earlier visit's proof is never reused.
+  // Whether this VISIT has seen the service worker write a sync for this account.
+  // miden_sync_data outlives the popup, so the first read is the snapshot a previous
+  // session left behind; a consumer that treats the first list as what exists now
+  // (the faucet baseline, the note toast) must wait for a live one. Reset during
+  // render on an account change, so after A -> B -> A the earlier visit's proof is
+  // never reused.
   const [freshness, setFreshness] = useState({ address: publicAddress, fresh: false });
   if (freshness.address !== publicAddress) setFreshness({ address: publicAddress, fresh: false });
 
@@ -445,12 +445,30 @@ function useExtensionClaimableNotes(publicAddress: string, enabled: boolean) {
     const g = globalThis as any;
     if (!g.chrome?.storage?.local) return;
 
-    // Same clock as the service worker's stamp: both run in one browser process.
-    const visitStartedAt = Date.now();
+    // A read that lands after this effect ended belongs to a visit that is over.
+    let active = true;
+    // The stamp on this visit's first read, which an earlier session may have written.
+    // A later read carrying a different stamp is a sync this visit saw succeed; a write
+    // with no stamp had no successful sync behind it. Compared by identity, not by
+    // clock, so a clock step cannot make an old snapshot look live.
+    let firstRead: { stamp: unknown } | null = null;
 
     const poll = () => {
       g.chrome.storage.local.get('miden_sync_data', (result: any) => {
+        // A failed read says nothing about what storage holds, least of all the baseline.
+        if (!active || g.chrome.runtime?.lastError) return;
         const syncData: SyncData | undefined = result?.miden_sync_data;
+        if (firstRead === null) {
+          firstRead = { stamp: syncData?.syncedAt };
+        } else if (
+          syncData?.accountPublicKey === publicAddress &&
+          typeof syncData.syncedAt === 'number' &&
+          syncData.syncedAt !== firstRead.stamp
+        ) {
+          setFreshness(current =>
+            current.address === publicAddress && !current.fresh ? { address: publicAddress, fresh: true } : current
+          );
+        }
         // Nothing synced yet — leave the store untouched so isLoading stays true.
         if (!syncData) return;
         // Only serve notes that belong to the account currently being viewed;
@@ -459,15 +477,6 @@ function useExtensionClaimableNotes(publicAddress: string, enabled: boolean) {
         const notes: SerializedConsumableNote[] =
           syncData.accountPublicKey === publicAddress ? (syncData.notes ?? []) : [];
         useWalletStore.getState().setExtensionClaimableNotes(notes);
-        if (
-          syncData.accountPublicKey === publicAddress &&
-          typeof syncData.syncedAt === 'number' &&
-          syncData.syncedAt >= visitStartedAt
-        ) {
-          setFreshness(current =>
-            current.address === publicAddress && !current.fresh ? { address: publicAddress, fresh: true } : current
-          );
-        }
       });
     };
 
@@ -476,7 +485,10 @@ function useExtensionClaimableNotes(publicAddress: string, enabled: boolean) {
 
     // Then poll every 3s (aligned with useSyncTrigger's SyncRequest interval)
     const timer = setInterval(poll, 3_000);
-    return () => clearInterval(timer);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
   }, [enabled, publicAddress]);
 
   // The popup and the service worker share an origin, so they share this Dexie: an
@@ -546,7 +558,7 @@ function useExtensionClaimableNotes(publicAddress: string, enabled: boolean) {
 
   return {
     data: computedData,
-    isFallback: !(freshness.address === publicAddress && freshness.fresh),
+    isFallback: !freshness.fresh,
     mutate,
     isLoading: extensionNotes === null,
     isValidating: false,

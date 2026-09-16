@@ -997,6 +997,53 @@ describe('doSync — note metadata branches', () => {
     expect(written.syncedAt).toBeGreaterThanOrEqual(before);
   });
 
+  it('repeats the last successful sync stamp on a pass whose sync failed', async () => {
+    // A failed pass still writes the client's cached notes, but it is not a sync: a
+    // reader must not take it for one.
+    const now = jest.spyOn(Date, 'now');
+    try {
+      mockClient.getConsumableNoteDtos.mockResolvedValue([]);
+      now.mockReturnValue(1_000_000);
+      await doSync();
+      const succeeded = mockStorageSet.mock.calls.at(-1)?.[0]?.miden_sync_data;
+      expect(succeeded.syncedAt).toBe(1_000_000);
+
+      now.mockReturnValue(1_009_000);
+      mockClient.syncState.mockRejectedValueOnce(new Error('node unreachable'));
+      await doSync();
+      const failed = mockStorageSet.mock.calls.at(-1)?.[0]?.miden_sync_data;
+      expect(failed).not.toBe(succeeded);
+      expect(failed.syncedAt).toBe(1_000_000);
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  it('does not publish the stamp of a successful sync whose write never reached storage', async () => {
+    const now = jest.spyOn(Date, 'now');
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      mockClient.getConsumableNoteDtos.mockResolvedValue([]);
+      now.mockReturnValue(2_000_000);
+      await doSync();
+
+      // This sync succeeds, but its note list is never stored, so no reader saw it.
+      now.mockReturnValue(2_005_000);
+      mockStorageSet.mockRejectedValueOnce(new Error('quota exceeded'));
+      await doSync();
+
+      // A later pass whose sync failed re-publishes cached notes: it may carry only a
+      // stamp a reader could already have seen.
+      now.mockReturnValue(2_009_000);
+      mockClient.syncState.mockRejectedValueOnce(new Error('node unreachable'));
+      await doSync();
+      expect(mockStorageSet.mock.calls.at(-1)?.[0]?.miden_sync_data.syncedAt).toBe(2_000_000);
+    } finally {
+      now.mockRestore();
+      warn.mockRestore();
+    }
+  });
+
   it('handles when no account exists in client (assets array stays empty)', async () => {
     mockClient.getConsumableNoteDtos.mockResolvedValueOnce([]);
     mockClient.getAccount.mockResolvedValueOnce(null);
