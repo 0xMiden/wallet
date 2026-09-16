@@ -457,6 +457,19 @@ describe('wallet prompts', () => {
     }
   });
 
+  it('writes nothing when seeding a prompt that is already dismissed or completed', async () => {
+    await setWalletPromptStatus(WalletPromptType.VerifySeedPhrase, WalletPromptStatus.Completed);
+    const set = jest.spyOn(getStorageProvider(), 'set').mockRejectedValue(new Error('storage unavailable'));
+    try {
+      await expect(seedWalletPrompt(WalletPromptType.VerifySeedPhrase)).resolves.toMatchObject({
+        prompts: { [WalletPromptType.VerifySeedPhrase]: WalletPromptStatus.Completed }
+      });
+      expect(set).not.toHaveBeenCalled();
+    } finally {
+      set.mockRestore();
+    }
+  });
+
   it('never lets an earlier write take back a newer change shown in hook state', async () => {
     const { result } = renderHook(() => useWalletPromptStorage());
     await waitFor(() => expect(result.current.isLoaded).toBe(true));

@@ -244,8 +244,10 @@ function updateWalletPromptStorage(
   change: (current: WalletPromptStorage) => WalletPromptStorage
 ): Promise<WalletPromptStorage> {
   return inWalletPromptStorageTurn(async () => {
-    const next = change(await fetchWalletPromptStorage());
-    await putToStorage(WALLET_PROMPTS_STORAGE_KEY, next);
+    const current = await fetchWalletPromptStorage();
+    const next = change(current);
+    // A change that keeps the record as it is (seeding a prompt already settled) writes nothing.
+    if (next !== current) await putToStorage(WALLET_PROMPTS_STORAGE_KEY, next);
     return next;
   });
 }
