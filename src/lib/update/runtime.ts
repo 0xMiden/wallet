@@ -9,6 +9,7 @@ import { UpdateDismissalStore } from './storage';
 import type { UpdateAvailability, UpdateAvailabilityAdapter, UpdateNotice } from './types';
 
 export const RELEASE_MANIFEST_URL = 'https://raw.githubusercontent.com/0xMiden/wallet/main/updates/manifest.json';
+const E2E_UPDATE_STORAGE_KEY = '__miden_e2e_update__';
 
 interface RuntimeController {
   check(options?: { force?: boolean }): Promise<UpdateNotice | null>;
@@ -45,7 +46,7 @@ export class E2EUpdateAdapter implements UpdateAvailabilityAdapter {
     // Vite replaces this condition with false in production and removes the
     // test-only global path from shipped bundles.
     if (process.env.MIDEN_E2E_TEST !== 'true') return { status: 'unknown' };
-    const injected = window.__MIDEN_E2E_UPDATE__;
+    const injected = getE2EUpdateInjection();
     if (injected?.platform !== this.platform) return { status: 'unknown' };
     if (!semver.valid(injected.currentVersion) || !semver.valid(injected.availableVersion)) {
       return { status: 'unknown' };
@@ -93,12 +94,10 @@ export async function createUpdateNotificationRuntime(
 }
 
 export async function createDefaultAdapter(): Promise<UpdateAvailabilityAdapter> {
-  if (
-    process.env.MIDEN_E2E_TEST === 'true' &&
-    window.__MIDEN_E2E_UPDATE__ &&
-    window.__MIDEN_E2E_UPDATE__.platform !== 'desktop'
-  ) {
-    return new E2EUpdateAdapter(window.__MIDEN_E2E_UPDATE__.platform);
+  if (process.env.MIDEN_E2E_TEST === 'true') {
+    if (isAndroid()) return new E2EUpdateAdapter('android');
+    if (isIOS()) return new E2EUpdateAdapter('ios');
+    if (isExtension() && process.env.TARGET_BROWSER === 'chrome') return new E2EUpdateAdapter('chrome');
   }
   if (isAndroid()) return new (await import('./android')).AndroidUpdateAdapter();
   if (isIOS()) return new (await import('./ios')).IOSUpdateAdapter();
@@ -112,8 +111,8 @@ export async function createDefaultAdapter(): Promise<UpdateAvailabilityAdapter>
 }
 
 function getE2EPresentationManifest(): unknown | null {
-  if (process.env.MIDEN_E2E_TEST !== 'true' || !window.__MIDEN_E2E_UPDATE__) return null;
-  const injected = window.__MIDEN_E2E_UPDATE__;
+  const injected = getE2EUpdateInjection();
+  if (!injected) return null;
   if (injected.summary === undefined) return { schemaVersion: 1, releases: [] };
   const platformMetadata =
     injected.platform === 'android'
@@ -133,6 +132,17 @@ function getE2EPresentationManifest(): unknown | null {
       }
     ]
   };
+}
+
+function getE2EUpdateInjection(): NonNullable<typeof window.__MIDEN_E2E_UPDATE__> | null {
+  if (process.env.MIDEN_E2E_TEST !== 'true') return null;
+  if (window.__MIDEN_E2E_UPDATE__) return window.__MIDEN_E2E_UPDATE__;
+  try {
+    const value = window.sessionStorage.getItem(E2E_UPDATE_STORAGE_KEY);
+    return value ? (JSON.parse(value) as NonNullable<typeof window.__MIDEN_E2E_UPDATE__>) : null;
+  } catch {
+    return null;
+  }
 }
 
 function androidVersionCode(version: string): number {

@@ -2,21 +2,26 @@ import { expect, test } from '../fixtures/two-simulators';
 
 test('shows and acts on an authoritative iOS update after onboarding', async ({ walletA, steps }) => {
   await walletA.evaluate(() => {
-    window.__MIDEN_E2E_UPDATE__ = {
+    const update = {
       platform: 'ios',
       currentVersion: '1.16.0',
       availableVersion: '1.17.0',
       summary: 'Safer transfers and faster startup.',
       urgency: 'important'
-    };
+    } as const;
+    window.__MIDEN_E2E_UPDATE__ = update;
+    sessionStorage.setItem('__miden_e2e_update__', JSON.stringify(update));
+  });
+
+  expect(await walletA.locatorText('[data-testid="update-notification-card"]')).toBeNull();
+  await walletA.createNewWallet();
+  await walletA.evaluate(() => {
     (window as unknown as { __UPDATE_ACTION_COUNT__: number }).__UPDATE_ACTION_COUNT__ = 0;
     window.addEventListener('miden:e2e-update-action', () => {
       (window as unknown as { __UPDATE_ACTION_COUNT__: number }).__UPDATE_ACTION_COUNT__ += 1;
     });
   });
 
-  expect(await walletA.locatorText('[data-testid="update-notification-card"]')).toBeNull();
-  await walletA.createNewWallet();
   await steps.step(
     'update_notice_renders',
     async () => {

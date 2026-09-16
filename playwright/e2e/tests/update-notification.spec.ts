@@ -1,7 +1,8 @@
 import { expect, test } from '../fixtures/two-wallets';
 
 test('shows, acts on, dismisses, and refreshes an authoritative Chrome update', async ({ walletA, steps }) => {
-  await walletA.page.evaluate(() => {
+  await expect(walletA.page.getByTestId('update-notification-card')).toHaveCount(0);
+  await walletA.page.addInitScript(() => {
     window.__MIDEN_E2E_UPDATE__ = {
       platform: 'chrome',
       currentVersion: '1.16.0',
@@ -15,7 +16,6 @@ test('shows, acts on, dismisses, and refreshes an authoritative Chrome update', 
     });
   });
 
-  await expect(walletA.page.getByTestId('update-notification-card')).toHaveCount(0);
   await walletA.createNewWallet();
 
   const card = walletA.page.getByTestId('update-notification-card');

@@ -68,6 +68,7 @@ const adapter = (platform: UpdateAvailabilityAdapter['platform']): UpdateAvailab
 
 describe('createUpdateNotificationRuntime', () => {
   beforeEach(() => {
+    sessionStorage.clear();
     mockIsAndroid.mockReturnValue(false);
     mockIsDesktop.mockReturnValue(false);
     mockIsExtension.mockReturnValue(false);
@@ -145,11 +146,16 @@ describe('createUpdateNotificationRuntime', () => {
   it('uses the default E2E adapter, storage, fetch, and subscription only in a test build', async () => {
     const original = process.env.MIDEN_E2E_TEST;
     process.env.MIDEN_E2E_TEST = 'true';
-    window.__MIDEN_E2E_UPDATE__ = {
-      platform: 'ios',
-      currentVersion: '1.0.0',
-      availableVersion: '1.1.0'
-    };
+    mockIsIOS.mockReturnValue(true);
+    sessionStorage.setItem(
+      '__miden_e2e_update__',
+      JSON.stringify({
+        platform: 'ios',
+        currentVersion: '1.0.0',
+        availableVersion: '1.1.0',
+        summary: 'Reload-safe release text.'
+      })
+    );
     const originalFetch = globalThis.fetch;
     const fetchMock = jest.fn().mockResolvedValue({
       ok: true,
@@ -159,14 +165,19 @@ describe('createUpdateNotificationRuntime', () => {
 
     const runtime = await createUpdateNotificationRuntime();
 
-    await expect(runtime.controller.check()).resolves.toMatchObject({ platform: 'ios', availableVersion: '1.1.0' });
+    await expect(runtime.controller.check()).resolves.toMatchObject({
+      platform: 'ios',
+      availableVersion: '1.1.0',
+      summary: 'Reload-safe release text.',
+      urgency: 'normal'
+    });
     const unsubscribe = await runtime.subscribe(jest.fn());
     unsubscribe();
     expect(fetchMock).not.toHaveBeenCalled();
 
     Object.defineProperty(globalThis, 'fetch', { configurable: true, value: originalFetch });
     process.env.MIDEN_E2E_TEST = original;
-    delete window.__MIDEN_E2E_UPDATE__;
+    sessionStorage.clear();
   });
 
   it('uses the fixed network loader when no E2E presentation is injected', async () => {
@@ -233,6 +244,7 @@ describe('default runtime platform adapter', () => {
   };
 
   beforeEach(() => {
+    sessionStorage.clear();
     process.env.MIDEN_E2E_TEST = 'false';
     process.env.TARGET_BROWSER = 'chrome';
     delete window.__MIDEN_E2E_UPDATE__;
@@ -267,6 +279,18 @@ describe('default runtime platform adapter', () => {
 
   it('falls back to the silent desktop boundary on plain web', async () => {
     await expect(createDefaultAdapter()).resolves.toMatchObject({ platform: 'desktop' });
+  });
+
+  it.each([
+    ['android', mockIsAndroid],
+    ['ios', mockIsIOS],
+    ['chrome', mockIsExtension]
+  ] as const)('binds E2E injection to the real %s runtime before data is injected', async (platform, predicate) => {
+    process.env.MIDEN_E2E_TEST = 'true';
+    predicate.mockReturnValue(true);
+
+    await expect(createDefaultAdapter()).resolves.toBeInstanceOf(E2EUpdateAdapter);
+    await expect(createDefaultAdapter()).resolves.toMatchObject({ platform });
   });
 });
 
@@ -342,6 +366,7 @@ describe('E2EUpdateAdapter', () => {
   afterEach(() => {
     process.env.MIDEN_E2E_TEST = original;
     delete window.__MIDEN_E2E_UPDATE__;
+    sessionStorage.clear();
   });
 
   it('is silent unless the explicit E2E build boundary is enabled', async () => {
@@ -371,6 +396,32 @@ describe('E2EUpdateAdapter', () => {
 
     expect(listener).toHaveBeenCalledTimes(1);
     window.removeEventListener('miden:e2e-update-action', listener);
+  });
+
+  it('reads reload-safe session injection when the document global is absent', async () => {
+    process.env.MIDEN_E2E_TEST = 'true';
+    sessionStorage.setItem(
+      '__miden_e2e_update__',
+      JSON.stringify({ platform: 'android', currentVersion: '1.0.0', availableVersion: '1.1.0' })
+    );
+
+    await expect(new E2EUpdateAdapter('android').check()).resolves.toMatchObject({
+      status: 'available',
+      availableVersion: '1.1.0'
+    });
+  });
+
+  it('ignores malformed reload-safe session injection', async () => {
+    process.env.MIDEN_E2E_TEST = 'true';
+    sessionStorage.setItem('__miden_e2e_update__', '{');
+
+    await expect(new E2EUpdateAdapter('android').check()).resolves.toEqual({ status: 'unknown' });
+  });
+
+  it('is silent when an E2E build has no injected session data', async () => {
+    process.env.MIDEN_E2E_TEST = 'true';
+
+    await expect(new E2EUpdateAdapter('android').check()).resolves.toEqual({ status: 'unknown' });
   });
 
   it('rejects mismatched platforms and malformed versions', async () => {
