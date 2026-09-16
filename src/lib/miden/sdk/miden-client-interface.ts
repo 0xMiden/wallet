@@ -66,7 +66,11 @@ import { ConsumeTransaction, ITransactionStage, SendTransaction, SwapTransaction
 // miden-client-interface. Static imports here deadlock init_guardian_manager in the
 // SW bundle (both sides' __esmMin wrappers await each other).
 // guardian/native-http is cycle-safe (it only pulls constants + platform).
-import { insertGuardianAccountMonotonically, type CreatedGuardianKeys } from '../guardian/account';
+import {
+  getSignerDetailsFromAccount,
+  insertGuardianAccountMonotonically,
+  type CreatedGuardianKeys
+} from '../guardian/account';
 import { registerGuardianOrigin } from '../guardian/native-http';
 import { isPrivateNoteType } from '../helpers';
 
@@ -690,11 +694,6 @@ export class MidenClientInterface {
     deriveColdSeed: (hdIndex: number) => Uint8Array,
     guardianEndpoint: string
   ): Promise<RecoveredGuardianAccount[]> {
-    const [{ assertWasmHoldCurrent, withWasmClientLock }, { MultisigClient, EcdsaSigner }] = await Promise.all([
-      import('../sdk/miden-client'),
-      import('@openzeppelin/miden-multisig-client')
-    ]);
-
     const recovered: RecoveredGuardianAccount[] = [];
     let consecutiveMisses = 0;
 
@@ -716,24 +715,9 @@ export class MidenClientInterface {
       const coldPublicKey = Buffer.from(coldSk.publicKey().serialize().slice(1)).toString('hex');
       const coldSecretKeyHex = Buffer.from(coldSk.serialize()).toString('hex');
 
-      const lookupClient = new MultisigClient(this.client, {
-        guardianEndpoint,
-        midenRpcEndpoint: getEffectiveRpcUrl()
-      });
-      const lookupSigner = new EcdsaSigner(coldSk);
-      // Bounded like the other recovery RPCs in this file: this scan runs on the
-      // accounts write queue (a spawn), so an operator that never answers must not
-      // park every other accounts write behind it. No retry, as its siblings: an
-      // abandoned attempt is never aborted, so a retry would double the operator's
-      // in-flight lookups; 30 s because this is a lookup plus one getState per match,
-      // the shape recoverySyncNotes is sized for (#878).
-      const matches = await withRpcTimeout(() => lookupClient.recoverByKey(lookupSigner), 'recoverGuardianByKey', {
-        timeoutMs: 30_000,
-        retries: 0
-      });
-      refuseIfReplaced();
+      const adopted = await this.recoverAndAdoptByKey(coldSk, guardianEndpoint);
 
-      if (matches.length === 0) {
+      if (adopted.length === 0) {
         // Tolerate a small gap before giving up, so a non-contiguous index or a
         // transient empty guardian response doesn't silently drop later accounts.
         consecutiveMisses++;
@@ -742,24 +726,7 @@ export class MidenClientInterface {
       }
       consecutiveMisses = 0;
 
-      for (const { state } of matches) {
-        // Decode the on-chain account state and adopt it locally so subsequent
-        // SDK calls (.load, executeForSummary) can resolve the account.
-        const accountBytes = new Uint8Array(Buffer.from(state.stateJson.data, 'base64'));
-        const bech32 = await withWasmClientLock(
-          async hold => {
-            const acc = Account.deserialize(accountBytes);
-            // The same account matches at more than one HD index, so this runs
-            // twice per recovery; a plain overwrite lets whichever snapshot
-            // arrives last win, including a creation-time one.
-            await insertGuardianAccountMonotonically(this.client, acc);
-            assertWasmHoldCurrent(hold, 'recover-guardian-adopt after the adoption');
-            await this.client.keystore.insert(acc.id(), coldSk);
-            return getBech32AddressFromAccountId(acc.id());
-          },
-          { label: 'recover-guardian-adopt' }
-        );
-
+      for (const bech32 of adopted) {
         recovered.push({
           accountId: bech32,
           hdIndex,
@@ -774,6 +741,112 @@ export class MidenClientInterface {
     }
 
     return recovered;
+  }
+
+  /**
+   * Look up + adopt the Guardian accounts authorized by one key: the shared
+   * per-key body of `recoverGuardianAccountsBySeed` and
+   * `recoverGuardianAccountByHotKey`. An empty return is a MISS, not an error —
+   * the callers own their gap/empty semantics.
+   *
+   * `verifyAccount` (when given) runs inside the WASM lock on the decoded
+   * account BEFORE it is adopted; throwing from it aborts the adoption of that
+   * match and propagates.
+   */
+  private async recoverAndAdoptByKey(
+    sk: AuthSecretKey,
+    guardianEndpoint: string,
+    verifyAccount?: (acc: Account) => Promise<void>
+  ): Promise<string[]> {
+    const [{ assertWasmHoldCurrent, withWasmClientLock }, { MultisigClient, EcdsaSigner }] = await Promise.all([
+      import('../sdk/miden-client'),
+      import('@openzeppelin/miden-multisig-client')
+    ]);
+
+    const lookupClient = new MultisigClient(this.client, {
+      guardianEndpoint,
+      midenRpcEndpoint: getEffectiveRpcUrl()
+    });
+    const lookupSigner = new EcdsaSigner(sk);
+    const matches = await withRpcTimeout(() => lookupClient.recoverByKey(lookupSigner), 'recoverGuardianByKey', {
+      timeoutMs: 30_000,
+      retries: 0
+    });
+    if (this.isDisposed) {
+      throw new Error('The Miden client was replaced while scanning for Guardian accounts — please try again.');
+    }
+
+    const adopted: string[] = [];
+    for (const { state } of matches) {
+      // Decode the on-chain account state and adopt it locally so subsequent
+      // SDK calls (.load, executeForSummary) can resolve the account.
+      const accountBytes = new Uint8Array(Buffer.from(state.stateJson.data, 'base64'));
+      const bech32 = await withWasmClientLock(
+        async hold => {
+          const acc = Account.deserialize(accountBytes);
+          await verifyAccount?.(acc);
+          assertWasmHoldCurrent(hold, 'recover-guardian-adopt after verification');
+          // The same account matches at more than one HD index, so this runs
+          // twice per recovery; a plain overwrite lets whichever snapshot
+          // arrives last win, including a creation-time one.
+          await insertGuardianAccountMonotonically(this.client, acc);
+          assertWasmHoldCurrent(hold, 'recover-guardian-adopt after the adoption');
+          await this.client.keystore.insert(acc.id(), sk);
+          return getBech32AddressFromAccountId(acc.id());
+        },
+        { label: 'recover-guardian-adopt' }
+      );
+      adopted.push(bech32);
+    }
+    return adopted;
+  }
+
+  /**
+   * Adopt the Guardian account authorized by a pasted HOT secret key — the
+   * seed-less import flow. One lookup against one operator, no HD walk.
+   *
+   * The guardian's lookup is by key commitment over EVERY registered signer,
+   * so before adopting each match the pasted key is checked against the
+   * on-chain HOT signer slot: a pasted COLD key also produces a lookup hit but
+   * an account imported on it could never sign day-to-day, and a rotated-out
+   * hot key can still be known to the guardian while the on-chain slot holds
+   * its successor. Both are refused with a pointed message.
+   */
+  async recoverGuardianAccountByHotKey(
+    hotSecretKeyHex: string,
+    guardianEndpoint: string
+  ): Promise<{ accountId: string; hotPublicKey: string }[]> {
+    const [{ deserializeHotSecretKey }, { getMessage }] = await Promise.all([
+      import('../guardian/hot-key-import'),
+      import('lib/i18n')
+    ]);
+
+    registerGuardianOrigin(guardianEndpoint);
+
+    const sk = deserializeHotSecretKey(hotSecretKeyHex);
+    const publicKey = sk.publicKey();
+    const hotPublicKey = Buffer.from(publicKey.serialize().slice(1)).toString('hex');
+    const commitmentHandle = publicKey.toCommitment();
+    const normalizeCommitment = (hex: string) => hex.replace(/^0x/i, '').toLowerCase();
+    const pastedCommitment = normalizeCommitment(commitmentHandle.toHex());
+    commitmentHandle.free();
+    publicKey.free();
+
+    const adopted = await this.recoverAndAdoptByKey(sk, guardianEndpoint, async acc => {
+      const { commitment: hotCommitment } = await getSignerDetailsFromAccount(acc, false);
+      if (normalizeCommitment(hotCommitment) === pastedCommitment) return;
+      const { commitment: coldCommitment } = await getSignerDetailsFromAccount(acc, true);
+      if (normalizeCommitment(coldCommitment) === pastedCommitment) {
+        throw new Error(getMessage('importHotKeyIsRecoveryKey'));
+      }
+      throw new Error(getMessage('importHotKeyNotActive'));
+    });
+
+    if (adopted.length === 0) {
+      throw new Error(getMessage('importHotKeyNoAccount'));
+    }
+
+    return adopted.map(accountId => ({ accountId, hotPublicKey }));
   }
 
   /**

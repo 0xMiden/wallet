@@ -786,14 +786,6 @@
     "message": "Спробувати ще раз",
     "englishSource": "Retry"
   },
-  "retryEarnDelivery": {
-    "message": "Повторити доставку",
-    "englishSource": "Retry delivery"
-  },
-  "withdrawalRecoveryUnavailable": {
-    "message": "Це виведення коштів неможливо безпечно повторити. Перевірте його статус, перш ніж розпочинати інше виведення коштів.",
-    "englishSource": "This withdrawal cannot be retried safely. Check its status before starting another withdrawal."
-  },
   "retryAnyway": {
     "message": "Усе одно повторити",
     "englishSource": "Retry anyway"
@@ -1072,6 +1064,98 @@
   "importWallet": {
     "message": "Імпортувати гаманець",
     "englishSource": "Import Wallet"
+  },
+  "importWithKeyInstead": {
+    "message": "Імпортувати за допомогою ключа",
+    "englishSource": "Import with key instead"
+  },
+  "importHotKeyTitle": {
+    "message": "Імпортувати приватні ключі",
+    "englishSource": "Import private keys"
+  },
+  "importHotKeyDescription": {
+    "message": "Відскануйте QR-код вашого приватного ключа або введіть ваші гарячі ключі Miden та приватні ключі EVM. Ваш гарячий ключ знайде ваш обліковий запис Guardian. Введений ключ EVM відновлює відповідну адресу EVM; гаманець не може перевірити, чи належать ці ключі один до одного.",
+    "englishSource": "Scan your private-key QR or enter your Miden hot and EVM private keys. Your hot key finds your Guardian account. The supplied EVM key restores its EVM address; the wallet cannot verify that these keys belong together."
+  },
+  "importHotKeyPlaceholder": {
+    "message": "Повсякденний ключ (шестнадцятковий)",
+    "englishSource": "Everyday key (hex)"
+  },
+  "importHotKeyInvalid": {
+    "message": "Надайте обидва приватні ключі у вигляді дійсних скалярних значень формату secp256k1 довжиною 32 байти, що не дорівнюють нулю (по 64 шестнадцяткових символів кожен). QR-коди повинні містити саме послідовність «hot-key:evm-key».",
+    "englishSource": "Provide both private keys as valid, nonzero 32-byte secp256k1 scalars (64 hexadecimal characters each). QR codes must contain exactly hot-key:evm-key."
+  },
+  "midenHotPrivateKey": {
+    "message": "Приватний ключ Miden",
+    "englishSource": "Miden hot private key"
+  },
+  "evmPrivateKey": {
+    "message": "Приватний ключ EVM",
+    "englishSource": "EVM private key"
+  },
+  "evmPrivateKeyMissing": {
+    "message": "Приватний ключ EVM цього облікового запису відсутній. Для експорту потрібні обидва ключі. Відновіть оригінальний ключ EVM із вашої резервної копії.",
+    "englishSource": "This account's EVM private key is missing. Both keys are required for export. Restore the original EVM key from your backup."
+  },
+  "privateKeyPairQr": {
+    "message": "QR-код приватного ключа",
+    "englishSource": "Private keys QR code"
+  },
+  "privateKeyPairWarning": {
+    "message": "Зберігайте обидва ключі в таємниці. Будь-хто, хто їх має, може контролювати ваші активи Miden та EVM. Цей експорт не включає ваш ключ відновлення Guardian.",
+    "englishSource": "Keep both keys secret. Anyone with them can control your Miden and EVM assets. This export does not include your Guardian recovery key."
+  },
+  "showPrivateKeyText": {
+    "message": "Показати ключі у вигляді тексту",
+    "englishSource": "Show keys as text"
+  },
+  "showQrCode": {
+    "message": "Показати QR-код",
+    "englishSource": "Show QR code"
+  },
+  "uploadQrImage": {
+    "message": "Завантажити зображення QR-коду",
+    "englishSource": "Upload QR image"
+  },
+  "enterKeysManually": {
+    "message": "Введіть ключі вручну",
+    "englishSource": "Enter keys manually"
+  },
+  "keyCameraUnavailable": {
+    "message": "Сканування камерою тут недоступне. Завантажте зображення QR-коду або введіть обидва ключі вручну.",
+    "englishSource": "Camera scanning is unavailable here. Upload a QR image or enter both keys manually."
+  },
+  "invalidQrImage": {
+    "message": "Не вдалося зчитати QR-код із цього зображення. Оберіть чітке зображення QR-коду розміром до 20 МБ або введіть обидва ключі вручну.",
+    "englishSource": "Could not read a QR code from this image. Choose a clear QR image up to 20 MB or enter both keys manually."
+  },
+  "privateKeyPairReady": {
+    "message": "Обидва ключі готові до імпорту.",
+    "englishSource": "Both keys are ready to import."
+  },
+  "importHotKeyError": {
+    "message": "Не вдалося імпортувати обліковий запис із цим ключем.",
+    "englishSource": "Could not import an account with this key."
+  },
+  "importHotKeyWrongScheme": {
+    "message": "Цей ключ використовує схему, що не підтримується. Вставте повсякденний ключ облікового запису Guardian.",
+    "englishSource": "This key uses an unsupported scheme. Paste the everyday key of a Guardian account."
+  },
+  "importHotKeyNoAccount": {
+    "message": "За цим ключем на сайті Guardian не знайдено жодного облікового запису Guardian.",
+    "englishSource": "No Guardian account was found for this key at this Guardian."
+  },
+  "importHotKeyIsRecoveryKey": {
+    "message": "Схоже, це ваш ключ відновлення. Вставте замість нього повсякденний ключ.",
+    "englishSource": "This looks like your recovery key. Paste the everyday key instead."
+  },
+  "importHotKeyNotActive": {
+    "message": "Цей ключ більше не діє для цього облікового запису. Вставте поточний щоденний ключ.",
+    "englishSource": "This key is no longer active for the account. Paste the current everyday key."
+  },
+  "recoveryActionsRequireRecoveryKey": {
+    "message": "Guardian Для змін та заміни ключів потрібен ключ відновлення, якого немає на цьому пристрої.",
+    "englishSource": "Guardian changes and key replacement need the recovery key, which is not on this device."
   },
   "revealPrivateKey": {
     "message": "Відкрити приватний ключ",
@@ -2626,12 +2710,12 @@
     "englishSource": "Your Guardian account is protected by three keys: a device (hot) key for routine signing, a recovery (cold) key derived from your seed phrase for account-management operations, and an external guardian co-signer. Below are your cold private key plus both public keys. To reveal the device private key, use Settings → Reveal Device Key."
   },
   "hotKeyRevealWarningTitle": {
-    "message": "Перш ніж розкрити ключ вашого пристрою",
-    "englishSource": "Before you reveal your device key"
+    "message": "Перш ніж розкривати свої приватні ключі",
+    "englishSource": "Before you reveal your private keys"
   },
   "hotKeyRevealWarningBody": {
-    "message": "Будь-хто, хто має цей ключ, може підписувати транзакції, доки ви його не оновите. Якщо ключ потрапив у чужі руки, оновіть його в меню «Налаштування» → «Оновити ключ пристрою».",
-    "englishSource": "Anyone with this key can sign transactions until you rotate it. If the key is leaked, rotate it via Settings → Rotate Device Key."
+    "message": "Будь-хто, хто має ці ключі, може контролювати ваші активи Miden та EVM. Зміна ключа вашого пристрою Miden не змінює і не захищає витік ключа EVM.",
+    "englishSource": "Anyone with these keys can control your Miden and EVM assets. Rotating your Miden device key does not change or protect a leaked EVM key."
   },
   "invalidUrl": {
     "message": "Введіть дійсну URL-адресу, що починається з http:// або https://",
@@ -3807,127 +3891,6 @@
     "message": "Тестова мережа",
     "englishSource": "Testnet"
   },
-  "devnet": {
-    "message": "Devnet",
-    "englishSource": "Devnet"
-  },
-  "localnet": {
-    "message": "Localnet",
-    "englishSource": "Localnet"
-  },
-  "networkModeBanner": {
-    "message": "Ви користуєтеся сервісом Bread на платформі Miden $network$",
-    "englishSource": "You are using Bread on Miden $network$",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    }
-  },
-  "networkNoticeChip": {
-    "message": "Miden $network$",
-    "englishSource": "Miden $network$",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    }
-  },
-  "networkNoticeBody": {
-    "message": "Це середовище призначене для тестування. Усе, що ви тут маєте, — це тестові токени, які не мають грошової вартості.",
-    "englishSource": "This environment is for testing. Everything you hold here is a test token with no monetary value."
-  },
-  "networkNoticeNoValueTitle": {
-    "message": "Тестові токени не є грошима",
-    "englishSource": "Test tokens are not money"
-  },
-  "networkNoticeNoValueBody": {
-    "message": "Зазначені тут залишки та ціни є модельованими і не підлягають обміну.",
-    "englishSource": "Balances and prices shown here are simulated and cannot be redeemed."
-  },
-  "networkNoticeNoRealFundsTitle": {
-    "message": "Не надсилайте реальні кошти",
-    "englishSource": "Do not send real funds"
-  },
-  "networkNoticeNoRealFundsBody": {
-    "message": "Усе, що надсилається з реальної мережі на тестову адресу, втрачається.",
-    "englishSource": "Anything sent from a real network to a test address is lost."
-  },
-  "networkNoticeResetTitle": {
-    "message": "Мережа може скинути налаштування",
-    "englishSource": "The network can reset"
-  },
-  "networkNoticeResetBody": {
-    "message": "Скидання очищає залишки та історію. Тестові залишки ніколи не переносяться до Mainnet.",
-    "englishSource": "A reset clears balances and history. Test balances never carry over to Mainnet."
-  },
-  "iUnderstand": {
-    "message": "Я розумію",
-    "englishSource": "I understand"
-  },
-  "receiveTestFundsTitle": {
-    "message": "Тільки тестові токени",
-    "englishSource": "Test tokens only"
-  },
-  "receiveTestFundsBody": {
-    "message": "Надсилайте на цю адресу лише токени Miden $network$. Реальні кошти, надіслані на цю адресу, не підлягають поверненню.",
-    "englishSource": "Only send Miden $network$ tokens here. Real funds sent to this address cannot be recovered.",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    }
-  },
-  "crossChainFromNetwork": {
-    "message": "з $network$",
-    "englishSource": "from $network$",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    }
-  },
-  "ethereumSepolia": {
-    "message": "Ethereum Sepolia",
-    "englishSource": "Ethereum Sepolia"
-  },
-  "bridgeTestFundsTitle": {
-    "message": "Тільки тестові кошти",
-    "englishSource": "Test funds only"
-  },
-  "bridgeTestFundsBody": {
-    "message": "Цей міст переміщує тестові токени Ethereum Sepolia до Miden. Ніколи не здійснюйте міст з основної мережі Ethereum або будь-якої іншої реальної мережі.",
-    "englishSource": "This bridge moves Ethereum Sepolia test tokens to Miden. Never bridge from Ethereum mainnet or any other real network."
-  },
-  "shareAddressText": {
-    "message": "Моя адреса Miden $network$ (лише тестові токени): $address$",
-    "englishSource": "My Miden $network$ address (test tokens only): $address$",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      },
-      "address": {
-        "content": "$2"
-      }
-    }
-  },
-  "qrNetworkCaption": {
-    "message": "Miden $network$",
-    "englishSource": "Miden $network$",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    }
-  },
-  "evmConnectTestWalletTitle": {
-    "message": "Підключайте лише тестовий гаманець",
-    "englishSource": "Connect a test wallet only"
-  },
-  "evmConnectTestWalletBody": {
-    "message": "Цей міст працює на Ethereum Sepolia. Не підключайте гаманець, на якому зберігаються реальні кошти. Створіть новий гаманець і поповніть його виключно ETH мережі Sepolia.",
-    "englishSource": "This bridge runs on Ethereum Sepolia. Do not connect a wallet that holds real funds. Create a fresh wallet and fund it with Sepolia ETH only."
-  },
   "browser": {
     "message": "Браузер",
     "englishSource": "Browser"
@@ -4451,10 +4414,6 @@
     "message": "Обробка виведення коштів",
     "englishSource": "Processing Withdrawal"
   },
-  "withdrawalCheckingDescription": {
-    "message": "Перевіряємо ваше виведення коштів. Тримайте гаманець відкритим, доки доставку не буде підтверджено.",
-    "englishSource": "Checking your withdrawal. Keep the wallet open while delivery is confirmed."
-  },
   "withdrawalProcessingDescription": {
     "message": "Підписання та надсилання наміру виведення без газу до Epoch. Зазвичай це займає кілька секунд.",
     "englishSource": "Signing and submitting the gasless withdrawal intent to Epoch. This usually takes a few seconds."
@@ -4579,59 +4538,242 @@
     "message": "Це призведе до остаточного видалення цього гаманця, включаючи ваші ключі та історію транзакцій. Для його відновлення вам знадобиться фраза відновлення.",
     "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
   },
-  "activityAcceptTransfer": {
-    "message": "Прийняти переказ",
-    "englishSource": "Accept Transfer"
+  "removeSeedPhrase": {
+    "message": "Видалити seed phrase",
+    "englishSource": "Remove seed phrase"
   },
-  "activityRejectTransfer": {
-    "message": "Відхилити",
-    "englishSource": "Decline"
+  "removeSeedPhraseDescription": {
+    "message": "Запишіть свій «seed phrase» перед тим, як його видалити. Щоденні транзакції все одно працюватимуть. Зміни «Guardian» та щоденна заміна ключів вимагатимуть введення «seed phrase».",
+    "englishSource": "Write down your seed phrase before you remove it. Daily transactions will still work. Guardian changes and everyday key replacement will require you to enter the seed phrase."
   },
-  "activityCheckingTransfer": {
-    "message": "Перевіряю…",
-    "englishSource": "Checking…"
+  "removeSeedPhraseWriteDown": {
+    "message": "Запишіть усі слова на папері в цьому порядку. Зберігайте папір у безпечному місці поза цим пристроєм.",
+    "englishSource": "Write all words on paper in this order. Keep the paper in a safe place outside this device."
   },
-  "activityTransferClaimed": {
-    "message": "Отримано",
-    "englishSource": "Claimed"
+  "removeSeedPhraseConfirmation": {
+    "message": "Це видалить ключі відновлення seed phrase та Guardian з цього гаманця на цьому пристрої. Зберігайте свою паперову резервну копію. Раніше створені резервні копії не видаляються.",
+    "englishSource": "This removes the seed phrase and Guardian recovery keys from this wallet on this device. Keep your paper backup. Previously made backups are not deleted."
   },
-  "activityClaimedOn": {
-    "message": "Отримано",
-    "englishSource": "Claimed on"
+  "removeSeedPhraseConfirm": {
+    "message": "Видалити з цього пристрою",
+    "englishSource": "Remove from this device"
   },
-  "activityReceivedOn": {
-    "message": "Отримано",
-    "englishSource": "Received on"
+  "seedPhraseRemoved": {
+    "message": "Seed phrase видалено з цього пристрою",
+    "englishSource": "Seed phrase removed from this device"
   },
-  "activityNotYetAccepted": {
-    "message": "Ще не прийнято — перегляньте та прийміть, щоб отримати ці кошти.",
-    "englishSource": "Not yet accepted — review and accept to claim these funds."
+  "seedPhraseUnavailable": {
+    "message": "У цьому гаманці не зберігається жодних токенів seed phrase.",
+    "englishSource": "There is no seed phrase stored in this wallet."
   },
-  "acceptAll": {
-    "message": "Прийняти все",
-    "englishSource": "Accept All"
+  "seedRemovalIncomplete": {
+    "message": "Видалення не завершено. Знову розблокуйте гаманець, щоб завершити видалення матеріалів для відновлення.",
+    "englishSource": "Removal is not complete. Unlock the wallet again to finish removing the recovery material."
   },
-  "activitySearch": {
-    "message": "Активність пошуку",
-    "englishSource": "Search activity"
+  "seedRemovalFailed": {
+    "message": "Не вдалося завершити видалення seed phrase. Спробуйте ще раз.",
+    "englishSource": "Could not finish removing the seed phrase. Try again."
+  },
+  "seedRemovalBusy": {
+    "message": "Дочекайтеся завершення поточних транзакцій, перш ніж видаляти «seed phrase».",
+    "englishSource": "Wait for the current transactions to finish before removing the seed phrase."
+  },
+  "seedRemovalKeysNotReady": {
+    "message": "Завершіть відновлення облікового запису та щоденну активацію ключа, перш ніж видалити файл «seed phrase».",
+    "englishSource": "Finish account recovery and everyday key activation before removing the seed phrase."
+  },
+  "seedRequiredForAccountCreation": {
+    "message": "Для створення облікового запису необхідне збережене насіння (seed phrase). Тимчасове введення насіння для цієї дії поки що недоступне.",
+    "englishSource": "Account creation requires a stored seed phrase. Temporary seed input for this action is not yet available."
+  },
+  "recoverySeedRequired": {
+    "message": "Для виконання цієї дії необхідний ваш ключ відновлення seed phrase.",
+    "englishSource": "This action requires your recovery seed phrase."
+  },
+  "recoverySeedRequiredTitle": {
+    "message": "Введіть свій seed phrase",
+    "englishSource": "Enter your seed phrase"
+  },
+  "recoverySeedTemporaryDescription": {
+    "message": "Використовуйте паперову резервну копію. Ця фраза використовується виключно для цієї дії та не зберігається на цьому пристрої.",
+    "englishSource": "Use your paper backup. The phrase is used only for this action and is not saved on this device."
+  },
+  "invalidRecoverySeed": {
+    "message": "Введіть дійсний seed phrase.",
+    "englishSource": "Enter a valid seed phrase."
+  },
+  "wrongRecoverySeed": {
+    "message": "Цей seed phrase не відповідає цьому обліковому запису.",
+    "englishSource": "This seed phrase does not match this account."
+  },
+  "recoveryActionUnavailable": {
+    "message": "Ця процедура відновлення більше не доступна.",
+    "englishSource": "This recovery action is no longer available."
+  },
+  "devnet": {
+    "message": "Devnet",
+    "englishSource": "Devnet"
   },
   "activityTransferAccepted": {
     "message": "Переказ прийнято",
     "englishSource": "Transfer accepted"
   },
-  "activityTransferDetails": {
-    "message": "Деталі",
-    "englishSource": "Details"
+  "networkNoticeChip": {
+    "message": "Miden $network$",
+    "englishSource": "Miden $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "withdrawalRecoveryUnavailable": {
+    "message": "Це виведення коштів неможливо безпечно повторити. Перевірте його статус, перш ніж розпочинати інше виведення коштів.",
+    "englishSource": "This withdrawal cannot be retried safely. Check its status before starting another withdrawal."
+  },
+  "networkNoticeNoRealFundsTitle": {
+    "message": "Не надсилайте реальні кошти",
+    "englishSource": "Do not send real funds"
+  },
+  "activityReceivedOn": {
+    "message": "Отримано",
+    "englishSource": "Received on"
+  },
+  "walletSetupDidNotComplete": {
+    "message": "Ваш гаманець було створено, але його запуск не завершився. Перевірте підключення та спробуйте ще раз.",
+    "englishSource": "Your wallet was created but did not finish starting up. Check your connection and try again."
+  },
+  "activityClaimedOn": {
+    "message": "Отримано",
+    "englishSource": "Claimed on"
+  },
+  "evmConnectTestWalletTitle": {
+    "message": "Підключайте лише тестовий гаманець",
+    "englishSource": "Connect a test wallet only"
+  },
+  "bridgeTestFundsTitle": {
+    "message": "Тільки тестові кошти",
+    "englishSource": "Test funds only"
+  },
+  "qrNetworkCaption": {
+    "message": "Miden $network$",
+    "englishSource": "Miden $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
   },
   "activityRejectExplanation": {
     "message": "Приховати цей переказ у розділі «Активність» на цьому пристрої? Це не повертає кошти відправнику та не видаляє запис «note». Ви можете відновити приховані перекази в розділі «Активність».",
     "englishSource": "Hide this transfer from Activity on this device? This does not return funds to the sender or delete the note. You can restore hidden transfers in Activity."
   },
-  "activityHiddenTransfers": {
-    "message": "Приховані перекази: $count$",
-    "englishSource": "Hidden transfers: $count$",
+  "activitySearch": {
+    "message": "Активність пошуку",
+    "englishSource": "Search activity"
+  },
+  "evmConnectTestWalletBody": {
+    "message": "Цей міст працює на Ethereum Sepolia. Не підключайте гаманець, на якому зберігаються реальні кошти. Створіть новий гаманець і поповніть його виключно ETH мережі Sepolia.",
+    "englishSource": "This bridge runs on Ethereum Sepolia. Do not connect a wallet that holds real funds. Create a fresh wallet and fund it with Sepolia ETH only."
+  },
+  "activityAcceptTransfer": {
+    "message": "Прийняти переказ",
+    "englishSource": "Accept Transfer"
+  },
+  "activityDateUnavailable": {
+    "message": "Дата недоступна",
+    "englishSource": "Date unavailable"
+  },
+  "networkNoticeNoValueTitle": {
+    "message": "Тестові токени не є грошима",
+    "englishSource": "Test tokens are not money"
+  },
+  "networkNoticeNoValueBody": {
+    "message": "Зазначені тут залишки та ціни є модельованими і не підлягають обміну.",
+    "englishSource": "Balances and prices shown here are simulated and cannot be redeemed."
+  },
+  "activityNotYetAccepted": {
+    "message": "Ще не прийнято — перегляньте та прийміть, щоб отримати ці кошти.",
+    "englishSource": "Not yet accepted — review and accept to claim these funds."
+  },
+  "networkNoticeResetTitle": {
+    "message": "Мережа може скинути налаштування",
+    "englishSource": "The network can reset"
+  },
+  "activityCheckingTransfer": {
+    "message": "Перевіряю…",
+    "englishSource": "Checking…"
+  },
+  "networkNoticeResetBody": {
+    "message": "Скидання очищає залишки та історію. Тестові залишки ніколи не переносяться до Mainnet.",
+    "englishSource": "A reset clears balances and history. Test balances never carry over to Mainnet."
+  },
+  "receiveTestFundsTitle": {
+    "message": "Тільки тестові токени",
+    "englishSource": "Test tokens only"
+  },
+  "withdrawalCheckingDescription": {
+    "message": "Перевіряємо ваше виведення коштів. Тримайте гаманець відкритим, доки доставку не буде підтверджено.",
+    "englishSource": "Checking your withdrawal. Keep the wallet open while delivery is confirmed."
+  },
+  "retryEarnDelivery": {
+    "message": "Повторити доставку",
+    "englishSource": "Retry delivery"
+  },
+  "activityTransferDetails": {
+    "message": "Деталі",
+    "englishSource": "Details"
+  },
+  "acceptAll": {
+    "message": "Прийняти все",
+    "englishSource": "Accept All"
+  },
+  "networkNoticeBody": {
+    "message": "Це середовище призначене для тестування. Усе, що ви тут маєте, — це тестові токени, які не мають грошової вартості.",
+    "englishSource": "This environment is for testing. Everything you hold here is a test token with no monetary value."
+  },
+  "networkNoticeNoRealFundsBody": {
+    "message": "Усе, що надсилається з реальної мережі на тестову адресу, втрачається.",
+    "englishSource": "Anything sent from a real network to a test address is lost."
+  },
+  "iUnderstand": {
+    "message": "Я розумію",
+    "englishSource": "I understand"
+  },
+  "crossChainFromNetwork": {
+    "message": "з $network$",
+    "englishSource": "from $network$",
     "placeholders": {
-      "count": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "localnet": {
+    "message": "Localnet",
+    "englishSource": "Localnet"
+  },
+  "ethereumSepolia": {
+    "message": "Ethereum Sepolia",
+    "englishSource": "Ethereum Sepolia"
+  },
+  "shareAddressText": {
+    "message": "Моя адреса Miden $network$ (лише тестові токени): $address$",
+    "englishSource": "My Miden $network$ address (test tokens only): $address$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      },
+      "address": {
+        "content": "$2"
+      }
+    }
+  },
+  "networkModeBanner": {
+    "message": "Ви користуєтеся сервісом Bread на платформі Miden $network$",
+    "englishSource": "You are using Bread on Miden $network$",
+    "placeholders": {
+      "network": {
         "content": "$1"
       }
     }
@@ -4644,12 +4786,34 @@
     "message": "Не вдалося зберегти приховані перекази. Спробуйте ще раз.",
     "englishSource": "Could not save hidden transfers. Please try again."
   },
-  "activityDateUnavailable": {
-    "message": "Дата недоступна",
-    "englishSource": "Date unavailable"
+  "activityRejectTransfer": {
+    "message": "Відхилити",
+    "englishSource": "Decline"
   },
-  "walletSetupDidNotComplete": {
-    "message": "Ваш гаманець було створено, але його запуск не завершився. Перевірте підключення та спробуйте ще раз.",
-    "englishSource": "Your wallet was created but did not finish starting up. Check your connection and try again."
+  "bridgeTestFundsBody": {
+    "message": "Цей міст переміщує тестові токени Ethereum Sepolia до Miden. Ніколи не здійснюйте міст з основної мережі Ethereum або будь-якої іншої реальної мережі.",
+    "englishSource": "This bridge moves Ethereum Sepolia test tokens to Miden. Never bridge from Ethereum mainnet or any other real network."
+  },
+  "activityHiddenTransfers": {
+    "message": "Приховані перекази: $count$",
+    "englishSource": "Hidden transfers: $count$",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "activityTransferClaimed": {
+    "message": "Отримано",
+    "englishSource": "Claimed"
+  },
+  "receiveTestFundsBody": {
+    "message": "Надсилайте на цю адресу лише токени Miden $network$. Реальні кошти, надіслані на цю адресу, не підлягають поверненню.",
+    "englishSource": "Only send Miden $network$ tokens here. Real funds sent to this address cannot be recovered.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
   }
 }
