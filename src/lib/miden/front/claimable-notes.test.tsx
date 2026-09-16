@@ -1,6 +1,6 @@
 /* eslint-disable import/first */
 
-import { renderHook, waitFor } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 
 import {
   guardianSyncFuseKey,
@@ -470,6 +470,147 @@ describe('useClaimableNotes (extension mode)', () => {
     setSpy.mockClear();
     renderHook(() => useClaimableNotes('A'));
     expect(setSpy).toHaveBeenLastCalledWith([expect.objectContaining({ id: 'nX' })]);
+  });
+
+  describe('isFallback: live sync vs the snapshot an earlier session left', () => {
+    const syncFor = (accountPublicKey: string, syncedAt?: number) => ({
+      notes: [],
+      vaultAssets: [],
+      accountPublicKey,
+      ...(syncedAt === undefined ? {} : { syncedAt })
+    });
+
+    beforeEach(() => jest.useFakeTimers());
+    afterEach(() => jest.useRealTimers());
+
+    it('treats the persisted snapshot as a fallback until a sync written after mount lands', async () => {
+      // Written by a previous popup session, before this one opened.
+      _g.__cnTest.storage['miden_sync_data'] = syncFor('A', Date.now() - 60_000);
+      const { result } = renderHook(() => useClaimableNotes('A'));
+      expect(result.current.isFallback).toBe(true);
+
+      // The service worker finishes a sync for this account after the visit began.
+      _g.__cnTest.storage['miden_sync_data'] = syncFor('A', Date.now() + 1);
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(3_000);
+      });
+      expect(result.current.isFallback).toBe(false);
+    });
+
+    it('treats a snapshot with no stamp as a fallback, as written before the stamp existed', async () => {
+      _g.__cnTest.storage['miden_sync_data'] = syncFor('A');
+      const { result } = renderHook(() => useClaimableNotes('A'));
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(3_000);
+      });
+      expect(result.current.isFallback).toBe(true);
+    });
+
+    it('does not count a fresh sync written for another account', async () => {
+      _g.__cnTest.storage['miden_sync_data'] = syncFor('A', Date.now() - 60_000);
+      const { result } = renderHook(() => useClaimableNotes('A'));
+      _g.__cnTest.storage['miden_sync_data'] = syncFor('B', Date.now() + 1);
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(3_000);
+      });
+      expect(result.current.isFallback).toBe(true);
+    });
+
+    it('re-gates on every visit, so A -> B -> A cannot reuse the first visit', async () => {
+      _g.__cnTest.storage['miden_sync_data'] = syncFor('A', Date.now() - 60_000);
+      const { result, rerender } = renderHook(({ address }) => useClaimableNotes(address), {
+        initialProps: { address: 'A' }
+      });
+      _g.__cnTest.storage['miden_sync_data'] = syncFor('A', Date.now() + 1);
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(3_000);
+      });
+      expect(result.current.isFallback).toBe(false);
+
+      rerender({ address: 'B' });
+      // Back to A with only the OLD write in storage: nothing new since this visit.
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(10_000);
+      });
+      rerender({ address: 'A' });
+      expect(result.current.isFallback).toBe(true);
+    });
+
+    it('does not count a write with no stamp as live', async () => {
+      // A restarted service worker whose first sync failed has no successful sync to stamp.
+      _g.__cnTest.storage['miden_sync_data'] = syncFor('A', Date.now() - 60_000);
+      const { result } = renderHook(() => useClaimableNotes('A'));
+      _g.__cnTest.storage['miden_sync_data'] = syncFor('A');
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(3_000);
+      });
+      expect(result.current.isFallback).toBe(true);
+    });
+
+    it('takes its baseline from the first read that succeeds', async () => {
+      _g.__cnTest.storage['miden_sync_data'] = syncFor('A', Date.now() - 60_000);
+      let failNextRead = true;
+      _g.chrome.runtime = {};
+      _g.chrome.storage.local.get = jest.fn((key: string, cb: (result: unknown) => void) => {
+        if (failNextRead) {
+          failNextRead = false;
+          _g.chrome.runtime.lastError = { message: 'storage unavailable' };
+          cb(undefined);
+          delete _g.chrome.runtime.lastError;
+          return;
+        }
+        cb({ [key]: _g.__cnTest.storage[key] });
+      });
+      const { result } = renderHook(() => useClaimableNotes('A'));
+
+      // The old snapshot, read for the first time: still what an earlier session left.
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(3_000);
+      });
+      expect(result.current.isFallback).toBe(true);
+
+      _g.__cnTest.storage['miden_sync_data'] = syncFor('A', Date.now() + 1);
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(3_000);
+      });
+      expect(result.current.isFallback).toBe(false);
+    });
+
+    it('does not read a snapshot stamped ahead of the popup clock as live', async () => {
+      // A wall clock stepped back since the service worker wrote this: its stamp is in
+      // the popup's future, but nothing has been written since the visit began.
+      _g.__cnTest.storage['miden_sync_data'] = syncFor('A', Date.now() + 60_000);
+      const { result } = renderHook(() => useClaimableNotes('A'));
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(9_000);
+      });
+      expect(result.current.isFallback).toBe(true);
+    });
+
+    it('ignores a storage read that lands after its visit ended', () => {
+      // Hold every read, so the first A visit's read is still outstanding after A -> B -> A.
+      const pending: Array<() => void> = [];
+      _g.chrome.storage.local.get = jest.fn((key: string, cb: (result: unknown) => void) => {
+        pending.push(() => cb({ [key]: _g.__cnTest.storage[key] }));
+      });
+      const setSpy = _g.__cnTest.walletState.setExtensionClaimableNotes as jest.Mock;
+      _g.__cnTest.storage['miden_sync_data'] = syncFor('A', Date.now() - 60_000);
+      const { result, rerender } = renderHook(({ address }) => useClaimableNotes(address), {
+        initialProps: { address: 'A' }
+      });
+      const firstVisitRead = pending.shift()!;
+      rerender({ address: 'B' });
+      rerender({ address: 'A' });
+      act(() => pending.splice(0).forEach(read => read()));
+      setSpy.mockClear();
+
+      // The first visit's read lands last, carrying a sync written after that visit began.
+      _g.__cnTest.storage['miden_sync_data'] = syncFor('A', Date.now() + 1);
+      act(() => firstVisitRead());
+
+      expect(result.current.isFallback).toBe(true);
+      expect(setSpy).not.toHaveBeenCalled();
+    });
   });
 
   it('stays loading (does not overwrite) when no sync data has been cached yet', () => {

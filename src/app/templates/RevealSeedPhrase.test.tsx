@@ -3,7 +3,15 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { act } from 'react-dom/test-utils';
 
+import { SeedPhraseStatus } from 'lib/shared/types';
+
 import RevealSeedPhrase from './RevealSeedPhrase';
+
+let mockSeedStatus: SeedPhraseStatus = 'stored';
+jest.mock('lib/store', () => ({
+  useWalletStore: (selector: (state: { seedPhraseStatus: SeedPhraseStatus }) => SeedPhraseStatus) =>
+    selector({ seedPhraseStatus: mockSeedStatus })
+}));
 
 // ---------------------------------------------------------------------------
 // Mutable mock state read at call time (must be `mock`-prefixed for jest).
@@ -195,6 +203,7 @@ describe('RevealSeedPhrase', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockSecret = null;
+    mockSeedStatus = 'stored';
     mockCopied = false;
     mockIsMobile = false;
     mockHasHardwareProtector.mockResolvedValue(false);
@@ -259,6 +268,50 @@ describe('RevealSeedPhrase', () => {
   // -------------------------------------------------------------------------
   // Initial null render (hasHardwareProtector still resolving).
   // -------------------------------------------------------------------------
+  it.each<Exclude<SeedPhraseStatus, 'stored'>>(['removed', 'removing', 'unavailable'])(
+    'does not request or display a phrase when its status is %s',
+    async status => {
+      mockSeedStatus = status;
+      mockSecret = 'alpha beta gamma delta';
+      const container = await render();
+      // Three distinct states, spelled out as a literal table rather than
+      // recomputed from the production map, which would make this tautological.
+      // 'removing' is retried on the next unlock; 'unavailable' means a wallet
+      // imported from a key that never had a phrase here, so neither may claim
+      // the phrase was removed.
+      const expectedNotice = {
+        removing: 'seedRemovalIncomplete',
+        removed: 'seedPhraseRemoved',
+        unavailable: 'seedPhraseUnavailable'
+      } as const;
+      expect(container.querySelector('[role="status"]')?.textContent).toBe(expectedNotice[status]);
+      expect(container.textContent).not.toContain('alpha');
+      expect(mockSetSecret).toHaveBeenCalledWith(null);
+      expect(mockHasHardwareProtector).not.toHaveBeenCalled();
+      expect(mockRevealMnemonic).not.toHaveBeenCalled();
+    }
+  );
+
+  it('discards a pending biometric reveal when the phrase is removed', async () => {
+    mockHasHardwareProtector.mockResolvedValue(true);
+    let finishReveal: (phrase: string) => void = () => undefined;
+    mockRevealMnemonic.mockReturnValue(
+      new Promise<string>(resolve => {
+        finishReveal = resolve;
+      })
+    );
+    const container = await render();
+    mockSeedStatus = 'removed';
+    await act(async () => {
+      testRoot?.render(<RevealSeedPhrase />);
+    });
+    await act(async () => {
+      finishReveal('alpha beta gamma delta');
+    });
+    expect(mockSetSecret).not.toHaveBeenCalledWith('alpha beta gamma delta');
+    expect(container.querySelector('[role="status"]')?.textContent).toBe('seedPhraseRemoved');
+  });
+
   it('renders nothing until the hardware-protector check resolves', async () => {
     const container = renderNoFlush();
     // hasHardwareProtector === null -> component returns null.

@@ -1,4 +1,4 @@
-import React, { FC, useCallback, useEffect, useState } from 'react';
+import React, { FC, useCallback, useEffect, useRef, useState } from 'react';
 
 import classNames from 'clsx';
 import { useForm } from 'react-hook-form';
@@ -15,9 +15,12 @@ import { useMidenContext, useSecretState } from 'lib/miden/front';
 import { hapticLight } from 'lib/mobile/haptics';
 import { useScreenshotGuard } from 'lib/mobile/screenshot-guard';
 import { isMobile } from 'lib/platform';
+import { useWalletStore } from 'lib/store';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 import useCopyToClipboard from 'lib/ui/useCopyToClipboard';
 import { goBack } from 'lib/woozie';
+
+import { SEED_STATE_NOTICE } from './seed-state-notice';
 
 type FormData = {
   password: string;
@@ -26,6 +29,14 @@ type FormData = {
 const RevealSeedPhrase: FC = () => {
   const { t } = useTranslation();
   const { revealMnemonic } = useMidenContext();
+  const secretGeneration = useRef(0);
+  const seedStatus = useWalletStore(s => s.seedPhraseStatus);
+  useEffect(
+    () => () => {
+      secretGeneration.current += 1;
+    },
+    [seedStatus]
+  );
   const { fieldRef, copy, copied } = useCopyToClipboard();
   const [secret, setSecret] = useSecretState();
   const [hasHardwareProtector, setHasHardwareProtector] = useState<boolean | null>(null);
@@ -48,16 +59,28 @@ const RevealSeedPhrase: FC = () => {
 
   const passwordValue = watch('password');
 
+  useEffect(() => {
+    if (seedStatus && seedStatus !== 'stored') setSecret(null);
+  }, [seedStatus, setSecret]);
+
   // Detect auth type and auto-trigger on mount
   useEffect(() => {
+    if (seedStatus && seedStatus !== 'stored') return;
+    const generation = secretGeneration.current;
     Vault.hasHardwareProtector().then(hasHw => {
       setHasHardwareProtector(hasHw);
       if (hasHw) {
         // Auto-trigger biometric auth for hardware-backed
         setIsSubmitting(true);
         revealMnemonic(undefined)
-          .then(mnemonic => setSecret(mnemonic))
+          .then(mnemonic => {
+            if (generation === secretGeneration.current) setSecret(mnemonic);
+          })
           .catch((err: any) => {
+            // Same generation guard the success branch and the password path
+            // (below) already take: a rejection from a superseded request must
+            // not navigate away from the view that replaced it.
+            if (generation !== secretGeneration.current) return;
             setAuthError(err.message);
             goBack();
           })
@@ -89,7 +112,9 @@ const RevealSeedPhrase: FC = () => {
       clearErrors();
       setAuthError(null);
       try {
+        const generation = secretGeneration.current;
         const mnemonic = await revealMnemonic(data.password);
+        if (generation !== secretGeneration.current) return;
         setSecret(mnemonic);
         setShowPasswordDrawer(false);
       } catch (err: any) {
@@ -112,6 +137,17 @@ const RevealSeedPhrase: FC = () => {
     setShowPasswordDrawer(false);
     goBack();
   }, []);
+
+  if (seedStatus && seedStatus !== 'stored')
+    return (
+      <p role="status" className="p-4">
+        {/* Three distinct states, not two: a removal still to finish, one that
+            finished, and a wallet imported from a key that never had a phrase
+            here at all. Telling that last user their seed was removed is false.
+            VerifySeedPhraseFlow carries the identical mapping. */}
+        {t(SEED_STATE_NOTICE[seedStatus])}
+      </p>
+    );
 
   if (hasHardwareProtector === null || (!secret && isSubmitting)) {
     return null;

@@ -786,14 +786,6 @@
     "message": "Réessayer",
     "englishSource": "Retry"
   },
-  "retryEarnDelivery": {
-    "message": "Réessayer la livraison",
-    "englishSource": "Retry delivery"
-  },
-  "withdrawalRecoveryUnavailable": {
-    "message": "Ce retrait ne peut pas être réessayé en toute sécurité. Vérifiez son statut avant de lancer un autre retrait.",
-    "englishSource": "This withdrawal cannot be retried safely. Check its status before starting another withdrawal."
-  },
   "retryAnyway": {
     "message": "Réessayer quand même",
     "englishSource": "Retry anyway"
@@ -1072,6 +1064,98 @@
   "importWallet": {
     "message": "Importer un portefeuille",
     "englishSource": "Import Wallet"
+  },
+  "importWithKeyInstead": {
+    "message": "Importer avec une clé à la place",
+    "englishSource": "Import with key instead"
+  },
+  "importHotKeyTitle": {
+    "message": "Importer des clés privées",
+    "englishSource": "Import private keys"
+  },
+  "importHotKeyDescription": {
+    "message": "Scannez le QR code de votre clé privée ou saisissez vos clés privées Miden « hot » et EVM. Votre clé « hot » permet de retrouver votre compte Guardian. La clé EVM fournie restaure son adresse EVM ; le portefeuille ne peut pas vérifier que ces clés vont ensemble.",
+    "englishSource": "Scan your private-key QR or enter your Miden hot and EVM private keys. Your hot key finds your Guardian account. The supplied EVM key restores its EVM address; the wallet cannot verify that these keys belong together."
+  },
+  "importHotKeyPlaceholder": {
+    "message": "Clé quotidienne (hexadécimale)",
+    "englishSource": "Everyday key (hex)"
+  },
+  "importHotKeyInvalid": {
+    "message": "Fournissez les deux clés privées sous la forme de scalaires secp256k1 valides de 32 octets (64 caractères hexadécimaux chacun), différents de zéro. Les codes QR doivent contenir exactement la séquence « hot-key:evm-key ».",
+    "englishSource": "Provide both private keys as valid, nonzero 32-byte secp256k1 scalars (64 hexadecimal characters each). QR codes must contain exactly hot-key:evm-key."
+  },
+  "midenHotPrivateKey": {
+    "message": "Clé privée Miden hot",
+    "englishSource": "Miden hot private key"
+  },
+  "evmPrivateKey": {
+    "message": "Clé privée EVM",
+    "englishSource": "EVM private key"
+  },
+  "evmPrivateKeyMissing": {
+    "message": "La clé privée EVM de ce compte est manquante. Les deux clés sont requises pour l'exportation. Restaurez la clé EVM d'origine à partir de votre sauvegarde.",
+    "englishSource": "This account's EVM private key is missing. Both keys are required for export. Restore the original EVM key from your backup."
+  },
+  "privateKeyPairQr": {
+    "message": "Code QR des clés privées",
+    "englishSource": "Private keys QR code"
+  },
+  "privateKeyPairWarning": {
+    "message": "Gardez ces deux clés secrètes. Toute personne en leur possession peut contrôler vos actifs Miden et EVM. Cette exportation n’inclut pas votre clé de récupération « Guardian ».",
+    "englishSource": "Keep both keys secret. Anyone with them can control your Miden and EVM assets. This export does not include your Guardian recovery key."
+  },
+  "showPrivateKeyText": {
+    "message": "Afficher les clés sous forme de texte",
+    "englishSource": "Show keys as text"
+  },
+  "showQrCode": {
+    "message": "Afficher le code QR",
+    "englishSource": "Show QR code"
+  },
+  "uploadQrImage": {
+    "message": "Télécharger l’image QR",
+    "englishSource": "Upload QR image"
+  },
+  "enterKeysManually": {
+    "message": "Saisissez les clés manuellement",
+    "englishSource": "Enter keys manually"
+  },
+  "keyCameraUnavailable": {
+    "message": "La lecture par appareil photo n’est pas disponible ici. Téléchargez une image QR ou saisissez les deux clés manuellement.",
+    "englishSource": "Camera scanning is unavailable here. Upload a QR image or enter both keys manually."
+  },
+  "invalidQrImage": {
+    "message": "Impossible de lire le code QR de cette image. Choisissez une image QR claire ne dépassant pas 20 Mo ou saisissez les deux clés manuellement.",
+    "englishSource": "Could not read a QR code from this image. Choose a clear QR image up to 20 MB or enter both keys manually."
+  },
+  "privateKeyPairReady": {
+    "message": "Les deux clés sont prêtes à être importées.",
+    "englishSource": "Both keys are ready to import."
+  },
+  "importHotKeyError": {
+    "message": "Impossible d’importer un compte avec cette clé.",
+    "englishSource": "Could not import an account with this key."
+  },
+  "importHotKeyWrongScheme": {
+    "message": "Cette clé utilise un schéma non pris en charge. Collez la clé courante d’un compte Guardian.",
+    "englishSource": "This key uses an unsupported scheme. Paste the everyday key of a Guardian account."
+  },
+  "importHotKeyNoAccount": {
+    "message": "Aucun compte Guardian n’a été trouvé pour cette clé à l’adresse Guardian.",
+    "englishSource": "No Guardian account was found for this key at this Guardian."
+  },
+  "importHotKeyIsRecoveryKey": {
+    "message": "Cela ressemble à votre clé de récupération. Collez plutôt la clé courante.",
+    "englishSource": "This looks like your recovery key. Paste the everyday key instead."
+  },
+  "importHotKeyNotActive": {
+    "message": "Cette clé n’est plus active pour ce compte. Collez la clé quotidienne actuelle.",
+    "englishSource": "This key is no longer active for the account. Paste the current everyday key."
+  },
+  "recoveryActionsRequireRecoveryKey": {
+    "message": "Guardian Les modifications et le remplacement de la clé nécessitent la clé de récupération, qui ne se trouve pas sur cet appareil.",
+    "englishSource": "Guardian changes and key replacement need the recovery key, which is not on this device."
   },
   "revealPrivateKey": {
     "message": "Afficher la clé privée",
@@ -2626,12 +2710,12 @@
     "englishSource": "Your Guardian account is protected by three keys: a device (hot) key for routine signing, a recovery (cold) key derived from your seed phrase for account-management operations, and an external guardian co-signer. Below are your cold private key plus both public keys. To reveal the device private key, use Settings → Reveal Device Key."
   },
   "hotKeyRevealWarningTitle": {
-    "message": "Avant de divulguer la clé de votre appareil",
-    "englishSource": "Before you reveal your device key"
+    "message": "Avant de divulguer vos clés privées",
+    "englishSource": "Before you reveal your private keys"
   },
   "hotKeyRevealWarningBody": {
-    "message": "Toute personne disposant de cette clé peut signer des transactions jusqu'à ce que vous la renouveliez. En cas de fuite de la clé, renouvelez-la via Paramètres → Renouveler la clé de l'appareil.",
-    "englishSource": "Anyone with this key can sign transactions until you rotate it. If the key is leaked, rotate it via Settings → Rotate Device Key."
+    "message": "Toute personne disposant de ces clés peut contrôler vos actifs Miden et EVM. La rotation de la clé de votre appareil Miden ne modifie ni ne protège une clé EVM qui a fait l’objet d’une fuite.",
+    "englishSource": "Anyone with these keys can control your Miden and EVM assets. Rotating your Miden device key does not change or protect a leaked EVM key."
   },
   "invalidUrl": {
     "message": "Saisissez une URL valide commençant par http:// ou https://",
@@ -3807,127 +3891,6 @@
     "message": "Réseau de test",
     "englishSource": "Testnet"
   },
-  "devnet": {
-    "message": "Devnet",
-    "englishSource": "Devnet"
-  },
-  "localnet": {
-    "message": "Localnet",
-    "englishSource": "Localnet"
-  },
-  "networkModeBanner": {
-    "message": "Vous utilisez Bread sur Miden $network$",
-    "englishSource": "You are using Bread on Miden $network$",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    }
-  },
-  "networkNoticeChip": {
-    "message": "Miden $network$",
-    "englishSource": "Miden $network$",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    }
-  },
-  "networkNoticeBody": {
-    "message": "Cet environnement est destiné aux tests. Tout ce que vous détenez ici est un jeton de test sans valeur monétaire.",
-    "englishSource": "This environment is for testing. Everything you hold here is a test token with no monetary value."
-  },
-  "networkNoticeNoValueTitle": {
-    "message": "Les jetons de test ne sont pas de l’argent",
-    "englishSource": "Test tokens are not money"
-  },
-  "networkNoticeNoValueBody": {
-    "message": "Les soldes et les prix indiqués ici sont simulés et ne peuvent pas être encaissés.",
-    "englishSource": "Balances and prices shown here are simulated and cannot be redeemed."
-  },
-  "networkNoticeNoRealFundsTitle": {
-    "message": "N’envoyez pas de fonds réels",
-    "englishSource": "Do not send real funds"
-  },
-  "networkNoticeNoRealFundsBody": {
-    "message": "Tout ce qui est envoyé depuis un réseau réel vers une adresse de test est perdu.",
-    "englishSource": "Anything sent from a real network to a test address is lost."
-  },
-  "networkNoticeResetTitle": {
-    "message": "Le réseau peut se réinitialiser",
-    "englishSource": "The network can reset"
-  },
-  "networkNoticeResetBody": {
-    "message": "Une réinitialisation efface les soldes et l'historique. Les soldes de test ne sont jamais reportés sur le Mainnet.",
-    "englishSource": "A reset clears balances and history. Test balances never carry over to Mainnet."
-  },
-  "iUnderstand": {
-    "message": "Je comprends",
-    "englishSource": "I understand"
-  },
-  "receiveTestFundsTitle": {
-    "message": "Jetons de test uniquement",
-    "englishSource": "Test tokens only"
-  },
-  "receiveTestFundsBody": {
-    "message": "N’envoyez à cette adresse que des jetons Miden $network$. Les fonds réels envoyés à cette adresse ne pourront pas être récupérés.",
-    "englishSource": "Only send Miden $network$ tokens here. Real funds sent to this address cannot be recovered.",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    }
-  },
-  "crossChainFromNetwork": {
-    "message": "Source : $network$",
-    "englishSource": "from $network$",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    }
-  },
-  "ethereumSepolia": {
-    "message": "Ethereum Sepolia",
-    "englishSource": "Ethereum Sepolia"
-  },
-  "bridgeTestFundsTitle": {
-    "message": "Fonds de test uniquement",
-    "englishSource": "Test funds only"
-  },
-  "bridgeTestFundsBody": {
-    "message": "Ce pont transfère des jetons de test Ethereum Sepolia vers Miden. N’effectuez jamais de pont depuis le réseau principal d’Ethereum ni depuis aucun autre réseau réel.",
-    "englishSource": "This bridge moves Ethereum Sepolia test tokens to Miden. Never bridge from Ethereum mainnet or any other real network."
-  },
-  "shareAddressText": {
-    "message": "Mon adresse Miden $network$ (jetons de test uniquement) : $address$",
-    "englishSource": "My Miden $network$ address (test tokens only): $address$",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      },
-      "address": {
-        "content": "$2"
-      }
-    }
-  },
-  "qrNetworkCaption": {
-    "message": "Miden $network$",
-    "englishSource": "Miden $network$",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    }
-  },
-  "evmConnectTestWalletTitle": {
-    "message": "Connectez uniquement un portefeuille de test",
-    "englishSource": "Connect a test wallet only"
-  },
-  "evmConnectTestWalletBody": {
-    "message": "Ce pont fonctionne sur Ethereum Sepolia. Ne connectez pas de portefeuille contenant de véritables fonds. Créez un nouveau portefeuille et approvisionnez-le uniquement en ETH Sepolia.",
-    "englishSource": "This bridge runs on Ethereum Sepolia. Do not connect a wallet that holds real funds. Create a fresh wallet and fund it with Sepolia ETH only."
-  },
   "browser": {
     "message": "Navigateur",
     "englishSource": "Browser"
@@ -4451,10 +4414,6 @@
     "message": "Traitement d’un retrait",
     "englishSource": "Processing Withdrawal"
   },
-  "withdrawalCheckingDescription": {
-    "message": "Vérification de votre retrait. Gardez le portefeuille ouvert jusqu’à la confirmation de la livraison.",
-    "englishSource": "Checking your withdrawal. Keep the wallet open while delivery is confirmed."
-  },
   "withdrawalProcessingDescription": {
     "message": "Signature et soumission de l’intention de retrait sans frais de gaz à Epoch. Cela prend généralement quelques secondes.",
     "englishSource": "Signing and submitting the gasless withdrawal intent to Epoch. This usually takes a few seconds."
@@ -4579,59 +4538,242 @@
     "message": "Cette opération efface définitivement ce portefeuille, y compris vos clés et l'historique de vos transactions. Vous aurez besoin de votre phrase de récupération pour le restaurer.",
     "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
   },
-  "activityAcceptTransfer": {
-    "message": "Accepter le transfert",
-    "englishSource": "Accept Transfer"
+  "removeSeedPhrase": {
+    "message": "Supprimer « seed phrase »",
+    "englishSource": "Remove seed phrase"
   },
-  "activityRejectTransfer": {
-    "message": "Refuser",
-    "englishSource": "Decline"
+  "removeSeedPhraseDescription": {
+    "message": "Notez votre seed phrase avant de la supprimer. Les transactions quotidiennes continueront de fonctionner. Les modifications Guardian et le remplacement de la clé quotidienne nécessiteront la saisie de la seed phrase.",
+    "englishSource": "Write down your seed phrase before you remove it. Daily transactions will still work. Guardian changes and everyday key replacement will require you to enter the seed phrase."
   },
-  "activityCheckingTransfer": {
-    "message": "Vérification en cours…",
-    "englishSource": "Checking…"
+  "removeSeedPhraseWriteDown": {
+    "message": "Écrivez tous ces mots sur une feuille de papier dans cet ordre. Conservez cette feuille dans un endroit sûr, hors de cet appareil.",
+    "englishSource": "Write all words on paper in this order. Keep the paper in a safe place outside this device."
   },
-  "activityTransferClaimed": {
-    "message": "Réclamé",
-    "englishSource": "Claimed"
+  "removeSeedPhraseConfirmation": {
+    "message": "Cette opération supprime les clés de récupération seed phrase et Guardian de ce portefeuille sur cet appareil. Conservez votre sauvegarde papier. Les sauvegardes effectuées précédemment ne sont pas supprimées.",
+    "englishSource": "This removes the seed phrase and Guardian recovery keys from this wallet on this device. Keep your paper backup. Previously made backups are not deleted."
   },
-  "activityClaimedOn": {
-    "message": "Réclamé le",
-    "englishSource": "Claimed on"
+  "removeSeedPhraseConfirm": {
+    "message": "Supprimer de cet appareil",
+    "englishSource": "Remove from this device"
   },
-  "activityReceivedOn": {
-    "message": "Reçu le",
-    "englishSource": "Received on"
+  "seedPhraseRemoved": {
+    "message": "Seed phrase Supprimé de cet appareil",
+    "englishSource": "Seed phrase removed from this device"
   },
-  "activityNotYetAccepted": {
-    "message": "Pas encore acceptées — examinez-les et acceptez-les pour réclamer ces fonds.",
-    "englishSource": "Not yet accepted — review and accept to claim these funds."
+  "seedPhraseUnavailable": {
+    "message": "Aucune «seed phrase» n’est stockée dans ce portefeuille.",
+    "englishSource": "There is no seed phrase stored in this wallet."
   },
-  "acceptAll": {
-    "message": "Tout accepter",
-    "englishSource": "Accept All"
+  "seedRemovalIncomplete": {
+    "message": "La suppression n'est pas terminée. Déverrouillez à nouveau le portefeuille pour terminer la suppression des éléments de récupération.",
+    "englishSource": "Removal is not complete. Unlock the wallet again to finish removing the recovery material."
   },
-  "activitySearch": {
-    "message": "Activité de recherche",
-    "englishSource": "Search activity"
+  "seedRemovalFailed": {
+    "message": "Impossible de supprimer l’seed phrasee. Veuillez réessayer.",
+    "englishSource": "Could not finish removing the seed phrase. Try again."
+  },
+  "seedRemovalBusy": {
+    "message": "Attendez que les transactions en cours soient terminées avant de retirer l’seed phrasee.",
+    "englishSource": "Wait for the current transactions to finish before removing the seed phrase."
+  },
+  "seedRemovalKeysNotReady": {
+    "message": "Terminez la récupération de compte et l’activation de la clé quotidienne avant de retirer l’seed phrasee.",
+    "englishSource": "Finish account recovery and everyday key activation before removing the seed phrase."
+  },
+  "seedRequiredForAccountCreation": {
+    "message": "La création d’un compte nécessite une « seed phrase » enregistrée. La saisie d’une « seed » temporaire pour cette action n’est pas encore disponible.",
+    "englishSource": "Account creation requires a stored seed phrase. Temporary seed input for this action is not yet available."
+  },
+  "recoverySeedRequired": {
+    "message": "Cette action nécessite vos « seed phrase de récupération ».",
+    "englishSource": "This action requires your recovery seed phrase."
+  },
+  "recoverySeedRequiredTitle": {
+    "message": "Saisissez votre seed phrase",
+    "englishSource": "Enter your seed phrase"
+  },
+  "recoverySeedTemporaryDescription": {
+    "message": "Utilisez votre sauvegarde papier. Cette expression n’est utilisée que pour cette action et n’est pas enregistrée sur cet appareil.",
+    "englishSource": "Use your paper backup. The phrase is used only for this action and is not saved on this device."
+  },
+  "invalidRecoverySeed": {
+    "message": "Saisissez une seed phrase valide.",
+    "englishSource": "Enter a valid seed phrase."
+  },
+  "wrongRecoverySeed": {
+    "message": "Cette seed phrase ne correspond pas à ce compte.",
+    "englishSource": "This seed phrase does not match this account."
+  },
+  "recoveryActionUnavailable": {
+    "message": "Cette action de récupération n’est plus disponible.",
+    "englishSource": "This recovery action is no longer available."
+  },
+  "devnet": {
+    "message": "Devnet",
+    "englishSource": "Devnet"
   },
   "activityTransferAccepted": {
     "message": "Transfert accepté",
     "englishSource": "Transfer accepted"
   },
-  "activityTransferDetails": {
-    "message": "Détails",
-    "englishSource": "Details"
+  "networkNoticeChip": {
+    "message": "Miden $network$",
+    "englishSource": "Miden $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "withdrawalRecoveryUnavailable": {
+    "message": "Ce retrait ne peut pas être réessayé en toute sécurité. Vérifiez son statut avant de lancer un autre retrait.",
+    "englishSource": "This withdrawal cannot be retried safely. Check its status before starting another withdrawal."
+  },
+  "networkNoticeNoRealFundsTitle": {
+    "message": "N’envoyez pas de fonds réels",
+    "englishSource": "Do not send real funds"
+  },
+  "activityReceivedOn": {
+    "message": "Reçu le",
+    "englishSource": "Received on"
+  },
+  "walletSetupDidNotComplete": {
+    "message": "Votre portefeuille a été créé mais n’a pas terminé son démarrage. Vérifiez votre connexion et réessayez.",
+    "englishSource": "Your wallet was created but did not finish starting up. Check your connection and try again."
+  },
+  "activityClaimedOn": {
+    "message": "Réclamé le",
+    "englishSource": "Claimed on"
+  },
+  "evmConnectTestWalletTitle": {
+    "message": "Connectez uniquement un portefeuille de test",
+    "englishSource": "Connect a test wallet only"
+  },
+  "bridgeTestFundsTitle": {
+    "message": "Fonds de test uniquement",
+    "englishSource": "Test funds only"
+  },
+  "qrNetworkCaption": {
+    "message": "Miden $network$",
+    "englishSource": "Miden $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
   },
   "activityRejectExplanation": {
     "message": "Masquer ce transfert dans l’historique d’activité sur cet appareil ? Cela ne restitue pas les fonds à l’expéditeur et ne supprime pas l’note. Vous pouvez restaurer les transferts masqués dans l’historique d’activité.",
     "englishSource": "Hide this transfer from Activity on this device? This does not return funds to the sender or delete the note. You can restore hidden transfers in Activity."
   },
-  "activityHiddenTransfers": {
-    "message": "Transferts masqués : $count$",
-    "englishSource": "Hidden transfers: $count$",
+  "activitySearch": {
+    "message": "Activité de recherche",
+    "englishSource": "Search activity"
+  },
+  "evmConnectTestWalletBody": {
+    "message": "Ce pont fonctionne sur Ethereum Sepolia. Ne connectez pas de portefeuille contenant de véritables fonds. Créez un nouveau portefeuille et approvisionnez-le uniquement en ETH Sepolia.",
+    "englishSource": "This bridge runs on Ethereum Sepolia. Do not connect a wallet that holds real funds. Create a fresh wallet and fund it with Sepolia ETH only."
+  },
+  "activityAcceptTransfer": {
+    "message": "Accepter le transfert",
+    "englishSource": "Accept Transfer"
+  },
+  "activityDateUnavailable": {
+    "message": "Date indisponible",
+    "englishSource": "Date unavailable"
+  },
+  "networkNoticeNoValueTitle": {
+    "message": "Les jetons de test ne sont pas de l’argent",
+    "englishSource": "Test tokens are not money"
+  },
+  "networkNoticeNoValueBody": {
+    "message": "Les soldes et les prix indiqués ici sont simulés et ne peuvent pas être encaissés.",
+    "englishSource": "Balances and prices shown here are simulated and cannot be redeemed."
+  },
+  "activityNotYetAccepted": {
+    "message": "Pas encore acceptées — examinez-les et acceptez-les pour réclamer ces fonds.",
+    "englishSource": "Not yet accepted — review and accept to claim these funds."
+  },
+  "networkNoticeResetTitle": {
+    "message": "Le réseau peut se réinitialiser",
+    "englishSource": "The network can reset"
+  },
+  "activityCheckingTransfer": {
+    "message": "Vérification en cours…",
+    "englishSource": "Checking…"
+  },
+  "networkNoticeResetBody": {
+    "message": "Une réinitialisation efface les soldes et l'historique. Les soldes de test ne sont jamais reportés sur le Mainnet.",
+    "englishSource": "A reset clears balances and history. Test balances never carry over to Mainnet."
+  },
+  "receiveTestFundsTitle": {
+    "message": "Jetons de test uniquement",
+    "englishSource": "Test tokens only"
+  },
+  "withdrawalCheckingDescription": {
+    "message": "Vérification de votre retrait. Gardez le portefeuille ouvert jusqu’à la confirmation de la livraison.",
+    "englishSource": "Checking your withdrawal. Keep the wallet open while delivery is confirmed."
+  },
+  "retryEarnDelivery": {
+    "message": "Réessayer la livraison",
+    "englishSource": "Retry delivery"
+  },
+  "activityTransferDetails": {
+    "message": "Détails",
+    "englishSource": "Details"
+  },
+  "acceptAll": {
+    "message": "Tout accepter",
+    "englishSource": "Accept All"
+  },
+  "networkNoticeBody": {
+    "message": "Cet environnement est destiné aux tests. Tout ce que vous détenez ici est un jeton de test sans valeur monétaire.",
+    "englishSource": "This environment is for testing. Everything you hold here is a test token with no monetary value."
+  },
+  "networkNoticeNoRealFundsBody": {
+    "message": "Tout ce qui est envoyé depuis un réseau réel vers une adresse de test est perdu.",
+    "englishSource": "Anything sent from a real network to a test address is lost."
+  },
+  "iUnderstand": {
+    "message": "Je comprends",
+    "englishSource": "I understand"
+  },
+  "crossChainFromNetwork": {
+    "message": "Source : $network$",
+    "englishSource": "from $network$",
     "placeholders": {
-      "count": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "localnet": {
+    "message": "Localnet",
+    "englishSource": "Localnet"
+  },
+  "ethereumSepolia": {
+    "message": "Ethereum Sepolia",
+    "englishSource": "Ethereum Sepolia"
+  },
+  "shareAddressText": {
+    "message": "Mon adresse Miden $network$ (jetons de test uniquement) : $address$",
+    "englishSource": "My Miden $network$ address (test tokens only): $address$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      },
+      "address": {
+        "content": "$2"
+      }
+    }
+  },
+  "networkModeBanner": {
+    "message": "Vous utilisez Bread sur Miden $network$",
+    "englishSource": "You are using Bread on Miden $network$",
+    "placeholders": {
+      "network": {
         "content": "$1"
       }
     }
@@ -4644,12 +4786,34 @@
     "message": "Impossible d'enregistrer les transferts masqués. Veuillez réessayer.",
     "englishSource": "Could not save hidden transfers. Please try again."
   },
-  "activityDateUnavailable": {
-    "message": "Date indisponible",
-    "englishSource": "Date unavailable"
+  "activityRejectTransfer": {
+    "message": "Refuser",
+    "englishSource": "Decline"
   },
-  "walletSetupDidNotComplete": {
-    "message": "Votre portefeuille a été créé mais n’a pas terminé son démarrage. Vérifiez votre connexion et réessayez.",
-    "englishSource": "Your wallet was created but did not finish starting up. Check your connection and try again."
+  "bridgeTestFundsBody": {
+    "message": "Ce pont transfère des jetons de test Ethereum Sepolia vers Miden. N’effectuez jamais de pont depuis le réseau principal d’Ethereum ni depuis aucun autre réseau réel.",
+    "englishSource": "This bridge moves Ethereum Sepolia test tokens to Miden. Never bridge from Ethereum mainnet or any other real network."
+  },
+  "activityHiddenTransfers": {
+    "message": "Transferts masqués : $count$",
+    "englishSource": "Hidden transfers: $count$",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "activityTransferClaimed": {
+    "message": "Réclamé",
+    "englishSource": "Claimed"
+  },
+  "receiveTestFundsBody": {
+    "message": "N’envoyez à cette adresse que des jetons Miden $network$. Les fonds réels envoyés à cette adresse ne pourront pas être récupérés.",
+    "englishSource": "Only send Miden $network$ tokens here. Real funds sent to this address cannot be recovered.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
   }
 }

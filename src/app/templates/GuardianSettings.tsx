@@ -316,6 +316,9 @@ const GuardianSettings: FC = () => {
         </div>
       </section>
 
+      {/* Always offered: a rotation is cold-signed, and an account with no local
+          cold key (seed removed, hot-key-only import) gets a seed phrase prompt
+          for the one transaction instead of losing the action. */}
       <Button
         className="mt-auto mb-6 max-w-none shrink-0"
         data-testid="rotateGuardian"

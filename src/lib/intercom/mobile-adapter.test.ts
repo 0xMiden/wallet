@@ -10,6 +10,7 @@ jest.mock('lib/miden/back/actions', () => ({
   init: jest.fn().mockResolvedValue(undefined),
   getFrontState: jest.fn().mockResolvedValue({ accounts: [], settings: {} }),
   registerNewWallet: jest.fn().mockResolvedValue(undefined),
+  registerWalletFromHotKey: jest.fn().mockResolvedValue(undefined),
   registerImportedWallet: jest.fn().mockResolvedValue(undefined),
   unlock: jest.fn().mockResolvedValue(undefined),
   lock: jest.fn().mockResolvedValue(undefined),
@@ -275,8 +276,24 @@ describe('MobileIntercomAdapter', () => {
       expect(Actions.revealHotKey).toHaveBeenCalledWith('pub-key-123', 'test123');
       expect(response).toEqual({
         type: WalletMessageType.RevealHotKeyResponse,
-        hotPrivateKey: 'hotkey-hex'
+        keyPairPayload: 'hotkey-hex'
       });
+    });
+
+    it('passes both private keys to the shared backend import handler', async () => {
+      const keyPairPayload = `${'ab'.repeat(32)}:${'cd'.repeat(32)}`;
+      const response = await adapter.request({
+        type: WalletMessageType.NewWalletFromHotKeyRequest,
+        password: 'pw',
+        keyPairPayload,
+        guardianEndpoint: 'https://guardian.example.com'
+      });
+      expect(Actions.registerWalletFromHotKey).toHaveBeenCalledWith(
+        'pw',
+        keyPairPayload,
+        'https://guardian.example.com'
+      );
+      expect(response).toEqual({ type: WalletMessageType.NewWalletFromHotKeyResponse });
     });
 
     it('falls back to an empty hot key when none is returned', async () => {
@@ -290,7 +307,7 @@ describe('MobileIntercomAdapter', () => {
 
       expect(response).toEqual({
         type: WalletMessageType.RevealHotKeyResponse,
-        hotPrivateKey: ''
+        keyPairPayload: ''
       });
     });
 
@@ -334,11 +351,22 @@ describe('MobileIntercomAdapter', () => {
         wordHex: '0xabc'
       } as any);
 
-      expect(Actions.signWord).toHaveBeenCalledWith('pub-key-123', '0xabc');
+      expect(Actions.signWord).toHaveBeenCalledWith('pub-key-123', '0xabc', undefined);
       expect(response).toEqual({
         type: WalletMessageType.SignWordResponse,
         signature: 'word-signature'
       });
+    });
+
+    it('passes the recovery transaction ID from SignWordRequest', async () => {
+      await adapter.request({
+        type: WalletMessageType.SignWordRequest,
+        publicKey: 'pub-key-123',
+        wordHex: '0xabc',
+        transactionId: 'recovery-tx'
+      });
+
+      expect(Actions.signWord).toHaveBeenCalledWith('pub-key-123', '0xabc', 'recovery-tx');
     });
 
     it('handles PersistNewHotKeyRequest', async () => {
