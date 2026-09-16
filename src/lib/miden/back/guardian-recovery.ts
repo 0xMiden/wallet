@@ -172,7 +172,7 @@ async function createGuardianClientContext(account: WalletAccount, endpoint?: st
     return details.commitment;
   });
 
-  const guardianEndpoint = endpoint ?? await resolveGuardianEndpoint(account);
+  const guardianEndpoint = endpoint ?? (await resolveGuardianEndpoint(account));
   registerGuardianOrigin(guardianEndpoint);
   const guardian = new GuardianHttpClient(guardianEndpoint);
   guardian.setSigner(
@@ -648,7 +648,6 @@ export async function recoverPendingNotes(account: WalletAccount): Promise<Guard
  * are transient and should be retried within this same backend lifetime.
  */
 const startedRecoveries = new Set<string>();
-let recoveryVault: WeakRef<Vault> | undefined;
 
 /**
  * Recoveries run one at a time. They are long, they monopolize the single
@@ -675,13 +674,7 @@ let recoveryQueue: Promise<void> = Promise.resolve();
  * when the account is ineligible or busy right now.
  */
 export async function maybeStartGuardianRecovery(account: WalletAccount): Promise<boolean> {
-  const vault = liveVault();
-  if (recoveryVault?.deref() !== vault) {
-    startedRecoveries.clear();
-    recoveryVault = vault ? new WeakRef(vault) : undefined;
-  }
-  if (!account.guardianNoteRecoveryPending && !account.coldPublicKey) return false;
-  if (!account.guardianNoteRecoveryPending && store.getState().currentAccount?.publicKey !== account.publicKey) return false;
+  if (!account.guardianNoteRecoveryPending) return false;
   if (account.requiresHotKeyRotation) return false;
   if (startedRecoveries.has(account.publicKey)) return false;
 
@@ -739,9 +732,7 @@ async function runDetachedRecovery(account: WalletAccount): Promise<void> {
 
   console.log(`[GuardianRecovery] Starting detached pending-note recovery for ${account.publicKey}`);
   try {
-    const result = account.guardianNoteRecoveryPending
-      ? await recoverPendingNotes(account)
-      : { deferred: false, sourceFailures: 0 };
+    const result = await recoverPendingNotes(account);
     if (result.deferred) {
       // Giving way is not a failing source: release the reservation so the
       // provider's poll restarts this account once the wallet is free again,
@@ -755,19 +746,13 @@ async function runDetachedRecovery(account: WalletAccount): Promise<void> {
         `[GuardianRecovery] Keeping recovery pending for ${account.publicKey}: ` +
           `${result.sourceFailures} source(s) failed; will retry on the next session`
       );
-    }
-    if (account.guardianNoteRecoveryPending && result.sourceFailures === 0) await clearPendingFlag(account);
-    if (!account.coldPublicKey) return;
-    if (store.getState().currentAccount?.publicKey !== account.publicKey) {
-      if (result.sourceFailures === 0) startedRecoveries.delete(account.publicKey);
       return;
     }
+    // History shares the seed-restore flag: the flag clears only once every
+    // Guardian source is read, so a failed source retries on the next session.
     const history = await recoverGuardianHistory(account, {
       createClient: createGuardianClientContext,
-      shouldYield: async () => {
-        if (store.getState().currentAccount?.publicKey !== account.publicKey) return 'account changed';
-        return shouldYield();
-      }
+      shouldYield
     });
     if (history.deferred) {
       startedRecoveries.delete(account.publicKey);
@@ -775,10 +760,13 @@ async function runDetachedRecovery(account: WalletAccount): Promise<void> {
     }
     if (history.sourceFailures > 0) {
       await reportGuardianNoteRecoveryProgress({
-        accountId: account.publicKey, step: 'history-partial', restored: history.restored
+        accountId: account.publicKey,
+        step: 'history-partial',
+        restored: history.restored
       });
       return;
     }
+    await clearPendingFlag(account);
     await clearGuardianNoteRecoveryProgress(account.publicKey);
   } catch (error) {
     console.warn(`[GuardianRecovery] Detached pending-note recovery failed for ${account.publicKey}:`, error);

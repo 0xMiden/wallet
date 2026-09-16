@@ -9,6 +9,7 @@ import { getAllUncompletedTransactions } from 'lib/miden/transaction/get';
 import type { WalletAccount } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
+import { recoverGuardianHistory } from './guardian-history-recovery';
 import { maybeStartGuardianRecovery } from './guardian-recovery';
 import { midenClientProxy } from './miden-client-proxy';
 import { OperationAbortedError } from './offscreen-codec';
@@ -52,6 +53,9 @@ jest.mock('lib/guardian-note-recovery-progress', () => ({
 jest.mock('./store', () => ({
   store: { getState: jest.fn() },
   accountsUpdated: jest.fn()
+}));
+jest.mock('./guardian-history-recovery', () => ({
+  recoverGuardianHistory: jest.fn().mockResolvedValue({ deferred: false, sourceFailures: 0, restored: 0 })
 }));
 
 const mockUncompleted = jest.mocked(getAllUncompletedTransactions);
@@ -234,6 +238,21 @@ describe('detached recovery run', () => {
     expect(setPendingFlag).toHaveBeenCalledWith(account.publicKey, false);
     expect(mockAccountsUpdated).toHaveBeenCalledTimes(1);
     expect(mockClearProgress).toHaveBeenCalledWith(account.publicKey);
+  });
+
+  it('keeps the flag set and reports a partial history when a history source fails', async () => {
+    const account = pendingAccount({ coldPublicKey: '0xcold' });
+    jest.mocked(recoverGuardianHistory).mockResolvedValueOnce({ deferred: false, sourceFailures: 1, restored: 2 });
+
+    await maybeStartGuardianRecovery(account);
+    await drainDetachedRun();
+
+    expect(setPendingFlag).not.toHaveBeenCalled();
+    expect(reportGuardianNoteRecoveryProgress).toHaveBeenCalledWith({
+      accountId: account.publicKey,
+      step: 'history-partial',
+      restored: 2
+    });
   });
 
   it('keeps the flag set when the Guardian client cannot be built', async () => {

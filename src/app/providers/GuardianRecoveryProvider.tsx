@@ -36,15 +36,13 @@ const MAX_RETRY_INTERVAL_MS = 60_000;
  */
 export const GuardianRecoveryProvider: FC = () => {
   const accounts = useWalletStore(s => s.accounts);
-  const currentAccount = useWalletStore(s => s.currentAccount);
 
   const eligiblePublicKeys = useMemo(
     () =>
       accounts
-        .filter(account => (account.guardianNoteRecoveryPending ||
-          (account.publicKey === currentAccount?.publicKey && account.coldPublicKey)) && !account.requiresHotKeyRotation)
+        .filter(account => account.guardianNoteRecoveryPending && !account.requiresHotKeyRotation)
         .map(account => account.publicKey),
-    [accounts, currentAccount]
+    [accounts]
   );
   if (eligiblePublicKeys.length === 0) return null;
 
