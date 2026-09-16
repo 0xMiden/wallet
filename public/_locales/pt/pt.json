@@ -1040,5 +1040,15 @@
   "activityRestoreTransfers": "Restaurar",
   "activityHiddenNotesError": "Não foi possível salvar as transferências ocultas. Tente novamente.",
   "activityDateUnavailable": "Data indisponível",
-  "walletSetupDidNotComplete": "Sua carteira foi criada, mas não concluiu a inicialização. Verifique sua conexão e tente novamente."
+  "walletSetupDidNotComplete": "Sua carteira foi criada, mas não concluiu a inicialização. Verifique sua conexão e tente novamente.",
+  "updateNotificationTitle": "Update available",
+  "updateNotificationVersion": "Version $version$",
+  "updateNotificationReleaseNotes": "Release notes: $summary$",
+  "updateNotificationGenericSummary": "This update includes fixes and improvements.",
+  "updateNotificationActionChrome": "Restart to update",
+  "updateNotificationActionAndroid": "Update now",
+  "updateNotificationActionIos": "Open App Store",
+  "updateNotificationActionInProgress": "Starting update",
+  "updateNotificationDismiss": "Dismiss this update",
+  "updateNotificationActionFailed": "The update could not be started. Try again."
 }

@@ -1040,5 +1040,15 @@
   "activityRestoreTransfers": "Restaurar",
   "activityHiddenNotesError": "No se han podido guardar las transferencias ocultas. Inténtalo de nuevo.",
   "activityDateUnavailable": "Fecha no disponible",
-  "walletSetupDidNotComplete": "Se ha creado tu monedero, pero no se ha completado la puesta en marcha. Comprueba tu conexión e inténtalo de nuevo."
+  "walletSetupDidNotComplete": "Se ha creado tu monedero, pero no se ha completado la puesta en marcha. Comprueba tu conexión e inténtalo de nuevo.",
+  "updateNotificationTitle": "Update available",
+  "updateNotificationVersion": "Version $version$",
+  "updateNotificationReleaseNotes": "Release notes: $summary$",
+  "updateNotificationGenericSummary": "This update includes fixes and improvements.",
+  "updateNotificationActionChrome": "Restart to update",
+  "updateNotificationActionAndroid": "Update now",
+  "updateNotificationActionIos": "Open App Store",
+  "updateNotificationActionInProgress": "Starting update",
+  "updateNotificationDismiss": "Dismiss this update",
+  "updateNotificationActionFailed": "The update could not be started. Try again."
 }

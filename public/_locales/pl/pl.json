@@ -1040,5 +1040,15 @@
   "activityRestoreTransfers": "Przywróć",
   "activityHiddenNotesError": "Nie udało się zapisać ukrytych transferów. Spróbuj ponownie.",
   "activityDateUnavailable": "Data niedostępna",
-  "walletSetupDidNotComplete": "Twój portfel został utworzony, ale nie zakończył procesu uruchamiania. Sprawdź połączenie i spróbuj ponownie."
+  "walletSetupDidNotComplete": "Twój portfel został utworzony, ale nie zakończył procesu uruchamiania. Sprawdź połączenie i spróbuj ponownie.",
+  "updateNotificationTitle": "Update available",
+  "updateNotificationVersion": "Version $version$",
+  "updateNotificationReleaseNotes": "Release notes: $summary$",
+  "updateNotificationGenericSummary": "This update includes fixes and improvements.",
+  "updateNotificationActionChrome": "Restart to update",
+  "updateNotificationActionAndroid": "Update now",
+  "updateNotificationActionIos": "Open App Store",
+  "updateNotificationActionInProgress": "Starting update",
+  "updateNotificationDismiss": "Dismiss this update",
+  "updateNotificationActionFailed": "The update could not be started. Try again."
 }

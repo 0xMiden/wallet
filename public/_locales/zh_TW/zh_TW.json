@@ -1040,5 +1040,15 @@
   "activityRestoreTransfers": "還原",
   "activityHiddenNotesError": "無法儲存隱藏轉帳。請重試。",
   "activityDateUnavailable": "日期不詳",
-  "walletSetupDidNotComplete": "您的錢包已建立，但尚未完成啟動。請檢查網路連線並重新嘗試。"
+  "walletSetupDidNotComplete": "您的錢包已建立，但尚未完成啟動。請檢查網路連線並重新嘗試。",
+  "updateNotificationTitle": "Update available",
+  "updateNotificationVersion": "Version $version$",
+  "updateNotificationReleaseNotes": "Release notes: $summary$",
+  "updateNotificationGenericSummary": "This update includes fixes and improvements.",
+  "updateNotificationActionChrome": "Restart to update",
+  "updateNotificationActionAndroid": "Update now",
+  "updateNotificationActionIos": "Open App Store",
+  "updateNotificationActionInProgress": "Starting update",
+  "updateNotificationDismiss": "Dismiss this update",
+  "updateNotificationActionFailed": "The update could not be started. Try again."
 }

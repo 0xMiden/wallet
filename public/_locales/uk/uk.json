@@ -1040,5 +1040,15 @@
   "activityRestoreTransfers": "Відновити",
   "activityHiddenNotesError": "Не вдалося зберегти приховані перекази. Спробуйте ще раз.",
   "activityDateUnavailable": "Дата недоступна",
-  "walletSetupDidNotComplete": "Ваш гаманець було створено, але його запуск не завершився. Перевірте підключення та спробуйте ще раз."
+  "walletSetupDidNotComplete": "Ваш гаманець було створено, але його запуск не завершився. Перевірте підключення та спробуйте ще раз.",
+  "updateNotificationTitle": "Update available",
+  "updateNotificationVersion": "Version $version$",
+  "updateNotificationReleaseNotes": "Release notes: $summary$",
+  "updateNotificationGenericSummary": "This update includes fixes and improvements.",
+  "updateNotificationActionChrome": "Restart to update",
+  "updateNotificationActionAndroid": "Update now",
+  "updateNotificationActionIos": "Open App Store",
+  "updateNotificationActionInProgress": "Starting update",
+  "updateNotificationDismiss": "Dismiss this update",
+  "updateNotificationActionFailed": "The update could not be started. Try again."
 }
