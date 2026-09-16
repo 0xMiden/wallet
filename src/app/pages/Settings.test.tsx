@@ -279,6 +279,24 @@ describe('Settings page — root menu (non-guardian)', () => {
     }
   );
 
+  // Hiding the ROW is deliberate (above). Hiding the ROUTE is not: `allTabs` is
+  // what resolves a sub-page, and the panel behind this slug is the only place
+  // that reports an interrupted removal. Without it a wallet stuck at 'removing'
+  // is indistinguishable from a finished one while the seed stays unusable.
+  it.each<SeedPhraseStatus>(['removing', 'removed', 'unavailable'])(
+    'still resolves the seed sub-page route when the row is hidden, status %s',
+    status => {
+      mockWalletState.seedPhraseStatus = status;
+      mockNavigate.mockClear();
+
+      render(<Settings tabSlug="remove-seed-phrase" />);
+
+      expect(screen.getByTestId('verify-seed-flow')).toBeInTheDocument();
+      // invalidTab would bounce the user back to the menu instead.
+      expect(mockNavigate).not.toHaveBeenCalledWith('/settings', expect.anything());
+    }
+  );
+
   it('removes the recovery phrase settings when the seed status changes', () => {
     const view = render(<Settings tabSlug={null} />);
     expect(screen.getByTestId('menuitem-recoveryPhrase')).toBeInTheDocument();

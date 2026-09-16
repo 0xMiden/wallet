@@ -295,14 +295,24 @@ const Settings: FC<SettingsProps> = ({ tabSlug, rootScrollTop: savedRootScrollTo
   const isGuardianAccount = currentAccountType === WalletType.Guardian;
   const hasActivatedHotKey = Boolean(currentAccountHotPublicKey);
 
-  const tabIsVisible = useCallback(
+  // Whether the account HAS this page at all. A non-Guardian account has no
+  // Guardian page in any sense, so these gates block the route as well as the row.
+  const tabIsRoutable = useCallback(
     (tab: Tab) => {
-      if (tab.requiresSeedPhrase && seedPhraseStatus !== 'stored') return false;
       if (tab.guardianOnly && !isGuardianAccount) return false;
       if (tab.requiresActivatedHotKey && !hasActivatedHotKey) return false;
       return true;
     },
-    [isGuardianAccount, hasActivatedHotKey, seedPhraseStatus]
+    [isGuardianAccount, hasActivatedHotKey]
+  );
+
+  // Whether the MENU offers it. The seed gate is only about the row: see allTabs.
+  const tabIsVisible = useCallback(
+    (tab: Tab) => {
+      if (tab.requiresSeedPhrase && seedPhraseStatus !== 'stored') return false;
+      return tabIsRoutable(tab);
+    },
+    [tabIsRoutable, seedPhraseStatus]
   );
 
   // Read-only "Network endpoints" row: only shown while a developer endpoint
@@ -341,9 +351,20 @@ const Settings: FC<SettingsProps> = ({ tabSlug, rootScrollTop: savedRootScrollTo
     );
   }, [tabIsVisible, showDevEndpoints]);
 
+  // Menu visibility and route resolvability are different questions, and this is
+  // the list that resolves a sub-page route. A seed-gated tab is hidden from the
+  // menu once the phrase is gone, but its panel is the ONLY place that reports an
+  // interrupted removal ('removing', which unlock retries) or a completed one, so
+  // the route has to keep resolving or that state has no surface at all.
   const allTabs = useMemo(
-    () => [...tabGroups.flatMap(g => g.tabs), ...HIDDEN_TABS.filter(tabIsVisible)],
-    [tabGroups, tabIsVisible]
+    () => [
+      ...tabGroups.flatMap(g => g.tabs),
+      ...HIDDEN_TABS.filter(tabIsVisible),
+      ...[...TAB_GROUPS.flatMap(g => g.tabs), ...HIDDEN_TABS].filter(
+        tab => tab.requiresSeedPhrase && !tabIsVisible(tab) && tabIsRoutable(tab)
+      )
+    ],
+    [tabGroups, tabIsVisible, tabIsRoutable]
   );
 
   const activeTab = useMemo(() => allTabs.find(tab => tab.slug === tabSlug) || null, [allTabs, tabSlug]);
