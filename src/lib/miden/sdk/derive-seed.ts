@@ -9,8 +9,20 @@
  */
 import { derivePath } from '@demox-labs/aleo-hd-key';
 import * as Bip39 from 'bip39';
+import { Buffer } from 'buffer';
 
 import { WalletType } from 'screens/onboarding/types';
+
+// `@demox-labs/aleo-hd-key` reads the GLOBAL `Buffer` and calls `allocUnsafe`
+// on it. The page bundles inject no Node globals, and in a dev build the
+// global can be a partial shim that has `from` but not `allocUnsafe`, so the
+// derivation threw `Buffer.allocUnsafe is not a function` in the guardian
+// probe. Install the real polyfill when the global is missing or partial.
+// Temporary: see issue #918 for replacing the derivation library.
+const globalBuffer: unknown = Reflect.get(globalThis, 'Buffer');
+if (typeof globalBuffer !== 'function' || !('allocUnsafe' in globalBuffer)) {
+  Reflect.set(globalThis, 'Buffer', Buffer);
+}
 
 // Maps a wallet type to its BIP-44 namespace index. hdIndex/accIndex is allocated
 // PER privacy bucket (public vs non-public), so distinct wallet types can share
