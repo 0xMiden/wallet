@@ -673,11 +673,7 @@ export const HomePrompts: FC<HomePromptsProps> = ({
         case WalletPromptType.Faucet: {
           const funding = awaitingFaucetFunds || faucetStatusIndicator === 'loading';
           return {
-            // Only when dismissible: an onDismiss here would take precedence over the
-            // withheld control below, putting the dead X back on a fee-broke account.
-            onDismiss: cannotPayFee
-              ? undefined
-              : () => setFaucetStatus(account.publicKey, WalletPromptStatus.Dismissed),
+            onDismiss: () => setFaucetStatus(account.publicKey, WalletPromptStatus.Dismissed),
             // The whole card is the trigger; no CTA button. While the hero is
             // up (Funding / Funded!) taps are inert.
             onClick:
@@ -793,12 +789,12 @@ export const HomePrompts: FC<HomePromptsProps> = ({
             onAction={overrides.onAction}
             actionDisabled={overrides.actionDisabled ?? false}
             status={overrides.status}
+            // Whether the card is dismissible decides alone; only then is the handler
+            // chosen. The faucet case always supplies its own: its status is per account.
             onDismiss={
-              overrides.onDismiss ??
-              // The faucet's status is per account, so its case supplies its own dismiss.
-              ((overrides.dismissible ?? definition.dismissible) && type !== WalletPromptType.Faucet
-                ? () => dismissPrompt(type)
-                : undefined)
+              (overrides.dismissible ?? definition.dismissible)
+                ? (overrides.onDismiss ?? (type === WalletPromptType.Faucet ? undefined : () => dismissPrompt(type)))
+                : undefined
             }
           />
         );
