@@ -75,6 +75,10 @@ const RevealSeedPhrase: FC = () => {
             if (generation === secretGeneration.current) setSecret(mnemonic);
           })
           .catch((err: any) => {
+            // Same generation guard the success branch and the password path
+            // (below) already take: a rejection from a superseded request must
+            // not navigate away from the view that replaced it.
+            if (generation !== secretGeneration.current) return;
             setAuthError(err.message);
             goBack();
           })
@@ -135,7 +139,9 @@ const RevealSeedPhrase: FC = () => {
   if (seedStatus && seedStatus !== 'stored')
     return (
       <p role="status" className="p-4">
-        {t('seedPhraseRemoved')}
+        {/* An unfinished removal is not a finished one; say which it is, as
+            VerifySeedPhraseFlow does for the same two states. */}
+        {t(seedStatus === 'removing' ? 'seedRemovalIncomplete' : 'seedPhraseRemoved')}
       </p>
     );
 
