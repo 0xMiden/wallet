@@ -8,7 +8,7 @@ import { ITransactionStatus } from 'lib/miden/db/types';
 import type { ITransaction } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 
-import { resolveUnconfirmedSwitch } from './complete';
+import { listUnconfirmedSwitchRows, resolveUnconfirmedSwitch } from './complete';
 
 const switchRow = (): ITransaction =>
   ({
@@ -53,5 +53,41 @@ describe('resolveUnconfirmedSwitch', () => {
     expect(row?.displayMessage).toBe('Guardian switched');
     expect(row?.extraInputs?.commitUnconfirmed).toBe(false);
     expect(row?.error).toBeUndefined();
+  });
+});
+
+/**
+ * The read this list feeds runs on a 3 s loop, and its entry point moved from the
+ * `accountId` index to the `type` one - so the account match moved out of the index and
+ * into the cursor predicate. What a timing measurement cannot show is whether everything
+ * the old query excluded is still excluded, which is what this pins.
+ */
+describe('listUnconfirmedSwitchRows', () => {
+  const rowWith = (over: Record<string, unknown>): ITransaction =>
+    ({ ...switchRow(), ...over }) as unknown as ITransaction;
+
+  beforeEach(async () => {
+    await Repo.transactions.clear();
+  });
+
+  it("returns this account's unconfirmed switch rows and nothing else", async () => {
+    await Repo.transactions.bulkPut([
+      rowWith({ id: 'mine', accountId: 'acc' }),
+      rowWith({ id: 'another-account', accountId: 'acc-2' }),
+      rowWith({ id: 'not-a-switch', accountId: 'acc', type: 'send' }),
+      rowWith({
+        id: 'already-settled',
+        accountId: 'acc',
+        extraInputs: { newGuardianEndpoint: 'https://new.example', commitUnconfirmed: false }
+      })
+    ]);
+
+    const rows = await listUnconfirmedSwitchRows('acc');
+
+    expect(rows.map(row => row.id)).toEqual(['mine']);
+  });
+
+  it('answers empty rather than throwing when the account has no history at all', async () => {
+    expect(await listUnconfirmedSwitchRows('acc')).toEqual([]);
   });
 });
