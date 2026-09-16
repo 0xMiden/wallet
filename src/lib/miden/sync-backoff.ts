@@ -68,6 +68,29 @@ export const MAX_CONSECUTIVE_SYNC_FAILURES = 3;
 export const MAX_CONSECUTIVE_WATCHDOG_EVICTIONS = MAX_CONSECUTIVE_SYNC_FAILURES + 1;
 
 /**
+ * Consecutive ABANDONED probes on one key before that probe is fused (#800).
+ *
+ * A separate count from the evictions above, deliberately, because it answers a
+ * different question. An eviction is evidence about the NODE: the request was
+ * accepted and never answered. A realm trap is evidence about nothing at all, since
+ * the client is replaced in milliseconds and the node was never asked, so folding
+ * traps into the eviction count would let four of them silence a perfectly healthy
+ * operator for half an hour.
+ *
+ * What this bound is actually about is the account LOOP. Every loop-terminating
+ * `break` in `runGuardianAccountsSync` fires on any poison, and the per-probe fuse
+ * is their only escape ramp: while an abandoned probe adds no evidence the pass
+ * aborts at the same account on every lap and the accounts behind it are never
+ * synced again. Fusing the trapping key is what lets the loop reach them.
+ *
+ * Twice the eviction threshold, because a trap costs milliseconds where an eviction
+ * costs a two-minute park: much weaker per-event evidence, so a short burst must not
+ * sideline a healthy account. Still small enough, at the 3s tick, that the accounts
+ * behind the break wait seconds rather than minutes.
+ */
+export const MAX_CONSECUTIVE_ABANDONED_PROBES = MAX_CONSECUTIVE_WATCHDOG_EVICTIONS * 2;
+
+/**
  * Probe cadence once the fuse has blown (issue #777) — a STRETCH, not a stop.
  *
  * An earlier shape parked automatic probes entirely and waited for a user

@@ -9,6 +9,7 @@ import { GuardianRegistrationPreflightError } from 'lib/miden/guardian/direct-sw
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import {
   FUSED_SYNC_PROBE_INTERVAL_MS,
+  MAX_CONSECUTIVE_ABANDONED_PROBES,
   MAX_CONSECUTIVE_WATCHDOG_EVICTIONS,
   monotonicNowMs
 } from 'lib/miden/sync-backoff';
@@ -529,6 +530,48 @@ describe('syncGuardianAccounts', () => {
     expect(isSyncFused(key)).toBe(true);
     expect(syncFuseUntilMs(key)!).toBeGreaterThan(armedAt!);
     monotonicSpy.mockRestore();
+
+    __resetSyncFuseStateForTests();
+    jest.restoreAllMocks();
+  });
+
+  // THE STARVATION THE BREAK BUYS (#800). Every loop-terminating break fires on ANY poison,
+  // so an account whose sync traps on every lap aborts the pass at the same place forever
+  // and the accounts behind it are never synced again. A realm trap is not a watchdog
+  // eviction, so it never touches the eviction count and THAT fuse can never be the escape
+  // ramp: the trap count is the only thing that can light one here.
+  it('fuses an account that traps every lap, so the accounts behind the break are reached again (#800)', async () => {
+    __resetSyncFuseStateForTests();
+    jest.spyOn(console, 'warn').mockImplementation();
+    jest.spyOn(console, 'error').mockImplementation();
+    storeState.accounts = [
+      { publicKey: 'g-traps', type: WalletType.Guardian, hotPublicKey: 'hot-a' },
+      { publicKey: 'g-behind', type: WalletType.Guardian, hotPublicKey: 'hot-b' }
+    ];
+    const trapping = jest.fn(async () => {
+      throw new WasmClientPoisonedError('realm-error');
+    });
+    const behind = jest.fn(async () => {});
+    mockGetOrCreateMultisigService.mockImplementation(async (publicKey: string) => ({
+      sync: publicKey === 'g-traps' ? trapping : behind
+    }));
+    const trapKey = guardianSyncFuseKey('g-traps', 'https://guardian.test');
+
+    // One lap short of the bound: nothing is lit, and the second account has never run.
+    for (let i = 0; i < MAX_CONSECUTIVE_ABANDONED_PROBES - 1; i++) await syncGuardianAccounts();
+    expect(isSyncFused(trapKey)).toBe(false);
+    expect(behind).not.toHaveBeenCalled();
+
+    // The lap that REACHES the bound lights the fuse, and then breaks anyway - the booking
+    // happens inside the catch, ahead of the break, so this pass still ends here.
+    await syncGuardianAccounts();
+    expect(isSyncFused(trapKey)).toBe(true);
+    expect(behind).not.toHaveBeenCalled();
+
+    // Which makes the NEXT lap the one that matters: the trapping account is skipped at its
+    // own gate, and the account behind it is synced for the first time.
+    await syncGuardianAccounts();
+    expect(behind).toHaveBeenCalledTimes(1);
 
     __resetSyncFuseStateForTests();
     jest.restoreAllMocks();

@@ -1,5 +1,6 @@
 import {
   FUSED_SYNC_PROBE_INTERVAL_MS,
+  MAX_CONSECUTIVE_ABANDONED_PROBES,
   MAX_CONSECUTIVE_WATCHDOG_EVICTIONS,
   monotonicNowMs
 } from 'lib/miden/sync-backoff';
@@ -99,6 +100,10 @@ export const pendingRotationRecheckFuseKey = (accountPublicKey: string): SyncFus
 
 interface FuseEntry {
   evictions: number;
+  // Counted SEPARATELY from evictions, never folded in. The two answer different
+  // questions, and either one zeroing the other rebuilds the 0 to 1 to 0 oscillation
+  // that made both thresholds unreachable. See `noteAbandonedSyncProbe`.
+  abandons: number;
   fusedUntilMs: number | null;
 }
 
@@ -146,7 +151,7 @@ const ledger = new Map<SyncFuseKey, FuseEntry>();
 const entryFor = (key: SyncFuseKey): FuseEntry => {
   const existing = ledger.get(key);
   if (existing) return existing;
-  const fresh: FuseEntry = { evictions: 0, fusedUntilMs: null };
+  const fresh: FuseEntry = { evictions: 0, abandons: 0, fusedUntilMs: null };
   ledger.set(key, fresh);
   return fresh;
 };
@@ -213,6 +218,9 @@ export function noteNonEvictionSyncFailure(key: SyncFuseKey): void {
   const entry = entryFor(key);
   if (entry.fusedUntilMs === null) {
     entry.evictions = 0;
+    // Both counts, because this is the one failure shape that proves the probe REACHED
+    // the node: it neither parked nor trapped, so it breaks a run of either.
+    entry.abandons = 0;
     return;
   }
   entry.fusedUntilMs = monotonicNowMs() + FUSED_SYNC_PROBE_INTERVAL_MS;
@@ -247,12 +255,31 @@ export function noteNonEvictionSyncFailure(key: SyncFuseKey): void {
  * unreachable threshold that keying this ledger per probe was written to end.
  *
  * So: re-arm a LIT fuse ("one probe per 30 min until one SUCCEEDS" is the contract,
- * and an abandoned probe has not succeeded) but leave an unlit entry's evidence
- * exactly as it stands. Never a success, never a withdrawal.
+ * and an abandoned probe has not succeeded), and on an UNLIT one add to a count of its
+ * own. Never a success, never a withdrawal of the eviction count.
+ *
+ * A COUNT OF ITS OWN, because merely declining to erase fixed half the defect and left
+ * the other half standing. The breaks fire on ANY poison and the fuse is their only
+ * escape ramp, so a recurring trap still aborted the pass at the same account every lap
+ * while that account's key sat at zero forever, unable to light the one thing that would
+ * have skipped it. Folding traps into `evictions` is not the alternative: four of them
+ * would then mute a healthy operator for half an hour on evidence about nothing but this
+ * realm. So the count is separate and carries its own threshold, and NEITHER count
+ * zeroes the other - that is the same oscillation described above, one level over.
  */
 export function noteAbandonedSyncProbe(key: SyncFuseKey): void {
-  const entry = ledger.get(key);
-  if (!entry || entry.fusedUntilMs === null) return;
+  const entry = entryFor(key);
+  if (entry.fusedUntilMs !== null) {
+    entry.fusedUntilMs = monotonicNowMs() + FUSED_SYNC_PROBE_INTERVAL_MS;
+    return;
+  }
+  entry.abandons++;
+  if (entry.abandons < MAX_CONSECUTIVE_ABANDONED_PROBES) return;
+  console.warn(
+    `[sync-fuse] ${entry.abandons} consecutive abandoned probes of '${key}' - the pass aborts here every ` +
+      'lap and starves every probe behind it; dropping this one to a probe per ' +
+      `${Math.round(FUSED_SYNC_PROBE_INTERVAL_MS / 60_000)} min so the rest can run (#800)`
+  );
   entry.fusedUntilMs = monotonicNowMs() + FUSED_SYNC_PROBE_INTERVAL_MS;
 }
 
@@ -260,6 +287,7 @@ export function noteSyncSuccess(key: SyncFuseKey): void {
   const entry = ledger.get(key);
   if (!entry) return;
   entry.evictions = 0;
+  entry.abandons = 0;
   entry.fusedUntilMs = null;
 }
 

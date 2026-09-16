@@ -1,4 +1,8 @@
-import { FUSED_SYNC_PROBE_INTERVAL_MS, MAX_CONSECUTIVE_WATCHDOG_EVICTIONS } from 'lib/miden/sync-backoff';
+import {
+  FUSED_SYNC_PROBE_INTERVAL_MS,
+  MAX_CONSECUTIVE_ABANDONED_PROBES,
+  MAX_CONSECUTIVE_WATCHDOG_EVICTIONS
+} from 'lib/miden/sync-backoff';
 
 import {
   guardianSyncFuseKey,
@@ -276,7 +280,7 @@ describe('sync fuse (#777)', () => {
       expect(syncFuseUntilMs('idle-sync')).toBe(fakeNow + FUSED_SYNC_PROBE_INTERVAL_MS);
     });
 
-    it('leaves an UNLIT key evidence exactly as it stands, neither adding nor zeroing', () => {
+    it('leaves the EVICTION count exactly as it stands, neither adding to it nor zeroing it', () => {
       // Part-way through the budget. Zeroing here is what made the loop-terminating
       // breaks unbounded over half their trigger set: with a recurring realm trap the
       // count could never reach the threshold, so the pass aborted at the same account
@@ -291,11 +295,65 @@ describe('sync fuse (#777)', () => {
       expect(isSyncFused('idle-sync')).toBe(true);
     });
 
-    it('is a no-op on a key with no entry at all', () => {
+    it('starts the count on a key it has never seen, rather than discarding the evidence', () => {
+      // This returned early on an absent entry, so the FIRST trap on a cold key was
+      // dropped - and a probe that traps from its very first lap is exactly the one the
+      // count has to catch.
       noteAbandonedSyncProbe('idle-sync');
 
       expect(syncFuseUntilMs('idle-sync')).toBeNull();
       expect(isSyncFused('idle-sync')).toBe(false);
+    });
+
+    // THE STARVATION, at the ledger. Declining to erase the eviction count fixed half the
+    // defect; the other half is that a trap added nothing either, so a key could sit at
+    // zero forever while the loop-terminating break aborted the pass at that account on
+    // every lap. The count below is what lights the one fuse that skips it.
+    it('lights the fuse once the abandoned probes reach their OWN threshold', () => {
+      for (let i = 0; i < MAX_CONSECUTIVE_ABANDONED_PROBES - 1; i++) noteAbandonedSyncProbe('idle-sync');
+      expect(isSyncFused('idle-sync')).toBe(false);
+
+      noteAbandonedSyncProbe('idle-sync');
+
+      expect(isSyncFused('idle-sync')).toBe(true);
+      expect(syncFuseUntilMs('idle-sync')).toBe(fakeNow + FUSED_SYNC_PROBE_INTERVAL_MS);
+    });
+
+    it('needs strictly more traps than evictions, so a short burst cannot mute a healthy operator', () => {
+      for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; i++) noteAbandonedSyncProbe('idle-sync');
+
+      expect(isSyncFused('idle-sync')).toBe(false);
+    });
+
+    it('is reset by a success, which proves the probe can complete after all', () => {
+      for (let i = 0; i < MAX_CONSECUTIVE_ABANDONED_PROBES - 1; i++) noteAbandonedSyncProbe('idle-sync');
+      noteSyncSuccess('idle-sync');
+
+      for (let i = 0; i < MAX_CONSECUTIVE_ABANDONED_PROBES - 1; i++) noteAbandonedSyncProbe('idle-sync');
+
+      expect(isSyncFused('idle-sync')).toBe(false);
+    });
+
+    it('is reset by a failure that CAME BACK, which proves the probe reached the node', () => {
+      for (let i = 0; i < MAX_CONSECUTIVE_ABANDONED_PROBES - 1; i++) noteAbandonedSyncProbe('idle-sync');
+      noteNonEvictionSyncFailure('idle-sync');
+
+      for (let i = 0; i < MAX_CONSECUTIVE_ABANDONED_PROBES - 1; i++) noteAbandonedSyncProbe('idle-sync');
+
+      expect(isSyncFused('idle-sync')).toBe(false);
+    });
+
+    // The oscillation this ledger was split up to end, one level over: if an eviction
+    // zeroed the trap count, a mixed poison streak would hold BOTH counts under their
+    // thresholds forever. The evictions here stay one short of their own bound, so only
+    // the trap count can light this fuse.
+    it('is not zeroed by a watchdog eviction, so a mixed poison streak still reaches its bound', () => {
+      for (let i = 0; i < MAX_CONSECUTIVE_ABANDONED_PROBES; i++) {
+        noteAbandonedSyncProbe('idle-sync');
+        if (i % 3 === 2) noteSyncWatchdogEviction('idle-sync');
+      }
+
+      expect(isSyncFused('idle-sync')).toBe(true);
     });
   });
 
