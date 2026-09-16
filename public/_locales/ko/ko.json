@@ -1040,5 +1040,15 @@
   "activityRestoreTransfers": "복원",
   "activityHiddenNotesError": "숨겨진 전송 내역을 저장할 수 없습니다. 다시 시도해 주십시오.",
   "activityDateUnavailable": "날짜 미확인",
-  "walletSetupDidNotComplete": "지갑이 생성되었으나 시작 절차가 완료되지 않았습니다. 연결 상태를 확인하고 다시 시도해 주세요."
+  "walletSetupDidNotComplete": "지갑이 생성되었으나 시작 절차가 완료되지 않았습니다. 연결 상태를 확인하고 다시 시도해 주세요.",
+  "updateNotificationTitle": "Update available",
+  "updateNotificationVersion": "Version $version$",
+  "updateNotificationReleaseNotes": "Release notes: $summary$",
+  "updateNotificationGenericSummary": "This update includes fixes and improvements.",
+  "updateNotificationActionChrome": "Restart to update",
+  "updateNotificationActionAndroid": "Update now",
+  "updateNotificationActionIos": "Open App Store",
+  "updateNotificationActionInProgress": "Starting update",
+  "updateNotificationDismiss": "Dismiss this update",
+  "updateNotificationActionFailed": "The update could not be started. Try again."
 }

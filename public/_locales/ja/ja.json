@@ -1040,5 +1040,15 @@
   "activityRestoreTransfers": "復元",
   "activityHiddenNotesError": "非公開の送金を保存できませんでした。もう一度お試しください。",
   "activityDateUnavailable": "日付不明",
-  "walletSetupDidNotComplete": "ウォレットは作成されましたが、起動が完了していません。接続を確認して、もう一度お試しください。"
+  "walletSetupDidNotComplete": "ウォレットは作成されましたが、起動が完了していません。接続を確認して、もう一度お試しください。",
+  "updateNotificationTitle": "Update available",
+  "updateNotificationVersion": "Version $version$",
+  "updateNotificationReleaseNotes": "Release notes: $summary$",
+  "updateNotificationGenericSummary": "This update includes fixes and improvements.",
+  "updateNotificationActionChrome": "Restart to update",
+  "updateNotificationActionAndroid": "Update now",
+  "updateNotificationActionIos": "Open App Store",
+  "updateNotificationActionInProgress": "Starting update",
+  "updateNotificationDismiss": "Dismiss this update",
+  "updateNotificationActionFailed": "The update could not be started. Try again."
 }

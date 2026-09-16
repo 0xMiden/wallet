@@ -1040,5 +1040,15 @@
   "activityRestoreTransfers": "Geri Yükle",
   "activityHiddenNotesError": "Gizli transferler kaydedilemedi. Lütfen tekrar deneyin.",
   "activityDateUnavailable": "Tarih mevcut değil",
-  "walletSetupDidNotComplete": "Cüzdanınız oluşturuldu ancak başlatma işlemi tamamlanmadı. Bağlantınızı kontrol edin ve tekrar deneyin."
+  "walletSetupDidNotComplete": "Cüzdanınız oluşturuldu ancak başlatma işlemi tamamlanmadı. Bağlantınızı kontrol edin ve tekrar deneyin.",
+  "updateNotificationTitle": "Update available",
+  "updateNotificationVersion": "Version $version$",
+  "updateNotificationReleaseNotes": "Release notes: $summary$",
+  "updateNotificationGenericSummary": "This update includes fixes and improvements.",
+  "updateNotificationActionChrome": "Restart to update",
+  "updateNotificationActionAndroid": "Update now",
+  "updateNotificationActionIos": "Open App Store",
+  "updateNotificationActionInProgress": "Starting update",
+  "updateNotificationDismiss": "Dismiss this update",
+  "updateNotificationActionFailed": "The update could not be started. Try again."
 }
