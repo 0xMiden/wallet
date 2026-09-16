@@ -6,7 +6,7 @@ import {
   resolveChosenGuardianEndpoint,
   resolveGuardianEndpoint
 } from 'lib/miden/guardian/account';
-import { cooldownFor, createAttemptLedger, createRateCooldown } from 'lib/miden/guardian/attempt-ledger';
+import { createAttemptLedger, createRateCooldown } from 'lib/miden/guardian/attempt-ledger';
 import {
   finalizeDirectGuardianSwitch,
   isGuardianAccountUnknown,
@@ -2183,11 +2183,11 @@ async function runGuardianAccountsSync(generation: number): Promise<void> {
         consecutiveUnknownAccount.delete(account.publicKey);
         clearGuardianServerFailures(account.publicKey);
         const askedMs = (guardianRetryAfterSec(error) ?? 0) * 1000;
-        // One clamp, shared by the impose and the log line. Computed twice, the
-        // log was free to drift from the cooldown actually served - and the log
-        // is the only place this number is ever observed.
-        const cooldown = cooldownFor(GUARDIAN_RATE_LIMIT_BOUNDS, askedMs);
-        guardianRateLimit.impose(account.publicKey, askedMs);
+        // The cooldown owns the floor and the cap, so log what it ARMED rather than
+        // clamping a second copy here: `impose` already returns exactly this number, and
+        // two derivations of it are two things that can disagree. The log is the only
+        // place this value is ever observed.
+        const cooldown = guardianRateLimit.impose(account.publicKey, askedMs);
         console.warn(
           `[Guardian Sync] rate limited (429) for ${account.publicKey}; pausing sync for ${Math.round(cooldown / 1000)}s`
         );

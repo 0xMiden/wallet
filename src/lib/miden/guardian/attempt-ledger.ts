@@ -308,14 +308,14 @@ export interface RateCooldown {
 export type RateCooldownBounds = { floorMs: number; capMs: number };
 
 /**
- * `max(askedMs, floor)` clamped to `cap`. Exported so a caller that also wants to LOG the cooldown it
- * imposed reports the number the cooldown actually used, instead of re-deriving the clamp beside it.
+ * `max(askedMs, floor)` clamped to `cap`. Module-private: `impose` RETURNS this number, so a caller
+ * that wants to log the pause it armed reads it from there rather than re-deriving the clamp.
  *
  * A non-finite ask falls back to the floor: `Math.min(Math.max(NaN, floor), cap)` is `NaN`, and a `NaN`
  * deadline reads as already expired, so a malformed `Retry-After` would silently buy no cooldown at all,
  * which is the one input this clamp exists to survive.
  */
-export const cooldownFor = (bounds: RateCooldownBounds, askedMs: number | undefined): number =>
+const cooldownFor = (bounds: RateCooldownBounds, askedMs: number | undefined): number =>
   Math.min(Math.max(Number.isFinite(askedMs) ? Number(askedMs) : 0, bounds.floorMs), bounds.capMs);
 
 export function createRateCooldown(bounds: RateCooldownBounds, clock: () => number): RateCooldown {

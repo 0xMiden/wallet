@@ -6,7 +6,6 @@
  * and the flat vs doubling cooldown curves.
  */
 import {
-  cooldownFor,
   createAttemptLedger,
   createRateCooldown,
   type AttemptHandle,
@@ -509,21 +508,23 @@ describe('createRateCooldown', () => {
     expect(cooldown.isActive('b')).toBe(false);
   });
 
-  it('exports the same clamp it imposes, so a log line cannot drift from the pause', () => {
-    const bounds = { floorMs: 30_000, capMs: 120_000 };
-    expect(cooldownFor(bounds, 5_000)).toBe(30_000);
-    expect(cooldownFor(bounds, 60_000)).toBe(60_000);
-    expect(cooldownFor(bounds, 60 * 60_000)).toBe(120_000);
+  it('returns the clamp it armed, including the mid-range pass-through', () => {
+    const { cooldown } = make();
+    // Asserted through `impose` because that return IS the public surface: the caller logs
+    // this number, so it has to be the one the deadline was armed from.
+    expect(cooldown.impose('low', 5_000)).toBe(30_000);
+    expect(cooldown.impose('mid', 60_000)).toBe(60_000);
+    expect(cooldown.impose('high', 60 * 60_000)).toBe(120_000);
   });
 
   it('falls back to the floor for a header that is absent or not a number', () => {
-    const bounds = { floorMs: 30_000, capMs: 120_000 };
+    const { cooldown } = make();
     // Math.min(Math.max(NaN, floor), cap) is NaN, and a NaN deadline reads as already expired, so a
     // malformed Retry-After would buy no cooldown at all: the one input this clamp exists to survive.
-    expect(cooldownFor(bounds, undefined)).toBe(30_000);
-    expect(cooldownFor(bounds, Number.NaN)).toBe(30_000);
+    expect(cooldown.impose('absent', undefined)).toBe(30_000);
+    expect(cooldown.impose('nan', Number.NaN)).toBe(30_000);
     // Infinity takes the same non-finite path, so it lands on the FLOOR while a merely huge finite
     // ask lands on the cap. Asymmetric, and flagged for the author rather than quietly changed here.
-    expect(cooldownFor(bounds, Number.POSITIVE_INFINITY)).toBe(30_000);
+    expect(cooldown.impose('inf', Number.POSITIVE_INFINITY)).toBe(30_000);
   });
 });
