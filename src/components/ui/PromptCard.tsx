@@ -1,7 +1,8 @@
-import React, { FC, useLayoutEffect, useRef } from 'react';
+import React, { FC, useLayoutEffect, useRef, useState } from 'react';
 
 import classNames from 'clsx';
 import { motion, useReducedMotion } from 'framer-motion';
+import { flushSync } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
@@ -28,6 +29,11 @@ export interface PromptCardProps {
   variant?: PromptCardVariant;
   icon?: IconName;
   hero?: PromptCardHero;
+  /**
+   * The card action. Keyboard focus stays in the card when this swaps in a hero only
+   * if the hero is scheduled before the handler's first await: the render it causes
+   * is committed synchronously, and a later one no longer knows the tap moved focus.
+   */
   onClick?: () => void;
   actionLabel?: string;
   onAction?: () => void;
@@ -69,24 +75,24 @@ export const PromptCard: FC<PromptCardProps> = ({
   const { t } = useTranslation();
 
   const containerRef = useRef<HTMLDivElement>(null);
-  // Set when the card is activated with focus inside it, so a hero that replaces
-  // the activated button can keep that focus in the card (#923).
-  const restoreFocusRef = useRef(false);
+  // Whether the container itself (not a child) holds focus. It stays focusable while it
+  // does: Chromium blurs a focused element the moment its tabindex is removed, which would
+  // drop focus to the page before the hero-end hand-back below could move it on.
+  const [holdsFocus, setHoldsFocus] = useState(false);
 
   const handleClick = () => {
     if (!onClick) return;
-    const active = document.activeElement;
-    // Only focus the user actually had: a pointer tap that focused nothing (Safari
-    // does not focus buttons on click) is not moved anywhere.
-    restoreFocusRef.current = !!active && active !== containerRef.current && !!containerRef.current?.contains(active);
+    // Only focus the user actually had in the card: a pointer tap that focused nothing
+    // (Safari does not focus buttons on click) is not moved anywhere.
+    const hadFocus = !!containerRef.current?.contains(document.activeElement);
     hapticLight();
-    onClick();
-    // The activation speaks only for the render it caused, which React flushes in a
-    // microtask queued by that update, ahead of this one. A hero arriving later did
-    // not replace the button the user pressed.
-    queueMicrotask(() => {
-      restoreFocusRef.current = false;
-    });
+    // Rendered and committed before this returns, so the check below sees what the tap did.
+    flushSync(onClick);
+    // A hero replaced the lockup and unmounted the button just pressed: keep focus in the
+    // card instead of letting it fall to the page (#923).
+    if (hadFocus && (!document.activeElement || document.activeElement === document.body)) {
+      containerRef.current?.focus({ preventScroll: true });
+    }
   };
 
   const handleDismiss = (e: React.MouseEvent<HTMLButtonElement>) => {
@@ -122,18 +128,11 @@ export const PromptCard: FC<PromptCardProps> = ({
       : '';
 
   const heroShown = hero !== undefined;
-  // A hero replaces the lockup outright, so the card-action button a keyboard user
-  // just pressed unmounts and focus falls to the page. Run before paint: keep that
-  // focus in the card while the hero shows, and hand it back to the card's own
-  // action when the hero ends without the card going away.
+  // When a hero ends with focus still on the card, hand it to the card's own action
+  // before paint; the blur that follows lets the container stop being focusable.
   useLayoutEffect(() => {
     const container = containerRef.current;
-    if (!container) return;
-    const active = document.activeElement;
-    if (heroShown) {
-      // Only focus the unmount dropped to the page; focus the user moved elsewhere stays.
-      if (restoreFocusRef.current && (!active || active === document.body)) container.focus({ preventScroll: true });
-    } else if (active === container) {
+    if (!heroShown && container && document.activeElement === container) {
       container.querySelector<HTMLElement>('[data-card-action]')?.focus({ preventScroll: true });
     }
   }, [heroShown]);
@@ -182,8 +181,17 @@ export const PromptCard: FC<PromptCardProps> = ({
     <div
       ref={containerRef}
       data-testid={testId}
-      // Focusable only while a hero holds the card, as the place focus stays.
-      tabIndex={heroShown ? -1 : undefined}
+      // Focusable while a hero holds the card, as the place focus stays, and until focus leaves.
+      tabIndex={heroShown || holdsFocus ? -1 : undefined}
+      onFocus={event => {
+        if (event.target === event.currentTarget) setHoldsFocus(true);
+      }}
+      onBlur={event => {
+        // A page, tab or side-panel blur fires this too while focus stays on the card.
+        if (event.target === event.currentTarget && document.activeElement !== event.currentTarget) {
+          setHoldsFocus(false);
+        }
+      }}
       onClick={onClick ? handleClick : undefined}
       className={classNames(
         'relative overflow-hidden w-full h-[72px] bg-surface-input rounded-10',

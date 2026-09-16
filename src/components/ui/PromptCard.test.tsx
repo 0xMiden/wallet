@@ -304,9 +304,90 @@ describe('PromptCard', () => {
       expect(document.activeElement).toBe(screen.getByRole('button', { name: /Fund your wallet/ }));
     });
 
-    it('leaves focus where the user moved it when a hero shows after a tap that did not start one', () => {
-      // The tap does not swap in a hero (a request already running elsewhere, say);
-      // the hero arrives later, after the user has tabbed on.
+    it('hands focus back when the hero ends in a browser that blurs as the tabindex goes', () => {
+      // Chromium blurs a focused element the moment its tabindex is removed; jsdom does not.
+      const removeAttribute = Element.prototype.removeAttribute;
+      const blurOnTabIndexRemoval = jest.spyOn(Element.prototype, 'removeAttribute').mockImplementation(function (
+        this: Element,
+        name: string
+      ) {
+        if (name.toLowerCase() === 'tabindex' && this === document.activeElement && this instanceof HTMLElement) {
+          this.blur();
+        }
+        removeAttribute.call(this, name);
+      });
+      try {
+        render(<Harness />);
+        const action = screen.getByRole('button', { name: /Fund your wallet/ });
+        action.focus();
+        fireEvent.click(action);
+        expect(document.activeElement).toBe(screen.getByTestId('card'));
+
+        act(() => {
+          screen.getByRole('button', { name: 'end hero' }).click();
+        });
+
+        expect(document.activeElement).toBe(screen.getByRole('button', { name: /Fund your wallet/ }));
+        // Once focus has moved on, the card is not left in the tab order.
+        expect(screen.getByTestId('card')).not.toHaveAttribute('tabindex');
+      } finally {
+        blurOnTabIndexRemoval.mockRestore();
+      }
+    });
+
+    it('hands focus back when the hero ends after the page lost focus with the card still focused', () => {
+      const removeAttribute = Element.prototype.removeAttribute;
+      const blurOnTabIndexRemoval = jest.spyOn(Element.prototype, 'removeAttribute').mockImplementation(function (
+        this: Element,
+        name: string
+      ) {
+        if (name.toLowerCase() === 'tabindex' && this === document.activeElement && this instanceof HTMLElement) {
+          this.blur();
+        }
+        removeAttribute.call(this, name);
+      });
+      try {
+        render(<Harness />);
+        const action = screen.getByRole('button', { name: /Fund your wallet/ });
+        action.focus();
+        fireEvent.click(action);
+        const card = screen.getByTestId('card');
+        expect(document.activeElement).toBe(card);
+
+        // The window, tab or side panel loses focus: a blur event, but focus stays on the card.
+        fireEvent.blur(card);
+        expect(document.activeElement).toBe(card);
+
+        act(() => {
+          screen.getByRole('button', { name: 'end hero' }).click();
+        });
+
+        expect(document.activeElement).toBe(screen.getByRole('button', { name: /Fund your wallet/ }));
+      } finally {
+        blurOnTabIndexRemoval.mockRestore();
+      }
+    });
+
+    it('leaves focus where the user moved it when the hero ends', () => {
+      render(<Harness />);
+      const action = screen.getByRole('button', { name: /Fund your wallet/ });
+      action.focus();
+      fireEvent.click(action);
+      expect(document.activeElement).toBe(screen.getByTestId('card'));
+
+      // The user tabs on during the wait; the hero ending must not pull focus back.
+      const endHero = screen.getByRole('button', { name: 'end hero' });
+      endHero.focus();
+      act(() => {
+        endHero.click();
+      });
+
+      expect(document.activeElement).toBe(endHero);
+      expect(screen.getByTestId('card')).not.toHaveAttribute('tabindex');
+    });
+
+    it('never moves focus for a hero that shows after the tap', () => {
+      // The tap does not swap in a hero; one arrives later, after the user has moved on.
       const LateHero: React.FC = () => {
         const [hero, setHero] = React.useState<typeof funding | undefined>(undefined);
         return (
@@ -330,33 +411,6 @@ describe('PromptCard', () => {
       });
 
       expect(document.activeElement).toBe(elsewhere);
-    });
-
-    it('does not focus the card for a hero that shows after an earlier tap, once focus has left for the page', async () => {
-      const LateHero: React.FC = () => {
-        const [hero, setHero] = React.useState<typeof funding | undefined>(undefined);
-        return (
-          <div>
-            <PromptCard data-testid="card" title="Fund your wallet" hero={hero} onClick={() => undefined} />
-            <button type="button" onClick={() => setHero(funding)}>
-              start hero
-            </button>
-          </div>
-        );
-      };
-      render(<LateHero />);
-      const action = screen.getByRole('button', { name: /Fund your wallet/ });
-      action.focus();
-      fireEvent.click(action);
-      // The user's next action is a later task: let the tap's microtasks run first.
-      await act(async () => {});
-      action.blur();
-
-      act(() => {
-        screen.getByRole('button', { name: 'start hero' }).click();
-      });
-
-      expect(document.activeElement).toBe(document.body);
     });
   });
 });
