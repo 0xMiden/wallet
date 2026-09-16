@@ -90,6 +90,14 @@ type Tab = {
   guardianOnly?: boolean;
   requiresSeedPhrase?: boolean;
   /**
+   * This tab's panel renders its OWN notice when the seed phrase is not 'stored'
+   * (an interrupted removal, or a finished one), so its route must keep resolving
+   * after the menu row is hidden - see allTabs. Only set it where the component
+   * actually renders something: RevealSecret returns null in that state, so a
+   * route to it would resolve to a header with a blank body.
+   */
+  reportsSeedState?: boolean;
+  /**
    * Set when the sub-page focuses a field on mount in a `useLayoutEffect`, which
    * runs BEFORE the host's title focus and would therefore lose the caret to it.
    *
@@ -150,6 +158,7 @@ const TAB_GROUPS: TabGroup[] = [
         titleI18nKey: 'recoveryPhrase',
         Component: RevealSeedPhraseFlow,
         requiresSeedPhrase: true,
+        reportsSeedState: true,
         testID: SettingsSelectors.RevealSeedPhraseButton,
         hasOwnLayout: true
       },
@@ -158,6 +167,7 @@ const TAB_GROUPS: TabGroup[] = [
         titleI18nKey: 'removeSeedPhrase',
         Component: RemoveSeedPhrase,
         requiresSeedPhrase: true,
+        reportsSeedState: true,
         hasOwnLayout: true
       },
       {
@@ -357,18 +367,18 @@ const Settings: FC<SettingsProps> = ({ tabSlug, rootScrollTop: savedRootScrollTo
   // interrupted removal ('removing', which unlock retries) or a completed one, so
   // the route has to keep resolving or that state has no surface at all.
   //
-  // This deliberately re-adds EVERY seed-gated tab, not just the removal pages,
-  // and that is safe because each destination reports the non-stored state itself:
-  // RevealSecret gates on revealUnavailable (:42, covered for all three reveal
-  // modes by its own test), RevealSeedPhrase at :139 and VerifySeedPhraseFlow at
-  // :172. Reaching one of them and being told why is better than a silent bounce
-  // back to the menu, which is what invalidTab does.
+  // Restricted to `reportsSeedState`, NOT every seed-gated tab. Guarding itself
+  // and reporting itself are different things: RevealSeedPhrase (:139) and
+  // VerifySeedPhraseFlow (:172) render a notice, but RevealSecret returns null
+  // (:398, and its own test asserts childElementCount 0), so restoring
+  // reveal-private-key's route would resolve to a header over a blank body -
+  // worse than invalidTab's bounce, not better.
   const allTabs = useMemo(
     () => [
       ...tabGroups.flatMap(g => g.tabs),
       ...HIDDEN_TABS.filter(tabIsVisible),
       ...[...TAB_GROUPS.flatMap(g => g.tabs), ...HIDDEN_TABS].filter(
-        tab => tab.requiresSeedPhrase && !tabIsVisible(tab) && tabIsRoutable(tab)
+        tab => tab.reportsSeedState && !tabIsVisible(tab) && tabIsRoutable(tab)
       )
     ],
     [tabGroups, tabIsVisible, tabIsRoutable]

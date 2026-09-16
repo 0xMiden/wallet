@@ -297,6 +297,18 @@ describe('Settings page — root menu (non-guardian)', () => {
     }
   );
 
+  // The other side of that rule. RevealSecret returns null once the seed is gone,
+  // so restoring this route would resolve to a header over an empty body. Only a
+  // tab whose panel actually reports the state earns its route back.
+  it('does not restore the route of a seed-gated tab whose panel renders nothing', () => {
+    mockWalletState.seedPhraseStatus = 'removed';
+    mockNavigate.mockClear();
+
+    render(<Settings tabSlug="reveal-private-key" />);
+
+    expect(mockNavigate).toHaveBeenCalledWith('/settings', expect.anything());
+  });
+
   it('removes the recovery phrase settings when the seed status changes', () => {
     const view = render(<Settings tabSlug={null} />);
     expect(screen.getByTestId('menuitem-recoveryPhrase')).toBeInTheDocument();
