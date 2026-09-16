@@ -131,6 +131,20 @@ export async function solvePowChallenge(
   }
 }
 
+/**
+ * A token request that was sent but never answered (aborted, timed out, or the
+ * connection failed). The faucet may already have queued the mint, so a retry is
+ * not safe: it could mint a second time. Distinct from a response with an error
+ * status, which is a definitive refusal and safe to retry.
+ */
+export class FaucetOutcomeUnknownError extends Error {
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message);
+    this.name = 'FaucetOutcomeUnknownError';
+    if (options?.cause !== undefined) Reflect.set(this, 'cause', options.cause);
+  }
+}
+
 export async function requestTokens(
   baseUrl: string,
   accountId: string,
@@ -146,7 +160,13 @@ export async function requestTokens(
     challenge,
     nonce: nonce.toString()
   });
-  const response = await faucetFetch(`${baseUrl}/get_tokens?${params}`, { signal });
+  let response: Response;
+  try {
+    response = await faucetFetch(`${baseUrl}/get_tokens?${params}`, { signal });
+  } catch (error) {
+    // No response means no way to know whether the faucet received the request.
+    throw new FaucetOutcomeUnknownError('Faucet token request got no response', { cause: error });
+  }
 
   if (!response.ok) {
     throw new Error(`Faucet token request failed with status ${response.status}: ${await response.text()}`);
@@ -156,10 +176,18 @@ export async function requestTokens(
   return { txId: json.tx_id, noteId: json.note_id };
 }
 
-export async function mintFromMidenFaucet(address: string, amount: bigint, signal?: AbortSignal): Promise<MintedNote> {
+export async function mintFromMidenFaucet(
+  address: string,
+  amount: bigint,
+  signal?: AbortSignal,
+  // Awaited after the proof of work and immediately before the token request is
+  // sent: the last point at which nothing can have been minted yet.
+  onBeforeSubmit?: () => Promise<void>
+): Promise<MintedNote> {
   const baseUrl = getFaucetApiUrl();
   const { challenge, target } = await getPowChallenge(baseUrl, address, amount, signal);
   const nonce = await solvePowChallenge(challenge, target, { signal });
+  await onBeforeSubmit?.();
   return requestTokens(baseUrl, address, amount, challenge, nonce, signal);
 }
 

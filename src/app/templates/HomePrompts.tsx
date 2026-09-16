@@ -12,6 +12,7 @@ import { initiateReplaceHotKeyTransaction, requestSWTransactionProcessing } from
 import { hasNoFeeAsset } from 'lib/miden/fees/spendable';
 import type { TokenBalanceData } from 'lib/miden/front';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
+import { FaucetOutcomeUnknownError } from 'lib/miden-chain/faucet-api';
 import { isExtension } from 'lib/platform';
 import type { TokenPrices } from 'lib/prices';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
@@ -422,6 +423,12 @@ export const HomePrompts: FC<HomePromptsProps> = ({
       },
       (error: unknown) => {
         if (cancelled) return;
+        // Sent but never answered: the mint may still land, so the wait (resumed
+        // from the stamped marker) stays up rather than offering a retry.
+        if (error instanceof FaucetOutcomeUnknownError) {
+          if (accountKeyRef.current === address) setFaucetStatusIndicator('idle');
+          return;
+        }
         // The rejection belongs to `address`, not to whoever is on screen: drop
         // that account's wait unconditionally (the updater is already
         // address-matched), or switching back to it restores a Funding hero with
@@ -459,23 +466,34 @@ export const HomePrompts: FC<HomePromptsProps> = ({
     const marker: FaucetFundingMarker = { requestedAt, baselineNoteIds };
     setFaucetStatusIndicator('loading');
     setFaucetError(null);
-    // Persist BEFORE the request: the card unmounts on any navigation, and a
-    // marker that only exists after the ack would greet a returning user with
-    // an idle, fully tappable card while the first request is still running.
+    // Installed before anything is awaited, so the account on screen is still the
+    // one asking - no switch can have happened yet.
+    setFundingWait({ address, ...marker });
+    const persistMarker = (next: FaucetFundingMarker) =>
+      setFaucetFundingMarker(address, next).catch(error =>
+        console.warn('[wallet-prompts] failed to persist faucet funding marker:', error)
+      );
     try {
-      await setFaucetFundingMarker(address, marker);
-    } catch (error) {
-      console.warn('[wallet-prompts] failed to persist faucet funding marker:', error);
-    }
-    // The marker write is awaited, so the user may have switched accounts and even
-    // started funding another one meanwhile; `fundingWait` is a single slot, and an
-    // unconditional install here overwrote that account's wait. The marker is
-    // persisted either way, so a return to this account resumes it.
-    if (accountKeyRef.current === address) setFundingWait({ address, ...marker });
-    try {
-      await faucet(address);
+      await faucet(address, {
+        // Persisted from inside the request, once it is the account's in-flight
+        // join: a marker the card unmounts over still resumes, and a marker with no
+        // submit stamp always has a live request behind it in this realm.
+        onStart: () => persistMarker(marker),
+        // Stamped before the token request is sent. A marker without it can be
+        // cleared as abandoned when its realm dies; one with it cannot, because the
+        // faucet may already be minting.
+        onBeforeSubmit: () => persistMarker({ ...marker, submittedAt: Date.now() })
+      });
       if (accountKeyRef.current === address) setFaucetStatusIndicator('idle');
     } catch (error) {
+      if (error instanceof FaucetOutcomeUnknownError) {
+        // The token request went out and was never answered. The faucet may have
+        // minted, and a retry would mint again - so keep the stamped marker and the
+        // wait: arrival resolves it, or the backstop gives the card back.
+        console.warn('[wallet-prompts] faucet request outcome unknown; waiting for the mint:', error);
+        if (accountKeyRef.current === address) setFaucetStatusIndicator('idle');
+        return;
+      }
       // The request failed — the pre-persisted marker no longer describes an
       // expected mint, so clear it for WHATEVER account made the request…
       setFaucetFundingMarker(address, null).catch(clearError =>
@@ -514,7 +532,13 @@ export const HomePrompts: FC<HomePromptsProps> = ({
       .then(marker => {
         if (cancelled) return;
         if (marker !== null) {
-          if (Date.now() - marker.requestedAt < FAUCET_FUNDS_ARRIVAL_TIMEOUT_MS) {
+          // No submit stamp and no request left running in this realm: the realm
+          // that owned the request died before the token request went out (an
+          // extension popup closed during the proof of work, an app killed), so
+          // nothing was minted and there is nothing to wait for. Checked at read
+          // time, because the request may have settled while the read was pending.
+          const abandoned = marker.submittedAt === undefined && getInFlightFaucetRequest(address) === null;
+          if (!abandoned && Date.now() - marker.requestedAt < FAUCET_FUNDS_ARRIVAL_TIMEOUT_MS) {
             setFundingWait({ address, ...marker });
           } else {
             setFaucetFundingMarker(address, null).catch(error =>

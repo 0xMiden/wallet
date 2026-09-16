@@ -17,7 +17,7 @@ import type { AssetMetadata } from 'lib/miden/metadata';
 import * as Repo from 'lib/miden/repo';
 import { updateBridgeClaimStatus } from 'lib/miden/transaction/complete';
 import type { ConsumableNote } from 'lib/miden/types';
-import { mintFromMidenFaucet } from 'lib/miden-chain/faucet-api';
+import { FaucetOutcomeUnknownError, mintFromMidenFaucet } from 'lib/miden-chain/faucet-api';
 import { getTokenPrice } from 'lib/prices';
 import type { TokenPrices } from 'lib/prices';
 
@@ -296,11 +296,15 @@ export async function reportHotKeyRotationNeeded(): Promise<void> {
 // account's "Funding" presentation after a remount or app restart mid-wait.
 // `baselineNoteIds` records the claimable notes that already existed at
 // request time: arrival requires a note NOT in this set (or a balance), so a
-// pre-existing unclaimed note can't fake an instant success.
+// pre-existing unclaimed note can't fake an instant success. `submittedAt` is
+// stamped just before the token request goes out: without it nothing can have
+// been minted, so a marker with no request left running is abandoned rather than
+// a mint still on its way.
 
 export type FaucetFundingMarker = {
   requestedAt: number;
   baselineNoteIds: readonly string[];
+  submittedAt?: number;
 };
 
 const faucetFundingMarkerKey = (address: string) => `faucet_funding_v2:${address}`;
@@ -316,7 +320,17 @@ export async function fetchFaucetFundingMarker(address: string): Promise<FaucetF
   // fresh" and would wedge the wait past its own timeout.
   if (requestedAt > Date.now()) return null;
   if (!Array.isArray(baselineNoteIds)) return null;
-  return { requestedAt, baselineNoteIds: baselineNoteIds.filter((id): id is string => typeof id === 'string') };
+  const submittedAt = Reflect.get(raw, 'submittedAt');
+  return {
+    requestedAt,
+    baselineNoteIds: baselineNoteIds.filter((id): id is string => typeof id === 'string'),
+    // Presence is what matters. A malformed stamp still means the request may
+    // have gone out, so it reads as submitted rather than as abandoned: erring the
+    // other way invites a second mint.
+    ...(submittedAt === undefined
+      ? {}
+      : { submittedAt: typeof submittedAt === 'number' && Number.isFinite(submittedAt) ? submittedAt : requestedAt })
+  };
 }
 
 export async function setFaucetFundingMarker(address: string, marker: FaucetFundingMarker | null): Promise<void> {
@@ -332,20 +346,48 @@ const MIDEN_FAUCET_AMOUNT = 100_000_000n;
 // capped wait — the next fetch attempt then aborts immediately.)
 const FAUCET_REQUEST_TIMEOUT_MS = 60_000;
 
-async function runFaucetRequest(address: string): Promise<void> {
+export type FaucetRequestHooks = {
+  // Awaited first. By the time it can have any observable effect this request is
+  // already the account's in-flight join (see `faucet`), so state it persists is
+  // always backed by a live request in this realm.
+  onStart?: () => Promise<void>;
+  // Awaited after the proof of work, immediately before the token request is
+  // sent: the last point at which nothing can have been minted.
+  onBeforeSubmit?: () => Promise<void>;
+};
+
+async function runFaucetRequest(address: string, hooks?: FaucetRequestHooks): Promise<void> {
   const controller = new AbortController();
+  let submitted = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
   // The race guarantees the wrapper rejects on time even if the underlying
   // work fails to observe the abort promptly.
   const timedOut = new Promise<never>((_, reject) => {
     timer = setTimeout(() => {
-      const timeoutError = new Error('Faucet request timed out');
+      // Once the token request is out, a timeout says nothing about whether the
+      // faucet minted - so it must not read as a refusal a retry can safely follow.
+      const timeoutError = submitted
+        ? new FaucetOutcomeUnknownError('Faucet request timed out after the token request was sent')
+        : new Error('Faucet request timed out');
       controller.abort(timeoutError);
       reject(timeoutError);
     }, FAUCET_REQUEST_TIMEOUT_MS);
   });
+  const work = (async () => {
+    if (hooks?.onStart) {
+      // Yield first: `faucet` registers this request as the in-flight join as soon
+      // as this call returns, and an async hook's body runs synchronously up to its
+      // first await - so without the yield it would run before that registration.
+      await Promise.resolve();
+      await hooks.onStart();
+    }
+    return mintFromMidenFaucet(address, MIDEN_FAUCET_AMOUNT, controller.signal, async () => {
+      await hooks?.onBeforeSubmit?.();
+      submitted = true;
+    });
+  })();
   try {
-    await Promise.race([mintFromMidenFaucet(address, MIDEN_FAUCET_AMOUNT, controller.signal), timedOut]);
+    await Promise.race([work, timedOut]);
   } finally {
     clearTimeout(timer);
   }
@@ -364,10 +406,13 @@ export function getInFlightFaucetRequest(address: string): Promise<void> | null 
   return inFlightFaucetRequests.get(address) ?? null;
 }
 
-export function faucet(address: string): Promise<void> {
+export function faucet(address: string, hooks?: FaucetRequestHooks): Promise<void> {
   const existing = inFlightFaucetRequests.get(address);
   if (existing) return existing;
-  const request: Promise<void> = runFaucetRequest(address).finally(() => {
+  // `runFaucetRequest` yields before running any hook, so every hook runs with
+  // this request already registered by the `set` below. A joiner's hooks are
+  // ignored: the request it joins already runs its own.
+  const request: Promise<void> = runFaucetRequest(address, hooks).finally(() => {
     if (inFlightFaucetRequests.get(address) === request) inFlightFaucetRequests.delete(address);
   });
   inFlightFaucetRequests.set(address, request);
