@@ -4,6 +4,8 @@ import {
   identifyGuardianOperator,
   verifyEndpointMatchesCommitment
 } from 'lib/miden/guardian/operator-map';
+import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
+import { retireGuardianWritesForEndpointChange } from 'lib/miden/sync-backoff';
 import { GUARDIAN_URL_STORAGE_KEY } from 'lib/settings/constants';
 
 import {
@@ -11,7 +13,8 @@ import {
   SILENT_DRIFT_WINDOWS_BEFORE_PROMPT,
   __resetGuardianDriftProbeCooldownForTest,
   applyUserGuardianEndpoint,
-  resolveGuardianDrift
+  resolveGuardianDrift,
+  revertGuardianEndpointAfterDiscard
 } from './guardian-drift';
 import { fetchFromStorage, putToStorage } from '../front/storage';
 import { getMidenClient } from '../sdk/miden-client';
@@ -22,8 +25,21 @@ import { getMidenClient } from '../sdk/miden-client';
 jest.mock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-client'));
 jest.mock('../sdk/miden-client', () => ({
   getMidenClient: jest.fn(),
-  withWasmClientLock: (fn: () => unknown) => fn()
+  // Hands the callback a real hold and compares against it for real, so the
+  // post-await liveness guards inside these holds are actually exercised rather
+  // than stubbed green. Reassign `currentWasmHold` to simulate an eviction.
+  getCurrentWasmLockHold: () => currentWasmHold,
+  assertWasmHoldCurrent: (hold: object | null, where: string) => {
+    if (hold !== null && currentWasmHold === hold) return;
+    throw new WasmClientPoisonedError('watchdog', new Error(`operation abandoned ${where}`));
+  },
+  withWasmClientLock: (fn: (hold: object) => unknown) => {
+    currentWasmHold = {};
+    return fn(currentWasmHold);
+  }
 }));
+
+let currentWasmHold: object = {};
 jest.mock('lib/miden/guardian/operator-map', () => ({
   checkEndpointCommitment: jest.fn(),
   identifyGuardianOperator: jest.fn(),
@@ -952,6 +968,32 @@ describe('applyUserGuardianEndpoint', () => {
     expect(vault.writes).toEqual(['binding', 'status:in-sync']);
   });
 
+  // The binding is the load-bearing write; the status stamp is advisory and the
+  // next drift tick repairs it. Reporting failure after the binding landed sent
+  // the banner's generic catch at a user whose apply had succeeded - and whose
+  // retry could only ever be 'stale', because this write already bumped the epoch.
+  it("still reports 'applied' when the advisory status stamp fails after the binding landed", async () => {
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('cc');
+    (verifyEndpointMatchesCommitment as jest.Mock).mockResolvedValue('match');
+    const vault = makeVault({ publicKey: 'pk', guardianOperatorCommitment: 'old' });
+    vault.setGuardianSyncStatus.mockRejectedValueOnce(new Error('storage went away'));
+
+    expect(await applyUserGuardianEndpoint(vault as never, 'pk', 'https://mine')).toBe('applied');
+
+    expect(vault.updateGuardianBinding).toHaveBeenCalled();
+  });
+
+  // The vault record is gone or moved under the apply - a statement about the
+  // WALLET, not about the chain, which this path has established nothing about.
+  it("reports 'stale' rather than 'no-onchain-guardian' when the account is not in the vault", async () => {
+    const vault = makeVault(undefined);
+
+    expect(await applyUserGuardianEndpoint(vault as never, 'pk', 'https://mine')).toBe('stale');
+
+    expect(verifyEndpointMatchesCommitment).not.toHaveBeenCalled();
+  });
+
   it('rejects a user URL that does not match on-chain', async () => {
     (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('cc');
     (verifyEndpointMatchesCommitment as jest.Mock).mockResolvedValue('mismatch');
@@ -1001,12 +1043,16 @@ describe('applyUserGuardianEndpoint', () => {
     expect(verifyEndpointMatchesCommitment).not.toHaveBeenCalled();
   });
 
-  it('fails at the write, with the vault error, for an account the vault does not hold', async () => {
+  it("reports 'stale', without writing, for an account the vault does not hold", async () => {
     (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('cc');
     (verifyEndpointMatchesCommitment as jest.Mock).mockResolvedValue('match');
     const vault = makeVault(undefined);
 
-    await expect(applyUserGuardianEndpoint(vault as never, 'pk', 'https://mine')).rejects.toThrow('Account not found');
+    // NOT the vault's own `Account not found`. A missing record is a statement about the VAULT (a
+    // removed account, a frontend snapshot ahead of the backend), and `'stale'` is already what the
+    // banner means by "the state moved under you, try again". #796 let this fall through to the
+    // write and surface as a thrown error; the guard is the behaviour change, pinned here.
+    expect(await applyUserGuardianEndpoint(vault as never, 'pk', 'https://mine')).toBe('stale');
 
     expect(vault.writes).toEqual([]);
   });
@@ -1056,6 +1102,446 @@ describe('exoneration must not depend on operators the account does not use', ()
 
     expect(await resolveGuardianDrift(vault as never, 'pk')).toEqual({ status: 'in-sync', changed: false });
     expect(vault.setGuardianSyncStatus).not.toHaveBeenCalled();
+  });
+});
+
+// The rollback the pending-rotation recheck runs when the node discards a
+// guardian switch. Its evidence - the row's `previousGuardianEndpoint` - was
+// stamped when the rotation was initiated and can be half an hour old by the
+// time this fires, so every case here is about it refusing to win against newer
+// state, and about not writing on evidence it could not read.
+describe('revertGuardianEndpointAfterDiscard', () => {
+  // `guardianEpoch` is passed even when undefined, so it SPREADS OVER makeVault's seeded default
+  // rather than leaving it in place. Without that an account can never be built without an epoch,
+  // and the missing-epoch case below cannot say what it means.
+  const boundTo = (endpoint: string, epoch?: number) =>
+    makeVault({ publicKey: 'pk', guardianEndpoint: endpoint, guardianEpoch: epoch });
+
+  // The rollback probes TWICE, the bound endpoint and then the target it would write, so
+  // one blanket answer cannot express "the bound endpoint lost authority and `revertTo`
+  // holds it" - the arrangement every case that reaches the write actually needs.
+  const authorityByEndpoint = (answers: Record<string, 'match' | 'mismatch' | 'unreachable'>) =>
+    (verifyEndpointMatchesCommitment as jest.Mock).mockImplementation(
+      async (endpoint: string) => answers[endpoint] ?? 'mismatch'
+    );
+
+  it('rolls the binding back when the chain says the bound endpoint has no authority', async () => {
+    (getMidenClient as jest.Mock).mockResolvedValue({ getAccount: async () => ({}) });
+    (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('cc');
+    authorityByEndpoint({ 'https://new': 'mismatch', 'https://old': 'match' });
+    const vault = boundTo('https://new', 4);
+
+    expect(await revertGuardianEndpointAfterDiscard(vault as never, 'pk', 'https://new', 'https://old')).toBe(
+      'reverted'
+    );
+
+    expect(vault.updateGuardianBinding).toHaveBeenCalledWith('pk', 4, { guardianEndpoint: 'https://old' });
+  });
+
+  // THE THIRD-OPERATOR ROLLBACK. Both guards pass - the bound endpoint lost authority
+  // and the binding still names this rotation's target - but the chain has moved to an
+  // operator that is neither. Writing `revertTo` here binds the account to one it never
+  // authorized, on evidence that only ever ruled the bound endpoint out.
+  it("reports 'stale' when the rollback target has no authority either", async () => {
+    (getMidenClient as jest.Mock).mockResolvedValue({ getAccount: async () => ({}) });
+    (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('cc');
+    authorityByEndpoint({ 'https://new': 'mismatch', 'https://old': 'mismatch' });
+    const vault = boundTo('https://new', 4);
+
+    expect(await revertGuardianEndpointAfterDiscard(vault as never, 'pk', 'https://new', 'https://old')).toBe('stale');
+
+    expect(vault.updateGuardianBinding).not.toHaveBeenCalled();
+  });
+
+  it("reports 'stale' when the rollback target could not be reached to prove its authority", async () => {
+    (getMidenClient as jest.Mock).mockResolvedValue({ getAccount: async () => ({}) });
+    (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('cc');
+    authorityByEndpoint({ 'https://new': 'mismatch', 'https://old': 'unreachable' });
+    const vault = boundTo('https://new', 4);
+
+    expect(await revertGuardianEndpointAfterDiscard(vault as never, 'pk', 'https://new', 'https://old')).toBe('stale');
+
+    expect(vault.updateGuardianBinding).not.toHaveBeenCalled();
+  });
+
+  // THE REPOINT THAT LANDS MID-ROLLBACK. Every answer above the write was obtained from a node the
+  // realm has since left, and nothing else in the stack can notice: the frontend loop's own
+  // retirement check runs only after this call RETURNS, so it suppresses the row settlement while
+  // the binding has already been rewritten, and an endpoint save never moves `guardianEpoch`, so
+  // the epoch CAS is blind to it too. Retired here between the two probes and the write, which is
+  // the window the long operator ceilings make wide.
+  it("reports 'stale' when the realm repoints between the authority probe and the write", async () => {
+    (getMidenClient as jest.Mock).mockResolvedValue({ getAccount: async () => ({}) });
+    (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('cc');
+    (verifyEndpointMatchesCommitment as jest.Mock).mockImplementation(async (endpoint: string) => {
+      if (endpoint !== 'https://old') return 'mismatch';
+      // The user saves a different endpoint while the TARGET's authority probe is in flight.
+      retireGuardianWritesForEndpointChange();
+      return 'match';
+    });
+    const vault = boundTo('https://new', 4);
+
+    // Without the re-check this answers 'reverted' and rebinds the account from a chain read
+    // taken against an operator the wallet no longer points at.
+    expect(await revertGuardianEndpointAfterDiscard(vault as never, 'pk', 'https://new', 'https://old')).toBe('stale');
+
+    expect(vault.updateGuardianBinding).not.toHaveBeenCalled();
+  });
+
+  // THE CASE A URL COMPARISON CANNOT SEE. The user's switch appeared not to
+  // work, so they rotated to the same operator again and THAT one committed.
+  // The binding still equals `discardedEndpoint` and the epoch has already
+  // moved, so only the chain can say the account is correctly bound.
+  it('supersedes when the bound endpoint does answer for the on-chain commitment', async () => {
+    (getMidenClient as jest.Mock).mockResolvedValue({ getAccount: async () => ({}) });
+    (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('cc');
+    (verifyEndpointMatchesCommitment as jest.Mock).mockResolvedValue('match');
+    const vault = boundTo('https://new', 4);
+
+    expect(await revertGuardianEndpointAfterDiscard(vault as never, 'pk', 'https://new', 'https://old')).toBe(
+      'superseded'
+    );
+
+    expect(vault.updateGuardianBinding).not.toHaveBeenCalled();
+  });
+
+  // A second rotation landed while this one was being rechecked. Rolling back to
+  // a value from before BOTH would undo a commit that succeeded - but only the
+  // CHAIN can say the newer one succeeded, so the move alone is not the answer.
+  it('supersedes when the account moved on and the new binding has authority', async () => {
+    (getMidenClient as jest.Mock).mockResolvedValue({ getAccount: async () => ({}) });
+    (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('cc');
+    (verifyEndpointMatchesCommitment as jest.Mock).mockResolvedValue('match');
+    const vault = boundTo('https://newer');
+
+    expect(await revertGuardianEndpointAfterDiscard(vault as never, 'pk', 'https://new', 'https://old')).toBe(
+      'superseded'
+    );
+
+    expect(vault.updateGuardianBinding).not.toHaveBeenCalled();
+  });
+
+  // THE TWO-ROTATION TRAP, and the reason "moved on" cannot mean "resolved".
+  // A→B and B→C both complete unconfirmed and the node discards both. Probing
+  // A→B first finds the account on C, which has no authority either. Answering
+  // `'superseded'` here spent the caller's one irreversible demote on the only
+  // row recording A, and the account ended up bound to B - an operator that was
+  // never authorized - with drift blind to it, because its cheap path compares
+  // the baseline against the chain and both still name A.
+  it("reports 'stale' when the account moved on to a binding that also lacks authority", async () => {
+    (getMidenClient as jest.Mock).mockResolvedValue({ getAccount: async () => ({}) });
+    (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('cc');
+    (verifyEndpointMatchesCommitment as jest.Mock).mockResolvedValue('mismatch');
+    const vault = boundTo('https://newer', 7);
+
+    expect(await revertGuardianEndpointAfterDiscard(vault as never, 'pk', 'https://new', 'https://old')).toBe('stale');
+
+    // And emphatically no write: `revertTo` is two rotations stale here, so
+    // writing it would undo whatever the newer row is still repairing.
+    expect(vault.updateGuardianBinding).not.toHaveBeenCalled();
+  });
+
+  // An account bound to nothing has no rollback target to compare and no
+  // authority to test. Fail closed rather than rebinding on absence.
+  it("reports 'stale' when the account names no endpoint at all", async () => {
+    const vault = boundTo('');
+
+    expect(await revertGuardianEndpointAfterDiscard(vault as never, 'pk', 'https://new', 'https://old')).toBe('stale');
+
+    expect(vault.updateGuardianBinding).not.toHaveBeenCalled();
+    expect(verifyEndpointMatchesCommitment).not.toHaveBeenCalled();
+  });
+
+  // THE LEGACY-GLOBAL ACCOUNT, which the raw-field read condemned. Its per-account
+  // field is empty by design - the unlock backfill leaves it empty rather than
+  // stamping a guess - so the global key is its only pointer, and it still names
+  // the pre-rotation operator because the rotation never stuck. The old reading
+  // saw an empty field, answered `'stale'`, and the caller CHARGED that against a
+  // finite budget: fifteen laps of an account with nothing wrong with it ended in
+  // a `needs-user-input` prompt. Same field-versus-identity confusion the
+  // reconciler one function up already had corrected.
+  it('supersedes an account whose only pointer is the legacy global and already names the rollback target', async () => {
+    await putToStorage(GUARDIAN_URL_STORAGE_KEY, 'https://old');
+    const vault = boundTo('');
+
+    expect(await revertGuardianEndpointAfterDiscard(vault as never, 'pk', 'https://new', 'https://old')).toBe(
+      'superseded'
+    );
+
+    // No write and no node read: the pointer is already where the rollback would
+    // put it, so there is nothing to establish.
+    expect(vault.updateGuardianBinding).not.toHaveBeenCalled();
+    expect(verifyEndpointMatchesCommitment).not.toHaveBeenCalled();
+  });
+
+  // And the pointer being resolved does not soften the guard: a legacy-global
+  // account whose pointer names the DISCARDED operator still has to earn the
+  // write from the chain, exactly as a per-account-field one does.
+  it('rolls back a legacy-global account whose pointer still names the discarded target', async () => {
+    await putToStorage(GUARDIAN_URL_STORAGE_KEY, 'https://new');
+    (getMidenClient as jest.Mock).mockResolvedValue({ getAccount: async () => ({}) });
+    (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('cc');
+    authorityByEndpoint({ 'https://new': 'mismatch', 'https://old': 'match' });
+    const vault = boundTo('', 3);
+
+    expect(await revertGuardianEndpointAfterDiscard(vault as never, 'pk', 'https://new', 'https://old')).toBe(
+      'reverted'
+    );
+
+    expect(verifyEndpointMatchesCommitment).toHaveBeenCalledWith('https://new', 'cc');
+    expect(vault.updateGuardianBinding).toHaveBeenCalledWith('pk', 3, { guardianEndpoint: 'https://old' });
+  });
+
+  // The per-account field is already at the rollback target - a duplicate row for
+  // a rotation an earlier pass already reverted. Settling is right; grinding to
+  // `'stale'` spent budget re-establishing a finished fact.
+  it('supersedes when the binding already names the rollback target', async () => {
+    const vault = boundTo('https://old', 5);
+
+    expect(await revertGuardianEndpointAfterDiscard(vault as never, 'pk', 'https://new', 'https://old')).toBe(
+      'superseded'
+    );
+
+    expect(vault.updateGuardianBinding).not.toHaveBeenCalled();
+  });
+
+  // Fail-closed on a storage read that THREW. `resolveChosenGuardianEndpoint`
+  // propagates by design, and a guard over write authority cannot treat "I could
+  // not tell" as permission.
+  it("reports 'stale' when the pointer could not be read", async () => {
+    (resolveChosenGuardianEndpoint as jest.Mock).mockRejectedValueOnce(new Error('storage down'));
+    const vault = boundTo('');
+
+    expect(await revertGuardianEndpointAfterDiscard(vault as never, 'pk', 'https://new', 'https://old')).toBe('stale');
+
+    expect(vault.updateGuardianBinding).not.toHaveBeenCalled();
+  });
+
+  // `'stale'`, not `'superseded'`, and the difference is the caller's one
+  // irreversible demote: a missing record is a statement about the VAULT (a
+  // removed account, a frontend snapshot ahead of the backend), not evidence
+  // that the rotation no longer needs rolling back. `applyUserGuardianEndpoint`
+  // draws the same line on the same read.
+  it("reports 'stale' rather than 'superseded' when the account is not in the vault", async () => {
+    const vault = makeVault(undefined);
+
+    expect(await revertGuardianEndpointAfterDiscard(vault as never, 'pk', 'https://new', 'https://old')).toBe('stale');
+
+    expect(vault.updateGuardianBinding).not.toHaveBeenCalled();
+  });
+
+  // Drift canonicalizes spellings, so the row's original URL and the stored one
+  // can be the same operator written two ways. A literal `!==` refused the
+  // rollback for an account that needed it.
+  it('matches the discarded target across trailing-slash and host-case spellings', async () => {
+    (getMidenClient as jest.Mock).mockResolvedValue({ getAccount: async () => ({}) });
+    (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('cc');
+    // Keyed on the VAULT's spelling, which is what the probe is handed - normalization
+    // decides whether the rollback fires, never which string the chain is asked about.
+    authorityByEndpoint({ 'https://New.Example.com/': 'mismatch', 'https://old': 'match' });
+    const vault = boundTo('https://New.Example.com/', 2);
+
+    expect(
+      await revertGuardianEndpointAfterDiscard(vault as never, 'pk', 'https://new.example.com', 'https://old')
+    ).toBe('reverted');
+
+    expect(vault.updateGuardianBinding).toHaveBeenCalledWith('pk', 2, { guardianEndpoint: 'https://old' });
+  });
+
+  // Fail-closed: not looking is never grounds to write. Both of these leave the
+  // row pending so a later pass with a warm client can decide on real evidence.
+  it("reports 'stale' when the account has no on-chain guardian to check against", async () => {
+    (getMidenClient as jest.Mock).mockResolvedValue({ getAccount: async () => undefined });
+    const vault = boundTo('https://new', 4);
+
+    expect(await revertGuardianEndpointAfterDiscard(vault as never, 'pk', 'https://new', 'https://old')).toBe('stale');
+
+    expect(vault.updateGuardianBinding).not.toHaveBeenCalled();
+  });
+
+  it("reports 'stale' when the operator could not be reached to prove the mismatch", async () => {
+    (getMidenClient as jest.Mock).mockResolvedValue({ getAccount: async () => ({}) });
+    (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('cc');
+    (verifyEndpointMatchesCommitment as jest.Mock).mockResolvedValue('unreachable');
+    const vault = boundTo('https://new', 4);
+
+    expect(await revertGuardianEndpointAfterDiscard(vault as never, 'pk', 'https://new', 'https://old')).toBe('stale');
+
+    expect(vault.updateGuardianBinding).not.toHaveBeenCalled();
+  });
+
+  // The endpoint check and the CAS answer different questions: the first that
+  // the rollback is still about the current target, the second that nothing
+  // wrote between the read and the write. Only the CAS catches the latter.
+  it("reports 'stale' when the epoch moved between the read and the write", async () => {
+    (getMidenClient as jest.Mock).mockResolvedValue({ getAccount: async () => ({}) });
+    (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('cc');
+    authorityByEndpoint({ 'https://new': 'mismatch', 'https://old': 'match' });
+    const vault = boundTo('https://new', 4);
+    vault.updateGuardianBinding.mockResolvedValueOnce({ outcome: 'stale' });
+
+    expect(await revertGuardianEndpointAfterDiscard(vault as never, 'pk', 'https://new', 'https://old')).toBe('stale');
+  });
+
+  // An account that never carried an epoch reads as 0, the same baseline a fresh
+  // binding CAS expects - not a reason to skip the write.
+  it('treats a missing epoch as 0 rather than refusing the rollback', async () => {
+    (getMidenClient as jest.Mock).mockResolvedValue({ getAccount: async () => ({}) });
+    (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('cc');
+    authorityByEndpoint({ 'https://new': 'mismatch', 'https://old': 'match' });
+    const vault = boundTo('https://new');
+
+    await revertGuardianEndpointAfterDiscard(vault as never, 'pk', 'https://new', 'https://old');
+
+    expect(vault.updateGuardianBinding).toHaveBeenCalledWith('pk', 0, { guardianEndpoint: 'https://old' });
+  });
+});
+
+/**
+ * THE GUARDS THIS SUITE COULD NOT TRIP. The lock mock hands each hold a fresh object and its own
+ * comment invites a case to reassign `currentWasmHold` to simulate an eviction - and nothing ever
+ * did, so every post-await re-check compared a hold against itself and returned. Deleting all three
+ * `assertWasmHoldCurrent` lines left this file green. The sibling guardian-sync suite closed the
+ * identical gap with `stealTheHoldOnCall`; this is that fix, one module over.
+ *
+ * The steal happens inside the AWAITED account read, which is the window the guard exists for: the
+ * handle that comes back is borrowed from a client the mutex has already handed to a successor, so
+ * reading its storage is the double borrow itself, not a stale value.
+ */
+/**
+ * EVERY CHARGE NAMES ITSELF. The rollback has eight ways to answer `'stale'`, each one charged
+ * against a per-row budget whose fifteenth charge tells the user the account is unrepairable, and
+ * only the pointer-read failure said anything at all. A prompt you cannot trace to a cause is a
+ * support ticket with no evidence in it.
+ *
+ * One case per arm rather than one for the helper: all eight route through the same `stale()`, so
+ * a single case would prove the helper logs while leaving seven reasons deletable in silence.
+ */
+describe('every stale rollback exit says which one it was', () => {
+  const reasonFrom = (warn: jest.SpyInstance) => warn.mock.calls.map(call => String(call[0])).join(' | ');
+
+  const chainSays = (commitment: string | undefined) =>
+    (getMidenClient as jest.Mock).mockResolvedValue({ getAccount: async () => (commitment ? {} : undefined) });
+
+  let warn: jest.SpyInstance;
+  beforeEach(() => {
+    warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('cc');
+  });
+  afterEach(() => warn.mockRestore());
+
+  const rollback = (vault: unknown) =>
+    revertGuardianEndpointAfterDiscard(vault as never, 'pk', 'https://new', 'https://old');
+
+  it('names a vault that has no record of the account', async () => {
+    expect(await rollback(makeVault(undefined))).toBe('stale');
+    expect(reasonFrom(warn)).toContain('holds no record of this account');
+  });
+
+  it('names an account bound to no endpoint at all', async () => {
+    expect(await rollback(makeVault({ publicKey: 'pk', guardianEndpoint: '' }))).toBe('stale');
+    expect(reasonFrom(warn)).toContain('names no guardian endpoint');
+  });
+
+  it('names an account with no on-chain guardian to check against', async () => {
+    chainSays(undefined);
+    expect(await rollback(makeVault({ publicKey: 'pk', guardianEndpoint: 'https://new', guardianEpoch: 4 }))).toBe(
+      'stale'
+    );
+    expect(reasonFrom(warn)).toContain('no on-chain guardian');
+  });
+
+  it('names an operator that could not be reached to prove the mismatch', async () => {
+    chainSays('cc');
+    (verifyEndpointMatchesCommitment as jest.Mock).mockResolvedValue('unreachable');
+    expect(await rollback(makeVault({ publicKey: 'pk', guardianEndpoint: 'https://new', guardianEpoch: 4 }))).toBe(
+      'stale'
+    );
+    expect(reasonFrom(warn)).toContain('could not be reached');
+  });
+
+  it('names a binding that moved on to a third operator', async () => {
+    chainSays('cc');
+    (verifyEndpointMatchesCommitment as jest.Mock).mockResolvedValue('mismatch');
+    expect(await rollback(makeVault({ publicKey: 'pk', guardianEndpoint: 'https://newer', guardianEpoch: 7 }))).toBe(
+      'stale'
+    );
+    expect(reasonFrom(warn)).toContain('moved on to a third operator');
+  });
+
+  it('names a rollback target that does not hold the current commitment', async () => {
+    chainSays('cc');
+    (verifyEndpointMatchesCommitment as jest.Mock).mockResolvedValue('mismatch');
+    expect(await rollback(makeVault({ publicKey: 'pk', guardianEndpoint: 'https://new', guardianEpoch: 4 }))).toBe(
+      'stale'
+    );
+    expect(reasonFrom(warn)).toContain('does not hold the current on-chain commitment');
+  });
+
+  it('names a realm that repointed while the rollback was being decided', async () => {
+    chainSays('cc');
+    (verifyEndpointMatchesCommitment as jest.Mock).mockImplementation(async (endpoint: string) => {
+      if (endpoint !== 'https://old') return 'mismatch';
+      retireGuardianWritesForEndpointChange();
+      return 'match';
+    });
+    expect(await rollback(makeVault({ publicKey: 'pk', guardianEndpoint: 'https://new', guardianEpoch: 4 }))).toBe(
+      'stale'
+    );
+    expect(reasonFrom(warn)).toContain('repointed at another node');
+  });
+
+  it('names an epoch that moved between the read and the write', async () => {
+    chainSays('cc');
+    (verifyEndpointMatchesCommitment as jest.Mock).mockImplementation(async (endpoint: string) =>
+      endpoint === 'https://old' ? 'match' : 'mismatch'
+    );
+    const vault = makeVault({ publicKey: 'pk', guardianEndpoint: 'https://new', guardianEpoch: 4 });
+    vault.updateGuardianBinding.mockResolvedValueOnce({ outcome: 'stale' });
+
+    expect(await rollback(vault)).toBe('stale');
+    expect(reasonFrom(warn)).toContain('epoch moved between the read and the write');
+  });
+});
+
+describe('post-await liveness guards refuse a hold the mutex has moved on from', () => {
+  const stealTheHoldDuringTheAccountRead = () =>
+    (getMidenClient as jest.Mock).mockResolvedValue({
+      getAccount: async () => {
+        currentWasmHold = {};
+        return {};
+      }
+    });
+
+  it('refuses the drift pass when the client was replaced under its account read', async () => {
+    stealTheHoldDuringTheAccountRead();
+    const vault = makeVault({ publicKey: 'pk', guardianOperatorCommitment: 'abc' });
+
+    await expect(resolveGuardianDrift(vault as never, 'pk')).rejects.toMatchObject({
+      name: 'WasmClientPoisonedError'
+    });
+  });
+
+  it('refuses applyUserGuardianEndpoint when the client was replaced under its account read', async () => {
+    stealTheHoldDuringTheAccountRead();
+    const vault = makeVault({ publicKey: 'pk' });
+
+    await expect(applyUserGuardianEndpoint(vault as never, 'pk', 'https://mine')).rejects.toMatchObject({
+      name: 'WasmClientPoisonedError'
+    });
+    // Nothing may be written on a hold that is no longer ours.
+    expect(vault.updateGuardianBinding).not.toHaveBeenCalled();
+  });
+
+  it('refuses the discard rollback when the client was replaced under its account read', async () => {
+    stealTheHoldDuringTheAccountRead();
+    const vault = makeVault({ publicKey: 'pk', guardianEndpoint: 'https://new', guardianEpoch: 4 });
+
+    await expect(
+      revertGuardianEndpointAfterDiscard(vault as never, 'pk', 'https://new', 'https://old')
+    ).rejects.toMatchObject({ name: 'WasmClientPoisonedError' });
+
+    expect(vault.updateGuardianBinding).not.toHaveBeenCalled();
   });
 });
 
@@ -1181,6 +1667,21 @@ describe('CAS-stale repairs (the F-220 guard at the reconciler level)', () => {
       guardianEndpoint: 'https://g',
       guardianOperatorCommitment: 'newC'
     });
+    expect(vault.writes).toEqual([]);
+  });
+
+  it('discards an identified repair whose binding write comes back stale, leaving status untouched', async () => {
+    (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('newC');
+    (identifyGuardianOperator as jest.Mock).mockResolvedValue(identified('https://g'));
+    const vault = makeVault({ publicKey: 'pk', guardianOperatorCommitment: 'oldC', guardianSyncStatus: 'in-sync' });
+    vault.updateGuardianBinding.mockResolvedValue({ outcome: 'stale' as const });
+
+    expect(await resolveGuardianDrift(vault as never, 'pk')).toEqual({ status: 'in-sync', changed: false });
+
+    // The repair is dropped whole: no status write may survive a binding the pass never looked at.
+    // The siblings reach that refusal through a concurrent write landing mid-probe; this one has
+    // the CAS refuse outright.
+    expect(vault.setGuardianSyncStatus).not.toHaveBeenCalled();
     expect(vault.writes).toEqual([]);
   });
 

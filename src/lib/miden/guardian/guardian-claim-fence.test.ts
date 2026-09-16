@@ -153,6 +153,9 @@ const SYNC_STATUS_ALLOWED = new Set([
   'src/app/hooks/useGuardianPresentation.ts',
   // The reconciler state machine - the field's owner and only writer of record.
   'src/lib/miden/back/guardian-drift.ts',
+  // Reads the stored status to assemble GuardianFacts for the recovery classifier: a
+  // hand-off of the raw field, not a surface derivation of its own.
+  'src/lib/miden/front/guardian-sync.ts',
   // Transport plumbing: request/response payloads carried, never interpreted.
   'src/lib/miden/back/main.ts',
   'src/lib/intercom/in-process-request-handler.ts',

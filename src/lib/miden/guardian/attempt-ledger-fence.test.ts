@@ -164,6 +164,10 @@ const ALLOWED: Record<string, string[]> = {
     'lastGuardianSyncAt',
     'outageAccounts',
     'outageListeners',
+    // Prompt evidence for an exhausted pending-rotation recheck, keyed by ROW id. The budget
+    // itself is `pendingRotationRecheckLedger`; this only remembers that one ran dry, and it
+    // clears when the row resolves.
+    'pendingRotationExhaustedOwner',
     'syncedGuardianEndpoint',
     'unrepairableAccounts'
   ],
@@ -175,6 +179,9 @@ const ALLOWED: Record<string, string[]> = {
   // would change what it means. `driftPasses` holds the in-flight pass per
   // account so a second call joins it instead of starting a rival pass.
   'src/lib/miden/back/guardian-drift.ts': ['driftPasses', 'driftProbeEndpoint', 'nextDriftProbeAt'],
+  // Telemetry for the shadow dispatcher: a monotonic tally with no cap, no
+  // cooldown and no effect on what runs. Nothing reads it to decide anything.
+  'src/lib/miden/back/guardian-recovery-dispatcher.ts': ['divergenceCounts'],
   // A one-shot latch, not a budget: at most one recovery attempt per backend
   // lifetime, released only where the run never got its turn. No cap curve and
   // no settle stamp, so the ledger would describe it worse than the Set does.

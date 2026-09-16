@@ -93,6 +93,16 @@ jest.mock('lib/miden/reset', () => ({
   resetStorageDestructive: () => resetStorageDestructive()
 }));
 
+// The other half of the endpoint-change contract. Clearing the fuse discards what the old
+// node taught us; this retires the passes still in flight AGAINST it, whose pending-rotation
+// recheck would otherwise demote rows and roll the guardian binding back from chain reads
+// taken before the save. Spied rather than driven behaviourally: the generation counter is
+// module-private to guardian-sync and is observed there, so what this screen owes is the call.
+const mockRetireGuardianSyncPasses = jest.fn();
+jest.mock('lib/miden/front/guardian-sync', () => ({
+  retireGuardianSyncPasses: () => mockRetireGuardianSyncPasses()
+}));
+
 // `reloadEndpointOverridesInSW` nudges the service worker on the extension
 // (separate JS realm); handleSave's gating on `isExtension()` is asserted
 // against this spy below.
@@ -247,6 +257,14 @@ describe('DeveloperSettings', () => {
     expect(isSyncFused('idle-sync')).toBe(false);
     __resetSyncFuseStateForTests();
     jest.restoreAllMocks();
+  });
+
+  it('retires the guardian passes still in flight against the OLD node on save', async () => {
+    render(<DeveloperSettings />);
+    fireEvent.click(screen.getByTestId('dev-endpoints-save'));
+
+    await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/'));
+    expect(mockRetireGuardianSyncPasses).toHaveBeenCalledTimes(1);
   });
 
   it('nudges the service worker to reload endpoint overrides on save when running as an extension with no wallet yet (onboarding)', async () => {

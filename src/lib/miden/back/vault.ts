@@ -1302,9 +1302,31 @@ export class Vault {
       if (expectedEpoch !== 'force' && currentEpoch !== expectedEpoch) {
         return { outcome: 'stale' as const };
       }
-      const accounts = allAccounts.map(acc =>
-        acc.publicKey === accountPublicKey ? { ...acc, ...patch, guardianEpoch: currentEpoch + 1 } : acc
-      );
+      // A patch that changes nothing must not spend an epoch. The epoch is this
+      // write's CAS token, not a modification counter: bumping it invalidates the
+      // snapshot every concurrent repair is holding and turns their writes `stale`,
+      // which for the drift reconciler means unwinding a repair that was never
+      // contended. Both fields are optional, so an all-`undefined` patch
+      // type-checks, and `'force'` would let it through without even a stale check.
+      // Reported as `applied`, because it is: the requested change (none) is in
+      // effect, at the epoch the caller already had.
+      if (patch.guardianEndpoint === undefined && patch.guardianOperatorCommitment === undefined) {
+        return { outcome: 'applied' as const, accounts: allAccounts, currentAccount: await this.getCurrentAccount() };
+      }
+      // Field by field, NOT `{ ...acc, ...patch }`. Both patch fields are optional
+      // and `exactOptionalPropertyTypes` is off, so a spread merges an
+      // explicitly-`undefined` field as a value and CLEARS a bound endpoint or
+      // commitment baseline: an unbinding, from a call that type-checks. Callers
+      // were already dodging it by hand; the guarantee belongs at the write.
+      const applyPatch = (acc: WalletAccount): WalletAccount => ({
+        ...acc,
+        ...(patch.guardianEndpoint !== undefined ? { guardianEndpoint: patch.guardianEndpoint } : {}),
+        ...(patch.guardianOperatorCommitment !== undefined
+          ? { guardianOperatorCommitment: patch.guardianOperatorCommitment }
+          : {}),
+        guardianEpoch: currentEpoch + 1
+      });
+      const accounts = allAccounts.map(acc => (acc.publicKey === accountPublicKey ? applyPatch(acc) : acc));
       await encryptAndSaveMany([[accountsStrgKey, accounts]], this.vaultKey);
       return { outcome: 'applied' as const, accounts, currentAccount: await this.getCurrentAccount() };
     });

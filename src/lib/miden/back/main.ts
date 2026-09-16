@@ -33,6 +33,7 @@ import { doSync, resetSyncBackoffForEndpointChange } from 'lib/miden/back/sync-m
 import { startTransactionProcessing, swSignCallback } from 'lib/miden/back/transaction-processor';
 import { clearSyncFuseForEndpointChange } from 'lib/miden/front/sync-fuse';
 import { isWasmClientPoisonedError, WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
+import { retireGuardianWritesForEndpointChange } from 'lib/miden/sync-backoff';
 import { loadEndpointOverrides } from 'lib/miden-chain/effective-endpoints';
 import { primeNativeAssetId } from 'lib/miden-chain/native-asset';
 import { WalletMessageType, WalletRequest, WalletResponse } from 'lib/shared/types';
@@ -344,6 +345,12 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
       await loadEndpointOverrides();
       resetSyncBackoffForEndpointChange();
       clearSyncFuseForEndpointChange();
+      //   - retireGuardianWritesForEndpointChange() retires guardian writes DECIDED against the
+      //     old node but not yet committed. The frontend retires its own loop, but the discard
+      //     rollback runs in THIS realm, takes no token, and spends a chain read and two operator
+      //     probes before it rebinds the account, so the loop's check lands after the write. An
+      //     endpoint save never moves `guardianEpoch` either, so the epoch CAS cannot see it.
+      retireGuardianWritesForEndpointChange();
       await resetMidenClient();
       primeNativeAssetId();
       await reloadOffscreenEndpointOverrides();
@@ -597,6 +604,15 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
       await Actions.setGuardianEndpoint(req.accountPublicKey, req.guardianEndpoint);
       return {
         type: WalletMessageType.SetGuardianEndpointResponse
+      };
+    case WalletMessageType.RevertGuardianEndpointRequest:
+      return {
+        type: WalletMessageType.RevertGuardianEndpointResponse,
+        outcome: await Actions.revertGuardianEndpointAfterDiscard(
+          req.accountPublicKey,
+          req.discardedEndpoint,
+          req.revertTo
+        )
       };
     case WalletMessageType.SetGuardianOperatorCommitmentRequest:
       await Actions.setGuardianOperatorCommitment(req.accountPublicKey, req.guardianOperatorCommitment);

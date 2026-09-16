@@ -121,6 +121,20 @@ describe('createAttemptLedger - flat curve (the cold re-register shape)', () => 
     expect(ledger.attempts(SUBJECT)).toBe(0);
   });
 
+  it('does not double-charge when a charged settle follows an early charge', () => {
+    const { ledger } = make();
+    const attempt = open(ledger, SUBJECT);
+    attempt.chargeEarly();
+    expect(ledger.attempts(SUBJECT)).toBe(1);
+
+    // The eager charge and this settle are the SAME attempt, so the settle re-stamps the clock
+    // without booking a second one. Adding unconditionally here spends two of three on one push,
+    // which the budget can never refund: only a success clears it.
+    attempt.settle('charged');
+    expect(ledger.attempts(SUBJECT)).toBe(1);
+    expect(ledger.budgetSpent(SUBJECT)).toBe(false);
+  });
+
   it('a settled handle is spent: settling again, or charging after, changes nothing', () => {
     const { ledger } = make();
     const closing = open(ledger, SUBJECT);
@@ -194,7 +208,7 @@ describe('createAttemptLedger - flat curve (the cold re-register shape)', () => 
     expect(ledger.tryBegin(SUBJECT)).toBeNull();
   });
 
-  it('keys budgets by the whole subject and clears by account prefix', () => {
+  it('keys budgets by the whole subject, and clears one account without touching another', () => {
     const { ledger, tick } = make();
     const otherEndpoint: AttemptSubject = { accountPublicKey: 'pk', endpoint: 'https://other.example' };
     const otherAccount: AttemptSubject = { accountPublicKey: 'pk2', endpoint: 'https://op.example' };
@@ -217,12 +231,81 @@ describe('createAttemptLedger - flat curve (the cold re-register shape)', () => 
     // exhausted one. Drop guardianKey from subjectKey and this collides with the spent subject above.
     expect(ledger.mayAttempt(otherGuardianKey)).toBe(true);
 
-    // …and the account-prefix clear re-arms this account only.
+    // ...and clearing one account re-arms that account only. It is an entry scan, not a key-prefix
+    // scan: the key is a JSON tuple now, and a prefix over it would also match an account whose
+    // public key is a prefix of another's.
     open(ledger, otherAccount).settle('charged');
     ledger.clearForAccount('pk');
     expect(ledger.budgetSpent(SUBJECT)).toBe(false);
     expect(ledger.mayAttempt(SUBJECT)).toBe(true);
     expect(ledger.attempts(otherAccount)).toBe(1);
+  });
+
+  it('cannot confuse two subjects whose components merely concatenate alike', () => {
+    const { ledger, tick } = make();
+    // A `|`-joined key collided ACROSS components: endpoint 'b|c' with key 'd', and endpoint 'b' with
+    // key 'c|d', both rendered "pk|b|c|d" and shared one budget. Both sides are reachable - an endpoint
+    // is a URL and a guardian key is an opaque id, and nothing in AttemptSubject constrains either.
+    const left: AttemptSubject = { accountPublicKey: 'pk', endpoint: 'b|c', guardianKey: 'd' };
+    const right: AttemptSubject = { accountPublicKey: 'pk', endpoint: 'b', guardianKey: 'c|d' };
+
+    for (let i = 0; i < 3; i++) {
+      open(ledger, left).settle('charged');
+      tick(60_000);
+    }
+    expect(ledger.budgetSpent(left)).toBe(true);
+    expect(ledger.budgetSpent(right)).toBe(false);
+    expect(ledger.mayAttempt(right)).toBe(true);
+  });
+
+  it('distinguishes an absent component from an empty one', () => {
+    const { ledger, tick } = make();
+    // The same collision one level down: joining on a separator made a missing endpoint and an
+    // empty-string endpoint the same key, so one spent budget answered for both.
+    const absent: AttemptSubject = { accountPublicKey: 'pk3' };
+    const empty: AttemptSubject = { accountPublicKey: 'pk3', endpoint: '' };
+
+    for (let i = 0; i < 3; i++) {
+      open(ledger, absent).settle('charged');
+      tick(60_000);
+    }
+    expect(ledger.budgetSpent(absent)).toBe(true);
+    expect(ledger.budgetSpent(empty)).toBe(false);
+  });
+
+  it('keys a row-scoped budget per row, not per account', () => {
+    const { ledger, tick } = make();
+    // Two pending rotations on one account are two separate questions to the chain, so one running
+    // dry must not answer for the other.
+    const firstRow: AttemptSubject = { accountPublicKey: 'pk4', rowId: 'row-1' };
+    const secondRow: AttemptSubject = { accountPublicKey: 'pk4', rowId: 'row-2' };
+
+    for (let i = 0; i < 3; i++) {
+      open(ledger, firstRow).settle('charged');
+      tick(60_000);
+    }
+    expect(ledger.budgetSpent(firstRow)).toBe(true);
+    expect(ledger.budgetSpent(secondRow)).toBe(false);
+    // The account-wide question still sees the exhausted row.
+    expect(ledger.anySpentForAccount('pk4')).toBe(true);
+  });
+
+  it('clears one subject without disturbing its siblings on the same account', () => {
+    const { ledger, tick } = make();
+    const sibling: AttemptSubject = { accountPublicKey: 'pk', endpoint: 'https://sibling.example' };
+    for (let i = 0; i < 3; i++) {
+      open(ledger, SUBJECT).settle('charged');
+      tick(60_000);
+    }
+    open(ledger, sibling).settle('charged');
+    expect(ledger.budgetSpent(SUBJECT)).toBe(true);
+
+    ledger.clear(SUBJECT);
+    expect(ledger.budgetSpent(SUBJECT)).toBe(false);
+    expect(ledger.attempts(SUBJECT)).toBe(0);
+    // The narrower reset leaves the account's other subjects alone, which is the whole reason it
+    // exists beside clearForAccount.
+    expect(ledger.attempts(sibling)).toBe(1);
   });
 });
 
@@ -261,6 +344,111 @@ describe('createAttemptLedger - doubling curve (the registration-push shape)', (
     expect(ledger.mayAttempt(SUBJECT)).toBe(false);
     now += 1;
     expect(ledger.mayAttempt(SUBJECT)).toBe(true);
+  });
+});
+
+describe('a closed budget', () => {
+  const make = () => {
+    let now = 1_000_000;
+    const ledger = createAttemptLedger({ maxAttempts: 3, backoffMs: 60_000, curve: 'flat' }, () => now);
+    return { ledger, tick: (ms: number) => (now += ms) };
+  };
+
+  it('stays closed however long the cooldown outlives it', () => {
+    const { ledger, tick } = make();
+    open(ledger, SUBJECT).settle('closed');
+    tick(24 * 60 * 60_000);
+    expect(ledger.mayAttempt(SUBJECT)).toBe(false);
+
+    // An explicit clear is the deliberate exit, and the only one.
+    ledger.clear(SUBJECT);
+    expect(ledger.mayAttempt(SUBJECT)).toBe(true);
+    expect(ledger.budgetSpent(SUBJECT)).toBe(false);
+  });
+
+  it('is not reopened by a late refund from a superseded handle', () => {
+    const { ledger, tick } = make();
+    const first = open(ledger, SUBJECT);
+    first.chargeEarly();
+    tick(60_000);
+    const second = open(ledger, SUBJECT);
+
+    second.settle('closed');
+    expect(ledger.budgetSpent(SUBJECT)).toBe(true);
+
+    // TWO rules reject this refund, and only the weaker one is this case's subject. `second` opening
+    // superseded `first`, so the generation stamp already makes the refund inert before any
+    // arithmetic runs. The `closed` flag is the second line, for a write that does land: a close
+    // encoded only as a count sits exactly AT the cap, so one refund decrements it back under.
+    first.settle('refunded');
+    expect(ledger.budgetSpent(SUBJECT)).toBe(true);
+    expect(ledger.mayAttempt(SUBJECT)).toBe(false);
+    tick(60 * 60_000);
+    expect(ledger.mayAttempt(SUBJECT)).toBe(false);
+  });
+
+  it('is not reopened by a stale handle that outlived a clear and a fresh attempt', () => {
+    const { ledger } = make();
+    const stale = open(ledger, SUBJECT);
+    stale.chargeEarly();
+    expect(ledger.attempts(SUBJECT)).toBe(1);
+
+    ledger.clear(SUBJECT);
+    const fresh = open(ledger, SUBJECT);
+    fresh.chargeEarly();
+    expect(ledger.attempts(SUBJECT)).toBe(1);
+
+    // The late refund belongs to a subject that no longer exists, and spending it here would erase
+    // the fresh attempt's real, in-flight charge.
+    stale.settle('refunded');
+    expect(ledger.attempts(SUBJECT)).toBe(1);
+    stale.settle('closed');
+    expect(ledger.budgetSpent(SUBJECT)).toBe(false);
+  });
+});
+
+describe('anySpentForAccount', () => {
+  const make = () => {
+    let now = 1_000_000;
+    const ledger = createAttemptLedger({ maxAttempts: 3, backoffMs: 60_000, curve: 'flat' }, () => now);
+    return { ledger, tick: (ms: number) => (now += ms) };
+  };
+
+  const spend = (ledger: AttemptLedger, subject: AttemptSubject, tick: (ms: number) => void): void => {
+    for (let i = 0; i < 3; i++) {
+      open(ledger, subject).settle('charged');
+      tick(60_000);
+    }
+  };
+
+  // The account-level question, and the reason it takes an endpoint: its caller knows the account and
+  // the operator but not the on-chain guardian key the subject is also keyed by, so it cannot ask
+  // `budgetSpent` and has to ask this instead.
+  it('answers for the account once any of its subjects is spent', () => {
+    const { ledger, tick } = make();
+    expect(ledger.anySpentForAccount('pk')).toBe(false);
+    spend(ledger, SUBJECT, tick);
+    expect(ledger.anySpentForAccount('pk')).toBe(true);
+    expect(ledger.anySpentForAccount('pk2')).toBe(false);
+  });
+
+  it('still finds a spent budget by endpoint after the attempt settled', () => {
+    const { ledger, tick } = make();
+    spend(ledger, SUBJECT, tick);
+    expect(ledger.anySpentForAccount('pk', SUBJECT.endpoint)).toBe(true);
+  });
+
+  it('does not inherit a spent budget across a rotation to another operator', () => {
+    const { ledger, tick } = make();
+    spend(ledger, SUBJECT, tick);
+    expect(ledger.anySpentForAccount('pk', 'https://newly-rotated.example')).toBe(false);
+  });
+
+  it('reads a closed budget as spent even though nothing was ever charged', () => {
+    const { ledger } = make();
+    open(ledger, SUBJECT).settle('closed');
+    expect(ledger.attempts(SUBJECT)).toBe(3);
+    expect(ledger.anySpentForAccount('pk')).toBe(true);
   });
 });
 
@@ -318,5 +506,25 @@ describe('createRateCooldown', () => {
     expect(cooldown.isActive('b')).toBe(true);
     tick(30_000);
     expect(cooldown.isActive('b')).toBe(false);
+  });
+
+  it('returns the clamp it armed, including the mid-range pass-through', () => {
+    const { cooldown } = make();
+    // Asserted through `impose` because that return IS the public surface: the caller logs
+    // this number, so it has to be the one the deadline was armed from.
+    expect(cooldown.impose('low', 5_000)).toBe(30_000);
+    expect(cooldown.impose('mid', 60_000)).toBe(60_000);
+    expect(cooldown.impose('high', 60 * 60_000)).toBe(120_000);
+  });
+
+  it('falls back to the floor for a header that is absent or not a number', () => {
+    const { cooldown } = make();
+    // Math.min(Math.max(NaN, floor), cap) is NaN, and a NaN deadline reads as already expired, so a
+    // malformed Retry-After would buy no cooldown at all: the one input this clamp exists to survive.
+    expect(cooldown.impose('absent', undefined)).toBe(30_000);
+    expect(cooldown.impose('nan', Number.NaN)).toBe(30_000);
+    // Infinity takes the same non-finite path, so it lands on the FLOOR while a merely huge finite
+    // ask lands on the cap. Asymmetric, and flagged for the author rather than quietly changed here.
+    expect(cooldown.impose('inf', Number.POSITIVE_INFINITY)).toBe(30_000);
   });
 });
