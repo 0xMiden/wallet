@@ -62,6 +62,11 @@ interface IosWalletPageOpts {
    * capture path shoots a frame while the SpringBoard permission alert is up.
    */
   beforeCapture?: () => Promise<void>;
+  /**
+   * Waits until the app has asked for notification permission and the prompt is answered, tapping Allow the way
+   * the capture gate does. Resolves whether that happened in time.
+   */
+  settleNotificationPrompt?: () => Promise<boolean>;
 }
 
 /**
@@ -88,6 +93,7 @@ export class IosWalletPage implements WalletPage {
   private cdp: CdpSession;
   private sim: SimulatorControl;
   private beforeCapture?: () => Promise<void>;
+  private settlePrompt?: () => Promise<boolean>;
   private pollStats: PollStats = { pollCount: 0, pollIterations: 0, pollMs: 0, pollSleepMs: 0 };
 
   constructor(opts: IosWalletPageOpts) {
@@ -96,6 +102,7 @@ export class IosWalletPage implements WalletPage {
     this.udid = opts.udid;
     this.bundleId = opts.bundleId;
     this.beforeCapture = opts.beforeCapture;
+    this.settlePrompt = opts.settleNotificationPrompt;
   }
 
   /** Read poll stats snapshot. Includes CdpSession totals too. */
@@ -108,6 +115,11 @@ export class IosWalletPage implements WalletPage {
   async screenshot(opts: { path: string }): Promise<void> {
     await this.beforeCapture?.();
     await this.sim.screenshot(this.udid, opts.path);
+  }
+
+  /** Whether the app asked for notification permission and the prompt was answered; false with no gate wired. */
+  async settleNotificationPrompt(): Promise<boolean> {
+    return (await this.settlePrompt?.()) ?? false;
   }
 
   async evaluate<T = unknown>(fn: () => T | Promise<T>): Promise<T> {

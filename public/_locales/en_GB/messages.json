@@ -1814,33 +1814,30 @@
     "message": "Add tokens to your wallet to get started.",
     "englishSource": "Add tokens to your wallet to get started."
   },
-  "faucetPromptAction": {
-    "message": "Fund now",
-    "englishSource": "Fund now"
+  "faucetPromptFunding": {
+    "message": "Funding",
+    "englishSource": "Funding"
   },
-  "fundWalletLoadingTitle": {
-    "message": "Funding your wallet",
-    "englishSource": "Funding your wallet"
+  "faucetPromptFundingSub": {
+    "message": "Your funds will be available shortly",
+    "englishSource": "Your funds will be available shortly"
   },
-  "fundWalletLoadingBody": {
-    "message": "Requesting tokens from the faucet…",
-    "englishSource": "Requesting tokens from the faucet…"
+  "faucetPromptFunded": {
+    "message": "Funds deposited",
+    "englishSource": "Funds deposited"
   },
-  "fundWalletSuccessTitle": {
-    "message": "Wallet funded",
-    "englishSource": "Wallet funded"
+  "faucetPromptFundedSub": {
+    "message": "You have $amount$ ready",
+    "englishSource": "You have $amount$ ready",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
   },
-  "fundWalletSuccessBody": {
-    "message": "Your tokens are on the way and will appear shortly.",
-    "englishSource": "Your tokens are on the way and will appear shortly."
-  },
-  "fundWalletErrorTitle": {
-    "message": "Funding failed",
-    "englishSource": "Funding failed"
-  },
-  "fundWalletErrorBody": {
-    "message": "We couldn't fund your wallet. Please try again.",
-    "englishSource": "We couldn't fund your wallet. Please try again."
+  "faucetPromptFundedSubGeneric": {
+    "message": "Your funds are ready",
+    "englishSource": "Your funds are ready"
   },
   "guardianNoteRecoveryPromptTitle": {
     "message": "Account recovery detected",
@@ -1882,10 +1879,6 @@
         "content": "$1"
       }
     }
-  },
-  "pendingNotesPromptAction": {
-    "message": "See Now",
-    "englishSource": "See Now"
   },
   "verifySeedPhrasePromptTitle": {
     "message": "Verify your recovery phrase",
@@ -4153,10 +4146,6 @@
     "message": "Connect a wallet to bridge assets to and from Miden.",
     "englishSource": "Connect a wallet to bridge assets to and from Miden."
   },
-  "onlyBridgeableTokenSupported": {
-    "message": "The Slow (Agglayer) route only supports the bridgeable token. Use Fast to send other tokens.",
-    "englishSource": "The Slow (Agglayer) route only supports the bridgeable token. Use Fast to send other tokens."
-  },
   "connectDestinationWalletToClaim": {
     "message": "Connect the destination wallet to claim.",
     "englishSource": "Connect the destination wallet to claim."
@@ -4232,10 +4221,6 @@
   "delivering": {
     "message": "Delivering",
     "englishSource": "Delivering"
-  },
-  "slowNeedsNativeEth": {
-    "message": "The Slow (Agglayer) route only supports native ETH on testnet. Choose ETH to use it.",
-    "englishSource": "The Slow (Agglayer) route only supports native ETH on testnet. Choose ETH to use it."
   },
   "fastEthWrapNotice": {
     "message": "Bridging ETH on the Fast route wraps it to WETH first, then bridges the WETH. This route isn't available yet.",

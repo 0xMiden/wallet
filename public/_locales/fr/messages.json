@@ -1814,33 +1814,30 @@
     "message": "Ajoutez des jetons à votre portefeuille pour commencer.",
     "englishSource": "Add tokens to your wallet to get started."
   },
-  "faucetPromptAction": {
-    "message": "Financer maintenant",
-    "englishSource": "Fund now"
+  "faucetPromptFunding": {
+    "message": "Financement",
+    "englishSource": "Funding"
   },
-  "fundWalletLoadingTitle": {
-    "message": "Approvisionner votre portefeuille",
-    "englishSource": "Funding your wallet"
+  "faucetPromptFundingSub": {
+    "message": "Vos fonds seront disponibles sous peu",
+    "englishSource": "Your funds will be available shortly"
   },
-  "fundWalletLoadingBody": {
-    "message": "Demande de jetons auprès de l'faucet…",
-    "englishSource": "Requesting tokens from the faucet…"
+  "faucetPromptFunded": {
+    "message": "Fonds déposés",
+    "englishSource": "Funds deposited"
   },
-  "fundWalletSuccessTitle": {
-    "message": "Financé par un portefeuille",
-    "englishSource": "Wallet funded"
+  "faucetPromptFundedSub": {
+    "message": "Tu as $amount$ prêt",
+    "englishSource": "You have $amount$ ready",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
   },
-  "fundWalletSuccessBody": {
-    "message": "Vos jetons sont en cours d'envoi et apparaîtront sous peu.",
-    "englishSource": "Your tokens are on the way and will appear shortly."
-  },
-  "fundWalletErrorTitle": {
-    "message": "Échec du financement",
-    "englishSource": "Funding failed"
-  },
-  "fundWalletErrorBody": {
-    "message": "Nous n'avons pas pu créditer votre portefeuille. Veuillez réessayer.",
-    "englishSource": "We couldn't fund your wallet. Please try again."
+  "faucetPromptFundedSubGeneric": {
+    "message": "Vos fonds sont prêts",
+    "englishSource": "Your funds are ready"
   },
   "guardianNoteRecoveryPromptTitle": {
     "message": "Récupération de compte détectée",
@@ -1882,10 +1879,6 @@
         "content": "$1"
       }
     }
-  },
-  "pendingNotesPromptAction": {
-    "message": "Voir maintenant",
-    "englishSource": "See Now"
   },
   "verifySeedPhrasePromptTitle": {
     "message": "Vérifiez votre phrase de récupération",
@@ -4153,10 +4146,6 @@
     "message": "Connectez un portefeuille pour transférer des actifs vers et depuis Miden.",
     "englishSource": "Connect a wallet to bridge assets to and from Miden."
   },
-  "onlyBridgeableTokenSupported": {
-    "message": "La méthode « Slow » (Agglayer) ne prend en charge que le jeton « bridgeable ». Utilisez la méthode « Fast » pour envoyer d'autres jetons.",
-    "englishSource": "The Slow (Agglayer) route only supports the bridgeable token. Use Fast to send other tokens."
-  },
   "connectDestinationWalletToClaim": {
     "message": "Connectez le portefeuille de destination pour réclamer vos jetons.",
     "englishSource": "Connect the destination wallet to claim."
@@ -4232,10 +4221,6 @@
   "delivering": {
     "message": "Livraison",
     "englishSource": "Delivering"
-  },
-  "slowNeedsNativeEth": {
-    "message": "La solution « Slow (Agglayer) » ne prend en charge que l'ETH natif sur le testnet. Choisissez « ETH » pour l'utiliser.",
-    "englishSource": "The Slow (Agglayer) route only supports native ETH on testnet. Choose ETH to use it."
   },
   "fastEthWrapNotice": {
     "message": "Le transfert d’ETH via la voie « Fast » consiste d’abord à le convertir en WETH, puis à transférer ce WETH. Cette voie n’est pas encore disponible.",

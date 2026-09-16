@@ -1,4 +1,4 @@
-import { AGGLAYER_BRIDGE_NOTE_SENDER_ACCOUNT_ID } from 'lib/agglayer/constant';
+import { AGGLAYER_BRIDGE_NOTE_SENDER_ACCOUNT_ID, AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL } from 'lib/agglayer/constant';
 import { effectiveWithdrawAttemptId, intentKey, matchesEarnWithdrawIntent } from 'lib/epoch/intent-key';
 import * as Repo from 'lib/miden/repo';
 
@@ -138,10 +138,13 @@ export async function applyBridgeInToConsumeRow(consumeId: string, info: IBridge
   if (info.bridgeReceiveTxId) {
     if (delivered.amount === undefined || !delivered.faucetId)
       throw new Error('Bridge consume is missing delivered asset data');
+    // No `outputSymbol` here: the output of a bridge-in is the Miden asset that
+    // landed, not the EVM input token. The row keeps the symbol it was created
+    // with, and the delivered faucet id resolves the rest.
     await updateBridgedReceivePhase(
       info.bridgeReceiveTxId,
       'received',
-      { midenNoteId: info.midenNoteId, outputSymbol: info.sourceSymbol },
+      { midenNoteId: info.midenNoteId },
       { amount: delivered.amount, faucetId: delivered.faucetId, transactionId: delivered.transactionId }
     );
   }
@@ -173,7 +176,9 @@ export function setAgglayerSenderForE2E(senderAccountId: string): void {
 /**
  * Match an AggLayer-delivered note to the oldest compatible tracking row.
  * The fixed sender is authoritative; amount + recipient prevent two deposits
- * to the same wallet from being paired in the wrong order.
+ * to the same wallet from being paired in the wrong order. The sender delivers
+ * bridged ETH, so only native ETH trackers are compatible: an ERC-20 deposit
+ * with the same base-unit amount must not adopt its note.
  */
 export async function takeAgglayerBridgeInInfo(args: {
   accountId: string;
@@ -194,6 +199,7 @@ export async function takeAgglayerBridgeInInfo(args: {
       const inputs = tx.extraInputs as IBridgedReceiveExtraInputs | undefined;
       return (
         inputs?.provider === 'agglayer' &&
+        inputs.sourceSymbol === AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL &&
         inputs.phase !== 'received' &&
         inputs.phase !== 'failed' &&
         tx.amount === args.amount

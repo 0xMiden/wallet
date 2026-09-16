@@ -14,7 +14,6 @@ import { toLocalFormat } from 'lib/i18n/numbers';
 import {
   initiateConsumeNotesTransaction,
   initiateConsumeTransaction,
-  reconcileBridgedReceives,
   requestSWTransactionProcessing,
   startBackgroundTransactionProcessing
 } from 'lib/miden/activity';
@@ -47,12 +46,6 @@ interface PullGesture {
   distance: number;
 }
 
-// Resume bridge-receive tracking orphaned by an app kill exactly once per
-// session (post-unlock, when Explore first mounts). Module-level so it
-// survives remounts. Earn deposit/withdraw rows are reconciled by the
-// always-mounted `EarnIntentWatcher` instead.
-let bridgeReceivesReconciled = false;
-
 const Explore: FC = () => {
   const { t } = useTranslation();
   const isMobileApp = isMobile();
@@ -68,7 +61,11 @@ const Explore: FC = () => {
   } = useAllBalances(account.publicKey, allTokensBaseMetadata);
   const tokenPrices = useWalletStore(s => s.tokenPrices);
 
-  const { data: claimableNotes, mutate: mutateClaimableNotes } = useClaimableNotes(account.publicKey);
+  const {
+    data: claimableNotes,
+    isFallback: claimableNotesAreCached,
+    mutate: mutateClaimableNotes
+  } = useClaimableNotes(account.publicKey);
   const isDelegatedProvingEnabled = isDelegateProofEnabled();
   const shouldAutoConsume = isAutoConsumeEnabled();
 
@@ -173,12 +170,6 @@ const Explore: FC = () => {
       navigate('/reset-required');
     }
   }, [address]);
-
-  useEffect(() => {
-    if (bridgeReceivesReconciled) return;
-    bridgeReceivesReconciled = true;
-    reconcileBridgedReceives().catch(err => console.warn('[bridge-receive] reconcile on mount failed', err));
-  }, []);
 
   const filteredTokens = useMemo(() => {
     const sorted = [...allTokenBalances].sort((a, b) => {
@@ -310,6 +301,10 @@ const Explore: FC = () => {
             account={account}
             balancesLoading={balancesLoading}
             claimableNotes={manuallyClaimableNotes}
+            // A faucet baseline has to be a LIVE list: the hook serves the list
+            // saved last session first, and a native note newer than that cache
+            // would otherwise count as this request's mint arriving.
+            fundingNotes={claimableNotesAreCached ? undefined : claimableNotes}
           />
         </div>
       </div>
@@ -329,6 +324,7 @@ interface HomeOverviewProps {
   account: WalletAccount;
   balancesLoading: boolean;
   claimableNotes: readonly PendingNoteValue[] | undefined;
+  fundingNotes: readonly PendingNoteValue[] | undefined;
 }
 
 const HomeOverview: FC<HomeOverviewProps> = ({
@@ -340,7 +336,8 @@ const HomeOverview: FC<HomeOverviewProps> = ({
   onSearchChange,
   account,
   balancesLoading,
-  claimableNotes
+  claimableNotes,
+  fundingNotes
 }) => {
   const [accountsOpen, setAccountsOpen] = useState(false);
   const { t } = useTranslation();
@@ -379,11 +376,12 @@ const HomeOverview: FC<HomeOverviewProps> = ({
         balances={balances}
         balancesLoading={balancesLoading}
         claimableNotes={claimableNotes}
+        fundingNotes={fundingNotes}
         tokenPrices={tokenPrices}
       />
 
       <div className="flex items-center justify-between pt-2">
-        <span className="text-2xl font-bold text-text-primary-token">{t('assets')}</span>
+        <span className="font-heading text-2xl font-bold text-text-primary-token">{t('assets')}</span>
       </div>
 
       <SearchInput value={search} onChange={onSearchChange} placeholder={t('searchForTokens')} />

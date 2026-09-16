@@ -131,7 +131,7 @@ test.describe('Bridge-IN deposit (AggLayer/ETH, full real UI)', () => {
         expect(decoded.functionName).toBe('bridgeAsset');
         const [destNetwork, destAddress, amount, tokenArg] = decoded.args;
         const expectedAmount = parseUnits(DEPOSIT_ETH, 18);
-        expect(destNetwork, 'destinationNetwork = MIDEN_CHAIN_ID').toBe(78);
+        expect(destNetwork, 'destinationNetwork = MIDEN_CHAIN_ID').toBe(86);
         expect(tokenArg, 'token = native ETH').toBe(zeroAddress);
         expect(amount, 'bridged amount').toBe(expectedAmount);
         expect(destAddress, 'recipient is a real 20-byte address').toMatch(/^0x[0-9a-fA-F]{40}$/);

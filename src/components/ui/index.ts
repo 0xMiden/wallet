@@ -5,7 +5,7 @@ export { BalanceCard } from './BalanceCard';
 export type { BalanceCardProps, BalanceDeltaDirection } from './BalanceCard';
 
 export { PromptCard } from './PromptCard';
-export type { PromptCardProps, PromptCardStatus, PromptCardVariant } from './PromptCard';
+export type { PromptCardHero, PromptCardProps, PromptCardStatus, PromptCardVariant } from './PromptCard';
 
 export { PromptCarousel } from './PromptCarousel';
 export type { PromptCarouselProps } from './PromptCarousel';
