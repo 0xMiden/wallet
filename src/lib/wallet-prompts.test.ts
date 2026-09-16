@@ -112,6 +112,19 @@ describe('wallet prompts', () => {
     });
   });
 
+  it('drops a wallet-wide faucet status: that status lives per account', () => {
+    // Written by a build that kept one faucet status for the whole wallet (#921).
+    const storage = normalizeWalletPromptStorage({
+      version: 1,
+      prompts: { [WalletPromptType.Faucet]: 'completed', [WalletPromptType.Bridge]: 'pending' },
+      pendingNotesDismissedIds: [],
+      faucetByAccount: { accountA: 'dismissed' }
+    });
+
+    expect(storage.prompts).toEqual({ [WalletPromptType.Bridge]: WalletPromptStatus.Pending });
+    expect(storage.faucetByAccount).toEqual({ accountA: WalletPromptStatus.Dismissed });
+  });
+
   it('keeps valid per-account faucet statuses and drops malformed ones', () => {
     expect(
       normalizeWalletPromptStorage({
@@ -185,13 +198,13 @@ describe('wallet prompts', () => {
     );
   });
 
-  it('stores the faucet alongside the other prompts', async () => {
-    await seedWalletPrompt(WalletPromptType.Faucet);
+  it('stores several prompts side by side', async () => {
+    await seedWalletPrompt(WalletPromptType.Bridge);
     await seedWalletPrompt(WalletPromptType.VerifySeedPhrase);
 
     const storage = await fetchWalletPromptStorage();
     expect(storage.prompts).toEqual({
-      [WalletPromptType.Faucet]: WalletPromptStatus.Pending,
+      [WalletPromptType.Bridge]: WalletPromptStatus.Pending,
       [WalletPromptType.VerifySeedPhrase]: WalletPromptStatus.Pending
     });
   });

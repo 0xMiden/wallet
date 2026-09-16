@@ -795,7 +795,10 @@ export const HomePrompts: FC<HomePromptsProps> = ({
             status={overrides.status}
             onDismiss={
               overrides.onDismiss ??
-              ((overrides.dismissible ?? definition.dismissible) ? () => dismissPrompt(type) : undefined)
+              // The faucet's status is per account, so its case supplies its own dismiss.
+              ((overrides.dismissible ?? definition.dismissible) && type !== WalletPromptType.Faucet
+                ? () => dismissPrompt(type)
+                : undefined)
             }
           />
         );

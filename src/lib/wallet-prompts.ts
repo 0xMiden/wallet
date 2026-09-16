@@ -52,9 +52,13 @@ export enum WalletPromptStatus {
   Completed = 'completed'
 }
 
+// Every prompt type whose status is kept once for the whole wallet. The faucet prompt's
+// status is kept per account (`faucetByAccount`), so it has no wallet-wide entry.
+export type WalletWidePromptType = Exclude<WalletPromptType, WalletPromptType.Faucet>;
+
 export type WalletPromptStorage = {
   version: 1;
-  prompts: Partial<Record<WalletPromptType, WalletPromptStatus>>;
+  prompts: Partial<Record<WalletWidePromptType, WalletPromptStatus>>;
   pendingNotesDismissedIds: string[];
   // The faucet prompt is about one account's balance, so its status is kept per
   // account address. A wallet-wide status let one account's completion or dismiss
@@ -78,7 +82,7 @@ export type PendingNoteValue = Pick<ConsumableNote, 'id' | 'amount' | 'faucetId'
 };
 
 const VALID_STATUSES = new Set<string>(Object.values(WalletPromptStatus));
-const VALID_TYPES = new Set<string>(Object.values(WalletPromptType));
+const VALID_TYPES = new Set<string>(Object.values(WalletPromptType).filter(type => type !== WalletPromptType.Faucet));
 
 function normalizePendingNotesDismissedIds(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
@@ -186,7 +190,7 @@ export function normalizeWalletPromptStorage(value: unknown): WalletPromptStorag
     version: 1,
     prompts: Object.entries(prompts).reduce<WalletPromptStorage['prompts']>((acc, [type, status]) => {
       if (VALID_TYPES.has(type) && typeof status === 'string' && VALID_STATUSES.has(status)) {
-        acc[type as WalletPromptType] = status as WalletPromptStatus;
+        acc[type as WalletWidePromptType] = status as WalletPromptStatus;
       }
       return acc;
     }, {}),
@@ -205,7 +209,7 @@ function normalizeFaucetByAccount(value: unknown): Record<string, WalletPromptSt
   }, {});
 }
 
-export function isWalletPromptPending(storage: WalletPromptStorage, type: WalletPromptType): boolean {
+export function isWalletPromptPending(storage: WalletPromptStorage, type: WalletWidePromptType): boolean {
   return storage.prompts[type] === WalletPromptStatus.Pending;
 }
 
@@ -237,13 +241,13 @@ function updateWalletPromptStorage(
 }
 
 export function setWalletPromptStatus(
-  type: WalletPromptType,
+  type: WalletWidePromptType,
   status: WalletPromptStatus
 ): Promise<WalletPromptStorage> {
   return updateWalletPromptStorage(storage => ({ ...storage, prompts: { ...storage.prompts, [type]: status } }));
 }
 
-export function seedWalletPrompt(type: WalletPromptType): Promise<WalletPromptStorage> {
+export function seedWalletPrompt(type: WalletWidePromptType): Promise<WalletPromptStorage> {
   return updateWalletPromptStorage(storage => {
     const currentStatus = storage.prompts[type];
     if (currentStatus === WalletPromptStatus.Dismissed || currentStatus === WalletPromptStatus.Completed) {
@@ -253,10 +257,10 @@ export function seedWalletPrompt(type: WalletPromptType): Promise<WalletPromptSt
   });
 }
 
-export const dismissWalletPrompt = (type: WalletPromptType) =>
+export const dismissWalletPrompt = (type: WalletWidePromptType) =>
   setWalletPromptStatus(type, WalletPromptStatus.Dismissed);
 
-export const completeWalletPrompt = (type: WalletPromptType) =>
+export const completeWalletPrompt = (type: WalletWidePromptType) =>
   setWalletPromptStatus(type, WalletPromptStatus.Completed);
 
 // -- Hot-key hardware failure report --------------------------------------
@@ -506,7 +510,7 @@ export function useWalletPromptStorage() {
   );
 
   const setPromptStatus = useCallback(
-    (type: WalletPromptType, status: WalletPromptStatus, dismissedNoteIds?: readonly string[]) =>
+    (type: WalletWidePromptType, status: WalletPromptStatus, dismissedNoteIds?: readonly string[]) =>
       updateStorage(current => ({
         ...current,
         prompts: { ...current.prompts, [type]: status },
@@ -526,16 +530,16 @@ export function useWalletPromptStorage() {
   );
 
   const dismissPrompt = useCallback(
-    (type: WalletPromptType) => setPromptStatus(type, WalletPromptStatus.Dismissed),
+    (type: WalletWidePromptType) => setPromptStatus(type, WalletPromptStatus.Dismissed),
     [setPromptStatus]
   );
 
   const completePrompt = useCallback(
-    (type: WalletPromptType) => setPromptStatus(type, WalletPromptStatus.Completed),
+    (type: WalletWidePromptType) => setPromptStatus(type, WalletPromptStatus.Completed),
     [setPromptStatus]
   );
 
-  const isPromptPending = useCallback((type: WalletPromptType) => isWalletPromptPending(storage, type), [storage]);
+  const isPromptPending = useCallback((type: WalletWidePromptType) => isWalletPromptPending(storage, type), [storage]);
 
   return {
     storage,
