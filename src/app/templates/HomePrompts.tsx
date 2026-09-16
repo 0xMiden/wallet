@@ -7,6 +7,7 @@ import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
 import { IconName } from 'app/icons/v2';
 import { GuardianNeedsUrlBanner } from 'app/templates/GuardianNeedsUrlBanner';
 import { PromptCard, PromptCardHero, PromptCardStatus, PromptCarousel, PromptCardVariant } from 'components/ui';
+import { clearGuardianNoteRecoveryProgress } from 'lib/guardian-note-recovery-progress';
 import { formatUsd } from 'lib/i18n/numbers';
 import { initiateReplaceHotKeyTransaction, requestSWTransactionProcessing } from 'lib/miden/activity';
 import { hasNoFeeAsset } from 'lib/miden/fees/spendable';
@@ -243,6 +244,13 @@ export const HomePrompts: FC<HomePromptsProps> = ({
   const noteRecoveryBody = useMemo(() => {
     if (!noteRecoveryProgress) return undefined;
     switch (noteRecoveryProgress.step) {
+      case 'history':
+        return t('guardianHistoryProgress', {
+          operator: noteRecoveryProgress.operator,
+          count: noteRecoveryProgress.restored ?? 0
+        });
+      case 'history-partial':
+        return t('guardianHistoryPartial', { count: noteRecoveryProgress.restored ?? 0 });
       case 'transport':
         return t('guardianNoteRecoveryTransportStep');
       case 'proposals':
@@ -666,7 +674,14 @@ export const HomePrompts: FC<HomePromptsProps> = ({
         case WalletPromptType.GuardianNoteRecovery:
           return {
             body: noteRecoveryBody,
-            status: 'loading'
+            status: noteRecoveryProgress?.step === 'history-partial' ? 'failure' : 'loading',
+            dismissible: noteRecoveryProgress?.step === 'history-partial',
+            onDismiss:
+              noteRecoveryProgress?.step === 'history-partial'
+                ? () => {
+                    clearGuardianNoteRecoveryProgress(account.publicKey).catch(console.warn);
+                  }
+                : undefined
           };
         case WalletPromptType.Faucet: {
           const funding = awaitingFaucetFunds || faucetStatusIndicator === 'loading';
@@ -744,6 +759,8 @@ export const HomePrompts: FC<HomePromptsProps> = ({
       cannotPayFee,
       bridgeTransactions,
       noteRecoveryBody,
+      noteRecoveryProgress,
+      account.publicKey,
       copyHotKeyError,
       copyStatusIndicator,
       faucetError,

@@ -425,6 +425,44 @@ afterEach(() => {
 });
 
 describe('HistoryDetails', () => {
+  it.each(['send', 'consume', 'swap', 'bridged-send', 'earn-deposit'])(
+    'uses the standard detail card for a recovered %s without external actions',
+    async type => {
+      setMockRow({
+        id: 'recovered',
+        type,
+        accountId: 'acct-A',
+        status: 2,
+        initiatedAt: 1,
+        amount: 7n,
+        faucetId: 'faucet',
+        displayIcon: 'DEFAULT',
+        restoredFromBackup: true,
+        recovered: true,
+        recovery: {
+          version: 1,
+          network: 'testnet',
+          operators: ['https://guardian.example'],
+          nonce: 1,
+          inputNotes: [],
+          outputNotes: [],
+          completeness: 'partial',
+          reclaimed: false
+        }
+      });
+      const view = render(<HistoryDetails transactionId="recovered" />);
+      await act(async () => {});
+      expect(screen.getByTestId('page-layout')).toBeInTheDocument();
+      expect(
+        screen.getAllByTestId('detail-card').some(card => card.getAttribute('data-title') === 'transferDetails')
+      ).toBe(true);
+      expect(screen.queryByTestId('bridge-claim-section')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('guardian-history-details')).not.toBeInTheDocument();
+      expect(mockRequestSWTransactionProcessing).not.toHaveBeenCalled();
+      expect(mockRequeueFailedTransaction).not.toHaveBeenCalled();
+      view.unmount();
+    }
+  );
   it('shows the fee bound when retrying a Miden transaction', async () => {
     mockMaxNetworkFee = '0.3 MIDEN';
     setMockRow({ ...baseSendTx, status: 3 });
