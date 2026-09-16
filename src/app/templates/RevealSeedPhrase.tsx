@@ -20,6 +20,8 @@ import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer'
 import useCopyToClipboard from 'lib/ui/useCopyToClipboard';
 import { goBack } from 'lib/woozie';
 
+import { SEED_STATE_NOTICE } from './seed-state-notice';
+
 type FormData = {
   password: string;
 };
@@ -139,9 +141,11 @@ const RevealSeedPhrase: FC = () => {
   if (seedStatus && seedStatus !== 'stored')
     return (
       <p role="status" className="p-4">
-        {/* An unfinished removal is not a finished one; say which it is, as
-            VerifySeedPhraseFlow does for the same two states. */}
-        {t(seedStatus === 'removing' ? 'seedRemovalIncomplete' : 'seedPhraseRemoved')}
+        {/* Three distinct states, not two: a removal still to finish, one that
+            finished, and a wallet imported from a key that never had a phrase
+            here at all. Telling that last user their seed was removed is false.
+            VerifySeedPhraseFlow carries the identical mapping. */}
+        {t(SEED_STATE_NOTICE[seedStatus])}
       </p>
     );
 

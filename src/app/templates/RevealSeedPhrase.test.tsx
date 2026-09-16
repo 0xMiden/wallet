@@ -274,12 +274,17 @@ describe('RevealSeedPhrase', () => {
       mockSeedStatus = status;
       mockSecret = 'alpha beta gamma delta';
       const container = await render();
-      // An unfinished removal is not a finished one, and the user is told which:
-      // 'removing' is retried on the next unlock and is still reachable from
-      // Settings, so it must not claim the phrase is already gone.
-      expect(container.querySelector('[role="status"]')?.textContent).toBe(
-        status === 'removing' ? 'seedRemovalIncomplete' : 'seedPhraseRemoved'
-      );
+      // Three distinct states, spelled out as a literal table rather than
+      // recomputed from the production map, which would make this tautological.
+      // 'removing' is retried on the next unlock; 'unavailable' means a wallet
+      // imported from a key that never had a phrase here, so neither may claim
+      // the phrase was removed.
+      const expectedNotice = {
+        removing: 'seedRemovalIncomplete',
+        removed: 'seedPhraseRemoved',
+        unavailable: 'seedPhraseNotOnThisDevice'
+      } as const;
+      expect(container.querySelector('[role="status"]')?.textContent).toBe(expectedNotice[status]);
       expect(container.textContent).not.toContain('alpha');
       expect(mockSetSecret).toHaveBeenCalledWith(null);
       expect(mockHasHardwareProtector).not.toHaveBeenCalled();

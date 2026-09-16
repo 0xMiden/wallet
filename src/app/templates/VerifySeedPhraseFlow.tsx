@@ -21,6 +21,8 @@ import { completeWalletPrompt, WalletPromptType } from 'lib/wallet-prompts';
 import { goBack, navigate } from 'lib/woozie';
 import { VerifySeedPhraseScreen } from 'screens/onboarding/create-wallet-flow/VerifySeedPhrase';
 
+import { SEED_STATE_NOTICE } from './seed-state-notice';
+
 type Step = 'warning' | 'auth' | 'review' | 'quiz' | 'confirm';
 
 type FormData = {
@@ -173,7 +175,7 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean }> = ({ remove = false }) => {
     return (
       <div className="flex flex-1 flex-col gap-6 px-4 pb-6">
         <NavigationHeader title={t('recoveryPhrase')} onBack={onExit} />
-        <p role="status">{t(seedStatus === 'removing' ? 'seedRemovalIncomplete' : 'seedPhraseRemoved')}</p>
+        <p role="status">{t(SEED_STATE_NOTICE[seedStatus])}</p>
         {authError && <p role="alert">{authError}</p>}
         <Button title={t('close')} onClick={onExit} />
       </div>

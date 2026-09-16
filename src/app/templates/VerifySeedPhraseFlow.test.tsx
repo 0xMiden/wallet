@@ -503,4 +503,27 @@ describe('seed removal', () => {
     await waitFor(() => expect(mockRemoveSeedPhrase).toHaveBeenCalledWith(undefined));
     mockSeedState.seedPhraseStatus = undefined;
   });
+
+  // The sibling of RevealSeedPhrase's notice, carrying the identical mapping and
+  // previously untested here. Spelled out as a literal table rather than read
+  // from the production map, which would make the assertion tautological.
+  it.each<[Exclude<SeedPhraseStatus, 'stored'>, string]>([
+    ['removing', 'seedRemovalIncomplete'],
+    ['removed', 'seedPhraseRemoved'],
+    ['unavailable', 'seedPhraseNotOnThisDevice']
+  ])('names the seed state %s rather than assuming a removal', async (status, expected) => {
+    mockSeedState.seedPhraseStatus = status;
+    // Mocks are not auto-cleared in this suite and the sibling test above calls
+    // it, so this has to be about THIS render.
+    mockRemoveSeedPhrase.mockClear();
+    try {
+      render(<VerifySeedPhraseFlow remove />);
+
+      expect(screen.getByRole('status').textContent).toBe(expected);
+      // The flow itself must not start: there is nothing here to verify.
+      expect(mockRemoveSeedPhrase).not.toHaveBeenCalled();
+    } finally {
+      mockSeedState.seedPhraseStatus = undefined;
+    }
+  });
 });
