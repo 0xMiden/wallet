@@ -71,23 +71,11 @@ export function deserializeInternalError(data: any): IntercomError {
     const [message, errors, name, reason] = data;
     return rebuildInternalError(message, errors, name, reason);
   }
-  // The OBJECT envelope this pair itself shipped with before the array. Every
-  // OTHER legacy shape reaching `deserializeError` degrades gracefully - a
-  // string and a `[message, errors]` array are both exactly what that function
-  // was written for - but an object hits its `new IntercomError(data)` branch,
-  // where `Error` coerces it to the literal "[object Object]" and `name` and
-  // `reason`, the only two fields the poison and eviction classifiers read, are
-  // dropped. So the one shape a bare fallback cannot carry is the one this
-  // module used to emit, and the direction is the same one the array was chosen
-  // for: a client updated ahead of the service worker still holding the port.
-  //
-  // Arrays are excluded rather than merely falling through the check above: a legacy
-  // `[message, errors]` array is an object to `typeof`, and reading `.message` off it
-  // yields `undefined`, which would turn the one legacy shape `deserializeError`
-  // handles perfectly into the default message.
-  if (data !== null && typeof data === 'object' && !Array.isArray(data)) {
-    return rebuildInternalError(data.message, data.errors, data.name, data.reason);
-  }
+  // Everything else goes to `deserializeError`, which handles exactly the shapes a
+  // released build can send over this port: a bare string and a `[message, errors]`
+  // array, both from `serializeError`. There is no object case because nothing has
+  // ever emitted one - `serializeInternalError` returns an array, and it appears in
+  // no shipped version (0 hits on next, on main, and in v1.16.1).
   return deserializeError(data);
 }
 
