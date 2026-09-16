@@ -268,7 +268,7 @@ describe('RevealSeedPhrase', () => {
   // -------------------------------------------------------------------------
   // Initial null render (hasHardwareProtector still resolving).
   // -------------------------------------------------------------------------
-  it.each<SeedPhraseStatus>(['removed', 'removing', 'unavailable'])(
+  it.each<Exclude<SeedPhraseStatus, 'stored'>>(['removed', 'removing', 'unavailable'])(
     'does not request or display a phrase when its status is %s',
     async status => {
       mockSeedStatus = status;
@@ -282,7 +282,7 @@ describe('RevealSeedPhrase', () => {
       const expectedNotice = {
         removing: 'seedRemovalIncomplete',
         removed: 'seedPhraseRemoved',
-        unavailable: 'seedPhraseNotOnThisDevice'
+        unavailable: 'seedPhraseUnavailable'
       } as const;
       expect(container.querySelector('[role="status"]')?.textContent).toBe(expectedNotice[status]);
       expect(container.textContent).not.toContain('alpha');

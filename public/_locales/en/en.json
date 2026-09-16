@@ -1025,7 +1025,6 @@
   "removeSeedPhraseConfirmation": "This removes the seed phrase and Guardian recovery keys from this wallet on this device. Keep your paper backup. Previously made backups are not deleted.",
   "removeSeedPhraseConfirm": "Remove from this device",
   "seedPhraseRemoved": "Seed phrase removed from this device",
-  "seedPhraseNotOnThisDevice": "This wallet was imported from a key, so no seed phrase is stored on this device",
   "seedPhraseUnavailable": "There is no seed phrase stored in this wallet.",
   "seedRemovalIncomplete": "Removal is not complete. Unlock the wallet again to finish removing the recovery material.",
   "seedRemovalFailed": "Could not finish removing the seed phrase. Try again.",

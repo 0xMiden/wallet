@@ -510,7 +510,7 @@ describe('seed removal', () => {
   it.each<[Exclude<SeedPhraseStatus, 'stored'>, string]>([
     ['removing', 'seedRemovalIncomplete'],
     ['removed', 'seedPhraseRemoved'],
-    ['unavailable', 'seedPhraseNotOnThisDevice']
+    ['unavailable', 'seedPhraseUnavailable']
   ])('names the seed state %s rather than assuming a removal', async (status, expected) => {
     mockSeedState.seedPhraseStatus = status;
     // Mocks are not auto-cleared in this suite and the sibling test above calls

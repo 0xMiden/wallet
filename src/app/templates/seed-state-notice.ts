@@ -7,10 +7,11 @@ import { SeedPhraseStatus } from 'lib/shared/types';
  * The three cases are genuinely different and a two-way split gets one of them
  * wrong: a wallet imported from a hot key has status 'unavailable' from birth
  * (see NewWalletFromHotKeyRequest) and never had a phrase on this device, so
- * telling that user it was "removed" is false.
+ * telling that user it was "removed" is false. `seedPhraseUnavailable` already
+ * exists and is translated in every runtime locale, so this needs no new copy.
  */
 export const SEED_STATE_NOTICE: Record<Exclude<SeedPhraseStatus, 'stored'>, string> = {
   removing: 'seedRemovalIncomplete',
   removed: 'seedPhraseRemoved',
-  unavailable: 'seedPhraseNotOnThisDevice'
+  unavailable: 'seedPhraseUnavailable'
 };
