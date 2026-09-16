@@ -213,40 +213,43 @@ export async function fetchWalletPromptStorage(): Promise<WalletPromptStorage> {
   return normalizeWalletPromptStorage(await fetchFromStorage(WALLET_PROMPTS_STORAGE_KEY));
 }
 
-async function putWalletPromptStorage(storage: WalletPromptStorage): Promise<WalletPromptStorage> {
-  await putToStorage(WALLET_PROMPTS_STORAGE_KEY, storage);
-  return storage;
+// Writers own different fields of one record (a prompt's status, the dismissed note
+// ids, each account's faucet status), so every write applies its change to the record
+// as it is now, one operation at a time. A writer building on a copy read before another
+// writer's put would store the old value of every field it does not own. The hook's own
+// reads take their turn too, so a load never lands after a write it predates.
+let walletPromptStorageTurn: Promise<unknown> = Promise.resolve();
+
+function inWalletPromptStorageTurn<T>(operation: () => Promise<T>): Promise<T> {
+  const result = walletPromptStorageTurn.then(operation);
+  walletPromptStorageTurn = result.catch(() => undefined);
+  return result;
 }
 
-export async function setWalletPromptStatus(
-  type: WalletPromptType,
-  status: WalletPromptStatus
+function updateWalletPromptStorage(
+  change: (current: WalletPromptStorage) => WalletPromptStorage
 ): Promise<WalletPromptStorage> {
-  const storage = await fetchWalletPromptStorage();
-  // Spread first: a writer carries every field it does not own, or it silently
-  // drops them (a per-account faucet status included) on each unrelated write.
-  return putWalletPromptStorage({
-    ...storage,
-    prompts: {
-      ...storage.prompts,
-      [type]: status
-    }
+  return inWalletPromptStorageTurn(async () => {
+    const next = change(await fetchWalletPromptStorage());
+    await putToStorage(WALLET_PROMPTS_STORAGE_KEY, next);
+    return next;
   });
 }
 
-export async function seedWalletPrompt(type: WalletPromptType): Promise<WalletPromptStorage> {
-  const storage = await fetchWalletPromptStorage();
-  const currentStatus = storage.prompts[type];
-  if (currentStatus === WalletPromptStatus.Dismissed || currentStatus === WalletPromptStatus.Completed) {
-    return storage;
-  }
+export function setWalletPromptStatus(
+  type: WalletPromptType,
+  status: WalletPromptStatus
+): Promise<WalletPromptStorage> {
+  return updateWalletPromptStorage(storage => ({ ...storage, prompts: { ...storage.prompts, [type]: status } }));
+}
 
-  return putWalletPromptStorage({
-    ...storage,
-    prompts: {
-      ...storage.prompts,
-      [type]: WalletPromptStatus.Pending
+export function seedWalletPrompt(type: WalletPromptType): Promise<WalletPromptStorage> {
+  return updateWalletPromptStorage(storage => {
+    const currentStatus = storage.prompts[type];
+    if (currentStatus === WalletPromptStatus.Dismissed || currentStatus === WalletPromptStatus.Completed) {
+      return storage;
     }
+    return { ...storage, prompts: { ...storage.prompts, [type]: WalletPromptStatus.Pending } };
   });
 }
 
@@ -463,7 +466,7 @@ export function useWalletPromptStorage() {
   const [isLoaded, setIsLoaded] = useState(false);
 
   const refreshPrompts = useCallback(async () => {
-    const nextStorage = await fetchWalletPromptStorage();
+    const nextStorage = await inWalletPromptStorageTurn(fetchWalletPromptStorage);
     setStorage(nextStorage);
     setIsLoaded(true);
     return nextStorage;
@@ -472,7 +475,7 @@ export function useWalletPromptStorage() {
   useEffect(() => {
     let cancelled = false;
 
-    fetchWalletPromptStorage()
+    inWalletPromptStorageTurn(fetchWalletPromptStorage)
       .then(nextStorage => {
         if (!cancelled) {
           setStorage(nextStorage);
@@ -488,48 +491,38 @@ export function useWalletPromptStorage() {
     };
   }, []);
 
-  const setPromptStatus = useCallback(
-    (type: WalletPromptType, status: WalletPromptStatus, dismissedNoteIds?: readonly string[]) => {
-      setStorage(prev => {
-        const current = normalizeWalletPromptStorage(prev);
-        const next: WalletPromptStorage = {
-          ...current,
-          prompts: {
-            ...current.prompts,
-            [type]: status
-          },
-          pendingNotesDismissedIds:
-            dismissedNoteIds === undefined
-              ? current.pendingNotesDismissedIds
-              : normalizePendingNotesDismissedIds(dismissedNoteIds)
-        };
-        putWalletPromptStorage(next).catch(error => {
-          console.warn('[wallet-prompts] failed to persist prompt status:', error);
-          refreshPrompts();
-        });
-        return next;
+  // Shown at once, then persisted as the same change applied to the stored record, whose
+  // result becomes the state: a write elsewhere since this hook last read is kept. A failed
+  // write reloads.
+  const updateStorage = useCallback(
+    (change: (current: WalletPromptStorage) => WalletPromptStorage) => {
+      setStorage(prev => change(normalizeWalletPromptStorage(prev)));
+      updateWalletPromptStorage(change).then(setStorage, error => {
+        console.warn('[wallet-prompts] failed to persist prompt status:', error);
+        refreshPrompts();
       });
     },
     [refreshPrompts]
   );
 
+  const setPromptStatus = useCallback(
+    (type: WalletPromptType, status: WalletPromptStatus, dismissedNoteIds?: readonly string[]) =>
+      updateStorage(current => ({
+        ...current,
+        prompts: { ...current.prompts, [type]: status },
+        pendingNotesDismissedIds:
+          dismissedNoteIds === undefined
+            ? current.pendingNotesDismissedIds
+            : normalizePendingNotesDismissedIds(dismissedNoteIds)
+      })),
+    [updateStorage]
+  );
+
   // The faucet prompt's status for one account address; see `faucetByAccount`.
   const setFaucetStatus = useCallback(
-    (address: string, status: WalletPromptStatus) => {
-      setStorage(prev => {
-        const current = normalizeWalletPromptStorage(prev);
-        const next: WalletPromptStorage = {
-          ...current,
-          faucetByAccount: { ...current.faucetByAccount, [address]: status }
-        };
-        putWalletPromptStorage(next).catch(error => {
-          console.warn('[wallet-prompts] failed to persist faucet prompt status:', error);
-          refreshPrompts();
-        });
-        return next;
-      });
-    },
-    [refreshPrompts]
+    (address: string, status: WalletPromptStatus) =>
+      updateStorage(current => ({ ...current, faucetByAccount: { ...current.faucetByAccount, [address]: status } })),
+    [updateStorage]
   );
 
   const dismissPrompt = useCallback(
