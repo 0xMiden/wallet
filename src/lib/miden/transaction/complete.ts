@@ -1431,10 +1431,14 @@ export const resolveUnconfirmedSwitch = async (id: string, landed: boolean): Pro
     tx.displayMessage = 'Guardian switch discarded';
     // Plain prose, like every other `tx.error` (the field carries thrown-error
     // text and is rendered verbatim on the failure card). It says only what THIS
-    // function has established. An earlier version claimed the wallet had been
-    // pointed back at the previous guardian - written inside the Dexie modify,
-    // before the write that would make it true had even been attempted.
-    tx.error = 'The node discarded this guardian switch after submission; the previous guardian is still active.';
+    // function has established: that the node discarded THIS switch. Two earlier
+    // versions overreached - one claimed the wallet had been pointed back at the
+    // previous guardian, the next that the previous guardian was still active -
+    // and both are claims about CURRENT account state this function never reads.
+    // With two rotations unconfirmed at once (A to B discarded while B to C
+    // commits, the case the rollback below is conditional for) the previous
+    // guardian is not active, and the card said so anyway.
+    tx.error = 'The node discarded this guardian switch after submission.';
     // Cleared for the same reason the landed path clears it: the flag means
     // "completed with no evidence either way", and the node has now answered.
     // The row's terminal status carries the outcome from here.
