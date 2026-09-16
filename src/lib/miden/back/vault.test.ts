@@ -2441,6 +2441,61 @@ describe('recovery seed waiting time', () => {
       await Repo.transactions.delete(transaction.id);
     }
   });
+
+  // A hot-key-only import stores no cold public key and has hdIndex -1, so the
+  // seed prompt is the ONLY place the cold key for that account ever exists.
+  // The GuardianSettings CTA test asserts the button stays offered; this asserts
+  // the pipeline behind it actually works, and that the derived key is bound to
+  // the one transaction that asked for it.
+  it('derives and binds a cold key for an account that has none', async () => {
+    const account: WalletAccount = {
+      publicKey: 'guardian-no-cold',
+      name: 'Imported from hot key',
+      type: WalletType.Guardian,
+      hdIndex: -1,
+      isPublic: false
+      // coldPublicKey deliberately absent: that is the hot-key-only marker.
+    };
+    const vault = await seedVault('pw', { mnemonic: '', accounts: [account] });
+    const transaction: ITransaction = new Transaction(account.publicKey, new Uint8Array());
+    transaction.type = 'replace-hot-key';
+    const other: ITransaction = new Transaction(account.publicKey, new Uint8Array());
+    other.type = 'replace-hot-key';
+    await Repo.transactions.bulkAdd([transaction, other]);
+    try {
+      // No local cold key and no authorization yet, so the pipeline must pause.
+      await expect(vault.prepareRecoveryTransaction(transaction.id)).resolves.toEqual({ ready: false });
+      expect((await Repo.transactions.get(transaction.id))?.awaitingRecoverySeed).toBe(true);
+
+      const sdk = jest.requireMock<{ AuthSecretKey: { ecdsaWithRNG: jest.Mock } }>('@miden-sdk/miden-sdk/lazy');
+      sdk.AuthSecretKey.ecdsaWithRNG.mockImplementationOnce(() => ({
+        publicKey: () => ({
+          serialize: () => new Uint8Array([1, 2, 3, 4]),
+          toCommitment: () => ({ toHex: () => '0x020304', free: jest.fn() }),
+          free: jest.fn()
+        }),
+        serialize: () => new Uint8Array([1, 5, 6]),
+        free: jest.fn()
+      }));
+      mockGetAccount.mockResolvedValueOnce({});
+      // The on-chain cold signer is what picks the HD index when the account
+      // cannot name one itself.
+      mockGetSignerDetailsFromAccount.mockResolvedValueOnce({ commitment: '020304' });
+      await vault.provideRecoverySeed(transaction.id, VALID_MNEMONIC, getRecoveryAction(transaction));
+
+      // getAuthorizedRecoveryPublicKey is the only source for this key.
+      await expect(vault.prepareRecoveryTransaction(transaction.id)).resolves.toEqual({
+        ready: true,
+        coldPublicKey: '020304'
+      });
+      // Bound to the transaction that asked: a sibling of the SAME type on the
+      // SAME account does not inherit the authorization.
+      await expect(vault.prepareRecoveryTransaction(other.id)).resolves.toEqual({ ready: false });
+    } finally {
+      clearRecoveryAuthorizations();
+      await Repo.transactions.bulkDelete([transaction.id, other.id]);
+    }
+  });
 });
 
 describe('seed phrase removal', () => {

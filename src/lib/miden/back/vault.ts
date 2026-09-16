@@ -975,6 +975,14 @@ export class Vault {
       const vaultKey = await Passworder.importVaultKey(vaultKeyBytes);
       const spawned = new Vault(vaultKey);
 
+      // PRECONDITION: no wallet exists. Like `spawn`, this wipes storage before
+      // the protector setup and before the guardian lookup, so a failure after
+      // that point leaves no wallet behind. Today that is safe because the only
+      // caller is onboarding (Welcome.tsx), which `resolveRootView` reaches only
+      // when no vault is present, and the next attempt's own `clearStorage()`
+      // clears the half-written protector. A caller that ran this over a live
+      // wallet WOULD destroy it - stage the lookup before the wipe first.
+      //
       // Validate + canonicalize the pasted key BEFORE the storage wipe or any
       // network work, so a junk paste can never destroy an existing wallet.
       // Static AuthSecretKey ops only, but taken under the WASM lock like every

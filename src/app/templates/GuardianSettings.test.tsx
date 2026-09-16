@@ -519,8 +519,12 @@ it('nests the section headings under the guardian name rather than beside it', (
   expect(screen.getByText('details').tagName).toBe('H3');
 });
 
-// Hot-key-only import: no cold key on the account. The rotate CTA stays
-// offered; the pipeline prompts for the seed phrase for that one transaction.
+// Hot-key-only import: no cold key on the account. This guards the CTA's
+// VISIBILITY only, and passes on the base commit by construction - the CTA was
+// never gated on the cold key. The pipeline it fronts (prompt for the seed,
+// derive against the on-chain cold signer, bind the key to that one
+// transaction) is covered in vault.test.ts, 'derives and binds a cold key for
+// an account that has none'.
 it('keeps the rotate CTA for an account with no cold key', () => {
   mockColdPublicKey = undefined;
   try {
