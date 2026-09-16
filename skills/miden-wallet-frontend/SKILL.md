@@ -21,6 +21,7 @@ Build wallet UI by extending the established system instead of copying legacy or
 | Need | Use |
 | --- | --- |
 | Existing wallet control or display | Current feature, then `src/components/ui` |
+| Persistent wallet navigation | React `BottomNav` through `TabLayout` |
 | Primary wallet CTA | `src/components/Button` |
 | Drawer, dialog, or compact generic primitive | Existing `src/lib/ui` convention |
 | New style | Tailwind + `cn()` + semantic token |
@@ -36,7 +37,7 @@ Build wallet UI by extending the established system instead of copying legacy or
 - Use `useMotion`, `useSprings`, or `resolveTransition` with `lib/animation/springs`; do not inline spring physics.
 - Use native interactive elements where possible. Otherwise provide keyboard activation, visible focus, and an accessible name.
 - Localize user-facing text, use v2 icons, and add the established mobile haptic for meaningful interaction.
-- Isolate platform behavior through `lib/platform`; preserve mobile safe areas and native navbar ownership.
+- Isolate platform behavior through `lib/platform`; keep persistent navigation in `BottomNav` and `TabLayout` across extension, mobile, and desktop, and preserve mobile safe areas.
 
 ## References
 
@@ -50,4 +51,4 @@ Build wallet UI by extending the established system instead of copying legacy or
 - Using a raw `div` as a button when a native button works.
 - Adding `dark:` to a token that already auto-flips.
 - Copying legacy atoms, literal colors, or inline spring values into new UI.
-- Treating mobile as a CSS breakpoint rather than a platform with safe-area, native-nav, and haptic behavior.
+- Treating mobile as a CSS breakpoint rather than a platform with safe-area, React navigation, and haptic behavior.

@@ -59,11 +59,11 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "setVisible", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "listInstances", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "closeAll", returnType: CAPPluginReturnPromise),
-        // Miden patch: native navbar overlay window. Render the wallet's
-        // bottom navbar as a UIVisualEffectView+UIButtons in its own
-        // UIWindow at .normal+200 so it can paint over (and capture
-        // taps from) the dApp WKWebView at .normal+100. While the
-        // overlay is visible the React-side navbar is hidden via CSS.
+        // Retained native navbar overlay API. A caller can render a
+        // UIVisualEffectView+UIButtons in a UIWindow at .normal+200 so
+        // it can paint over (and capture taps from) the dApp WKWebView
+        // at .normal+100. The wallet frontend currently uses React
+        // BottomNav and does not call these methods.
         CAPPluginMethod(name: "showNativeNavbar", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "hideNativeNavbar", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "setNativeNavbarActive", returnType: CAPPluginReturnPromise),
@@ -1315,12 +1315,11 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
 
     // MARK: - Native navbar overlay
     //
-    // The navbar overlay is a singleton MidenNavbarOverlayWindow stored
-    // here as a static so it survives across plugin instances. The
-    // wallet calls showNativeNavbar exactly once when it enters the
-    // active dApp state and hideNativeNavbar when it leaves. The active
-    // item is updated via setNativeNavbarActive without rebuilding the
-    // window.
+    // The retained navbar overlay is a singleton MidenNavbarOverlayWindow
+    // stored here as a static so it survives across plugin instances.
+    // A caller shows and hides it through the plugin API, and updates the
+    // active item via setNativeNavbarActive without rebuilding the window.
+    // The wallet frontend does not currently call these methods.
     private static var navbarOverlay: MidenNavbarOverlayWindow?
 
     @objc func setNavbarAction(_ call: CAPPluginCall) {
