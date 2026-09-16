@@ -2,6 +2,8 @@ import React from 'react';
 
 import { render, screen, fireEvent } from '@testing-library/react';
 
+import { isIOS } from 'lib/platform';
+
 import ChooseProtectionScreen, { ChooseProtectionScreen as NamedChooseProtectionScreen } from './ChooseProtection';
 
 // ---------------------------------------------------------------------------
@@ -12,6 +14,10 @@ import ChooseProtectionScreen, { ChooseProtectionScreen as NamedChooseProtection
 // `t(key)` echoes the key back and every rendered label is the raw key.
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
+}));
+
+jest.mock('lib/platform', () => ({
+  isIOS: jest.fn()
 }));
 
 // `Button` — render the title and forward the click so each `onSelect*`
@@ -33,7 +39,13 @@ jest.mock('components/Button', () => ({
 const renderComponent = (props: Partial<React.ComponentProps<typeof ChooseProtectionScreen>> = {}) =>
   render(<ChooseProtectionScreen {...props} />);
 
+const mockIsIOS = isIOS as jest.Mock;
+
 describe('ChooseProtectionScreen', () => {
+  beforeEach(() => {
+    mockIsIOS.mockReturnValue(false);
+  });
+
   it('renders the onboarding container with its test id', () => {
     renderComponent();
     expect(screen.getByTestId('onboarding-choose-protection')).toBeInTheDocument();
@@ -51,11 +63,18 @@ describe('ChooseProtectionScreen', () => {
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('chooseHowToProtect');
   });
 
-  it('renders the biometric button as the default (primary) variant', () => {
+  it('renders the Android biometric label as the default (primary) variant', () => {
     renderComponent();
-    const button = screen.getByTestId('btn-useFaceIdOrBiometric');
-    expect(button).toHaveTextContent('useFaceIdOrBiometric');
+    const button = screen.getByTestId('btn-biometricSetUp');
+    expect(button).toHaveTextContent('biometricSetUp');
     expect(button).toHaveAttribute('data-variant', 'default');
+  });
+
+  it('renders the iOS Face ID label', () => {
+    mockIsIOS.mockReturnValue(true);
+    renderComponent();
+
+    expect(screen.getByTestId('btn-faceIdSetUp')).toHaveTextContent('faceIdSetUp');
   });
 
   it('renders the passcode button with the secondary variant', () => {
@@ -69,7 +88,7 @@ describe('ChooseProtectionScreen', () => {
     const onSelectBiometric = jest.fn();
     renderComponent({ onSelectBiometric });
 
-    fireEvent.click(screen.getByTestId('btn-useFaceIdOrBiometric'));
+    fireEvent.click(screen.getByTestId('btn-biometricSetUp'));
     expect(onSelectBiometric).toHaveBeenCalledTimes(1);
   });
 
@@ -94,7 +113,7 @@ describe('ChooseProtectionScreen', () => {
     renderComponent();
 
     expect(() => {
-      fireEvent.click(screen.getByTestId('btn-useFaceIdOrBiometric'));
+      fireEvent.click(screen.getByTestId('btn-biometricSetUp'));
       fireEvent.click(screen.getByTestId('btn-setUpYourPasscode'));
     }).not.toThrow();
   });

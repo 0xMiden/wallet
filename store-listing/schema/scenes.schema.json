@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/0xMiden/wallet/store-listing/schema/scenes.schema.json",
+  "title": "Bread Wallet store listing scenes",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "copySource", "platforms"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "schemaVersion": { "const": 1 },
+    "copySource": { "type": "string", "minLength": 1 },
+    "platforms": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["appStore", "playStore", "chromeWebStore"],
+      "properties": {
+        "appStore": { "$ref": "#/$defs/assets" },
+        "playStore": { "$ref": "#/$defs/assets" },
+        "chromeWebStore": { "$ref": "#/$defs/assets" }
+      }
+    }
+  },
+  "$defs": {
+    "assets": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/asset" }
+    },
+    "asset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "sceneId",
+        "shared",
+        "raw",
+        "crop",
+        "surface",
+        "headline",
+        "alt",
+        "width",
+        "height",
+        "output"
+      ],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "kind": { "enum": ["screenshot", "featureGraphic", "icon", "smallPromo", "marquee"] },
+        "sceneId": { "type": "string", "minLength": 1 },
+        "shared": { "type": "boolean" },
+        "order": { "type": "integer", "minimum": 1 },
+        "raw": { "type": "string", "minLength": 1 },
+        "crop": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["x", "y", "width", "height"],
+          "properties": {
+            "x": { "type": "integer", "minimum": 0 },
+            "y": { "type": "integer", "minimum": 0 },
+            "width": { "type": "integer", "minimum": 1 },
+            "height": { "type": "integer", "minimum": 1 }
+          }
+        },
+        "surface": { "type": "string", "minLength": 1 },
+        "headline": { "type": "string", "minLength": 1 },
+        "alt": { "type": "string", "minLength": 1 },
+        "width": { "type": "integer", "minimum": 1 },
+        "height": { "type": "integer", "minimum": 1 },
+        "output": { "type": "string", "minLength": 1 }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "kind": { "const": "screenshot" } } },
+          "then": { "required": ["order"] },
+          "else": { "not": { "required": ["order"] } }
+        }
+      ]
+    }
+  }
+}
