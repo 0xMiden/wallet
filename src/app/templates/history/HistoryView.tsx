@@ -15,8 +15,8 @@ import { ActivityRow, ActivityRowProps, ActivityStatusTone } from 'components/ui
 import { springs, useMotion } from 'lib/animation';
 import { navigate } from 'lib/woozie';
 
-import HistoryItem from './HistoryItem';
 import { guardianHistoryActionKey } from './guardianHistoryLabels';
+import HistoryItem from './HistoryItem';
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
 import type { PendingActivityItem } from './PendingActivityCard';
 import {
@@ -304,7 +304,7 @@ function buildRowProps(
   }
 
   let statusTone: ActivityStatusTone = 'confirmed';
-  let statusLabel = entry.guardianRecovered ? t('guardianHistoryMidenConfirmed') : t('confirmed');
+  let statusLabel = t('confirmed');
   if (isCancelled) {
     statusTone = 'cancelled';
     statusLabel = t('cancelled');
@@ -317,7 +317,11 @@ function buildRowProps(
   ) {
     statusTone = 'pending';
     statusLabel = t('pending');
-  } else if (!entry.guardianRecovered && entry.txType === 'earn-deposit' && earnDepositSettlementOf(entry) !== 'confirmed') {
+  } else if (
+    !entry.guardianRecovered &&
+    entry.txType === 'earn-deposit' &&
+    earnDepositSettlementOf(entry) !== 'confirmed'
+  ) {
     // A deposit row completes when the Miden collateral note lands, but the
     // position only exists once the solver-fulfilled Sepolia lending leg settles —
     // the chip tracks that leg (mirrors `EarnDepositStatusPill` on the details
