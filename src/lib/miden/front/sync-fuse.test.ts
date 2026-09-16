@@ -295,14 +295,19 @@ describe('sync fuse (#777)', () => {
       expect(isSyncFused('idle-sync')).toBe(true);
     });
 
-    it('starts the count on a key it has never seen, rather than discarding the evidence', () => {
-      // This returned early on an absent entry, so the FIRST trap on a cold key was
-      // dropped - and a probe that traps from its very first lap is exactly the one the
-      // count has to catch.
+    it('counts the FIRST probe on a cold key, so a trap from lap one still reaches the bound', () => {
+      // This returned early on an absent entry, so the first trap on a cold key was discarded.
+      // Asserting only that one probe leaves the fuse unlit proved nothing, because a no-op and
+      // the discarding version satisfy that too. The count is observable only at the bound, so
+      // drive it there leaving exactly one probe's worth of room: if the first was dropped, this
+      // lands one short and the fuse stays dark.
       noteAbandonedSyncProbe('idle-sync');
-
-      expect(syncFuseUntilMs('idle-sync')).toBeNull();
       expect(isSyncFused('idle-sync')).toBe(false);
+
+      for (let i = 0; i < MAX_CONSECUTIVE_ABANDONED_PROBES - 1; i++) noteAbandonedSyncProbe('idle-sync');
+
+      expect(isSyncFused('idle-sync')).toBe(true);
+      expect(syncFuseUntilMs('idle-sync')).toBe(fakeNow + FUSED_SYNC_PROBE_INTERVAL_MS);
     });
 
     // THE STARVATION, at the ledger. Declining to erase the eviction count fixed half the
