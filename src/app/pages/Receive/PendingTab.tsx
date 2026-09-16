@@ -7,6 +7,7 @@ import { useAppEnv } from 'app/env';
 import { deriveNoteClaimState, NoteClaimState } from 'app/hooks/noteClaimState';
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import { useNetworkFeeEstimate } from 'app/hooks/useNetworkFeeEstimate';
+import { ReportClaim } from 'app/hooks/useReportNoteClaim';
 import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
 import { ReactComponent as EyeOpenIcon } from 'app/icons/eye-open.svg';
 import { Icon, IconName } from 'app/icons/v2';
@@ -49,6 +50,8 @@ interface PendingTabProps {
   onClaimingStateChange: (noteId: string, isClaiming: boolean) => void;
   onClaimAll: () => void;
   onClaimGroup?: (faucetId: string) => void;
+  /** Supplied by the hosting page to report the outcome of a per-note claim. */
+  reportClaim?: ReportClaim;
 }
 
 const groupNumber = (value: string): string => {
@@ -70,7 +73,8 @@ export const PendingTab: React.FC<PendingTabProps> = ({
   checkingNoteIds,
   onClaimingStateChange,
   onClaimAll,
-  onClaimGroup
+  onClaimGroup,
+  reportClaim
 }) => {
   const { registerBackHandler } = useAppEnv();
   const tokenPrices = useWalletStore(s => s.tokenPrices);
@@ -143,6 +147,7 @@ export const PendingTab: React.FC<PendingTabProps> = ({
         checkingNoteIds={checkingNoteIds}
         onClaimingStateChange={onClaimingStateChange}
         onClaimGroup={onClaimGroup}
+        reportClaim={reportClaim}
       />
     );
   }
@@ -380,6 +385,7 @@ interface AssetPendingDetailProps {
   checkingNoteIds: Set<string>;
   onClaimingStateChange: (noteId: string, isClaiming: boolean) => void;
   onClaimGroup?: (faucetId: string) => void;
+  reportClaim?: ReportClaim;
   /**
    * Whether claiming this group costs more than it credits. Computed by the caller,
    * which already resolves the native faucet and the base fee — the same value the
@@ -401,6 +407,7 @@ const AssetPendingDetail: React.FC<AssetPendingDetailProps> = ({
   checkingNoteIds,
   onClaimingStateChange,
   onClaimGroup,
+  reportClaim,
   notWorthClaiming = false
 }) => {
   const { t } = useTranslation();
@@ -470,6 +477,7 @@ const AssetPendingDetail: React.FC<AssetPendingDetailProps> = ({
                     checkingNoteIds
                   })}
                   onClaimingStateChange={onClaimingStateChange}
+                  reportClaim={reportClaim}
                   showDivider={index !== notes.length - 1}
                 />
               ))}
@@ -551,6 +559,7 @@ interface DetailNoteRowProps {
   /** Parent-derived state from the four claim id-sets (see deriveNoteClaimState). */
   claimState?: NoteClaimState;
   onClaimingStateChange?: (noteId: string, isClaiming: boolean) => void;
+  reportClaim?: ReportClaim;
   showDivider: boolean;
 }
 
@@ -560,6 +569,7 @@ const DetailNoteRow: React.FC<DetailNoteRowProps> = ({
   isDelegatedProvingEnabled,
   claimState = 'pending',
   onClaimingStateChange,
+  reportClaim,
   showDivider
 }) => {
   const { t } = useTranslation();
@@ -614,7 +624,8 @@ const DetailNoteRow: React.FC<DetailNoteRowProps> = ({
     try {
       // Explicit user tap (Claim / Retry) — bypass the auto-consume backoff gate
       // so a retry after a failure always queues a fresh attempt.
-      const id = await initiateConsumeTransaction(account.publicKey, note, isDelegatedProvingEnabled, true);
+      const queue = () => initiateConsumeTransaction(account.publicKey, note, isDelegatedProvingEnabled, true);
+      const id = reportClaim ? await reportClaim(queue) : await queue();
 
       if (isExtension()) {
         requestSWTransactionProcessing();
@@ -634,7 +645,7 @@ const DetailNoteRow: React.FC<DetailNoteRowProps> = ({
       // stayed gone until the row was unmounted and remounted.
       setIsLoading(false);
     }
-  }, [account, isDelegatedProvingEnabled, note, t]);
+  }, [account, isDelegatedProvingEnabled, note, reportClaim, t]);
 
   const { metadata } = note;
   const decimals = metadata?.decimals ?? 6;

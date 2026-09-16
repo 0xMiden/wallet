@@ -182,7 +182,8 @@ export default {
       return baseColors;
     })(),
 
-    // Custom font families with Geist
+    // Every family resolves to Inter, whose `@font-face` rules live in
+    // src/main.css. Nunito is reached through `--font-heading` there, not here.
     fontFamily: {
       sans: ['Inter'],
       serif: ['Inter'],

@@ -97,17 +97,38 @@ const extension = {
   getViews: () => []
 };
 
+/**
+ * Deliberately Chrome-shaped: the response carries **no `data_collection` key**.
+ *
+ * The telemetry consent gate (`isTelemetryEnabledAsync`) reads this to decide
+ * whether the browser has a data-collection consent of its own — Firefox 140+
+ * does, Chrome does not — and it tells the two apart by whether that key is
+ * present at all. Omitting it here is what makes this fake browser a Chrome, so
+ * every suite that is not specifically about Firefox keeps gating on the
+ * wallet's own setting alone, exactly as it did before the gate existed.
+ *
+ * Leaving `permissions` off entirely is the one thing this must not do: the gate
+ * fails closed when the API throws, so an absent namespace would silently stop
+ * every telemetry test from sending and look like a broken driver rather than a
+ * missing mock. A suite that needs Firefox's answer replaces this module — see
+ * `src/lib/telemetry/browser-consent.test.ts`.
+ */
+const permissions = {
+  getAll: jest.fn(async () => ({ permissions: ['storage'], origins: [] }))
+};
+
 const windows = {
   create: jest.fn(async (opts?: any) => ({ id: 1, ...opts })),
   remove: jest.fn()
 };
 
-export { runtime, tabs, extension, windows, storage };
+export { runtime, tabs, extension, windows, storage, permissions };
 
 export default {
   runtime,
   tabs,
   extension,
   windows,
-  storage
+  storage,
+  permissions
 };

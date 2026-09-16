@@ -32,6 +32,7 @@ import { freeChainAnchor } from 'lib/miden/sdk/chain-anchor';
 import { syncUnderBoundedLock } from 'lib/miden/sync-lock';
 import { isExtension, isMobile } from 'lib/platform';
 import { b64ToU8 } from 'lib/shared/helpers';
+import { reportProve } from 'lib/telemetry/report-operation';
 import { logger } from 'shared/logger';
 
 import {
@@ -64,7 +65,8 @@ import {
   updateTransactionStatus
 } from './helper';
 import { bridgeProviderOf } from './retry';
-import { markConnectivityIssue } from '../activity/connectivity-state';
+import { isLikelyNetworkError } from '../activity/connectivity-classify';
+import { clearConnectivityIssue, markConnectivityIssue } from '../activity/connectivity-state';
 import { importAllNotes } from '../activity/notes';
 import { compareAccountIds } from '../activity/utils';
 import { dispatchGuardianPipeline, midenClientProxy } from '../back/miden-client-proxy';
@@ -1725,9 +1727,19 @@ const runGuardianPipeline = async (
       const localProver = isMobile()
         ? TransactionProver.newCallbackProver(buildNativeProverCallback())
         : TransactionProver.newLocalProver();
+      // Reported like every other prove. This is the one that runs on mobile,
+      // where there is no offscreen document and no delegation, so leaving it out
+      // would make mobile the platform whose proves are invisible.
       // Local proving is deliberately unbounded — pause the lock watchdog for
       // its duration, exactly like proveWithFallback's local attempts (#775).
-      provenTx = await withWasmLockWatchdogPaused(() => executedTx.prove({ prover: localProver }), hold);
+      const localStartedAt = performance.now();
+      try {
+        provenTx = await withWasmLockWatchdogPaused(() => executedTx.prove({ prover: localProver }), hold);
+        reportProve({ startedAt: localStartedAt, step: 'prove_local' });
+      } catch (proveError) {
+        reportProve({ startedAt: localStartedAt, step: 'prove_local', error: proveError });
+        throw proveError;
+      }
     } else {
       // Delegated (remote) proving. The client's default prover is the remote
       // gRPC prover on every platform, and its ~10s deadline is too tight for a
@@ -1744,6 +1756,12 @@ const runGuardianPipeline = async (
       // is consumed, and each attempt passes a fresh one). The local prover
       // mirrors `proveWithFallback`: the native Rust prover on mobile (WASM
       // proving isn't viable in iOS WKWebView), the WASM local prover elsewhere.
+      // Reported here as well as in `proveWithFallback`, because this is a second
+      // implementation of the same fallback and shares none of that one's code.
+      // Left out, every guardian operation would contribute nothing to prover
+      // health — and this fallback exists precisely BECAUSE delegated proving was
+      // failing under load, so it is the last path that should be silent about it.
+      const proveStartedAt = performance.now();
       try {
         // Safe to bound here in the strongest sense available: this pipeline drives
         // execute/prove/submit itself, so the deadline provably expires BEFORE any
@@ -1757,6 +1775,7 @@ const runGuardianPipeline = async (
           executedTx.prove(delegatedProver ? { prover: delegatedProver } : {}),
           'Delegated guardian prove'
         );
+        reportProve({ startedAt: proveStartedAt, step: 'prove_delegate' });
       } catch (proveError) {
         // The delegated prove was the longest parking await in this hold, and the
         // fallback below is a WASM call on `executedTx` — an object borrowed from
@@ -1767,10 +1786,20 @@ const runGuardianPipeline = async (
         // checked before the fallback rather than only after it. Still pre-submit.
         assertStillHoldingLock(hold, 'before the local prove fallback');
         console.warn('Delegated guardian prove failed; retrying with local prover', proveError);
+        // The outage the fallback is covering for. `proveWithFallback` marks this
+        // too, and without it a prover failing only on guardian operations would
+        // raise no banner and produce no `service_prover` event.
+        if (isLikelyNetworkError(proveError)) markConnectivityIssue('prover');
         const fallbackProver = isMobile()
           ? TransactionProver.newCallbackProver(buildNativeProverCallback())
           : TransactionProver.newLocalProver();
-        provenTx = await withWasmLockWatchdogPaused(() => executedTx.prove({ prover: fallbackProver }), hold);
+        try {
+          provenTx = await withWasmLockWatchdogPaused(() => executedTx.prove({ prover: fallbackProver }), hold);
+          reportProve({ startedAt: proveStartedAt, step: 'prove_fallback' });
+        } catch (fallbackError) {
+          reportProve({ startedAt: proveStartedAt, step: 'prove_fallback', error: fallbackError });
+          throw fallbackError;
+        }
       }
     }
     // Deliberately AFTER the stage write, not before it. Stamping 'submitting'
@@ -2822,6 +2851,21 @@ const generateGuardianTransaction = async (
     }
     throw error;
   }
+
+  // Clears the WORKER's copy of a prover outage, and only ever that one. Each
+  // realm holds its own `connectivity-state` module state, so this cannot reach
+  // the offscreen document's — which is why the offscreen leaf marks and clears
+  // its own, right where the prove happens.
+  //
+  // What this clears is the worker-realm mark from the inline leaf's delegated
+  // prove, on a build with the offscreen route off. The requeue path above
+  // (`index.ts`, gated on the row's stage being `proving`) is a third case and
+  // one that only the inline leaf can reach at all, since the offscreen leaf
+  // reports no stages and leaves the row at `sending`. Unconditional here rather
+  // than gated on which leaf ran: clearing a flag that was never set is a no-op,
+  // and the alternative is a condition that has to be kept in step with the
+  // routing predicate.
+  clearConnectivityIssue('prover');
 
   // The tx id, re-derived from the (possibly offscreen-round-tripped) result
   // rather than a separate handle: the offscreen pipeline returns only the

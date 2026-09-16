@@ -1,5 +1,6 @@
 import type { CdpSession } from './cdp-bridge';
 import type { EmulatorControl } from './emulator-control';
+import { dismissTelemetryConsent } from '../../helpers/telemetry-consent';
 import type { TimelineRecorder } from '../../harness/timeline-recorder';
 import type { GuardianAuthInfo, WalletPage } from '../../helpers/wallet-page';
 
@@ -181,6 +182,17 @@ export class AndroidWalletPage implements WalletPage {
         `return st && (st.status === 2 || st.status === 'Ready') && !!st.currentAccount;`,
       readyTimeoutMs
     );
+
+    // Onboarding now finishes on the one-time telemetry consent prompt rather
+    // than on the wallet home, so decline it before handing the caller a wallet
+    // it expects to be able to navigate. After the Ready poll above, which is
+    // what proves `register()` is done, and raced against the home surface so
+    // that the gap between Ready being published and `Welcome.tsx` actually
+    // navigating is waited out rather than assumed away.
+    await dismissTelemetryConsent(this, {
+      nextSurface: '[data-testid="explore-page"]',
+      timeoutMs: 60_000
+    });
 
     const address = await this.cdp.eval<string>(
       `var s = window.__TEST_STORE__.getState(); return (s.currentAccount && s.currentAccount.publicKey) || '';`

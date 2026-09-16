@@ -23,6 +23,10 @@ import React from 'react';
 
 import { render, waitFor } from '@testing-library/react';
 
+import { isTelemetryEnabled } from 'lib/settings/helpers';
+import { clearLegacyAnalyticsStorage } from 'lib/telemetry';
+import { initCrashReporting } from 'lib/telemetry/crash';
+
 // NOTE: App is required lazily (not statically imported) because App.tsx calls
 // `isExtension()` at module scope, and the mock control fns below must be
 // initialized before that runs. See `beforeAll`.
@@ -52,6 +56,30 @@ jest.mock('lib/lock-up/run-checks', () => ({}));
 
 // Type-only import at runtime resolves to an empty module.
 jest.mock('lib/props-with-children', () => ({}));
+
+// ---------------------------------------------------------------------------
+// Telemetry startup — the legacy-identifier cleanup and the consent-gated
+// crash reporter. Mocked so the assertions are about whether App calls them and
+// under what consent, not about Sentry or localStorage internals.
+// ---------------------------------------------------------------------------
+jest.mock('lib/telemetry', () => ({
+  clearLegacyAnalyticsStorage: jest.fn()
+}));
+
+jest.mock('lib/telemetry/crash', () => ({
+  initCrashReporting: jest.fn()
+}));
+
+// `getThemeSetting` is here only because the (unmocked) AppKit provider reads it
+// at module scope; mocking this module wholesale would otherwise break it.
+jest.mock('lib/settings/helpers', () => ({
+  getThemeSetting: jest.fn(() => 'system'),
+  isTelemetryEnabled: jest.fn(() => false)
+}));
+
+const mockClearLegacyAnalyticsStorage = clearLegacyAnalyticsStorage as jest.Mock;
+const mockInitCrashReporting = initCrashReporting as jest.Mock;
+const mockIsTelemetryEnabled = isTelemetryEnabled as jest.Mock;
 
 // ---------------------------------------------------------------------------
 // Structural wrappers — render their children straight through so the inner
@@ -177,6 +205,9 @@ describe('app/App', () => {
     mockIsExtension.mockReturnValue(true);
     mockIsMobile.mockReturnValue(false);
     mockIsDesktop.mockReturnValue(false);
+    // Consent is off until the user opts in — the baseline for the startup
+    // telemetry assertions below.
+    mockIsTelemetryEnabled.mockReturnValue(false);
   });
 
   afterEach(() => {
@@ -279,6 +310,58 @@ describe('app/App', () => {
       // Desktop is neither mobile nor extension in this configuration.
       expect(queryByTestId('mobile-back-bridge')).not.toBeInTheDocument();
       expect(queryByTestId('pin-extension-prompt')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('telemetry startup', () => {
+    it('clears the legacy analytics identifier on mount, whatever the consent', () => {
+      renderApp({ windowType: 'FullPage', confirmWindow: false });
+
+      // The dormant `localStorage['analytics']` userId is data we hold with no
+      // basis, so deleting it is unconditional — not something the user has to
+      // opt out of telemetry to get.
+      expect(mockClearLegacyAnalyticsStorage).toHaveBeenCalledTimes(1);
+    });
+
+    it('does NOT start crash reporting when consent has not been given', () => {
+      mockIsTelemetryEnabled.mockReturnValue(false);
+
+      renderApp({ windowType: 'FullPage', confirmWindow: false });
+
+      expect(mockIsTelemetryEnabled).toHaveBeenCalled();
+      expect(mockInitCrashReporting).not.toHaveBeenCalled();
+      // The cleanup still runs, so a green cleanup assertion cannot be what is
+      // making this pass.
+      expect(mockClearLegacyAnalyticsStorage).toHaveBeenCalledTimes(1);
+    });
+
+    it('starts crash reporting when consent has been given', () => {
+      mockIsTelemetryEnabled.mockReturnValue(true);
+
+      renderApp({ windowType: 'FullPage', confirmWindow: false });
+
+      expect(mockInitCrashReporting).toHaveBeenCalledTimes(1);
+    });
+
+    it('starts crash reporting once per mount, not once per render', () => {
+      mockIsTelemetryEnabled.mockReturnValue(true);
+
+      const { rerender } = renderApp({ windowType: 'FullPage', confirmWindow: false });
+      rerender(<App env={{ windowType: 'FullPage', confirmWindow: false } as any} />);
+
+      expect(mockInitCrashReporting).toHaveBeenCalledTimes(1);
+      expect(mockClearLegacyAnalyticsStorage).toHaveBeenCalledTimes(1);
+    });
+
+    it('runs the startup wiring on the confirm-window surface too', () => {
+      mockIsTelemetryEnabled.mockReturnValue(true);
+
+      renderApp({ windowType: 'FullPage', confirmWindow: true });
+
+      // A dApp confirmation is where a crash is most costly to a user, so it is
+      // not a surface to leave unreported.
+      expect(mockClearLegacyAnalyticsStorage).toHaveBeenCalledTimes(1);
+      expect(mockInitCrashReporting).toHaveBeenCalledTimes(1);
     });
   });
 

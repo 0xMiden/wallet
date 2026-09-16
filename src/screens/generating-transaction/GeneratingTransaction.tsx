@@ -8,7 +8,6 @@ import { useTranslation } from 'react-i18next';
 import { useNetworkFeeEstimate } from 'app/hooks/useNetworkFeeEstimate';
 import { Button, ButtonVariant } from 'components/Button';
 import { ScreenHeader } from 'components/ScreenHeader';
-import { useAnalytics } from 'lib/analytics';
 import {
   bridgeProviderOf,
   isRequeueableTransaction,
@@ -50,7 +49,6 @@ export type { GeneratingTransactionPageProps, GeneratingTransactionProps } from 
 export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ txId, keepOpen = false }) => {
   const { t } = useTranslation();
   const { signTransaction } = useMidenContext();
-  const { pageEvent } = useAnalytics();
   const intervalIdRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [isRetrying, setIsRetrying] = useState(false);
   const [retryError, setRetryError] = useState<string | null>(null);
@@ -69,10 +67,6 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
 
     navigate('/');
   }, []);
-
-  useEffect(() => {
-    pageEvent('GeneratingTransaction', '');
-  }, [pageEvent]);
 
   // Driver — unchanged from the queue-observer era. On extension the service
   // worker owns the loop and this is a no-op; on mobile/desktop the page kicks
