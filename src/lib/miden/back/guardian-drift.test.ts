@@ -1116,10 +1116,18 @@ describe('revertGuardianEndpointAfterDiscard', () => {
   const boundTo = (endpoint: string, epoch?: number) =>
     makeVault({ publicKey: 'pk', guardianEndpoint: endpoint, guardianEpoch: epoch });
 
+  // The rollback probes TWICE, the bound endpoint and then the target it would write, so
+  // one blanket answer cannot express "the bound endpoint lost authority and `revertTo`
+  // holds it" - the arrangement every case that reaches the write actually needs.
+  const authorityByEndpoint = (answers: Record<string, 'match' | 'mismatch' | 'unreachable'>) =>
+    (verifyEndpointMatchesCommitment as jest.Mock).mockImplementation(
+      async (endpoint: string) => answers[endpoint] ?? 'mismatch'
+    );
+
   it('rolls the binding back when the chain says the bound endpoint has no authority', async () => {
     (getMidenClient as jest.Mock).mockResolvedValue({ getAccount: async () => ({}) });
     (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('cc');
-    (verifyEndpointMatchesCommitment as jest.Mock).mockResolvedValue('mismatch');
+    authorityByEndpoint({ 'https://new': 'mismatch', 'https://old': 'match' });
     const vault = boundTo('https://new', 4);
 
     expect(await revertGuardianEndpointAfterDiscard(vault as never, 'pk', 'https://new', 'https://old')).toBe(
@@ -1127,6 +1135,32 @@ describe('revertGuardianEndpointAfterDiscard', () => {
     );
 
     expect(vault.updateGuardianBinding).toHaveBeenCalledWith('pk', 4, { guardianEndpoint: 'https://old' });
+  });
+
+  // THE THIRD-OPERATOR ROLLBACK. Both guards pass - the bound endpoint lost authority
+  // and the binding still names this rotation's target - but the chain has moved to an
+  // operator that is neither. Writing `revertTo` here binds the account to one it never
+  // authorized, on evidence that only ever ruled the bound endpoint out.
+  it("reports 'stale' when the rollback target has no authority either", async () => {
+    (getMidenClient as jest.Mock).mockResolvedValue({ getAccount: async () => ({}) });
+    (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('cc');
+    authorityByEndpoint({ 'https://new': 'mismatch', 'https://old': 'mismatch' });
+    const vault = boundTo('https://new', 4);
+
+    expect(await revertGuardianEndpointAfterDiscard(vault as never, 'pk', 'https://new', 'https://old')).toBe('stale');
+
+    expect(vault.updateGuardianBinding).not.toHaveBeenCalled();
+  });
+
+  it("reports 'stale' when the rollback target could not be reached to prove its authority", async () => {
+    (getMidenClient as jest.Mock).mockResolvedValue({ getAccount: async () => ({}) });
+    (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('cc');
+    authorityByEndpoint({ 'https://new': 'mismatch', 'https://old': 'unreachable' });
+    const vault = boundTo('https://new', 4);
+
+    expect(await revertGuardianEndpointAfterDiscard(vault as never, 'pk', 'https://new', 'https://old')).toBe('stale');
+
+    expect(vault.updateGuardianBinding).not.toHaveBeenCalled();
   });
 
   // THE CASE A URL COMPARISON CANNOT SEE. The user's switch appeared not to
@@ -1222,7 +1256,7 @@ describe('revertGuardianEndpointAfterDiscard', () => {
     await putToStorage(GUARDIAN_URL_STORAGE_KEY, 'https://new');
     (getMidenClient as jest.Mock).mockResolvedValue({ getAccount: async () => ({}) });
     (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('cc');
-    (verifyEndpointMatchesCommitment as jest.Mock).mockResolvedValue('mismatch');
+    authorityByEndpoint({ 'https://new': 'mismatch', 'https://old': 'match' });
     const vault = boundTo('', 3);
 
     expect(await revertGuardianEndpointAfterDiscard(vault as never, 'pk', 'https://new', 'https://old')).toBe(
@@ -1277,7 +1311,9 @@ describe('revertGuardianEndpointAfterDiscard', () => {
   it('matches the discarded target across trailing-slash and host-case spellings', async () => {
     (getMidenClient as jest.Mock).mockResolvedValue({ getAccount: async () => ({}) });
     (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('cc');
-    (verifyEndpointMatchesCommitment as jest.Mock).mockResolvedValue('mismatch');
+    // Keyed on the VAULT's spelling, which is what the probe is handed - normalization
+    // decides whether the rollback fires, never which string the chain is asked about.
+    authorityByEndpoint({ 'https://New.Example.com/': 'mismatch', 'https://old': 'match' });
     const vault = boundTo('https://New.Example.com/', 2);
 
     expect(
@@ -1315,7 +1351,7 @@ describe('revertGuardianEndpointAfterDiscard', () => {
   it("reports 'stale' when the epoch moved between the read and the write", async () => {
     (getMidenClient as jest.Mock).mockResolvedValue({ getAccount: async () => ({}) });
     (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('cc');
-    (verifyEndpointMatchesCommitment as jest.Mock).mockResolvedValue('mismatch');
+    authorityByEndpoint({ 'https://new': 'mismatch', 'https://old': 'match' });
     const vault = boundTo('https://new', 4);
     vault.updateGuardianBinding.mockResolvedValueOnce({ outcome: 'stale' });
 
@@ -1327,7 +1363,7 @@ describe('revertGuardianEndpointAfterDiscard', () => {
   it('treats a missing epoch as 0 rather than refusing the rollback', async () => {
     (getMidenClient as jest.Mock).mockResolvedValue({ getAccount: async () => ({}) });
     (getGuardianCommitmentFromAccount as jest.Mock).mockReturnValue('cc');
-    (verifyEndpointMatchesCommitment as jest.Mock).mockResolvedValue('mismatch');
+    authorityByEndpoint({ 'https://new': 'mismatch', 'https://old': 'match' });
     const vault = boundTo('https://new');
 
     await revertGuardianEndpointAfterDiscard(vault as never, 'pk', 'https://new', 'https://old');

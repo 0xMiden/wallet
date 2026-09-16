@@ -1024,6 +1024,16 @@ export async function revertGuardianEndpointAfterDiscard(
   // report `'stale'` so this one keeps its budget moving toward the manual
   // prompt instead of being demoted on a conclusion it did not establish.
   if (bindingMovedOn) return 'stale';
+  // NEITHER CHECK ABOVE SAYS ANYTHING ABOUT `revertTo` ITSELF. One establishes that
+  // the BOUND endpoint lost authority, the other that the binding still names this
+  // rotation's target. The chain may meanwhile have moved to a third operator, and
+  // writing `revertTo` then binds the account to one it never authorized - on
+  // evidence that only ever ruled the bound endpoint out. `'unreachable'` fails
+  // closed like every sibling arm: an unproven target is not a rollback target. The
+  // second probe is affordable because it is reached only when the rollback would
+  // otherwise fire, which the caller's per-row cooldown and per-pass cap already bound.
+  const targetAuthority = await verifyEndpointMatchesCommitment(revertTo, onChain);
+  if (targetAuthority !== 'match') return 'stale';
 
   const write = await vault.updateGuardianBinding(accountPublicKey, account.guardianEpoch ?? 0, {
     guardianEndpoint: revertTo
