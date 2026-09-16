@@ -468,21 +468,27 @@ export function useGuardianNoteRecoveryProgress(accountId: string | null): Guard
 export function useWalletPromptStorage() {
   const [storage, setStorage] = useState<WalletPromptStorage>(EMPTY_WALLET_PROMPT_STORAGE);
   const [isLoaded, setIsLoaded] = useState(false);
+  // Counts the changes this hook has issued. A record read or written before the latest
+  // change predates it, so only an operation started after that change may replace state;
+  // the newest write's own result already carries every earlier change.
+  const changeCount = useRef(0);
 
   const refreshPrompts = useCallback(async () => {
+    const startedAt = changeCount.current;
     const nextStorage = await inWalletPromptStorageTurn(fetchWalletPromptStorage);
-    setStorage(nextStorage);
+    if (startedAt === changeCount.current) setStorage(nextStorage);
     setIsLoaded(true);
     return nextStorage;
   }, []);
 
   useEffect(() => {
     let cancelled = false;
+    const startedAt = changeCount.current;
 
     inWalletPromptStorageTurn(fetchWalletPromptStorage)
       .then(nextStorage => {
         if (!cancelled) {
-          setStorage(nextStorage);
+          if (startedAt === changeCount.current) setStorage(nextStorage);
           setIsLoaded(true);
         }
       })
@@ -496,15 +502,21 @@ export function useWalletPromptStorage() {
   }, []);
 
   // Shown at once, then persisted as the same change applied to the stored record, whose
-  // result becomes the state: a write elsewhere since this hook last read is kept. A failed
-  // write reloads.
+  // result becomes the state if no later change was issued: a write elsewhere since this
+  // hook last read is kept. A failed write reloads.
   const updateStorage = useCallback(
     (change: (current: WalletPromptStorage) => WalletPromptStorage) => {
+      const issued = ++changeCount.current;
       setStorage(prev => change(normalizeWalletPromptStorage(prev)));
-      updateWalletPromptStorage(change).then(setStorage, error => {
-        console.warn('[wallet-prompts] failed to persist prompt status:', error);
-        refreshPrompts();
-      });
+      updateWalletPromptStorage(change).then(
+        next => {
+          if (issued === changeCount.current) setStorage(next);
+        },
+        error => {
+          console.warn('[wallet-prompts] failed to persist prompt status:', error);
+          refreshPrompts();
+        }
+      );
     },
     [refreshPrompts]
   );
