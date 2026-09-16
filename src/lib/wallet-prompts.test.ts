@@ -33,8 +33,7 @@ import {
   setFaucetFundingMarker,
   setWalletPromptStatus,
   useGuardianNoteRecoveryProgress,
-  useWalletPromptStorage,
-  WALLET_PROMPT_TURN_WAIT_MS
+  useWalletPromptStorage
 } from './wallet-prompts';
 
 jest.mock('lib/platform', () => ({
@@ -433,25 +432,38 @@ describe('wallet prompts', () => {
     });
   });
 
-  it('does not let one storage call that never settles hold every later prompt write', async () => {
+  it('keeps a slow prompt write ahead of every later one, so it never lands over a newer change', async () => {
     jest.useFakeTimers();
     const provider = getStorageProvider();
-    const get = jest.spyOn(provider, 'get').mockImplementationOnce(() => new Promise(() => undefined));
+    const realGet = provider.get.bind(provider);
+    let release = () => {};
+    const released = new Promise<void>(resolve => {
+      release = resolve;
+    });
+    // The first read takes its copy of the record at once and answers only much later.
+    const get = jest.spyOn(provider, 'get').mockImplementationOnce(async keys => {
+      const snapshot = await realGet(keys);
+      await released;
+      return snapshot;
+    });
     try {
-      setWalletPromptStatus(WalletPromptType.Bridge, WalletPromptStatus.Pending).catch(() => undefined);
+      const slow = setWalletPromptStatus(WalletPromptType.Bridge, WalletPromptStatus.Pending);
       let seeded = false;
       const seed = seedWalletPrompt(WalletPromptType.VerifySeedPhrase).then(() => {
         seeded = true;
       });
 
-      await jest.advanceTimersByTimeAsync(WALLET_PROMPT_TURN_WAIT_MS);
-      await seed;
+      await jest.advanceTimersByTimeAsync(15_000);
+      expect(seeded).toBe(false);
 
-      expect(seeded).toBe(true);
-      expect((await fetchWalletPromptStorage()).prompts[WalletPromptType.VerifySeedPhrase]).toBe(
-        WalletPromptStatus.Pending
-      );
+      release();
+      await slow;
+      await seed;
+      const { prompts } = await fetchWalletPromptStorage();
+      expect(prompts[WalletPromptType.Bridge]).toBe(WalletPromptStatus.Pending);
+      expect(prompts[WalletPromptType.VerifySeedPhrase]).toBe(WalletPromptStatus.Pending);
     } finally {
+      release();
       get.mockRestore();
       jest.useRealTimers();
     }
@@ -476,7 +488,7 @@ describe('wallet prompts', () => {
     const provider = getStorageProvider();
     const writeRecord = provider.set.bind(provider);
     const readRecord = provider.get.bind(provider);
-    let releaseFirstWrite!: () => void;
+    let releaseFirstWrite = () => {};
     const set = jest.spyOn(provider, 'set').mockImplementationOnce(
       items =>
         new Promise(resolve => {
@@ -518,7 +530,7 @@ describe('wallet prompts', () => {
       expect(result.current.storage.prompts[WalletPromptType.PendingNotes]).toBe(WalletPromptStatus.Dismissed);
       expect(result.current.storage.faucetByAccount).toEqual({ accountA: WalletPromptStatus.Dismissed });
     } finally {
-      releaseFirstWrite?.();
+      releaseFirstWrite();
       releaseSecondRead();
       set.mockRestore();
       get.mockRestore();
@@ -530,7 +542,8 @@ describe('wallet prompts', () => {
     await waitFor(() => expect(result.current.isLoaded).toBe(true));
     const provider = getStorageProvider();
     const readRecord = provider.get.bind(provider);
-    let releaseRead!: () => void;
+    // Released in `finally` too, so a held read cannot stall the shared queue for later tests.
+    let releaseRead = () => {};
     // The read happens now; only its result is held back.
     const get = jest.spyOn(provider, 'get').mockImplementationOnce(keys => {
       const record = readRecord(keys);
@@ -555,6 +568,7 @@ describe('wallet prompts', () => {
         expect(stored.faucetByAccount).toEqual({ accountA: WalletPromptStatus.Completed });
       });
     } finally {
+      releaseRead();
       get.mockRestore();
     }
   });
@@ -574,6 +588,114 @@ describe('wallet prompts', () => {
     } finally {
       set.mockRestore();
       warn.mockRestore();
+    }
+  });
+
+  it('logs, and lets nothing escape, when the reload after a failed write fails too', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const { result } = renderHook(() => useWalletPromptStorage());
+    await waitFor(() => expect(result.current.isLoaded).toBe(true));
+    const provider = getStorageProvider();
+    const readRecord = provider.get.bind(provider);
+    const set = jest.spyOn(provider, 'set').mockRejectedValueOnce(new Error('storage unavailable'));
+    // The write's own read works; the reload after it fails.
+    const get = jest
+      .spyOn(provider, 'get')
+      .mockImplementationOnce(keys => readRecord(keys))
+      .mockRejectedValueOnce(new Error('storage unreadable'));
+
+    try {
+      act(() => result.current.setFaucetStatus('accountA', WalletPromptStatus.Dismissed));
+      await waitFor(() =>
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining('failed to reload'), expect.any(Error))
+      );
+    } finally {
+      set.mockRestore();
+      get.mockRestore();
+      warn.mockRestore();
+    }
+  });
+
+  it('does not let the first load take back a change made before it lands', async () => {
+    const provider = getStorageProvider();
+    const readRecord = provider.get.bind(provider);
+    const writeRecord = provider.set.bind(provider);
+    // Released in `finally` too, so a held call cannot stall the shared queue for later tests.
+    let releaseLoad = () => {};
+    let releaseWrite = () => {};
+    const get = jest.spyOn(provider, 'get').mockImplementationOnce(keys => {
+      const record = readRecord(keys);
+      return new Promise(resolve => {
+        releaseLoad = () => resolve(record);
+      });
+    });
+    const set = jest.spyOn(provider, 'set').mockImplementationOnce(
+      items =>
+        new Promise(resolve => {
+          releaseWrite = () => resolve(writeRecord(items));
+        })
+    );
+
+    try {
+      const { result } = renderHook(() => useWalletPromptStorage());
+      await waitFor(() => expect(get).toHaveBeenCalledTimes(1));
+      act(() => result.current.setFaucetStatus('accountA', WalletPromptStatus.Dismissed));
+      await act(async () => {
+        releaseLoad();
+      });
+      await waitFor(() => expect(set).toHaveBeenCalledTimes(1));
+
+      // The load read the record from before the change, whose write has not landed yet.
+      expect(result.current.isLoaded).toBe(true);
+      expect(result.current.storage.faucetByAccount).toEqual({ accountA: WalletPromptStatus.Dismissed });
+    } finally {
+      releaseLoad();
+      releaseWrite();
+      get.mockRestore();
+      set.mockRestore();
+    }
+  });
+
+  it('does not let a refresh take back a change made before it lands', async () => {
+    const { result } = renderHook(() => useWalletPromptStorage());
+    await waitFor(() => expect(result.current.isLoaded).toBe(true));
+    const provider = getStorageProvider();
+    const readRecord = provider.get.bind(provider);
+    const writeRecord = provider.set.bind(provider);
+    let releaseRefresh = () => {};
+    let releaseWrite = () => {};
+    const get = jest.spyOn(provider, 'get').mockImplementationOnce(keys => {
+      const record = readRecord(keys);
+      return new Promise(resolve => {
+        releaseRefresh = () => resolve(record);
+      });
+    });
+    const set = jest.spyOn(provider, 'set').mockImplementationOnce(
+      items =>
+        new Promise(resolve => {
+          releaseWrite = () => resolve(writeRecord(items));
+        })
+    );
+
+    try {
+      let refresh: Promise<unknown> = Promise.resolve();
+      act(() => {
+        refresh = result.current.refreshPrompts();
+      });
+      await waitFor(() => expect(get).toHaveBeenCalledTimes(1));
+      act(() => result.current.setFaucetStatus('accountA', WalletPromptStatus.Dismissed));
+      await act(async () => {
+        releaseRefresh();
+        await refresh;
+      });
+      await waitFor(() => expect(set).toHaveBeenCalledTimes(1));
+
+      expect(result.current.storage.faucetByAccount).toEqual({ accountA: WalletPromptStatus.Dismissed });
+    } finally {
+      releaseRefresh();
+      releaseWrite();
+      get.mockRestore();
+      set.mockRestore();
     }
   });
 
@@ -996,6 +1118,34 @@ describe('hot-key rotation-needed report', () => {
 
     const storage = await fetchWalletPromptStorage();
     expect(storage.prompts[WalletPromptType.HotKeyRotationNeeded]).toBe(WalletPromptStatus.Pending);
+  });
+
+  it('re-arms for a failure reported while a completion of the prompt is still being stored', async () => {
+    await setWalletPromptStatus(WalletPromptType.HotKeyRotationNeeded, WalletPromptStatus.Pending);
+    const provider = getStorageProvider();
+    const writeRecord = provider.set.bind(provider);
+    let releaseCompletion = () => {};
+    const set = jest.spyOn(provider, 'set').mockImplementationOnce(
+      items =>
+        new Promise(resolve => {
+          releaseCompletion = () => resolve(writeRecord(items));
+        })
+    );
+    try {
+      const completion = completeWalletPrompt(WalletPromptType.HotKeyRotationNeeded);
+      await waitFor(() => expect(set).toHaveBeenCalledTimes(1));
+      // A new failure after the rotation that completed the prompt: a new incident.
+      const report = reportHotKeyRotationNeeded();
+      releaseCompletion();
+      await completion;
+      await report;
+
+      const storage = await fetchWalletPromptStorage();
+      expect(storage.prompts[WalletPromptType.HotKeyRotationNeeded]).toBe(WalletPromptStatus.Pending);
+    } finally {
+      releaseCompletion();
+      set.mockRestore();
+    }
   });
 
   it('does not re-seed after the user dismissed it', async () => {

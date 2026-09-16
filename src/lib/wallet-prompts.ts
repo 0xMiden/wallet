@@ -222,20 +222,12 @@ export async function fetchWalletPromptStorage(): Promise<WalletPromptStorage> {
 // as it is now, one operation at a time. A writer building on a copy read before another
 // writer's put would store the old value of every field it does not own. The hook's own
 // reads take their turn too, so a load never lands after a write it predates.
-// A turn waits for the one before it only so long: a storage call that never settles
-// would otherwise hold every later prompt write, and the rest of the wallet with it.
+// There is no timeout on a turn: a write already sent to storage cannot be called back,
+// so starting the next one early would let the slow one land over it.
 let walletPromptStorageTurn: Promise<unknown> = Promise.resolve();
-export const WALLET_PROMPT_TURN_WAIT_MS = 10_000;
 
 function inWalletPromptStorageTurn<T>(operation: () => Promise<T>): Promise<T> {
-  const previous = walletPromptStorageTurn;
-  const result = new Promise<void>(resolve => {
-    const timer = setTimeout(resolve, WALLET_PROMPT_TURN_WAIT_MS);
-    previous.then(() => {
-      clearTimeout(timer);
-      resolve();
-    });
-  }).then(operation);
+  const result = walletPromptStorageTurn.then(operation);
   walletPromptStorageTurn = result.catch(() => undefined);
   return result;
 }
@@ -319,10 +311,15 @@ export async function reportHotKeyHardwareFailure(message: string): Promise<void
  * every few seconds, so this is called in a tight loop while the key is broken.
  */
 export async function reportHotKeyRotationNeeded(): Promise<void> {
-  const storage = await fetchWalletPromptStorage();
-  const status = storage.prompts[WalletPromptType.HotKeyRotationNeeded];
-  if (status === WalletPromptStatus.Dismissed || status === WalletPromptStatus.Pending) return;
-  await setWalletPromptStatus(WalletPromptType.HotKeyRotationNeeded, WalletPromptStatus.Pending);
+  // Decided in its own storage turn, so a completion queued just before this report is seen.
+  await updateWalletPromptStorage(storage => {
+    const status = storage.prompts[WalletPromptType.HotKeyRotationNeeded];
+    if (status === WalletPromptStatus.Dismissed || status === WalletPromptStatus.Pending) return storage;
+    return {
+      ...storage,
+      prompts: { ...storage.prompts, [WalletPromptType.HotKeyRotationNeeded]: WalletPromptStatus.Pending }
+    };
+  });
 }
 
 // -- Faucet funding-in-flight marker ---------------------------------------
@@ -526,7 +523,9 @@ export function useWalletPromptStorage() {
         },
         error => {
           console.warn('[wallet-prompts] failed to persist prompt status:', error);
-          refreshPrompts();
+          refreshPrompts().catch(reloadError =>
+            console.warn('[wallet-prompts] failed to reload prompts after a failed write:', reloadError)
+          );
         }
       );
     },
