@@ -223,7 +223,6 @@ describe('HomePrompts', () => {
     // Dismiss means "not now", not "never again". An account that has run its
     // native balance to zero on a fee-charging chain is stuck, and the prompt is
     // the way out -- keeping it hidden strands the user with no affordance.
-    mockBaseFee = 10000;
     mockUseWalletPromptStorage.mockReturnValue(
       makePromptState({
         storage: {
@@ -234,7 +233,7 @@ describe('HomePrompts', () => {
         }
       })
     );
-    render(
+    const renderCard = () => (
       <HomePrompts
         account={account}
         balances={[{ tokenId: NATIVE_FAUCET_ID, balance: 0 }] as TokenBalanceData[]}
@@ -244,6 +243,14 @@ describe('HomePrompts', () => {
         tokenPrices={{}}
       />
     );
+    // While fees cost nothing, this account's own dismissal keeps the card away...
+    mockBaseFee = 0;
+    const { rerender } = render(renderCard());
+    expect(screen.queryByText('faucetPromptTitle')).not.toBeInTheDocument();
+
+    // ...and once the account cannot pay a fee, the prompt is back despite it.
+    mockBaseFee = 10000;
+    rerender(renderCard());
     expect(screen.getByText('faucetPromptTitle')).toBeInTheDocument();
   });
 
