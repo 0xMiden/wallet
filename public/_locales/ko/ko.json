@@ -1031,7 +1031,7 @@
   "seedRemovalBusy": "seed phrase를 제거하기 전에 현재 진행 중인 거래가 완료될 때까지 기다려 주십시오.",
   "seedRemovalKeysNotReady": "seed phrase를 제거하기 전에 계정 복구 및 일상적인 키 활성화를 완료하십시오.",
   "seedRequiredForAccountCreation": "계정 생성에는 저장된 시드 문구(seed phrase)가 필요합니다. 이 작업을 위한 임시 시드 입력 기능은 아직 제공되지 않습니다.",
-  "recoverySeedRequired": "이 작업을 수행하려면 복구 코드seed phrase가 필요합니다.",
+  "recoverySeedRequired": "이 작업을 수행하려면 복구 seed phrase가 필요합니다.",
   "recoverySeedRequiredTitle": "seed phrase를 입력하세요",
   "recoverySeedTemporaryDescription": "종이 백업을 사용하십시오. 이 문구는 해당 작업에만 사용되며, 이 기기에는 저장되지 않습니다.",
   "invalidRecoverySeed": "유효한 seed phrase을 입력하십시오.",

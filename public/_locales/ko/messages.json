@@ -4587,7 +4587,7 @@
     "englishSource": "Account creation requires a stored seed phrase. Temporary seed input for this action is not yet available."
   },
   "recoverySeedRequired": {
-    "message": "이 작업을 수행하려면 복구 코드seed phrase가 필요합니다.",
+    "message": "이 작업을 수행하려면 복구 seed phrase가 필요합니다.",
     "englishSource": "This action requires your recovery seed phrase."
   },
   "recoverySeedRequiredTitle": {

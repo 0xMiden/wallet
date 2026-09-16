@@ -4543,7 +4543,7 @@
     "englishSource": "Remove seed phrase"
   },
   "removeSeedPhraseDescription": {
-    "message": "Notez votre « seed phrase » avant de la supprimer. Les transactions quotidiennes continueront de fonctionner. Les modifications de l’adresse de retrait (Guardian) et le remplacement quotidien des clés nécessiteront la saisie de l’« seed phrase ».",
+    "message": "Notez votre seed phrase avant de la supprimer. Les transactions quotidiennes continueront de fonctionner. Les modifications Guardian et le remplacement de la clé quotidienne nécessiteront la saisie de la seed phrase.",
     "englishSource": "Write down your seed phrase before you remove it. Daily transactions will still work. Guardian changes and everyday key replacement will require you to enter the seed phrase."
   },
   "removeSeedPhraseWriteDown": {
@@ -4591,7 +4591,7 @@
     "englishSource": "This action requires your recovery seed phrase."
   },
   "recoverySeedRequiredTitle": {
-    "message": "Saisissez votre adresse seed phrase",
+    "message": "Saisissez votre seed phrase",
     "englishSource": "Enter your seed phrase"
   },
   "recoverySeedTemporaryDescription": {
@@ -4599,7 +4599,7 @@
     "englishSource": "Use your paper backup. The phrase is used only for this action and is not saved on this device."
   },
   "invalidRecoverySeed": {
-    "message": "Saisissez une adresse seed phrase valide.",
+    "message": "Saisissez une seed phrase valide.",
     "englishSource": "Enter a valid seed phrase."
   },
   "wrongRecoverySeed": {

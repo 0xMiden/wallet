@@ -1142,7 +1142,7 @@
     "englishSource": "This key uses an unsupported scheme. Paste the everyday key of a Guardian account."
   },
   "importHotKeyNoAccount": {
-    "message": "Unter dieser Adresse Guardian wurde kein „Guardian“-Konto für diesen Schlüssel gefunden.",
+    "message": "Für diesen Schlüssel wurde bei diesem Guardian kein Guardian-Konto gefunden.",
     "englishSource": "No Guardian account was found for this key at this Guardian."
   },
   "importHotKeyIsRecoveryKey": {
@@ -4587,7 +4587,7 @@
     "englishSource": "Account creation requires a stored seed phrase. Temporary seed input for this action is not yet available."
   },
   "recoverySeedRequired": {
-    "message": "Für diesen Vorgang benötigen Sie Ihre Wiederherstellungsseed phraseen.",
+    "message": "Für diesen Vorgang benötigen Sie Ihre seed phrase zur Wiederherstellung.",
     "englishSource": "This action requires your recovery seed phrase."
   },
   "recoverySeedRequiredTitle": {
@@ -4599,7 +4599,7 @@
     "englishSource": "Use your paper backup. The phrase is used only for this action and is not saved on this device."
   },
   "invalidRecoverySeed": {
-    "message": "Geben Sie eine gültige E-Mail-Adresse ein: seed phrase.",
+    "message": "Geben Sie eine gültige seed phrase ein.",
     "englishSource": "Enter a valid seed phrase."
   },
   "wrongRecoverySeed": {

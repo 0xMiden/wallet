@@ -4543,7 +4543,7 @@
     "englishSource": "Remove seed phrase"
   },
   "removeSeedPhraseDescription": {
-    "message": "Запишите свой ключ доступа (seed phrase) перед его удалением. Ежедневные транзакции будут по-прежнему работать. Для изменения адреса кошелька (Guardian) и ежедневной замены ключа вам потребуется ввести ключ доступа (seed phrase).",
+    "message": "Запишите свою seed phrase перед удалением. Ежедневные транзакции продолжат работать. Для изменений Guardian и замены ежедневного ключа вам потребуется ввести seed phrase.",
     "englishSource": "Write down your seed phrase before you remove it. Daily transactions will still work. Guardian changes and everyday key replacement will require you to enter the seed phrase."
   },
   "removeSeedPhraseWriteDown": {
@@ -4591,7 +4591,7 @@
     "englishSource": "This action requires your recovery seed phrase."
   },
   "recoverySeedRequiredTitle": {
-    "message": "Введите свой адрес seed phrase",
+    "message": "Введите свою seed phrase",
     "englishSource": "Enter your seed phrase"
   },
   "recoverySeedTemporaryDescription": {
@@ -4599,11 +4599,11 @@
     "englishSource": "Use your paper backup. The phrase is used only for this action and is not saved on this device."
   },
   "invalidRecoverySeed": {
-    "message": "Введите действительный адрес seed phrase.",
+    "message": "Введите действительную seed phrase.",
     "englishSource": "Enter a valid seed phrase."
   },
   "wrongRecoverySeed": {
-    "message": "Этот адрес seed phrase не соответствует данному счету.",
+    "message": "Эта seed phrase не соответствует данному счету.",
     "englishSource": "This seed phrase does not match this account."
   },
   "recoveryActionUnavailable": {

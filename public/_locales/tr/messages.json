@@ -4587,11 +4587,11 @@
     "englishSource": "Account creation requires a stored seed phrase. Temporary seed input for this action is not yet available."
   },
   "recoverySeedRequired": {
-    "message": "Bu işlem için kurtarma seed phrase adresiniz gereklidir.",
+    "message": "Bu işlem için kurtarma seed phrase'ınız gereklidir.",
     "englishSource": "This action requires your recovery seed phrase."
   },
   "recoverySeedRequiredTitle": {
-    "message": "seed phrase adresinizi girin",
+    "message": "seed phrase'ınızı girin",
     "englishSource": "Enter your seed phrase"
   },
   "recoverySeedTemporaryDescription": {
@@ -4599,11 +4599,11 @@
     "englishSource": "Use your paper backup. The phrase is used only for this action and is not saved on this device."
   },
   "invalidRecoverySeed": {
-    "message": "Geçerli bir seed phrase adresi girin.",
+    "message": "Geçerli bir seed phrase girin.",
     "englishSource": "Enter a valid seed phrase."
   },
   "wrongRecoverySeed": {
-    "message": "Bu seed phrase adresi, bu hesapla eşleşmemektedir.",
+    "message": "Bu seed phrase bu hesapla eşleşmiyor.",
     "englishSource": "This seed phrase does not match this account."
   },
   "recoveryActionUnavailable": {

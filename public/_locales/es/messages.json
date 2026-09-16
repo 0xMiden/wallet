@@ -4599,7 +4599,7 @@
     "englishSource": "Use your paper backup. The phrase is used only for this action and is not saved on this device."
   },
   "invalidRecoverySeed": {
-    "message": "Introduce una dirección válida de seed phrase.",
+    "message": "Introduce una seed phrase válida.",
     "englishSource": "Enter a valid seed phrase."
   },
   "wrongRecoverySeed": {

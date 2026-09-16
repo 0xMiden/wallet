@@ -4591,7 +4591,7 @@
     "englishSource": "This action requires your recovery seed phrase."
   },
   "recoverySeedRequiredTitle": {
-    "message": "Insira seu endereço seed phrase",
+    "message": "Insira sua seed phrase",
     "englishSource": "Enter your seed phrase"
   },
   "recoverySeedTemporaryDescription": {
@@ -4599,11 +4599,11 @@
     "englishSource": "Use your paper backup. The phrase is used only for this action and is not saved on this device."
   },
   "invalidRecoverySeed": {
-    "message": "Insira um endereço seed phrase válido.",
+    "message": "Insira uma seed phrase válida.",
     "englishSource": "Enter a valid seed phrase."
   },
   "wrongRecoverySeed": {
-    "message": "Este endereço seed phrase não corresponde a esta conta.",
+    "message": "Esta seed phrase não corresponde a esta conta.",
     "englishSource": "This seed phrase does not match this account."
   },
   "recoveryActionUnavailable": {

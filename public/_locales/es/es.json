@@ -1034,7 +1034,7 @@
   "recoverySeedRequired": "Para realizar esta acción, es necesario introducir tu código de recuperación seed phrase.",
   "recoverySeedRequiredTitle": "Introduce tu seed phrase",
   "recoverySeedTemporaryDescription": "Utiliza tu copia de seguridad en papel. La frase solo se utiliza para esta acción y no se guarda en este dispositivo.",
-  "invalidRecoverySeed": "Introduce una dirección válida de seed phrase.",
+  "invalidRecoverySeed": "Introduce una seed phrase válida.",
   "wrongRecoverySeed": "Este seed phrase no coincide con esta cuenta.",
   "recoveryActionUnavailable": "Esta acción de recuperación ya no está disponible.",
   "devnet": "Devnet",
