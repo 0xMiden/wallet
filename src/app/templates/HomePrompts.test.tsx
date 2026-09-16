@@ -139,15 +139,16 @@ const tokenPrices = {
 // account they belong to rather than through the wallet-wide prompt spies.
 const mockSetFaucetStatus = jest.fn();
 
-const makePromptState = (overrides: Record<string, unknown> = {}) => ({
-  storage: { version: 1, prompts: {}, pendingNotesDismissedIds: [], faucetByAccount: {} },
+const makePromptState = ({ storage, ...overrides }: { storage?: object } & Record<string, unknown> = {}) => ({
   isLoaded: true,
   setPromptStatus: jest.fn(),
   setFaucetStatus: mockSetFaucetStatus,
   dismissPrompt: jest.fn(),
   completePrompt: jest.fn(),
   isPromptPending: (type: WalletPromptType) => type === WalletPromptType.VerifySeedPhrase,
-  ...overrides
+  ...overrides,
+  // Merged, so a fixture states only the storage fields its test is about.
+  storage: { version: 1, prompts: {}, pendingNotesDismissedIds: [], faucetByAccount: {}, ...storage }
 });
 
 describe('HomePrompts', () => {
@@ -171,8 +172,7 @@ describe('HomePrompts', () => {
         storage: {
           version: 1,
           prompts: { [WalletPromptType.Bridge]: WalletPromptStatus.Pending },
-          pendingNotesDismissedIds: [],
-          faucetByAccount: {}
+          pendingNotesDismissedIds: []
         },
         isPromptPending: (type: WalletPromptType) => type === WalletPromptType.Bridge
       })
@@ -334,10 +334,8 @@ describe('HomePrompts', () => {
   });
 
   it('does not show the faucet while balances load or when the account has funds', () => {
-    const completePrompt = jest.fn();
     mockUseWalletPromptStorage.mockReturnValue(
       makePromptState({
-        completePrompt,
         storage: {
           version: 1,
           prompts: {},
@@ -374,8 +372,7 @@ describe('HomePrompts', () => {
   });
 
   it('funds on card tap, holds the Funding hero, then plays Funded! and completes when notes arrive', async () => {
-    const completePrompt = jest.fn();
-    mockUseWalletPromptStorage.mockReturnValue(makePromptState({ completePrompt }));
+    mockUseWalletPromptStorage.mockReturnValue(makePromptState());
 
     const { rerender } = render(
       <HomePrompts
@@ -426,10 +423,8 @@ describe('HomePrompts', () => {
   });
 
   it('plays the Funded! beat and completes when the balance arrives directly', async () => {
-    const completePrompt = jest.fn();
     mockUseWalletPromptStorage.mockReturnValue(
       makePromptState({
-        completePrompt,
         storage: {
           version: 1,
           prompts: {},
@@ -474,11 +469,9 @@ describe('HomePrompts', () => {
   });
 
   it('resumes the Funding hero from a persisted marker after a remount mid-wait', async () => {
-    const completePrompt = jest.fn();
     mockFetchFaucetFundingMarker.mockResolvedValue({ requestedAt: Date.now() - 5_000, baselineNoteIds: [] });
     mockUseWalletPromptStorage.mockReturnValue(
       makePromptState({
-        completePrompt,
         storage: {
           version: 1,
           prompts: {},
@@ -583,8 +576,7 @@ describe('HomePrompts', () => {
   });
 
   it('does not treat a pre-existing claimable note as the faucet mint landing', async () => {
-    const completePrompt = jest.fn();
-    mockUseWalletPromptStorage.mockReturnValue(makePromptState({ completePrompt }));
+    mockUseWalletPromptStorage.mockReturnValue(makePromptState());
     const preexistingNote = pendingNotes[0]!;
 
     const { rerender } = render(
@@ -733,8 +725,7 @@ describe('HomePrompts', () => {
   });
 
   it('still completes the prompt when the account is switched during the Funded beat', async () => {
-    const completePrompt = jest.fn();
-    mockUseWalletPromptStorage.mockReturnValue(makePromptState({ completePrompt }));
+    mockUseWalletPromptStorage.mockReturnValue(makePromptState());
 
     const { rerender } = render(
       <HomePrompts
@@ -871,8 +862,7 @@ describe('HomePrompts', () => {
   });
 
   it('treats a balance as arrival even while the claimable notes are still loading', async () => {
-    const completePrompt = jest.fn();
-    mockUseWalletPromptStorage.mockReturnValue(makePromptState({ completePrompt }));
+    mockUseWalletPromptStorage.mockReturnValue(makePromptState());
     // Resume a wait whose notes never load: only the balance can signal arrival.
     mockFetchFaucetFundingMarker.mockResolvedValue({ requestedAt: Date.now() - 10_000, baselineNoteIds: [] });
 
@@ -1127,8 +1117,7 @@ describe('HomePrompts', () => {
   });
 
   it('keeps the prompt completed when the app closes during the Funds deposited beat', async () => {
-    const completePrompt = jest.fn();
-    mockUseWalletPromptStorage.mockReturnValue(makePromptState({ completePrompt }));
+    mockUseWalletPromptStorage.mockReturnValue(makePromptState());
     const renderIt = (notes: typeof pendingNotes) => (
       <HomePrompts
         account={account}
@@ -1197,8 +1186,7 @@ describe('HomePrompts', () => {
   });
 
   it('does not count a non-native note as the mint arriving', async () => {
-    const completePrompt = jest.fn();
-    mockUseWalletPromptStorage.mockReturnValue(makePromptState({ completePrompt }));
+    mockUseWalletPromptStorage.mockReturnValue(makePromptState());
 
     const { rerender } = render(
       <HomePrompts
@@ -1506,8 +1494,7 @@ describe('HomePrompts', () => {
         storage: {
           version: 1,
           prompts: { [WalletPromptType.PendingNotes]: WalletPromptStatus.Dismissed },
-          pendingNotesDismissedIds: ['note-1', 'note-2'],
-          faucetByAccount: {}
+          pendingNotesDismissedIds: ['note-1', 'note-2']
         },
         isPromptPending: () => false
       })
@@ -1534,8 +1521,7 @@ describe('HomePrompts', () => {
         storage: {
           version: 1,
           prompts: { [WalletPromptType.PendingNotes]: WalletPromptStatus.Dismissed },
-          pendingNotesDismissedIds: ['old-note'],
-          faucetByAccount: {}
+          pendingNotesDismissedIds: ['old-note']
         },
         isPromptPending: () => false
       })
@@ -1563,8 +1549,7 @@ describe('HomePrompts', () => {
         storage: {
           version: 1,
           prompts: { [WalletPromptType.PendingNotes]: WalletPromptStatus.Dismissed },
-          pendingNotesDismissedIds: ['note-1'],
-          faucetByAccount: {}
+          pendingNotesDismissedIds: ['note-1']
         },
         isPromptPending: () => false
       })
@@ -1594,8 +1579,7 @@ describe('HomePrompts', () => {
         storage: {
           version: 1,
           prompts: { [WalletPromptType.Bridge]: WalletPromptStatus.Pending },
-          pendingNotesDismissedIds: [],
-          faucetByAccount: {}
+          pendingNotesDismissedIds: []
         },
         isPromptPending: (type: WalletPromptType) => type === WalletPromptType.Bridge
       })
@@ -1627,8 +1611,7 @@ describe('HomePrompts', () => {
         storage: {
           version: 1,
           prompts: { [WalletPromptType.Bridge]: WalletPromptStatus.Pending },
-          pendingNotesDismissedIds: [],
-          faucetByAccount: {}
+          pendingNotesDismissedIds: []
         },
         isPromptPending: (type: WalletPromptType) => type === WalletPromptType.Bridge
       })
@@ -1669,8 +1652,7 @@ describe('HomePrompts', () => {
         storage: {
           version: 1,
           prompts: { [WalletPromptType.Bridge]: WalletPromptStatus.Pending },
-          pendingNotesDismissedIds: [],
-          faucetByAccount: {}
+          pendingNotesDismissedIds: []
         },
         isPromptPending: (type: WalletPromptType) => type === WalletPromptType.Bridge
       })
@@ -1703,8 +1685,7 @@ describe('HomePrompts', () => {
         storage: {
           version: 1,
           prompts: { [WalletPromptType.HotKeyHardwareUnavailable]: WalletPromptStatus.Pending },
-          pendingNotesDismissedIds: [],
-          faucetByAccount: {}
+          pendingNotesDismissedIds: []
         },
         isPromptPending: (type: WalletPromptType) => type === WalletPromptType.HotKeyHardwareUnavailable
       })
@@ -1740,8 +1721,7 @@ describe('HomePrompts', () => {
         storage: {
           version: 1,
           prompts: { [WalletPromptType.HotKeyHardwareUnavailable]: WalletPromptStatus.Pending },
-          pendingNotesDismissedIds: [],
-          faucetByAccount: {}
+          pendingNotesDismissedIds: []
         },
         isPromptPending: (type: WalletPromptType) => type === WalletPromptType.HotKeyHardwareUnavailable
       })
@@ -1774,8 +1754,7 @@ describe('HomePrompts', () => {
         storage: {
           version: 1,
           prompts: { [WalletPromptType.HotKeyRotationNeeded]: WalletPromptStatus.Pending },
-          pendingNotesDismissedIds: [],
-          faucetByAccount: {}
+          pendingNotesDismissedIds: []
         },
         isPromptPending: (type: WalletPromptType) => type === WalletPromptType.HotKeyRotationNeeded
       })
@@ -1811,8 +1790,7 @@ describe('HomePrompts', () => {
         storage: {
           version: 1,
           prompts: { [WalletPromptType.HotKeyRotationNeeded]: WalletPromptStatus.Pending },
-          pendingNotesDismissedIds: [],
-          faucetByAccount: {}
+          pendingNotesDismissedIds: []
         },
         isPromptPending: (type: WalletPromptType) => type === WalletPromptType.HotKeyRotationNeeded
       })
