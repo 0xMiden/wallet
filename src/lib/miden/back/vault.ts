@@ -51,6 +51,7 @@ import { midenClientProxy } from './miden-client-proxy';
 import {
   authorizeRecovery,
   beginRecoveryAuthorization,
+  clearRecoveryAuthorization,
   clearRecoveryAuthorizations,
   getAuthorizedRecoveryPublicKey,
   getRecoveryAuthorization,
@@ -462,19 +463,28 @@ export class Vault {
       }
       throw new PublicError(getMessage('wrongRecoverySeed'));
     });
-    const updated = await Repo.transactions
-      .where({ id: transactionId })
-      .filter(tx => tx.status === ITransactionStatus.Queued && tx.awaitingRecoverySeed === true)
-      .modify(tx => {
-        const resumedAt = Math.floor(Date.now() / 1000);
-        // Older rows have no pause time. Give them a new expiry interval.
-        const pausedAt = tx.recoverySeedRequestedAt ?? tx.initiatedAt;
-        tx.initiatedAt += Math.max(0, resumedAt - pausedAt);
-        tx.awaitingRecoverySeed = false;
-        delete tx.recoverySeedRequestedAt;
-      });
+    // The key was authorized BEFORE this write, so every way the write can fail
+    // to hand the row to the pipeline must zero it again. A rejected write and a
+    // write that matched no row leave the same state - an authorized key no
+    // transaction will ever spend - so they are treated the same.
+    let updated: number;
+    try {
+      updated = await Repo.transactions
+        .where({ id: transactionId })
+        .filter(tx => tx.status === ITransactionStatus.Queued && tx.awaitingRecoverySeed === true)
+        .modify(tx => {
+          const resumedAt = Math.floor(Date.now() / 1000);
+          // Older rows have no pause time. Give them a new expiry interval.
+          const pausedAt = tx.recoverySeedRequestedAt ?? tx.initiatedAt;
+          tx.initiatedAt += Math.max(0, resumedAt - pausedAt);
+          tx.awaitingRecoverySeed = false;
+          delete tx.recoverySeedRequestedAt;
+        });
+    } catch (err) {
+      clearRecoveryAuthorization(transactionId);
+      throw err;
+    }
     if (!updated) {
-      const { clearRecoveryAuthorization } = await import('./recovery-authorization');
       clearRecoveryAuthorization(transactionId);
       throw new PublicError(getMessage('recoveryActionUnavailable'));
     }

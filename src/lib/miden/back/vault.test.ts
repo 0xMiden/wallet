@@ -2442,6 +2442,62 @@ describe('recovery seed waiting time', () => {
     }
   });
 
+  // The key is authorized BEFORE the row is handed to the pipeline. If that
+  // write rejects rather than matching no row, the two outcomes are identical -
+  // an authorized key nothing will ever spend - so both must zero it.
+  it('zeroes the authorization when the resume write rejects', async () => {
+    const account: WalletAccount = {
+      publicKey: 'guardian-write-fails',
+      name: 'Guardian',
+      type: WalletType.Guardian,
+      hdIndex: 0,
+      isPublic: false,
+      coldPublicKey: '020304'
+    };
+    const vault = await seedVault('pw', { mnemonic: '', accounts: [account] });
+    const transaction: ITransaction = new Transaction(account.publicKey, new Uint8Array());
+    transaction.type = 'replace-hot-key';
+    transaction.awaitingRecoverySeed = true;
+    await Repo.transactions.add(transaction);
+    const where = jest.spyOn(Repo.transactions, 'where');
+    try {
+      const sdk = jest.requireMock<{ AuthSecretKey: { ecdsaWithRNG: jest.Mock } }>('@miden-sdk/miden-sdk/lazy');
+      sdk.AuthSecretKey.ecdsaWithRNG.mockImplementationOnce(() => ({
+        publicKey: () => ({
+          serialize: () => new Uint8Array([1, 2, 3, 4]),
+          toCommitment: () => ({ toHex: () => '0x020304', free: jest.fn() }),
+          free: jest.fn()
+        }),
+        serialize: () => new Uint8Array([1, 5, 6]),
+        free: jest.fn()
+      }));
+      mockGetAccount.mockResolvedValueOnce({});
+      mockGetSignerDetailsFromAccount.mockResolvedValueOnce({ commitment: '020304' });
+      // provideRecoverySeed calls `where` exactly once, for the resume write.
+      where.mockImplementationOnce(
+        () =>
+          ({
+            filter: () => ({
+              modify: async () => {
+                throw new Error('dexie write failed');
+              }
+            })
+          }) as never
+      );
+      await expect(
+        vault.provideRecoverySeed(transaction.id, VALID_MNEMONIC, getRecoveryAction(transaction))
+      ).rejects.toThrow('dexie write failed');
+      // The key must be gone: a surviving authorization would report ready and
+      // let the pipeline spend a key the row never learned about.
+      where.mockRestore();
+      await expect(vault.prepareRecoveryTransaction(transaction.id)).resolves.toEqual({ ready: false });
+    } finally {
+      where.mockRestore();
+      clearRecoveryAuthorizations();
+      await Repo.transactions.delete(transaction.id);
+    }
+  });
+
   // A hot-key-only import stores no cold public key and has hdIndex -1, so the
   // seed prompt is the ONLY place the cold key for that account ever exists.
   // The GuardianSettings CTA test asserts the button stays offered; this asserts
