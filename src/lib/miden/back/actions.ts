@@ -297,8 +297,17 @@ export function unlock(password?: string) {
       // construction throws (#878).
       try {
         const vault = await Vault.setup(password);
+        // Resuming an interrupted removal is best-effort like the two migrations
+        // below it. It reaches the keystore, a client build and the offscreen
+        // document, and it throws seedRemovalFailed by design; letting that
+        // escape would leave the wallet permanently unopenable, because the
+        // status stays 'removing' and every retry re-runs the same failing step.
+        // Staying at 'removing' is the designed outcome - it is what the
+        // seedRemovalIncomplete notice asks the user to retry.
         if ((await vault.fetchSeedPhraseStatus()) === 'removing') {
-          await vault.removeSeedPhrase();
+          await vault
+            .removeSeedPhrase()
+            .catch(e => console.warn('[unlock] seed removal resume failed (non-fatal):', e));
         }
         // Bring any pre-3-key Guardian accounts into the 3-key model in place
         // (best-effort, never throws) so they surface the Activate Device Key

@@ -470,6 +470,33 @@ describe('actions', () => {
       expect(mockVaultInstance.backfillGuardianEndpoints).toHaveBeenCalled();
       expect(backfillStarted).toBe(true);
     });
+
+    it('still unlocks when the resumed seed removal fails, leaving the status at removing', async () => {
+      const { Vault } = jest.requireMock('lib/miden/back/vault');
+      // removeSeedPhrase throws seedRemovalFailed by design, and reaches the
+      // keystore, a client build and the offscreen document. If that rejection
+      // escaped unlock() the wallet could never be opened again: the status
+      // stays 'removing', so every later unlock re-runs the same failing step.
+      const mockVaultInstance = {
+        fetchSeedPhraseStatus: jest.fn().mockResolvedValue('removing'),
+        removeSeedPhrase: jest.fn().mockRejectedValue(new Error('Removal failed')),
+        migrateLegacyGuardianAccounts: jest.fn().mockResolvedValue(undefined),
+        backfillEvmAddresses: jest.fn().mockResolvedValue(undefined),
+        backfillGuardianEndpoints: jest.fn().mockResolvedValue(undefined),
+        fetchAccounts: jest.fn().mockResolvedValue([]),
+        fetchSettings: jest.fn().mockResolvedValue({}),
+        getCurrentAccount: jest.fn().mockResolvedValue(null),
+        isOwnMnemonic: jest.fn().mockResolvedValue(true)
+      };
+      Vault.setup.mockResolvedValueOnce(mockVaultInstance);
+
+      await expect(unlock('password123')).resolves.toBeUndefined();
+
+      expect(mockVaultInstance.removeSeedPhrase).toHaveBeenCalled();
+      // The wallet is open, and the unfinished removal is still reported as
+      // 'removing' so the Settings notice can ask the user to retry it.
+      expect(mockUnlocked).toHaveBeenCalledWith(expect.objectContaining({ seedPhraseStatus: 'removing' }));
+    });
   });
 
   describe('key storage after seed removal and key import', () => {
