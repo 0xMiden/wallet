@@ -95,9 +95,7 @@ export const zustandProvider: GuardianAccountProvider = {
   swapHotKey: (accountPublicKey: string, newHotPubKey: string) =>
     useWalletStore.getState().swapHotKey(accountPublicKey, newHotPubKey),
   setGuardianEndpoint: (accountPublicKey: string, guardianEndpoint: string) =>
-    useWalletStore.getState().setGuardianEndpoint(accountPublicKey, guardianEndpoint),
-  revertGuardianEndpointAfterDiscard: (accountPublicKey: string, discardedEndpoint: string, revertTo: string) =>
-    useWalletStore.getState().revertGuardianEndpointAfterDiscard(accountPublicKey, discardedEndpoint, revertTo)
+    useWalletStore.getState().setGuardianEndpoint(accountPublicKey, guardianEndpoint)
 };
 
 /**
@@ -950,11 +948,15 @@ async function runPendingRotationRecheck(
             // Rows are not ordered here, and a rotation can legitimately land
             // during the ≤30 minutes of rechecks - so a discarded A→B must not
             // roll back a committed B→C, and an unconditional force write would.
-            const outcome = await zustandProvider.revertGuardianEndpointAfterDiscard?.(
-              account.publicKey,
-              row.extraInputs.newGuardianEndpoint,
-              revertTo
-            );
+            // The store directly, not through the provider. That optional member had exactly
+            // one reader and one implementer, both in this module, and the suite already mocks
+            // the store rather than the provider - so the indirection bought nothing except an
+            // `undefined` outcome the types cannot produce, which the fall-through below then
+            // folded in with `'superseded'`: "we never checked" recorded as "somebody else
+            // already moved it", on the one path whose demote is the point of no return.
+            const outcome = await useWalletStore
+              .getState()
+              .revertGuardianEndpointAfterDiscard(account.publicKey, row.extraInputs.newGuardianEndpoint, revertTo);
             if (outcome === 'reverted') {
               clearGuardianServiceFor(account.publicKey);
               bindingChanged = true;
@@ -982,9 +984,9 @@ async function runPendingRotationRecheck(
               unsettled.push(row.id);
               continue;
             }
-            // 'superseded' (or no provider): nothing to roll back - something
-            // authoritative already moved the binding off this rotation's
-            // target, so demoting the row is all that is left.
+            // 'superseded': nothing to roll back - something authoritative already
+            // moved the binding off this rotation's target, so demoting the row is
+            // all that is left.
           }
         }
         await resolveUnconfirmedSwitch(row.id, landed);
