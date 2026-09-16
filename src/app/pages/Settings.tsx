@@ -53,6 +53,8 @@ const RevealPrivateKey: FC = () => {
   return <RevealSecret reveal={isGuardian ? 'guardian-keys' : 'private-key'} />;
 };
 
+const RemoveSeedPhrase: FC = () => <VerifySeedPhraseFlow remove />;
+
 const RevealHotKey: FC = () => <RevealSecret reveal="hot-key" />;
 
 const LANGUAGE_LABELS: Record<string, string> = {
@@ -86,6 +88,15 @@ type Tab = {
   linksOutsideOfWallet?: boolean;
   onClick?: () => void;
   guardianOnly?: boolean;
+  requiresSeedPhrase?: boolean;
+  /**
+   * This tab's panel renders its OWN notice when the seed phrase is not 'stored'
+   * (an interrupted removal, or a finished one), so its route must keep resolving
+   * after the menu row is hidden - see allTabs. Only set it where the component
+   * actually renders something: RevealSecret returns null in that state, so a
+   * route to it would resolve to a header with a blank body.
+   */
+  reportsSeedState?: boolean;
   /**
    * Set when the sub-page focuses a field on mount in a `useLayoutEffect`, which
    * runs BEFORE the host's title focus and would therefore lose the caret to it.
@@ -146,7 +157,17 @@ const TAB_GROUPS: TabGroup[] = [
         slug: 'reveal-seed-phrase',
         titleI18nKey: 'recoveryPhrase',
         Component: RevealSeedPhraseFlow,
+        requiresSeedPhrase: true,
+        reportsSeedState: true,
         testID: SettingsSelectors.RevealSeedPhraseButton,
+        hasOwnLayout: true
+      },
+      {
+        slug: 'remove-seed-phrase',
+        titleI18nKey: 'removeSeedPhrase',
+        Component: RemoveSeedPhrase,
+        requiresSeedPhrase: true,
+        reportsSeedState: true,
         hasOwnLayout: true
       },
       {
@@ -231,11 +252,12 @@ const HIDDEN_TABS: Tab[] = [
     slug: 'reveal-private-key',
     titleI18nKey: 'revealPrivateKey',
     Component: RevealPrivateKey,
+    requiresSeedPhrase: true,
     testID: SettingsSelectors.RevealPrivateKeyButton
   },
   {
     slug: 'reveal-hot-key',
-    titleI18nKey: 'revealHotKey',
+    titleI18nKey: 'revealPrivateKey',
     Component: RevealHotKey,
     testID: SettingsSelectors.RevealHotKeyButton,
     guardianOnly: true,
@@ -279,16 +301,28 @@ const Settings: FC<SettingsProps> = ({ tabSlug, rootScrollTop: savedRootScrollTo
   const reduceMotion = useReducedMotion();
   const currentAccountType = useWalletStore(s => s.currentAccount?.type);
   const currentAccountHotPublicKey = useWalletStore(s => s.currentAccount?.hotPublicKey);
+  const seedPhraseStatus = useWalletStore(s => s.seedPhraseStatus);
   const isGuardianAccount = currentAccountType === WalletType.Guardian;
   const hasActivatedHotKey = Boolean(currentAccountHotPublicKey);
 
-  const tabIsVisible = useCallback(
+  // Whether the account HAS this page at all. A non-Guardian account has no
+  // Guardian page in any sense, so these gates block the route as well as the row.
+  const tabIsRoutable = useCallback(
     (tab: Tab) => {
       if (tab.guardianOnly && !isGuardianAccount) return false;
       if (tab.requiresActivatedHotKey && !hasActivatedHotKey) return false;
       return true;
     },
     [isGuardianAccount, hasActivatedHotKey]
+  );
+
+  // Whether the MENU offers it. The seed gate is only about the row: see allTabs.
+  const tabIsVisible = useCallback(
+    (tab: Tab) => {
+      if (tab.requiresSeedPhrase && seedPhraseStatus !== 'stored') return false;
+      return tabIsRoutable(tab);
+    },
+    [tabIsRoutable, seedPhraseStatus]
   );
 
   // Read-only "Network endpoints" row: only shown while a developer endpoint
@@ -327,9 +361,27 @@ const Settings: FC<SettingsProps> = ({ tabSlug, rootScrollTop: savedRootScrollTo
     );
   }, [tabIsVisible, showDevEndpoints]);
 
+  // Menu visibility and route resolvability are different questions, and this is
+  // the list that resolves a sub-page route. A seed-gated tab is hidden from the
+  // menu once the phrase is gone, but its panel is the ONLY place that reports an
+  // interrupted removal ('removing', which unlock retries) or a completed one, so
+  // the route has to keep resolving or that state has no surface at all.
+  //
+  // Restricted to `reportsSeedState`, NOT every seed-gated tab. Guarding itself
+  // and reporting itself are different things: RevealSeedPhrase (:139) and
+  // VerifySeedPhraseFlow (:172) render a notice, but RevealSecret returns null
+  // (:398, and its own test asserts childElementCount 0), so restoring
+  // reveal-private-key's route would resolve to a header over a blank body -
+  // worse than invalidTab's bounce, not better.
   const allTabs = useMemo(
-    () => [...tabGroups.flatMap(g => g.tabs), ...HIDDEN_TABS.filter(tabIsVisible)],
-    [tabGroups, tabIsVisible]
+    () => [
+      ...tabGroups.flatMap(g => g.tabs),
+      ...HIDDEN_TABS.filter(tabIsVisible),
+      ...[...TAB_GROUPS.flatMap(g => g.tabs), ...HIDDEN_TABS].filter(
+        tab => tab.reportsSeedState && !tabIsVisible(tab) && tabIsRoutable(tab)
+      )
+    ],
+    [tabGroups, tabIsVisible, tabIsRoutable]
   );
 
   const activeTab = useMemo(() => allTabs.find(tab => tab.slug === tabSlug) || null, [allTabs, tabSlug]);

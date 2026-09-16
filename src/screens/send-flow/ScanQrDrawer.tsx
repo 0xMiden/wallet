@@ -16,6 +16,8 @@ export interface ScanQrDrawerProps {
   onDetected: (address: string) => void;
   /** An i18n error key (e.g. a QR that decoded to a non-Miden value). */
   onError: (errorKey: string) => void;
+  /** Return the unmodified payload to a caller-owned validator. */
+  rawPayload?: boolean;
 }
 
 /**
@@ -31,7 +33,13 @@ export interface ScanQrDrawerProps {
  * never lingers. Async state updates are guarded by `useIsMounted`, and the
  * camera is never requested while `open` is false.
  */
-export const ScanQrDrawer: React.FC<ScanQrDrawerProps> = ({ open, onOpenChange, onDetected, onError }) => {
+export const ScanQrDrawer: React.FC<ScanQrDrawerProps> = ({
+  open,
+  onOpenChange,
+  onDetected,
+  onError,
+  rawPayload = false
+}) => {
   const { t } = useTranslation();
   const isMounted = useIsMounted();
 
@@ -70,6 +78,10 @@ export const ScanQrDrawer: React.FC<ScanQrDrawerProps> = ({ open, onOpenChange, 
 
     let cancelled = false;
     const detector = createQrDetector();
+    if (!detector) {
+      setScanState('no-camera');
+      return;
+    }
     setScanState('requesting');
     setInvalidScan(false);
 
@@ -85,12 +97,12 @@ export const ScanQrDrawer: React.FC<ScanQrDrawerProps> = ({ open, onOpenChange, 
       if (typeof video.requestVideoFrameCallback === 'function') {
         usingVideoCallbackRef.current = true;
         frameHandleRef.current = video.requestVideoFrameCallback(() => {
-          void scanFrame();
+          scanFrame();
         });
       } else {
         usingVideoCallbackRef.current = false;
         frameHandleRef.current = requestAnimationFrame(() => {
-          void scanFrame();
+          scanFrame();
         });
       }
     };
@@ -98,7 +110,7 @@ export const ScanQrDrawer: React.FC<ScanQrDrawerProps> = ({ open, onOpenChange, 
     const scanFrame = async () => {
       const video = videoRef.current;
       if (cancelled || !detector || !video) return;
-      const result = await detectAddressFromFrame(detector, video);
+      const result = await detectAddressFromFrame(detector, video, rawPayload);
       if (cancelled) return;
       if (result?.success && result.address) {
         finishWithAddress(result.address);
@@ -131,7 +143,7 @@ export const ScanQrDrawer: React.FC<ScanQrDrawerProps> = ({ open, onOpenChange, 
         if (isMounted()) setScanState('scanning');
         // Kick off the first decode immediately; subsequent frames are driven by
         // requestVideoFrameCallback / requestAnimationFrame.
-        void scanFrame();
+        scanFrame();
       } catch (error) {
         if (cancelled || !isMounted()) return;
         const name = error instanceof Error ? error.name : '';
@@ -150,7 +162,7 @@ export const ScanQrDrawer: React.FC<ScanQrDrawerProps> = ({ open, onOpenChange, 
       cancelled = true;
       stopCamera();
     };
-  }, [open, onDetected, onError, onOpenChange, stopCamera, isMounted]);
+  }, [open, onDetected, onError, onOpenChange, stopCamera, isMounted, rawPayload]);
 
   const close = useCallback(() => onOpenChange(false), [onOpenChange]);
 

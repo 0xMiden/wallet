@@ -13,6 +13,8 @@
 
 import { TransactionProver } from '@miden-sdk/miden-sdk/lazy';
 
+import { GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
+import { WalletAccount } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
 import {
@@ -67,7 +69,8 @@ jest.mock('lib/miden/repo', () => ({
     // Applies the predicate against `txStore` for real. A stub returning `[]`
     // would silently pass any dedup/queue-scan check that reads through here.
     filter: jest.fn((predicate: (row: Record<string, unknown>) => boolean) => ({
-      toArray: jest.fn(async () => txStore.filter(predicate))
+      toArray: jest.fn(async () => txStore.filter(predicate)),
+      first: jest.fn(async () => txStore.find(predicate))
     }))
   }
 }));
@@ -865,6 +868,57 @@ describe('generateTransaction — Guardian routing', () => {
       free: jest.fn()
     }));
     txStore.length = 0;
+  });
+
+  it('waits for recovery authorization before it starts a transaction', async () => {
+    const transaction = new SwitchGuardianTransaction('guardian-acc', 'https://new.guardian', false);
+    const prepareRecoveryTransaction = jest.fn(async () => ({ ready: false }));
+    const releaseRecoveryAuthorization = jest.fn(async () => {});
+    const getAccounts = jest.fn(async () => []);
+    await generateTransaction(transaction, jest.fn(), false, {
+      prepareRecoveryTransaction,
+      releaseRecoveryAuthorization,
+      getAccounts,
+      getPublicKeyForCommitment: jest.fn(),
+      signWord: jest.fn()
+    });
+    expect(prepareRecoveryTransaction).toHaveBeenCalledWith(transaction.id);
+    expect(getAccounts).not.toHaveBeenCalled();
+    expect(mockGetMidenClient).not.toHaveBeenCalled();
+    expect(releaseRecoveryAuthorization).not.toHaveBeenCalled();
+    expect(transaction.status).toBe(ITransactionStatus.Queued);
+  });
+
+  // The release runs in `finally`. On mobile and desktop it is an intercom round
+  // trip, so it can reject - and a throw out of `finally` replaces whatever the
+  // pipeline itself produced, hiding the real failure from the loop that has to
+  // classify it.
+  it('a failing authorization release does not replace the pipeline outcome', async () => {
+    const transaction = new SwitchGuardianTransaction('guardian-acc', 'https://new.guardian', false);
+    const prepareRecoveryTransaction = jest.fn(async () => ({ ready: true }));
+    const releaseRecoveryAuthorization = jest.fn(async () => {
+      throw new Error('intercom port closed');
+    });
+    const getAccounts = jest.fn(async () => []);
+    // The pre-guardian sync is the first thing the pipeline does, so failing it
+    // gives a deterministic error that is unmistakably the PIPELINE's, not the
+    // release's.
+    mockGetMidenClient.mockResolvedValueOnce({
+      syncState: jest.fn(async () => {
+        throw new Error('pipeline failed for its own reason');
+      })
+    });
+    await expect(
+      generateTransaction(transaction, jest.fn(), false, {
+        prepareRecoveryTransaction,
+        releaseRecoveryAuthorization,
+        getAccounts,
+        getPublicKeyForCommitment: jest.fn(),
+        signWord: jest.fn()
+      })
+    ).rejects.toThrow('pipeline failed for its own reason');
+    // It still ran: the clearing must not be skipped just because it can fail.
+    expect(releaseRecoveryAuthorization).toHaveBeenCalledWith(transaction.id);
   });
 
   it('Guardian send: builds a proposal, signs it, submits the request, and completes the row', async () => {
@@ -4452,12 +4506,15 @@ describe('generateTransaction — Guardian routing', () => {
 
     // Service load round-trips through the OLD guardian — down operator.
     mockGetOrCreateMultisigService.mockRejectedValue(new Error('Failed to fetch'));
-    mockCreateDirectSwitchRequest.mockResolvedValue({
-      request: { serialize: () => new Uint8Array([2]) },
-      // 'Y2hhaW4tYW5jaG9y' = base64 of 'chain-anchor' — must be REAL base64;
-      // the leaf decodes it with b64ToU8 (atob), which throws on a bare token.
-      chainAnchorB64: 'Y2hhaW4tYW5jaG9y'
-    });
+    mockCreateDirectSwitchRequest.mockImplementation(
+      async (_account: WalletAccount, _endpoint: string, sign: GuardianAccountProvider['signWord']) => {
+        await sign('cold-pub', '0xword');
+        return {
+          request: { serialize: () => new Uint8Array([2]) },
+          chainAnchorB64: 'Y2hhaW4tYW5jaG9y'
+        };
+      }
+    );
     mockFinalizeDirectSwitch.mockResolvedValue(undefined);
 
     const signWord = jest.fn(async () => 'sig');
@@ -4494,8 +4551,9 @@ describe('generateTransaction — Guardian routing', () => {
     expect(mockCreateDirectSwitchRequest).toHaveBeenCalledWith(
       expect.objectContaining({ publicKey: 'guardian-acc' }),
       'https://new.guardian',
-      signWord
+      expect.any(Function)
     );
+    expect(signWord).toHaveBeenCalledWith('cold-pub', '0xword', txId);
     expect(mockBuildColdMultisigService).not.toHaveBeenCalled();
     // Same leaf + commit-wait as the proposal path, pinned to the ChainAnchor
     // the direct build signed at (protocol 0.16). The leaf decodes the
@@ -4504,7 +4562,10 @@ describe('generateTransaction — Guardian routing', () => {
     expect(Buffer.from(mockChainAnchorDeserialize.mock.calls[0][0] as Uint8Array).toString()).toBe('chain-anchor');
     expect(waitForTransactionCommit).toHaveBeenCalledWith('exec-tx-hash');
     // Completion registers on the NEW guardian standalone (undefined service).
-    expect(mockFinalizeDirectSwitch).toHaveBeenCalledWith('guardian-acc', 'https://new.guardian', provider);
+    expect(mockFinalizeDirectSwitch).toHaveBeenCalledWith('guardian-acc', 'https://new.guardian', {
+      ...provider,
+      signWord: expect.any(Function)
+    });
     const row = txStore.find(r => r.id === txId)!;
     expect(row.status).toBe(ITransactionStatus.Completed);
     expect(row.displayMessage).toBe('Guardian switched');
@@ -4577,7 +4638,10 @@ describe('generateTransaction — Guardian routing', () => {
     // coordinated switch outright — leaving it is not harmless.
     expect(multisigService.abandonCandidate).toHaveBeenCalledWith(31);
     expect(mockCreateDirectSwitchRequest).toHaveBeenCalled();
-    expect(mockFinalizeDirectSwitch).toHaveBeenCalledWith('guardian-acc', 'https://new.guardian', provider);
+    expect(mockFinalizeDirectSwitch).toHaveBeenCalledWith('guardian-acc', 'https://new.guardian', {
+      ...provider,
+      signWord: expect.any(Function)
+    });
     const row = txStore.find(r => r.id === txId)!;
     expect(row.status).toBe(ITransactionStatus.Completed);
   });
@@ -4703,7 +4767,10 @@ describe('generateTransaction — Guardian routing', () => {
 
     expect(mockDidDirectSwitchLand).toHaveBeenCalled();
     expect(setGuardianEndpoint).toHaveBeenCalledWith('guardian-acc', 'https://new.guardian');
-    expect(mockFinalizeDirectSwitch).toHaveBeenCalledWith('guardian-acc', 'https://new.guardian', provider);
+    expect(mockFinalizeDirectSwitch).toHaveBeenCalledWith('guardian-acc', 'https://new.guardian', {
+      ...provider,
+      signWord: expect.any(Function)
+    });
     const row = txStore.find(r => r.id === txId)!;
     expect(row.status).toBe(ITransactionStatus.Completed);
     // Completing is the lesser harm, but "we went ahead on no evidence" is not
@@ -5355,7 +5422,10 @@ describe('generateTransaction — Guardian routing', () => {
     expect(mockGetOrCreateMultisigService).toHaveBeenCalledTimes(1);
     const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
     expect((row.extraInputs as Record<string, unknown>).switchedDirectly).toBe(true);
-    expect(mockFinalizeDirectSwitch).toHaveBeenCalledWith('guardian-acc', 'https://new.guardian', provider);
+    expect(mockFinalizeDirectSwitch).toHaveBeenCalledWith('guardian-acc', 'https://new.guardian', {
+      ...provider,
+      signWord: expect.any(Function)
+    });
     expect(setGuardianEndpoint).toHaveBeenCalledWith('guardian-acc', 'https://new.guardian');
     expect(row.status).toBe(ITransactionStatus.Completed);
     // This exit is reached from an apply-after-submit failure: the node accepted
@@ -5747,6 +5817,20 @@ describe('initiateReplaceHotKeyTransaction', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     txStore.length = 0;
+  });
+
+  it('reuses a pending recovery change but permits a new change after completion', async () => {
+    const provider = makeGuardianProvider(true);
+    const firstId = await initiateReplaceHotKeyTransaction('acc-1', false, provider);
+    expect(await initiateReplaceHotKeyTransaction('acc-1', false, provider)).toBe(firstId);
+    expect(txStore).toHaveLength(1);
+    const row = txStore[0];
+    if (!row) throw new Error('Recovery transaction was not queued');
+    row.status = ITransactionStatus.GeneratingTransaction;
+    expect(await initiateReplaceHotKeyTransaction('acc-1', false, provider)).toBe(firstId);
+    row.status = ITransactionStatus.Completed;
+    expect(await initiateReplaceHotKeyTransaction('acc-1', false, provider)).not.toBe(firstId);
+    expect(txStore).toHaveLength(2);
   });
 
   it('queues a ReplaceHotKeyTransaction row when the account is Guardian', async () => {

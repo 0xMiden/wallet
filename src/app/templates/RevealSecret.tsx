@@ -8,6 +8,7 @@ import FormField from 'app/atoms/FormField';
 import AccountBanner from 'app/templates/AccountBanner';
 import { Button, ButtonVariant } from 'components/Button';
 import { PasscodeEntry } from 'components/PasscodeEntry';
+import { PrivateKeyPair } from 'components/PrivateKeyPair';
 import { Vault } from 'lib/miden/back/vault';
 import { useAccount, useSecretState, useMidenContext } from 'lib/miden/front';
 import { getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
@@ -15,6 +16,7 @@ import { resolvePublicKeyCommitments } from 'lib/miden/sdk/resolve-public-key-co
 import { useScreenshotGuard } from 'lib/mobile/screenshot-guard';
 import { useHideDappBubblesWhileOpen } from 'lib/mobile/useHideDappBubblesWhileOpen';
 import { isMobile } from 'lib/platform';
+import { useWalletStore } from 'lib/store';
 import useCopyToClipboard from 'lib/ui/useCopyToClipboard';
 
 const SUBMIT_ERROR_TYPE = 'submit-error';
@@ -35,6 +37,15 @@ type GuardianKeysBundle = {
 
 const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
   const { t } = useTranslation();
+  const secretGeneration = useRef(0);
+  const seedStatus = useWalletStore(s => s.seedPhraseStatus);
+  const revealUnavailable = Boolean(seedStatus && seedStatus !== 'stored' && reveal !== 'hot-key');
+  useEffect(
+    () => () => {
+      secretGeneration.current += 1;
+    },
+    [seedStatus]
+  );
   const { revealMnemonic, revealPrivateKey, revealHotKey, revealGuardianKeys } = useMidenContext();
   const account = useAccount();
   const { fieldRef: secretFieldRef } = useCopyToClipboard();
@@ -51,6 +62,12 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
   const passwordValue = watch('password');
   const [secret, setSecret] = useSecretState();
   const [guardianBundle, setGuardianBundle] = useState<GuardianKeysBundle | null>(null);
+  useEffect(() => {
+    if (revealUnavailable) {
+      setSecret(null);
+      setGuardianBundle(null);
+    }
+  }, [revealUnavailable, setSecret]);
   // Block screenshots / screen recordings while raw key material is on screen
   // (#417) — the same protection `RevealSeedPhrase` already has, for material of
   // equal sensitivity: a private key, a Guardian COLD private key (the account's
@@ -126,32 +143,40 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
 
   const onSubmit = useCallback<SubmitHandler<FormData>>(
     async ({ password }) => {
-      if (isSubmitting) return;
+      if (isSubmitting || revealUnavailable) return;
 
       clearErrors('password');
+      const generation = secretGeneration.current;
       try {
+        const setCurrentSecret = (value: string) => {
+          if (generation === secretGeneration.current) setSecret(value);
+        };
         const unlockPassword = hasHardwareProtector ? undefined : password;
         if (reveal === 'private-key') {
           const pubKeyCommitment = await getAccountPublicKeyCommitment(account.publicKey);
-          setSecret(await revealPrivateKey(pubKeyCommitment, unlockPassword));
+          setCurrentSecret(await revealPrivateKey(pubKeyCommitment, unlockPassword));
         } else if (reveal === 'hot-key') {
-          setSecret(await revealHotKey(account.publicKey, unlockPassword));
+          setCurrentSecret(await revealHotKey(account.publicKey, unlockPassword));
         } else if (reveal === 'guardian-keys') {
-          setGuardianBundle(await revealGuardianKeys(account.publicKey, unlockPassword));
+          const bundle = await revealGuardianKeys(account.publicKey, unlockPassword);
+          if (generation === secretGeneration.current) setGuardianBundle(bundle);
         } else {
-          setSecret(await revealMnemonic(unlockPassword));
+          setCurrentSecret(await revealMnemonic(unlockPassword));
         }
-      } catch (err: any) {
-        console.error(err);
-
+      } catch (err) {
         // Human delay.
         await new Promise(res => setTimeout(res, 300));
-        setError('password', { type: SUBMIT_ERROR_TYPE, message: err.message });
+        if (generation !== secretGeneration.current) return;
+        setError('password', {
+          type: SUBMIT_ERROR_TYPE,
+          message: err instanceof Error ? err.message : t('smthWentWrong')
+        });
         if (!hasHardwareProtector) focusPasswordField();
       }
     },
     [
       isSubmitting,
+      revealUnavailable,
       clearErrors,
       setError,
       revealMnemonic,
@@ -162,7 +187,8 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
       focusPasswordField,
       hasHardwareProtector,
       reveal,
-      account.publicKey
+      account.publicKey,
+      t
     ]
   );
 
@@ -207,7 +233,7 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
 
       case 'hot-key':
         return {
-          name: t('hotPrivateKey'),
+          name: t('privateKey'),
           accountBanner: null,
           attention: null,
           fieldDesc: <div className="text-heading-gray text-sm">{t('revealHotKeyDescription')}</div>
@@ -280,6 +306,7 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
 
     if (secret) {
       if (!isGuardReady) return null;
+      if (reveal === 'hot-key') return <PrivateKeyPair payload={secret} />;
       return (
         <div className="pt-8">
           <FormField
@@ -362,10 +389,13 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
     usePasscodeEntry,
     requiresAcknowledge,
     privateKeyAcknowledged,
-    isSubmitting
+    isSubmitting,
+    reveal
   ]);
 
   const showButton = !secret && !guardianBundle;
+
+  if (revealUnavailable) return null;
 
   if (hasHardwareProtector === null) {
     return null;
@@ -426,7 +456,14 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
   );
 };
 
-export default RevealSecret;
+// Remount before paint when the account or reveal route changes. Cleanup also
+// invalidates requests still waiting for authentication from the old account.
+const AccountRevealSecret: FC<RevealSecretProps> = props => {
+  const account = useAccount();
+  return <RevealSecret key={`${account.publicKey}:${props.reveal}`} {...props} />;
+};
+
+export default AccountRevealSecret;
 
 // Returns the hex-encoded auth public-key commitment for an account.
 // This is the key under which the vault stores the matching secret key —

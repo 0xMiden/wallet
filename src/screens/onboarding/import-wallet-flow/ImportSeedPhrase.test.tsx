@@ -318,3 +318,22 @@ describe('ImportSeedPhraseScreen', () => {
     });
   });
 });
+
+describe('import-with-key link', () => {
+  it('renders the link only when onImportWithKey is provided, and fires it on click', () => {
+    const onImportWithKey = jest.fn();
+    render(<ImportSeedPhraseScreen wordslist={WORDS} onImportWithKey={onImportWithKey} />);
+
+    const link = screen.getByTestId('import-with-key-link');
+    expect(link).toHaveTextContent('importWithKeyInstead');
+
+    fireEvent.click(link);
+    expect(onImportWithKey).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders no link without the prop — the RecoverySeedPrompt reuse stays link-free', () => {
+    render(<ImportSeedPhraseScreen wordslist={WORDS} />);
+
+    expect(screen.queryByTestId('import-with-key-link')).not.toBeInTheDocument();
+  });
+});
