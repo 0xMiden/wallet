@@ -274,7 +274,12 @@ describe('RevealSeedPhrase', () => {
       mockSeedStatus = status;
       mockSecret = 'alpha beta gamma delta';
       const container = await render();
-      expect(container.querySelector('[role="status"]')?.textContent).toBe('seedPhraseRemoved');
+      // An unfinished removal is not a finished one, and the user is told which:
+      // 'removing' is retried on the next unlock and is still reachable from
+      // Settings, so it must not claim the phrase is already gone.
+      expect(container.querySelector('[role="status"]')?.textContent).toBe(
+        status === 'removing' ? 'seedRemovalIncomplete' : 'seedPhraseRemoved'
+      );
       expect(container.textContent).not.toContain('alpha');
       expect(mockSetSecret).toHaveBeenCalledWith(null);
       expect(mockHasHardwareProtector).not.toHaveBeenCalled();
