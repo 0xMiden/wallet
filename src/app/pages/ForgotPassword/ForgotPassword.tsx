@@ -2,24 +2,41 @@ import React, { FC, useCallback, useEffect, useRef, useState } from 'react';
 
 import { generateMnemonic } from 'bip39';
 import wordsList from 'bip39/src/wordlists/english.json';
+import { useTranslation } from 'react-i18next';
 
 import { formatMnemonic } from 'app/defaults';
 import { postOnboardingRoute } from 'lib/extension/side-panel-handoff';
 import { useMidenContext } from 'lib/miden/front';
+import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
 import type { GuardianDiscoveryResult } from 'lib/miden/guardian/discover';
 import { GUARDIAN_PROBE_WAIT_DEADLINE_MS, useGuardianProbe } from 'lib/miden/guardian/use-guardian-probe';
 import { clearClientStorage } from 'lib/miden/reset';
+import { ENDPOINT_OVERRIDE_STORAGE_KEY } from 'lib/miden-chain/effective-endpoints';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isMobile } from 'lib/platform';
 import { beginFlow, classifyError, FlowHandle } from 'lib/telemetry';
 import { navigate } from 'lib/woozie';
+import { errorToMessage } from 'screens/onboarding/error-message';
 import { OnboardingFlow } from 'screens/onboarding/navigator';
 import { OnboardingAction, OnboardingStep, OnboardingType, WalletType } from 'screens/onboarding/types';
 
 const ForgotPassword: FC = () => {
+  const { t } = useTranslation();
   const [step, setStep] = useState(OnboardingStep.Welcome);
   const [seedPhrase, setSeedPhrase] = useState<string[]>([]);
   const [onboardingType, setOnboardingType] = useState<OnboardingType | null>(null);
+  // Which BIP-44 namespace to recover into. `Vault.spawn` derives the account at
+  // `m/44'/0'/<walletTypeIndex>'/0'` from this, and only runs the Guardian
+  // lookup for `WalletType.Guardian`. It used to be hardcoded to Guardian, so a
+  // user who onboarded with "no guardian" had their wallet wiped by
+  // `clearClientStorage()` and then hit "No Guardian accounts found at this
+  // guardian endpoint for this seed" — the OffChain account at
+  // `m/44'/0'/1'/0'` was never derived or looked up. The recovery-method step
+  // below now sets this the same way onboarding's
+  // `import-select-recovery-method` does.
+  const [walletType, setWalletType] = useState<WalletType>(WalletType.Guardian);
+  /** Endpoint the user picked on the recovery-method step; overrides the probe. */
+  const [selectedGuardianEndpoint, setSelectedGuardianEndpoint] = useState<string | undefined>(undefined);
   const [password, setPassword] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [recoveryError, setRecoveryError] = useState<string | null>(null);
@@ -96,19 +113,41 @@ const ForgotPassword: FC = () => {
   // 'skipped' preconditions absent so nothing ran and nothing was destroyed.
   const register = useCallback(async (): Promise<'ok' | 'failed' | 'skipped'> => {
     if (password && seedPhrase) {
+      // `clearClientStorage()` is a blanket `localStorage.clear()`, and on
+      // DESKTOP localStorage is also the platform key-value store
+      // (`DesktopStorage`, prefix `miden_wallet_`) — so it takes the dev-settings
+      // endpoint override with it, the one key a storage reset must survive
+      // (`PRESERVED_STORAGE_KEYS` in lib/miden/reset). `Vault.spawn`'s own reset
+      // snapshots that key AFTER this call, so it reads null and restores
+      // nothing: the account is recovered on the custom network while the next
+      // launch resolves the build-default endpoints, which is exactly the
+      // account-here / client-there split the preserve list exists to prevent.
+      // Snapshot and restore it around the wipe. On the extension and on mobile
+      // the override lives in browser.storage.local / Capacitor Preferences,
+      // which `localStorage.clear()` cannot reach, so the restore rewrites the
+      // value it just read.
+      const endpointOverrides = await fetchFromStorage(ENDPOINT_OVERRIDE_STORAGE_KEY);
       clearClientStorage();
+      if (endpointOverrides != null) {
+        await putToStorage(ENDPOINT_OVERRIDE_STORAGE_KEY, endpointOverrides);
+      }
       // Resolve the probed guardian endpoint (import path only) and thread it
       // explicitly into registerWallet (stage 1 of #408) rather than writing the
       // global GUARDIAN_URL_STORAGE_KEY. The probe result is held in memory, so
       // clearClientStorage above cannot clobber it. When nothing was detected the
       // endpoint stays undefined and the backend falls back to the stored /
       // default endpoint.
-      const guardianEndpoint = onboardingType === OnboardingType.Import ? await detectGuardianEndpoint() : undefined;
+      // Endpoint only matters for a Guardian recovery; a non-guardian recovery
+      // binds no endpoint (mirrors Welcome.tsx's `import-select-recovery-method`).
+      const guardianEndpoint =
+        onboardingType === OnboardingType.Import && walletType === WalletType.Guardian
+          ? (selectedGuardianEndpoint ?? (await detectGuardianEndpoint()))
+          : undefined;
 
       const seedPhraseFormatted = formatMnemonic(seedPhrase.join(' '));
       try {
         await registerWallet(
-          WalletType.Guardian,
+          walletType,
           password,
           seedPhraseFormatted,
           onboardingType === OnboardingType.Import, // might be able to leverage ownMnemonic to determine whther to attempt imports in general
@@ -123,12 +162,22 @@ const ForgotPassword: FC = () => {
         // Surface it and stay put so Retry is reachable (#630).
         console.error(e);
         settleRecoverFlow(handle => handle.fail(classifyError(e)));
-        setRecoveryError(e instanceof Error ? e.message : String(e));
+        setRecoveryError(errorToMessage(e) ?? t('smthWentWrong'));
         return 'failed';
       }
     }
     return 'skipped';
-  }, [password, seedPhrase, registerWallet, onboardingType, detectGuardianEndpoint, settleRecoverFlow]);
+  }, [
+    password,
+    seedPhrase,
+    registerWallet,
+    onboardingType,
+    detectGuardianEndpoint,
+    settleRecoverFlow,
+    walletType,
+    selectedGuardianEndpoint,
+    t
+  ]);
 
   const onAction = useCallback(
     async (action: OnboardingAction) => {
@@ -172,12 +221,31 @@ const ForgotPassword: FC = () => {
           break;
         case 'create-password-submit':
           setPassword(action.payload.password);
+          // Recovery (import): ask which BIP-44 namespace the seed's accounts live
+          // in instead of assuming Guardian — see `walletType` above. Reset
+          // (create): a brand-new seed, so there is nothing to look up; keep going
+          // straight to confirmation with the Guardian default.
+          setStep(
+            onboardingType === OnboardingType.Import
+              ? OnboardingStep.ImportSelectRecoveryMethod
+              : OnboardingStep.Confirmation
+          );
+          break;
+        case 'import-select-recovery-method':
+          setWalletType(action.payload.walletType);
+          setSelectedGuardianEndpoint(
+            action.payload.walletType === WalletType.Guardian ? action.payload.guardianEndpoint : undefined
+          );
           setStep(OnboardingStep.Confirmation);
           break;
         case 'setup-passcode-submit':
           // Passcode IS the vault password (mobile import path).
           setPassword(action.payload);
-          setStep(OnboardingStep.Confirmation);
+          setStep(
+            onboardingType === OnboardingType.Import
+              ? OnboardingStep.ImportSelectRecoveryMethod
+              : OnboardingStep.Confirmation
+          );
           break;
         case 'confirmation': {
           setIsLoading(true);
@@ -207,6 +275,8 @@ const ForgotPassword: FC = () => {
             } else {
               setStep(OnboardingStep.ImportFromSeed);
             }
+          } else if (step === OnboardingStep.ImportSelectRecoveryMethod) {
+            setStep(isMobile() ? OnboardingStep.SetupPasscode : OnboardingStep.CreatePassword);
           } else if (step === OnboardingStep.SetupPasscode) {
             setStep(OnboardingStep.ImportFromSeed);
           } else if (step === OnboardingStep.ImportFromSeed) {
@@ -246,6 +316,7 @@ const ForgotPassword: FC = () => {
       step={step}
       isLoading={isLoading}
       recoveryError={recoveryError}
+      guardianProbe={guardianProbe.state}
       onAction={onAction}
     />
   );

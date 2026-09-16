@@ -41,6 +41,10 @@ const epochState = {
 
 jest.mock('lib/epoch', () => ({
   MIDEN_DESTINATION_CHAIN_ID: 1,
+  // Mirrors the real contract (`string | undefined`): the screen aborts a requote on
+  // a falsy result, so a constant would hide that branch. Unused on the slow route
+  // these tests drive, which needs no quote.
+  evmToMidenMinTokenOut: (amount: string) => (Number(amount) > 0 ? '1000000' : undefined),
   useEpochStore: (selector: (s: typeof epochState) => unknown) => selector(epochState)
 }));
 

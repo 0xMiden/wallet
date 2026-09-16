@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { InputNoteState } from '@miden-sdk/miden-sdk/lazy';
 
+import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import { ReportClaim } from 'app/hooks/useReportNoteClaim';
 import { NoteWithMetadata } from 'app/pages/Receive/PendingTab';
 import {
@@ -12,8 +13,9 @@ import {
 } from 'lib/miden/activity';
 import { midenClientProxy } from 'lib/miden/back/miden-client-proxy';
 import { useAccount } from 'lib/miden/front';
+import { groupNotesForClaim } from 'lib/miden/front/claim-groups';
 import { useClaimableNotes } from 'lib/miden/front/claimable-notes';
-import { withWasmClientLock } from 'lib/miden/sdk/miden-client';
+import { assertWasmHoldCurrent, withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import { isExtension } from 'lib/platform';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { WalletAccount, WalletMessageType } from 'lib/shared/types';
@@ -22,6 +24,7 @@ import { navigate } from 'lib/woozie';
 
 export interface ClaimNotesState {
   account: WalletAccount;
+  isFetchingNotes: boolean;
   safeClaimableNotes: NoteWithMetadata[];
   unclaimedNotes: NoteWithMetadata[];
   isDelegatedProvingEnabled: boolean;
@@ -49,9 +52,10 @@ export interface ClaimNotesState {
  */
 export function useClaimNotes(reportClaim?: ReportClaim): ClaimNotesState {
   const account = useAccount();
+  const nativeFaucetId = useMidenFaucetId();
   const address = account.publicKey;
 
-  const { data: claimableNotes, mutate: mutateClaimableNotes } = useClaimableNotes(address);
+  const { data: claimableNotes, mutate: mutateClaimableNotes, isLoading } = useClaimableNotes(address);
   const isDelegatedProvingEnabled = isDelegateProofEnabled();
 
   const safeClaimableNotes = useMemo(
@@ -90,8 +94,10 @@ export function useClaimNotes(reportClaim?: ReportClaim): ClaimNotesState {
   // - IndexedDB (isBeingClaimed) - from previous sessions or after tx queued
   // - Claim All operation (claimingNoteIds) - current batch operation
   // - Individual claim (individualClaimingIds) - user clicked single Claim button
+  // - the cache-first list (fromCache) — an entry no live read has confirmed yet is
+  //   shown, never claimed: it may already be spent, consumed or recalled.
   const unclaimedNotes = safeClaimableNotes.filter(
-    n => !n.isBeingClaimed && !claimingNoteIds.has(n.id) && !individualClaimingIds.has(n.id)
+    n => !n.fromCache && !n.isBeingClaimed && !claimingNoteIds.has(n.id) && !individualClaimingIds.has(n.id)
   );
 
   useEffect(() => {
@@ -172,8 +178,19 @@ export function useClaimNotes(reportClaim?: ReportClaim): ClaimNotesState {
           }
         } else {
           const noteIds = notes.map(n => n.id);
-          const noteDetails = await withWasmClientLock(async () =>
-            midenClientProxy.getInputNoteDetails({ ids: noteIds })
+          // `getInputNoteDetails` lists the notes and then reads state off the
+          // returned records, which are borrows of this client's RefCell rather
+          // than snapshots. On this branch (mobile, desktop, and any build with
+          // the offscreen client off) the call runs INLINE against the hold taken
+          // right here, so the liveness check has to be handed down from here —
+          // the default is a no-op and the reach-through would run on a client a
+          // successor owns.
+          const noteDetails = await withWasmClientLock(
+            async hold =>
+              midenClientProxy.getInputNoteDetails({ ids: noteIds }, () =>
+                assertWasmHoldCurrent(hold, 'while reading input note details for the claim check')
+              ),
+            { label: 'claim-note-state-check' }
           );
 
           for (const note of noteDetails) {
@@ -249,7 +266,8 @@ export function useClaimNotes(reportClaim?: ReportClaim): ClaimNotesState {
       const freshNotes = await mutateClaimableNotes();
       let freshUnclaimedNotes = freshNotes
         ? freshNotes.filter(
-            n => n && !n.isBeingClaimed && !claimingNoteIds.has(n.id) && !individualClaimingIds.has(n.id)
+            n =>
+              n && !n.fromCache && !n.isBeingClaimed && !claimingNoteIds.has(n.id) && !individualClaimingIds.has(n.id)
           )
         : unclaimedNotes;
 
@@ -273,31 +291,34 @@ export function useClaimNotes(reportClaim?: ReportClaim): ClaimNotesState {
 
       try {
         let batchTxId: string | null = null;
-        try {
-          // One consume transaction for the whole batch — both the WASM client
-          // and the Guardian consume proposal take multiple note ids, so this
-          // is a single proof/submit instead of one per note. User tapped
-          // Claim All — bypass the auto-consume backoff gate so failed notes
-          // can be retried on demand.
-          // Reported around the consume call, not around the batch: the catch
-          // below absorbs a queue-time throw, so a wrapper any further out
-          // would see every failure as a success.
-          const queue = () =>
-            initiateConsumeNotesTransaction(account.publicKey, notesToClaim, isDelegatedProvingEnabled, true);
-          batchTxId = reportClaim ? await reportClaim(queue) : await queue();
-        } catch (err) {
-          console.error('Error queuing notes for claim:', noteIds, err);
-          // Record the failure in the memory-only set too: this queue-time throw
-          // rolled back its Dexie transaction, so getFailedTransactions can't
-          // re-surface it and the REPLACE-based recheck would otherwise wipe the
-          // flag on the next focus/visibility tick (#456).
-          for (const id of noteIds) locallyFailedNoteIdsRef.current.add(id);
-          setRetriableNoteIds(prev => new Set([...prev, ...noteIds]));
-          setClaimingNoteIds(prev => {
-            const next = new Set(prev);
-            for (const noteId of noteIds) next.delete(noteId);
-            return next;
-          });
+        // One consume per faucet, native asset first (see `groupNotesForClaim`).
+        for (const groupNotes of groupNotesForClaim(notesToClaim, nativeFaucetId)) {
+          const groupNoteIds = groupNotes.map(n => n.id);
+          try {
+            // User tapped Claim All — bypass the auto-consume backoff gate so
+            // failed notes can be retried on demand.
+            // Reported around the consume call, not around the batch: the catch
+            // below absorbs a queue-time throw, so a wrapper any further out
+            // would see every failure as a success.
+            const queue = () =>
+              initiateConsumeNotesTransaction(account.publicKey, groupNotes, isDelegatedProvingEnabled, true);
+            const groupTxId = reportClaim ? await reportClaim(queue) : await queue();
+            batchTxId = batchTxId ?? groupTxId;
+          } catch (err) {
+            console.error('Error queuing notes for claim:', groupNoteIds, err);
+            // Record the failure in the memory-only set too: this queue-time throw
+            // rolled back its Dexie transaction, so getFailedTransactions can't
+            // re-surface it and the REPLACE-based recheck would otherwise wipe the
+            // flag on the next focus/visibility tick (#456). Scoped to the failing
+            // group so the faucets that DID queue stay marked as claiming.
+            for (const id of groupNoteIds) locallyFailedNoteIdsRef.current.add(id);
+            setRetriableNoteIds(prev => new Set([...prev, ...groupNoteIds]));
+            setClaimingNoteIds(prev => {
+              const next = new Set(prev);
+              for (const noteId of groupNoteIds) next.delete(noteId);
+              return next;
+            });
+          }
         }
 
         if (isExtension()) {
@@ -310,10 +331,11 @@ export function useClaimNotes(reportClaim?: ReportClaim): ClaimNotesState {
           navigate(`/generating-transaction-full/${encodeURIComponent(batchTxId)}`);
         }
       } finally {
-        if (!isExtension()) {
-          setClaimingNoteIds(new Set());
-        }
-        // On extension, keep claimingNoteIds set — they'll be cleared when notes disappear from sync.
+        // The live consume row is the gate on every platform now (`claimingTxIdByNoteId`), and
+        // it exists from the moment the row is enqueued. This local set no longer has to be held
+        // open on extension to keep the button hidden -- and holding it was what made a FAILED
+        // batch claim unrecoverable, since nothing else ever cleared it.
+        setClaimingNoteIds(new Set());
       }
     },
     [
@@ -323,7 +345,12 @@ export function useClaimNotes(reportClaim?: ReportClaim): ClaimNotesState {
       mutateClaimableNotes,
       claimingNoteIds,
       individualClaimingIds,
-      reportClaim
+      reportClaim,
+      // Read by the native-first ordering above. Omitted, this callback captures the
+      // faucet id from first render -- `null` until discovery resolves -- and the
+      // ordering silently stops preferring the native asset, which is its whole
+      // point: a token note claimed first against an empty vault cannot pay its fee.
+      nativeFaucetId
     ]
   );
 
@@ -341,6 +368,10 @@ export function useClaimNotes(reportClaim?: ReportClaim): ClaimNotesState {
 
   return {
     account,
+    // Only a read with no list on screen yet counts: the 5 s background revalidation must not
+    // animate a loading bar or re-render the list on every lap, and SWR still reports the first read
+    // as loading while the persisted list is on screen.
+    isFetchingNotes: Boolean(isLoading) && claimableNotes === undefined,
     safeClaimableNotes,
     unclaimedNotes,
     isDelegatedProvingEnabled,

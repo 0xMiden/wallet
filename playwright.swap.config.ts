@@ -8,5 +8,7 @@ import base from './playwright.e2e.config';
 export default defineConfig({
   ...base,
   testDir: './playwright/e2e/tests/swap',
+  // Explicitly clears the base's list rather than inheriting it: that list
+  // ignores `**/swap/**`, so inheriting it here would select nothing at all.
   testIgnore: undefined
 });

@@ -42,11 +42,31 @@ export function startScreenPoll(opts: {
       // ignore a single bad read
     }
   };
-  const timer = setInterval(() => void tick(), opts.intervalMs);
+  // Self-scheduling rather than `setInterval`, so `intervalMs` separates the END
+  // of one read from the START of the next and at most one read is ever in flight.
+  // A fixed-rate interval had no such backpressure: on iOS every read is a CDP
+  // `execute_script` against the app's single JS main thread, so once a read costs
+  // more than `intervalMs` — routinely, whenever a WASM sync holds that thread —
+  // ticks enqueued faster than the WebView could drain them. Each one is abandoned
+  // client-side at its own timeout but still runs, so the backlog grew until the
+  // spec's OWN evals waited behind hundreds of screen reads and blew their 30s
+  // hard timeout as "WebView/RWI wedged" — a stall the capture poll had itself
+  // amplified into a failure.
+  let timer: NodeJS.Timeout | undefined;
+  const schedule = (): void => {
+    timer = setTimeout(() => {
+      void tick()
+        .catch(() => undefined)
+        .then(() => {
+          if (!stopped) schedule();
+        });
+    }, opts.intervalMs);
+  };
+  schedule();
   return {
     stop: () => {
       stopped = true;
-      clearInterval(timer);
+      if (timer) clearTimeout(timer);
     }
   };
 }

@@ -245,7 +245,10 @@ describe('the mobile/desktop custom-transaction sheet states the simulated effec
     await raiseSheet(false);
 
     expect(sheetMessages()[0]).toBe('This dApp is requesting a custom transaction,');
-    expect(sheetMessages()).toContain('Recipient, mtst1recipient');
+    // Qualified, not bare: the request could not be decoded here, so the recipient
+    // is only what the SITE claims and the sheet says so rather than presenting it
+    // as verified. Still named, which is what this case is about.
+    expect(sheetMessages()).toContain('Recipient (declared by the site), mtst1recipient');
   });
 });
 

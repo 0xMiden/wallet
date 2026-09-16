@@ -17,7 +17,7 @@ import type { AssetMetadata } from 'lib/miden/metadata';
 import * as Repo from 'lib/miden/repo';
 import { updateBridgeClaimStatus } from 'lib/miden/transaction/complete';
 import type { ConsumableNote } from 'lib/miden/types';
-import { faucetFetch, mintFromMidenFaucet } from 'lib/miden-chain/faucet-api';
+import { mintFromMidenFaucet } from 'lib/miden-chain/faucet-api';
 import { getTokenPrice } from 'lib/prices';
 import type { TokenPrices } from 'lib/prices';
 
@@ -66,7 +66,7 @@ export const EMPTY_WALLET_PROMPT_STORAGE: WalletPromptStorage = {
   pendingNotesDismissedIds: []
 };
 
-export type PendingNoteValue = Pick<ConsumableNote, 'id' | 'amount'> & {
+export type PendingNoteValue = Pick<ConsumableNote, 'id' | 'amount' | 'faucetId'> & {
   metadata: Pick<AssetMetadata, 'decimals' | 'symbol'>;
 };
 
@@ -90,6 +90,10 @@ export function getPendingNotesUsdTotal(notes: readonly PendingNoteValue[], toke
 
 function isBridgePromptActive(tx: ITransaction): boolean {
   if (tx.status === ITransactionStatus.Failed) return false;
+  // A restored row still DISPLAYS whatever the backup recorded, deliberately,
+  // but it must not drive work: this prompt surfaces a Claim affordance that
+  // signs an EVM transaction.
+  if (tx.restoredFromBackup) return false;
   if (tx.type !== 'bridged-send') return false;
   if (tx.status !== ITransactionStatus.Completed) return true;
 
@@ -112,7 +116,10 @@ async function pollBridgedSend(tx: ITransaction): Promise<void> {
 
   if (inputs.provider === 'agglayer') {
     if (inputs.claimStatus !== 'pending' || !inputs.destinationAddress) return;
-    const deposit = await findClaimableMidenToEvmDeposit(inputs.destinationAddress);
+    // Bound to this row's own Miden transaction id: several rows can share one
+    // destination address, and marking them all ready off ANY claimable deposit
+    // points every one of them at the same deposit.
+    const deposit = await findClaimableMidenToEvmDeposit(inputs.destinationAddress, tx.transactionId);
     if (deposit) await updateBridgeClaimStatus(tx.id, 'ready', { depositReady: true });
     return;
   }
@@ -139,8 +146,25 @@ async function pollBridgedSend(tx: ITransaction): Promise<void> {
   });
 }
 
-export async function pollActiveBridgePrompts(transactions: ITransaction[]): Promise<void> {
-  await Promise.all(transactions.filter(tx => tx.type === 'bridged-send').map(pollBridgedSend));
+/**
+ * Poll every Miden→EVM bridge row once, for every account. The app-root
+ * `BridgeIntentWatcher` runs this on an interval, so a pending Epoch fill or
+ * AggLayer claim is tracked whichever screen is open. `pollBridgedSend` returns
+ * early for a row with nothing left to settle.
+ */
+export async function reconcileBridgedSends(): Promise<void> {
+  const rows = await Repo.transactions.filter(tx => tx.type === 'bridged-send').toArray();
+  // A restored row keeps what the backup recorded, but must not drive work:
+  // `pollBridgedSend` queries the bridge services with those values and writes
+  // the answer back onto the row.
+  await Promise.all(
+    rows
+      .filter(tx => !tx.restoredFromBackup)
+      .map(tx =>
+        // One row's failing indexer or allocator call must not reject the pass for the others.
+        pollBridgedSend(tx).catch(error => console.warn('[wallet-prompts] bridged-send poll failed', tx.id, error))
+      )
+  );
 }
 
 export function normalizeWalletPromptStorage(value: unknown): WalletPromptStorage {
@@ -264,107 +288,95 @@ export async function reportHotKeyRotationNeeded(): Promise<void> {
   await setWalletPromptStatus(WalletPromptType.HotKeyRotationNeeded, WalletPromptStatus.Pending);
 }
 
-const FAUCET_API_URL = 'https://faucet-api.forkchoice.xyz/api/mint';
-// 10 IMIDEN in base units (8 decimals).
-const IMIDEN_FAUCET_AMOUNT = 1_000_000_000;
+// -- Faucet funding-in-flight marker ---------------------------------------
+//
+// Stamped when a faucet request is accepted and cleared when the funds become
+// visible (or the wait times out). Persisted per account — one account's wait
+// must never surface on another — so the Home prompt can resume that
+// account's "Funding" presentation after a remount or app restart mid-wait.
+// `baselineNoteIds` records the claimable notes that already existed at
+// request time: arrival requires a note NOT in this set (or a balance), so a
+// pre-existing unclaimed note can't fake an instant success.
+
+export type FaucetFundingMarker = {
+  requestedAt: number;
+  baselineNoteIds: readonly string[];
+};
+
+const faucetFundingMarkerKey = (address: string) => `faucet_funding_v2:${address}`;
+
+export async function fetchFaucetFundingMarker(address: string): Promise<FaucetFundingMarker | null> {
+  const raw = await fetchFromStorage(faucetFundingMarkerKey(address));
+  if (!raw || typeof raw !== 'object') return null;
+  const requestedAt = Reflect.get(raw, 'requestedAt');
+  const baselineNoteIds = Reflect.get(raw, 'baselineNoteIds');
+  if (typeof requestedAt !== 'number' || !Number.isFinite(requestedAt)) return null;
+  // A persisted wall-clock stamp is untrusted input: a forward clock step (NTP,
+  // a manual change) leaves a stamp in the future, which reads as "always
+  // fresh" and would wedge the wait past its own timeout.
+  if (requestedAt > Date.now()) return null;
+  if (!Array.isArray(baselineNoteIds)) return null;
+  return { requestedAt, baselineNoteIds: baselineNoteIds.filter((id): id is string => typeof id === 'string') };
+}
+
+export async function setFaucetFundingMarker(address: string, marker: FaucetFundingMarker | null): Promise<void> {
+  await putToStorage(faucetFundingMarkerKey(address), marker);
+}
+
 // 100 MIDEN in base units (6 decimals).
 const MIDEN_FAUCET_AMOUNT = 100_000_000n;
+// Bail out of a hung faucet request. The timeout also aborts the underlying
+// work: the signal is linked into each fetch and checked per PoW iteration.
+// (A 429 back-off sleep inside faucetFetch is not itself interrupted, so
+// cancellation of the work can lag the wrapper's rejection by up to that
+// capped wait — the next fetch attempt then aborts immediately.)
+const FAUCET_REQUEST_TIMEOUT_MS = 60_000;
 
-async function mintFromForkchoice(address: string): Promise<void> {
-  // `faucetFetch` bounds the request with a timeout and honors a 429 Retry-After,
-  // so a wedged or rate-limited forkchoice faucet fails cleanly instead of
-  // hanging the funding flow.
-  const response = await faucetFetch(FAUCET_API_URL, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json'
-    },
-    body: JSON.stringify({
-      token: 'IMIDEN',
-      address,
-      amount: IMIDEN_FAUCET_AMOUNT,
-      note_type: 'public'
-    })
+async function runFaucetRequest(address: string): Promise<void> {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  // The race guarantees the wrapper rejects on time even if the underlying
+  // work fails to observe the abort promptly.
+  const timedOut = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      const timeoutError = new Error('Faucet request timed out');
+      controller.abort(timeoutError);
+      reject(timeoutError);
+    }, FAUCET_REQUEST_TIMEOUT_MS);
   });
-
-  if (!response.ok) {
-    throw new Error(`Faucet request failed with status ${response.status}`);
+  try {
+    await Promise.race([mintFromMidenFaucet(address, MIDEN_FAUCET_AMOUNT, controller.signal), timedOut]);
+  } finally {
+    clearTimeout(timer);
   }
 }
 
-/**
- * Aggregated faucet failure. `faucet()` fans out to two independent sources
- * (forkchoice IMIDEN + official MIDEN); ANY rejection surfaces here with a
- * message that names which source(s) failed and their underlying error text,
- * so the funding drawer can show the real reason rather than a generic string.
- */
-export class FaucetError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'FaucetError';
-  }
+// One request per address at a time, held at MODULE scope. A component-local
+// guard is not enough: HomePrompts unmounts whenever Home itself is left for a
+// route the tab layout does not keep mounted, and it is remounted fresh on the
+// next visit, so a returning user could start a second real mint. Module scope
+// also lets the remounted card re-attach to the outcome. Keyed per address so
+// funding one account never blocks funding another.
+const inFlightFaucetRequests = new Map<string, Promise<void>>();
+
+/** The in-flight faucet request for `address`, if any — lets a remounted card re-attach to the outcome. */
+export function getInFlightFaucetRequest(address: string): Promise<void> | null {
+  return inFlightFaucetRequests.get(address) ?? null;
 }
 
-function reasonMessage(reason: unknown): string {
-  return reason instanceof Error ? reason.message : String(reason);
-}
-
-type FaucetSource = 'forkchoice' | 'miden';
-
-/**
- * Per-address record of which faucet SOURCES have already paid out, so a Retry
- * after a partial failure re-mints ONLY the source that actually failed.
- *
- * Without this, `faucet()` re-ran BOTH sources on every call: if forkchoice
- * succeeded but MIDEN failed, tapping Retry minted forkchoice a SECOND time
- * (double-funding the source that already worked) while retrying MIDEN. The memo
- * is cleared once BOTH sources have succeeded, so a genuine later re-fund starts
- * fresh rather than being skipped forever.
- */
-const succeededFaucetSources = new Map<string, Set<FaucetSource>>();
-
-/** Test-only: clear the per-address faucet-source progress between cases. */
-export function __resetFaucetProgressForTest(): void {
-  succeededFaucetSources.clear();
-}
-
-export async function faucet(address: string): Promise<void> {
-  const done = succeededFaucetSources.get(address) ?? new Set<FaucetSource>();
-
-  const sources: Array<{ source: FaucetSource; label: string; run: () => Promise<unknown> }> = [
-    { source: 'forkchoice', label: 'IMIDEN', run: () => mintFromForkchoice(address) },
-    { source: 'miden', label: 'MIDEN', run: () => mintFromMidenFaucet(address, MIDEN_FAUCET_AMOUNT) }
-  ];
-  const pending = sources.filter(source => !done.has(source.source));
-
-  // Both sources already funded this address in a prior (partial) attempt —
-  // nothing to re-mint. Clear the memo and report success.
-  if (pending.length === 0) {
-    succeededFaucetSources.delete(address);
-    return;
-  }
-
-  const results = await Promise.allSettled(pending.map(source => source.run()));
-
-  const failures: string[] = [];
-  pending.forEach((source, i) => {
-    const result = results[i];
-    if (!result) return;
-    if (result.status === 'fulfilled') {
-      done.add(source.source);
-    } else {
-      failures.push(`${source.label}: ${reasonMessage(result.reason)}`);
-    }
+export function faucet(address: string): Promise<void> {
+  const existing = inFlightFaucetRequests.get(address);
+  if (existing) return existing;
+  const request: Promise<void> = runFaucetRequest(address).finally(() => {
+    if (inFlightFaucetRequests.get(address) === request) inFlightFaucetRequests.delete(address);
   });
+  inFlightFaucetRequests.set(address, request);
+  return request;
+}
 
-  if (failures.length > 0) {
-    // Remember the sources that DID pay out, so Retry skips them.
-    succeededFaucetSources.set(address, done);
-    throw new FaucetError(failures.join('; '));
-  }
-
-  // Fully funded — forget the address so a future re-fund isn't skipped.
-  succeededFaucetSources.delete(address);
+/** Test-only: drop in-flight faucet joins between cases. */
+export function __resetInFlightFaucetRequestsForTest(): void {
+  inFlightFaucetRequests.clear();
 }
 
 /**

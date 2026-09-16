@@ -2,7 +2,11 @@ import { encodeAddress, decodeAddress, isValidMidenAddress } from './format';
 
 describe('QR format utilities', () => {
   const testnetAddress = 'mtst1aplqzwh6s4gvcyzsvx726y6xvsgt5qv5qruqqypuyph';
+  // Real Miden mainnet prefix is `mm1` (not `m1`).
   const mainnetAddress = 'mm1aplqzwh6s4gvcyzsvx726y6xvsgt5qv5qruqqypuyph';
+  const devnetAddress = 'mdev1aplqzwh6s4gvcyzsvx726y6xvsgt5qv5qruqqypuyph';
+  const localnetAddress = 'mlcl1araq55u3a4tsqsfznep06x8t9q4cr0amqr7qqq9wr6w';
+  const localnetAddressWithRouting = 'mlcl1araq55u3a4tsqsfznep06x8t9q4cr0am_qr7qqq9wr6w';
 
   describe('encodeAddress', () => {
     it('adds miden: prefix to address', () => {
@@ -56,10 +60,11 @@ describe('QR format utilities', () => {
     it('validates devnet and localnet addresses instead of rejecting them (#599)', () => {
       // The QR validator passes any decodable Miden address (the send screen
       // surfaces wrong-network afterward). Regression for #599, where a real
-      // localnet 'mlcl1…' address failed the scan with "invalid Miden address".
-      expect(isValidMidenAddress('mdev1aplqzwh6s4gvcyzsvx726y6xvsgt5qv5qruqqypuyph')).toBe(true);
-      expect(isValidMidenAddress('mlcl1araq55u3a4tsqsfznep06x8t9q4cr0amqr7qqq9wr6w')).toBe(true);
-      expect(isValidMidenAddress('mlcl1araq55u3a4tsqsfznep06x8t9q4cr0am_qr7qqq9wr6w')).toBe(true);
+      // localnet 'mlcl1…' address — e.g. scanned under a dev-settings localhost
+      // override — failed the scan with "invalid Miden address".
+      expect(isValidMidenAddress(devnetAddress)).toBe(true);
+      expect(isValidMidenAddress(localnetAddress)).toBe(true);
+      expect(isValidMidenAddress(localnetAddressWithRouting)).toBe(true);
     });
 
     it('rejects empty string', () => {

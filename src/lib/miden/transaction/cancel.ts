@@ -1,6 +1,7 @@
 import { InputNoteState } from '@miden-sdk/miden-sdk/lazy';
 
 import * as Repo from 'lib/miden/repo';
+import { syncUnderBoundedLock } from 'lib/miden/sync-lock';
 import { hiddenSecondsSince } from 'lib/mobile/background-time';
 import { isMobile } from 'lib/platform';
 import { classifyError } from 'lib/telemetry/classify';
@@ -24,7 +25,8 @@ import { notifyBackgroundTransactionFailed } from '../back/background-notificati
 import { midenClientProxy } from '../back/miden-client-proxy';
 import { isOperationAbortedError } from '../back/offscreen-codec';
 import { ConsumeTransaction, ITransactionStatus, Transaction } from '../db/types';
-import { withWasmClientLock } from '../sdk/miden-client';
+import { assertWasmHoldCurrent, withWasmClientLock } from '../sdk/miden-client';
+import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 // On mobile, use a shorter timeout since there's no background processing
 // On desktop extension, transactions can run in background tabs
@@ -33,7 +35,34 @@ export const MAX_WAIT_BEFORE_CANCEL = isMobile() ? 2 * 60 : 30 * 60; // 2 mins o
 // Maximum age for a queued transaction before it's considered stale and cancelled
 export const MAX_QUEUED_AGE = 30 * 60; // 30 minutes (seconds)
 
-export const cancelTransaction = async (transaction: Transaction, error: any, displayMessage: string = 'Failed') => {
+/**
+ * Returns whether the row was actually failed. `false` means a concurrent writer
+ * moved it out from under this call, so the caller's own account of what it did
+ * — a log line, a notification — should not claim the row was failed.
+ *
+ * @param onlyIfStatus When given, the row is failed ONLY if it still holds this
+ * status at write time, checked inside the Dexie `modify` so the check and the
+ * write cannot be interleaved. The `existing` read below is a separate
+ * transaction from that write, which is enough to reject a row that was ALREADY
+ * terminal, but says nothing about one that becomes terminal in between. A
+ * caller holding the loop lock excludes the other loop DRIVERS — not a user
+ * cancel, which takes no lock — and the requeue wake's ceiling holds nothing at
+ * all: it can have a Queued row picked up and advanced to
+ * `GeneratingTransaction` in the gap, and failing THAT row would report a
+ * failure for a pipeline still running, which can still submit.
+ *
+ * The terminal check is re-run at write time for EVERY caller, gated or not,
+ * because the same gap runs the other way: a pipeline that commits `Completed`
+ * between the read and the write would otherwise be overwritten with `Failed`,
+ * turning a settled send into a reported failure. That direction needs no opt-in
+ * — no caller has a reason to fail a row that finished.
+ */
+export const cancelTransaction = async (
+  transaction: Transaction,
+  error: any,
+  displayMessage: string = 'Failed',
+  onlyIfStatus?: ITransactionStatus
+) => {
   // Refuse to downgrade a finalized transaction. A late error fired AFTER
   // completeXxxTransaction has already marked the tx Completed (most often
   // a transient guardian-canonicalization sync error) would otherwise flip
@@ -44,18 +73,36 @@ export const cancelTransaction = async (transaction: Transaction, error: any, di
       `[cancelTransaction] ignored — tx ${transaction.id} is already ${existing.status}; suppressed error:`,
       error
     );
-    return;
+    return false;
   }
 
   // The stage the tx died in (persisted by setTransactionStage) disambiguates
   // otherwise-opaque SDK errors, e.g. a prover timeout during 'proving'.
   const failedStage = existing?.stage;
   const rawError = formatRawTransactionError(error);
+  // The same structural pre-write finding `cancelTransactionAfterPipelineStopped` uses to
+  // withhold the may-have-submitted crossing, re-derived HERE from the row this function
+  // already read, so the message and the crossing can never disagree: hedging "left in an
+  // unknown state, check your activity" on a row whose Retry is provably safe is a
+  // falsehood that costs the user the retry.
+  const abandonedPreWrite =
+    PRE_WRITE_STAGES.has(failedStage ?? '') && existing !== undefined && existing.processingStartedAt === undefined;
   const displayError =
     error === USER_CANCELLED_TRANSACTION_REASON || error === TRANSACTION_INTERRUPTED_ON_STARTUP
       ? error
-      : resolveTransactionErrorMessage(error, failedStage, transaction.delegateTransaction);
+      : resolveTransactionErrorMessage(error, failedStage, transaction.delegateTransaction, abandonedPreWrite);
+  let applied = false;
+  let racedTerminal = false;
   await Repo.transactions.where({ id: transaction.id }).modify(dbTx => {
+    // `false`, not a bare return: Dexie treats `undefined` as "modified" and
+    // issues a put of the unchanged clone, which is a pointless write and a
+    // spurious event for anything observing the table.
+    if (dbTx.status === ITransactionStatus.Completed || dbTx.status === ITransactionStatus.Failed) {
+      racedTerminal = true;
+      return false;
+    }
+    if (onlyIfStatus !== undefined && dbTx.status !== onlyIfStatus) return false;
+    applied = true;
     dbTx.completedAt = Math.floor(Date.now() / 1000); // Convert to seconds
     dbTx.status = ITransactionStatus.Failed;
     dbTx.error = displayError;
@@ -63,7 +110,31 @@ export const cancelTransaction = async (transaction: Transaction, error: any, di
     if (displayError !== rawError) dbTx.rawError = rawError;
     dbTx.displayMessage = displayMessage;
     dbTx.displayIcon = 'FAILED';
+    return undefined;
   });
+  if (racedTerminal) {
+    console.warn(
+      `[cancelTransaction] ignored — tx ${transaction.id} went terminal between this call's ` +
+        'read and its write; suppressed error:',
+      error
+    );
+    return false;
+  }
+  if (!applied) {
+    // The reason is branched because this line is the ONLY record of a row that
+    // vanished. For an ungated caller that is the only way to get here at all,
+    // and reporting it as "no longer undefined" says nothing about what
+    // happened. Either way the call failed nothing and notified no one.
+    console.warn(
+      `[cancelTransaction] skipped — tx ${transaction.id} ` +
+        (onlyIfStatus === undefined
+          ? 'was absent when the write ran'
+          : `was no longer ${onlyIfStatus}, or was absent, when the guarded write ran`) +
+        '; the row was not failed and no notification was raised. Suppressed error:',
+      error
+    );
+    return false;
+  }
 
   // Gap 6: a transaction that terminally failed while the user wasn't watching
   // used to be silent — the row went to Failed and nothing told them. Notify,
@@ -110,6 +181,7 @@ export const cancelTransaction = async (transaction: Transaction, error: any, di
       step: stepOfStage(failedStage)
     });
   }
+  return true;
 };
 
 /**
@@ -184,9 +256,84 @@ const cancelWhilePipelineMayStillRun = async (tx: Transaction, error: any) => {
  * ordinary failure, including the vault-slot rejection this release fixes, is not
  * an aborted op and still rebuilds.
  */
+/**
+ * Stages a row can be in where NO write has been built yet, so an abandoned
+ * pipeline provably cannot submit (issue #775).
+ *
+ * `generateTransaction`'s first act is a locked `syncState()`, taken while the
+ * row still reads 'syncing' — 'sending' is only stamped once that sync returns.
+ * Its SDK call still carries no transport deadline, and the hold is now bounded
+ * by the 2-minute sync watchdog rather than the 5-minute backstop, which together
+ * make it one of the likeliest places for an eviction to land — and it is
+ * unambiguously pre-write.
+ *
+ * Deliberately a one-element list rather than a general "is this before submit"
+ * test. `mayHaveSubmitted` is permanent and `requeueFailedTransaction` refuses
+ * on it, so a wrong "cleared" is a double payment while a wrong "recorded" is
+ * only a refused Retry. Every stage whose pre-write property is not provable
+ * from the stage alone therefore keeps recording.
+ *
+ * Membership here is necessary but not sufficient — the caller also requires
+ * `processingStartedAt` to be absent, so the exemption rests on the write stamp
+ * never having run rather than on this name alone. Note that is NOT the same as
+ * "the FIFO has not picked the row up": the pre-flight sync runs after pickup,
+ * with the row still `Queued` and the stamp still unset.
+ */
+const PRE_WRITE_STAGES: ReadonlySet<string> = new Set(['syncing']);
+
 export const cancelTransactionAfterPipelineStopped = async (tx: Transaction, error: any) => {
-  if (tx.type === 'send' && isOperationAbortedError(error)) {
+  // A lock-recovery eviction (issue #775) is treated like an offscreen
+  // wedge-kill: the pipeline was ABANDONED, not stopped — it may still reach
+  // submit — so the crossing must be recorded, never cleared. EXCEPT where the
+  // row never got as far as building a write: recording there would permanently
+  // refuse Retry on a send that demonstrably never touched the chain, which is
+  // the cost a false-positive eviction would otherwise impose.
+  //
+  // The stage comes from the COMMITTED row, not from `tx`: callers pass the
+  // snapshot they picked the transaction up with, which still carries the stage
+  // it held at pickup rather than the one the failure happened in.
+  //
+  // Applied to BOTH kill classifications, not just the eviction. The pre-flight
+  // sync can end either way — a watchdog eviction locally, or an
+  // `OperationAbortedError` when the offscreen realm's dispatch deadline fires —
+  // and both arrive from the identical point, before any request exists. Gating
+  // the exemption on the poison shape alone therefore recorded a permanent
+  // crossing for one half of the same event, which is the mirror of the bug the
+  // exemption exists to prevent: a send that demonstrably never touched the
+  // chain, refusable only by an acknowledgement the user has no way to make
+  // truthfully.
+  //
+  // `processingStartedAt` is checked alongside the stage to make the exemption
+  // STRUCTURAL rather than conventional. What makes 'syncing' provably pre-write
+  // is that it is only ever committed while the row has not been picked up:
+  // `updateTransactionStatus` stamps `processingStartedAt` and stage 'sending'
+  // in one Dexie `modify`, so `(GeneratingTransaction, 'syncing')` never lands.
+  // That invariant is load-bearing but spread across four files, so any future
+  // writer that stamps 'syncing' on a picked-up row would silently turn a
+  // refused retry into a permitted one — a double payment. Re-deriving it here
+  // costs nothing and fails in the safe direction (record, not clear).
+  let abandonedPreWrite = false;
+  if (isOperationAbortedError(error) || isWasmClientPoisonedError(error)) {
+    const committed = await Repo.transactions.where({ id: tx.id }).first();
+    abandonedPreWrite = PRE_WRITE_STAGES.has(committed?.stage ?? '') && committed?.processingStartedAt === undefined;
+  }
+  if (
+    tx.type === 'send' &&
+    !abandonedPreWrite &&
+    (isOperationAbortedError(error) || isWasmClientPoisonedError(error))
+  ) {
     await markMayHaveSubmitted(tx.id);
+    if (isWasmClientPoisonedError(error)) {
+      // A poison eviction ABANDONS the pipeline — unlike an offscreen kill it
+      // may still submit AFTER this row is Failed, so the permanent crossing
+      // above is not enough: the user's acknowledgement ("it never arrived")
+      // can be true when given and wrong a minute later. Stamp the TIME-BOUNDED
+      // liveness marker too; the retry guard refuses even an acknowledged retry
+      // until the pipeline provably cannot still be running. Ordered before
+      // `cancelTransaction` below, while the row is still in-flight, because
+      // this marker's writer refuses terminal rows.
+      await markCancelledInFlight(tx.id);
+    }
   } else {
     await clearCancelledInFlight(tx.id);
   }
@@ -367,6 +514,15 @@ const LOCAL_CONSUMED_NOTE_STATES = [
   InputNoteState.ConsumedUnauthenticatedLocal
 ];
 
+/**
+ * The two states miden-client writes in `apply_transaction`, i.e. AFTER a
+ * consuming transaction of ours was submitted and applied locally but before its
+ * block is committed. They mean the OPPOSITE of "not consumed", so they must
+ * never reach the `'not-landed'` catch-all — a caller that terminal-fails on
+ * `'not-landed'` would fail a claim whose submit already reached the node.
+ */
+const PROCESSING_NOTE_STATES = [InputNoteState.ProcessingAuthenticated, InputNoteState.ProcessingUnauthenticated];
+
 // Minimum time a transaction must be in GeneratingTransaction status before we consider it "stuck"
 // This prevents cancelling transactions that are actively being processed
 const MIN_PROCESSING_TIME_BEFORE_STUCK = 60; // 1 minute (in seconds)
@@ -386,12 +542,26 @@ const MIN_PROCESSING_TIME_BEFORE_STUCK = 60; // 1 minute (in seconds)
  *                         its sender). Ambiguous for funds-visibility.
  *   - `'invalid'`         the note is `Invalid` (e.g. nullifier reused / never
  *                         committed) — the consume can never land; fail fast.
- *   - `'not-landed'`      the note still exists and is not consumed (Committed /
- *                         Expected / Unverified) — the consume did NOT land.
+ *   - `'processing'`      the note is `ProcessingAuthenticated` /
+ *                         `ProcessingUnauthenticated` — a consuming transaction of
+ *                         OURS was submitted and applied locally, and its block is
+ *                         not committed yet. In flight, not failed: within a few
+ *                         blocks it becomes a consumed state or reverts to
+ *                         `Committed`, so the caller must leave the row alone and
+ *                         re-ask, never terminal-fail it.
+ *   - `'not-landed'`      the note still exists and is not consumed or in flight
+ *                         (Committed / Expected / Unverified) — the consume did
+ *                         NOT land.
  *   - `'unknown'`         no note row for the id, or the node query errored —
  *                         indeterminate (never treated as landed).
  */
-export type ConsumeLandedVerdict = 'landed-local' | 'landed-external' | 'invalid' | 'not-landed' | 'unknown';
+export type ConsumeLandedVerdict =
+  | 'landed-local'
+  | 'landed-external'
+  | 'invalid'
+  | 'processing'
+  | 'not-landed'
+  | 'unknown';
 
 /**
  * Node-authoritative check of whether a consume's input note landed on chain.
@@ -414,10 +584,10 @@ export type ConsumeLandedVerdict = 'landed-local' | 'landed-external' | 'invalid
  * only a LOCAL consumed state (provably this client's own tracked consume) yields
  * `'landed-local'`, the sole verdict a caller may treat as "my consume landed" and
  * surface as Completed / 'Received'. `ConsumedExternal` is reported separately as
- * `'landed-external'` (consumed, but not provably mine) so the caller decides; the
- * killed-consume path never marks it Received. A missing note or a thrown error
- * yields `'unknown'`; an error or any uncertainty NEVER yields `'landed-local'`, so
- * a false Received is impossible.
+ * `'landed-external'` (consumed, but not provably mine) so the caller decides; no
+ * caller marks it Received — neither the killed-consume path nor the stuck-consume
+ * reaper. A missing note or a thrown error yields `'unknown'`; an error or any
+ * uncertainty NEVER yields `'landed-local'`, so a false Received is impossible.
  */
 export const verifyConsumeLanded = async (tx: ConsumeTransaction, sync: boolean): Promise<ConsumeLandedVerdict> => {
   try {
@@ -427,20 +597,24 @@ export const verifyConsumeLanded = async (tx: ConsumeTransaction, sync: boolean)
       // authoritative for a consumed note (it cannot un-consume), and for a
       // not-yet-consumed note it can only under-report "landed" → a safe Fail.
       try {
-        await withWasmClientLock(async () => midenClientProxy.syncState());
+        await syncUnderBoundedLock();
       } catch (syncError) {
         console.warn('[verifyConsumeLanded] sync failed; reading last-synced note state for tx', tx.id, syncError);
       }
     }
 
-    const noteDetails = await withWasmClientLock(async () =>
-      midenClientProxy.getInputNoteDetails({ ids: [tx.noteId] })
+    const noteDetails = await withWasmClientLock(async hold =>
+      midenClientProxy.getInputNoteDetails({ ids: [tx.noteId] }, () =>
+        assertWasmHoldCurrent(hold, 'inside the consume-landed note read, before the record reach-through')
+      )
     );
     const note = noteDetails[0];
     if (!note) return 'unknown';
     if (LOCAL_CONSUMED_NOTE_STATES.includes(note.state)) return 'landed-local';
     if (note.state === InputNoteState.ConsumedExternal) return 'landed-external';
     if (note.state === InputNoteState.Invalid) return 'invalid';
+    // Checked BEFORE the catch-all: a Processing* note is mid-flight, not unspent.
+    if (PROCESSING_NOTE_STATES.includes(note.state)) return 'processing';
     return 'not-landed';
   } catch (error) {
     console.error('[verifyConsumeLanded] error checking note state for tx', tx.id, error);
@@ -473,17 +647,36 @@ export type SendLandedVerdict = 'landed' | 'unknown';
  * Mirrors {@link verifyConsumeLanded} (which checks the INPUT note's consumed
  * state) but for the OUTPUT side, via the tx id. Best-effort syncs first for the
  * freshest node state; a sync failure falls back to the last-synced record.
+ *
+ * COVERAGE LIMIT — read before relying on this as the only double-send guard.
+ * `ITransaction.transactionId` is written ONLY by the completion handlers in
+ * `complete.ts` (the success path) and by `updateBridgedReceivePhase`. A row
+ * failed by a route that killed it from OUTSIDE its own write pipeline — the
+ * stuck reaper, the cold-start sweep, an offscreen deadline kill, a user Cancel
+ * mid-flight — therefore arrives here with no id at all and short-circuits to
+ * `'unknown'`, i.e. this check is INERT on exactly the rows whose submit outcome
+ * is in doubt. Stamping the id pre-submit is not currently possible under
+ * `MIDEN_USE_OFFSCREEN_CLIENT`: the write runs in the offscreen realm and its
+ * DTOs carry no row id. `isSubmitOutcomeUnknown` (constants.ts) is what closes
+ * that gap, by refusing the retry outright for the rebuilt-request types.
  */
 export const verifySendLanded = async (tx: { id: string; transactionId?: string }): Promise<SendLandedVerdict> => {
   if (!tx.transactionId) return 'unknown';
   const txId = tx.transactionId;
   try {
     try {
-      await withWasmClientLock(async () => midenClientProxy.syncState());
+      await syncUnderBoundedLock();
     } catch (syncError) {
       console.warn('[verifySendLanded] sync failed; reading last-synced tx state for', tx.id, syncError);
     }
     const state = await withWasmClientLock(async () => midenClientProxy.getTransactionCommitState(txId));
+    // `'discarded'` is deliberately NOT `'landed'`: the node rejected the tx, so
+    // its effect provably did not happen and calling it landed would assert the
+    // opposite. It joins `'not-found'` in the indeterminate bucket, which is the
+    // funds-safe answer here — `'unknown'` surfaces the row rather than
+    // auto-completing OR auto-resubmitting it. (Before the state read reported
+    // discards at all, a discarded tx had no block number and so read as
+    // `'pending'`, i.e. as `'landed'`.)
     return state === 'committed' || state === 'pending' ? 'landed' : 'unknown';
   } catch (error) {
     console.error('[verifySendLanded] error checking tx state for', tx.id, error);
@@ -506,15 +699,32 @@ export const verifySendLanded = async (tx: { id: string; transactionId?: string 
  * `sync: false`: this reaper runs alongside AutoSync (which keeps note state
  * fresh), so it must NOT fire one sync per stuck consume — matching its pre-#3a
  * behavior of 0 syncs/cycle.
- *   - `'landed-local'` / `'landed-external'` → mark Completed. The reaper treats an
- *                      external-consumed note as landed too — a lower-exposure,
- *                      pre-existing behavior (the note IS consumed on chain, and
- *                      the reaper is not the funds-visibility-critical path). The
- *                      strict "provably mine" rule is enforced only on the immediate
- *                      killed-consume path (see tryCompleteKilledConsume).
+ *   - `'landed-local'` → mark Completed. FUNDS-SAFETY: this is the ONLY verdict that
+ *                      may become a 'Received' row, exactly as on the killed-consume
+ *                      path (see tryCompleteKilledConsume). This reaper is the sole
+ *                      consume reconciler on mobile and desktop — its one caller
+ *                      returns early on `isExtension()` and `tryCompleteKilledConsume`
+ *                      fires only on the Chrome-offscreen `OperationAbortedError` — so
+ *                      a lenient rule here would be the ONLY rule those platforms run.
+ *   - `'landed-external'` → the note is consumed on chain but NOT provably by us (a
+ *                      recallable P2IDE the sender recalled, or another consumer of
+ *                      the same public note, lands in that state). Treated exactly
+ *                      like `'not-landed'`: failed after the processing grace window,
+ *                      never Completed. The residual is a SAFE false-Failed — a
+ *                      re-consume harmlessly collides on the spent nullifier and the
+ *                      next sync reconciles — instead of a false 'Received' telling
+ *                      the user they got funds a third party actually took.
  *   - `'invalid'`    → fail IMMEDIATELY with INVALID_NOTE_ERROR: an Invalid note can
  *                      never be consumed, so there is no reason to wait out the grace
  *                      window and surface the generic interrupted error instead.
+ *   - `'processing'` → a consuming tx of ours is submitted and applied locally but
+ *                      not committed yet → skip (leave for a later cycle). Failing
+ *                      it would terminal-fail a claim that already reached the
+ *                      node — and on a Guardian account that is the COMMON path,
+ *                      because `runGuardianPipeline` releases the WASM lock after
+ *                      `submit()`/`apply()` and only then runs a multi-second
+ *                      `service.sync()`, leaving the row `GeneratingTransaction`
+ *                      and this reaper free to read the note mid-window.
  *   - `'not-landed'` → the note exists but is not consumed; fail only after the
  *                      processing grace window so an actively-processing consume
  *                      isn't reaped mid-flight.
@@ -522,7 +732,7 @@ export const verifySendLanded = async (tx: { id: string; transactionId?: string 
  *
  * Returns the number of transactions that were resolved.
  */
-export const verifyStuckTransactionsFromNode = async (): Promise<number> => {
+const verifyStuckTransactions = async (): Promise<number> => {
   // Only check GeneratingTransaction status - NOT Queued
   // Queued transactions haven't started processing yet, so the note being claimable is expected
   const inProgressTransactions = await getTransactionsInProgress();
@@ -542,36 +752,70 @@ export const verifyStuckTransactionsFromNode = async (): Promise<number> => {
     // N syncs/cycle where the pre-#3a reaper did 0 (see verifyConsumeLanded).
     const verdict = await verifyConsumeLanded(tx, false);
 
-    if (verdict === 'landed-local' || verdict === 'landed-external') {
-      // Note has been consumed on-chain - mark transaction as completed. The reaper
-      // (unlike the killed-consume path) treats an external-consumed note as landed
-      // too: a lower-exposure, pre-existing behavior the #3a refactor must preserve.
-      await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
-        displayMessage: 'Received',
-        completedAt: Math.floor(Date.now() / 1000)
-      });
-      resolvedCount++;
+    if (verdict === 'landed-local') {
+      // The node confirms the note is consumed on chain by THIS client's own tracked
+      // tx - mark the transaction completed. 'landed-external' deliberately does NOT
+      // reach here (see the funds-safety note above).
+      //
+      // Wrapped because `updateTransactionStatus` throws on a row that is already
+      // terminal, including one a concurrent writer finalized mid-loop. This
+      // reaper is the only consume reconciler off-extension and runs on a 3s
+      // interval whose caller does not catch, so an unhandled throw here both
+      // abandons the remaining rows for the cycle and surfaces as an unhandled
+      // rejection. A row someone else already settled needs no reconciling.
+      try {
+        await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
+          displayMessage: 'Received',
+          completedAt: Math.floor(Date.now() / 1000)
+        });
+        resolvedCount++;
+      } catch (e) {
+        // Deliberately not diagnosed as "no longer in progress": the throw is
+        // also what a deleted row ('No transaction found to update') and a real
+        // Dexie failure produce, and this line has not checked which. Naming a
+        // cause it does not have is the defect the ceiling's log was fixed for.
+        console.warn(`[verifyStuckTransactions] could not complete ${tx.id}; it may have been settled or removed`, e);
+      }
     } else if (verdict === 'invalid') {
       // Note is invalid - it can never be consumed, so fail immediately with the
       // specific reason instead of waiting out the grace window (restores the
       // fast-fail the #3a refactor accidentally collapsed into 'not-landed').
-      await cancelTransaction(tx, INVALID_NOTE_ERROR);
-      resolvedCount++;
-    } else if (verdict === 'not-landed') {
-      // Note still exists but is not consumed - only cancel if the tx has been
-      // processing for a while, so we don't reap one that is actively processing.
+      // Counted only if the row was actually failed. `resolvedCount` is what
+      // this function returns and what `useClaimNotes` reports, so counting a
+      // refused write — a row a concurrent driver already settled — overstates
+      // what the reaper did.
+      if (await cancelTransaction(tx, INVALID_NOTE_ERROR)) resolvedCount++;
+    } else if (verdict === 'not-landed' || verdict === 'landed-external') {
+      // Either the note is not consumed at all, or it is consumed by someone who is
+      // not provably us ('landed-external'). Both mean this consume did not
+      // demonstrably land, so only cancel once the tx has been processing for a
+      // while, so we don't reap one that is actively processing.
       // Use ACTIVE (foreground) processing time so a consume that merely sat
       // backgrounded on mobile isn't reaped on resume (issue #473).
       const processingTime = tx.processingStartedAt
         ? activeProcessingSeconds(tx.processingStartedAt, Math.floor(Date.now() / 1000))
         : 0;
       if (processingTime > MIN_PROCESSING_TIME_BEFORE_STUCK) {
-        await cancelTransaction(tx, TRANSACTION_INTERRUPTED_ERROR);
-        resolvedCount++;
+        if (await cancelTransaction(tx, TRANSACTION_INTERRUPTED_ERROR)) resolvedCount++;
       }
     }
-    // 'unknown' (no note row / node query error) → leave for a later cycle.
+    // 'unknown' (no note row / node query error) and 'processing' (our own consume
+    // is submitted and applied locally, awaiting commit) both fall through here →
+    // leave for a later cycle. Do NOT fold 'processing' into the 'not-landed' arm:
+    // that note IS spent by a transaction of ours that reached the node.
   }
 
   return resolvedCount;
+};
+
+// One run at a time: callers poll every few seconds, and a run still waiting on the WASM lock would otherwise have
+// another queued behind it on every tick. A caller that arrives mid-run joins it.
+let stuckVerification: Promise<number> | undefined;
+
+/** {@link verifyStuckTransactions}, one run at a time. */
+export const verifyStuckTransactionsFromNode = (): Promise<number> => {
+  stuckVerification ??= verifyStuckTransactions().finally(() => {
+    stuckVerification = undefined;
+  });
+  return stuckVerification;
 };

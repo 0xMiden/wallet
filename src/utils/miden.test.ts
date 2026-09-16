@@ -1,5 +1,7 @@
 import { Address } from '@miden-sdk/miden-sdk/lazy';
 
+import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/constants';
+
 import {
   detectAddressChain,
   isHexAddress,
@@ -9,8 +11,22 @@ import {
   MidenAddressError
 } from './miden';
 
+// The network the validator compares an address against. Jest builds default to
+// testnet; a test flips it to mimic a localnet build / dev-settings override.
+let mockEffectiveNetwork = MIDEN_NETWORK_NAME.TESTNET;
+
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  ...jest.requireActual('lib/miden-chain/effective-endpoints'),
+  getEffectiveNetworkName: () => mockEffectiveNetwork
+}));
+
+afterEach(() => {
+  mockEffectiveNetwork = MIDEN_NETWORK_NAME.TESTNET;
+});
+
 // Addresses that pass the wasm mock's loose bech32 decode (known HRP, bech32
-// charset, plausible length). Jest builds run with DEFAULT_NETWORK = testnet.
+// charset, plausible length). The effective network defaults to testnet, as
+// jest builds do (DEFAULT_NETWORK = testnet).
 const TESTNET_ADDRESS = 'mtst1aplqzwh6s4gvcyzsvx726y6xvsgt5qv5qruqqypuyph';
 const TESTNET_ADDRESS_WITH_ROUTING = 'mtst1ap2autzy2mgkuqt6hx3qscrkd5hsxefv_qr7qqq9wr6w';
 const MAINNET_ADDRESS = 'mm1qpzry9x8gf2tvdw0s3jn54khce6mua7l';
@@ -56,6 +72,17 @@ describe('Miden and Ethereum address utilities', () => {
       throw new Error('checksum mismatch');
     });
     expect(reasonOf(TESTNET_ADDRESS)).toBe('invalid');
+  });
+
+  it('treats the localnet prefix as correct-network while the wallet targets localnet', () => {
+    // Localnet encodes with the 'mlcl' HRP (getNetworkId -> NetworkId.custom),
+    // including under a dev-settings localhost override, so an 'mlcl1…' recipient
+    // is the correct-network form there — otherwise the send flow's Confirm
+    // button never enables on a localnet network.
+    mockEffectiveNetwork = MIDEN_NETWORK_NAME.LOCALNET;
+    expect(isValidMidenAddress(LOCALNET_ADDRESS)).toBe(true);
+    expect(isValidRecipientAddress(LOCALNET_ADDRESS)).toBe(true);
+    expect(reasonOf(TESTNET_ADDRESS)).toBe('wrong-network');
   });
 
   it('validates complete uniform-case Ethereum addresses after trimming whitespace', () => {

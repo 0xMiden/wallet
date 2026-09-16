@@ -7,19 +7,32 @@ import { midenClientProxy } from '../back/miden-client-proxy';
 import { getSignerDetailsFromAccount, resolveGuardianEndpoint } from '../guardian/account';
 import { sameWalletAccountId } from '../sdk/helpers';
 import { withWasmClientLock } from '../sdk/miden-client';
+import { WASM_LOCK_SYNC_WATCHDOG_MS, wasmClientGeneration } from '../sdk/wasm-client-poison';
 
 // Cache MultisigService instances to avoid re-initialization on every sync cycle.
 // `hotPublicKey` is recorded alongside so rotations are detected on next access:
 // the cached service is bound to a specific WalletSigner pubkey, and after a
 // replace-hot-key tx the WalletAccount.hotPublicKey changes — without the
 // drift check, the popup sync keeps signing with the rotated-out key.
-type CacheEntry = { service: MultisigService; hotPublicKey: string };
+//
+// `generation` is the WASM client generation the service was built on (issue
+// #775). A cached `MultisigService` is bound to the SDK `Account` handle and web
+// client it was built from, so once lock recovery replaces that client the
+// service is a corpse — and the guardian sync would go on using it every ~3s
+// until a full reload, leaving every guardian account permanently broken after a
+// recovery that was otherwise transparent. Recorded rather than watched: the
+// staleness only matters at the next access, and reading the counter there keeps
+// this module free of an import-time dependency on the SDK.
+type CacheEntry = { service: MultisigService; hotPublicKey: string; generation: number };
 const guardianServiceCache = new Map<string, CacheEntry>();
 
 // In-flight MultisigService.init promises, keyed by accountPublicKey. The
 // guardian sync runs every 3s and does not await previous ticks; without this,
 // each tick can start a fresh init before the resolved service reaches the cache.
-const guardianServiceInflight = new Map<string, Promise<MultisigService>>();
+// Tagged with the generation it started on, so a caller arriving after a recovery
+// is not handed an init that is building on the client that just died.
+type InflightEntry = { promise: Promise<MultisigService>; generation: number };
+const guardianServiceInflight = new Map<string, InflightEntry>();
 
 /**
  * Callbacks for resolving account data.
@@ -50,7 +63,22 @@ export interface GuardianAccountProvider {
  */
 export async function getOrCreateMultisigService(
   accountPublicKey: string,
-  provider: GuardianAccountProvider
+  provider: GuardianAccountProvider,
+  /**
+   * Bound the account read at the sync ceiling instead of the five-minute backstop.
+   *
+   * Passed by the ONE caller on a cadence — the idle loop's guardian sync — and by nobody
+   * else, which is the whole point of making it a parameter rather than a constant. On the
+   * #777 path this hold is not the warm cache read it looks like: every watchdog eviction
+   * bumps the client generation, which invalidates this cache, so the very next lap takes
+   * this hold with an empty client slot and sends a fresh genesis fetch to the node that
+   * just parked. Left on the backstop that is five minutes of frozen wallet per lap, and
+   * four laps to light the account's fuse. The ten transaction-pipeline callers keep the
+   * backstop: a user is waiting on those, and `reconcileStructuralApplyFailure` in
+   * particular runs after a structural change is already on chain, where giving up three
+   * minutes sooner risks stranding the account it exists to rescue.
+   */
+  boundAtSyncCeiling = false
 ): Promise<MultisigService> {
   // NOTE: no endpoint-only fast-path here. The cache hit is served by the inner
   // check below (after we resolve the account's current hotPublicKey), which
@@ -63,9 +91,17 @@ export async function getOrCreateMultisigService(
   // Coalesce concurrent inits: the guardian sync runs every 3s and does not
   // await previous ticks, so without this an in-flight init can start again
   // before its resolved service reaches the cache.
+  const startedAtGeneration = wasmClientGeneration();
   const inflight = guardianServiceInflight.get(accountPublicKey);
   if (inflight) {
-    return inflight;
+    // Only coalesce onto an init that is building on the CURRENT client. One
+    // started before a recovery will resolve a service bound to the dead client,
+    // and handing it to a caller that arrived afterwards would spread the corpse
+    // instead of containing it (#775).
+    if (inflight.generation === startedAtGeneration) {
+      return inflight.promise;
+    }
+    guardianServiceInflight.delete(accountPublicKey);
   }
 
   const initPromise = (async () => {
@@ -96,21 +132,33 @@ export async function getOrCreateMultisigService(
     //     in the SW realm doesn't reach the popup's Map, so re-check here.
     //   - hot pubkey: replace_hot_key rotates account.hotPublicKey; the cached
     //     service is still bound to the previous WalletSigner.publicKey.
+    //   - WASM client generation: lock recovery replaced the client the cached
+    //     service is bound to, so every call it makes now throws (#775).
     const cached = guardianServiceCache.get(accountPublicKey);
     if (cached) {
-      if (cached.service.guardianEndpoint === currentEndpoint && cached.hotPublicKey === hotPublicKey) {
+      if (
+        cached.service.guardianEndpoint === currentEndpoint &&
+        cached.hotPublicKey === hotPublicKey &&
+        cached.generation === wasmClientGeneration()
+      ) {
         return cached.service;
       }
       guardianServiceCache.delete(accountPublicKey);
     }
 
-    // Get the Account object from the Miden client.
-    const { sdkAccount } = await withWasmClientLock(async () => {
-      // Use the matched account's stored publicKey (the form the in-wallet path
-      // uses) rather than the possibly-bare dApp-supplied id.
-      const sdkAccount = await midenClientProxy.getAccount(account.publicKey);
-      return { sdkAccount };
-    });
+    // Get the Account object from the Miden client. Always labelled; bounded only for the
+    // caller that runs on a cadence — see `boundAtSyncCeiling` above (#777).
+    const { sdkAccount } = await withWasmClientLock(
+      async () => {
+        // Use the matched account's stored publicKey (the form the in-wallet path
+        // uses) rather than the possibly-bare dApp-supplied id.
+        const sdkAccount = await midenClientProxy.getAccount(account.publicKey);
+        return { sdkAccount };
+      },
+      boundAtSyncCeiling
+        ? { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'guardian-service-build' }
+        : { label: 'guardian-service-build' }
+    );
 
     if (!sdkAccount) {
       throw new Error('Account not found in local storage');
@@ -129,19 +177,29 @@ export async function getOrCreateMultisigService(
     );
 
     // Cache for future use, tagged with the hot pubkey it was bound to so the
-    // next access can detect rotation and force a re-init.
-    guardianServiceCache.set(accountPublicKey, { service, hotPublicKey });
+    // next access can detect rotation and force a re-init, and with the client
+    // generation it was built on so a recovery in the meantime forces one too.
+    // The tag is the generation observed at ENTRY, which is the one this
+    // service's client handle came from — so a recovery that landed mid-init
+    // leaves the entry already stale and the next access rebuilds. This caller
+    // still gets the service and fails on its next WASM call, exactly as every
+    // other in-flight user of the dead client does.
+    guardianServiceCache.set(accountPublicKey, { service, hotPublicKey, generation: startedAtGeneration });
 
     return service;
   })();
 
-  guardianServiceInflight.set(accountPublicKey, initPromise);
+  guardianServiceInflight.set(accountPublicKey, { promise: initPromise, generation: startedAtGeneration });
   try {
     return await initPromise;
   } finally {
     // Evict on settle (success or failure) so a failed init can be retried on
-    // the next sync tick while successful inits use guardianServiceCache.
-    guardianServiceInflight.delete(accountPublicKey);
+    // the next sync tick while successful inits use guardianServiceCache. Only
+    // OUR entry: a generation change can have displaced it with a newer init,
+    // and deleting that one would let the next tick start a third.
+    if (guardianServiceInflight.get(accountPublicKey)?.promise === initPromise) {
+      guardianServiceInflight.delete(accountPublicKey);
+    }
   }
 }
 

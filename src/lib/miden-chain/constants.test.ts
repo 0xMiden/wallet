@@ -12,7 +12,8 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
   NetworkId: {
     mainnet: () => ({ kind: 'mainnet' }),
     devnet: () => ({ kind: 'devnet' }),
-    testnet: () => ({ kind: 'testnet' })
+    testnet: () => ({ kind: 'testnet' }),
+    custom: (prefix: string) => ({ kind: 'custom', prefix })
   },
   MidenClient: {
     ready: mockMidenClientReady
@@ -159,6 +160,37 @@ describe('miden-chain/constants', () => {
     });
   });
 
+  describe('getExplorerAccountUrl', () => {
+    it('returns the account explorer URL when the network has an entry', () => {
+      jest.isolateModules(() => {
+        const { getExplorerAccountUrl, MIDEN_NETWORK_NAME } = require('./constants');
+        expect(getExplorerAccountUrl('mtst1acc', MIDEN_NETWORK_NAME.TESTNET)).toBe(
+          'https://testnet.midenscan.com/account/mtst1acc'
+        );
+      });
+    });
+
+    it('returns undefined when the network has no explorer mapping', () => {
+      jest.isolateModules(() => {
+        const { getExplorerAccountUrl, MIDEN_NETWORK_NAME } = require('./constants');
+        expect(getExplorerAccountUrl('mlcl1acc', MIDEN_NETWORK_NAME.LOCALNET)).toBeUndefined();
+      });
+    });
+
+    it('falls back to DEFAULT_NETWORK when no network is provided', () => {
+      delete process.env.MIDEN_NETWORK;
+      jest.isolateModules(() => {
+        const { getExplorerAccountUrl } = require('./constants');
+        expect(getExplorerAccountUrl('mtst1acc')).toBe('https://testnet.midenscan.com/account/mtst1acc');
+      });
+    });
+  });
+
+  // The override-respect path (custom explorer URL wins over the build default)
+  // is proven end-to-end in effective-endpoints.test.ts, where applyEndpointOverride
+  // + the in-memory storage mock exercise the real getEffectiveExplorerUrl the two
+  // helpers above delegate to.
+
   describe('getNoteTransportUrl', () => {
     it('returns the per-network endpoint when no override is set', () => {
       delete process.env.MIDEN_NOTE_TRANSPORT_URL;
@@ -300,11 +332,13 @@ describe('miden-chain/constants', () => {
       });
     });
 
-    it('returns testnet for LOCALNET network', () => {
+    it('returns the localnet custom prefix (mlcl) for LOCALNET network', () => {
       process.env.MIDEN_NETWORK = 'localnet';
       jest.isolateModules(() => {
         const { getNetworkId } = require('./constants');
-        expect(getNetworkId()).toEqual({ kind: 'testnet' });
+        // The SDK has no localnet() constructor; localnet uses the 'mlcl' HRP.
+        // Previously LOCALNET wrongly fell through to testnet() (mtst1 prefix).
+        expect(getNetworkId()).toEqual({ kind: 'custom', prefix: 'mlcl' });
       });
     });
 

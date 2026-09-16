@@ -1,4 +1,17 @@
-import { isRequeueableTransaction, requeueFailedTransaction } from './retry';
+import {
+  TRANSACTION_FORCE_CANCELLED_ERROR,
+  TRANSACTION_INTERRUPTED_ERROR,
+  TRANSACTION_INTERRUPTED_ON_STARTUP,
+  TRANSACTION_RETRY_UNSAFE_ERROR,
+  TRANSACTION_STUCK_ERROR,
+  USER_CANCELLED_TRANSACTION_REASON
+} from './constants';
+import {
+  UnverifiableSendRetryError,
+  isCancellableTransaction,
+  isRequeueableTransaction,
+  requeueFailedTransaction
+} from './retry';
 import { ITransaction, ITransactionStatus } from '../db/types';
 
 const mockTransactionsWhere = jest.fn();
@@ -51,10 +64,14 @@ function failedRow(overrides: Partial<ITransaction> = {}): ITransaction {
     accountId: 'acct-1',
     status: ITransactionStatus.Failed,
     initiatedAt: 1000,
+    // Every row that enters the queue is stamped with one (see `nextQueuedSeq`);
+    // a low literal here stands in for "queued long ago".
+    queuedSeq: 1,
     processingStartedAt: 1100,
     completedAt: 1200,
     stage: 'sending',
     nextEligibleAt: 99_999,
+    unauthorizedRetryUntil: 99_999,
     error: 'Something broke',
     rawError: 'Error: something broke',
     displayMessage: 'Failed',
@@ -103,8 +120,11 @@ describe('requeueFailedTransaction — double-send idempotency guard', () => {
     expect(row.displayMessage).toBe('Completed earlier');
   });
 
-  it('resubmits (requeues) when the node cannot confirm the send landed', async () => {
-    const row = failedRow({ type: 'send', transactionId: 'abc123' });
+  it('resubmits (requeues) an execute the node cannot confirm — it replays identical requestBytes', async () => {
+    // `execute` is NOT a rebuilt-request type: a duplicate submit re-creates the
+    // IDENTICAL note, which the node rejects, so an unconfirmable outcome may
+    // still be replayed. (For send/swap it may not — see the backstop below.)
+    const row = failedRow({ type: 'execute', transactionId: 'abc123' });
     wireRow(row);
     mockVerifySendLanded.mockResolvedValue('unknown');
 
@@ -114,10 +134,16 @@ describe('requeueFailedTransaction — double-send idempotency guard', () => {
     expect(row.status).toBe(ITransactionStatus.Queued); // requeued for a fresh attempt
   });
 
-  it('checks landed-state for swap/bridged-send/execute too', async () => {
+  it('checks landed-state for swap/agglayer bridged-send/execute too', async () => {
     for (const type of ['swap', 'bridged-send', 'execute'] as const) {
       mockVerifySendLanded.mockClear();
-      wireRow(failedRow({ type, transactionId: 'abc' }));
+      // `processingStartedAt: undefined` — a row cancelled while still Queued, so
+      // the double-send guard is out of the picture and the node check is what
+      // this asserts.
+      wireRow(
+        failedRow({ type, transactionId: 'abc', processingStartedAt: undefined, extraInputs: { provider: 'agglayer' } })
+      );
+      // eslint-disable-next-line no-await-in-loop
       await requeueFailedTransaction('tx-1');
       expect(mockVerifySendLanded).toHaveBeenCalledTimes(1);
     }
@@ -127,6 +153,198 @@ describe('requeueFailedTransaction — double-send idempotency guard', () => {
     wireRow(failedRow({ type: 'consume' }));
     await requeueFailedTransaction('tx-1');
     expect(mockVerifySendLanded).not.toHaveBeenCalled();
+  });
+});
+
+// The node check above is keyed on `ITransaction.transactionId`, which ONLY the
+// success path ever writes — so on a row that failed before any completion handler
+// ran it is inert (`verifySendLanded` short-circuits to 'unknown') and the retry
+// would re-broadcast a send whose original submit may already be on chain. These
+// cover the guard that closes it: for a rebuilt-request type, "this row executed"
+// is enough to refuse, whatever the failure said.
+describe('requeueFailedTransaction — ambiguous post-submit failures are not replayable', () => {
+  // Reasons written by the routes that kill a row from OUTSIDE its own write
+  // pipeline. They are no longer an INPUT to the guard — the point of listing them
+  // is that each must still be refused, and so must anything else.
+  const AMBIGUOUS = [
+    TRANSACTION_STUCK_ERROR,
+    TRANSACTION_INTERRUPTED_ON_STARTUP,
+    TRANSACTION_INTERRUPTED_ERROR,
+    TRANSACTION_FORCE_CANCELLED_ERROR,
+    USER_CANCELLED_TRANSACTION_REASON,
+    'OperationAbortedError: Offscreen operation op-7 aborted (deadline)'
+  ];
+
+  it.each(AMBIGUOUS)('refuses to requeue a send failed with %s', async reason => {
+    // No transactionId — exactly what every one of these routes leaves behind.
+    const row = failedRow({ type: 'send', transactionId: undefined, error: reason, rawError: undefined });
+    wireRow(row);
+
+    await expect(requeueFailedTransaction('tx-1')).rejects.toThrow(UnverifiableSendRetryError);
+    expect(row.status).toBe(ITransactionStatus.Failed);
+  });
+
+  // Where the refusal lives, and why it moved. It used to be the PREDICATE, so
+  // the Retry button simply never rendered for one of these rows. That is a dead
+  // end: nothing on the row ever changes, so the button never comes back, and a
+  // user who can see from their own balance that the send did not go through has
+  // no way to say so — they re-send by hand, which is the double payment the
+  // guard exists to prevent. So the predicate now answers only "is this a failed
+  // row of a retryable type", the button always renders, and the refusal happens
+  // at the requeue, where it can be acknowledged.
+  it('keeps the Retry affordance for an executed send, and refuses at the requeue instead', async () => {
+    expect(isRequeueableTransaction({ status: ITransactionStatus.Failed, type: 'send' })).toBe(true);
+
+    const row = failedRow({ type: 'send', transactionId: undefined, requestBytes: undefined });
+    wireRow(row);
+
+    await expect(requeueFailedTransaction('tx-1')).rejects.toThrow(UnverifiableSendRetryError);
+    expect(row.status).toBe(ITransactionStatus.Failed);
+  });
+
+  it('applies the same guard to a swap (its PSWAP order would be created twice)', async () => {
+    const row = failedRow({ type: 'swap', transactionId: undefined, requestBytes: undefined });
+    wireRow(row);
+
+    await expect(requeueFailedTransaction('tx-1')).rejects.toThrow(UnverifiableSendRetryError);
+    expect(row.status).toBe(ITransactionStatus.Failed);
+  });
+
+  it('lets the user through once they acknowledge the send did not land', async () => {
+    // The only exit from the refusal, and the reason it is not final: the wallet
+    // cannot tell "failed before submitting" from "submitted and lost the reply",
+    // but the user can read their own balance.
+    const row = failedRow({ type: 'send', transactionId: undefined, requestBytes: undefined });
+    wireRow(row);
+
+    await requeueFailedTransaction('tx-1', { acknowledgeUnverifiedSend: true });
+
+    expect(row.status).toBe(ITransactionStatus.Queued);
+    // Retracted, not stepped over: a later failure on this row is judged on its
+    // own evidence rather than on a crossing the user has just ruled out.
+    expect(row.mayHaveSubmitted).toBeUndefined();
+  });
+
+  it('still allows the retry when the row never left the queue (no processingStartedAt)', async () => {
+    // `cancelStaleQueuedTransactions` / a Cancel pressed while still Queued: the
+    // row never executed, so nothing could have been submitted.
+    const row = failedRow({ type: 'send', transactionId: undefined, processingStartedAt: undefined });
+    wireRow(row);
+
+    await requeueFailedTransaction('tx-1');
+
+    expect(row.status).toBe(ITransactionStatus.Queued);
+  });
+
+  // FUNDS-1: the guard used to be a CLOSED LIST of failure reasons, so a write
+  // that failed from INSIDE its own pipeline after submit() had already landed
+  // (an arbitrary error string matching no entry) left Retry enabled on a send
+  // that was already on chain. The reason is no longer an input at all.
+  it('refuses to requeue a send whose offscreen reply was lost after the write landed', async () => {
+    // Chrome/SW shape: the offscreen document completed execute→prove→submit→apply
+    // and then went away, so `chrome.runtime.sendMessage` rejected. `finishOpError`
+    // used to surface that as a bare Error, and `cancelTransaction` persisted its
+    // text verbatim with no `transactionId` ever stamped.
+    const row = failedRow({
+      type: 'send',
+      transactionId: undefined,
+      error: 'Error: The message channel closed before a response was received.',
+      rawError: undefined
+    });
+    wireRow(row);
+
+    await expect(requeueFailedTransaction('tx-1')).rejects.toThrow(UnverifiableSendRetryError);
+    expect(row.status).toBe(ITransactionStatus.Failed);
+  });
+
+  it('refuses to requeue a send that failed with an ordinary pipeline error once it left the queue', async () => {
+    // Deliberately conservative: nothing durable on the row distinguishes a
+    // provably pre-submit execute failure from a submit whose reply was lost, so
+    // the wallet declines the one-tap replay and the user re-initiates instead.
+    const row = failedRow({ type: 'send', transactionId: undefined, error: 'Error: insufficient funds' });
+    wireRow(row);
+
+    await expect(requeueFailedTransaction('tx-1')).rejects.toThrow(UnverifiableSendRetryError);
+    expect(row.status).toBe(ITransactionStatus.Failed);
+  });
+
+  it('still allows the retry for a swap that never left the queue', async () => {
+    const row = failedRow({
+      type: 'swap',
+      transactionId: undefined,
+      processingStartedAt: undefined,
+      error: 'Error: insufficient funds'
+    });
+    wireRow(row);
+
+    await requeueFailedTransaction('tx-1');
+
+    expect(row.status).toBe(ITransactionStatus.Queued);
+  });
+
+  it('leaves Agglayer bridged-send and execute retryable (they replay persisted requestBytes)', () => {
+    expect(
+      isRequeueableTransaction({
+        status: ITransactionStatus.Failed,
+        type: 'bridged-send',
+        bridgeProvider: 'agglayer'
+      })
+    ).toBe(true);
+    expect(
+      isRequeueableTransaction({
+        status: ITransactionStatus.Failed,
+        type: 'execute'
+      })
+    ).toBe(true);
+  });
+
+  it('refuses at the model layer even when a transactionId exists but the node has no record', async () => {
+    // The affordance IS shown for a row that carries an id (the node check can
+    // still reconcile it to Completed), so the resubmit path needs its own
+    // backstop for the 'unknown' verdict.
+    const row = failedRow({ type: 'send', transactionId: '0xabc', error: TRANSACTION_INTERRUPTED_ON_STARTUP });
+    wireRow(row);
+    mockVerifySendLanded.mockResolvedValue('unknown');
+
+    await expect(requeueFailedTransaction('tx-1')).rejects.toThrow(TRANSACTION_RETRY_UNSAFE_ERROR);
+    expect(row.status).toBe(ITransactionStatus.Failed);
+  });
+
+  it('still reconciles to Completed when the node reports that same row landed', async () => {
+    const row = failedRow({ type: 'send', transactionId: '0xabc', error: TRANSACTION_INTERRUPTED_ON_STARTUP });
+    wireRow(row);
+    mockVerifySendLanded.mockResolvedValue('landed');
+
+    await requeueFailedTransaction('tx-1');
+
+    expect(row.status).toBe(ITransactionStatus.Completed);
+  });
+});
+
+describe('isCancellableTransaction', () => {
+  it('offers Cancel on any pending value transfer', () => {
+    for (const status of [ITransactionStatus.Queued, ITransactionStatus.GeneratingTransaction]) {
+      expect(isCancellableTransaction({ status, type: 'send' })).toBe(true);
+    }
+  });
+
+  it('never offers Cancel on a terminal row', () => {
+    for (const status of [ITransactionStatus.Completed, ITransactionStatus.Failed]) {
+      expect(isCancellableTransaction({ status, type: 'send' })).toBe(false);
+    }
+    expect(isCancellableTransaction({ status: undefined, type: 'send' })).toBe(false);
+  });
+
+  // A structural op is cancellable only up to pickup. Past that its tail runs
+  // beyond the on-chain write — the direct guardian switch can spend minutes in
+  // post-commit registration retries — so failing the row stops nothing, cannot
+  // be retried, and only replaces a rotation that DID land with a row claiming
+  // it failed.
+  it('withdraws Cancel from a structural op once it has been picked up', () => {
+    for (const type of ['switch-guardian', 'replace-hot-key', 'update-procedure-threshold'] as const) {
+      expect(isCancellableTransaction({ status: ITransactionStatus.Queued, type })).toBe(true);
+      expect(isCancellableTransaction({ status: ITransactionStatus.GeneratingTransaction, type })).toBe(false);
+    }
   });
 });
 
@@ -150,16 +368,61 @@ describe('isRequeueableTransaction', () => {
     expect(isRequeueableTransaction({ status: ITransactionStatus.Failed, type: 'earn-deposit' })).toBe(false);
   });
 
+  it('excludes an Epoch (Fast) bridged-send for the same reason as earn-deposit', () => {
+    // The Epoch row is a recallable P2IDE collateral note sent to the allocator;
+    // its meaning lives in an out-of-band Epoch intent that is already abandoned
+    // by the time the row fails. Re-queueing would mint a SECOND collateral note
+    // with no quote and no intent, then report "Bridged to EVM".
+    expect(
+      isRequeueableTransaction({ status: ITransactionStatus.Failed, type: 'bridged-send', bridgeProvider: 'epoch' })
+    ).toBe(false);
+  });
+
+  it('keeps an Agglayer (Slow) bridged-send retryable', () => {
+    // Agglayer rows carry a pre-built, self-contained B2AGG `requestBytes`, so a
+    // replay re-runs the same request and is meaningful.
+    expect(
+      isRequeueableTransaction({ status: ITransactionStatus.Failed, type: 'bridged-send', bridgeProvider: 'agglayer' })
+    ).toBe(true);
+  });
+
   it('rejects non-failed rows regardless of type', () => {
     expect(isRequeueableTransaction({ status: ITransactionStatus.Completed, type: 'send' })).toBe(false);
     expect(isRequeueableTransaction({ status: ITransactionStatus.Queued, type: 'send' })).toBe(false);
     expect(isRequeueableTransaction({ status: undefined, type: 'send' })).toBe(false);
   });
+
+  it('rejects a row restored from a backup, whatever its type', () => {
+    // Requeueing re-signs the row's own recipient and amount with no
+    // confirmation, and for an imported row those came from whoever authored
+    // the file — the type being retryable is exactly what makes it dangerous.
+    for (const type of ['send', 'consume', 'swap', 'bridged-send', 'execute'] as const) {
+      expect(isRequeueableTransaction({ status: ITransactionStatus.Failed, type, restoredFromBackup: true })).toBe(
+        false
+      );
+    }
+  });
+});
+
+// The predicate is only advisory — what must actually hold is that the write
+// path refuses. Asserting the predicate alone passes even if `requeueFailedTransaction`
+// stops consulting it, which is the regression that would re-open the hole.
+describe('requeueFailedTransaction — imported rows', () => {
+  it('refuses to queue a row restored from a backup', async () => {
+    const row = { ...failedRow(), restoredFromBackup: true };
+    wireRow(row);
+
+    await expect(requeueFailedTransaction('tx-1')).rejects.toThrow(/not retryable/i);
+    expect(row.status).toBe(ITransactionStatus.Failed);
+  });
 });
 
 describe('requeueFailedTransaction', () => {
   it('resets the row to Queued and clears every failure/backoff field', async () => {
-    const row = failedRow();
+    // `execute` rather than the default `send`: this asserts the field clearing on
+    // a row that DID execute, and only the rebuilt-request types (send/swap) are
+    // barred from replaying in that state.
+    const row = failedRow({ type: 'execute' });
     wireRow(row);
     const before = Math.floor(Date.now() / 1000);
 
@@ -167,15 +430,37 @@ describe('requeueFailedTransaction', () => {
 
     expect(row.status).toBe(ITransactionStatus.Queued);
     expect(row.initiatedAt).toBeGreaterThanOrEqual(before);
+    // Re-stamped alongside the timestamp. `initiatedAt` is whole seconds, so the
+    // processing loop breaks ties on `queuedSeq` — keeping the original (smaller)
+    // sequence would sort this requeue AHEAD of anything queued in the same
+    // second, inverting the FIFO order the tie-break exists to impose.
+    expect(row.queuedSeq).toBeGreaterThan(1);
     expect(row.processingStartedAt).toBeUndefined();
     expect(row.completedAt).toBeUndefined();
     expect(row.stage).toBeUndefined();
     // Stale requeue-backoff must not delay an explicit user retry.
     expect(row.nextEligibleAt).toBeUndefined();
+    // Nor may a spent unauthorized-retry budget be inherited: the row would get
+    // one automatic attempt at most before the arm concluded it had already run
+    // out of time, on a retry the user asked for minutes or days later.
+    expect(row.unauthorizedRetryUntil).toBeUndefined();
     expect(row.error).toBeUndefined();
     expect(row.rawError).toBeUndefined();
     expect(row.displayMessage).toBeUndefined();
-    expect(row.displayIcon).toBe('SEND');
+    expect(row.displayIcon).toBe('DEFAULT');
+  });
+
+  it('clears the failed attempt’s stage stamps so the retry times its own steps', async () => {
+    // `setTransactionStage` is first-entry-wins (#524): carrying the failed
+    // attempt's boundaries over would make the retried attempt's steps render
+    // the FAILED attempt's durations, with only `complete` re-stamped.
+    const row = failedRow({ type: 'execute' });
+    row.stageTimestamps = { executing: 1_000, proving: 2_000, submitting: 5_000 };
+    wireRow(row);
+
+    await requeueFailedTransaction('tx-1');
+
+    expect(row.stageTimestamps).toBeUndefined();
   });
 
   it('restores the pre-failure display icon per type', async () => {
@@ -186,7 +471,9 @@ describe('requeueFailedTransaction', () => {
       ['execute', 'DEFAULT']
     ];
     for (const [type, icon] of cases) {
-      const row = failedRow({ type });
+      // Never left the queue, so `swap` is retryable here too (see the
+      // double-send guard tests above for the executed case).
+      const row = failedRow({ type, processingStartedAt: undefined });
       wireRow(row);
       // eslint-disable-next-line no-await-in-loop
       await requeueFailedTransaction('tx-1');
@@ -206,6 +493,23 @@ describe('requeueFailedTransaction', () => {
     expect(row.status).toBe(ITransactionStatus.Failed);
   });
 
+  it('throws for a failed Epoch bridged-send and leaves the row untouched', async () => {
+    // Guards the backend entry point, not just the Retry button: a second
+    // collateral note would be locked to the allocator until its reclaim height.
+    const row = failedRow({ type: 'bridged-send', extraInputs: { provider: 'epoch' } });
+    wireRow(row);
+    await expect(requeueFailedTransaction('tx-1')).rejects.toThrow('not retryable');
+    expect(row.status).toBe(ITransactionStatus.Failed);
+    expect(mockVerifySendLanded).not.toHaveBeenCalled();
+  });
+
+  it('requeues a failed Agglayer bridged-send', async () => {
+    const row = failedRow({ type: 'bridged-send', extraInputs: { provider: 'agglayer' } });
+    wireRow(row);
+    await requeueFailedTransaction('tx-1');
+    expect(row.status).toBe(ITransactionStatus.Queued);
+  });
+
   it('throws for a completed row (never downgrades a landed tx)', async () => {
     const row = failedRow({ status: ITransactionStatus.Completed });
     wireRow(row);
@@ -223,7 +527,11 @@ describe('requeueFailedTransaction', () => {
 describe('requeueFailedTransaction — cached requestBytes', () => {
   const bytes = () => new Uint8Array([1, 2, 3]);
 
-  it.each(['syncing', 'creating-proposal', 'signing-proposal', 'executing', 'proving'] as const)(
+  // `signing-locally` belongs in this set for the same reason the rest do: the
+  // offline rotation signs hot+cold BEFORE it executes anything, so a row that
+  // failed there provably never submitted. Left out, it would fall to the
+  // conservative "may have submitted" side and keep stale bytes.
+  it.each(['syncing', 'creating-proposal', 'signing-proposal', 'signing-locally', 'executing', 'proving'] as const)(
     "drops a send's bytes when it failed pre-submit at %s",
     async stage => {
       const row = failedRow({ type: 'send', stage, requestBytes: bytes() });

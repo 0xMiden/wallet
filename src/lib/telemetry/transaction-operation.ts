@@ -85,6 +85,7 @@ const STEP_BY_STAGE: Record<ITransactionStage, TelemetryStep | undefined> = {
   confirming: 'confirming',
   'creating-proposal': 'signing',
   'signing-proposal': 'signing',
+  'signing-locally': 'signing',
   // Post-submit, all three, and so NOT `signing`. `registering-guardian` is the
   // guardian re-registration that runs after the transaction committed, and the
   // two `guardian-sync` stages sit in a block whose own comment says the

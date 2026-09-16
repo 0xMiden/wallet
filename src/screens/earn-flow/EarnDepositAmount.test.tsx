@@ -9,6 +9,8 @@ import EarnDepositAmount from './EarnDepositAmount';
 
 // `lib/woozie` reaches for browser history state on import; stub `navigate`
 // so we can assert the deposit-review push without running the real router.
+jest.mock('app/hooks/useVerificationBaseFee', () => ({ __esModule: true, default: () => 0 }));
+jest.mock('app/hooks/useMidenFaucetId', () => ({ __esModule: true, default: () => 'MIDEN-ID' }));
 jest.mock('lib/woozie', () => ({
   navigate: jest.fn()
 }));

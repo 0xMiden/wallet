@@ -12,6 +12,14 @@
 // reap the document under memory pressure; the next `ensureOffscreenDocument`
 // recreates it. Cold start re-pays WASM init + thread-pool spawn (~1-3s).
 
+import { isInOffscreenDocument } from './offscreen-realm';
+
+// Re-exported so every existing importer of `isInOffscreenDocument` from here —
+// and every test that mocks this module wholesale — is unchanged by the split.
+// Modules that need ONLY the realm check should import `./offscreen-realm`
+// directly; see that file for why the two are separate.
+export { isInOffscreenDocument };
+
 const OFFSCREEN_URL = 'offscreen.html';
 
 // Lifecycle queue for create+close serialization. The offscreen API throws
@@ -74,20 +82,6 @@ export function isCriticalOpInFlight(): boolean {
 }
 
 /**
- * True iff THIS realm is the chrome.offscreen document (issue #260 flip-prep #4).
- * Version-independent and deterministic: the offscreen doc sets
- * `globalThis.__MIDEN_IN_OFFSCREEN_DOC__ = true` at the top of `src/offscreen/main.ts`,
- * before any client is created; this reads that marker. It does NOT depend on
- * whether `chrome.offscreen` happens to be exposed inside the doc (an unreliable
- * Chrome quirk). Used to short-circuit {@link isOffscreenAvailable} so an
- * offscreen-doc write proves LOCALLY in-realm instead of recursively trying to
- * re-dispatch OFFSCREEN_PROVE to a handler that does not exist inside the doc.
- */
-export function isInOffscreenDocument(): boolean {
-  return (globalThis as { __MIDEN_IN_OFFSCREEN_DOC__?: boolean }).__MIDEN_IN_OFFSCREEN_DOC__ === true;
-}
-
-/**
  * True iff the runtime exposes the `chrome.offscreen` API. Chrome MV3 only
  * — Firefox WebExtensions and Safari extensions don't have it. Callers
  * should branch on this and fall through to a single-threaded prove path
@@ -111,7 +105,17 @@ export function isOffscreenAvailable(): boolean {
   );
 }
 
-async function hasOffscreenDocument(): Promise<boolean> {
+/**
+ * True iff an offscreen document is currently open. Exported so a caller that
+ * wants to talk to an EXISTING realm — rather than demand one — can check first:
+ * every other entry point here goes through `ensureOffscreenDocument()`, which
+ * CREATES the document, and paying a ~120-150 MB cold start just to hand a fresh
+ * realm a message it does not need is worse than doing nothing.
+ *
+ * Dereferences `chrome.offscreen` (or, on the <116 fallback, the SW's `self.clients`),
+ * so callers must gate on {@link isOffscreenAvailable} first.
+ */
+export async function hasOffscreenDocument(): Promise<boolean> {
   // chrome.offscreen.hasDocument() is the supported API on Chrome 116+.
   // `clients.matchAll({ includeUncontrolled: true })` was the older
   // workaround when the API wasn't available; we don't bother since the

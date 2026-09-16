@@ -4,7 +4,14 @@ import { MidenMessageType } from 'lib/miden/types';
 import { WalletMessageType, WalletStatus } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
-import { useWalletStore, selectIsReady, selectIsLocked, selectIsIdle, getIntercom } from './index';
+import {
+  useWalletStore,
+  selectIsReady,
+  selectIsLocked,
+  selectIsIdle,
+  getIntercom,
+  reloadEndpointOverridesInSW
+} from './index';
 
 // Mock the intercom module
 const mockRequest = jest.fn();
@@ -541,21 +548,21 @@ describe('useWalletStore', () => {
       await expect(checkGuardianDrift('pk')).rejects.toThrow('Invalid response');
     });
 
-    it('applyUserGuardianEndpoint posts an ApplyUserGuardianEndpointRequest and returns whether it applied', async () => {
+    it('applyUserGuardianEndpoint posts an ApplyUserGuardianEndpointRequest and returns the outcome', async () => {
       mockRequest.mockResolvedValueOnce({
         type: WalletMessageType.ApplyUserGuardianEndpointResponse,
-        applied: true
+        outcome: 'applied'
       });
 
       const { applyUserGuardianEndpoint } = useWalletStore.getState();
-      const applied = await applyUserGuardianEndpoint('pub-key', 'https://mine');
+      const outcome = await applyUserGuardianEndpoint('pub-key', 'https://mine');
 
       expect(mockRequest).toHaveBeenCalledWith({
         type: WalletMessageType.ApplyUserGuardianEndpointRequest,
         accountPublicKey: 'pub-key',
         guardianEndpoint: 'https://mine'
       });
-      expect(applied).toBe(true);
+      expect(outcome).toBe('applied');
     });
 
     it('applyUserGuardianEndpoint throws on a type-mismatched response', async () => {
@@ -849,6 +856,46 @@ describe('useWalletStore', () => {
       const client1 = getIntercom();
       const client2 = getIntercom();
       expect(client1).toBe(client2);
+    });
+  });
+
+  describe('reloadEndpointOverridesInSW', () => {
+    it('sends a ReloadEndpointOverridesRequest and resolves on completion', async () => {
+      mockRequest.mockResolvedValueOnce({ type: WalletMessageType.ReloadEndpointOverridesResponse });
+      await expect(reloadEndpointOverridesInSW()).resolves.toBeUndefined();
+      expect(mockRequest).toHaveBeenCalledWith(
+        expect.objectContaining({ type: WalletMessageType.ReloadEndpointOverridesRequest })
+      );
+    });
+
+    it('swallows a failed request instead of rejecting', async () => {
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      mockRequest.mockRejectedValueOnce(new Error('port disconnected'));
+
+      await expect(reloadEndpointOverridesInSW()).resolves.toBeUndefined();
+      expect(warnSpy).toHaveBeenCalledWith('[reloadEndpointOverridesInSW] failed to nudge SW:', expect.any(Error));
+
+      warnSpy.mockRestore();
+    });
+
+    it('resolves after a bounded timeout instead of hanging forever when the request never settles (e.g. the SW port disconnects mid-request, which IntercomClient does not surface as a rejection)', async () => {
+      jest.useFakeTimers();
+      try {
+        mockRequest.mockImplementationOnce(() => new Promise(() => {})); // never settles
+
+        const settled = jest.fn();
+        reloadEndpointOverridesInSW().then(settled);
+
+        // Still pending well before the timeout — proves this isn't just a same-tick resolve.
+        await Promise.resolve();
+        expect(settled).not.toHaveBeenCalled();
+
+        await jest.advanceTimersByTimeAsync(4000);
+        expect(settled).toHaveBeenCalledTimes(1);
+        expect(settled).toHaveBeenCalledWith(undefined);
+      } finally {
+        jest.useRealTimers();
+      }
     });
   });
 
@@ -1160,6 +1207,31 @@ describe('useWalletStore', () => {
       expect(useWalletStore.getState().isNoteToastVisible).toBe(false);
     });
 
+    it('checkForNewNotes records every new note as seen and toasts for a notifiable one', () => {
+      useWalletStore.getState().checkForNewNotes(['auto', 'manual'], ['manual']);
+      const state = useWalletStore.getState();
+      expect(state.isNoteToastVisible).toBe(true);
+      expect(state.seenNoteIds.has('auto')).toBe(true);
+      expect(state.seenNoteIds.has('manual')).toBe(true);
+    });
+
+    it('checkForNewNotes records a new note outside the notifiable set without a toast', () => {
+      useWalletStore.getState().checkForNewNotes(['auto'], []);
+      const state = useWalletStore.getState();
+      expect(state.isNoteToastVisible).toBe(false);
+      expect(state.noteToastShownAt).toBeNull();
+      expect(state.seenNoteIds.has('auto')).toBe(true);
+    });
+
+    it('checkForNewNotes does not toast when the only notifiable id was already seen', () => {
+      useWalletStore.setState({ seenNoteIds: new Set(['manual']) });
+      useWalletStore.getState().checkForNewNotes(['manual', 'auto'], ['manual']);
+      const state = useWalletStore.getState();
+      expect(state.isNoteToastVisible).toBe(false);
+      expect(state.noteToastShownAt).toBeNull();
+      expect(state.seenNoteIds.has('auto')).toBe(true);
+    });
+
     it('dismissNoteToast hides the toast', () => {
       useWalletStore.setState({ isNoteToastVisible: true });
       useWalletStore.getState().dismissNoteToast();
@@ -1191,36 +1263,13 @@ describe('useWalletStore', () => {
   });
 
   describe('extension claimable notes', () => {
-    it('setExtensionClaimableNotes / addExtensionClaimingNoteId / clearExtensionClaimingNoteIds', () => {
+    it('setExtensionClaimableNotes replaces the cached note list', () => {
       useWalletStore
         .getState()
         .setExtensionClaimableNotes([
           { id: 'n1', faucetId: 'f', amountBaseUnits: '1', senderAddress: 's', noteType: 'public' } as any
         ]);
       expect(useWalletStore.getState().extensionClaimableNotes).toHaveLength(1);
-      useWalletStore.getState().addExtensionClaimingNoteId('n1');
-      expect(useWalletStore.getState().extensionClaimingNoteIds.has('n1')).toBe(true);
-      useWalletStore.getState().clearExtensionClaimingNoteIds();
-      expect(useWalletStore.getState().extensionClaimingNoteIds.size).toBe(0);
-    });
-
-    it('removeExtensionClaimingNoteIds removes only the specified ids', () => {
-      useWalletStore.getState().addExtensionClaimingNoteId('n1');
-      useWalletStore.getState().addExtensionClaimingNoteId('n2');
-      useWalletStore.getState().addExtensionClaimingNoteId('n3');
-      useWalletStore.getState().removeExtensionClaimingNoteIds(['n1', 'n3']);
-      const ids = useWalletStore.getState().extensionClaimingNoteIds;
-      expect(ids.has('n1')).toBe(false);
-      expect(ids.has('n2')).toBe(true);
-      expect(ids.has('n3')).toBe(false);
-    });
-
-    it('removeExtensionClaimingNoteIds is a no-op for empty input and unknown ids', () => {
-      useWalletStore.getState().addExtensionClaimingNoteId('n1');
-      const before = useWalletStore.getState().extensionClaimingNoteIds;
-      useWalletStore.getState().removeExtensionClaimingNoteIds([]);
-      useWalletStore.getState().removeExtensionClaimingNoteIds(['unknown']);
-      expect(useWalletStore.getState().extensionClaimingNoteIds).toBe(before);
     });
   });
 

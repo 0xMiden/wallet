@@ -24,6 +24,7 @@ export interface EndpointOverride {
   faucetApiUrl: string;
   explorerUrl: string;
   guardianUrl: string; // '' = no custom guardian
+  allowNoGuardian: boolean; // dev-only: expose a "No guardian" card in onboarding
   networkName: MIDEN_NETWORK_NAME; // the "network id": drives NetworkId + endpoint-default seeding
   presetName: string; // 'testnet'|'devnet'|'localnet'|'custom' — UI dropdown seed only
 }
@@ -40,6 +41,25 @@ export function getActiveOverride(): EndpointOverride | null {
 
 export function getEffectiveNetworkName(): MIDEN_NETWORK_NAME {
   return overrideCache?.networkName ?? DEFAULT_NETWORK;
+}
+
+/**
+ * Locale key naming the effective network on the test-network surfaces (#875:
+ * banner, onboarding notice, Receive warning, share text, QR caption), or null
+ * on mainnet, where none of them render. Read it on every render: a Developer
+ * Settings save swaps the override without a reload.
+ */
+export function getTestNetworkNameKey(): 'testnet' | 'devnet' | 'localnet' | null {
+  switch (getEffectiveNetworkName()) {
+    case MIDEN_NETWORK_NAME.TESTNET:
+      return 'testnet';
+    case MIDEN_NETWORK_NAME.DEVNET:
+      return 'devnet';
+    case MIDEN_NETWORK_NAME.LOCALNET:
+      return 'localnet';
+    case MIDEN_NETWORK_NAME.MAINNET:
+      return null;
+  }
 }
 
 export function getEffectiveRpcUrl(): string {
@@ -60,6 +80,28 @@ export function getEffectiveNoteTransportUrl(): string | undefined {
     NOTE_TRANSPORT_ENV_OVERRIDE ||
     MIDEN_NOTE_TRANSPORT_LAYER_ENDPOINTS.get(getEffectiveNetworkName())
   );
+}
+
+/**
+ * Is a note-transport endpoint resolvable for the effective network?
+ *
+ * There is no fallback here, deliberately, and that is what makes this worth
+ * asking. Every other endpoint getter can degrade to a default: an absent faucet
+ * URL falls back to the build network's, an absent explorer just hides a link.
+ * Transport has no equivalent — `MIDEN_NOTE_TRANSPORT_LAYER_ENDPOINTS` has entries
+ * for testnet, devnet and localnet only, so on MAINNET (a selectable network,
+ * `MIDEN_NETWORK_NAME.MAINNET`) this resolves to `undefined` and the SDK client is
+ * built with no transport at all.
+ *
+ * The consequence is total and silent. `Client::relay_private_note` resolves the
+ * transport API on its FIRST line — before it writes its durable retry outbox — so
+ * with transport unconfigured it returns `NoteTransportError::Disabled` having
+ * queued nothing. Every private send would land on chain, hand its note to nobody,
+ * and leave no retry record anywhere. Callers use this to refuse the send up front
+ * rather than discover that after the assets have moved.
+ */
+export function isNoteTransportConfigured(): boolean {
+  return !!getEffectiveNoteTransportUrl();
 }
 
 export function getEffectiveFaucetUrl(): string {
@@ -84,6 +126,11 @@ export function getEffectiveExplorerUrl(): string | undefined {
 
 export function getEffectiveGuardianUrl(): string {
   return overrideCache?.guardianUrl ?? '';
+}
+
+/** Dev-only: whether onboarding should offer a "No guardian" account option. */
+export function getEffectiveAllowNoGuardian(): boolean {
+  return overrideCache?.allowNoGuardian ?? false;
 }
 
 /**
@@ -112,6 +159,7 @@ export function buildDefaultOverrideFor(network: MIDEN_NETWORK_NAME): EndpointOv
     faucetApiUrl: MIDEN_FAUCET_API_ENDPOINTS.get(network) ?? '',
     explorerUrl: MIDEN_EXPLORER_ENDPOINTS.get(network) ?? '',
     guardianUrl: MIDEN_GUARDIAN_ENDPOINTS.get(network)?.[0] ?? '',
+    allowNoGuardian: false,
     networkName: network,
     presetName: network
   };

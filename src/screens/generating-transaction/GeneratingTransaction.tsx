@@ -5,9 +5,11 @@ import React, { FC, useCallback, useEffect, useMemo, useRef, useState } from 're
 import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
+import { useNetworkFeeEstimate } from 'app/hooks/useNetworkFeeEstimate';
 import { Button, ButtonVariant } from 'components/Button';
 import { ScreenHeader } from 'components/ScreenHeader';
 import {
+  bridgeProviderOf,
   isRequeueableTransaction,
   isUnverifiableSendRetryError,
   requestSWTransactionProcessing,
@@ -17,48 +19,32 @@ import {
 import { ITransactionStatus } from 'lib/miden/db/types';
 import { useMidenContext } from 'lib/miden/front';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
+import { sameWalletAccountId } from 'lib/miden/sdk/helpers';
 import { getExplorerTxUrl } from 'lib/miden-chain/constants';
 import { openExternalUrl } from 'lib/mobile/external-browser';
 import { isExtension } from 'lib/platform';
 import { useWalletStore } from 'lib/store';
 import { navigate, Redirect } from 'lib/woozie';
+import { WalletType } from 'screens/onboarding/types';
 
 import { TransactionHeroIcon, TransactionStepRow } from './components';
-import { EXPLORER_TITLE, SUCCESS_RECEIPT_DELAY_MS, TRANSACTION_LOOP_INTERVAL_MS, TRANSACTION_STEPS } from './constants';
+import { EXPLORER_TITLE, stepsForFlow, SUCCESS_RECEIPT_DELAY_MS, TRANSACTION_LOOP_INTERVAL_MS } from './constants';
 import {
-  getActiveTransactionStepIndex,
+  getActiveStepIndex,
   getProcessingTitleKey,
   getStageDescriptionKey,
   getStageTitleKey,
-  getTransactionStepState
+  getStepDurationsMs,
+  getTransactionStepState,
+  isDirectGuardianSwitch,
+  isUnconfirmedGuardianSwitch
 } from './helper';
-import { advanceStepTimings, type StepTimings } from './stepTimings';
 import { TransactionSuccess } from './TransactionSuccess';
 import { TransactionSummaryBadge, useTransactionSummaryBadgeContent } from './TransactionSummaryBadge';
 import type { GeneratingTransactionPageProps, GeneratingTransactionProps, TransactionHeroState } from './types';
 import { useTransactionRow } from './useTransactionRow';
 
 export type { GeneratingTransactionPageProps, GeneratingTransactionProps } from './types';
-
-const getTimedStepIndexForStage = (stage?: GeneratingTransactionProps['activeStage']): number | undefined => {
-  switch (stage) {
-    case 'syncing':
-    case 'creating-proposal':
-    case 'signing-proposal':
-      return 0;
-    case 'sending':
-    case 'proving':
-      return 1;
-    case 'submitting':
-      return 2;
-    case 'guardian-syncing':
-      return 3;
-    case 'guardian-synced':
-      return 4;
-    default:
-      return undefined;
-  }
-};
 
 export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ txId, keepOpen = false }) => {
   const { t } = useTranslation();
@@ -114,6 +100,18 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
   const hasErrors = status === ITransactionStatus.Failed;
   const activeStage = active?.stage;
   const activeType = active?.type;
+  // Select the step set from the *tracked tx's* account, not just the current
+  // one: this screen can outlive an account switch (desktop `keepOpen`, or
+  // re-opening an earlier tx), and the FIFO queue spans accounts. Match the
+  // row's `accountId` against the account list with the same canonicalization
+  // the backend uses (guardian composite id vs bech32); fall back to the current
+  // account when the row hasn't loaded or its account isn't found.
+  const accounts = useWalletStore(s => s.accounts);
+  const currentAccountType = useWalletStore(s => s.currentAccount?.type);
+  const txAccountType = active
+    ? (accounts.find(a => sameWalletAccountId(a.publicKey, active.accountId))?.type ?? currentAccountType)
+    : currentAccountType;
+  const isGuardian = txAccountType === WalletType.Guardian;
 
   // #483 — a failed tx can retry from the failure footer. Only FIFO-loop txs
   // reach this screen (send/consume/swap/…); isRequeueableTransaction already
@@ -121,7 +119,11 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
   // guardian ops, earn-deposit). earn-withdraw never routes here — it's born
   // Completed with its failure in extraInputs.phase and has its own
   // withdraw-status screen — so there is no earn branch to handle.
-  const canRetry = !!active && isRequeueableTransaction(active);
+  // Spread the row rather than rebuilding it field-by-field, which would silently
+  // drop `restoredFromBackup` and re-offer Retry on an imported row. The one field
+  // added on top is `bridgeProvider`: a bare row does not carry it (it lives on the
+  // UI history entry), so without it the Epoch (Fast) guard never fires.
+  const canRetry = !!active && isRequeueableTransaction({ ...active, bridgeProvider: bridgeProviderOf(active) });
 
   const handleRetry = useCallback(
     async (acknowledgeUnverifiedSend = false) => {
@@ -151,6 +153,18 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
   const onRetry = useCallback(() => handleRetry(false), [handleRetry]);
   const onRetryAnyway = useCallback(() => handleRetry(true), [handleRetry]);
 
+  // Drop any hash left over from an EARLIER receipt as soon as this screen
+  // starts tracking a different row. `lastCompletedTxHash` is module-global and
+  // survives a receipt dismissed with Done (`onClose` navigates home without
+  // calling `closeTransactionModal`); it is cleared otherwise only on entering
+  // /send or the swap flow, so a claim opened straight from the pending list
+  // would otherwise inherit the previous send's hash. Declared BEFORE the
+  // recorder below so both run in one effect flush, in this order, on mount.
+  useEffect(() => {
+    const store = useWalletStore.getState();
+    if (store.lastCompletedTxHash !== null) store.setLastCompletedTxHash(null);
+  }, [txId]);
+
   // Record the on-chain hash once the row reaches Completed with one set.
   useEffect(() => {
     if (status === ITransactionStatus.Completed && active?.transactionId) {
@@ -160,8 +174,16 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
 
   // No auto-close: once the tx reaches a terminal state the receipt stays up
   // until the user dismisses it via Done/Hide.
+  //
+  // The TRACKED ROW WINS. Several completion paths finish a row without a
+  // `TransactionResult` to stamp an id from (`tryCompleteKilledConsume`, the
+  // stuck-transaction node verifier, the generic apply-after-submit branch), so
+  // the row can be Completed with `transactionId` undefined — and the store slot
+  // is only ever written for a row that HAS one. Reading the store first
+  // therefore showed the PREVIOUS transaction's hash, with a "View on
+  // Midenscan" link to it, on this row's success receipt.
   const lastCompletedTxHash = useWalletStore(state => state.lastCompletedTxHash);
-  const receiptTxHash = lastCompletedTxHash ?? active?.transactionId ?? null;
+  const receiptTxHash = active?.transactionId ?? lastCompletedTxHash ?? null;
   const explorerUrl = receiptTxHash ? getExplorerTxUrl(receiptTxHash) : undefined;
   const onViewExplorer = useCallback(() => {
     if (!explorerUrl) return;
@@ -207,6 +229,7 @@ export const GeneratingTransactionPage: FC<GeneratingTransactionPageProps> = ({ 
           keepOpen={keepOpen}
           activeStage={activeStage}
           activeType={activeType}
+          isGuardian={isGuardian}
           activeTransaction={active}
           completedTransaction={active}
           completedTxHash={receiptTxHash}
@@ -233,21 +256,31 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
   completedTransaction,
   completedTxHash,
   onViewExplorer,
+  isGuardian,
   onRetry,
   onRetryAnyway,
   canRetry = false,
   isRetrying = false,
   retryError
 }) => {
-  const [stepTimings, setStepTimings] = useState<StepTimings>({});
   const [showSuccessReceipt, setShowSuccessReceipt] = useState(false);
   const { t } = useTranslation();
+  const maxNetworkFee = useNetworkFeeEstimate();
   const transactionSummaryBadgeContent = useTransactionSummaryBadgeContent(activeTransaction);
-  const timingTransactionId = activeTransaction?.id ?? completedTransaction?.id;
 
-  useEffect(() => {
-    setStepTimings({});
-  }, [timingTransactionId]);
+  // The step set and per-step durations derive only from the account flow and
+  // the persisted per-stage timestamps — never from live `stage` observation
+  // (a Dexie liveQuery coalesces rapid stage writes, dropping a step's timing).
+  const signedLocally = isDirectGuardianSwitch(activeTransaction) || isDirectGuardianSwitch(completedTransaction);
+  // The completed row may be one the pipeline submitted without confirming. The
+  // generic success description asserts the transaction was "confirmed on the
+  // network", which is the single fact that state means the wallet does not
+  // have — and this screen holds it in an announced live region for 1.5s before
+  // the careful receipt replaces it.
+  const commitUnconfirmed =
+    isUnconfirmedGuardianSwitch(activeTransaction) || isUnconfirmedGuardianSwitch(completedTransaction);
+  const steps = useMemo(() => stepsForFlow(isGuardian, signedLocally), [isGuardian, signedLocally]);
+  const stageTimestamps = activeTransaction?.stageTimestamps ?? completedTransaction?.stageTimestamps;
 
   useEffect(() => {
     if (!transactionComplete || hasErrors) {
@@ -264,25 +297,12 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
     };
   }, [hasErrors, transactionComplete]);
 
-  useEffect(() => {
-    // Idempotent: several stages collapse onto one step index (e.g. `sending`
-    // and `proving` -> 1), so this effect re-runs for an already-timed step;
-    // advanceStepTimings records each start/end once so the shown duration
-    // doesn't creep after a step turns green (#530).
-    const stepIndex = getTimedStepIndexForStage(activeStage);
-    setStepTimings(prev => advanceStepTimings(prev, { stepIndex, transactionComplete, now: Date.now() }));
-  }, [activeStage, timingTransactionId, transactionComplete]);
-
   const stepDurationLabels = useMemo(
     () =>
-      TRANSACTION_STEPS.map(step => {
-        const timing = stepTimings[step.id];
-        if (!timing?.endedAt) return undefined;
-        const { startedAt, endedAt } = timing;
-        const elapsedMs = endedAt - startedAt;
-        return t('transactionStepDurationSec', { seconds: elapsedMs / 1000 });
-      }),
-    [stepTimings, t]
+      getStepDurationsMs(steps, stageTimestamps).map(ms =>
+        ms === undefined ? undefined : t('transactionStepDurationSec', { seconds: ms / 1000 })
+      ),
+    [steps, stageTimestamps, t]
   );
 
   const headerText = useCallback(() => {
@@ -297,13 +317,19 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
 
   const descriptionText = useCallback(() => {
     if (transactionComplete && hasErrors) {
-      return t('transactionErrorDescription');
+      // Prefer the row's own error. The pipeline writes prose here for the failures it
+      // can name -- `TRANSACTION_VAULT_SHORTFALL_ERROR` tells the user the shortfall may
+      // be the MIDEN for the network fee rather than the amount sent, which the generic
+      // string cannot. `HistoryDetails` already renders these verbatim. Falls back when
+      // the row carries no message, or carries a raw one from a lower layer.
+      const rowError = activeTransaction?.error ?? completedTransaction?.error;
+      return rowError && rowError.trim().length > 0 ? rowError : t('transactionErrorDescription');
     }
     if (transactionComplete) {
-      return t('transactionSuccessDescription');
+      return t(commitUnconfirmed ? 'transactionSubmittedUnconfirmedDescription' : 'transactionSuccessDescription');
     }
     return t(getStageDescriptionKey(activeStage));
-  }, [transactionComplete, hasErrors, t, activeStage]);
+  }, [transactionComplete, hasErrors, t, activeStage, commitUnconfirmed, activeTransaction, completedTransaction]);
 
   const dismissalDescription = useMemo(() => {
     if (keepOpen) {
@@ -323,10 +349,8 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
   // On failure the row's stage freezes at the failing phase (setTransactionStage
   // never writes past a terminal status), so it pins the cross to the right step.
   const activeStepIndex = hasErrors
-    ? Math.min(getActiveTransactionStepIndex(activeStage), TRANSACTION_STEPS.length - 1)
-    : transactionComplete
-      ? TRANSACTION_STEPS.length
-      : getActiveTransactionStepIndex(activeStage);
+    ? Math.min(getActiveStepIndex(steps, activeStage, false), steps.length - 1)
+    : getActiveStepIndex(steps, activeStage, transactionComplete);
   // A successful tx still renders here for SUCCESS_RECEIPT_DELAY_MS before the
   // receipt takes over, so the hero has to show a settled success state — not
   // the spinner — while the title already reads "Transaction completed".
@@ -364,14 +388,14 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
           )}
 
           <div className="mt-4 w-full overflow-hidden rounded-2xl border border-[#ECEBE8] bg-surface-solid">
-            {TRANSACTION_STEPS.map((step, index) => {
+            {steps.map((step, index) => {
               const state = getTransactionStepState(index, activeStepIndex, transactionComplete, hasErrors);
               return (
                 <TransactionStepRow
                   key={step.id}
                   step={step}
                   state={state}
-                  isLast={index === TRANSACTION_STEPS.length - 1}
+                  isLast={index === steps.length - 1}
                   meta={state === 'complete' ? stepDurationLabels[index] : undefined}
                 />
               );
@@ -394,6 +418,14 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
         {/* #483 — a failed, retryable tx gets a one-tap Retry (requeue / earn
               resubmit) as the primary action; Done demotes to secondary so the
               recovery path is the obvious one. */}
+        {transactionComplete && hasErrors && canRetry && onRetry && maxNetworkFee && (
+          // Retry requeues as a fresh transaction paying a fresh fee. This is the screen
+          // every claim, send and swap lands on when it fails, so it is where the cost
+          // of trying again has to be stated.
+          <div className="-mb-2 text-center text-xs text-heading-gray">
+            {t('networkFeeMax')} · {maxNetworkFee}
+          </div>
+        )}
         {transactionComplete && hasErrors && canRetry && onRetry && (
           <Button
             type="button"

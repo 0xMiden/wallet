@@ -383,6 +383,7 @@ export default defineConfig({
     // The other bundles default OFF; mobile hardcodes OFF (no chrome.offscreen).
     // See lib/miden/back/miden-client-proxy.ts.
     'process.env.MIDEN_USE_OFFSCREEN_CLIENT': JSON.stringify(process.env.MIDEN_USE_OFFSCREEN_CLIENT ?? 'true'),
+    'process.env.MIDEN_WRITE_DEADLINE_MS': JSON.stringify(process.env.MIDEN_WRITE_DEADLINE_MS ?? '90000'),
     'process.env.MIDEN_NETWORK': JSON.stringify(process.env.MIDEN_NETWORK ?? ''),
     'process.env.MIDEN_NOTE_TRANSPORT_URL': JSON.stringify(process.env.MIDEN_NOTE_TRANSPORT_URL ?? ''),
     'process.env.MIDEN_E2E_TEST': JSON.stringify(process.env.MIDEN_E2E_TEST ?? 'false'),
@@ -402,6 +403,12 @@ export default defineConfig({
       process.env.EPOCH_POSITIONS_URL ?? 'https://positions-testnet-dev.epochprotocol.xyz'
     ),
     'process.env.E2E_EVM_RPC_URL': JSON.stringify(process.env.E2E_EVM_RPC_URL ?? ''),
+    // dApp-bridge debug logging: `dappDebug` (lib/miden/back/dapp.ts) and `dlog`
+    // (lib/dapp-browser/message-handler.ts) both read this. It MUST be defined in
+    // every config that bundles either module — an un-defined `process.env.X` read
+    // is rewritten to `{}.X`, i.e. `undefined`, so the flag would be permanently
+    // off and the documented `DEBUG_DAPP_BRIDGE=1` escape hatch would do nothing.
+    'process.env.DEBUG_DAPP_BRIDGE': JSON.stringify(process.env.DEBUG_DAPP_BRIDGE ?? ''),
     'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'development'),
     // Opt the wallet's local-prove path into the chrome.offscreen mt-wasm
     // route — ~3.5x faster (40s -> 11s) on a 10-core machine with
@@ -412,11 +419,12 @@ export default defineConfig({
     // 0xMiden/web-sdk#182 (>= 0.15.0-alpha.6): older 0.15 SDK builds reject
     // the prove with "Client not initialized".
     //
-    // Mobile (vite.mobile.config.ts) does NOT define this env, so its
-    // runtime value is undefined and the `=== 'true'` check fails — mobile
-    // always uses the bundled SDK path. Even if it somehow were true, the
-    // runtime `isOffscreenAvailable()` guard returns false in WKWebView /
-    // Capacitor (no chrome.offscreen API), so the fallback fires anyway.
+    // Mobile (vite.mobile.config.ts) PINS this to `'false'` at build time, so a
+    // stray shell env can never opt mobile into a code path it cannot run and
+    // dead-code elimination drops the offscreen import entirely — mobile always
+    // uses the bundled SDK path. The runtime `isOffscreenAvailable()` guard would
+    // return false in WKWebView / Capacitor anyway (no chrome.offscreen API), so
+    // the fallback fires regardless.
     'process.env.MIDEN_USE_OFFSCREEN_PROVING': JSON.stringify(process.env.MIDEN_USE_OFFSCREEN_PROVING ?? 'true'),
     // Speculative pre-prove: when the user reaches the review screen, the
     // popup tells the SW to start proving with the form params so the proof
@@ -424,6 +432,14 @@ export default defineConfig({
     // (gated further on !delegateEnabled at runtime). Mobile config pins
     // this false — speculation has nothing to dispatch to without
     // chrome.offscreen anyway, but the explicit pin makes intent clear.
+    //
+    // Left ON even though `initSpeculationManager` (lib/miden/back/speculation-manager.ts)
+    // now returns null whenever MIDEN_USE_OFFSCREEN_CLIENT is on and chrome.offscreen
+    // is present — i.e. on this build's own default. The flag stays a BUILD switch for
+    // the feature, and the realm gate is a RUNTIME fact only the service worker can
+    // evaluate; folding the two together here would also silently disable the flag-off
+    // and non-Chrome paths, which are unaffected by the realm split. See that
+    // function's TRADEOFF block.
     'process.env.MIDEN_USE_SPECULATIVE_PROVING': JSON.stringify(process.env.MIDEN_USE_SPECULATIVE_PROVING ?? 'true'),
     'process.env.MODE_ENV': JSON.stringify(process.env.MODE_ENV ?? 'development'),
     'process.env.APTABASE_APP_KEY': JSON.stringify(process.env.APTABASE_APP_KEY ?? ''),

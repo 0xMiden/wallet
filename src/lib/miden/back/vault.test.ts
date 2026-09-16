@@ -90,11 +90,65 @@ const mockGetMidenClient = jest.fn(async (_options?: any) => ({
 // of miden-client, which jest mocks separately from the relative specifier below;
 // delegate the alias to the same mock so the proxy's flag-off passthrough hits it.
 jest.mock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-client'));
-jest.mock('../sdk/miden-client', () => ({
-  getMidenClient: (...args: unknown[]) => mockGetMidenClient(...(args as [any?])),
-  withWasmClientLock: async <T>(fn: () => Promise<T>) => fn(),
-  runWhenClientIdle: () => {}
-}));
+// The lock hands its callback a HOLD, and vault's onboarding/restore flows
+// re-check ownership of that hold before every pre-write WASM call that
+// follows a parking await (#788 follow-up). Model ownership here: a
+// pass-through mock with no hold would make those guards a TypeError, and a
+// no-op assertWasmHoldCurrent would make the eviction tests below vacuous.
+let currentWasmHold: object | null = null;
+// Acquisition depth: a nested acquisition would deadlock the non-reentrant production mutex.
+let wasmLockDepth = 0;
+// Simulates a watchdog eviction landing mid-flow: the mutex moves on while
+// the abandoned callback keeps running.
+const revokeWasmHold = () => {
+  currentWasmHold = null;
+};
+jest.mock('../sdk/miden-client', () => {
+  // Real poison error class so the code under test's classification helpers
+  // (isWasmClientPoisonedError, from the unmocked wasm-client-poison module)
+  // see the production error shape.
+  const { WasmClientPoisonedError } =
+    jest.requireActual<typeof import('../sdk/wasm-client-poison')>('../sdk/wasm-client-poison');
+  return {
+    getMidenClient: (...args: unknown[]) => mockGetMidenClient(...(args as [any?])),
+    getCurrentWasmLockHold: () => currentWasmHold,
+    // Re-implements the real comparison against the mock's own hold — a no-op
+    // here would silently pass every eviction test.
+    assertWasmHoldCurrent: (hold: object | null, where: string) => {
+      if (hold !== null && hold === currentWasmHold) return;
+      throw new WasmClientPoisonedError('watchdog', new Error(`operation abandoned ${where}`));
+    },
+    // The realm's insert-key sink (#878): the vault installs it whenever it holds
+    // a usable key; the insert-key tests invoke it the way the SDK would.
+    installRealmKeystore: (callbacks: { insertKey?: unknown }) => {
+      if (callbacks.insertKey !== undefined) (globalThis as any).__vaultTestRealmInsertKey = callbacks.insertKey;
+    },
+    uninstallRealmKeystore: (callbacks: { insertKey?: unknown }) => {
+      (globalThis as any).__vaultTestRealmUninstalled = callbacks.insertKey;
+      // As production: cleared only when it is the installed one.
+      if (callbacks.insertKey === (globalThis as any).__vaultTestRealmInsertKey) {
+        (globalThis as any).__vaultTestRealmInsertKey = null;
+      }
+    },
+    isRealmKeystoreInstalled: (callbacks: { insertKey?: unknown }) =>
+      callbacks.insertKey === undefined || callbacks.insertKey === (globalThis as any).__vaultTestRealmInsertKey,
+    withWasmClientLock: async <T>(fn: (hold: object) => Promise<T>, options?: { label?: string }) => {
+      const g = globalThis as any;
+      (g.__vaultTestLockLabels ??= []).push(options?.label);
+      if (wasmLockDepth > 0) g.__vaultTestLockNested = (g.__vaultTestLockNested ?? 0) + 1;
+      wasmLockDepth++;
+      const hold = {};
+      currentWasmHold = hold;
+      try {
+        return await fn(hold);
+      } finally {
+        wasmLockDepth--;
+        if (currentWasmHold === hold) currentWasmHold = null;
+      }
+    },
+    runWhenClientIdle: () => {}
+  };
+});
 
 // Mock the secure-hot-key facade so reveal/swap paths don't try to deserialize
 // real AuthSecretKey blobs out of fake ciphertexts. Tests set the resolved
@@ -403,6 +457,15 @@ describe('Vault (static)', () => {
     it('rejects with PublicError when called without password and no hardware', async () => {
       // No vault set up at all — setup() should throw "Password required" wrapped in PublicError
       await expect(Vault.setup()).rejects.toThrow(PublicError);
+    });
+
+    it('retire drops the sink this vault installed (#878)', async () => {
+      await seedVault('pw-correct');
+      const vault = await Vault.setup('pw-correct');
+      const sink = (globalThis as any).__vaultTestRealmInsertKey;
+      expect(typeof sink).toBe('function');
+      vault.retire();
+      expect((globalThis as any).__vaultTestRealmUninstalled).toBe(sink);
     });
   });
 
@@ -911,6 +974,27 @@ describe('Vault.createHDAccount', () => {
 });
 
 describe('Vault.spawn', () => {
+  // Regression: the hardware-only path (`!password`) fell through to the
+  // password branch when the availability probe said the hardware was NOT
+  // available, and encrypted the vault key under the empty string —
+  // `Actions.registerNewWallet` passes `password ?? ''`. That protects the
+  // mnemonic, every account auth key, the guardian cold key and the EVM keys
+  // with no secret at all, AND locks the user out (setup() finds no hardware
+  // protector; Unlock demands a password never chosen). `spawnFromMidenClient`
+  // always had this guard; `spawn` did not.
+  it.each([
+    ['no password at all', undefined],
+    ['the empty string registerNewWallet substitutes', '']
+  ])('refuses to mint an empty-password vault when hardware is unavailable (%s)', async (_label, password) => {
+    // Extension platform mocks → isHardwareSecurityAvailableForVault() === false,
+    // i.e. onboarding chose biometrics but the probe now says unavailable.
+    await expect(Vault.spawn(WalletType.OnChain, password as any)).rejects.toThrow(
+      'Password is required for password-based vault protection'
+    );
+    // Nothing password-shaped was persisted, so no empty-password blob exists.
+    expect(await Vault.hasPasswordProtector()).toBe(false);
+  });
+
   it('creates a fresh wallet with a generated mnemonic and password protection', async () => {
     const vault = await Vault.spawn(WalletType.OnChain, 'pw');
     expect(vault).toBeInstanceOf(Vault);
@@ -1021,6 +1105,26 @@ describe('Vault.spawn', () => {
     mockMidenClient.createMidenWallet.mockRejectedValueOnce(new Error('wasm exploded'));
     await expect(Vault.spawn(WalletType.OnChain, 'pw')).rejects.toThrow(PublicError);
   });
+
+  it('re-resolves the client when lock recovery disposed the one spawn resolved before taking the lock (#775)', async () => {
+    // spawn() resolves a client at step 5 and only reaches the create path after
+    // queueing for the WASM mutex. Recovery runs from a timer and an error
+    // listener, so it can dispose that client while spawn waits — and a disposed
+    // client's every call throws, which here means a wallet creation that fails
+    // for a reason the user cannot act on. The `liveClient()` re-resolve exists
+    // so the rebuild recovery already performed is what the create path uses.
+    const disposed = { isDisposed: true, network: 'devnet', createMidenWallet: jest.fn() };
+    mockGetMidenClient.mockImplementationOnce(async () => disposed as never);
+
+    const vault = await Vault.spawn(WalletType.OnChain, 'pw');
+
+    expect(vault).toBeDefined();
+    // The corpse was never called; the rebuilt client did the work.
+    expect(disposed.createMidenWallet).not.toHaveBeenCalled();
+    expect(mockCreateMidenWallet).toHaveBeenCalled();
+    // Once at step 5, once more from inside the lock after finding it disposed.
+    expect(mockGetMidenClient).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe('Vault.spawnFromMidenClient', () => {
@@ -1040,11 +1144,29 @@ describe('Vault.spawnFromMidenClient', () => {
     // The old code would throw `'Account from Miden Client not found'`;
     // the new code silently `continue`s past the orphan so the restore
     // completes. No keystore insert for the orphan.
+    (globalThis as any).__vaultTestRealmInsertKey = null;
     const vault = await Vault.spawnFromMidenClient('pw', VALID_MNEMONIC, [
       { publicKey: 'pk-owned', name: 'HD 1', isPublic: true, type: WalletType.OnChain, hdIndex: 0 }
     ]);
     expect(vault).toBeInstanceOf(Vault);
     expect(mockKeystoreInsert).not.toHaveBeenCalled();
+    // The restore installed the new key's sink before it could insert anything (#878).
+    expect((globalThis as any).__vaultTestRealmInsertKey).toEqual(expect.any(Function));
+  });
+
+  it('restores a matching account through the sink installed before the loop inserts (#878)', async () => {
+    // The restore loop hands the derived secret to the SDK, which inserts through the
+    // realm sink; the vault must have installed it before the first insert.
+    (globalThis as any).__vaultTestRealmInsertKey = null;
+    mockKeystoreInsert.mockImplementationOnce(async (_id: any, _secretKey: any) => {
+      await (globalThis as any).__vaultTestRealmInsertKey(new Uint8Array([0xab]), new Uint8Array([0x11]));
+    });
+    const vault = await Vault.spawnFromMidenClient('pw', VALID_MNEMONIC, [
+      { publicKey: 'pk-1', name: 'HD 1', isPublic: true, type: WalletType.OnChain, hdIndex: 0 }
+    ]);
+    expect(vault).toBeInstanceOf(Vault);
+    expect(mockKeystoreInsert).toHaveBeenCalledTimes(1);
+    expect(vault.insertKeySink).toBe((globalThis as any).__vaultTestRealmInsertKey);
   });
 
   it('skips walletAccount entries with hdIndex < 0 (imported accounts) instead of deriving garbage keys', async () => {
@@ -1254,8 +1376,10 @@ describe('Vault.importAccountFromPrivateKey', () => {
     // Wire the mock client to invoke the callback synchronously when
     // `keystore.insert` is called — mirrors the real WASM behaviour.
     mockKeystoreInsert.mockImplementationOnce(async (_id: any, _secretKey: any) => {
-      const options = mockGetMidenClient.mock.calls[mockGetMidenClient.mock.calls.length - 1]![0];
-      await options.insertKeyCallback(new Uint8Array([0xab, 0xcd]), new Uint8Array([0x11, 0x22, 0x33]));
+      await (globalThis as any).__vaultTestRealmInsertKey(
+        new Uint8Array([0xab, 0xcd]),
+        new Uint8Array([0x11, 0x22, 0x33])
+      );
     });
 
     const vault = await seedVault('pw');
@@ -1303,21 +1427,23 @@ describe('Vault.legacyPasswordUnlock + insertKeyCallback', () => {
     await expect(Vault.setup('wrong-pw')).rejects.toThrow(PublicError);
   });
 
-  it('insertKeyCallback persists a fresh secret key when getMidenClient invokes it during spawn', async () => {
-    // Make the createMidenWallet call invoke the supplied insertKeyCallback
-    // before resolving — that's the path the real WASM client takes.
-    mockGetMidenClient.mockImplementationOnce(async (options: any) => {
-      if (options?.insertKeyCallback) {
-        await options.insertKeyCallback(new Uint8Array([1, 2, 3]), new Uint8Array([4, 5, 6]));
-      }
-      return {
-        createMidenWallet: mockCreateMidenWallet,
-        importPublicMidenWalletFromSeed: mockImportPublicMidenWalletFromSeed,
-        getAccounts: mockGetAccounts,
-        getAccount: mockGetAccount,
-        syncState: mockSyncState,
-        network: 'devnet'
-      } as any;
+  it('spawn acquires its client under a labelled hold, then constructs under its own labelled hold (#878)', async () => {
+    (globalThis as any).__vaultTestLockLabels = [];
+    (globalThis as any).__vaultTestLockNested = 0;
+    await Vault.spawn(WalletType.OnChain, 'pw');
+    // Exactly these two, in this order, never nested: the build hold is released before the construction hold.
+    expect((globalThis as any).__vaultTestLockLabels).toEqual(['spawn-client-build', 'vault-spawn']);
+    expect((globalThis as any).__vaultTestLockNested).toBe(0);
+  });
+
+  it('the insert-key sink spawn installs for its new key persists a fresh secret key', async () => {
+    // Make the createMidenWallet call invoke the realm's sink before resolving,
+    // the path the real WASM client takes; spawn must have installed it by then (#878).
+    const createAsUsual = mockCreateMidenWallet.getMockImplementation()!;
+    (globalThis as any).__vaultTestRealmInsertKey = null;
+    mockCreateMidenWallet.mockImplementationOnce(async (...args: [any, Uint8Array]) => {
+      await (globalThis as any).__vaultTestRealmInsertKey(new Uint8Array([1, 2, 3]), new Uint8Array([4, 5, 6]));
+      return createAsUsual(...args);
     });
     const vault = await Vault.spawn(WalletType.OnChain, 'cb-pw');
     expect(vault).toBeInstanceOf(Vault);
@@ -1913,5 +2039,238 @@ describe('Vault.backfillGuardianEndpoints', () => {
     const vault = await seedVault('pw', { accounts: [legacyGuardian] as any });
     jest.spyOn(vault as any, 'fetchAccounts').mockRejectedValueOnce(new Error('boom'));
     await expect(vault.backfillGuardianEndpoints()).resolves.toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// WASM-lock eviction mid-flow (#788 follow-up). An evicted operation is
+// ABANDONED, not cancelled: the watchdog hands the mutex to a successor while
+// the abandoned callback keeps running, so its next WASM call is a second
+// borrow of a client somebody else is inside. Every guard under test sits at
+// a provably pre-write transition — the assertion is always "the next WASM
+// call was NOT made", never that a landed write was rolled back.
+//
+// Each rejection is asserted as the POISON error, not the `PublicError` the
+// vault wraps every other failure in. `Vault.persistNewHotKey` and
+// `Vault.swapHotKey` are called from inside the transaction pipeline, whose
+// kill classifier reads that identity to decide whether a row may be requeued
+// as a fresh write — and a rewrap tells it "this did not happen" about a flow
+// that can still land. See the falsifier below for the ordinary case.
+// ---------------------------------------------------------------------------
+describe('WASM-lock eviction mid-flow (hold liveness)', () => {
+  beforeEach(() => {
+    // A test that rejects mid-loop leaves un-consumed mockResolvedValueOnce
+    // entries queued (clearAllMocks does not drop Once queues) — reset so each
+    // test's getAccount script starts clean.
+    mockGetAccount.mockReset();
+    mockGetAccount.mockResolvedValue(null);
+  });
+
+  it('still wraps an ORDINARY failure as a PublicError', async () => {
+    // The falsifier for every assertion below: the poison passthrough is about
+    // abandonment specifically, and must not have turned `withError` into a
+    // plain rethrow that leaks SDK text into the screens (which render
+    // `e.message` verbatim).
+    mockMidenClient.syncState.mockImplementationOnce(async () => {
+      throw new Error('node returned 503');
+    });
+    await expect(Vault.spawn(WalletType.OnChain, 'pw')).rejects.toThrow(PublicError);
+  });
+
+  it('Vault.spawn (guardian create): eviction during the pre-create sync stops the guardian create', async () => {
+    mockMidenClient.syncState.mockImplementationOnce(async () => {
+      revokeWasmHold();
+    });
+    await expect(Vault.spawn(WalletType.Guardian, 'pw')).rejects.toMatchObject({ name: 'WasmClientPoisonedError' });
+    // The whole point: no guardian account is minted off an abandoned flow.
+    expect(mockMidenClient.createGuardianMidenWallet).not.toHaveBeenCalled();
+  });
+
+  it('Vault.spawn (restore probes): eviction during a probe stops the next probe AND the fresh-create fallback', async () => {
+    // Probe 1 loses the mutex mid-lookup and then reports a definitive miss.
+    // Pre-guard, the loop would carry on: probe 2 re-borrows the client, and a
+    // full miss falls through to mint a fresh EMPTY wallet off an abandoned
+    // restore — the fund-loss shape the per-iteration check exists to stop.
+    mockMidenClient.importPublicMidenWalletFromSeed.mockImplementationOnce(async () => {
+      revokeWasmHold();
+      throw new Error('account not found on chain');
+    });
+    await expect(Vault.spawn(WalletType.OnChain, 'pw', VALID_MNEMONIC, true)).rejects.toMatchObject({
+      name: 'WasmClientPoisonedError'
+    });
+    expect(mockMidenClient.importPublicMidenWalletFromSeed).toHaveBeenCalledTimes(1);
+    expect(mockMidenClient.createMidenWallet).not.toHaveBeenCalled();
+  });
+
+  it('Vault.spawn (restore probes): a probe that REJECTS with poison is not read as a scheme miss', async () => {
+    // The per-iteration guard above only asks whether THIS realm's hold is still
+    // ours. It says nothing about a probe that rejected because the client itself
+    // was replaced under it — and swallowed as a miss, that runs the loop out of
+    // schemes and falls through to mint a fresh EMPTY wallet off a restore whose
+    // outcome nobody knows, hiding the user's real account. Same guard
+    // `createHDAccount` already carries.
+    mockMidenClient.importPublicMidenWalletFromSeed.mockImplementationOnce(async () => {
+      // Name-tagged rather than a real instance, which is the shape the offscreen
+      // proxy reconstructs across the realm boundary.
+      throw Object.assign(new Error('probe abandoned'), { name: 'WasmClientPoisonedError' });
+    });
+
+    await expect(Vault.spawn(WalletType.OnChain, 'pw', VALID_MNEMONIC, true)).rejects.toMatchObject({
+      name: 'WasmClientPoisonedError'
+    });
+    // Stopped at the FIRST scheme, and no empty wallet was minted.
+    expect(mockMidenClient.importPublicMidenWalletFromSeed).toHaveBeenCalledTimes(1);
+    expect(mockMidenClient.createMidenWallet).not.toHaveBeenCalled();
+  });
+
+  it('Vault.spawn (fresh create): eviction during the pre-create sync stops createMidenWallet', async () => {
+    mockMidenClient.syncState.mockImplementationOnce(async () => {
+      revokeWasmHold();
+    });
+    await expect(Vault.spawn(WalletType.OnChain, 'pw')).rejects.toMatchObject({ name: 'WasmClientPoisonedError' });
+    expect(mockMidenClient.createMidenWallet).not.toHaveBeenCalled();
+  });
+
+  it("spawnFromMidenClient: eviction during one account's keystore insert stops the next account's read", async () => {
+    const acc1 = { id: () => 'pk-1' as any, isFaucet: () => false };
+    const acc2 = { id: () => 'pk-2' as any, isFaucet: () => false };
+    mockMidenClient.getAccounts.mockResolvedValueOnce([acc1, acc2]);
+    mockMidenClient.getAccount.mockResolvedValueOnce(acc1).mockResolvedValueOnce(acc2);
+    mockKeystoreInsert.mockImplementationOnce(async () => {
+      revokeWasmHold();
+    });
+
+    await expect(
+      Vault.spawnFromMidenClient('pw', VALID_MNEMONIC, [
+        { publicKey: 'pk-1', name: 'A', isPublic: true, type: WalletType.OnChain, hdIndex: 0 },
+        { publicKey: 'pk-2', name: 'B', isPublic: true, type: WalletType.OnChain, hdIndex: 1 }
+      ])
+    ).rejects.toMatchObject({ name: 'WasmClientPoisonedError' });
+    // Account 1's insert landed (a landed write is never rolled back); the
+    // per-iteration guard stops account 2 before its client read.
+    expect(mockKeystoreInsert).toHaveBeenCalledTimes(1);
+    expect(mockMidenClient.getAccount).toHaveBeenCalledTimes(1);
+  });
+
+  it('spawnFromMidenClient: eviction during an account read stops the isFaucet/id borrows', async () => {
+    (globalThis as any).__vaultTestLockLabels = [];
+    // isFaucet()/id() are WASM calls on an object borrowed from the client's
+    // RefCell — touching them after an eviction IS the double borrow.
+    const isFaucet = jest.fn(() => false);
+    const fakeAcc = { id: () => 'pk-1' as any, isFaucet };
+    mockMidenClient.getAccounts.mockResolvedValueOnce([fakeAcc]);
+    mockMidenClient.getAccount.mockImplementationOnce(async () => {
+      revokeWasmHold();
+      return fakeAcc;
+    });
+
+    await expect(
+      Vault.spawnFromMidenClient('pw', VALID_MNEMONIC, [
+        { publicKey: 'pk-1', name: 'A', isPublic: true, type: WalletType.OnChain, hdIndex: 0 }
+      ])
+    ).rejects.toMatchObject({ name: 'WasmClientPoisonedError' });
+    expect(isFaucet).not.toHaveBeenCalled();
+    expect(mockKeystoreInsert).not.toHaveBeenCalled();
+    // The evicted hold names itself in the record.
+    expect((globalThis as any).__vaultTestLockLabels).toContain('vault-spawn-from-client');
+  });
+
+  it('createHDAccount: eviction during the client build stops the wallet create', async () => {
+    const vault = await seedVault('pw');
+    (globalThis as any).__vaultTestLockLabels = [];
+    const defaultImpl = mockGetMidenClient.getMockImplementation()!;
+    mockGetMidenClient.mockImplementationOnce(async (options?: any) => {
+      revokeWasmHold();
+      return defaultImpl(options);
+    });
+
+    await expect(vault.createHDAccount(WalletType.OnChain)).rejects.toMatchObject({ name: 'WasmClientPoisonedError' });
+    expect(mockMidenClient.createMidenWallet).not.toHaveBeenCalled();
+    expect(mockMidenClient.importPublicMidenWalletFromSeed).not.toHaveBeenCalled();
+    expect((globalThis as any).__vaultTestLockLabels).toContain('vault-create-hd-account');
+  });
+
+  it('importAccountFromPrivateKey: eviction during the client build stops the account/keystore inserts', async () => {
+    const vault = await seedVault('pw');
+    (globalThis as any).__vaultTestLockLabels = [];
+    mockAuthSecretKeyDeserialize.mockReturnValue({ sign: jest.fn(), signData: jest.fn() } as any);
+    const defaultImpl = mockGetMidenClient.getMockImplementation()!;
+    mockGetMidenClient.mockImplementationOnce(async (options?: any) => {
+      revokeWasmHold();
+      return defaultImpl(options);
+    });
+
+    await expect(
+      vault.importAccountFromPrivateKey('deadbeefcafebabe1234567890abcdefdeadbeefcafebabe1234567890abcdef')
+    ).rejects.toMatchObject({ name: 'WasmClientPoisonedError' });
+    expect(mockAccountsInsert).not.toHaveBeenCalled();
+    expect(mockKeystoreInsert).not.toHaveBeenCalled();
+    expect((globalThis as any).__vaultTestLockLabels).toContain('vault-import-private-key');
+  });
+
+  it('backfillGuardianEndpoints: eviction during the account read leaves the account unstamped (non-fatal)', async () => {
+    const legacyGuardian = {
+      publicKey: 'guardian-legacy',
+      name: 'Guardian 1',
+      isPublic: true,
+      type: WalletType.Guardian,
+      hdIndex: 0
+    };
+    mockBuildOperatorKeyMap.mockResolvedValue(new Map([['abc123', { id: 'oz', endpoint: 'https://oz.example' }]]));
+    mockGetGuardianCommitmentFromAccount.mockReturnValue('abc123');
+    mockMidenClient.getAccount.mockImplementationOnce(async () => {
+      revokeWasmHold();
+      return { id: () => ({ toString: () => 'guardian-legacy' }) };
+    });
+    const vault = await seedVault('pw', { accounts: [legacyGuardian] as any });
+
+    // Best-effort by design: the per-account catch swallows the abandonment…
+    await expect(vault.backfillGuardianEndpoints()).resolves.toBeUndefined();
+    // …but the commitment read (a borrow of the returned Account) never ran,
+    // and no endpoint was stamped — the account simply retries next unlock.
+    expect(mockGetGuardianCommitmentFromAccount).not.toHaveBeenCalled();
+    const acc = (await vault.fetchAccounts()).find(a => a.publicKey === 'guardian-legacy')!;
+    expect(acc.guardianEndpoint).toBeUndefined();
+  });
+});
+
+describe('insert-performing holds after a lock (#878)', () => {
+  // A lock that lands while a create or import waits on the accounts queue retires
+  // the vault's sink; the write must refuse as locked before any irreversible step.
+  const LATE_HEX = 'deadbeefcafebabe1234567890abcdefdeadbeefcafebabe1234567890abcdef';
+  // The production sequence: Actions.lock() retires the vault it locks.
+  const lockLandedWhileQueued = (vault: Vault) => vault.retire();
+
+  it('createHDAccount refuses, before any WASM step, when the realm sink is no longer its own', async () => {
+    const vault = await seedVault('pw');
+    lockLandedWhileQueued(vault);
+    await expect(vault.createHDAccount(WalletType.OnChain)).rejects.toMatchObject({ reason: 'locked' });
+    expect(mockCreateMidenWallet).not.toHaveBeenCalled();
+    expect(mockKeystoreInsert).not.toHaveBeenCalled();
+  });
+
+  it('createHDAccount(Guardian) refuses before registerOnGuardian, when the realm sink is no longer its own', async () => {
+    // The guardian arm registers with the operator before it inserts the key: the
+    // irreversible step a late refusal would leave behind.
+    const vault = await seedVault('pw');
+    lockLandedWhileQueued(vault);
+    await expect(vault.createHDAccount(WalletType.Guardian)).rejects.toMatchObject({ reason: 'locked' });
+    expect(mockCreateGuardianMidenWallet).not.toHaveBeenCalled();
+  });
+
+  it('createHDAccount over an own mnemonic refuses before importPublicMidenWalletFromSeed', async () => {
+    const vault = await seedVault('pw', { ownMnemonic: true });
+    lockLandedWhileQueued(vault);
+    await expect(vault.createHDAccount(WalletType.OnChain)).rejects.toMatchObject({ reason: 'locked' });
+    expect(mockImportPublicMidenWalletFromSeed).not.toHaveBeenCalled();
+  });
+
+  it('importAccountFromPrivateKey refuses, before accounts.insert, when the realm sink is no longer its own', async () => {
+    mockAuthSecretKeyDeserialize.mockReturnValue({ sign: jest.fn(), signData: jest.fn() } as any);
+    const vault = await seedVault('pw');
+    lockLandedWhileQueued(vault);
+    await expect(vault.importAccountFromPrivateKey(LATE_HEX, 'Late')).rejects.toMatchObject({ reason: 'locked' });
+    expect(mockAccountsInsert).not.toHaveBeenCalled();
+    expect(mockKeystoreInsert).not.toHaveBeenCalled();
   });
 });

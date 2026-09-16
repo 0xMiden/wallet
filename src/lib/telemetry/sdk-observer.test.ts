@@ -122,9 +122,11 @@ describe('createWalletSdkObserver', () => {
     const stringValues = Object.entries(entry ?? {})
       .filter((pair): pair is [string, string] => typeof pair[1] === 'string')
       .map(([key, value]) => `${key}=${value}`);
-    // Both are members of unions this codebase already owned. Nothing the
-    // observation carried is among them.
-    expect(stringValues).toEqual(['path=local', 'platform=desktop']);
+    // All three are members of unions this codebase already owned: `realm` is
+    // `ProveTelemetryRealm` ('offscreen' | 'inline'), set from which realm is
+    // recording and never from the observation. A leak would still show up here
+    // as a fourth entry.
+    expect(stringValues).toEqual(['path=local', 'platform=desktop', 'realm=inline']);
   });
 
   it('is stateless, so re-registering it on a second client changes nothing', () => {

@@ -437,40 +437,6 @@ button,
   display: none;
 }
 
-/**
- * Mobile page slide-in animation
- */
-
-@keyframes mobile-slide-in {
-  from {
-    transform: translateX(8%);
-    opacity: 0.5;
-  }
-  to {
-    transform: translateX(0);
-    opacity: 1;
-  }
-}
-
-.mobile-page-enter {
-  animation: mobile-slide-in 0.15s ease-out both;
-}
-
-@keyframes mobile-fade-in {
-  from {
-    opacity: 0.5;
-  }
-  to {
-    opacity: 1;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .mobile-page-enter {
-    animation: mobile-fade-in 0.15s ease-out both;
-  }
-}
-
 /* Wallet navigation is React-only: BottomNav is mounted inside TabLayout. */
 
 /* Parked-dApp bubble host — default transform is identity, and it
@@ -500,17 +466,30 @@ body[data-drawer-open] [data-dapp-bubble-host='true'] {
 }
 
 /* Surfaces that own the whole screen (e.g. the transaction success view)
- * call `useHideNavbarWhileOpen`, which sets this flag. The `!important`
- * beats the footer's inline `display: flex`. */
+ * call `useHideNavbarWhileOpen`, which sets this flag. The footer fades out
+ * instead of switching to `display: none`: an instant removal while the
+ * keyboard inset moved the layout underneath read as a jolt. `visibility`
+ * flips only after the fade so the nav stays out of the tab order and
+ * assistive tech while hidden, and comes back at once on show. The footer
+ * keeps its inline `display: flex`, so it still measures its real height
+ * for the dApp peek tray. */
+[data-tabbar-footer='true'] {
+  transition: opacity 250ms cubic-bezier(0.38, 0.7, 0.125, 1);
+}
 body[data-hide-navbar] [data-tabbar-footer='true'] {
-  display: none !important;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    opacity 250ms cubic-bezier(0.38, 0.7, 0.125, 1),
+    visibility 0s linear 250ms;
 }
 
 /* Bottom-CTA footers that reserve space for the floating BottomNav (pb-24)
  * tag themselves with data-navbar-cushion. While the navbar is hidden —
  * notably when the soft keyboard is up (TabLayout hides it) — collapse the
  * cushion so the CTA sits snug above the keyboard instead of leaving a dead
- * gap. Timed to match the keyboard-inset transition in mobile.html. */
+ * gap. Timed to match the navbar fade above. */
 [data-navbar-cushion='true'] {
   transition: padding-bottom 250ms cubic-bezier(0.38, 0.7, 0.125, 1);
 }

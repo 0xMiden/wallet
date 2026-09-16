@@ -1,3 +1,4 @@
+import type { PreparedExecution } from '@epoch-protocol/epoch-intents-sdk';
 import { v4 as uuid } from 'uuid';
 
 import { ConsumableNote, NoteType } from '../types';
@@ -63,6 +64,57 @@ export interface IBridgedReceiveExtraInputs {
 export interface ISwitchGuardianExtraInputs {
   previousGuardianEndpoint?: string;
   newGuardianEndpoint: string;
+  // `registerFailed`: the on-chain `update_guardian` committed but registering
+  // the account on the NEW operator did not land, so that operator has no record
+  // of the account. Recovery is owned by guardian-sync's missing-registration
+  // self-heal (`attemptMissingRegistrationSelfHeal`) — deliberately NOT the 401
+  // cold-re-register self-heal, which needs a guardian state load and therefore
+  // cannot run against an operator that has never seen the account.
+  //
+  // That self-heal talks to whatever endpoint the vault names, so it reaches the
+  // NEW operator only if the endpoint write ATTEMPTED before it actually landed.
+  // Completion attempts it first but does not guarantee it: both can fail, and
+  // this flag and `endpointPersistFailed` can both be set on one row. When they
+  // are, the vault still names the old operator, the missing-registration
+  // self-heal is pointed at the wrong host, and drift reconciliation — the repair
+  // `endpointPersistFailed` already names — is what recovers the account.
+  registerFailed?: boolean;
+  // `endpointPersistFailed`: the rotation committed on chain but the vault still
+  // names the previous operator (e.g. the wallet auto-locked mid-rotation, so the
+  // encrypted write was refused). Guardian drift reconciliation is the repair
+  // path; recorded so a support log can tell this apart from a clean switch.
+  endpointPersistFailed?: boolean;
+  // `switchedDirectly` / `directSwitchReason`: this row rotated the guardian by a
+  // UNILATERAL on-chain `update_guardian` instead of a proposal co-signed by the
+  // outgoing operator, and the classified error that made the wallet choose that.
+  // Written before the leaf executes, so the marker survives a row that then
+  // fails — which is what lets `reconcileStructuralApplyFailure` read it: on a
+  // post-submit apply failure it skips rebuilding a service from the operator
+  // this row already found unreachable, rather than spending the WASM lock
+  // waiting on it. Absent (an older row, or a coordinated switch) the reconcile
+  // falls back to a deadline-bounded attempt, so a missing marker costs 30s and
+  // never correctness. The two paths also differ in what state can be left
+  // behind (see `registerFailed` above), and without `directSwitchReason` a
+  // support log cannot tell whether the unreachability verdict was right.
+  switchedDirectly?: boolean;
+  directSwitchReason?: string;
+  // `commitUnconfirmed`: the direct rotation was SUBMITTED but the wallet never
+  // established that it committed. The commit wait failed without a verdict and
+  // the follow-up node read came back neither committed nor discarded, so
+  // `didDirectSwitchLand` answered `undefined`. Completion proceeds anyway —
+  // deliberately, since the alternative strands the account on an operator the
+  // direct path has already judged unreachable — but "we went ahead on no
+  // evidence" is not the same fact as "it committed", and every other surface
+  // used to render them identically.
+  //
+  // It matters more here than the optimism usually would: if the rotation did
+  // NOT land, the OLD operator is still the on-chain guardian while the vault
+  // now names the new one, and nothing detects that afterwards — drift compares
+  // the on-chain guardian against its cached baseline, and both still name the
+  // old operator, so it reports `in-sync` without ever reading the stored
+  // endpoint. The receipt is the last place the user can be told, which is why
+  // this is persisted rather than merely logged.
+  commitUnconfirmed?: boolean;
 }
 
 /**
@@ -156,6 +208,18 @@ export interface IEarnDepositExtraInputs {
  */
 export type IEarnWithdrawPhase = 'redeeming' | 'delivering' | 'received' | 'failed';
 
+export interface IEarnWithdrawPreparedExecution extends PreparedExecution {
+  readonly attemptId: string;
+  readonly delivery: {
+    readonly allocationIndex: number;
+    readonly owner: string;
+    readonly nonce: string;
+    readonly destinationChainId: number;
+    readonly recipientAccountId: string;
+    readonly destinationFaucetId: string;
+  };
+}
+
 /**
  * `extraInputs` shape for an `EarnWithdrawTransaction`. Smart Withdraw redeems an
  * Epoch lending position and bridges the underlying back to Miden as a single
@@ -176,6 +240,10 @@ export interface IEarnWithdrawExtraInputs {
   phase: IEarnWithdrawPhase;
   /** intent nonce (SIO `userAddress:intentNonce`) used to poll `getIntentStatus`. */
   withdrawIntentNonce?: string;
+  submissionAttemptId?: string;
+  attemptStartedAt?: number;
+  submissionState?: 'preparing' | 'prepared' | 'accepted';
+  preparedExecution?: IEarnWithdrawPreparedExecution;
   /** solver/settlement EVM tx hash, once known. */
   evmTxHash?: string;
   /** Miden note id of the bridged-in note, once it lands and is consumed. */
@@ -202,9 +270,11 @@ export interface IBridgeInInfo {
   sourceSymbol?: string;
   /** epoch: intent nonce (SIO `userAddress:intentNonce`) of the originating intent. */
   intentNonce?: string;
+  intentOwner?: string;
+  earnWithdrawAttemptId?: string;
   /** EVM-side deposit/fill tx hash, when known. */
   evmTxHash?: string;
-  /** Miden-side note id the bridge-in resolved to, copied on by `takeBridgeInInfoForNotes`. */
+  /** Miden-side note id the bridge-in resolved to, copied on by `applyBridgeInInfoForNotes`. */
   midenNoteId?: string;
   /**
    * When the bridged note originates from a Smart Withdraw, the `earn-withdraw`
@@ -243,6 +313,11 @@ export interface IConsumeSwapSettleExtraInputs {
  *   - sending              : legacy broad SDK execute→prove→submit→apply span
  *   - creating-proposal    : Guardian only, while building the multisig proposal
  *   - signing-proposal     : Guardian only, while the guardian signs the proposal
+ *   - signing-locally      : direct switch-guardian only, while the wallet's own
+ *                            hot+cold keys sign — no operator is contacted, which
+ *                            is why this cannot reuse `signing-proposal`: that
+ *                            stage's copy says the guardian is signing, and the
+ *                            direct path exists precisely because it is not
  *   - executing            : Guardian only, while executing the signed request
  *   - proving              : Guardian only, while proving the executed transaction
  *   - submitting           : Guardian only, while submitting the proven transaction
@@ -251,21 +326,78 @@ export interface IConsumeSwapSettleExtraInputs {
  *   - delivering           : send-private only, during `sendPrivateNote`
  *   - guardian-syncing     : Guardian only, while syncing guardian state after submission
  *   - complete             : final stage marker before/at terminal status
+ *
+ * Declared as a runtime tuple with {@link ITransactionStage} DERIVED from it, so
+ * the list exists at runtime for code that must validate a stage it did not
+ * produce — the SW's reverse-IPC listener takes stage stamps off the extension
+ * message bus, where a `stage: ITransactionStage` field on a message type is a
+ * compile-time claim about a value the compiler never saw. Deriving the union
+ * from the tuple (rather than keeping a hand-copied parallel array) makes that
+ * check impossible to drift from the union.
  */
-export type ITransactionStage =
-  | 'syncing'
-  | 'sending'
-  | 'creating-proposal'
-  | 'signing-proposal'
-  | 'executing'
-  | 'proving'
-  | 'submitting'
-  | 'confirming'
-  | 'registering-guardian'
-  | 'delivering'
-  | 'guardian-syncing'
-  | 'guardian-synced'
-  | 'complete';
+export const TRANSACTION_STAGES = [
+  'syncing',
+  'sending',
+  'creating-proposal',
+  'signing-proposal',
+  'signing-locally',
+  'executing',
+  'proving',
+  'submitting',
+  'confirming',
+  'registering-guardian',
+  'delivering',
+  'guardian-syncing',
+  'guardian-synced',
+  'complete'
+] as const;
+
+export type ITransactionStage = (typeof TRANSACTION_STAGES)[number];
+
+/**
+ * Whether a private note's body has reached the transport layer.
+ *
+ * Separate from `status` because they answer different questions and can disagree
+ * in the way that matters most. `status` tracks the TRANSACTION, which is on chain
+ * and irreversible; this tracks DELIVERY, which is the only thing that makes a
+ * private note reachable at all — the chain carries a commitment, not the note. A
+ * send can be legitimately Completed (the assets have left the account, so Failed
+ * would be untrue and would offer a Retry that spends again) while its note
+ * reached nobody.
+ *
+ * Absent means the question does not apply or predates this field: a public send
+ * needs no relay, and rows written by an older build never recorded one.
+ *
+ *   - `pending`     — a relay is OWED. Written BEFORE the relay is attempted,
+ *                     together with the evidence needed to reason about it later,
+ *                     so an interruption mid-relay leaves a record rather than
+ *                     nothing. This is the state the wallet previously had no way
+ *                     to represent, which is why an interrupted relay was
+ *                     indistinguishable from a successful one.
+ *   - `relayed`     — the transport is believed to HOLD the note: either it accepted
+ *                     the push, or it rejected a re-push as a duplicate, which is
+ *                     itself evidence the body is already there. Deliberately not
+ *                     terminal, for two separate reasons. An empty
+ *                     `SendNoteResponse` means acceptance is not proof of storage, so
+ *                     the row stays eligible for the re-push sweep, which tests
+ *                     exactly that. And even a genuinely stored note can be
+ *                     unreachable: the recipient's opaque pagination cursor never
+ *                     goes back, so one that advanced past the note leaves it
+ *                     invisible forever (note-transport-service#77) — a case NO
+ *                     re-push can repair (see `note-delivery-sweep.ts`) and only the
+ *                     nullifier can settle. `relayed` therefore means "believed to be
+ *                     in flight", never "delivered".
+ *   - `confirmed`   — the note was CONSUMED on chain. This is the only positive
+ *                     proof of delivery available: the recipient cannot consume a
+ *                     private note without having received its body, so the
+ *                     nullifier is the receipt. Terminal.
+ *   - `undelivered` — the relay was attempted and did not succeed. Not necessarily
+ *                     permanent (the SDK's own outbox may still retry it, and that
+ *                     retry replays the ORIGINAL block hint, so it stays correct
+ *                     however late it runs) — but it may equally mean nothing was
+ *                     ever queued, so it is surfaced rather than assumed benign.
+ */
+export type INoteDeliveryState = 'pending' | 'relayed' | 'confirmed' | 'undelivered';
 
 export interface ITransaction {
   id: string;
@@ -282,9 +414,34 @@ export interface ITransaction {
   /** Consume only: per-faucet totals of a batch claim (see `ConsumeTransaction`). */
   assetTotals?: IConsumedAssetTotal[];
   transactionId?: string;
+  /**
+   * Fee this transaction actually paid, in the fee asset's smallest unit.
+   *
+   * Read from the emitted TX_FEE note rather than computed: the charge scales
+   * with the transaction's cycle count, which is only known after it runs.
+   * Absent on rows written before fees, and on zero-fee chains.
+   */
+  feeAmount?: bigint;
+  feeFaucetId?: string;
   requestBytes?: Uint8Array;
   status: ITransactionStatus;
   initiatedAt: number;
+  /**
+   * Monotonic enqueue sequence, in milliseconds, used ONLY to break `initiatedAt`
+   * ties when the processing loop picks the next queued row.
+   *
+   * `initiatedAt` is whole seconds, so every row queued within the same second ties.
+   * `Array.prototype.sort` is stable, so a tie preserved whatever order Dexie
+   * returned — primary-key order, and the primary key is a random `uuid()`. FIFO was
+   * therefore only approximate, and any caller that enqueued in a deliberate order had
+   * that order silently randomized. Claim All depends on exactly this: it queues the
+   * native-asset group FIRST so the claim that funds the vault runs before the claims
+   * that must pay a fee out of it.
+   *
+   * Optional because rows written before this field exist; they sort as `0`, i.e. ahead
+   * of new rows within the same second, which is true of them.
+   */
+  queuedSeq?: number;
   processingStartedAt?: number;
   completedAt?: number;
   displayMessage?: string;
@@ -296,6 +453,15 @@ export interface ITransaction {
   error?: string;
   /** The untouched thrown error, kept when `error` was rewritten to a friendlier message. */
   rawError?: string;
+  /**
+   * Set on every row restored from a backup file. A dump is an archive of what
+   * happened, so a restored row is a RECORD and must never become WORK: its
+   * contents — recipient, amount, `requestBytes` — come from whoever authored
+   * the file, and the FIFO loop and the Retry button both drive rows into the
+   * signer without re-confirming any of that. `importDb` lands these rows in
+   * `Failed`; this flag is what keeps them there.
+   */
+  restoredFromBackup?: boolean;
   resultBytes?: Uint8Array;
   /**
    * Current sub-phase during active processing. Readers should treat this
@@ -304,14 +470,82 @@ export interface ITransaction {
    */
   stage?: ITransactionStage;
   /**
+   * Wall-clock (ms since epoch) of the first time each processing stage was
+   * entered, recorded by `setTransactionStage` (plus a synthetic `complete`
+   * stamp written when the row reaches `Completed`). The generating-transaction
+   * screen derives per-step durations from these persisted stamps rather than
+   * observing live `stage` transitions — a Dexie `liveQuery` coalesces rapid
+   * adjacent stage writes, which would otherwise drop a step's start/end and
+   * leave its duration blank. First-entry-wins WITHIN one attempt: a stage
+   * re-entered during the same run keeps its original entry time (the meaningful
+   * boundary for step timing). A requeue clears the whole map, so the next
+   * attempt records its own boundaries rather than the first attempt's.
+   */
+  stageTimestamps?: Partial<Record<ITransactionStage, number>>;
+  /**
    * Earliest time (unix seconds) this Queued tx may be re-selected by the
-   * processing loop. Set when a transient guardian pending-delta 409 requeues
-   * the tx, so a persistently-conflicting op backs off and yields its slot to
-   * other accounts instead of being re-picked every cycle as the oldest row
-   * (head-of-line starvation). Absent ⇒ always eligible (backward compatible);
+   * processing loop. Set by every arm that requeues rather than fails — the
+   * guardian pending-delta 409, a 429 rate limit, a remote-prover outage, a
+   * locked-wallet deferral and an unauthorized-at-execution retry — so a
+   * persistently-conflicting op backs off and yields its slot to other accounts
+   * instead of being re-picked every cycle as the oldest row (head-of-line
+   * starvation). Absent ⇒ always eligible (backward compatible);
    * `MAX_QUEUED_AGE` remains the terminal cap.
    */
   nextEligibleAt?: number;
+  /**
+   * Deadline (unix seconds) after which an execution-`unauthorized` guardian
+   * failure stops being retried and becomes terminal. Stamped on the FIRST such
+   * requeue and never RESTARTED by a later one, so the budget covers the whole
+   * retry sequence rather than renewing each cycle.
+   *
+   * It is not fixed, though: a requeue down an UNRELATED arm (409, 429, prover
+   * outage) pushes it out by that arm's own cooldown. The budget is a wall clock
+   * and those waits are not retry attempts, so charging them against it would
+   * let a single rate limit — which can park a row for 300s, longer than the
+   * whole budget — leave a row with nothing left for its next genuine race. So
+   * the floor is the budget; the ceiling is the budget plus whatever unrelated
+   * backoff the row waited out, and `MAX_QUEUED_AGE` from `initiatedAt` remains
+   * the terminal cap above both.
+   *
+   * Deliberately its own field rather than an offset from `initiatedAt`: that
+   * clock starts at ENQUEUE, so a row that waited behind a deep queue — the
+   * sustained-load case this retry exists for — would arrive with its whole
+   * budget already spent and never retry at all. An absolute deadline also
+   * avoids comparing against a timestamp whose unit or origin the row does not
+   * control. Absent ⇒ not yet retried for this reason (backward compatible).
+   */
+  unauthorizedRetryUntil?: number;
+  /**
+   * Delivery state of this row's private output note — see
+   * {@link INoteDeliveryState}. Absent for public sends and non-relaying types.
+   *
+   * This is the wallet's OWN record that a relay is owed. It previously had none:
+   * durability was delegated entirely to the SDK's retry outbox, which Rust writes
+   * from inside the relay call and only after it has resolved the transport API.
+   * Every failure upstream of that write therefore queued nothing while throwing
+   * exactly like a mid-transport timeout that DID queue — and under 0.16 there is a
+   * new member of that class, since `notes.sendPrivateOutput` first resolves the
+   * note by id from the calling client's store and rejects with `No output note
+   * found for the given id` if it is not there as an applied output note.
+   */
+  noteDelivery?: INoteDeliveryState;
+  /**
+   * How many times this row's private note has been handed to the transport,
+   * counting the first attempt. Bounds the re-push sweep so a note nobody ever
+   * consumes cannot be re-pushed forever.
+   */
+  relayAttempts?: number;
+  /**
+   * Earliest time (unix seconds) the sweep may re-push this row's private note.
+   *
+   * Spread wide on purpose. Stamped from the clock at write time rather than from
+   * when the sweep began, except for the first arming, which is measured from the
+   * original relay (`completedAt`) so a row first seen long afterwards does not have
+   * to serve the wait twice. See `note-delivery-sweep.ts` for what each re-push
+   * outcome does and does not prove.
+   */
+  nextRelayAt?: number;
   /**
    * Sticky: set once some attempt on this row reached a point from which a
    * chain submit cannot be ruled out, and never unset. Guards the cached
@@ -380,6 +614,24 @@ export interface ITransaction {
   cancelledInFlightAt?: number;
 }
 
+/**
+ * Strictly increasing enqueue stamp for `ITransaction.queuedSeq`.
+ *
+ * Wall-clock milliseconds, nudged forward on a collision so two rows created in the
+ * same millisecond still differ. `Date.now()` alone is not enough: `initiateConsume-
+ * NotesTransaction` opens a Dexie transaction per group and consecutive groups can
+ * commit inside one millisecond, which is the tie this field exists to break.
+ *
+ * Per-realm, so it orders rows the same realm created — which is what every ordered
+ * enqueue in the app does. Across realms it stays comparable because it is wall clock.
+ */
+let lastQueuedSeq = 0;
+export const nextQueuedSeq = (): number => {
+  const now = Date.now();
+  lastQueuedSeq = now > lastQueuedSeq ? now : lastQueuedSeq + 1;
+  return lastQueuedSeq;
+};
+
 export interface ISuccessTransactionOutput {
   txHash: string;
   outputNotes: string[];
@@ -404,6 +656,8 @@ export class Transaction implements ITransaction {
   outputNoteIds?: string[];
   status: ITransactionStatus;
   initiatedAt: number;
+  /** Tie-break for `initiatedAt`, which is whole seconds. See `ITransaction.queuedSeq`. */
+  queuedSeq?: number;
   processingStartedAt?: number;
   completedAt?: number;
   displayMessage?: string;
@@ -425,6 +679,7 @@ export class Transaction implements ITransaction {
     this.secondaryAccountId = recipientAccountId;
     this.status = ITransactionStatus.Queued;
     this.initiatedAt = Math.floor(Date.now() / 1000); // seconds
+    this.queuedSeq = nextQueuedSeq();
     this.displayIcon = 'DEFAULT';
     this.displayMessage = 'Executing';
   }
@@ -441,6 +696,8 @@ export class SendTransaction implements ITransaction {
   transactionId?: string;
   status: ITransactionStatus;
   initiatedAt: number;
+  /** Tie-break for `initiatedAt`, which is whole seconds. See `ITransaction.queuedSeq`. */
+  queuedSeq?: number;
   processingStartedAt?: number;
   completedAt?: number;
   displayMessage?: string;
@@ -468,6 +725,7 @@ export class SendTransaction implements ITransaction {
     this.noteType = noteType;
     this.status = ITransactionStatus.Queued;
     this.initiatedAt = Math.floor(Date.now() / 1000); // seconds
+    this.queuedSeq = nextQueuedSeq();
     this.displayIcon = 'SEND';
     this.displayMessage = 'Sending';
     this.extraInputs.recallBlocks = recallBlocks;
@@ -504,6 +762,8 @@ export class ConsumeTransaction implements ITransaction {
   transactionId?: string;
   status: ITransactionStatus;
   initiatedAt: number;
+  /** Tie-break for `initiatedAt`, which is whole seconds. See `ITransaction.queuedSeq`. */
+  queuedSeq?: number;
   processingStartedAt?: number;
   completedAt?: number;
   displayMessage?: string;
@@ -551,6 +811,7 @@ export class ConsumeTransaction implements ITransaction {
     this.assetTotals = identifiedTotals.length > 0 ? identifiedTotals : undefined;
     this.status = ITransactionStatus.Queued;
     this.initiatedAt = Math.floor(Date.now() / 1000); // seconds
+    this.queuedSeq = nextQueuedSeq();
     this.displayIcon = 'RECEIVE';
     this.displayMessage = 'Consuming';
     this.delegateTransaction = delegateTransaction;
@@ -598,6 +859,8 @@ export class SwapTransaction implements ITransaction {
   faucetId: string;
   status: ITransactionStatus;
   initiatedAt: number;
+  /** Tie-break for `initiatedAt`, which is whole seconds. See `ITransaction.queuedSeq`. */
+  queuedSeq?: number;
   processingStartedAt?: number;
   completedAt?: number;
   displayMessage?: string;
@@ -631,6 +894,7 @@ export class SwapTransaction implements ITransaction {
     this.extraInputs = { requestedFaucetId, requestedAmount, expirySeconds, autoConsume };
     this.status = ITransactionStatus.Queued;
     this.initiatedAt = Math.floor(Date.now() / 1000); // seconds
+    this.queuedSeq = nextQueuedSeq();
     this.displayIcon = 'SWAP';
     this.displayMessage = 'Swapping';
     this.delegateTransaction = delegateTransaction;
@@ -675,6 +939,8 @@ export class BridgedSendTransaction implements ITransaction {
   outputNoteIds?: string[];
   status: ITransactionStatus;
   initiatedAt: number;
+  /** Tie-break for `initiatedAt`, which is whole seconds. See `ITransaction.queuedSeq`. */
+  queuedSeq?: number;
   processingStartedAt?: number;
   completedAt?: number;
   displayMessage?: string;
@@ -703,6 +969,7 @@ export class BridgedSendTransaction implements ITransaction {
     this.noteType = sendParams?.noteType;
     this.status = ITransactionStatus.Queued;
     this.initiatedAt = Math.floor(Date.now() / 1000); // seconds
+    this.queuedSeq = nextQueuedSeq();
     this.displayIcon = 'SEND';
     this.displayMessage = 'Bridging';
     this.delegateTransaction = delegateTransaction;
@@ -745,6 +1012,8 @@ export class EarnDepositTransaction implements ITransaction {
   requestBytes?: Uint8Array;
   status: ITransactionStatus;
   initiatedAt: number;
+  /** Tie-break for `initiatedAt`, which is whole seconds. See `ITransaction.queuedSeq`. */
+  queuedSeq?: number;
   processingStartedAt?: number;
   completedAt?: number;
   displayMessage?: string;
@@ -772,6 +1041,7 @@ export class EarnDepositTransaction implements ITransaction {
     this.requestBytes = requestBytes;
     this.status = ITransactionStatus.Queued;
     this.initiatedAt = Math.floor(Date.now() / 1000); // seconds
+    this.queuedSeq = nextQueuedSeq();
     this.displayIcon = 'DEFAULT';
     this.displayMessage = 'Depositing';
     this.delegateTransaction = delegateTransaction;
@@ -813,7 +1083,9 @@ export class EarnWithdrawTransaction implements ITransaction {
     marketUid: string,
     faucetId: string,
     sourceAmount: string,
-    sourceSymbol = 'USDC'
+    sourceSymbol = 'USDC',
+    submissionAttemptId?: string,
+    attemptStartedAt?: number
   ) {
     const now = Math.floor(Date.now() / 1000); // seconds
     this.id = uuid();
@@ -832,7 +1104,10 @@ export class EarnWithdrawTransaction implements ITransaction {
       destinationFaucetId: faucetId,
       sourceAmount,
       sourceSymbol,
-      phase: 'redeeming'
+      phase: 'redeeming',
+      submissionState: 'preparing',
+      submissionAttemptId,
+      attemptStartedAt: attemptStartedAt ?? now
     };
   }
 }
@@ -895,6 +1170,8 @@ export class SwitchGuardianTransaction implements ITransaction {
   transactionId?: string;
   status: ITransactionStatus;
   initiatedAt: number;
+  /** Tie-break for `initiatedAt`, which is whole seconds. See `ITransaction.queuedSeq`. */
+  queuedSeq?: number;
   processingStartedAt?: number;
   completedAt?: number;
   displayMessage?: string;
@@ -913,6 +1190,7 @@ export class SwitchGuardianTransaction implements ITransaction {
     this.accountId = accountId;
     this.status = ITransactionStatus.Queued;
     this.initiatedAt = Math.floor(Date.now() / 1000); // seconds
+    this.queuedSeq = nextQueuedSeq();
     this.displayIcon = 'DEFAULT';
     this.displayMessage = 'Switching guardian';
     this.extraInputs = { previousGuardianEndpoint, newGuardianEndpoint };
@@ -934,6 +1212,8 @@ export class ReplaceHotKeyTransaction implements ITransaction {
   transactionId?: string;
   status: ITransactionStatus;
   initiatedAt: number;
+  /** Tie-break for `initiatedAt`, which is whole seconds. See `ITransaction.queuedSeq`. */
+  queuedSeq?: number;
   processingStartedAt?: number;
   completedAt?: number;
   displayMessage?: string;
@@ -952,6 +1232,7 @@ export class ReplaceHotKeyTransaction implements ITransaction {
     this.accountId = accountId;
     this.status = ITransactionStatus.Queued;
     this.initiatedAt = Math.floor(Date.now() / 1000);
+    this.queuedSeq = nextQueuedSeq();
     this.displayIcon = 'DEFAULT';
     this.displayMessage = 'Rotating device key';
     this.extraInputs = {};
@@ -972,6 +1253,8 @@ export class UpdateProcedureThresholdTransaction implements ITransaction {
   transactionId?: string;
   status: ITransactionStatus;
   initiatedAt: number;
+  /** Tie-break for `initiatedAt`, which is whole seconds. See `ITransaction.queuedSeq`. */
+  queuedSeq?: number;
   processingStartedAt?: number;
   completedAt?: number;
   displayMessage?: string;
@@ -985,6 +1268,7 @@ export class UpdateProcedureThresholdTransaction implements ITransaction {
     this.accountId = accountId;
     this.status = ITransactionStatus.Queued;
     this.initiatedAt = Math.floor(Date.now() / 1000);
+    this.queuedSeq = nextQueuedSeq();
     this.displayIcon = 'DEFAULT';
     this.displayMessage = 'Securing account';
     this.extraInputs = { procedure, threshold };

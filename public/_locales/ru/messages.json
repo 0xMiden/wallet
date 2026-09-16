@@ -388,8 +388,8 @@
     "englishSource": "Collateral"
   },
   "earnCollateralValue": {
-    "message": "Miden P2IDE (безгазовый)",
-    "englishSource": "Miden P2IDE (gasless)"
+    "message": "Miden P2IDE",
+    "englishSource": "Miden P2IDE"
   },
   "earnDepositRoute": {
     "message": "Miden -> $protocol$ ($network$)",
@@ -631,6 +631,34 @@
     "message": "Скрыть полный текст ошибки",
     "englishSource": "Hide full error"
   },
+  "noteDeliveryPendingTitle": {
+    "message": "Доставка не подтверждена",
+    "englishSource": "Delivery unconfirmed"
+  },
+  "noteDeliveryUndeliveredTitle": {
+    "message": "Получатель не уведомлён",
+    "englishSource": "Recipient not notified"
+  },
+  "noteDeliveryUndeliveredBody": {
+    "message": "Эта транзакция находится в цепочке, но частный ключ note не удалось передать транспортной службе note. Пока это не произойдёт, получатель не сможет увидеть или потратить эти средства.",
+    "englishSource": "This transaction is on chain, but the private note could not be handed to the note transport service. Until it is, the recipient cannot see or spend it."
+  },
+  "noteDeliveryPendingBody": {
+    "message": "Эта транзакция находится в цепочке, но кошелек не смог подтвердить, что закрытый ключ note поступил в транспортную службу note.",
+    "englishSource": "This transaction is on chain, but the wallet could not confirm that the private note reached the note transport service."
+  },
+  "noteDeliveryRecoveryHint": {
+    "message": "Оставьте этот кошелёк открытым и подключённым — после отправки система автоматически повторяет попытку доставки в течение некоторого времени, и это предупреждение исчезнет, если доставка пройдёт успешно. Если получатель по-прежнему ничего не получил через час, не отправляйте снова; сохраните ID транзакции, указанный ниже, и обратитесь в службу поддержки, так как с его помощью всё ещё можно восстановить токены «note».",
+    "englishSource": "Keep this wallet open and connected — the delivery is retried automatically for a while after sending, and this warning clears if it goes through. If the recipient still has nothing after an hour, do not send again; save the transaction ID below and contact support, since the note can still be recovered from it."
+  },
+  "noteDeliveryConfirmedTitle": {
+    "message": "Доставка подтверждена",
+    "englishSource": "Delivery confirmed"
+  },
+  "noteDeliveryConfirmedBody": {
+    "message": "Получатель получил и потратил этот частный токен note, поэтому его доставка подтверждена в цепочке.",
+    "englishSource": "The recipient has received and spent this private note, so its delivery is confirmed on chain."
+  },
   "faucet": {
     "message": "Faucet",
     "englishSource": "Faucet"
@@ -758,6 +786,14 @@
     "message": "Повторить попытку",
     "englishSource": "Retry"
   },
+  "retryEarnDelivery": {
+    "message": "Повторить доставку",
+    "englishSource": "Retry delivery"
+  },
+  "withdrawalRecoveryUnavailable": {
+    "message": "Этот вывод средств нельзя безопасно повторить. Проверьте его статус, прежде чем начать другой вывод средств.",
+    "englishSource": "This withdrawal cannot be retried safely. Check its status before starting another withdrawal."
+  },
   "retryAnyway": {
     "message": "Всё равно повторить",
     "englishSource": "Retry anyway"
@@ -864,6 +900,10 @@
     "message": "Guardian утверждено",
     "englishSource": "Guardian approved"
   },
+  "transactionStepSignedLocally": {
+    "message": "Подписано на этом устройстве",
+    "englishSource": "Signed on this device"
+  },
   "transactionStepProofGenerated": {
     "message": "Доказательство сгенерировано",
     "englishSource": "Proof generated"
@@ -944,6 +984,14 @@
   "transactionStageSigningProposalDescription": {
     "message": "Ваш представитель в Совете директоров (guardian) подписывает данное предложение.",
     "englishSource": "Your guardian is signing the proposal."
+  },
+  "transactionStageSigningLocally": {
+    "message": "Локальная подпись",
+    "englishSource": "Signing locally"
+  },
+  "transactionStageSigningLocallyDescription": {
+    "message": "Подписание ключами вашего кошелька",
+    "englishSource": "Signing with your wallet keys"
   },
   "transactionStageSubmitting": {
     "message": "Отправка транзакции",
@@ -1682,33 +1730,30 @@
     "message": "Чтобы начать, добавьте токены в свой кошелек.",
     "englishSource": "Add tokens to your wallet to get started."
   },
-  "faucetPromptAction": {
-    "message": "Пополнить счет сейчас",
-    "englishSource": "Fund now"
+  "faucetPromptFunding": {
+    "message": "Финансирование",
+    "englishSource": "Funding"
   },
-  "fundWalletLoadingTitle": {
-    "message": "Пополнение кошелька",
-    "englishSource": "Funding your wallet"
+  "faucetPromptFundingSub": {
+    "message": "Ваши средства будут доступны в ближайшее время",
+    "englishSource": "Your funds will be available shortly"
   },
-  "fundWalletLoadingBody": {
-    "message": "Запрос токенов с сайта faucet…",
-    "englishSource": "Requesting tokens from the faucet…"
+  "faucetPromptFunded": {
+    "message": "Внесенные средства",
+    "englishSource": "Funds deposited"
   },
-  "fundWalletSuccessTitle": {
-    "message": "Средства зачислены на кошелек",
-    "englishSource": "Wallet funded"
+  "faucetPromptFundedSub": {
+    "message": "У вас есть $amount$ готовый",
+    "englishSource": "You have $amount$ ready",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
   },
-  "fundWalletSuccessBody": {
-    "message": "Ваши токены уже в пути и появятся в ближайшее время.",
-    "englishSource": "Your tokens are on the way and will appear shortly."
-  },
-  "fundWalletErrorTitle": {
-    "message": "Финансирование не состоялось",
-    "englishSource": "Funding failed"
-  },
-  "fundWalletErrorBody": {
-    "message": "Нам не удалось пополнить ваш кошелек. Пожалуйста, попробуйте ещё раз.",
-    "englishSource": "We couldn't fund your wallet. Please try again."
+  "faucetPromptFundedSubGeneric": {
+    "message": "Ваши средства готовы",
+    "englishSource": "Your funds are ready"
   },
   "guardianNoteRecoveryPromptTitle": {
     "message": "Обнаружено восстановление учетной записи",
@@ -1750,10 +1795,6 @@
         "content": "$1"
       }
     }
-  },
-  "pendingNotesPromptAction": {
-    "message": "Смотреть сейчас",
-    "englishSource": "See Now"
   },
   "verifySeedPhrasePromptTitle": {
     "message": "Проверьте свою фразу для восстановления",
@@ -1996,6 +2037,14 @@
     "message": "Узнайте больше о «Guardian»",
     "englishSource": "Learn more about the Guardian"
   },
+  "noGuardianOptionTitle": {
+    "message": "Нет опекуна",
+    "englishSource": "No guardian"
+  },
+  "noGuardianOptionSubtitle": {
+    "message": "Расширенный — восстанавливайте только с помощью seed phrase. Нет со-подписавшего опекуна.",
+    "englishSource": "Advanced — recover with your seed phrase only. No guardian co-signer."
+  },
   "guardianOperatedBy": {
     "message": "Оператор:",
     "englishSource": "Operated by:"
@@ -2003,6 +2052,22 @@
   "guardianLocation": {
     "message": "Местоположение:",
     "englishSource": "Location:"
+  },
+  "guardianOfflineLabel": {
+    "message": "Офлайн",
+    "englishSource": "Offline"
+  },
+  "guardianNotConnectedLabel": {
+    "message": "Не подключено",
+    "englishSource": "Not connected"
+  },
+  "guardianNeedsAttentionLabel": {
+    "message": "Требует внимания",
+    "englishSource": "Needs attention"
+  },
+  "guardianCheckingLabel": {
+    "message": "Проверка",
+    "englishSource": "Checking"
   },
   "whatIsAGuardian": {
     "message": "Что такое «Guardian»?",
@@ -2325,7 +2390,7 @@
     "englishSource": "A Guardian switch is already in progress. Wait for it to finish before starting another."
   },
   "rotateGuardian": {
-    "message": "",
+    "message": "Поворот стража",
     "englishSource": "Rotate Guardian"
   },
   "keys": {
@@ -2388,9 +2453,45 @@
     "message": "Что меняется сейчас",
     "englishSource": "What changes now"
   },
+  "guardianSwitchSetupIncompleteTitle": {
+    "message": "Настройка не завершена.",
+    "englishSource": "Setup unfinished."
+  },
+  "guardianSwitchUnconfirmedHeading": {
+    "message": "Смена Guardian отправлена",
+    "englishSource": "Guardian switch submitted"
+  },
+  "guardianSwitchUnconfirmedTitle": {
+    "message": "Пока не подтверждено.",
+    "englishSource": "Not confirmed yet."
+  },
+  "guardianSwitchUnconfirmedBody": {
+    "message": "Смена отправлена, но это устройство не смогло подтвердить, что она прошла в сети. Кошелёк не может подтвердить это за вас — и настройки Guardian, и запись этой транзакции в Активности в любом случае покажут нового Guardian. Если следующая транзакция будет отклонена из-за отсутствия соподписи, выполните смену ещё раз.",
+    "englishSource": "The switch was submitted, but this device couldn't confirm it went through on chain. Nothing in the wallet can confirm it for you — your Guardian settings and this transaction's Activity entry will both name the new Guardian either way. If a later transaction is refused because it couldn't be co-signed, run the switch again."
+  },
+  "guardianSwitchUnconfirmedEndpointNotSaved": {
+    "message": "Это устройство также не смогло сохранить адрес нового Guardian, поэтому по-прежнему показывает предыдущий. Кошелёк попросит ввести его заново — этот запрос не начинает новую смену.",
+    "englishSource": "This device also couldn't save the new Guardian's address, so it still shows the previous one. The wallet will ask you to re-enter it — that prompt won't start another switch."
+  },
+  "guardianSwitchUnconfirmedInfo3": {
+    "message": "После подтверждения смены новым транзакциям потребуется доступность нового Guardian, чтобы они могли завершиться.",
+    "englishSource": "Once the switch is confirmed, new transactions need your new Guardian to be reachable before they can complete."
+  },
+  "guardianSwitchUnconfirmedInfo1": {
+    "message": "После подтверждения смены ончейн новый Guardian будет совместно подписывать каждую транзакцию, а прежний Guardian больше не сможет подписывать за ваш аккаунт.",
+    "englishSource": "Once the switch is confirmed on chain, your new Guardian co-signs every transaction and your old Guardian can no longer co-sign for your account."
+  },
+  "guardianSwitchEndpointNotSavedBody": {
+    "message": "Смена подтверждена в блокчейне, но этому устройству не удалось сохранить адрес нового Guardian. Кошелёк проверяет это автоматически и при необходимости предложит ввести его снова — это не начнёт новую смену. Если подсказка не появится, обратитесь в службу поддержки.",
+    "englishSource": "The switch is confirmed on chain, but this device couldn't save the new Guardian's address. The wallet checks for this automatically and will prompt you to re-enter it if needed — this won't start another switch. If no prompt appears, contact support."
+  },
+  "guardianSwitchRegistrationPendingBody": {
+    "message": "Смена подтверждена в блокчейне. Регистрация вашей учётной записи у нового Guardian ещё не завершена — кошелёк автоматически повторяет попытку ограниченное число раз. Если она всё ещё не завершена, обратитесь в службу поддержки.",
+    "englishSource": "The switch is confirmed on chain. Registering your account with the new Guardian hasn't finished yet — the wallet retries automatically a limited number of times. If it still hasn't finished, contact support."
+  },
   "guardianSwitchSuccessInfo1": {
-    "message": "Ваш новый Guardian отныне подписывает каждую транзакцию вместе с вами — ваш старый Guardian больше не играет никакой роли.",
-    "englishSource": "Your new Guardian cosigns every transaction from now on — your old Guardian no longer has any role."
+    "message": "Ваш новый Guardian отныне подписывает каждую транзакцию вместе с вами — ваш старый Guardian больше не может подписывать транзакции для вашего счёта.",
+    "englishSource": "Your new Guardian cosigns every transaction from now on — your old Guardian can no longer co-sign transactions for your account."
   },
   "guardianSwitchSuccessInfo2": {
     "message": "Адрес вашего кошелька, средства и история остаются без изменений. Во время ротации ничего не перемещалось.",
@@ -2476,6 +2577,26 @@
     "message": "Этот оператор не совпадает с кодом операции в цепочке блоков (guardian) вашего счёта.",
     "englishSource": "That operator doesn't match your account's on-chain guardian."
   },
+  "guardianUrlUnreachable": {
+    "message": "Не удалось связаться с этим оператором. Проверьте URL-адрес и подключение, затем повторите попытку.",
+    "englishSource": "Couldn't reach that operator. Check the URL and your connection, then try again."
+  },
+  "guardianUrlNoOnChainGuardian": {
+    "message": "У этого аккаунта пока нет ончейн-Guardian, с которым можно было бы сверить адрес.",
+    "englishSource": "This account has no on-chain guardian to verify against yet."
+  },
+  "connectivityGuardianTitle": {
+    "message": "Guardian недоступно",
+    "englishSource": "Guardian unreachable"
+  },
+  "connectivityGuardianBody": {
+    "message": "Ваш «guardian» не отвечает, поэтому транзакции не могут быть соподписаны.",
+    "englishSource": "Your guardian isn't responding, so transactions can't be co-signed."
+  },
+  "connectivityGuardianCta": {
+    "message": "Переключить Guardian",
+    "englishSource": "Switch Guardian"
+  },
   "revealHotKey": {
     "message": "Показать ключ устройства",
     "englishSource": "Reveal device key"
@@ -2556,6 +2677,38 @@
     "message": "Нельзя отправлять на свой собственный адрес",
     "englishSource": "You can't send to your own address"
   },
+  "networkFee": {
+    "message": "Network Fee",
+    "englishSource": "Network Fee"
+  },
+  "networkFeeMax": {
+    "message": "Максимальная комиссия сети",
+    "englishSource": "Max network fee"
+  },
+  "networkFeeEstimateNote": {
+    "message": "Точная комиссия зависит от транзакции и, как правило, ниже. Сумма, которую вы заплатили, будет указана в квитанции.",
+    "englishSource": "The exact fee depends on the transaction and is usually lower. You will see what you paid on the receipt."
+  },
+  "feeReserveBlocksSend": {
+    "message": "Ваши MIDEN зарезервированы для оплаты сетевой комиссии. Получите больше MIDEN, чтобы отправить.",
+    "englishSource": "Your MIDEN is reserved for the network fee. Receive more MIDEN to send."
+  },
+  "notWorthClaiming": {
+    "message": "Worth less than the network fee to claim",
+    "englishSource": "Worth less than the network fee to claim"
+  },
+  "feeChargedPerClaim": {
+    "message": "За каждое требование взимается отдельная комиссия. При одновременном предъявлении нескольких требований комиссия взимается только одна.",
+    "englishSource": "Each claim pays its own fee. Claiming them together pays one."
+  },
+  "feeChargedPerAsset": {
+    "message": "Взимается один раз за каждый заявленный актив.",
+    "englishSource": "Charged once per asset claimed."
+  },
+  "insufficientFeeAsset": {
+    "message": "Для оплаты сетевой комиссии вам понадобится MIDEN. Получите некоторое количество MIDEN, чтобы продолжить.",
+    "englishSource": "You need MIDEN to pay the network fee. Receive some MIDEN to continue."
+  },
   "amountMustBeLessThanBalance": {
     "message": "Сумма должна быть меньше остатка",
     "englishSource": "Amount must be less than balance"
@@ -2565,8 +2718,8 @@
     "englishSource": "Auto Consume MIDEN notes"
   },
   "autoConsumeSettingsDescription": {
-    "message": "Автоматически зачисляет поступающие токены MIDEN notes на ваш баланс — то же самое, что нажать «Получить». При этом ваши средства не тратятся и комиссия не взимается.",
-    "englishSource": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't spend your funds or add any fee."
+    "message": "Автоматически зачисляет поступающие токены MIDEN notes на ваш баланс — то же самое, что нажать кнопку «Получить». Это не происходит чаще и не обходится дороже, чем если бы вы нажимали кнопку «Получить» самостоятельно.",
+    "englishSource": "Automatically claims incoming MIDEN notes into your balance — the same as tapping Claim. It doesn't claim any more often, or cost any more in fees, than tapping Claim yourself."
   },
   "encryptedWalletFileExporting": {
     "message": "Создание файла кошелька…",
@@ -2621,8 +2774,8 @@
     "englishSource": "Private Data Permission"
   },
   "confirmPrivateDataPermissionDescription": {
-    "message": "Это обеспечит постоянный доступ к данным вашей учетной записи, и данный доступ не может быть отозван.",
-    "englishSource": "This will give permanent access to your account data and cannot be revoked."
+    "message": "Это предоставляет сайту постоянный доступ к данным вашего аккаунта без повторного запроса. Вы можете отозвать это разрешение в любое время в разделе «Настройки» → «Авторизованные DApps».",
+    "englishSource": "This gives the site ongoing access to your account data without asking again. You can revoke it any time in Settings → Authorized DApps."
   },
   "privateAccountAccessRequest": {
     "message": "Этот сайт запрашивает доступ к вашей личной учетной записи.",
@@ -2675,6 +2828,10 @@
   "doNotCloseWindowAutoClose": {
     "message": "Не закрывайте это окно до тех пор, пока транзакция не будет сгенерирована",
     "englishSource": "Do not close this window until the transaction is generated"
+  },
+  "transactionSubmittedUnconfirmedDescription": {
+    "message": "Ваша транзакция отправлена, но это устройство не смогло подтвердить её в сети.",
+    "englishSource": "Your transaction was submitted, but this device couldn't confirm it on the network."
   },
   "transactionSuccessDescription": {
     "message": "Ваша транзакция была успешно обработана и подтверждена в сети.",
@@ -3210,6 +3367,27 @@
     "message": "Повторить синхронизацию",
     "englishSource": "Retry sync"
   },
+  "deadletteredNotesTitle": {
+    "message": "Входящие запросы «notes» требуют повторной попытки",
+    "englishSource": "Incoming notes need a retry"
+  },
+  "deadletteredNotesTitleOne": {
+    "message": "Для входящего запроса «note» требуется повторная попытка",
+    "englishSource": "An incoming note needs a retry"
+  },
+  "deadletteredNotesBody": {
+    "message": "$count$ не удалось импортировать автоматически.",
+    "englishSource": "$count$ couldn't be imported automatically.",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "deadletteredNotesBodyOne": {
+    "message": "1 note не удалось импортировать автоматически.",
+    "englishSource": "1 note couldn't be imported automatically."
+  },
   "tomorrow": {
     "message": "Завтра",
     "englishSource": "Tomorrow"
@@ -3419,6 +3597,18 @@
     "message": "Это приложение запрашивает транзакцию",
     "englishSource": "This app is requesting a transaction"
   },
+  "dappSignRequest": {
+    "message": "Это приложение требует, чтобы вы подписывали данные с помощью своего кошелька",
+    "englishSource": "This app wants you to sign data with your wallet"
+  },
+  "dappImportNoteRequest": {
+    "message": "Это приложение хочет импортировать частный файл note в ваш кошелек",
+    "englishSource": "This app wants to import a private note into your wallet"
+  },
+  "dappPrivateDataRequest": {
+    "message": "Это приложение запрашивает доступ к данным вашего личного кошелька",
+    "englishSource": "This app is requesting access to your private wallet data"
+  },
   "noAccountSelected": {
     "message": "Аккаунт не выбран",
     "englishSource": "No account selected"
@@ -3617,6 +3807,127 @@
     "message": "Тестовая сеть",
     "englishSource": "Testnet"
   },
+  "devnet": {
+    "message": "Devnet",
+    "englishSource": "Devnet"
+  },
+  "localnet": {
+    "message": "Localnet",
+    "englishSource": "Localnet"
+  },
+  "networkModeBanner": {
+    "message": "Вы используете Bread на Miden $network$",
+    "englishSource": "You are using Bread on Miden $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "networkNoticeChip": {
+    "message": "Miden $network$",
+    "englishSource": "Miden $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "networkNoticeBody": {
+    "message": "Эта среда предназначена для тестирования. Всё, что у вас здесь находится, представляет собой тестовые токены, не имеющие денежной стоимости.",
+    "englishSource": "This environment is for testing. Everything you hold here is a test token with no monetary value."
+  },
+  "networkNoticeNoValueTitle": {
+    "message": "Тестовые токены не являются деньгами",
+    "englishSource": "Test tokens are not money"
+  },
+  "networkNoticeNoValueBody": {
+    "message": "Отображаемые здесь остатки и цены являются моделируемыми и не подлежат обмену на реальные средства.",
+    "englishSource": "Balances and prices shown here are simulated and cannot be redeemed."
+  },
+  "networkNoticeNoRealFundsTitle": {
+    "message": "Не отправляйте реальные средства",
+    "englishSource": "Do not send real funds"
+  },
+  "networkNoticeNoRealFundsBody": {
+    "message": "Всё, что отправляется из реальной сети на тестовый адрес, теряется.",
+    "englishSource": "Anything sent from a real network to a test address is lost."
+  },
+  "networkNoticeResetTitle": {
+    "message": "Сеть может сбросить настройки",
+    "englishSource": "The network can reset"
+  },
+  "networkNoticeResetBody": {
+    "message": "Сброс очищает балансы и историю. Тестовые балансы никогда не переносятся в Mainnet.",
+    "englishSource": "A reset clears balances and history. Test balances never carry over to Mainnet."
+  },
+  "iUnderstand": {
+    "message": "Я понимаю",
+    "englishSource": "I understand"
+  },
+  "receiveTestFundsTitle": {
+    "message": "Только тестовые токены",
+    "englishSource": "Test tokens only"
+  },
+  "receiveTestFundsBody": {
+    "message": "Отправляйте на этот адрес только токены Miden $network$. Реальные средства, отправленные на этот адрес, не подлежат возврату.",
+    "englishSource": "Only send Miden $network$ tokens here. Real funds sent to this address cannot be recovered.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "crossChainFromNetwork": {
+    "message": "Источник: $network$",
+    "englishSource": "from $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "ethereumSepolia": {
+    "message": "Ethereum Sepolia",
+    "englishSource": "Ethereum Sepolia"
+  },
+  "bridgeTestFundsTitle": {
+    "message": "Только тестовые средства",
+    "englishSource": "Test funds only"
+  },
+  "bridgeTestFundsBody": {
+    "message": "Этот мост перемещает тестовые токены Ethereum Sepolia в Miden. Никогда не осуществляйте мостиковую передачу из основной сети Ethereum или любой другой реальной сети.",
+    "englishSource": "This bridge moves Ethereum Sepolia test tokens to Miden. Never bridge from Ethereum mainnet or any other real network."
+  },
+  "shareAddressText": {
+    "message": "Мой адрес Miden $network$ (только тестовые токены): $address$",
+    "englishSource": "My Miden $network$ address (test tokens only): $address$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      },
+      "address": {
+        "content": "$2"
+      }
+    }
+  },
+  "qrNetworkCaption": {
+    "message": "Miden $network$",
+    "englishSource": "Miden $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "evmConnectTestWalletTitle": {
+    "message": "Подключайте только тестовый кошелек",
+    "englishSource": "Connect a test wallet only"
+  },
+  "evmConnectTestWalletBody": {
+    "message": "Этот мост работает на Ethereum Sepolia. Не подключайте кошелек, в котором хранятся реальные средства. Создайте новый кошелек и пополните его исключительно токенами Sepolia ETH.",
+    "englishSource": "This bridge runs on Ethereum Sepolia. Do not connect a wallet that holds real funds. Create a fresh wallet and fund it with Sepolia ETH only."
+  },
   "browser": {
     "message": "Браузер",
     "englishSource": "Browser"
@@ -3650,8 +3961,8 @@
     "englishSource": "Type"
   },
   "txIdLabel": {
-    "message": "Идентификатор Tx",
-    "englishSource": "Tx ID"
+    "message": "Идентификатор транзакции",
+    "englishSource": "Transaction ID"
   },
   "notesSection": {
     "message": "Notes",
@@ -3872,10 +4183,6 @@
     "message": "Подключите кошелек, чтобы переводить активы в Miden и из него.",
     "englishSource": "Connect a wallet to bridge assets to and from Miden."
   },
-  "onlyBridgeableTokenSupported": {
-    "message": "Маршрут «Медленный» (Agglayer) поддерживает только токены, которые можно переводить через мост. Для отправки других токенов используйте маршрут «Быстрый».",
-    "englishSource": "The Slow (Agglayer) route only supports the bridgeable token. Use Fast to send other tokens."
-  },
   "connectDestinationWalletToClaim": {
     "message": "Подключите конечный кошелек, чтобы получить вознаграждение.",
     "englishSource": "Connect the destination wallet to claim."
@@ -3905,8 +4212,8 @@
     }
   },
   "noFee": {
-    "message": "Плата не взимается",
-    "englishSource": "No fee"
+    "message": "Комиссия за перевод через мост отсутствует",
+    "englishSource": "No bridge fee"
   },
   "fastArrival": {
     "message": "~30 сек",
@@ -3951,10 +4258,6 @@
   "delivering": {
     "message": "Доставка",
     "englishSource": "Delivering"
-  },
-  "slowNeedsNativeEth": {
-    "message": "Маршрут Slow (Agglayer) поддерживает только нативный ETH в тестовой сети. Чтобы воспользоваться им, выберите ETH.",
-    "englishSource": "The Slow (Agglayer) route only supports native ETH on testnet. Choose ETH to use it."
   },
   "fastEthWrapNotice": {
     "message": "Перенос ETH по «быстрому» маршруту сначала преобразует его в WETH, а затем осуществляет перенос WETH. Этот маршрут пока недоступен.",
@@ -4148,6 +4451,10 @@
     "message": "Обработка вывода средств",
     "englishSource": "Processing Withdrawal"
   },
+  "withdrawalCheckingDescription": {
+    "message": "Проверяем ваш вывод средств. Держите кошелёк открытым, пока доставка не будет подтверждена.",
+    "englishSource": "Checking your withdrawal. Keep the wallet open while delivery is confirmed."
+  },
   "withdrawalProcessingDescription": {
     "message": "Подписка и отправка заявки на вывод средств без комиссии в Epoch. Обычно это занимает несколько секунд.",
     "englishSource": "Signing and submitting the gasless withdrawal intent to Epoch. This usually takes a few seconds."
@@ -4236,6 +4543,10 @@
     "message": "Пользовательский URL-адрес guardian",
     "englishSource": "Custom guardian URL"
   },
+  "devAllowNoGuardian": {
+    "message": "Разрешить опцию «Нет опекуна» при регистрации",
+    "englishSource": "Allow 'No guardian' option in onboarding"
+  },
   "devEndpointChecking": {
     "message": "Проверка…",
     "englishSource": "Checking…"
@@ -4283,5 +4594,78 @@
   "helpImproveWalletDecline": {
     "message": "Не сейчас",
     "englishSource": "Not now"
+  },
+  "activityAcceptTransfer": {
+    "message": "Принять перевод",
+    "englishSource": "Accept Transfer"
+  },
+  "activityRejectTransfer": {
+    "message": "Отклонить",
+    "englishSource": "Decline"
+  },
+  "activityCheckingTransfer": {
+    "message": "Проверка…",
+    "englishSource": "Checking…"
+  },
+  "activityTransferClaimed": {
+    "message": "Получено",
+    "englishSource": "Claimed"
+  },
+  "activityClaimedOn": {
+    "message": "Заявлено на",
+    "englishSource": "Claimed on"
+  },
+  "activityReceivedOn": {
+    "message": "Получено",
+    "englishSource": "Received on"
+  },
+  "activityNotYetAccepted": {
+    "message": "Ещё не принято — проверьте и примите, чтобы получить эти средства.",
+    "englishSource": "Not yet accepted — review and accept to claim these funds."
+  },
+  "acceptAll": {
+    "message": "Принять всё",
+    "englishSource": "Accept All"
+  },
+  "activitySearch": {
+    "message": "Активность поиска",
+    "englishSource": "Search activity"
+  },
+  "activityTransferAccepted": {
+    "message": "Перевод принят",
+    "englishSource": "Transfer accepted"
+  },
+  "activityTransferDetails": {
+    "message": "Подробности",
+    "englishSource": "Details"
+  },
+  "activityRejectExplanation": {
+    "message": "Скрыть этот перевод из раздела «Активность» на этом устройстве? Это не приводит к возврату средств отправителю и не удаляет запись «note». Вы можете восстановить скрытые переводы в разделе «Активность».",
+    "englishSource": "Hide this transfer from Activity on this device? This does not return funds to the sender or delete the note. You can restore hidden transfers in Activity."
+  },
+  "activityHiddenTransfers": {
+    "message": "Скрытые переводы: $count$",
+    "englishSource": "Hidden transfers: $count$",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "activityRestoreTransfers": {
+    "message": "Восстановить",
+    "englishSource": "Restore"
+  },
+  "activityHiddenNotesError": {
+    "message": "Не удалось сохранить скрытые переводы. Пожалуйста, попробуйте ещё раз.",
+    "englishSource": "Could not save hidden transfers. Please try again."
+  },
+  "activityDateUnavailable": {
+    "message": "Дата отсутствует",
+    "englishSource": "Date unavailable"
+  },
+  "walletSetupDidNotComplete": {
+    "message": "Ваш кошелёк был создан, но не завершил запуск. Проверьте подключение и попробуйте ещё раз.",
+    "englishSource": "Your wallet was created but did not finish starting up. Check your connection and try again."
   }
 }

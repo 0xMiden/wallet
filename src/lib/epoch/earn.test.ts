@@ -9,7 +9,9 @@ import {
   reconcileEarnDeposits,
   resolveEarnIntentOutcome
 } from './earn';
+import { clearPollRegistryForTests, createIntentPollCoordinator } from './poll-registry';
 import { getEpochReadOnlySdk } from './sdk';
+import { deferred, SharedEarnLocks } from './testing/earn-locks';
 
 jest.mock('@epoch-protocol/epoch-intents-sdk', () => ({
   CollateralType: { Miden: 'Miden' },
@@ -121,15 +123,28 @@ describe('pollEarnIntentStatus', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     jest.useFakeTimers();
+    clearPollRegistryForTests();
+    wireRows([depositRow()]);
   });
-  afterEach(() => jest.useRealTimers());
+  afterEach(() => {
+    clearPollRegistryForTests();
+    jest.useRealTimers();
+  });
 
   const runTick = async (results: unknown[]) => {
     sdkReturning(results);
     pollEarnIntentStatus({ sponsorAddress: SPONSOR, nonce: 'N1', txId: 'TX1', intervalMs: 10 });
-    jest.advanceTimersByTime(10);
-    for (let i = 0; i < 6; i += 1) await Promise.resolve();
+    await jest.advanceTimersByTimeAsync(10);
   };
+
+  it('does not query an intent whose persisted row became restored before the first tick', async () => {
+    wireRows([depositRow({ restoredFromBackup: true })]);
+    const status = sdkReturning([{ chainId: SEPOLIA, status: 'completed' }]);
+    pollEarnIntentStatus({ sponsorAddress: SPONSOR, nonce: 'N1', txId: 'TX1', intervalMs: 10 });
+    await jest.advanceTimersByTimeAsync(10);
+    expect(status).not.toHaveBeenCalled();
+    expect(mockUpdateStatus).not.toHaveBeenCalled();
+  });
 
   it('does not settle the row while only the Miden source leg completed', async () => {
     await runTick([
@@ -144,12 +159,126 @@ describe('pollEarnIntentStatus', () => {
       { chainId: MIDEN_CHAIN, status: 'completed', transactionHash: '0xsource' },
       { chainId: SEPOLIA, status: 'completed', transactionHash: '0xdest' }
     ]);
-    expect(mockUpdateStatus).toHaveBeenCalledWith('TX1', 'confirmed', { evmTxHash: '0xdest' });
+    expect(mockUpdateStatus).toHaveBeenCalledWith(
+      'TX1',
+      'confirmed',
+      { evmTxHash: '0xdest' },
+      { owner: SPONSOR, nonce: 'N1' }
+    );
   });
 
   it('falls back to the source hash on a source-side failure', async () => {
     await runTick([{ chainId: MIDEN_CHAIN, status: 'failed', transactionHash: '0xsource' }]);
-    expect(mockUpdateStatus).toHaveBeenCalledWith('TX1', 'failed', { evmTxHash: '0xsource' });
+    expect(mockUpdateStatus).toHaveBeenCalledWith(
+      'TX1',
+      'failed',
+      { evmTxHash: '0xsource' },
+      { owner: SPONSOR, nonce: 'N1' }
+    );
+  });
+
+  it('is a no-op when a poll for the same nonce is already live', async () => {
+    const getIntentStatus = sdkReturning([{ chainId: SEPOLIA, status: 'pending' }]);
+    pollEarnIntentStatus({ sponsorAddress: SPONSOR, nonce: 'N1', txId: 'TX1', intervalMs: 10 });
+    pollEarnIntentStatus({ sponsorAddress: SPONSOR, nonce: 'N1', txId: 'TX1', intervalMs: 10 });
+    await jest.advanceTimersByTimeAsync(10);
+    expect(getIntentStatus).toHaveBeenCalledTimes(1);
+  });
+
+  it('releases the nonce key on a terminal outcome so a later kick can restart', async () => {
+    await runTick([{ chainId: SEPOLIA, status: 'completed', transactionHash: '0xdest' }]);
+    const getIntentStatus = sdkReturning([{ chainId: SEPOLIA, status: 'pending' }]);
+    pollEarnIntentStatus({ sponsorAddress: SPONSOR, nonce: 'N1', txId: 'TX1', intervalMs: 10 });
+    await jest.advanceTimersByTimeAsync(10);
+    expect(getIntentStatus).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps ownership through the cooldown after a bounded burst', async () => {
+    const getIntentStatus = sdkReturning([{ chainId: SEPOLIA, status: 'pending' }]);
+    pollEarnIntentStatus({ sponsorAddress: SPONSOR, nonce: 'N1', txId: 'TX1', intervalMs: 10, maxAttempts: 1 });
+    await jest.advanceTimersByTimeAsync(10);
+    expect(getIntentStatus).toHaveBeenCalledTimes(1);
+    pollEarnIntentStatus({ sponsorAddress: SPONSOR, nonce: 'N1', txId: 'TX1', intervalMs: 10 });
+    await jest.advanceTimersByTimeAsync(29_999);
+    expect(getIntentStatus).toHaveBeenCalledTimes(1);
+    await jest.advanceTimersByTimeAsync(1);
+    expect(getIntentStatus).toHaveBeenCalledTimes(2);
+  });
+
+  const staleRows: Array<[string, () => DepositRow[]]> = [
+    [
+      'terminal',
+      () => [depositRow({ extraInputs: { epochStatus: 'confirmed', evmRecipient: SPONSOR, intentNonce: 'N1' } })]
+    ],
+    ['restored', () => [depositRow({ restoredFromBackup: true })]],
+    ['deleted', () => []],
+    ['wrong type', () => [depositRow({ type: 'send' })]],
+    [
+      'owner changed',
+      () => [
+        depositRow({
+          extraInputs: {
+            epochStatus: 'pending',
+            evmRecipient: '0x2222222222222222222222222222222222222222',
+            intentNonce: 'N1'
+          }
+        })
+      ]
+    ],
+    [
+      'nonce changed',
+      () => [depositRow({ extraInputs: { epochStatus: 'pending', evmRecipient: SPONSOR, intentNonce: 'N2' } })]
+    ]
+  ];
+
+  it.each(staleRows)('does not query a %s row before a request', async (_kind, replacement) => {
+    wireRows(replacement());
+    const getIntentStatus = sdkReturning([{ chainId: SEPOLIA, status: 'completed' }]);
+    pollEarnIntentStatus({ sponsorAddress: SPONSOR, nonce: 'N1', txId: 'TX1', intervalMs: 10 });
+    await jest.advanceTimersByTimeAsync(10);
+    expect(getIntentStatus).not.toHaveBeenCalled();
+    expect(mockUpdateStatus).not.toHaveBeenCalled();
+  });
+
+  it.each(staleRows)('discards a status response after the row becomes %s', async (_kind, replacement) => {
+    const response = deferred<unknown[]>();
+    const getIntentStatus = sdkReturning([]);
+    getIntentStatus.mockReturnValue(response.promise);
+    pollEarnIntentStatus({ sponsorAddress: SPONSOR, nonce: 'N1', txId: 'TX1', intervalMs: 10 });
+    await jest.advanceTimersByTimeAsync(10);
+    expect(getIntentStatus).toHaveBeenCalledTimes(1);
+    wireRows(replacement());
+    response.resolve([{ chainId: SEPOLIA, status: 'completed' }]);
+    await jest.advanceTimersByTimeAsync(0);
+    await jest.advanceTimersByTimeAsync(60_000);
+    expect(mockUpdateStatus).not.toHaveBeenCalled();
+    expect(getIntentStatus).toHaveBeenCalledTimes(1);
+  });
+
+  it('finishes a txId-free poll without a database write', async () => {
+    const getIntentStatus = sdkReturning([{ chainId: SEPOLIA, status: 'completed' }]);
+    pollEarnIntentStatus({ sponsorAddress: SPONSOR, nonce: 'N1', intervalMs: 10 });
+    await jest.advanceTimersByTimeAsync(100);
+    expect(getIntentStatus).toHaveBeenCalledTimes(1);
+    expect(mockUpdateStatus).not.toHaveBeenCalled();
+  });
+
+  it('keeps terminal ownership until the writer settles and releases it after rejection', async () => {
+    const write = deferred<void>();
+    mockUpdateStatus.mockReturnValueOnce(write.promise);
+    const getIntentStatus = sdkReturning([{ chainId: SEPOLIA, status: 'completed' }]);
+    pollEarnIntentStatus({ sponsorAddress: SPONSOR, nonce: 'N1', txId: 'TX1', intervalMs: 10 });
+    await jest.advanceTimersByTimeAsync(10);
+    pollEarnIntentStatus({ sponsorAddress: SPONSOR, nonce: 'N1', txId: 'TX1', intervalMs: 10 });
+    await jest.advanceTimersByTimeAsync(100);
+    expect(getIntentStatus).toHaveBeenCalledTimes(1);
+    const warning = jest.spyOn(console, 'warn').mockImplementation();
+    write.reject(new Error('write unavailable'));
+    await jest.advanceTimersByTimeAsync(0);
+    pollEarnIntentStatus({ sponsorAddress: SPONSOR, nonce: 'N1', txId: 'TX1', intervalMs: 10 });
+    await jest.advanceTimersByTimeAsync(10);
+    expect(getIntentStatus).toHaveBeenCalledTimes(2);
+    warning.mockRestore();
   });
 });
 
@@ -158,9 +287,15 @@ interface DepositRow {
   type: string;
   status: number;
   extraInputs?: Record<string, unknown>;
+  restoredFromBackup?: boolean;
 }
 
 function wireRows(rows: DepositRow[]) {
+  jest.mocked(Repo.transactions.where).mockImplementation(
+    jest.fn().mockImplementation(({ id }: { id: string }) => ({
+      first: jest.fn().mockImplementation(async () => rows.find(row => row.id === id))
+    }))
+  );
   (Repo.transactions.filter as jest.Mock).mockImplementation((predicate: (tx: DepositRow) => boolean) => ({
     toArray: jest.fn().mockResolvedValue(rows.filter(predicate))
   }));
@@ -177,91 +312,132 @@ const depositRow = (overrides: Partial<DepositRow> = {}): DepositRow => ({
 });
 
 describe('reconcileEarnDeposits', () => {
-  beforeEach(() => jest.clearAllMocks());
-
-  const deps = () => ({
-    getSdk: jest.fn(),
-    updateStatus: jest.fn().mockResolvedValue(undefined),
-    startStatusPoll: jest.fn()
+  beforeEach(() => {
+    jest.clearAllMocks();
+    jest.useFakeTimers();
+    clearPollRegistryForTests();
+  });
+  afterEach(() => {
+    clearPollRegistryForTests();
+    jest.useRealTimers();
   });
 
+  const deps = () => ({ getSdk: jest.fn(), updateStatus: jest.fn().mockResolvedValue(undefined) });
   const withStatus = (d: ReturnType<typeof deps>, results: unknown[]) => {
     d.getSdk.mockResolvedValue({ getIntentStatus: jest.fn().mockResolvedValue(results) });
     return d;
   };
 
-  it('settles a stranded row whose destination leg has since completed', async () => {
+  it('settles a stranded row through its immediate owned first request', async () => {
     wireRows([depositRow()]);
     const d = withStatus(deps(), [
       { chainId: MIDEN_CHAIN, status: 'completed', transactionHash: '0xsource' },
       { chainId: SEPOLIA, status: 'completed', transactionHash: '0xdest' }
     ]);
-
     await reconcileEarnDeposits(d);
-
-    expect(d.updateStatus).toHaveBeenCalledWith('TX1', 'confirmed', { evmTxHash: '0xdest' });
-    expect(d.startStatusPoll).not.toHaveBeenCalled();
+    await jest.advanceTimersByTimeAsync(0);
+    expect(d.updateStatus).toHaveBeenCalledWith(
+      'TX1',
+      'confirmed',
+      { evmTxHash: '0xdest' },
+      { owner: SPONSOR, nonce: 'N1' }
+    );
   });
 
-  it('restarts the background poll for a row still genuinely in flight', async () => {
+  it('keeps pending destination status live after the owned initial request', async () => {
     wireRows([depositRow()]);
-    const d = withStatus(deps(), [{ chainId: MIDEN_CHAIN, status: 'completed' }]);
-
+    const getIntentStatus = jest.fn().mockResolvedValue([{ chainId: MIDEN_CHAIN, status: 'completed' }]);
+    const d = { ...deps(), getSdk: jest.fn().mockResolvedValue({ getIntentStatus }) };
     await reconcileEarnDeposits(d);
-
-    expect(d.startStatusPoll).toHaveBeenCalledWith({ sponsorAddress: SPONSOR, nonce: 'N1', txId: 'TX1' });
+    await jest.advanceTimersByTimeAsync(0);
+    expect(getIntentStatus).toHaveBeenCalledTimes(1);
+    await jest.advanceTimersByTimeAsync(3000);
+    expect(getIntentStatus).toHaveBeenCalledTimes(2);
     expect(d.updateStatus).not.toHaveBeenCalled();
   });
 
   it('marks a row failed when the intent terminally failed', async () => {
     wireRows([depositRow()]);
     const d = withStatus(deps(), [{ chainId: SEPOLIA, status: 'failed' }]);
-
     await reconcileEarnDeposits(d);
-
-    expect(d.updateStatus).toHaveBeenCalledWith('TX1', 'failed', undefined);
+    await jest.advanceTimersByTimeAsync(0);
+    expect(d.updateStatus).toHaveBeenCalledWith('TX1', 'failed', undefined, { owner: SPONSOR, nonce: 'N1' });
   });
 
-  it('skips rows that are not earn-deposits, not Completed, or already settled', async () => {
+  it('skips restored, non-deposit, incomplete, terminal and malformed rows', async () => {
     wireRows([
+      depositRow({ id: 'RESTORED', restoredFromBackup: true }),
       depositRow({ id: 'OTHER', type: 'send' }),
       depositRow({ id: 'QUEUED', status: 0 }),
       depositRow({ id: 'DONE', extraInputs: { epochStatus: 'confirmed', intentNonce: 'N1', evmRecipient: SPONSOR } }),
-      depositRow({ id: 'DEAD', extraInputs: { epochStatus: 'failed', intentNonce: 'N1', evmRecipient: SPONSOR } })
-    ]);
-    const d = withStatus(deps(), [{ chainId: SEPOLIA, status: 'completed' }]);
-
-    await reconcileEarnDeposits(d);
-
-    expect(d.getSdk).not.toHaveBeenCalled();
-  });
-
-  it('skips rows missing an intent nonce or with an unusable EVM recipient', async () => {
-    wireRows([
+      depositRow({ id: 'DEAD', extraInputs: { epochStatus: 'failed', intentNonce: 'N1', evmRecipient: SPONSOR } }),
       depositRow({ id: 'NONONCE', extraInputs: { epochStatus: 'pending', evmRecipient: SPONSOR } }),
       depositRow({ id: 'BADADDR', extraInputs: { epochStatus: 'pending', intentNonce: 'N1', evmRecipient: 'nope' } }),
       depositRow({ id: 'NOEXTRA', extraInputs: undefined })
     ]);
     const d = withStatus(deps(), [{ chainId: SEPOLIA, status: 'completed' }]);
-
     await reconcileEarnDeposits(d);
-
+    await jest.advanceTimersByTimeAsync(0);
     expect(d.getSdk).not.toHaveBeenCalled();
   });
 
-  it('isolates a failing row so the rest still reconcile', async () => {
-    wireRows([depositRow({ id: 'BOOM' }), depositRow({ id: 'OK' })]);
-    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
-    const d = deps();
-    d.getSdk.mockRejectedValueOnce(new Error('network down')).mockResolvedValueOnce({
-      getIntentStatus: jest.fn().mockResolvedValue([{ chainId: SEPOLIA, status: 'completed' }])
-    });
-
+  it('starts another identity while the first status request never resolves', async () => {
+    wireRows([
+      depositRow({ id: 'PARKED' }),
+      depositRow({ id: 'OK', extraInputs: { epochStatus: 'pending', evmRecipient: SPONSOR, intentNonce: 'N2' } })
+    ]);
+    const parked = deferred<unknown[]>();
+    const getIntentStatus = jest
+      .fn()
+      .mockReturnValueOnce(parked.promise)
+      .mockResolvedValue([{ chainId: SEPOLIA, status: 'completed' }]);
+    const d = { ...deps(), getSdk: jest.fn().mockResolvedValue({ getIntentStatus }) };
     await reconcileEarnDeposits(d);
+    await jest.advanceTimersByTimeAsync(0);
+    expect(getIntentStatus).toHaveBeenCalledTimes(2);
+    expect(d.updateStatus).toHaveBeenCalledWith('OK', 'confirmed', undefined, { owner: SPONSOR, nonce: 'N2' });
+  });
 
-    expect(warn).toHaveBeenCalled();
-    expect(d.updateStatus).toHaveBeenCalledWith('OK', 'confirmed', undefined);
-    warn.mockRestore();
+  it('keeps two realms on one SDK stream through exhausted bursts and owner teardown', async () => {
+    wireRows([depositRow()]);
+    const locks = new SharedEarnLocks();
+    const first = createIntentPollCoordinator({ getLocks: () => locks });
+    const second = createIntentPollCoordinator({ getLocks: () => locks });
+    const getIntentStatus = jest.fn().mockRejectedValue(new Error('offline'));
+    const warning = jest.spyOn(console, 'warn').mockImplementation();
+    const d = { ...deps(), getSdk: jest.fn().mockResolvedValue({ getIntentStatus }) };
+    const startIn = (coordinator: typeof first) =>
+      reconcileEarnDeposits({
+        ...d,
+        startStatusPoll: args =>
+          pollEarnIntentStatus({
+            ...args,
+            intervalMs: 10,
+            maxAttempts: 1,
+            deps: { ...d, startPoll: coordinator.startIntentPoll }
+          })
+      });
+    await Promise.all([startIn(first), startIn(second)]);
+    await jest.advanceTimersByTimeAsync(0);
+    expect(getIntentStatus).toHaveBeenCalledTimes(1);
+    await jest.advanceTimersByTimeAsync(15_000);
+    await startIn(second);
+    await jest.advanceTimersByTimeAsync(14_999);
+    expect(getIntentStatus).toHaveBeenCalledTimes(1);
+    await jest.advanceTimersByTimeAsync(1);
+    expect(getIntentStatus).toHaveBeenCalledTimes(2);
+    await startIn(second);
+    await jest.advanceTimersByTimeAsync(59_999);
+    expect(getIntentStatus).toHaveBeenCalledTimes(2);
+    await jest.advanceTimersByTimeAsync(1);
+    expect(getIntentStatus).toHaveBeenCalledTimes(3);
+    first.dispose();
+    await jest.advanceTimersByTimeAsync(0);
+    await startIn(second);
+    await jest.advanceTimersByTimeAsync(0);
+    expect(getIntentStatus).toHaveBeenCalledTimes(4);
+    second.dispose();
+    warning.mockRestore();
   });
 });
 

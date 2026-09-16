@@ -4,7 +4,7 @@ import { accountIdStringToSdk } from 'lib/miden/sdk/helpers';
 import { getNativeAssetIdSync, getNativeAssetMetadataSync } from 'lib/miden-chain/native-asset';
 
 /**
- * Swap starts with this fixed set of devnet DEX test tokens and adds the
+ * Swap starts with this fixed set of Miden testnet 0.16 DEX tokens and prepends the
  * network's discovered native asset at runtime. The fixed test tokens use
  * 8 decimals (`SWAP_TOKEN_DECIMALS`): the user enters a human-readable amount
  * and `stringToBigInt(amount, token.decimals)` converts it to base units.
@@ -31,25 +31,25 @@ export const SWAP_TOKEN_DECIMALS = 8;
 
 export const TOKEN_IMIDEN: SwapToken = {
   symbol: 'IMIDEN',
-  faucetId: 'mtst1aqsjql4cyylvpu2d2cwpxumpvvw5depe_qr7qqq9wr6w',
+  faucetId: 'mtst1arqxg9er3xclayt95nud82jnpggl9azj',
   decimals: SWAP_TOKEN_DECIMALS,
   logoSymbol: 'MIDEN'
 };
 export const TOKEN_IETH: SwapToken = {
   symbol: 'IETH',
-  faucetId: 'mtst1apfjwvs5f8mey5f6a6s5llnhp533fe5p_qr7qqq9wr6w',
+  faucetId: 'mtst1arcf9xpxfrc7wygpv744ytgr6cw2df6h',
   decimals: SWAP_TOKEN_DECIMALS,
   logoSymbol: 'ETH'
 };
 export const TOKEN_IBTC: SwapToken = {
   symbol: 'IBTC',
-  faucetId: 'mtst1aqvv35kq9tuvn5fuwkd055vyzuhc5vwl_qr7qqq9wr6w',
+  faucetId: 'mtst1apqk2y2uky2mkyfcjv95fjm5zgnrwk6x',
   decimals: SWAP_TOKEN_DECIMALS,
   logoSymbol: 'BTC'
 };
 export const TOKEN_IUSDT: SwapToken = {
   symbol: 'IUSDT',
-  faucetId: 'mtst1ap9q8svy8psvnvt4stqzr4tr4c077f9y_qr7qqq9wr6w',
+  faucetId: 'mtst1arvdwvzllvg3s5fzjle7nkljeuhkcufr',
   decimals: SWAP_TOKEN_DECIMALS,
   logoSymbol: 'USDC'
 };
@@ -62,8 +62,8 @@ let _swapTokensOverride: SwapToken[] | undefined;
  * Live registry read — all consumers use this so an E2E override takes effect.
  *
  * The native asset ID is network-derived and may not be available during the
- * first render. Once discovery populates the synchronous cache, include MIDEN
- * alongside the fixed DEX test tokens. Callers naturally re-read this accessor
+ * first render. Once discovery populates the synchronous cache, put MIDEN ahead
+ * of the fixed DEX test tokens. Callers naturally re-read this accessor
  * on their next render (for example, when opening the token drawer).
  */
 export const getSwapTokens = (): SwapToken[] => {
@@ -74,14 +74,29 @@ export const getSwapTokens = (): SwapToken[] => {
 
   const nativeMetadata = getNativeAssetMetadataSync();
   return [
-    ...SWAP_TOKENS,
     {
       symbol: nativeMetadata?.symbol ?? MIDEN_METADATA.symbol,
       faucetId: nativeAssetId,
       decimals: nativeMetadata?.decimals ?? MIDEN_METADATA.decimals,
       logoSymbol: 'MIDEN'
-    }
+    },
+    ...SWAP_TOKENS
   ];
+};
+
+/**
+ * The pair the swap form opens on. Chosen by SYMBOL, never by list position:
+ * `getSwapTokens()` puts the discovered native asset first once discovery has
+ * landed, so seeding from index 0/1 gave a cold start into /swap a different
+ * default pair than a warm one - same build, same user, different defaults on a
+ * money screen. Falls back to the fixed list when a symbol is not present.
+ */
+export const getDefaultSwapPair = (): { offer: SwapToken; request: SwapToken } => {
+  const tokens = getSwapTokens();
+  const bySymbol = (symbol: string) => tokens.find(token => token.symbol === symbol);
+  const offer = bySymbol(TOKEN_IMIDEN.symbol) ?? tokens[0]!;
+  const request = bySymbol(TOKEN_IETH.symbol) ?? tokens[1]!;
+  return { offer, request };
 };
 
 /** Test-only setter (also driven via the E2E window hook). Pass undefined to reset. */

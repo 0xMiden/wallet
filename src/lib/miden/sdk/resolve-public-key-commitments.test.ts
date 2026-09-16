@@ -1,61 +1,66 @@
 import { resolvePublicKeyCommitments } from './resolve-public-key-commitments';
 
-const SIGNER_SLOT = 'openzeppelin::multisig::signer_public_keys';
+const mockGetSignerCommitments = jest.fn();
+jest.mock('@openzeppelin/miden-multisig-client', () => ({
+  AccountInspector: {
+    getSignerPublicKeyCommitments: (...a: unknown[]) => mockGetSignerCommitments(...a)
+  }
+}));
+
+// `Word.fromHex` is what the fallback returns, so identify the result by the hex
+// it was built from rather than by object identity.
+jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
+  Word: { fromHex: (hex: string) => ({ hex }) }
+}));
 
 describe('resolvePublicKeyCommitments', () => {
-  it('returns the standard interface commitments without touching storage when the interface yields a key', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('returns the standard interface commitments without inspecting the account when the interface yields a key', () => {
     const interfaceCommitment = { tag: 'from-interface' };
-    const getMapItem = jest.fn();
-    const account = {
-      getPublicKeyCommitments: () => [interfaceCommitment],
-      storage: () => ({ getMapItem })
-    };
+    const account = { getPublicKeyCommitments: () => [interfaceCommitment] };
 
     const result = resolvePublicKeyCommitments(account as never);
 
     expect(result).toEqual([interfaceCommitment]);
-    expect(getMapItem).not.toHaveBeenCalled();
+    expect(mockGetSignerCommitments).not.toHaveBeenCalled();
   });
 
-  it('falls back to the guardian hot signer commitment (signer map index 0) when the interface is empty', () => {
-    const hotSigner = { toHex: () => '0xabc123' };
-    const getMapItem = jest.fn(() => hotSigner);
-    const account = {
-      getPublicKeyCommitments: () => [],
-      storage: () => ({ getMapItem })
-    };
+  it('falls back to the guardian hot signer commitment (signer index 0) when the interface is empty', () => {
+    mockGetSignerCommitments.mockReturnValue(['0xabc123', '0xdef456']);
+    const account = { getPublicKeyCommitments: () => [] };
 
-    const result = resolvePublicKeyCommitments(account as never);
-
-    expect(result).toEqual([hotSigner]);
-    expect(getMapItem).toHaveBeenCalledWith(SIGNER_SLOT, expect.anything());
+    expect(resolvePublicKeyCommitments(account as never)).toEqual([{ hex: '0xabc123' }]);
   });
 
-  it('returns [] when the interface is empty and the guardian signer map has no entry', () => {
-    const account = {
-      getPublicKeyCommitments: () => [],
-      storage: () => ({ getMapItem: () => undefined })
-    };
+  it('returns [] when the interface is empty and the account reports no signers', () => {
+    mockGetSignerCommitments.mockReturnValue([]);
+    const account = { getPublicKeyCommitments: () => [] };
+
+    expect(resolvePublicKeyCommitments(account as never)).toEqual([]);
+  });
+
+  it('returns [] when the account is not a guarded multisig', () => {
+    mockGetSignerCommitments.mockImplementation(() => {
+      throw new Error('not a guarded-multisig account');
+    });
+    const account = { getPublicKeyCommitments: () => [] };
 
     expect(resolvePublicKeyCommitments(account as never)).toEqual([]);
   });
 
   it('accepts a signer commitment whose hex is not 0x-prefixed', () => {
-    const hotSigner = { toHex: () => 'abc123' };
-    const account = {
-      getPublicKeyCommitments: () => [],
-      storage: () => ({ getMapItem: () => hotSigner })
-    };
+    mockGetSignerCommitments.mockReturnValue(['abc123']);
+    const account = { getPublicKeyCommitments: () => [] };
 
-    expect(resolvePublicKeyCommitments(account as never)).toEqual([hotSigner]);
+    expect(resolvePublicKeyCommitments(account as never)).toEqual([{ hex: '0xabc123' }]);
   });
 
   it('treats an all-zero signer word as absent and returns []', () => {
-    const zeroWord = { toHex: () => `0x${'0'.repeat(64)}` };
-    const account = {
-      getPublicKeyCommitments: () => [],
-      storage: () => ({ getMapItem: () => zeroWord })
-    };
+    mockGetSignerCommitments.mockReturnValue([`0x${'0'.repeat(64)}`]);
+    const account = { getPublicKeyCommitments: () => [] };
 
     expect(resolvePublicKeyCommitments(account as never)).toEqual([]);
   });

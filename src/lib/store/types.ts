@@ -1,4 +1,4 @@
-import { AllowedPrivateData, PrivateDataPermission } from '@demox-labs/miden-wallet-adapter-base';
+import { AllowedPrivateData, PrivateDataPermission } from '@miden-sdk/miden-wallet-adapter-base';
 
 import { ExchangeRateRecord, FiatCurrencyOption } from 'lib/fiat-currency';
 import { TokenBalanceData } from 'lib/miden/front/balance';
@@ -6,6 +6,7 @@ import { AssetMetadata } from 'lib/miden/metadata';
 import { MidenDAppSessions, MidenNetwork, MidenState } from 'lib/miden/types';
 import { type TokenPrices } from 'lib/prices/binance';
 import {
+  ApplyUserEndpointOutcome,
   GuardianSyncStatus,
   SerializedConsumableNote,
   SignEvmOperation,
@@ -165,14 +166,14 @@ export interface WalletActions {
   setGuardianOperatorCommitment: (accountPublicKey: string, guardianOperatorCommitment: string) => Promise<void>;
   setGuardianSyncStatus: (accountPublicKey: string, guardianSyncStatus: GuardianSyncStatus) => Promise<void>;
   checkGuardianDrift: (accountPublicKey: string) => Promise<GuardianSyncStatus>;
-  applyUserGuardianEndpoint: (accountPublicKey: string, guardianEndpoint: string) => Promise<boolean>;
+  applyUserGuardianEndpoint: (accountPublicKey: string, guardianEndpoint: string) => Promise<ApplyUserEndpointOutcome>;
   startGuardianRecovery: (accountPublicKey: string) => Promise<boolean>;
   getPublicKeyForCommitment: (commitment: string) => Promise<string>;
   getAuthSecretKey: (key: string) => Promise<string>;
 
   // DApp actions
   getDAppPayload: (id: string) => Promise<any>;
-  simulateCustomTransaction: (id: string) => Promise<{ summaryBytes?: string; error?: string }>;
+  simulateCustomTransaction: (id: string) => Promise<{ summaryBytes?: string; executedBytes?: string; error?: string }>;
   confirmDAppPermission: (
     id: string,
     confirmed: boolean,
@@ -250,7 +251,6 @@ export interface ExtensionSyncSlice {
   /** Claimable notes pushed from service worker (null = not yet received) */
   extensionClaimableNotes: SerializedConsumableNote[] | null;
   /** Note IDs being claimed (optimistic, cleared on each SyncCompleted) */
-  extensionClaimingNoteIds: Set<string>;
 }
 
 /**
@@ -258,18 +258,15 @@ export interface ExtensionSyncSlice {
  */
 export interface ExtensionSyncActions {
   setExtensionClaimableNotes: (notes: SerializedConsumableNote[]) => void;
-  addExtensionClaimingNoteId: (noteId: string) => void;
   /** Remove specific note IDs from the claiming set (e.g. those no longer consumable). */
-  removeExtensionClaimingNoteIds: (noteIds: string[]) => void;
-  clearExtensionClaimingNoteIds: () => void;
 }
 
 /**
  * Note toast actions (mobile only)
  */
 export interface NoteToastActions {
-  /** Check if new notes have been received and show toast if so */
-  checkForNewNotes: (currentNoteIds: string[]) => void;
+  /** Record new note IDs as seen; toast only for one in notifiableNoteIds (any new note when omitted) */
+  checkForNewNotes: (currentNoteIds: string[], notifiableNoteIds?: readonly string[]) => void;
   /** Dismiss the note received toast */
   dismissNoteToast: () => void;
   /** Reset all seen notes (used when switching accounts) */

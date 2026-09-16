@@ -60,8 +60,13 @@ let depositProps: { reportDeposit?: ReportDeposit } = {};
 jest.mock('app/templates/EvmConnectModal/EvmBridgeDepositScreen', () => ({
   EvmBridgeDepositScreen: (props: { reportDeposit?: ReportDeposit }) => {
     depositProps = props;
-    return <div data-testid="deposit-screen" />;
+    return <div data-testid="bridge-deposit-screen" />;
   }
+}));
+
+jest.mock('app/icons/v2', () => ({
+  Icon: () => null,
+  IconName: { WarningFill: 'WarningFill' }
 }));
 
 type TelemetryHandle = { complete: jest.Mock; cancel: jest.Mock; fail: jest.Mock };
@@ -123,7 +128,7 @@ describe('BridgeDeposit - fund telemetry', () => {
 
     render(<BridgeDeposit />);
 
-    expect(screen.queryByTestId('deposit-screen')).toBeNull();
+    expect(screen.queryByTestId('bridge-deposit-screen')).toBeNull();
     expect(beginFlowMock).toHaveBeenCalledTimes(1);
     expect(beginFlowMock).toHaveBeenCalledWith('fund');
   });
@@ -135,7 +140,7 @@ describe('BridgeDeposit - fund telemetry', () => {
     connection = { ...connection, address: '0xevm-wallet', connected: true, status: 'connected' };
     rerender(<BridgeDeposit />);
 
-    expect(screen.getByTestId('deposit-screen')).toBeInTheDocument();
+    expect(screen.getByTestId('bridge-deposit-screen')).toBeInTheDocument();
     expect(beginFlowMock).toHaveBeenCalledTimes(1);
   });
 
@@ -181,5 +186,28 @@ describe('BridgeDeposit - fund telemetry', () => {
     expect(telemetryPayload()).not.toContain('0xevm-wallet');
     expect(telemetryPayload()).not.toContain('4200');
     expect(telemetryPayload()).not.toContain('mtst1account');
+  });
+});
+
+describe('BridgeDeposit (#875)', () => {
+  beforeEach(() => {
+    connection = { ...connection, address: '', connected: false, status: 'disconnected' };
+  });
+
+  it('warns to connect a test wallet only while no EVM wallet is connected', () => {
+    render(<BridgeDeposit />);
+
+    const warning = screen.getByTestId('evm-connect-test-wallet-warning');
+    expect(warning).toHaveTextContent('evmConnectTestWalletTitle');
+    expect(warning).toHaveTextContent('evmConnectTestWalletBody');
+  });
+
+  it('hands a connected wallet to the deposit screen, whose form carries its own warning', () => {
+    connection = { ...connection, address: '0xabc', connected: true, status: 'connected' };
+
+    render(<BridgeDeposit />);
+
+    expect(screen.getByTestId('bridge-deposit-screen')).toBeInTheDocument();
+    expect(screen.queryByTestId('evm-connect-test-wallet-warning')).not.toBeInTheDocument();
   });
 });

@@ -1,4 +1,4 @@
-import { AccountId, NetworkId, AccountInterface } from '@miden-sdk/miden-sdk';
+import { AccountId } from '@miden-sdk/miden-sdk';
 
 import {
   initiateBridgedSendTransaction,
@@ -8,6 +8,7 @@ import {
 } from 'lib/miden/activity';
 import type { GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
 import * as Repo from 'lib/miden/repo';
+import { getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
 import { NoteTypeEnum } from 'lib/miden/types';
 import { isExtension } from 'lib/platform';
 
@@ -23,9 +24,31 @@ export interface BridgeNoteDeps {
   guardianProvider: GuardianAccountProvider;
 }
 
-function ifHextoBech32(addr: string) {
+/**
+ * Normalize an account id coming back from the Epoch SDK to the bech32 form the
+ * wallet stores everywhere else.
+ *
+ * The Epoch SDK's `createMidenP2IDNote` callback is handed HEX ids (earn.ts /
+ * epoch-send.ts pass `normalizeMidenIdToHex` output), while every other producer
+ * of a stored faucet/account id writes bech32 and every consumer matches on it
+ * verbatim — `getTokenMetadata` looks the row's `faucetId` up in a store keyed by
+ * the bech32 ids `fetchBalances` produces (an unknown key silently yields
+ * "Unknown" / 6 decimals, it never triggers a fetch), and `matchesTokenId`
+ * compares `tx.faucetId === tokenId` with the bech32 id of the open token.
+ *
+ * Encoding therefore has to follow the EFFECTIVE network, which is what
+ * `getBech32AddressFromAccountId` does via `getNetworkId()`. A hardcoded testnet
+ * HRP wrote `mtst1…` rows on localnet/devnet/mainnet builds (and under a
+ * dev-settings endpoint override), where the same faucet is keyed `mlcl1…` etc.
+ * The on-chain note is unaffected either way — `Address.fromBech32` recovers the
+ * same AccountId regardless of HRP — so this is purely a lookup-key concern.
+ *
+ * Non-hex input is already bech32 (callers pass the wallet's own `publicKey`) and
+ * is returned untouched.
+ */
+export function ifHextoBech32(addr: string) {
   if (addr.startsWith('0x')) {
-    return AccountId.fromHex(addr).toBech32(NetworkId.testnet(), AccountInterface.BasicWallet);
+    return getBech32AddressFromAccountId(AccountId.fromHex(addr));
   }
   return addr;
 }

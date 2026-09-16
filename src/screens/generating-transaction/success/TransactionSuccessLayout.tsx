@@ -64,6 +64,28 @@ export interface ReceiptRow {
  * screen, so deriving the two separately makes the total appear to drop the
  * moment the transaction succeeds.
  */
+/**
+ * The formatted network fee for a receipt row, or `undefined` when there is none to
+ * show (a zero-fee chain, or a row written before fees were recorded).
+ *
+ * Its own hook because the fee is orthogonal to the amount: the earn and bridge
+ * receipts derive their amount themselves — earn deposits are USDC-denominated, so
+ * `useReceiptAmount`'s native-asset resolution is wrong for them — and so could not
+ * reach the fee without also taking an amount they discard. That is why those two
+ * receipts silently showed no fee while the send receipt did.
+ */
+export const useReceiptFeeText = (transaction?: ITransaction) => {
+  const assetsMetadata = useWalletStore(state => state.assetsMetadata) ?? {};
+  const nativeFaucetId = useMidenFaucetId();
+
+  // The fee is always paid in the native asset, so it resolves against the native
+  // faucet rather than the transaction's own token.
+  const feeMetadata = resolveDisplayMetadata(transaction?.feeFaucetId, assetsMetadata, nativeFaucetId);
+  return transaction?.feeAmount !== undefined && hasKnownScale(feeMetadata)
+    ? `${formatAmount(transaction.feeAmount, feeMetadata.decimals)} ${feeMetadata.symbol}`
+    : undefined;
+};
+
 export const useReceiptAmount = (transaction?: ITransaction) => {
   const assetsMetadata = useWalletStore(state => state.assetsMetadata) ?? {};
   const nativeFaucetId = useMidenFaucetId();
@@ -82,7 +104,9 @@ export const useReceiptAmount = (transaction?: ITransaction) => {
   const amountText =
     consumeParts.length > 0 ? consumeParts.join(', ') : amount ? `${amount} ${tokenSymbol}` : undefined;
 
-  return { tokenMetadata, tokenSymbol, amountText };
+  const feeText = useReceiptFeeText(transaction);
+
+  return { tokenMetadata, tokenSymbol, amountText, feeText };
 };
 
 export const SuccessHero: FC = () => (

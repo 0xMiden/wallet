@@ -63,6 +63,13 @@ jest.mock('lib/platform', () => ({
   isMobile: () => mockPlatform.isMobile
 }));
 
+// Dev-gated "No guardian" onboarding flag — reads the shared toggle so a test
+// can drive whether ChooseGuardianScreen is told to show the option.
+let mockAllowNoGuardian = false;
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  getEffectiveAllowNoGuardian: () => mockAllowNoGuardian
+}));
+
 // `Button` (bottom "back" nav) — surface title, variant and the onClick wiring.
 jest.mock('components/Button', () => ({
   Button: ({ title, onClick, variant, className }: any) =>
@@ -94,6 +101,7 @@ jest.mock('./common/ChooseProtection', () => ({
   ChooseProtectionScreen: (p: any) => mockScreen('choose-protection')(p)
 }));
 jest.mock('./common/Confirmation', () => ({ ConfirmationScreen: (p: any) => mockScreen('confirmation')(p) }));
+jest.mock('./common/NetworkNotice', () => ({ NetworkNoticeScreen: (p: any) => mockScreen('network-notice')(p) }));
 jest.mock('./common/CreatePassword', () => ({ CreatePasswordScreen: (p: any) => mockScreen('create-password')(p) }));
 jest.mock('./common/SetupBiometric', () => ({ SetupBiometricScreen: (p: any) => mockScreen('setup-biometric')(p) }));
 jest.mock('./common/SetupPasscode', () => ({ SetupPasscodeScreen: (p: any) => mockScreen('setup-passcode')(p) }));
@@ -134,6 +142,7 @@ const progress = () => screen.queryByTestId('progress');
 beforeEach(() => {
   mockPlatform.isMobile = false;
   mockReduceMotion = false;
+  mockAllowNoGuardian = false;
   for (const k of Object.keys(mockCaptured)) delete mockCaptured[k];
 });
 
@@ -147,6 +156,7 @@ describe('OnboardingFlow — per-step rendering, header & back-button visibility
   });
 
   const headerNoBack: Array<[OnboardingStep, string]> = [
+    [OnboardingStep.NetworkNotice, 'screen-network-notice'],
     [OnboardingStep.ChooseProtection, 'screen-choose-protection'],
     [OnboardingStep.SetupPasscode, 'screen-setup-passcode'],
     [OnboardingStep.SetupBiometric, 'screen-setup-biometric'],
@@ -205,6 +215,13 @@ describe('OnboardingFlow — action wiring per screen', () => {
     expect(onAction).not.toHaveBeenCalled();
   });
 
+  it('NetworkNotice: acknowledging dispatches network-notice-acknowledge', () => {
+    const onAction = jest.fn();
+    renderFlow({ step: OnboardingStep.NetworkNotice, onAction });
+    act(() => mockCaptured['network-notice'].onSubmit());
+    expect(onAction).toHaveBeenLastCalledWith({ id: 'network-notice-acknowledge' });
+  });
+
   it('Welcome: does not throw when onAction is omitted (optional chaining)', () => {
     renderFlow({ step: OnboardingStep.Welcome });
     expect(() => act(() => mockCaptured.welcome.onSubmit('select-wallet-type'))).not.toThrow();
@@ -256,6 +273,18 @@ describe('OnboardingFlow — action wiring per screen', () => {
     const payload = { guardianId: 'g1', guardianEndpoint: 'https://guardian.example' };
     act(() => mockCaptured['choose-guardian'].onSubmit(payload));
     expect(onAction).toHaveBeenLastCalledWith({ id: 'choose-guardian-submit', payload });
+  });
+
+  it('ChooseGuardian: forwards the dev-gated allow-no-guardian flag as showNoGuardianOption', () => {
+    mockAllowNoGuardian = true;
+    renderFlow({ step: OnboardingStep.ChooseGuardian });
+    expect(mockCaptured['choose-guardian'].showNoGuardianOption).toBe(true);
+  });
+
+  it('ChooseGuardian: hides the no-guardian option when the dev flag is off', () => {
+    mockAllowNoGuardian = false;
+    renderFlow({ step: OnboardingStep.ChooseGuardian });
+    expect(mockCaptured['choose-guardian'].showNoGuardianOption).toBe(false);
   });
 
   it('BackupSeedPhrase: passes the seed phrase through and submits verify', () => {

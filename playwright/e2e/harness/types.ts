@@ -356,4 +356,12 @@ export interface EnvironmentConfig {
   // run only one guardian, e.g. devnet).
   guardianUrl: string;
   guardianUrlB?: string;
+  // Whether this chain charges a transaction fee, i.e. its genesis header carries a
+  // non-zero `verification_base_fee`. The harness otherwise learns this from a deploy
+  // that failed for want of a fee, which only happens inside `createFaucet` — a spec
+  // that transacts WITHOUT minting would find the flag still false, skip funding, and
+  // fail on its first transaction instead. Left undefined for `localhost`, where it
+  // depends on MIDEN_TEST_NODE_VERIFICATION_BASE_FEE and the genesis-funder wallets
+  // are themselves the signal.
+  chargesFees?: boolean;
 }

@@ -69,6 +69,8 @@ beforeEach(() => {
   state.rowById = {};
 });
 
+afterEach(() => jest.restoreAllMocks());
+
 describe('useTransactionRow', () => {
   it('starts in the un-loaded state before any liveQuery result arrives', () => {
     const { result } = renderHook(() => useTransactionRow('tx-1'));
@@ -118,12 +120,13 @@ describe('useTransactionRow', () => {
     expect(result.current).toEqual({ row: undefined, loaded: true });
   });
 
-  it('marks loaded with no row when the subscription errors', () => {
+  it('keeps loading when the first subscription read errors', () => {
+    jest.spyOn(console, 'error').mockImplementation(() => undefined);
     const { result } = renderHook(() => useTransactionRow('tx-1'));
 
     act(() => lastObserver().error(new Error('dexie boom')));
 
-    expect(result.current).toEqual({ row: undefined, loaded: true });
+    expect(result.current).toEqual({ row: undefined, loaded: false });
   });
 
   it('unsubscribes on unmount', () => {

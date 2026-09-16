@@ -3,32 +3,26 @@ import React, { FC, useCallback, useEffect, useMemo, useRef, useState } from 're
 import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
-import { Icon, IconName } from 'app/icons/v2';
-import History from 'app/templates/history/History';
-import PendingNotesInfoDrawer from 'app/templates/PendingNotesInfoDrawer';
-import { SearchInput, TabHeader } from 'components/ui';
-import { reconcileAgglayerBridgedReceives } from 'lib/miden/activity';
+import { IconName } from 'app/icons/v2';
+import { ActivityPendingHistory } from 'app/templates/history/ActivityPendingHistory';
+import type { ActivityFilter } from 'app/templates/history/History';
+import { DeadletteredNotesNotice } from 'components/DeadletteredNotesNotice';
+import { TabHeader, TabHeaderAction } from 'components/ui';
 import { useAccount } from 'lib/miden/front';
-import { useClaimableNotes } from 'lib/miden/front/claimable-notes';
-import { hapticLight, hapticSelection } from 'lib/mobile/haptics';
+import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
+import { hapticSelection } from 'lib/mobile/haptics';
 import { beginFlow, FlowHandle } from 'lib/telemetry';
-import { navigate } from 'lib/woozie';
 
 type AllHistoryProps = {
   programId?: string | null;
 };
 
-type FilterId = 'all' | 'sent' | 'received' | 'faucet';
-
 const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
   const { t } = useTranslation();
   const account = useAccount();
-  const { data: claimableNotes } = useClaimableNotes(account.publicKey);
-  const pendingNotesCount = claimableNotes?.length ?? 0;
-  const scrollParentRef = useRef<HTMLDivElement>(null);
   const [search, setSearch] = useState('');
-  const [filter, setFilter] = useState<FilterId>('all');
-  const [infoDrawerOpen, setInfoDrawerOpen] = useState(false);
+  const [filter, setFilter] = useState<ActivityFilter>('all');
+  const [searchOpen, setSearchOpen] = useState(false);
 
   /**
    * `activity_view` is a view flow, so its terminal state is the user actually
@@ -56,33 +50,10 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
     flow.complete();
   }, []);
 
-  useEffect(() => {
-    let cancelled = false;
-    let running = false;
-
-    const poll = async () => {
-      if (cancelled || running) return;
-      running = true;
-      try {
-        await reconcileAgglayerBridgedReceives();
-      } catch (error) {
-        console.warn('[activity] AggLayer bridge poll failed', error);
-      } finally {
-        running = false;
-      }
-    };
-
-    void poll();
-    const timer = setInterval(poll, 8_000);
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-    };
-  }, []);
-
-  const filters = useMemo<Array<{ id: FilterId; label: string }>>(
+  const filters = useMemo<Array<{ id: ActivityFilter; label: string }>>(
     () => [
       { id: 'all', label: t('all') },
+      { id: 'pending', label: t('pending') },
       { id: 'sent', label: t('sent') },
       { id: 'received', label: t('received') },
       { id: 'faucet', label: t('faucet') }
@@ -90,7 +61,16 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
     [t]
   );
 
-  const handleFilterTap = (id: FilterId) => {
+  // The search button in the header shows and hides the search field. A
+  // closed field also clears the query, so the list goes back to the full set.
+  const toggleSearch = () => {
+    setSearchOpen(open => {
+      if (open) setSearch('');
+      return !open;
+    });
+  };
+
+  const handleFilterTap = (id: ActivityFilter) => {
     if (id === filter) return;
     hapticSelection();
     setFilter(id);
@@ -98,7 +78,24 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
 
   return (
     <div className="flex-1 flex flex-col min-h-0 bg-app-bg">
-      <TabHeader title={t('activity')} />
+      <TabHeader
+        title={t('activity')}
+        search={{ open: searchOpen, value: search, onChange: setSearch, placeholder: t('searchByNameOrSymbol') }}
+        actions={
+          <TabHeaderAction
+            label={t('activitySearch')}
+            icon={IconName.Search}
+            active={searchOpen}
+            onClick={toggleSearch}
+          />
+        }
+      />
+
+      {/* Notes the wallet gave up importing automatically (#788 follow-up) —
+          possibly the only copy of the funds, so surfaced where the user looks
+          for their incoming activity, with the manual drain the dead-letter
+          store's contract assumes. Renders nothing while the store is empty. */}
+      <DeadletteredNotesNotice className="shrink-0 mx-4 mt-3" />
 
       <div className="shrink-0 px-4 py-3 flex items-center gap-2 overflow-x-auto no-scrollbar">
         {filters.map(f => {
@@ -122,65 +119,14 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
         })}
       </div>
 
-      <div className="shrink-0 px-4">
-        <SearchInput value={search} onChange={setSearch} placeholder={t('searchByNameOrSymbol')} />
-      </div>
-
-      {pendingNotesCount > 0 && (
-        <div className="shrink-0 px-4 pt-4 pb-4 border-b-4 border-[#827C7C33]">
-          <div className="flex items-center gap-1.5 mb-2">
-            <h2 className="font-heading text-sm font-extrabold text-heading-gray dark:text-pure-white">
-              {t('pendingNotes')}
-            </h2>
-            <button
-              type="button"
-              aria-label={t('whatArePendingNotes')}
-              onClick={() => {
-                hapticLight();
-                setInfoDrawerOpen(true);
-              }}
-              className="flex items-center justify-center text-heading-gray dark:text-pure-white"
-            >
-              <Icon name={IconName.InformationFill} className="w-4! h-4!" fill="currentColor" />
-            </button>
-          </div>
-          <button
-            type="button"
-            onClick={() => {
-              hapticLight();
-              navigate('/pending-notes');
-            }}
-            className="w-full text-left rounded-2xl bg-gray-25 py-3 px-4"
-          >
-            <div className="flex items-center gap-1">
-              <span className="font-heading text-base font-extrabold text-heading-gray dark:text-pure-white">
-                {t('consumeYourNotes')}
-              </span>
-              <span className="rounded-full bg-accent-primary w-12 h-4 flex items-center justify-center text-xs font-bold font-heading text-pure-white">
-                {pendingNotesCount}
-              </span>
-            </div>
-            <p className="text-sm text-heading-gray font-heading font-semibold">{t('consumeYourNotesDescription')}</p>
-          </button>
-        </div>
-      )}
-
-      <PendingNotesInfoDrawer open={infoDrawerOpen} onOpenChange={setInfoDrawerOpen} notesCount={pendingNotesCount} />
-
-      <div ref={scrollParentRef} className="flex-1 min-h-0 overflow-y-auto pb-28">
-        <div className="px-4">
-          <History
-            address={account.publicKey}
-            programId={programId}
-            fullHistory={true}
-            centerEmptyState={true}
-            scrollParentRef={scrollParentRef}
-            searchQuery={search}
-            filter={filter}
-            onInitialLoad={handleHistoryLoaded}
-          />
-        </div>
-      </div>
+      {/* Keyed by account and endpoint: its claim receipts belong to one account on one chain. */}
+      <ActivityPendingHistory
+        key={`${account.publicKey}|${getEffectiveRpcUrl()}|${getEffectiveNetworkName()}`}
+        search={search}
+        filter={filter}
+        programId={programId}
+        onInitialLoad={handleHistoryLoaded}
+      />
     </div>
   );
 };

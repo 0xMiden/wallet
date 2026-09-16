@@ -5,14 +5,11 @@ import {
   closeDappWindow,
   dappGetUrl,
   dappNavigate,
-  generateDesktopConfirmationOverlay,
-  onDappConfirmationResponse,
+  focusMainWindow,
   onDappWalletRequest,
   onDappWindowClose,
   openDappWindow,
   sendDappWalletResponse,
-  showDappConfirmationOverlay,
-  type DappConfirmationResponse,
   type DappWalletRequest
 } from './dapp-browser';
 
@@ -78,11 +75,41 @@ describe('invoke-based commands', () => {
     });
   });
 
-  it('showDappConfirmationOverlay forwards the overlay script', async () => {
-    await showDappConfirmationOverlay('console.log("overlay")');
-    expect(mockInvoke).toHaveBeenCalledWith('show_dapp_confirmation_overlay', {
-      overlayScript: 'console.log("overlay")'
-    });
+  it('focusMainWindow raises the wallet window so its own prompt is visible', async () => {
+    await focusMainWindow();
+    expect(mockInvoke).toHaveBeenCalledWith('focus_main_window');
+  });
+});
+
+/**
+ * The desktop approval prompt must never again be produced inside the requesting
+ * page's own JS realm. `show_dapp_confirmation_overlay` handed a JS string to
+ * `dapp_window.eval(...)`, so the modal's DOM, its approve listener and its
+ * standing-private-data checkbox were page-owned — a `MutationObserver` could tick
+ * the box and synthesise the click before the user reacted, self-approving connects
+ * and sends — and the verdict came back over a `miden-wallet-confirmation-response`
+ * navigation any page could perform itself. The prompt now renders in the wallet
+ * window (`DesktopDappConfirmationModal`), the way mobile always did.
+ */
+describe('no approval path through the dApp document', () => {
+  it('exposes no overlay-eval or overlay-response binding', () => {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const bindings: Record<string, unknown> = require('./dapp-browser');
+    expect(Object.keys(bindings)).not.toContain('showDappConfirmationOverlay');
+    expect(Object.keys(bindings)).not.toContain('generateDesktopConfirmationOverlay');
+    expect(Object.keys(bindings)).not.toContain('onDappConfirmationResponse');
+  });
+
+  it('invokes no command that evaluates script in the dApp window', async () => {
+    await openDappWindow('https://dapp.example');
+    await closeDappWindow();
+    await dappNavigate('back');
+    await dappGetUrl();
+    await sendDappWalletResponse({ ok: true });
+    await focusMainWindow();
+
+    const commands = mockInvoke.mock.calls.map(([command]) => command);
+    expect(commands).not.toContain('show_dapp_confirmation_overlay');
   });
 });
 
@@ -172,133 +199,5 @@ describe('onDappWindowClose', () => {
 
     capturedHandlers['dapp-window-closed']!({});
     expect(cb).toHaveBeenCalledTimes(1);
-  });
-});
-
-describe('onDappConfirmationResponse', () => {
-  it('registers a dapp-confirmation-response listener and returns the unlisten fn', async () => {
-    const cb = jest.fn();
-    await expect(onDappConfirmationResponse(cb)).resolves.toBe(unlistenFn);
-    expect(mockListen).toHaveBeenCalledWith('dapp-confirmation-response', expect.any(Function));
-  });
-
-  it('parses the payload JSON and invokes the callback with the response', async () => {
-    const cb = jest.fn();
-    await onDappConfirmationResponse(cb);
-
-    const response: DappConfirmationResponse = { requestId: 'req-9', confirmed: true };
-    capturedHandlers['dapp-confirmation-response']!({ payload: JSON.stringify(response) });
-
-    expect(cb).toHaveBeenCalledWith(response);
-  });
-
-  it('silently ignores malformed confirmation payloads', async () => {
-    const cb = jest.fn();
-    await onDappConfirmationResponse(cb);
-
-    expect(() => capturedHandlers['dapp-confirmation-response']!({ payload: 'not-json{' })).not.toThrow();
-    expect(cb).not.toHaveBeenCalled();
-  });
-});
-
-describe('generateDesktopConfirmationOverlay', () => {
-  const translations = {
-    connectionRequest: 'Connection request',
-    transactionRequest: 'Transaction request',
-    account: 'Account',
-    network: 'Network',
-    noAccountSelected: 'No account selected',
-    deny: 'Deny',
-    approve: 'Approve',
-    confirm: 'Confirm'
-  };
-
-  it('renders a connection overlay with an account, enabling the approve button', () => {
-    const script = generateDesktopConfirmationOverlay(
-      'req-1',
-      'Cool dApp',
-      'https://cool.dapp',
-      'testnet',
-      '0xabc…123',
-      false,
-      [],
-      translations
-    );
-
-    expect(script).toContain("requestId: 'req-1'");
-    expect(script).toContain('Cool dApp');
-    expect(script).toContain('https://cool.dapp');
-    expect(script).toContain('Connection request');
-    // Account info-box (not transaction) branch.
-    expect(script).toContain('Account');
-    expect(script).toContain('0xabc…123');
-    // Approve label (not confirm) and NOT disabled because an account is present.
-    expect(script).toContain('>Approve<');
-    expect(script).not.toContain('id="miden-btn-approve" disabled');
-    // Network is always shown, capitalized.
-    expect(script).toContain('testnet');
-  });
-
-  it('falls back to the noAccountSelected label and disables approve when no account', () => {
-    const script = generateDesktopConfirmationOverlay(
-      'req-2',
-      'AppName',
-      'https://app',
-      'mainnet',
-      '',
-      false,
-      [],
-      translations
-    );
-
-    // shortAccountId is empty -> escapeHtml(translations.noAccountSelected).
-    expect(script).toContain('No account selected');
-    // !shortAccountId && !isTransaction -> disabled attribute present.
-    expect(script).toContain('id="miden-btn-approve" disabled');
-  });
-
-  it('renders a transaction overlay with escaped messages and the confirm label', () => {
-    const script = generateDesktopConfirmationOverlay(
-      'req-3',
-      'Swap App',
-      'https://swap.app',
-      'devnet',
-      '',
-      true,
-      ['Send 5 <MIDEN>', 'Receive & hold "USDC"'],
-      translations
-    );
-
-    // isTransaction -> transactionRequest description and tx-messages block.
-    expect(script).toContain('Transaction request');
-    expect(script).toContain('miden-tx-messages');
-    // Messages are HTML-escaped.
-    expect(script).toContain('Send 5 &lt;MIDEN&gt;');
-    expect(script).toContain('Receive &amp; hold &quot;USDC&quot;');
-    // Confirm label (not approve).
-    expect(script).toContain('>Confirm<');
-    // Transaction requests never disable the primary button, even without an account.
-    expect(script).not.toContain('id="miden-btn-approve" disabled');
-    // No connection account info-box in transaction mode.
-    expect(script).not.toContain('Connection request');
-  });
-
-  it('escapes every special HTML character in dApp-provided strings', () => {
-    const script = generateDesktopConfirmationOverlay(
-      'req-4',
-      `A&B<C>D"E'F\`G`,
-      `o&<>"'\``,
-      `net&<>"'\``,
-      `acct&<>"'\``,
-      false,
-      [],
-      translations
-    );
-
-    // & < > " ' ` all replaced; raw specials must not leak into the app name.
-    expect(script).toContain('A&amp;B&lt;C&gt;D&quot;E&#039;F&#96;G');
-    expect(script).toContain('acct&amp;&lt;&gt;&quot;&#039;&#96;');
-    // The raw unescaped app name must never appear.
-    expect(script).not.toContain(`A&B<C>D`);
   });
 });

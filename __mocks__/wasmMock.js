@@ -20,6 +20,14 @@ module.exports = {
   Program: {
     fromString: jest.fn()
   },
+  // No `ChainAnchor` entry on purpose (#784). Both suites that decode a
+  // proposal's anchor install their own spy, so a shared default is reached by
+  // nothing — and it would be actively harmful if it ever were: returning a
+  // truthy anchor makes a suite that forgot to stub the decode pass silently
+  // ON THE ANCHORED PATH, which is the failure the guardian suite's own
+  // `mockReset` + explicit default exists to prevent. The unstubbed
+  // "Cannot read properties of undefined (reading 'deserialize')" is the louder
+  // outcome, and it names the member to stub.
   RecordPlaintext: {
     fromString: jest.fn()
   },
@@ -29,6 +37,10 @@ module.exports = {
     ConsumedUnauthenticatedLocal: 'ConsumedUnauthenticatedLocal',
     ConsumedExternal: 'ConsumedExternal',
     Invalid: 'Invalid',
+    // Written by miden-client's apply_transaction: our own consuming tx was
+    // submitted and applied locally, block not committed yet.
+    ProcessingAuthenticated: 'ProcessingAuthenticated',
+    ProcessingUnauthenticated: 'ProcessingUnauthenticated',
     Committed: 'Committed',
     Expected: 'Expected',
     Unverified: 'Unverified'
@@ -72,6 +84,22 @@ module.exports = {
   Note: jest.fn(),
   AuthSecretKey: jest.fn(),
   SigningInputs: jest.fn(),
-  Word: jest.fn(),
-  AccountInterface: jest.fn()
+  Word: Object.assign(jest.fn(), { fromHex: jest.fn(hex => ({ toHex: () => hex, toFelts: () => [] })) }),
+  AccountInterface: jest.fn(),
+  // Advice-map primitives used by the direct guardian-switch fallback.
+  // `hashElements` derives its result from the elements it was given rather than
+  // returning a constant: the advice map is keyed by Poseidon2(signerCommitment
+  // ‖ txCommitment), so a constant makes the hot and cold entries collide on one
+  // key — the exact defect the direct-switch guard exists to catch — and any
+  // suite reaching this stub would pass regardless.
+  AdviceMap: jest.fn(() => ({ insert: jest.fn() })),
+  Felt: jest.fn(),
+  FeltArray: jest.fn(elements => ({ elements: elements ?? [] })),
+  Poseidon2: {
+    hashElements: jest.fn(feltArray => {
+      const elements = feltArray?.elements ?? [];
+      return { toHex: () => `0x${elements.join('|')}` };
+    })
+  },
+  Signature: { deserialize: jest.fn(bytes => ({ toPreparedSignature: jest.fn(() => [...(bytes ?? [])]) })) }
 };

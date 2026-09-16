@@ -28,10 +28,11 @@ jest.mock('lib/epoch', () => ({
 
 const mockInitiateConsumeFromId = jest.fn(async (..._a: unknown[]) => 'reclaim-tx-1');
 const mockRequestSWProcessing = jest.fn();
+const mockUpdateBridgeClaimStatus = jest.fn(async (..._a: unknown[]) => undefined);
 jest.mock('lib/miden/activity', () => ({
   initiateConsumeTransactionFromId: (...a: unknown[]) => mockInitiateConsumeFromId(...a),
   requestSWTransactionProcessing: () => mockRequestSWProcessing(),
-  updateBridgeClaimStatus: jest.fn(async () => undefined)
+  updateBridgeClaimStatus: (...a: unknown[]) => mockUpdateBridgeClaimStatus(...a)
 }));
 
 const mockFindClaimable = jest.fn(async (..._a: unknown[]) => null as unknown);
@@ -122,8 +123,17 @@ function entry(overrides: Partial<IHistoryEntry> = {}): IHistoryEntry {
   } as IHistoryEntry;
 }
 
-const renderSection = (props: { entry: IHistoryEntry; onUpdated?: () => void }) =>
-  render(<BridgeClaimSection entry={props.entry} onUpdated={props.onUpdated ?? jest.fn()} />);
+/**
+ * Renders with `restoredFromBackup` defaulted to false.
+ *
+ * The prop is REQUIRED in production for a reason: its previous form read the
+ * flag off `entry`, and the only production producer never set it, so every
+ * guard in this panel read `undefined` and did nothing. Keep this helper as the
+ * only place the default is written, so a restored-row case has to opt in
+ * explicitly rather than inherit a fixture's silence.
+ */
+const renderSection = (props: { entry: IHistoryEntry; restoredFromBackup?: boolean }) =>
+  render(<BridgeClaimSection entry={props.entry} restoredFromBackup={props.restoredFromBackup ?? false} />);
 
 const agglayer = (o: Partial<IHistoryEntry> = {}) =>
   entry({
@@ -154,7 +164,10 @@ describe('BridgeClaimSection', () => {
       renderSection({ entry: entry() });
       const btn = await screen.findByText('t:reclaimFunds');
       fireEvent.click(btn);
-      await waitFor(() => expect(mockInitiateConsumeFromId).toHaveBeenCalledWith('acct-1', 'note-1', false));
+      // 4th arg = manualRetry. The button only exists behind an explicit tap, so
+      // auto-consume's exponential backoff must not swallow it and answer with a
+      // previously-failed reclaim's row id.
+      await waitFor(() => expect(mockInitiateConsumeFromId).toHaveBeenCalledWith('acct-1', 'note-1', false, true));
       expect(mockRequestSWProcessing).not.toHaveBeenCalled(); // isExtension() mocked false
       expect(mockNavigate).toHaveBeenCalledWith('/generating-transaction-full/reclaim-tx-1');
     });
@@ -198,6 +211,37 @@ describe('BridgeClaimSection', () => {
       await waitFor(() => expect(mockClaimAgglayer).toHaveBeenCalled());
     });
 
+    it("looks the deposit up against THIS row's own bridge-out transaction", async () => {
+      // Several bridge-outs can share one L1 destination. The claim the user
+      // makes here is stamped onto this row, so the lookup has to be bound to
+      // this row's Miden transaction id rather than the destination alone.
+      mockEvm = { provider: {}, address: '0xdead', isConnected: true, connect: jest.fn() };
+      mockFindClaimable.mockImplementation(async (_dest: unknown, originTxHash: unknown) =>
+        originTxHash === '0xrow-a-origin' ? { id: 'deposit-a' } : null
+      );
+      render(<BridgeClaimSection entry={agglayer({ externalTxId: '0xrow-a-origin' })} restoredFromBackup={false} />);
+
+      await waitFor(() => expect(mockFindClaimable).toHaveBeenCalledWith('0xdead', '0xrow-a-origin'));
+      fireEvent.click(await screen.findByText('t:claimAsset'));
+      await waitFor(() =>
+        expect(mockClaimAgglayer).toHaveBeenCalledWith(expect.objectContaining({ deposit: { id: 'deposit-a' } }))
+      );
+    });
+
+    it('stays on Claim Pending when no deposit belongs to this row', async () => {
+      mockEvm = { provider: {}, address: '0xdead', isConnected: true, connect: jest.fn() };
+      mockFindClaimable.mockImplementation(async (_dest: unknown, originTxHash: unknown) =>
+        originTxHash === '0xrow-a-origin' ? { id: 'deposit-a' } : null
+      );
+      render(<BridgeClaimSection entry={agglayer({ externalTxId: '0xrow-b-origin' })} restoredFromBackup={false} />);
+
+      await waitFor(() => expect(mockFindClaimable).toHaveBeenCalledWith('0xdead', '0xrow-b-origin'));
+      // The claim button stays disabled on "Claim Pending" (the same label also
+      // renders in the status row) and never offers row A's deposit.
+      expect(screen.getByRole('button', { name: 't:claimPending' })).toBeDisabled();
+      expect(screen.queryByText('t:claimAsset')).not.toBeInTheDocument();
+    });
+
     it('surfaces an error when the claim fails', async () => {
       mockEvm = { provider: {}, address: '0xdead', isConnected: true, connect: jest.fn() };
       mockFindClaimable.mockResolvedValueOnce({ id: 'deposit-1' });
@@ -214,10 +258,33 @@ describe('BridgeClaimSection', () => {
     });
   });
 
-  describe('Epoch (Fast) fill', () => {
-    it('polls the fill and persists the confirmed status', async () => {
+  // Every affordance in this panel, asserted from ONE restored row. The guards
+  // existed before this suite did and were all inert in production, because the
+  // only producer of `entry` never set the flag — nothing here could have caught
+  // that while the value came from the fixture. Driving them together off a
+  // single prop is the point.
+  describe('a row restored from a backup', () => {
+    it('polls nothing and offers no affordance, whatever the row records', async () => {
+      mockEvm = { provider: {}, address: '0xdead', isConnected: true, connect: jest.fn() };
+      mockFindClaimable.mockResolvedValue({ deposit: true });
       mockPollEpochIntentFill.mockResolvedValue({ status: 'confirmed', fillTxHash: '0xfill', fillChainId: 11155111 });
-      const onUpdated = jest.fn();
+
+      renderSection({
+        entry: agglayer({ bridgeClaimStatus: 'pending', bridgeIntentNonce: 'nonce-1' }),
+        restoredFromBackup: true
+      });
+
+      // Nothing is polled: no AggLayer deposit lookup, no Epoch fill poll, and
+      // no Miden block read (which only the reclaim gate triggers).
+      await waitFor(() => expect(screen.queryByText('t:claimAsset')).not.toBeInTheDocument());
+      expect(mockFindClaimable).not.toHaveBeenCalled();
+      expect(mockPollEpochIntentFill).not.toHaveBeenCalled();
+      expect(mockGetCurrentMidenBlock).not.toHaveBeenCalled();
+    });
+
+    it('does not poll the Epoch fill for a restored pending row', async () => {
+      mockPollEpochIntentFill.mockResolvedValue({ status: 'confirmed', fillTxHash: '0xfill', fillChainId: 11155111 });
+
       renderSection({
         entry: entry({
           status: 2,
@@ -226,10 +293,53 @@ describe('BridgeClaimSection', () => {
           bridgeReclaimHeight: undefined,
           outputNoteIds: undefined
         }),
-        onUpdated
+        restoredFromBackup: true
+      });
+
+      // Give the effect the same window the non-restored case needs to fire in.
+      await new Promise(resolve => setTimeout(resolve, 0));
+      expect(mockPollEpochIntentFill).not.toHaveBeenCalled();
+    });
+
+    it('withholds the reclaim button on a failed Epoch row past its reclaim height', async () => {
+      mockGetCurrentMidenBlock.mockResolvedValue(5000); // well past 1000
+
+      renderSection({ entry: entry(), restoredFromBackup: true });
+
+      await waitFor(() => expect(screen.queryByText('t:reclaimFunds')).not.toBeInTheDocument());
+      expect(mockGetCurrentMidenBlock).not.toHaveBeenCalled();
+    });
+
+    it('still polls and offers the claim when the row is NOT restored', async () => {
+      mockEvm = { provider: {}, address: '0xdead', isConnected: true, connect: jest.fn() };
+      mockFindClaimable.mockResolvedValue({ deposit: true });
+
+      renderSection({ entry: agglayer({ bridgeClaimStatus: 'pending' }) });
+
+      await waitFor(() => expect(mockFindClaimable).toHaveBeenCalled());
+    });
+  });
+
+  describe('Epoch (Fast) fill', () => {
+    it('polls the fill and persists the confirmed status', async () => {
+      mockPollEpochIntentFill.mockResolvedValue({ status: 'confirmed', fillTxHash: '0xfill', fillChainId: 11155111 });
+      renderSection({
+        entry: entry({
+          status: 2,
+          bridgeEpochStatus: 'pending',
+          bridgeIntentNonce: 'nonce-1',
+          bridgeReclaimHeight: undefined,
+          outputNoteIds: undefined
+        })
       });
       await waitFor(() => expect(mockPollEpochIntentFill).toHaveBeenCalled());
-      await waitFor(() => expect(onUpdated).toHaveBeenCalled());
+      await waitFor(() =>
+        expect(mockUpdateBridgeClaimStatus).toHaveBeenCalledWith('tx-1', 'not-applicable', {
+          epochStatus: 'confirmed',
+          fillTxHash: '0xfill',
+          fillChainId: 11155111
+        })
+      );
     });
 
     it('renders the receiving-tx link once the fill is confirmed', () => {

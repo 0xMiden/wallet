@@ -269,6 +269,36 @@ describe('non-guardian bridged-send / earn-deposit leaf → proxy delegation (sl
     expect(mockComplete.bridged).not.toHaveBeenCalled();
   });
 
+  // Regression: only the GUARDIAN leaf refused an abandoned earn deposit. The
+  // non-Guardian leaf shares a `case 'bridged-send': case 'earn-deposit':` block
+  // and had no such check, so after `openEarnPosition` gave up (its 5-min wait
+  // timed out → `updateEarnDepositStatus(..., 'failed')`, which patches
+  // extraInputs ONLY and leaves the row Queued) the FIFO loop still submitted the
+  // P2IDE collateral note — stranding the funds until the reclaim height while the
+  // activity row read "Deposited to lending".
+  it('earn-deposit refuses to submit once the caller abandoned the Epoch intent', async () => {
+    const tx = buildTx('tx-earn-abandoned', {
+      type: 'earn-deposit',
+      secondaryAccountId: 'mtst1qallocator',
+      faucetId: 'faucet',
+      amount: 500n,
+      noteType: 'public',
+      // The in-memory copy is the one the loop picked up minutes ago …
+      extraInputs: { recallBlocks: 10, epochStatus: 'pending' }
+    });
+    // … while the row in the DB has since been marked abandoned.
+    txStore.push({ ...tx, extraInputs: { recallBlocks: 10, epochStatus: 'failed' } });
+
+    await expect(generateTransaction(tx as never, signCallback, false, provider as never)).rejects.toThrow(
+      /refusing to submit an orphan collateral note/
+    );
+
+    // No collateral note was built, submitted, or marked deposited.
+    expect(mockProxySendTransaction).not.toHaveBeenCalled();
+    expect(mockProxyNewTransaction).not.toHaveBeenCalled();
+    expect(mockComplete.earn).not.toHaveBeenCalled();
+  });
+
   it('flag ON changes nothing at THIS seam — the switch still delegates to the proxy leaf (the proxy owns the offscreen route)', async () => {
     process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
     const tx = await run('tx-earn-flagon', {

@@ -9,8 +9,8 @@ import {
 } from '@miden-sdk/miden-sdk/lazy';
 
 import { midenClientProxy } from 'lib/miden/back/miden-client-proxy';
-import { accountIdStringToSdk, resolveHeldFungibleAsset } from 'lib/miden/sdk/helpers';
-import { withWasmClientLock } from 'lib/miden/sdk/miden-client';
+import { accountIdStringToSdk, randomFeeSalt, resolveHeldFungibleAsset } from 'lib/miden/sdk/helpers';
+import { assertWasmHoldCurrent, withWasmClientLock } from 'lib/miden/sdk/miden-client';
 
 import { getCurrentMidenBlock } from './chain';
 
@@ -76,7 +76,12 @@ export async function buildEpochCollateralRequestBytes(args: EpochCollateralNote
   // understate the reclaim height. Also ensures the SDK WASM is initialized
   // before the note classes below are constructed.
   const currentBlock = await getCurrentMidenBlock();
-  return withWasmClientLock(async () => {
+  // A fresh salt per build. miden-client derives the native conversion info from the
+  // anchored block and commits `hash(CONVERSION_INFO || SALT)` itself, so nothing has
+  // to be read off the chain here. The salt is serialized with the request, and these
+  // bytes are persisted and reused, so a rebuild by a co-signer commits the same word.
+  const feeSalt = randomFeeSalt();
+  return withWasmClientLock(async hold => {
     // The collateral asset is REMOVED from the sender's vault, so it has to carry
     // the vault key of the slot it is actually held in — the callback flag is part
     // of that key. Building it from faucet id + amount always yields the default
@@ -91,6 +96,14 @@ export async function buildEpochCollateralRequestBytes(args: EpochCollateralNote
     // is unlocked by design and this scope already holds the client lock, which is
     // what that contract requires.
     const senderAccount = await midenClientProxy.getAccount(toAccountId(args.senderAccountId).toString());
+    // Before touching the returned account: an eviction during the read above
+    // hands the mutex to a successor without stopping this callback, and
+    // `resolveHeldFungibleAsset` reads `vault().fungibleAssets()` — a WASM call
+    // on an object borrowed from the client's RefCell, so continuing would be
+    // the double borrow, not a stale read. Everything in this hold is write
+    // PREP (the request is only built and serialized here, nothing is
+    // submitted), so aborting is always safe.
+    assertWasmHoldCurrent(hold, 'before the collateral vault read');
     const asset = resolveHeldFungibleAsset(senderAccount ?? undefined, args.faucetId, args.amount);
     const attachment = new NoteAttachment(BigUint64Array.from(args.bindingAttachmentFelts));
     const note = Note.createP2IDENote(
@@ -102,9 +115,10 @@ export async function buildEpochCollateralRequestBytes(args: EpochCollateralNote
       NoteType.Public,
       attachment
     );
-    return new TransactionRequestBuilder()
-      .withOwnOutputNotes(new NoteArray([note]))
-      .build()
-      .serialize();
+    // Declared at BUILD time: the SDK exposes no setter on a finished `TransactionRequest`,
+    // only on the builder.
+    let builder = new TransactionRequestBuilder().withOwnOutputNotes(new NoteArray([note]));
+    builder = builder.withFeeConversionSalt(feeSalt);
+    return builder.build().serialize();
   });
 }

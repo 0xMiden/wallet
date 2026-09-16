@@ -1,7 +1,9 @@
 import { expect, type Page } from '@playwright/test';
 
+import { readTransactionRows } from './history';
 import type { IdbDumpSource } from './idb-dump';
 import { dismissTelemetryConsent } from './telemetry-consent';
+import { dumpProveTelemetry } from '../harness/prove-telemetry-probe';
 import { suspendScreenCapture } from '../harness/screen-capture';
 import type { TimelineRecorder } from '../harness/timeline-recorder';
 
@@ -12,6 +14,33 @@ import type { TimelineRecorder } from '../harness/timeline-recorder';
 // forever. This value passes all five checks. The bypass paths accept any value.
 const PASSWORD = 'Test1234!';
 const SYNC_WAIT_MS = 3_500;
+
+/**
+ * Floor for any claim-drain budget when running against the LOCAL stack (#718).
+ *
+ * Every `claimAllNotes` / `claimNotesByGroup` budget in the specs was tuned
+ * against devnet/testnet, where a consume finishes in seconds — measured, the
+ * whole three-note `multi-claim` journey runs in ~41s there. The local stack packs
+ * a node, sequencer, ntx-builder, prover, guardian, note-transport and two Chrome
+ * instances onto a 2-core CI runner, and the same consume takes minutes. Those
+ * budgets therefore expire while the claim is still legitimately running and
+ * report it as stuck.
+ *
+ * A floor rather than a multiplier: the budgets differ per spec for reasons that
+ * have nothing to do with the stack (note counts, whether a send precedes the
+ * claim), and multiplying would scale a 420s outlier to something no spec timeout
+ * allows. Applies to `localhost` only, so every other network keeps the number its
+ * spec asked for.
+ *
+ * Kept well under the suites' job timeouts on purpose. A floor only ever binds on
+ * a claim that is NOT draining, so raising it spends its whole value on failing
+ * runs — at 420s the local suite stopped finishing inside its 75-minute cap, which
+ * cost the very diagnostics a failing run exists to produce.
+ */
+const LOCAL_STACK_CLAIM_FLOOR_MS = process.env.E2E_NETWORK === 'localhost' ? 240_000 : 0;
+
+/** The budget a claim drain should actually use — see {@link LOCAL_STACK_CLAIM_FLOOR_MS}. */
+const effectiveClaimBudgetMs = (requested: number): number => Math.max(requested, LOCAL_STACK_CLAIM_FLOOR_MS);
 
 /**
  * Strip an optional `0x` prefix and lowercase, so a guardian commitment read
@@ -37,6 +66,10 @@ export type TransactionStage =
   | 'sending'
   | 'creating-proposal'
   | 'signing-proposal'
+  // Offline guardian rotation only: the direct switch signs hot+cold locally
+  // instead of asking an operator, so it stamps this where the proposal path
+  // stamps 'signing-proposal'.
+  | 'signing-locally'
   | 'executing'
   | 'proving'
   | 'submitting'
@@ -117,8 +150,8 @@ export interface WalletPage {
 
 /**
  * Chrome-specific extension of WalletPage. Kept for spec blocks that
- * reach into the Playwright Page directly (currently multi-account's
- * DOM probe) and for captureStateFrom entries that pass extensionId.
+ * reach into the Playwright Page directly and for captureStateFrom entries
+ * that pass extensionId.
  */
 export interface ChromeWalletPageApi extends WalletPage, IdbDumpSource {
   readonly page: Page;
@@ -140,13 +173,15 @@ export interface ChromeWalletPageApi extends WalletPage, IdbDumpSource {
    */
   createGuardianWallet(guardianUrl: string, password?: string): Promise<{ address: string; seedPhrase: string[] }>;
   /** Fast, non-invasive balance + pending-notes + outgoing-tx snapshot. */
-  quickBalanceSnapshot(): Promise<{
+  quickBalanceSnapshot(opts?: { symbol?: string }): Promise<{
     balance: number;
     pendingNotes: Array<{ id: string; amount: number; faucetId: string }>;
     pendingSum: number;
     totalReportable: number;
     pendingTxCount: number;
     latestTxId?: string;
+    /** Rows a SYMBOL scope dropped for having no metadata — see the implementation. */
+    unidentified: number;
     error?: string;
   }>;
   /**
@@ -164,6 +199,25 @@ export interface ChromeWalletPageApi extends WalletPage, IdbDumpSource {
    * specs through this interface, so it has to be declared here.
    */
   dumpTransactions(): Promise<string>;
+  /**
+   * Send value this wallet queued that never moved, split into terminally
+   * Failed and still-in-flight. Lets a caller reconcile a driver's optimistic
+   * "sent" bookkeeping against what the wallet actually settled — see the
+   * implementation. Chrome-only, like the stress suite that consumes it.
+   */
+  unlandedSendTotals(): Promise<{
+    completed: number;
+    completedCount: number;
+    failed: number;
+    pending: number;
+    failedCount: number;
+    pendingCount: number;
+    totalCount: number;
+    failedMaybeSubmitted: number;
+    failedMaybeSubmittedCount: number;
+    pendingEligibleAtMax: number;
+    storeMissing: boolean;
+  }>;
   /**
    * Drain pending notes via the two-level per-faucet GROUP-claim UI (Pending
    * tab → asset detail → group claim / per-note claim) instead of the top-level
@@ -270,6 +324,10 @@ export interface ChromeWalletPageApi extends WalletPage, IdbDumpSource {
    * `reopen()`. Returns `''` if unset or the store is unavailable.
    */
   currentGuardianEndpoint(): Promise<string>;
+  /** Create another HD account through the E2E-only frontend store hook. */
+  createAdditionalAccount(walletType: 'off-chain' | 'guardian'): Promise<{ address: string }>;
+  /** Select an account through the E2E-only frontend store hook. */
+  selectAccount(address: string): Promise<void>;
   /**
    * Close and reopen the wallet: closes the current extension page and opens
    * a fresh one navigated back to `fullpage.html` -- mirroring a user closing
@@ -745,72 +803,94 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
    * need an authoritative total (e.g. a conservation assertion) must call
    * refreshBalances() first — unlike getBalance(), which refreshes internally.
    */
-  async quickBalanceSnapshot(): Promise<{
+  async quickBalanceSnapshot(opts?: { symbol?: string }): Promise<{
     balance: number;
     pendingNotes: Array<{ id: string; amount: number; faucetId: string }>;
     pendingSum: number;
     totalReportable: number;
     pendingTxCount: number;
     latestTxId?: string;
+    /**
+     * Rows a SYMBOL scope excluded because they carry no metadata at all.
+     *
+     * `metadata` is attached only when `fetchTokenMetadata` succeeded (`sync-manager.ts`
+     * swallows the failure), so a symbol filter cannot tell "a different token" from "the
+     * token under test, whose metadata call failed this lap" — it drops both. In a strict
+     * conservation identity that reads as value vanishing. Reported rather than guessed at:
+     * a caller asserting an equality can say "metadata missing" instead of "notes lost".
+     */
+    unidentified: number;
     error?: string;
   }> {
     try {
-      return await this.page.evaluate(async () => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const store = (window as any).__TEST_STORE__;
-        const state = store?.getState?.();
-        let balance = 0;
-        for (const tokenList of Object.values(state?.balances || {}) as unknown[]) {
-          if (!Array.isArray(tokenList)) continue;
-          for (const token of tokenList) {
-            const amount = parseFloat(String(token.amount ?? token.balance ?? '0'));
-            if (amount > 0) balance += amount;
-          }
-        }
-
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const storage = await new Promise<any>(resolve => {
-          chrome.storage.local.get(['miden_sync_data'], resolve);
-        });
-        const notes = storage?.miden_sync_data?.notes ?? [];
-        const pendingNotes: Array<{ id: string; amount: number; faucetId: string }> = [];
-        let pendingSum = 0;
-        for (const note of notes) {
-          const baseUnits = parseInt(String(note.amountBaseUnits ?? '0'), 10);
-          const decimals = note.metadata?.decimals ?? 8;
-          const amount = baseUnits / Math.pow(10, decimals);
-          pendingNotes.push({ id: String(note.id ?? ''), amount, faucetId: String(note.faucetId ?? '') });
-          pendingSum += amount;
-        }
-
-        // Outgoing transaction queue (from Zustand — shape: {[id]: record} or array)
-        let pendingTxCount = 0;
-        let latestTxId: string | undefined;
-        const txs = state?.transactions;
-        if (txs && typeof txs === 'object') {
-          const list = Array.isArray(txs) ? txs : Object.values(txs);
-          pendingTxCount = list.length;
-          // Pick the most recent by timestamp if available
-          let mostRecent: { id?: string; timestamp?: number } | null = null;
-          for (const t of list as Array<{ id?: string; transactionId?: string; timestamp?: number }>) {
-            const id = t.id ?? t.transactionId;
-            const ts = t.timestamp ?? 0;
-            if (!mostRecent || ts > (mostRecent.timestamp ?? 0)) {
-              mostRecent = { id, timestamp: ts };
+      return await this.page.evaluate(
+        async ({ wanted }) => {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const store = (window as any).__TEST_STORE__;
+          const state = store?.getState?.();
+          let balance = 0;
+          let unidentified = 0;
+          for (const tokenList of Object.values(state?.balances || {}) as unknown[]) {
+            if (!Array.isArray(tokenList)) continue;
+            for (const token of tokenList) {
+              // Optional SYMBOL scope. Unscoped this sums every asset the account holds,
+              // which silently includes the native fee asset -- so a caller conserving a
+              // total across a fee-charging chain measures its own fees as missing value.
+              if (wanted && token?.metadata?.symbol === undefined) unidentified++;
+              if (wanted && String(token?.metadata?.symbol ?? '').toLowerCase() !== wanted) continue;
+              const amount = parseFloat(String(token.amount ?? token.balance ?? '0'));
+              if (amount > 0) balance += amount;
             }
           }
-          latestTxId = mostRecent?.id;
-        }
 
-        return {
-          balance,
-          pendingNotes,
-          pendingSum,
-          totalReportable: balance + pendingSum,
-          pendingTxCount,
-          latestTxId
-        };
-      });
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const storage = await new Promise<any>(resolve => {
+            chrome.storage.local.get(['miden_sync_data'], resolve);
+          });
+          const notes = storage?.miden_sync_data?.notes ?? [];
+          const pendingNotes: Array<{ id: string; amount: number; faucetId: string }> = [];
+          let pendingSum = 0;
+          for (const note of notes) {
+            if (wanted && note?.metadata?.symbol === undefined) unidentified++;
+            if (wanted && String(note?.metadata?.symbol ?? '').toLowerCase() !== wanted) continue;
+            const baseUnits = parseInt(String(note.amountBaseUnits ?? '0'), 10);
+            const decimals = note.metadata?.decimals ?? 8;
+            const amount = baseUnits / Math.pow(10, decimals);
+            pendingNotes.push({ id: String(note.id ?? ''), amount, faucetId: String(note.faucetId ?? '') });
+            pendingSum += amount;
+          }
+
+          // Outgoing transaction queue (from Zustand — shape: {[id]: record} or array)
+          let pendingTxCount = 0;
+          let latestTxId: string | undefined;
+          const txs = state?.transactions;
+          if (txs && typeof txs === 'object') {
+            const list = Array.isArray(txs) ? txs : Object.values(txs);
+            pendingTxCount = list.length;
+            // Pick the most recent by timestamp if available
+            let mostRecent: { id?: string; timestamp?: number } | null = null;
+            for (const t of list as Array<{ id?: string; transactionId?: string; timestamp?: number }>) {
+              const id = t.id ?? t.transactionId;
+              const ts = t.timestamp ?? 0;
+              if (!mostRecent || ts > (mostRecent.timestamp ?? 0)) {
+                mostRecent = { id, timestamp: ts };
+              }
+            }
+            latestTxId = mostRecent?.id;
+          }
+
+          return {
+            balance,
+            pendingNotes,
+            pendingSum,
+            totalReportable: balance + pendingSum,
+            pendingTxCount,
+            latestTxId,
+            unidentified
+          };
+        },
+        { wanted: opts?.symbol?.toLowerCase() }
+      );
     } catch (e) {
       return {
         balance: 0,
@@ -818,6 +898,7 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
         pendingSum: 0,
         totalReportable: 0,
         pendingTxCount: 0,
+        unidentified: 0,
         error: e instanceof Error ? e.message : String(e)
       };
     }
@@ -921,6 +1002,8 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     await this.page.goto(this.fullpageUrl, { waitUntil: 'domcontentloaded' });
     await this.page.getByTestId('onboarding-welcome').waitFor({ timeout: 30_000 });
     await this.page.locator('#import-link').click();
+    // The network notice (#875) precedes the import flow too.
+    await this.page.getByTestId('onboarding-network-notice-acknowledge').click({ timeout: 15_000 });
     await this.page.getByTestId('import-seed-phrase').waitFor({ timeout: 15_000 });
   }
 
@@ -995,8 +1078,24 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
       this.page
         .getByTestId('hot-key-rotation-failed')
         .waitFor({ state: 'visible', timeout: 120_000 })
-        .then(() => {
-          throw new Error('completeHotKeyRotation: rotation reached its terminal-failure surface');
+        .then(async () => {
+          // The gate only says "it failed". The reason is on the row -- and on a
+          // fee-charging chain the reasons differ sharply (an unpayable fee vs a
+          // guardian/register fault), so the bare surface message sends the reader
+          // to the wrong place.
+          const rows = await readTransactionRows(this.page).catch(() => []);
+          const failed = rows
+            .filter(r => r.status === 3)
+            .map(
+              r =>
+                `\n    [${r.type ?? '?'} ${r.id.slice(0, 8)} stage=${r.stage ?? '?'}] ${r.error ?? '(no message)'}` +
+                (r.rawError ? `\n      raw: ${r.rawError}` : '')
+            )
+            .join('');
+          throw new Error(
+            'completeHotKeyRotation: rotation reached its terminal-failure surface' +
+              (failed.length > 0 ? `\n  failed rows:${failed}` : '\n  (no failed transaction rows on this wallet)')
+          );
         })
     ]);
 
@@ -1064,6 +1163,41 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
       ).__TEST_STORE__;
       return store?.getState?.().currentAccount?.guardianEndpoint ?? '';
     });
+  }
+
+  async createAdditionalAccount(walletType: 'off-chain' | 'guardian'): Promise<{ address: string }> {
+    return this.page.evaluate(async requestedType => {
+      type Account = { publicKey?: string };
+      type StoreState = {
+        accounts: Account[];
+        createAccount(type: 'off-chain' | 'guardian'): Promise<void>;
+      };
+      const store = (window as unknown as { __TEST_STORE__?: { getState(): StoreState } }).__TEST_STORE__;
+      if (!store?.getState) throw new Error('createAdditionalAccount requires the E2E wallet store hook');
+
+      const before = new Set(store.getState().accounts.map(account => account.publicKey));
+      await store.getState().createAccount(requestedType);
+      const created = store.getState().accounts.find(account => account.publicKey && !before.has(account.publicKey));
+      if (!created?.publicKey) throw new Error('createAdditionalAccount did not add an account');
+      return { address: created.publicKey };
+    }, walletType);
+  }
+
+  async selectAccount(address: string): Promise<void> {
+    const selected = await this.page.evaluate(async target => {
+      type Account = { publicKey?: string };
+      type StoreState = {
+        currentAccount?: Account | null;
+        updateCurrentAccount(accountPublicKey: string): Promise<void>;
+      };
+      const store = (window as unknown as { __TEST_STORE__?: { getState(): StoreState } }).__TEST_STORE__;
+      if (!store?.getState) throw new Error('selectAccount requires the E2E wallet store hook');
+
+      await store.getState().updateCurrentAccount(target);
+      return store.getState().currentAccount?.publicKey ?? '';
+    }, address);
+    if (selected !== address)
+      throw new Error(`selectAccount selected ${selected || 'no account'} instead of ${address}`);
   }
 
   async reopen(): Promise<boolean> {
@@ -1792,8 +1926,9 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     await this.waitForStoreReady(3_000);
   }
 
-  async claimAllNotes(timeoutMs: number = 120_000): Promise<void> {
+  async claimAllNotes(requestedTimeoutMs: number = 120_000): Promise<void> {
     const STABLE_ZERO_THRESHOLD = 2;
+    const timeoutMs = effectiveClaimBudgetMs(requestedTimeoutMs);
 
     // Fresh reload + metadata injection + land on /receive. The reload (NOT a
     // client-side navigate) gives a fresh Dexie connection AND resets the
@@ -1925,7 +2060,12 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
       console.log(
         `[WalletPage.claimAllNotes] iter=${iteration} pending=${pending} no buttons visible (stuck ${stuckSameCountIters})`
       );
+      // The gate above is (b) — a consume that never committed — often enough that
+      // it is worth asking the offscreen document what that consume is doing before
+      // reloading and enqueuing another one. Streams to stdout so a stalled claim is
+      // diagnosable from the live job log instead of from artifacts after the run.
       if (stuckSameCountIters >= 3) {
+        await dumpProveTelemetry(this.page, `claimAllNotes stuck at iter=${iteration}`);
         await this.reloadAndPreparePending();
         stuckSameCountIters = 0;
       }
@@ -1999,6 +2139,189 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
   }
 
   /**
+   * Total `send` value this wallet queued that never actually moved, split by
+   * why. The stress driver counts a send the moment `sendTokens` returns — which
+   * is when the UI says "transaction initiated", long before the guardian
+   * pipeline runs — so its expected-delta bookkeeping silently assumes every
+   * send landed. Rows the wallet itself later marked Failed (or that were still
+   * in flight when the run ended) are exactly the difference between that
+   * assumption and reality, which is what lets a caller reconcile the two
+   * instead of reporting a phantom loss.
+   *
+   * `failed` is terminal with no RECORDED submit crossing — which is weaker
+   * than proof of none, since the stamp is best-effort and its write is
+   * deliberately swallowed on failure; `pending` covers
+   * Queued/Generating (0/1), which for a requeued row means "will retry, hasn't
+   * moved value yet". Amounts are converted to the same display units
+   * `quickBalanceSnapshot` reports, so the two are directly comparable.
+   *
+   * `failedMaybeSubmitted` is held apart and deliberately NOT offered as
+   * unlanded value. The wallet stamps `mayHaveSubmitted` at the submit crossing
+   * precisely because a row can end Failed with its transaction already on
+   * chain; counting that as "never landed" would accuse the wallet of losing
+   * value on a run where value moved exactly as intended. It is reported both so
+   * the caller can surface it — a Failed-but-possibly-landed send is worth
+   * knowing about — and as the explicit bound on the ambiguity: the per-wallet
+   * reconciliation allows a discrepancy only up to this value, and only in the
+   * direction the ambiguous rows could have moved value.
+   *
+   * `storeMissing` distinguishes "this wallet has no send rows" from "this read
+   * did not find the database". `indexedDB.open` with no version CREATES an
+   * empty database rather than failing, so a read against the wrong origin
+   * succeeds and returns a flawless all-zero result. Without the flag, that is
+   * indistinguishable from a perfect run.
+   */
+  async unlandedSendTotals(): Promise<{
+    /** Value of `send` rows the wallet itself marked Completed. */
+    completed: number;
+    completedCount: number;
+    failed: number;
+    pending: number;
+    failedCount: number;
+    pendingCount: number;
+    totalCount: number;
+    failedMaybeSubmitted: number;
+    failedMaybeSubmittedCount: number;
+    /** Latest `nextEligibleAt` (unix seconds) across pending rows; 0 if none. */
+    pendingEligibleAtMax: number;
+    storeMissing: boolean;
+  }> {
+    return this.page.evaluate(async () => {
+      const idb = (globalThis as unknown as { indexedDB: IDBFactory }).indexedDB;
+      const db: IDBDatabase = await new Promise((res, rej) => {
+        const r = idb.open('TridentMain');
+        // A blocked open still resolves later, so the rejection below would
+        // otherwise leak the connection it eventually hands back — and this read
+        // runs every few seconds for hours on both wallets.
+        let settled = false;
+        r.onsuccess = () => {
+          if (settled) {
+            r.result.close();
+            return;
+          }
+          settled = true;
+          res(r.result);
+        };
+        r.onerror = () => {
+          settled = true;
+          rej(r.error ?? new Error('unlandedSendTotals: open of TridentMain failed'));
+        };
+        // Without this, a blocked open never settles. This read runs on the
+        // settle loop, inside a spec with no timeout, before any artifact is
+        // written — a hang here costs the whole run's forensics.
+        r.onblocked = () => {
+          settled = true;
+          rej(new Error('unlandedSendTotals: open of TridentMain blocked'));
+        };
+      });
+      try {
+        const out = {
+          completed: 0,
+          completedCount: 0,
+          failed: 0,
+          pending: 0,
+          failedCount: 0,
+          pendingCount: 0,
+          totalCount: 0,
+          failedMaybeSubmitted: 0,
+          failedMaybeSubmittedCount: 0,
+          pendingEligibleAtMax: 0,
+          storeMissing: false
+        };
+        if (!db.objectStoreNames.contains('transactions')) {
+          out.storeMissing = true;
+          return out;
+        }
+        // Mirrors quickBalanceSnapshot's pending-note conversion: the stress
+        // faucet is 8-decimal, and balances are reported in display units.
+        // A NaN here would propagate silently into the reconciliation and surface
+        // as "unexplained by NaN", so an unparseable amount is reported rather
+        // than folded in as a zero that quietly understates the total.
+        const toDisplay = (raw: unknown): number => {
+          const n =
+            typeof raw === 'bigint'
+              ? Number(raw)
+              : typeof raw === 'number'
+                ? raw
+                : typeof raw === 'string' && raw !== ''
+                  ? Number(raw)
+                  : NaN;
+          // Absent is unparseable too. Folding a missing amount in as 0 would
+          // understate one side of the reconciliation by exactly the value it
+          // failed to read, which is indistinguishable from the run being clean.
+          if (!Number.isFinite(n)) throw new Error(`unlandedSendTotals: unparseable amount ${String(raw)}`);
+          return n / 1e8;
+        };
+        // Cursor rather than getAll: rows carry `requestBytes`/`resultBytes`
+        // blobs, and this runs every few seconds on both wallets at once. The
+        // neighbouring dump code streams for exactly this reason — materializing
+        // both tables concurrently has tripped the OOM killer on the runner, and
+        // here that would surface as a read failure rather than a crash, which is
+        // the quietest possible way to lose the measurement.
+        await new Promise<void>((res, rej) => {
+          const tx = db.transaction('transactions', 'readonly');
+          // The transaction can end without the cursor request ever firing again
+          // — an abort, a version-change teardown, or the throw below. Listening
+          // only to the request would leave this promise pending forever, and it
+          // runs inside a spec with no timeout, so the hang would cost the whole
+          // run's forensics rather than surfacing as a failed read.
+          // Each carries its own fallback: IDBTransaction.error is null until the
+          // transaction actually aborts, so rejecting with it bare can produce a
+          // `null` reason that reaches the log as the string "null".
+          tx.onabort = () => rej(tx.error ?? new Error('unlandedSendTotals: transaction aborted'));
+          tx.onerror = () => rej(tx.error ?? new Error('unlandedSendTotals: transaction failed'));
+          const r = tx.objectStore('transactions').openCursor();
+          r.onerror = () => rej(r.error ?? new Error('unlandedSendTotals: cursor failed'));
+          r.onsuccess = () => {
+            // A throw inside an IndexedDB event handler does not reach the
+            // enclosing executor — it aborts the transaction and is reported on
+            // the global error handler. Caught here so an unparseable amount
+            // rejects this read (loud) instead of stalling it (silent).
+            try {
+              const cursor = r.result;
+              if (!cursor) {
+                res();
+                return;
+              }
+              const row = cursor.value as Record<string, unknown>;
+              if (row.type === 'send') {
+                out.totalCount += 1;
+                const status = Number(row.status);
+                const amount = toDisplay(row.amount);
+                if (status === 2) {
+                  out.completed += amount;
+                  out.completedCount += 1;
+                } else if (status === 3) {
+                  if (row.mayHaveSubmitted === true) {
+                    out.failedMaybeSubmitted += amount;
+                    out.failedMaybeSubmittedCount += 1;
+                  } else {
+                    out.failed += amount;
+                    out.failedCount += 1;
+                  }
+                } else if (status === 0 || status === 1) {
+                  out.pending += amount;
+                  out.pendingCount += 1;
+                  const eligible = Number(row.nextEligibleAt ?? 0);
+                  if (Number.isFinite(eligible) && eligible > out.pendingEligibleAtMax) {
+                    out.pendingEligibleAtMax = eligible;
+                  }
+                }
+              }
+              cursor.continue();
+            } catch (e) {
+              rej(e);
+            }
+          };
+        });
+        return out;
+      } finally {
+        db.close();
+      }
+    });
+  }
+
+  /**
    * Diagnostic: read every row of `TridentMain.transactions` and return a
    * compact one-line summary (`id·type·status·stage·error`) for each. Used to
    * surface a stalled/failed consume's real reason in the test log rather than
@@ -2038,6 +2361,12 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
               // Read it only together with `status`.
               stage: row.stage,
               error: typeof row.error === 'string' ? row.error.slice(0, 300) : row.error,
+              // `error` is the user-facing copy, which deliberately drops the technical
+              // detail -- "the prover does not recognize part of this transaction" without
+              // naming WHICH procedure root it could not resolve. The wallet keeps the
+              // untouched cause in `rawError` whenever it rewrote the message; a failure
+              // dump that omits it hides the one field that identifies the fault.
+              rawError: typeof row.rawError === 'string' ? row.rawError.slice(0, 600) : undefined,
               errorMessage: typeof row.errorMessage === 'string' ? row.errorMessage.slice(0, 300) : undefined
             }))
         );
@@ -2054,8 +2383,9 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
    * — the two-level claim UI that the top-level "Claim All" (claimAllNotes) never
    * reaches. Chrome desktop only.
    */
-  async claimNotesByGroup(timeoutMs: number = 180_000): Promise<void> {
+  async claimNotesByGroup(requestedTimeoutMs: number = 180_000): Promise<void> {
     const STABLE_ZERO_THRESHOLD = 2;
+    const timeoutMs = effectiveClaimBudgetMs(requestedTimeoutMs);
     await this.reloadAndPreparePending();
 
     // Clock starts after reload/prepare — same reasoning as claimAllNotes (#615).

@@ -37,6 +37,23 @@ export const SELF_HEAL_MAX_ATTEMPTS = 3;
 /** Minimum gap between self-heal attempts for one account. */
 export const SELF_HEAL_COOLDOWN_MS = 60_000;
 
+/**
+ * What one self-heal invocation actually did, so the caller can book the
+ * bounded budget against work rather than against calls.
+ *
+ * The distinction matters because the budget is only reset by a SUCCESSFUL sync
+ * — and a stale allowlist is exactly what prevents one. So an invocation that
+ * bailed out before touching the guardian must not consume an attempt, or three
+ * unlucky local read failures permanently disable the repair for the account.
+ *
+ *  - `attempted`            — `/configure` was issued (landed or threw); a real try.
+ *  - `refused-permanently`  — this device is provably not the account's signer any
+ *                             more; no later tick can change that, so stop asking.
+ *  - `refused-transiently`  — could not tell (unreadable account/commitment); no
+ *                             guardian traffic happened, so retry later for free.
+ */
+export type SelfHealOutcome = 'attempted' | 'refused-permanently' | 'refused-transiently';
+
 export interface SelfHealAttemptState {
   /** Number of cold re-register attempts already made for this account. */
   attempts: number;

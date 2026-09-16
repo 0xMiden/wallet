@@ -4,7 +4,39 @@ import * as Repo from 'lib/miden/repo';
 import { initiateConsumeNotesTransaction } from 'lib/miden/transaction/initiate';
 import { NoteTypeEnum } from 'lib/miden/types';
 
-import { classifySwapOrderNotes, reconcileSwapOrderNotes } from './settlement';
+import { classifySwapOrderNotes, reconcileSwapOrderNotes, settleSwapOrders } from './settlement';
+import { __resetSyncFuseStateForTests, isSyncFused, noteSyncWatchdogEviction } from '../front/sync-fuse';
+import { withWasmClientLock, type WasmLockHold } from '../sdk/miden-client';
+import { WasmClientPoisonedError } from '../sdk/wasm-client-poison';
+import { MAX_CONSECUTIVE_WATCHDOG_EVICTIONS } from '../sync-backoff';
+
+// Models hold ownership like production: the tick re-checks its hold before starting the
+// lineage reads, so the mock has to be able to take one away.
+let currentHold: object | null = null;
+const lockOptionsSeen: unknown[] = [];
+// Fires at the instant the mutex is handed over, which is the only place a test
+// can act on the window between the pre-lock fuse gate and the in-hold one.
+let onLockAcquired: (() => void) | null = null;
+
+jest.mock('../sdk/miden-client', () => ({
+  getCurrentWasmLockHold: () => currentHold,
+  assertWasmHoldCurrent: (hold: object, where: string, step?: string): void => {
+    if (hold === currentHold) return;
+    const { WasmClientPoisonedError } = require('../sdk/wasm-client-poison');
+    throw new WasmClientPoisonedError('watchdog', new Error(`operation abandoned ${where}${step ? `, ${step}` : ''}`));
+  },
+  withWasmClientLock: async <T>(operation: (hold: object) => Promise<T>, options?: unknown): Promise<T> => {
+    lockOptionsSeen.push(options);
+    const hold = {};
+    currentHold = hold;
+    onLockAcquired?.();
+    try {
+      return await operation(hold);
+    } finally {
+      if (currentHold === hold) currentHold = null;
+    }
+  }
+}));
 
 jest.mock('lib/miden/repo', () => ({
   transactions: {
@@ -17,12 +49,10 @@ jest.mock('lib/miden/transaction/initiate', () => ({
   initiateConsumeNotesTransaction: jest.fn(async () => 'consume-1')
 }));
 
-// Slice 7a (issue #260): classifySwapOrderNotes reads per-order PSWAP lineage
-// through `midenClientProxy.getPswapLineage` (a plain PswapLineageDto) instead of a
-// live client — mock it so the classifier consumes a DTO deterministically.
+// Keep realm transport at the boundary while the real classifier consumes the snapshot.
 jest.mock('lib/miden/back/miden-client-proxy', () => ({
   midenClientProxy: {
-    getPswapLineage: jest.fn(),
+    getPswapLineages: jest.fn(),
     getConsumableNotes: jest.fn()
   }
 }));
@@ -83,6 +113,7 @@ describe('swap order note settlement', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     toArray.mockResolvedValue([tx()]);
+    jest.mocked(midenClientProxy.getPswapLineages).mockResolvedValue([]);
     (Repo.transactions.filter as jest.Mock).mockReturnValue({ toArray });
     (Repo.transactions.where as jest.Mock).mockReturnValue({ modify });
   });
@@ -95,21 +126,70 @@ describe('swap order note settlement', () => {
       note('same-amount-unrelated', [999n, 88n, 1n, 0n])
     ];
     // The proxy returns a plain PswapLineageDto (slice 7a); classify consumes it.
-    (midenClientProxy.getPswapLineage as jest.Mock).mockResolvedValue({
-      orderId: '77',
-      currentTipNoteId: 'tip-2',
-      currentDepth: 2,
-      state: 0,
-      remainingOffered: '0',
-      remainingRequested: '0'
-    });
+    jest.mocked(midenClientProxy.getPswapLineages).mockResolvedValue([
+      {
+        orderId: '77',
+        currentTipNoteId: 'tip-2',
+        currentDepth: 2,
+        state: 0,
+        remainingOffered: '0',
+        remainingRequested: '0'
+      }
+    ]);
 
-    const result = await classifySwapOrderNotes(notes as any, 'account-1');
+    // A hold is required by the signature; this direct unit test of the classifier is not
+    // inside one, so it passes a sentinel the ownership check will accept.
+    const classifyHold = { id: 'direct-classify-call' } as unknown as WasmLockHold;
+    currentHold = classifyHold;
+    const result = await classifySwapOrderNotes(notes as any, 'account-1', undefined, classifyHold);
 
     expect(result.get('tip-2')).toEqual(expect.objectContaining({ orderId: '77', depth: 2, role: 'tip' }));
     expect(result.get('payback-1')).toEqual(expect.objectContaining({ orderId: '77', depth: 1, role: 'payback' }));
     expect(result.has('future-depth-unrelated')).toBe(false);
     expect(result.has('same-amount-unrelated')).toBe(false);
+  });
+
+  it('classifies multiple orders from one snapshot and skips missing entries', async () => {
+    toArray.mockResolvedValue([
+      tx(),
+      tx({ id: 'swap-2', extraInputs: { ...tx().extraInputs, orderId: 88n } }),
+      tx({ id: 'missing', extraInputs: { ...tx().extraInputs, orderId: 99n } })
+    ]);
+    jest.mocked(midenClientProxy.getPswapLineages).mockResolvedValue([
+      {
+        orderId: '77',
+        currentTipNoteId: 'tip-77',
+        currentDepth: 2,
+        state: 0,
+        remainingOffered: '10',
+        remainingRequested: '20'
+      },
+      {
+        orderId: '88',
+        currentTipNoteId: 'tip-88',
+        currentDepth: 3,
+        state: 2,
+        remainingOffered: '0',
+        remainingRequested: '0'
+      }
+    ]);
+    const result = await withWasmClientLock(hold =>
+      classifySwapOrderNotes(
+        [note('tip-77'), note('tip-88'), note('payback-88', [0n, 88n, 1n, 0n]), note('absent', [0n, 99n, 1n, 0n])],
+        'account-1',
+        undefined,
+        hold
+      )
+    );
+    expect(midenClientProxy.getPswapLineages).toHaveBeenCalledTimes(1);
+    expect(result.get('tip-77')).toEqual(
+      expect.objectContaining({ orderId: '77', role: 'tip', lineageState: 'active' })
+    );
+    expect(result.get('tip-88')).toEqual(
+      expect.objectContaining({ orderId: '88', role: 'tip', lineageState: 'reclaimed' })
+    );
+    expect(result.get('payback-88')).toEqual(expect.objectContaining({ orderId: '88', role: 'payback', depth: 1 }));
+    expect(result.has('absent')).toBe(false);
   });
 
   it('leaves partial-fill paybacks untouched while active and unexpired', async () => {
@@ -190,31 +270,58 @@ describe('swap order note settlement', () => {
     expect(initiateConsumeNotesTransaction).toHaveBeenCalledWith('account-1', [payback], true);
   });
 
-  it('persists expiry intent before batching the current tip and all paybacks', async () => {
+  it('persists expiry intent before queueing, and never batches the still-fillable tip with the paybacks', async () => {
     const tip = consumable('tip', 'tip');
     const payback = consumable('payback', 'payback');
+    (initiateConsumeNotesTransaction as jest.Mock)
+      .mockResolvedValueOnce('consume-payback')
+      .mockResolvedValueOnce('consume-tip');
+
     await reconcileSwapOrderNotes('account-1', [tip, payback], true, 220);
 
-    // Two writes: the expiry intent on the swap row, then the settlement tag
-    // on the queued consume row.
-    expect(modify).toHaveBeenCalledTimes(2);
+    // One consume per role, paybacks first. A Miden transaction is atomic and an
+    // expired order's tip is still publicly fillable, so a solver that fills it
+    // would fail a combined batch — and the #215 backoff gate, which counts a
+    // note's failures through the shared batch row, would then throttle the
+    // payback claim (funds already delivered to this account) for 5, 10, 20 …
+    // minutes.
+    expect((initiateConsumeNotesTransaction as jest.Mock).mock.calls).toEqual([
+      ['account-1', [payback], true],
+      ['account-1', [tip], true]
+    ]);
+    // Three writes: the expiry intent on the swap row, then one settlement tag
+    // per queued consume row.
+    expect(modify).toHaveBeenCalledTimes(3);
     expect(modify.mock.invocationCallOrder[0]).toBeLessThan(
       (initiateConsumeNotesTransaction as jest.Mock).mock.invocationCallOrder[0]!
     );
-    expect(initiateConsumeNotesTransaction).toHaveBeenCalledWith('account-1', [tip, payback], true);
   });
 
-  it('tags an expired batch that still carries payback notes as settle — funds were received', async () => {
+  it('tags the payback consume settle and the tip consume reclaim, each on its own row', async () => {
+    (initiateConsumeNotesTransaction as jest.Mock)
+      .mockResolvedValueOnce('consume-payback')
+      .mockResolvedValueOnce('consume-tip');
+
     await reconcileSwapOrderNotes('account-1', [consumable('tip', 'tip'), consumable('payback', 'payback')], true, 220);
 
-    expect(Repo.transactions.where).toHaveBeenCalledWith({ id: 'consume-1' });
-    const tagWriter = modify.mock.calls[modify.mock.calls.length - 1]![0] as unknown as (tx: {
-      type: string;
-      extraInputs?: Record<string, unknown>;
-    }) => void;
-    const consumeRow = { type: 'consume', extraInputs: undefined as Record<string, unknown> | undefined };
-    tagWriter(consumeRow);
-    expect(consumeRow.extraInputs).toEqual({ swapOrderTxId: 'swap-1', swapSettleKind: 'settle' });
+    // where() call 1 is the expiry-intent write on the swap row; 2 and 3 are the
+    // two settlement tags, in queueing order.
+    expect(Repo.transactions.where).toHaveBeenNthCalledWith(2, { id: 'consume-payback' });
+    expect(Repo.transactions.where).toHaveBeenNthCalledWith(3, { id: 'consume-tip' });
+
+    const tagsWrittenBy = (modifyCall: number) => {
+      const tagWriter = modify.mock.calls[modifyCall]![0] as unknown as (tx: {
+        type: string;
+        extraInputs?: Record<string, unknown>;
+      }) => void;
+      const consumeRow = { type: 'consume', extraInputs: undefined as Record<string, unknown> | undefined };
+      tagWriter(consumeRow);
+      return consumeRow.extraInputs;
+    };
+    expect(tagsWrittenBy(1)).toEqual({ swapOrderTxId: 'swap-1', swapSettleKind: 'settle' });
+    // The unfilled remainder is a reclaim — and now that it has its own row,
+    // `getSwapSettlementNotes` no longer buckets it as a settled (received) note.
+    expect(tagsWrittenBy(2)).toEqual({ swapOrderTxId: 'swap-1', swapSettleKind: 'reclaim' });
   });
 
   it('tags a fund-less expired batch (tip only) as reclaim', async () => {
@@ -268,6 +375,167 @@ describe('swap order note settlement', () => {
 
     expect(modify).not.toHaveBeenCalled();
     expect(toArray).toHaveBeenCalledTimes(1);
+  });
+
+  // The settlement tick is a 3s timer that rebuilds the client whenever the slot is
+  // empty — which after any eviction it is — so before #777 it was one more unattended
+  // probe that could park the realm's only WASM mutex for the FIVE-minute backstop and
+  // leak a poisoned client, once every three seconds, with nothing watching.
+  describe('the settlement tick as an unattended probe (#777)', () => {
+    beforeEach(() => {
+      __resetSyncFuseStateForTests();
+      lockOptionsSeen.length = 0;
+      (midenClientProxy.getConsumableNotes as jest.Mock).mockResolvedValue([]);
+    });
+
+    afterEach(() => __resetSyncFuseStateForTests());
+
+    it('bounds and labels its hold instead of taking the five-minute backstop', async () => {
+      await settleSwapOrders('account-1');
+
+      expect(lockOptionsSeen).toHaveLength(1);
+      expect(lockOptionsSeen[0]).toMatchObject({ label: 'swap-settlement' });
+      // The number matters, not just the presence of a key: the backstop is what the
+      // bound exists to replace.
+      expect(lockOptionsSeen[0]).toMatchObject({ watchdogMs: expect.any(Number) });
+      const { watchdogMs } = lockOptionsSeen[0] as { watchdogMs: number };
+      expect(watchdogMs).toBeLessThan(5 * 60_000);
+    });
+
+    it('takes no hold at all once the shared claimable-notes fuse is lit', async () => {
+      for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; i++) noteSyncWatchdogEviction('claimable-notes');
+
+      const result = await settleSwapOrders('account-1');
+
+      expect(lockOptionsSeen).toHaveLength(0);
+      expect(midenClientProxy.getConsumableNotes).not.toHaveBeenCalled();
+      // Skipping is "nothing to settle this lap", not an error: the caller is a timer.
+      expect(result).toEqual({ queuedTransactionIds: [], managedNoteIds: new Set() });
+    });
+
+    it('re-asks the fuse once the mutex is ours, so a tick that queued behind a park still turns back', async () => {
+      // The pre-lock gate runs before the QUEUE. This probe shares its key with
+      // the claimable-notes poll deliberately, and while that poll sits parked for
+      // its full two minutes this tick passes an unlit fuse and lines up behind
+      // it — then reaches the same parked node just after the poll's eviction lit
+      // the fuse. One check on either side of the queue is what makes the fuse
+      // cost one park per cycle rather than one per waiter.
+      const { noteSyncWatchdogEviction } = require('../front/sync-fuse');
+      const { MAX_CONSECUTIVE_WATCHDOG_EVICTIONS } = require('../sync-backoff');
+      __resetSyncFuseStateForTests();
+      lockOptionsSeen.length = 0;
+      (midenClientProxy.getConsumableNotes as jest.Mock).mockClear();
+      // Lit at the handover, so the pre-lock gate was open on the way in.
+      onLockAcquired = () => {
+        for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; i++) noteSyncWatchdogEviction('claimable-notes');
+      };
+
+      const result = await settleSwapOrders('account-1');
+      onLockAcquired = null;
+
+      // It took the lock — so this is not the pre-lock skip being re-tested…
+      expect(lockOptionsSeen).toHaveLength(1);
+      // …and then turned back without touching the node.
+      expect(midenClientProxy.getConsumableNotes).not.toHaveBeenCalled();
+      expect(result).toEqual({ queuedTransactionIds: [], managedNoteIds: new Set() });
+      // Critically NOT reported as a success: booking one here would withdraw the
+      // very evidence that just turned this tick away.
+      expect(isSyncFused('claimable-notes')).toBe(true);
+      __resetSyncFuseStateForTests();
+    });
+
+    it('feeds its own evictions into that fuse, so four parked ticks stop the fifth', async () => {
+      (midenClientProxy.getConsumableNotes as jest.Mock).mockRejectedValue(new WasmClientPoisonedError('watchdog'));
+
+      for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; i++) {
+        await expect(settleSwapOrders('account-1')).rejects.toMatchObject({ name: 'WasmClientPoisonedError' });
+      }
+
+      expect(isSyncFused('claimable-notes')).toBe(true);
+    });
+
+    it('the settlement read forwards the reader check that parked into its own label', async () => {
+      let thrown: unknown;
+      (midenClientProxy.getConsumableNotes as jest.Mock).mockImplementationOnce(async (...called: unknown[]) => {
+        const assertLive = called[1] as (step?: string) => void;
+        currentHold = null; // an eviction hands the mutex on
+        try {
+          assertLive('after the reader build');
+        } catch (e) {
+          thrown = e;
+          throw e;
+        }
+        return [];
+      });
+
+      await expect(settleSwapOrders('account-1')).rejects.toMatchObject({ name: 'WasmClientPoisonedError' });
+      expect(((thrown as Error).cause as Error).message).toBe(
+        'operation abandoned inside the settlement consumable-notes read, after the reader build'
+      );
+    });
+
+    it('withdraws the shared fuse evidence on its own success, so it is not write-only (#777)', async () => {
+      // This probe shares the `claimable-notes` key with the SWR poll, and a producer that
+      // only ever ADDS evidence is a one-way door: four evictions of the settlement tick
+      // would fuse the claimable-notes poll for half an hour at a time with nothing on
+      // this path able to put it out.
+      const { noteSyncWatchdogEviction, isSyncFused, __resetSyncFuseStateForTests } = require('../front/sync-fuse');
+      const { MAX_CONSECUTIVE_WATCHDOG_EVICTIONS } = require('../sync-backoff');
+      __resetSyncFuseStateForTests();
+      for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; i++) noteSyncWatchdogEviction('claimable-notes');
+      expect(isSyncFused('claimable-notes')).toBe(true);
+
+      // Fused, so this call is a no-op and must NOT report a success it did not observe.
+      await settleSwapOrders('account-1');
+      expect(isSyncFused('claimable-notes')).toBe(true);
+
+      // Serve out the window; the probe that gets through and succeeds clears it.
+      jest.spyOn(performance, 'now').mockReturnValue(performance.now() + 40 * 60_000);
+      await settleSwapOrders('account-1');
+      jest.restoreAllMocks();
+      expect(isSyncFused('claimable-notes')).toBe(false);
+      __resetSyncFuseStateForTests();
+    });
+
+    it('rejects a bulk lineage snapshot whose hold was evicted during the read', async () => {
+      toArray.mockResolvedValue([tx(), tx({ id: 'swap-2', extraInputs: { ...tx().extraInputs, orderId: 78n } })]);
+      jest.mocked(midenClientProxy.getConsumableNotes).mockResolvedValue([note('tip-2')]);
+      jest.mocked(midenClientProxy.getPswapLineages).mockImplementationOnce(async () => {
+        currentHold = null;
+        return [];
+      });
+      await expect(settleSwapOrders('account-1')).rejects.toMatchObject({ name: 'WasmClientPoisonedError' });
+      expect(midenClientProxy.getPswapLineages).toHaveBeenCalledTimes(1);
+
+      jest.mocked(midenClientProxy.getPswapLineages).mockClear();
+      await settleSwapOrders('account-1');
+      expect(midenClientProxy.getPswapLineages).toHaveBeenCalledTimes(1);
+    });
+
+    it('reports an ordinary bulk snapshot failure instead of withdrawing probe failure evidence', async () => {
+      for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; i++) noteSyncWatchdogEviction('claimable-notes');
+      const now = jest.spyOn(performance, 'now').mockReturnValue(performance.now() + 40 * 60_000);
+      jest.mocked(midenClientProxy.getConsumableNotes).mockResolvedValue([note('tip-2')]);
+      jest.mocked(midenClientProxy.getPswapLineages).mockRejectedValue(new Error('snapshot unavailable'));
+      try {
+        await expect(settleSwapOrders('account-1')).rejects.toThrow('snapshot unavailable');
+        expect(isSyncFused('claimable-notes')).toBe(true);
+      } finally {
+        now.mockRestore();
+      }
+    });
+
+    it('stops before the lineage read when the note read was evicted mid-flight', async () => {
+      // The mutex is released the moment the watchdog evicts, but this callback keeps
+      // running — so the lineage read below would be WASM work with no lock held.
+      (midenClientProxy.getConsumableNotes as jest.Mock).mockImplementationOnce(async () => {
+        currentHold = null;
+        return [note('tip-2')];
+      });
+
+      await expect(settleSwapOrders('account-1')).rejects.toMatchObject({ name: 'WasmClientPoisonedError' });
+      expect(midenClientProxy.getPswapLineages).not.toHaveBeenCalled();
+    });
   });
 
   it('tags a payback settlement consume with the settle kind', async () => {

@@ -1,5 +1,7 @@
+import { NoteFilterTypes } from '@miden-sdk/miden-sdk/lazy';
 import {
   AllowedPrivateData,
+  WalletError,
   EventEmitter,
   InputNoteDetails,
   MidenConsumeTransaction,
@@ -8,9 +10,8 @@ import {
   PrivateDataPermission,
   SignKind,
   WalletAdapterNetwork
-} from '@demox-labs/miden-wallet-adapter-base';
-import { MidenWallet, MidenWalletEvents } from '@demox-labs/miden-wallet-adapter-miden';
-import { NoteFilterTypes } from '@miden-sdk/miden-sdk/lazy';
+} from '@miden-sdk/miden-wallet-adapter-base';
+import { MidenWallet, MidenWalletEvents } from '@miden-sdk/miden-wallet-adapter-miden';
 
 import {
   importPrivateNote,
@@ -130,5 +131,24 @@ export class MidenWindowObject extends EventEmitter<MidenWalletEvents> implement
     this.address = undefined;
     this.permission = undefined;
     this.clearAccountChangeInterval && this.clearAccountChangeInterval();
+  }
+  /**
+   * Not supported by this wallet.
+   *
+   * `createAccount` has been on the published `MidenWallet` interface since
+   * adapter 0.13.2, but no Miden wallet provider implements it: the extension,
+   * the mobile injection script and the Tauri provider all lack it, and there
+   * is no `CREATE_ACCOUNT_REQUEST` in `MidenDAppMessageType`. Before this the
+   * method was simply absent, so a dApp calling it got
+   * `TypeError: wallet.createAccount is not a function`.
+   *
+   * Rejecting with a named error is not a fix — it is a clearer failure. The
+   * fix is either to add the wire round-trip across all three providers, or to
+   * drop the method from the adapter interface.
+   */
+  async createAccount(): Promise<{ accountId: string }> {
+    throw new WalletError(
+      'createAccount is not supported by the Miden wallet. No provider implements it and there is no wire message for it.'
+    );
   }
 }

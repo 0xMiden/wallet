@@ -1,3 +1,4 @@
+import type { NoteFilterTypes } from '@miden-sdk/miden-sdk/lazy';
 import {
   AllowedPrivateData,
   Asset,
@@ -8,8 +9,7 @@ import {
   PrivateDataPermission,
   SignKind,
   WalletAdapterNetwork
-} from '@demox-labs/miden-wallet-adapter-base';
-import type { NoteFilterTypes } from '@miden-sdk/miden-sdk/lazy';
+} from '@miden-sdk/miden-wallet-adapter-base';
 
 import { TransactionOutput } from 'lib/miden/db/types';
 import { GuardianInfo } from 'lib/shared/types';

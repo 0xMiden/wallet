@@ -58,6 +58,16 @@ interface IosWalletPageOpts {
   sim: SimulatorControl;
   udid: string;
   bundleId: string;
+  /**
+   * Runs before every screenshot. The fixture passes the notification-alert gate here, so no
+   * capture path shoots a frame while the SpringBoard permission alert is up.
+   */
+  beforeCapture?: () => Promise<void>;
+  /**
+   * Waits until the app has asked for notification permission and the prompt is answered, tapping Allow the way
+   * the capture gate does. Resolves whether that happened in time.
+   */
+  settleNotificationPrompt?: () => Promise<boolean>;
 }
 
 /**
@@ -83,6 +93,8 @@ export class IosWalletPage implements WalletPage {
   readonly bundleId: string;
   private cdp: CdpSession;
   private sim: SimulatorControl;
+  private beforeCapture?: () => Promise<void>;
+  private settlePrompt?: () => Promise<boolean>;
   private pollStats: PollStats = { pollCount: 0, pollIterations: 0, pollMs: 0, pollSleepMs: 0 };
 
   constructor(opts: IosWalletPageOpts) {
@@ -90,6 +102,8 @@ export class IosWalletPage implements WalletPage {
     this.sim = opts.sim;
     this.udid = opts.udid;
     this.bundleId = opts.bundleId;
+    this.beforeCapture = opts.beforeCapture;
+    this.settlePrompt = opts.settleNotificationPrompt;
   }
 
   /** Read poll stats snapshot. Includes CdpSession totals too. */
@@ -100,7 +114,13 @@ export class IosWalletPage implements WalletPage {
   // ── Capability surfaces (matches Playwright Page shape) ─────────────────
 
   async screenshot(opts: { path: string }): Promise<void> {
+    await this.beforeCapture?.();
     await this.sim.screenshot(this.udid, opts.path);
+  }
+
+  /** Whether the app asked for notification permission and the prompt was answered; false with no gate wired. */
+  async settleNotificationPrompt(): Promise<boolean> {
+    return (await this.settlePrompt?.()) ?? false;
   }
 
   async evaluate<T = unknown>(fn: () => T | Promise<T>): Promise<T> {
@@ -507,7 +527,7 @@ export class IosWalletPage implements WalletPage {
    * Read balances from the Zustand store. Unlike Chrome, mobile has no
    * `chrome.storage.local` fallback — sync data lives only in the store.
    */
-  async getBalance(_tokenSymbol?: string): Promise<number> {
+  async getBalance(tokenSymbol?: string): Promise<number> {
     await this.navigateHome();
     await sleep(1_000);
     // Reads consumed balances from the Zustand store. useSyncTrigger updates
@@ -520,10 +540,16 @@ export class IosWalletPage implements WalletPage {
     // platforms auto-consume ONLY notes from the well-known MIDEN faucet;
     // E2E tests use a CUSTOM faucet, so iOS specs need to call
     // claimAllNotes() before waiting on a positive balance.
+    // `tokenSymbol` is honoured, and on a fee-charging chain it MATTERS: the wallet now also
+    // holds the native asset it was funded with, so an unfiltered total goes positive as soon
+    // as THAT lands. A spec that waits on it and then acts on the test token opened its send
+    // before the test token existed, and failed on a missing `send-token-<SYM>` row.
+    const wanted = tokenSymbol === undefined ? '' : tokenSymbol.toUpperCase();
     return this.cdp.eval<number>(
       `var s = window.__TEST_STORE__; ` +
         `if (!s) return 0; ` +
         `var st = s.getState(); ` +
+        `var want = ${JSON.stringify(wanted)}; ` +
         `var total = 0; ` +
         `var balances = st.balances || {}; ` +
         `for (var k in balances) { ` +
@@ -531,6 +557,10 @@ export class IosWalletPage implements WalletPage {
         `  if (!Array.isArray(list)) continue; ` +
         `  for (var i = 0; i < list.length; i++) { ` +
         `    var t = list[i]; ` +
+        `    if (want) { ` +
+        `      var sym = (t.metadata && t.metadata.symbol) ? String(t.metadata.symbol).toUpperCase() : ''; ` +
+        `      if (sym !== want) continue; ` +
+        `    } ` +
         `    var amt = parseFloat(String(t.amount != null ? t.amount : (t.balance != null ? t.balance : '0'))); ` +
         `    if (amt > 0) total += amt; ` +
         `  } ` +

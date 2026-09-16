@@ -23,7 +23,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: yarn
       - name: Install
         # Plain `yarn install` (no --frozen-lockfile) mirrors the proven pr.yml
         # coverage job, tolerating any latent lockfile drift on a first run.

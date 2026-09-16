@@ -1,13 +1,16 @@
-import React, { FC, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { FC, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import { generateMnemonic } from 'bip39';
 import wordslist from 'bip39/src/wordlists/english.json';
+import { useTranslation } from 'react-i18next';
 
 import AwaitFonts from 'app/a11y/AwaitFonts';
 import { formatMnemonic } from 'app/defaults';
 import { canHandoffToSidePanel, postOnboardingRoute } from 'lib/extension/side-panel-handoff';
 import { useMidenContext } from 'lib/miden/front';
 import { useGuardianProbe } from 'lib/miden/guardian/use-guardian-probe';
+import { monotonicNowMs } from 'lib/miden/sync-backoff';
+import { getTestNetworkNameKey } from 'lib/miden-chain/effective-endpoints';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isDesktop, isMobile } from 'lib/platform';
 import { hasTelemetryChoice } from 'lib/settings/helpers';
@@ -17,9 +20,10 @@ import { fetchStateFromBackend } from 'lib/store/hooks/useIntercomSync';
 import { beginFlow, classifyError, FlowHandle } from 'lib/telemetry';
 import { TelemetryStep } from 'lib/telemetry/types';
 import { seedWalletPrompt, WalletPromptType } from 'lib/wallet-prompts';
-import { navigate, useLocation } from 'lib/woozie';
+import { listen, navigate, useLocation } from 'lib/woozie';
+import { errorToMessage } from 'screens/onboarding/error-message';
 import { OnboardingFlow } from 'screens/onboarding/navigator';
-import { OnboardingAction, OnboardingStep, OnboardingType, WalletType } from 'screens/onboarding/types';
+import { NO_GUARDIAN_ID, OnboardingAction, OnboardingStep, OnboardingType, WalletType } from 'screens/onboarding/types';
 
 /**
  * Check if hardware security is available for vault key protection.
@@ -66,6 +70,9 @@ function protectionStepRoute(): string {
   return biometricProtectionSupported() ? '/#choose-protection' : '/#create-password';
 }
 
+const READY_WAIT_BUDGET_MS = 5_000;
+const READY_POLL_INTERVAL_MS = 100;
+
 /**
  * Where a finished onboarding goes next.
  *
@@ -86,24 +93,39 @@ function postCreationRoute(destination: string): string {
  * Wait for the wallet state to become Ready after registration.
  * This ensures the state is fully synced before navigation.
  */
-async function waitForReadyState(syncFromBackend: (state: any) => void, maxAttempts = 10): Promise<void> {
-  console.log('[waitForReadyState] Starting, maxAttempts:', maxAttempts);
-  for (let i = 0; i < maxAttempts; i++) {
+async function waitForReadyState(syncFromBackend: (state: any) => void): Promise<boolean> {
+  // On the monotonic clock, so a wall-clock correction neither ends the wait early nor stretches it.
+  const deadline = monotonicNowMs() + READY_WAIT_BUDGET_MS;
+  let attempt = 0;
+  console.log('[waitForReadyState] Starting, budgetMs:', READY_WAIT_BUDGET_MS);
+  while (monotonicNowMs() < deadline) {
+    attempt += 1;
     try {
-      console.log('[waitForReadyState] Attempt', i + 1);
-      const state = await fetchStateFromBackend();
+      console.log('[waitForReadyState] Attempt', attempt);
+      // Enforce the deadline here rather than through the read's abort signal: the mobile and
+      // desktop intercom adapters ignore that signal, so a wedged read would hold the screen.
+      let budgetTimer: ReturnType<typeof setTimeout> | undefined;
+      const budgetSpent = new Promise<null>(resolve => {
+        budgetTimer = setTimeout(() => resolve(null), deadline - monotonicNowMs());
+      });
+      const state = await Promise.race([fetchStateFromBackend(), budgetSpent]).finally(() => clearTimeout(budgetTimer));
+      if (!state) break;
       console.log('[waitForReadyState] Got state:', { status: state.status, hasAccounts: !!state.accounts?.length });
       syncFromBackend(state);
       if (state.status === WalletStatus.Ready) {
         console.log('[waitForReadyState] State is Ready, done');
-        return;
+        return true;
       }
     } catch (error) {
       console.warn('[waitForReadyState] Failed to fetch state, retrying...', error);
     }
-    await new Promise(r => setTimeout(r, 100));
+    const remainingMs = deadline - monotonicNowMs();
+    if (remainingMs > 0) {
+      await new Promise(r => setTimeout(r, Math.min(READY_POLL_INTERVAL_MS, remainingMs)));
+    }
   }
-  console.warn('[waitForReadyState] Max attempts reached, state still not Ready');
+  console.warn('[waitForReadyState] Time budget reached, state still not Ready');
+  return false;
 }
 
 /**
@@ -135,6 +157,7 @@ const ONBOARDING_TELEMETRY_STEPS: Partial<Record<OnboardingStep, TelemetryStep>>
 };
 
 const Welcome: FC = () => {
+  const { t } = useTranslation();
   const { hash } = useLocation();
   const [step, setStep] = useState(OnboardingStep.Welcome);
   const [seedPhrase, setSeedPhrase] = useState<string[] | null>(null);
@@ -153,6 +176,30 @@ const Welcome: FC = () => {
   const [biometricAttempts, setBiometricAttempts] = useState(0);
   const [biometricError, setBiometricError] = useState<string | null>(null);
   const [guardianLookupError, setGuardianLookupError] = useState(false);
+  /**
+   * A registration failure to show on the confirmation screen.
+   *
+   * The same defect #630 fixed for password recovery was never applied to
+   * onboarding: every failure that is not Import+Guardian or hardware-only was
+   * console.error'd and nothing else, so the screen looked idle and the button
+   * looked dead. A wallet that cannot reach a compatible node fails here, and
+   * "nothing happened" is indistinguishable from "still working".
+   */
+  const [registrationError, setRegistrationError] = useState<string | null>(null);
+  // The registration the backend is building or holds, keyed by the inputs that made it.
+  // NewWalletRequest wipes storage before it creates anything, so the same inputs never register
+  // twice (a retry joins it), and a failed registration is forgotten because it may already have
+  // wiped the wallet.
+  const registrationRef = useRef<{ inputs: string; done: Promise<void> } | null>(null);
+  // A confirmation attempt (a tap, or the side-panel auto-create) is in flight from its start to its outcome:
+  // registration, prompt setup and readiness. While it runs, onboarding stays on Confirmation and ignores actions,
+  // as mobile back already does: another attempt could wipe the wallet this one commits, and a committed wallet
+  // takes the tab into the app (resolveRootView) whatever the screens show, so nothing may change its inputs.
+  const attemptInFlightRef = useRef(false);
+  // Advanced by every action onboarding accepts, by every history change the router reports and when this page
+  // unmounts. An action that awaits the hardware-security check acts on its answer only while nothing newer happened:
+  // otherwise the user has moved on, and may have confirmed inputs the stale answer would overwrite.
+  const transitionGenerationRef = useRef(0);
   // Tracks which protection screen the user came through; needed so ChooseGuardian
   // back navigation and the create-password→confirmation routing pick the right
   // origin without colliding with the legacy create flow.
@@ -330,14 +377,25 @@ const Welcome: FC = () => {
       const seedPhraseFormatted = formatMnemonic(seedPhrase.join(' '));
       // For hardware-only wallets, pass undefined as password
       const actualPassword = password === '__HARDWARE_ONLY__' ? undefined : password;
-      await registerWallet(
-        walletType,
-        actualPassword,
-        seedPhraseFormatted,
-        onboardingType === OnboardingType.Import,
-        guardianEndpoint
-      );
+      const isImport = onboardingType === OnboardingType.Import;
+      const inputs = JSON.stringify([walletType, actualPassword, seedPhraseFormatted, isImport, guardianEndpoint]);
+      let registration = registrationRef.current;
+      if (!registration || registration.inputs !== inputs) {
+        const next = {
+          inputs,
+          done: (async () => {
+            await registerWallet(walletType, actualPassword, seedPhraseFormatted, isImport, guardianEndpoint);
+          })()
+        };
+        next.done.catch(() => {
+          if (registrationRef.current === next) registrationRef.current = null;
+        });
+        registrationRef.current = next;
+        registration = next;
+      }
+      await registration.done;
       if (onboardingType === OnboardingType.Create) {
+        // Idempotent and intentionally retried separately from wallet creation.
         await seedWalletPrompt(WalletPromptType.VerifySeedPhrase);
       }
     } else {
@@ -360,8 +418,16 @@ const Welcome: FC = () => {
     if (confirmPhase !== 'idle') return;
     if (onboardingType !== OnboardingType.Create) return;
     if (!password || !seedPhrase || password === '__HARDWARE_ONLY__') return;
+    // A tap can start an attempt between this screen's commit and this effect: leave the visit to that attempt,
+    // which is the classic tap flow, rather than start a second one.
+    if (attemptInFlightRef.current) {
+      setConfirmPhase('failed');
+      return;
+    }
 
     setConfirmPhase('creating');
+    attemptInFlightRef.current = true;
+    setIsLoading(true);
     (async () => {
       try {
         await register();
@@ -373,23 +439,57 @@ const Welcome: FC = () => {
         navigate(postCreationRoute('/finish-side-panel'));
       } catch (error) {
         // Fall back to the classic click-to-create flow: the confirmation
-        // button reverts to running register() in-tab on the next tap.
+        // button reverts to running register() in-tab on the next tap. Say so —
+        // the spinner stops either way, and without this the screen goes quiet
+        // and the user has no reason to believe a second tap would help.
         console.error('[Welcome] Side panel handoff auto-create failed:', error);
         settleOnboardingFlow(handle => handle.fail(classifyError(error)));
+        setRegistrationError(errorToMessage(error) ?? t('smthWentWrong'));
         setConfirmPhase('failed');
+      } finally {
+        attemptInFlightRef.current = false;
+        setIsLoading(false);
       }
     })();
-  }, [sidePanelHandoff, step, confirmPhase, onboardingType, password, seedPhrase, register, settleOnboardingFlow]);
+  }, [sidePanelHandoff, step, confirmPhase, onboardingType, password, seedPhrase, register, settleOnboardingFlow, t]);
 
   const onAction = async (action: OnboardingAction) => {
+    // A running confirmation attempt holds onboarding where it is (see attemptInFlightRef).
+    if (attemptInFlightRef.current) return;
+    transitionGenerationRef.current += 1;
+    const generation = transitionGenerationRef.current;
+
+    const startCreateFlow = () => {
+      setOnboardingType(OnboardingType.Create);
+      // Biometric is unavailable on the extension/desktop, so the
+      // choose-protection screen has only one real option — skip it and go
+      // straight to the full-password step.
+      navigate(protectionStepRoute());
+    };
+    const startImportFlow = () => {
+      // Recovery is seed-phrase only — jump straight to the seed entry screen.
+      setOnboardingType(OnboardingType.Import);
+      navigate('/#import-from-seed');
+    };
+
     switch (action.id) {
+      case 'network-notice-acknowledge':
+        if (onboardingType === OnboardingType.Import) {
+          startImportFlow();
+        } else {
+          startCreateFlow();
+        }
+        break;
       case 'choose-protection':
         beginOnboardingFlow('create');
-        setOnboardingType(OnboardingType.Create);
-        // Biometric is unavailable on the extension/desktop, so the
-        // choose-protection screen has only one real option — skip it and go
-        // straight to the full-password step.
-        navigate(protectionStepRoute());
+        // On a test network the chosen flow waits behind the network notice
+        // (#875); acknowledging the notice starts it.
+        if (getTestNetworkNameKey()) {
+          setOnboardingType(OnboardingType.Create);
+          navigate('/#network-notice');
+        } else {
+          startCreateFlow();
+        }
         break;
       case 'setup-passcode':
         setOnboardingType(OnboardingType.Create);
@@ -428,14 +528,23 @@ const Welcome: FC = () => {
         navigate('/#choose-guardian');
         break;
       case 'choose-guardian-submit':
-        setGuardianEndpoint(action.payload.guardianEndpoint);
-        setWalletType(WalletType.Guardian);
+        if (action.payload.guardianId === NO_GUARDIAN_ID) {
+          // No guardian: private single-key (OffChain) account. Leave the
+          // endpoint unbound so register() threads undefined; the non-guardian
+          // spawn branch ignores it anyway.
+          setGuardianEndpoint(undefined);
+          setWalletType(WalletType.OffChain);
+        } else {
+          setGuardianEndpoint(action.payload.guardianEndpoint);
+          setWalletType(WalletType.Guardian);
+        }
         if (password) {
           // Passcode flow already established a password — go straight to confirmation.
           navigate('/#confirmation');
         } else {
           // Biometric flow — defer the hardware vs password decision until now.
           const hardwareAvailable = await checkHardwareSecurityAvailable();
+          if (transitionGenerationRef.current !== generation) break;
           if (hardwareAvailable) {
             setPassword('__HARDWARE_ONLY__');
             navigate('/#confirmation');
@@ -446,14 +555,19 @@ const Welcome: FC = () => {
         break;
       case 'select-import-type':
         beginOnboardingFlow('import');
-        // Recovery is seed-phrase only — jump straight to the seed entry screen.
-        setOnboardingType(OnboardingType.Import);
-        navigate('/#import-from-seed');
+        if (getTestNetworkNameKey()) {
+          setOnboardingType(OnboardingType.Import);
+          navigate('/#network-notice');
+        } else {
+          startImportFlow();
+        }
         break;
       case 'import-from-seed':
         navigate('/#import-from-seed');
         break;
       case 'import-seed-phrase-submit':
+        // A new seed retires a Guardian lookup failure raised for the previous one.
+        setGuardianLookupError(false);
         setSeedPhrase(action.payload.split(' '));
         // Start guardian auto-detection here rather than on the recovery-method
         // screen: it then runs behind the password/passcode step and is usually
@@ -462,6 +576,7 @@ const Welcome: FC = () => {
         // Check if hardware security is available - if so, skip password step
         {
           const hardwareAvailable = await checkHardwareSecurityAvailable();
+          if (transitionGenerationRef.current !== generation) break;
           if (hardwareAvailable) {
             // Hardware-only mode: skip password, go to recovery method selection
             setPassword('__HARDWARE_ONLY__');
@@ -506,14 +621,24 @@ const Welcome: FC = () => {
         // effect above and navigates to /finish-side-panel, so this click only
         // runs in the classic flow: non-Chrome, hardware/biometric, or a retry
         // after a failed auto-create. It creates the wallet then enters in-tab.
+        attemptInFlightRef.current = true;
+        setIsLoading(true);
         try {
-          setIsLoading(true);
           setBiometricError(null);
+          setRegistrationError(null);
           await register();
           // Wait for state to be synced before navigating
           // This fixes a race condition where navigation happens before state is Ready
-          await waitForReadyState(syncFromBackend);
+          const becameReady = await waitForReadyState(syncFromBackend);
           setIsLoading(false);
+          if (!becameReady) {
+            // Registration resolved but the wallet never reported Ready. Do NOT
+            // navigate: `resolveRootView` sends a not-ready root back to
+            // Welcome, so the user lands at the start of onboarding with no
+            // idea their wallet may already exist. Stay put and say so.
+            setRegistrationError(t('walletSetupDidNotComplete'));
+            break;
+          }
           settleOnboardingFlow(handle => handle.complete());
           // Recovery/import completes in this classic handler (the Create flow
           // takes the auto-create effect above). Hand off to the side panel just
@@ -523,6 +648,10 @@ const Welcome: FC = () => {
           console.error('[Welcome] Confirmation flow failed:', error);
           setIsLoading(false);
           settleOnboardingFlow(handle => handle.fail(classifyError(error)));
+          // Surface it for every path; most used to show nothing. The Guardian import
+          // branch below hands off to the recovery-method screen, which retires this
+          // message on arrival, and the hardware-only branch adds its attempt count.
+          setRegistrationError(errorToMessage(error) ?? t('smthWentWrong'));
           if (onboardingType === OnboardingType.Import && walletType === WalletType.Guardian) {
             setGuardianLookupError(true);
             navigate('/#import-select-recovery-method');
@@ -532,6 +661,9 @@ const Welcome: FC = () => {
             setBiometricAttempts(newAttempts);
             setBiometricError(error instanceof Error ? error.message : 'Biometric authentication failed');
           }
+        } finally {
+          attemptInFlightRef.current = false;
+          setIsLoading(false);
         }
         break;
       case 'switch-to-password':
@@ -543,7 +675,11 @@ const Welcome: FC = () => {
         navigate('/#create-password');
         break;
       case 'back':
-        if (step === OnboardingStep.SelectWalletType || step === OnboardingStep.ChooseProtection) {
+        if (
+          step === OnboardingStep.NetworkNotice ||
+          step === OnboardingStep.SelectWalletType ||
+          step === OnboardingStep.ChooseProtection
+        ) {
           cancelOnLeavingOnboarding('/');
           navigate('/');
         } else if (step === OnboardingStep.SetupPasscode || step === OnboardingStep.SetupBiometric) {
@@ -591,10 +727,40 @@ const Welcome: FC = () => {
     }
   };
 
+  // The router reports each history change here as the location changes, before React renders it, so a move
+  // supersedes a pending hardware-security check even when it unmounts this page. A layout effect, so that unmounting
+  // supersedes it too inside the commit that removes the page, not a scheduler task later.
+  useLayoutEffect(() => {
+    const transitions = transitionGenerationRef;
+    const unlisten = listen(() => {
+      transitions.current += 1;
+    });
+    return () => {
+      unlisten();
+      transitions.current += 1;
+    };
+  }, []);
+
   useEffect(() => {
+    // While a confirmation attempt runs, any other hash (browser back or forward, an edited URL) is sent back to
+    // Confirmation. The attempt's own navigation is not: its finally ends the attempt before React commits the
+    // location that navigation sets, and this effect runs only after a commit.
+    if (attemptInFlightRef.current) {
+      if (hash !== '#confirmation') navigate('/#confirmation');
+      return;
+    }
     switch (hash) {
       case '':
         setStep(OnboardingStep.Welcome);
+        break;
+      case '#network-notice':
+        // The chosen flow is in-memory only, so a reload here has nothing to
+        // continue with; mainnet has no notice. Either way, restart from Welcome.
+        if (onboardingType === null || !getTestNetworkNameKey()) {
+          navigate('/');
+          break;
+        }
+        setStep(OnboardingStep.NetworkNotice);
         break;
       case '#select-wallet-type':
         setOnboardingType(OnboardingType.Create);
@@ -663,6 +829,12 @@ const Welcome: FC = () => {
     }
   }, [hash, password, onboardingType, resetGuardianProbe]);
 
+  // Leaving the step (the Guardian lookup hand-off, switch-to-password, browser back) retires a failure message,
+  // so it cannot greet a later visit.
+  useEffect(() => {
+    if (step !== OnboardingStep.Confirmation) setRegistrationError(null);
+  }, [step]);
+
   // Handle mobile back button/gesture in onboarding flow
   useMobileBackHandler(() => {
     // On welcome screen, let system handle (minimize on Android)
@@ -693,6 +865,7 @@ const Welcome: FC = () => {
           biometricAttempts={biometricAttempts}
           biometricError={biometricError}
           guardianLookupError={guardianLookupError}
+          recoveryError={registrationError}
           guardianProbe={guardianProbeState}
           confirmCreating={sidePanelHandoff && confirmPhase === 'creating'}
           onBiometricChange={setUseBiometric}

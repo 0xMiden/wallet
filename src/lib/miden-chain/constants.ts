@@ -19,10 +19,22 @@ import type { ResolvedGuardianOption } from 'lib/miden-chain/networks-config';
 
 export * from './networks-config';
 
+/** Effective explorer base for a network: the dev-settings override when it's the active network, else the build default. */
+function getExplorerBaseUrl(network: string): string | undefined {
+  return network === getEffectiveNetworkName() ? getEffectiveExplorerUrl() : MIDEN_EXPLORER_ENDPOINTS.get(network);
+}
+
 export function getExplorerTxUrl(txHash: string, network: string = getEffectiveNetworkName()): string | undefined {
-  const base =
-    network === getEffectiveNetworkName() ? getEffectiveExplorerUrl() : MIDEN_EXPLORER_ENDPOINTS.get(network);
+  const base = getExplorerBaseUrl(network);
   return base ? `${base}/tx/${txHash}` : undefined;
+}
+
+export function getExplorerAccountUrl(
+  address: string,
+  network: string = getEffectiveNetworkName()
+): string | undefined {
+  const base = getExplorerBaseUrl(network);
+  return base ? `${base}/account/${address}` : undefined;
 }
 
 /**
@@ -41,11 +53,22 @@ export function getNoteTransportUrl(network: string): string | undefined {
 }
 
 /**
- * Resolve GUARDIAN_OPTIONS to the providers that run a Guardian on `network`,
- * each flattened to its endpoint on that network (in GUARDIAN_OPTIONS order).
- * Single source of truth so the create picker and import presets can't drift.
+ * The Guardian operators that are WALLET CODE on `network`: GUARDIAN_OPTIONS
+ * flattened to its endpoint on that network (in GUARDIAN_OPTIONS order), plus
+ * the localnet E2E instance — also a literal in this repo. Deliberately WITHOUT
+ * the developer URL override that `getGuardianOptionsForNetwork` appends.
+ *
+ * The distinction is load-bearing for guardian drift reconciliation
+ * (`lib/miden/guardian/operator-map`), which treats this set as a SECOND SOURCE
+ * against an endpoint's own unauthenticated `GET /pubkey` self-report and lets a
+ * member of it overwrite the endpoint stored on an account. That is only sound
+ * while the set is bounded by the wallet's own configuration: the developer
+ * override is persisted, user-settable settings state — the same category of
+ * mutable value the corroboration exists to check — so a URL typed into dev
+ * settings must not gain authority over an account that already verified against
+ * a different endpoint.
  */
-export function getGuardianOptionsForNetwork(
+export function getBuiltInGuardianOptionsForNetwork(
   network: MIDEN_NETWORK_NAME = getEffectiveNetworkName()
 ): ResolvedGuardianOption[] {
   const options = GUARDIAN_OPTIONS.filter(o => o.endpoint.has(network)).map(o => ({
@@ -67,6 +90,23 @@ export function getGuardianOptionsForNetwork(
       endpoint: 'http://localhost:3001'
     });
   }
+
+  return options;
+}
+
+/**
+ * Resolve GUARDIAN_OPTIONS to the providers that run a Guardian on `network`,
+ * each flattened to its endpoint on that network (in GUARDIAN_OPTIONS order),
+ * PLUS the developer guardian-URL override as an extra selectable option.
+ * Single source of truth so the create picker and import presets can't drift —
+ * both of them legitimately want to offer that override, which is why anything
+ * that treats the operator list as evidence rather than as a menu reads
+ * {@link getBuiltInGuardianOptionsForNetwork} instead.
+ */
+export function getGuardianOptionsForNetwork(
+  network: MIDEN_NETWORK_NAME = getEffectiveNetworkName()
+): ResolvedGuardianOption[] {
+  const options = getBuiltInGuardianOptionsForNetwork(network);
 
   // Developer override: a custom guardian URL is offered as an extra selectable option.
   const customGuardian = getEffectiveGuardianUrl();
@@ -128,8 +168,13 @@ export function getNetworkId(): NetworkId {
     case MIDEN_NETWORK_NAME.DEVNET:
       return NetworkId.devnet();
     /* c8 ignore stop */
-    case MIDEN_NETWORK_NAME.TESTNET:
     case MIDEN_NETWORK_NAME.LOCALNET:
+      // The SDK exposes no localnet() constructor — localnet uses the 'mlcl'
+      // bech32 HRP (ground truth: the node's faucet reports `mlcl1…` ids).
+      // Without this branch LOCALNET fell through to testnet() and rendered
+      // every address/faucet id under the wrong 'mtst1' prefix.
+      return NetworkId.custom('mlcl');
+    case MIDEN_NETWORK_NAME.TESTNET:
     default:
       return NetworkId.testnet();
   }

@@ -4,6 +4,7 @@ import {
   IBridgedReceivePhase,
   IEarnDepositExtraInputs,
   IEarnWithdrawPhase,
+  INoteDeliveryState,
   ITransactionIcon,
   ITransactionStatus,
   ITransactionType,
@@ -46,6 +47,21 @@ export interface IHistoryEntry {
   rawErrorMessage?: string;
   /** User-requested cancellation, persisted as a failed terminal transaction. */
   isCancelled?: boolean;
+  /**
+   * `tx.noteDelivery` — whether this send's private note reached the transport
+   * layer. Read by the detail page to warn that a transaction which SUCCEEDED on
+   * chain may still not be spendable by its recipient, since a private note is
+   * unreachable without its relayed body. Absent for public sends and for rows
+   * written before the field existed.
+   */
+  noteDelivery?: INoteDeliveryState;
+  /**
+   * `tx.processingStartedAt` — stamped atomically with the Queued →
+   * GeneratingTransaction transition. The detail page's Retry gate reads it as
+   * the double-send guard's "did this row ever execute?" signal: absent means the
+   * failure is unambiguously pre-submit. Set by the detail page only.
+   */
+  processingStartedAt?: number;
   token?: string;
   /**
    * Formatted for display, like `requestedAmount` below — every producer assigns
@@ -110,6 +126,12 @@ export interface IHistoryEntry {
   bridgeEpochStatus?: 'pending' | 'confirmed' | 'failed';
   /** epoch: absolute Miden block after which a failed bridge's P2IDE note is reclaimable. */
   bridgeReclaimHeight?: number;
+  /**
+   * Mirrors `ITransaction.restoredFromBackup`. Carried onto the entry so the
+   * detail view can withhold affordances that turn a row back into work —
+   * a restored row's note ids and amounts come from whoever wrote the dump.
+   */
+  restoredFromBackup?: boolean;
 
   // `consume` rows that claimed a bridged-in (EVM → Miden) note render as
   // bridge rows instead of plain receives (see `bridgeInRowDisplay`).

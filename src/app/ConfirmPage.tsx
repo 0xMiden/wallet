@@ -2,8 +2,8 @@
 
 import React, { FC, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 
-import { PrivateDataPermission } from '@demox-labs/miden-wallet-adapter-base';
 import { SigningInputs, SigningInputsType, Word } from '@miden-sdk/miden-sdk/lazy';
+import { PrivateDataPermission } from '@miden-sdk/miden-wallet-adapter-base';
 import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
@@ -13,6 +13,7 @@ import { useApprovalPrompt } from 'app/hooks/useDappApprovalTelemetry';
 import ContentContainer from 'app/layouts/ContentContainer';
 import Unlock from 'app/pages/Unlock';
 import { Button, ButtonVariant } from 'components/Button';
+import { NetworkModeBanner } from 'components/NetworkModeBanner';
 import { getAllUncompletedTransactions } from 'lib/miden/activity';
 import { ITransactionStatus } from 'lib/miden/db/types';
 import { useAccount, useMidenContext } from 'lib/miden/front';
@@ -30,7 +31,13 @@ import FormSecondaryButton from './atoms/FormSecondaryButton';
 import FormSubmitButton from './atoms/FormSubmitButton';
 import Name from './atoms/Name';
 import { AdvancedDetails, FoldableField } from './confirm/AdvancedDetails';
-import { declaredRequestToView, summaryBytesToView, summaryToView, TxAssetView } from './confirm/decode';
+import {
+  declaredRequestToView,
+  executedBytesToView,
+  summaryBytesToView,
+  summaryToView,
+  TxAssetView
+} from './confirm/decode';
 import { TransactionAssetView } from './confirm/TransactionAssetView';
 import { ConfirmPageSelectors } from './ConfirmPage.selectors';
 import { Icon, IconName } from './icons/v2';
@@ -43,17 +50,14 @@ const ConfirmPage: FC = () => {
   const { t } = useTranslation();
   const { ready } = useMidenContext();
 
-  return useMemo(
+  const page = useMemo(
     () =>
       ready ? (
-        <ContentContainer
-          padding={false}
-          className={classNames('min-h-screen', 'flex flex-col items-center justify-center bg-app-bg')}
-        >
+        <ContentContainer padding={false} className="flex flex-col items-center justify-center bg-app-bg">
           <ErrorBoundary whileMessage={t('fetchingConfirmationDetails')}>
             <Suspense
               fallback={
-                <div className="flex items-center justify-center h-screen bg-app-bg">
+                <div className="flex flex-1 items-center justify-center bg-app-bg">
                   <div>
                     <Spinner />
                   </div>
@@ -68,6 +72,15 @@ const ConfirmPage: FC = () => {
         <Unlock openForgotPasswordInFullPage={true} />
       ),
     [ready, t]
+  );
+
+  // The network banner (#875) tops the confirm window the way PageRouter tops
+  // every routed page, and dapp.ts sizes the popup for it (CONFIRM_WINDOW_HEIGHT).
+  return (
+    <div className="flex min-h-screen flex-col bg-app-bg">
+      <NetworkModeBanner />
+      {page}
+    </div>
   );
 };
 
@@ -379,10 +392,17 @@ const CustomTransactionContent: React.FC<{
     let cancelled = false;
     (async () => {
       try {
-        const { summaryBytes } = await simulateCustomTransaction(id);
+        const { summaryBytes, executedBytes } = await simulateCustomTransaction(id);
         if (cancelled) return;
         if (summaryBytes) {
           setVerifiedView(summaryBytesToView(summaryBytes));
+          return;
+        }
+        // Already-fully-authorized account (every ordinary single-sig one on
+        // web-sdk 0.16): no summary is produced, the dry run returns the executed
+        // transaction instead. Same ground truth — see simulate-custom-tx.ts.
+        if (executedBytes) {
+          setVerifiedView(executedBytesToView(executedBytes));
           return;
         }
         setSimError(true);

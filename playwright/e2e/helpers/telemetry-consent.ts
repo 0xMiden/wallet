@@ -14,7 +14,17 @@
  * post-onboarding surface that is now one screen further away, so the run parked
  * on the consent prompt until the wait expired.
  */
-import { errors, type Page } from '@playwright/test';
+import type { Page } from '@playwright/test';
+
+/**
+ * Playwright's TimeoutError by NAME, so this module never value-imports
+ * `@playwright/test`. It is reached from a plain Jest unit test
+ * (`playwright/e2e/ios/helpers/ios-wallet-page.test.ts` imports the iOS driver,
+ * which imports this), and loading playwright-core under Jest throws
+ * `Class extends value undefined`. The name is stable across the bundle;
+ * `constructor.name` is NOT (the bundler renames it to `TimeoutError2`).
+ */
+const isTimeoutError = (error: unknown): boolean => error instanceof Error && error.name === 'TimeoutError';
 
 /** `HelpImproveWallet.tsx`'s container — the prompt is up iff this is mounted. */
 export const TELEMETRY_CONSENT_TESTID = 'onboarding-help-improve-wallet';
@@ -161,7 +171,7 @@ async function dismissViaLocators(page: Page, timeoutMs: number, nextSurface: st
     // ONLY "nothing showed up in time" is tolerable here. A closed page, a
     // strict-mode violation or a crashed browser must not be laundered into a
     // silent no-op.
-    if (error instanceof errors.TimeoutError) return false;
+    if (isTimeoutError(error)) return false;
     throw error;
   }
 
@@ -175,7 +185,7 @@ async function dismissViaLocators(page: Page, timeoutMs: number, nextSurface: st
     // landing, so a pre-flight check would leave exactly this diagnosis missing
     // from the interleaving most likely to produce it. Costs nothing when the
     // click succeeds.
-    if (error instanceof errors.TimeoutError && (await page.locator(ROTATION_GATE_SELECTOR).isVisible())) {
+    if (isTimeoutError(error) && (await page.locator(ROTATION_GATE_SELECTOR).isVisible())) {
       throw new Error(`dismissTelemetryConsent: could not decline — ${ROTATION_GATE_HINT}`);
     }
     throw error;

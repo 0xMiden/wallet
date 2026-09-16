@@ -5,7 +5,7 @@ export { BalanceCard } from './BalanceCard';
 export type { BalanceCardProps, BalanceDeltaDirection } from './BalanceCard';
 
 export { PromptCard } from './PromptCard';
-export type { PromptCardProps, PromptCardStatus, PromptCardVariant } from './PromptCard';
+export type { PromptCardHero, PromptCardProps, PromptCardStatus, PromptCardVariant } from './PromptCard';
 
 export { PromptCarousel } from './PromptCarousel';
 export type { PromptCarouselProps } from './PromptCarousel';
@@ -19,7 +19,7 @@ export type { SegmentedActionBarProps, SegmentedActionBarItem } from './Segmente
 export { BottomNav } from './BottomNav';
 export type { BottomNavProps, BottomNavItem } from './BottomNav';
 
-export { TabHeader } from './TabHeader';
+export { TabHeader, TabHeaderAction } from './TabHeader';
 export type { TabHeaderProps } from './TabHeader';
 
 export { SearchInput } from './SearchInput';

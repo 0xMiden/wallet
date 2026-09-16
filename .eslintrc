@@ -6,15 +6,28 @@
     "plugin:import/warnings",
     "plugin:import/typescript"
   ],
-  "plugins": ["import", "prettier", "autofix", "jest", "i18next"],
+  "plugins": [
+    "import",
+    "prettier",
+    "autofix",
+    "jest",
+    "i18next"
+  ],
   "settings": {
     "import/resolver": {
       "typescript": {}
     },
-    "import/ignore": ["framer-motion", "p-queue", "zustand", "@floating-ui/react"]
+    "import/ignore": [
+      "framer-motion",
+      "p-queue",
+      "zustand",
+      "@floating-ui/react"
+    ]
   },
   "parser": "@typescript-eslint/parser",
-  "ignorePatterns": ["**.css"],
+  "ignorePatterns": [
+    "**.css"
+  ],
   "rules": {
     "i18next/no-literal-string": "off",
     "import/no-named-as-default": 0,
@@ -35,14 +48,53 @@
             "position": "before"
           }
         ],
-        "pathGroupsExcludedImportTypes": ["react"],
-        "groups": [["external", "builtin"], "internal", ["parent", "sibling", "index"]],
+        "pathGroupsExcludedImportTypes": [
+          "react"
+        ],
+        "groups": [
+          [
+            "external",
+            "builtin"
+          ],
+          "internal",
+          [
+            "parent",
+            "sibling",
+            "index"
+          ]
+        ],
         "alphabetize": {
           "order": "asc",
           "caseInsensitive": true
         },
         "newlines-between": "always"
       }
+    ],
+    "no-restricted-syntax": [
+      "error",
+      {
+        "selector": "CallExpression[callee.property.name='outputNotes']",
+        "message": "The kernel's TX_FEE note is an output note too, so a raw outputNotes() read hands you the fee note alongside the user's -- and indexing or counting that array silently picks or over-counts on any fee-charging chain while staying green at fee 0. Read output notes only via splitExecutedOutputNotes() in lib/miden/activity/fee-notes.ts."
+      }
     ]
-  }
+  },
+  "overrides": [
+    {
+      "files": [
+        "src/lib/miden/activity/fee-notes.ts"
+      ],
+      "rules": {
+        "no-restricted-syntax": "off"
+      }
+    },
+    {
+      "files": [
+        "**/*.test.ts",
+        "**/*.test.tsx"
+      ],
+      "rules": {
+        "no-restricted-syntax": "off"
+      }
+    }
+  ]
 }

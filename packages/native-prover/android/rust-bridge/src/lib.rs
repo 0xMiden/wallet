@@ -57,12 +57,14 @@ pub extern "system" fn Java_com_miden_nativeprover_MidenNativeProverPlugin_prove
         }
     };
 
-    // The rayon-backed prover spawns its own thread pool via the
-    // `concurrent` feature. The prove future itself is CPU-bound (no
-    // async I/O); `futures_executor::block_on` is a single-threaded
-    // driver, all the real parallelism is in rayon under the hood.
+    // The rayon-backed prover spawns its own thread pool via the `concurrent`
+    // feature, so this call blocks the calling JNI thread while rayon does the
+    // real work. `prove` is synchronous as of miden-client 0.16 — it used to
+    // return a future that had to be driven by `futures_executor::block_on`,
+    // and the prove was always CPU-bound (no async I/O) so the executor was
+    // only ever a driver. Mirrors web-sdk's `crates/mobile-prover`.
     let prover = LocalTransactionProver::new(ProvingOptions::default());
-    let proven: ProvenTransaction = match futures_executor::block_on(prover.prove(inputs)) {
+    let proven: ProvenTransaction = match prover.prove(inputs) {
         Ok(p) => p,
         Err(e) => {
             let _ = env.throw_new(

@@ -29,17 +29,19 @@ let mockFaucetId: string | null = 'faucet-native';
 let mockAccount: { publicKey: string } = { publicKey: 'mtst1account' };
 let mockAllBalances: any;
 let mockClaimableNotes: any;
+let mockClaimableNotesAreCached = false;
 let mockIsExtension = true;
 let mockIsMobile = true;
 let mockAutoConsume = false;
 let mockDelegateProof = false;
 let mockTokenPrices: Record<string, unknown> = {};
+let mockBalancesLoading = false;
+let mockBaseFee: number | null = 0;
 
 const mockSignTransaction = jest.fn();
 const mockMutateBalances = jest.fn();
 const mockMutateClaimableNotes = jest.fn();
 const mockInitiateConsumeTransaction = jest.fn();
-const mockReconcileBridgedReceives = jest.fn();
 const mockRequestSWTransactionProcessing = jest.fn();
 const mockStartBackgroundTransactionProcessing = jest.fn();
 const mockNavigate = jest.fn();
@@ -52,6 +54,10 @@ jest.mock('react-i18next', () => ({
 jest.mock('app/hooks/useMidenFaucetId', () => ({
   __esModule: true,
   default: () => mockFaucetId
+}));
+jest.mock('app/hooks/useVerificationBaseFee', () => ({
+  __esModule: true,
+  default: () => mockBaseFee
 }));
 
 // Balance is a render-prop that hands its child the total fiat BigNumber; the
@@ -67,15 +73,18 @@ jest.mock('app/templates/HomePrompts', () => ({
   default: ({
     account,
     claimableNotes,
+    fundingNotes,
     tokenPrices
   }: {
     account: { publicKey: string };
     claimableNotes?: unknown[];
+    fundingNotes?: unknown[];
     tokenPrices: Record<string, unknown>;
   }) => (
     <div
       data-testid="home-prompts"
       data-note-count={claimableNotes?.length ?? 0}
+      data-funding-notes={fundingNotes === undefined ? 'unloaded' : String(fundingNotes.length)}
       data-price-symbols={Object.keys(tokenPrices).join(',')}
     >
       {account?.publicKey}
@@ -104,14 +113,16 @@ jest.mock('components/ui', () => ({
     accountNumber,
     accountId,
     amount,
-    onMore
+    onMore,
+    state
   }: {
     accountNumber: string;
     accountId: string;
     amount: string;
     onMore: () => void;
+    state?: string;
   }) => (
-    <div data-testid="balance-card">
+    <div data-testid="balance-card" data-state={state}>
       <span data-testid="balance-account-number">{accountNumber}</span>
       <span data-testid="balance-account-id">{accountId}</span>
       <span data-testid="balance-amount">{amount}</span>
@@ -152,7 +163,6 @@ jest.mock('lib/i18n/numbers', () => ({
 
 jest.mock('lib/miden/activity', () => ({
   initiateConsumeTransaction: (...args: any[]) => mockInitiateConsumeTransaction(...args),
-  reconcileBridgedReceives: (...args: any[]) => mockReconcileBridgedReceives(...args),
   requestSWTransactionProcessing: (...args: any[]) => mockRequestSWTransactionProcessing(...args),
   startBackgroundTransactionProcessing: (...args: any[]) => mockStartBackgroundTransactionProcessing(...args)
 }));
@@ -167,13 +177,17 @@ jest.mock('lib/epoch', () => ({
 
 jest.mock('lib/miden/front', () => ({
   useAccount: () => mockAccount,
-  useAllBalances: () => ({ data: mockAllBalances, mutate: mockMutateBalances }),
+  useAllBalances: () => ({ data: mockAllBalances, mutate: mockMutateBalances, isLoading: mockBalancesLoading }),
   useAllTokensBaseMetadata: () => ({}),
   useMidenContext: () => ({ signTransaction: mockSignTransaction })
 }));
 
 jest.mock('lib/miden/front/claimable-notes', () => ({
-  useClaimableNotes: () => ({ data: mockClaimableNotes, mutate: mockMutateClaimableNotes })
+  useClaimableNotes: () => ({
+    data: mockClaimableNotes,
+    isFallback: mockClaimableNotesAreCached,
+    mutate: mockMutateClaimableNotes
+  })
 }));
 
 jest.mock('lib/miden/front/guardian-sync', () => ({
@@ -238,13 +252,15 @@ describe('Explore', () => {
     mockAccount = { publicKey: 'mtst1account' };
     mockAllBalances = [];
     mockClaimableNotes = undefined;
+    mockClaimableNotesAreCached = false;
     mockIsExtension = true;
     mockIsMobile = true;
     mockAutoConsume = false;
     mockDelegateProof = false;
     mockTokenPrices = {};
+    mockBalancesLoading = false;
+    mockBaseFee = 0;
     mockInitiateConsumeTransaction.mockResolvedValue(undefined);
-    mockReconcileBridgedReceives.mockResolvedValue(undefined);
     mockMutateBalances.mockResolvedValue(undefined);
     mockMutateClaimableNotes.mockResolvedValue(undefined);
     consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
@@ -278,6 +294,48 @@ describe('Explore', () => {
       const rows = screen.getAllByTestId('asset-row');
       expect(rows).toHaveLength(3);
       expect(rows[0]).toHaveAttribute('data-token', 'faucet-native');
+    });
+
+    it('hands the faucet lifecycle only a live note list, never the cached fallback', async () => {
+      // The hook serves last session's saved list first. A faucet baseline taken
+      // from it would count any native note newer than that cache as this
+      // request's mint arriving, so the funding list stays unloaded until live.
+      mockClaimableNotes = [makeNote('note-1', 'faucet-native')];
+      mockClaimableNotesAreCached = true;
+      await renderExplore();
+      expect(screen.getByTestId('home-prompts')).toHaveAttribute('data-funding-notes', 'unloaded');
+      // The attention list is unaffected: the pending-notes card may show cached notes.
+      expect(screen.getByTestId('home-prompts')).toHaveAttribute('data-note-count', '1');
+    });
+
+    it('hands the faucet lifecycle the live note list once it has landed', async () => {
+      mockClaimableNotes = [makeNote('note-1', 'faucet-native')];
+      mockClaimableNotesAreCached = false;
+      await renderExplore();
+      expect(screen.getByTestId('home-prompts')).toHaveAttribute('data-funding-notes', '1');
+    });
+
+    it('puts the balance card in its loading state until the first balance read completes (#844)', async () => {
+      // Right after a recovery the store has no entry for the address yet, so
+      // the hook hands back a zero placeholder with `isLoading: true`. The card
+      // must show its skeleton, not a "$0.00" that reads as lost funds.
+      mockAllBalances = [makeToken('faucet-native', 'MIDEN', 'Miden', 0)];
+      mockTokenPrices = { MIDEN: { price: 1, change24h: 0, percentageChange24h: 0 } };
+      mockBalancesLoading = true;
+
+      await renderExplore();
+
+      expect(screen.getByTestId('balance-card')).toHaveAttribute('data-state', 'loading');
+    });
+
+    it('returns the balance card to its default state once balances have loaded', async () => {
+      mockAllBalances = [makeToken('faucet-native', 'MIDEN', 'Miden', 100)];
+      mockTokenPrices = { MIDEN: { price: 1, change24h: 0, percentageChange24h: 0 } };
+      mockBalancesLoading = false;
+
+      await renderExplore();
+
+      expect(screen.getByTestId('balance-card')).toHaveAttribute('data-state', 'default');
     });
 
     it('shows the portfolio total as "$—" when no prices have loaded, not a fabricated $1-based figure (gap 16)', async () => {
@@ -324,6 +382,34 @@ describe('Explore', () => {
 
       expect(screen.getByTestId('home-prompts')).toHaveAttribute('data-note-count', '1');
       expect(screen.getByTestId('home-prompts')).toHaveAttribute('data-price-symbols', 'MIDEN');
+    });
+
+    it('keeps notes the page itself auto-consumes out of home prompts (#811)', async () => {
+      mockAutoConsume = true;
+      mockClaimableNotes = [
+        makeNote('auto', 'faucet-native'),
+        makeNote('manual', 'other-faucet'),
+        makeNote('manual-swap', 'faucet-native', false, { autoConsume: false })
+      ];
+
+      await renderExplore();
+
+      expect(screen.getByTestId('home-prompts')).toHaveAttribute('data-note-count', '2');
+    });
+
+    it('keeps a native note worth too little to auto-consume on home prompts', async () => {
+      mockAutoConsume = true;
+      mockBaseFee = 10;
+      // One render must drop the note a consume already covers and keep the dust note: a raw list would count three.
+      mockClaimableNotes = [
+        { ...makeNote('dust', 'faucet-native'), amount: '1' },
+        { ...makeNote('claiming', 'faucet-native', true), amount: '1000000' },
+        makeNote('manual', 'other-faucet')
+      ];
+
+      await renderExplore();
+
+      expect(screen.getByTestId('home-prompts')).toHaveAttribute('data-note-count', '2');
     });
   });
 
@@ -512,6 +598,17 @@ describe('Explore', () => {
       await renderExplore();
 
       expect(mockInitiateConsumeTransaction).not.toHaveBeenCalled();
+    });
+
+    it('never auto-consumes a native note that only the cached list has shown', async () => {
+      mockAutoConsume = true;
+      mockClaimableNotes = [{ ...makeNote('cached', 'faucet-native'), fromCache: true }];
+
+      await renderExplore();
+
+      expect(mockInitiateConsumeTransaction).not.toHaveBeenCalled();
+      expect(mockRequestSWTransactionProcessing).not.toHaveBeenCalled();
+      expect(mockStartBackgroundTransactionProcessing).not.toHaveBeenCalled();
     });
 
     it('leaves native swap notes to the swap settlement path', async () => {

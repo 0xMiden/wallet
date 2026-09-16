@@ -9,7 +9,7 @@ import { MidenWindowObject } from './midenWindowObject';
 // import time. Provide a factory that supplies a real, constructable
 // EventEmitter (from eventemitter3, which jest DOES transform) plus the enum
 // values the module's type imports reference.
-jest.mock('@demox-labs/miden-wallet-adapter-base', () => {
+jest.mock('@miden-sdk/miden-wallet-adapter-base', () => {
   const EE = require('eventemitter3');
   return {
     __esModule: true,
