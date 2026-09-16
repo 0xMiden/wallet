@@ -415,7 +415,9 @@ export const cancelStuckTransactions = async () => {
  */
 export const cancelStaleQueuedTransactions = async () => {
   const queued = await Repo.transactions.filter(rec => rec.status === ITransactionStatus.Queued).toArray();
-  const stale = queued.filter(tx => Math.floor(Date.now() / 1000) - tx.initiatedAt > MAX_QUEUED_AGE);
+  const stale = queued.filter(
+    tx => !tx.awaitingRecoverySeed && Math.floor(Date.now() / 1000) - tx.initiatedAt > MAX_QUEUED_AGE
+  );
   await Promise.all(stale.map(tx => cancelTransaction(tx, TRANSACTION_EXPIRED_ERROR)));
 };
 

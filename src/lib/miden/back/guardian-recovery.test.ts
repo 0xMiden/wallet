@@ -246,6 +246,41 @@ describe('detached recovery run', () => {
     expect(mockClearProgress).toHaveBeenCalledWith(account.publicKey);
   });
 
+  // Hot-key-only import: no cold key exists (and no seed to re-derive one),
+  // so note recovery authenticates with the hot key — the same key the
+  // everyday proposal flow already signs guardian requests with.
+  it('falls back to the hot signer for an account with no cold key', async () => {
+    const { WalletSigner } = jest.requireMock('lib/miden/guardian/signer') as { WalletSigner: jest.Mock };
+    const { getSignerDetailsFromAccount } = jest.requireMock('lib/miden/guardian/account') as {
+      getSignerDetailsFromAccount: jest.Mock;
+    };
+    const account = pendingAccount({ coldPublicKey: undefined, hotPublicKey: 'hotpub' });
+
+    await maybeStartGuardianRecovery(account);
+    await drainDetachedRun();
+
+    // The commitment is read from the HOT signer slot, and the signer binds
+    // to the hot public key.
+    expect(getSignerDetailsFromAccount).toHaveBeenCalledWith(expect.anything(), false);
+    expect(WalletSigner).toHaveBeenCalledWith('0xhotpub', '0xcommitment', expect.any(Function));
+    // The run completes like the cold-signed one does.
+    expect(setPendingFlag).toHaveBeenCalledWith(account.publicKey, false);
+  });
+
+  it('still prefers the cold signer when the account has a cold key', async () => {
+    const { WalletSigner } = jest.requireMock('lib/miden/guardian/signer') as { WalletSigner: jest.Mock };
+    const { getSignerDetailsFromAccount } = jest.requireMock('lib/miden/guardian/account') as {
+      getSignerDetailsFromAccount: jest.Mock;
+    };
+    const account = pendingAccount({ coldPublicKey: '0xcold', hotPublicKey: 'hotpub' });
+
+    await maybeStartGuardianRecovery(account);
+    await drainDetachedRun();
+
+    expect(getSignerDetailsFromAccount).toHaveBeenCalledWith(expect.anything(), true);
+    expect(WalletSigner).toHaveBeenCalledWith('0xcold', '0xcommitment', expect.any(Function));
+  });
+
   // The setup reads the account through the offscreen realm, so a deadline kill
   // there is ordinary traffic. Counting it as a failed source would strand the
   // account for the rest of this backend's lifetime over nothing.
