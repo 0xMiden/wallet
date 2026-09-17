@@ -31,6 +31,8 @@ export interface ReviewLayoutProps {
   secondary?: ReviewAction;
   /** Optional message shown just above the CTAs — e.g. a failed bridge submit. */
   error?: React.ReactNode;
+  /** Highlight color of the hero divider: brand orange, or the Send flow's accent. */
+  accent?: 'brand' | 'send';
 }
 
 /**
@@ -48,7 +50,8 @@ export const ReviewLayout: React.FC<ReviewLayoutProps> = ({
   children,
   primary,
   secondary,
-  error
+  error,
+  accent = 'brand'
 }) => {
   // Hide the bottom tab navbar while this review screen is mounted (no-op on
   // full-screen routes that render outside TabLayout).
@@ -59,7 +62,14 @@ export const ReviewLayout: React.FC<ReviewLayoutProps> = ({
       <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar">
         {hero}
 
-        {heroDivider && <div className="mt-4 h-2 w-full rounded-full bg-primary-500" />}
+        {heroDivider && (
+          <div
+            className={classNames(
+              'mt-4 h-2 w-full rounded-full',
+              accent === 'send' ? 'bg-accent-send' : 'bg-primary-500'
+            )}
+          />
+        )}
 
         <div className={classNames(dividers && 'divide-y divide-rule-default')}>{children}</div>
       </div>

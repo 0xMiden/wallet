@@ -10,6 +10,26 @@ import { useNavbarHidden } from 'lib/mobile/useNavbarHidden';
 import { stepFooterCushionClass } from './footer-cushion';
 import { useSlideOnReflow } from './useSlideOnReflow';
 
+/** The send flow's back button: nav button surface, Send-accent arrow. Shared by the steps and Review. */
+export const SendBackButton: React.FC<{ onBack: () => void }> = ({ onBack }) => {
+  const { t } = useTranslation();
+
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        hapticLight();
+        onBack();
+      }}
+      aria-label={t('back')}
+      data-testid="send-step-back"
+      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-surface-nav-button"
+    >
+      <Icon name={IconName.BackArrow} size="sm" fill="currentColor" className="text-accent-send" />
+    </button>
+  );
+};
+
 export interface SendStepLayoutProps {
   /** Step title, e.g. "Choose recipient". */
   title: React.ReactNode;
@@ -29,7 +49,6 @@ export interface SendStepLayoutProps {
  * accent; only the primary CTA keeps the brand orange.
  */
 export const SendStepLayout: React.FC<SendStepLayoutProps> = ({ title, titleAccessory, onBack, children, footer }) => {
-  const { t } = useTranslation();
   // With the tab bar hidden (steps past the recipient, or the keyboard up) the
   // CTA sits at the bottom of the screen; with it showing, just above it.
   const navbarHidden = useNavbarHidden();
@@ -40,22 +59,7 @@ export const SendStepLayout: React.FC<SendStepLayoutProps> = ({ title, titleAcce
 
   return (
     <div ref={rootRef} className="flex h-full min-h-0 flex-col bg-app-bg px-6">
-      <div className="flex h-12 shrink-0 items-end">
-        {onBack && (
-          <button
-            type="button"
-            onClick={() => {
-              hapticLight();
-              onBack();
-            }}
-            aria-label={t('back')}
-            data-testid="send-step-back"
-            className="flex h-9 w-9 items-center justify-center rounded-full bg-surface-nav-button"
-          >
-            <Icon name={IconName.BackArrow} size="sm" fill="currentColor" className="text-accent-send" />
-          </button>
-        )}
-      </div>
+      <div className="flex h-12 shrink-0 items-end">{onBack && <SendBackButton onBack={onBack} />}</div>
 
       <div className="no-scrollbar flex min-h-0 flex-1 flex-col overflow-y-auto pt-4">
         <div className="flex min-h-6 items-center justify-between gap-3">

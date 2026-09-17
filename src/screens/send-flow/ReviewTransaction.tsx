@@ -6,7 +6,6 @@ import { useTranslation } from 'react-i18next';
 import { useAppEnv } from 'app/env';
 import { useNetworkFeeEstimate } from 'app/hooks/useNetworkFeeEstimate';
 import { ReviewAmount, ReviewLayout, ReviewRow } from 'components/review';
-import { ScreenHeader } from 'components/ScreenHeader';
 import { initiateB2AggBridge } from 'lib/agglayer/b2agg';
 import { EVM_AGGLAYER_NETWORK_ID } from 'lib/agglayer/b2agg/constant';
 import { confirmSensitiveAction } from 'lib/biometric';
@@ -30,8 +29,10 @@ import { goBack, HistoryAction, navigate, Redirect, useLocation } from 'lib/wooz
 import { detectAddressChain, isValidRecipientAddress } from 'utils/miden';
 
 import { BRIDGE_OUTPUT_TOKEN_SYMBOL, getBridgeNetwork, BridgeNetworkId } from './bridge-networks';
+import { NetworkChip } from './NetworkChip';
 import { dateTimeToRecallBlocks, RecallCalendarDrawer, SECONDS_PER_BLOCK } from './RecallCalendarDrawer';
 import { clearSendDraft } from './send-draft';
+import { SendBackButton } from './SendStepLayout';
 import { BridgeRoute, UIToken } from './types';
 import { useEpochQuote } from './useEpochQuote';
 
@@ -378,14 +379,16 @@ export const ReviewTransaction: React.FC = () => {
 
   return (
     <div className="flex flex-col h-full min-h-0 bg-app-bg">
-      <ScreenHeader
-        title={t('reviewDetails')}
-        backLabel={t('back')}
-        onBack={() => goBack()}
-        className="mx-4 shrink-0"
-      />
+      {/* Same header shape as ScreenHeader, with the send flow's back button. */}
+      <div className="mx-4 flex shrink-0 items-center gap-4 border-b border-border-faint py-4">
+        <SendBackButton onBack={() => goBack()} />
+        <h1 className="flex-1 font-heading text-[1.75rem] font-extrabold leading-none text-heading-gray">
+          {t('reviewDetails')}
+        </h1>
+      </div>
       <div className="flex-1 min-h-0">
         <ReviewLayout
+          accent="send"
           hero={<ReviewAmount symbol={token?.name ?? ''} amount={amount} label={t('youAreSending')} />}
           primary={{
             label: t('sendPayment'),
@@ -403,10 +406,11 @@ export const ReviewTransaction: React.FC = () => {
           <ReviewRow label={t('to')} value={to} />
 
           <ReviewRow label={t('network')}>
-            <span className="inline-flex items-center gap-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-primary-500" />
-              {isBridge ? (bridgeNetworkObj?.name ?? t('ethereum')) : t('miden')}
-            </span>
+            {isBridge ? (
+              <NetworkChip kind="ethereum" label={bridgeNetworkObj?.name ?? t('ethereum')} />
+            ) : (
+              <NetworkChip kind="miden" label={t('miden')} />
+            )}
           </ReviewRow>
 
           {/* The exact fee is `baseFee x (floor(log2(cycles)) + 1)` and cycles are not known until
@@ -429,6 +433,7 @@ export const ReviewTransaction: React.FC = () => {
           ) : (
             <ReviewRow
               label={t('expirationDate')}
+              accent="send"
               onEdit={() => setShowCalendar(true)}
               editLabel={t('edit')}
               note={recallBlocks ? t('recallReturnsNote', { amount: `${amount} ${token?.name ?? ''}` }) : undefined}

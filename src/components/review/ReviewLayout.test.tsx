@@ -130,6 +130,12 @@ describe('ReviewLayout', () => {
       expect(container.querySelector('.bg-primary-500')).toBeInTheDocument();
     });
 
+    it('uses the Send accent for the hero divider when asked', () => {
+      const { container } = render(<ReviewLayout {...makeProps({ accent: 'send' })} />);
+      expect(container.querySelector('.bg-accent-send')).toBeInTheDocument();
+      expect(container.querySelector('.bg-primary-500')).not.toBeInTheDocument();
+    });
+
     it('omits the hero divider when heroDivider is false', () => {
       const { container } = render(<ReviewLayout {...makeProps({ heroDivider: false })} />);
       expect(container.querySelector('.bg-primary-500')).not.toBeInTheDocument();

@@ -66,15 +66,15 @@ jest.mock('app/env', () => ({
   useAppEnv: () => ({ fullPage: mockFullPage })
 }));
 
-jest.mock('components/ScreenHeader', () => ({
-  ScreenHeader: ({ title, onBack, backLabel }: any) => (
-    <div data-testid="screen-header">
-      <span>{title}</span>
-      <button data-testid="back-btn" aria-label={backLabel} onClick={onBack}>
-        back
-      </button>
-    </div>
+jest.mock('./SendStepLayout', () => ({
+  SendBackButton: ({ onBack }: any) => (
+    <button data-testid="back-btn" aria-label="back" onClick={onBack}>
+      back
+    </button>
   )
+}));
+jest.mock('./NetworkChip', () => ({
+  NetworkChip: ({ label }: any) => <span data-testid="network-chip">{label}</span>
 }));
 
 jest.mock('components/review', () => ({
@@ -364,7 +364,9 @@ describe('ReviewTransaction — rendering', () => {
     render(<ReviewTransaction />);
     await flush();
 
-    expect(screen.getByTestId('screen-header')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: 'reviewDetails' })).toBeInTheDocument();
+    expect(screen.getByTestId('back-btn')).toBeInTheDocument();
+    expect(screen.getByTestId('network-chip')).toHaveTextContent('miden');
     expect(screen.getByTestId('review-amount').textContent).toBe('youAreSending|5|MDN');
     // Recipient row value.
     expect(screen.getByText('0xrecipient')).toBeInTheDocument();
