@@ -51,6 +51,16 @@ describe('BottomNav — exports & structure', () => {
     buttons.forEach(button => expect(button.getAttribute('type')).toBe('button'));
   });
 
+  it('docks edge to edge with a top rule instead of floating as a pill when `docked`', () => {
+    const { container } = renderNav({ docked: true });
+
+    const nav = container.querySelector('nav')!;
+    expect(nav.className).toContain('w-full');
+    expect(nav.className).toContain('border-t');
+    expect(nav.className).not.toContain('rounded-3xl');
+    expect(nav.className).not.toContain('shadow-');
+  });
+
   it('appends a caller-supplied className to the nav container', () => {
     const { container } = renderNav({ className: 'my-extra-class' });
 
@@ -78,22 +88,22 @@ describe('BottomNav — active vs inactive rendering', () => {
     expect(getTab('Settings').hasAttribute('aria-current')).toBe(false);
   });
 
-  it('applies the accent color + bold label to the active tab and the neutral pair to the rest', () => {
+  it('applies the accent color to the active tab and the neutral color to the rest; every label is Nunito bold', () => {
     renderNav({ activeId: 'home' });
 
     const active = getTab('Home');
     expect(active.className).toContain('text-accent-primary');
     expect(active.className).not.toContain('text-text-primary-token');
-    // Active label is bold.
-    expect(screen.getByText('Home').className).toContain('font-bold');
-    expect(screen.getByText('Home').className).not.toContain('font-semibold');
 
     const inactive = getTab('Settings');
     expect(inactive.className).toContain('text-text-primary-token');
     expect(inactive.className).not.toContain('text-accent-primary');
-    // Inactive label is semibold.
-    expect(screen.getByText('Settings').className).toContain('font-semibold');
-    expect(screen.getByText('Settings').className).not.toContain('font-bold');
+
+    // Labels share one face and weight (Nunito bold); only color marks the active tab.
+    for (const label of ['Home', 'Settings']) {
+      expect(screen.getByText(label).className).toContain('font-heading');
+      expect(screen.getByText(label).className).toContain('font-bold');
+    }
   });
 });
 

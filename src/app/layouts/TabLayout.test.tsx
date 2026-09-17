@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { render, screen, fireEvent } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import type { Transition } from 'framer-motion';
 
 import { hapticSelection } from 'lib/mobile/haptics';
@@ -114,8 +114,8 @@ jest.mock('framer-motion', () => ({
 // clickable buttons plus a synthetic "unknown id" button so the layout's
 // route-lookup guard branches are all reachable.
 jest.mock('components/ui', () => ({
-  BottomNav: ({ items, activeId, onChange }: any) => (
-    <div data-testid="bottom-nav" data-active={activeId}>
+  BottomNav: ({ items, activeId, onChange, docked }: any) => (
+    <div data-testid="bottom-nav" data-active={activeId} data-docked={String(!!docked)}>
       {items.map((it: any) => (
         <button
           key={it.id}
@@ -458,6 +458,64 @@ describe('TabLayout — bottom nav footer padding', () => {
     mockPlatform.isMobile = true;
     renderLayout();
     expect(screen.getByTestId('bottom-nav').parentElement).not.toHaveClass('pb-2');
+  });
+
+  it('floats the pill off-mobile and docks the bar edge to edge on mobile', () => {
+    mockPlatform.isMobile = false;
+    const { unmount } = renderLayout();
+    expect(screen.getByTestId('bottom-nav')).toHaveAttribute('data-docked', 'false');
+    expect(screen.getByTestId('bottom-nav').parentElement).toHaveClass('px-4');
+    unmount();
+
+    mockPlatform.isMobile = true;
+    renderLayout();
+    expect(screen.getByTestId('bottom-nav')).toHaveAttribute('data-docked', 'true');
+    expect(screen.getByTestId('bottom-nav').parentElement).not.toHaveClass('px-4');
+  });
+});
+
+describe('TabLayout — docked bar hides while scrolling down on mobile', () => {
+  beforeEach(() => jest.useFakeTimers());
+  afterEach(() => jest.useRealTimers());
+
+  // Any element inside the layout stands in for a pane's scroll region: the
+  // container listens in the capture phase, so the target's depth is irrelevant.
+  const scrollRegion = () => screen.getByTestId('bottom-nav');
+  const bar = () => screen.getByTestId('bottom-nav').parentElement!;
+  const scrollTo = (top: number) => {
+    Object.defineProperty(scrollRegion(), 'scrollTop', { value: top, configurable: true });
+    fireEvent.scroll(scrollRegion());
+  };
+
+  it('slides the bar away on a downward scroll and brings it back once scrolling stops', () => {
+    mockPlatform.isMobile = true;
+    renderLayout();
+    scrollTo(0);
+    scrollTo(40);
+    expect(bar()).toHaveClass('translate-y-full');
+
+    act(() => {
+      jest.advanceTimersByTime(300);
+    });
+    expect(bar()).not.toHaveClass('translate-y-full');
+  });
+
+  it('brings the bar back as soon as the scroll reverses upward', () => {
+    mockPlatform.isMobile = true;
+    renderLayout();
+    scrollTo(0);
+    scrollTo(80);
+    expect(bar()).toHaveClass('translate-y-full');
+    scrollTo(60);
+    expect(bar()).not.toHaveClass('translate-y-full');
+  });
+
+  it('never hides the floating pill off-mobile', () => {
+    mockPlatform.isMobile = false;
+    renderLayout();
+    scrollTo(0);
+    scrollTo(80);
+    expect(bar()).not.toHaveClass('translate-y-full');
   });
 });
 

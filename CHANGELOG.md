@@ -2,6 +2,8 @@
 
 ## 1.16.2 (TBD)
 
+- [CHANGE][mobile] The bottom tab bar is docked to the bottom edge instead of floating as a pill: full width with a hairline top rule, its background running under the home indicator. It slides away while a tab page is scrolled down and returns as soon as the scroll stops or reverses. The extension and desktop keep the floating pill.
+- [CHANGE][all] The home Assets heading is set in Nunito Black, and the token search box under it is removed: the asset list follows the heading directly.
 ### Features
 
 - [FEATURE][all] Guardian private-key export and seed-less import carry the existing Miden hot and EVM keys together as `hot:evm` (two separate 64-character lowercase hex scalars). Authenticated reveal opens a QR first, with separate text fields available. Import supports native/extension camera scanning, local QR image decoding, and manual entry; both scalars are validated before storage changes. The supplied EVM key is encrypted in the vault and restores its address without deriving a new key or seed. Seed-based recovery stays separate; the export does not contain a cold recovery key.
