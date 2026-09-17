@@ -12,6 +12,7 @@ import { initiateReplaceHotKeyTransaction, requestSWTransactionProcessing } from
 import { hasNoFeeAsset } from 'lib/miden/fees/spendable';
 import type { TokenBalanceData } from 'lib/miden/front';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
+import { FaucetOutcomeUnknownError } from 'lib/miden-chain/faucet-api';
 import { isExtension } from 'lib/platform';
 import type { TokenPrices } from 'lib/prices';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
@@ -20,11 +21,18 @@ import { useWalletStore } from 'lib/store';
 import {
   fetchActiveBridgePrompts,
   faucet,
+  FAUCET_FUNDS_ARRIVAL_TIMEOUT_MS,
+  FAUCET_UNSUBMITTED_MARKER_MS,
+  faucetArrivalWindowStart,
   type FaucetFundingMarker,
   fetchFaucetFundingMarker,
   fetchHotKeyHardwareError,
+  getFaucetRequestSettledAt,
+  getInFlightFaucetMarker,
+  FaucetRequestInProgressError,
   getInFlightFaucetRequest,
   getPendingNotesUsdTotal,
+  isFaucetFundingMarkerLive,
   type PendingNoteValue,
   setFaucetFundingMarker,
   useGuardianNoteRecoveryProgress,
@@ -102,15 +110,32 @@ const WALLET_PROMPT_DEFINITIONS: Record<WalletPromptType, WalletPromptDefinition
   }
 };
 
-// How long after a successful faucet request we keep showing the "Funding"
-// hero before giving the user the Fund action back. Arrival normally takes
-// ~30-60s (chain inclusion + client sync).
-const FAUCET_FUNDS_ARRIVAL_TIMEOUT_MS = 3 * 60_000;
-
 // The persisted per-account marker plus the account it belongs to, so every
 // consumer (display, arrival, backstop) can refuse a wait that isn't the
 // current account's.
-type FundingWait = FaucetFundingMarker & { address: string };
+// `settledAt` is when this surface saw the request go out (accepted, or unanswered):
+// the arrival backstop counts from it, since a request can settle long after it was
+// asked for when the app was away in between.
+type FundingWait = FaucetFundingMarker & { address: string; settledAt?: number };
+// Records that the wait's request went out, so the wait runs to the arrival backstop
+// instead of ending with the request's own timeout. Touches only that request's wait.
+const submittedWait =
+  (address: string, requestedAt: number, settledAt?: number, submittedAt?: number) =>
+  (current: FundingWait | null): FundingWait | null =>
+    current !== null && current.address === address && current.requestedAt === requestedAt
+      ? {
+          ...current,
+          submitted: true,
+          settledAt: settledAt ?? current.settledAt,
+          submittedAt: submittedAt ?? current.submittedAt
+        }
+      : current;
+// Clears the stored marker only while it is still this request's: another surface
+// may have started a newer request since, and that marker is not this wait's to end.
+const clearOwnFundingMarker = (address: string, requestedAt: number) =>
+  fetchFaucetFundingMarker(address)
+    .then(stored => (stored?.requestedAt === requestedAt ? setFaucetFundingMarker(address, null) : undefined))
+    .catch(error => console.warn('[wallet-prompts] failed to clear faucet funding marker:', error));
 // How long the "Funds deposited" success beat holds before the prompt
 // completes — long enough to read the two-line lockup.
 const FAUCET_FUNDED_BEAT_MS = 2400;
@@ -410,31 +435,55 @@ export const HomePrompts: FC<HomePromptsProps> = ({
   }, [account.publicKey]);
 
   // Re-attach to a request still running at module scope after a remount
-  // (HomePrompts unmounts on any navigation): show the loading state again and
-  // paint the failure if it rejects. Success needs no handler here — the
-  // persisted marker plus the arrival effect own that path.
+  // (HomePrompts unmounts on any navigation): show the loading state again, wait
+  // for the mint once it went out, and paint the failure if it was refused.
   useEffect(() => {
     const address = account.publicKey;
     const inFlight = getInFlightFaucetRequest(address);
     if (!inFlight) return;
+    // Taken now: the request's entry is gone once it settles.
+    const marker = getInFlightFaucetMarker(address);
     let cancelled = false;
     setFaucetStatusIndicator('loading');
-    inFlight.then(
-      () => {
-        if (!cancelled && accountKeyRef.current === address) setFaucetStatusIndicator('idle');
-      },
-      (error: unknown) => {
-        if (cancelled) return;
-        // The rejection belongs to `address`, not to whoever is on screen: drop
-        // that account's wait unconditionally (the updater is already
-        // address-matched), or switching back to it restores a Funding hero with
-        // no request behind it until the backstop fires.
-        setFundingWait(current => (current !== null && current.address === address ? null : current));
-        if (accountKeyRef.current !== address) return;
-        setFaucetStatusIndicator('failure');
-        setFaucetError(error instanceof Error ? error.message : String(error));
+    // The request went out: it succeeded, or it was sent and never answered. The wait
+    // for its mint is installed from the marker it was started with before going idle;
+    // idling first, or depending on a storage read, could offer Fund while the mint lands.
+    const settleSent = () => {
+      if (cancelled || accountKeyRef.current !== address) return;
+      if (marker) {
+        setFundingWait(current =>
+          current !== null && current.address !== address
+            ? current
+            : { address, ...marker, submitted: true, settledAt: Date.now() }
+        );
       }
-    );
+      setFaucetStatusIndicator('idle');
+    };
+    inFlight.then(settleSent, (error: unknown) => {
+      if (cancelled) return;
+      if (error instanceof FaucetOutcomeUnknownError) {
+        settleSent();
+        return;
+      }
+      if (error instanceof FaucetRequestInProgressError) {
+        // Nothing was sent: another surface's request is still live. Wait for its mint.
+        if (accountKeyRef.current !== address) return;
+        const running = error.marker;
+        setFundingWait(current =>
+          current !== null && current.address !== address ? current : { address, ...running }
+        );
+        setFaucetStatusIndicator('idle');
+        return;
+      }
+      // The rejection belongs to `address`, not to whoever is on screen: drop
+      // that account's wait unconditionally (the updater is already
+      // address-matched), or switching back to it restores a Funding hero with
+      // no request behind it until the backstop fires.
+      setFundingWait(current => (current !== null && current.address === address ? null : current));
+      if (accountKeyRef.current !== address) return;
+      setFaucetStatusIndicator('failure');
+      setFaucetError(error instanceof Error ? error.message : String(error));
+    });
     return () => {
       cancelled = true;
     };
@@ -455,35 +504,46 @@ export const HomePrompts: FC<HomePromptsProps> = ({
     // Snapshot the notes that already exist: only a note beyond this baseline
     // (or a balance) counts as the mint landing.
     const baselineNoteIds = fundingNoteIds;
-    // Anchor the wait to when the user asked, not when the faucet acked — the
-    // ack can lag up to the 60s timeout, and the 3-minute backstop is
-    // described as "after the original request".
+    // Identifies this request. It anchors only the wait while the request is unsent; once it
+    // goes out, the arrival window runs from its settle (see the backstop).
     const requestedAt = Date.now();
     const marker: FaucetFundingMarker = { requestedAt, baselineNoteIds };
     setFaucetStatusIndicator('loading');
     setFaucetError(null);
-    // Persist BEFORE the request: the card unmounts on any navigation, and a
-    // marker that only exists after the ack would greet a returning user with
-    // an idle, fully tappable card while the first request is still running.
+    // Installed before anything is awaited, so the account on screen is still the
+    // one asking - no switch can have happened yet.
+    setFundingWait({ address, ...marker });
     try {
-      await setFaucetFundingMarker(address, marker);
-    } catch (error) {
-      console.warn('[wallet-prompts] failed to persist faucet funding marker:', error);
-    }
-    // The marker write is awaited, so the user may have switched accounts and even
-    // started funding another one meanwhile; `fundingWait` is a single slot, and an
-    // unconditional install here overwrote that account's wait. The marker is
-    // persisted either way, so a return to this account resumes it.
-    if (accountKeyRef.current === address) setFundingWait({ address, ...marker });
-    try {
-      await faucet(address);
+      // The request persists the marker, so a card that unmounts over it still
+      // resumes the wait, and flags it submitted before the token request goes out.
+      await faucet(address, marker);
+      setFundingWait(submittedWait(address, requestedAt, Date.now()));
       if (accountKeyRef.current === address) setFaucetStatusIndicator('idle');
     } catch (error) {
-      // The request failed — the pre-persisted marker no longer describes an
-      // expected mint, so clear it for WHATEVER account made the request…
-      setFaucetFundingMarker(address, null).catch(clearError =>
-        console.warn('[wallet-prompts] failed to clear faucet funding marker:', clearError)
-      );
+      if (error instanceof FaucetRequestInProgressError) {
+        // This card read no marker before another surface's request started, and that
+        // request is still live: nothing was sent, so wait for its mint, as a remount would.
+        const running = error.marker;
+        setFundingWait(current =>
+          current !== null && current.address === address && current.requestedAt === requestedAt
+            ? { address, ...running }
+            : current
+        );
+        if (accountKeyRef.current === address) setFaucetStatusIndicator('idle');
+        return;
+      }
+      if (error instanceof FaucetOutcomeUnknownError) {
+        // The token request went out and was never answered. The faucet may have
+        // minted, and a retry would mint again - so keep the flagged marker and the
+        // wait: arrival resolves it, or the backstop gives the card back.
+        console.warn('[wallet-prompts] faucet request outcome unknown; waiting for the mint:', error);
+        setFundingWait(submittedWait(address, requestedAt, Date.now()));
+        if (accountKeyRef.current === address) setFaucetStatusIndicator('idle');
+        return;
+      }
+      // The request failed, so its marker no longer describes an expected mint: clear
+      // it for WHATEVER account made the request…
+      clearOwnFundingMarker(address, requestedAt);
       // …and drop that account's wait whoever is on screen, for the same reason.
       setFundingWait(current => (current !== null && current.address === address ? null : current));
       // …but only paint the failure if that account is still on screen.
@@ -517,8 +577,15 @@ export const HomePrompts: FC<HomePromptsProps> = ({
       .then(marker => {
         if (cancelled) return;
         if (marker !== null) {
-          if (Date.now() - marker.requestedAt < FAUCET_FUNDS_ARRIVAL_TIMEOUT_MS) {
-            setFundingWait({ address, ...marker });
+          // An unflagged marker past its request timeout, with nothing running here, was
+          // left by a realm that died before the token request went out (an extension
+          // popup closed during the proof of work, an app killed), so nothing was minted.
+          // A younger one is waited on; the backstop re-decides it once that timeout passes.
+          const settledAt = getFaucetRequestSettledAt(address, marker.requestedAt);
+          if (
+            isFaucetFundingMarkerLive(marker, { runningHere: getInFlightFaucetRequest(address) !== null, settledAt })
+          ) {
+            setFundingWait({ address, ...marker, settledAt: settledAt ?? undefined });
           } else {
             setFaucetFundingMarker(address, null).catch(error =>
               console.warn('[wallet-prompts] failed to clear faucet funding marker:', error)
@@ -565,9 +632,7 @@ export const HomePrompts: FC<HomePromptsProps> = ({
     if (!hasNewNote && !hasBalance) return;
     setFundingWait(null);
     setFundsArrivedFor(fundingWait.address);
-    setFaucetFundingMarker(fundingWait.address, null).catch(error =>
-      console.warn('[wallet-prompts] failed to clear faucet funding marker:', error)
-    );
+    clearOwnFundingMarker(fundingWait.address, fundingWait.requestedAt);
     // Complete the prompt NOW, in the same pass that clears the marker. Holding
     // completion for the beat's in-memory timer meant closing the app on the
     // "Funds deposited" screen - the natural thing to do - lost it: the marker was
@@ -587,30 +652,85 @@ export const HomePrompts: FC<HomePromptsProps> = ({
   }, [fundsArrivedFor]);
 
   // Backstop: if the funds never show up (faucet acked but the mint failed),
-  // fall back to the actionable card instead of spinning forever. Anchored to
-  // the request time — not this mount — so a resumed wait still ends 3
-  // minutes after the original request.
+  // fall back to the actionable card instead of spinning forever. A sent request's
+  // window runs from when this surface saw it settle, else from when it went out, else
+  // from the request time, never from this mount.
   useEffect(() => {
     if (!awaitingFaucetFunds || fundingWait === null) return;
-    const address = fundingWait.address;
-    // Clamped to the constant itself: the stamp is persisted wall-clock, so a
+    const { address, requestedAt, submitted, settledAt } = fundingWait;
+    // A wait whose request is not known to have gone out can only matter until that
+    // request's timeout; past it, storage says whether it went out after all.
+    const limitMs = submitted ? FAUCET_FUNDS_ARRIVAL_TIMEOUT_MS : FAUCET_UNSUBMITTED_MARKER_MS;
+    // Clamped to the limit itself: the stamp is persisted wall-clock, so a
     // backward clock step would otherwise make this arbitrarily large and hold
     // the hero - and the pending-notes suppression with it - well past 3 minutes.
-    const remainingMs = Math.min(
-      FAUCET_FUNDS_ARRIVAL_TIMEOUT_MS,
-      Math.max(0, fundingWait.requestedAt + FAUCET_FUNDS_ARRIVAL_TIMEOUT_MS - Date.now())
-    );
+    const anchor = submitted ? faucetArrivalWindowStart(fundingWait, settledAt) : requestedAt;
+    const remainingMs = Math.min(limitMs, Math.max(0, anchor + limitMs - Date.now()));
+    let cancelled = false;
     const timer = setTimeout(() => {
-      // Every other terminal path in this file logs; without this a hero that
-      // silently reverts to the actionable card leaves no trail separating a
-      // genuine 3-minute timeout from any other state reset.
-      console.warn('[wallet-prompts] faucet funding wait timed out for', address);
-      setFundingWait(current => (current !== null && current.address === address ? null : current));
-      setFaucetFundingMarker(address, null).catch(error =>
-        console.warn('[wallet-prompts] failed to clear faucet funding marker:', error)
+      if (submitted) {
+        // Still running here, so not settled: its window has not started, and the settle
+        // re-anchors this wait.
+        if (getInFlightFaucetRequest(address) !== null) return;
+        // Settled since this timer was armed, with the re-anchor not rendered yet (an overdue
+        // timer after a resume): the wait runs from that settle.
+        // Only a settle newer than the one this timer was armed from: re-arming on the same
+        // settle would hold the wait for as long as a backward clock step keeps it in the future.
+        const recordedSettle = getFaucetRequestSettledAt(address, requestedAt);
+        if (recordedSettle !== null && recordedSettle > anchor) {
+          setFundingWait(submittedWait(address, requestedAt, recordedSettle));
+          return;
+        }
+        // Every other terminal path in this file logs; without this a hero that
+        // silently reverts to the actionable card leaves no trail separating a
+        // genuine 3-minute timeout from any other state reset.
+        console.warn('[wallet-prompts] faucet funding wait timed out for', address);
+        setFundingWait(current =>
+          current !== null && current.address === address && current.requestedAt === requestedAt ? null : current
+        );
+        clearOwnFundingMarker(address, requestedAt);
+        return;
+      }
+      fetchFaucetFundingMarker(address).then(
+        stored => {
+          if (cancelled) return;
+          const sameRequest = stored !== null && stored.requestedAt === requestedAt;
+          // Flagged since by whichever surface owns it, or still running here.
+          if ((sameRequest && stored.submitted) || getInFlightFaucetRequest(address) !== null) {
+            setFundingWait(
+              submittedWait(
+                address,
+                requestedAt,
+                getFaucetRequestSettledAt(address, requestedAt) ?? undefined,
+                sameRequest ? stored.submittedAt : undefined
+              )
+            );
+            return;
+          }
+          console.warn('[wallet-prompts] faucet request never went out; ending the wait for', address);
+          setFundingWait(current =>
+            current !== null && current.address === address && current.requestedAt === requestedAt ? null : current
+          );
+          if (sameRequest) {
+            setFaucetFundingMarker(address, null).catch(error =>
+              console.warn('[wallet-prompts] failed to clear faucet funding marker:', error)
+            );
+          }
+        },
+        error => {
+          if (cancelled) return;
+          // Unreadable, so it may have gone out: wait for the mint rather than offer Fund.
+          console.warn('[wallet-prompts] failed to read faucet funding marker:', error);
+          setFundingWait(
+            submittedWait(address, requestedAt, getFaucetRequestSettledAt(address, requestedAt) ?? undefined)
+          );
+        }
       );
     }, remainingMs);
-    return () => clearTimeout(timer);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
   }, [awaitingFaucetFunds, fundingWait]);
 
   // While the faucet hero is on stage (Funding wait or the Funded! beat), the
