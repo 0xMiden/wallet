@@ -20,6 +20,8 @@ export interface TabHeaderProps {
     value: string;
     onChange: (value: string) => void;
     placeholder: string;
+    /** Enter / the keyboard's go key, with the current value. */
+    onSubmit?: (value: string) => void;
   };
 }
 
@@ -43,7 +45,7 @@ export const TabHeaderAction: FC<{ label: string; icon: IconName; active?: boole
       active ? 'bg-accent-primary text-pure-white' : 'bg-gray-25 text-text-primary-token'
     )}
   >
-    <Icon name={icon} className="w-4 h-4" fill="currentColor" />
+    <Icon name={icon} className="w-3.5 h-3.5" fill="currentColor" />
   </button>
 );
 
@@ -62,14 +64,22 @@ export const TabHeader: FC<TabHeaderProps> = ({ title, actions, search }) => {
     <>
       <header className="shrink-0 px-4 py-3 flex h-15 items-center justify-between gap-3">
         {searchOpen && search ? (
-          <SearchInput
-            size="sm"
+          <form
             className="min-w-0 flex-1"
-            value={search.value}
-            onChange={search.onChange}
-            placeholder={search.placeholder}
-            autoFocus
-          />
+            onSubmit={event => {
+              event.preventDefault();
+              search.onSubmit?.(search.value);
+            }}
+          >
+            <SearchInput
+              size="sm"
+              className="w-full"
+              value={search.value}
+              onChange={search.onChange}
+              placeholder={search.placeholder}
+              autoFocus
+            />
+          </form>
         ) : (
           <h1 className="min-w-0 truncate font-heading text-[28px] font-extrabold leading-9 tracking-[-0.5px] text-heading-gray dark:text-pure-white">
             {title}

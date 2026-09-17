@@ -3,7 +3,6 @@
  *
  * Stack (top → bottom):
  *   <TabHeader/>         "Explore" title
- *   <HeroSearch/>        search/URL bar
  *   <AppsGrid/>          Two curated faucet app cards
  *   <RecentsRow/>        1-row of up to 4 recent opens
  *
@@ -17,11 +16,12 @@ import React, { type FC, useEffect, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
-import { TabHeader } from 'components/ui';
+import { IconName } from 'app/icons/v2';
+import { TabHeader, TabHeaderAction } from 'components/ui';
 import { getRecentDapps, type RecentDapp } from 'lib/dapp-browser';
 
 import { AppsGrid } from './AppsGrid';
-import { HeroSearch } from './HeroSearch';
+import { normalizeUrl } from './HeroSearch';
 import { RecentsRow } from './RecentsRow';
 
 interface DappLauncherProps {
@@ -33,6 +33,21 @@ interface DappLauncherProps {
 export const DappLauncher: FC<DappLauncherProps> = ({ onOpen }) => {
   const { t } = useTranslation();
   const [recents, setRecents] = useState<RecentDapp[]>([]);
+  // Header search, same control as Activity: a dApp name (normalized to a
+  // URL) or a pasted URL; submitting opens it and closes the field.
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const toggleSearch = () => {
+    setSearchOpen(open => !open);
+    setSearch('');
+  };
+  const submitSearch = (value: string) => {
+    const url = normalizeUrl(value);
+    if (!url) return;
+    setSearchOpen(false);
+    setSearch('');
+    onOpen(url);
+  };
 
   // Load recents from preferences on mount.
   useEffect(() => {
@@ -51,11 +66,21 @@ export const DappLauncher: FC<DappLauncherProps> = ({ onOpen }) => {
 
   return (
     <>
-      <TabHeader title={t('explore')} />
+      <TabHeader
+        title={t('explore')}
+        search={{
+          open: searchOpen,
+          value: search,
+          onChange: setSearch,
+          placeholder: t('searchDapps'),
+          onSubmit: submitSearch
+        }}
+        actions={
+          <TabHeaderAction label={t('searchDapps')} icon={IconName.Search} active={searchOpen} onClick={toggleSearch} />
+        }
+      />
 
-      <main className="grow space-y-5 overflow-y-auto pb-24 pt-2" style={{ overscrollBehavior: 'contain' }}>
-        <HeroSearch onSubmit={onOpen} />
-
+      <main className="grow space-y-5 overflow-y-auto pb-24 pt-3" style={{ overscrollBehavior: 'contain' }}>
         <AppsGrid onOpen={onOpen} />
 
         <RecentsRow recents={recents} onOpen={onOpen} />

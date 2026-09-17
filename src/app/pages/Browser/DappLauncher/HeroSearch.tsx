@@ -17,7 +17,7 @@ interface HeroSearchProps {
   onSubmit: (url: string) => void;
 }
 
-function normalizeUrl(input: string): string {
+export function normalizeUrl(input: string): string {
   let normalized = input.trim();
   if (!normalized) return '';
   if (!normalized.startsWith('http://') && !normalized.startsWith('https://')) {

@@ -45,7 +45,7 @@ const AppCard: FC<AppCardProps> = ({ dapp, onOpen }) => {
     <button
       type="button"
       onClick={handleClick}
-      className="flex flex-col items-center gap-3 rounded-2xl border border-[#E5E5EA] bg-white p-4 text-left active:opacity-90"
+      className="flex flex-col items-start gap-3 rounded-2xl bg-surface-input p-4 text-left transition-transform duration-100 ease-out active:scale-[0.97] motion-reduce:transition-none motion-reduce:active:scale-100"
       aria-label={dapp.name}
       data-testid="dapp-grid-card"
       data-dapp-url={dapp.url}
@@ -53,8 +53,8 @@ const AppCard: FC<AppCardProps> = ({ dapp, onOpen }) => {
       <motion.div
         layoutId={`dapp-favicon-${dapp.url}`}
         transition={springs.morph}
-        className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-xl"
-        style={{ background: showFallback ? dapp.brandColor : 'rgba(0,0,0,0.04)' }}
+        className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-white shadow-[0_1px_2px_rgba(0,0,0,0.06)]"
+        style={{ background: showFallback ? dapp.brandColor : undefined }}
         aria-hidden="true"
       >
         {showFallback ? (
@@ -69,21 +69,16 @@ const AppCard: FC<AppCardProps> = ({ dapp, onOpen }) => {
           />
         )}
       </motion.div>
-      <div className="flex flex-col gap-0.5 w-full items-center">
+      <div className="flex flex-col gap-0.5 w-full items-start">
         <motion.span
           layoutId={`dapp-name-${dapp.url}`}
           transition={springs.morph}
-          className="font-heading text-base font-bold text-heading-gray"
+          className="font-heading text-base font-extrabold leading-tight text-heading-gray"
           aria-hidden="true"
         >
           {dapp.name}
         </motion.span>
-        {dapp.genre && (
-          <span className="font-heading text-[10px] font-semibold uppercase tracking-wide text-accent-primary">
-            {dapp.genre}
-          </span>
-        )}
-        <span className="font-heading text-xs font-medium leading-snug text-heading-gray opacity-50">
+        <span className="font-heading text-sm font-bold leading-snug text-heading-gray opacity-60 line-clamp-2">
           {dapp.shortDescription}
         </span>
       </div>
