@@ -3,6 +3,7 @@ import React, { FC, ReactNode } from 'react';
 import classNames from 'clsx';
 import { motion } from 'framer-motion';
 
+import { springs, useMotion } from 'lib/animation';
 import { easings } from 'lib/animation/easings';
 import { hapticSelection } from 'lib/mobile/haptics';
 
@@ -21,11 +22,6 @@ export interface SegmentedActionBarProps {
   layoutId?: string;
 }
 
-const segmentedTransition = {
-  duration: 0.24,
-  ease: easings.easeInOut
-};
-
 const labelTransition = {
   duration: 0.12,
   delay: 0.1,
@@ -39,6 +35,11 @@ export const SegmentedActionBar: FC<SegmentedActionBarProps> = ({
   className,
   layoutId = 'segmented-action-pill'
 }) => {
+  // One spring drives the pill AND the segment widths (Framer `layout`), so
+  // the active segment growing and the pill sliding into it move as one; a
+  // CSS width transition could not tween `flex-1` to a fixed width, so the
+  // segments used to snap while the pill tweened — the lag people felt.
+  const barTransition = useMotion(springs.pill);
   const handleSelect = (id: string) => {
     if (id === activeId) return;
     hapticSelection();
@@ -53,16 +54,19 @@ export const SegmentedActionBar: FC<SegmentedActionBarProps> = ({
       {items.map(item => {
         const isActive = item.id === activeId;
         return (
-          <button
+          <motion.button
             key={item.id}
             type="button"
             role="tab"
             aria-selected={isActive}
             aria-label={item.label}
             onClick={() => handleSelect(item.id)}
+            layout
+            transition={barTransition}
+            style={{ borderRadius: 22 }}
             className={classNames(
-              'relative flex h-12 min-w-0 items-center justify-center overflow-hidden rounded-[22px]',
-              'text-text-primary-token transition-[width,color] duration-200',
+              'relative flex h-12 min-w-0 items-center justify-center overflow-hidden',
+              'text-text-primary-token transition-colors duration-200',
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary/30',
               isActive
                 ? 'w-28 flex-none gap-1.5 px-2.5 max-[359px]:w-24 max-[359px]:gap-1 max-[359px]:px-2'
@@ -72,17 +76,23 @@ export const SegmentedActionBar: FC<SegmentedActionBarProps> = ({
             {isActive && (
               <motion.span
                 layoutId={layoutId}
-                className="absolute inset-0 rounded-[22px] bg-white shadow-[0_1px_2px_rgba(0,0,0,0.04)]"
-                transition={segmentedTransition}
+                style={{ borderRadius: 22 }}
+                className="absolute inset-0 bg-white shadow-[0_1px_2px_rgba(0,0,0,0.04)]"
+                transition={barTransition}
               />
             )}
-            <span className="relative flex h-5 w-5 shrink-0 items-center justify-center [&>svg]:h-full [&>svg]:w-full">
+            <motion.span
+              layout="position"
+              transition={barTransition}
+              className="relative flex h-5 w-5 shrink-0 items-center justify-center [&>svg]:h-full [&>svg]:w-full"
+            >
               {item.icon}
-            </span>
+            </motion.span>
             {isActive && (
               <motion.span
                 key={`${item.id}-label`}
-                className="relative whitespace-nowrap text-sm font-bold leading-none max-[359px]:text-xs"
+                layout="position"
+                className="relative whitespace-nowrap font-heading text-sm font-bold leading-none max-[359px]:text-xs"
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 transition={labelTransition}
@@ -90,7 +100,7 @@ export const SegmentedActionBar: FC<SegmentedActionBarProps> = ({
                 {item.label}
               </motion.span>
             )}
-          </button>
+          </motion.button>
         );
       })}
     </div>

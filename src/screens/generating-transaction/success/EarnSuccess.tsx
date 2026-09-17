@@ -3,6 +3,7 @@ import React, { FC, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { ButtonVariant } from 'components/Button';
+import { accentForTransactionType } from 'components/flow/accent';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { formatAmount } from 'lib/shared/format';
 import { useWalletStore } from 'lib/store';
@@ -11,7 +12,6 @@ import { navigate } from 'lib/woozie';
 import { buildReceiptRows } from './receipt';
 import {
   ReceiptRows,
-  SuccessDivider,
   SuccessSummaryPill,
   TransactionSuccessLayout,
   TransactionSuccessProps,
@@ -77,6 +77,8 @@ export const EarnSuccess: FC<TransactionSuccessProps> = ({ transaction, txHash, 
     return receiptRows;
   }, [amountText, feeText, market, onViewExplorer, t, txHash]);
 
+  const accent = accentForTransactionType(transaction?.type);
+
   return (
     <TransactionSuccessLayout
       headerTitle=""
@@ -90,8 +92,7 @@ export const EarnSuccess: FC<TransactionSuccessProps> = ({ transaction, txHash, 
       onClose={onDoneClick}
     >
       <SuccessSummaryPill lhs={amountText} rhs={market} separator={<EarnDepositArrowGlyph />} />
-      <SuccessDivider />
-      <ReceiptRows rows={rows} className="mt-2" />
+      <ReceiptRows accent={accent} rows={rows} className="mt-6" />
     </TransactionSuccessLayout>
   );
 };

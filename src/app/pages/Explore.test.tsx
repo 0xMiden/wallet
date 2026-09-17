@@ -436,46 +436,19 @@ describe('Explore', () => {
     });
   });
 
-  describe('token search filtering', () => {
+  describe('asset list', () => {
     beforeEach(() => {
       mockAllBalances = [
         makeToken('faucet-native', 'MIDEN', 'Miden'),
         makeToken('t-btc', 'BTC', 'Bitcoin'),
-        makeToken('t-eth', 'ETH') // name is undefined -> optional chaining short-circuits
+        makeToken('t-eth', 'ETH')
       ];
     });
 
-    it('shows all tokens (sorted) when the search box is empty', async () => {
+    it('lists every token under the Assets heading with no search box', async () => {
       await renderExplore();
       expect(screen.getAllByTestId('asset-row')).toHaveLength(3);
-      // Placeholder text flows through i18n (mock echoes the key).
-      expect(screen.getByTestId('search-input')).toHaveAttribute('placeholder', 'searchForTokens');
-    });
-
-    it('filters by symbol (left match) and name (right match), excluding undefined-name tokens', async () => {
-      await renderExplore();
-
-      // query "i": MIDEN symbol matches (left true); BTC symbol misses but
-      // "Bitcoin" name matches (right true); ETH symbol misses and name is
-      // undefined (right short-circuits to falsy) -> excluded.
-      await act(async () => {
-        fireEvent.change(screen.getByTestId('search-input'), { target: { value: 'i' } });
-      });
-
-      const rows = screen.getAllByTestId('asset-row');
-      const tokens = rows.map(r => r.getAttribute('data-token'));
-      expect(tokens).toEqual(['faucet-native', 't-btc']);
-      expect(tokens).not.toContain('t-eth');
-    });
-
-    it('treats a whitespace-only query as empty (trim branch)', async () => {
-      await renderExplore();
-
-      await act(async () => {
-        fireEvent.change(screen.getByTestId('search-input'), { target: { value: '   ' } });
-      });
-
-      expect(screen.getAllByTestId('asset-row')).toHaveLength(3);
+      expect(screen.queryByTestId('search-input')).toBeNull();
     });
   });
 

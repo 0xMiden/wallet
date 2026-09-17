@@ -1574,6 +1574,10 @@
     "message": "Адресна книга",
     "englishSource": "Address Book"
   },
+  "paste": {
+    "message": "Вставити",
+    "englishSource": "Paste"
+  },
   "chooseRecipient": {
     "message": "Виберіть одержувача",
     "englishSource": "Choose recipient"
@@ -1581,6 +1585,10 @@
   "selectAmount": {
     "message": "Виберіть суму",
     "englishSource": "Select Amount"
+  },
+  "enterAmount": {
+    "message": "Введіть суму",
+    "englishSource": "Enter amount"
   },
   "selectAToken": {
     "message": "Виберіть токен",

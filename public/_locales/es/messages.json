@@ -1574,6 +1574,10 @@
     "message": "Libreta de direcciones",
     "englishSource": "Address Book"
   },
+  "paste": {
+    "message": "Pegar",
+    "englishSource": "Paste"
+  },
   "chooseRecipient": {
     "message": "Elige el destinatario",
     "englishSource": "Choose recipient"
@@ -1581,6 +1585,10 @@
   "selectAmount": {
     "message": "Selecciona el importe",
     "englishSource": "Select Amount"
+  },
+  "enterAmount": {
+    "message": "Introducir importe",
+    "englishSource": "Enter amount"
   },
   "selectAToken": {
     "message": "Selecciona un token",

@@ -105,7 +105,6 @@ export async function bridgeOutFast(wallet: Wallet, opts: BridgeOutFastOptions):
 
   // Recipient: a 0x address flips the flow to cross-chain and reveals the network row.
   await flow.getByTestId('send-recipient-input').fill(opts.destAddress);
-  await flow.getByTestId('send-network-selector').click({ timeout: step });
   await page.getByTestId('send-network-sepolia').click({ timeout: step });
   await flow.getByTestId('send-recipient-confirm').click({ timeout: step });
 
@@ -169,7 +168,6 @@ export async function bridgeOutSlow(wallet: Wallet, opts: BridgeOutSlowOptions):
 
   // Recipient: a 0x address flips the flow to cross-chain and reveals the network row.
   await flow.getByTestId('send-recipient-input').fill(opts.destAddress);
-  await flow.getByTestId('send-network-selector').click({ timeout: step });
   await page.getByTestId('send-network-sepolia').click({ timeout: step });
   await flow.getByTestId('send-recipient-confirm').click({ timeout: step });
 

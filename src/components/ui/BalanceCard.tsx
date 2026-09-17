@@ -40,14 +40,6 @@ const CARD_COLOR_BOTTOM: Record<CardColor, string> = {
   purple: 'bg-card-purple-deep'
 };
 
-const CARD_COLOR_ICON: Record<CardColor, string> = {
-  slate: 'text-card-slate-deep',
-  orange: 'text-card-orange-deep',
-  blue: 'text-card-blue-deep',
-  green: 'text-card-green-deep',
-  purple: 'text-card-purple-deep'
-};
-
 export interface BalanceCardProps {
   /** Truncated display label, e.g. `mtst1aqg...940z`. */
   accountNumber: string;
@@ -134,10 +126,36 @@ export const BalanceCard: FC<BalanceCardProps> = ({
     hapticLight();
     onMore();
   };
-
   return (
-    <div className={classNames('relative w-full overflow-hidden text-surface-balance-fg rounded-lg-token', className)}>
-      <div className={classNames('px-3.5 pt-4 pb-3.5', CARD_COLOR_TOP[cardColor])}>
+    <div
+      className={classNames(
+        'relative w-full overflow-hidden text-surface-balance-fg rounded-lg-token',
+        onMore && 'cursor-pointer',
+        className
+      )}
+    >
+      {/* The whole card opens the account options, but as a real button UNDER the content, never
+          around it: a role=button container makes its children presentational, so the balance and
+          the copy control stopped being reachable for assistive tech. The content above it is
+          transparent to taps, so a tap anywhere still opens the options, while the copy button
+          keeps its own. */}
+      {onMore && (
+        <button
+          type="button"
+          onClick={handleMoreClick}
+          aria-label={t('balanceCardAccountOptions')}
+          // The ring has to be inset: this button's border box is exactly the box the card clips
+          // to, so an outside ring is clipped away and keyboard focus would show nothing at all.
+          className="absolute inset-0 z-0 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-primary focus-visible:outline-none"
+        />
+      )}
+      <div
+        className={classNames(
+          'relative px-3.5 pt-4 pb-3.5',
+          onMore && 'pointer-events-none',
+          CARD_COLOR_TOP[cardColor]
+        )}
+      >
         <div className="text-sm font-medium text-surface-balance-fg-muted leading-none">
           {t('balanceCardTotalBalance')}
         </div>
@@ -179,36 +197,28 @@ export const BalanceCard: FC<BalanceCardProps> = ({
 
       <div
         className={classNames(
-          'flex items-center justify-between gap-2 py-2 border-t border-dashed px-3.5 border-t-[#FFFFFF4D]',
+          'relative flex items-center justify-between gap-2 py-2 border-t border-dashed px-3.5 border-t-[#FFFFFF4D]',
+          onMore && 'pointer-events-none',
           CARD_COLOR_BOTTOM[cardColor]
         )}
       >
-        <CopyButton
-          text={accountId ?? accountNumber}
-          className={classNames(
-            'flex items-center gap-1 text-xs font-heading font-bold leading-none tracking-tight min-w-0 text-left',
-            'text-surface-balance-fg hover:bg-transparent active:opacity-80 transition-opacity'
-          )}
-        >
-          <span className="truncate">{t('balanceCardAccount', { number: accountNumber })}</span>
-          {/* The `!` on the size classes is load-bearing: <Icon> injects a default `md` (w-6 h-6)
-              size class that, under Tailwind v4's scale-ordered output, otherwise wins the cascade.
-              Do not drop the `!` (same for the edit icon below). */}
-          <Icon name={IconName.CopyNew} className="w-3.5! h-3.5! shrink-0" />
-        </CopyButton>
-        {onMore && (
-          <button
-            type="button"
-            onClick={handleMoreClick}
-            aria-label={t('balanceCardAccountOptions')}
-            className="shrink-0 flex items-center justify-center w-4.5 h-4.5 rounded-full bg-pure-white"
+        {/* The copy control takes its own taps back; it is a sibling of the options button, so a
+            copy can no longer also open the options. */}
+        <span className="pointer-events-auto flex min-w-0">
+          <CopyButton
+            text={accountId ?? accountNumber}
+            className={classNames(
+              'flex items-center gap-1 text-xs font-heading font-bold leading-none tracking-tight min-w-0 text-left',
+              'text-surface-balance-fg hover:bg-transparent active:opacity-80 transition-opacity'
+            )}
           >
-            {/* An edit glyph, not a gear: this opens the account options drawer,
-                and a gear here read as "Settings" — which is now its own
-                bottom-nav destination. */}
-            <Icon name={IconName.Edit} className={classNames('w-3! h-3!', CARD_COLOR_ICON[cardColor])} />
-          </button>
-        )}
+            <span className="truncate">{t('balanceCardAccount', { number: accountNumber })}</span>
+            {/* The `!` on the size classes is load-bearing: <Icon> injects a default `md` (w-6 h-6)
+                size class that, under Tailwind v4's scale-ordered output, otherwise wins the cascade.
+                Do not drop the `!`. */}
+            <Icon name={IconName.CopyNew} className="w-3.5! h-3.5! shrink-0" />
+          </CopyButton>
+        </span>
       </div>
     </div>
   );

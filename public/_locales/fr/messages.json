@@ -1574,6 +1574,10 @@
     "message": "Carnet d'adresses",
     "englishSource": "Address Book"
   },
+  "paste": {
+    "message": "Coller",
+    "englishSource": "Paste"
+  },
   "chooseRecipient": {
     "message": "Choisissez un destinataire",
     "englishSource": "Choose recipient"
@@ -1581,6 +1585,10 @@
   "selectAmount": {
     "message": "Sélectionnez un montant",
     "englishSource": "Select Amount"
+  },
+  "enterAmount": {
+    "message": "Saisir le montant",
+    "englishSource": "Enter amount"
   },
   "selectAToken": {
     "message": "Sélectionnez un jeton",

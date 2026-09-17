@@ -1574,6 +1574,10 @@
     "message": "Agenda de Contatos",
     "englishSource": "Address Book"
   },
+  "paste": {
+    "message": "Colar",
+    "englishSource": "Paste"
+  },
   "chooseRecipient": {
     "message": "Escolha o destinatário",
     "englishSource": "Choose recipient"
@@ -1581,6 +1585,10 @@
   "selectAmount": {
     "message": "Selecione o valor",
     "englishSource": "Select Amount"
+  },
+  "enterAmount": {
+    "message": "Inserir valor",
+    "englishSource": "Enter amount"
   },
   "selectAToken": {
     "message": "Selecione um token",

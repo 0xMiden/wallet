@@ -4,8 +4,6 @@ export const SUCCESS_RECEIPT_DELAY_MS = 1_500;
 export const TRANSACTION_LOOP_INTERVAL_MS = 10_000;
 export const EXPLORER_TITLE = 'Midenscan';
 
-export const SUCCESS_GREEN = '#90BA89';
-export const PROCESSING_ORANGE = '#E77537';
 export const PENDING_STEP_COLOR = '#C7C7CC';
 
 export interface TransactionStepDef {
