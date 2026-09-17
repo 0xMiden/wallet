@@ -80,6 +80,12 @@ jest.mock('lib/epoch', () => ({
 
 const mintFromMidenFaucetMock = jest.mocked(mintFromMidenFaucet);
 
+// One lock manager for every surface, as navigator.locks is for the extension's pages. Every
+// suite here needs it: the prompt record's turns and the faucet marker both take a Web Lock.
+beforeEach(() => {
+  Object.defineProperty(navigator, 'locks', { configurable: true, value: new SharedEarnLocks() });
+});
+
 describe('wallet prompts', () => {
   beforeEach(() => {
     localStorage.clear();
@@ -88,8 +94,6 @@ describe('wallet prompts', () => {
     // failed assertion about minting into a test timeout.
     mintFromMidenFaucetMock.mockReset();
     __resetInFlightFaucetRequestsForTest();
-    // One lock manager for every surface, as navigator.locks is for the extension's pages.
-    Object.defineProperty(navigator, 'locks', { configurable: true, value: new SharedEarnLocks() });
   });
 
   it('normalizes missing and malformed storage to an empty prompt set', () => {
@@ -1031,6 +1035,53 @@ describe('wallet prompts', () => {
     });
   });
 
+  it('keeps both changes when two surfaces write the record at the same moment (#937)', async () => {
+    type Realm = {
+      setStatus: typeof setWalletPromptStatus;
+      provider: ReturnType<typeof getStorageProvider>;
+    };
+    const loadRealm = (): Realm => {
+      let realm!: Realm;
+      jest.isolateModules(() => {
+        realm = {
+          setStatus: require('./wallet-prompts').setWalletPromptStatus,
+          provider: require('lib/platform/storage-adapter').getStorageProvider()
+        };
+      });
+      return realm;
+    };
+    const popup = loadRealm();
+    const sidePanel = loadRealm();
+    // The popup reads the record and answers late: each surface queues only its own
+    // writes, so without a shared turn the side panel's change lands in between.
+    const readRecord = popup.provider.get.bind(popup.provider);
+    let releaseRead = () => {};
+    const get = jest.spyOn(popup.provider, 'get').mockImplementationOnce(keys => {
+      const record = readRecord(keys);
+      return new Promise(resolve => {
+        releaseRead = () => resolve(record);
+      });
+    });
+    try {
+      const fromPopup = popup.setStatus(WalletPromptType.VerifySeedPhrase, WalletPromptStatus.Completed);
+      // The popup holds the turn on a read that has not answered; the side panel's write queues.
+      expect(get).toHaveBeenCalledTimes(1);
+      const fromSidePanel = sidePanel.setStatus(WalletPromptType.Bridge, WalletPromptStatus.Dismissed);
+      releaseRead();
+      await fromPopup;
+      await fromSidePanel;
+
+      // Neither surface put back the other's field.
+      expect((await fetchWalletPromptStorage()).prompts).toEqual({
+        [WalletPromptType.VerifySeedPhrase]: WalletPromptStatus.Completed,
+        [WalletPromptType.Bridge]: WalletPromptStatus.Dismissed
+      });
+    } finally {
+      releaseRead();
+      get.mockRestore();
+    }
+  });
+
   it('keeps a slow prompt write ahead of every later one, so it never lands over a newer change', async () => {
     jest.useFakeTimers();
     const provider = getStorageProvider();
@@ -1212,6 +1263,39 @@ describe('wallet prompts', () => {
       set.mockRestore();
       get.mockRestore();
       warn.mockRestore();
+    }
+  });
+
+  it('answers the hook load from after a write this surface already issued (#937)', async () => {
+    const provider = getStorageProvider();
+    const writeRecord = provider.set.bind(provider);
+    // Released in `finally` too, so a held call cannot stall the shared turn for later tests.
+    let releaseWrite = () => {};
+    const set = jest.spyOn(provider, 'set').mockImplementationOnce(
+      items =>
+        new Promise(resolve => {
+          releaseWrite = () => resolve(writeRecord(items));
+        })
+    );
+
+    try {
+      const write = setWalletPromptStatus(WalletPromptType.VerifySeedPhrase, WalletPromptStatus.Completed);
+      const { result } = renderHook(() => useWalletPromptStorage());
+      await act(async () => {});
+
+      // The load takes its turn behind that write, so it cannot answer from before it.
+      expect(result.current.isLoaded).toBe(false);
+      await act(async () => {
+        releaseWrite();
+        await write;
+      });
+
+      await waitFor(() =>
+        expect(result.current.storage.prompts[WalletPromptType.VerifySeedPhrase]).toBe(WalletPromptStatus.Completed)
+      );
+    } finally {
+      releaseWrite();
+      set.mockRestore();
     }
   });
 

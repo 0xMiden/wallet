@@ -222,14 +222,14 @@ export async function fetchWalletPromptStorage(): Promise<WalletPromptStorage> {
 // as it is now, one operation at a time. A writer building on a copy read before another
 // writer's put would store the old value of every field it does not own. The hook's own
 // reads take their turn too, so a load never lands after a write it predates.
+// The turn is a Web Lock, which the extension's popup, side panel, tabs and service worker
+// share, so a surface cannot put back a field another surface just changed.
 // There is no timeout on a turn: a write already sent to storage cannot be called back,
 // so starting the next one early would let the slow one land over it.
-let walletPromptStorageTurn: Promise<unknown> = Promise.resolve();
-
-function inWalletPromptStorageTurn<T>(operation: () => Promise<T>): Promise<T> {
-  const result = walletPromptStorageTurn.then(operation);
-  walletPromptStorageTurn = result.catch(() => undefined);
-  return result;
+// (The type argument is what `navigator.locks.request` needs to hand back the record the
+// operation resolves with; the faucet-marker lock can leave it out only because it resolves void.)
+function inWalletPromptStorageTurn(operation: () => Promise<WalletPromptStorage>): Promise<WalletPromptStorage> {
+  return navigator.locks.request<Promise<WalletPromptStorage>>(`turn:${WALLET_PROMPTS_STORAGE_KEY}`, operation);
 }
 
 function updateWalletPromptStorage(
