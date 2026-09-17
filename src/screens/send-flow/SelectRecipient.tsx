@@ -86,7 +86,13 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
     exit: { opacity: 0, height: 0 },
     transition
   };
-  // Pops a small element (chip, pill) in place.
+  // Pill set swap: a quick fade out, then the next set fades in.
+  const pillSwap = {
+    initial: { opacity: 0, y: 4 },
+    animate: { opacity: 1, y: 0, transition: reduceMotion ? { duration: 0 } : { duration: 0.2, ease: EASE } },
+    exit: { opacity: 0, y: -4, transition: reduceMotion ? { duration: 0 } : { duration: 0.14, ease: EASE } }
+  };
+  // Pops a small element (chip) in place.
   const pop = {
     initial: { opacity: 0, scale: 0.85 },
     animate: { opacity: 1, scale: 1 },
@@ -100,6 +106,7 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
   const canConfirm = isValidAddress && (!isEthereum || !!selectedNetwork);
   const showAddContact = canAddContact && !!onAddContact;
   const recentRecipients = hasAddress ? [] : (recents ?? []);
+  const pillSet = !hasAddress ? 'empty' : showAddContact ? 'add' : 'book';
   // eslint-disable-next-line i18next/no-literal-string -- Product-specified recipient placeholder copy.
   const addressPlaceholder = 'Enter Miden or Ethereum Address';
   // eslint-disable-next-line i18next/no-literal-string -- Product-specified scanner copy.
@@ -132,7 +139,12 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
   const titleChip = (
     <AnimatePresence initial={false} mode="popLayout">
       {isValidAddress && (
-        <motion.span key={isEthereum ? 'ethereum' : 'miden'} className="inline-flex" {...pop}>
+        <motion.span
+          key={isEthereum ? 'ethereum' : 'miden'}
+          className="inline-flex"
+          {...pop}
+          transition={reduceMotion ? { duration: 0 } : { duration: DURATION, ease: EASE, delay: 0.14 }}
+        >
           {isEthereum ? (
             <NetworkChip
               kind="ethereum"
@@ -236,67 +248,67 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
         )}
       </AnimatePresence>
 
-      {/* The row itself stays a plain block: it rides the textarea's height
-          transition in normal flow, and each pill animates its own entry, exit
-          and shift. */}
-      <div className={clsx('mt-2 flex flex-wrap items-start gap-1', recentRecipients.length > 0 ? 'pb-6' : 'pb-4')}>
-        <AnimatePresence initial={false} mode="popLayout">
-          {onPaste && !hasAddress && (
-            <motion.span key="paste" layout={!reduceMotion} className="inline-flex" {...pop}>
+      <div className={clsx('mt-2', recentRecipients.length > 0 ? 'pb-6' : 'pb-4')}>
+        {/* The pills swap as one set, never one by one: the current set fades
+            out, then the next fades in. Removing Paste/Scan while Address Book
+            slid over and relabelled itself raced three animations against
+            each other. */}
+        <AnimatePresence initial={false} mode="wait">
+          <motion.div key={pillSet} className="flex flex-wrap items-start gap-1" {...pillSwap}>
+            {pillSet === 'add' ? (
               <Button
                 variant={ButtonVariant.Secondary}
                 onClick={() => {
                   hapticLight();
-                  onPaste();
+                  onAddContact?.();
                 }}
-                data-testid="send-paste"
+                data-testid="send-address-book"
                 className="h-auto! w-fit! rounded-full bg-surface-interactive! px-2! py-1! text-base font-bold hover:bg-surface-interactive!"
               >
-                <Icon name={IconName.FileCopy} size="xs" className="shrink-0" />
-                <span>{t('paste')}</span>
+                <SendAddressBookIcon data-testid="send-address-book-icon" className="h-4 w-4 shrink-0" />
+                <span>{t('addToContactsPrompt')}</span>
               </Button>
-            </motion.span>
-          )}
-          <motion.span key="address-book" layout={!reduceMotion} transition={transition} className="inline-flex">
-            <Button
-              variant={ButtonVariant.Secondary}
-              onClick={() => {
-                hapticLight();
-                if (showAddContact && onAddContact) {
-                  onAddContact();
-                  return;
-                }
-                onAddressBook();
-              }}
-              data-testid="send-address-book"
-              className="h-auto! w-fit! rounded-full bg-surface-interactive! px-2! py-1! text-base font-bold hover:bg-surface-interactive!"
-            >
-              <SendAddressBookIcon data-testid="send-address-book-icon" className="h-4 w-4 shrink-0" />
-              <AnimatePresence initial={false} mode="wait">
-                <motion.span
-                  key={showAddContact ? 'add' : 'book'}
-                  initial={{ opacity: 0, y: 4 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -4 }}
-                  transition={reduceMotion ? { duration: 0 } : { duration: DURATION / 2, ease: EASE }}
+            ) : (
+              <>
+                {onPaste && pillSet === 'empty' && (
+                  <Button
+                    variant={ButtonVariant.Secondary}
+                    onClick={() => {
+                      hapticLight();
+                      onPaste();
+                    }}
+                    data-testid="send-paste"
+                    className="h-auto! w-fit! rounded-full bg-surface-interactive! px-2! py-1! text-base font-bold hover:bg-surface-interactive!"
+                  >
+                    <Icon name={IconName.FileCopy} size="xs" className="shrink-0" />
+                    <span>{t('paste')}</span>
+                  </Button>
+                )}
+                <Button
+                  variant={ButtonVariant.Secondary}
+                  onClick={() => {
+                    hapticLight();
+                    onAddressBook();
+                  }}
+                  data-testid="send-address-book"
+                  className="h-auto! w-fit! rounded-full bg-surface-interactive! px-2! py-1! text-base font-bold hover:bg-surface-interactive!"
                 >
-                  {showAddContact ? t('addToContactsPrompt') : t('addressBook')}
-                </motion.span>
-              </AnimatePresence>
-            </Button>
-          </motion.span>
-          {onScan && !hasAddress && (
-            <motion.span key="scan" layout={!reduceMotion} className="inline-flex" {...pop}>
-              <Button
-                variant={ButtonVariant.Secondary}
-                onClick={onScan}
-                className="h-auto! w-fit! rounded-full bg-surface-interactive! px-2! py-1! text-base font-bold hover:bg-surface-interactive!"
-              >
-                <ScanFrameIcon data-testid="send-scan-icon" className="h-4 w-4 shrink-0" />
-                <span>{scanQrCodeLabel}</span>
-              </Button>
-            </motion.span>
-          )}
+                  <SendAddressBookIcon data-testid="send-address-book-icon" className="h-4 w-4 shrink-0" />
+                  <span>{t('addressBook')}</span>
+                </Button>
+                {onScan && pillSet === 'empty' && (
+                  <Button
+                    variant={ButtonVariant.Secondary}
+                    onClick={onScan}
+                    className="h-auto! w-fit! rounded-full bg-surface-interactive! px-2! py-1! text-base font-bold hover:bg-surface-interactive!"
+                  >
+                    <ScanFrameIcon data-testid="send-scan-icon" className="h-4 w-4 shrink-0" />
+                    <span>{scanQrCodeLabel}</span>
+                  </Button>
+                )}
+              </>
+            )}
+          </motion.div>
         </AnimatePresence>
       </div>
 
