@@ -1,11 +1,6 @@
 import React from 'react';
 
-import { FlowBackButton, FlowLayout, FlowLayoutProps } from 'components/flow/FlowLayout';
-
-/** The send flow's back button: nav button surface, Send-accent arrow. */
-export const SendBackButton: React.FC<{ onBack: () => void }> = ({ onBack }) => (
-  <FlowBackButton onBack={onBack} accent="send" />
-);
+import { FlowLayout, FlowLayoutProps } from 'components/flow/FlowLayout';
 
 export type SendStepLayoutProps = Omit<FlowLayoutProps, 'accent'>;
 

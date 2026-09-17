@@ -9,48 +9,36 @@ export type FlowAccent = 'brand' | 'send' | 'receive' | 'earn' | 'swap';
 
 interface AccentClasses {
   text: string;
-  bg: string;
   border: string;
   tint: string;
-  caret: string;
 }
 
 // Literal class strings, so Tailwind generates every one of them.
 export const ACCENT_CLASSES: Record<FlowAccent, AccentClasses> = {
   brand: {
     text: 'text-primary-500',
-    bg: 'bg-primary-500',
     border: 'border-primary-500',
-    tint: 'bg-primary-50',
-    caret: 'caret-primary-500'
+    tint: 'bg-primary-50'
   },
   send: {
     text: 'text-accent-send',
-    bg: 'bg-accent-send',
     border: 'border-accent-send',
-    tint: 'bg-accent-send-tint',
-    caret: 'caret-accent-send'
+    tint: 'bg-accent-send-tint'
   },
   receive: {
     text: 'text-accent-receive',
-    bg: 'bg-accent-receive',
     border: 'border-accent-receive',
-    tint: 'bg-accent-receive-tint',
-    caret: 'caret-accent-receive'
+    tint: 'bg-accent-receive-tint'
   },
   earn: {
     text: 'text-accent-earn',
-    bg: 'bg-accent-earn',
     border: 'border-accent-earn',
-    tint: 'bg-accent-earn-tint',
-    caret: 'caret-accent-earn'
+    tint: 'bg-accent-earn-tint'
   },
   swap: {
     text: 'text-accent-swap',
-    bg: 'bg-accent-swap',
     border: 'border-accent-swap',
-    tint: 'bg-accent-swap-tint',
-    caret: 'caret-accent-swap'
+    tint: 'bg-accent-swap-tint'
   }
 };
 

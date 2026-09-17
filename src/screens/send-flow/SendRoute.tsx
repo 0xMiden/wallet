@@ -8,13 +8,12 @@ import { RouteOptions, RouteOptionsProps } from './Route';
 import { SendStepLayout } from './SendStepLayout';
 
 export interface SendRouteProps extends RouteOptionsProps {
-  confirmDisabled?: boolean;
   onBack: () => void;
   onConfirm: () => void;
 }
 
 /** The send flow's cross-chain route step, on the shared step frame. */
-export const SendRoute: React.FC<SendRouteProps> = ({ confirmDisabled, onBack, onConfirm, ...options }) => {
+export const SendRoute: React.FC<SendRouteProps> = ({ onBack, onConfirm, ...options }) => {
   const { t } = useTranslation();
 
   return (
@@ -26,7 +25,6 @@ export const SendRoute: React.FC<SendRouteProps> = ({ confirmDisabled, onBack, o
           title={t('confirm')}
           variant={ButtonVariant.Primary}
           onClick={onConfirm}
-          disabled={confirmDisabled}
           data-testid="bridge-route-confirm"
           className="w-full max-w-none rounded-full text-base font-semibold"
         />

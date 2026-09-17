@@ -37,8 +37,8 @@ jest.mock('components/Button', () => {
   };
 });
 
-function renderRecipient(overrides: Partial<SelectRecipientProps> = {}) {
-  const props: SelectRecipientProps = {
+function baseRecipientProps(overrides: Partial<SelectRecipientProps> = {}): SelectRecipientProps {
+  return {
     address: '',
     isValidAddress: false,
     chain: 'miden',
@@ -48,6 +48,10 @@ function renderRecipient(overrides: Partial<SelectRecipientProps> = {}) {
     onConfirm: jest.fn(),
     ...overrides
   };
+}
+
+function renderRecipient(overrides: Partial<SelectRecipientProps> = {}) {
+  const props = baseRecipientProps(overrides);
 
   render(<SelectRecipient {...props} />);
   return props;
@@ -261,5 +265,30 @@ describe('SelectRecipient — paste', () => {
     renderRecipient();
 
     expect(screen.queryByTestId('send-paste')).not.toBeInTheDocument();
+  });
+});
+
+describe('SelectRecipient — address field growth', () => {
+  // The field measures with height:auto, which cannot be interpolated, so the height it is drawn
+  // at has to go back before the new one or the CSS transition is cancelled. Restoring the last
+  // inline target instead snapped the field for a keystroke that landed mid-grow.
+  it('writes back the height it is drawn at before the new height', () => {
+    const { rerender } = render(<SelectRecipient {...baseRecipientProps()} address="mtst1a" />);
+    const field = screen.getByTestId('send-recipient-input') as HTMLTextAreaElement;
+
+    // One wrapped line is already applied, and the field is mid-transition at 90px.
+    field.style.height = '120px';
+    jest.spyOn(window, 'getComputedStyle').mockReturnValue({ height: '90px' } as CSSStyleDeclaration);
+    const writes: string[] = [];
+    Object.defineProperty(field.style, 'height', {
+      configurable: true,
+      get: () => writes[writes.length - 1] ?? '120px',
+      set: (value: string) => writes.push(value)
+    });
+    Object.defineProperty(field, 'scrollHeight', { value: 150, configurable: true });
+
+    rerender(<SelectRecipient {...baseRecipientProps()} address="mtst1abcdefghijklmnop" />);
+
+    expect(writes).toEqual(['auto', '90px', '150px']);
   });
 });

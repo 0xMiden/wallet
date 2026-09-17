@@ -83,3 +83,21 @@ it('styles back and close as nav buttons with a grey glyph', () => {
   expect(back).not.toHaveClass('border');
   expect(back.querySelector('[data-icon="BackArrow"]')).toHaveClass('text-heading-gray');
 });
+
+// Back and close are one component now. Four hand-written copies of the same round button had
+// already drifted: this close was the only one that did not buzz.
+it('buzzes on close as well as back, from the one nav button both use', () => {
+  const { hapticLight } = jest.requireMock('lib/mobile/haptics');
+  hapticLight.mockClear();
+  const onBack = jest.fn();
+  const onClose = jest.fn();
+  render(<ScreenHeader title="Send" onBack={onBack} onClose={onClose} backLabel="back" closeLabel="close" />);
+
+  fireEvent.click(screen.getByRole('button', { name: 'close' }));
+  expect(onClose).toHaveBeenCalledTimes(1);
+  expect(hapticLight).toHaveBeenCalledTimes(1);
+
+  fireEvent.click(screen.getByRole('button', { name: 'back' }));
+  expect(onBack).toHaveBeenCalledTimes(1);
+  expect(hapticLight).toHaveBeenCalledTimes(2);
+});

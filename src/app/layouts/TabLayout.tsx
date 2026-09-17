@@ -1,4 +1,13 @@
-import React, { FC, ReactNode, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import React, {
+  FC,
+  forwardRef,
+  ReactNode,
+  useEffect,
+  useImperativeHandle,
+  useLayoutEffect,
+  useRef,
+  useState
+} from 'react';
 
 import classNames from 'clsx';
 import { motion, useReducedMotion } from 'framer-motion';
@@ -9,7 +18,7 @@ import { useHasUnclaimedNotes } from 'app/hooks/useHasUnclaimedNotes';
 import { Icon, IconName } from 'app/icons/v2';
 import HomeSwipeContainer from 'app/layouts/HomeSwipeContainer';
 import { PageActiveContext, usePageActive } from 'app/layouts/page-active';
-import { BottomNav, SegmentedActionBar } from 'components/ui';
+import { BottomNav, BottomNavItem, SegmentedActionBar } from 'components/ui';
 import { useMotion } from 'lib/animation';
 import { pageAppearance } from 'lib/animation/page-appearance';
 import { isSwapEnabled } from 'lib/feature-flags';
@@ -58,12 +67,6 @@ interface TabPaneProps extends PropsWithChildren {
 
 // One tab's content. An inactive pane keeps its layout but is not painted,
 // not focusable and not read by assistive tech.
-// Docked-bar hide-on-scroll (mobile): a downward scroll past this many px hides
-// the bar; it returns once no scroll event has fired for SCROLL_IDLE_MS, or as
-// soon as the scroll reverses upward.
-const SCROLL_HIDE_THRESHOLD_PX = 4;
-const SCROLL_IDLE_MS = 250;
-
 const TabPane: FC<TabPaneProps> = ({ id, active, children }) => {
   const layerActive = usePageActive();
   const ref = useRef<HTMLDivElement>(null);
@@ -108,6 +111,67 @@ function activeActionFromPath(pathname: string): string {
   return 'overview';
 }
 
+// Docked-bar hide-on-scroll (mobile): a downward scroll past this many px hides the bar; it
+// returns once no scroll event has fired for SCROLL_IDLE_MS, or as soon as the scroll reverses.
+const SCROLL_HIDE_THRESHOLD_PX = 4;
+const SCROLL_IDLE_MS = 250;
+
+export interface DockedNavBarHandle {
+  handleScroll: (event: React.UIEvent<HTMLDivElement>) => void;
+}
+
+interface DockedNavBarProps {
+  items: BottomNavItem[];
+  activeId: string;
+  onChange: (id: string) => void;
+}
+
+/**
+ * The bottom nav plus its own hide-on-scroll state. A leaf on purpose: while this state lived in
+ * TabLayout, every hide, show and idle reset re-rendered the whole home carousel and made Framer
+ * re-measure the action bar's layout nodes, in the middle of the scroll that triggered it.
+ *
+ * Scroll events do not bubble, so TabLayout listens in the capture phase and forwards them here
+ * through this handle, which keeps the pages unaware of the bar.
+ */
+const DockedNavBar = forwardRef<DockedNavBarHandle, DockedNavBarProps>(({ items, activeId, onChange }, ref) => {
+  const [scrollHidden, setScrollHidden] = useState(false);
+  const lastScroll = useRef<{ target: EventTarget | null; top: number }>({ target: null, top: 0 });
+  const scrollIdleTimer = useRef<number | undefined>(undefined);
+  useEffect(() => () => window.clearTimeout(scrollIdleTimer.current), []);
+
+  useImperativeHandle(ref, () => ({
+    handleScroll: event => {
+      const { target } = event;
+      if (!(target instanceof HTMLElement)) return;
+      const top = target.scrollTop;
+      const previous = lastScroll.current.target === target ? lastScroll.current.top : top;
+      lastScroll.current = { target, top };
+      const delta = top - previous;
+      if (delta > SCROLL_HIDE_THRESHOLD_PX && top > SCROLL_HIDE_THRESHOLD_PX) setScrollHidden(true);
+      else if (delta < -SCROLL_HIDE_THRESHOLD_PX) setScrollHidden(false);
+      window.clearTimeout(scrollIdleTimer.current);
+      scrollIdleTimer.current = window.setTimeout(() => setScrollHidden(false), SCROLL_IDLE_MS);
+    }
+  }));
+
+  /* Off-mobile the pill floats: `px-4` + `justify-center` center it and `pb-2` lifts it off the
+       frame edge. `min-w-0` lets this flex child shrink to the footer width instead of ballooning
+       to the pill's min-content, which otherwise overflowed a 375px-wide viewport. */
+  return (
+    <div
+      className={classNames(
+        'pointer-events-auto flex-1 min-w-0 flex justify-center',
+        !isMobile() && 'px-4 pb-2',
+        isMobile() && 'transition-transform duration-300 ease-out motion-reduce:transition-none',
+        scrollHidden && 'translate-y-full'
+      )}
+    >
+      <BottomNav items={items} activeId={activeId} onChange={onChange} docked={isMobile()} />
+    </div>
+  );
+});
+
 const TabLayout: FC<PropsWithChildren> = ({ children }) => {
   const { t } = useTranslation();
   const { fullPage, sidePanel } = useAppEnv();
@@ -123,27 +187,7 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
   // useHideNavbarWhileOpen callers (drawers, flows), so it composes.
   useHideNavbarWhileOpen(useKeyboardVisible());
 
-  // Mobile docks the bar, and a docked bar slides off-screen while the user
-  // scrolls a tab page down, returning as soon as the scroll stops or reverses,
-  // so a long list gets the full height while it is being read. Scroll events
-  // don't bubble, so the container listens in the capture phase and sees every
-  // pane's scroll region without the pages knowing about the bar.
-  const [scrollHidden, setScrollHidden] = useState(false);
-  const lastScroll = useRef<{ target: EventTarget | null; top: number }>({ target: null, top: 0 });
-  const scrollIdleTimer = useRef<number | undefined>(undefined);
-  useEffect(() => () => window.clearTimeout(scrollIdleTimer.current), []);
-  const handleScrollCapture = (event: React.UIEvent<HTMLDivElement>) => {
-    const { target } = event;
-    if (!(target instanceof HTMLElement)) return;
-    const top = target.scrollTop;
-    const previous = lastScroll.current.target === target ? lastScroll.current.top : top;
-    lastScroll.current = { target, top };
-    const delta = top - previous;
-    if (delta > SCROLL_HIDE_THRESHOLD_PX && top > SCROLL_HIDE_THRESHOLD_PX) setScrollHidden(true);
-    else if (delta < -SCROLL_HIDE_THRESHOLD_PX) setScrollHidden(false);
-    window.clearTimeout(scrollIdleTimer.current);
-    scrollIdleTimer.current = window.setTimeout(() => setScrollHidden(false), SCROLL_IDLE_MS);
-  };
+  const dockedBar = useRef<DockedNavBarHandle>(null);
 
   // The fade plays once, when the layout mounts. A tab change swaps panes
   // with no animation, like a native tab bar.
@@ -290,7 +334,7 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
         isMobile() ? 'overflow-x-clip' : 'overflow-hidden'
       )}
       style={containerStyles}
-      onScrollCapture={isMobile() ? handleScrollCapture : undefined}
+      onScrollCapture={isMobile() ? event => dockedBar.current?.handleScroll(event) : undefined}
     >
       {/* Every visited tab keeps its pane mounted under the same key, so a tab
           change is one visibility swap with no remount and no animation. */}
@@ -319,26 +363,15 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
         style={{
           display: 'flex',
           // Mobile docks the bar: sink the footer through the body's safe-area
-          // padding (max(12px, env(...)) in mobile.html, mirrored exactly here)
-          // so the bar's background runs under the home indicator while its
-          // own safe-area bottom padding keeps the items above it.
-          ...(isMobile() ? { bottom: 'calc(-1 * max(12px, env(safe-area-inset-bottom)))' } : {})
+          // padding, which mobile.html declares as --app-safe-bottom, so the
+          // bar's background runs under the home indicator while its own
+          // safe-area bottom padding keeps the items above it. Reading the
+          // property rather than repeating its value is what keeps the bar on
+          // the screen edge when the inset is smaller than the floor.
+          ...(isMobile() ? { bottom: 'calc(-1 * var(--app-safe-bottom, max(16px, env(safe-area-inset-bottom))))' } : {})
         }}
       >
-        {/* Off-mobile the pill floats: `px-4` + `justify-center` center it and
-            `pb-2` lifts it off the frame edge. `min-w-0` lets this flex child
-            shrink to the footer width instead of ballooning to the pill's
-            min-content, which otherwise overflowed a 375px-wide viewport. */}
-        <div
-          className={classNames(
-            'pointer-events-auto flex-1 min-w-0 flex justify-center',
-            !isMobile() && 'px-4 pb-2',
-            isMobile() && 'transition-transform duration-300 ease-out motion-reduce:transition-none',
-            scrollHidden && 'translate-y-full'
-          )}
-        >
-          <BottomNav items={tabs} activeId={activeTab} onChange={handleTabChange} docked={isMobile()} />
-        </div>
+        <DockedNavBar ref={dockedBar} items={tabs} activeId={activeTab} onChange={handleTabChange} />
       </div>
     </div>
   );

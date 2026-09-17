@@ -571,18 +571,21 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
 
   const openScanDrawer = useCallback(() => setShowScanDrawer(true), []);
 
-  // Paste goes through the scanned-address path so a pasted address gets the
-  // same validation and wrong-network messaging as a scan. Mobile reads the
-  // native clipboard: the WebView's own readText() only raises iOS's "Paste"
-  // callout, so the tap would not paste. An empty clipboard or a denied read
-  // leaves the field as is.
+  // Paste goes through the scanned-address path so a pasted address gets the same validation and
+  // wrong-network messaging as a scan. Mobile only, gated like the scanner below: the native
+  // clipboard is the one read that works. A WebView's own readText() raises the platform's paste
+  // callout rather than returning text, and in the extension it never settles at all, because the
+  // manifest holds clipboardWrite and not clipboardRead — so a pill there would do nothing, with
+  // no way to report it. Off mobile the field is a textarea and the platform's own paste works.
+  // Only text is used: an image on the pasteboard comes back as a base64 data URL in `value`.
   const onPaste = useCallback(async () => {
     try {
-      const raw = isMobile() ? (await Clipboard.read()).value : await navigator.clipboard.readText();
-      const text = raw.trim();
+      const { value, type } = await Clipboard.read();
+      const text = type?.startsWith('text') ? value.trim() : '';
       if (text) applyScannedAddress(text);
     } catch {
-      // Clipboard read denied or unavailable.
+      // An empty clipboard or a refused system prompt leaves the field as it is; both are the
+      // user's own doing, so neither needs a message.
     }
   }, [applyScannedAddress]);
 
@@ -695,7 +698,7 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
               onSelectRecent={onSelectRecent}
               onSelectNetwork={onSelectNetwork}
               onScan={isScanAvailable() ? onScan : undefined}
-              onPaste={onPaste}
+              onPaste={isMobile() ? onPaste : undefined}
               onConfirm={() => goToStep(SendFlowStep.SelectAmount)}
             />
           );

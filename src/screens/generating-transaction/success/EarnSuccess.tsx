@@ -12,7 +12,6 @@ import { navigate } from 'lib/woozie';
 import { buildReceiptRows } from './receipt';
 import {
   ReceiptRows,
-  SuccessDivider,
   SuccessSummaryPill,
   TransactionSuccessLayout,
   TransactionSuccessProps,
@@ -78,9 +77,10 @@ export const EarnSuccess: FC<TransactionSuccessProps> = ({ transaction, txHash, 
     return receiptRows;
   }, [amountText, feeText, market, onViewExplorer, t, txHash]);
 
+  const accent = accentForTransactionType(transaction?.type);
+
   return (
     <TransactionSuccessLayout
-      accent={accentForTransactionType(transaction?.type)}
       headerTitle=""
       title={t('youreEarning', { defaultValue: "You're Earning!" })}
       primaryAction={{ label: t('done'), onClick: onDoneClick, variant: ButtonVariant.Primary }}
@@ -92,8 +92,7 @@ export const EarnSuccess: FC<TransactionSuccessProps> = ({ transaction, txHash, 
       onClose={onDoneClick}
     >
       <SuccessSummaryPill lhs={amountText} rhs={market} separator={<EarnDepositArrowGlyph />} />
-      <SuccessDivider />
-      <ReceiptRows accent={accentForTransactionType(transaction?.type)} rows={rows} className="mt-2" />
+      <ReceiptRows accent={accent} rows={rows} className="mt-6" />
     </TransactionSuccessLayout>
   );
 };

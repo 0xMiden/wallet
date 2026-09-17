@@ -114,9 +114,6 @@ export const useReceiptAmount = (transaction?: ITransaction) => {
 /** The success check, the same animated hero the Processing screen settles on. */
 export const SuccessHero: FC = () => <TransactionHeroIcon state="success" />;
 
-/** Spacing between the summary and the details card (the details are a card, so no rule is drawn). */
-export const SuccessDivider: FC = () => <div className="mt-2" aria-hidden="true" />;
-
 /** Emphasized amount block ("12 MDN") with an optional sub-line below it. */
 export const SuccessAmountBlock: FC<{ amountText?: string; subline?: ReactNode }> = ({ amountText, subline }) => {
   if (!amountText) return null;
@@ -150,7 +147,7 @@ export const ReceiptRows: FC<{ rows: ReceiptRow[]; className?: string; accent?: 
   if (rows.length === 0) return null;
 
   return (
-    <FlowDetails className={classNames('mt-4 w-full', className)}>
+    <FlowDetails className={classNames('w-full', className)}>
       {rows.map(row => (
         <FlowDetailRow key={row.label} label={row.label} sub={row.subValue} stacked={row.stacked}>
           {row.onClick ? (
@@ -174,13 +171,14 @@ export const ReceiptRows: FC<{ rows: ReceiptRow[]; className?: string; accent?: 
   );
 };
 
-const FooterAction: FC<{ action: SuccessAction; className?: string }> = ({ action, className }) => (
+// Every call passed the same layout classes, so they live here.
+const FooterAction: FC<{ action: SuccessAction }> = ({ action }) => (
   <Button
     type="button"
     variant={action.variant ?? ButtonVariant.Primary}
     title={action.label}
     onClick={action.onClick}
-    className={className}
+    className="w-full max-w-none rounded-full"
   />
 );
 
@@ -203,8 +201,6 @@ export interface TransactionSuccessLayoutProps {
   secondaryFirst?: boolean;
   /** Invoked by the header close button. */
   onClose: () => void;
-  /** The flow's highlight color. */
-  accent?: FlowAccent;
 }
 
 export const TransactionSuccessLayout: FC<TransactionSuccessLayoutProps> = ({
@@ -216,8 +212,7 @@ export const TransactionSuccessLayout: FC<TransactionSuccessLayoutProps> = ({
   primaryAction,
   secondaryAction,
   secondaryFirst = false,
-  onClose,
-  accent = 'brand'
+  onClose
 }) => {
   const { t } = useTranslation();
   const titleRef = useRef<HTMLHeadingElement>(null);
@@ -237,21 +232,13 @@ export const TransactionSuccessLayout: FC<TransactionSuccessLayoutProps> = ({
     titleRef.current?.focus();
   }, []);
 
-  const actions = secondaryAction ? (
-    secondaryFirst ? (
-      <>
-        <FooterAction action={secondaryAction} className="w-full max-w-none rounded-full" />
-        <FooterAction action={primaryAction} className="w-full max-w-none rounded-full" />
-      </>
-    ) : (
-      <>
-        <FooterAction action={primaryAction} className="w-full max-w-none rounded-full" />
-        <FooterAction action={secondaryAction} className="w-full max-w-none rounded-full" />
-      </>
-    )
-  ) : (
-    <FooterAction action={primaryAction} className="w-full max-w-none rounded-full" />
-  );
+  // One ordered list rather than a branch per arrangement: the order is the only difference.
+  const ordered = secondaryAction
+    ? secondaryFirst
+      ? [secondaryAction, primaryAction]
+      : [primaryAction, secondaryAction]
+    : [primaryAction];
+  const actions = ordered.map(action => <FooterAction key={action.label} action={action} />);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-app-bg text-heading-gray">
@@ -261,7 +248,6 @@ export const TransactionSuccessLayout: FC<TransactionSuccessLayoutProps> = ({
       <FlowLayout
         title={headerTitle || t('success')}
         onClose={onClose}
-        accent={accent}
         footer={
           <div className="flex w-full flex-col items-center gap-3">
             {footerDescription && <p className="text-center text-sm text-gray">{footerDescription}</p>}

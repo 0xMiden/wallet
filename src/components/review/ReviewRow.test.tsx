@@ -21,12 +21,9 @@ describe('ReviewRow note', () => {
   });
 });
 
-describe('ReviewRow edit link accent', () => {
-  it('is brand orange by default and the Send accent when asked', () => {
-    const { rerender } = render(<ReviewRow label="Expires" value="Never" onEdit={jest.fn()} editLabel="Edit" />);
+describe('ReviewRow edit link', () => {
+  it('is brand orange', () => {
+    render(<ReviewRow label="Expires" value="Never" onEdit={jest.fn()} editLabel="Edit" />);
     expect(screen.getByRole('button', { name: 'Edit' })).toHaveClass('text-primary-500');
-
-    rerender(<ReviewRow label="Expires" value="Never" onEdit={jest.fn()} editLabel="Edit" accent="send" />);
-    expect(screen.getByRole('button', { name: 'Edit' })).toHaveClass('text-accent-send');
   });
 });

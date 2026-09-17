@@ -7,7 +7,12 @@ import { FlowLayout } from './FlowLayout';
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn() }));
 jest.mock('lib/platform', () => ({ isMobile: () => true }));
-jest.mock('app/icons/v2', () => ({ IconName: { BackArrow: 'back-arrow', Close: 'close' }, Icon: () => <svg /> }));
+jest.mock('app/icons/v2', () => ({
+  IconName: { BackArrow: 'back-arrow', Close: 'close' },
+  // Keep className: the flow's accent reaches the glyph through it, and a mock that drops it
+  // makes every accent assertion in this suite unfalsifiable.
+  Icon: ({ className }: { className?: string }) => <svg className={className} />
+}));
 
 describe('FlowLayout', () => {
   it('renders the title, accessory, content, footer, and a back button that calls onBack', () => {
@@ -27,18 +32,28 @@ describe('FlowLayout', () => {
     expect(screen.getByRole('heading', { name: 'Title' })).toBeInTheDocument();
     expect(screen.getByText('chip')).toBeInTheDocument();
     expect(screen.getByText('content')).toBeInTheDocument();
-    fireEvent.click(screen.getByTestId('send-step-back'));
+    fireEvent.click(screen.getByTestId('flow-back'));
     expect(onBack).toHaveBeenCalledTimes(1);
   });
 
   it('styles back as a nav button with the Send accent', () => {
-    render(
+    const { rerender } = render(
       <FlowLayout accent="send" title="Title" onBack={jest.fn()} footer={<button>cta</button>}>
         <p>content</p>
       </FlowLayout>
     );
 
-    expect(screen.getByTestId('send-step-back')).toHaveClass('bg-surface-nav-button');
+    const back = screen.getByTestId('flow-back');
+    expect(back).toHaveClass('bg-surface-nav-button');
+    // The glyph is the only thing the frame's accent colours, so assert it rather than the shell.
+    expect(back.querySelector('svg')).toHaveClass('text-accent-send');
+
+    rerender(
+      <FlowLayout title="Title" onBack={jest.fn()} footer={<button>cta</button>}>
+        <p>content</p>
+      </FlowLayout>
+    );
+    expect(screen.getByTestId('flow-back').querySelector('svg')).toHaveClass('text-primary-500');
   });
 
   it('keeps the back row without a back button so titles line up across steps', () => {
@@ -48,7 +63,7 @@ describe('FlowLayout', () => {
       </FlowLayout>
     );
 
-    expect(screen.queryByTestId('send-step-back')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('flow-back')).not.toBeInTheDocument();
     expect(container.querySelector('.h-12')).toBeInTheDocument();
   });
 
@@ -91,6 +106,6 @@ describe('FlowLayout', () => {
 
     fireEvent.click(screen.getByTestId('flow-close'));
     expect(onClose).toHaveBeenCalledTimes(1);
-    expect(screen.queryByTestId('send-step-back')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('flow-back')).not.toBeInTheDocument();
   });
 });

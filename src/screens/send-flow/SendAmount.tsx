@@ -1,19 +1,19 @@
 import React from 'react';
 
-import BigNumber from 'bignumber.js';
-import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
+import { AnimatePresence, motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
 import { AmountInput } from 'components/AmountInput';
 import { Button, ButtonVariant } from 'components/Button';
 import { TokenLogo } from 'components/TokenLogo';
+import { useMotion } from 'lib/animation';
 import { durations } from 'lib/animation/durations';
 import { easings } from 'lib/animation/easings';
-import { toAdaptiveFixed } from 'lib/i18n/numbers';
 import { hapticLight } from 'lib/mobile/haptics';
 import { truncateAddress } from 'utils/string';
 
+import { approxFiatAmount, formatBalance } from './amount-format';
 import { getBridgeNetwork, SendNetworkId } from './bridge-networks';
 import { NetworkChip } from './NetworkChip';
 import { SendStepLayout } from './SendStepLayout';
@@ -39,15 +39,6 @@ export interface SendAmountProps {
 }
 
 /**
- * Round DOWN to 4dp (more for tiny balances) and trim zeros, as SelectAmount
- * does: the figure, and the Max it fills in, must never exceed what the form
- * accepts once the fee reserve is held back.
- */
-function formatBalance(value: number): string {
-  return toAdaptiveFixed(value, 4, BigNumber.ROUND_DOWN).replace(/\.?0+$/, '');
-}
-
-/**
  * The send flow's amount step. The amount is the step's large input, under the
  * title like the recipient address. One card below it holds what the amount is
  * made of: the token (with its available balance and Max) and where it goes.
@@ -67,8 +58,7 @@ export const SendAmount: React.FC<SendAmountProps> = ({
   onConfirm
 }) => {
   const { t } = useTranslation();
-  const reduceMotion = useReducedMotion();
-  const transition = reduceMotion ? { duration: 0 } : { duration: durations.normal, ease: easings.easeOutCubic };
+  const transition = useMotion({ duration: durations.normal, ease: easings.easeOutCubic });
 
   // A decimals guess converts the typed amount into the wrong base units, so
   // an unknown-scale token can't be sent (see SelectAmount).
@@ -83,7 +73,7 @@ export const SendAmount: React.FC<SendAmountProps> = ({
 
   const fiatValue =
     token && scaleIsKnown && token.fiatPrice > 0 && amount
-      ? t('approxFiatValue', { value: `$${toAdaptiveFixed(parseFloat(amount) * token.fiatPrice)}` })
+      ? t('approxFiatValue', { value: approxFiatAmount(parseFloat(amount) * token.fiatPrice) })
       : undefined;
 
   const bridgeNetwork = network && network !== 'miden' ? getBridgeNetwork(network) : undefined;

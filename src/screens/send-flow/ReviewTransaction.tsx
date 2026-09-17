@@ -12,7 +12,7 @@ import { initiateB2AggBridge } from 'lib/agglayer/b2agg';
 import { EVM_AGGLAYER_NETWORK_ID } from 'lib/agglayer/b2agg/constant';
 import { confirmSensitiveAction } from 'lib/biometric';
 import { bridgeEpochSend } from 'lib/epoch';
-import { stringToBigInt, toAdaptiveFixed } from 'lib/i18n/numbers';
+import { stringToBigInt } from 'lib/i18n/numbers';
 import { initiateSendTransaction, requestSWTransactionProcessing } from 'lib/miden/activity';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { useMidenContext } from 'lib/miden/front/client';
@@ -26,6 +26,7 @@ import { useWalletStore } from 'lib/store';
 import { goBack, HistoryAction, navigate, Redirect, useLocation } from 'lib/woozie';
 import { detectAddressChain, isValidRecipientAddress } from 'utils/miden';
 
+import { approxFiatAmount } from './amount-format';
 import { BRIDGE_OUTPUT_TOKEN_SYMBOL, getBridgeNetwork, BridgeNetworkId } from './bridge-networks';
 import { NetworkChip } from './NetworkChip';
 import { dateTimeToRecallBlocks, RecallCalendarDrawer, SECONDS_PER_BLOCK } from './RecallCalendarDrawer';
@@ -401,7 +402,7 @@ export const ReviewTransaction: React.FC = () => {
         </div>
         {fiatValue !== undefined && (
           <span className="mt-2 font-heading text-base font-bold text-gray">
-            {t('approxFiatValue', { value: `$${toAdaptiveFixed(fiatValue)}` })}
+            {t('approxFiatValue', { value: approxFiatAmount(fiatValue) })}
           </span>
         )}
 

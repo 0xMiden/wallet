@@ -20,8 +20,9 @@ export interface BottomNavProps {
   onChange: (id: string) => void;
   /** Dock the bar to the bottom edge — full width, hairline top rule, no pill
    *  rounding or shadow — instead of floating it as a pill. The bottom padding
-   *  reaches 12px into the device's bottom safe-area inset (8px floor), so the
-   *  bar's background runs under the home indicator and the labels hug it. */
+   *  reaches the body's safe-area floor (--app-safe-bottom, declared in
+   *  mobile.html) into the device's bottom inset, with an 8px floor of its own,
+   *  so the bar's background runs under the home indicator and the items hug it. */
   docked?: boolean;
   className?: string;
 }
@@ -48,7 +49,7 @@ export const BottomNav: FC<BottomNavProps> = ({ items, activeId, onChange, docke
       className={classNames(
         'flex items-center gap-2 bg-white',
         docked
-          ? 'w-full justify-around px-4 pt-2 pb-[max(0.5rem,calc(env(safe-area-inset-bottom)-12px))] border-t border-border-subtle'
+          ? 'w-full justify-around px-4 pt-2 pb-[max(0.5rem,calc(var(--app-safe-bottom,max(16px,env(safe-area-inset-bottom)))-16px))] border-t border-border-subtle'
           : [
               'justify-center rounded-3xl px-4 py-2',
               'shadow-[0_4px_12px_rgba(0,0,0,0.08),0_12px_40px_rgba(0,0,0,0.15)]'

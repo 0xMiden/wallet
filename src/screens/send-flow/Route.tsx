@@ -4,6 +4,7 @@ import clsx from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import { Button, ButtonVariant } from 'components/Button';
+import { ACCENT_CLASSES, FlowAccent } from 'components/flow/accent';
 import { toAdaptiveFixed } from 'lib/i18n/numbers';
 import { hapticLight } from 'lib/mobile/haptics';
 
@@ -33,11 +34,8 @@ interface RouteCardProps {
   fee: React.ReactNode;
   eta: string;
   testId?: string;
-  accent: RouteAccent;
+  accent: FlowAccent;
 }
-
-/** Highlight color of the route cards: brand orange, or the Send flow's accent. */
-export type RouteAccent = 'brand' | 'send';
 
 const RouteCard: React.FC<RouteCardProps> = ({ label, selected, onSelect, fee, eta, testId, accent }) => (
   <button
@@ -46,14 +44,10 @@ const RouteCard: React.FC<RouteCardProps> = ({ label, selected, onSelect, fee, e
     onClick={onSelect}
     className={clsx(
       'flex w-full items-center rounded-2xl border bg-pure-white px-4 py-6 transition-colors text-base',
-      selected ? (accent === 'send' ? 'border-accent-send' : 'border-primary-500') : 'border-[#E8E8E8]'
+      selected ? ACCENT_CLASSES[accent].border : 'border-[#E8E8E8]'
     )}
   >
-    <div
-      className={clsx('flex flex-1 text-[20px] font-bold', accent === 'send' ? 'text-accent-send' : 'text-primary-500')}
-    >
-      {label}
-    </div>
+    <div className={clsx('flex flex-1 text-[20px] font-bold', ACCENT_CLASSES[accent].text)}>{label}</div>
     <span className="h-6 w-px shrink-0 bg-border-card" />
     <div className="flex flex-1 items-center justify-center text-heading-gray font-bold">{fee}</div>
     <span className="h-6 w-px shrink-0 bg-border-card" />
@@ -64,7 +58,7 @@ const RouteCard: React.FC<RouteCardProps> = ({ label, selected, onSelect, fee, e
 export type RouteOptionsProps = Pick<
   RouteStepProps,
   'route' | 'onRouteChange' | 'fastFeeUsd' | 'fastQuoteLoading' | 'notice'
-> & { accent?: RouteAccent };
+> & { accent?: FlowAccent };
 
 /** The Fast / Slow route cards and their notice, shared by every route step's layout. */
 export const RouteOptions: React.FC<RouteOptionsProps> = ({

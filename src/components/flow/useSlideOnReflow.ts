@@ -1,7 +1,10 @@
 import { RefObject, useEffect } from 'react';
 
+import { useReducedMotion } from 'framer-motion';
+
 import { durations } from 'lib/animation/durations';
 import { easings } from 'lib/animation/easings';
+import { isMobile } from 'lib/platform';
 
 /**
  * Slide an element to its new position whenever layout moves it, instead of letting it jump.
@@ -14,13 +17,19 @@ import { easings } from 'lib/animation/easings';
  * hiding and showing) and picks up from mid-flight when a move interrupts a slide.
  */
 export function useSlideOnReflow(ref: RefObject<HTMLElement | null>, containerRef: RefObject<HTMLElement | null>) {
+  // Reactive, like every other motion site in the flow: sampling the preference once at mount left
+  // the slide running for someone who turned Reduce Motion on while a flow page was open.
+  const reduceMotion = useReducedMotion();
+
   useEffect(() => {
     const el = ref.current;
     const container = containerRef.current;
     if (!el || !container || typeof ResizeObserver === 'undefined' || typeof el.animate !== 'function') return;
+    // The moves this exists for are the keyboard inset and the docked tab bar, both mobile and both
+    // discrete. Off mobile the only thing that resizes the frame is a window or panel drag, which
+    // arrives every frame and made the footer trail its own layout position.
+    if (!isMobile()) return;
 
-    const reduceMotion =
-      typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     let layoutTop = el.getBoundingClientRect().top;
     let running: Animation | undefined;
 
@@ -54,5 +63,5 @@ export function useSlideOnReflow(ref: RefObject<HTMLElement | null>, containerRe
       observer.disconnect();
       running?.cancel();
     };
-  }, [ref, containerRef]);
+  }, [ref, containerRef, reduceMotion]);
 }

@@ -8,7 +8,7 @@ import { ACCENT_CLASSES } from 'components/flow/accent';
 import { FlowSpinner } from 'components/flow/FlowSpinner';
 import { easings, springs, useMotion } from 'lib/animation';
 
-import { PENDING_STEP_COLOR, SUCCESS_GREEN } from './constants';
+import { PENDING_STEP_COLOR } from './constants';
 import type { StatusIndicatorProps, TransactionHeroIconProps, TransactionStepRowProps } from './types';
 
 export const TransactionHeroIcon: React.FC<TransactionHeroIconProps> = ({ state, accent = 'brand' }) => {
@@ -69,8 +69,7 @@ const StatusIndicator: React.FC<StatusIndicatorProps> = ({ state, accent = 'bran
         {state === 'complete' && (
           <motion.span
             key="complete"
-            className="absolute inset-0 flex items-center justify-center rounded-full"
-            style={{ backgroundColor: SUCCESS_GREEN }}
+            className="absolute inset-0 flex items-center justify-center rounded-full bg-status-positive"
             initial={{ opacity: 0, scale: 0.92 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.96 }}

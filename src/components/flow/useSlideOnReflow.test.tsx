@@ -4,6 +4,11 @@ import { act, render } from '@testing-library/react';
 
 import { useSlideOnReflow } from './useSlideOnReflow';
 
+let reduceMotion = false;
+let mockIsMobile = true;
+jest.mock('lib/platform', () => ({ isMobile: () => mockIsMobile }));
+jest.mock('framer-motion', () => ({ useReducedMotion: () => reduceMotion }));
+
 let reflow: () => void = () => {};
 class MockResizeObserver {
   constructor(cb: () => void) {
@@ -15,7 +20,6 @@ class MockResizeObserver {
 
 const animateMock = jest.fn();
 let top = 700;
-let reduceMotion = false;
 let computedOffset = 0;
 
 beforeEach(() => {
@@ -24,6 +28,7 @@ beforeEach(() => {
   top = 700;
   reduceMotion = false;
   computedOffset = 0;
+  mockIsMobile = true;
   Object.defineProperty(window, 'ResizeObserver', { value: MockResizeObserver, configurable: true, writable: true });
   Object.defineProperty(window, 'matchMedia', {
     value: () => ({ matches: reduceMotion }),
@@ -96,6 +101,30 @@ it('continues from mid-flight when a move interrupts a slide', () => {
 it('snaps without animating under reduced motion', () => {
   reduceMotion = true;
   render(<Harness />);
+  top = 500;
+  act(() => reflow());
+
+  expect(animateMock).not.toHaveBeenCalled();
+});
+
+// The keyboard inset and the docked tab bar are the moves this exists for, and both are mobile.
+// Off mobile the only thing that resizes the frame is a window or panel drag, which arrives every
+// frame and left the footer trailing its own layout position.
+it('does not animate off mobile', () => {
+  mockIsMobile = false;
+  render(<Harness />);
+  top = 500;
+  act(() => reflow());
+
+  expect(animateMock).not.toHaveBeenCalled();
+});
+
+// Sampling the preference once at mount left the slide running for someone who turned Reduce
+// Motion on while a flow page was open.
+it('stops the next slide when the preference is turned on after mount', () => {
+  const { rerender } = render(<Harness />);
+  reduceMotion = true;
+  rerender(<Harness />);
   top = 500;
   act(() => reflow());
 

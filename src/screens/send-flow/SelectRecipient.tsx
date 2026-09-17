@@ -118,20 +118,21 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
     textareaRef.current?.setAttribute('enterkeyhint', 'done');
   }, []);
 
-  // Auto-grow the borderless address field as it wraps across lines. Measuring
-  // needs height:auto, which would snap; so measure, put the old height back,
-  // force a reflow, then set the new height and let the CSS transition run.
+  // Auto-grow the borderless address field as it wraps across lines. Measuring needs height:auto,
+  // which would snap; so measure, put back the height the field is DRAWN at, force a reflow, then
+  // set the new height and let the CSS transition run. Restoring the last inline target instead
+  // snapped a keystroke that arrived while the previous grow was still animating.
   useEffect(() => {
     const ta = textareaRef.current;
     if (!ta) return;
-    const previous = ta.style.height;
+    const drawn = ta.style.height ? getComputedStyle(ta).height : '';
     ta.style.height = 'auto';
     const next = `${ta.scrollHeight}px`;
-    if (!previous || previous === next) {
+    if (!drawn || drawn === next) {
       ta.style.height = next;
       return;
     }
-    ta.style.height = previous;
+    ta.style.height = drawn;
     void ta.offsetHeight;
     ta.style.height = next;
   }, [address]);

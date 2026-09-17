@@ -10,7 +10,6 @@ import { truncateAddress } from 'utils/string';
 import { buildReceiptRows } from './receipt';
 import {
   ReceiptRows,
-  SuccessDivider,
   SuccessSummaryPill,
   TransactionSuccessLayout,
   TransactionSuccessProps,
@@ -59,9 +58,10 @@ export const SendSuccess: FC<TransactionSuccessProps> = ({ transaction, txHash, 
       ? t('paymentSent', { defaultValue: 'Payment Sent!' })
       : t('transactionComplete', { defaultValue: 'Transaction Complete!' });
 
+  const accent = accentForTransactionType(transaction?.type);
+
   return (
     <TransactionSuccessLayout
-      accent={accentForTransactionType(transaction?.type)}
       headerTitle=""
       title={title}
       primaryAction={{ label: t('done'), onClick: onDoneClick, variant: ButtonVariant.Primary }}
@@ -73,8 +73,7 @@ export const SendSuccess: FC<TransactionSuccessProps> = ({ transaction, txHash, 
       onClose={onDoneClick}
     >
       <SuccessSummaryPill lhs={amountText} rhs={isConsume ? t('consumed', { defaultValue: 'Consumed' }) : recipient} />
-      <SuccessDivider />
-      <ReceiptRows accent={accentForTransactionType(transaction?.type)} rows={rows} className="mt-2" />
+      <ReceiptRows accent={accent} rows={rows} className="mt-6" />
     </TransactionSuccessLayout>
   );
 };

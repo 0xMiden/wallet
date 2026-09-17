@@ -126,17 +126,6 @@ export const BalanceCard: FC<BalanceCardProps> = ({
     hapticLight();
     onMore();
   };
-  // The card itself opens the account options; it can't be a <button> because
-  // the copy-address control inside is one. Keys fired from that inner button
-  // are its own.
-  const handleMoreKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
-    if (event.target !== event.currentTarget) return;
-    if (event.key === 'Enter' || event.key === ' ') {
-      event.preventDefault();
-      handleMoreClick();
-    }
-  };
-
   return (
     <div
       className={classNames(
@@ -144,13 +133,29 @@ export const BalanceCard: FC<BalanceCardProps> = ({
         onMore && 'cursor-pointer',
         className
       )}
-      role={onMore ? 'button' : undefined}
-      tabIndex={onMore ? 0 : undefined}
-      aria-label={onMore ? t('balanceCardAccountOptions') : undefined}
-      onClick={onMore ? handleMoreClick : undefined}
-      onKeyDown={onMore ? handleMoreKeyDown : undefined}
     >
-      <div className={classNames('px-3.5 pt-4 pb-3.5', CARD_COLOR_TOP[cardColor])}>
+      {/* The whole card opens the account options, but as a real button UNDER the content, never
+          around it: a role=button container makes its children presentational, so the balance and
+          the copy control stopped being reachable for assistive tech. The content above it is
+          transparent to taps, so a tap anywhere still opens the options, while the copy button
+          keeps its own. */}
+      {onMore && (
+        <button
+          type="button"
+          onClick={handleMoreClick}
+          aria-label={t('balanceCardAccountOptions')}
+          // The ring has to be inset: this button's border box is exactly the box the card clips
+          // to, so an outside ring is clipped away and keyboard focus would show nothing at all.
+          className="absolute inset-0 z-0 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-primary focus-visible:outline-none"
+        />
+      )}
+      <div
+        className={classNames(
+          'relative px-3.5 pt-4 pb-3.5',
+          onMore && 'pointer-events-none',
+          CARD_COLOR_TOP[cardColor]
+        )}
+      >
         <div className="text-sm font-medium text-surface-balance-fg-muted leading-none">
           {t('balanceCardTotalBalance')}
         </div>
@@ -192,12 +197,14 @@ export const BalanceCard: FC<BalanceCardProps> = ({
 
       <div
         className={classNames(
-          'flex items-center justify-between gap-2 py-2 border-t border-dashed px-3.5 border-t-[#FFFFFF4D]',
+          'relative flex items-center justify-between gap-2 py-2 border-t border-dashed px-3.5 border-t-[#FFFFFF4D]',
+          onMore && 'pointer-events-none',
           CARD_COLOR_BOTTOM[cardColor]
         )}
       >
-        {/* Copying the address must not also open the account options. */}
-        <span className="flex min-w-0" onClick={event => event.stopPropagation()}>
+        {/* The copy control takes its own taps back; it is a sibling of the options button, so a
+            copy can no longer also open the options. */}
+        <span className="pointer-events-auto flex min-w-0">
           <CopyButton
             text={accountId ?? accountNumber}
             className={classNames(

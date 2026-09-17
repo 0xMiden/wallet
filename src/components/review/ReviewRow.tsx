@@ -30,8 +30,6 @@ export interface ReviewRowProps {
   children?: React.ReactNode;
   /** Optional helper line under the value, prefixed with an info icon. */
   note?: React.ReactNode;
-  /** Color of the Edit link: brand orange, or the Send flow's accent. */
-  accent?: 'brand' | 'send';
 }
 
 /**
@@ -40,15 +38,7 @@ export interface ReviewRowProps {
  * "Edit" link and an info note. Dividers between rows are owned by the parent
  * (ReviewLayout's `dividers` prop), so this stays border-free.
  */
-export const ReviewRow: React.FC<ReviewRowProps> = ({
-  label,
-  value,
-  onEdit,
-  editLabel,
-  children,
-  note,
-  accent = 'brand'
-}) => (
+export const ReviewRow: React.FC<ReviewRowProps> = ({ label, value, onEdit, editLabel, children, note }) => (
   <div className="py-6">
     <ReviewLabel>{label}</ReviewLabel>
 
@@ -58,14 +48,7 @@ export const ReviewRow: React.FC<ReviewRowProps> = ({
         <>
           {/* eslint-disable-next-line i18next/no-literal-string -- Decorative divider glyph between value and Edit link. */}
           <span className="mx-2 text-heading-gray">|</span>
-          <button
-            type="button"
-            onClick={onEdit}
-            className={classNames(
-              'align-baseline cursor-pointer',
-              accent === 'send' ? 'text-accent-send' : 'text-primary-500'
-            )}
-          >
+          <button type="button" onClick={onEdit} className="align-baseline text-primary-500 cursor-pointer">
             {editLabel}
           </button>
         </>

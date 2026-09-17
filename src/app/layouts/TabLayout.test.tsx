@@ -92,9 +92,13 @@ jest.mock('react-i18next', () => ({
 
 // The home-group carousel is E2E territory; a marker div is enough to assert it
 // mounts (vs. `children`) when the action bar is showing.
+const homeSwipeRenders = { count: 0 };
 jest.mock('app/layouts/HomeSwipeContainer', () => ({
   __esModule: true,
-  default: () => <div data-testid="home-swipe" />
+  default: () => {
+    homeSwipeRenders.count += 1;
+    return <div data-testid="home-swipe" />;
+  }
 }));
 
 // framer-motion's `motion.div` — forward props onto a plain div and surface the
@@ -472,6 +476,17 @@ describe('TabLayout — bottom nav footer padding', () => {
     expect(screen.getByTestId('bottom-nav')).toHaveAttribute('data-docked', 'true');
     expect(screen.getByTestId('bottom-nav').parentElement).not.toHaveClass('px-4');
   });
+
+  // The docked bar has to sink by exactly the body's bottom padding. Repeating that value
+  // here instead of reading mobile.html's --app-safe-bottom is what left the bar 4px above
+  // the screen edge, with its top rule still showing once it slid away.
+  it('sinks the docked footer by the safe-area floor the body declares', () => {
+    mockPlatform.isMobile = true;
+    renderLayout();
+
+    const footer = screen.getByTestId('bottom-nav').parentElement!.parentElement!;
+    expect(footer.style.bottom).toBe('calc(-1 * var(--app-safe-bottom, max(16px, env(safe-area-inset-bottom))))');
+  });
 });
 
 describe('TabLayout — docked bar hides while scrolling down on mobile', () => {
@@ -508,6 +523,26 @@ describe('TabLayout — docked bar hides while scrolling down on mobile', () => 
     expect(bar()).toHaveClass('translate-y-full');
     scrollTo(60);
     expect(bar()).not.toHaveClass('translate-y-full');
+  });
+
+  // The bar's own state lives in the bar. While it sat in TabLayout, every hide, show and idle
+  // reset re-rendered the home carousel and made Framer re-measure the action bar's layout nodes,
+  // in the middle of the scroll that caused it.
+  it('does not re-render the home carousel while the bar hides and returns', () => {
+    mockPlatform.isMobile = true;
+    mockLocation.pathname = '/';
+    renderLayout();
+    scrollTo(0);
+    const before = homeSwipeRenders.count;
+
+    scrollTo(40);
+    expect(bar()).toHaveClass('translate-y-full');
+    act(() => {
+      jest.advanceTimersByTime(300);
+    });
+    expect(bar()).not.toHaveClass('translate-y-full');
+
+    expect(homeSwipeRenders.count).toBe(before);
   });
 
   it('never hides the floating pill off-mobile', () => {

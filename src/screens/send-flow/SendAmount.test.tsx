@@ -71,7 +71,7 @@ describe('SendAmount', () => {
 
     expect(screen.getByText('enterAmount')).toBeInTheDocument();
     expect(screen.getByTestId('send-amount-confirm')).toBeDisabled();
-    fireEvent.click(screen.getByTestId('send-step-back'));
+    fireEvent.click(screen.getByTestId('flow-back'));
     expect(props.onBack).toHaveBeenCalledTimes(1);
   });
 

@@ -750,10 +750,22 @@ describe('recipient address entry', () => {
     expect(screen.getByTestId('sr-error')).toHaveTextContent('');
   });
 
-  it('pastes through the web clipboard off mobile', async () => {
+  // Off mobile there is no read that works: a WebView's readText() raises the platform's paste
+  // callout instead of returning text, and in the extension it never settles, because the manifest
+  // holds clipboardWrite and not clipboardRead. The pill is gated like the scanner rather than
+  // offered and silently doing nothing; the field is a textarea, so the platform's paste still works.
+  it('offers no paste control off mobile', () => {
     isMobileMock.mockReturnValue(false);
-    const readText = jest.fn().mockResolvedValue('0xpasted');
-    Object.defineProperty(navigator, 'clipboard', { value: { readText }, configurable: true });
+    renderFlow();
+
+    expect(screen.queryByTestId('sr-paste')).not.toBeInTheDocument();
+  });
+
+  it('ignores a clipboard that holds no text, so an image cannot become the recipient', async () => {
+    clipboardReadMock.mockResolvedValue({
+      type: 'image/png',
+      value: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUg=='
+    });
     renderFlow();
 
     await act(async () => {
@@ -761,8 +773,8 @@ describe('recipient address entry', () => {
       await Promise.resolve();
     });
 
-    expect(clipboardReadMock).not.toHaveBeenCalled();
-    expect(screen.getByTestId('sr-address')).toHaveTextContent('0xpasted');
+    expect(screen.getByTestId('sr-address')).toHaveTextContent('');
+    expect(screen.getByTestId('sr-error')).toHaveTextContent('');
   });
 
   it('lets the token/contacts drawers be closed via onOpenChange', () => {

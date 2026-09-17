@@ -2,7 +2,7 @@ import React from 'react';
 
 import { fireEvent, render, screen } from '@testing-library/react';
 
-import { SuccessDivider, TransactionSuccessLayout } from './TransactionSuccessLayout';
+import { ReceiptRows, TransactionSuccessLayout } from './TransactionSuccessLayout';
 
 /**
  * Covers the two props the Guardian receipt introduced to the shared layout:
@@ -57,12 +57,25 @@ it('keeps the body title one level below a titled header', () => {
   expect(screen.getByRole('heading', { level: 2, name: 'Transaction Complete!' })).toBeInTheDocument();
 });
 
-it('spaces the summary from the details card without drawing a rule', () => {
-  const { container } = render(<SuccessDivider />);
+// The rows are what a receipt actually colours: the layout's frame reads an accent only for a back
+// button it never renders. Asserting the accent HERE, where it has an observable effect, is what
+// pins the plumbing the three receipts rely on - an absence assertion on the layout could not fail.
+it('colours the clickable row value with the flow accent, and brand by default', () => {
+  const row = { label: 'Transaction ID', value: '0xabc', onClick: jest.fn(), actionLabel: 'View on Midenscan' };
+  const { rerender } = render(<ReceiptRows accent="send" rows={[row]} />);
+  expect(screen.getByRole('button', { name: 'View on Midenscan' })).toHaveClass('text-accent-send');
 
-  // The details are a card now, so the divider is decorative spacing only.
-  expect(container.firstElementChild).toHaveAttribute('aria-hidden', 'true');
-  expect(container.firstElementChild?.className).not.toContain('bg-');
+  rerender(<ReceiptRows rows={[row]} />);
+  expect(screen.getByRole('button', { name: 'View on Midenscan' })).toHaveClass('text-primary-500');
+});
+
+// One element owns the gap: the card takes its margin from its caller. While an empty spacer sat
+// in front of it as well, the card carried two margin classes and one of them never applied.
+it('leaves the summary-to-card gap to the caller, with one margin class on the card', () => {
+  const { container } = render(<ReceiptRows rows={[{ label: 'Network fee', value: '1 MDN' }]} className="mt-6" />);
+
+  const card = container.firstElementChild!;
+  expect(card.className.match(/\bmt-\d+\b/g)).toEqual(['mt-6']);
 });
 
 it('takes focus on mount so the outcome is announced', () => {

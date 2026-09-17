@@ -388,7 +388,6 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
       <FlowLayout
         title={processingTitle}
         onClose={onDoneClick}
-        accent={accent}
         footer={
           <div className="flex w-full flex-col items-center gap-3">
             {/* #483 — a failed, retryable tx gets a one-tap Retry (requeue / earn

@@ -2,18 +2,15 @@
 
 ## 1.16.2 (TBD)
 
-- [CHANGE][mobile] Bottom tab bar: new Home, Explore and Activity glyphs, icons only at 32px with no labels (each tab keeps its name for assistive tech), and one light-grey pill that slides between tabs on the shared pill spring.
+- [CHANGE][all] Bottom tab bar: new Home, Explore and Activity glyphs, icons only at 32px with no labels (each tab keeps its name for assistive tech), and one light-grey pill that slides between tabs on the shared pill spring.
 - [CHANGE][all] The Overview segmented bar's pill and segment widths animate together on the pill spring instead of a width snap under a tween.
 - [CHANGE][all] Passcode screens: Nunito throughout (subtitle, keypad, links), ExtraBold keypad digits with a press-in scale, and the unlock screen no longer selectable on long press. The home Assets heading steps down from Black to ExtraBold, and the Accounts drawer gets an ExtraBold title with Nunito Bold 16px rows.
+- [CHANGE][all] The token search box under the home Assets heading is removed: the asset list follows the heading directly.
 - [CHANGE][mobile] The bottom tab bar is docked to the bottom edge instead of floating as a pill: full width with a hairline top rule, its background running under the home indicator. It slides away while a tab page is scrolled down and returns as soon as the scroll stops or reverses. The extension and desktop keep the floating pill.
-- [CHANGE][all] The home Assets heading is set in Nunito Black, and the token search box under it is removed: the asset list follows the heading directly.
 - [CHANGE][all] The balance card itself opens the account options on tap (keyboard: Enter or Space); the pencil button in its corner is removed. Copying the address no longer risks opening the options.
 - [CHANGE][all] Typography pass: tab page titles are Nunito ExtraBold with -0.5px tracking, the unlock title is ExtraBold, the segmented action bar label is Nunito, Settings section headings are ExtraBold and their rows Bold, and the first Settings section sits 12px below the title rule.
-
-- [CHANGE][mobile] Send flow: the Confirm button on the recipient, amount and route steps sits just above the docked tab bar instead of floating, and a long pasted address no longer pushes the Address Book pill into the button.
-- [CHANGE][all] Send flow: every step shares one layout, so the back button, title, large input and Confirm button stay in the same place from recipient to amount to route. Confirm sits just above the docked tab bar and keeps that position when later steps hide the bar; a long pasted address no longer pushes the Address Book pill into it.
 - [CHANGE][all] Send flow: every step shares one layout, so the back button, title and large input stay in the same place from recipient to amount to route. Confirm sits just above the docked tab bar on the recipient step and drops to the bottom of the screen once later steps hide the bar; a long pasted address no longer pushes the Address Book pill into it.
-- [FEATURE][all] Send flow: a Paste pill on the recipient step fills the address from the clipboard, with the same validation as a scanned QR code.
+- [FEATURE][mobile] Send flow: a Paste pill on the recipient step fills the address from the native clipboard, with the same validation as a scanned QR code. Mobile only: it is the one platform where a clipboard read works without a permission prompt, and elsewhere the field takes an ordinary paste.
 - [CHANGE][all] Send flow: the amount step is redesigned. The amount is the large input under the title, with its dollar value; one card below holds the token (available balance, Max) and the recipient with its network; a missing-MIDEN fee shortfall is a notice with a Receive link instead of a red amount.
 - [CHANGE][all] Send flow: networks show as chips with their logo (Miden's orange brand mark from miden.xyz) instead of solid orange pills, and a 0x recipient picks its destination network from chips on the recipient step instead of a separate sheet.
 - [CHANGE][all] Send flow: entering or pasting a recipient animates instead of jumping. The address field grows smoothly as it wraps, the action pills swap as one set (the current pills fade out, then the next set, such as "Add to contacts?", fades in), the network chip lands just after, and network options, errors and recents fade and expand in and out. Reduced motion turns the animation off.
@@ -26,8 +23,9 @@
 - [CHANGE][all] Send flow: highlights use Send's sky blue (the back arrow, chevrons, Max, the Receive link, the address caret, selected network chips and route cards) while Confirm keeps the brand orange; the back button sits on the #F9F9F9 nav button surface. New design tokens: an accent and a tint per home action (Send, Receive, Earn, Swap) and a nav button surface.
 - [FIX][all] Send flow: after backing out of Review, the amount step's back button returns to the recipient step with the address still filled in. It used to close the flow, and reopening Send landed on the amount step again with no way back to the address.
 - [CHANGE][all] A disabled primary button is a faded version of the brand color with white text, instead of beige with grey text, so it reads as the same button waiting to be enabled.
-- [CHANGE][all] Screen header back and close buttons share the nav button surface (#F9F9F9 in light mode) with a grey glyph; back is no longer an outlined orange arrow. New design tokens: an accent and a tint per home action (Send, Receive, Earn, Swap) and a nav button surface.
+- [CHANGE][all] Screen header back and close buttons share the nav button surface (#F9F9F9 in light mode) with a grey glyph; back is no longer an outlined orange arrow.
 - [FIX][ios] With a hardware keyboard attached (the simulator's Mac keyboard, or a Bluetooth keyboard), focusing a field no longer lifts the page by a full on-screen keyboard that is not showing; the layout clears only the visible accessory bar.
+
 ### Features
 
 - [FEATURE][all] Guardian private-key export and seed-less import carry the existing Miden hot and EVM keys together as `hot:evm` (two separate 64-character lowercase hex scalars). Authenticated reveal opens a QR first, with separate text fields available. Import supports native/extension camera scanning, local QR image decoding, and manual entry; both scalars are validated before storage changes. The supplied EVM key is encrypted in the vault and restores its address without deriving a new key or seed. Seed-based recovery stays separate; the export does not contain a cold recovery key.
