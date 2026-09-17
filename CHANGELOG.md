@@ -27,6 +27,7 @@
 - [FIX][all] Send flow: after backing out of Review, the amount step's back button returns to the recipient step with the address still filled in. It used to close the flow, and reopening Send landed on the amount step again with no way back to the address.
 - [CHANGE][all] A disabled primary button is a faded version of the brand color with white text, instead of beige with grey text, so it reads as the same button waiting to be enabled.
 - [CHANGE][all] Screen header back and close buttons share the nav button surface (#F9F9F9 in light mode) with a grey glyph; back is no longer an outlined orange arrow. New design tokens: an accent and a tint per home action (Send, Receive, Earn, Swap) and a nav button surface.
+- [FIX][ios] With a hardware keyboard attached (the simulator's Mac keyboard, or a Bluetooth keyboard), focusing a field no longer lifts the page by a full on-screen keyboard that is not showing; the layout clears only the visible accessory bar.
 ### Features
 
 - [FEATURE][all] Guardian private-key export and seed-less import carry the existing Miden hot and EVM keys together as `hot:evm` (two separate 64-character lowercase hex scalars). Authenticated reveal opens a QR first, with separate text fields available. Import supports native/extension camera scanning, local QR image decoding, and manual entry; both scalars are validated before storage changes. The supplied EVM key is encrypted in the vault and restores its address without deriving a new key or seed. Seed-based recovery stays separate; the export does not contain a cold recovery key.
