@@ -786,14 +786,6 @@
     "message": "重試",
     "englishSource": "Retry"
   },
-  "retryEarnDelivery": {
-    "message": "重試交付",
-    "englishSource": "Retry delivery"
-  },
-  "withdrawalRecoveryUnavailable": {
-    "message": "無法安全地重試這筆提領。開始另一筆提領前，請先查看這筆提領的狀態。",
-    "englishSource": "This withdrawal cannot be retried safely. Check its status before starting another withdrawal."
-  },
   "retryAnyway": {
     "message": "仍然重試",
     "englishSource": "Retry anyway"
@@ -1072,6 +1064,98 @@
   "importWallet": {
     "message": "匯入錢包",
     "englishSource": "Import Wallet"
+  },
+  "importWithKeyInstead": {
+    "message": "請改用金鑰匯入",
+    "englishSource": "Import with key instead"
+  },
+  "importHotKeyTitle": {
+    "message": "匯入私鑰",
+    "englishSource": "Import private keys"
+  },
+  "importHotKeyDescription": {
+    "message": "掃描您的私鑰 QR 碼，或輸入您的 Miden 熱私鑰及 EVM 私鑰。您的熱私鑰將定位您的 Guardian 帳戶；提供的 EVM 私鑰則會還原其 EVM 地址；錢包無法驗證這些私鑰是否屬於同一個帳戶。",
+    "englishSource": "Scan your private-key QR or enter your Miden hot and EVM private keys. Your hot key finds your Guardian account. The supplied EVM key restores its EVM address; the wallet cannot verify that these keys belong together."
+  },
+  "importHotKeyPlaceholder": {
+    "message": "日常金鑰 (十六進位)",
+    "englishSource": "Everyday key (hex)"
+  },
+  "importHotKeyInvalid": {
+    "message": "請提供兩組私鑰，格式須為有效的、非零的 32 位元組 secp256k1 標量（每組 64 個十六進位字元）。QR 碼必須精確包含 hot-key:evm-key 格式。",
+    "englishSource": "Provide both private keys as valid, nonzero 32-byte secp256k1 scalars (64 hexadecimal characters each). QR codes must contain exactly hot-key:evm-key."
+  },
+  "midenHotPrivateKey": {
+    "message": "Miden 熱私鑰",
+    "englishSource": "Miden hot private key"
+  },
+  "evmPrivateKey": {
+    "message": "EVM 私鑰",
+    "englishSource": "EVM private key"
+  },
+  "evmPrivateKeyMissing": {
+    "message": "此帳戶的 EVM 私鑰遺失。匯出時需同時提供兩把金鑰。請從您的備份中還原原始的 EVM 私鑰。",
+    "englishSource": "This account's EVM private key is missing. Both keys are required for export. Restore the original EVM key from your backup."
+  },
+  "privateKeyPairQr": {
+    "message": "私鑰 QR 碼",
+    "englishSource": "Private keys QR code"
+  },
+  "privateKeyPairWarning": {
+    "message": "請將兩把金鑰嚴加保密。任何持有這些金鑰的人都能控制您的 Miden 和 EVM 資產。此匯出檔案不包含您的 Guardian 恢復金鑰。",
+    "englishSource": "Keep both keys secret. Anyone with them can control your Miden and EVM assets. This export does not include your Guardian recovery key."
+  },
+  "showPrivateKeyText": {
+    "message": "以純文字顯示金鑰",
+    "englishSource": "Show keys as text"
+  },
+  "showQrCode": {
+    "message": "顯示 QR 碼",
+    "englishSource": "Show QR code"
+  },
+  "uploadQrImage": {
+    "message": "上傳 QR 圖像",
+    "englishSource": "Upload QR image"
+  },
+  "enterKeysManually": {
+    "message": "請手動輸入關鍵字",
+    "englishSource": "Enter keys manually"
+  },
+  "keyCameraUnavailable": {
+    "message": "此處無法使用相機掃描。請上傳 QR 碼圖片或手動輸入兩組金鑰。",
+    "englishSource": "Camera scanning is unavailable here. Upload a QR image or enter both keys manually."
+  },
+  "invalidQrImage": {
+    "message": "無法讀取此圖片中的 QR 碼。請選擇一張清晰且大小不超過 20 MB 的 QR 碼圖片，或手動輸入兩組金鑰。",
+    "englishSource": "Could not read a QR code from this image. Choose a clear QR image up to 20 MB or enter both keys manually."
+  },
+  "privateKeyPairReady": {
+    "message": "兩組金鑰均已準備就緒，可進行匯入。",
+    "englishSource": "Both keys are ready to import."
+  },
+  "importHotKeyError": {
+    "message": "無法使用此金鑰匯入帳戶。",
+    "englishSource": "Could not import an account with this key."
+  },
+  "importHotKeyWrongScheme": {
+    "message": "此金鑰採用了未受支援的方案。請貼上 Guardian 帳戶的日常金鑰。",
+    "englishSource": "This key uses an unsupported scheme. Paste the everyday key of a Guardian account."
+  },
+  "importHotKeyNoAccount": {
+    "message": "在 Guardian 此處，未找到與此金鑰對應的 Guardian 帳戶。",
+    "englishSource": "No Guardian account was found for this key at this Guardian."
+  },
+  "importHotKeyIsRecoveryKey": {
+    "message": "這看起來像是您的恢復金鑰。請改為貼上日常金鑰。",
+    "englishSource": "This looks like your recovery key. Paste the everyday key instead."
+  },
+  "importHotKeyNotActive": {
+    "message": "此金鑰對該帳戶已不再有效。請貼上當前的日常金鑰。",
+    "englishSource": "This key is no longer active for the account. Paste the current everyday key."
+  },
+  "recoveryActionsRequireRecoveryKey": {
+    "message": "Guardian 任何變更或金鑰替換皆需使用復原金鑰，而該金鑰並未儲存於此裝置中。",
+    "englishSource": "Guardian changes and key replacement need the recovery key, which is not on this device."
   },
   "revealPrivateKey": {
     "message": "顯示私密金鑰",
@@ -1730,33 +1814,30 @@
     "message": "請將代幣加入您的錢包，即可開始使用。",
     "englishSource": "Add tokens to your wallet to get started."
   },
-  "faucetPromptAction": {
-    "message": "立即捐款",
-    "englishSource": "Fund now"
+  "faucetPromptFunding": {
+    "message": "資金",
+    "englishSource": "Funding"
   },
-  "fundWalletLoadingTitle": {
-    "message": "為您的錢包儲值",
-    "englishSource": "Funding your wallet"
+  "faucetPromptFundingSub": {
+    "message": "您的資金很快就會到帳",
+    "englishSource": "Your funds will be available shortly"
   },
-  "fundWalletLoadingBody": {
-    "message": "正在向 faucet 請求憑證……",
-    "englishSource": "Requesting tokens from the faucet…"
+  "faucetPromptFunded": {
+    "message": "存入資金",
+    "englishSource": "Funds deposited"
   },
-  "fundWalletSuccessTitle": {
-    "message": "錢包已充值",
-    "englishSource": "Wallet funded"
+  "faucetPromptFundedSub": {
+    "message": "你有 $amount$ 準備好",
+    "englishSource": "You have $amount$ ready",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
   },
-  "fundWalletSuccessBody": {
-    "message": "您的代幣正在送來的路上，稍後就會顯示。",
-    "englishSource": "Your tokens are on the way and will appear shortly."
-  },
-  "fundWalletErrorTitle": {
-    "message": "資金籌措失敗",
-    "englishSource": "Funding failed"
-  },
-  "fundWalletErrorBody": {
-    "message": "我們無法為您的錢包充值。請重新嘗試。",
-    "englishSource": "We couldn't fund your wallet. Please try again."
+  "faucetPromptFundedSubGeneric": {
+    "message": "您的資金已準備好",
+    "englishSource": "Your funds are ready"
   },
   "guardianNoteRecoveryPromptTitle": {
     "message": "偵測到帳戶復原",
@@ -1798,10 +1879,6 @@
         "content": "$1"
       }
     }
-  },
-  "pendingNotesPromptAction": {
-    "message": "立即查看",
-    "englishSource": "See Now"
   },
   "verifySeedPhrasePromptTitle": {
     "message": "驗證您的恢復短語",
@@ -2633,12 +2710,12 @@
     "englishSource": "Your Guardian account is protected by three keys: a device (hot) key for routine signing, a recovery (cold) key derived from your seed phrase for account-management operations, and an external guardian co-signer. Below are your cold private key plus both public keys. To reveal the device private key, use Settings → Reveal Device Key."
   },
   "hotKeyRevealWarningTitle": {
-    "message": "在您揭露裝置金鑰之前",
-    "englishSource": "Before you reveal your device key"
+    "message": "在您揭露私鑰之前",
+    "englishSource": "Before you reveal your private keys"
   },
   "hotKeyRevealWarningBody": {
-    "message": "在您進行金鑰輪替之前，任何持有此金鑰的人都能簽署交易。若金鑰外洩，請透過「設定」→「輪替裝置金鑰」進行金鑰輪替。",
-    "englishSource": "Anyone with this key can sign transactions until you rotate it. If the key is leaked, rotate it via Settings → Rotate Device Key."
+    "message": "任何持有這些金鑰的人都能控制您的 Miden 和 EVM 資產。輪替您的 Miden 裝置金鑰並不會改變或保護已外洩的 EVM 金鑰。",
+    "englishSource": "Anyone with these keys can control your Miden and EVM assets. Rotating your Miden device key does not change or protect a leaked EVM key."
   },
   "invalidUrl": {
     "message": "請輸入以 http:// 或 https:// 開頭的有效網址",
@@ -3814,127 +3891,6 @@
     "message": "測試網",
     "englishSource": "Testnet"
   },
-  "devnet": {
-    "message": "開發網（Devnet）",
-    "englishSource": "Devnet"
-  },
-  "localnet": {
-    "message": "Localnet",
-    "englishSource": "Localnet"
-  },
-  "networkModeBanner": {
-    "message": "您正在 Miden $network$ 上使用 Bread",
-    "englishSource": "You are using Bread on Miden $network$",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    }
-  },
-  "networkNoticeChip": {
-    "message": "Miden $network$",
-    "englishSource": "Miden $network$",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    }
-  },
-  "networkNoticeBody": {
-    "message": "此環境僅供測試使用。您在此持有的所有項目均為測試代幣，不具任何貨幣價值。",
-    "englishSource": "This environment is for testing. Everything you hold here is a test token with no monetary value."
-  },
-  "networkNoticeNoValueTitle": {
-    "message": "測試代幣並非貨幣",
-    "englishSource": "Test tokens are not money"
-  },
-  "networkNoticeNoValueBody": {
-    "message": "此處顯示的餘額與價格均為模擬數據，不可兌現。",
-    "englishSource": "Balances and prices shown here are simulated and cannot be redeemed."
-  },
-  "networkNoticeNoRealFundsTitle": {
-    "message": "請勿匯出真實資金",
-    "englishSource": "Do not send real funds"
-  },
-  "networkNoticeNoRealFundsBody": {
-    "message": "從真實網路發送至測試地址的任何內容均會遺失。",
-    "englishSource": "Anything sent from a real network to a test address is lost."
-  },
-  "networkNoticeResetTitle": {
-    "message": "網路可重置",
-    "englishSource": "The network can reset"
-  },
-  "networkNoticeResetBody": {
-    "message": "重置會清除餘額與交易紀錄。測試網的餘額絕不會轉移至主網。",
-    "englishSource": "A reset clears balances and history. Test balances never carry over to Mainnet."
-  },
-  "iUnderstand": {
-    "message": "我明白了",
-    "englishSource": "I understand"
-  },
-  "receiveTestFundsTitle": {
-    "message": "僅限測試代幣",
-    "englishSource": "Test tokens only"
-  },
-  "receiveTestFundsBody": {
-    "message": "請僅將 Miden $network$ 代幣發送至此處。若將真實資金發送至此地址，將無法追回。",
-    "englishSource": "Only send Miden $network$ tokens here. Real funds sent to this address cannot be recovered.",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    }
-  },
-  "crossChainFromNetwork": {
-    "message": "來源：$network$",
-    "englishSource": "from $network$",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    }
-  },
-  "ethereumSepolia": {
-    "message": "以太坊 Sepolia",
-    "englishSource": "Ethereum Sepolia"
-  },
-  "bridgeTestFundsTitle": {
-    "message": "僅限測試資金",
-    "englishSource": "Test funds only"
-  },
-  "bridgeTestFundsBody": {
-    "message": "此橋接功能將以太坊 Sepolia 測試代幣轉移至 Miden。切勿從以太坊主網或任何其他真實網路進行橋接。",
-    "englishSource": "This bridge moves Ethereum Sepolia test tokens to Miden. Never bridge from Ethereum mainnet or any other real network."
-  },
-  "shareAddressText": {
-    "message": "我的 Miden $network$ 地址（僅限測試代幣）：$address$",
-    "englishSource": "My Miden $network$ address (test tokens only): $address$",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      },
-      "address": {
-        "content": "$2"
-      }
-    }
-  },
-  "qrNetworkCaption": {
-    "message": "Miden $network$",
-    "englishSource": "Miden $network$",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    }
-  },
-  "evmConnectTestWalletTitle": {
-    "message": "僅連接測試錢包",
-    "englishSource": "Connect a test wallet only"
-  },
-  "evmConnectTestWalletBody": {
-    "message": "此橋接服務運行於以太坊 Sepolia 網。請勿連接內含真實資金的錢包。請創建一個全新錢包，並僅存入 Sepolia ETH。",
-    "englishSource": "This bridge runs on Ethereum Sepolia. Do not connect a wallet that holds real funds. Create a fresh wallet and fund it with Sepolia ETH only."
-  },
   "browser": {
     "message": "瀏覽器",
     "englishSource": "Browser"
@@ -4458,10 +4414,6 @@
     "message": "處理提領",
     "englishSource": "Processing Withdrawal"
   },
-  "withdrawalCheckingDescription": {
-    "message": "正在檢查您的提領狀態。請保持錢包開啟，直到確認送達。",
-    "englishSource": "Checking your withdrawal. Keep the wallet open while delivery is confirmed."
-  },
   "withdrawalProcessingDescription": {
     "message": "簽署並將免手續費的提領意向提交至 Epoch。此過程通常只需幾秒鐘。",
     "englishSource": "Signing and submitting the gasless withdrawal intent to Epoch. This usually takes a few seconds."
@@ -4586,59 +4538,242 @@
     "message": "此操作將永久刪除此錢包，包括您的金鑰和交易紀錄。若要還原錢包，您需要使用您的恢復短語。",
     "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
   },
-  "activityAcceptTransfer": {
-    "message": "接受轉帳",
-    "englishSource": "Accept Transfer"
+  "removeSeedPhrase": {
+    "message": "移除 seed phrase",
+    "englishSource": "Remove seed phrase"
   },
-  "activityRejectTransfer": {
-    "message": "拒絕",
-    "englishSource": "Decline"
+  "removeSeedPhraseDescription": {
+    "message": "在移除您的 seed phrase 之前，請先將其記錄下來。日常交易仍可照常進行。若 Guardian 發生變更，或進行日常金鑰更換時，您將需要輸入 seed phrase。",
+    "englishSource": "Write down your seed phrase before you remove it. Daily transactions will still work. Guardian changes and everyday key replacement will require you to enter the seed phrase."
   },
-  "activityCheckingTransfer": {
-    "message": "正在檢查……",
-    "englishSource": "Checking…"
+  "removeSeedPhraseWriteDown": {
+    "message": "請將所有詞彙按此順序寫在紙上。將紙張存放在本裝置以外的安全地點。",
+    "englishSource": "Write all words on paper in this order. Keep the paper in a safe place outside this device."
   },
-  "activityTransferClaimed": {
-    "message": "已申領",
-    "englishSource": "Claimed"
+  "removeSeedPhraseConfirmation": {
+    "message": "此操作將從本裝置上的此錢包中移除 seed phrase 和 Guardian 恢復金鑰。請妥善保管您的紙本備份。先前建立的備份並不會被刪除。",
+    "englishSource": "This removes the seed phrase and Guardian recovery keys from this wallet on this device. Keep your paper backup. Previously made backups are not deleted."
   },
-  "activityClaimedOn": {
-    "message": "已申領於",
-    "englishSource": "Claimed on"
+  "removeSeedPhraseConfirm": {
+    "message": "從此裝置中移除",
+    "englishSource": "Remove from this device"
   },
-  "activityReceivedOn": {
-    "message": "收到於",
-    "englishSource": "Received on"
+  "seedPhraseRemoved": {
+    "message": "Seed phrase 已從此裝置移除",
+    "englishSource": "Seed phrase removed from this device"
   },
-  "activityNotYetAccepted": {
-    "message": "尚未接受 — 請審閱並接受以領取這些資金。",
-    "englishSource": "Not yet accepted — review and accept to claim these funds."
+  "seedPhraseUnavailable": {
+    "message": "此錢包中並未儲存任何seed phrase。",
+    "englishSource": "There is no seed phrase stored in this wallet."
   },
-  "acceptAll": {
-    "message": "全數接受",
-    "englishSource": "Accept All"
+  "seedRemovalIncomplete": {
+    "message": "移除尚未完成。請再次解鎖錢包以完成恢復資料的移除。",
+    "englishSource": "Removal is not complete. Unlock the wallet again to finish removing the recovery material."
   },
-  "activitySearch": {
-    "message": "搜尋活動",
-    "englishSource": "Search activity"
+  "seedRemovalFailed": {
+    "message": "無法完成移除 seed phrase。請重新嘗試。",
+    "englishSource": "Could not finish removing the seed phrase. Try again."
+  },
+  "seedRemovalBusy": {
+    "message": "請待當前交易完成後，再移除seed phrase。",
+    "englishSource": "Wait for the current transactions to finish before removing the seed phrase."
+  },
+  "seedRemovalKeysNotReady": {
+    "message": "請在移除seed phrase之前，先完成帳戶恢復及日常金鑰啟用程序。",
+    "englishSource": "Finish account recovery and everyday key activation before removing the seed phrase."
+  },
+  "seedRequiredForAccountCreation": {
+    "message": "建立帳戶需儲存seed phrase。目前尚無法為此操作提供臨時種子輸入。",
+    "englishSource": "Account creation requires a stored seed phrase. Temporary seed input for this action is not yet available."
+  },
+  "recoverySeedRequired": {
+    "message": "此操作需要您輸入恢復密碼：seed phrase。",
+    "englishSource": "This action requires your recovery seed phrase."
+  },
+  "recoverySeedRequiredTitle": {
+    "message": "請輸入您的 seed phrase",
+    "englishSource": "Enter your seed phrase"
+  },
+  "recoverySeedTemporaryDescription": {
+    "message": "請使用您的紙本備份。此短語僅用於此操作，且不會儲存於本裝置中。",
+    "englishSource": "Use your paper backup. The phrase is used only for this action and is not saved on this device."
+  },
+  "invalidRecoverySeed": {
+    "message": "請輸入有效的 seed phrase。",
+    "englishSource": "Enter a valid seed phrase."
+  },
+  "wrongRecoverySeed": {
+    "message": "此 seed phrase 與該帳戶不符。",
+    "englishSource": "This seed phrase does not match this account."
+  },
+  "recoveryActionUnavailable": {
+    "message": "此復原操作已不再可用。",
+    "englishSource": "This recovery action is no longer available."
+  },
+  "devnet": {
+    "message": "開發網（Devnet）",
+    "englishSource": "Devnet"
   },
   "activityTransferAccepted": {
     "message": "轉帳已接受",
     "englishSource": "Transfer accepted"
   },
-  "activityTransferDetails": {
-    "message": "詳細說明",
-    "englishSource": "Details"
+  "networkNoticeChip": {
+    "message": "Miden $network$",
+    "englishSource": "Miden $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "withdrawalRecoveryUnavailable": {
+    "message": "無法安全地重試這筆提領。開始另一筆提領前，請先查看這筆提領的狀態。",
+    "englishSource": "This withdrawal cannot be retried safely. Check its status before starting another withdrawal."
+  },
+  "networkNoticeNoRealFundsTitle": {
+    "message": "請勿匯出真實資金",
+    "englishSource": "Do not send real funds"
+  },
+  "activityReceivedOn": {
+    "message": "收到於",
+    "englishSource": "Received on"
+  },
+  "walletSetupDidNotComplete": {
+    "message": "您的錢包已建立，但尚未完成啟動。請檢查網路連線並重新嘗試。",
+    "englishSource": "Your wallet was created but did not finish starting up. Check your connection and try again."
+  },
+  "activityClaimedOn": {
+    "message": "已申領於",
+    "englishSource": "Claimed on"
+  },
+  "evmConnectTestWalletTitle": {
+    "message": "僅連接測試錢包",
+    "englishSource": "Connect a test wallet only"
+  },
+  "bridgeTestFundsTitle": {
+    "message": "僅限測試資金",
+    "englishSource": "Test funds only"
+  },
+  "qrNetworkCaption": {
+    "message": "Miden $network$",
+    "englishSource": "Miden $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
   },
   "activityRejectExplanation": {
     "message": "要將此轉帳從本裝置的「活動」中隱藏嗎？此操作不會將資金退還給寄件者，也不會刪除該筆note。您可以在「活動」中還原已隱藏的轉帳。",
     "englishSource": "Hide this transfer from Activity on this device? This does not return funds to the sender or delete the note. You can restore hidden transfers in Activity."
   },
-  "activityHiddenTransfers": {
-    "message": "隱藏轉帳：$count$",
-    "englishSource": "Hidden transfers: $count$",
+  "activitySearch": {
+    "message": "搜尋活動",
+    "englishSource": "Search activity"
+  },
+  "evmConnectTestWalletBody": {
+    "message": "此橋接服務運行於以太坊 Sepolia 網。請勿連接內含真實資金的錢包。請創建一個全新錢包，並僅存入 Sepolia ETH。",
+    "englishSource": "This bridge runs on Ethereum Sepolia. Do not connect a wallet that holds real funds. Create a fresh wallet and fund it with Sepolia ETH only."
+  },
+  "activityAcceptTransfer": {
+    "message": "接受轉帳",
+    "englishSource": "Accept Transfer"
+  },
+  "activityDateUnavailable": {
+    "message": "日期不詳",
+    "englishSource": "Date unavailable"
+  },
+  "networkNoticeNoValueTitle": {
+    "message": "測試代幣並非貨幣",
+    "englishSource": "Test tokens are not money"
+  },
+  "networkNoticeNoValueBody": {
+    "message": "此處顯示的餘額與價格均為模擬數據，不可兌現。",
+    "englishSource": "Balances and prices shown here are simulated and cannot be redeemed."
+  },
+  "activityNotYetAccepted": {
+    "message": "尚未接受 — 請審閱並接受以領取這些資金。",
+    "englishSource": "Not yet accepted — review and accept to claim these funds."
+  },
+  "networkNoticeResetTitle": {
+    "message": "網路可重置",
+    "englishSource": "The network can reset"
+  },
+  "activityCheckingTransfer": {
+    "message": "正在檢查……",
+    "englishSource": "Checking…"
+  },
+  "networkNoticeResetBody": {
+    "message": "重置會清除餘額與交易紀錄。測試網的餘額絕不會轉移至主網。",
+    "englishSource": "A reset clears balances and history. Test balances never carry over to Mainnet."
+  },
+  "receiveTestFundsTitle": {
+    "message": "僅限測試代幣",
+    "englishSource": "Test tokens only"
+  },
+  "withdrawalCheckingDescription": {
+    "message": "正在檢查您的提領狀態。請保持錢包開啟，直到確認送達。",
+    "englishSource": "Checking your withdrawal. Keep the wallet open while delivery is confirmed."
+  },
+  "retryEarnDelivery": {
+    "message": "重試交付",
+    "englishSource": "Retry delivery"
+  },
+  "activityTransferDetails": {
+    "message": "詳細說明",
+    "englishSource": "Details"
+  },
+  "acceptAll": {
+    "message": "全數接受",
+    "englishSource": "Accept All"
+  },
+  "networkNoticeBody": {
+    "message": "此環境僅供測試使用。您在此持有的所有項目均為測試代幣，不具任何貨幣價值。",
+    "englishSource": "This environment is for testing. Everything you hold here is a test token with no monetary value."
+  },
+  "networkNoticeNoRealFundsBody": {
+    "message": "從真實網路發送至測試地址的任何內容均會遺失。",
+    "englishSource": "Anything sent from a real network to a test address is lost."
+  },
+  "iUnderstand": {
+    "message": "我明白了",
+    "englishSource": "I understand"
+  },
+  "crossChainFromNetwork": {
+    "message": "來源：$network$",
+    "englishSource": "from $network$",
     "placeholders": {
-      "count": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "localnet": {
+    "message": "Localnet",
+    "englishSource": "Localnet"
+  },
+  "ethereumSepolia": {
+    "message": "以太坊 Sepolia",
+    "englishSource": "Ethereum Sepolia"
+  },
+  "shareAddressText": {
+    "message": "我的 Miden $network$ 地址（僅限測試代幣）：$address$",
+    "englishSource": "My Miden $network$ address (test tokens only): $address$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      },
+      "address": {
+        "content": "$2"
+      }
+    }
+  },
+  "networkModeBanner": {
+    "message": "您正在 Miden $network$ 上使用 Bread",
+    "englishSource": "You are using Bread on Miden $network$",
+    "placeholders": {
+      "network": {
         "content": "$1"
       }
     }
@@ -4651,13 +4786,67 @@
     "message": "無法儲存隱藏轉帳。請重試。",
     "englishSource": "Could not save hidden transfers. Please try again."
   },
-  "activityDateUnavailable": {
-    "message": "日期不詳",
-    "englishSource": "Date unavailable"
+  "activityRejectTransfer": {
+    "message": "拒絕",
+    "englishSource": "Decline"
   },
-  "walletSetupDidNotComplete": {
-    "message": "您的錢包已建立，但尚未完成啟動。請檢查網路連線並重新嘗試。",
-    "englishSource": "Your wallet was created but did not finish starting up. Check your connection and try again."
+  "bridgeTestFundsBody": {
+    "message": "此橋接功能將以太坊 Sepolia 測試代幣轉移至 Miden。切勿從以太坊主網或任何其他真實網路進行橋接。",
+    "englishSource": "This bridge moves Ethereum Sepolia test tokens to Miden. Never bridge from Ethereum mainnet or any other real network."
+  },
+  "activityHiddenTransfers": {
+    "message": "隱藏轉帳：$count$",
+    "englishSource": "Hidden transfers: $count$",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "activityTransferClaimed": {
+    "message": "已申領",
+    "englishSource": "Claimed"
+  },
+  "receiveTestFundsBody": {
+    "message": "請僅將 Miden $network$ 代幣發送至此處。若將真實資金發送至此地址，將無法追回。",
+    "englishSource": "Only send Miden $network$ tokens here. Real funds sent to this address cannot be recovered.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "faucetPromptAction": {
+    "message": "立即捐款",
+    "englishSource": "Fund now"
+  },
+  "fundWalletLoadingTitle": {
+    "message": "為您的錢包儲值",
+    "englishSource": "Funding your wallet"
+  },
+  "fundWalletLoadingBody": {
+    "message": "正在向 faucet 請求憑證……",
+    "englishSource": "Requesting tokens from the faucet…"
+  },
+  "fundWalletSuccessTitle": {
+    "message": "錢包已充值",
+    "englishSource": "Wallet funded"
+  },
+  "fundWalletSuccessBody": {
+    "message": "您的代幣正在送來的路上，稍後就會顯示。",
+    "englishSource": "Your tokens are on the way and will appear shortly."
+  },
+  "fundWalletErrorTitle": {
+    "message": "資金籌措失敗",
+    "englishSource": "Funding failed"
+  },
+  "fundWalletErrorBody": {
+    "message": "我們無法為您的錢包充值。請重新嘗試。",
+    "englishSource": "We couldn't fund your wallet. Please try again."
+  },
+  "pendingNotesPromptAction": {
+    "message": "立即查看",
+    "englishSource": "See Now"
   },
   "updateNotificationTitle": {
     "message": "Update available",

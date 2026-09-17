@@ -1,5 +1,7 @@
 import type { EarnLockManager } from '../poll-registry';
 
+type LockCallback = (lock: object | null) => Promise<void>;
+
 export class SharedEarnLocks implements EarnLockManager {
   readonly requests: string[] = [];
   private readonly held = new Set<string>();
@@ -9,11 +11,10 @@ export class SharedEarnLocks implements EarnLockManager {
     return [...this.held];
   }
 
-  request(
-    name: string,
-    options: { ifAvailable: boolean },
-    callback: (lock: object | null) => Promise<void>
-  ): Promise<void> {
+  // Also takes navigator.locks' two-argument form, request(name, callback).
+  request(name: string, ...args: [LockCallback] | [{ ifAvailable: boolean }, LockCallback]): Promise<void> {
+    const [options, callback]: [{ ifAvailable: boolean }, LockCallback] =
+      args.length === 1 ? [{ ifAvailable: false }, args[0]] : args;
     this.requests.push(name);
     if (this.held.has(name) && options.ifAvailable) return callback(null);
     return new Promise<void>((resolve, reject) => {

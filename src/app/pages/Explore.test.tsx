@@ -29,6 +29,7 @@ let mockFaucetId: string | null = 'faucet-native';
 let mockAccount: { publicKey: string } = { publicKey: 'mtst1account' };
 let mockAllBalances: any;
 let mockClaimableNotes: any;
+let mockClaimableNotesAreCached = false;
 let mockIsExtension = true;
 let mockIsMobile = true;
 let mockAutoConsume = false;
@@ -72,15 +73,18 @@ jest.mock('app/templates/HomePrompts', () => ({
   default: ({
     account,
     claimableNotes,
+    fundingNotes,
     tokenPrices
   }: {
     account: { publicKey: string };
     claimableNotes?: unknown[];
+    fundingNotes?: unknown[];
     tokenPrices: Record<string, unknown>;
   }) => (
     <div
       data-testid="home-prompts"
       data-note-count={claimableNotes?.length ?? 0}
+      data-funding-notes={fundingNotes === undefined ? 'unloaded' : String(fundingNotes.length)}
       data-price-symbols={Object.keys(tokenPrices).join(',')}
     >
       {account?.publicKey}
@@ -179,7 +183,11 @@ jest.mock('lib/miden/front', () => ({
 }));
 
 jest.mock('lib/miden/front/claimable-notes', () => ({
-  useClaimableNotes: () => ({ data: mockClaimableNotes, mutate: mockMutateClaimableNotes })
+  useClaimableNotes: () => ({
+    data: mockClaimableNotes,
+    isFallback: mockClaimableNotesAreCached,
+    mutate: mockMutateClaimableNotes
+  })
 }));
 
 jest.mock('lib/miden/front/guardian-sync', () => ({
@@ -244,6 +252,7 @@ describe('Explore', () => {
     mockAccount = { publicKey: 'mtst1account' };
     mockAllBalances = [];
     mockClaimableNotes = undefined;
+    mockClaimableNotesAreCached = false;
     mockIsExtension = true;
     mockIsMobile = true;
     mockAutoConsume = false;
@@ -285,6 +294,25 @@ describe('Explore', () => {
       const rows = screen.getAllByTestId('asset-row');
       expect(rows).toHaveLength(3);
       expect(rows[0]).toHaveAttribute('data-token', 'faucet-native');
+    });
+
+    it('hands the faucet lifecycle only a live note list, never the cached fallback', async () => {
+      // The hook serves last session's saved list first. A faucet baseline taken
+      // from it would count any native note newer than that cache as this
+      // request's mint arriving, so the funding list stays unloaded until live.
+      mockClaimableNotes = [makeNote('note-1', 'faucet-native')];
+      mockClaimableNotesAreCached = true;
+      await renderExplore();
+      expect(screen.getByTestId('home-prompts')).toHaveAttribute('data-funding-notes', 'unloaded');
+      // The attention list is unaffected: the pending-notes card may show cached notes.
+      expect(screen.getByTestId('home-prompts')).toHaveAttribute('data-note-count', '1');
+    });
+
+    it('hands the faucet lifecycle the live note list once it has landed', async () => {
+      mockClaimableNotes = [makeNote('note-1', 'faucet-native')];
+      mockClaimableNotesAreCached = false;
+      await renderExplore();
+      expect(screen.getByTestId('home-prompts')).toHaveAttribute('data-funding-notes', '1');
     });
 
     it('puts the balance card in its loading state until the first balance read completes (#844)', async () => {

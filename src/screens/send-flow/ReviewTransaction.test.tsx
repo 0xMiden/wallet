@@ -4,11 +4,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 
 import { confirmSensitiveAction } from 'lib/biometric';
 import { stringToBigInt } from 'lib/i18n/numbers';
-import {
-  initiateSendTransaction,
-  requestSpeculateInvalidate,
-  requestSWTransactionProcessing
-} from 'lib/miden/activity';
+import { initiateSendTransaction, requestSWTransactionProcessing } from 'lib/miden/activity';
 import { isExtension } from 'lib/platform';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { goBack, navigate } from 'lib/woozie';
@@ -130,7 +126,6 @@ jest.mock('lib/i18n/numbers', () => ({
 
 jest.mock('lib/miden/activity', () => ({
   initiateSendTransaction: jest.fn(),
-  requestSpeculateInvalidate: jest.fn(),
   requestSWTransactionProcessing: jest.fn()
 }));
 
@@ -217,7 +212,6 @@ jest.mock('./useEpochQuote', () => ({
 const confirmMock = confirmSensitiveAction as jest.Mock;
 const stringToBigIntMock = stringToBigInt as jest.Mock;
 const initiateMock = initiateSendTransaction as jest.Mock;
-const requestSpeculateInvalidateMock = requestSpeculateInvalidate as jest.Mock;
 const requestSWMock = requestSWTransactionProcessing as jest.Mock;
 const isExtensionMock = isExtension as jest.Mock;
 const isDelegateProofEnabledMock = isDelegateProofEnabled as jest.Mock;
@@ -294,7 +288,6 @@ beforeEach(() => {
   mockEpochQuote = { amount: undefined, loading: false, error: null };
 
   delete process.env.MIDEN_E2E_TEST;
-  delete process.env.MIDEN_USE_SPECULATIVE_PROVING;
 });
 
 afterEach(() => {
@@ -696,43 +689,5 @@ describe('ReviewTransaction — E2E share-privately hook', () => {
 
     unmount();
     expect((globalThis as any).__TEST_SET_SHARE_PRIVATELY__).toBeUndefined();
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Speculative-proving invalidation cleanup
-// ---------------------------------------------------------------------------
-describe('ReviewTransaction — speculative proving cleanup', () => {
-  it('invalidates cached speculation on unmount when enabled on extension', async () => {
-    process.env.MIDEN_USE_SPECULATIVE_PROVING = 'true';
-    isExtensionMock.mockReturnValue(true);
-    setValidRoute();
-    const { unmount } = render(<ReviewTransaction />);
-    await flush();
-
-    expect(requestSpeculateInvalidateMock).not.toHaveBeenCalled();
-    unmount();
-    expect(requestSpeculateInvalidateMock).toHaveBeenCalledTimes(1);
-  });
-
-  it('does not invalidate on unmount when not on an extension', async () => {
-    process.env.MIDEN_USE_SPECULATIVE_PROVING = 'true';
-    isExtensionMock.mockReturnValue(false);
-    setValidRoute();
-    const { unmount } = render(<ReviewTransaction />);
-    await flush();
-
-    unmount();
-    expect(requestSpeculateInvalidateMock).not.toHaveBeenCalled();
-  });
-
-  it('does not invalidate on unmount when the flag is off', async () => {
-    isExtensionMock.mockReturnValue(true);
-    setValidRoute();
-    const { unmount } = render(<ReviewTransaction />);
-    await flush();
-
-    unmount();
-    expect(requestSpeculateInvalidateMock).not.toHaveBeenCalled();
   });
 });

@@ -786,14 +786,6 @@
     "message": "Повторить попытку",
     "englishSource": "Retry"
   },
-  "retryEarnDelivery": {
-    "message": "Повторить доставку",
-    "englishSource": "Retry delivery"
-  },
-  "withdrawalRecoveryUnavailable": {
-    "message": "Этот вывод средств нельзя безопасно повторить. Проверьте его статус, прежде чем начать другой вывод средств.",
-    "englishSource": "This withdrawal cannot be retried safely. Check its status before starting another withdrawal."
-  },
   "retryAnyway": {
     "message": "Всё равно повторить",
     "englishSource": "Retry anyway"
@@ -1072,6 +1064,98 @@
   "importWallet": {
     "message": "Импортировать кошелек",
     "englishSource": "Import Wallet"
+  },
+  "importWithKeyInstead": {
+    "message": "Импортировать с ключом вместо этого",
+    "englishSource": "Import with key instead"
+  },
+  "importHotKeyTitle": {
+    "message": "Импорт закрытых ключей",
+    "englishSource": "Import private keys"
+  },
+  "importHotKeyDescription": {
+    "message": "Отсканируйте QR-код вашего приватного ключа или введите ваши «горячий» ключ Miden и приватный ключ EVM. Ваш «горячий» ключ позволяет найти ваш аккаунт Guardian. Указанный ключ EVM восстанавливает соответствующий адрес EVM; кошелек не может проверить, принадлежат ли эти ключи друг другу.",
+    "englishSource": "Scan your private-key QR or enter your Miden hot and EVM private keys. Your hot key finds your Guardian account. The supplied EVM key restores its EVM address; the wallet cannot verify that these keys belong together."
+  },
+  "importHotKeyPlaceholder": {
+    "message": "Повседневный ключ (шестнадцатеричный)",
+    "englishSource": "Everyday key (hex)"
+  },
+  "importHotKeyInvalid": {
+    "message": "Укажите оба закрытых ключа в виде действительных ненулевых скалярных значений secp256k1 длиной 32 байта (по 64 шестнадцатеричных символа каждый). QR-коды должны содержать именно в таком порядке: hot-key:evm-key.",
+    "englishSource": "Provide both private keys as valid, nonzero 32-byte secp256k1 scalars (64 hexadecimal characters each). QR codes must contain exactly hot-key:evm-key."
+  },
+  "midenHotPrivateKey": {
+    "message": "Горячий приватный ключ Miden",
+    "englishSource": "Miden hot private key"
+  },
+  "evmPrivateKey": {
+    "message": "Личный ключ EVM",
+    "englishSource": "EVM private key"
+  },
+  "evmPrivateKeyMissing": {
+    "message": "Отсутствует частный ключ EVM этого аккаунта. Для экспорта требуются оба ключа. Восстановите исходный ключ EVM из вашей резервной копии.",
+    "englishSource": "This account's EVM private key is missing. Both keys are required for export. Restore the original EVM key from your backup."
+  },
+  "privateKeyPairQr": {
+    "message": "QR-код закрытого ключа",
+    "englishSource": "Private keys QR code"
+  },
+  "privateKeyPairWarning": {
+    "message": "Храните оба ключа в тайне. Любой, кто ими владеет, может управлять вашими активами Miden и EVM. В этот экспорт не входит ваш ключ восстановления Guardian.",
+    "englishSource": "Keep both keys secret. Anyone with them can control your Miden and EVM assets. This export does not include your Guardian recovery key."
+  },
+  "showPrivateKeyText": {
+    "message": "Показать ключи в виде текста",
+    "englishSource": "Show keys as text"
+  },
+  "showQrCode": {
+    "message": "Показать QR-код",
+    "englishSource": "Show QR code"
+  },
+  "uploadQrImage": {
+    "message": "Загрузить изображение QR-кода",
+    "englishSource": "Upload QR image"
+  },
+  "enterKeysManually": {
+    "message": "Вводите ключи вручную",
+    "englishSource": "Enter keys manually"
+  },
+  "keyCameraUnavailable": {
+    "message": "Сканирование камерой здесь недоступно. Загрузите изображение QR-кода или введите оба ключа вручную.",
+    "englishSource": "Camera scanning is unavailable here. Upload a QR image or enter both keys manually."
+  },
+  "invalidQrImage": {
+    "message": "Не удалось считать QR-код с этого изображения. Выберите чёткое изображение QR-кода размером до 20 МБ или введите оба ключа вручную.",
+    "englishSource": "Could not read a QR code from this image. Choose a clear QR image up to 20 MB or enter both keys manually."
+  },
+  "privateKeyPairReady": {
+    "message": "Оба ключа готовы к импорту.",
+    "englishSource": "Both keys are ready to import."
+  },
+  "importHotKeyError": {
+    "message": "Не удалось импортировать аккаунт с этим ключом.",
+    "englishSource": "Could not import an account with this key."
+  },
+  "importHotKeyWrongScheme": {
+    "message": "Этот ключ использует неподдерживаемую схему. Вставьте обычный ключ учетной записи Guardian.",
+    "englishSource": "This key uses an unsupported scheme. Paste the everyday key of a Guardian account."
+  },
+  "importHotKeyNoAccount": {
+    "message": "Указанный ключ не найден в списке счетов Guardian по адресу Guardian.",
+    "englishSource": "No Guardian account was found for this key at this Guardian."
+  },
+  "importHotKeyIsRecoveryKey": {
+    "message": "Похоже, это ваш ключ восстановления. Вставьте вместо него повседневный ключ.",
+    "englishSource": "This looks like your recovery key. Paste the everyday key instead."
+  },
+  "importHotKeyNotActive": {
+    "message": "Этот ключ больше не действует для данной учетной записи. Вставьте текущий ежедневный ключ.",
+    "englishSource": "This key is no longer active for the account. Paste the current everyday key."
+  },
+  "recoveryActionsRequireRecoveryKey": {
+    "message": "Guardian Для внесения изменений и смены ключа требуется ключ восстановления, которого нет на этом устройстве.",
+    "englishSource": "Guardian changes and key replacement need the recovery key, which is not on this device."
   },
   "revealPrivateKey": {
     "message": "Показать закрытый ключ",
@@ -1730,33 +1814,30 @@
     "message": "Чтобы начать, добавьте токены в свой кошелек.",
     "englishSource": "Add tokens to your wallet to get started."
   },
-  "faucetPromptAction": {
-    "message": "Пополнить счет сейчас",
-    "englishSource": "Fund now"
+  "faucetPromptFunding": {
+    "message": "Финансирование",
+    "englishSource": "Funding"
   },
-  "fundWalletLoadingTitle": {
-    "message": "Пополнение кошелька",
-    "englishSource": "Funding your wallet"
+  "faucetPromptFundingSub": {
+    "message": "Ваши средства будут доступны в ближайшее время",
+    "englishSource": "Your funds will be available shortly"
   },
-  "fundWalletLoadingBody": {
-    "message": "Запрос токенов с сайта faucet…",
-    "englishSource": "Requesting tokens from the faucet…"
+  "faucetPromptFunded": {
+    "message": "Внесенные средства",
+    "englishSource": "Funds deposited"
   },
-  "fundWalletSuccessTitle": {
-    "message": "Средства зачислены на кошелек",
-    "englishSource": "Wallet funded"
+  "faucetPromptFundedSub": {
+    "message": "У вас есть $amount$ готовый",
+    "englishSource": "You have $amount$ ready",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
   },
-  "fundWalletSuccessBody": {
-    "message": "Ваши токены уже в пути и появятся в ближайшее время.",
-    "englishSource": "Your tokens are on the way and will appear shortly."
-  },
-  "fundWalletErrorTitle": {
-    "message": "Финансирование не состоялось",
-    "englishSource": "Funding failed"
-  },
-  "fundWalletErrorBody": {
-    "message": "Нам не удалось пополнить ваш кошелек. Пожалуйста, попробуйте ещё раз.",
-    "englishSource": "We couldn't fund your wallet. Please try again."
+  "faucetPromptFundedSubGeneric": {
+    "message": "Ваши средства готовы",
+    "englishSource": "Your funds are ready"
   },
   "guardianNoteRecoveryPromptTitle": {
     "message": "Обнаружено восстановление учетной записи",
@@ -1798,10 +1879,6 @@
         "content": "$1"
       }
     }
-  },
-  "pendingNotesPromptAction": {
-    "message": "Смотреть сейчас",
-    "englishSource": "See Now"
   },
   "verifySeedPhrasePromptTitle": {
     "message": "Проверьте свою фразу для восстановления",
@@ -2633,12 +2710,12 @@
     "englishSource": "Your Guardian account is protected by three keys: a device (hot) key for routine signing, a recovery (cold) key derived from your seed phrase for account-management operations, and an external guardian co-signer. Below are your cold private key plus both public keys. To reveal the device private key, use Settings → Reveal Device Key."
   },
   "hotKeyRevealWarningTitle": {
-    "message": "Прежде чем раскрыть ключ своего устройства",
-    "englishSource": "Before you reveal your device key"
+    "message": "Прежде чем раскрывать свои закрытые ключи",
+    "englishSource": "Before you reveal your private keys"
   },
   "hotKeyRevealWarningBody": {
-    "message": "Любой, у кого есть этот ключ, может подписывать транзакции до тех пор, пока вы не обновите его. Если ключ попал в чужие руки, обновите его в меню «Настройки» → «Обновить ключ устройства».",
-    "englishSource": "Anyone with this key can sign transactions until you rotate it. If the key is leaked, rotate it via Settings → Rotate Device Key."
+    "message": "Любой, у кого есть эти ключи, может контролировать ваши активы Miden и EVM. Смена ключа устройства Miden не изменяет и не защищает утечённый ключ EVM.",
+    "englishSource": "Anyone with these keys can control your Miden and EVM assets. Rotating your Miden device key does not change or protect a leaked EVM key."
   },
   "invalidUrl": {
     "message": "Введите действительный URL-адрес, начинающийся с http:// или https://",
@@ -3814,127 +3891,6 @@
     "message": "Тестовая сеть",
     "englishSource": "Testnet"
   },
-  "devnet": {
-    "message": "Devnet",
-    "englishSource": "Devnet"
-  },
-  "localnet": {
-    "message": "Localnet",
-    "englishSource": "Localnet"
-  },
-  "networkModeBanner": {
-    "message": "Вы используете Bread на Miden $network$",
-    "englishSource": "You are using Bread on Miden $network$",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    }
-  },
-  "networkNoticeChip": {
-    "message": "Miden $network$",
-    "englishSource": "Miden $network$",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    }
-  },
-  "networkNoticeBody": {
-    "message": "Эта среда предназначена для тестирования. Всё, что у вас здесь находится, представляет собой тестовые токены, не имеющие денежной стоимости.",
-    "englishSource": "This environment is for testing. Everything you hold here is a test token with no monetary value."
-  },
-  "networkNoticeNoValueTitle": {
-    "message": "Тестовые токены не являются деньгами",
-    "englishSource": "Test tokens are not money"
-  },
-  "networkNoticeNoValueBody": {
-    "message": "Отображаемые здесь остатки и цены являются моделируемыми и не подлежат обмену на реальные средства.",
-    "englishSource": "Balances and prices shown here are simulated and cannot be redeemed."
-  },
-  "networkNoticeNoRealFundsTitle": {
-    "message": "Не отправляйте реальные средства",
-    "englishSource": "Do not send real funds"
-  },
-  "networkNoticeNoRealFundsBody": {
-    "message": "Всё, что отправляется из реальной сети на тестовый адрес, теряется.",
-    "englishSource": "Anything sent from a real network to a test address is lost."
-  },
-  "networkNoticeResetTitle": {
-    "message": "Сеть может сбросить настройки",
-    "englishSource": "The network can reset"
-  },
-  "networkNoticeResetBody": {
-    "message": "Сброс очищает балансы и историю. Тестовые балансы никогда не переносятся в Mainnet.",
-    "englishSource": "A reset clears balances and history. Test balances never carry over to Mainnet."
-  },
-  "iUnderstand": {
-    "message": "Я понимаю",
-    "englishSource": "I understand"
-  },
-  "receiveTestFundsTitle": {
-    "message": "Только тестовые токены",
-    "englishSource": "Test tokens only"
-  },
-  "receiveTestFundsBody": {
-    "message": "Отправляйте на этот адрес только токены Miden $network$. Реальные средства, отправленные на этот адрес, не подлежат возврату.",
-    "englishSource": "Only send Miden $network$ tokens here. Real funds sent to this address cannot be recovered.",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    }
-  },
-  "crossChainFromNetwork": {
-    "message": "Источник: $network$",
-    "englishSource": "from $network$",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    }
-  },
-  "ethereumSepolia": {
-    "message": "Ethereum Sepolia",
-    "englishSource": "Ethereum Sepolia"
-  },
-  "bridgeTestFundsTitle": {
-    "message": "Только тестовые средства",
-    "englishSource": "Test funds only"
-  },
-  "bridgeTestFundsBody": {
-    "message": "Этот мост перемещает тестовые токены Ethereum Sepolia в Miden. Никогда не осуществляйте мостиковую передачу из основной сети Ethereum или любой другой реальной сети.",
-    "englishSource": "This bridge moves Ethereum Sepolia test tokens to Miden. Never bridge from Ethereum mainnet or any other real network."
-  },
-  "shareAddressText": {
-    "message": "Мой адрес Miden $network$ (только тестовые токены): $address$",
-    "englishSource": "My Miden $network$ address (test tokens only): $address$",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      },
-      "address": {
-        "content": "$2"
-      }
-    }
-  },
-  "qrNetworkCaption": {
-    "message": "Miden $network$",
-    "englishSource": "Miden $network$",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    }
-  },
-  "evmConnectTestWalletTitle": {
-    "message": "Подключайте только тестовый кошелек",
-    "englishSource": "Connect a test wallet only"
-  },
-  "evmConnectTestWalletBody": {
-    "message": "Этот мост работает на Ethereum Sepolia. Не подключайте кошелек, в котором хранятся реальные средства. Создайте новый кошелек и пополните его исключительно токенами Sepolia ETH.",
-    "englishSource": "This bridge runs on Ethereum Sepolia. Do not connect a wallet that holds real funds. Create a fresh wallet and fund it with Sepolia ETH only."
-  },
   "browser": {
     "message": "Браузер",
     "englishSource": "Browser"
@@ -4458,10 +4414,6 @@
     "message": "Обработка вывода средств",
     "englishSource": "Processing Withdrawal"
   },
-  "withdrawalCheckingDescription": {
-    "message": "Проверяем ваш вывод средств. Держите кошелёк открытым, пока доставка не будет подтверждена.",
-    "englishSource": "Checking your withdrawal. Keep the wallet open while delivery is confirmed."
-  },
   "withdrawalProcessingDescription": {
     "message": "Подписка и отправка заявки на вывод средств без комиссии в Epoch. Обычно это занимает несколько секунд.",
     "englishSource": "Signing and submitting the gasless withdrawal intent to Epoch. This usually takes a few seconds."
@@ -4586,59 +4538,242 @@
     "message": "Это приведёт к окончательному удалению данного кошелька, включая ваши ключи и историю транзакций. Для его восстановления вам понадобится фраза восстановления.",
     "englishSource": "This permanently erases this wallet, including your keys and transaction history. You'll need your recovery phrase to restore it."
   },
-  "activityAcceptTransfer": {
-    "message": "Принять перевод",
-    "englishSource": "Accept Transfer"
+  "removeSeedPhrase": {
+    "message": "Удалите seed phrase",
+    "englishSource": "Remove seed phrase"
   },
-  "activityRejectTransfer": {
-    "message": "Отклонить",
-    "englishSource": "Decline"
+  "removeSeedPhraseDescription": {
+    "message": "Запишите свою seed phrase перед удалением. Ежедневные транзакции продолжат работать. Для изменений Guardian и замены ежедневного ключа вам потребуется ввести seed phrase.",
+    "englishSource": "Write down your seed phrase before you remove it. Daily transactions will still work. Guardian changes and everyday key replacement will require you to enter the seed phrase."
   },
-  "activityCheckingTransfer": {
-    "message": "Проверка…",
-    "englishSource": "Checking…"
+  "removeSeedPhraseWriteDown": {
+    "message": "Запишите все слова на бумаге в указанном порядке. Храните бумагу в надёжном месте вне этого устройства.",
+    "englishSource": "Write all words on paper in this order. Keep the paper in a safe place outside this device."
   },
-  "activityTransferClaimed": {
-    "message": "Получено",
-    "englishSource": "Claimed"
+  "removeSeedPhraseConfirmation": {
+    "message": "Это удаляет ключи восстановления seed phrase и Guardian из данного кошелька на данном устройстве. Сохраните свою бумажную резервную копию. Ранее созданные резервные копии не удаляются.",
+    "englishSource": "This removes the seed phrase and Guardian recovery keys from this wallet on this device. Keep your paper backup. Previously made backups are not deleted."
   },
-  "activityClaimedOn": {
-    "message": "Заявлено на",
-    "englishSource": "Claimed on"
+  "removeSeedPhraseConfirm": {
+    "message": "Удалить с этого устройства",
+    "englishSource": "Remove from this device"
   },
-  "activityReceivedOn": {
-    "message": "Получено",
-    "englishSource": "Received on"
+  "seedPhraseRemoved": {
+    "message": "Seed phrase удалено с этого устройства",
+    "englishSource": "Seed phrase removed from this device"
   },
-  "activityNotYetAccepted": {
-    "message": "Ещё не принято — проверьте и примите, чтобы получить эти средства.",
-    "englishSource": "Not yet accepted — review and accept to claim these funds."
+  "seedPhraseUnavailable": {
+    "message": "В этом кошельке не хранится токен «seed phrase».",
+    "englishSource": "There is no seed phrase stored in this wallet."
   },
-  "acceptAll": {
-    "message": "Принять всё",
-    "englishSource": "Accept All"
+  "seedRemovalIncomplete": {
+    "message": "Удаление не завершено. Разблокируйте кошелек ещё раз, чтобы завершить удаление материалов для восстановления.",
+    "englishSource": "Removal is not complete. Unlock the wallet again to finish removing the recovery material."
   },
-  "activitySearch": {
-    "message": "Активность поиска",
-    "englishSource": "Search activity"
+  "seedRemovalFailed": {
+    "message": "Не удалось завершить удаление seed phrase. Попробуйте ещё раз.",
+    "englishSource": "Could not finish removing the seed phrase. Try again."
+  },
+  "seedRemovalBusy": {
+    "message": "Дождитесь завершения текущих транзакций, прежде чем удалять «seed phrase».",
+    "englishSource": "Wait for the current transactions to finish before removing the seed phrase."
+  },
+  "seedRemovalKeysNotReady": {
+    "message": "Завершите восстановление учетной записи и активацию повседневного ключа, прежде чем удалять файл «seed phrase».",
+    "englishSource": "Finish account recovery and everyday key activation before removing the seed phrase."
+  },
+  "seedRequiredForAccountCreation": {
+    "message": "Для создания учётной записи требуется сохраненный сед-фраза (seed phrase). Ввод временного седа для этого действия пока недоступен.",
+    "englishSource": "Account creation requires a stored seed phrase. Temporary seed input for this action is not yet available."
+  },
+  "recoverySeedRequired": {
+    "message": "Для выполнения этого действия потребуется ваш ключ восстановления seed phrase.",
+    "englishSource": "This action requires your recovery seed phrase."
+  },
+  "recoverySeedRequiredTitle": {
+    "message": "Введите свою seed phrase",
+    "englishSource": "Enter your seed phrase"
+  },
+  "recoverySeedTemporaryDescription": {
+    "message": "Используйте бумажную резервную копию. Эта фраза используется только для данного действия и не сохраняется на этом устройстве.",
+    "englishSource": "Use your paper backup. The phrase is used only for this action and is not saved on this device."
+  },
+  "invalidRecoverySeed": {
+    "message": "Введите действительную seed phrase.",
+    "englishSource": "Enter a valid seed phrase."
+  },
+  "wrongRecoverySeed": {
+    "message": "Эта seed phrase не соответствует данному счету.",
+    "englishSource": "This seed phrase does not match this account."
+  },
+  "recoveryActionUnavailable": {
+    "message": "Эта операция по восстановлению больше недоступна.",
+    "englishSource": "This recovery action is no longer available."
+  },
+  "devnet": {
+    "message": "Devnet",
+    "englishSource": "Devnet"
   },
   "activityTransferAccepted": {
     "message": "Перевод принят",
     "englishSource": "Transfer accepted"
   },
-  "activityTransferDetails": {
-    "message": "Подробности",
-    "englishSource": "Details"
+  "networkNoticeChip": {
+    "message": "Miden $network$",
+    "englishSource": "Miden $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "withdrawalRecoveryUnavailable": {
+    "message": "Этот вывод средств нельзя безопасно повторить. Проверьте его статус, прежде чем начать другой вывод средств.",
+    "englishSource": "This withdrawal cannot be retried safely. Check its status before starting another withdrawal."
+  },
+  "networkNoticeNoRealFundsTitle": {
+    "message": "Не отправляйте реальные средства",
+    "englishSource": "Do not send real funds"
+  },
+  "activityReceivedOn": {
+    "message": "Получено",
+    "englishSource": "Received on"
+  },
+  "walletSetupDidNotComplete": {
+    "message": "Ваш кошелёк был создан, но не завершил запуск. Проверьте подключение и попробуйте ещё раз.",
+    "englishSource": "Your wallet was created but did not finish starting up. Check your connection and try again."
+  },
+  "activityClaimedOn": {
+    "message": "Заявлено на",
+    "englishSource": "Claimed on"
+  },
+  "evmConnectTestWalletTitle": {
+    "message": "Подключайте только тестовый кошелек",
+    "englishSource": "Connect a test wallet only"
+  },
+  "bridgeTestFundsTitle": {
+    "message": "Только тестовые средства",
+    "englishSource": "Test funds only"
+  },
+  "qrNetworkCaption": {
+    "message": "Miden $network$",
+    "englishSource": "Miden $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
   },
   "activityRejectExplanation": {
     "message": "Скрыть этот перевод из раздела «Активность» на этом устройстве? Это не приводит к возврату средств отправителю и не удаляет запись «note». Вы можете восстановить скрытые переводы в разделе «Активность».",
     "englishSource": "Hide this transfer from Activity on this device? This does not return funds to the sender or delete the note. You can restore hidden transfers in Activity."
   },
-  "activityHiddenTransfers": {
-    "message": "Скрытые переводы: $count$",
-    "englishSource": "Hidden transfers: $count$",
+  "activitySearch": {
+    "message": "Активность поиска",
+    "englishSource": "Search activity"
+  },
+  "evmConnectTestWalletBody": {
+    "message": "Этот мост работает на Ethereum Sepolia. Не подключайте кошелек, в котором хранятся реальные средства. Создайте новый кошелек и пополните его исключительно токенами Sepolia ETH.",
+    "englishSource": "This bridge runs on Ethereum Sepolia. Do not connect a wallet that holds real funds. Create a fresh wallet and fund it with Sepolia ETH only."
+  },
+  "activityAcceptTransfer": {
+    "message": "Принять перевод",
+    "englishSource": "Accept Transfer"
+  },
+  "activityDateUnavailable": {
+    "message": "Дата отсутствует",
+    "englishSource": "Date unavailable"
+  },
+  "networkNoticeNoValueTitle": {
+    "message": "Тестовые токены не являются деньгами",
+    "englishSource": "Test tokens are not money"
+  },
+  "networkNoticeNoValueBody": {
+    "message": "Отображаемые здесь остатки и цены являются моделируемыми и не подлежат обмену на реальные средства.",
+    "englishSource": "Balances and prices shown here are simulated and cannot be redeemed."
+  },
+  "activityNotYetAccepted": {
+    "message": "Ещё не принято — проверьте и примите, чтобы получить эти средства.",
+    "englishSource": "Not yet accepted — review and accept to claim these funds."
+  },
+  "networkNoticeResetTitle": {
+    "message": "Сеть может сбросить настройки",
+    "englishSource": "The network can reset"
+  },
+  "activityCheckingTransfer": {
+    "message": "Проверка…",
+    "englishSource": "Checking…"
+  },
+  "networkNoticeResetBody": {
+    "message": "Сброс очищает балансы и историю. Тестовые балансы никогда не переносятся в Mainnet.",
+    "englishSource": "A reset clears balances and history. Test balances never carry over to Mainnet."
+  },
+  "receiveTestFundsTitle": {
+    "message": "Только тестовые токены",
+    "englishSource": "Test tokens only"
+  },
+  "withdrawalCheckingDescription": {
+    "message": "Проверяем ваш вывод средств. Держите кошелёк открытым, пока доставка не будет подтверждена.",
+    "englishSource": "Checking your withdrawal. Keep the wallet open while delivery is confirmed."
+  },
+  "retryEarnDelivery": {
+    "message": "Повторить доставку",
+    "englishSource": "Retry delivery"
+  },
+  "activityTransferDetails": {
+    "message": "Подробности",
+    "englishSource": "Details"
+  },
+  "acceptAll": {
+    "message": "Принять всё",
+    "englishSource": "Accept All"
+  },
+  "networkNoticeBody": {
+    "message": "Эта среда предназначена для тестирования. Всё, что у вас здесь находится, представляет собой тестовые токены, не имеющие денежной стоимости.",
+    "englishSource": "This environment is for testing. Everything you hold here is a test token with no monetary value."
+  },
+  "networkNoticeNoRealFundsBody": {
+    "message": "Всё, что отправляется из реальной сети на тестовый адрес, теряется.",
+    "englishSource": "Anything sent from a real network to a test address is lost."
+  },
+  "iUnderstand": {
+    "message": "Я понимаю",
+    "englishSource": "I understand"
+  },
+  "crossChainFromNetwork": {
+    "message": "Источник: $network$",
+    "englishSource": "from $network$",
     "placeholders": {
-      "count": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "localnet": {
+    "message": "Localnet",
+    "englishSource": "Localnet"
+  },
+  "ethereumSepolia": {
+    "message": "Ethereum Sepolia",
+    "englishSource": "Ethereum Sepolia"
+  },
+  "shareAddressText": {
+    "message": "Мой адрес Miden $network$ (только тестовые токены): $address$",
+    "englishSource": "My Miden $network$ address (test tokens only): $address$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      },
+      "address": {
+        "content": "$2"
+      }
+    }
+  },
+  "networkModeBanner": {
+    "message": "Вы используете Bread на Miden $network$",
+    "englishSource": "You are using Bread on Miden $network$",
+    "placeholders": {
+      "network": {
         "content": "$1"
       }
     }
@@ -4651,13 +4786,67 @@
     "message": "Не удалось сохранить скрытые переводы. Пожалуйста, попробуйте ещё раз.",
     "englishSource": "Could not save hidden transfers. Please try again."
   },
-  "activityDateUnavailable": {
-    "message": "Дата отсутствует",
-    "englishSource": "Date unavailable"
+  "activityRejectTransfer": {
+    "message": "Отклонить",
+    "englishSource": "Decline"
   },
-  "walletSetupDidNotComplete": {
-    "message": "Ваш кошелёк был создан, но не завершил запуск. Проверьте подключение и попробуйте ещё раз.",
-    "englishSource": "Your wallet was created but did not finish starting up. Check your connection and try again."
+  "bridgeTestFundsBody": {
+    "message": "Этот мост перемещает тестовые токены Ethereum Sepolia в Miden. Никогда не осуществляйте мостиковую передачу из основной сети Ethereum или любой другой реальной сети.",
+    "englishSource": "This bridge moves Ethereum Sepolia test tokens to Miden. Never bridge from Ethereum mainnet or any other real network."
+  },
+  "activityHiddenTransfers": {
+    "message": "Скрытые переводы: $count$",
+    "englishSource": "Hidden transfers: $count$",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "activityTransferClaimed": {
+    "message": "Получено",
+    "englishSource": "Claimed"
+  },
+  "receiveTestFundsBody": {
+    "message": "Отправляйте на этот адрес только токены Miden $network$. Реальные средства, отправленные на этот адрес, не подлежат возврату.",
+    "englishSource": "Only send Miden $network$ tokens here. Real funds sent to this address cannot be recovered.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "faucetPromptAction": {
+    "message": "Пополнить счет сейчас",
+    "englishSource": "Fund now"
+  },
+  "fundWalletLoadingTitle": {
+    "message": "Пополнение кошелька",
+    "englishSource": "Funding your wallet"
+  },
+  "fundWalletLoadingBody": {
+    "message": "Запрос токенов с сайта faucet…",
+    "englishSource": "Requesting tokens from the faucet…"
+  },
+  "fundWalletSuccessTitle": {
+    "message": "Средства зачислены на кошелек",
+    "englishSource": "Wallet funded"
+  },
+  "fundWalletSuccessBody": {
+    "message": "Ваши токены уже в пути и появятся в ближайшее время.",
+    "englishSource": "Your tokens are on the way and will appear shortly."
+  },
+  "fundWalletErrorTitle": {
+    "message": "Финансирование не состоялось",
+    "englishSource": "Funding failed"
+  },
+  "fundWalletErrorBody": {
+    "message": "Нам не удалось пополнить ваш кошелек. Пожалуйста, попробуйте ещё раз.",
+    "englishSource": "We couldn't fund your wallet. Please try again."
+  },
+  "pendingNotesPromptAction": {
+    "message": "Смотреть сейчас",
+    "englishSource": "See Now"
   },
   "updateNotificationTitle": {
     "message": "Update available",
