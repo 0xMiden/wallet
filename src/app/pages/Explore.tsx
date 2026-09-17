@@ -370,7 +370,7 @@ const HomeOverview: FC<HomeOverviewProps> = ({
       />
 
       <div className="flex items-center justify-between pt-2">
-        <span className="font-heading text-2xl font-black text-text-primary-token">{t('assets')}</span>
+        <span className="font-heading text-2xl font-extrabold text-text-primary-token">{t('assets')}</span>
       </div>
 
       <div className="flex flex-col divide-y divide-rule-default">

@@ -2,6 +2,9 @@
 
 ## 1.16.2 (TBD)
 
+- [CHANGE][mobile] Bottom tab bar: new Home, Explore and Activity glyphs, icons only at 32px with no labels (each tab keeps its name for assistive tech), and one light-grey pill that slides between tabs on the shared pill spring.
+- [CHANGE][all] The Overview segmented bar's pill and segment widths animate together on the pill spring instead of a width snap under a tween.
+- [CHANGE][all] Passcode screens: Nunito throughout (subtitle, keypad, links), ExtraBold keypad digits with a press-in scale, and the unlock screen no longer selectable on long press. The home Assets heading steps down from Black to ExtraBold.
 - [CHANGE][mobile] The bottom tab bar is docked to the bottom edge instead of floating as a pill: full width with a hairline top rule, its background running under the home indicator. It slides away while a tab page is scrolled down and returns as soon as the scroll stops or reverses. The extension and desktop keep the floating pill.
 - [CHANGE][all] The home Assets heading is set in Nunito Black, and the token search box under it is removed: the asset list follows the heading directly.
 - [CHANGE][all] The balance card itself opens the account options on tap (keyboard: Enter or Space); the pencil button in its corner is removed. Copying the address no longer risks opening the options.

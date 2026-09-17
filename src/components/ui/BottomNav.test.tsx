@@ -4,6 +4,25 @@ import { fireEvent, render, screen } from '@testing-library/react';
 
 import BottomNavDefault, { BottomNav, BottomNavItem } from './BottomNav';
 
+// framer-motion: the active pill is a `motion.span` with a `layoutId`; render
+// it as a plain span that surfaces the id so tests can find it.
+jest.mock('framer-motion', () => ({
+  __esModule: true,
+  motion: {
+    span: ({ children, layout, layoutId, initial, animate, transition, ...props }: any) => (
+      <span data-layout-id={layoutId} {...props}>
+        {children}
+      </span>
+    )
+  }
+}));
+
+jest.mock('lib/animation', () => ({
+  __esModule: true,
+  springs: { pill: { type: 'spring' } },
+  useMotion: (transition: unknown) => transition
+}));
+
 const items: BottomNavItem[] = [
   { id: 'home', label: 'Home', icon: <svg data-testid="icon-home" /> },
   {
@@ -99,11 +118,18 @@ describe('BottomNav — active vs inactive rendering', () => {
     expect(inactive.className).toContain('text-text-primary-token');
     expect(inactive.className).not.toContain('text-accent-primary');
 
-    // Labels share one face and weight (Nunito bold); only color marks the active tab.
+    // Icons only: the label is the button's accessible name, never visible text.
     for (const label of ['Home', 'Settings']) {
-      expect(screen.getByText(label).className).toContain('font-heading');
-      expect(screen.getByText(label).className).toContain('font-bold');
+      expect(screen.queryByText(label)).toBeNull();
+      expect(getTab(label)).toHaveAttribute('aria-label', label);
     }
+  });
+
+  it('renders the sliding pill under the active tab only', () => {
+    renderNav({ activeId: 'activity' });
+
+    expect(getTab('Activity').querySelector('[data-layout-id="bottom-nav-pill"]')).not.toBeNull();
+    expect(getTab('Home').querySelector('[data-layout-id="bottom-nav-pill"]')).toBeNull();
   });
 });
 
@@ -122,7 +148,7 @@ describe('BottomNav — four destinations', () => {
 
     const buttons = Array.from(container.querySelectorAll('nav > button'));
     expect(buttons).toHaveLength(4);
-    expect(buttons.map(b => b.textContent)).toEqual(['Home', 'Explore', 'Activity', 'Settings']);
+    expect(buttons.map(b => b.getAttribute('aria-label'))).toEqual(['Home', 'Explore', 'Activity', 'Settings']);
   });
 
   it('marks exactly one of the four active', () => {
