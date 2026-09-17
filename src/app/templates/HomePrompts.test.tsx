@@ -398,6 +398,29 @@ describe('HomePrompts', () => {
     expect(mockSetFaucetStatus).toHaveBeenCalledWith('accountA', WalletPromptStatus.Completed);
   });
 
+  it('shows the Funding hero in the same render as the tap, before anything is awaited (#923)', async () => {
+    mockUseWalletPromptStorage.mockReturnValue(makePromptState());
+    render(
+      <HomePrompts
+        account={account}
+        balances={zeroBalance}
+        balancesLoading={false}
+        claimableNotes={[]}
+        fundingNotes={[]}
+        tokenPrices={{}}
+      />
+    );
+    const faucetCard = screen.getAllByTestId('prompt-card')[0]!;
+    await act(async () => {});
+
+    fireEvent.click(within(faucetCard).getByRole('button', { name: 'faucetPromptTitle' }));
+
+    // No waitFor: PromptCard keeps keyboard focus in the card only for a hero the tap
+    // commits before the handler's first await.
+    expect(faucetCard).toHaveAttribute('data-hero', 'faucetPromptFunding');
+    await waitFor(() => expect(mockFaucet).toHaveBeenCalledTimes(1));
+  });
+
   it('funds on card tap, holds the Funding hero, then plays Funded! and completes when notes arrive', async () => {
     mockUseWalletPromptStorage.mockReturnValue(makePromptState());
 
