@@ -2,7 +2,7 @@ import React, { FC, useLayoutEffect, useMemo, useRef } from 'react';
 
 import RootSuspenseFallback from 'app/a11y/RootSuspenseFallback';
 import { OpenInFullPage, useAppEnv } from 'app/env';
-import FullScreenPage, { DEFAULT_PAGE_ENTRANCE, FullScreenPageProps } from 'app/layouts/FullScreenPage';
+import FullScreenPage, { defaultPageEntrance, FullScreenPageProps } from 'app/layouts/FullScreenPage';
 import MobilePageLayers from 'app/layouts/MobilePageLayers';
 import TabLayout from 'app/layouts/TabLayout';
 import Explore from 'app/pages/Explore';
@@ -416,7 +416,7 @@ const PageRouter: FC = () => {
   const slide =
     React.isValidElement<FullScreenPageProps>(page) &&
     page.type === FullScreenPage &&
-    (page.props.entrance ?? DEFAULT_PAGE_ENTRANCE) === 'slide';
+    (page.props.entrance ?? defaultPageEntrance()) === 'slide';
   const layered =
     !ctx.ready || ctx.locked || !ctx.hydrated ? (
       page

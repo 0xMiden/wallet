@@ -6,16 +6,23 @@ import { useMotion } from 'lib/animation';
 import { pageAppearance, pageSlideEntrance } from 'lib/animation/page-appearance';
 import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
 import { isReturningFromWebview } from 'lib/mobile/webview-state';
+import { isMobile } from 'lib/platform';
 import { PropsWithChildren } from 'lib/props-with-children';
 
 export interface FullScreenPageProps extends PropsWithChildren {
-  /** How the page arrives. Every page slides in (and out on back) unless it opts into a fade. */
+  /** How the page arrives. Defaults to `defaultPageEntrance()`. */
   entrance?: 'fade' | 'slide';
 }
 
-export const DEFAULT_PAGE_ENTRANCE = 'slide';
+/**
+ * On mobile every page slides in (and out on back) unless it opts into a fade. Elsewhere a page
+ * keeps the fade unless it asks for a slide: in the extension a slide page whose entrance never
+ * ran to completion sat at translateX(100%), wholly off screen, where a fade that never ran still
+ * leaves the page in place (guardian-lifecycle-e2e on #929).
+ */
+export const defaultPageEntrance = (): 'fade' | 'slide' => (isMobile() ? 'slide' : 'fade');
 
-const FullScreenPage: FC<FullScreenPageProps> = ({ children, entrance = DEFAULT_PAGE_ENTRANCE }) => {
+const FullScreenPage: FC<FullScreenPageProps> = ({ children, entrance = defaultPageEntrance() }) => {
   const present = useIsPresent();
   const reduce = useReducedMotion();
   const appear = !reduce && !isReturningFromWebview();
