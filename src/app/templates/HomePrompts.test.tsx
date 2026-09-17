@@ -1329,6 +1329,42 @@ describe('HomePrompts', () => {
     expect(mockSetFaucetFundingMarker).not.toHaveBeenCalledWith('accountA', null);
   });
 
+  it('offers Fund when the marker cannot be read (#936)', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      mockUseWalletPromptStorage.mockReturnValue(makePromptState());
+      // Storage refuses the read this mount makes, so nothing here knows whether a
+      // request is on its way.
+      mockFetchFaucetFundingMarker.mockRejectedValueOnce(new Error('storage unreadable'));
+      render(
+        <HomePrompts
+          account={account}
+          balances={zeroBalance}
+          balancesLoading={false}
+          claimableNotes={[]}
+          fundingNotes={[]}
+          tokenPrices={{}}
+        />
+      );
+      await act(async () => {});
+
+      // Fund is offered rather than withheld for as long as storage stays broken (#504).
+      // Safe because a tap re-reads the marker before any proof of work, which is where
+      // an unreadable marker or a request already on its way refuses it; that read is
+      // covered in wallet-prompts.test.ts, since this file mocks the faucet.
+      expect(warn).toHaveBeenCalledWith(
+        '[wallet-prompts] failed to read faucet funding marker; offering Fund for',
+        'accountA',
+        expect.any(Error)
+      );
+      const card = screen.getAllByTestId('prompt-card').find(one => one.dataset.title === 'faucetPromptTitle')!;
+      expect(card).toHaveAttribute('data-actionable', 'true');
+      expect(card).not.toHaveAttribute('data-hero', 'faucetPromptFunding');
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   it("waits for another surface's live request instead of failing when a tap is refused over it", async () => {
     jest.useFakeTimers();
     try {

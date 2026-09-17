@@ -597,8 +597,11 @@ export const HomePrompts: FC<HomePromptsProps> = ({
       }
       setMarkerRead(current => (current.address === address ? { address, settled: true } : current));
     }).catch(error => {
-      console.warn('[wallet-prompts] failed to read faucet funding marker:', error);
-      // An unreadable marker must not disable funding for good; the read is settled.
+      console.warn('[wallet-prompts] failed to read faucet funding marker; offering Fund for', address, error);
+      // An unreadable marker must not disable funding for good; the read is settled and Fund
+      // is offered (#936). Safe because a tap re-reads the marker under the lock before any
+      // proof of work: a read that fails again refuses the request, and a request already on
+      // its way refuses it too.
       if (!cancelled) setMarkerRead(current => (current.address === address ? { address, settled: true } : current));
     });
     return () => {
@@ -723,7 +726,11 @@ export const HomePrompts: FC<HomePromptsProps> = ({
       }).catch(error => {
         if (cancelled) return;
         // Unreadable, so it may have gone out: wait for the mint rather than offer Fund.
-        console.warn('[wallet-prompts] failed to read faucet funding marker:', error);
+        console.warn(
+          '[wallet-prompts] failed to read faucet funding marker; keeping the funding wait for',
+          address,
+          error
+        );
         setFundingWait(
           submittedWait(address, requestedAt, getFaucetRequestSettledAt(address, requestedAt) ?? undefined)
         );
