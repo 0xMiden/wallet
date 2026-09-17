@@ -74,11 +74,12 @@ it('omits each affordance when its handler is absent', () => {
   expect(screen.queryByRole('button')).toBeNull();
 });
 
-it('styles back like close: a flat grey circle with a grey arrow', () => {
+it('styles back and close as nav buttons with a grey glyph', () => {
   render(<ScreenHeader title="Send" onBack={jest.fn()} onClose={jest.fn()} backLabel="back" closeLabel="close" />);
 
   const back = screen.getByRole('button', { name: 'back' });
-  expect(back).toHaveClass('h-9', 'w-9', 'rounded-full', 'bg-gray-100');
+  expect(back).toHaveClass('h-9', 'w-9', 'rounded-full', 'bg-surface-nav-button');
+  expect(screen.getByRole('button', { name: 'close' })).toHaveClass('bg-surface-nav-button');
   expect(back).not.toHaveClass('border');
   expect(back.querySelector('[data-icon="BackArrow"]')).toHaveClass('text-heading-gray');
 });

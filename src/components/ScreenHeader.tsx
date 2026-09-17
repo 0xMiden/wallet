@@ -25,8 +25,8 @@ export const ScreenHeader: React.FC<ScreenHeaderProps> = ({
   className
 }) => (
   <div className={classNames('flex items-center gap-4 border-b border-border-faint py-4', className)}>
-    {/* Back matches the close button: a flat grey circle with a grey glyph, like
-        the app's other quiet buttons, rather than an outlined orange arrow. */}
+    {/* Back and close are the same nav button: a flat circle on the nav button
+        surface with a grey glyph, rather than an outlined orange arrow. */}
     {onBack && (
       <button
         type="button"
@@ -35,7 +35,7 @@ export const ScreenHeader: React.FC<ScreenHeaderProps> = ({
           onBack();
         }}
         aria-label={backLabel}
-        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gray-100"
+        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-surface-nav-button"
       >
         <Icon name={IconName.BackArrow} size="sm" fill="currentColor" className="text-heading-gray" />
       </button>
@@ -54,7 +54,7 @@ export const ScreenHeader: React.FC<ScreenHeaderProps> = ({
         type="button"
         onClick={onClose}
         aria-label={closeLabel}
-        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gray-100"
+        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-surface-nav-button"
       >
         <Icon name={IconName.Close} size="sm" fill="currentColor" className="text-heading-gray" />
       </button>
