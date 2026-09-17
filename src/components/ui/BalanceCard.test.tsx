@@ -174,7 +174,7 @@ describe('BalanceCard states, delta, and interactions', () => {
     expect(screen.queryByText(/\+0\.1%/)).toBeNull();
   });
 
-  it('fires haptic feedback and onMore when the settings button is clicked', () => {
+  it('fires haptic feedback and onMore when the card is tapped', () => {
     const onMore = jest.fn();
     render(<BalanceCard accountNumber="mtst1aqg...940z" amount="$123.45" onMore={onMore} />);
 
@@ -184,7 +184,7 @@ describe('BalanceCard states, delta, and interactions', () => {
     expect(hapticLight).toHaveBeenCalledTimes(1);
   });
 
-  it('renders the new copy icon and an edit icon colored with the card secondary tone', () => {
+  it('renders the new copy icon and no edit glyph: the whole card is the account-options control', () => {
     render(<BalanceCard accountNumber="mtst1aqg...940z" amount="$123.45" onMore={jest.fn()} />);
 
     const copyIcon = screen.getByText('balanceCardAccount').nextElementSibling;
@@ -192,15 +192,34 @@ describe('BalanceCard states, delta, and interactions', () => {
     // Guards the load-bearing `!` size override (Icon injects a default md size that otherwise wins).
     expect(copyIcon?.className).toContain('w-3.5!');
 
-    // An edit glyph, not a gear: the button opens account options, and a gear
-    // here read as "Settings", which is now its own bottom-nav destination.
-    const optionsIcon = screen.getByRole('button', { name: 'balanceCardAccountOptions' }).querySelector('[data-name]');
-    expect(optionsIcon?.getAttribute('data-name')).toBe('Edit');
-    expect(optionsIcon?.className).toContain('text-card-slate-deep');
-    expect(optionsIcon?.className).toContain('w-3!');
+    expect(document.querySelector('[data-name="Edit"]')).toBeNull();
+    const card = screen.getByRole('button', { name: 'balanceCardAccountOptions' });
+    expect(card.tagName).toBe('DIV');
+    expect(card).toHaveAttribute('tabindex', '0');
   });
 
-  it('omits the settings button when onMore is not provided', () => {
+  it('opens the account options from the keyboard', () => {
+    const onMore = jest.fn();
+    render(<BalanceCard accountNumber="mtst1aqg...940z" amount="$123.45" onMore={onMore} />);
+
+    const card = screen.getByRole('button', { name: 'balanceCardAccountOptions' });
+    fireEvent.keyDown(card, { key: 'Enter' });
+    fireEvent.keyDown(card, { key: ' ' });
+    fireEvent.keyDown(card, { key: 'a' });
+
+    expect(onMore).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not open the account options when the address is copied', () => {
+    const onMore = jest.fn();
+    render(<BalanceCard accountNumber="mtst1aqg...940z" amount="$123.45" onMore={onMore} />);
+
+    fireEvent.click(screen.getByText('balanceCardAccount'));
+
+    expect(onMore).not.toHaveBeenCalled();
+  });
+
+  it('is not a control when onMore is not provided', () => {
     render(<BalanceCard accountNumber="mtst1aqg...940z" amount="$123.45" />);
 
     expect(screen.queryByRole('button', { name: 'balanceCardAccountOptions' })).toBeNull();

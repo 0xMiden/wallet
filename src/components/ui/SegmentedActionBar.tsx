@@ -82,7 +82,7 @@ export const SegmentedActionBar: FC<SegmentedActionBarProps> = ({
             {isActive && (
               <motion.span
                 key={`${item.id}-label`}
-                className="relative whitespace-nowrap text-sm font-bold leading-none max-[359px]:text-xs"
+                className="relative whitespace-nowrap font-heading text-sm font-bold leading-none max-[359px]:text-xs"
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 transition={labelTransition}

@@ -40,14 +40,6 @@ const CARD_COLOR_BOTTOM: Record<CardColor, string> = {
   purple: 'bg-card-purple-deep'
 };
 
-const CARD_COLOR_ICON: Record<CardColor, string> = {
-  slate: 'text-card-slate-deep',
-  orange: 'text-card-orange-deep',
-  blue: 'text-card-blue-deep',
-  green: 'text-card-green-deep',
-  purple: 'text-card-purple-deep'
-};
-
 export interface BalanceCardProps {
   /** Truncated display label, e.g. `mtst1aqg...940z`. */
   accountNumber: string;
@@ -134,9 +126,30 @@ export const BalanceCard: FC<BalanceCardProps> = ({
     hapticLight();
     onMore();
   };
+  // The card itself opens the account options; it can't be a <button> because
+  // the copy-address control inside is one. Keys fired from that inner button
+  // are its own.
+  const handleMoreKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.target !== event.currentTarget) return;
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      handleMoreClick();
+    }
+  };
 
   return (
-    <div className={classNames('relative w-full overflow-hidden text-surface-balance-fg rounded-lg-token', className)}>
+    <div
+      className={classNames(
+        'relative w-full overflow-hidden text-surface-balance-fg rounded-lg-token',
+        onMore && 'cursor-pointer',
+        className
+      )}
+      role={onMore ? 'button' : undefined}
+      tabIndex={onMore ? 0 : undefined}
+      aria-label={onMore ? t('balanceCardAccountOptions') : undefined}
+      onClick={onMore ? handleMoreClick : undefined}
+      onKeyDown={onMore ? handleMoreKeyDown : undefined}
+    >
       <div className={classNames('px-3.5 pt-4 pb-3.5', CARD_COLOR_TOP[cardColor])}>
         <div className="text-sm font-medium text-surface-balance-fg-muted leading-none">
           {t('balanceCardTotalBalance')}
@@ -183,32 +196,22 @@ export const BalanceCard: FC<BalanceCardProps> = ({
           CARD_COLOR_BOTTOM[cardColor]
         )}
       >
-        <CopyButton
-          text={accountId ?? accountNumber}
-          className={classNames(
-            'flex items-center gap-1 text-xs font-heading font-bold leading-none tracking-tight min-w-0 text-left',
-            'text-surface-balance-fg hover:bg-transparent active:opacity-80 transition-opacity'
-          )}
-        >
-          <span className="truncate">{t('balanceCardAccount', { number: accountNumber })}</span>
-          {/* The `!` on the size classes is load-bearing: <Icon> injects a default `md` (w-6 h-6)
-              size class that, under Tailwind v4's scale-ordered output, otherwise wins the cascade.
-              Do not drop the `!` (same for the edit icon below). */}
-          <Icon name={IconName.CopyNew} className="w-3.5! h-3.5! shrink-0" />
-        </CopyButton>
-        {onMore && (
-          <button
-            type="button"
-            onClick={handleMoreClick}
-            aria-label={t('balanceCardAccountOptions')}
-            className="shrink-0 flex items-center justify-center w-4.5 h-4.5 rounded-full bg-pure-white"
+        {/* Copying the address must not also open the account options. */}
+        <span className="flex min-w-0" onClick={event => event.stopPropagation()}>
+          <CopyButton
+            text={accountId ?? accountNumber}
+            className={classNames(
+              'flex items-center gap-1 text-xs font-heading font-bold leading-none tracking-tight min-w-0 text-left',
+              'text-surface-balance-fg hover:bg-transparent active:opacity-80 transition-opacity'
+            )}
           >
-            {/* An edit glyph, not a gear: this opens the account options drawer,
-                and a gear here read as "Settings" — which is now its own
-                bottom-nav destination. */}
-            <Icon name={IconName.Edit} className={classNames('w-3! h-3!', CARD_COLOR_ICON[cardColor])} />
-          </button>
-        )}
+            <span className="truncate">{t('balanceCardAccount', { number: accountNumber })}</span>
+            {/* The `!` on the size classes is load-bearing: <Icon> injects a default `md` (w-6 h-6)
+                size class that, under Tailwind v4's scale-ordered output, otherwise wins the cascade.
+                Do not drop the `!`. */}
+            <Icon name={IconName.CopyNew} className="w-3.5! h-3.5! shrink-0" />
+          </CopyButton>
+        </span>
       </div>
     </div>
   );

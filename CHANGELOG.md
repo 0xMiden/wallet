@@ -4,6 +4,8 @@
 
 - [CHANGE][mobile] The bottom tab bar is docked to the bottom edge instead of floating as a pill: full width with a hairline top rule, its background running under the home indicator. It slides away while a tab page is scrolled down and returns as soon as the scroll stops or reverses. The extension and desktop keep the floating pill.
 - [CHANGE][all] The home Assets heading is set in Nunito Black, and the token search box under it is removed: the asset list follows the heading directly.
+- [CHANGE][all] The balance card itself opens the account options on tap (keyboard: Enter or Space); the pencil button in its corner is removed. Copying the address no longer risks opening the options.
+- [CHANGE][all] Typography pass: tab page titles are Nunito ExtraBold with -0.5px tracking, the unlock title is ExtraBold, the segmented action bar label is Nunito, Settings section headings are ExtraBold and their rows Bold, and the first Settings section sits 12px below the title rule.
 ### Features
 
 - [FEATURE][all] Guardian private-key export and seed-less import carry the existing Miden hot and EVM keys together as `hot:evm` (two separate 64-character lowercase hex scalars). Authenticated reveal opens a QR first, with separate text fields available. Import supports native/extension camera scanning, local QR image decoding, and manual entry; both scalars are validated before storage changes. The supplied EVM key is encrypted in the vault and restores its address without deriving a new key or seed. Seed-based recovery stays separate; the export does not contain a cold recovery key.
