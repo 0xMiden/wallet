@@ -56,9 +56,13 @@ export const PromptCarousel: FC<PromptCarouselProps> = ({ children, className })
   const releaseClickTimerRef = useRef<number | null>(null);
   const x = useMotionValue(0);
   const [width, setWidth] = useState(0);
-  // The selected slide, by key: a sibling appearing or disappearing before it moves
-  // its position, not the selection. The index is the fallback once the key is gone.
-  const [selected, setSelected] = useState<{ key: Key | undefined; index: number }>({ key: undefined, index: 0 });
+  // What is on stage, by key, so a sibling appearing or disappearing before it moves its
+  // position, not the choice. A page (a dot, a drag, or focus moving into a slide off stage)
+  // lasts while its slide exists; focus inside the slide on stage holds it only while focus
+  // stays in the carousel. With neither, the first slide shows, so a prompt that arrives
+  // ahead of the others (they come in priority order) takes the stage.
+  const [pageKey, setPageKey] = useState<Key | null>(null);
+  const [focusKey, setFocusKey] = useState<Key | null>(null);
   // Set when the user pages, so only that move springs; a slide-list change places
   // the track at once, before paint, instead of sliding the selected card away.
   // Placing uses jump, not set: set leaves a running spring (a drag's snap-back) to
@@ -68,19 +72,27 @@ export const PromptCarousel: FC<PromptCarouselProps> = ({ children, className })
   // Computed inline so a slide disappearing mid-flight (e.g. ActivateHotKeyBanner
   // returning null once the rotation lands) never leaves the track translated
   // off-screen waiting for the effect below to catch up.
-  const keyedIndex = selected.key === undefined ? -1 : slideKeys.indexOf(selected.key);
-  const activeIndex = keyedIndex >= 0 ? keyedIndex : Math.min(selected.index, Math.max(0, slides.length - 1));
-  const activeKey = slideKeys[activeIndex];
+  const pageIndex = pageKey === null ? -1 : slideKeys.indexOf(pageKey);
+  const focusIndex = focusKey === null ? -1 : slideKeys.indexOf(focusKey);
+  const activeIndex = pageIndex >= 0 ? pageIndex : Math.max(0, focusIndex);
 
-  // Persist it so state stays in sync with what's actually rendered.
+  // A choice whose slide has gone is dropped, so the slide coming back later does not take
+  // the stage again. Only the key seen here is cleared: a newer choice queued meanwhile stays.
   useEffect(() => {
-    if (selected.index !== activeIndex || selected.key !== activeKey)
-      setSelected({ key: activeKey, index: activeIndex });
-  }, [activeIndex, activeKey, selected]);
+    if (pageKey !== null && pageIndex < 0) setPageKey(current => (current === pageKey ? null : current));
+    if (focusKey !== null && focusIndex < 0) setFocusKey(current => (current === focusKey ? null : current));
+  }, [focusIndex, focusKey, pageIndex, pageKey]);
 
   const selectSlide = (i: number) => {
     pagedRef.current = true;
-    setSelected({ key: slideKeys[i], index: i });
+    setPageKey(slideKeys[i] ?? null);
+  };
+
+  // Focus moving into a slide off stage pages to it; focus inside the slide on stage keeps it
+  // there while focus stays in the carousel, so a prompt arriving ahead does not push it away.
+  const handleSlideFocus = (i: number) => {
+    if (i !== activeIndex) selectSlide(i);
+    else setFocusKey(slideKeys[i] ?? null);
   };
 
   useLayoutEffect(() => {
@@ -182,8 +194,24 @@ export const PromptCarousel: FC<PromptCarouselProps> = ({ children, className })
   const dragMaxLeft = width ? -(slides.length - 1) * step : 0;
 
   return (
-    <div className={classNames('flex flex-col gap-2', className)}>
-      <div ref={setContainer} className={classNames('w-full overflow-hidden', paging && 'touch-pan-y')}>
+    <div
+      className={classNames('flex flex-col gap-2', className)}
+      onBlur={event => {
+        if (!(event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget))) {
+          setFocusKey(null);
+        }
+      }}
+    >
+      <div
+        ref={setContainer}
+        className={classNames('w-full overflow-hidden', paging && 'touch-pan-y')}
+        // Only the track's transform moves the slides. A browser scrolls this overflow-hidden
+        // viewport to reveal a control focused in a hidden slide, and that offset would add to
+        // the page focus moves the track by. (overflow: clip would stop it, but not on iOS 15.)
+        onScroll={event => {
+          if (event.currentTarget.scrollLeft !== 0) event.currentTarget.scrollLeft = 0;
+        }}
+      >
         <motion.div
           className="flex items-start"
           style={{ x, gap: SLIDE_GAP_PX }}
@@ -197,7 +225,12 @@ export const PromptCarousel: FC<PromptCarouselProps> = ({ children, className })
           onClickCapture={handleClickCapture}
         >
           {slides.map((slide, i) => (
-            <div key={slideKey(slide, i)} className="shrink-0" style={{ width: width || '100%' }}>
+            <div
+              key={slideKey(slide, i)}
+              className="shrink-0"
+              style={{ width: width || '100%' }}
+              onFocus={() => handleSlideFocus(i)}
+            >
               {slide}
             </div>
           ))}

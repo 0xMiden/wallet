@@ -282,6 +282,107 @@ describe('PromptCarousel', () => {
     expect(dot).toHaveAccessibleName('Show prompt 1 of 2');
   });
 
+  describe('which slide is on stage', () => {
+    const slides = (keys: string[]) =>
+      keys.map(key => (
+        <button key={key} type="button">
+          {key}
+        </button>
+      ));
+    let widthSpy: jest.SpyInstance;
+    beforeEach(() => {
+      widthSpy = jest.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(300);
+    });
+    afterEach(() => widthSpy.mockRestore());
+
+    it('shows a prompt that arrives ahead of the first slide of an untouched carousel', () => {
+      const { rerender } = render(<PromptCarousel>{slides(['second', 'third'])}</PromptCarousel>);
+
+      // Prompts come in priority order: one that arrives first (pending notes) takes the stage,
+      // and the track, already on the first slide, does not move.
+      clearTrackCalls();
+      rerender(<PromptCarousel>{slides(['first', 'second', 'third'])}</PromptCarousel>);
+
+      expect(screen.getByRole('button', { name: 'Show prompt 1 of 3' })).toHaveClass('w-4');
+      expect(mockTrackX.jump).not.toHaveBeenCalled();
+      expect(animate).not.toHaveBeenCalled();
+    });
+
+    it('keeps a focused slide on stage when a prompt arrives ahead, and lets the prompt take it once focus leaves', () => {
+      const { rerender } = render(
+        <>
+          <PromptCarousel>{slides(['first', 'second'])}</PromptCarousel>
+          <button type="button">outside</button>
+        </>
+      );
+      act(() => {
+        screen.getByRole('button', { name: 'first' }).focus();
+      });
+      expect(animate).not.toHaveBeenCalled();
+
+      clearTrackCalls();
+      rerender(
+        <>
+          <PromptCarousel>{slides(['zeroth', 'first', 'second'])}</PromptCarousel>
+          <button type="button">outside</button>
+        </>
+      );
+      expect(screen.getByRole('button', { name: 'Show prompt 2 of 3' })).toHaveClass('w-4');
+      expect(mockTrackX.jump).toHaveBeenLastCalledWith(-312);
+
+      // Focus leaves the carousel: the choice went with it, and the first prompt takes the stage.
+      act(() => {
+        screen.getByRole('button', { name: 'outside' }).focus();
+      });
+      expect(screen.getByRole('button', { name: 'Show prompt 1 of 3' })).toHaveClass('w-4');
+    });
+
+    it('never keeps a scroll offset on the viewport, so only the track moves the slides', () => {
+      render(<PromptCarousel>{slides(['first', 'second', 'third'])}</PromptCarousel>);
+      const viewport = screen.getByTestId('motion-track').parentElement!;
+      let scrollLeft = 0;
+      Object.defineProperty(viewport, 'scrollLeft', {
+        configurable: true,
+        get: () => scrollLeft,
+        set: (value: number) => {
+          scrollLeft = value;
+        }
+      });
+
+      // A browser scrolls an overflow-hidden viewport to reveal a focused control in a hidden
+      // slide; with the track then moved to that slide, the offsets would add up.
+      scrollLeft = 312;
+      fireEvent.scroll(viewport);
+
+      expect(scrollLeft).toBe(0);
+    });
+
+    it('returns to the first slide when the slide the user chose goes', () => {
+      const { rerender } = render(<PromptCarousel>{slides(['first', 'second', 'third'])}</PromptCarousel>);
+      fireEvent.click(screen.getByRole('button', { name: 'Show prompt 2 of 3' }));
+
+      rerender(<PromptCarousel>{slides(['first', 'third'])}</PromptCarousel>);
+      expect(screen.getByRole('button', { name: 'Show prompt 1 of 2' })).toHaveClass('w-4');
+
+      // The choice went with it: the slide coming back later does not take the stage again.
+      rerender(<PromptCarousel>{slides(['first', 'second', 'third'])}</PromptCarousel>);
+      expect(screen.getByRole('button', { name: 'Show prompt 1 of 3' })).toHaveClass('w-4');
+    });
+
+    it('brings a slide the user moves focus into on stage, and keeps it there when a prompt arrives ahead', () => {
+      const { rerender } = render(<PromptCarousel>{slides(['first', 'second'])}</PromptCarousel>);
+
+      act(() => {
+        screen.getByRole('button', { name: 'second' }).focus();
+      });
+      expect(animate).toHaveBeenLastCalledWith(mockTrackX, -312, expect.anything());
+      expect(screen.getByRole('button', { name: 'Show prompt 2 of 2' })).toHaveClass('w-4');
+
+      rerender(<PromptCarousel>{slides(['zeroth', 'first', 'second'])}</PromptCarousel>);
+      expect(screen.getByRole('button', { name: 'Show prompt 3 of 3' })).toHaveClass('w-4');
+    });
+  });
+
   it('claims pointer gestures only once there is a second slide to page to', () => {
     const outerPointerDown = jest.fn();
     const { rerender } = render(
