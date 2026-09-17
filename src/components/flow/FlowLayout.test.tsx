@@ -2,20 +2,26 @@ import React from 'react';
 
 import { fireEvent, render, screen } from '@testing-library/react';
 
-import { SendStepLayout } from './SendStepLayout';
+import { FlowLayout } from './FlowLayout';
 
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn() }));
 jest.mock('lib/platform', () => ({ isMobile: () => true }));
-jest.mock('app/icons/v2', () => ({ IconName: { BackArrow: 'back-arrow' }, Icon: () => <svg /> }));
+jest.mock('app/icons/v2', () => ({ IconName: { BackArrow: 'back-arrow', Close: 'close' }, Icon: () => <svg /> }));
 
-describe('SendStepLayout', () => {
+describe('FlowLayout', () => {
   it('renders the title, accessory, content, footer, and a back button that calls onBack', () => {
     const onBack = jest.fn();
     render(
-      <SendStepLayout title="Title" titleAccessory={<span>chip</span>} onBack={onBack} footer={<button>cta</button>}>
+      <FlowLayout
+        accent="send"
+        title="Title"
+        titleAccessory={<span>chip</span>}
+        onBack={onBack}
+        footer={<button>cta</button>}
+      >
         <p>content</p>
-      </SendStepLayout>
+      </FlowLayout>
     );
 
     expect(screen.getByRole('heading', { name: 'Title' })).toBeInTheDocument();
@@ -27,9 +33,9 @@ describe('SendStepLayout', () => {
 
   it('styles back as a nav button with the Send accent', () => {
     render(
-      <SendStepLayout title="Title" onBack={jest.fn()} footer={<button>cta</button>}>
+      <FlowLayout accent="send" title="Title" onBack={jest.fn()} footer={<button>cta</button>}>
         <p>content</p>
-      </SendStepLayout>
+      </FlowLayout>
     );
 
     expect(screen.getByTestId('send-step-back')).toHaveClass('bg-surface-nav-button');
@@ -37,9 +43,9 @@ describe('SendStepLayout', () => {
 
   it('keeps the back row without a back button so titles line up across steps', () => {
     const { container } = render(
-      <SendStepLayout title="Title" footer={<button>cta</button>}>
+      <FlowLayout accent="send" title="Title" footer={<button>cta</button>}>
         <p>content</p>
-      </SendStepLayout>
+      </FlowLayout>
     );
 
     expect(screen.queryByTestId('send-step-back')).not.toBeInTheDocument();
@@ -48,9 +54,9 @@ describe('SendStepLayout', () => {
 
   it('pins the footer with the mobile cushion and no navbar-collapse hook', () => {
     render(
-      <SendStepLayout title="Title" footer={<button>cta</button>}>
+      <FlowLayout accent="send" title="Title" footer={<button>cta</button>}>
         <p>content</p>
-      </SendStepLayout>
+      </FlowLayout>
     );
 
     const footer = screen.getByText('cta').parentElement;
@@ -62,9 +68,9 @@ describe('SendStepLayout', () => {
     document.body.setAttribute('data-hide-navbar', '');
     try {
       render(
-        <SendStepLayout title="Title" footer={<button>cta</button>}>
+        <FlowLayout accent="send" title="Title" footer={<button>cta</button>}>
           <p>content</p>
-        </SendStepLayout>
+        </FlowLayout>
       );
 
       const footer = screen.getByText('cta').parentElement;
@@ -73,5 +79,18 @@ describe('SendStepLayout', () => {
     } finally {
       document.body.removeAttribute('data-hide-navbar');
     }
+  });
+
+  it('puts a close button top right that calls onClose', () => {
+    const onClose = jest.fn();
+    render(
+      <FlowLayout title="Processing" onClose={onClose} footer={<button>cta</button>}>
+        <p>content</p>
+      </FlowLayout>
+    );
+
+    fireEvent.click(screen.getByTestId('flow-close'));
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId('send-step-back')).not.toBeInTheDocument();
   });
 });
