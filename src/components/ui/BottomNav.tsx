@@ -72,7 +72,7 @@ export const BottomNav: FC<BottomNavProps> = ({ items, activeId, onChange, docke
               isActive ? 'text-accent-primary' : 'text-text-primary-token'
             )}
           >
-            <span className="relative flex items-center justify-center w-16 h-12">
+            <span className="relative flex items-center justify-center w-18 h-12">
               {isActive && (
                 <motion.span
                   layoutId={PILL_LAYOUT_ID}
