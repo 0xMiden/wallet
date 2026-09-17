@@ -10,7 +10,6 @@ import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
 import { Navigator, NavigatorProvider, Route, useNavigator } from 'components/Navigator';
 import { stringToBigInt } from 'lib/i18n/numbers';
-import { requestSpeculateInvalidate, requestSpeculateSend } from 'lib/miden/activity';
 import { hasNoFeeAsset, maxSendableNative } from 'lib/miden/fees/spendable';
 import { useAccount, useAllAccounts, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { useFilteredContacts } from 'lib/miden/front/use-filtered-contacts.hook';
@@ -18,9 +17,8 @@ import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { sameWalletAccountId } from 'lib/miden/sdk/helpers';
 import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
-import { isExtension, isMobile } from 'lib/platform';
+import { isMobile } from 'lib/platform';
 import { isScanAvailable, scanQRCode } from 'lib/qr';
-import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
 import { navigate, useLocation } from 'lib/woozie';
 import {
@@ -37,7 +35,7 @@ import { BridgeNetworkId, SendNetworkId } from './bridge-networks';
 import { ScanQrDrawer } from './ScanQrDrawer';
 import { SelectRecipient } from './SelectRecipient';
 import { SelectTokenDrawer } from './SelectToken';
-import { consumeSendDraft, hasSendDraft, SendDraft, setSendDraft } from './send-draft';
+import { consumeSendDraft, SendDraft, setSendDraft } from './send-draft';
 import { SendAmount } from './SendAmount';
 import { SendRoute } from './SendRoute';
 import {
@@ -100,7 +98,6 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
   const { pathname } = useLocation();
   const allAccounts = useAllAccounts();
   const { publicKey } = useAccount();
-  const delegateEnabled = isDelegateProofEnabled();
 
   const { contacts: addressBookContacts } = useFilteredContacts();
 
@@ -338,118 +335,6 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
     if (!isFinite(input) || !isFinite(output)) return undefined;
     return Math.max(0, input - output);
   }, [token, amount, epochQuote.amount]);
-
-  // Speculative pre-prove: kick off execute + offscreen prove in the SW
-  // as soon as the SendDetails form is valid, so the proof can finish
-  // (~5-10s) while the user is still on details/review. Without an early
-  // trigger, the user reaches review with the proof not yet started; their
-  // typical 2-3s on review isn't enough to absorb the 10s prove cost.
-  //
-  // Cache lives in SW memory keyed by params hash; consumed by
-  // MidenClientInterface.proveLocallyViaOffscreen on actual submit. If
-  // the user clicks Confirm BEFORE the speculation finishes,
-  // proveLocallyViaOffscreen calls SpeculationManager.awaitMatching to
-  // wait on the in-flight prove instead of starting a duplicate one
-  // (Fix B).
-  //
-  // Discarded-CPU bound: the SpeculationManager already serializes (one
-  // active + one pending slot). Rapid form changes replace `pending`
-  // before it ever runs, and the in-flight `active` is marked stale and
-  // its result discarded. Worst case: ONE extra prove's worth of CPU per
-  // session of form edits, regardless of how many keystrokes. The 500ms
-  // React-level debounce below further trims churn during typing.
-  //
-  // Gates:
-  //   - feature flag MIDEN_USE_SPECULATIVE_PROVING
-  //   - extension context only (intercom doesn't exist on mobile/desktop)
-  //   - global setting must be local proving (delegate path is just an RPC)
-  //   - form must be valid (recipient is a Miden address, amount > 0
-  //     and <= balance)
-  //
-  // Known gap: the review page always seeds a 7-day recallBlocks, while this
-  // speculation proves a no-recall tx. The interface layer skips the cache entirely
-  // when a reclaim height is set, so the cached prove goes unused — at most one full
-  // prove's worth of CPU per editing session, per the discarded-CPU bound above (a
-  // superseded speculation is marked stale and `abortSpeculativeProve()` closes the
-  // offscreen document to stop it, unless a real op is in flight), not one per
-  // debounced edit. The flag defaults ON (vite.extension.config.ts /
-  // vite.background.config.ts); carrying the seeded recallBlocks into the speculate
-  // request is the fix.
-  //
-  // Second gap, since issue #260: flag-on `MIDEN_USE_OFFSCREEN_CLIENT` (the service
-  // worker's default) the SW handler this request reaches is INERT —
-  // `initSpeculationManager` returns null there because the send that would claim the
-  // result runs in the offscreen realm, which never consults the cache. See its
-  // TRADEOFF block. Left firing rather than gated off here because this bundle cannot
-  // evaluate that gate at all: half of it is `isOffscreenAvailable()`, and
-  // `chrome.offscreen` is exposed only to the service worker.
-  //
-  // The cost of leaving it firing is one debounced SpeculateSendRequest per 500 ms
-  // quiet period while the amount / recipient / token are being edited HERE (this
-  // effect's deps), plus ONE SpeculateInvalidate per exit from the flow — the two
-  // unmount invalidates are alternatives, not a pair, because this component's is
-  // skipped while a draft is pending (see it below) and the review handoff is exactly
-  // when a draft is pending. A straight-through send (edit -> review -> Confirm) sends
-  // only ReviewTransaction's; abandoning the form without ever reaching review sends
-  // only this one. (Backing out of review and then abandoning the form is two separate
-  // exits, so it sends one each.) Every one of them is answered by a handler that does
-  // nothing.
-  useEffect(() => {
-    if (process.env.MIDEN_USE_SPECULATIVE_PROVING !== 'true') return;
-    if (!isExtension()) return;
-    if (delegateEnabled) return; // delegated proving — no point speculating
-    if (!publicKey || !recipientAddress || !token || !amount) return;
-    try {
-      isValidMidenAddress(recipientAddress);
-    } catch {
-      return;
-    }
-    const amountFloat = parseFloat(amount);
-    if (!(amountFloat > 0)) return;
-    if (amountFloat > token.balance) return;
-    let amountBig: bigint;
-    try {
-      amountBig = stringToBigInt(amount, token.decimals);
-    } catch {
-      return;
-    }
-    const timer = setTimeout(() => {
-      requestSpeculateSend({
-        accountId: publicKey,
-        recipientAccountId: recipientAddress,
-        faucetId: token.id,
-        // Sends are private unless E2E flips the toggle — and that only
-        // happens on the review page, where a cache miss just falls back to
-        // a normal prove.
-        noteType: 'private',
-        amount: amountBig
-      });
-    }, 500);
-    return () => {
-      // Clear the debounced trigger if deps change before it fires.
-      // We do NOT call requestSpeculateInvalidate here — whenever there IS an in-SW
-      // SpeculationManager it already replaces pending on each new speculate() and
-      // discards stale active results. Invalidating on every keystroke would defeat
-      // the cache. (Flag-on there is no manager at all — see the note above.)
-      clearTimeout(timer);
-    };
-  }, [delegateEnabled, publicKey, recipientAddress, token, amount]);
-
-  // One-time invalidation when the SendManager unmounts entirely (user
-  // backs out of the send flow, or the tab closes). Drops any cached
-  // completed entry and marks any active as stale so we don't carry
-  // speculative state into a future send. Skipped when a draft is pending —
-  // that unmount is the handoff to /send/review, which consumes the cache on
-  // submit and owns invalidation from there.
-  useEffect(() => {
-    if (process.env.MIDEN_USE_SPECULATIVE_PROVING !== 'true') return;
-    if (!isExtension()) return;
-    return () => {
-      if (!hasSendDraft()) {
-        requestSpeculateInvalidate();
-      }
-    };
-  }, []);
 
   // Pre-select token when navigating from token detail page
   const allTokensBaseMetadata = useAllTokensBaseMetadata();

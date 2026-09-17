@@ -1,7 +1,7 @@
 import type { GetKeyCallback, InsertKeyCallback, SignCallback } from '@miden-sdk/miden-sdk/lazy';
 
 // This import must stay ABOVE the `./miden-client-interface` one: that import
-// forms a cycle (via `speculation-manager`), and the poison bindings this
+// forms a cycle (it imports this module back), and the poison bindings this
 // module's own body reads — the three ceilings in `armWatchdogFor`, the error
 // class in `recoverFromWedgedHolder` — must already be initialized when the
 // cycle re-enters this module. See `wasm-client-poison.ts`.
@@ -954,7 +954,7 @@ export function uninstallRealmKeystore(callbacks: Partial<RealmKeystore>): void 
  * `withWasmClientLock` carries the reason out on that hold's own rejection
  * (`tagLockedSignReason`, the same tag the offscreen path sets per op) and the
  * transaction loop reads only the error (issue #313: a wallet locked mid-sign
- * DEFERS the write). Nothing is ambient: a dry run, a speculation, or an evicted
+ * DEFERS the write). Nothing is ambient: a dry run or an evicted
  * client's late rejection records under its own hold, which no other flow reads,
  * so no write can inherit another's reason (issue #260's rule, which a realm-wide
  * slot broke twice under review). Cleared at the next attempt under the same hold,

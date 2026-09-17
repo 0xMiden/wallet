@@ -124,8 +124,7 @@ export const DIRECT_SWITCH_TRANSACTION_STEPS = [
  * that executes and proves live — the inline pipeline, mobile/desktop, and the
  * extension's offscreen realm (same cross-realm stamp route as the guardian set).
  * A step whose boundary stamp never arrives renders blank rather than a fabricated
- * zero, which is what a speculation-cache hit (no live prove) and a dropped
- * cross-realm stamp both look like.
+ * zero, which is what a dropped cross-realm stamp looks like.
  */
 export const STANDARD_TRANSACTION_STEPS = [
   {
