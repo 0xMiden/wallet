@@ -7,19 +7,7 @@ import { ScreenHeader } from './ScreenHeader';
 // Every consumer of ScreenHeader mocks it, so nothing exercised the real
 // component — the title-less branch below is the production path for all five
 // transaction success receipts and had no coverage at all.
-jest.mock('components/CircleButton', () => ({
-  CircleButton: ({ icon, onClick, className, color, ...rest }: Record<string, unknown>) => (
-    <button
-      type="button"
-      data-testid="circle-button"
-      data-icon={String(icon)}
-      data-color={String(color)}
-      className={String(className ?? '')}
-      onClick={onClick as () => void}
-      {...rest}
-    />
-  )
-}));
+jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn() }));
 
 jest.mock('app/icons/v2', () => ({
   Icon: ({ name, className }: { name: string; className?: string }) => (
@@ -84,4 +72,13 @@ it('omits each affordance when its handler is absent', () => {
   render(<ScreenHeader title="Send" />);
 
   expect(screen.queryByRole('button')).toBeNull();
+});
+
+it('styles back like close: a flat grey circle with a grey arrow', () => {
+  render(<ScreenHeader title="Send" onBack={jest.fn()} onClose={jest.fn()} backLabel="back" closeLabel="close" />);
+
+  const back = screen.getByRole('button', { name: 'back' });
+  expect(back).toHaveClass('h-9', 'w-9', 'rounded-full', 'bg-gray-100');
+  expect(back).not.toHaveClass('border');
+  expect(back.querySelector('[data-icon="BackArrow"]')).toHaveClass('text-heading-gray');
 });

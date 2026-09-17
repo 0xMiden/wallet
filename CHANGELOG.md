@@ -11,6 +11,7 @@
 - [CHANGE][all] Typography pass: tab page titles are Nunito ExtraBold with -0.5px tracking, the unlock title is ExtraBold, the segmented action bar label is Nunito, Settings section headings are ExtraBold and their rows Bold, and the first Settings section sits 12px below the title rule.
 
 - [CHANGE][all] A disabled primary button is a faded version of the brand color with white text, instead of beige with grey text, so it reads as the same button waiting to be enabled.
+- [CHANGE][all] Screen header back buttons are a flat grey circle with a grey arrow, matching the close button next to them, instead of an outlined orange arrow.
 ### Features
 
 - [FEATURE][all] Guardian private-key export and seed-less import carry the existing Miden hot and EVM keys together as `hot:evm` (two separate 64-character lowercase hex scalars). Authenticated reveal opens a QR first, with separate text fields available. Import supports native/extension camera scanning, local QR image decoding, and manual entry; both scalars are validated before storage changes. The supplied EVM key is encrypted in the vault and restores its address without deriving a new key or seed. Seed-based recovery stays separate; the export does not contain a cold recovery key.
