@@ -16,14 +16,14 @@ import manifestV3 from '../../../public/manifest.json';
 import manifestV2 from '../../../public/manifest.v2.json';
 
 const mockIsAndroid = jest.fn(() => false);
-const mockIsDesktop = jest.fn(() => false);
 const mockIsExtension = jest.fn(() => false);
 const mockIsIOS = jest.fn(() => false);
 const mockIsMobile = jest.fn(() => false);
 
 jest.mock('lib/platform', () => ({
   isAndroid: () => mockIsAndroid(),
-  isDesktop: () => mockIsDesktop(),
+  // createDefaultAdapter never asks, but the storage adapter this module builds does.
+  isDesktop: () => false,
   isExtension: () => mockIsExtension(),
   isIOS: () => mockIsIOS(),
   isMobile: () => mockIsMobile()
@@ -81,7 +81,6 @@ describe('createUpdateNotificationRuntime', () => {
   beforeEach(() => {
     sessionStorage.clear();
     mockIsAndroid.mockReturnValue(false);
-    mockIsDesktop.mockReturnValue(false);
     mockIsExtension.mockReturnValue(false);
     mockIsIOS.mockReturnValue(false);
     mockIsMobile.mockReturnValue(false);
@@ -391,7 +390,6 @@ describe('default runtime platform adapter', () => {
     process.env.TARGET_BROWSER = 'chrome';
     delete window.__MIDEN_E2E_UPDATE__;
     mockIsAndroid.mockReturnValue(false);
-    mockIsDesktop.mockReturnValue(false);
     mockIsExtension.mockReturnValue(false);
     mockIsIOS.mockReturnValue(false);
   });
@@ -403,8 +401,7 @@ describe('default runtime platform adapter', () => {
 
   it.each([
     ['android', mockIsAndroid],
-    ['ios', mockIsIOS],
-    ['desktop', mockIsDesktop]
+    ['ios', mockIsIOS]
   ] as const)('selects the %s adapter only for that runtime', async (platform, predicate) => {
     predicate.mockReturnValue(true);
 
