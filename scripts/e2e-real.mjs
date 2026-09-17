@@ -1,19 +1,21 @@
 #!/usr/bin/env node
 /**
- * Run the bridge E2E suites against the REAL external services — the hosted
- * Epoch allocator/solver, the real AggLayer bridge, and real Sepolia — instead
- * of the hermetic doubles the PR gates use.
+ * Run the bridge and swap E2E suites against REAL infrastructure — the hosted
+ * Epoch allocator/solver, the real AggLayer bridge, real Sepolia, and the public
+ * Miden testnet — instead of the hermetic doubles the PR gates use.
  *
  * Most Epoch/AggLayer coverage runs against `FakeEpochAllocator` + an Anvil
- * chain carrying `anvil_setCode` stubs at the real addresses. That double
- * quotes unconditionally and settles instantly, so it cannot catch a service
- * that stops quoting, reprices, or never fills — which is exactly the class of
- * failure that took `bridge-out-epoch.spec.ts` down for a month (#627).
+ * chain carrying `anvil_setCode` stubs at the real addresses; swap runs against
+ * a local 0.16 node booted for the job. Those doubles quote unconditionally,
+ * settle instantly and mine on demand, so they cannot catch a service that stops
+ * quoting, reprices or never fills — the class of failure that took
+ * `bridge-out-epoch.spec.ts` down for a month (#627) — nor a timing assumption
+ * that only holds when blocks arrive on request.
  *
- * Every external dependency is probed BEFORE the build, because the build plus
- * a bridge run is ~20 minutes and a dead solver or an unfunded key should cost
- * seconds to find. The preflight is the point of this script; the spawn of
- * `playwright test` underneath it is the easy part.
+ * Every external dependency is probed BEFORE the build, because the build plus a
+ * run is ~20 minutes and a dead solver or an unfunded key should cost seconds to
+ * find. The preflight is the point of this script; the spawn of `playwright test`
+ * underneath it is the easy part.
  */
 
 import { spawn } from 'node:child_process';
@@ -41,6 +43,11 @@ const MIDEN_RPC = {
   testnet: 'https://rpc.testnet.miden.io',
   devnet: 'https://rpc.devnet.miden.io'
 };
+/** Mirrors `guardianUrl` in playwright/e2e/config/environments.ts. */
+const GUARDIAN_URL = {
+  testnet: 'https://guardian.openzeppelin.com',
+  devnet: 'https://guardian-stg.openzeppelin.com'
+};
 const MIDEN_FAUCET_API = {
   testnet: 'https://faucet-api.testnet.miden.io',
   devnet: 'https://faucet-api.devnet.miden.io'
@@ -66,14 +73,31 @@ const SUITES = {
   },
   'bridge-out': {
     config: 'playwright.bridge.config.ts',
-    grep: undefined,
+    grep: 'bridge-out',
     needsEvmKey: false,
     describe: 'both bridge-out routes'
+  },
+  swap: {
+    config: 'playwright.swap.config.ts',
+    // The guardian scenario is excluded by default: it is the one swap spec that
+    // needs a co-signer, and on testnet that means a third party's hosted
+    // guardian rather than the container the PR job boots. `swap-guardian` runs
+    // it on its own, so a guardian outage cannot red the whole swap suite.
+    grepInvert: 'guardian maker',
+    needsEvmKey: false,
+    describe: 'in-protocol DEX (PSWAP) fills on public Miden testnet'
+  },
+  'swap-guardian': {
+    config: 'playwright.swap.config.ts',
+    grep: 'guardian maker',
+    needsEvmKey: false,
+    describe: 'a guardian-co-signed PSWAP maker order against a hosted testnet guardian'
   }
 };
 
 const USAGE = `
-Run the wallet's bridge E2E against real Epoch / AggLayer / Sepolia endpoints.
+Run the wallet's bridge and swap E2E against real infrastructure:
+the hosted Epoch solver, the AggLayer bridge, Sepolia, and public Miden testnet.
 
   yarn e2e:real --suite <name> [options]
 
@@ -99,9 +123,12 @@ Options
   --grep <pattern>          further narrow the tests within the suite
   -h, --help                this message
 
-Nothing here is secret-gated: bridge-out needs no EVM key, and the Sepolia test
-USDC mints permissionlessly, so the only scarce input is Sepolia gas — and only
-for suites whose EVM leg is signed.
+No suite here is secret-gated. Bridge-out is solver-fulfilled and swap is
+Miden-side, so neither signs on EVM and neither needs a key; --sepolia-key is
+accepted so a funded account can be checked (gas, and a permissionless test-USDC
+top-up) ahead of a suite that does sign. Bridge-IN would be that suite, and it
+is not here: it cannot run on the extension, whose COEP isolation for the WASM
+prover blocks WalletConnect's cross-origin requests.
 `;
 
 // ── args ────────────────────────────────────────────────────────────────────
@@ -337,6 +364,66 @@ async function probeEpochQuote(epochUrl, faucetId) {
   }
 }
 
+/**
+ * The in-protocol DEX quote service (`getSwapEta`, src/lib/miden/swap/tokens.ts).
+ *
+ * INFORMATIONAL, never a gate. The swap suite creates its own faucets and fills
+ * between the two wallets it drives, so it never asks this service anything —
+ * but it is what the PRODUCT shows a user as the swap ETA and price, and main CI
+ * never touches it. A run is the cheapest moment to notice it has gone.
+ *
+ * `canFill: false` is reported rather than failed: it means no filler is offering
+ * that pair right now, which is a fact about testnet liquidity, not about the
+ * wallet.
+ */
+async function probeSwapQuoteService() {
+  const BASE = 'https://35-175-40-181.sslip.io';
+  // IMIDEN and IUSDT from the shipped registry, as hex — the service rejects
+  // bech32. Resolved through the SDK rather than pasted so a registry change
+  // cannot leave this probe quietly asking about a token nobody trades.
+  let offered;
+  let requested;
+  try {
+    const { AccountId } = await import('@miden-sdk/miden-sdk');
+    offered = AccountId.fromBech32('mtst1arqxg9er3xclayt95nud82jnpggl9azj').toString();
+    requested = AccountId.fromBech32('mtst1arvdwvzllvg3s5fzjle7nkljeuhkcufr').toString();
+  } catch (err) {
+    return record(true, 'DEX quote service', `not checked (SDK load failed: ${err.message})`);
+  }
+
+  try {
+    const query = new URLSearchParams({
+      offered_faucet: offered,
+      offered_amount: '100000000',
+      requested_faucet: requested,
+      requested_amount: '200000000'
+    });
+    const { status, body } = await getJson(`${BASE}/v1/swap-eta?${query}`);
+    if (status !== 200) {
+      return record(true, 'DEX quote service', `degraded: HTTP ${status} (the suite does not use it)`);
+    }
+    const fill = body?.canFill ? `fillable, eta ${body.estimatedSeconds}s` : 'priced, no filler offering';
+    return record(true, 'DEX quote service', `${fill}, price ${body?.marketPrice}`);
+  } catch (err) {
+    return record(true, 'DEX quote service', `unreachable: ${err.message} (the suite does not use it)`);
+  }
+}
+
+/**
+ * The hosted guardian the swap-guardian scenario co-signs with. A gate, because
+ * that spec cannot do anything without it.
+ */
+async function probeGuardian(network) {
+  const url = GUARDIAN_URL[network];
+  if (!url) return record(false, 'Guardian', `no hosted guardian known for network "${network}"`);
+  try {
+    const res = await fetch(url, { headers: { 'user-agent': UA }, signal: AbortSignal.timeout(15_000) });
+    return record(res.status < 500, 'Guardian', `${url} answered HTTP ${res.status}`);
+  } catch (err) {
+    return record(false, 'Guardian', `${url} unreachable: ${err.message}`);
+  }
+}
+
 async function probeSepolia(sepoliaRpc) {
   try {
     const chainId = Number(await rpc(sepoliaRpc, 'eth_chainId', []));
@@ -480,19 +567,34 @@ async function main() {
 
   console.log(`\nSuite    ${opts.suite} — ${suite.describe}`);
   console.log(`Network  ${opts.network}`);
-  console.log(`Epoch    ${opts.epochUrl}`);
-  console.log(`Sepolia  ${opts.sepoliaRpc}\n`);
+  if (suite.config === 'playwright.bridge.config.ts') {
+    console.log(`Epoch    ${opts.epochUrl}`);
+    console.log(`Sepolia  ${opts.sepoliaRpc}`);
+  }
+  console.log('');
   console.log('Preflight');
 
+  // The Miden chain and its faucet are common to every suite: the faucet grant is
+  // what pays fees for each fresh account, so a dead faucet fails the run at
+  // funding rather than at the assertion.
   await probeMidenNode(opts.network);
   await probeMidenFaucet(opts.network);
-  await probeEpochHealth(opts.epochUrl);
-  await probeEpochGasless(opts.epochUrl);
-  // The spec mints a throwaway faucet per run, so the probe asks about one too:
-  // it must reflect what the suite will actually request, not a friendlier token.
-  await probeEpochQuote(opts.epochUrl, '0xabcdefabcdefabcdefabcdefabcdef');
-  await probeSepolia(opts.sepoliaRpc);
-  await probeSepoliaContracts(opts.sepoliaRpc);
+
+  if (suite.config === 'playwright.bridge.config.ts') {
+    await probeEpochHealth(opts.epochUrl);
+    await probeEpochGasless(opts.epochUrl);
+    // The spec mints a throwaway faucet per run, so the probe asks about one too:
+    // it must reflect what the suite will actually request, not a friendlier token.
+    await probeEpochQuote(opts.epochUrl, '0xabcdefabcdefabcdefabcdefabcdef');
+    await probeSepolia(opts.sepoliaRpc);
+    await probeSepoliaContracts(opts.sepoliaRpc);
+  }
+
+  if (suite.config === 'playwright.swap.config.ts') {
+    await probeSwapQuoteService();
+    if (suite.grep === 'guardian maker') await probeGuardian(opts.network);
+  }
+
   if (opts.sepoliaKey) await probeFundedKey(opts.sepoliaRpc, opts.sepoliaKey, opts.minEth, opts.mintUsdc);
 
   const failed = results.filter(r => !r.ok);
@@ -508,6 +610,10 @@ async function main() {
   const env = {
     E2E_NETWORK: opts.network,
     E2E_REAL_EPOCH: 'true',
+    // swap-guardian reads GUARDIAN_URL directly and falls back to the local
+    // container, which is not running on a testnet; point it at the network's
+    // own hosted guardian so the fallback is never the thing under test.
+    ...(GUARDIAN_URL[opts.network] ? { GUARDIAN_URL: GUARDIAN_URL[opts.network] } : {}),
     EPOCH_ALLOCATOR_URL: opts.epochUrl,
     EPOCH_POSITIONS_URL: opts.epochPositionsUrl,
     E2E_SEPOLIA_RPC_URL: opts.sepoliaRpc,
@@ -528,6 +634,7 @@ async function main() {
 
   const args = ['playwright', 'test', '--config', suite.config, '--retries=1'];
   if (suite.grep) args.push('--grep', suite.grep);
+  if (suite.grepInvert) args.push('--grep-invert', suite.grepInvert);
   if (opts.grep) args.push('--grep', opts.grep);
   if (opts.headed) args.push('--headed');
 

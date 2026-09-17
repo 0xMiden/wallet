@@ -163,10 +163,12 @@ flowchart LR
 > #### Handling the order-discovery timing race
 > On a live network, a taker discovers an order by watching the chain — but there is a brief window after an order is posted before it becomes visible. Rather than paper over this with fixed "wait and hope" delays (which make tests slow and flaky), the harness hands the order note directly from the maker to the taker (the thick arrow above), the same approach a production market-making bot uses. The result is deterministic and, if anything, closer to real trading behaviour than a polling loop would be.
 
+These run on a blockchain booted fresh for the job on every pull request. The same suite can also be pointed at the **public test network** with `yarn e2e:real --suite swap`, which swaps the booted chain for the real one, the local prover for the shared hosted prover, and the local coin tap for the public faucet. Nothing about the trade itself changes — the offer is a note and the fill is a note, with no exchange contract in between — so the suite needs no deployment there; what it gains is that every wait is on infrastructure nobody in the test controls.
+
 <details>
 <summary>The tests in this group</summary>
 
-Full fill (both directions), partial fill with remainder, cancel-and-reclaim, create-form validation, a guardian-secured maker, and a smoke test.
+Full fill (both directions), partial fill with remainder, cancel-and-reclaim, create-form validation, a guardian-secured maker, and a smoke test. The guardian scenario is held back from the default public-network run (`yarn e2e:real --suite swap-guardian` runs it on its own), because there the co-signer is a third party's hosted service rather than one the job starts — so its availability should not decide whether the trading suite is green.
 </details>
 
 ---
