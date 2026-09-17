@@ -174,7 +174,7 @@ export const SendAmount: React.FC<SendAmountProps> = ({
           data-testid="send-fee-notice"
           className="mt-4 flex items-start gap-3 rounded-2xl border border-border-subtle px-4 py-3"
         >
-          <Icon name={IconName.InformationFill} size="xs" className="mt-0.5 shrink-0 text-heading-gray" />
+          <Icon name={IconName.InformationFill} size="xs" fill="currentColor" className="mt-0.5 shrink-0 text-heading-gray" />
           <div className="flex flex-col items-start gap-1">
             <span className="text-sm text-heading-gray">{t('insufficientFeeAsset')}</span>
             <button
