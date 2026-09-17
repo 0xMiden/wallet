@@ -11,8 +11,10 @@
 - [CHANGE][all] Typography pass: tab page titles are Nunito ExtraBold with -0.5px tracking, the unlock title is ExtraBold, the segmented action bar label is Nunito, Settings section headings are ExtraBold and their rows Bold, and the first Settings section sits 12px below the title rule.
 
 - [CHANGE][mobile] Send flow: the Confirm button on the recipient, amount and route steps sits just above the docked tab bar instead of floating, and a long pasted address no longer pushes the Address Book pill into the button.
+- [CHANGE][all] Send flow: every step shares one layout, so the back button, title, large input and Confirm button stay in the same place from recipient to amount to route. Confirm sits just above the docked tab bar and keeps that position when later steps hide the bar; a long pasted address no longer pushes the Address Book pill into it.
 - [FEATURE][all] Send flow: a Paste pill on the recipient step fills the address from the clipboard, with the same validation as a scanned QR code.
-- [CHANGE][all] Send flow: the amount and route steps have the same back button as the review screen, returning to the previous step.
+- [CHANGE][all] Send flow: the amount step is redesigned. The amount is the large input under the title, with its dollar value; one card below holds the token (available balance, Max) and the recipient with its network; a missing-MIDEN fee shortfall is a notice with a Receive link instead of a red amount.
+- [CHANGE][all] Send flow: networks show as chips with their logo instead of solid orange pills, and a 0x recipient picks its destination network from chips on the recipient step instead of a separate sheet.
 ### Features
 
 - [FEATURE][all] Guardian private-key export and seed-less import carry the existing Miden hot and EVM keys together as `hot:evm` (two separate 64-character lowercase hex scalars). Authenticated reveal opens a QR first, with separate text fields available. Import supports native/extension camera scanning, local QR image decoding, and manual entry; both scalars are validated before storage changes. The supplied EVM key is encrypted in the vault and restores its address without deriving a new key or seed. Seed-based recovery stays separate; the export does not contain a cold recovery key.

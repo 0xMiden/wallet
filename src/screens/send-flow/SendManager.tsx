@@ -33,14 +33,13 @@ import {
 
 import { AccountsListDrawer } from './AccountsList';
 import { AddContactDrawer } from './AddContactDrawer';
-import { SendNetworkId } from './bridge-networks';
-import { Route as RouteStep } from './Route';
+import { BridgeNetworkId, SendNetworkId } from './bridge-networks';
 import { ScanQrDrawer } from './ScanQrDrawer';
-import { SelectAmount } from './SelectAmount';
-import { SelectNetworkDrawer } from './SelectNetwork';
 import { SelectRecipient } from './SelectRecipient';
 import { SelectTokenDrawer } from './SelectToken';
 import { consumeSendDraft, hasSendDraft, SendDraft, setSendDraft } from './send-draft';
+import { SendAmount } from './SendAmount';
+import { SendRoute } from './SendRoute';
 import {
   BridgeRoute,
   Contact,
@@ -110,7 +109,6 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
   // Contact picker is likewise a bottom sheet over the recipient step.
   const [showContactsDrawer, setShowContactsDrawer] = useState(false);
   // EVM destination networks are selected in a bottom sheet from the recipient step.
-  const [showNetworkDrawer, setShowNetworkDrawer] = useState(false);
   // Saving an unknown-but-valid recipient to the address book, also a bottom sheet.
   const [showAddContactDrawer, setShowAddContactDrawer] = useState(false);
   // Extension-only: the webcam QR scanner is a bottom sheet over the recipient
@@ -155,6 +153,9 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
     navigate('/');
   }, []);
 
+  // Receive, offered on the amount step when the account has no MIDEN for the fee.
+  const onReceive = useCallback(() => navigate('/receive'), []);
+
   // On-screen back for the steps after the recipient. Same rule as the hardware
   // back below: pop a step, or close the flow when this step is the root (a
   // draft restored from /send/review reopens directly on Amount).
@@ -173,10 +174,6 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
       setShowAddContactDrawer(false);
       return true;
     }
-    if (showNetworkDrawer) {
-      setShowNetworkDrawer(false);
-      return true;
-    }
     if (showContactsDrawer) {
       setShowContactsDrawer(false);
       return true;
@@ -192,7 +189,7 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
     // On first step, close entire flow
     onClose();
     return true;
-  }, [showAddContactDrawer, showNetworkDrawer, showContactsDrawer, showTokenDrawer, cardStack.length, goBack, onClose]);
+  }, [showAddContactDrawer, showContactsDrawer, showTokenDrawer, cardStack.length, goBack, onClose]);
 
   // Reset the leftover completion state on send-flow entry.
   //
@@ -290,10 +287,7 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
     if (hasRecipientAddress && !isBridge && recipientNetwork !== 'miden') {
       setRecipientNetwork('miden');
     }
-    if (hasRecipientAddress && !isBridge && showNetworkDrawer) {
-      setShowNetworkDrawer(false);
-    }
-  }, [recipientAddress, isBridge, bridgeNetwork, recipientNetwork, setValue, showNetworkDrawer]);
+  }, [recipientAddress, isBridge, bridgeNetwork, recipientNetwork, setValue]);
 
   // Forward-quote the USDC output for the Fast (Epoch) route, so the Route
   // screen can show a live fee regardless of which route is selected.
@@ -722,6 +716,15 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
     [onAction, applyRecipientValidation]
   );
 
+  // A 0x recipient's destination network, picked from the chips on the recipient step.
+  const onSelectNetwork = useCallback(
+    (network: BridgeNetworkId) => {
+      setRecipientNetwork(network);
+      onAction({ id: SendFlowActionId.SetFormValues, payload: { bridgeNetwork: network } });
+    },
+    [onAction]
+  );
+
   // A "Recent" row fills the recipient exactly like picking a contact does.
   const onSelectRecent = useCallback(
     (recipient: RecentRecipient) => {
@@ -806,7 +809,7 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
               onAddressBook={() => setShowContactsDrawer(true)}
               onAddContact={() => setShowAddContactDrawer(true)}
               onSelectRecent={onSelectRecent}
-              onSelectNetwork={() => setShowNetworkDrawer(true)}
+              onSelectNetwork={onSelectNetwork}
               onScan={isScanAvailable() ? onScan : undefined}
               onPaste={onPaste}
               onConfirm={() => goToStep(SendFlowStep.SelectAmount)}
@@ -814,20 +817,24 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
           );
         case SendFlowStep.SelectAmount:
           return (
-            <SelectAmount
+            <SendAmount
               token={spendableToken}
               amount={amount || ''}
               isValidAmount={!errors.amount && validations.amount.isValidSync(amount)}
               error={errors.amount?.message?.toString()}
+              recipientAddress={recipientAddress || ''}
+              recipientName={selectedContact?.name}
+              network={displayedNetwork}
               onAmountChange={onAmountChange}
               onSelectToken={() => setShowTokenDrawer(true)}
+              onReceive={onReceive}
               onBack={onStepBack}
               onConfirm={onConfirmAmount}
             />
           );
         case SendFlowStep.Route:
           return (
-            <RouteStep
+            <SendRoute
               route={bridgeRoute ?? 'epoch'}
               onRouteChange={onRouteChange}
               fastFeeUsd={fastFeeUsd}
@@ -860,6 +867,8 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
       goToStep,
       onConfirmAmount,
       onStepBack,
+      onSelectNetwork,
+      onReceive,
       chain,
       displayedNetwork,
       selectedContact?.name,
@@ -909,19 +918,6 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
         open={showAddContactDrawer}
         onOpenChange={setShowAddContactDrawer}
         address={recipientAddress ?? ''}
-      />
-
-      <SelectNetworkDrawer
-        open={showNetworkDrawer}
-        selectedNetwork={displayedNetwork}
-        onOpenChange={setShowNetworkDrawer}
-        onSelect={selectedNetwork => {
-          setRecipientNetwork(selectedNetwork);
-          onAction({
-            id: SendFlowActionId.SetFormValues,
-            payload: { bridgeNetwork: selectedNetwork === 'miden' ? undefined : selectedNetwork }
-          });
-        }}
       />
 
       <ScanQrDrawer

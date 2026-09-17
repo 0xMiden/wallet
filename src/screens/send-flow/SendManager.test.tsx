@@ -121,14 +121,16 @@ jest.mock('./ScanQrDrawer', () => ({
   )
 }));
 
-jest.mock('./SelectAmount', () => ({
-  SelectAmount: (props: any) => (
+jest.mock('./SendAmount', () => ({
+  SendAmount: (props: any) => (
     <div data-testid="select-amount">
       <span data-testid="sa-token">{props.token ? props.token.name : 'no-token'}</span>
       <span data-testid="sa-amount">{props.amount}</span>
       <span data-testid="sa-valid">{String(props.isValidAmount)}</span>
       <span data-testid="sa-error">{props.error ?? ''}</span>
-      <span data-testid="sa-footer">{props.footerClassName}</span>
+      <span data-testid="sa-recipient">{props.recipientName ?? props.recipientAddress}</span>
+      <span data-testid="sa-network">{props.network ?? ''}</span>
+      <button data-testid="sa-receive" onClick={props.onReceive} />
       <input data-testid="sa-input" onChange={(e: any) => props.onAmountChange(e.target.value)} />
       <button data-testid="sa-selecttoken" onClick={props.onSelectToken} />
       {props.onBack && <button data-testid="sa-back" onClick={props.onBack} />}
@@ -321,8 +323,16 @@ describe('SendManager rendering', () => {
     mockCardStack = [{ name: SendFlowStep.SelectAmount }];
     renderFlow();
     expect(screen.getByTestId('select-amount')).toBeInTheDocument();
-    expect(screen.getByTestId('sa-footer')).toBeEmptyDOMElement();
     expect(useHideNavbarWhileOpenMock).toHaveBeenCalledWith(true);
+  });
+
+  it('links the amount step fee shortfall notice to Receive', () => {
+    mockCardStack = [{ name: SendFlowStep.SelectAmount }];
+    renderFlow();
+
+    fireEvent.click(screen.getByTestId('sa-receive'));
+
+    expect(navigateMock).toHaveBeenCalledWith('/receive');
   });
 
   it('does not hide the navbar when not on the /send path even past recipient', () => {

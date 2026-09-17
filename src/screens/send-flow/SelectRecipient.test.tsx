@@ -17,6 +17,7 @@ const MIDEN_ADDRESS = 'mtst1recipient';
 
 jest.mock('./bridge-networks', () => ({
   BRIDGE_OUTPUT_TOKEN_SYMBOL: 'USDC',
+  BRIDGE_NETWORKS: [{ id: 'sepolia', name: 'Sepolia', chainId: 11155111 }],
   getBridgeNetwork: (id: string | undefined) =>
     id === 'sepolia' ? { id: 'sepolia', name: 'Sepolia', chainId: 11155111 } : undefined
 }));
@@ -56,7 +57,7 @@ describe('SelectRecipient', () => {
   it('hides the network selector before an address is entered', () => {
     renderRecipient();
 
-    expect(screen.queryByTestId('send-network-selector')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('send-network-options')).not.toBeInTheDocument();
   });
 
   it('uses the chain-aware address placeholder and leaves unknown recipients plain', () => {
@@ -102,31 +103,33 @@ describe('SelectRecipient', () => {
     expect(screen.getByTestId('send-recipient-avatar')).toBeInTheDocument();
   });
 
-  it('requires an EVM network and opens the network picker', () => {
+  it('requires an EVM network and offers each bridge network as a chip', () => {
     const props = renderRecipient({ address: ETH_ADDRESS, isValidAddress: true, chain: 'ethereum' });
 
     expect(screen.getByTestId('send-recipient-confirm')).toBeDisabled();
-    fireEvent.click(screen.getByTestId('send-network-selector'));
-    expect(props.onSelectNetwork).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('send-network-sepolia')).toHaveAttribute('aria-pressed', 'false');
+    fireEvent.click(screen.getByTestId('send-network-sepolia'));
+    expect(props.onSelectNetwork).toHaveBeenCalledWith('sepolia');
   });
 
   it('hides the network selector for an incomplete EVM address', () => {
     renderRecipient({ address: '0x1234', isValidAddress: false, chain: 'ethereum' });
 
-    expect(screen.queryByTestId('send-network-selector')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('send-network-options')).not.toBeInTheDocument();
   });
 
   it('enables EVM confirmation after Sepolia is selected', () => {
     renderRecipient({ address: ETH_ADDRESS, isValidAddress: true, chain: 'ethereum', network: 'sepolia' });
 
-    expect(screen.getByText('Sepolia')).toBeInTheDocument();
+    expect(screen.getByTestId('send-network-sepolia')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByTestId('send-recipient-network')).toHaveTextContent('Sepolia');
     expect(screen.getByTestId('send-recipient-confirm')).toBeEnabled();
   });
 
   it('hides the network block and allows a valid Miden recipient', () => {
     renderRecipient({ address: MIDEN_ADDRESS, isValidAddress: true, chain: 'miden' });
 
-    expect(screen.queryByTestId('send-network-selector')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('send-network-options')).not.toBeInTheDocument();
     expect(screen.getByTestId('send-recipient-confirm')).toBeEnabled();
   });
 });
@@ -228,10 +231,13 @@ describe('SelectRecipient — mobile keyboard (regression)', () => {
     expect(document.activeElement).not.toBe(textarea);
   });
 
-  it('has a navbar cushion on the confirm footer so it snugs up when the navbar hides', () => {
+  it('keeps the confirm footer at a fixed height that only the keyboard shrinks', () => {
     renderRecipient();
     const footer = screen.getByTestId('send-recipient-confirm').parentElement;
-    expect(footer?.getAttribute('data-navbar-cushion')).toBe('true');
+    // No data-navbar-cushion: that CSS collapses the cushion whenever the tab bar
+    // hides, which would move the CTA between steps.
+    expect(footer?.hasAttribute('data-navbar-cushion')).toBe(false);
+    expect(footer?.className).toContain('var(--keyboard-height,0px)');
   });
 });
 

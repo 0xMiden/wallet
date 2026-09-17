@@ -495,20 +495,3 @@ describe('SelectAmount', () => {
     });
   });
 });
-
-describe('SelectAmount — step back button', () => {
-  it('renders the back button only when onBack is provided and calls it', () => {
-    const onBack = jest.fn();
-    renderComponent({ onBack });
-
-    fireEvent.click(screen.getByTestId('send-step-back'));
-
-    expect(onBack).toHaveBeenCalledTimes(1);
-  });
-
-  it('omits the back button without onBack', () => {
-    renderComponent();
-
-    expect(screen.queryByTestId('send-step-back')).not.toBeInTheDocument();
-  });
-});

@@ -7,8 +7,6 @@ import { Button, ButtonVariant } from 'components/Button';
 import { toAdaptiveFixed } from 'lib/i18n/numbers';
 import { hapticLight } from 'lib/mobile/haptics';
 
-import { footerCushionClass } from './footer-cushion';
-import { StepBackButton } from './StepBackButton';
 import { BridgeRoute } from './types';
 
 export interface RouteStepProps {
@@ -24,8 +22,6 @@ export interface RouteStepProps {
   /** Padding classes for the confirm-button footer. The `pb-24` default clears
    *  the floating BottomNav; pass a snugger value when the navbar is hidden. */
   footerClassName?: string;
-  /** Leading back button above the step content. */
-  onBack?: () => void;
   onConfirm: () => void;
 }
 
@@ -57,21 +53,18 @@ const RouteCard: React.FC<RouteCardProps> = ({ label, selected, onSelect, fee, e
   </button>
 );
 
-/**
- * Cross-chain route picker, shown after the destination network is chosen for a
- * 0x recipient. Fast = Epoch (any token → USDC, settles in ~seconds, charges a
- * fee = input value − USDC received); Slow = Agglayer (no fee, ~hours, any token).
- */
-export const Route: React.FC<RouteStepProps> = ({
+export type RouteOptionsProps = Pick<
+  RouteStepProps,
+  'route' | 'onRouteChange' | 'fastFeeUsd' | 'fastQuoteLoading' | 'notice'
+>;
+
+/** The Fast / Slow route cards and their notice, shared by every route step's layout. */
+export const RouteOptions: React.FC<RouteOptionsProps> = ({
   route,
   onRouteChange,
   fastFeeUsd,
   fastQuoteLoading,
-  notice,
-  confirmDisabled,
-  footerClassName = clsx('pt-4', footerCushionClass(false)),
-  onBack,
-  onConfirm
+  notice
 }) => {
   const { t } = useTranslation();
 
@@ -91,32 +84,59 @@ export const Route: React.FC<RouteStepProps> = ({
   );
 
   return (
+    <div className="mt-6 flex flex-col gap-6">
+      <RouteCard
+        emoji="⚡"
+        label={t('fast')}
+        selected={route === 'epoch'}
+        onSelect={() => select('epoch')}
+        fee={fastFee}
+        eta={t('fastArrival')}
+        testId="bridge-route-fast"
+      />
+      <RouteCard
+        emoji="🕐"
+        label={t('slow')}
+        selected={route === 'agglayer'}
+        onSelect={() => select('agglayer')}
+        fee={<span className="text-base font-bold text-heading-gray">{t('noFee')}</span>}
+        eta={t('slowArrival')}
+        testId="bridge-route-slow"
+      />
+      {notice && <p className="text-xs text-heading-gray/60">{notice}</p>}
+    </div>
+  );
+};
+
+/**
+ * Cross-chain route picker, shown after the destination network is chosen for a
+ * 0x recipient. Fast = Epoch (any token → USDC, settles in ~seconds, charges a
+ * fee = input value − USDC received); Slow = Agglayer (no fee, ~hours, any token).
+ */
+export const Route: React.FC<RouteStepProps> = ({
+  route,
+  onRouteChange,
+  fastFeeUsd,
+  fastQuoteLoading,
+  notice,
+  confirmDisabled,
+  footerClassName = 'pt-4 pb-24',
+  onConfirm
+}) => {
+  const { t } = useTranslation();
+
+  return (
     <div className={clsx('flex flex-col h-full min-h-0 bg-app-bg px-6')}>
-      {onBack && <StepBackButton onBack={onBack} />}
-      <div className={clsx('flex flex-col flex-1 min-h-0 overflow-y-auto no-scrollbar', onBack ? 'pt-6' : 'pt-10')}>
+      <div className="flex flex-col flex-1 min-h-0 overflow-y-auto no-scrollbar pt-10">
         <span className="font-heading text-2xl leading-none font-bold text-[#808080]">{t('route')}</span>
 
-        <div className="mt-6 flex flex-col gap-6">
-          <RouteCard
-            emoji="⚡"
-            label={t('fast')}
-            selected={route === 'epoch'}
-            onSelect={() => select('epoch')}
-            fee={fastFee}
-            eta={t('fastArrival')}
-            testId="bridge-route-fast"
-          />
-          <RouteCard
-            emoji="🕐"
-            label={t('slow')}
-            selected={route === 'agglayer'}
-            onSelect={() => select('agglayer')}
-            fee={<span className="text-base font-bold text-heading-gray">{t('noFee')}</span>}
-            eta={t('slowArrival')}
-            testId="bridge-route-slow"
-          />
-          {notice && <p className="text-xs text-heading-gray/60">{notice}</p>}
-        </div>
+        <RouteOptions
+          route={route}
+          onRouteChange={onRouteChange}
+          fastFeeUsd={fastFeeUsd}
+          fastQuoteLoading={fastQuoteLoading}
+          notice={notice}
+        />
       </div>
 
       <div className={clsx('shrink-0', footerClassName)} data-navbar-cushion="true">

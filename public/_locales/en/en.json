@@ -336,6 +336,7 @@
   "paste": "Paste",
   "chooseRecipient": "Choose recipient",
   "selectAmount": "Select Amount",
+  "enterAmount": "Enter amount",
   "selectAToken": "Select a token",
   "searchForTokens": "Search for tokens",
   "available": "Available",
