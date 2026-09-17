@@ -22,6 +22,7 @@
 
 ### Changes
 
+- [CHANGE][extension] **Speculative pre-proving is removed.** The send form no longer asks the service worker to execute and prove a send before Confirm, and the `MIDEN_USE_SPECULATIVE_PROVING` flag, speculation manager, send-path cache check and speculate/invalidate messages are gone; on the default build the cache was already unreachable, and a guardian account's send cannot be proven before Confirm (#717).
 - [CHANGE][all] **Test-token funding now mints only native MIDEN.** The Fund action no longer also mints IMIDEN from the forkchoice faucet — the two-source funding is removed, which also retires 1.15.20's per-source retry bookkeeping (there is no second source left to double-mint). One faucet request runs per account at a time no matter how often the card is tapped or remounted, bounded by a 60s timeout that aborts the underlying work, and a failed request shows the faucet's actual error message on the card. The two funding drawers earlier iterations had left unwired (`WalletFundingDrawer`, `FundWalletDrawer`) are deleted along with their orphaned translation keys. The network-discovered native asset now also appears first in the swap token list ahead of the existing DEX test assets.
 
 ## 1.16.1 (2026-09-15)
