@@ -16,10 +16,10 @@ const SEND_BASE_UNITS = toBaseUnits(SEND_AMOUNT, TOKEN_DECIMALS);
  * proving (the offscreen-doc path) end-to-end.
  *
  * Toggling delegate proving off (storage key `delegate_proof_setting_key`)
- * is enough to flip the wallet onto the local-prove code path. Build flags
- * `MIDEN_USE_OFFSCREEN_PROVING` and `MIDEN_USE_SPECULATIVE_PROVING` default
- * to `'true'` on the Chrome extension build (see vite.background.config.ts
- * and vite.extension.config.ts) so no extra build env is needed.
+ * is enough to flip the wallet onto the local-prove code path. The build flag
+ * `MIDEN_USE_OFFSCREEN_PROVING` defaults to `'true'` on the Chrome extension
+ * build (see vite.background.config.ts and vite.extension.config.ts) so no
+ * extra build env is needed.
  *
  * Requires `@miden-sdk/miden-sdk` >= 0.16.0-rc.4 (miden-processor 0.29.4).
  * Earlier 0.16 SDKs trap ~2ms into a wasm local prove: `miden-processor`

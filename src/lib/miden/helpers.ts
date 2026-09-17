@@ -23,7 +23,7 @@ export const toNoteTypeString = (noteType: NoteType) =>
  * what `initiateSendTransaction` persists — so every send row reaching the
  * builders carries a string. The numeric arm is for the typed seam:
  * `buildSendExecuteArgs` declares its parameter as the SDK's `NoteType | string`
- * and dApp/speculation input arrives unvalidated, so a caller can legitimately
+ * and dApp input arrives unvalidated, so a caller can legitimately
  * hand in the enum.
  *
  * Unknown values throw, mirroring the SDK's own `resolveNoteType`. The wallet

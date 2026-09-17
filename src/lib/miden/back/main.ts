@@ -27,7 +27,6 @@ import {
   SW_TARGET,
   type OffscreenSignRequest
 } from 'lib/miden/back/offscreen-codec';
-import { getSpeculationManager, initSpeculationManager } from 'lib/miden/back/speculation-manager';
 import { store, toFront } from 'lib/miden/back/store';
 import { doSync, resetSyncBackoffForEndpointChange } from 'lib/miden/back/sync-manager';
 import { startTransactionProcessing, swSignCallback } from 'lib/miden/back/transaction-processor';
@@ -43,7 +42,6 @@ import { NoteExportType } from '../sdk/constants';
 import {
   assertWasmHoldCurrent,
   getCurrentWasmLockHold,
-  getMidenClient,
   resetMidenClient,
   withWasmClientLock
 } from '../sdk/miden-client';
@@ -103,18 +101,6 @@ export async function start() {
     const { installEarnTestHooks } = await import('lib/miden/activity/earn-test-hooks');
     installEarnTestHooks();
   }
-
-  // SpeculationManager wires through the same MidenClientInterface singleton
-  // the rest of the SW uses. Lazy because the client is only created on
-  // unlock; the manager doesn't run anything until a SPECULATE_SEND_REQUEST
-  // arrives, by which point the client must already exist (the user is on
-  // the send-flow review screen, which is gated on unlock).
-  //
-  // Returns null — leaving `getSpeculationManager()` null and both SPECULATE
-  // handlers below inert — when the send that would consume the speculation runs
-  // in the offscreen realm instead of here. See `initSpeculationManager` for why
-  // speculating anyway would be harmful rather than merely wasteful.
-  initSpeculationManager(() => getMidenClient());
 
   // Native asset ID is network-wide on-chain state — prime discovery here so
   // the first balance / metadata consumer after SW start already has it cached.
@@ -421,29 +407,6 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
       // the other flag-off proxy reads), so keep the withWasmClientLock wrapper.
       const notes = await withWasmClientLock(async () => midenClientProxy.getSerializedInputNoteDetails(req.noteIds));
       return { type: WalletMessageType.GetInputNoteDetailsResponse, notes };
-    }
-    case WalletMessageType.SpeculateSendRequest: {
-      // Fire-and-forget. SpeculationManager queues at most one pending; if
-      // it's already running an identical speculation, this is a no-op.
-      // No withWasmClientLock here — the manager handles serialization
-      // internally (it calls executeAndProveForSpeculation which does its
-      // own execute under-lock + offscreen prove with yieldWasmClientLock).
-      const mgr = getSpeculationManager();
-      if (mgr) {
-        mgr.speculate({
-          accountId: req.accountId,
-          recipientAccountId: req.recipientAccountId,
-          faucetId: req.faucetId,
-          noteType: req.noteType,
-          amount: BigInt(req.amount)
-        });
-      }
-      return { type: WalletMessageType.SpeculateSendResponse };
-    }
-    case WalletMessageType.SpeculateInvalidate: {
-      const mgr = getSpeculationManager();
-      mgr?.invalidate();
-      return { type: WalletMessageType.SpeculateInvalidateResponse };
     }
     // case WalletMessageType.SendTrackEventRequest:
     //   await Analytics.trackEvent(req);

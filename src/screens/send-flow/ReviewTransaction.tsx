@@ -12,11 +12,7 @@ import { EVM_AGGLAYER_NETWORK_ID } from 'lib/agglayer/b2agg/constant';
 import { confirmSensitiveAction } from 'lib/biometric';
 import { bridgeEpochSend } from 'lib/epoch';
 import { stringToBigInt } from 'lib/i18n/numbers';
-import {
-  initiateSendTransaction,
-  requestSpeculateInvalidate,
-  requestSWTransactionProcessing
-} from 'lib/miden/activity';
+import { initiateSendTransaction, requestSWTransactionProcessing } from 'lib/miden/activity';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { useMidenContext } from 'lib/miden/front/client';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
@@ -196,21 +192,6 @@ export const ReviewTransaction: React.FC = () => {
     setRecallNever(true);
     setRecallDate(undefined);
     setRecallBlocks(undefined);
-  }, []);
-
-  // Leaving review = leaving the send flow: drop any cached speculative prove
-  // and mark in-flight ones stale. (SendManager's typing-time speculation
-  // deliberately skips invalidation when handing off to this page.)
-  //
-  // A no-op whenever the offscreen client owns the send: `initSpeculationManager`
-  // returns null there, so back/main.ts's SpeculateInvalidate handler has nothing to
-  // invalidate. See its TRADEOFF block — the popup can't evaluate that gate itself.
-  useEffect(() => {
-    if (process.env.MIDEN_USE_SPECULATIVE_PROVING !== 'true') return;
-    if (!isExtension()) return;
-    return () => {
-      requestSpeculateInvalidate();
-    };
   }, []);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
