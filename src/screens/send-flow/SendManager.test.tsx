@@ -63,6 +63,8 @@ const scanQRCodeMock = jest.fn();
 // so the existing native-scan tests below exercise `scanQRCode` unchanged; the
 // extension drawer tests flip it to false.
 const isMobileMock = jest.fn(() => true);
+const clipboardReadMock = jest.fn();
+jest.mock('@capacitor/clipboard', () => ({ Clipboard: { read: () => clipboardReadMock() } }));
 
 const closeTransactionModalMock = jest.fn();
 const setLastCompletedTxHashMock = jest.fn();
@@ -99,6 +101,7 @@ jest.mock('./SelectRecipient', () => ({
       <button data-testid="sr-addcontact" onClick={props.onAddContact} />
       <button data-testid="sr-selectrecent" onClick={() => props.onSelectRecent(props.recents[0])} />
       {props.onScan && <button data-testid="sr-scan" onClick={props.onScan} />}
+      {props.onPaste && <button data-testid="sr-paste" onClick={props.onPaste} />}
       <button data-testid="sr-confirm" onClick={props.onConfirm} />
     </div>
   )
@@ -680,6 +683,50 @@ describe('recipient address entry', () => {
     });
 
     expect(screen.getByTestId('sr-error')).toHaveTextContent('');
+  });
+
+  it('pastes a trimmed address from the native clipboard on mobile and validates it', async () => {
+    clipboardReadMock.mockResolvedValue({ type: 'text/plain', value: '  me-pk\n' });
+    renderFlow();
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('sr-paste'));
+      await Promise.resolve();
+    });
+
+    expect(screen.getByTestId('sr-address')).toHaveTextContent('me-pk');
+    expect(screen.getByTestId('sr-error')).toHaveTextContent('cannotSendToSelf');
+  });
+
+  it('leaves the address untouched when the clipboard is empty or unreadable', async () => {
+    clipboardReadMock.mockResolvedValueOnce({ type: 'text/plain', value: '   ' });
+    clipboardReadMock.mockRejectedValueOnce(new Error('denied'));
+    renderFlow();
+
+    for (let i = 0; i < 2; i++) {
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('sr-paste'));
+        await Promise.resolve();
+      });
+    }
+
+    expect(screen.getByTestId('sr-address')).toHaveTextContent('');
+    expect(screen.getByTestId('sr-error')).toHaveTextContent('');
+  });
+
+  it('pastes through the web clipboard off mobile', async () => {
+    isMobileMock.mockReturnValue(false);
+    const readText = jest.fn().mockResolvedValue('0xpasted');
+    Object.defineProperty(navigator, 'clipboard', { value: { readText }, configurable: true });
+    renderFlow();
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('sr-paste'));
+      await Promise.resolve();
+    });
+
+    expect(clipboardReadMock).not.toHaveBeenCalled();
+    expect(screen.getByTestId('sr-address')).toHaveTextContent('0xpasted');
   });
 
   it('lets the token/contacts drawers be closed via onOpenChange', () => {

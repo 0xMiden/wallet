@@ -1,5 +1,6 @@
 import React, { ChangeEvent, useCallback, useEffect, useMemo, useState } from 'react';
 
+import { Clipboard } from '@capacitor/clipboard';
 import { yupResolver } from '@hookform/resolvers/yup';
 import classNames from 'clsx';
 import { useForm } from 'react-hook-form';
@@ -682,11 +683,14 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
   const openScanDrawer = useCallback(() => setShowScanDrawer(true), []);
 
   // Paste goes through the scanned-address path so a pasted address gets the
-  // same validation and wrong-network messaging as a scan. A dismissed iOS
-  // paste prompt or an empty clipboard leaves the field as is.
+  // same validation and wrong-network messaging as a scan. Mobile reads the
+  // native clipboard: the WebView's own readText() only raises iOS's "Paste"
+  // callout, so the tap would not paste. An empty clipboard or a denied read
+  // leaves the field as is.
   const onPaste = useCallback(async () => {
     try {
-      const text = (await navigator.clipboard.readText()).trim();
+      const raw = isMobile() ? (await Clipboard.read()).value : await navigator.clipboard.readText();
+      const text = raw.trim();
       if (text) applyScannedAddress(text);
     } catch {
       // Clipboard read denied or unavailable.
