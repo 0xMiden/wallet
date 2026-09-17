@@ -6,7 +6,12 @@ import type { TokenBalanceData } from 'lib/miden/front';
 import { FaucetOutcomeUnknownError } from 'lib/miden-chain/faucet-api';
 import type { WalletAccount } from 'lib/shared/types';
 import type { PendingNoteValue } from 'lib/wallet-prompts';
-import { FaucetRequestInProgressError, WalletPromptStatus, WalletPromptType } from 'lib/wallet-prompts';
+import {
+  FaucetRequestInProgressError,
+  WalletPromptStatus,
+  WalletPromptType,
+  withFaucetFundingMarkerLock
+} from 'lib/wallet-prompts';
 
 import { HomePrompts } from './HomePrompts';
 
@@ -22,6 +27,10 @@ const mockSetFaucetFundingMarker = jest.fn();
 // Backs the two marker mocks by default, so a later read sees what an earlier write
 // left behind, as storage would.
 const markerStore = new Map<string, unknown>();
+// A marker read that never settles holds that account's marker lock; each is released
+// after its test so the next test starts with the lock free.
+const hungMarkerReads: Array<(marker: null) => void> = [];
+const hangingMarkerRead = () => new Promise<null>(resolve => hungMarkerReads.push(resolve));
 
 let mockBaseFee: number | null = 0;
 jest.mock('app/hooks/useVerificationBaseFee', () => ({ __esModule: true, default: () => mockBaseFee }));
@@ -180,6 +189,12 @@ describe('HomePrompts', () => {
     mockGetInFlightFaucetRequest.mockReturnValue(null);
     mockGetInFlightFaucetMarker.mockReturnValue(null);
     mockGetFaucetRequestSettledAt.mockReturnValue(null);
+  });
+
+  afterEach(async () => {
+    // Reads queued behind a hung one must settle too, or they hold the lock instead.
+    mockFetchFaucetFundingMarker.mockResolvedValue(null);
+    await act(async () => hungMarkerReads.splice(0).forEach(release => release(null)));
   });
 
   it('shows and dismisses a pending bridge through the wallet prompt type', async () => {
@@ -943,6 +958,8 @@ describe('HomePrompts', () => {
     expect(screen.getAllByTestId('prompt-card')[0]!).toHaveAttribute('data-actionable', 'false');
     fireEvent.click(screen.getByRole('button', { name: 'faucetPromptTitle' }));
     expect(mockFaucet).not.toHaveBeenCalled();
+    // The read starts once the card holds the marker lock.
+    await waitFor(() => expect(mockFetchFaucetFundingMarker).toHaveBeenCalled());
 
     // The read lands and says a mint is still on its way: the wait resumes and
     // the card becomes the Funding hero, never an actionable Fund card.
@@ -1056,7 +1073,7 @@ describe('HomePrompts', () => {
     expect(screen.getAllByTestId('prompt-card')[0]!).toHaveAttribute('data-actionable', 'true');
 
     // From here every marker read hangs: A's second visit must wait for its own.
-    mockFetchFaucetFundingMarker.mockImplementation(() => new Promise(() => {}));
+    mockFetchFaucetFundingMarker.mockImplementation(hangingMarkerRead);
     rerender(renderFor(accountB));
     await act(async () => {});
     rerender(renderFor(account));
@@ -1078,7 +1095,7 @@ describe('HomePrompts', () => {
         rejectInFlight = reject;
       })
     );
-    mockFetchFaucetFundingMarker.mockImplementation(() => new Promise(() => {}));
+    mockFetchFaucetFundingMarker.mockImplementation(hangingMarkerRead);
 
     render(
       <HomePrompts
@@ -1126,7 +1143,7 @@ describe('HomePrompts', () => {
     // Switch to B, whose marker read never settles. A's failure used to be reset
     // only after commit, so B's first commit read it: that settled B's readiness
     // without a read and painted A's error on B's card.
-    mockFetchFaucetFundingMarker.mockImplementation(() => new Promise(() => {}));
+    mockFetchFaucetFundingMarker.mockImplementation(hangingMarkerRead);
     rerender(renderFor(accountB));
     await act(async () => {});
 
@@ -1439,6 +1456,126 @@ describe('HomePrompts', () => {
     expect(card).toHaveAttribute('data-hero', 'faucetPromptFunding');
     expect(card).not.toHaveAttribute('data-status', 'failure');
     expect(card).toHaveAttribute('data-actionable', 'false');
+  });
+
+  describe('another surface writing the marker while this card decides to clear it (#935)', () => {
+    // One lock manager standing in for navigator.locks, which every extension surface shares.
+    beforeEach(() => {
+      const tails = new Map<string, Promise<unknown>>();
+      Object.defineProperty(navigator, 'locks', {
+        configurable: true,
+        value: {
+          request: (name: string, ...args: unknown[]) => {
+            const callback = args[args.length - 1] as (lock: object) => Promise<unknown>;
+            const run = (tails.get(name) ?? Promise.resolve()).then(() => callback({}));
+            tails.set(
+              name,
+              run.catch(() => undefined)
+            );
+            return run;
+          }
+        }
+      });
+    });
+    afterEach(() => {
+      Reflect.deleteProperty(navigator, 'locks');
+    });
+
+    // This card's read of the marker answers late, with the record as it was when asked.
+    const holdNextMarkerRead = () => {
+      let release = () => {};
+      mockFetchFaucetFundingMarker.mockImplementationOnce((address: string) => {
+        const snapshot = markerStore.get(address) ?? null;
+        return new Promise(resolve => {
+          release = () => resolve(snapshot);
+        });
+      });
+      return () => release();
+    };
+    const anotherSurfaceSends = () => {
+      const sent = { requestedAt: Date.now(), baselineNoteIds: [], submitted: true, submittedAt: Date.now() };
+      const write = withFaucetFundingMarkerLock('accountA', async () => {
+        markerStore.set('accountA', sent);
+      });
+      return { sent, write };
+    };
+    const renderCard = () =>
+      render(
+        <HomePrompts
+          account={account}
+          balances={zeroBalance}
+          balancesLoading={false}
+          claimableNotes={[]}
+          fundingNotes={[]}
+          tokenPrices={{}}
+        />
+      );
+
+    it('keeps it when resuming finds an abandoned marker', async () => {
+      mockUseWalletPromptStorage.mockReturnValue(makePromptState());
+      markerStore.set('accountA', { requestedAt: Date.now() - 70_000, baselineNoteIds: [] });
+      const releaseRead = holdNextMarkerRead();
+      renderCard();
+      await act(async () => {});
+
+      const { sent, write } = anotherSurfaceSends();
+      await act(async () => {});
+      await act(async () => {
+        releaseRead();
+        await write;
+      });
+
+      expect(markerStore.get('accountA')).toEqual(sent);
+    });
+
+    it("keeps it when this card's own request fails", async () => {
+      mockUseWalletPromptStorage.mockReturnValue(makePromptState());
+      renderCard();
+      await act(async () => {});
+      mockFaucet.mockRejectedValueOnce(new Error('rate limited'));
+      const releaseRead = holdNextMarkerRead();
+      fireEvent.click(
+        within(screen.getAllByTestId('prompt-card')[0]!).getByRole('button', { name: 'faucetPromptTitle' })
+      );
+      await act(async () => {});
+
+      const { sent, write } = anotherSurfaceSends();
+      await act(async () => {});
+      await act(async () => {
+        releaseRead();
+        await write;
+      });
+
+      expect(markerStore.get('accountA')).toEqual(sent);
+    });
+
+    it("keeps it when an unsent request's wait ends", async () => {
+      jest.useFakeTimers();
+      try {
+        mockUseWalletPromptStorage.mockReturnValue(makePromptState());
+        markerStore.set('accountA', { requestedAt: Date.now() - 30_000, baselineNoteIds: [] });
+        renderCard();
+        await act(async () => {});
+        expect(screen.getAllByTestId('prompt-card')[0]).toHaveAttribute('data-hero', 'faucetPromptFunding');
+
+        const releaseRead = holdNextMarkerRead();
+        await act(async () => {
+          await jest.advanceTimersByTimeAsync(40_000);
+        });
+        const { sent, write } = anotherSurfaceSends();
+        await act(async () => {
+          await jest.advanceTimersByTimeAsync(0);
+        });
+        await act(async () => {
+          releaseRead();
+          await write;
+        });
+
+        expect(markerStore.get('accountA')).toEqual(sent);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
   });
 
   it('clears a funding marker whose request never went out and has nothing running (#922)', async () => {
