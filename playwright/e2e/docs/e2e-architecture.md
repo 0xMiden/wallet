@@ -177,7 +177,8 @@ Full fill (both directions), partial fill with remainder, cancel-and-reclaim, cr
 
 The flow is exercised at **two levels of realism**, each suited to a different point in the pipeline:
 
-- **Post-merge (after every merge to main):** against the **real** hosted bridge service and the **real** Ethereum test network (Sepolia). The test then confirms that **actual USDC arrives** at the destination — an end-to-end check that includes the third-party solver settling the Ethereum side.
+- **On demand (`yarn e2e:real --suite bridge-out-epoch`):** against the **real** hosted bridge service and the **real** Ethereum test network (Sepolia). The test then confirms that **actual USDC arrives** at the destination — an end-to-end check that includes the third-party solver settling the Ethereum side. It is opt-in rather than automatic, because it spends a real solver fill and a third party declining to quote should not turn `main` red; the runner probes the live solver for a quote before it builds anything, so a service that has stopped pricing costs seconds to find rather than a quarter of an hour.
+- **Post-merge (after every merge to main):** the AggLayer route against the real bridge, asserting the Miden leg.
 - **Every pull request:** a fully self-contained version using a **stand-in** bridge service and a **local** Ethereum node, so the guardian-secured bridge path is verified on every commit without depending on external infrastructure.
 
 There are also two bridge *routes* — a **fast** one via the Epoch service and a **slower** one via a bridge network called **AggLayer** — and both are covered.
@@ -210,7 +211,7 @@ flowchart LR
 <details>
 <summary>The tests in this group</summary>
 
-Fast bridge (real USDC on Sepolia, post-merge), the slower AggLayer route, and a guardian-secured bridge that runs fully offline on every pull request.
+Fast bridge (real USDC on Sepolia, on demand via `yarn e2e:real`), the slower AggLayer route (post-merge), and a guardian-secured bridge that runs fully offline on every pull request.
 </details>
 
 ---
@@ -427,7 +428,7 @@ The following summarises what is genuine versus stood in:
 | **WalletConnect** | the real app ↔ real public relay ↔ the harness's robot wallet | ✅ real link, 🎭 robot far side |
 | **Ethereum** | genuine Ethereum software, run locally (for bridging & earning) | ✅ real (local) |
 | **Ethereum contracts (bridge, USDC…)** | faithful fakes at the *real* addresses, enforcing real invariants | 🎭 stand-in |
-| **The hosted bridge service** | real in post-merge bridge runs; stand-in per pull request | 🌍 real / 🎭 stand-in |
+| **The hosted bridge service** | real in the on-demand `yarn e2e:real` run; stand-in per pull request | 🌍 real / 🎭 stand-in |
 | **The hosted lending service** | always a stand-in | 🎭 stand-in |
 | **Money actually arriving on Ethereum (post-merge bridge)** | real USDC on a real test network | ✅ real |
 
