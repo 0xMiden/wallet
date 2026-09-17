@@ -681,6 +681,18 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
 
   const openScanDrawer = useCallback(() => setShowScanDrawer(true), []);
 
+  // Paste goes through the scanned-address path so a pasted address gets the
+  // same validation and wrong-network messaging as a scan. A dismissed iOS
+  // paste prompt or an empty clipboard leaves the field as is.
+  const onPaste = useCallback(async () => {
+    try {
+      const text = (await navigator.clipboard.readText()).trim();
+      if (text) applyScannedAddress(text);
+    } catch {
+      // Clipboard read denied or unavailable.
+    }
+  }, [applyScannedAddress]);
+
   const onScan = isMobile() ? runNativeScan : openScanDrawer;
 
   const onSelectContact = useCallback(
@@ -781,6 +793,7 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
               onSelectRecent={onSelectRecent}
               onSelectNetwork={() => setShowNetworkDrawer(true)}
               onScan={isScanAvailable() ? onScan : undefined}
+              onPaste={onPaste}
               onConfirm={() => goToStep(SendFlowStep.SelectAmount)}
             />
           );
@@ -820,6 +833,7 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
       recents,
       canAddContact,
       onSelectRecent,
+      onPaste,
       errors.recipientAddress,
       errors.amount,
       onAddressChange,

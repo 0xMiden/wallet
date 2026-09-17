@@ -45,6 +45,8 @@ export interface SelectRecipientProps {
   onSelectNetwork: () => void;
   /** Scan a recipient address from a QR code. Omitted where scanning is unavailable (desktop/extension). */
   onScan?: () => void;
+  /** Fills the recipient from the clipboard. Shown only while the address field is empty. */
+  onPaste?: () => void;
   onConfirm: () => void;
 }
 
@@ -63,6 +65,7 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
   onSelectRecent,
   onSelectNetwork,
   onScan,
+  onPaste,
   onConfirm
 }) => {
   const { t } = useTranslation();
@@ -172,7 +175,21 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
           </div>
         )}
 
-        <div className={clsx('mt-2 flex items-start gap-1', recentRecipients.length > 0 ? 'pb-6' : 'pb-4')}>
+        <div className={clsx('mt-2 flex flex-wrap items-start gap-1', recentRecipients.length > 0 ? 'pb-6' : 'pb-4')}>
+          {onPaste && !hasAddress && (
+            <Button
+              variant={ButtonVariant.Secondary}
+              onClick={() => {
+                hapticLight();
+                onPaste();
+              }}
+              data-testid="send-paste"
+              className="h-auto! w-fit! rounded-full bg-surface-interactive! px-2! py-1! text-base font-bold hover:bg-surface-interactive!"
+            >
+              <Icon name={IconName.FileCopy} size="xs" className="shrink-0" />
+              <span>{t('paste')}</span>
+            </Button>
+          )}
           <Button
             variant={ButtonVariant.Secondary}
             onClick={() => {

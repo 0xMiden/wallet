@@ -234,3 +234,26 @@ describe('SelectRecipient — mobile keyboard (regression)', () => {
     expect(footer?.getAttribute('data-navbar-cushion')).toBe('true');
   });
 });
+
+describe('SelectRecipient — paste', () => {
+  it('shows Paste while the address field is empty and calls onPaste', () => {
+    const props = renderRecipient({ onPaste: jest.fn() });
+
+    fireEvent.click(screen.getByTestId('send-paste'));
+
+    expect(screen.getByText('paste')).toBeInTheDocument();
+    expect(props.onPaste).toHaveBeenCalledTimes(1);
+  });
+
+  it('hides Paste once an address is entered', () => {
+    renderRecipient({ address: MIDEN_ADDRESS, isValidAddress: true, onPaste: jest.fn() });
+
+    expect(screen.queryByTestId('send-paste')).not.toBeInTheDocument();
+  });
+
+  it('hides Paste when no paste handler is provided', () => {
+    renderRecipient();
+
+    expect(screen.queryByTestId('send-paste')).not.toBeInTheDocument();
+  });
+});
