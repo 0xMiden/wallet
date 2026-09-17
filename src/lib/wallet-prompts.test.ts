@@ -84,6 +84,9 @@ describe('wallet prompts', () => {
   beforeEach(() => {
     localStorage.clear();
     jest.clearAllMocks();
+    // clearAllMocks keeps implementations, and a leaked mint that never settles turns a
+    // failed assertion about minting into a test timeout.
+    mintFromMidenFaucetMock.mockReset();
     __resetInFlightFaucetRequestsForTest();
     // One lock manager for every surface, as navigator.locks is for the extension's pages.
     Object.defineProperty(navigator, 'locks', { configurable: true, value: new SharedEarnLocks() });
