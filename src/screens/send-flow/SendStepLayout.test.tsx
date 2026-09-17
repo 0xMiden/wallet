@@ -57,4 +57,21 @@ describe('SendStepLayout', () => {
     expect(footer).toHaveClass('pb-[max(1rem,calc(4rem-var(--keyboard-height,0px)))]');
     expect(footer?.hasAttribute('data-navbar-cushion')).toBe(false);
   });
+
+  it('drops the CTA to the bottom when the tab bar is hidden', () => {
+    document.body.setAttribute('data-hide-navbar', '');
+    try {
+      render(
+        <SendStepLayout title="Title" footer={<button>cta</button>}>
+          <p>content</p>
+        </SendStepLayout>
+      );
+
+      const footer = screen.getByText('cta').parentElement;
+      expect(footer).toHaveClass('pb-4');
+      expect(footer?.className).not.toContain('4rem');
+    } finally {
+      document.body.removeAttribute('data-hide-navbar');
+    }
+  });
 });

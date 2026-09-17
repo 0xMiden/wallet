@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
 import { hapticLight } from 'lib/mobile/haptics';
+import { useNavbarHidden } from 'lib/mobile/useNavbarHidden';
 
 import { stepFooterCushionClass } from './footer-cushion';
 
@@ -22,12 +23,15 @@ export interface SendStepLayoutProps {
 
 /**
  * The frame every send step shares, so moving between steps changes only the
- * content: the back row, the title, the first line of the step's large input,
- * and the CTA all sit at the same position on each one. Highlights use the Send
+ * content: the back row, the title and the first line of the step's large input
+ * sit at the same position on each one, and the CTA is pinned to the bottom. Highlights use the Send
  * accent; only the primary CTA keeps the brand orange.
  */
 export const SendStepLayout: React.FC<SendStepLayoutProps> = ({ title, titleAccessory, onBack, children, footer }) => {
   const { t } = useTranslation();
+  // With the tab bar hidden (steps past the recipient, or the keyboard up) the
+  // CTA sits at the bottom of the screen; with it showing, just above it.
+  const navbarHidden = useNavbarHidden();
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-app-bg px-6">
@@ -56,7 +60,7 @@ export const SendStepLayout: React.FC<SendStepLayoutProps> = ({ title, titleAcce
         {children}
       </div>
 
-      <div className={clsx('shrink-0 pt-3', stepFooterCushionClass())}>{footer}</div>
+      <div className={clsx('shrink-0 pt-3', navbarHidden ? 'pb-4' : stepFooterCushionClass())}>{footer}</div>
     </div>
   );
 };
