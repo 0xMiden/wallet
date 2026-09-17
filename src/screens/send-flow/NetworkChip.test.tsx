@@ -4,18 +4,13 @@ import { fireEvent, render, screen } from '@testing-library/react';
 
 import { NetworkChip } from './NetworkChip';
 
-jest.mock('app/icons/logos/eth.svg', () => ({ ReactComponent: () => <svg data-testid="eth-logo" /> }));
-jest.mock('app/icons/v2', () => ({
-  IconName: { MidenLogo: 'miden-logo' },
-  Icon: ({ name }: { name: string }) => <svg data-testid={name} />
-}));
-
 describe('NetworkChip', () => {
   it('renders the Miden logo and label as static text without a handler', () => {
     render(<NetworkChip kind="miden" label="Miden" data-testid="chip" />);
 
     expect(screen.getByTestId('chip').tagName).toBe('SPAN');
-    expect(screen.getByTestId('miden-logo')).toBeInTheDocument();
+    // The Miden mark sits bare; only the Ethereum glyph gets a brand-blue disc.
+    expect(screen.getByTestId('chip').querySelector('.bg-\\[\\#627EEA\\]')).toBeNull();
     expect(screen.getByText('Miden')).toBeInTheDocument();
   });
 
@@ -29,7 +24,7 @@ describe('NetworkChip', () => {
     expect(chip.tagName).toBe('BUTTON');
     expect(chip).toHaveAttribute('aria-pressed', 'true');
     expect(chip).toHaveClass('border-primary-500');
-    expect(screen.getByTestId('eth-logo')).toBeInTheDocument();
+    expect(chip.querySelector('.bg-\\[\\#627EEA\\]')).not.toBeNull();
     expect(onClick).toHaveBeenCalledTimes(1);
   });
 });

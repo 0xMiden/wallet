@@ -3,7 +3,7 @@ import React from 'react';
 import clsx from 'clsx';
 
 import { ReactComponent as EthLogo } from 'app/icons/logos/eth.svg';
-import { Icon, IconName } from 'app/icons/v2';
+import { ReactComponent as MidenLogo } from 'app/icons/logos/miden.svg';
 
 export type NetworkChipKind = 'miden' | 'ethereum';
 
@@ -20,7 +20,10 @@ export interface NetworkChipProps {
 
 const NetworkLogo: React.FC<{ kind: NetworkChipKind }> = ({ kind }) =>
   kind === 'miden' ? (
-    <Icon name={IconName.MidenLogo} size="xs" className="shrink-0" />
+    // The brand mark from miden.xyz: the orange glyph, no circle behind it.
+    <span className="flex h-4 w-4 shrink-0 items-center justify-center" aria-hidden="true">
+      <MidenLogo data-testid="miden-logo" className="h-3.5 w-auto" />
+    </span>
   ) : (
     <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-[#627EEA]" aria-hidden="true">
       <EthLogo className="h-2.5 w-2.5" />
