@@ -9,9 +9,9 @@ import base from './playwright.e2e.config';
 /**
  * Per-test budget. The base config's 300s was sized against the local 0.16 node
  * the PR job boots, whose blocks arrive on demand. A swap on public testnet
- * waits on shared infrastructure at every step — a delegated prover, real block
+ * waits on shared infrastructure at every step - a delegated prover, real block
  * times, and a maker note that must commit WITH an inclusion proof before the
- * taker can be handed it (`exportMakerNote` alone budgets 90s for that) — so the
+ * taker can be handed it (`exportMakerNote` alone budgets 90s for that) - so the
  * same specs need materially longer there.
  *
  * Raised rather than made per-spec so a testnet run does not fail on arithmetic

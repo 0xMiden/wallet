@@ -61,7 +61,7 @@ export function isTransientCliError(stderr: string): boolean {
  * matches the accept header's PRE-RELEASE LABEL, so a `0.16.0-rc.5` client is
  * rejected by a stable `0.16.0` node and vice versa. `"miden-client 0.16.0-rc.5"
  * .includes("0.16.0")` is true, so the guard below used to wave through the one
- * build it exists to catch — and the run then failed much later, inside a CLI
+ * build it exists to catch - and the run then failed much later, inside a CLI
  * call, as `cli::client_error … server rejected request` with no mention of a
  * version. Seen for real against public testnet on 2026-09-18.
  *

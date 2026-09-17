@@ -10,7 +10,7 @@ import {
 } from '../../helpers/swap';
 
 // The guardian this spec co-signs with, taken from the run's own environment
-// record — the same source guardian-seed-backup-verify.spec.ts uses, so a
+// record - the same source guardian-seed-backup-verify.spec.ts uses, so a
 // testnet run reaches that network's hosted operator instead of the container
 // the local stack spawns (`--profile guardian`). An explicit GUARDIAN_URL still
 // wins, which is what lets a local run point at the second operator on :3001.

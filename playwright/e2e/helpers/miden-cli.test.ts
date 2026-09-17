@@ -4,8 +4,8 @@
  * The guard's whole job is to stop a mismatched CLI reaching the node, because
  * the node rejects it with `server rejected request … version mismatch`, which
  * names neither the binary nor the version and reads like a wallet fault. A
- * substring comparison let the single most likely mismatch — a prerelease build
- * of the pinned version — through, so these cases pin the distinction.
+ * substring comparison let the single most likely mismatch - a prerelease build
+ * of the pinned version - through, so these cases pin the distinction.
  */
 import { reportedVersionMatches } from './miden-cli';
 

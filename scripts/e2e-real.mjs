@@ -1,15 +1,15 @@
 #!/usr/bin/env node
 /**
- * Run the bridge and swap E2E suites against REAL infrastructure — the hosted
+ * Run the bridge and swap E2E suites against REAL infrastructure - the hosted
  * Epoch allocator/solver, the real AggLayer bridge, real Sepolia, and the public
- * Miden testnet — instead of the hermetic doubles the PR gates use.
+ * Miden testnet - instead of the hermetic doubles the PR gates use.
  *
  * Most Epoch/AggLayer coverage runs against `FakeEpochAllocator` + an Anvil
  * chain carrying `anvil_setCode` stubs at the real addresses; swap runs against
  * a local 0.16 node booted for the job. Those doubles quote unconditionally,
  * settle instantly and mine on demand, so they cannot catch a service that stops
- * quoting, reprices or never fills — the class of failure that took
- * `bridge-out-epoch.spec.ts` down for a month (#627) — nor a timing assumption
+ * quoting, reprices or never fills - the class of failure that took
+ * `bridge-out-epoch.spec.ts` down for a month (#627) - nor a timing assumption
  * that only holds when blocks arrive on request.
  *
  * Every external dependency is probed BEFORE the build, because the build plus a
@@ -30,7 +30,7 @@ const DEFAULT_EPOCH_URL = 'https://testnet-dev.epochprotocol.xyz';
 const DEFAULT_EPOCH_POSITIONS_URL = 'https://positions-testnet-dev.epochprotocol.xyz';
 const DEFAULT_SEPOLIA_RPC = 'https://ethereum-sepolia-rpc.publicnode.com';
 const SEPOLIA_CHAIN_ID = 11155111;
-/** Epoch's virtual chain id for a Miden leg — src/lib/epoch/config.ts. */
+/** Epoch's virtual chain id for a Miden leg - src/lib/epoch/config.ts. */
 const MIDEN_CHAIN_ID = 999999999;
 
 /** Kept in sync with src/lib/epoch/bridgeable-token.ts and helpers/sepolia.ts. */
@@ -55,8 +55,8 @@ const MIDEN_FAUCET_API = {
 
 /**
  * `needsEvmKey` marks a suite whose EVM leg is SIGNED by the test (a Compact
- * deposit, a 7702 delegation). Bridge-out is solver-fulfilled — the wallet
- * signs nothing on EVM — so those suites need no key and no gas at all.
+ * deposit, a 7702 delegation). Bridge-out is solver-fulfilled - the wallet
+ * signs nothing on EVM - so those suites need no key and no gas at all.
  */
 const SUITES = {
   'bridge-out-epoch': {
@@ -290,7 +290,7 @@ async function probeEpochGasless(epochUrl) {
  * asks for and require a priced route back.
  *
  * `/checkIfDepositNeeded` prices the intent from its MANDATE; the surrounding
- * compact (nonce, id, lockTag) is not read for a quote — the request carries
+ * compact (nonce, id, lockTag) is not read for a quote - the request carries
  * `sponsorSignature: "0x"` and `isRegisteredOnchain: false`. So this mirrors the
  * mandate `buildEpochTaskDataParams` produces and leaves the rest well-formed
  * but nominal, which keeps the probe free of the SDK (whose ESM entry needs a
@@ -368,7 +368,7 @@ async function probeEpochQuote(epochUrl, faucetId) {
  * The in-protocol DEX quote service (`getSwapEta`, src/lib/miden/swap/tokens.ts).
  *
  * INFORMATIONAL, never a gate. The swap suite creates its own faucets and fills
- * between the two wallets it drives, so it never asks this service anything —
+ * between the two wallets it drives, so it never asks this service anything -
  * but it is what the PRODUCT shows a user as the swap ETA and price, and main CI
  * never touches it. A run is the cheapest moment to notice it has gone.
  *
@@ -378,7 +378,7 @@ async function probeEpochQuote(epochUrl, faucetId) {
  */
 async function probeSwapQuoteService() {
   const BASE = 'https://35-175-40-181.sslip.io';
-  // IMIDEN and IUSDT from the shipped registry, as hex — the service rejects
+  // IMIDEN and IUSDT from the shipped registry, as hex - the service rejects
   // bech32. Resolved through the SDK rather than pasted so a registry change
   // cannot leave this probe quietly asking about a token nobody trades.
   let offered;
@@ -485,13 +485,13 @@ async function probeFundedKey(sepoliaRpc, privateKey, minEth, mintUsdcTarget) {
     return record(
       false,
       'Sepolia gas',
-      `${account.address} holds ${formatUnits(wei, 18)} ETH, below the ${minEth} ETH floor — fund it from a Sepolia faucet`
+      `${account.address} holds ${formatUnits(wei, 18)} ETH, below the ${minEth} ETH floor - fund it from a Sepolia faucet`
     );
   }
   record(true, 'Sepolia gas', `${account.address} holds ${formatUnits(wei, 18)} ETH`);
 
   // The route's USDC mints permissionlessly, so a low balance is a top-up, not
-  // a blocker — top up rather than telling the operator to go and find some.
+  // a blocker - top up rather than telling the operator to go and find some.
   const balance = BigInt(
     await rpc(sepoliaRpc, 'eth_call', [
       { to: SEPOLIA_USDC, data: `0x70a08231${account.address.slice(2).padStart(64, '0')}` },
@@ -565,7 +565,7 @@ async function main() {
     fail(`suite "${opts.suite}" signs on EVM, so it needs --sepolia-key (or E2E_SEPOLIA_PRIVATE_KEY)`);
   }
 
-  console.log(`\nSuite    ${opts.suite} — ${suite.describe}`);
+  console.log(`\nSuite    ${opts.suite} - ${suite.describe}`);
   console.log(`Network  ${opts.network}`);
   if (suite.config === 'playwright.bridge.config.ts') {
     console.log(`Epoch    ${opts.epochUrl}`);
@@ -601,7 +601,7 @@ async function main() {
   console.log('');
   if (failed.length > 0) {
     console.error(`✗ preflight failed (${failed.length}/${results.length}): ${failed.map(f => f.label).join(', ')}`);
-    console.error('  Nothing was built or run — fix the above and re-run.\n');
+    console.error('  Nothing was built or run - fix the above and re-run.\n');
     return 1;
   }
   console.log(`✓ preflight passed (${results.length} checks)\n`);
@@ -627,7 +627,7 @@ async function main() {
     // dist/ was produced with this same env.
     const code = await run('yarn', ['test:e2e:blockchain:build'], env);
     if (code !== 0) {
-      console.error('\n✗ build failed — not running the suite.\n');
+      console.error('\n✗ build failed - not running the suite.\n');
       return code;
     }
   }
