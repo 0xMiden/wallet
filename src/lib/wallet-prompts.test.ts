@@ -1,5 +1,6 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 
+import { SharedEarnLocks } from 'lib/epoch/testing/earn-locks';
 import {
   GUARDIAN_NOTE_RECOVERY_PROGRESS_STALE_MS,
   GUARDIAN_NOTE_RECOVERY_PROGRESS_STORAGE_KEY,
@@ -84,6 +85,8 @@ describe('wallet prompts', () => {
     localStorage.clear();
     jest.clearAllMocks();
     __resetInFlightFaucetRequestsForTest();
+    // One lock manager for every surface, as navigator.locks is for the extension's pages.
+    Object.defineProperty(navigator, 'locks', { configurable: true, value: new SharedEarnLocks() });
   });
 
   it('normalizes missing and malformed storage to an empty prompt set', () => {
@@ -413,20 +416,6 @@ describe('wallet prompts', () => {
   });
 
   it('lets only one of two surfaces send when their checks of the marker interleave', async () => {
-    // One lock manager for every surface, as navigator.locks is for the extension's pages.
-    const tails = new Map<string, Promise<unknown>>();
-    const sharedLocks = {
-      request: (name: string, ...args: unknown[]) => {
-        const callback = args[args.length - 1] as (lock: object) => Promise<unknown>;
-        const run = (tails.get(name) ?? Promise.resolve()).then(() => callback({}));
-        tails.set(
-          name,
-          run.catch(() => undefined)
-        );
-        return run;
-      }
-    };
-    Object.defineProperty(navigator, 'locks', { configurable: true, value: sharedLocks });
     type Realm = {
       faucet: typeof faucet;
       mint: jest.Mock;
@@ -488,7 +477,6 @@ describe('wallet prompts', () => {
     } finally {
       releaseRead();
       get.mockRestore();
-      Reflect.deleteProperty(navigator, 'locks');
     }
   });
 
@@ -748,35 +736,6 @@ describe('wallet prompts', () => {
     expect(sent).toBe(false);
     expect(error).not.toBeInstanceOf(FaucetOutcomeUnknownError);
     expect(await fetchFaucetFundingMarker('accountClearing')).toBeNull();
-  });
-
-  it('runs marker-lock operations one at a time per account, without Web Locks', async () => {
-    const order: string[] = [];
-    let releaseFirst = () => {};
-    const first = withFaucetFundingMarkerLock('accountLockA', async () => {
-      order.push('first starts');
-      await new Promise<void>(resolve => {
-        releaseFirst = resolve;
-      });
-      order.push('first ends');
-      throw new Error('first failed');
-    });
-    const second = withFaucetFundingMarkerLock('accountLockA', async () => {
-      order.push('second');
-      return 'second';
-    });
-    const otherAccount = withFaucetFundingMarkerLock('accountLockB', async () => {
-      order.push('other account');
-      return 'other account';
-    });
-
-    await expect(otherAccount).resolves.toBe('other account');
-    expect(order).toEqual(['first starts', 'other account']);
-    // A failed operation still hands the lock on.
-    releaseFirst();
-    await expect(first).rejects.toThrow('first failed');
-    await expect(second).resolves.toBe('second');
-    expect(order).toEqual(['first starts', 'other account', 'first ends', 'second']);
   });
 
   it('fails before the token request, safe to retry, when the submitted flag cannot be stored', async () => {

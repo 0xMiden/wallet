@@ -2,11 +2,13 @@ import React from 'react';
 
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
+import { SharedEarnLocks } from 'lib/epoch/testing/earn-locks';
 import type { TokenBalanceData } from 'lib/miden/front';
 import { FaucetOutcomeUnknownError } from 'lib/miden-chain/faucet-api';
 import type { WalletAccount } from 'lib/shared/types';
 import type { PendingNoteValue } from 'lib/wallet-prompts';
 import {
+  FAUCET_UNSUBMITTED_MARKER_MS,
   FaucetRequestInProgressError,
   WalletPromptStatus,
   WalletPromptType,
@@ -27,10 +29,6 @@ const mockSetFaucetFundingMarker = jest.fn();
 // Backs the two marker mocks by default, so a later read sees what an earlier write
 // left behind, as storage would.
 const markerStore = new Map<string, unknown>();
-// A marker read that never settles holds that account's marker lock; each is released
-// after its test so the next test starts with the lock free.
-const hungMarkerReads: Array<(marker: null) => void> = [];
-const hangingMarkerRead = () => new Promise<null>(resolve => hungMarkerReads.push(resolve));
 
 let mockBaseFee: number | null = 0;
 jest.mock('app/hooks/useVerificationBaseFee', () => ({ __esModule: true, default: () => mockBaseFee }));
@@ -181,6 +179,9 @@ describe('HomePrompts', () => {
     mockFetchActiveBridgePrompts.mockResolvedValue([]);
     mockFetchHotKeyHardwareError.mockResolvedValue(null);
     markerStore.clear();
+    // clearAllMocks keeps a queued once-implementation, and an unused held read must not reach the next test.
+    mockFetchFaucetFundingMarker.mockReset();
+    mockSetFaucetFundingMarker.mockReset();
     mockFetchFaucetFundingMarker.mockImplementation(async (address: string) => markerStore.get(address) ?? null);
     mockSetFaucetFundingMarker.mockImplementation(async (address: string, marker: unknown) => {
       if (marker === null) markerStore.delete(address);
@@ -189,12 +190,8 @@ describe('HomePrompts', () => {
     mockGetInFlightFaucetRequest.mockReturnValue(null);
     mockGetInFlightFaucetMarker.mockReturnValue(null);
     mockGetFaucetRequestSettledAt.mockReturnValue(null);
-  });
-
-  afterEach(async () => {
-    // Reads queued behind a hung one must settle too, or they hold the lock instead.
-    mockFetchFaucetFundingMarker.mockResolvedValue(null);
-    await act(async () => hungMarkerReads.splice(0).forEach(release => release(null)));
+    // One lock manager standing in for navigator.locks, which every extension surface shares.
+    Object.defineProperty(navigator, 'locks', { configurable: true, value: new SharedEarnLocks() });
   });
 
   it('shows and dismisses a pending bridge through the wallet prompt type', async () => {
@@ -958,8 +955,6 @@ describe('HomePrompts', () => {
     expect(screen.getAllByTestId('prompt-card')[0]!).toHaveAttribute('data-actionable', 'false');
     fireEvent.click(screen.getByRole('button', { name: 'faucetPromptTitle' }));
     expect(mockFaucet).not.toHaveBeenCalled();
-    // The read starts once the card holds the marker lock.
-    await waitFor(() => expect(mockFetchFaucetFundingMarker).toHaveBeenCalled());
 
     // The read lands and says a mint is still on its way: the wait resumes and
     // the card becomes the Funding hero, never an actionable Fund card.
@@ -1073,7 +1068,7 @@ describe('HomePrompts', () => {
     expect(screen.getAllByTestId('prompt-card')[0]!).toHaveAttribute('data-actionable', 'true');
 
     // From here every marker read hangs: A's second visit must wait for its own.
-    mockFetchFaucetFundingMarker.mockImplementation(hangingMarkerRead);
+    mockFetchFaucetFundingMarker.mockImplementation(() => new Promise(() => {}));
     rerender(renderFor(accountB));
     await act(async () => {});
     rerender(renderFor(account));
@@ -1095,7 +1090,7 @@ describe('HomePrompts', () => {
         rejectInFlight = reject;
       })
     );
-    mockFetchFaucetFundingMarker.mockImplementation(hangingMarkerRead);
+    mockFetchFaucetFundingMarker.mockImplementation(() => new Promise(() => {}));
 
     render(
       <HomePrompts
@@ -1143,7 +1138,7 @@ describe('HomePrompts', () => {
     // Switch to B, whose marker read never settles. A's failure used to be reset
     // only after commit, so B's first commit read it: that settled B's readiness
     // without a read and painted A's error on B's card.
-    mockFetchFaucetFundingMarker.mockImplementation(hangingMarkerRead);
+    mockFetchFaucetFundingMarker.mockImplementation(() => new Promise(() => {}));
     rerender(renderFor(accountB));
     await act(async () => {});
 
@@ -1459,38 +1454,22 @@ describe('HomePrompts', () => {
   });
 
   describe('another surface writing the marker while this card decides to clear it (#935)', () => {
-    // One lock manager standing in for navigator.locks, which every extension surface shares.
-    beforeEach(() => {
-      const tails = new Map<string, Promise<unknown>>();
-      Object.defineProperty(navigator, 'locks', {
-        configurable: true,
-        value: {
-          request: (name: string, ...args: unknown[]) => {
-            const callback = args[args.length - 1] as (lock: object) => Promise<unknown>;
-            const run = (tails.get(name) ?? Promise.resolve()).then(() => callback({}));
-            tails.set(
-              name,
-              run.catch(() => undefined)
-            );
-            return run;
-          }
-        }
-      });
-    });
-    afterEach(() => {
-      Reflect.deleteProperty(navigator, 'locks');
-    });
-
     // This card's read of the marker answers late, with the record as it was when asked.
     const holdNextMarkerRead = () => {
-      let release = () => {};
+      const hold = { requested: false, release: () => {} };
       mockFetchFaucetFundingMarker.mockImplementationOnce((address: string) => {
+        hold.requested = true;
         const snapshot = markerStore.get(address) ?? null;
         return new Promise(resolve => {
-          release = () => resolve(snapshot);
+          hold.release = () => resolve(snapshot);
         });
       });
-      return () => release();
+      return hold;
+    };
+    // The card read the marker, cleared it, and only then did the other surface's write land.
+    const expectClearedBefore = (sent: object) => {
+      expect(mockSetFaucetFundingMarker).toHaveBeenCalledWith('accountA', null);
+      expect(markerStore.get('accountA')).toEqual(sent);
     };
     const anotherSurfaceSends = () => {
       const sent = { requestedAt: Date.now(), baselineNoteIds: [], submitted: true, submittedAt: Date.now() };
@@ -1513,19 +1492,23 @@ describe('HomePrompts', () => {
 
     it('keeps it when resuming finds an abandoned marker', async () => {
       mockUseWalletPromptStorage.mockReturnValue(makePromptState());
-      markerStore.set('accountA', { requestedAt: Date.now() - 70_000, baselineNoteIds: [] });
-      const releaseRead = holdNextMarkerRead();
+      markerStore.set('accountA', {
+        requestedAt: Date.now() - FAUCET_UNSUBMITTED_MARKER_MS - 5_000,
+        baselineNoteIds: []
+      });
+      const read = holdNextMarkerRead();
       renderCard();
       await act(async () => {});
+      expect(read.requested).toBe(true);
 
       const { sent, write } = anotherSurfaceSends();
       await act(async () => {});
       await act(async () => {
-        releaseRead();
+        read.release();
         await write;
       });
 
-      expect(markerStore.get('accountA')).toEqual(sent);
+      expectClearedBefore(sent);
     });
 
     it("keeps it when this card's own request fails", async () => {
@@ -1533,45 +1516,48 @@ describe('HomePrompts', () => {
       renderCard();
       await act(async () => {});
       mockFaucet.mockRejectedValueOnce(new Error('rate limited'));
-      const releaseRead = holdNextMarkerRead();
+      const read = holdNextMarkerRead();
       fireEvent.click(
         within(screen.getAllByTestId('prompt-card')[0]!).getByRole('button', { name: 'faucetPromptTitle' })
       );
       await act(async () => {});
+      expect(read.requested).toBe(true);
 
       const { sent, write } = anotherSurfaceSends();
       await act(async () => {});
       await act(async () => {
-        releaseRead();
+        read.release();
         await write;
       });
 
-      expect(markerStore.get('accountA')).toEqual(sent);
+      expectClearedBefore(sent);
     });
 
     it("keeps it when an unsent request's wait ends", async () => {
       jest.useFakeTimers();
       try {
         mockUseWalletPromptStorage.mockReturnValue(makePromptState());
-        markerStore.set('accountA', { requestedAt: Date.now() - 30_000, baselineNoteIds: [] });
+        const age = 30_000;
+        markerStore.set('accountA', { requestedAt: Date.now() - age, baselineNoteIds: [] });
         renderCard();
         await act(async () => {});
         expect(screen.getAllByTestId('prompt-card')[0]).toHaveAttribute('data-hero', 'faucetPromptFunding');
 
-        const releaseRead = holdNextMarkerRead();
+        const read = holdNextMarkerRead();
         await act(async () => {
-          await jest.advanceTimersByTimeAsync(40_000);
+          await jest.advanceTimersByTimeAsync(FAUCET_UNSUBMITTED_MARKER_MS - age + 5_000);
         });
+        expect(read.requested).toBe(true);
         const { sent, write } = anotherSurfaceSends();
         await act(async () => {
           await jest.advanceTimersByTimeAsync(0);
         });
         await act(async () => {
-          releaseRead();
+          read.release();
           await write;
         });
 
-        expect(markerStore.get('accountA')).toEqual(sent);
+        expectClearedBefore(sent);
       } finally {
         jest.useRealTimers();
       }

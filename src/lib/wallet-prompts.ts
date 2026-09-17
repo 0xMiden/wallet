@@ -377,24 +377,14 @@ export async function fetchFaucetFundingMarker(address: string): Promise<FaucetF
   return marker;
 }
 
-// A read of the marker that decides a write to it runs under this lock. navigator.locks is
-// shared by the extension's popup, side panel, tabs and service worker, so two surfaces can
-// no longer both find no live marker and both send. Without Web Locks (an older WebView, which
-// runs one realm anyway) operations on the same account take turns within this realm.
-const faucetMarkerLockTails = new Map<string, Promise<unknown>>();
-
-/** Runs `operation` holding the funding-marker lock for `address`. */
-export function withFaucetFundingMarkerLock<T>(address: string, operation: () => Promise<T>): Promise<T> {
-  const name = `faucet-funding-marker:${address}`;
-  if (typeof navigator !== 'undefined' && navigator.locks) {
-    return navigator.locks.request<Promise<T>>(name, operation);
-  }
-  const run = (faucetMarkerLockTails.get(name) ?? Promise.resolve()).then(operation);
-  faucetMarkerLockTails.set(
-    name,
-    run.catch(() => undefined)
-  );
-  return run;
+/**
+ * Runs `operation` holding the funding-marker lock for `address`. Every read of the marker that
+ * decides a write to it runs under this lock: navigator.locks is shared by the extension's popup,
+ * side panel, tabs and service worker, so two surfaces can no longer both find no live marker and
+ * both send.
+ */
+export function withFaucetFundingMarkerLock(address: string, operation: () => Promise<void>): Promise<void> {
+  return navigator.locks.request(`faucet-funding-marker:${address}`, operation);
 }
 
 export async function setFaucetFundingMarker(address: string, marker: FaucetFundingMarker | null): Promise<void> {
