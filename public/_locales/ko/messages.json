@@ -1574,6 +1574,10 @@
     "message": "주소록",
     "englishSource": "Address Book"
   },
+  "paste": {
+    "message": "붙여넣기",
+    "englishSource": "Paste"
+  },
   "chooseRecipient": {
     "message": "수신자 선택",
     "englishSource": "Choose recipient"
@@ -1581,6 +1585,10 @@
   "selectAmount": {
     "message": "금액 선택",
     "englishSource": "Select Amount"
+  },
+  "enterAmount": {
+    "message": "금액 입력",
+    "englishSource": "Enter amount"
   },
   "selectAToken": {
     "message": "토큰 선택",

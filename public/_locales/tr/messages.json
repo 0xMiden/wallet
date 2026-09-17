@@ -1574,6 +1574,10 @@
     "message": "Adres Defteri",
     "englishSource": "Address Book"
   },
+  "paste": {
+    "message": "Yapıştır",
+    "englishSource": "Paste"
+  },
   "chooseRecipient": {
     "message": "Alıcıyı seçin",
     "englishSource": "Choose recipient"
@@ -1581,6 +1585,10 @@
   "selectAmount": {
     "message": "Tutar Seç",
     "englishSource": "Select Amount"
+  },
+  "enterAmount": {
+    "message": "Tutarı girin",
+    "englishSource": "Enter amount"
   },
   "selectAToken": {
     "message": "Bir jeton seçin",
