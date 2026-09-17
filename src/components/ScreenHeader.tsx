@@ -3,7 +3,7 @@ import React from 'react';
 import classNames from 'clsx';
 
 import { Icon, IconName } from 'app/icons/v2';
-import { CircleButton } from 'components/CircleButton';
+import { hapticLight } from 'lib/mobile/haptics';
 
 export interface ScreenHeaderProps {
   title: React.ReactNode;
@@ -25,15 +25,20 @@ export const ScreenHeader: React.FC<ScreenHeaderProps> = ({
   className
 }) => (
   <div className={classNames('flex items-center gap-4 border-b border-border-faint py-4', className)}>
+    {/* Back and close are the same nav button: a flat circle on the nav button
+        surface with a grey glyph, rather than an outlined orange arrow. */}
     {onBack && (
-      <CircleButton
-        icon={IconName.BackArrow}
-        color="currentColor"
-        size="sm"
-        onClick={onBack}
+      <button
+        type="button"
+        onClick={() => {
+          hapticLight();
+          onBack();
+        }}
         aria-label={backLabel}
-        className="shrink-0 border border-border-card text-primary-500"
-      />
+        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-surface-nav-button"
+      >
+        <Icon name={IconName.BackArrow} size="sm" fill="currentColor" className="text-heading-gray" />
+      </button>
     )}
     {/* No heading at all when there is no title, rather than an empty one: the
         success receipts render a title-less header (their title lives in the body,
@@ -49,7 +54,7 @@ export const ScreenHeader: React.FC<ScreenHeaderProps> = ({
         type="button"
         onClick={onClose}
         aria-label={closeLabel}
-        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gray-100"
+        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-surface-nav-button"
       >
         <Icon name={IconName.Close} size="sm" fill="currentColor" className="text-heading-gray" />
       </button>
