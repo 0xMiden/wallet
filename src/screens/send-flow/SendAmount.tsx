@@ -127,7 +127,7 @@ export const SendAmount: React.FC<SendAmountProps> = ({
             <span className="flex min-w-0 flex-col gap-0.5">
               <span className="flex items-center gap-1 font-heading text-lg leading-tight font-bold text-heading-gray">
                 {token ? token.name : t('selectAToken')}
-                <Icon name={IconName.ChevronDown} size="xs" className="text-primary-500" fill="currentColor" />
+                <Icon name={IconName.ChevronDown} size="xs" className="text-accent-send" fill="currentColor" />
               </span>
               {token && (
                 <span className="text-sm text-text-muted" data-testid="send-amount-available">
@@ -144,7 +144,7 @@ export const SendAmount: React.FC<SendAmountProps> = ({
                 hapticLight();
                 onAmountChange(formatBalance(token.balance));
               }}
-              className="shrink-0 rounded-full border border-border-subtle bg-app-bg px-3 py-1.5 font-heading text-sm font-bold text-primary-500"
+              className="shrink-0 rounded-full border border-border-subtle bg-app-bg px-3 py-1.5 font-heading text-sm font-bold text-accent-send"
             >
               {t('max')}
             </button>
@@ -174,7 +174,12 @@ export const SendAmount: React.FC<SendAmountProps> = ({
           data-testid="send-fee-notice"
           className="mt-4 flex items-start gap-3 rounded-2xl border border-border-subtle px-4 py-3"
         >
-          <Icon name={IconName.InformationFill} size="xs" fill="currentColor" className="mt-0.5 shrink-0 text-heading-gray" />
+          <Icon
+            name={IconName.InformationFill}
+            size="xs"
+            fill="currentColor"
+            className="mt-0.5 shrink-0 text-heading-gray"
+          />
           <div className="flex flex-col items-start gap-1">
             <span className="text-sm text-heading-gray">{t('insufficientFeeAsset')}</span>
             <button
@@ -184,10 +189,10 @@ export const SendAmount: React.FC<SendAmountProps> = ({
                 hapticLight();
                 onReceive();
               }}
-              className="flex items-center gap-0.5 font-heading text-sm font-bold text-primary-500"
+              className="flex items-center gap-0.5 font-heading text-sm font-bold text-accent-send"
             >
               {t('receive')}
-              <Icon name={IconName.ChevronRightLucide} size="xs" className="text-primary-500" />
+              <Icon name={IconName.ChevronRightLucide} size="xs" className="text-accent-send" />
             </button>
           </div>
         </div>

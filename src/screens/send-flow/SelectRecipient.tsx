@@ -196,7 +196,7 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
             'font-heading w-full resize-none overflow-hidden bg-transparent outline-none',
             'transition-[height] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none',
             'text-[40px] font-bold leading-tight wrap-break-word',
-            'text-heading-gray caret-primary-500',
+            'text-heading-gray caret-accent-send',
             error ? 'text-red-500' : 'text-black'
           )}
           value={address}

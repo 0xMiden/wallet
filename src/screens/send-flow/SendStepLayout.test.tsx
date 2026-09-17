@@ -25,6 +25,16 @@ describe('SendStepLayout', () => {
     expect(onBack).toHaveBeenCalledTimes(1);
   });
 
+  it('styles back as a nav button with the Send accent', () => {
+    render(
+      <SendStepLayout title="Title" onBack={jest.fn()} footer={<button>cta</button>}>
+        <p>content</p>
+      </SendStepLayout>
+    );
+
+    expect(screen.getByTestId('send-step-back')).toHaveClass('bg-surface-nav-button');
+  });
+
   it('keeps the back row without a back button so titles line up across steps', () => {
     const { container } = render(
       <SendStepLayout title="Title" footer={<button>cta</button>}>

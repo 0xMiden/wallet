@@ -23,7 +23,7 @@ describe('NetworkChip', () => {
 
     expect(chip.tagName).toBe('BUTTON');
     expect(chip).toHaveAttribute('aria-pressed', 'true');
-    expect(chip).toHaveClass('border-primary-500');
+    expect(chip).toHaveClass('border-accent-send', 'bg-accent-send-tint');
     expect(chip.querySelector('.bg-\\[\\#627EEA\\]')).not.toBeNull();
     expect(onClick).toHaveBeenCalledTimes(1);
   });

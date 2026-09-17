@@ -33,19 +33,27 @@ interface RouteCardProps {
   fee: React.ReactNode;
   eta: string;
   testId?: string;
+  accent: RouteAccent;
 }
 
-const RouteCard: React.FC<RouteCardProps> = ({ label, selected, onSelect, fee, eta, testId }) => (
+/** Highlight color of the route cards: brand orange, or the Send flow's accent. */
+export type RouteAccent = 'brand' | 'send';
+
+const RouteCard: React.FC<RouteCardProps> = ({ label, selected, onSelect, fee, eta, testId, accent }) => (
   <button
     type="button"
     data-testid={testId}
     onClick={onSelect}
     className={clsx(
       'flex w-full items-center rounded-2xl border bg-pure-white px-4 py-6 transition-colors text-base',
-      selected ? 'border-primary-500' : 'border-[#E8E8E8]'
+      selected ? (accent === 'send' ? 'border-accent-send' : 'border-primary-500') : 'border-[#E8E8E8]'
     )}
   >
-    <div className="flex flex-1 text-[20px] font-bold text-primary-500">{label}</div>
+    <div
+      className={clsx('flex flex-1 text-[20px] font-bold', accent === 'send' ? 'text-accent-send' : 'text-primary-500')}
+    >
+      {label}
+    </div>
     <span className="h-6 w-px shrink-0 bg-border-card" />
     <div className="flex flex-1 items-center justify-center text-heading-gray font-bold">{fee}</div>
     <span className="h-6 w-px shrink-0 bg-border-card" />
@@ -56,7 +64,7 @@ const RouteCard: React.FC<RouteCardProps> = ({ label, selected, onSelect, fee, e
 export type RouteOptionsProps = Pick<
   RouteStepProps,
   'route' | 'onRouteChange' | 'fastFeeUsd' | 'fastQuoteLoading' | 'notice'
->;
+> & { accent?: RouteAccent };
 
 /** The Fast / Slow route cards and their notice, shared by every route step's layout. */
 export const RouteOptions: React.FC<RouteOptionsProps> = ({
@@ -64,7 +72,8 @@ export const RouteOptions: React.FC<RouteOptionsProps> = ({
   onRouteChange,
   fastFeeUsd,
   fastQuoteLoading,
-  notice
+  notice,
+  accent = 'brand'
 }) => {
   const { t } = useTranslation();
 
@@ -93,6 +102,7 @@ export const RouteOptions: React.FC<RouteOptionsProps> = ({
         fee={fastFee}
         eta={t('fastArrival')}
         testId="bridge-route-fast"
+        accent={accent}
       />
       <RouteCard
         emoji="🕐"
@@ -102,6 +112,7 @@ export const RouteOptions: React.FC<RouteOptionsProps> = ({
         fee={<span className="text-base font-bold text-heading-gray">{t('noFee')}</span>}
         eta={t('slowArrival')}
         testId="bridge-route-slow"
+        accent={accent}
       />
       {notice && <p className="text-xs text-heading-gray/60">{notice}</p>}
     </div>

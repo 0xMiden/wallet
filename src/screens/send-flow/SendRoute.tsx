@@ -32,7 +32,7 @@ export const SendRoute: React.FC<SendRouteProps> = ({ confirmDisabled, onBack, o
         />
       }
     >
-      <RouteOptions {...options} />
+      <RouteOptions {...options} accent="send" />
     </SendStepLayout>
   );
 };

@@ -23,7 +23,8 @@ export interface SendStepLayoutProps {
 /**
  * The frame every send step shares, so moving between steps changes only the
  * content: the back row, the title, the first line of the step's large input,
- * and the CTA all sit at the same position on each one.
+ * and the CTA all sit at the same position on each one. Highlights use the Send
+ * accent; only the primary CTA keeps the brand orange.
  */
 export const SendStepLayout: React.FC<SendStepLayoutProps> = ({ title, titleAccessory, onBack, children, footer }) => {
   const { t } = useTranslation();
@@ -40,9 +41,9 @@ export const SendStepLayout: React.FC<SendStepLayoutProps> = ({ title, titleAcce
             }}
             aria-label={t('back')}
             data-testid="send-step-back"
-            className="flex h-9 w-9 items-center justify-center rounded-full bg-gray-100"
+            className="flex h-9 w-9 items-center justify-center rounded-full bg-surface-nav-button"
           >
-            <Icon name={IconName.BackArrow} size="sm" fill="currentColor" className="text-heading-gray" />
+            <Icon name={IconName.BackArrow} size="sm" fill="currentColor" className="text-accent-send" />
           </button>
         )}
       </div>

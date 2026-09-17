@@ -33,7 +33,7 @@ const NetworkLogo: React.FC<{ kind: NetworkChipKind }> = ({ kind }) =>
 /**
  * A network, shown as its logo and name on a quiet grey chip. Replaces the solid
  * orange network pills, which competed with the primary button for attention.
- * A selected chip picks up the brand color on its border and tint.
+ * A selected chip picks up the Send accent on its border and tint.
  */
 export const NetworkChip: React.FC<NetworkChipProps> = ({
   kind,
@@ -46,7 +46,7 @@ export const NetworkChip: React.FC<NetworkChipProps> = ({
   const classes = clsx(
     'inline-flex items-center gap-1.5 rounded-full border py-1 pl-1 pr-2.5',
     'font-heading text-sm font-bold leading-none text-heading-gray',
-    selected ? 'border-primary-500 bg-primary-50' : 'border-border-subtle bg-surface-interactive',
+    selected ? 'border-accent-send bg-accent-send-tint' : 'border-border-subtle bg-surface-interactive',
     className
   );
 
