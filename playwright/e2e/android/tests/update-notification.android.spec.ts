@@ -13,7 +13,9 @@ test('shows and acts on an authoritative Android update after onboarding', async
     sessionStorage.setItem('__miden_e2e_update__', JSON.stringify(update));
   });
 
-  expect(await walletA.locatorText('[data-testid="update-notification-card"]')).toBeNull();
+  // Onboarding gating is proven by the provider unit tests, which can observe a
+  // check that resolves while the surface is not a normal one; here the card
+  // could not render yet whatever the provider did.
   await walletA.createNewWallet();
   await walletA.evaluate(() => {
     (window as unknown as { __UPDATE_ACTION_COUNT__: number }).__UPDATE_ACTION_COUNT__ = 0;

@@ -71,14 +71,6 @@ jobs:
       - name: Install dependencies
         run: yarn install --frozen-lockfile
 
-      - name: Validate Android update metadata
-        if: github.event_name == 'release'
-        shell: bash
-        run: |
-          VERSION=$(node -p "require('./package.json').version")
-          VERSION_CODE=$(node -e "const [a,b,c]=require('./package.json').version.split('.').map(Number); process.stdout.write(String(a*10000000+b*100000+c*1000+1))")
-          yarn check:update-manifest --version "$VERSION" --platform android --android-version-code "$VERSION_CODE"
-
       - name: Build web app for mobile
         env:
           MIDEN_NETWORK: ${{ matrix.network }}
@@ -151,13 +143,6 @@ jobs:
 
       - name: Install dependencies
         run: yarn install --frozen-lockfile
-
-      - name: Validate iOS update metadata
-        if: github.event_name == 'release'
-        shell: bash
-        run: |
-          VERSION=$(node -p "require('./package.json').version")
-          yarn check:update-manifest --version "$VERSION" --platform ios
 
       - name: Build web app for mobile
         env:

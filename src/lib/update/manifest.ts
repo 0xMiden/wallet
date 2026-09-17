@@ -4,8 +4,8 @@ export {
   validateUpdateManifest,
   type SelectedUpdateMetadata,
   type UpdateManifest,
+  type UpdateManifestPlatform,
   type UpdatePlatform,
-  type UpdatePlatformMetadata,
   type UpdateReleaseMetadata,
   type UpdateUrgency
 } from './manifest-runtime.mjs';

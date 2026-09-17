@@ -2,11 +2,15 @@ import semver from 'semver';
 import browser from 'webextension-polyfill';
 
 import { CHROME_UPDATE_AVAILABLE_MESSAGE } from './events';
+import { isRecord, isStrictVersion } from './guards';
 import type { UpdateAvailability, UpdateAvailabilityAdapter } from './types';
 
 export const CHROME_UPDATE_STORAGE_KEY = 'miden_update_available_v1';
 export { CHROME_UPDATE_AVAILABLE_MESSAGE } from './events';
 const CHROME_UPDATE_HINT_KEY = 'miden_update_check_hint_v1';
+// Chrome answers `no_update` while the Web Store still serves the old build, so
+// a hint must be retryable; this window keeps the retries cheap.
+const HINT_INTERVAL_MS = 6 * 60 * 60 * 1_000;
 
 interface ChromeUpdateEvent {
   addListener(listener: (details: { version: string }) => void): void;
@@ -34,6 +38,7 @@ export interface ChromeUpdateDependencies {
   runtime: ChromeRuntime;
   storage: ChromeStorage;
   management?: ChromeManagement;
+  now?: () => number;
 }
 
 interface StoredAvailability {
@@ -41,17 +46,18 @@ interface StoredAvailability {
   availableVersion: string;
 }
 
-const isStrictVersion = (value: unknown): value is string => typeof value === 'string' && semver.valid(value) === value;
+interface StoredHintAttempt {
+  attemptedAt: number;
+}
 
-const isStoredAvailability = (value: unknown): value is StoredAvailability => {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
-  const candidate = value as Record<string, unknown>;
-  return (
-    Object.keys(candidate).length === 2 &&
-    isStrictVersion(candidate.currentVersion) &&
-    isStrictVersion(candidate.availableVersion)
-  );
-};
+const isHintAttempt = (value: unknown): value is StoredHintAttempt =>
+  isRecord(value) && typeof value.attemptedAt === 'number';
+
+const isStoredAvailability = (value: unknown): value is StoredAvailability =>
+  isRecord(value) &&
+  Object.keys(value).length === 2 &&
+  isStrictVersion(value.currentVersion) &&
+  isStrictVersion(value.availableVersion);
 
 const isNormalInstall = async (dependencies: ChromeUpdateDependencies): Promise<boolean> => {
   if (!dependencies.management?.getSelf) return false;
@@ -81,8 +87,9 @@ export async function persistChromeUpdate(
     await dependencies.runtime
       .sendMessage({ type: CHROME_UPDATE_AVAILABLE_MESSAGE, availableVersion: details.version })
       .catch(() => undefined);
-  } catch {
+  } catch (error) {
     // The update notice is optional and must not disrupt the service worker.
+    console.warn('[UpdateNotification] could not record a Chrome update:', error);
   }
 }
 
@@ -127,15 +134,28 @@ export class ChromeUpdateAdapter implements UpdateAvailabilityAdapter {
     }
   }
 
-  async hintAvailableVersion(candidateVersion: string): Promise<void> {
+  /**
+   * Chrome checks for updates on its own schedule; a hint asks it to look now
+   * because the catalog already names a newer build. The throttle is read
+   * first, so a hint that is not due costs no catalog fetch, and it is a time
+   * window rather than a per-version flag: Chrome commonly answers `no_update`
+   * while the Web Store is still publishing that version, and a one-shot gate
+   * would spend the hint on exactly that answer.
+   */
+  async hintAvailableVersion(loadCandidate: () => Promise<string | null>): Promise<void> {
     const currentVersion = this.dependencies.runtime.getManifest().version;
-    if (!isStrictVersion(currentVersion) || !isStrictVersion(candidateVersion)) return;
-    if (!semver.gt(candidateVersion, currentVersion) || !this.dependencies.runtime.requestUpdateCheck) return;
+    if (!isStrictVersion(currentVersion) || !this.dependencies.runtime.requestUpdateCheck) return;
     try {
       if (!(await isNormalInstall(this.dependencies))) return;
-      const previous = (await this.dependencies.storage.get([CHROME_UPDATE_HINT_KEY]))[CHROME_UPDATE_HINT_KEY];
-      if (previous === candidateVersion) return;
-      await this.dependencies.storage.set({ [CHROME_UPDATE_HINT_KEY]: candidateVersion });
+      const stored = (await this.dependencies.storage.get([CHROME_UPDATE_HINT_KEY]))[CHROME_UPDATE_HINT_KEY];
+      const now = this.dependencies.now?.() ?? Date.now();
+      if (isHintAttempt(stored) && now - stored.attemptedAt < HINT_INTERVAL_MS) return;
+
+      const candidateVersion = await loadCandidate();
+      if (!isStrictVersion(candidateVersion) || !semver.gt(candidateVersion, currentVersion)) return;
+      await this.dependencies.storage.set({
+        [CHROME_UPDATE_HINT_KEY]: { attemptedAt: now } satisfies StoredHintAttempt
+      });
       await this.dependencies.runtime.requestUpdateCheck();
     } catch {
       // Chrome throttling or extension teardown leaves availability unknown.

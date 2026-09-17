@@ -1,12 +1,16 @@
 import semver from 'semver';
 
-const PLATFORM_NAMES = ['chrome', 'android', 'ios', 'desktop'];
+// A platform belongs here once the wallet has an authoritative update source for
+// it. Desktop has none, so a desktop entry is rejected by the schema itself
+// rather than by a separate release check.
+const PLATFORM_NAMES = ['chrome', 'android', 'ios'];
 const URGENCY_NAMES = ['normal', 'important', 'critical'];
 const TOP_LEVEL_FIELDS = ['schemaVersion', 'releases'];
 const RELEASE_FIELDS = ['version', 'summary', 'urgency', 'platforms'];
-const PLATFORM_FIELDS = ['version'];
-const ANDROID_PLATFORM_FIELDS = ['version', 'versionCode'];
 const SUMMARY_MAX_LENGTH = 280;
+// The catalog only has to describe releases a client may still be behind, and a
+// cap is what stops an append-only file growing into every device's storage.
+const MAX_RELEASES = 50;
 
 const isRecord = value => typeof value === 'object' && value !== null && !Array.isArray(value);
 
@@ -37,19 +41,6 @@ const parseSummary = value => {
   return value;
 };
 
-const parsePlatform = (name, value, releaseVersion) => {
-  if (!isRecord(value)) throw new Error(`platform ${name} must be an object`);
-  const allowed = name === 'android' ? ANDROID_PLATFORM_FIELDS : PLATFORM_FIELDS;
-  assertExactFields(value, allowed, `platform ${name}`);
-  const version = parseVersion(value.version, `platform ${name} version`);
-  if (version !== releaseVersion) throw new Error(`platform ${name} version must match release version`);
-  if (name !== 'android') return { version };
-  if (!Number.isSafeInteger(value.versionCode) || value.versionCode <= 0) {
-    throw new Error('android versionCode must be a positive safe integer');
-  }
-  return { version, versionCode: value.versionCode };
-};
-
 const parseRelease = value => {
   if (!isRecord(value)) throw new Error('release must be an object');
   assertExactFields(value, RELEASE_FIELDS, 'release');
@@ -58,15 +49,16 @@ const parseRelease = value => {
   if (typeof value.urgency !== 'string' || !URGENCY_NAMES.includes(value.urgency)) {
     throw new Error('release urgency must be normal, important, or critical');
   }
-  if (!isRecord(value.platforms)) throw new Error('release platforms must be an object');
-  const platformNames = Object.keys(value.platforms);
-  if (platformNames.length === 0 || platformNames.some(name => !PLATFORM_NAMES.includes(name))) {
-    throw new Error('release platform must be chrome, android, ios, or desktop');
+  if (!Array.isArray(value.platforms) || value.platforms.length === 0) {
+    throw new Error('release platforms must be a non-empty array');
   }
-  const platforms = Object.fromEntries(
-    platformNames.map(name => [name, parsePlatform(name, value.platforms[name], version)])
-  );
-  return { version, summary, urgency: value.urgency, platforms };
+  if (value.platforms.some(name => !PLATFORM_NAMES.includes(name))) {
+    throw new Error('release platform must be chrome, android, or ios');
+  }
+  if (new Set(value.platforms).size !== value.platforms.length) {
+    throw new Error('release platforms must be unique');
+  }
+  return { version, summary, urgency: value.urgency, platforms: [...value.platforms] };
 };
 
 const parseTopLevel = value => {
@@ -74,6 +66,9 @@ const parseTopLevel = value => {
   assertExactFields(value, TOP_LEVEL_FIELDS, 'update manifest');
   if (value.schemaVersion !== 1) throw new Error('update manifest schemaVersion must be 1');
   if (!Array.isArray(value.releases)) throw new Error('update manifest releases must be an array');
+  if (value.releases.length > MAX_RELEASES) {
+    throw new Error(`update manifest must list at most ${MAX_RELEASES} releases`);
+  }
   return value.releases;
 };
 
@@ -112,7 +107,7 @@ export const validateUpdateManifest = value => {
 
 export const selectUpdateMetadata = (manifest, platform, availableVersion) => {
   const release = manifest.releases.find(
-    item => item.version === availableVersion && item.platforms[platform]?.version === availableVersion
+    item => item.version === availableVersion && item.platforms.includes(platform)
   );
   if (!release) return null;
   return { version: release.version, summary: release.summary, urgency: release.urgency };

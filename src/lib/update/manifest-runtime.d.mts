@@ -1,16 +1,13 @@
 export type UpdatePlatform = 'chrome' | 'android' | 'ios' | 'desktop';
+/** The platforms a catalog entry may name: those with an authoritative source. */
+export type UpdateManifestPlatform = 'chrome' | 'android' | 'ios';
 export type UpdateUrgency = 'normal' | 'important' | 'critical';
-
-export interface UpdatePlatformMetadata {
-  version: string;
-  versionCode?: number;
-}
 
 export interface UpdateReleaseMetadata {
   version: string;
   summary: string;
   urgency: UpdateUrgency;
-  platforms: Partial<Record<UpdatePlatform, UpdatePlatformMetadata>>;
+  platforms: UpdateManifestPlatform[];
 }
 
 export interface UpdateManifest {

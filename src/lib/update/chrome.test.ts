@@ -39,7 +39,9 @@ const makeDependencies = () => {
     })
   };
   const management = { getSelf: jest.fn().mockResolvedValue({ installType: 'normal' }) };
-  return { management, onUpdateAvailable, runtime, state, storage };
+  const clock = { now: 1_000_000 };
+  const now = () => clock.now;
+  return { clock, management, now, onUpdateAvailable, runtime, state, storage };
 };
 
 describe('Chrome update service worker', () => {
@@ -58,15 +60,26 @@ describe('Chrome update service worker', () => {
     expect(deps.runtime.reload).not.toHaveBeenCalled();
   });
 
-  it('ignores duplicate events and failures notifying surfaces', async () => {
+  it('ignores a duplicate event', async () => {
     const deps = makeDependencies();
     await persistChromeUpdate({ version: '1.17.0' }, deps);
-    deps.runtime.sendMessage.mockRejectedValueOnce(new Error('no open surface'));
 
     await expect(persistChromeUpdate({ version: '1.17.0' }, deps)).resolves.toBeUndefined();
 
     expect(deps.storage.set).toHaveBeenCalledTimes(1);
     expect(deps.runtime.sendMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it('still records availability when no surface is open to notify', async () => {
+    const deps = makeDependencies();
+    deps.runtime.sendMessage.mockRejectedValueOnce(new Error('no open surface'));
+
+    await expect(persistChromeUpdate({ version: '1.17.0' }, deps)).resolves.toBeUndefined();
+
+    expect(deps.runtime.sendMessage).toHaveBeenCalledTimes(1);
+    expect(deps.state).toEqual({
+      [CHROME_UPDATE_STORAGE_KEY]: { currentVersion: '1.16.0', availableVersion: '1.17.0' }
+    });
   });
 
   it.each([
@@ -172,14 +185,26 @@ describe('ChromeUpdateAdapter', () => {
     });
   });
 
-  it('requests an update check at most once per newer manifest candidate without trusting its response', async () => {
+  it('throttles the update-check hint by time, without reading the catalog when one is not due', async () => {
     const deps = makeDependencies();
     const adapter = new ChromeUpdateAdapter(deps);
+    const loadCandidate = jest.fn().mockResolvedValue('1.17.0');
 
-    await adapter.hintAvailableVersion('1.17.0');
-    await adapter.hintAvailableVersion('1.17.0');
-
+    await adapter.hintAvailableVersion(loadCandidate);
     expect(deps.runtime.requestUpdateCheck).toHaveBeenCalledTimes(1);
+
+    // Chrome answers `no_update` while the store is still publishing, so the
+    // second hint is refused by the clock, not by the version.
+    deps.clock.now += 6 * 60 * 60 * 1_000 - 1;
+    await adapter.hintAvailableVersion(loadCandidate);
+    expect(loadCandidate).toHaveBeenCalledTimes(1);
+    expect(deps.runtime.requestUpdateCheck).toHaveBeenCalledTimes(1);
+
+    deps.clock.now += 1;
+    await adapter.hintAvailableVersion(loadCandidate);
+
+    expect(loadCandidate).toHaveBeenCalledTimes(2);
+    expect(deps.runtime.requestUpdateCheck).toHaveBeenCalledTimes(2);
     await expect(adapter.check()).resolves.toEqual({ status: 'none', currentVersion: '1.16.0' });
   });
 
@@ -187,19 +212,20 @@ describe('ChromeUpdateAdapter', () => {
     const deps = makeDependencies();
     const adapter = new ChromeUpdateAdapter(deps);
 
-    await adapter.hintAvailableVersion('1.16.0');
-    await adapter.hintAvailableVersion('invalid');
+    await adapter.hintAvailableVersion(async () => '1.16.0');
+    await adapter.hintAvailableVersion(async () => 'invalid');
+    await adapter.hintAvailableVersion(async () => null);
     deps.management.getSelf.mockResolvedValue({ installType: 'development' });
-    await adapter.hintAvailableVersion('1.18.0');
+    await adapter.hintAvailableVersion(async () => '1.18.0');
 
     expect(deps.runtime.requestUpdateCheck).not.toHaveBeenCalled();
   });
 
-  it('contains update-check API errors after recording the candidate', async () => {
+  it('contains update-check API errors after recording the attempt', async () => {
     const deps = makeDependencies();
     deps.runtime.requestUpdateCheck.mockRejectedValueOnce(new Error('extension disabled'));
 
-    await expect(new ChromeUpdateAdapter(deps).hintAvailableVersion('1.17.0')).resolves.toBeUndefined();
+    await expect(new ChromeUpdateAdapter(deps).hintAvailableVersion(async () => '1.17.0')).resolves.toBeUndefined();
 
     expect(deps.runtime.requestUpdateCheck).toHaveBeenCalledTimes(1);
   });

@@ -1,12 +1,15 @@
 import semver from 'semver';
 
 import { parseUpdateManifest, selectUpdateMetadata } from './manifest';
-import type { UpdateAvailability, UpdateAvailabilityAdapter, UpdateNotice } from './types';
+import type { UpdateAvailability, UpdateAvailabilityAdapter, UpdateCheckResult, UpdateNotice } from './types';
 
 const SIX_HOURS_MS = 6 * 60 * 60 * 1_000;
 const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_UNKNOWN_RETRY_MS = 60_000;
 const MAX_UNKNOWN_RETRY_MS = 60 * 60 * 1_000;
+
+const UNKNOWN: UpdateCheckResult = { status: 'unknown' };
+const NONE: UpdateCheckResult = { status: 'none' };
 
 interface UpdateControllerOptions {
   adapter: UpdateAvailabilityAdapter;
@@ -19,7 +22,7 @@ interface UpdateControllerOptions {
 
 interface CachedResult {
   expiresAt: number;
-  notice: UpdateNotice | null;
+  result: UpdateCheckResult;
 }
 
 export class UpdateController {
@@ -30,7 +33,10 @@ export class UpdateController {
   private readonly timeoutMs: number;
   private readonly unknownRetryBaseMs: number;
   private cached?: CachedResult;
-  private inFlight?: Promise<UpdateNotice | null>;
+  private inFlight?: Promise<UpdateCheckResult>;
+  // The newest request, kept after it settles: a superseded request answers with
+  // this instead of inventing a result of its own.
+  private latest?: Promise<UpdateCheckResult>;
   private retryAfter = 0;
   private unknownCount = 0;
   private generation = 0;
@@ -44,56 +50,88 @@ export class UpdateController {
     this.unknownRetryBaseMs = options.unknownRetryBaseMs ?? DEFAULT_UNKNOWN_RETRY_MS;
   }
 
-  check({ force = false }: { force?: boolean } = {}): Promise<UpdateNotice | null> {
-    if (this.inFlight) return this.inFlight;
+  /**
+   * Ask the platform whether an update is available.
+   *
+   * `force` is the whole of "check again now": it supersedes any request in
+   * flight and drops the cache and the backoff. A plain check reuses all three,
+   * which is what an app foreground wants - the platform's answer does not
+   * change every time the user switches back to the wallet.
+   */
+  check({ force = false }: { force?: boolean } = {}): Promise<UpdateCheckResult> {
     const now = this.now();
-    if (!force && this.cached && this.cached.expiresAt > now) return Promise.resolve(this.cached.notice);
-    if (!force && this.retryAfter > now) return Promise.resolve(null);
+    if (force) {
+      this.generation += 1;
+      this.cached = undefined;
+      this.retryAfter = 0;
+      this.unknownCount = 0;
+    } else {
+      if (this.inFlight) return this.inFlight;
+      if (this.cached && this.cached.expiresAt > now) return Promise.resolve(this.cached.result);
+      // Inside the backoff the platform has not answered, which is not the same
+      // as "no update": saying `none` here would retract a card it confirmed.
+      if (this.retryAfter > now) return Promise.resolve(UNKNOWN);
+    }
 
     const generation = this.generation;
     const request = this.runCheck(generation).finally(() => {
       if (this.inFlight === request) this.inFlight = undefined;
     });
     this.inFlight = request;
+    this.latest = request;
     return request;
   }
 
-  invalidate(): void {
-    this.generation += 1;
-    this.cached = undefined;
-    this.inFlight = undefined;
-    this.retryAfter = 0;
-    this.unknownCount = 0;
-  }
-
-  private async runCheck(generation: number): Promise<UpdateNotice | null> {
+  private async runCheck(generation: number): Promise<UpdateCheckResult> {
     const availability = await this.checkWithTimeout();
-    if (generation !== this.generation) return null;
+    if (generation !== this.generation) return this.supersededResult();
     if (availability.status === 'unknown') {
       this.unknownCount += 1;
       const delay = Math.min(this.unknownRetryBaseMs * 2 ** (this.unknownCount - 1), MAX_UNKNOWN_RETRY_MS);
       this.retryAfter = this.now() + delay;
-      return null;
+      return UNKNOWN;
     }
 
     this.unknownCount = 0;
     this.retryAfter = 0;
-    if (availability.status === 'none') await this.hintAvailableVersion(availability.currentVersion);
-    const notice = availability.status === 'available' ? await this.toNotice(availability) : null;
-    if (generation !== this.generation) return null;
-    this.cached = { notice, expiresAt: this.now() + this.cacheDurationMs };
-    return notice;
+    if (availability.status === 'none') {
+      // The hint is optional and may load the manifest; the answer the platform
+      // already gave must not wait for it.
+      void this.hintAvailableVersion(availability.currentVersion);
+      this.cached = { result: NONE, expiresAt: this.now() + this.cacheDurationMs };
+      return NONE;
+    }
+
+    const notice = await this.toNotice(availability);
+    if (generation !== this.generation) return this.supersededResult();
+    const result: UpdateCheckResult = notice ? { status: 'available', notice } : NONE;
+    this.cached = { result, expiresAt: this.now() + this.cacheDurationMs };
+    return result;
   }
 
-  private async checkWithTimeout(): Promise<UpdateAvailability> {
+  // A forced check always replaces `latest` before the superseded request can
+  // reach here, so its callers see the newer answer rather than a stale one.
+  private supersededResult(): Promise<UpdateCheckResult> {
+    return this.latest ?? Promise.resolve(UNKNOWN);
+  }
+
+  private checkWithTimeout(): Promise<UpdateAvailability> {
+    return this.withTimeout(() => this.adapter.check(), UNKNOWN as UpdateAvailability);
+  }
+
+  /**
+   * Bound optional work so it can never hold up an authoritative answer. The
+   * fallback is what the caller shows when the deadline passes.
+   */
+  private async withTimeout<T>(work: () => Promise<T>, fallback: T): Promise<T> {
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const timeout = new Promise<UpdateAvailability>(resolve => {
-      timer = setTimeout(() => resolve({ status: 'unknown' }), this.timeoutMs);
+    const timeout = new Promise<T>(resolve => {
+      timer = setTimeout(() => resolve(fallback), this.timeoutMs);
     });
     try {
-      return await Promise.race([this.adapter.check(), timeout]);
+      return await Promise.race([work(), timeout]);
     } catch {
-      return { status: 'unknown' };
+      return fallback;
     } finally {
       if (timer) clearTimeout(timer);
     }
@@ -105,37 +143,41 @@ export class UpdateController {
     if (!semver.valid(availability.currentVersion) || !semver.valid(availability.availableVersion)) return null;
     if (!semver.gt(availability.availableVersion, availability.currentVersion)) return null;
 
-    let summary: string | null = null;
-    let urgency: UpdateNotice['urgency'] = 'normal';
-    try {
+    const metadata = await this.withTimeout(async () => {
       const manifest = parseUpdateManifest(await this.loadManifest());
-      const metadata = selectUpdateMetadata(manifest, this.adapter.platform, availability.availableVersion);
-      if (metadata) {
-        summary = metadata.summary;
-        urgency = metadata.urgency;
-      }
-    } catch {
-      // Availability remains authoritative when optional presentation metadata is unavailable.
-    }
+      return selectUpdateMetadata(manifest, this.adapter.platform, availability.availableVersion);
+    }, null);
 
     return {
       platform: this.adapter.platform,
       currentVersion: availability.currentVersion,
       availableVersion: availability.availableVersion,
-      summary,
-      urgency,
+      // Availability remains authoritative when optional presentation metadata
+      // is unavailable, invalid, or too slow.
+      summary: metadata?.summary ?? null,
+      urgency: metadata?.urgency ?? 'normal',
       action: availability.action
     };
   }
 
   private async hintAvailableVersion(currentVersion: string): Promise<void> {
-    if (!this.adapter.hintAvailableVersion) return;
-    try {
-      const manifest = parseUpdateManifest(await this.loadManifest());
+    const hint = this.adapter.hintAvailableVersion;
+    if (!hint) return;
+    // The adapter decides whether a hint is due before this runs, so a throttled
+    // hint costs no catalog fetch.
+    const loadCandidate = async (): Promise<string | null> => {
+      const manifest = await this.withTimeout(async () => parseUpdateManifest(await this.loadManifest()), null);
+      if (!manifest) return null;
       const candidate = manifest.releases
-        .filter(release => release.platforms[this.adapter.platform] && semver.gt(release.version, currentVersion))
+        .filter(
+          release =>
+            release.platforms.some(name => name === this.adapter.platform) && semver.gt(release.version, currentVersion)
+        )
         .sort((left, right) => semver.rcompare(left.version, right.version))[0];
-      if (candidate) void this.adapter.hintAvailableVersion(candidate.version).catch(() => undefined);
+      return candidate?.version ?? null;
+    };
+    try {
+      await hint.call(this.adapter, loadCandidate);
     } catch {
       // Invalid optional metadata cannot create or suppress authoritative availability.
     }

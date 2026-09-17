@@ -88,14 +88,4 @@ class UpdateAvailabilityLogicTest {
 
         for (case in cases) assertEquals("unknown", UpdateAvailabilityLogic.map(case).status)
     }
-
-    @Test
-    fun `maps download progress and terminal states without requesting installation`() {
-        assertEquals(NativeUpdateProgress("downloading", 40), UpdateAvailabilityLogic.progress(InstallStatus.DOWNLOADING, 40, 100))
-        assertEquals(NativeUpdateProgress("downloading", null), UpdateAvailabilityLogic.progress(InstallStatus.DOWNLOADING, 1, 0))
-        assertEquals(NativeUpdateProgress("downloaded", 100), UpdateAvailabilityLogic.progress(InstallStatus.DOWNLOADED, 100, 100))
-        assertEquals(NativeUpdateProgress("canceled", null), UpdateAvailabilityLogic.progress(InstallStatus.CANCELED, 0, 0))
-        assertEquals(NativeUpdateProgress("failed", null), UpdateAvailabilityLogic.progress(InstallStatus.FAILED, 0, 0))
-        assertEquals(NativeUpdateProgress("pending", null), UpdateAvailabilityLogic.progress(InstallStatus.PENDING, 0, 0))
-    }
 }

@@ -1,6 +1,7 @@
 import { Capacitor, registerPlugin } from '@capacitor/core';
 import semver from 'semver';
 
+import { isRecord, isStrictVersion } from './guards';
 import type { UpdateAvailability, UpdateAvailabilityAdapter } from './types';
 
 interface IOSUpdatePlugin {
@@ -9,11 +10,6 @@ interface IOSUpdatePlugin {
 }
 
 const NativeUpdateAvailability = registerPlugin<IOSUpdatePlugin>('UpdateAvailability');
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null && !Array.isArray(value);
-
-const isStrictVersion = (value: unknown): value is string => typeof value === 'string' && semver.valid(value) === value;
 
 export class IOSUpdateAdapter implements UpdateAvailabilityAdapter {
   readonly platform = 'ios' as const;
@@ -30,12 +26,13 @@ export class IOSUpdateAdapter implements UpdateAvailabilityAdapter {
       if (!isRecord(response) || !isStrictVersion(response.currentVersion)) return { status: 'unknown' };
       if (response.status === 'none') return { status: 'none', currentVersion: response.currentVersion };
       if (response.status === 'unknown') return { status: 'unknown', currentVersion: response.currentVersion };
-      if (
-        response.status !== 'available' ||
-        !isStrictVersion(response.availableVersion) ||
-        !semver.gt(response.availableVersion, response.currentVersion)
-      ) {
+      if (response.status !== 'available' || !isStrictVersion(response.availableVersion)) {
         return { status: 'unknown', currentVersion: response.currentVersion };
+      }
+      // The App Store answered, and its version is not newer: an answer, not a
+      // failure, so it clears a stale card instead of keeping it.
+      if (!semver.gt(response.availableVersion, response.currentVersion)) {
+        return { status: 'none', currentVersion: response.currentVersion };
       }
       return {
         status: 'available',
@@ -45,7 +42,9 @@ export class IOSUpdateAdapter implements UpdateAvailabilityAdapter {
           await this.plugin.openAppStore();
         }
       };
-    } catch {
+    } catch (error) {
+      // A bridge failure and an up-to-date wallet look identical on screen.
+      console.warn('[UpdateNotification] App Store update check failed:', error);
       return { status: 'unknown' };
     }
   }

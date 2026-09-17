@@ -1,6 +1,5 @@
 package com.miden.wallet
 
-import android.app.Activity
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.net.Uri
@@ -14,7 +13,6 @@ import com.google.android.play.core.appupdate.AppUpdateManager
 import com.google.android.play.core.appupdate.AppUpdateManagerFactory
 import com.google.android.play.core.appupdate.AppUpdateInfo
 import com.google.android.play.core.appupdate.AppUpdateOptions
-import com.google.android.play.core.install.InstallStateUpdatedListener
 import com.google.android.play.core.install.model.AppUpdateType
 import com.google.android.play.core.install.model.UpdateAvailability
 
@@ -28,18 +26,6 @@ class UpdateAvailabilityPlugin : Plugin() {
     }
 
     private val updateManager: AppUpdateManager by lazy { AppUpdateManagerFactory.create(context) }
-    private var listening = false
-    private val installListener = InstallStateUpdatedListener { state ->
-        val progress = UpdateAvailabilityLogic.progress(
-            state.installStatus(),
-            state.bytesDownloaded(),
-            state.totalBytesToDownload(),
-        )
-        notifyListeners("updateState", JSObject().apply {
-            put("state", progress.state)
-            progress.percent?.let { put("percent", it) }
-        })
-    }
 
     @PluginMethod
     fun check(call: PluginCall) {
@@ -73,12 +59,11 @@ class UpdateAvailabilityPlugin : Plugin() {
             .addOnFailureListener { call.reject("Google Play update check failed", it) }
     }
 
+    // Play downloads a flexible update in the background. The card does not follow
+    // that download: a later check reports the downloaded state, and its action
+    // completes the install.
     private fun startFlexibleUpdate(info: AppUpdateInfo, call: PluginCall) {
         val currentActivity = activity ?: return call.reject("No activity is available")
-        if (!listening) {
-            updateManager.registerListener(installListener)
-            listening = true
-        }
         val started = updateManager.startUpdateFlowForResult(
             info,
             currentActivity,
@@ -94,31 +79,20 @@ class UpdateAvailabilityPlugin : Plugin() {
             .addOnFailureListener { call.reject("Google Play update installation failed", it) }
     }
 
+    // Every arm settles the call: an unsettled one leaves the card's button
+    // disabled on "Starting update" with no error and no retry.
     private fun openPlayListing(call: PluginCall) {
         val currentActivity = activity ?: return call.reject("No activity is available")
         try {
             currentActivity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(PLAY_URI)))
         } catch (_: ActivityNotFoundException) {
-            currentActivity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(PLAY_WEB_URI)))
+            try {
+                currentActivity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(PLAY_WEB_URI)))
+            } catch (error: Exception) {
+                return call.reject("Google Play listing could not be opened", error)
+            }
         }
         call.resolve(JSObject().put("started", true))
-    }
-
-    @Suppress("DEPRECATION", "OVERRIDE_DEPRECATION")
-    override fun handleOnActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        if (requestCode != UPDATE_REQUEST_CODE) return
-        val state = when (resultCode) {
-            Activity.RESULT_OK -> "accepted"
-            Activity.RESULT_CANCELED -> "canceled"
-            else -> "failed"
-        }
-        notifyListeners("updateState", JSObject().put("state", state))
-    }
-
-    override fun handleOnDestroy() {
-        if (listening) updateManager.unregisterListener(installListener)
-        listening = false
-        super.handleOnDestroy()
     }
 
     private fun snapshot(
@@ -175,6 +149,5 @@ class UpdateAvailabilityPlugin : Plugin() {
         put("status", result.status)
         put("currentVersion", result.currentVersion)
         result.availableVersionCode?.let { put("availableVersionCode", it) }
-        result.action?.let { put("action", it.name.lowercase()) }
     }
 }

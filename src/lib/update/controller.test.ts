@@ -15,7 +15,7 @@ const manifest = {
       version: '1.17.0',
       summary: 'Security fixes and reliability improvements.',
       urgency: 'important',
-      platforms: { chrome: { version: '1.17.0' } }
+      platforms: ['chrome']
     }
   ]
 };
@@ -32,24 +32,27 @@ describe('UpdateController', () => {
     const controller = new UpdateController({ adapter: adapter(check), loadManifest: async () => manifest });
 
     await expect(controller.check()).resolves.toEqual({
-      platform: 'chrome',
-      currentVersion: '1.16.0',
-      availableVersion: '1.17.0',
-      summary: 'Security fixes and reliability improvements.',
-      urgency: 'important',
-      action
+      status: 'available',
+      notice: {
+        platform: 'chrome',
+        currentVersion: '1.16.0',
+        availableVersion: '1.17.0',
+        summary: 'Security fixes and reliability improvements.',
+        urgency: 'important',
+        action
+      }
     });
   });
 
   it.each<UpdateAvailability>([{ status: 'none', currentVersion: '1.16.0' }, { status: 'unknown' }])(
-    'stays silent for $status',
+    'reports $status without a notice',
     async result => {
       const controller = new UpdateController({
         adapter: adapter(jest.fn().mockResolvedValue(result)),
         loadManifest: async () => manifest
       });
 
-      await expect(controller.check()).resolves.toBeNull();
+      await expect(controller.check()).resolves.toEqual({ status: result.status });
     }
   );
 
@@ -60,8 +63,8 @@ describe('UpdateController', () => {
       .mockResolvedValueOnce(available('1.15.9'));
     const controller = new UpdateController({ adapter: adapter(check), loadManifest: async () => manifest });
 
-    await expect(controller.check({ force: true })).resolves.toBeNull();
-    await expect(controller.check({ force: true })).resolves.toBeNull();
+    await expect(controller.check({ force: true })).resolves.toEqual({ status: 'none' });
+    await expect(controller.check({ force: true })).resolves.toEqual({ status: 'none' });
   });
 
   it('uses generic presentation when metadata is missing or invalid', async () => {
@@ -74,8 +77,8 @@ describe('UpdateController', () => {
       loadManifest: async () => ({ schemaVersion: 9 })
     });
 
-    await expect(missing.check()).resolves.toMatchObject({ summary: null, urgency: 'normal' });
-    await expect(invalid.check()).resolves.toMatchObject({ summary: null, urgency: 'normal' });
+    await expect(missing.check()).resolves.toMatchObject({ notice: { summary: null, urgency: 'normal' } });
+    await expect(invalid.check()).resolves.toMatchObject({ notice: { summary: null, urgency: 'normal' } });
   });
 
   it('deduplicates an in-flight check and caches successful results for six hours', async () => {
@@ -117,45 +120,107 @@ describe('UpdateController', () => {
       unknownRetryBaseMs: 5_000
     });
 
-    await expect(controller.check()).resolves.toBeNull();
+    await expect(controller.check()).resolves.toEqual({ status: 'unknown' });
     now += 4_999;
-    await expect(controller.check()).resolves.toBeNull();
+    // Inside the backoff the platform has not answered; reporting `none` here
+    // would retract a card it confirmed earlier.
+    await expect(controller.check()).resolves.toEqual({ status: 'unknown' });
     expect(check).toHaveBeenCalledTimes(1);
-    await expect(controller.check({ force: true })).resolves.toMatchObject({ availableVersion: '1.17.0' });
+    await expect(controller.check({ force: true })).resolves.toMatchObject({
+      notice: { availableVersion: '1.17.0' }
+    });
   });
 
-  it('does not cache a result from an invalidated platform session', async () => {
-    let resolveCheck: ((value: UpdateAvailability) => void) | undefined;
+  it('answers a superseded check with the newest result instead of no update', async () => {
+    const resolvers: Array<(value: UpdateAvailability) => void> = [];
     const check = jest.fn(
       () =>
         new Promise<UpdateAvailability>(resolve => {
-          resolveCheck = resolve;
+          resolvers.push(resolve);
         })
     );
     const controller = new UpdateController({ adapter: adapter(check), loadManifest: async () => manifest });
 
-    const pending = controller.check();
-    controller.invalidate();
-    resolveCheck?.(available());
-    await expect(pending).resolves.toBeNull();
+    const older = controller.check();
+    const newer = controller.check({ force: true });
+    expect(check).toHaveBeenCalledTimes(2);
+
+    // The newest answer lands first, and the superseded request answers last.
+    resolvers[1]?.(available('1.18.0'));
+    await expect(newer).resolves.toMatchObject({ notice: { availableVersion: '1.18.0' } });
+    resolvers[0]?.({ status: 'none', currentVersion: '1.16.0' });
+
+    await expect(older).resolves.toMatchObject({ notice: { availableVersion: '1.18.0' } });
   });
 
-  it('times out without turning an adapter failure into no update', async () => {
+  it('reports unknown rather than no update when the adapter never answers', async () => {
+    jest.useFakeTimers();
+    const check = jest
+      .fn<Promise<UpdateAvailability>, []>()
+      .mockImplementationOnce(() => new Promise<UpdateAvailability>(() => {}))
+      .mockResolvedValue(available());
+    const controller = new UpdateController({
+      adapter: adapter(check),
+      loadManifest: async () => manifest,
+      timeoutMs: 100,
+      unknownRetryBaseMs: 1_000
+    });
+
+    const pending = controller.check();
+    await jest.advanceTimersByTimeAsync(100);
+    await expect(pending).resolves.toEqual({ status: 'unknown' });
+
+    // A cached `none` would keep the adapter out of the next six hours; an
+    // unknown result only holds it back for the backoff.
+    await jest.advanceTimersByTimeAsync(1_000);
+    await expect(controller.check()).resolves.toMatchObject({ notice: { availableVersion: '1.17.0' } });
+    expect(check).toHaveBeenCalledTimes(2);
+    jest.useRealTimers();
+  });
+
+  it('publishes generic copy when presentation metadata outlives the deadline', async () => {
     jest.useFakeTimers();
     const controller = new UpdateController({
-      adapter: adapter(jest.fn(() => new Promise<UpdateAvailability>(() => {}))),
-      loadManifest: async () => manifest,
+      adapter: adapter(jest.fn().mockResolvedValue(available())),
+      loadManifest: () => new Promise<unknown>(() => {}),
       timeoutMs: 100
     });
 
     const pending = controller.check();
     await jest.advanceTimersByTimeAsync(100);
-    await expect(pending).resolves.toBeNull();
+
+    await expect(pending).resolves.toMatchObject({
+      status: 'available',
+      notice: { availableVersion: '1.17.0', summary: null, urgency: 'normal' }
+    });
     jest.useRealTimers();
   });
 
-  it('passes only the newest validated manifest candidate to an adapter hint', async () => {
-    const hintAvailableVersion = jest.fn().mockResolvedValue(undefined);
+  it('answers a none result without waiting for the hint to load metadata', async () => {
+    let loadCandidate: (() => Promise<string | null>) | undefined;
+    const hintAvailableVersion = jest.fn(async (load: () => Promise<string | null>) => {
+      loadCandidate = load;
+      await load();
+    });
+    const controller = new UpdateController({
+      adapter: {
+        platform: 'chrome',
+        check: jest.fn().mockResolvedValue({ status: 'none', currentVersion: '1.16.0' }),
+        hintAvailableVersion
+      },
+      // A catalog that never answers must not hold up the platform's own result.
+      loadManifest: () => new Promise<unknown>(() => {})
+    });
+
+    await expect(controller.check()).resolves.toEqual({ status: 'none' });
+    expect(loadCandidate).toBeDefined();
+  });
+
+  it('offers only the newest validated manifest candidate to an adapter hint', async () => {
+    let candidate: string | null = null;
+    const hintAvailableVersion = jest.fn(async (load: () => Promise<string | null>) => {
+      candidate = await load();
+    });
     const controller = new UpdateController({
       adapter: {
         platform: 'chrome',
@@ -170,21 +235,22 @@ describe('UpdateController', () => {
             version: '1.18.0',
             summary: 'Another safe release.',
             urgency: 'normal',
-            platforms: { chrome: { version: '1.18.0' } }
+            platforms: ['chrome']
           },
           {
             version: 'invalid',
             summary: '<unsafe>',
             urgency: 'critical',
-            platforms: { chrome: { version: 'invalid' } }
+            platforms: ['chrome']
           }
         ]
       })
     });
 
     await controller.check();
+    await Promise.resolve();
 
     expect(hintAvailableVersion).toHaveBeenCalledTimes(1);
-    expect(hintAvailableVersion).toHaveBeenCalledWith('1.18.0');
+    expect(candidate).toBe('1.18.0');
   });
 });

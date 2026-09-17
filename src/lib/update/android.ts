@@ -1,13 +1,13 @@
 import { Capacitor, registerPlugin } from '@capacitor/core';
 import semver from 'semver';
 
+import { isRecord, isStrictVersion } from './guards';
 import type { UpdateAvailability, UpdateAvailabilityAdapter } from './types';
 
 interface NativeCheckResult {
   status: 'available' | 'none' | 'unknown';
   currentVersion: string;
   availableVersionCode?: number;
-  action?: string;
 }
 
 interface NativeUpdatePlugin {
@@ -16,11 +16,6 @@ interface NativeUpdatePlugin {
 }
 
 const NativeUpdateAvailability = registerPlugin<NativeUpdatePlugin>('UpdateAvailability');
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null && !Array.isArray(value);
-
-const isStrictVersion = (value: unknown): value is string => typeof value === 'string' && semver.valid(value) === value;
 
 const parseResponse = (value: unknown): NativeCheckResult | null => {
   if (!isRecord(value) || !['available', 'none', 'unknown'].includes(value.status as string)) return null;
@@ -31,8 +26,7 @@ const parseResponse = (value: unknown): NativeCheckResult | null => {
   return {
     status: 'available',
     currentVersion: value.currentVersion,
-    availableVersionCode: value.availableVersionCode as number,
-    action: typeof value.action === 'string' ? value.action : undefined
+    availableVersionCode: value.availableVersionCode as number
   };
 };
 
@@ -62,8 +56,12 @@ export class AndroidUpdateAdapter implements UpdateAvailabilityAdapter {
       if (response.status === 'none') return { status: 'none', currentVersion: response.currentVersion };
       if (response.status === 'unknown') return { status: 'unknown', currentVersion: response.currentVersion };
       const availableVersion = versionCodeToSemver(response.availableVersionCode!);
-      if (!availableVersion || !semver.gt(availableVersion, response.currentVersion)) {
-        return { status: 'unknown', currentVersion: response.currentVersion };
+      if (!availableVersion) return { status: 'unknown', currentVersion: response.currentVersion };
+      // Play answered, and what it offers is not newer - a re-upload of the same
+      // marketing version reads exactly like this. That is an answer, so it is
+      // `none`: `unknown` would keep a stale card up and arm the retry backoff.
+      if (!semver.gt(availableVersion, response.currentVersion)) {
+        return { status: 'none', currentVersion: response.currentVersion };
       }
       return {
         status: 'available',
@@ -73,7 +71,9 @@ export class AndroidUpdateAdapter implements UpdateAvailabilityAdapter {
           await this.plugin.performUpdate();
         }
       };
-    } catch {
+    } catch (error) {
+      // A bridge failure and an up-to-date wallet look identical on screen.
+      console.warn('[UpdateNotification] Play update check failed:', error);
       return { status: 'unknown' };
     }
   }

@@ -10,11 +10,7 @@ const validRelease: UpdateReleaseMetadata = {
   version: '1.17.0',
   summary: 'Security fixes and reliability improvements.',
   urgency: 'normal',
-  platforms: {
-    chrome: { version: '1.17.0' },
-    android: { version: '1.17.0', versionCode: 11700001 },
-    ios: { version: '1.17.0' }
-  }
+  platforms: ['chrome', 'android', 'ios']
 };
 
 const release = (overrides: Record<string, unknown> = {}) => ({
@@ -34,19 +30,26 @@ describe('parseUpdateManifest', () => {
     });
   });
 
+  it('ignores a duplicate release and a non-object entry without suppressing valid metadata', () => {
+    expect(
+      parseUpdateManifest({
+        schemaVersion: 1,
+        releases: [release(), 'not a release', release({ summary: 'A duplicate version.' })]
+      }).releases
+    ).toEqual([release()]);
+  });
+
   it('ignores an invalid release without suppressing valid metadata', () => {
     expect(
       parseUpdateManifest({
         schemaVersion: 1,
-        releases: [
-          release({ summary: '<b>unsafe</b>' }),
-          release({ version: '1.18.0', platforms: { ios: { version: '1.18.0' } } })
-        ]
+        releases: [release({ summary: '<b>unsafe</b>' }), release({ version: '1.18.0', platforms: ['ios'] })]
       }).releases
-    ).toEqual([release({ version: '1.18.0', platforms: { ios: { version: '1.18.0' } } })]);
+    ).toEqual([release({ version: '1.18.0', platforms: ['ios'] })]);
   });
 
   it.each([
+    ['not an object', 'must be an object'],
     [{ schemaVersion: 2, releases: [] }, 'schema'],
     [{ schemaVersion: 1, releases: '1.17.0' }, 'releases'],
     [{ schemaVersion: 1, releases: [release({ version: '1.17' })] }, 'version'],
@@ -56,38 +59,26 @@ describe('parseUpdateManifest', () => {
     [{ schemaVersion: 1, releases: [release({ summary: 'line one\nline two' })] }, 'plain text'],
     [{ schemaVersion: 1, releases: [release({ summary: 'x'.repeat(281) })] }, '280'],
     [{ schemaVersion: 1, releases: [release({ action: 'Install' })] }, 'unknown'],
+    // An append-only catalog every client downloads needs a ceiling, or it
+    // grows into every device's storage unnoticed.
     [
       {
         schemaVersion: 1,
-        releases: [release({ platforms: { chrome: { version: '1.17.0', url: 'https://example.com' } } })]
+        releases: Array.from({ length: 51 }, (_, index) => release({ version: `1.${index}.0` }))
       },
-      'unknown'
+      'at most 50'
     ],
+    [{ schemaVersion: 1, releases: [release({ platforms: [] })] }, 'non-empty'],
+    [{ schemaVersion: 1, releases: [release({ platforms: { chrome: { version: '1.17.0' } } })] }, 'non-empty'],
+    [{ schemaVersion: 1, releases: [release({ platforms: ['chrome', 'chrome'] })] }, 'unique'],
+    [{ schemaVersion: 1, releases: [release({ platforms: ['firefox'] })] }, 'platform'],
+    // Desktop has no authoritative update source, so the schema itself refuses
+    // an entry naming it; no separate release check is needed.
+    [{ schemaVersion: 1, releases: [release({ platforms: ['desktop'] })] }, 'platform'],
     [
       {
         schemaVersion: 1,
-        releases: [release({ platforms: { chrome: { version: '1.17.1' } } })]
-      },
-      'match'
-    ],
-    [
-      {
-        schemaVersion: 1,
-        releases: [release({ platforms: { android: { version: '1.17.0', versionCode: 0 } } })]
-      },
-      'versionCode'
-    ],
-    [
-      {
-        schemaVersion: 1,
-        releases: [release({ platforms: { firefox: { version: '1.17.0' } } })]
-      },
-      'platform'
-    ],
-    [
-      {
-        schemaVersion: 1,
-        releases: [release({ version: '1.18.0', platforms: { ios: { version: '1.18.0' } } }), release()]
+        releases: [release({ version: '1.18.0', platforms: ['ios'] }), release()]
       },
       'ascending'
     ]
@@ -101,7 +92,7 @@ describe('selectUpdateMetadata', () => {
     version: '1.18.0',
     summary: 'A later staged release.',
     urgency: 'important',
-    platforms: { chrome: { version: '1.18.0' }, ios: { version: '1.18.0' } }
+    platforms: ['chrome', 'ios']
   };
   const manifest: UpdateManifest = {
     schemaVersion: 1,
@@ -117,7 +108,7 @@ describe('selectUpdateMetadata', () => {
     expect(selectUpdateMetadata(manifest, 'android', '1.18.0')).toBeNull();
   });
 
-  it('keeps staged platform versions independent', () => {
+  it('keeps each release scoped to the platforms it names', () => {
     expect(selectUpdateMetadata(manifest, 'chrome', '1.18.0')?.summary).toBe('A later staged release.');
     expect(selectUpdateMetadata(manifest, 'ios', '1.17.0')?.summary).toBe(
       'Security fixes and reliability improvements.'

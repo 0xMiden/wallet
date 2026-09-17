@@ -27,8 +27,7 @@
     "http://localhost/*",
     "https://faucet-api.forkchoice.xyz/*",
     "https://*.miden.fi/*",
-    "https://*.miden.io/*",
-    "https://raw.githubusercontent.com/0xMiden/wallet/*"
+    "https://*.miden.io/*"
   ],
 
   "content_security_policy": {

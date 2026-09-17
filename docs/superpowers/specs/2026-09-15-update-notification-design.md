@@ -22,7 +22,7 @@ One `UpdateAvailabilityAdapter` normalizes `{ status, currentVersion, availableV
 
 | Runtime                              | Authoritative signal                                                                                                                                                                                                                                                     | User action                                                                                                                                                                                    |
 | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Chrome extension                     | `runtime.onUpdateAvailable`; when the manifest names a newer Chrome version, one deduplicated `runtime.requestUpdateCheck()` asks Chrome to confirm it. Chrome documents this as appropriate when a backend already knows the client is outdated.                        | `runtime.reload()` only after Chrome has reported the downloaded update as available.                                                                                                          |
+| Chrome extension                     | `runtime.onUpdateAvailable`; when the manifest names a newer Chrome version, a time-throttled `runtime.requestUpdateCheck()` asks Chrome to confirm it, retried after the window because Chrome answers `no_update` while the store is still publishing. Chrome documents this as appropriate when a backend already knows the client is outdated.                        | `runtime.reload()` only after Chrome has reported the downloaded update as available.                                                                                                          |
 | Android                              | A small Capacitor plugin wraps Google Play Core `AppUpdateManager.appUpdateInfo`, including the available version code and allowed update mode.                                                                                                                          | Start the Play flexible update flow; complete and restart only through Play Core. Fall back to the compiled Play Store listing when Play Core says an update exists but cannot start the flow. |
 | iOS                                  | A small Capacitor plugin reads the installed version and queries Apple's App Store product metadata for `com.miden.bread`; a strictly greater App Store version is authoritative. There is no general StoreKit API that reports an App Store update for the current app. | Open the compiled App Store product URL. The manifest cannot replace it.                                                                                                                       |
 | Tauri desktop                        | Deferred. The current release pipeline has no updater signing-key contract, published updater public key, or signed-update endpoint. The adapter returns `unknown`.                                                                                                      | No action in this issue. Enable only after the signed updater pipeline exists.                                                                                                                 |
@@ -32,7 +32,7 @@ The Chrome listener lives in the service worker so it survives popup lifetimes. 
 
 ## Miden-owned release manifest
 
-Check in `updates/manifest.json` as an append-only, schema-versioned catalog and fetch its raw `main` URL over HTTPS. CI validates it, and the release workflow requires a matching entry before publishing a release. The catalog keeps recent releases so staged stores can expose different versions at the same time.
+Check in `updates/manifest.json` as an append-only, schema-versioned catalog and fetch its raw `main` URL over HTTPS. CI validates its shape on every pull request, where a failure is actionable before the file reaches clients. A release build never requires an entry: availability comes from the store, so a missing entry only costs the card its summary. The catalog keeps recent releases so staged stores can expose different versions at the same time.
 
 Each release entry contains:
 
@@ -41,23 +41,18 @@ Each release entry contains:
   "version": "1.17.0",
   "summary": "Short plain-text fixes and improvements summary.",
   "urgency": "normal",
-  "platforms": {
-    "chrome": { "version": "1.17.0" },
-    "android": { "version": "1.17.0", "versionCode": 11700001 },
-    "ios": { "version": "1.17.0" },
-    "desktop": { "version": "1.17.0" }
-  }
+  "platforms": ["chrome", "android", "ios"]
 }
 ```
 
-The client accepts only schema-known fields, valid SemVer, a known urgency enum, bounded plain text, and exact platform/version matches. It renders text as text, never HTML. URLs, commands, action labels, and update modes remain compiled into the app. Invalid entries are ignored independently so one bad release cannot suppress older valid metadata.
+`platforms` names the platforms the release covers; the release version is the only version an entry carries, and `desktop` is not a valid name while desktop has no authoritative source. The client accepts only schema-known fields, valid SemVer, a known urgency enum, bounded plain text, and an exact version match. It renders text as text, never HTML. URLs, commands, action labels, and update modes remain compiled into the app. Invalid entries are ignored independently so one bad release cannot suppress older valid metadata.
 
 ## State and UI
 
 - New `src/lib/update/` modules own schema validation, semantic comparison, platform adapters, caching, and dismissal persistence.
 - `UpdateNotificationProvider` mounts beside the existing global notice providers. It waits for the normal initialized app surface, resolves availability, joins exact-version metadata, and renders `UpdateNotificationCard`.
 - Persistence uses the existing cross-platform storage adapter under versioned keys. It stores no device identifier and sends no wallet/account data.
-- The card is keyboard and screen-reader reachable, has an explicit dismiss control, reports install progress where the native API provides it, and surfaces a retryable local error if the user-initiated update action fails.
+- The card is keyboard and screen-reader reachable, has an explicit dismiss control, and surfaces a retryable local error if the user-initiated update action fails. It reports no install progress: Android's flexible download runs in the background, and the card's action completes the install on the next tap once a later check sees it downloaded.
 - Copy is added through i18n; the remote summary remains authored English release text for this first version and is labeled as release notes rather than silently machine-translated.
 
 ## Security and failure behavior
@@ -82,7 +77,7 @@ The client accepts only schema-known fields, valid SemVer, a known urgency enum,
 
 1. Land manifest schema, validator, adapter contract, storage, and generic card behind `MIDEN_UPDATE_NOTIFICATIONS`.
 2. Add Chrome and mobile adapters. Keep desktop disabled until its signing infrastructure is defined and deployed.
-3. Add the first real manifest entry only after every target has a published version to match.
+3. Add the first real manifest entry once a published version exists to describe; until then every card shows generic copy.
 4. Enable the flag after release-pipeline and store-sandbox verification. Unknown/unsupported platforms remain silent.
 
 ## References

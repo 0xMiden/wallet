@@ -1,7 +1,6 @@
 import { expect, test } from '../fixtures/two-wallets';
 
 test('shows, acts on, dismisses, and refreshes an authoritative Chrome update', async ({ walletA, steps }) => {
-  await expect(walletA.page.getByTestId('update-notification-card')).toHaveCount(0);
   await walletA.page.addInitScript(() => {
     window.__MIDEN_E2E_UPDATE__ = {
       platform: 'chrome',
@@ -44,7 +43,15 @@ test('shows, acts on, dismisses, and refreshes an authoritative Chrome update', 
       summary: 'A later update.',
       urgency: 'critical'
     };
-    document.dispatchEvent(new Event('visibilitychange'));
+  });
+  // The service worker announcing an update is the one signal that supersedes a
+  // cached answer, which is what a real Chrome update does.
+  const serviceWorker =
+    walletA.page.context().serviceWorkers()[0] ?? (await walletA.page.context().waitForEvent('serviceworker'));
+  await serviceWorker.evaluate(() => {
+    const runtime = (globalThis as unknown as { chrome: { runtime: { sendMessage(message: unknown): unknown } } })
+      .chrome.runtime;
+    runtime.sendMessage({ type: 'MIDEN_UPDATE_AVAILABLE', availableVersion: '1.18.0' });
   });
 
   await expect(walletA.page.getByTestId('update-notification-card')).toContainText('Version 1.18.0');

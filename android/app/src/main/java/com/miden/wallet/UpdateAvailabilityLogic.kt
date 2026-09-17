@@ -26,8 +26,6 @@ data class NativeUpdateResult(
     val action: NativeUpdateAction? = null,
 )
 
-data class NativeUpdateProgress(val state: String, val percent: Int?)
-
 object UpdateAvailabilityLogic {
     fun map(snapshot: PlayUpdateSnapshot): NativeUpdateResult {
         if (!snapshot.playInstalled) return unknown(snapshot)
@@ -51,17 +49,6 @@ object UpdateAvailabilityLogic {
             else -> NativeUpdateAction.OPEN_LISTING
         }
         return NativeUpdateResult("available", snapshot.installedVersion, availableCode, action)
-    }
-
-    fun progress(status: Int, downloadedBytes: Long, totalBytes: Long): NativeUpdateProgress = when (status) {
-        InstallStatus.DOWNLOADING -> NativeUpdateProgress(
-            "downloading",
-            if (totalBytes > 0) ((downloadedBytes * 100) / totalBytes).coerceIn(0, 100).toInt() else null,
-        )
-        InstallStatus.DOWNLOADED -> NativeUpdateProgress("downloaded", 100)
-        InstallStatus.CANCELED -> NativeUpdateProgress("canceled", null)
-        InstallStatus.FAILED -> NativeUpdateProgress("failed", null)
-        else -> NativeUpdateProgress("pending", null)
     }
 
     private fun unknown(snapshot: PlayUpdateSnapshot) = NativeUpdateResult("unknown", snapshot.installedVersion)

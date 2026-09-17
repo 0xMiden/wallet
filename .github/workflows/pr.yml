@@ -178,6 +178,14 @@ jobs:
         with:
           cmd: test
 
+      # The catalog is served live to every client from main, so its shape is
+      # checked before it can merge. It never gates a release build: a missing
+      # entry only costs the card its summary.
+      - name: Validate update manifest
+        uses: borales/actions-yarn@v4
+        with:
+          cmd: check:update-manifest
+
       - name: Install Chrome
         uses: browser-actions/setup-chrome@v1
 

@@ -30,6 +30,15 @@ describe('IOSUpdateAdapter', () => {
     await expect(new IOSUpdateAdapter(plugin(response), () => 'ios').check()).resolves.toEqual(expected);
   });
 
+  it('reports none when the App Store answers with a version that is not newer', async () => {
+    const native = plugin({ status: 'available', currentVersion: '1.16.0', availableVersion: '1.16.0' });
+
+    await expect(new IOSUpdateAdapter(native, () => 'ios').check()).resolves.toEqual({
+      status: 'none',
+      currentVersion: '1.16.0'
+    });
+  });
+
   it('returns unknown outside iOS without calling the bridge', async () => {
     const native = plugin();
 
@@ -42,7 +51,6 @@ describe('IOSUpdateAdapter', () => {
     {},
     { status: 'available', currentVersion: 'invalid', availableVersion: '1.17.0' },
     { status: 'available', currentVersion: '1.16.0', availableVersion: 'invalid' },
-    { status: 'available', currentVersion: '1.16.0', availableVersion: '1.16.0' },
     { status: 'none', currentVersion: 16 }
   ])('fails closed for malformed or inconsistent bridge response %#', async response => {
     await expect(new IOSUpdateAdapter(plugin(response), () => 'ios').check()).resolves.toMatchObject({

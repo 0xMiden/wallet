@@ -6,12 +6,14 @@ import { validateManifestFile } from './validate-update-manifest.mjs';
 
 describe('validate-update-manifest', () => {
   it('validates the checked-in catalog', async () => {
+    // Not pinned to a release count: entries are appended over time, and this
+    // case guards the shape clients read, not how many releases it lists.
     const manifestPath = path.resolve(process.cwd(), 'updates/manifest.json');
 
-    await expect(validateManifestFile(manifestPath)).resolves.toEqual({ releaseCount: 0 });
+    await expect(validateManifestFile(manifestPath)).resolves.toEqual({ releaseCount: expect.any(Number) });
   });
 
-  it('requires an exact release entry for every claimed supported platform', async () => {
+  it('accepts a catalog whose entries name the platforms they cover', async () => {
     const manifestPath = await writeManifest({
       schemaVersion: 1,
       releases: [
@@ -19,71 +21,29 @@ describe('validate-update-manifest', () => {
           version: '1.17.0',
           summary: 'Fixes and improvements.',
           urgency: 'normal',
-          platforms: {
-            chrome: { version: '1.17.0' },
-            android: { version: '1.17.0', versionCode: 11700001 },
-            ios: { version: '1.17.0' }
-          }
+          platforms: ['chrome', 'android', 'ios']
         }
       ]
     });
 
-    await expect(
-      validateManifestFile(manifestPath, {
-        version: '1.17.0',
-        platforms: ['chrome', 'android', 'ios'],
-        androidVersionCode: 11700001
-      })
-    ).resolves.toEqual({ releaseCount: 1 });
-    await expect(validateManifestFile(manifestPath, { version: '1.18.0', platforms: ['chrome'] })).rejects.toThrow(
-      'No update manifest release for 1.18.0'
-    );
-    await expect(validateManifestFile(manifestPath, { version: '1.17.0', platforms: ['desktop'] })).rejects.toThrow(
-      'Release 1.17.0 does not declare desktop'
-    );
+    await expect(validateManifestFile(manifestPath)).resolves.toEqual({ releaseCount: 1 });
   });
 
-  it('checks the exact monotonic Android version code', async () => {
-    const manifestPath = await writeManifest({
+  it('refuses a catalog that would reach clients in a shape they cannot read', async () => {
+    const outOfOrder = await writeManifest({
       schemaVersion: 1,
       releases: [
-        {
-          version: '1.17.0',
-          summary: 'Fixes and improvements.',
-          urgency: 'normal',
-          platforms: { android: { version: '1.17.0', versionCode: 11700001 } }
-        }
+        { version: '1.18.0', summary: 'Later release.', urgency: 'normal', platforms: ['chrome'] },
+        { version: '1.17.0', summary: 'Earlier release.', urgency: 'normal', platforms: ['chrome'] }
       ]
     });
-
-    await expect(
-      validateManifestFile(manifestPath, {
-        version: '1.17.0',
-        platforms: ['android'],
-        androidVersionCode: 11700002
-      })
-    ).rejects.toThrow('Android version code 11700001 does not match 11700002');
-  });
-
-  it('can forbid unsupported desktop metadata even when other platforms are present', async () => {
-    const manifestPath = await writeManifest({
+    const unsupported = await writeManifest({
       schemaVersion: 1,
-      releases: [
-        {
-          version: '1.17.0',
-          summary: 'Fixes and improvements.',
-          urgency: 'normal',
-          platforms: {
-            chrome: { version: '1.17.0' },
-            desktop: { version: '1.17.0' }
-          }
-        }
-      ]
+      releases: [{ version: '1.17.0', summary: 'Desktop claim.', urgency: 'normal', platforms: ['desktop'] }]
     });
 
-    await expect(
-      validateManifestFile(manifestPath, { version: '1.17.0', forbiddenPlatforms: ['desktop'] })
-    ).rejects.toThrow('Release 1.17.0 must not declare unsupported desktop');
+    await expect(validateManifestFile(outOfOrder)).rejects.toThrow('ascending');
+    await expect(validateManifestFile(unsupported)).rejects.toThrow('platform');
   });
 });
 

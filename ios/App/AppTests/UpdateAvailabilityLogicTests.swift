@@ -2,6 +2,33 @@ import XCTest
 @testable import App
 
 final class UpdateAvailabilityLogicTests: XCTestCase {
+    func testLookupURLCarriesTheDeviceRegion() {
+        let url = AppStoreUpdateLogic.lookupURL(bundleIdentifier: "com.miden.bread", region: "DE")
+        let items = URLComponents(url: XCTUnwrap2(url), resolvingAgainstBaseURL: false)?.queryItems ?? []
+
+        XCTAssertEqual(items.first { $0.name == "country" }?.value, "de")
+        XCTAssertEqual(items.first { $0.name == "bundleId" }?.value, "com.miden.bread")
+    }
+
+    // The lookup answers HTTP 400 for a country that is not alpha-2, so a value
+    // in any other shape is dropped instead of being sent.
+    func testLookupURLOmitsACountryTheLookupWouldReject() {
+        for region in [nil, "", "DEU", "1", "Germany"] as [String?] {
+            let url = AppStoreUpdateLogic.lookupURL(bundleIdentifier: "com.miden.bread", region: region)
+            let items = URLComponents(url: XCTUnwrap2(url), resolvingAgainstBaseURL: false)?.queryItems ?? []
+
+            XCTAssertNil(items.first { $0.name == "country" }, "region \(region ?? "nil")")
+        }
+    }
+
+    private func XCTUnwrap2(_ url: URL?) -> URL {
+        guard let url else {
+            XCTFail("lookup URL could not be built")
+            return URL(string: "https://example.com")!
+        }
+        return url
+    }
+
     private func response(version: String, bundleIdentifier: String = "com.miden.bread") -> Data {
         let json = """
         {"resultCount":1,"results":[{"bundleId":"\(bundleIdentifier)","version":"\(version)"}]}

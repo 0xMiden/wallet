@@ -82,13 +82,6 @@ jobs:
       - name: Install dependencies
         run: yarn install --frozen-lockfile
 
-      - name: Preserve unsupported desktop update boundary
-        if: github.event_name == 'release'
-        shell: bash
-        run: |
-          VERSION=$(node -p "require('./package.json').version")
-          yarn check:update-manifest --version "$VERSION" --forbid-platform desktop
-
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
         env:

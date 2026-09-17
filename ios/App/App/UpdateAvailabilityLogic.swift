@@ -46,6 +46,24 @@ private struct AppSemanticVersion: Comparable {
 }
 
 enum AppStoreUpdateLogic {
+    /// Availability is per region, so the query names the caller's own region
+    /// rather than a compiled-in one.
+    ///
+    /// `country` must be an ISO 3166-1 alpha-2 code: the lookup answers HTTP 400
+    /// `Invalid value(s) for key(s): [country]` for anything else, including the
+    /// alpha-3 form `SKStorefront.countryCode` reports. Anything that is not two
+    /// letters is therefore dropped rather than sent, which falls back to the
+    /// store's own default rather than failing every check.
+    static func lookupURL(bundleIdentifier: String, region: String?) -> URL? {
+        var components = URLComponents(string: "https://itunes.apple.com/lookup")
+        var items = [URLQueryItem(name: "bundleId", value: bundleIdentifier)]
+        if let region, region.count == 2, region.allSatisfy(\.isLetter) {
+            items.append(URLQueryItem(name: "country", value: region.lowercased()))
+        }
+        components?.queryItems = items
+        return components?.url
+    }
+
     static func evaluate(data: Data, installedVersion: String, expectedBundleIdentifier: String) -> AppStoreUpdateResult {
         guard let current = AppSemanticVersion(installedVersion) else {
             return AppStoreUpdateResult(status: "unknown", currentVersion: installedVersion)

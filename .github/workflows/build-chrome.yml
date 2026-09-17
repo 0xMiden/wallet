@@ -62,13 +62,6 @@ jobs:
       - name: Install dependencies
         run: yarn install --frozen-lockfile
 
-      - name: Validate Chrome update metadata
-        if: github.event_name == 'release'
-        shell: bash
-        run: |
-          VERSION=$(node -p "require('./package.json').version")
-          yarn check:update-manifest --version "$VERSION" --platform chrome
-
       - name: Build Chrome extension
         env:
           MIDEN_NETWORK: ${{ matrix.network }}

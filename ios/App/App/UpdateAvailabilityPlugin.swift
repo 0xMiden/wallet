@@ -12,8 +12,18 @@ public class UpdateAvailabilityPlugin: CAPPlugin, CAPBridgedPlugin {
     ]
 
     private static let bundleIdentifier = "com.miden.bread"
-    private static let lookupURL = URL(string: "https://itunes.apple.com/lookup?bundleId=com.miden.bread&country=us")!
     private static let appStoreURL = URL(string: "itms-apps://apps.apple.com/app/id6789341854")!
+
+    /// The device region, in the alpha-2 form the lookup requires.
+    ///
+    /// `SKStorefront.countryCode` would name the purchasing storefront exactly,
+    /// but it reports ISO alpha-3 ("DEU"), the lookup rejects that with HTTP 400,
+    /// and Foundation offers no alpha-3 to alpha-2 mapping. The device region is
+    /// the closest correctly shaped signal, and it matches the storefront for
+    /// everyone who has not switched stores.
+    private static var regionCode: String? {
+        Locale.current.regionCode
+    }
 
     @objc func check(_ call: CAPPluginCall) {
         let currentVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
@@ -25,7 +35,17 @@ public class UpdateAvailabilityPlugin: CAPPlugin, CAPBridgedPlugin {
             return
         }
 
-        var request = URLRequest(url: Self.lookupURL)
+        guard
+            let lookupURL = AppStoreUpdateLogic.lookupURL(
+                bundleIdentifier: Self.bundleIdentifier,
+                region: Self.regionCode
+            )
+        else {
+            call.resolve(resultToJS(AppStoreUpdateResult(status: "unknown", currentVersion: currentVersion)))
+            return
+        }
+
+        var request = URLRequest(url: lookupURL)
         request.cachePolicy = .reloadIgnoringLocalCacheData
         request.timeoutInterval = 10
         URLSession.shared.dataTask(with: request) { data, _, error in

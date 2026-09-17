@@ -23,8 +23,17 @@ describe('update notification build-time flag', () => {
     expect(read('src/react-app.d.ts')).toContain('readonly MIDEN_UPDATE_NOTIFICATIONS?: string;');
   });
 
-  it('compiles the E2E injection boundary out of production desktop bundles', () => {
-    const source = read('vite.desktop.config.ts');
+  // Every bundle in which createDefaultAdapter can build the E2E adapter, plus
+  // the rest for completeness: an env read with no define resolves to undefined,
+  // which would leave the injection path compiled in.
+  it.each([
+    'vite.mobile.config.ts',
+    'vite.extension.config.ts',
+    'vite.background.config.ts',
+    'vite.contentScripts.config.ts',
+    'vite.desktop.config.ts'
+  ])('compiles the E2E injection boundary out of production %s bundles', config => {
+    const source = read(config);
     expect(source).toContain(`'process.env.MIDEN_E2E_TEST':`);
     expect(source).toContain(`process.env.MIDEN_E2E_TEST ?? 'false'`);
   });

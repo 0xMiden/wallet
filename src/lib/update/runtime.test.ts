@@ -61,10 +61,21 @@ const storage: StorageProvider = {
   remove: jest.fn().mockResolvedValue(undefined)
 };
 
-const adapter = (platform: UpdateAvailabilityAdapter['platform']): UpdateAvailabilityAdapter => ({
-  platform,
-  check: jest.fn().mockResolvedValue({ status: 'none', currentVersion: '1.0.0' })
-});
+/** A storage stub that remembers what was written, like the real one does. */
+const persistentStorage = (): StorageProvider => {
+  const state: Record<string, unknown> = {};
+  return {
+    get: jest.fn(async (keys: string[]) =>
+      Object.fromEntries(keys.filter(key => key in state).map(key => [key, state[key]]))
+    ),
+    set: jest.fn(async (items: Record<string, unknown>) => {
+      Object.assign(state, items);
+    }),
+    remove: jest.fn(async (keys: string[]) => {
+      keys.forEach(key => delete state[key]);
+    })
+  };
+};
 
 describe('createUpdateNotificationRuntime', () => {
   beforeEach(() => {
@@ -76,9 +87,88 @@ describe('createUpdateNotificationRuntime', () => {
     mockIsMobile.mockReturnValue(false);
   });
 
-  it('grants both extension manifests access only to the fixed presentation host', () => {
-    expect(manifestV3.host_permissions).toContain('https://raw.githubusercontent.com/0xMiden/wallet/*');
-    expect(manifestV2.permissions).toContain('https://raw.githubusercontent.com/0xMiden/wallet/*');
+  it('reads the catalog once per window, across the realms a popup open creates', async () => {
+    const shared = persistentStorage();
+    const catalog = {
+      schemaVersion: 1,
+      releases: [{ version: '1.1.0', summary: 'Cached copy.', urgency: 'normal', platforms: ['chrome'] }]
+    };
+    const fetchManifest = jest.fn().mockResolvedValue({ ok: true, json: async () => catalog });
+    let clock = 5_000;
+    const build = () =>
+      createUpdateNotificationRuntime({
+        createAdapter: async () => ({
+          platform: 'chrome',
+          check: async () => ({
+            status: 'available' as const,
+            currentVersion: '1.0.0',
+            availableVersion: '1.1.0',
+            action: async () => {}
+          })
+        }),
+        storage: shared,
+        fetchManifest,
+        now: () => clock,
+        subscribe: async () => () => {}
+      });
+
+    await expect((await build()).controller.check()).resolves.toMatchObject({
+      notice: { summary: 'Cached copy.' }
+    });
+    await expect((await build()).controller.check()).resolves.toMatchObject({
+      notice: { summary: 'Cached copy.' }
+    });
+    expect(fetchManifest).toHaveBeenCalledTimes(1);
+
+    clock += 6 * 60 * 60 * 1_000;
+    await (await build()).controller.check();
+
+    expect(fetchManifest).toHaveBeenCalledTimes(2);
+  });
+
+  it('stores only schema-valid catalog entries in device storage', async () => {
+    const shared = persistentStorage();
+    const fetchManifest = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        schemaVersion: 1,
+        releases: [
+          { version: '1.1.0', summary: 'Valid entry.', urgency: 'normal', platforms: ['chrome'] },
+          { version: '1.2.0', summary: '<b>unsafe</b>', urgency: 'critical', platforms: ['chrome'] }
+        ]
+      })
+    });
+    const runtime = await createUpdateNotificationRuntime({
+      createAdapter: async () => ({
+        platform: 'chrome',
+        check: async () => ({
+          status: 'available' as const,
+          currentVersion: '1.0.0',
+          availableVersion: '1.1.0',
+          action: async () => {}
+        })
+      }),
+      storage: shared,
+      fetchManifest,
+      subscribe: async () => () => {}
+    });
+
+    await runtime.controller.check();
+
+    const stored = (await shared.get(['update_manifest_cache_v1']))['update_manifest_cache_v1'];
+    expect(stored.body.releases).toEqual([
+      { version: '1.1.0', summary: 'Valid entry.', urgency: 'normal', platforms: ['chrome'] }
+    ]);
+  });
+
+  it('asks for no new host access to read the presentation catalog', () => {
+    // The catalog host answers `Access-Control-Allow-Origin: *`, so a default
+    // fetch reaches it without a grant. Adding one would be a privilege
+    // increase, which disables the auto-updated extension until every user
+    // approves it again.
+    const host = new URL(RELEASE_MANIFEST_URL).host;
+    expect(manifestV3.host_permissions.some(pattern => pattern.includes(host))).toBe(false);
+    expect(manifestV2.permissions.some(pattern => pattern.includes(host))).toBe(false);
   });
 
   it('loads the presentation catalog from the fixed raw main URL without a browser cache', async () => {
@@ -104,8 +194,43 @@ describe('createUpdateNotificationRuntime', () => {
 
     expect(fetchManifest).toHaveBeenCalledWith(RELEASE_MANIFEST_URL, {
       cache: 'no-store',
-      headers: { Accept: 'application/json' }
+      headers: { Accept: 'application/json' },
+      // The controller's deadline abandons a slow read; only the request's own
+      // signal ends it.
+      signal: expect.objectContaining({ aborted: false })
     });
+  });
+
+  it.each([
+    ['a declared length past the cap', { get: () => String(128 * 1024) }, undefined],
+    // A chunked or re-encoded response declares nothing useful, so the body is
+    // measured as it is read.
+    ['a body past the cap with no declared length', { get: () => null }, 'x'.repeat(128 * 1024)]
+  ])('refuses a catalog response far larger than any valid one: %s', async (_case, headers, text) => {
+    const json = jest.fn();
+    const fetchManifest = jest.fn().mockResolvedValue({
+      ok: true,
+      headers,
+      json,
+      ...(text === undefined ? {} : { text: async () => text })
+    });
+    const runtime = await createUpdateNotificationRuntime({
+      createAdapter: async () => ({
+        platform: 'chrome',
+        check: async () => ({
+          status: 'available' as const,
+          currentVersion: '1.0.0',
+          availableVersion: '1.1.0',
+          action: async () => {}
+        })
+      }),
+      storage,
+      fetchManifest,
+      subscribe: async () => () => {}
+    });
+
+    await expect(runtime.controller.check()).resolves.toMatchObject({ notice: { summary: null } });
+    expect(json).not.toHaveBeenCalled();
   });
 
   it('keeps authoritative availability usable when presentation fetching fails', async () => {
@@ -126,21 +251,38 @@ describe('createUpdateNotificationRuntime', () => {
     });
 
     await expect(runtime.controller.check()).resolves.toMatchObject({
-      platform: 'ios',
-      availableVersion: '1.1.0',
-      summary: null
+      notice: { platform: 'ios', availableVersion: '1.1.0', summary: null }
     });
   });
 
   it('rejects non-success manifest responses', async () => {
+    // The adapter must report an update, or nothing loads the manifest and the
+    // assertion would hold with the response check deleted.
+    const json = jest.fn().mockResolvedValue({
+      schemaVersion: 1,
+      releases: [{ version: '1.1.0', summary: 'Served by an error page.', urgency: 'critical', platforms: ['chrome'] }]
+    });
+    const fetchManifest = jest.fn().mockResolvedValue({ ok: false, json });
     const runtime = await createUpdateNotificationRuntime({
-      createAdapter: async () => adapter('chrome'),
+      createAdapter: async () => ({
+        platform: 'chrome',
+        check: async () => ({
+          status: 'available' as const,
+          currentVersion: '1.0.0',
+          availableVersion: '1.1.0',
+          action: async () => {}
+        })
+      }),
       storage,
-      fetchManifest: jest.fn().mockResolvedValue({ ok: false, json: async () => ({}) }),
+      fetchManifest,
       subscribe: async () => () => {}
     });
 
-    await expect(runtime.controller.check()).resolves.toBeNull();
+    await expect(runtime.controller.check()).resolves.toMatchObject({
+      notice: { availableVersion: '1.1.0', summary: null, urgency: 'normal' }
+    });
+    expect(fetchManifest).toHaveBeenCalledTimes(1);
+    expect(json).not.toHaveBeenCalled();
   });
 
   it('uses the default E2E adapter, storage, fetch, and subscription only in a test build', async () => {
@@ -166,10 +308,12 @@ describe('createUpdateNotificationRuntime', () => {
     const runtime = await createUpdateNotificationRuntime();
 
     await expect(runtime.controller.check()).resolves.toMatchObject({
-      platform: 'ios',
-      availableVersion: '1.1.0',
-      summary: 'Reload-safe release text.',
-      urgency: 'normal'
+      notice: {
+        platform: 'ios',
+        availableVersion: '1.1.0',
+        summary: 'Reload-safe release text.',
+        urgency: 'normal'
+      }
     });
     const unsubscribe = await runtime.subscribe(jest.fn());
     unsubscribe();
@@ -227,9 +371,7 @@ describe('createUpdateNotificationRuntime', () => {
     });
 
     await expect(runtime.controller.check()).resolves.toMatchObject({
-      platform: 'android',
-      summary: 'Safer release text.',
-      urgency: 'important'
+      notice: { platform: 'android', summary: 'Safer release text.', urgency: 'important' }
     });
     expect(fetchManifest).not.toHaveBeenCalled();
     process.env.MIDEN_E2E_TEST = original;
@@ -294,6 +436,9 @@ describe('default runtime platform adapter', () => {
   });
 });
 
+// Let promise callbacks that this module schedules without awaiting them run.
+const act = () => new Promise(resolve => setTimeout(resolve, 0));
+
 describe('subscribeToRuntimeUpdates', () => {
   let appStateListener: ((state: { isActive: boolean }) => void) | undefined;
   let messageListener: ((message: unknown) => void) | undefined;
@@ -326,22 +471,54 @@ describe('subscribeToRuntimeUpdates', () => {
   it('reports visible documents, active native apps, and authoritative Chrome events, then cleans up', async () => {
     const listener = jest.fn();
     const unsubscribe = await subscribeToRuntimeUpdates(listener);
+    // The native listener is attached without being awaited, so let its
+    // registration settle before driving it.
+    await act();
 
     Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' });
     document.dispatchEvent(new Event('visibilitychange'));
     Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
     document.dispatchEvent(new Event('visibilitychange'));
     appStateListener?.({ isActive: false });
-    appStateListener?.({ isActive: true });
     messageListener?.('not-an-event');
     messageListener?.(null);
     messageListener?.({ type: 'OTHER' });
     messageListener?.({ type: CHROME_UPDATE_AVAILABLE_MESSAGE });
 
-    expect(listener).toHaveBeenCalledTimes(3);
+    expect(listener.mock.calls).toEqual([['foreground'], ['platform']]);
     unsubscribe();
     expect(removeAppListener).toHaveBeenCalledTimes(1);
     expect(removeMessageListener).toHaveBeenCalledWith(messageListener);
+  });
+
+  it('treats the two events of one native resume as a single foreground', async () => {
+    const listener = jest.fn();
+    const unsubscribe = await subscribeToRuntimeUpdates(listener);
+    await act();
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
+
+    appStateListener?.({ isActive: true });
+    document.dispatchEvent(new Event('visibilitychange'));
+    expect(listener).toHaveBeenCalledTimes(1);
+
+    // A later resume, outside the coalescing window, is its own foreground.
+    jest.spyOn(Date, 'now').mockReturnValue(Date.now() + 600);
+    document.dispatchEvent(new Event('visibilitychange'));
+
+    expect(listener.mock.calls).toEqual([['foreground'], ['foreground']]);
+    unsubscribe();
+  });
+
+  it('does not wait for a native registration that never settles', async () => {
+    (App.addListener as jest.Mock).mockImplementation(() => new Promise(() => {}));
+    const listener = jest.fn();
+
+    const unsubscribe = await subscribeToRuntimeUpdates(listener);
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
+    document.dispatchEvent(new Event('visibilitychange'));
+
+    expect(listener).toHaveBeenCalledWith('foreground');
+    unsubscribe();
   });
 
   it('keeps the document fallback when native or extension listener registration fails', async () => {
@@ -355,7 +532,7 @@ describe('subscribeToRuntimeUpdates', () => {
     Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
     document.dispatchEvent(new Event('visibilitychange'));
 
-    expect(listener).toHaveBeenCalledTimes(1);
+    expect(listener).toHaveBeenCalledWith('foreground');
     unsubscribe();
   });
 });
