@@ -13,6 +13,7 @@ import { AddressChain } from 'utils/miden';
 import { truncateAddress } from 'utils/string';
 
 import { getBridgeNetwork, SendNetworkId } from './bridge-networks';
+import { footerCushionClass } from './footer-cushion';
 import { RecentRecipient } from './types';
 
 export interface SelectRecipientProps {
@@ -171,7 +172,7 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
           </div>
         )}
 
-        <div className={clsx('mt-2 flex items-start gap-1', recentRecipients.length > 0 && 'pb-6')}>
+        <div className={clsx('mt-2 flex items-start gap-1', recentRecipients.length > 0 ? 'pb-6' : 'pb-4')}>
           <Button
             variant={ButtonVariant.Secondary}
             onClick={() => {
@@ -245,11 +246,14 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
         )}
       </div>
 
-      {/* pb-24 clears the floating navbar; while the soft keyboard is up the
+      {/* The cushion clears the tab bar; while the soft keyboard is up the
           body's --keyboard-height padding already lifts the layout to the
           keyboard's top edge, so the cushion collapses to keep the CTA snug. */}
       <div
-        className="shrink-0 pb-[max(0px,calc(6rem-var(--keyboard-height,0px)))] transition-[padding-bottom] duration-[250ms] ease-out"
+        className={clsx(
+          'shrink-0 pt-3 transition-[padding-bottom] duration-[250ms] ease-out',
+          footerCushionClass(true)
+        )}
         data-navbar-cushion="true"
       >
         <Button

@@ -13,6 +13,7 @@ import { hapticLight } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
 
 import { BridgeNetwork } from './bridge-networks';
+import { footerCushionClass } from './footer-cushion';
 import { UIToken } from './types';
 
 export interface SelectAmountProps {
@@ -90,7 +91,7 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
   confirmTitle,
   showNetworkPill = true,
   showBalanceHelper = true,
-  footerClassName = 'pt-4 pb-[max(0px,calc(6rem-var(--keyboard-height,0px)))]',
+  footerClassName = clsx('pt-4', footerCushionClass(true)),
   children,
   onAmountChange,
   onSelectToken,

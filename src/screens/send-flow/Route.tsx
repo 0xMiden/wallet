@@ -7,6 +7,7 @@ import { Button, ButtonVariant } from 'components/Button';
 import { toAdaptiveFixed } from 'lib/i18n/numbers';
 import { hapticLight } from 'lib/mobile/haptics';
 
+import { footerCushionClass } from './footer-cushion';
 import { BridgeRoute } from './types';
 
 export interface RouteStepProps {
@@ -65,7 +66,7 @@ export const Route: React.FC<RouteStepProps> = ({
   fastQuoteLoading,
   notice,
   confirmDisabled,
-  footerClassName = 'pt-4 pb-24',
+  footerClassName = clsx('pt-4', footerCushionClass(false)),
   onConfirm
 }) => {
   const { t } = useTranslation();
