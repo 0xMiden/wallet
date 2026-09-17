@@ -462,8 +462,8 @@ describe('getMidenClient singleton', () => {
       await getMidenClient();
       const { signCallback } = create.mock.calls[0]![0];
       installRealmKeystore({ sign: lockedSigner() });
-      // A hold whose sign reported locked, but which completed anyway (a dry run,
-      // a speculation): its record is nobody else's.
+      // A hold whose sign reported locked, but which completed anyway (a dry run):
+      // its record is nobody else's.
       await withWasmClientLock(async () => {
         await expect(signCallback(publicKey, signingInputs)).rejects.toMatchObject({ reason: 'locked' });
       });
