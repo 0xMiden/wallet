@@ -40,15 +40,15 @@ function withLifecycleLock<T>(fn: () => Promise<T>): Promise<T> {
   return next;
 }
 
-// Counter of in-flight proves (send / consume / new transaction) dispatched via
-// OFFSCREEN_PROVE. Folded into `isCriticalOpInFlight`: the offscreen doc must not
-// be torn down while a real prove is running, since killing it would error the
-// user's actual transaction.
+// Counter of in-flight proves dispatched via OFFSCREEN_PROVE, the path a service
+// worker that owns the client (MIDEN_USE_OFFSCREEN_CLIENT off) takes to prove in the
+// offscreen doc. Folded into `isCriticalOpInFlight`: the doc must not be torn down
+// while a real prove is running, since killing it would error the user's transaction.
 let inFlightProveCount = 0;
 
 // Counter of in-flight CRITICAL offscreen ops (issue #260, slice 5, design §3).
 // Generalizes `inFlightProveCount`: a whole-op offscreen WRITE
-// (`consumeNoteId`, and later send/swap/newTransaction) runs its own
+// (send, swap, consume, newTransaction and the guardian pipeline) runs its own
 // execute→prove→submit→apply IN-REALM — it never uses OFFSCREEN_PROVE, so it
 // does NOT bump `inFlightProveCount`. The SW write proxy brackets each
 // such op with `incrementCriticalOp()`/`decrementCriticalOp()` so the same

@@ -2,7 +2,7 @@ import React from 'react';
 
 import { render, screen, fireEvent, act } from '@testing-library/react';
 
-import { clearSendDraft, hasSendDraft, setSendDraft } from './send-draft';
+import { clearSendDraft, consumeSendDraft, setSendDraft } from './send-draft';
 import { SendFlow } from './SendManager';
 import { SendFlowStep } from './types';
 import { WalletType } from '../onboarding/types';
@@ -963,7 +963,7 @@ describe('confirming the amount', () => {
       fireEvent.click(screen.getByTestId('sa-confirm'));
     });
 
-    expect(hasSendDraft()).toBe(false);
+    expect(consumeSendDraft()).toBeNull();
     expect(navigateToMock).toHaveBeenCalledWith(SendFlowStep.Route);
     expect(navigateMock).not.toHaveBeenCalled();
   });
@@ -974,7 +974,7 @@ describe('confirming the amount', () => {
       fireEvent.click(screen.getByTestId('sa-confirm'));
     });
     expect(navigateMock).not.toHaveBeenCalled();
-    expect(hasSendDraft()).toBe(false);
+    expect(consumeSendDraft()).toBeNull();
   });
 });
 

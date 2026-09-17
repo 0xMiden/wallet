@@ -1860,65 +1860,72 @@ describe('MidenClientInterface', () => {
       expect(yieldMock).not.toHaveBeenCalled();
     });
 
-    it("builds the send request from the sender's account and resolved ids", async () => {
-      const fakeWasm = buildWasmStub();
-      // A marker account, NOT undefined: the sender's vault key (callback flag
-      // included) has to reach the builder. With `undefined` the builder falls
-      // through to `new FungibleAsset(...)` and its default Disabled flag.
-      const senderAccount = { tag: 'sender-account' };
-      const inner = {
-        executeTransaction: jest.fn(async () => fakeTransactionResult),
-        submitProvenTransaction: jest.fn(async () => 100),
-        applyTransaction: jest.fn(async () => undefined),
-        getAccount: jest.fn(async () => senderAccount),
-        newSendTransactionRequest: jest.fn(async () => ({}))
-      };
-      buildOffscreenStubs();
-      const fakeMidenClient = buildClientWithInner(inner, fakeWasm);
-      const buildSendTransactionRequest = jest.fn(() => ({ kind: 'request', serialize: () => new Uint8Array([1]) }));
-      jest.doMock('./helpers', () => ({
-        getBech32AddressFromAccountId: (id: any) => String(id),
-        walletAccountIdToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
-        accountRefToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
-        buildSendTransactionRequest
-      }));
-      jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
-        ...fakeWasm,
-        TransactionProver: { newLocalProver: jest.fn(() => ({ serialize: () => 'local' })) },
-        TransactionRequest: { deserialize: jest.fn(() => ({})) },
-        getWasmOrThrow: async () => fakeWasm
-      }));
+    it.each([
+      ['a Never send', {}, undefined],
+      // The fake client syncs to block 5, so a 600-block window reclaims at 605 (#308).
+      ['a reclaimable send', { recallBlocks: 600 }, 605]
+    ])(
+      "builds %s's request from the sender's account, resolved ids and reclaim height",
+      async (_label, extraInputs, reclaimAfter) => {
+        const fakeWasm = buildWasmStub();
+        // A marker account, NOT undefined: the sender's vault key (callback flag
+        // included) has to reach the builder. With `undefined` the builder falls
+        // through to `new FungibleAsset(...)` and its default Disabled flag.
+        const senderAccount = { tag: 'sender-account' };
+        const inner = {
+          executeTransaction: jest.fn(async () => fakeTransactionResult),
+          submitProvenTransaction: jest.fn(async () => 100),
+          applyTransaction: jest.fn(async () => undefined),
+          getAccount: jest.fn(async () => senderAccount),
+          newSendTransactionRequest: jest.fn(async () => ({}))
+        };
+        buildOffscreenStubs();
+        const fakeMidenClient = buildClientWithInner(inner, fakeWasm);
+        const buildSendTransactionRequest = jest.fn(() => ({ kind: 'request', serialize: () => new Uint8Array([1]) }));
+        jest.doMock('./helpers', () => ({
+          getBech32AddressFromAccountId: (id: any) => String(id),
+          walletAccountIdToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
+          accountRefToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
+          buildSendTransactionRequest
+        }));
+        jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+          ...fakeWasm,
+          TransactionProver: { newLocalProver: jest.fn(() => ({ serialize: () => 'local' })) },
+          TransactionRequest: { deserialize: jest.fn(() => ({})) },
+          getWasmOrThrow: async () => fakeWasm
+        }));
 
-      const { MidenClientInterface } = await import('./miden-client-interface');
-      const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
+        const { MidenClientInterface } = await import('./miden-client-interface');
+        const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
 
-      await client.sendTransaction({
-        // Composite `<address>_<suffix>` sender: `resolveAccountId` must strip the
-        // suffix before parsing, or the bech32 parser sees a string it can reject.
-        accountId: 'mtst1sender_qr7qqq9wr6w',
-        // Uppercase '0X' too: `AccountId.fromHex` throws on it, so a reference
-        // that is otherwise valid would fail to resolve here.
-        secondaryAccountId: '0XRecipient',
-        faucetId: 'mtst1faucet',
-        noteType: 'private' as any,
-        amount: BigInt(250),
-        extraInputs: {}
-      } as any);
+        await client.sendTransaction({
+          // Composite `<address>_<suffix>` sender: `resolveAccountId` must strip the
+          // suffix before parsing, or the bech32 parser sees a string it can reject.
+          accountId: 'mtst1sender_qr7qqq9wr6w',
+          // Uppercase '0X' too: `AccountId.fromHex` throws on it, so a reference
+          // that is otherwise valid would fail to resolve here.
+          secondaryAccountId: '0XRecipient',
+          faucetId: 'mtst1faucet',
+          noteType: 'private' as any,
+          amount: BigInt(250),
+          extraInputs
+        } as any);
 
-      expect(fakeWasm.AccountId.fromBech32).toHaveBeenCalledWith('mtst1sender');
-      expect(fakeWasm.AccountId.fromHex).toHaveBeenCalledWith('0xRecipient');
-      expect(inner.getAccount).toHaveBeenCalled();
-      expect(buildSendTransactionRequest).toHaveBeenCalledWith(
-        senderAccount,
-        expect.anything(),
-        expect.anything(),
-        'mtst1faucet',
-        250n,
-        'Private',
-        undefined
-      );
-      expect(inner.submitProvenTransaction).toHaveBeenCalledTimes(1);
-    });
+        expect(fakeWasm.AccountId.fromBech32).toHaveBeenCalledWith('mtst1sender');
+        expect(fakeWasm.AccountId.fromHex).toHaveBeenCalledWith('0xRecipient');
+        expect(inner.getAccount).toHaveBeenCalled();
+        expect(buildSendTransactionRequest).toHaveBeenCalledWith(
+          senderAccount,
+          expect.anything(),
+          expect.anything(),
+          'mtst1faucet',
+          250n,
+          'Private',
+          reclaimAfter
+        );
+        expect(inner.submitProvenTransaction).toHaveBeenCalledTimes(1);
+      }
+    );
 
     it('consumeNoteId offscreen path: builds request from inner.getInputNote → toNote → array', async () => {
       const fakeWasm = buildWasmStub();
