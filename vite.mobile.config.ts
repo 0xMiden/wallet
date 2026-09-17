@@ -185,6 +185,7 @@ export default defineConfig({
   define: {
     'process.env.VERSION': JSON.stringify(pkg.version),
     'process.env.MIDEN_PLATFORM': JSON.stringify('mobile'),
+    'process.env.MIDEN_UPDATE_NOTIFICATIONS': JSON.stringify(process.env.MIDEN_UPDATE_NOTIFICATIONS ?? 'true'),
     'process.env.MIDEN_USE_MOCK_CLIENT': JSON.stringify(process.env.MIDEN_USE_MOCK_CLIENT ?? 'false'),
     // Issue #260: hardcoded OFF on mobile — Capacitor / WKWebView / Android
     // WebView have no chrome.offscreen document to rehost the client into.

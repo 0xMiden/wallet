@@ -4815,5 +4815,87 @@
         "content": "$1"
       }
     }
+  },
+  "faucetPromptAction": {
+    "message": "Şimdi para yatırın",
+    "englishSource": "Fund now"
+  },
+  "fundWalletLoadingTitle": {
+    "message": "Cüzdanınıza para yatırma",
+    "englishSource": "Funding your wallet"
+  },
+  "fundWalletLoadingBody": {
+    "message": "faucet'dan token talep ediliyor…",
+    "englishSource": "Requesting tokens from the faucet…"
+  },
+  "fundWalletSuccessTitle": {
+    "message": "Cüzdan ile finanse edildi",
+    "englishSource": "Wallet funded"
+  },
+  "fundWalletSuccessBody": {
+    "message": "Jetonlarınız yolda ve kısa süre içinde görünmeye başlayacak.",
+    "englishSource": "Your tokens are on the way and will appear shortly."
+  },
+  "fundWalletErrorTitle": {
+    "message": "Finansman başarısız oldu",
+    "englishSource": "Funding failed"
+  },
+  "fundWalletErrorBody": {
+    "message": "Cüzdanınıza para aktaramadık. Lütfen tekrar deneyin.",
+    "englishSource": "We couldn't fund your wallet. Please try again."
+  },
+  "pendingNotesPromptAction": {
+    "message": "Şimdi Bak",
+    "englishSource": "See Now"
+  },
+  "updateNotificationTitle": {
+    "message": "Update available",
+    "englishSource": "Update available"
+  },
+  "updateNotificationVersion": {
+    "message": "Version $version$",
+    "englishSource": "Version $version$",
+    "placeholders": {
+      "version": {
+        "content": "$1"
+      }
+    }
+  },
+  "updateNotificationReleaseNotes": {
+    "message": "Release notes: $summary$",
+    "englishSource": "Release notes: $summary$",
+    "placeholders": {
+      "summary": {
+        "content": "$1"
+      }
+    }
+  },
+  "updateNotificationGenericSummary": {
+    "message": "This update includes fixes and improvements.",
+    "englishSource": "This update includes fixes and improvements."
+  },
+  "updateNotificationActionChrome": {
+    "message": "Restart to update",
+    "englishSource": "Restart to update"
+  },
+  "updateNotificationActionAndroid": {
+    "message": "Update now",
+    "englishSource": "Update now"
+  },
+  "updateNotificationActionIos": {
+    "message": "Open App Store",
+    "englishSource": "Open App Store"
+  },
+  "updateNotificationActionInProgress": {
+    "message": "Starting update",
+    "englishSource": "Starting update"
+  },
+  "updateNotificationDismiss": {
+    "message": "Dismiss this update",
+    "englishSource": "Dismiss this update"
+  },
+  "updateNotificationActionFailed": {
+    "message": "The update could not be started. Try again.",
+    "englishSource": "The update could not be started. Try again."
   }
 }

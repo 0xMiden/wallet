@@ -373,6 +373,9 @@ export default defineConfig({
   define: {
     'process.env.VERSION': JSON.stringify(pkg.version),
     'process.env.TARGET_BROWSER': JSON.stringify(TARGET_BROWSER),
+    'process.env.MIDEN_UPDATE_NOTIFICATIONS': JSON.stringify(
+      process.env.MIDEN_UPDATE_NOTIFICATIONS ?? (TARGET_BROWSER === 'chrome' ? 'true' : 'false')
+    ),
     'process.env.MIDEN_USE_MOCK_CLIENT': JSON.stringify(process.env.MIDEN_USE_MOCK_CLIENT ?? 'false'),
     // Issue #260: route flag-gated WASM-client work through the chrome.offscreen
     // document. DEFAULT ON in the service worker — this is the bundle that runs

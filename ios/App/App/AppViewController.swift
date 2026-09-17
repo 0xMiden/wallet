@@ -11,5 +11,6 @@ class AppViewController: CAPBridgeViewController {
         bridge?.registerPluginInstance(MidenNativeProverPlugin())
         bridge?.registerPluginInstance(ScreenshotGuardPlugin())
         bridge?.registerPluginInstance(HighRefreshRatePlugin())
+        bridge?.registerPluginInstance(UpdateAvailabilityPlugin())
     }
 }
