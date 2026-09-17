@@ -3,6 +3,7 @@ import React, { FC, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { ButtonVariant } from 'components/Button';
+import { accentForTransactionType } from 'components/flow/accent';
 import { IBridgedSendExtraInputs } from 'lib/miden/db/types';
 import { navigate } from 'lib/woozie';
 import { truncateAddress } from 'utils/string';
@@ -58,6 +59,7 @@ export const BridgeSuccess: FC<BridgeSuccessProps> = ({
 
   return (
     <TransactionSuccessLayout
+      accent={accentForTransactionType(transaction?.type)}
       headerTitle=""
       title={t('paymentSent', { defaultValue: 'Payment Sent!' })}
       primaryAction={{ label: t('done'), onClick: onDoneClick, variant: ButtonVariant.Primary }}
@@ -70,7 +72,7 @@ export const BridgeSuccess: FC<BridgeSuccessProps> = ({
     >
       <SuccessSummaryPill lhs={amountText} rhs={recipient} />
       <SuccessDivider />
-      <ReceiptRows rows={rows} className="mt-2" />
+      <ReceiptRows accent={accentForTransactionType(transaction?.type)} rows={rows} className="mt-2" />
     </TransactionSuccessLayout>
   );
 };

@@ -3,6 +3,7 @@ import React, { FC, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { ButtonVariant } from 'components/Button';
+import { accentForTransactionType } from 'components/flow/accent';
 import { navigate } from 'lib/woozie';
 import { truncateAddress } from 'utils/string';
 
@@ -60,6 +61,7 @@ export const SendSuccess: FC<TransactionSuccessProps> = ({ transaction, txHash, 
 
   return (
     <TransactionSuccessLayout
+      accent={accentForTransactionType(transaction?.type)}
       headerTitle=""
       title={title}
       primaryAction={{ label: t('done'), onClick: onDoneClick, variant: ButtonVariant.Primary }}
@@ -72,7 +74,7 @@ export const SendSuccess: FC<TransactionSuccessProps> = ({ transaction, txHash, 
     >
       <SuccessSummaryPill lhs={amountText} rhs={isConsume ? t('consumed', { defaultValue: 'Consumed' }) : recipient} />
       <SuccessDivider />
-      <ReceiptRows rows={rows} className="mt-2" />
+      <ReceiptRows accent={accentForTransactionType(transaction?.type)} rows={rows} className="mt-2" />
     </TransactionSuccessLayout>
   );
 };

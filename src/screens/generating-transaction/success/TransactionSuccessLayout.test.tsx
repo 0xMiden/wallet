@@ -27,17 +27,7 @@ jest.mock('components/Button', () => ({
   ButtonVariant: { Primary: 'primary', Secondary: 'secondary' }
 }));
 
-// Exposes onClose rather than swallowing it: the receipt's header X is one of the
-// two ways out of the screen, and a stub that drops the prop lets the layout stop
-// wiring it without a single test noticing.
-jest.mock('components/ScreenHeader', () => ({
-  ScreenHeader: ({ title, onClose }: { title: string; onClose?: () => void }) => (
-    <div>
-      {title}
-      <button data-testid="header-close" onClick={onClose} />
-    </div>
-  )
-}));
+jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn() }));
 
 jest.mock('lib/mobile/useHideNavbarWhileOpen', () => ({
   useHideNavbarWhileOpen: jest.fn()
@@ -52,13 +42,13 @@ const baseProps = {
 
 const footerLabels = () => screen.getAllByTestId('footer-action').map(button => button.textContent);
 
-it('promotes the body title to h1 when the header carries no title', () => {
+it('titles the page when the receipt passes no header title, so the page always has an h1', () => {
   render(<TransactionSuccessLayout {...baseProps} headerTitle="" />);
 
-  // Every receipt passes an empty header title, so this is the screen's only
-  // heading — as an h2 it left the page with no h1 and the header announcing a
-  // nameless level-1 heading.
-  expect(screen.getByRole('heading', { level: 1, name: 'Transaction Complete!' })).toBeInTheDocument();
+  // The shared flow frame always renders the page title as the h1; an empty header
+  // title falls back to "Success" rather than a nameless heading.
+  expect(screen.getByRole('heading', { level: 1, name: 'success' })).toBeInTheDocument();
+  expect(screen.getByRole('heading', { level: 2, name: 'Transaction Complete!' })).toBeInTheDocument();
 });
 
 it('keeps the body title one level below a titled header', () => {
@@ -67,14 +57,12 @@ it('keeps the body title one level below a titled header', () => {
   expect(screen.getByRole('heading', { level: 2, name: 'Transaction Complete!' })).toBeInTheDocument();
 });
 
-it('draws the receipt divider in a shade that survives both themes', () => {
+it('spaces the summary from the details card without drawing a rule', () => {
   const { container } = render(<SuccessDivider />);
 
-  // Nothing mounted the real divider — GuardianSwitchSuccess stubs it and this
-  // suite never imported it — so it shipped as a literal #F2F2F4 with no dark
-  // counterpart, a bright bar across the dark receipt. `gray-50` is that same
-  // near-white in light and composites to ~#333 in dark.
-  expect(container.firstElementChild).toHaveClass('bg-gray-50');
+  // The details are a card now, so the divider is decorative spacing only.
+  expect(container.firstElementChild).toHaveAttribute('aria-hidden', 'true');
+  expect(container.firstElementChild?.className).not.toContain('bg-');
 });
 
 it('takes focus on mount so the outcome is announced', () => {
@@ -83,7 +71,7 @@ it('takes focus on mount so the outcome is announced', () => {
   // The receipt replaces the in-progress view in place — no navigation, no live
   // region — so without this the result of the transaction the user just
   // authorized was never announced, and focus sat on the unmounted view's body.
-  const heading = screen.getByRole('heading', { level: 1, name: 'Transaction Complete!' });
+  const heading = screen.getByRole('heading', { level: 2, name: 'Transaction Complete!' });
   expect(heading).toHaveFocus();
   // Focusable, but not a tab stop: -1 is the standard shape for a focus target.
   expect(heading).toHaveAttribute('tabindex', '-1');
@@ -93,7 +81,7 @@ it('renders the green check hero when no custom artwork is supplied', () => {
   render(<TransactionSuccessLayout {...baseProps} />);
 
   // The default hero is decorative, so it is only reachable through the DOM.
-  expect(document.querySelector('svg')).toBeInTheDocument();
+  expect(document.querySelector('.bg-status-positive')).toBeInTheDocument();
   expect(screen.queryByTestId('custom-hero')).not.toBeInTheDocument();
 });
 
@@ -103,7 +91,7 @@ it('replaces the check hero entirely with custom artwork', () => {
   expect(screen.getByTestId('custom-hero')).toBeInTheDocument();
   // A rotation receipt shows robot-and-shield art instead of the check, so the
   // default must not render alongside it.
-  expect(document.querySelector('svg')).not.toBeInTheDocument();
+  expect(document.querySelector('.bg-status-positive')).not.toBeInTheDocument();
 });
 
 it('stacks the primary action above the secondary one by default', () => {
@@ -149,7 +137,7 @@ it("invokes the caller's own handlers from both CTAs and the header close", () =
   // left the layout free to render buttons that do nothing.
   fireEvent.click(screen.getByText('Done'));
   fireEvent.click(screen.getByText('View in Activities'));
-  fireEvent.click(screen.getByTestId('header-close'));
+  fireEvent.click(screen.getByTestId('flow-close'));
 
   expect(primary).toHaveBeenCalledTimes(1);
   expect(secondary).toHaveBeenCalledTimes(1);
