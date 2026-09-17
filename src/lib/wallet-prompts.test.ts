@@ -1062,15 +1062,11 @@ describe('wallet prompts', () => {
         releaseRead = () => resolve(record);
       });
     });
-    const settle = async () => {
-      for (let i = 0; i < 10; i++) await new Promise(resolve => setTimeout(resolve, 0));
-    };
-
     try {
       const fromPopup = popup.setStatus(WalletPromptType.VerifySeedPhrase, WalletPromptStatus.Completed);
-      await settle();
+      // The popup holds the turn on a read that has not answered; the side panel's write queues.
+      expect(get).toHaveBeenCalledTimes(1);
       const fromSidePanel = sidePanel.setStatus(WalletPromptType.Bridge, WalletPromptStatus.Dismissed);
-      await settle();
       releaseRead();
       await fromPopup;
       await fromSidePanel;
@@ -1267,6 +1263,39 @@ describe('wallet prompts', () => {
       set.mockRestore();
       get.mockRestore();
       warn.mockRestore();
+    }
+  });
+
+  it('answers the hook load from after a write this surface already issued (#937)', async () => {
+    const provider = getStorageProvider();
+    const writeRecord = provider.set.bind(provider);
+    // Released in `finally` too, so a held call cannot stall the shared turn for later tests.
+    let releaseWrite = () => {};
+    const set = jest.spyOn(provider, 'set').mockImplementationOnce(
+      items =>
+        new Promise(resolve => {
+          releaseWrite = () => resolve(writeRecord(items));
+        })
+    );
+
+    try {
+      const write = setWalletPromptStatus(WalletPromptType.VerifySeedPhrase, WalletPromptStatus.Completed);
+      const { result } = renderHook(() => useWalletPromptStorage());
+      await act(async () => {});
+
+      // The load takes its turn behind that write, so it cannot answer from before it.
+      expect(result.current.isLoaded).toBe(false);
+      await act(async () => {
+        releaseWrite();
+        await write;
+      });
+
+      await waitFor(() =>
+        expect(result.current.storage.prompts[WalletPromptType.VerifySeedPhrase]).toBe(WalletPromptStatus.Completed)
+      );
+    } finally {
+      releaseWrite();
+      set.mockRestore();
     }
   });
 

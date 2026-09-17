@@ -226,8 +226,10 @@ export async function fetchWalletPromptStorage(): Promise<WalletPromptStorage> {
 // share, so a surface cannot put back a field another surface just changed.
 // There is no timeout on a turn: a write already sent to storage cannot be called back,
 // so starting the next one early would let the slow one land over it.
-function inWalletPromptStorageTurn<T>(operation: () => Promise<T>): Promise<T> {
-  return navigator.locks.request<Promise<T>>(`turn:${WALLET_PROMPTS_STORAGE_KEY}`, operation);
+// (The type argument is what `navigator.locks.request` needs to hand back the record the
+// operation resolves with; the faucet-marker lock can leave it out only because it resolves void.)
+function inWalletPromptStorageTurn(operation: () => Promise<WalletPromptStorage>): Promise<WalletPromptStorage> {
+  return navigator.locks.request<Promise<WalletPromptStorage>>(`turn:${WALLET_PROMPTS_STORAGE_KEY}`, operation);
 }
 
 function updateWalletPromptStorage(
