@@ -517,7 +517,7 @@ const Settings: FC<SettingsProps> = ({ tabSlug, rootScrollTop: savedRootScrollTo
           <div className="flex flex-col w-full pb-22 text-heading-gray px-4">
             <div className="flex flex-col divide-y divide-border-faint">
               {tabGroups.map(group => (
-                <div key={group.titleI18nKey} className="py-3 first:pt-0">
+                <div key={group.titleI18nKey} className="py-3">
                   <div className="flex items-center gap-1.5 pb-3">
                     {/* Decorative: the heading beside it names the group, so an
                         unlabelled graphic in the tree just adds an anonymous
@@ -532,7 +532,7 @@ const Settings: FC<SettingsProps> = ({ tabSlug, rootScrollTop: savedRootScrollTo
                         the header renders as h1, so h3 left a gap in the outline
                         and screen-reader heading navigation reported a missing
                         level. */}
-                    <h2 className="font-heading text-lg font-bold text-heading-gray">{t(group.titleI18nKey)}</h2>
+                    <h2 className="font-heading text-lg font-extrabold text-heading-gray">{t(group.titleI18nKey)}</h2>
                   </div>
                   {/* `gap-1` now that MenuItem carries its own `py-2.5`: the rows each
               grew from a 24px line box to a 44px target, so keeping gap-4 on top

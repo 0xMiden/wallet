@@ -64,7 +64,6 @@ let mockLayoutProps: TransactionSuccessLayoutProps | undefined;
 
 jest.mock('./TransactionSuccessLayout', () => ({
   __esModule: true,
-  SuccessDivider: () => <hr data-testid="divider" />,
   TransactionSuccessLayout: (props: TransactionSuccessLayoutProps) => {
     mockLayoutProps = props;
     return (
@@ -212,14 +211,13 @@ describe('GuardianSwitchSuccess', () => {
     expect(screen.getByTestId('hero-art')).toBeInTheDocument();
   });
 
-  it('renders the receipt art, the divider and the full "what changes now" primer', () => {
+  it('renders the receipt art and the full "what changes now" primer', () => {
     // A rotation moves no funds, so this receipt has no amount rows — the hero
     // and the primer are the entire body, and each part can otherwise be deleted
     // without a single test noticing.
     render(<GuardianSwitchSuccess transaction={switchGuardianTx()} onDoneClick={() => {}} />);
 
     expect(screen.getByTestId('hero-art')).toBeInTheDocument();
-    expect(screen.getByTestId('divider')).toBeInTheDocument();
     expect(body()).toHaveTextContent('guardianSwitchSuccessInfoTitle');
 
     const bullets = body().querySelectorAll('li');

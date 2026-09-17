@@ -42,7 +42,7 @@ export const AccountsDrawer: FC<AccountsDrawerProps> = ({ open, onOpenChange }) 
     <Drawer open={open} onOpenChange={onOpenChange}>
       <DrawerContent>
         <DrawerHeader>
-          <DrawerTitle>{t('accounts')}</DrawerTitle>
+          <DrawerTitle className="font-extrabold">{t('accounts')}</DrawerTitle>
         </DrawerHeader>
 
         <div className="flex flex-col gap-4 px-4 pb-6">
@@ -79,7 +79,7 @@ export const AccountsDrawer: FC<AccountsDrawerProps> = ({ open, onOpenChange }) 
             className={classNames(
               'flex w-full items-center justify-center gap-2 rounded-xl px-4 py-4',
               'bg-surface-input',
-              'text-sm font-semibold text-gray-secondary dark:text-pure-white',
+              'font-heading text-base font-bold text-gray-secondary dark:text-pure-white',
               'transition-colors hover:bg-[#ECEAE7] dark:hover:bg-[#3f3f3f] rounded-2xl'
             )}
           >
@@ -94,7 +94,7 @@ export const AccountsDrawer: FC<AccountsDrawerProps> = ({ open, onOpenChange }) 
             className={classNames(
               'flex w-full items-center justify-center gap-2 rounded-xl px-4 py-4 cursor-default',
               'border border-dashed border-[#C7C7CC] bg-transparent',
-              'text-sm font-medium text-gray-secondary rounded-2xl'
+              'font-heading text-base font-bold text-gray-secondary rounded-2xl'
             )}
           >
             <Icon name={IconName.Add} className="w-4 h-4" fill="currentColor" />

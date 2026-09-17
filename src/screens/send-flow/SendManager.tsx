@@ -1,5 +1,6 @@
 import React, { ChangeEvent, useCallback, useEffect, useMemo, useState } from 'react';
 
+import { Clipboard } from '@capacitor/clipboard';
 import { yupResolver } from '@hookform/resolvers/yup';
 import classNames from 'clsx';
 import { useForm } from 'react-hook-form';
@@ -30,14 +31,13 @@ import {
 
 import { AccountsListDrawer } from './AccountsList';
 import { AddContactDrawer } from './AddContactDrawer';
-import { SendNetworkId } from './bridge-networks';
-import { Route as RouteStep } from './Route';
+import { BridgeNetworkId, SendNetworkId } from './bridge-networks';
 import { ScanQrDrawer } from './ScanQrDrawer';
-import { SelectAmount } from './SelectAmount';
-import { SelectNetworkDrawer } from './SelectNetwork';
 import { SelectRecipient } from './SelectRecipient';
 import { SelectTokenDrawer } from './SelectToken';
 import { consumeSendDraft, SendDraft, setSendDraft } from './send-draft';
+import { SendAmount } from './SendAmount';
+import { SendRoute } from './SendRoute';
 import {
   BridgeRoute,
   Contact,
@@ -106,7 +106,6 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
   // Contact picker is likewise a bottom sheet over the recipient step.
   const [showContactsDrawer, setShowContactsDrawer] = useState(false);
   // EVM destination networks are selected in a bottom sheet from the recipient step.
-  const [showNetworkDrawer, setShowNetworkDrawer] = useState(false);
   // Saving an unknown-but-valid recipient to the address book, also a bottom sheet.
   const [showAddContactDrawer, setShowAddContactDrawer] = useState(false);
   // Extension-only: the webcam QR scanner is a bottom sheet over the recipient
@@ -151,15 +150,24 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
     navigate('/');
   }, []);
 
+  // Receive, offered on the amount step when the account has no MIDEN for the fee.
+  const onReceive = useCallback(() => navigate('/receive'), []);
+
+  // On-screen back for the steps after the recipient. Same rule as the hardware
+  // back below: pop a step, or close the flow if a step somehow is the root.
+  const onStepBack = useCallback(() => {
+    if (cardStack.length > 1) {
+      goBack();
+      return;
+    }
+    onClose();
+  }, [cardStack.length, goBack, onClose]);
+
   // Handle mobile back button/gesture. Open bottom sheets close first;
   // otherwise back pops the Navigator step or exits the flow.
   useMobileBackHandler(() => {
     if (showAddContactDrawer) {
       setShowAddContactDrawer(false);
-      return true;
-    }
-    if (showNetworkDrawer) {
-      setShowNetworkDrawer(false);
       return true;
     }
     if (showContactsDrawer) {
@@ -177,7 +185,7 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
     // On first step, close entire flow
     onClose();
     return true;
-  }, [showAddContactDrawer, showNetworkDrawer, showContactsDrawer, showTokenDrawer, cardStack.length, goBack, onClose]);
+  }, [showAddContactDrawer, showContactsDrawer, showTokenDrawer, cardStack.length, goBack, onClose]);
 
   // Reset the leftover completion state on send-flow entry.
   //
@@ -275,10 +283,7 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
     if (hasRecipientAddress && !isBridge && recipientNetwork !== 'miden') {
       setRecipientNetwork('miden');
     }
-    if (hasRecipientAddress && !isBridge && showNetworkDrawer) {
-      setShowNetworkDrawer(false);
-    }
-  }, [recipientAddress, isBridge, bridgeNetwork, recipientNetwork, setValue, showNetworkDrawer]);
+  }, [recipientAddress, isBridge, bridgeNetwork, recipientNetwork, setValue]);
 
   // Forward-quote the USDC output for the Fast (Epoch) route, so the Route
   // screen can show a live fee regardless of which route is selected.
@@ -566,6 +571,24 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
 
   const openScanDrawer = useCallback(() => setShowScanDrawer(true), []);
 
+  // Paste goes through the scanned-address path so a pasted address gets the same validation and
+  // wrong-network messaging as a scan. Mobile only, gated like the scanner below: the native
+  // clipboard is the one read that works. A WebView's own readText() raises the platform's paste
+  // callout rather than returning text, and in the extension it never settles at all, because the
+  // manifest holds clipboardWrite and not clipboardRead — so a pill there would do nothing, with
+  // no way to report it. Off mobile the field is a textarea and the platform's own paste works.
+  // Only text is used: an image on the pasteboard comes back as a base64 data URL in `value`.
+  const onPaste = useCallback(async () => {
+    try {
+      const { value, type } = await Clipboard.read();
+      const text = type?.startsWith('text') ? value.trim() : '';
+      if (text) applyScannedAddress(text);
+    } catch {
+      // An empty clipboard or a refused system prompt leaves the field as it is; both are the
+      // user's own doing, so neither needs a message.
+    }
+  }, [applyScannedAddress]);
+
   const onScan = isMobile() ? runNativeScan : openScanDrawer;
 
   const onSelectContact = useCallback(
@@ -578,6 +601,15 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
       applyRecipientValidation(contact.id);
     },
     [onAction, applyRecipientValidation]
+  );
+
+  // A 0x recipient's destination network, picked from the chips on the recipient step.
+  const onSelectNetwork = useCallback(
+    (network: BridgeNetworkId) => {
+      setRecipientNetwork(network);
+      onAction({ id: SendFlowActionId.SetFormValues, payload: { bridgeNetwork: network } });
+    },
+    [onAction]
   );
 
   // A "Recent" row fills the recipient exactly like picking a contact does.
@@ -664,30 +696,37 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
               onAddressBook={() => setShowContactsDrawer(true)}
               onAddContact={() => setShowAddContactDrawer(true)}
               onSelectRecent={onSelectRecent}
-              onSelectNetwork={() => setShowNetworkDrawer(true)}
+              onSelectNetwork={onSelectNetwork}
               onScan={isScanAvailable() ? onScan : undefined}
+              onPaste={isMobile() ? onPaste : undefined}
               onConfirm={() => goToStep(SendFlowStep.SelectAmount)}
             />
           );
         case SendFlowStep.SelectAmount:
           return (
-            <SelectAmount
+            <SendAmount
               token={spendableToken}
               amount={amount || ''}
               isValidAmount={!errors.amount && validations.amount.isValidSync(amount)}
               error={errors.amount?.message?.toString()}
+              recipientAddress={recipientAddress || ''}
+              recipientName={selectedContact?.name}
+              network={displayedNetwork}
               onAmountChange={onAmountChange}
               onSelectToken={() => setShowTokenDrawer(true)}
+              onReceive={onReceive}
+              onBack={onStepBack}
               onConfirm={onConfirmAmount}
             />
           );
         case SendFlowStep.Route:
           return (
-            <RouteStep
+            <SendRoute
               route={bridgeRoute ?? 'epoch'}
               onRouteChange={onRouteChange}
               fastFeeUsd={fastFeeUsd}
               fastQuoteLoading={epochQuote.loading}
+              onBack={onStepBack}
               onConfirm={goToReview}
             />
           );
@@ -705,6 +744,7 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
       recents,
       canAddContact,
       onSelectRecent,
+      onPaste,
       errors.recipientAddress,
       errors.amount,
       onAddressChange,
@@ -713,6 +753,9 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
       onAmountChange,
       goToStep,
       onConfirmAmount,
+      onStepBack,
+      onSelectNetwork,
+      onReceive,
       chain,
       displayedNetwork,
       selectedContact?.name,
@@ -764,19 +807,6 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
         address={recipientAddress ?? ''}
       />
 
-      <SelectNetworkDrawer
-        open={showNetworkDrawer}
-        selectedNetwork={displayedNetwork}
-        onOpenChange={setShowNetworkDrawer}
-        onSelect={selectedNetwork => {
-          setRecipientNetwork(selectedNetwork);
-          onAction({
-            id: SendFlowActionId.SetFormValues,
-            payload: { bridgeNetwork: selectedNetwork === 'miden' ? undefined : selectedNetwork }
-          });
-        }}
-      />
-
       <ScanQrDrawer
         open={showScanDrawer}
         onOpenChange={setShowScanDrawer}
@@ -794,13 +824,18 @@ const NavigatorWrapper: React.FC<{ isLoading: boolean }> = props => {
   // through the preselect effect via its id.
   const [draft] = useState(consumeSendDraft);
   const preselectedTokenId = draft?.tokenId ?? new URLSearchParams(search).get('tokenId');
-  // Otherwise always start at recipient selection; a preselected token just
-  // pre-fills the token for the Amount step (see the preselect effect in
-  // SendManager).
-  const initialRoute = draft ? SendFlowStep.SelectAmount : SendFlowStep.SelectRecipient;
+  // Otherwise start at recipient selection; a preselected token just pre-fills
+  // the token for the Amount step (see the preselect effect in SendManager).
+  // A restored draft reopens on Amount with Recipient beneath it, so back returns
+  // to the (prefilled) address instead of closing the flow. Starting the stack at
+  // Amount alone left no way back to the address: back closed the flow, and the
+  // still-mounted Send pane reopened on Amount.
+  const initialRoutes = draft
+    ? [SendFlowStep.SelectRecipient, SendFlowStep.SelectAmount]
+    : [SendFlowStep.SelectRecipient];
 
   return (
-    <NavigatorProvider routes={ROUTES} initialRouteName={initialRoute}>
+    <NavigatorProvider routes={ROUTES} initialRouteNames={initialRoutes}>
       <SendManager {...props} preselectedTokenId={preselectedTokenId} draft={draft} />
     </NavigatorProvider>
   );

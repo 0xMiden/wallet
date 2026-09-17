@@ -1574,6 +1574,10 @@
     "message": "Address Book",
     "englishSource": "Address Book"
   },
+  "paste": {
+    "message": "Paste",
+    "englishSource": "Paste"
+  },
   "chooseRecipient": {
     "message": "Choose recipient",
     "englishSource": "Choose recipient"
@@ -1581,6 +1585,10 @@
   "selectAmount": {
     "message": "Select Amount",
     "englishSource": "Select Amount"
+  },
+  "enterAmount": {
+    "message": "Enter amount",
+    "englishSource": "Enter amount"
   },
   "selectAToken": {
     "message": "Select a token",

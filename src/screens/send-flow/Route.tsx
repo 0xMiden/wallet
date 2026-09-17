@@ -4,6 +4,7 @@ import clsx from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import { Button, ButtonVariant } from 'components/Button';
+import { ACCENT_CLASSES, FlowAccent } from 'components/flow/accent';
 import { toAdaptiveFixed } from 'lib/i18n/numbers';
 import { hapticLight } from 'lib/mobile/haptics';
 
@@ -33,19 +34,20 @@ interface RouteCardProps {
   fee: React.ReactNode;
   eta: string;
   testId?: string;
+  accent: FlowAccent;
 }
 
-const RouteCard: React.FC<RouteCardProps> = ({ label, selected, onSelect, fee, eta, testId }) => (
+const RouteCard: React.FC<RouteCardProps> = ({ label, selected, onSelect, fee, eta, testId, accent }) => (
   <button
     type="button"
     data-testid={testId}
     onClick={onSelect}
     className={clsx(
       'flex w-full items-center rounded-2xl border bg-pure-white px-4 py-6 transition-colors text-base',
-      selected ? 'border-primary-500' : 'border-[#E8E8E8]'
+      selected ? ACCENT_CLASSES[accent].border : 'border-[#E8E8E8]'
     )}
   >
-    <div className="flex flex-1 text-[20px] font-bold text-primary-500">{label}</div>
+    <div className={clsx('flex flex-1 text-[20px] font-bold', ACCENT_CLASSES[accent].text)}>{label}</div>
     <span className="h-6 w-px shrink-0 bg-border-card" />
     <div className="flex flex-1 items-center justify-center text-heading-gray font-bold">{fee}</div>
     <span className="h-6 w-px shrink-0 bg-border-card" />
@@ -53,20 +55,19 @@ const RouteCard: React.FC<RouteCardProps> = ({ label, selected, onSelect, fee, e
   </button>
 );
 
-/**
- * Cross-chain route picker, shown after the destination network is chosen for a
- * 0x recipient. Fast = Epoch (any token → USDC, settles in ~seconds, charges a
- * fee = input value − USDC received); Slow = Agglayer (no fee, ~hours, any token).
- */
-export const Route: React.FC<RouteStepProps> = ({
+export type RouteOptionsProps = Pick<
+  RouteStepProps,
+  'route' | 'onRouteChange' | 'fastFeeUsd' | 'fastQuoteLoading' | 'notice'
+> & { accent?: FlowAccent };
+
+/** The Fast / Slow route cards and their notice, shared by every route step's layout. */
+export const RouteOptions: React.FC<RouteOptionsProps> = ({
   route,
   onRouteChange,
   fastFeeUsd,
   fastQuoteLoading,
   notice,
-  confirmDisabled,
-  footerClassName = 'pt-4 pb-24',
-  onConfirm
+  accent = 'brand'
 }) => {
   const { t } = useTranslation();
 
@@ -86,31 +87,61 @@ export const Route: React.FC<RouteStepProps> = ({
   );
 
   return (
+    <div className="mt-6 flex flex-col gap-6">
+      <RouteCard
+        emoji="⚡"
+        label={t('fast')}
+        selected={route === 'epoch'}
+        onSelect={() => select('epoch')}
+        fee={fastFee}
+        eta={t('fastArrival')}
+        testId="bridge-route-fast"
+        accent={accent}
+      />
+      <RouteCard
+        emoji="🕐"
+        label={t('slow')}
+        selected={route === 'agglayer'}
+        onSelect={() => select('agglayer')}
+        fee={<span className="text-base font-bold text-heading-gray">{t('noFee')}</span>}
+        eta={t('slowArrival')}
+        testId="bridge-route-slow"
+        accent={accent}
+      />
+      {notice && <p className="text-xs text-heading-gray/60">{notice}</p>}
+    </div>
+  );
+};
+
+/**
+ * Cross-chain route picker, shown after the destination network is chosen for a
+ * 0x recipient. Fast = Epoch (any token → USDC, settles in ~seconds, charges a
+ * fee = input value − USDC received); Slow = Agglayer (no fee, ~hours, any token).
+ */
+export const Route: React.FC<RouteStepProps> = ({
+  route,
+  onRouteChange,
+  fastFeeUsd,
+  fastQuoteLoading,
+  notice,
+  confirmDisabled,
+  footerClassName = 'pt-4 pb-24',
+  onConfirm
+}) => {
+  const { t } = useTranslation();
+
+  return (
     <div className={clsx('flex flex-col h-full min-h-0 bg-app-bg px-6')}>
       <div className="flex flex-col flex-1 min-h-0 overflow-y-auto no-scrollbar pt-10">
         <span className="font-heading text-2xl leading-none font-bold text-[#808080]">{t('route')}</span>
 
-        <div className="mt-6 flex flex-col gap-6">
-          <RouteCard
-            emoji="⚡"
-            label={t('fast')}
-            selected={route === 'epoch'}
-            onSelect={() => select('epoch')}
-            fee={fastFee}
-            eta={t('fastArrival')}
-            testId="bridge-route-fast"
-          />
-          <RouteCard
-            emoji="🕐"
-            label={t('slow')}
-            selected={route === 'agglayer'}
-            onSelect={() => select('agglayer')}
-            fee={<span className="text-base font-bold text-heading-gray">{t('noFee')}</span>}
-            eta={t('slowArrival')}
-            testId="bridge-route-slow"
-          />
-          {notice && <p className="text-xs text-heading-gray/60">{notice}</p>}
-        </div>
+        <RouteOptions
+          route={route}
+          onRouteChange={onRouteChange}
+          fastFeeUsd={fastFeeUsd}
+          fastQuoteLoading={fastQuoteLoading}
+          notice={notice}
+        />
       </div>
 
       <div className={clsx('shrink-0', footerClassName)} data-navbar-cushion="true">

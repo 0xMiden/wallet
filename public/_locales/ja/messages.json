@@ -1574,6 +1574,10 @@
     "message": "アドレス帳",
     "englishSource": "Address Book"
   },
+  "paste": {
+    "message": "貼り付け",
+    "englishSource": "Paste"
+  },
   "chooseRecipient": {
     "message": "受信者を選択してください",
     "englishSource": "Choose recipient"
@@ -1581,6 +1585,10 @@
   "selectAmount": {
     "message": "金額を選択してください",
     "englishSource": "Select Amount"
+  },
+  "enterAmount": {
+    "message": "金額を入力",
+    "englishSource": "Enter amount"
   },
   "selectAToken": {
     "message": "トークンを選択してください",

@@ -10,7 +10,7 @@ import { isIOS, isMobile } from 'lib/platform';
  * height, so the soft keyboard hides bottom-of-layout inputs/CTAs. This module
  * mirrors the keyboard height into the `--keyboard-height` CSS var on <html>;
  * mobile.html's body padding-bottom consumes it via
- * `max(12px, env(safe-area-inset-bottom), var(--keyboard-height, 0px))`, so the
+ * `max(var(--app-safe-bottom), var(--keyboard-height, 0px))`, so the
  * full-height layout shrinks and bottom-pinned content rides above the keyboard.
  * Fixed-position surfaces (the bottom-sheet drawers in `lib/ui/drawer.tsx`)
  * sit outside the body padding and consume the var in their own

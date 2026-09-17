@@ -59,6 +59,8 @@ const scanQRCodeMock = jest.fn();
 // so the existing native-scan tests below exercise `scanQRCode` unchanged; the
 // extension drawer tests flip it to false.
 const isMobileMock = jest.fn(() => true);
+const clipboardReadMock = jest.fn();
+jest.mock('@capacitor/clipboard', () => ({ Clipboard: { read: () => clipboardReadMock() } }));
 
 const closeTransactionModalMock = jest.fn();
 const setLastCompletedTxHashMock = jest.fn();
@@ -75,7 +77,11 @@ const walletStoreState = {
 jest.mock('components/Navigator', () => ({
   __esModule: true,
   useNavigator: () => ({ navigateTo: navigateToMock, goBack: goBackMock, cardStack: mockCardStack }),
-  NavigatorProvider: ({ children }: any) => <div data-testid="nav-provider">{children}</div>,
+  NavigatorProvider: ({ children, initialRouteName, initialRouteNames }: any) => (
+    <div data-testid="nav-provider" data-initial-stack={(initialRouteNames ?? [initialRouteName]).join(',')}>
+      {children}
+    </div>
+  ),
   Navigator: ({ renderRoute }: any) => {
     const name = mockRenderRouteName ?? mockCardStack[mockCardStack.length - 1]?.name;
     return <div data-testid="navigator">{renderRoute({ name, animationIn: 'push', animationOut: 'pop' }, 0)}</div>;
@@ -95,6 +101,7 @@ jest.mock('./SelectRecipient', () => ({
       <button data-testid="sr-addcontact" onClick={props.onAddContact} />
       <button data-testid="sr-selectrecent" onClick={() => props.onSelectRecent(props.recents[0])} />
       {props.onScan && <button data-testid="sr-scan" onClick={props.onScan} />}
+      {props.onPaste && <button data-testid="sr-paste" onClick={props.onPaste} />}
       <button data-testid="sr-confirm" onClick={props.onConfirm} />
     </div>
   )
@@ -114,16 +121,19 @@ jest.mock('./ScanQrDrawer', () => ({
   )
 }));
 
-jest.mock('./SelectAmount', () => ({
-  SelectAmount: (props: any) => (
+jest.mock('./SendAmount', () => ({
+  SendAmount: (props: any) => (
     <div data-testid="select-amount">
       <span data-testid="sa-token">{props.token ? props.token.name : 'no-token'}</span>
       <span data-testid="sa-amount">{props.amount}</span>
       <span data-testid="sa-valid">{String(props.isValidAmount)}</span>
       <span data-testid="sa-error">{props.error ?? ''}</span>
-      <span data-testid="sa-footer">{props.footerClassName}</span>
+      <span data-testid="sa-recipient">{props.recipientName ?? props.recipientAddress}</span>
+      <span data-testid="sa-network">{props.network ?? ''}</span>
+      <button data-testid="sa-receive" onClick={props.onReceive} />
       <input data-testid="sa-input" onChange={(e: any) => props.onAmountChange(e.target.value)} />
       <button data-testid="sa-selecttoken" onClick={props.onSelectToken} />
+      {props.onBack && <button data-testid="sa-back" onClick={props.onBack} />}
       <button data-testid="sa-confirm" onClick={props.onConfirm} />
     </div>
   )
@@ -300,8 +310,16 @@ describe('SendManager rendering', () => {
     mockCardStack = [{ name: SendFlowStep.SelectAmount }];
     renderFlow();
     expect(screen.getByTestId('select-amount')).toBeInTheDocument();
-    expect(screen.getByTestId('sa-footer')).toBeEmptyDOMElement();
     expect(useHideNavbarWhileOpenMock).toHaveBeenCalledWith(true);
+  });
+
+  it('links the amount step fee shortfall notice to Receive', () => {
+    mockCardStack = [{ name: SendFlowStep.SelectAmount }];
+    renderFlow();
+
+    fireEvent.click(screen.getByTestId('sa-receive'));
+
+    expect(navigateMock).toHaveBeenCalledWith('/receive');
   });
 
   it('does not hide the navbar when not on the /send path even past recipient', () => {
@@ -382,6 +400,44 @@ describe('stale transaction modal dismissal', () => {
 // ---------------------------------------------------------------------------
 // Mobile back handler branches.
 // ---------------------------------------------------------------------------
+describe('on-screen step back button', () => {
+  it('opens a fresh flow on the recipient step', () => {
+    renderFlow();
+
+    expect(screen.getByTestId('nav-provider')).toHaveAttribute('data-initial-stack', SendFlowStep.SelectRecipient);
+  });
+
+  it('reopens a restored draft with the recipient step under Amount, so back reaches the address', () => {
+    setSendDraft({ amount: '7', recipientAddress: '0xrecip', tokenId: 'T1' });
+    renderFlow();
+
+    expect(screen.getByTestId('nav-provider')).toHaveAttribute(
+      'data-initial-stack',
+      `${SendFlowStep.SelectRecipient},${SendFlowStep.SelectAmount}`
+    );
+  });
+
+  it('pops to the recipient step from Amount', () => {
+    mockCardStack = [{ name: SendFlowStep.SelectRecipient }, { name: SendFlowStep.SelectAmount }];
+    renderFlow();
+
+    fireEvent.click(screen.getByTestId('sa-back'));
+
+    expect(goBackMock).toHaveBeenCalledTimes(1);
+    expect(navigateMock).not.toHaveBeenCalled();
+  });
+
+  it('closes the flow when Amount is the root step (restored draft)', () => {
+    mockCardStack = [{ name: SendFlowStep.SelectAmount }];
+    renderFlow();
+
+    fireEvent.click(screen.getByTestId('sa-back'));
+
+    expect(goBackMock).not.toHaveBeenCalled();
+    expect(navigateMock).toHaveBeenCalledWith('/');
+  });
+});
+
 describe('mobile back handler', () => {
   it('closes the contacts drawer first when it is open', () => {
     renderFlow();
@@ -662,6 +718,62 @@ describe('recipient address entry', () => {
       await Promise.resolve();
     });
 
+    expect(screen.getByTestId('sr-error')).toHaveTextContent('');
+  });
+
+  it('pastes a trimmed address from the native clipboard on mobile and validates it', async () => {
+    clipboardReadMock.mockResolvedValue({ type: 'text/plain', value: '  me-pk\n' });
+    renderFlow();
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('sr-paste'));
+      await Promise.resolve();
+    });
+
+    expect(screen.getByTestId('sr-address')).toHaveTextContent('me-pk');
+    expect(screen.getByTestId('sr-error')).toHaveTextContent('cannotSendToSelf');
+  });
+
+  it('leaves the address untouched when the clipboard is empty or unreadable', async () => {
+    clipboardReadMock.mockResolvedValueOnce({ type: 'text/plain', value: '   ' });
+    clipboardReadMock.mockRejectedValueOnce(new Error('denied'));
+    renderFlow();
+
+    for (let i = 0; i < 2; i++) {
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('sr-paste'));
+        await Promise.resolve();
+      });
+    }
+
+    expect(screen.getByTestId('sr-address')).toHaveTextContent('');
+    expect(screen.getByTestId('sr-error')).toHaveTextContent('');
+  });
+
+  // Off mobile there is no read that works: a WebView's readText() raises the platform's paste
+  // callout instead of returning text, and in the extension it never settles, because the manifest
+  // holds clipboardWrite and not clipboardRead. The pill is gated like the scanner rather than
+  // offered and silently doing nothing; the field is a textarea, so the platform's paste still works.
+  it('offers no paste control off mobile', () => {
+    isMobileMock.mockReturnValue(false);
+    renderFlow();
+
+    expect(screen.queryByTestId('sr-paste')).not.toBeInTheDocument();
+  });
+
+  it('ignores a clipboard that holds no text, so an image cannot become the recipient', async () => {
+    clipboardReadMock.mockResolvedValue({
+      type: 'image/png',
+      value: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUg=='
+    });
+    renderFlow();
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('sr-paste'));
+      await Promise.resolve();
+    });
+
+    expect(screen.getByTestId('sr-address')).toHaveTextContent('');
     expect(screen.getByTestId('sr-error')).toHaveTextContent('');
   });
 

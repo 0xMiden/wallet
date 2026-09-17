@@ -71,7 +71,7 @@ export const TabHeader: FC<TabHeaderProps> = ({ title, actions, search }) => {
             autoFocus
           />
         ) : (
-          <h1 className="min-w-0 truncate font-heading text-[28px] font-bold leading-9 text-heading-gray dark:text-pure-white">
+          <h1 className="min-w-0 truncate font-heading text-[28px] font-extrabold leading-9 tracking-[-0.5px] text-heading-gray dark:text-pure-white">
             {title}
           </h1>
         )}

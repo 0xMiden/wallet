@@ -5,8 +5,9 @@ import { useTranslation } from 'react-i18next';
 
 import { useAppEnv } from 'app/env';
 import { useNetworkFeeEstimate } from 'app/hooks/useNetworkFeeEstimate';
-import { ReviewAmount, ReviewLayout, ReviewRow } from 'components/review';
-import { ScreenHeader } from 'components/ScreenHeader';
+import { Button, ButtonVariant } from 'components/Button';
+import { FlowDetailRow, FlowDetails } from 'components/flow/FlowDetails';
+import { TokenLogo } from 'components/TokenLogo';
 import { initiateB2AggBridge } from 'lib/agglayer/b2agg';
 import { EVM_AGGLAYER_NETWORK_ID } from 'lib/agglayer/b2agg/constant';
 import { confirmSensitiveAction } from 'lib/biometric';
@@ -25,9 +26,12 @@ import { useWalletStore } from 'lib/store';
 import { goBack, HistoryAction, navigate, Redirect, useLocation } from 'lib/woozie';
 import { detectAddressChain, isValidRecipientAddress } from 'utils/miden';
 
+import { approxFiatAmount } from './amount-format';
 import { BRIDGE_OUTPUT_TOKEN_SYMBOL, getBridgeNetwork, BridgeNetworkId } from './bridge-networks';
+import { NetworkChip } from './NetworkChip';
 import { dateTimeToRecallBlocks, RecallCalendarDrawer, SECONDS_PER_BLOCK } from './RecallCalendarDrawer';
 import { clearSendDraft } from './send-draft';
+import { SendStepLayout } from './SendStepLayout';
 import { BridgeRoute, UIToken } from './types';
 import { useEpochQuote } from './useEpochQuote';
 
@@ -357,68 +361,98 @@ export const ReviewTransaction: React.FC = () => {
   const routeLabel = route === 'agglayer' ? t('slow') : t('fast');
   const arrivalLabel = route === 'agglayer' ? t('slowArrival') : t('fastArrival');
 
-  return (
-    <div className="flex flex-col h-full min-h-0 bg-app-bg">
-      <ScreenHeader
-        title={t('reviewDetails')}
-        backLabel={t('back')}
-        onBack={() => goBack()}
-        className="mx-4 shrink-0"
-      />
-      <div className="flex-1 min-h-0">
-        <ReviewLayout
-          hero={<ReviewAmount symbol={token?.name ?? ''} amount={amount} label={t('youAreSending')} />}
-          primary={{
-            label: t('sendPayment'),
-            onPress: onSubmit,
-            loading: isSubmitting,
-            // Disabled rather than merely rejected on press: the reason is known
-            // before the user reaches for the button, and letting them tap a live
-            // CTA only to be refused reads as a wallet fault rather than a
-            // deliberate refusal.
-            disabled: isSubmitting || scaleIsUnknown,
-            'data-testid': 'send-review-submit'
-          }}
-          error={scaleIsUnknown ? t('unknownTokenScale') : submitError}
-        >
-          <ReviewRow label={t('to')} value={to} />
+  const fiatValue =
+    token && token.scaleIsKnown && token.fiatPrice > 0 ? parseFloat(amount) * token.fiatPrice : undefined;
 
-          <ReviewRow label={t('network')}>
-            <span className="inline-flex items-center gap-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-primary-500" />
-              {isBridge ? (bridgeNetworkObj?.name ?? t('ethereum')) : t('miden')}
-            </span>
-          </ReviewRow>
+  return (
+    <div className="flex h-full min-h-0 flex-col bg-app-bg">
+      <SendStepLayout
+        title={t('reviewDetails')}
+        onBack={() => goBack()}
+        footer={
+          <div className="flex flex-col gap-2">
+            {(scaleIsUnknown || submitError) && (
+              <p data-testid="review-error" className="text-center text-sm text-red-500">
+                {scaleIsUnknown ? t('unknownTokenScale') : submitError}
+              </p>
+            )}
+            <Button
+              type="button"
+              title={t('sendPayment')}
+              variant={ButtonVariant.Primary}
+              onClick={onSubmit}
+              isLoading={isSubmitting}
+              // Disabled rather than merely rejected on press: the reason is known
+              // before the user reaches for the button, and letting them tap a live
+              // CTA only to be refused reads as a wallet fault rather than a
+              // deliberate refusal.
+              disabled={isSubmitting || scaleIsUnknown}
+              data-testid="send-review-submit"
+              className="w-full max-w-none rounded-full text-base font-semibold"
+            />
+          </div>
+        }
+      >
+        {/* The amount is the page's large text, in the same place as on the amount step. */}
+        <div className="mt-3 flex items-center gap-3" data-testid="review-amount">
+          <TokenLogo symbol={token?.name ?? ''} size="md" />
+          <span className="font-heading text-5xl leading-none font-bold text-heading-gray">
+            {amount} {token?.name ?? ''}
+          </span>
+        </div>
+        {fiatValue !== undefined && (
+          <span className="mt-2 font-heading text-base font-bold text-gray">
+            {t('approxFiatValue', { value: approxFiatAmount(fiatValue) })}
+          </span>
+        )}
+
+        <FlowDetails className="mt-6">
+          {/* The full address, never truncated: this is the last look before funds move. */}
+          <FlowDetailRow label={t('to')} stacked data-testid="review-row-to">
+            {to}
+          </FlowDetailRow>
+          <FlowDetailRow label={t('network')}>
+            {isBridge ? (
+              <NetworkChip kind="ethereum" label={bridgeNetworkObj?.name ?? t('ethereum')} />
+            ) : (
+              <NetworkChip kind="miden" label={t('miden')} />
+            )}
+          </FlowDetailRow>
 
           {/* The exact fee is `baseFee x (floor(log2(cycles)) + 1)` and cycles are not known until
               the transaction is proven, so this quotes the upper bound the wallet already reserves
               against — the same amount the amount step withheld from `Available`. Absent on a
               zero-fee chain and before discovery; see `useNetworkFeeEstimate`. */}
-          {networkFee && <ReviewRow label={t('networkFeeMax')} value={networkFee} note={t('networkFeeEstimateNote')} />}
+          {networkFee && (
+            <FlowDetailRow label={t('networkFeeMax')} sub={t('networkFeeEstimateNote')}>
+              {networkFee}
+            </FlowDetailRow>
+          )}
 
           {isBridge ? (
             <>
-              <ReviewRow label={t('route')} value={`${routeLabel} ${arrivalLabel}`} />
-              <ReviewRow label={t('youReceive')}>
+              <FlowDetailRow label={t('route')}>{`${routeLabel} ${arrivalLabel}`}</FlowDetailRow>
+              <FlowDetailRow label={t('youReceive')}>
                 {youReceiveLoading ? (
-                  <div className="h-7 w-32 animate-pulse rounded bg-heading-gray/10" />
+                  <div className="h-6 w-28 animate-pulse rounded bg-heading-gray/10" />
                 ) : (
                   youReceiveLabel
                 )}
-              </ReviewRow>
+              </FlowDetailRow>
             </>
           ) : (
-            <ReviewRow
+            <FlowDetailRow
               label={t('expirationDate')}
-              onEdit={() => setShowCalendar(true)}
-              editLabel={t('edit')}
-              note={recallBlocks ? t('recallReturnsNote', { amount: `${amount} ${token?.name ?? ''}` }) : undefined}
+              accent="send"
+              action={{ label: t('edit'), onClick: () => setShowCalendar(true) }}
+              sub={recallBlocks ? t('recallReturnsNote', { amount: `${amount} ${token?.name ?? ''}` }) : undefined}
+              data-testid="review-row-expiration"
             >
               {expirationLabel}
-            </ReviewRow>
+            </FlowDetailRow>
           )}
-        </ReviewLayout>
-      </div>
+        </FlowDetails>
+      </SendStepLayout>
 
       {!isBridge && (
         <RecallCalendarDrawer

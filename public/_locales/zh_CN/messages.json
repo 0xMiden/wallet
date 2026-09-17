@@ -1574,6 +1574,10 @@
     "message": "通讯录",
     "englishSource": "Address Book"
   },
+  "paste": {
+    "message": "粘贴",
+    "englishSource": "Paste"
+  },
   "chooseRecipient": {
     "message": "选择收件人",
     "englishSource": "Choose recipient"
@@ -1581,6 +1585,10 @@
   "selectAmount": {
     "message": "选择金额",
     "englishSource": "Select Amount"
+  },
+  "enterAmount": {
+    "message": "输入金额",
+    "englishSource": "Enter amount"
   },
   "selectAToken": {
     "message": "选择一个代币",

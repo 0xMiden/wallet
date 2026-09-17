@@ -649,10 +649,11 @@ describe('GeneratingTransaction stage + state rendering', () => {
     const stepStates = () =>
       Array.from(container.querySelectorAll('[data-transaction-step]')).map(row => row.getAttribute('data-state'));
     const activeSpinner = () =>
-      container.querySelector('[data-transaction-step][data-state="active"] svg') as SVGElement | null;
+      container.querySelector('[data-transaction-step][data-state="active"] [data-testid="flow-spinner"]');
 
     expect(stepStates()).toEqual(['complete', 'complete', 'active', 'pending']);
-    expect(activeSpinner()).toHaveClass('animate-spin');
+    // The spin is a CSS transform animation on the HTML wrapper, so WebKit runs it on the GPU.
+    expect(activeSpinner()?.className).toContain('animate-[spin_0.9s_linear_infinite]');
     act(() => root.unmount());
   });
 
