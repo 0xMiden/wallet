@@ -67,44 +67,43 @@ jest.mock('app/env', () => ({
 }));
 
 jest.mock('./SendStepLayout', () => ({
-  SendBackButton: ({ onBack }: any) => (
-    <button data-testid="back-btn" aria-label="back" onClick={onBack}>
-      back
-    </button>
+  SendStepLayout: ({ title, onBack, children, footer }: any) => (
+    <div data-testid="review-layout">
+      <h1>{title}</h1>
+      <button data-testid="back-btn" aria-label="back" onClick={onBack}>
+        back
+      </button>
+      <div data-testid="hero">{children}</div>
+      <div data-testid="footer">{footer}</div>
+    </div>
   )
 }));
 jest.mock('./NetworkChip', () => ({
   NetworkChip: ({ label }: any) => <span data-testid="network-chip">{label}</span>
 }));
 
-jest.mock('components/review', () => ({
-  ReviewAmount: ({ symbol, amount, label }: any) => (
-    <div data-testid="review-amount">
-      {label}|{amount}|{symbol}
-    </div>
-  ),
-  ReviewLayout: ({ hero, children, primary, error }: any) => (
-    <div data-testid="review-layout">
-      <div data-testid="hero">{hero}</div>
-      <div data-testid="rows">{children}</div>
-      <button data-testid={primary['data-testid']} onClick={primary.onPress} disabled={primary.disabled}>
-        {primary.label}
-      </button>
-      {error !== undefined && <div data-testid="review-error">{error}</div>}
-    </div>
-  ),
-  ReviewRow: ({ label, value, children, onEdit, editLabel, note }: any) => (
+jest.mock('components/flow/FlowDetails', () => ({
+  FlowDetails: ({ children }: any) => <div data-testid="rows">{children}</div>,
+  FlowDetailRow: ({ label, children, action, sub }: any) => (
     <div data-testid="review-row">
       <span data-testid="row-label">{label}</span>
-      {value !== undefined && <span data-testid="row-value">{value}</span>}
       {children !== undefined && <span data-testid="row-children">{children}</span>}
-      {onEdit && (
-        <button data-testid="row-edit" onClick={onEdit}>
-          {editLabel}
+      {action && (
+        <button data-testid="row-edit" onClick={action.onClick}>
+          {action.label}
         </button>
       )}
-      {note !== undefined && <span data-testid="row-note">{note}</span>}
+      {sub !== undefined && <span data-testid="row-note">{sub}</span>}
     </div>
+  )
+}));
+jest.mock('components/TokenLogo', () => ({ TokenLogo: () => <span data-testid="token-logo" /> }));
+jest.mock('components/Button', () => ({
+  ButtonVariant: { Primary: 'primary', Secondary: 'secondary' },
+  Button: ({ title, variant: _variant, isLoading: _isLoading, ...rest }: any) => (
+    <button type="button" {...rest}>
+      {title}
+    </button>
   )
 }));
 
@@ -125,6 +124,7 @@ jest.mock('lib/epoch', () => ({
 }));
 
 jest.mock('lib/i18n/numbers', () => ({
+  toAdaptiveFixed: (v: number) => v.toFixed(2),
   stringToBigInt: jest.fn()
 }));
 
@@ -367,7 +367,7 @@ describe('ReviewTransaction — rendering', () => {
     expect(screen.getByRole('heading', { level: 1, name: 'reviewDetails' })).toBeInTheDocument();
     expect(screen.getByTestId('back-btn')).toBeInTheDocument();
     expect(screen.getByTestId('network-chip')).toHaveTextContent('miden');
-    expect(screen.getByTestId('review-amount').textContent).toBe('youAreSending|5|MDN');
+    expect(screen.getByTestId('review-amount').textContent).toBe('5 MDN');
     // Recipient row value.
     expect(screen.getByText('0xrecipient')).toBeInTheDocument();
 
@@ -386,7 +386,7 @@ describe('ReviewTransaction — rendering', () => {
     render(<ReviewTransaction />);
     await flush();
 
-    expect(screen.getByTestId('review-amount').textContent).toBe('youAreSending|5|');
+    expect(screen.getByTestId('review-amount').textContent).toBe('5 ');
 
     // onSubmit early-returns because there is no token: nothing fires.
     await act(async () => {
