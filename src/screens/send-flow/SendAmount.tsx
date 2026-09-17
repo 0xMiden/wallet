@@ -1,12 +1,15 @@
 import React from 'react';
 
 import BigNumber from 'bignumber.js';
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
 import { AmountInput } from 'components/AmountInput';
 import { Button, ButtonVariant } from 'components/Button';
 import { TokenLogo } from 'components/TokenLogo';
+import { durations } from 'lib/animation/durations';
+import { easings } from 'lib/animation/easings';
 import { toAdaptiveFixed } from 'lib/i18n/numbers';
 import { hapticLight } from 'lib/mobile/haptics';
 import { truncateAddress } from 'utils/string';
@@ -64,6 +67,8 @@ export const SendAmount: React.FC<SendAmountProps> = ({
   onConfirm
 }) => {
   const { t } = useTranslation();
+  const reduceMotion = useReducedMotion();
+  const transition = reduceMotion ? { duration: 0 } : { duration: durations.normal, ease: easings.easeOutCubic };
 
   // A decimals guess converts the typed amount into the wrong base units, so
   // an unknown-scale token can't be sent (see SelectAmount).
@@ -136,19 +141,30 @@ export const SendAmount: React.FC<SendAmountProps> = ({
               )}
             </span>
           </button>
-          {token && scaleIsKnown && token.balance > 0 && (
-            <button
-              type="button"
-              data-testid="send-amount-max"
-              onClick={() => {
-                hapticLight();
-                onAmountChange(formatBalance(token.balance));
-              }}
-              className="shrink-0 rounded-full border border-border-subtle bg-app-bg px-3 py-1.5 font-heading text-sm font-bold text-accent-send"
-            >
-              {t('max')}
-            </button>
-          )}
+          <AnimatePresence initial={false}>
+            {token && scaleIsKnown && token.balance > 0 && (
+              <motion.span
+                key="max"
+                className="inline-flex shrink-0"
+                initial={{ opacity: 0, scale: 0.85 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.85 }}
+                transition={transition}
+              >
+                <button
+                  type="button"
+                  data-testid="send-amount-max"
+                  onClick={() => {
+                    hapticLight();
+                    onAmountChange(formatBalance(token.balance));
+                  }}
+                  className="shrink-0 rounded-full border border-border-subtle bg-app-bg px-3 py-1.5 font-heading text-sm font-bold text-accent-send"
+                >
+                  {t('max')}
+                </button>
+              </motion.span>
+            )}
+          </AnimatePresence>
         </div>
 
         <div className="mx-4 border-t border-rule-default" />
@@ -169,34 +185,47 @@ export const SendAmount: React.FC<SendAmountProps> = ({
         </div>
       </div>
 
-      {feeShortfall && (
-        <div
-          data-testid="send-fee-notice"
-          className="mt-4 flex items-start gap-3 rounded-2xl border border-border-subtle px-4 py-3"
-        >
-          <Icon
-            name={IconName.InformationFill}
-            size="xs"
-            fill="currentColor"
-            className="mt-0.5 shrink-0 text-heading-gray"
-          />
-          <div className="flex flex-col items-start gap-1">
-            <span className="text-sm text-heading-gray">{t('insufficientFeeAsset')}</span>
-            <button
-              type="button"
-              data-testid="send-fee-notice-receive"
-              onClick={() => {
-                hapticLight();
-                onReceive();
-              }}
-              className="flex items-center gap-0.5 font-heading text-sm font-bold text-accent-send"
-            >
-              {t('receive')}
-              <Icon name={IconName.ChevronRightLucide} size="xs" className="text-accent-send" />
-            </button>
-          </div>
-        </div>
-      )}
+      <AnimatePresence initial={false}>
+        {feeShortfall && (
+          <motion.div
+            key="fee-notice"
+            className="overflow-hidden"
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={transition}
+          >
+            <div className="pt-4">
+              <div
+                data-testid="send-fee-notice"
+                className="flex items-start gap-3 rounded-2xl border border-border-subtle px-4 py-3"
+              >
+                <Icon
+                  name={IconName.InformationFill}
+                  size="xs"
+                  fill="currentColor"
+                  className="mt-0.5 shrink-0 text-heading-gray"
+                />
+                <div className="flex flex-col items-start gap-1">
+                  <span className="text-sm text-heading-gray">{t('insufficientFeeAsset')}</span>
+                  <button
+                    type="button"
+                    data-testid="send-fee-notice-receive"
+                    onClick={() => {
+                      hapticLight();
+                      onReceive();
+                    }}
+                    className="flex items-center gap-0.5 font-heading text-sm font-bold text-accent-send"
+                  >
+                    {t('receive')}
+                    <Icon name={IconName.ChevronRightLucide} size="xs" className="text-accent-send" />
+                  </button>
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </SendStepLayout>
   );
 };

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useRef } from 'react';
 
 import clsx from 'clsx';
 import { useTranslation } from 'react-i18next';
@@ -8,6 +8,7 @@ import { hapticLight } from 'lib/mobile/haptics';
 import { useNavbarHidden } from 'lib/mobile/useNavbarHidden';
 
 import { stepFooterCushionClass } from './footer-cushion';
+import { useSlideOnReflow } from './useSlideOnReflow';
 
 export interface SendStepLayoutProps {
   /** Step title, e.g. "Choose recipient". */
@@ -32,9 +33,13 @@ export const SendStepLayout: React.FC<SendStepLayoutProps> = ({ title, titleAcce
   // With the tab bar hidden (steps past the recipient, or the keyboard up) the
   // CTA sits at the bottom of the screen; with it showing, just above it.
   const navbarHidden = useNavbarHidden();
+  // The keyboard and the tab bar move the CTA by snapping layout; slide it there instead.
+  const rootRef = useRef<HTMLDivElement>(null);
+  const footerRef = useRef<HTMLDivElement>(null);
+  useSlideOnReflow(footerRef, rootRef);
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-app-bg px-6">
+    <div ref={rootRef} className="flex h-full min-h-0 flex-col bg-app-bg px-6">
       <div className="flex h-12 shrink-0 items-end">
         {onBack && (
           <button
@@ -60,7 +65,9 @@ export const SendStepLayout: React.FC<SendStepLayoutProps> = ({ title, titleAcce
         {children}
       </div>
 
-      <div className={clsx('shrink-0 pt-3', navbarHidden ? 'pb-4' : stepFooterCushionClass())}>{footer}</div>
+      <div ref={footerRef} className={clsx('shrink-0 pt-3', navbarHidden ? 'pb-4' : stepFooterCushionClass())}>
+        {footer}
+      </div>
     </div>
   );
 };
