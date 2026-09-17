@@ -9,10 +9,13 @@ import { isReturningFromWebview } from 'lib/mobile/webview-state';
 import { PropsWithChildren } from 'lib/props-with-children';
 
 export interface FullScreenPageProps extends PropsWithChildren {
+  /** How the page arrives. Every page slides in (and out on back) unless it opts into a fade. */
   entrance?: 'fade' | 'slide';
 }
 
-const FullScreenPage: FC<FullScreenPageProps> = ({ children, entrance = 'fade' }) => {
+export const DEFAULT_PAGE_ENTRANCE = 'slide';
+
+const FullScreenPage: FC<FullScreenPageProps> = ({ children, entrance = DEFAULT_PAGE_ENTRANCE }) => {
   const present = useIsPresent();
   const reduce = useReducedMotion();
   const appear = !reduce && !isReturningFromWebview();

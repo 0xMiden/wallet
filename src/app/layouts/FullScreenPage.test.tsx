@@ -15,9 +15,14 @@ afterEach(() => {
   mockMotion.reduce = false;
 });
 
-it('shows the page and releases the navbar when the page unmounts', () => {
+it('slides in by default', () => {
+  const { container } = render(<FullScreenPage>Page</FullScreenPage>);
+  expect(container.firstElementChild).toHaveStyle({ transform: 'translateX(100%)' });
+});
+
+it('shows a fade page and releases the navbar when the page unmounts', () => {
   const { unmount } = render(
-    <FullScreenPage>
+    <FullScreenPage entrance="fade">
       <span>Page content</span>
     </FullScreenPage>
   );
