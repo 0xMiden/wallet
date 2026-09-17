@@ -6,19 +6,32 @@ import { hapticSelection } from 'lib/mobile/haptics';
 
 import SegmentedActionBarDefault, { SegmentedActionBar, SegmentedActionBarItem } from './SegmentedActionBar';
 
-// framer-motion: the two `motion.span`s are (1) the sliding active pill —
-// surface its `layoutId` — and (2) the fading label. Both just render plain
-// spans; the framer-only props (layoutId/initial/animate/transition) are
-// stripped so React does not warn about unknown DOM attributes.
+// framer-motion: the segment `motion.button`s animate their width with
+// `layout`, the sliding active pill is a `motion.span` — surface its
+// `layoutId` — and the label is a fading `motion.span`. All render plain
+// elements; the framer-only props (layout/layoutId/initial/animate/
+// transition) are stripped so React does not warn about unknown DOM
+// attributes.
 jest.mock('framer-motion', () => ({
   __esModule: true,
   motion: {
-    span: ({ children, layoutId, initial, animate, transition, ...props }: any) => (
+    button: ({ children, layout, layoutId, initial, animate, transition, ...props }: any) => (
+      <button {...props}>{children}</button>
+    ),
+    span: ({ children, layout, layoutId, initial, animate, transition, ...props }: any) => (
       <span data-layout-id={layoutId} {...props}>
         {children}
       </span>
     )
   }
+}));
+
+// The bar takes its spring from the shared animation layer; the mock above
+// removes framer, so give the hook a plain pass-through.
+jest.mock('lib/animation', () => ({
+  __esModule: true,
+  springs: { pill: { type: 'spring' } },
+  useMotion: (transition: unknown) => transition
 }));
 
 // Native selection buzz — spy so we can assert it fires only on a real change.

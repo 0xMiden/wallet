@@ -1,6 +1,9 @@
 import React, { FC, ReactNode } from 'react';
 
 import classNames from 'clsx';
+import { motion } from 'framer-motion';
+
+import { springs, useMotion } from 'lib/animation';
 
 export interface BottomNavItem {
   id: string;
@@ -23,7 +26,12 @@ export interface BottomNavProps {
   className?: string;
 }
 
+// One pill shared by every tab: Framer's layoutId slides it from the old
+// active icon to the new one instead of fading a bubble out and another in.
+const PILL_LAYOUT_ID = 'bottom-nav-pill';
+
 export const BottomNav: FC<BottomNavProps> = ({ items, activeId, onChange, docked = false, className }) => {
+  const pillTransition = useMotion(springs.pill);
   // Re-taps on the active tab are forwarded too: the owner decides whether
   // they navigate (e.g. Home tap on /send returns to Overview) and owns the
   // haptic so no-op taps don't buzz.
@@ -56,20 +64,27 @@ export const BottomNav: FC<BottomNavProps> = ({ items, activeId, onChange, docke
             key={item.id}
             type="button"
             aria-current={isActive ? 'page' : undefined}
+            aria-label={item.label}
             onClick={() => handleSelect(item.id)}
             className={classNames(
-              'flex flex-col items-center justify-center gap-0.5 py-1.5 px-3',
+              'flex items-center justify-center p-1',
               'transition-colors',
               isActive ? 'text-accent-primary' : 'text-text-primary-token'
             )}
           >
-            <span className="relative flex items-center justify-center w-6 h-6">
-              {iconNode}
+            <span className="relative flex items-center justify-center w-18 h-12">
+              {isActive && (
+                <motion.span
+                  layoutId={PILL_LAYOUT_ID}
+                  className="absolute inset-0 rounded-full bg-gray-50"
+                  transition={pillTransition}
+                />
+              )}
+              <span className="relative flex items-center justify-center">{iconNode}</span>
               {item.showDot && (
                 <span aria-hidden className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-red-500" />
               )}
             </span>
-            <span className="text-xs leading-none font-heading font-bold">{item.label}</span>
           </button>
         );
       })}
