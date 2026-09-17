@@ -312,9 +312,11 @@ describe('Navigator component', () => {
       expect(initialPosition({ in: 'push', out: 'pop', direction: 'forward' })).toEqual(
         DefaultAnimationConfig.pushInitialPosition
       );
+      // Back mirrors forward: the previous step slides in from the left.
       expect(initialPosition({ in: 'push', out: 'pop', direction: 'backward' })).toEqual(
-        DefaultAnimationConfig.pushHiddenPosition
+        DefaultAnimationConfig.pushBackInitialPosition
       );
+      expect(DefaultAnimationConfig.pushBackInitialPosition.x).toBe('-8%');
     });
 
     it('initialPosition for a present route uses the present initial position', () => {
@@ -358,6 +360,10 @@ describe('Navigator component', () => {
       ReducedMotionAnimationConfig.presentInitialPosition
     );
     expect(ReducedMotionAnimationConfig.presentInitialPosition.y).toBe('0vw');
+    expect(initialPosition({ in: 'push', out: 'pop', direction: 'backward' })).toEqual(
+      ReducedMotionAnimationConfig.pushBackInitialPosition
+    );
+    expect(ReducedMotionAnimationConfig.pushBackInitialPosition.x).toBe('0vw');
   });
 
   it('uses a caller-supplied animationConfig when reduced motion is off', () => {
