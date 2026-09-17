@@ -982,16 +982,17 @@ describe('wallet prompts', () => {
   });
 
   it('keeps dismissed note ids another surface stored (#941)', async () => {
-    // The side panel dismissed the notes it could see; this surface saw only the first.
+    const { result } = renderHook(() => useWalletPromptStorage());
+    await waitFor(() => expect(result.current.isLoaded).toBe(true));
+    // The side panel dismissed the notes it could see, after this surface had read the record.
     await putToStorage(WALLET_PROMPTS_STORAGE_KEY, {
       version: 1,
       prompts: {},
       pendingNotesDismissedIds: ['note-a', 'note-b'],
       faucetByAccount: {}
     });
-    const { result } = renderHook(() => useWalletPromptStorage());
-    await waitFor(() => expect(result.current.isLoaded).toBe(true));
 
+    // This surface saw only the first of them.
     act(() => {
       result.current.setPromptStatus(WalletPromptType.PendingNotes, WalletPromptStatus.Dismissed, ['note-a']);
     });
@@ -1003,15 +1004,14 @@ describe('wallet prompts', () => {
   });
 
   it('keeps the newest dismissed note ids once the list is full (#941)', async () => {
-    const stored = Array.from({ length: PENDING_NOTES_DISMISSED_IDS_LIMIT }, (_, index) => `note-${index}`);
+    const { result } = renderHook(() => useWalletPromptStorage());
+    await waitFor(() => expect(result.current.isLoaded).toBe(true));
     await putToStorage(WALLET_PROMPTS_STORAGE_KEY, {
       version: 1,
       prompts: {},
-      pendingNotesDismissedIds: stored,
+      pendingNotesDismissedIds: Array.from({ length: PENDING_NOTES_DISMISSED_IDS_LIMIT }, (_, i) => `note-${i}`),
       faucetByAccount: {}
     });
-    const { result } = renderHook(() => useWalletPromptStorage());
-    await waitFor(() => expect(result.current.isLoaded).toBe(true));
 
     act(() => {
       result.current.setPromptStatus(WalletPromptType.PendingNotes, WalletPromptStatus.Dismissed, ['note-new']);
@@ -1023,6 +1023,27 @@ describe('wallet prompts', () => {
       expect(ids).toHaveLength(PENDING_NOTES_DISMISSED_IDS_LIMIT);
       expect(ids[ids.length - 1]).toBe('note-new');
       expect(ids).not.toContain('note-0');
+    });
+  });
+
+  it('keeps every id of a dismissal larger than the list itself (#941)', async () => {
+    const dismissed = Array.from({ length: PENDING_NOTES_DISMISSED_IDS_LIMIT + 1 }, (_, i) => `note-new-${i}`);
+    const { result } = renderHook(() => useWalletPromptStorage());
+    await waitFor(() => expect(result.current.isLoaded).toBe(true));
+    await putToStorage(WALLET_PROMPTS_STORAGE_KEY, {
+      version: 1,
+      prompts: {},
+      pendingNotesDismissedIds: ['note-old'],
+      faucetByAccount: {}
+    });
+
+    act(() => {
+      result.current.setPromptStatus(WalletPromptType.PendingNotes, WalletPromptStatus.Dismissed, dismissed);
+    });
+
+    // Dropping part of the batch would show the card again for a note just dismissed.
+    await waitFor(async () => {
+      expect((await fetchWalletPromptStorage()).pendingNotesDismissedIds).toEqual(dismissed);
     });
   });
 

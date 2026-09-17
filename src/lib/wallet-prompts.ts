@@ -91,11 +91,13 @@ const VALID_TYPES = new Set<string>(Object.values(WalletPromptType).filter(type 
  */
 export const PENDING_NOTES_DISMISSED_IDS_LIMIT = 200;
 
-// Ids dismissed now go last, so dismissing a note again keeps it out of the prompt.
+// Ids dismissed now go last, so dismissing a note again keeps it out of the prompt. The batch
+// just dismissed is kept whole however large it is: dropping part of it would offer the card
+// again for a note the user dismissed a moment ago. `current` is normalized by every reader.
 function mergePendingNotesDismissedIds(current: readonly string[], dismissed: readonly string[]): string[] {
-  const incoming = normalizePendingNotesDismissedIds(dismissed);
-  const kept = normalizePendingNotesDismissedIds(current).filter(id => !incoming.includes(id));
-  return [...kept, ...incoming].slice(-PENDING_NOTES_DISMISSED_IDS_LIMIT);
+  const incoming = new Set(normalizePendingNotesDismissedIds(dismissed));
+  const kept = current.filter(id => !incoming.has(id));
+  return [...kept, ...incoming].slice(-Math.max(PENDING_NOTES_DISMISSED_IDS_LIMIT, incoming.size));
 }
 
 function normalizePendingNotesDismissedIds(value: unknown): string[] {
