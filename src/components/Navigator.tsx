@@ -35,12 +35,18 @@ export const useNavigator = () => {
   return context;
 };
 
-export const NavigatorProvider: React.FC<{ children: ReactNode; routes: Route[]; initialRouteName?: string }> = ({
-  children,
-  routes,
-  initialRouteName
-}) => {
+export const NavigatorProvider: React.FC<{
+  children: ReactNode;
+  routes: Route[];
+  initialRouteName?: string;
+  /** Start with several routes stacked (first is the bottom), so back from the
+   *  top one reaches the earlier steps. Takes precedence over initialRouteName. */
+  initialRouteNames?: string[];
+}> = ({ children, routes, initialRouteName, initialRouteNames }) => {
   const [cardStack, setCardStack] = useState<Route[]>(() => {
+    if (initialRouteNames?.length) {
+      return initialRouteNames.flatMap(name => routes.filter(r => r.name === name).slice(0, 1));
+    }
     if (initialRouteName) {
       const initial = routes.find(r => r.name === initialRouteName);
       if (initial) return [initial];

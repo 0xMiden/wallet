@@ -101,6 +101,22 @@ describe('NavigatorProvider — initial state', () => {
     expect(result.current.activeIndex).toBe(0);
   });
 
+  it('starts with a whole stack from initialRouteNames, so back pops to the earlier route', () => {
+    const { result } = renderHook(() => useNavigator(), {
+      wrapper: ({ children }: { children: React.ReactNode }) => (
+        <NavigatorProvider routes={routes} initialRouteNames={['home', 'settings']}>
+          {children}
+        </NavigatorProvider>
+      )
+    });
+    expect(result.current.cardStack).toEqual([routeHome, routeSettings]);
+    expect(result.current.activeRoute).toBe(routeSettings);
+
+    act(() => result.current.goBack());
+
+    expect(result.current.cardStack).toEqual([routeHome]);
+  });
+
   it('starts empty when no initialRouteName is provided', () => {
     const { result } = setupHook();
     expect(result.current.cardStack).toEqual([]);

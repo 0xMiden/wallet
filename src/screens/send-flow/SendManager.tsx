@@ -157,8 +157,7 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
   const onReceive = useCallback(() => navigate('/receive'), []);
 
   // On-screen back for the steps after the recipient. Same rule as the hardware
-  // back below: pop a step, or close the flow when this step is the root (a
-  // draft restored from /send/review reopens directly on Amount).
+  // back below: pop a step, or close the flow if a step somehow is the root.
   const onStepBack = useCallback(() => {
     if (cardStack.length > 1) {
       goBack();
@@ -937,13 +936,18 @@ const NavigatorWrapper: React.FC<{ isLoading: boolean }> = props => {
   // through the preselect effect via its id.
   const [draft] = useState(consumeSendDraft);
   const preselectedTokenId = draft?.tokenId ?? new URLSearchParams(search).get('tokenId');
-  // Otherwise always start at recipient selection; a preselected token just
-  // pre-fills the token for the Amount step (see the preselect effect in
-  // SendManager).
-  const initialRoute = draft ? SendFlowStep.SelectAmount : SendFlowStep.SelectRecipient;
+  // Otherwise start at recipient selection; a preselected token just pre-fills
+  // the token for the Amount step (see the preselect effect in SendManager).
+  // A restored draft reopens on Amount with Recipient beneath it, so back returns
+  // to the (prefilled) address instead of closing the flow. Starting the stack at
+  // Amount alone left no way back to the address: back closed the flow, and the
+  // still-mounted Send pane reopened on Amount.
+  const initialRoutes = draft
+    ? [SendFlowStep.SelectRecipient, SendFlowStep.SelectAmount]
+    : [SendFlowStep.SelectRecipient];
 
   return (
-    <NavigatorProvider routes={ROUTES} initialRouteName={initialRoute}>
+    <NavigatorProvider routes={ROUTES} initialRouteNames={initialRoutes}>
       <SendManager {...props} preselectedTokenId={preselectedTokenId} draft={draft} />
     </NavigatorProvider>
   );

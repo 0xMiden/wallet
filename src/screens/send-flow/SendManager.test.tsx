@@ -81,7 +81,11 @@ const walletStoreState = {
 jest.mock('components/Navigator', () => ({
   __esModule: true,
   useNavigator: () => ({ navigateTo: navigateToMock, goBack: goBackMock, cardStack: mockCardStack }),
-  NavigatorProvider: ({ children }: any) => <div data-testid="nav-provider">{children}</div>,
+  NavigatorProvider: ({ children, initialRouteName, initialRouteNames }: any) => (
+    <div data-testid="nav-provider" data-initial-stack={(initialRouteNames ?? [initialRouteName]).join(',')}>
+      {children}
+    </div>
+  ),
   Navigator: ({ renderRoute }: any) => {
     const name = mockRenderRouteName ?? mockCardStack[mockCardStack.length - 1]?.name;
     return <div data-testid="navigator">{renderRoute({ name, animationIn: 'push', animationOut: 'pop' }, 0)}</div>;
@@ -414,6 +418,22 @@ describe('stale transaction modal dismissal', () => {
 // Mobile back handler branches.
 // ---------------------------------------------------------------------------
 describe('on-screen step back button', () => {
+  it('opens a fresh flow on the recipient step', () => {
+    renderFlow();
+
+    expect(screen.getByTestId('nav-provider')).toHaveAttribute('data-initial-stack', SendFlowStep.SelectRecipient);
+  });
+
+  it('reopens a restored draft with the recipient step under Amount, so back reaches the address', () => {
+    setSendDraft({ amount: '7', recipientAddress: '0xrecip', tokenId: 'T1' });
+    renderFlow();
+
+    expect(screen.getByTestId('nav-provider')).toHaveAttribute(
+      'data-initial-stack',
+      `${SendFlowStep.SelectRecipient},${SendFlowStep.SelectAmount}`
+    );
+  });
+
   it('pops to the recipient step from Amount', () => {
     mockCardStack = [{ name: SendFlowStep.SelectRecipient }, { name: SendFlowStep.SelectAmount }];
     renderFlow();
