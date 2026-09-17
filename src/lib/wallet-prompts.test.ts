@@ -365,6 +365,31 @@ describe('wallet prompts', () => {
     }
   });
 
+  it('fails before the proof of work, with the storage error, when the marker cannot be read (#936)', async () => {
+    const provider = getStorageProvider();
+    const readRecord = provider.get.bind(provider);
+    const get = jest.spyOn(provider, 'get').mockImplementation(async keys => {
+      if ([keys].flat().some(key => String(key).startsWith('faucet_funding_v2:'))) {
+        throw new Error('storage unreadable');
+      }
+      return readRecord(keys);
+    });
+    try {
+      const error = await faucet('accountReadFail', { requestedAt: Date.now(), baselineNoteIds: [] }).catch(
+        (e: unknown) => e
+      );
+
+      // A surface that cannot read the marker still offers Fund, as #504 chose. The check
+      // before the proof of work is what keeps that safe: an unreadable marker may belong
+      // to a request already minting, so this one is refused rather than sent.
+      expect(error).toEqual(new Error('storage unreadable'));
+      expect(error).not.toBeInstanceOf(FaucetOutcomeUnknownError);
+      expect(mintFromMidenFaucetMock).not.toHaveBeenCalled();
+    } finally {
+      get.mockRestore();
+    }
+  });
+
   it('fails before the proof of work, with the storage error, when the marker cannot be stored', async () => {
     const provider = getStorageProvider();
     const writeRecord = provider.set.bind(provider);

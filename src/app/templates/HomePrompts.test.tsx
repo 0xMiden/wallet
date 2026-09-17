@@ -1329,6 +1329,52 @@ describe('HomePrompts', () => {
     expect(mockSetFaucetFundingMarker).not.toHaveBeenCalledWith('accountA', null);
   });
 
+  it('offers Fund when the marker cannot be read, and a tap then waits for the request already sent (#936)', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      mockUseWalletPromptStorage.mockReturnValue(makePromptState());
+      // Storage refuses the read this mount makes, so nothing here knows whether a
+      // request is on its way.
+      mockFetchFaucetFundingMarker.mockRejectedValueOnce(new Error('storage unreadable'));
+      render(
+        <HomePrompts
+          account={account}
+          balances={zeroBalance}
+          balancesLoading={false}
+          claimableNotes={[]}
+          fundingNotes={[]}
+          tokenPrices={{}}
+        />
+      );
+      await act(async () => {});
+
+      // Fund is offered rather than withheld for as long as storage stays broken (#504).
+      const card = screen.getAllByTestId('prompt-card')[0]!;
+      expect(card).toHaveAttribute('data-actionable', 'true');
+      expect(card).not.toHaveAttribute('data-hero', 'faucetPromptFunding');
+
+      // The tap re-reads the marker under the lock before any proof of work, so an
+      // earlier request that did go out refuses this one instead of minting again.
+      const running = { requestedAt: Date.now() - 20_000, baselineNoteIds: [], submitted: true as const };
+      markerStore.set('accountA', running);
+      mockFaucet.mockImplementationOnce(async () => {
+        throw new FaucetRequestInProgressError(running);
+      });
+      fireEvent.click(
+        within(screen.getAllByTestId('prompt-card')[0]!).getByRole('button', { name: 'faucetPromptTitle' })
+      );
+      await act(async () => {});
+
+      expect(mockFaucet).toHaveBeenCalledTimes(1);
+      const waiting = screen.getAllByTestId('prompt-card')[0]!;
+      expect(waiting).toHaveAttribute('data-hero', 'faucetPromptFunding');
+      expect(waiting).not.toHaveAttribute('data-status', 'failure');
+      expect(mockSetFaucetFundingMarker).not.toHaveBeenCalledWith('accountA', null);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   it("waits for another surface's live request instead of failing when a tap is refused over it", async () => {
     jest.useFakeTimers();
     try {
