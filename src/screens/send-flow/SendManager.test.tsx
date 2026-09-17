@@ -131,6 +131,7 @@ jest.mock('./SelectAmount', () => ({
       <span data-testid="sa-footer">{props.footerClassName}</span>
       <input data-testid="sa-input" onChange={(e: any) => props.onAmountChange(e.target.value)} />
       <button data-testid="sa-selecttoken" onClick={props.onSelectToken} />
+      {props.onBack && <button data-testid="sa-back" onClick={props.onBack} />}
       <button data-testid="sa-confirm" onClick={props.onConfirm} />
     </div>
   )
@@ -402,6 +403,28 @@ describe('stale transaction modal dismissal', () => {
 // ---------------------------------------------------------------------------
 // Mobile back handler branches.
 // ---------------------------------------------------------------------------
+describe('on-screen step back button', () => {
+  it('pops to the recipient step from Amount', () => {
+    mockCardStack = [{ name: SendFlowStep.SelectRecipient }, { name: SendFlowStep.SelectAmount }];
+    renderFlow();
+
+    fireEvent.click(screen.getByTestId('sa-back'));
+
+    expect(goBackMock).toHaveBeenCalledTimes(1);
+    expect(navigateMock).not.toHaveBeenCalled();
+  });
+
+  it('closes the flow when Amount is the root step (restored draft)', () => {
+    mockCardStack = [{ name: SendFlowStep.SelectAmount }];
+    renderFlow();
+
+    fireEvent.click(screen.getByTestId('sa-back'));
+
+    expect(goBackMock).not.toHaveBeenCalled();
+    expect(navigateMock).toHaveBeenCalledWith('/');
+  });
+});
+
 describe('mobile back handler', () => {
   it('closes the contacts drawer first when it is open', () => {
     renderFlow();

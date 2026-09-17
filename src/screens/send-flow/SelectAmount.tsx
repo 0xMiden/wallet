@@ -14,6 +14,7 @@ import { isMobile } from 'lib/platform';
 
 import { BridgeNetwork } from './bridge-networks';
 import { footerCushionClass } from './footer-cushion';
+import { StepBackButton } from './StepBackButton';
 import { UIToken } from './types';
 
 export interface SelectAmountProps {
@@ -33,6 +34,8 @@ export interface SelectAmountProps {
    *  CTA snug against the keyboard; pass a snugger value when the navbar is
    *  hidden. */
   footerClassName?: string;
+  /** Leading back button above the step content. Omit for embedded or root uses. */
+  onBack?: () => void;
   children?: React.ReactNode;
   onAmountChange: (amount: string) => void;
   onSelectToken: () => void;
@@ -103,7 +106,8 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
   outputSymbol,
   title,
   loading,
-  onSelectNetwork
+  onSelectNetwork,
+  onBack
 }) => {
   const { t } = useTranslation();
 
@@ -242,7 +246,8 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
 
   return (
     <div className={clsx('flex flex-col h-full min-h-0 bg-app-bg', isMobile() ? 'px-8' : 'px-6')}>
-      <div className="flex flex-col flex-1 min-h-0 overflow-y-auto no-scrollbar pt-10">
+      {onBack && <StepBackButton onBack={onBack} />}
+      <div className={clsx('flex flex-col flex-1 min-h-0 overflow-y-auto no-scrollbar', onBack ? 'pt-6' : 'pt-10')}>
         {title}
         {showNetworkPill && !isBridge && (
           <span className="self-start text-xs font-semibold text-pure-white bg-primary-500 px-3 py-1 rounded-full mb-3">

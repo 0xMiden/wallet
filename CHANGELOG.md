@@ -12,6 +12,7 @@
 
 - [CHANGE][mobile] Send flow: the Confirm button on the recipient, amount and route steps sits just above the docked tab bar instead of floating, and a long pasted address no longer pushes the Address Book pill into the button.
 - [FEATURE][all] Send flow: a Paste pill on the recipient step fills the address from the clipboard, with the same validation as a scanned QR code.
+- [CHANGE][all] Send flow: the amount and route steps have the same back button as the review screen, returning to the previous step.
 ### Features
 
 - [FEATURE][all] Guardian private-key export and seed-less import carry the existing Miden hot and EVM keys together as `hot:evm` (two separate 64-character lowercase hex scalars). Authenticated reveal opens a QR first, with separate text fields available. Import supports native/extension camera scanning, local QR image decoding, and manual entry; both scalars are validated before storage changes. The supplied EVM key is encrypted in the vault and restores its address without deriving a new key or seed. Seed-based recovery stays separate; the export does not contain a cold recovery key.

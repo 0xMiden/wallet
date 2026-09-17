@@ -155,6 +155,17 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
     navigate('/');
   }, []);
 
+  // On-screen back for the steps after the recipient. Same rule as the hardware
+  // back below: pop a step, or close the flow when this step is the root (a
+  // draft restored from /send/review reopens directly on Amount).
+  const onStepBack = useCallback(() => {
+    if (cardStack.length > 1) {
+      goBack();
+      return;
+    }
+    onClose();
+  }, [cardStack.length, goBack, onClose]);
+
   // Handle mobile back button/gesture. Open bottom sheets close first;
   // otherwise back pops the Navigator step or exits the flow.
   useMobileBackHandler(() => {
@@ -810,6 +821,7 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
               error={errors.amount?.message?.toString()}
               onAmountChange={onAmountChange}
               onSelectToken={() => setShowTokenDrawer(true)}
+              onBack={onStepBack}
               onConfirm={onConfirmAmount}
             />
           );
@@ -820,6 +832,7 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
               onRouteChange={onRouteChange}
               fastFeeUsd={fastFeeUsd}
               fastQuoteLoading={epochQuote.loading}
+              onBack={onStepBack}
               onConfirm={goToReview}
             />
           );
@@ -846,6 +859,7 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
       onAmountChange,
       goToStep,
       onConfirmAmount,
+      onStepBack,
       chain,
       displayedNetwork,
       selectedContact?.name,

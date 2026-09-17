@@ -8,6 +8,7 @@ import { toAdaptiveFixed } from 'lib/i18n/numbers';
 import { hapticLight } from 'lib/mobile/haptics';
 
 import { footerCushionClass } from './footer-cushion';
+import { StepBackButton } from './StepBackButton';
 import { BridgeRoute } from './types';
 
 export interface RouteStepProps {
@@ -23,6 +24,8 @@ export interface RouteStepProps {
   /** Padding classes for the confirm-button footer. The `pb-24` default clears
    *  the floating BottomNav; pass a snugger value when the navbar is hidden. */
   footerClassName?: string;
+  /** Leading back button above the step content. */
+  onBack?: () => void;
   onConfirm: () => void;
 }
 
@@ -67,6 +70,7 @@ export const Route: React.FC<RouteStepProps> = ({
   notice,
   confirmDisabled,
   footerClassName = clsx('pt-4', footerCushionClass(false)),
+  onBack,
   onConfirm
 }) => {
   const { t } = useTranslation();
@@ -88,7 +92,8 @@ export const Route: React.FC<RouteStepProps> = ({
 
   return (
     <div className={clsx('flex flex-col h-full min-h-0 bg-app-bg px-6')}>
-      <div className="flex flex-col flex-1 min-h-0 overflow-y-auto no-scrollbar pt-10">
+      {onBack && <StepBackButton onBack={onBack} />}
+      <div className={clsx('flex flex-col flex-1 min-h-0 overflow-y-auto no-scrollbar', onBack ? 'pt-6' : 'pt-10')}>
         <span className="font-heading text-2xl leading-none font-bold text-[#808080]">{t('route')}</span>
 
         <div className="mt-6 flex flex-col gap-6">
