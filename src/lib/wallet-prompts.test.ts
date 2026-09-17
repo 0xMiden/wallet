@@ -1,5 +1,6 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 
+import { SharedEarnLocks } from 'lib/epoch/testing/earn-locks';
 import {
   GUARDIAN_NOTE_RECOVERY_PROGRESS_STALE_MS,
   GUARDIAN_NOTE_RECOVERY_PROGRESS_STORAGE_KEY,
@@ -39,7 +40,8 @@ import {
   setFaucetFundingMarker,
   setWalletPromptStatus,
   useGuardianNoteRecoveryProgress,
-  useWalletPromptStorage
+  useWalletPromptStorage,
+  withFaucetFundingMarkerLock
 } from './wallet-prompts';
 
 jest.mock('lib/platform', () => ({
@@ -78,10 +80,19 @@ jest.mock('lib/epoch', () => ({
 
 const mintFromMidenFaucetMock = jest.mocked(mintFromMidenFaucet);
 
+// One lock manager for every surface, as navigator.locks is for the extension's pages. Every
+// suite here needs it: the prompt record's turns and the faucet marker both take a Web Lock.
+beforeEach(() => {
+  Object.defineProperty(navigator, 'locks', { configurable: true, value: new SharedEarnLocks() });
+});
+
 describe('wallet prompts', () => {
   beforeEach(() => {
     localStorage.clear();
     jest.clearAllMocks();
+    // clearAllMocks keeps implementations, and a leaked mint that never settles turns a
+    // failed assertion about minting into a test timeout.
+    mintFromMidenFaucetMock.mockReset();
     __resetInFlightFaucetRequestsForTest();
   });
 
@@ -361,6 +372,31 @@ describe('wallet prompts', () => {
     }
   });
 
+  it('fails before the proof of work, with the storage error, when the marker cannot be read (#936)', async () => {
+    const provider = getStorageProvider();
+    const readRecord = provider.get.bind(provider);
+    const get = jest.spyOn(provider, 'get').mockImplementation(async keys => {
+      if ([keys].flat().some(key => String(key).startsWith('faucet_funding_v2:'))) {
+        throw new Error('storage unreadable');
+      }
+      return readRecord(keys);
+    });
+    try {
+      const error = await faucet('accountReadFail', { requestedAt: Date.now(), baselineNoteIds: [] }).catch(
+        (e: unknown) => e
+      );
+
+      // A surface that cannot read the marker still offers Fund, as #504 chose. The check
+      // before the proof of work is what keeps that safe: an unreadable marker may belong
+      // to a request already minting, so this one is refused rather than sent.
+      expect(error).toEqual(new Error('storage unreadable'));
+      expect(error).not.toBeInstanceOf(FaucetOutcomeUnknownError);
+      expect(mintFromMidenFaucetMock).not.toHaveBeenCalled();
+    } finally {
+      get.mockRestore();
+    }
+  });
+
   it('fails before the proof of work, with the storage error, when the marker cannot be stored', async () => {
     const provider = getStorageProvider();
     const writeRecord = provider.set.bind(provider);
@@ -408,6 +444,71 @@ describe('wallet prompts', () => {
       releaseCheck();
       get.mockRestore();
       jest.useRealTimers();
+    }
+  });
+
+  it('lets only one of two surfaces send when their checks of the marker interleave', async () => {
+    type Realm = {
+      faucet: typeof faucet;
+      mint: jest.Mock;
+      provider: ReturnType<typeof getStorageProvider>;
+    };
+    const loadRealm = (): Realm => {
+      let realm!: Realm;
+      jest.isolateModules(() => {
+        realm = {
+          faucet: require('./wallet-prompts').faucet,
+          mint: require('lib/miden-chain/faucet-api').mintFromMidenFaucet,
+          provider: require('lib/platform/storage-adapter').getStorageProvider()
+        };
+      });
+      return realm;
+    };
+    const popup = loadRealm();
+    const sidePanel = loadRealm();
+    let sent = 0;
+    const send = async (
+      _address: string,
+      _amount: bigint,
+      _signal?: AbortSignal,
+      beforeSubmit?: () => Promise<void>
+    ) => {
+      await beforeSubmit?.();
+      sent += 1;
+      return { txId: '0xtx', noteId: '0xnote' };
+    };
+    popup.mint.mockImplementation(send);
+    sidePanel.mint.mockImplementation(send);
+    // The popup's check of the marker is slow: it reads an empty record and answers late.
+    const readRecord = popup.provider.get.bind(popup.provider);
+    let releaseRead = () => {};
+    const get = jest.spyOn(popup.provider, 'get').mockImplementationOnce(keys => {
+      const record = readRecord(keys);
+      return new Promise(resolve => {
+        releaseRead = () => resolve(record);
+      });
+    });
+    const settle = async () => {
+      for (let i = 0; i < 10; i++) await new Promise(resolve => setTimeout(resolve, 0));
+    };
+
+    try {
+      const fromPopup = popup.faucet('accountShared', { requestedAt: Date.now(), baselineNoteIds: [] });
+      await settle();
+      const fromSidePanel = sidePanel
+        .faucet('accountShared', { requestedAt: Date.now() + 1, baselineNoteIds: [] })
+        .catch((e: unknown) => e);
+      await settle();
+      releaseRead();
+      await fromPopup.catch(() => undefined);
+      const sidePanelOutcome = await fromSidePanel;
+
+      expect(sent).toBe(1);
+      // Each surface loads its own copy of the module, so the class is matched by name.
+      expect(sidePanelOutcome).toMatchObject({ name: 'FaucetRequestInProgressError' });
+    } finally {
+      releaseRead();
+      get.mockRestore();
     }
   });
 
@@ -629,6 +730,44 @@ describe('wallet prompts', () => {
     expect(error).toBeInstanceOf(Error);
     expect(error).not.toBeInstanceOf(FaucetOutcomeUnknownError);
     expect(await fetchFaucetFundingMarker('accountFenced')).toBeNull();
+  });
+
+  it('does not send while another surface is ending the request as abandoned', async () => {
+    let sent = false;
+    mintFromMidenFaucetMock.mockImplementation(
+      async (_address: string, _amount: bigint, _signal?: AbortSignal, beforeSubmit?: () => Promise<void>) => {
+        // Another surface's backstop has read the marker unflagged and is about to clear it.
+        let readDone = () => {};
+        const read = new Promise<void>(resolve => {
+          readDone = resolve;
+        });
+        let releaseClear = () => {};
+        const clearing = withFaucetFundingMarkerLock('accountClearing', async () => {
+          const stored = await fetchFaucetFundingMarker('accountClearing');
+          readDone();
+          await new Promise<void>(resolve => {
+            releaseClear = resolve;
+          });
+          if (stored !== null && !stored.submitted) await setFaucetFundingMarker('accountClearing', null);
+        });
+        await read;
+        const flagging = beforeSubmit?.();
+        flagging?.catch(() => undefined);
+        for (let i = 0; i < 10; i++) await new Promise(resolve => setTimeout(resolve, 0));
+        releaseClear();
+        await clearing;
+        await flagging;
+        sent = true;
+        return { txId: '0xtx', noteId: '0xnote' };
+      }
+    );
+
+    const error = await faucet('accountClearing', { requestedAt: 1_000, baselineNoteIds: [] }).catch((e: unknown) => e);
+
+    // Flagging in between would leave a request on its way with no marker for any surface.
+    expect(sent).toBe(false);
+    expect(error).not.toBeInstanceOf(FaucetOutcomeUnknownError);
+    expect(await fetchFaucetFundingMarker('accountClearing')).toBeNull();
   });
 
   it('fails before the token request, safe to retry, when the submitted flag cannot be stored', async () => {
@@ -896,6 +1035,53 @@ describe('wallet prompts', () => {
     });
   });
 
+  it('keeps both changes when two surfaces write the record at the same moment (#937)', async () => {
+    type Realm = {
+      setStatus: typeof setWalletPromptStatus;
+      provider: ReturnType<typeof getStorageProvider>;
+    };
+    const loadRealm = (): Realm => {
+      let realm!: Realm;
+      jest.isolateModules(() => {
+        realm = {
+          setStatus: require('./wallet-prompts').setWalletPromptStatus,
+          provider: require('lib/platform/storage-adapter').getStorageProvider()
+        };
+      });
+      return realm;
+    };
+    const popup = loadRealm();
+    const sidePanel = loadRealm();
+    // The popup reads the record and answers late: each surface queues only its own
+    // writes, so without a shared turn the side panel's change lands in between.
+    const readRecord = popup.provider.get.bind(popup.provider);
+    let releaseRead = () => {};
+    const get = jest.spyOn(popup.provider, 'get').mockImplementationOnce(keys => {
+      const record = readRecord(keys);
+      return new Promise(resolve => {
+        releaseRead = () => resolve(record);
+      });
+    });
+    try {
+      const fromPopup = popup.setStatus(WalletPromptType.VerifySeedPhrase, WalletPromptStatus.Completed);
+      // The popup holds the turn on a read that has not answered; the side panel's write queues.
+      expect(get).toHaveBeenCalledTimes(1);
+      const fromSidePanel = sidePanel.setStatus(WalletPromptType.Bridge, WalletPromptStatus.Dismissed);
+      releaseRead();
+      await fromPopup;
+      await fromSidePanel;
+
+      // Neither surface put back the other's field.
+      expect((await fetchWalletPromptStorage()).prompts).toEqual({
+        [WalletPromptType.VerifySeedPhrase]: WalletPromptStatus.Completed,
+        [WalletPromptType.Bridge]: WalletPromptStatus.Dismissed
+      });
+    } finally {
+      releaseRead();
+      get.mockRestore();
+    }
+  });
+
   it('keeps a slow prompt write ahead of every later one, so it never lands over a newer change', async () => {
     jest.useFakeTimers();
     const provider = getStorageProvider();
@@ -1077,6 +1263,39 @@ describe('wallet prompts', () => {
       set.mockRestore();
       get.mockRestore();
       warn.mockRestore();
+    }
+  });
+
+  it('answers the hook load from after a write this surface already issued (#937)', async () => {
+    const provider = getStorageProvider();
+    const writeRecord = provider.set.bind(provider);
+    // Released in `finally` too, so a held call cannot stall the shared turn for later tests.
+    let releaseWrite = () => {};
+    const set = jest.spyOn(provider, 'set').mockImplementationOnce(
+      items =>
+        new Promise(resolve => {
+          releaseWrite = () => resolve(writeRecord(items));
+        })
+    );
+
+    try {
+      const write = setWalletPromptStatus(WalletPromptType.VerifySeedPhrase, WalletPromptStatus.Completed);
+      const { result } = renderHook(() => useWalletPromptStorage());
+      await act(async () => {});
+
+      // The load takes its turn behind that write, so it cannot answer from before it.
+      expect(result.current.isLoaded).toBe(false);
+      await act(async () => {
+        releaseWrite();
+        await write;
+      });
+
+      await waitFor(() =>
+        expect(result.current.storage.prompts[WalletPromptType.VerifySeedPhrase]).toBe(WalletPromptStatus.Completed)
+      );
+    } finally {
+      releaseWrite();
+      set.mockRestore();
     }
   });
 

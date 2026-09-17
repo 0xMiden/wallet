@@ -222,14 +222,14 @@ export async function fetchWalletPromptStorage(): Promise<WalletPromptStorage> {
 // as it is now, one operation at a time. A writer building on a copy read before another
 // writer's put would store the old value of every field it does not own. The hook's own
 // reads take their turn too, so a load never lands after a write it predates.
+// The turn is a Web Lock, which the extension's popup, side panel, tabs and service worker
+// share, so a surface cannot put back a field another surface just changed.
 // There is no timeout on a turn: a write already sent to storage cannot be called back,
 // so starting the next one early would let the slow one land over it.
-let walletPromptStorageTurn: Promise<unknown> = Promise.resolve();
-
-function inWalletPromptStorageTurn<T>(operation: () => Promise<T>): Promise<T> {
-  const result = walletPromptStorageTurn.then(operation);
-  walletPromptStorageTurn = result.catch(() => undefined);
-  return result;
+// (The type argument is what `navigator.locks.request` needs to hand back the record the
+// operation resolves with; the faucet-marker lock can leave it out only because it resolves void.)
+function inWalletPromptStorageTurn(operation: () => Promise<WalletPromptStorage>): Promise<WalletPromptStorage> {
+  return navigator.locks.request<Promise<WalletPromptStorage>>(`turn:${WALLET_PROMPTS_STORAGE_KEY}`, operation);
 }
 
 function updateWalletPromptStorage(
@@ -377,6 +377,16 @@ export async function fetchFaucetFundingMarker(address: string): Promise<FaucetF
   return marker;
 }
 
+/**
+ * Runs `operation` holding the funding-marker lock for `address`. Every read of the marker that
+ * decides a write to it runs under this lock: navigator.locks is shared by the extension's popup,
+ * side panel, tabs and service worker, so two surfaces can no longer both find no live marker and
+ * both send.
+ */
+export function withFaucetFundingMarkerLock(address: string, operation: () => Promise<void>): Promise<void> {
+  return navigator.locks.request(`faucet-funding-marker:${address}`, operation);
+}
+
 export async function setFaucetFundingMarker(address: string, marker: FaucetFundingMarker | null): Promise<void> {
   await putToStorage(faucetFundingMarkerKey(address), marker);
 }
@@ -460,26 +470,28 @@ async function runFaucetRequest(address: string, marker?: FaucetFundingMarker): 
   });
   const work = (async () => {
     if (marker) {
-      // Another surface's request may already be minting: a surface that read no marker
-      // before that tap still offers Fund, and overwriting its marker would let this one
-      // pass its own check below and mint again. Nothing of that request runs here.
-      const stored = await fetchFaucetFundingMarker(address);
-      if (
-        stored !== null &&
-        stored.requestedAt !== marker.requestedAt &&
-        isFaucetFundingMarkerLive(stored, {
-          runningHere: false,
-          settledAt: getFaucetRequestSettledAt(address, stored.requestedAt)
-        })
-      ) {
-        throw new FaucetRequestInProgressError(stored);
-      }
-      // A request its timeout already ended reported a safe failure and writes nothing: a
-      // retry may have stored its own marker by now.
-      if (controller.signal.aborted) throw controller.signal.reason;
-      // Not best effort: the pre-send check needs this request's marker stored, so a request
-      // that cannot store it fails here, before the proof of work.
-      await setFaucetFundingMarker(address, marker);
+      await withFaucetFundingMarkerLock(address, async () => {
+        // Another surface's request may already be minting: a surface that read no marker
+        // before that tap still offers Fund, and overwriting its marker would let this one
+        // pass its own check below and mint again. Nothing of that request runs here.
+        const stored = await fetchFaucetFundingMarker(address);
+        if (
+          stored !== null &&
+          stored.requestedAt !== marker.requestedAt &&
+          isFaucetFundingMarkerLive(stored, {
+            runningHere: false,
+            settledAt: getFaucetRequestSettledAt(address, stored.requestedAt)
+          })
+        ) {
+          throw new FaucetRequestInProgressError(stored);
+        }
+        // A request its timeout already ended reported a safe failure and writes nothing: a
+        // retry may have stored its own marker by now.
+        if (controller.signal.aborted) throw controller.signal.reason;
+        // Not best effort: the pre-send check needs this request's marker stored, so a request
+        // that cannot store it fails here, before the proof of work.
+        await setFaucetFundingMarker(address, marker);
+      });
     }
     return mintFromMidenFaucet(
       address,
@@ -487,21 +499,23 @@ async function runFaucetRequest(address: string, marker?: FaucetFundingMarker): 
       controller.signal,
       async () => {
         if (marker) {
-          // Another surface ends an unflagged marker as abandoned once its request timeout
-          // has passed; if this realm's timers were held back that long, the request is
-          // over as far as every surface knows, and sending now could mint twice.
-          const stored = await fetchFaucetFundingMarker(address);
-          if (stored?.requestedAt !== marker.requestedAt) {
-            throw new Error('Faucet request was ended before it was sent');
-          }
-          // A request its timeout already ended reported a safe failure: flag nothing.
-          if (controller.signal.aborted) throw controller.signal.reason;
-          // Not best effort: a marker without the flag is cleared as abandoned once no
-          // request runs in its realm. If the flag cannot be stored, fail here, while
-          // nothing can have been minted and a retry is still safe.
-          flagging = true;
-          await setFaucetFundingMarker(address, { ...marker, submitted: true, submittedAt: Date.now() });
-          flagging = false;
+          await withFaucetFundingMarkerLock(address, async () => {
+            // Another surface ends an unflagged marker as abandoned once its request timeout
+            // has passed; if this realm's timers were held back that long, the request is
+            // over as far as every surface knows, and sending now could mint twice.
+            const stored = await fetchFaucetFundingMarker(address);
+            if (stored?.requestedAt !== marker.requestedAt) {
+              throw new Error('Faucet request was ended before it was sent');
+            }
+            // A request its timeout already ended reported a safe failure: flag nothing.
+            if (controller.signal.aborted) throw controller.signal.reason;
+            // Not best effort: a marker without the flag is cleared as abandoned once no
+            // request runs in its realm. If the flag cannot be stored, fail here, while
+            // nothing can have been minted and a retry is still safe.
+            flagging = true;
+            await setFaucetFundingMarker(address, { ...marker, submitted: true, submittedAt: Date.now() });
+            flagging = false;
+          });
         }
         submitted = true;
       },

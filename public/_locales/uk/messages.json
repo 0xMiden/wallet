@@ -4823,5 +4823,87 @@
         "content": "$1"
       }
     }
+  },
+  "faucetPromptAction": {
+    "message": "Зробити внесок зараз",
+    "englishSource": "Fund now"
+  },
+  "fundWalletLoadingTitle": {
+    "message": "Поповнення гаманця",
+    "englishSource": "Funding your wallet"
+  },
+  "fundWalletLoadingBody": {
+    "message": "Запит на отримання токенів з faucet…",
+    "englishSource": "Requesting tokens from the faucet…"
+  },
+  "fundWalletSuccessTitle": {
+    "message": "Гроші на рахунку гаманця",
+    "englishSource": "Wallet funded"
+  },
+  "fundWalletSuccessBody": {
+    "message": "Ваші токени вже в дорозі і незабаром з’являться.",
+    "englishSource": "Your tokens are on the way and will appear shortly."
+  },
+  "fundWalletErrorTitle": {
+    "message": "Фінансування не відбулося",
+    "englishSource": "Funding failed"
+  },
+  "fundWalletErrorBody": {
+    "message": "Нам не вдалося поповнити ваш гаманець. Спробуйте ще раз.",
+    "englishSource": "We couldn't fund your wallet. Please try again."
+  },
+  "pendingNotesPromptAction": {
+    "message": "Переглянути зараз",
+    "englishSource": "See Now"
+  },
+  "updateNotificationTitle": {
+    "message": "Update available",
+    "englishSource": "Update available"
+  },
+  "updateNotificationVersion": {
+    "message": "Version $version$",
+    "englishSource": "Version $version$",
+    "placeholders": {
+      "version": {
+        "content": "$1"
+      }
+    }
+  },
+  "updateNotificationReleaseNotes": {
+    "message": "Release notes: $summary$",
+    "englishSource": "Release notes: $summary$",
+    "placeholders": {
+      "summary": {
+        "content": "$1"
+      }
+    }
+  },
+  "updateNotificationGenericSummary": {
+    "message": "This update includes fixes and improvements.",
+    "englishSource": "This update includes fixes and improvements."
+  },
+  "updateNotificationActionChrome": {
+    "message": "Restart to update",
+    "englishSource": "Restart to update"
+  },
+  "updateNotificationActionAndroid": {
+    "message": "Update now",
+    "englishSource": "Update now"
+  },
+  "updateNotificationActionIos": {
+    "message": "Open App Store",
+    "englishSource": "Open App Store"
+  },
+  "updateNotificationActionInProgress": {
+    "message": "Starting update",
+    "englishSource": "Starting update"
+  },
+  "updateNotificationDismiss": {
+    "message": "Dismiss this update",
+    "englishSource": "Dismiss this update"
+  },
+  "updateNotificationActionFailed": {
+    "message": "The update could not be started. Try again.",
+    "englishSource": "The update could not be started. Try again."
   }
 }

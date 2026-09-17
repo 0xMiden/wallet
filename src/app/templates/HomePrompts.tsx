@@ -38,7 +38,8 @@ import {
   useGuardianNoteRecoveryProgress,
   useWalletPromptStorage,
   WalletPromptStatus,
-  WalletPromptType
+  WalletPromptType,
+  withFaucetFundingMarkerLock
 } from 'lib/wallet-prompts';
 import { navigate } from 'lib/woozie';
 
@@ -132,10 +133,12 @@ const submittedWait =
       : current;
 // Clears the stored marker only while it is still this request's: another surface
 // may have started a newer request since, and that marker is not this wait's to end.
+// Read and cleared under the marker lock, so that request cannot land in between.
 const clearOwnFundingMarker = (address: string, requestedAt: number) =>
-  fetchFaucetFundingMarker(address)
-    .then(stored => (stored?.requestedAt === requestedAt ? setFaucetFundingMarker(address, null) : undefined))
-    .catch(error => console.warn('[wallet-prompts] failed to clear faucet funding marker:', error));
+  withFaucetFundingMarkerLock(address, async () => {
+    const stored = await fetchFaucetFundingMarker(address);
+    if (stored?.requestedAt === requestedAt) await setFaucetFundingMarker(address, null);
+  }).catch(error => console.warn('[wallet-prompts] failed to clear faucet funding marker:', error));
 // How long the "Funds deposited" success beat holds before the prompt
 // completes — long enough to read the two-line lockup.
 const FAUCET_FUNDED_BEAT_MS = 2400;
@@ -573,32 +576,34 @@ export const HomePrompts: FC<HomePromptsProps> = ({
     }
     const address = account.publicKey;
     let cancelled = false;
-    fetchFaucetFundingMarker(address)
-      .then(marker => {
-        if (cancelled) return;
-        if (marker !== null) {
-          // An unflagged marker past its request timeout, with nothing running here, was
-          // left by a realm that died before the token request went out (an extension
-          // popup closed during the proof of work, an app killed), so nothing was minted.
-          // A younger one is waited on; the backstop re-decides it once that timeout passes.
-          const settledAt = getFaucetRequestSettledAt(address, marker.requestedAt);
-          if (
-            isFaucetFundingMarkerLive(marker, { runningHere: getInFlightFaucetRequest(address) !== null, settledAt })
-          ) {
-            setFundingWait({ address, ...marker, settledAt: settledAt ?? undefined });
-          } else {
-            setFaucetFundingMarker(address, null).catch(error =>
-              console.warn('[wallet-prompts] failed to clear faucet funding marker:', error)
-            );
-          }
+    // Read, decided and cleared under the marker lock: a marker judged abandoned here is gone
+    // before another surface can store a new request's marker in its place.
+    withFaucetFundingMarkerLock(address, async () => {
+      const marker = await fetchFaucetFundingMarker(address);
+      if (cancelled) return;
+      if (marker !== null) {
+        // An unflagged marker past its request timeout, with nothing running here, was
+        // left by a realm that died before the token request went out (an extension
+        // popup closed during the proof of work, an app killed), so nothing was minted.
+        // A younger one is waited on; the backstop re-decides it once that timeout passes.
+        const settledAt = getFaucetRequestSettledAt(address, marker.requestedAt);
+        if (isFaucetFundingMarkerLive(marker, { runningHere: getInFlightFaucetRequest(address) !== null, settledAt })) {
+          setFundingWait({ address, ...marker, settledAt: settledAt ?? undefined });
+        } else {
+          await setFaucetFundingMarker(address, null).catch(error =>
+            console.warn('[wallet-prompts] failed to clear faucet funding marker:', error)
+          );
         }
-        setMarkerRead(current => (current.address === address ? { address, settled: true } : current));
-      })
-      .catch(error => {
-        console.warn('[wallet-prompts] failed to read faucet funding marker:', error);
-        // An unreadable marker must not disable funding for good; the read is settled.
-        if (!cancelled) setMarkerRead(current => (current.address === address ? { address, settled: true } : current));
-      });
+      }
+      setMarkerRead(current => (current.address === address ? { address, settled: true } : current));
+    }).catch(error => {
+      console.warn('[wallet-prompts] failed to read faucet funding marker; offering Fund for', address, error);
+      // An unreadable marker must not disable funding for good; the read is settled and Fund
+      // is offered (#936). Safe because a tap re-reads the marker under the lock before any
+      // proof of work: a read that fails again refuses the request, and a request already on
+      // its way refuses it too.
+      if (!cancelled) setMarkerRead(current => (current.address === address ? { address, settled: true } : current));
+    });
     return () => {
       cancelled = true;
     };
@@ -691,41 +696,45 @@ export const HomePrompts: FC<HomePromptsProps> = ({
         clearOwnFundingMarker(address, requestedAt);
         return;
       }
-      fetchFaucetFundingMarker(address).then(
-        stored => {
-          if (cancelled) return;
-          const sameRequest = stored !== null && stored.requestedAt === requestedAt;
-          // Flagged since by whichever surface owns it, or still running here.
-          if ((sameRequest && stored.submitted) || getInFlightFaucetRequest(address) !== null) {
-            setFundingWait(
-              submittedWait(
-                address,
-                requestedAt,
-                getFaucetRequestSettledAt(address, requestedAt) ?? undefined,
-                sameRequest ? stored.submittedAt : undefined
-              )
-            );
-            return;
-          }
-          console.warn('[wallet-prompts] faucet request never went out; ending the wait for', address);
-          setFundingWait(current =>
-            current !== null && current.address === address && current.requestedAt === requestedAt ? null : current
-          );
-          if (sameRequest) {
-            setFaucetFundingMarker(address, null).catch(error =>
-              console.warn('[wallet-prompts] failed to clear faucet funding marker:', error)
-            );
-          }
-        },
-        error => {
-          if (cancelled) return;
-          // Unreadable, so it may have gone out: wait for the mint rather than offer Fund.
-          console.warn('[wallet-prompts] failed to read faucet funding marker:', error);
+      // Read, decided and cleared under the marker lock, so the owner's submitted flag cannot
+      // land between this read and the clear.
+      withFaucetFundingMarkerLock(address, async () => {
+        const stored = await fetchFaucetFundingMarker(address);
+        if (cancelled) return;
+        const sameRequest = stored !== null && stored.requestedAt === requestedAt;
+        // Flagged since by whichever surface owns it, or still running here.
+        if ((sameRequest && stored.submitted) || getInFlightFaucetRequest(address) !== null) {
           setFundingWait(
-            submittedWait(address, requestedAt, getFaucetRequestSettledAt(address, requestedAt) ?? undefined)
+            submittedWait(
+              address,
+              requestedAt,
+              getFaucetRequestSettledAt(address, requestedAt) ?? undefined,
+              sameRequest ? stored.submittedAt : undefined
+            )
+          );
+          return;
+        }
+        console.warn('[wallet-prompts] faucet request never went out; ending the wait for', address);
+        setFundingWait(current =>
+          current !== null && current.address === address && current.requestedAt === requestedAt ? null : current
+        );
+        if (sameRequest) {
+          await setFaucetFundingMarker(address, null).catch(error =>
+            console.warn('[wallet-prompts] failed to clear faucet funding marker:', error)
           );
         }
-      );
+      }).catch(error => {
+        if (cancelled) return;
+        // Unreadable, so it may have gone out: wait for the mint rather than offer Fund.
+        console.warn(
+          '[wallet-prompts] failed to read faucet funding marker; keeping the funding wait for',
+          address,
+          error
+        );
+        setFundingWait(
+          submittedWait(address, requestedAt, getFaucetRequestSettledAt(address, requestedAt) ?? undefined)
+        );
+      });
     }, remainingMs);
     return () => {
       cancelled = true;
