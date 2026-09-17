@@ -84,6 +84,20 @@ export type PendingNoteValue = Pick<ConsumableNote, 'id' | 'amount' | 'faucetId'
 const VALID_STATUSES = new Set<string>(Object.values(WalletPromptStatus));
 const VALID_TYPES = new Set<string>(Object.values(WalletPromptType).filter(type => type !== WalletPromptType.Faucet));
 
+/**
+ * How many dismissed pending-note ids are kept. A dismiss covers the notes the surface could
+ * see, so ids another surface stored are kept rather than replaced; the oldest go once the
+ * list is full, which is what stops it growing for as long as the wallet lives.
+ */
+export const PENDING_NOTES_DISMISSED_IDS_LIMIT = 200;
+
+// Ids dismissed now go last, so dismissing a note again keeps it out of the prompt.
+function mergePendingNotesDismissedIds(current: readonly string[], dismissed: readonly string[]): string[] {
+  const incoming = normalizePendingNotesDismissedIds(dismissed);
+  const kept = normalizePendingNotesDismissedIds(current).filter(id => !incoming.includes(id));
+  return [...kept, ...incoming].slice(-PENDING_NOTES_DISMISSED_IDS_LIMIT);
+}
+
 function normalizePendingNotesDismissedIds(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return Array.from(new Set(value.filter((id): id is string => typeof id === 'string' && id.length > 0)));
@@ -721,7 +735,7 @@ export function useWalletPromptStorage() {
         pendingNotesDismissedIds:
           dismissedNoteIds === undefined
             ? current.pendingNotesDismissedIds
-            : normalizePendingNotesDismissedIds(dismissedNoteIds)
+            : mergePendingNotesDismissedIds(current.pendingNotesDismissedIds, dismissedNoteIds)
       })),
     [updateStorage]
   );
