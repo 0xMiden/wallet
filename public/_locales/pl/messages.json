@@ -1602,6 +1602,10 @@
     "message": "Wybierz odbiorcę",
     "englishSource": "Choose recipient"
   },
+  "sendTo": {
+    "message": "Wyślij do",
+    "englishSource": "Send to"
+  },
   "selectAmount": {
     "message": "Wybierz kwotę",
     "englishSource": "Select Amount"

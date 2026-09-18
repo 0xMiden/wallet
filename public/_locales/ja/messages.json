@@ -1602,6 +1602,10 @@
     "message": "受信者を選択してください",
     "englishSource": "Choose recipient"
   },
+  "sendTo": {
+    "message": "送金先",
+    "englishSource": "Send to"
+  },
   "selectAmount": {
     "message": "金額を選択してください",
     "englishSource": "Select Amount"

@@ -15,9 +15,12 @@ jest.mock('react-i18next', () => ({
 const ETH_ADDRESS = '0x71C7656EC7ab88b098defB751B7401B5f6d8976F';
 const MIDEN_ADDRESS = 'mtst1recipient';
 
+const mockBridgeNetworks = [{ id: 'sepolia', name: 'Sepolia', chainId: 11155111 }];
 jest.mock('./bridge-networks', () => ({
   BRIDGE_OUTPUT_TOKEN_SYMBOL: 'USDC',
-  BRIDGE_NETWORKS: [{ id: 'sepolia', name: 'Sepolia', chainId: 11155111 }],
+  get BRIDGE_NETWORKS() {
+    return mockBridgeNetworks;
+  },
   getBridgeNetwork: (id: string | undefined) =>
     id === 'sepolia' ? { id: 'sepolia', name: 'Sepolia', chainId: 11155111 } : undefined
 }));
@@ -100,13 +103,26 @@ describe('SelectRecipient', () => {
     expect(screen.getByTestId('send-recipient-avatar')).toBeInTheDocument();
   });
 
-  it('requires an EVM network and offers each bridge network as a chip', () => {
-    const props = renderRecipient({ address: ETH_ADDRESS, isValidAddress: true, chain: 'ethereum' });
+  it('shows the only bridge network as a fact rather than a lone selectable chip', () => {
+    renderRecipient({ address: ETH_ADDRESS, isValidAddress: true, chain: 'ethereum', network: 'sepolia' });
 
-    expect(screen.getByTestId('send-recipient-confirm')).toBeDisabled();
-    expect(screen.getByTestId('send-network-sepolia')).toHaveAttribute('aria-pressed', 'false');
-    fireEvent.click(screen.getByTestId('send-network-sepolia'));
-    expect(props.onSelectNetwork).toHaveBeenCalledWith('sepolia');
+    const chip = screen.getByTestId('send-network-sepolia');
+    expect(chip.tagName).toBe('SPAN');
+    expect(chip).toHaveTextContent('Sepolia');
+  });
+
+  it('offers the bridge networks as chips once there is more than one', () => {
+    mockBridgeNetworks.push({ id: 'base', name: 'Base', chainId: 8453 });
+    try {
+      const props = renderRecipient({ address: ETH_ADDRESS, isValidAddress: true, chain: 'ethereum' });
+
+      expect(screen.getByTestId('send-recipient-confirm')).toBeDisabled();
+      expect(screen.getByTestId('send-network-sepolia')).toHaveAttribute('aria-pressed', 'false');
+      fireEvent.click(screen.getByTestId('send-network-base'));
+      expect(props.onSelectNetwork).toHaveBeenCalledWith('base');
+    } finally {
+      mockBridgeNetworks.pop();
+    }
   });
 
   it('hides the network selector for an incomplete EVM address', () => {
@@ -115,18 +131,17 @@ describe('SelectRecipient', () => {
     expect(screen.queryByTestId('send-network-options')).not.toBeInTheDocument();
   });
 
-  it('enables EVM confirmation after Sepolia is selected', () => {
+  it('enables EVM confirmation once the network is set', () => {
     renderRecipient({ address: ETH_ADDRESS, isValidAddress: true, chain: 'ethereum', network: 'sepolia' });
 
-    expect(screen.getByTestId('send-network-sepolia')).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByTestId('send-recipient-network')).toHaveTextContent('Sepolia');
     expect(screen.getByTestId('send-recipient-confirm')).toBeEnabled();
   });
 
-  it('hides the network block and allows a valid Miden recipient', () => {
+  it('shows Miden as the network for a valid Miden recipient', () => {
     renderRecipient({ address: MIDEN_ADDRESS, isValidAddress: true, chain: 'miden' });
 
-    expect(screen.queryByTestId('send-network-options')).not.toBeInTheDocument();
+    expect(screen.getByTestId('send-network-options')).toBeInTheDocument();
+    expect(screen.getByTestId('send-network-miden')).toHaveTextContent('miden');
     expect(screen.getByTestId('send-recipient-confirm')).toBeEnabled();
   });
 });

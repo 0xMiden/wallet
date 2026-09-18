@@ -340,6 +340,7 @@
   "addressBook": "Libreta de direcciones",
   "paste": "Pegar",
   "chooseRecipient": "Elige el destinatario",
+  "sendTo": "Enviar a",
   "selectAmount": "Selecciona el importe",
   "enterAmount": "Introducir importe",
   "selectAToken": "Selecciona un token",
