@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 
 import { IconName } from 'app/icons/v2';
 import { Loader } from 'components/Loader';
-import { EmptyState } from 'components/ui';
+import { EmptyState } from 'components/ui/EmptyState';
 import { createQrDetector, detectAddressFromFrame } from 'lib/qr/webcam-scanner';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 import useIsMounted from 'lib/ui/useIsMounted';
