@@ -7,6 +7,9 @@ export type { AvatarProps, AvatarSize } from './Avatar';
 export { BalanceCard } from './BalanceCard';
 export type { BalanceCardProps, BalanceDeltaDirection } from './BalanceCard';
 
+export { CopyButton } from './CopyButton';
+export type { CopyButtonProps } from './CopyButton';
+
 export { Pill } from './Pill';
 export type { PillProps, PillSize, PillTone } from './Pill';
 

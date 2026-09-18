@@ -1,0 +1,128 @@
+import React from 'react';
+
+import { act, fireEvent, render, screen } from '@testing-library/react';
+
+import { hapticLight } from 'lib/mobile/haptics';
+
+import { CopyButton } from './CopyButton';
+
+const mockWrite = jest.fn();
+jest.mock('@capacitor/clipboard', () => ({ Clipboard: { write: (...args: unknown[]) => mockWrite(...args) } }));
+
+jest.mock('react-i18next', () => ({
+  useTranslation: () => ({ t: (key: string) => key })
+}));
+
+jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn() }));
+
+beforeEach(() => {
+  jest.clearAllMocks();
+  mockWrite.mockResolvedValue(undefined);
+});
+
+afterEach(() => {
+  jest.useRealTimers();
+});
+
+it('writes the given text to the clipboard on tap, with the tap haptic', async () => {
+  render(<CopyButton text="0xabc123" data-testid="copy" />);
+
+  await act(async () => {
+    fireEvent.click(screen.getByTestId('copy'));
+  });
+
+  expect(mockWrite).toHaveBeenCalledWith({ string: '0xabc123' });
+  expect(hapticLight).toHaveBeenCalledTimes(1);
+});
+
+it('shows "Copy" by default, then "Copied" for a beat after a successful copy', async () => {
+  render(<CopyButton text="0xabc123" />);
+
+  expect(screen.getByText('copy')).toBeInTheDocument();
+
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button'));
+  });
+
+  expect(screen.getByText('copied')).toBeInTheDocument();
+  expect(screen.queryByText('copy')).not.toBeInTheDocument();
+});
+
+it('reverts to "Copy" after the feedback window elapses', async () => {
+  jest.useFakeTimers();
+  render(<CopyButton text="0xabc123" />);
+
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button'));
+  });
+  expect(screen.getByText('copied')).toBeInTheDocument();
+
+  act(() => {
+    jest.advanceTimersByTime(1500);
+  });
+
+  expect(screen.getByText('copy')).toBeInTheDocument();
+});
+
+it('does not flip to "Copied" when the clipboard write rejects', async () => {
+  mockWrite.mockRejectedValue(new Error('denied'));
+  render(<CopyButton text="0xabc123" />);
+
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button'));
+  });
+
+  expect(screen.getByText('copy')).toBeInTheDocument();
+  expect(screen.queryByText('copied')).not.toBeInTheDocument();
+});
+
+it('lets a caller override the label with static children (e.g. an icon)', async () => {
+  render(
+    <CopyButton text="0xabc123">
+      <svg data-testid="copy-icon" />
+    </CopyButton>
+  );
+
+  expect(screen.getByTestId('copy-icon')).toBeInTheDocument();
+  expect(screen.queryByText('copy')).not.toBeInTheDocument();
+});
+
+it('lets a caller swap content on the copied state via a render function', async () => {
+  render(
+    <CopyButton text="0xabc123">{copied => <span data-testid="icon">{copied ? 'check' : 'clip'}</span>}</CopyButton>
+  );
+
+  expect(screen.getByTestId('icon')).toHaveTextContent('clip');
+
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button'));
+  });
+
+  expect(screen.getByTestId('icon')).toHaveTextContent('check');
+});
+
+it('forwards aria-label and stays disableable', () => {
+  render(<CopyButton text="0xabc123" aria-label="copy the address" disabled />);
+
+  const button = screen.getByRole('button', { name: 'copy the address' });
+  expect(button).toBeDisabled();
+});
+
+it('does not write to the clipboard while disabled', async () => {
+  render(<CopyButton text="0xabc123" disabled />);
+
+  fireEvent.click(screen.getByRole('button'));
+
+  expect(mockWrite).not.toHaveBeenCalled();
+});
+
+it('clears its feedback timer on unmount without throwing', async () => {
+  jest.useFakeTimers();
+  const { unmount } = render(<CopyButton text="0xabc123" />);
+
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button'));
+  });
+
+  expect(() => unmount()).not.toThrow();
+});
