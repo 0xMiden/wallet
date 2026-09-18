@@ -770,13 +770,7 @@ const ConfirmDAppForm: FC = () => {
             <Button
               type="button"
               variant={ButtonVariant.Secondary}
-              className={classNames('w-full', 'px-8', 'text-black font-medium', 'transition duration-200 ease-in-out')}
-              style={{
-                fontSize: '16px',
-                lineHeight: '24px',
-                padding: '14px 0px',
-                border: 'none'
-              }}
+              className="w-full"
               isLoading={declining}
               onClick={handleDeclineClick}
               data-testid={content.declineActionTestID}
