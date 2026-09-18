@@ -140,7 +140,7 @@ describe('BalanceCard states, delta, and interactions', () => {
     expect(screen.getByText('$0.00')).toBeTruthy();
   });
 
-  it('renders a positive delta pill with the neutral background', () => {
+  it('renders a positive delta pill with the positive status background', () => {
     const { container } = render(
       <BalanceCard
         accountNumber="mtst1aqg...940z"
@@ -152,7 +152,14 @@ describe('BalanceCard states, delta, and interactions', () => {
     const pill = container.querySelector('.rounded-full');
     expect(pill).not.toBeNull();
     expect(pill?.textContent).toBe('balanceCardDeltaPill');
-    expect(pill?.className).toContain('bg-[#A8BBA3]');
+    expect(pill?.className).toContain('bg-status-positive');
+  });
+
+  it('uses the surface-balance-divider token for the footer rule, not a raw hex', () => {
+    const { container } = render(<BalanceCard accountNumber="mtst1aqg...940z" amount="$123.45" />);
+
+    expect(container.querySelector('.border-t-surface-balance-divider')).not.toBeNull();
+    expect(container.querySelector('[class*="#FFFFFF4D"]')).toBeNull();
   });
 
   it('renders a negative delta pill with the negative background', () => {
