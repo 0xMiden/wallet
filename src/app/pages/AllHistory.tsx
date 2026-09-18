@@ -1,5 +1,7 @@
-import React, { FC, useMemo, useState } from 'react';
+import React, { FC, useEffect, useMemo, useRef, useState } from 'react';
 
+import clsx from 'clsx';
+import { motion, useReducedMotion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
 import { IconName } from 'app/icons/v2';
@@ -8,6 +10,7 @@ import type { ActivityFilter } from 'app/templates/history/History';
 import { DeadletteredNotesNotice } from 'components/DeadletteredNotesNotice';
 import { TabHeader, TabHeaderAction } from 'components/ui';
 import { Pill } from 'components/ui/Pill';
+import { springs, useMotion } from 'lib/animation';
 import { useAccount } from 'lib/miden/front';
 import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { hapticSelection } from 'lib/mobile/haptics';
@@ -16,12 +19,20 @@ type AllHistoryProps = {
   programId?: string | null;
 };
 
+// One fill shared by every filter pill: Framer's layoutId slides it from the
+// old selection to the new one instead of each pill snapping its own
+// background on and off (same technique as `BottomNav`'s tab pill).
+const FILTER_PILL_LAYOUT_ID = 'activity-filter-pill';
+
 const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
   const { t } = useTranslation();
   const account = useAccount();
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<ActivityFilter>('all');
   const [searchOpen, setSearchOpen] = useState(false);
+  const pillTransition = useMotion(springs.pill);
+  const reduceMotion = useReducedMotion();
+  const filterRefs = useRef<Partial<Record<ActivityFilter, HTMLDivElement | null>>>({});
 
   const filters = useMemo<Array<{ id: ActivityFilter; label: string }>>(
     () => [
@@ -49,6 +60,16 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
     setFilter(id);
   };
 
+  // Keeps the newly-selected chip on screen when the row scrolls further than
+  // the viewport (five chips can outrun a 360px extension popup).
+  useEffect(() => {
+    filterRefs.current[filter]?.scrollIntoView({
+      behavior: reduceMotion ? 'auto' : 'smooth',
+      block: 'nearest',
+      inline: 'nearest'
+    });
+  }, [filter, reduceMotion]);
+
   return (
     <div className="flex-1 flex flex-col min-h-0 bg-app-bg">
       <TabHeader
@@ -74,14 +95,32 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
         {filters.map(f => {
           const isActive = f.id === filter;
           return (
-            <Pill
+            <div
               key={f.id}
-              tone={isActive ? 'selected' : 'neutral'}
-              selected={isActive}
-              onClick={() => handleFilterTap(f.id)}
+              ref={el => {
+                filterRefs.current[f.id] = el;
+              }}
+              className="relative shrink-0"
             >
-              {f.label}
-            </Pill>
+              {isActive && (
+                <motion.span
+                  layoutId={FILTER_PILL_LAYOUT_ID}
+                  className="absolute inset-0 rounded-full bg-accent-tint"
+                  transition={pillTransition}
+                />
+              )}
+              <Pill
+                tone={isActive ? 'plain' : 'neutral'}
+                selected={isActive}
+                onClick={() => handleFilterTap(f.id)}
+                className={clsx(
+                  'transition-colors motion-reduce:transition-none',
+                  isActive && 'bg-transparent text-accent-tint-ink'
+                )}
+              >
+                {f.label}
+              </Pill>
+            </div>
           );
         })}
       </div>
