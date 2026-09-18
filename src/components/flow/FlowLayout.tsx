@@ -5,7 +5,6 @@ import clsx from 'clsx';
 import { PageHeader } from 'components/PageHeader';
 import { useNavbarHidden } from 'lib/mobile/useNavbarHidden';
 
-import { ACCENT_CLASSES, FlowAccent } from './accent';
 import { stepFooterCushionClass } from './footer-cushion';
 import { useSlideOnReflow } from './useSlideOnReflow';
 
@@ -18,7 +17,6 @@ export interface FlowLayoutProps {
   onBack?: () => void;
   /** Close button, top right. */
   onClose?: () => void;
-  accent?: FlowAccent;
   /** Focus the title on mount, for screens that replace another in place. */
   focusTitleOnMount?: boolean;
   children: React.ReactNode;
@@ -36,7 +34,6 @@ export const FlowLayout: React.FC<FlowLayoutProps> = ({
   titleAccessory,
   onBack,
   onClose,
-  accent = 'brand',
   focusTitleOnMount,
   children,
   footer
@@ -56,7 +53,6 @@ export const FlowLayout: React.FC<FlowLayoutProps> = ({
         onBack={onBack}
         onClose={onClose}
         actions={titleAccessory}
-        backIconClassName={ACCENT_CLASSES[accent].text}
         focusTitleOnMount={focusTitleOnMount}
         backTestId="flow-back"
         closeTestId="flow-close"

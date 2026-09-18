@@ -7,8 +7,10 @@ import { PageHeader } from './PageHeader';
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn() }));
 jest.mock('app/icons/v2', () => ({
-  Icon: ({ name }: { name: string }) => <svg data-testid={`icon-${name}`} />,
-  IconName: { BackArrow: 'back-arrow', Close: 'close' }
+  Icon: ({ name, size, className }: { name: string; size?: string; className?: string }) => (
+    <svg data-testid={`icon-${name}`} data-size={size} className={className} />
+  ),
+  IconName: { ChevronLeft: 'chevron-left', Close: 'close' }
 }));
 
 it('puts back, title, actions and close in one 52px row', () => {
@@ -28,6 +30,19 @@ it('puts back, title, actions and close in one 52px row', () => {
   fireEvent.click(screen.getByTestId('page-close'));
   expect(onBack).toHaveBeenCalled();
   expect(onClose).toHaveBeenCalled();
+});
+
+it('draws back as a 24px ink chevron and close as a 24px ink glyph', () => {
+  render(<PageHeader title="New contact" onBack={jest.fn()} onClose={jest.fn()} />);
+
+  const back = screen.getByTestId('icon-chevron-left');
+  expect(screen.getByTestId('page-back')).toContainElement(back);
+  expect(back).toHaveClass('text-ink');
+  expect(back).toHaveAttribute('data-size', 'md');
+
+  const close = screen.getByTestId('icon-close');
+  expect(close).toHaveClass('text-ink');
+  expect(close).toHaveAttribute('data-size', 'md');
 });
 
 it('renders no heading without a title', () => {

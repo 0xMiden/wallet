@@ -15,8 +15,6 @@ export interface PageHeaderProps {
   onClose?: () => void;
   /** Right side before Close, e.g. an Edit pill or a network chip. */
   actions?: React.ReactNode;
-  /** Back glyph color, for a flow's accent. */
-  backIconClassName?: string;
   /**
    * Move focus to the title on mount. A route change is not announced, and the control that
    * triggered it unmounts with its page, so without this the new page is never named.
@@ -37,7 +35,6 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
   onBack,
   onClose,
   actions,
-  backIconClassName,
   focusTitleOnMount = false,
   backTestId = 'page-back',
   closeTestId = 'page-close',
@@ -54,11 +51,12 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
     <header className={clsx('flex h-13 shrink-0 items-center gap-3', className)}>
       {onBack && (
         <NavButton
-          icon={IconName.BackArrow}
+          icon={IconName.ChevronLeft}
           label={t('back')}
           onClick={onBack}
           appearance="bare"
-          iconClassName={backIconClassName ?? 'text-ink'}
+          // Always ink, in a flow too: the flow accents are under 3:1 on white.
+          iconClassName="text-ink"
           data-testid={backTestId}
         />
       )}
