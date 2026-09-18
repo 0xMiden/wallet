@@ -6,8 +6,8 @@ import { useTranslation } from 'react-i18next';
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import { Button, ButtonVariant } from 'components/Button';
 import { ACCENT_CLASSES, FlowAccent } from 'components/flow/accent';
-import { FlowDetailRow, FlowDetails } from 'components/flow/FlowDetails';
 import { FlowLayout } from 'components/flow/FlowLayout';
+import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import { ITransaction } from 'lib/miden/db/types';
 import { resolveDisplayMetadata } from 'lib/miden/metadata/resolve';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
@@ -147,9 +147,9 @@ export const ReceiptRows: FC<{ rows: ReceiptRow[]; className?: string; accent?: 
   if (rows.length === 0) return null;
 
   return (
-    <FlowDetails className={classNames('w-full', className)}>
+    <DetailCard className={classNames('w-full', className)}>
       {rows.map(row => (
-        <FlowDetailRow key={row.label} label={row.label} sub={row.subValue} stacked={row.stacked}>
+        <DetailRow key={row.label} label={row.label} sub={row.subValue} stacked={row.stacked}>
           {row.onClick ? (
             <button
               type="button"
@@ -165,9 +165,9 @@ export const ReceiptRows: FC<{ rows: ReceiptRow[]; className?: string; accent?: 
           ) : (
             row.value
           )}
-        </FlowDetailRow>
+        </DetailRow>
       ))}
-    </FlowDetails>
+    </DetailCard>
   );
 };
 
