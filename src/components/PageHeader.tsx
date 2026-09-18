@@ -28,7 +28,7 @@ export interface PageHeaderProps {
 }
 
 /**
- * The header of every pushed page: back, title, actions and close in one 56px row, like a native
+ * The header of every pushed page: back, title, actions and close in one 52px row, like a native
  * navigation bar. Tab roots use TabHeader and sheets DrawerHeader; everything else uses this, so a
  * page's content starts at the same height everywhere. No horizontal padding: it takes the page's.
  */
@@ -51,13 +51,14 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
   }, [focusTitleOnMount]);
 
   return (
-    <header className={clsx('flex h-14 shrink-0 items-center gap-3', className)}>
+    <header className={clsx('flex h-13 shrink-0 items-center gap-3', className)}>
       {onBack && (
         <NavButton
           icon={IconName.BackArrow}
           label={t('back')}
           onClick={onBack}
-          iconClassName={backIconClassName}
+          appearance="bare"
+          iconClassName={backIconClassName ?? 'text-ink'}
           data-testid={backTestId}
         />
       )}
@@ -66,7 +67,7 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
           ref={titleRef}
           tabIndex={focusTitleOnMount ? -1 : undefined}
           // Clamped, not truncated: a long German title keeps its second line instead of an ellipsis.
-          className="line-clamp-2 min-w-0 flex-1 font-heading text-xl leading-tight font-extrabold break-words text-heading-gray outline-none"
+          className="line-clamp-2 min-w-0 flex-1 font-heading text-xl leading-tight font-extrabold break-words text-ink outline-none"
         >
           {title}
         </h1>
@@ -74,7 +75,16 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
         <span className="flex-1" />
       )}
       {actions}
-      {onClose && <NavButton icon={IconName.Close} label={t('close')} onClick={onClose} data-testid={closeTestId} />}
+      {onClose && (
+        <NavButton
+          icon={IconName.Close}
+          label={t('close')}
+          onClick={onClose}
+          appearance="bare"
+          iconClassName="text-ink"
+          data-testid={closeTestId}
+        />
+      )}
     </header>
   );
 };
