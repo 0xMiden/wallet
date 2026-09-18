@@ -5014,5 +5014,50 @@
   "updateNotificationActionFailed": {
     "message": "The update could not be started. Try again.",
     "englishSource": "The update could not be started. Try again."
+  },
+  "newContact": {
+    "message": "Новий контакт",
+    "englishSource": "New contact"
+  },
+  "myAccounts": {
+    "message": "Мої рахунки",
+    "englishSource": "My accounts"
+  },
+  "noContactsYet": {
+    "message": "Контактів ще немає",
+    "englishSource": "No contacts yet"
+  },
+  "noContactsYetHint": {
+    "message": "Збережіть адресу, щоб надсилати за іменем.",
+    "englishSource": "Save an address to send to it by name."
+  },
+  "contactIsYourAccount": {
+    "message": "Це один із ваших рахунків",
+    "englishSource": "This is one of your accounts"
+  },
+  "contactAlreadySaved": {
+    "message": "Уже збережено як $name$",
+    "englishSource": "Already saved as $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "editContact": {
+    "message": "Редагувати контакт",
+    "englishSource": "Edit contact"
+  },
+  "deleteContact": {
+    "message": "Видалити контакт",
+    "englishSource": "Delete contact"
+  },
+  "saveContact": {
+    "message": "Зберегти",
+    "englishSource": "Save"
+  },
+  "contactAdded": {
+    "message": "Додано",
+    "englishSource": "Added"
   }
 }

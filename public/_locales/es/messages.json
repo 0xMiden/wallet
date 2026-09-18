@@ -5014,5 +5014,50 @@
   "updateNotificationActionFailed": {
     "message": "The update could not be started. Try again.",
     "englishSource": "The update could not be started. Try again."
+  },
+  "newContact": {
+    "message": "Nuevo contacto",
+    "englishSource": "New contact"
+  },
+  "myAccounts": {
+    "message": "Mis cuentas",
+    "englishSource": "My accounts"
+  },
+  "noContactsYet": {
+    "message": "Aún no hay contactos",
+    "englishSource": "No contacts yet"
+  },
+  "noContactsYetHint": {
+    "message": "Guarda una dirección para enviar por nombre.",
+    "englishSource": "Save an address to send to it by name."
+  },
+  "contactIsYourAccount": {
+    "message": "Esta es una de tus cuentas",
+    "englishSource": "This is one of your accounts"
+  },
+  "contactAlreadySaved": {
+    "message": "Ya guardado como $name$",
+    "englishSource": "Already saved as $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "editContact": {
+    "message": "Editar contacto",
+    "englishSource": "Edit contact"
+  },
+  "deleteContact": {
+    "message": "Eliminar contacto",
+    "englishSource": "Delete contact"
+  },
+  "saveContact": {
+    "message": "Guardar",
+    "englishSource": "Save"
+  },
+  "contactAdded": {
+    "message": "Añadido",
+    "englishSource": "Added"
   }
 }

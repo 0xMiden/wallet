@@ -1124,5 +1124,15 @@
   "updateNotificationActionIos": "Open App Store",
   "updateNotificationActionInProgress": "Starting update",
   "updateNotificationDismiss": "Dismiss this update",
-  "updateNotificationActionFailed": "The update could not be started. Try again."
+  "updateNotificationActionFailed": "The update could not be started. Try again.",
+  "newContact": "新联系人",
+  "myAccounts": "我的账户",
+  "noContactsYet": "暂无联系人",
+  "noContactsYetHint": "保存地址后即可按名称发送。",
+  "contactIsYourAccount": "这是你的账户之一",
+  "contactAlreadySaved": "已保存为 $name$",
+  "editContact": "编辑联系人",
+  "deleteContact": "删除联系人",
+  "saveContact": "保存",
+  "contactAdded": "添加时间"
 }

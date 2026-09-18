@@ -1124,5 +1124,15 @@
   "updateNotificationActionIos": "Open App Store",
   "updateNotificationActionInProgress": "Starting update",
   "updateNotificationDismiss": "Dismiss this update",
-  "updateNotificationActionFailed": "The update could not be started. Try again."
+  "updateNotificationActionFailed": "The update could not be started. Try again.",
+  "newContact": "Yeni kişi",
+  "myAccounts": "Hesaplarım",
+  "noContactsYet": "Henüz kişi yok",
+  "noContactsYetHint": "Adla göndermek için bir adres kaydedin.",
+  "contactIsYourAccount": "Bu hesaplarınızdan biri",
+  "contactAlreadySaved": "Zaten $name$ olarak kayıtlı",
+  "editContact": "Kişiyi düzenle",
+  "deleteContact": "Kişiyi sil",
+  "saveContact": "Kaydet",
+  "contactAdded": "Eklendi"
 }

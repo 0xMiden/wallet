@@ -5014,5 +5014,50 @@
   "updateNotificationActionFailed": {
     "message": "The update could not be started. Try again.",
     "englishSource": "The update could not be started. Try again."
+  },
+  "newContact": {
+    "message": "新联系人",
+    "englishSource": "New contact"
+  },
+  "myAccounts": {
+    "message": "我的账户",
+    "englishSource": "My accounts"
+  },
+  "noContactsYet": {
+    "message": "暂无联系人",
+    "englishSource": "No contacts yet"
+  },
+  "noContactsYetHint": {
+    "message": "保存地址后即可按名称发送。",
+    "englishSource": "Save an address to send to it by name."
+  },
+  "contactIsYourAccount": {
+    "message": "这是你的账户之一",
+    "englishSource": "This is one of your accounts"
+  },
+  "contactAlreadySaved": {
+    "message": "已保存为 $name$",
+    "englishSource": "Already saved as $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "editContact": {
+    "message": "编辑联系人",
+    "englishSource": "Edit contact"
+  },
+  "deleteContact": {
+    "message": "删除联系人",
+    "englishSource": "Delete contact"
+  },
+  "saveContact": {
+    "message": "保存",
+    "englishSource": "Save"
+  },
+  "contactAdded": {
+    "message": "添加时间",
+    "englishSource": "Added"
   }
 }

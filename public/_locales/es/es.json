@@ -1124,5 +1124,15 @@
   "updateNotificationActionIos": "Open App Store",
   "updateNotificationActionInProgress": "Starting update",
   "updateNotificationDismiss": "Dismiss this update",
-  "updateNotificationActionFailed": "The update could not be started. Try again."
+  "updateNotificationActionFailed": "The update could not be started. Try again.",
+  "newContact": "Nuevo contacto",
+  "myAccounts": "Mis cuentas",
+  "noContactsYet": "Aún no hay contactos",
+  "noContactsYetHint": "Guarda una dirección para enviar por nombre.",
+  "contactIsYourAccount": "Esta es una de tus cuentas",
+  "contactAlreadySaved": "Ya guardado como $name$",
+  "editContact": "Editar contacto",
+  "deleteContact": "Eliminar contacto",
+  "saveContact": "Guardar",
+  "contactAdded": "Añadido"
 }

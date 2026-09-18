@@ -5014,5 +5014,50 @@
   "updateNotificationActionFailed": {
     "message": "The update could not be started. Try again.",
     "englishSource": "The update could not be started. Try again."
+  },
+  "newContact": {
+    "message": "新しい連絡先",
+    "englishSource": "New contact"
+  },
+  "myAccounts": {
+    "message": "自分のアカウント",
+    "englishSource": "My accounts"
+  },
+  "noContactsYet": {
+    "message": "連絡先はまだありません",
+    "englishSource": "No contacts yet"
+  },
+  "noContactsYetHint": {
+    "message": "アドレスを保存すると、名前で送金できます。",
+    "englishSource": "Save an address to send to it by name."
+  },
+  "contactIsYourAccount": {
+    "message": "これはあなたのアカウントです",
+    "englishSource": "This is one of your accounts"
+  },
+  "contactAlreadySaved": {
+    "message": "$name$ として保存済み",
+    "englishSource": "Already saved as $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "editContact": {
+    "message": "連絡先を編集",
+    "englishSource": "Edit contact"
+  },
+  "deleteContact": {
+    "message": "連絡先を削除",
+    "englishSource": "Delete contact"
+  },
+  "saveContact": {
+    "message": "保存",
+    "englishSource": "Save"
+  },
+  "contactAdded": {
+    "message": "追加日",
+    "englishSource": "Added"
   }
 }

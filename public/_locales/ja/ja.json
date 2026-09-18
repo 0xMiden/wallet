@@ -1124,5 +1124,15 @@
   "updateNotificationActionIos": "Open App Store",
   "updateNotificationActionInProgress": "Starting update",
   "updateNotificationDismiss": "Dismiss this update",
-  "updateNotificationActionFailed": "The update could not be started. Try again."
+  "updateNotificationActionFailed": "The update could not be started. Try again.",
+  "newContact": "新しい連絡先",
+  "myAccounts": "自分のアカウント",
+  "noContactsYet": "連絡先はまだありません",
+  "noContactsYetHint": "アドレスを保存すると、名前で送金できます。",
+  "contactIsYourAccount": "これはあなたのアカウントです",
+  "contactAlreadySaved": "$name$ として保存済み",
+  "editContact": "連絡先を編集",
+  "deleteContact": "連絡先を削除",
+  "saveContact": "保存",
+  "contactAdded": "追加日"
 }

@@ -1124,5 +1124,15 @@
   "updateNotificationActionIos": "Open App Store",
   "updateNotificationActionInProgress": "Starting update",
   "updateNotificationDismiss": "Dismiss this update",
-  "updateNotificationActionFailed": "The update could not be started. Try again."
+  "updateNotificationActionFailed": "The update could not be started. Try again.",
+  "newContact": "새 연락처",
+  "myAccounts": "내 계정",
+  "noContactsYet": "아직 연락처가 없습니다",
+  "noContactsYetHint": "주소를 저장하면 이름으로 보낼 수 있습니다.",
+  "contactIsYourAccount": "내 계정 중 하나입니다",
+  "contactAlreadySaved": "이미 $name$(으)로 저장됨",
+  "editContact": "연락처 편집",
+  "deleteContact": "연락처 삭제",
+  "saveContact": "저장",
+  "contactAdded": "추가됨"
 }

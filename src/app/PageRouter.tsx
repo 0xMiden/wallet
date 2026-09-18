@@ -16,6 +16,8 @@ import { NetworkModeBanner } from 'components/NetworkModeBanner';
 import { isBridgeDepositEnabled, isSwapEnabled } from 'lib/feature-flags';
 import { useMidenContext } from 'lib/miden/front';
 import * as Woozie from 'lib/woozie';
+import { ContactDetailPage } from 'screens/contacts/ContactDetailPage';
+import { NewContactPage } from 'screens/contacts/NewContactPage';
 import DeveloperSettings from 'screens/developer-settings/DeveloperSettings';
 import EarnDepositAmount from 'screens/earn-flow/EarnDepositAmount';
 import EarnDepositReview from 'screens/earn-flow/EarnDepositReview';
@@ -258,6 +260,23 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
     onlyReady(({ transactionId }) => (
       <FullScreenPage key={`history-details-${transactionId}`} entrance="slide">
         <HistoryDetails key={transactionId} transactionId={transactionId!} />
+      </FullScreenPage>
+    ))
+  ],
+  // `/contacts/new` first: the `:address` route below would otherwise match it.
+  [
+    '/contacts/new',
+    onlyReady(() => (
+      <FullScreenPage entrance="slide">
+        <NewContactPage />
+      </FullScreenPage>
+    ))
+  ],
+  [
+    '/contacts/:address',
+    onlyReady(({ address }) => (
+      <FullScreenPage key={`contact-${address}`} entrance="slide">
+        <ContactDetailPage address={decodeURIComponent(address!)} />
       </FullScreenPage>
     ))
   ],
