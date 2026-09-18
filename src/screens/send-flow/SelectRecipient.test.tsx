@@ -81,18 +81,11 @@ describe('SelectRecipient', () => {
     expect(screen.getByText('Scan QR Code')).toBeInTheDocument();
     expect(screen.getByTestId('send-address-book-icon')).toBeInTheDocument();
     expect(screen.getByTestId('send-scan-icon')).toBeInTheDocument();
-    expect(screen.getByText('addressBook').closest('button')).toHaveClass(
-      'h-auto!',
-      'px-2!',
-      'py-1!',
-      'bg-surface-interactive!'
-    );
-    expect(screen.getByText('Scan QR Code').closest('button')).toHaveClass(
-      'h-auto!',
-      'px-2!',
-      'py-1!',
-      'bg-surface-interactive!'
-    );
+    // Both pills are the app's shared Pill, so they are the same height, padding and type
+    // scale as every other chip (the network chip beside them included).
+    for (const label of ['addressBook', 'Scan QR Code']) {
+      expect(screen.getByText(label).closest('button')).toHaveClass('h-8', 'px-3', 'rounded-full', 'text-sm');
+    }
   });
 
   it('shows the saved contact identity when a recipient name is provided', () => {
@@ -145,7 +138,7 @@ describe('SelectRecipient — recent recipients', () => {
     { address: '0x1111111111111111111111111111111111111111', chain: 'ethereum' as const }
   ];
 
-  it('lists recents with names, chain badges and a network fallback, and fills on tap', () => {
+  it('lists recents with names, a network badge per row and a network fallback, and fills on tap', () => {
     const onSelectRecent = jest.fn();
     renderRecipient({ recents: RECENTS, onSelectRecent });
 
@@ -154,8 +147,14 @@ describe('SelectRecipient — recent recipients', () => {
 
     // A saved contact shows its name; an unknown address falls back to the truncated form.
     expect(screen.getByText('Alice')).toBeInTheDocument();
-    // Miden rows get the badge, EVM rows show the network name (falling back to Ethereum).
-    expect(screen.getByText('miden')).toBeInTheDocument();
+    // The network rides the avatar as a badge, so the row never spends its second line on it.
+    expect(screen.getAllByTestId('recipient-avatar').map(el => el.dataset.network)).toEqual([
+      'miden',
+      'ethereum',
+      'ethereum'
+    ]);
+    // Only a named recipient shows the address on the second line; the others already show it
+    // above, so that line names their network instead (falling back to Ethereum).
     expect(screen.getByText('Sepolia')).toBeInTheDocument();
     expect(screen.getByText('ethereum')).toBeInTheDocument();
 
