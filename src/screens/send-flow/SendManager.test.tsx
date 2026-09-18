@@ -697,6 +697,29 @@ describe('recipient address entry', () => {
     expect(screen.getByTestId('acd-network')).toHaveTextContent('sepolia');
   });
 
+  it("starts with the recipient and saved network handed over by a contact's page", () => {
+    mockSearch = '?to=0xfromcontact&network=sepolia';
+    mockBridgeNetworks = [
+      { id: 'sepolia', name: 'Sepolia', chainId: 11155111 },
+      { id: 'base', name: 'Base', chainId: 84532 }
+    ];
+    try {
+      renderFlow();
+
+      expect(screen.getByTestId('sr-address')).toHaveTextContent('0xfromcontact');
+      expect(screen.getByTestId('sr-network')).toHaveTextContent('sepolia');
+    } finally {
+      mockBridgeNetworks = [];
+    }
+  });
+
+  it('validates a handed-over recipient like a typed one', () => {
+    mockSearch = '?to=me-pk';
+    renderFlow();
+
+    expect(screen.getByTestId('sr-error')).toHaveTextContent('cannotSendToSelf');
+  });
+
   it('rejects the current account when it is selected from contacts', () => {
     mockSelectedContact = { id: 'me-pk', name: 'Me', isOwned: true, contactType: 'public' };
     renderFlow();
