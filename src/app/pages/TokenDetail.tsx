@@ -13,6 +13,7 @@ import { ReactComponent as SendIcon } from 'app/icons/v2/send-new.svg';
 import History from 'app/templates/history/History';
 import { NavigationHeader } from 'components/NavigationHeader';
 import { TokenLogo } from 'components/TokenLogo';
+import { CopyButton } from 'components/ui/CopyButton';
 import { toAdaptiveFixed } from 'lib/i18n/numbers';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata, useNetwork } from 'lib/miden/front';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
@@ -253,15 +254,18 @@ const TokenInfoCard: FC<{ tokenId: string }> = ({ tokenId }) => {
           right={
             <div className="flex items-center gap-2 font-bold">
               {truncateAddress(tokenId)}
-              <button
-                onClick={() => navigator.clipboard.writeText(tokenId)}
+              <CopyButton
+                text={tokenId}
+                aria-label={t('copy')}
                 className="w-6.5 h-6.5 bg-chip-bg rounded-lg flex items-center justify-center cursor-pointer"
               >
-                <Icon
-                  name={IconName.Copy}
-                  style={{ height: '12px', width: '12px', strokeColor: '#48484814', strokeWidth: '2px' }}
-                />
-              </button>
+                {copied => (
+                  <Icon
+                    name={copied ? IconName.Checkmark : IconName.Copy}
+                    style={{ height: '12px', width: '12px', strokeColor: '#48484814', strokeWidth: '2px' }}
+                  />
+                )}
+              </CopyButton>
             </div>
           }
         />
