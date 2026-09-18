@@ -4,5 +4,13 @@ export { easings, type EasingName } from './easings';
 export { useMotion, useSprings, resolveTransition } from './use-motion';
 export { springToLinearEasing, type CompositorSpring } from './spring-easing';
 export { presets, presetNames, usePreset, resolvePreset, type MotionPreset, type PresetName } from './presets';
-export { pageSlideEntrance, pageSlideParallax, pageSlideDim } from './page-appearance';
+export {
+  pageSlideEntrance,
+  pageSlideParallax,
+  pageSlideDim,
+  pageStepTransition,
+  pageStepOffset,
+  pageStepFadeOffset,
+  resolvePageStepTransition
+} from './page-appearance';
 export { colorTransitionClass } from './interaction-classes';
