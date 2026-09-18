@@ -110,9 +110,9 @@ jest.mock('components/SpendingLimitChallenge', () => ({
   }
 }));
 
-jest.mock('components/flow/FlowDetails', () => ({
-  FlowDetails: ({ children }: any) => <div data-testid="rows">{children}</div>,
-  FlowDetailRow: ({ label, children, action, sub }: any) => (
+jest.mock('components/ui/DetailCard', () => ({
+  DetailCard: ({ children }: any) => <div data-testid="rows">{children}</div>,
+  DetailRow: ({ label, children, action, sub }: any) => (
     <div data-testid="review-row">
       <span data-testid="row-label">{label}</span>
       {children !== undefined && <span data-testid="row-children">{children}</span>}

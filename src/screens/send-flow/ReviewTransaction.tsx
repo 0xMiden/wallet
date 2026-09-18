@@ -6,10 +6,10 @@ import { useTranslation } from 'react-i18next';
 import { useAppEnv } from 'app/env';
 import { useNetworkFeeEstimate } from 'app/hooks/useNetworkFeeEstimate';
 import { Button, ButtonVariant } from 'components/Button';
-import { FlowDetailRow, FlowDetails } from 'components/flow/FlowDetails';
 import { NetworkChip } from 'components/NetworkChip';
 import { SpendingLimitChallenge } from 'components/SpendingLimitChallenge';
 import { TokenLogo } from 'components/TokenLogo';
+import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import { Skeleton } from 'components/ui/Skeleton';
 import { initiateB2AggBridge } from 'lib/agglayer/b2agg';
 import { EVM_AGGLAYER_NETWORK_ID } from 'lib/agglayer/b2agg/constant';
@@ -482,48 +482,47 @@ export const ReviewTransaction: React.FC = () => {
           </span>
         )}
 
-        <FlowDetails className="mt-6">
+        <DetailCard className="mt-6">
           {/* The full address, never truncated: this is the last look before funds move. */}
-          <FlowDetailRow label={t('to')} stacked data-testid="review-row-to">
+          <DetailRow label={t('to')} stacked data-testid="review-row-to">
             {to}
-          </FlowDetailRow>
-          <FlowDetailRow label={t('network')}>
+          </DetailRow>
+          <DetailRow label={t('network')}>
             {isBridge ? (
               <NetworkChip kind="ethereum" label={bridgeNetworkObj?.name ?? t('ethereum')} />
             ) : (
               <NetworkChip kind="miden" label={t('miden')} />
             )}
-          </FlowDetailRow>
+          </DetailRow>
 
           {/* The exact fee is `baseFee x (floor(log2(cycles)) + 1)` and cycles are not known until
               the transaction is proven, so this quotes the upper bound the wallet already reserves
               against — the same amount the amount step withheld from `Available`. Absent on a
               zero-fee chain and before discovery; see `useNetworkFeeEstimate`. */}
           {networkFee && (
-            <FlowDetailRow label={t('networkFeeMax')} sub={t('networkFeeEstimateNote')}>
+            <DetailRow label={t('networkFeeMax')} sub={t('networkFeeEstimateNote')}>
               {networkFee}
-            </FlowDetailRow>
+            </DetailRow>
           )}
 
           {isBridge ? (
             <>
-              <FlowDetailRow label={t('route')}>{`${routeLabel} ${arrivalLabel}`}</FlowDetailRow>
-              <FlowDetailRow label={t('youReceive')}>
+              <DetailRow label={t('route')}>{`${routeLabel} ${arrivalLabel}`}</DetailRow>
+              <DetailRow label={t('youReceive')}>
                 {youReceiveLoading ? <Skeleton className="h-6 w-28" /> : youReceiveLabel}
-              </FlowDetailRow>
+              </DetailRow>
             </>
           ) : (
-            <FlowDetailRow
+            <DetailRow
               label={t('expirationDate')}
-              accent="send"
               action={{ label: t('edit'), onClick: () => setShowCalendar(true) }}
               sub={recallBlocks ? t('recallReturnsNote', { amount: `${amount} ${token?.name ?? ''}` }) : undefined}
               data-testid="review-row-expiration"
             >
               {expirationLabel}
-            </FlowDetailRow>
+            </DetailRow>
           )}
-        </FlowDetails>
+        </DetailCard>
       </SendStepLayout>
 
       {!isBridge && (
