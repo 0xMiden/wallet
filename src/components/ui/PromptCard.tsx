@@ -194,7 +194,7 @@ export const PromptCard: FC<PromptCardProps> = ({
       }}
       onClick={onClick ? handleClick : undefined}
       className={classNames(
-        'relative overflow-hidden w-full h-[72px] bg-surface-input rounded-10',
+        'relative overflow-hidden w-full h-[72px] bg-surface-input rounded-2xl',
         'flex items-center gap-3 px-4',
         // Tappable cards press in like the app's buttons do.
         onClick && 'transition-transform active:scale-[0.98]',
