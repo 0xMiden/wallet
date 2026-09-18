@@ -14,6 +14,7 @@
 
 import React, { type FC, useCallback, useEffect, useState } from 'react';
 
+import { Clipboard } from '@capacitor/clipboard';
 import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
@@ -80,10 +81,13 @@ export const DappActionsSheet: FC<DappActionsSheetProps> = ({ session, open, onO
   const handleCopyLink = useCallback(() => {
     if (!session) return;
     hapticLight();
-    // Clipboard API is available in WKWebView under a secure context,
-    // which the Capacitor host always is. Swallow errors — the UI
-    // closes either way so the user isn't left with a stuck sheet.
-    void navigator.clipboard.writeText(session.url).catch(() => {});
+    // `@capacitor/clipboard` rather than `navigator.clipboard` directly: it
+    // has its own web implementation, so the same call is correct on
+    // desktop, the extension and every mobile webview — not just WKWebView
+    // under a secure context. Swallow errors — the UI closes either way so
+    // the user isn't left with a stuck sheet, and there is nowhere left on
+    // screen to report a failure once it has.
+    void Clipboard.write({ string: session.url }).catch(() => {});
     close();
   }, [session, close]);
 
