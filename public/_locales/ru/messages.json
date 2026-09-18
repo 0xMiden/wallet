@@ -5142,5 +5142,50 @@
   "spendingLimitTransactionAuthenticationReason": {
     "message": "Пройдите аутентификацию, чтобы продолжить эту транзакцию. Это не изменит и не отключит ваш лимит расходов.",
     "englishSource": "Authenticate to continue with this transaction. This does not change or disable your spending limit."
+  },
+  "newContact": {
+    "message": "Новый контакт",
+    "englishSource": "New contact"
+  },
+  "myAccounts": {
+    "message": "Мои счета",
+    "englishSource": "My accounts"
+  },
+  "noContactsYet": {
+    "message": "Контактов пока нет",
+    "englishSource": "No contacts yet"
+  },
+  "noContactsYetHint": {
+    "message": "Сохраните адрес, чтобы отправлять по имени.",
+    "englishSource": "Save an address to send to it by name."
+  },
+  "contactIsYourAccount": {
+    "message": "Это один из ваших счетов",
+    "englishSource": "This is one of your accounts"
+  },
+  "contactAlreadySaved": {
+    "message": "Уже сохранён как $name$",
+    "englishSource": "Already saved as $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "editContact": {
+    "message": "Изменить контакт",
+    "englishSource": "Edit contact"
+  },
+  "deleteContact": {
+    "message": "Удалить контакт",
+    "englishSource": "Delete contact"
+  },
+  "saveContact": {
+    "message": "Сохранить",
+    "englishSource": "Save"
+  },
+  "contactAdded": {
+    "message": "Добавлен",
+    "englishSource": "Added"
   }
 }

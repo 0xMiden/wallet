@@ -5142,5 +5142,50 @@
   "spendingLimitTransactionAuthenticationReason": {
     "message": "進行身分驗證以繼續此交易。這不會變更或停用您的支出限額。",
     "englishSource": "Authenticate to continue with this transaction. This does not change or disable your spending limit."
+  },
+  "newContact": {
+    "message": "新聯絡人",
+    "englishSource": "New contact"
+  },
+  "myAccounts": {
+    "message": "我的帳戶",
+    "englishSource": "My accounts"
+  },
+  "noContactsYet": {
+    "message": "尚無聯絡人",
+    "englishSource": "No contacts yet"
+  },
+  "noContactsYetHint": {
+    "message": "儲存地址後即可依名稱傳送。",
+    "englishSource": "Save an address to send to it by name."
+  },
+  "contactIsYourAccount": {
+    "message": "這是你的帳戶之一",
+    "englishSource": "This is one of your accounts"
+  },
+  "contactAlreadySaved": {
+    "message": "已儲存為 $name$",
+    "englishSource": "Already saved as $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "editContact": {
+    "message": "編輯聯絡人",
+    "englishSource": "Edit contact"
+  },
+  "deleteContact": {
+    "message": "刪除聯絡人",
+    "englishSource": "Delete contact"
+  },
+  "saveContact": {
+    "message": "儲存",
+    "englishSource": "Save"
+  },
+  "contactAdded": {
+    "message": "新增時間",
+    "englishSource": "Added"
   }
 }

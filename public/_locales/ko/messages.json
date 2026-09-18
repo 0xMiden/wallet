@@ -5142,5 +5142,50 @@
   "spendingLimitTransactionAuthenticationReason": {
     "message": "이 거래를 계속하려면 인증하세요. 이 작업은 지출 한도를 변경하거나 비활성화하지 않습니다.",
     "englishSource": "Authenticate to continue with this transaction. This does not change or disable your spending limit."
+  },
+  "newContact": {
+    "message": "새 연락처",
+    "englishSource": "New contact"
+  },
+  "myAccounts": {
+    "message": "내 계정",
+    "englishSource": "My accounts"
+  },
+  "noContactsYet": {
+    "message": "아직 연락처가 없습니다",
+    "englishSource": "No contacts yet"
+  },
+  "noContactsYetHint": {
+    "message": "주소를 저장하면 이름으로 보낼 수 있습니다.",
+    "englishSource": "Save an address to send to it by name."
+  },
+  "contactIsYourAccount": {
+    "message": "내 계정 중 하나입니다",
+    "englishSource": "This is one of your accounts"
+  },
+  "contactAlreadySaved": {
+    "message": "이미 $name$(으)로 저장됨",
+    "englishSource": "Already saved as $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "editContact": {
+    "message": "연락처 편집",
+    "englishSource": "Edit contact"
+  },
+  "deleteContact": {
+    "message": "연락처 삭제",
+    "englishSource": "Delete contact"
+  },
+  "saveContact": {
+    "message": "저장",
+    "englishSource": "Save"
+  },
+  "contactAdded": {
+    "message": "추가됨",
+    "englishSource": "Added"
   }
 }

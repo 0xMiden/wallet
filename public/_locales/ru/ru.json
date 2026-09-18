@@ -1156,5 +1156,15 @@
   "spendingLimitResets": "Снова доступно",
   "spendingLimitNoAutomaticReset": "Эта сумма сама по себе превышает лимит",
   "spendingLimitChangeInSettings": "Чтобы увеличить лимит, откройте Настройки > Лимиты расходов.",
-  "spendingLimitTransactionAuthenticationReason": "Пройдите аутентификацию, чтобы продолжить эту транзакцию. Это не изменит и не отключит ваш лимит расходов."
+  "spendingLimitTransactionAuthenticationReason": "Пройдите аутентификацию, чтобы продолжить эту транзакцию. Это не изменит и не отключит ваш лимит расходов.",
+  "newContact": "Новый контакт",
+  "myAccounts": "Мои счета",
+  "noContactsYet": "Контактов пока нет",
+  "noContactsYetHint": "Сохраните адрес, чтобы отправлять по имени.",
+  "contactIsYourAccount": "Это один из ваших счетов",
+  "contactAlreadySaved": "Уже сохранён как $name$",
+  "editContact": "Изменить контакт",
+  "deleteContact": "Удалить контакт",
+  "saveContact": "Сохранить",
+  "contactAdded": "Добавлен"
 }

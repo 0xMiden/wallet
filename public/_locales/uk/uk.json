@@ -1156,5 +1156,15 @@
   "spendingLimitResets": "Знову доступно",
   "spendingLimitNoAutomaticReset": "Ця сума сама по собі перевищує ліміт",
   "spendingLimitChangeInSettings": "Щоб збільшити ліміт, відкрийте Налаштування > Ліміти витрат.",
-  "spendingLimitTransactionAuthenticationReason": "Пройдіть автентифікацію, щоб продовжити цю транзакцію. Це не змінить і не вимкне ваш ліміт витрат."
+  "spendingLimitTransactionAuthenticationReason": "Пройдіть автентифікацію, щоб продовжити цю транзакцію. Це не змінить і не вимкне ваш ліміт витрат.",
+  "newContact": "Новий контакт",
+  "myAccounts": "Мої рахунки",
+  "noContactsYet": "Контактів ще немає",
+  "noContactsYetHint": "Збережіть адресу, щоб надсилати за іменем.",
+  "contactIsYourAccount": "Це один із ваших рахунків",
+  "contactAlreadySaved": "Уже збережено як $name$",
+  "editContact": "Редагувати контакт",
+  "deleteContact": "Видалити контакт",
+  "saveContact": "Зберегти",
+  "contactAdded": "Додано"
 }

@@ -1156,5 +1156,15 @@
   "spendingLimitResets": "再び利用可能になる時刻",
   "spendingLimitNoAutomaticReset": "この金額だけで上限を超えています",
   "spendingLimitChangeInSettings": "上限を引き上げるには、「設定」>「利用限度額」に移動してください。",
-  "spendingLimitTransactionAuthenticationReason": "この取引を続行するには認証してください。利用上限が変更または無効化されることはありません。"
+  "spendingLimitTransactionAuthenticationReason": "この取引を続行するには認証してください。利用上限が変更または無効化されることはありません。",
+  "newContact": "新しい連絡先",
+  "myAccounts": "自分のアカウント",
+  "noContactsYet": "連絡先はまだありません",
+  "noContactsYetHint": "アドレスを保存すると、名前で送金できます。",
+  "contactIsYourAccount": "これはあなたのアカウントです",
+  "contactAlreadySaved": "$name$ として保存済み",
+  "editContact": "連絡先を編集",
+  "deleteContact": "連絡先を削除",
+  "saveContact": "保存",
+  "contactAdded": "追加日"
 }

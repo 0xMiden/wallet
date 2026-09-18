@@ -5142,5 +5142,50 @@
   "spendingLimitTransactionAuthenticationReason": {
     "message": "Authentifiez-vous pour poursuivre cette transaction. Cela ne modifie ni ne désactive votre limite de dépenses.",
     "englishSource": "Authenticate to continue with this transaction. This does not change or disable your spending limit."
+  },
+  "newContact": {
+    "message": "Nouveau contact",
+    "englishSource": "New contact"
+  },
+  "myAccounts": {
+    "message": "Mes comptes",
+    "englishSource": "My accounts"
+  },
+  "noContactsYet": {
+    "message": "Aucun contact pour le moment",
+    "englishSource": "No contacts yet"
+  },
+  "noContactsYetHint": {
+    "message": "Enregistrez une adresse pour envoyer par nom.",
+    "englishSource": "Save an address to send to it by name."
+  },
+  "contactIsYourAccount": {
+    "message": "C’est l’un de vos comptes",
+    "englishSource": "This is one of your accounts"
+  },
+  "contactAlreadySaved": {
+    "message": "Déjà enregistré sous $name$",
+    "englishSource": "Already saved as $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "editContact": {
+    "message": "Modifier le contact",
+    "englishSource": "Edit contact"
+  },
+  "deleteContact": {
+    "message": "Supprimer le contact",
+    "englishSource": "Delete contact"
+  },
+  "saveContact": {
+    "message": "Enregistrer",
+    "englishSource": "Save"
+  },
+  "contactAdded": {
+    "message": "Ajouté",
+    "englishSource": "Added"
   }
 }

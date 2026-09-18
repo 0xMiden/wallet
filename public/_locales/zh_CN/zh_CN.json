@@ -1156,5 +1156,15 @@
   "spendingLimitResets": "再次可用",
   "spendingLimitNoAutomaticReset": "此金额本身已超过限额",
   "spendingLimitChangeInSettings": "要提高限额，请前往“设置”>“支出限额”。",
-  "spendingLimitTransactionAuthenticationReason": "进行身份验证以继续此交易。这不会更改或停用您的支出限额。"
+  "spendingLimitTransactionAuthenticationReason": "进行身份验证以继续此交易。这不会更改或停用您的支出限额。",
+  "newContact": "新联系人",
+  "myAccounts": "我的账户",
+  "noContactsYet": "暂无联系人",
+  "noContactsYetHint": "保存地址后即可按名称发送。",
+  "contactIsYourAccount": "这是你的账户之一",
+  "contactAlreadySaved": "已保存为 $name$",
+  "editContact": "编辑联系人",
+  "deleteContact": "删除联系人",
+  "saveContact": "保存",
+  "contactAdded": "添加时间"
 }

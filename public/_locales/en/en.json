@@ -1156,5 +1156,15 @@
   "spendingLimitResets": "Available again",
   "spendingLimitNoAutomaticReset": "This amount exceeds the limit on its own",
   "spendingLimitChangeInSettings": "To raise the limit, go to Settings > Spending limits.",
-  "spendingLimitTransactionAuthenticationReason": "Authenticate to continue with this transaction. This does not change or disable your spending limit."
+  "spendingLimitTransactionAuthenticationReason": "Authenticate to continue with this transaction. This does not change or disable your spending limit.",
+  "newContact": "New contact",
+  "myAccounts": "My accounts",
+  "noContactsYet": "No contacts yet",
+  "noContactsYetHint": "Save an address to send to it by name.",
+  "contactIsYourAccount": "This is one of your accounts",
+  "contactAlreadySaved": "Already saved as $name$",
+  "editContact": "Edit contact",
+  "deleteContact": "Delete contact",
+  "saveContact": "Save",
+  "contactAdded": "Added"
 }

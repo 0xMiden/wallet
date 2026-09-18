@@ -1156,5 +1156,15 @@
   "spendingLimitResets": "Disponível novamente",
   "spendingLimitNoAutomaticReset": "Este valor, por si só, excede o limite",
   "spendingLimitChangeInSettings": "Para aumentar o limite, acesse Configurações > Limites de gastos.",
-  "spendingLimitTransactionAuthenticationReason": "Autentique-se para continuar esta transação. Isto não altera nem desativa o seu limite de gastos."
+  "spendingLimitTransactionAuthenticationReason": "Autentique-se para continuar esta transação. Isto não altera nem desativa o seu limite de gastos.",
+  "newContact": "Novo contato",
+  "myAccounts": "Minhas contas",
+  "noContactsYet": "Nenhum contato ainda",
+  "noContactsYetHint": "Salve um endereço para enviar pelo nome.",
+  "contactIsYourAccount": "Esta é uma das suas contas",
+  "contactAlreadySaved": "Já salvo como $name$",
+  "editContact": "Editar contato",
+  "deleteContact": "Excluir contato",
+  "saveContact": "Salvar",
+  "contactAdded": "Adicionado"
 }

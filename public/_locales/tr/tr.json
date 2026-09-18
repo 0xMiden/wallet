@@ -1156,5 +1156,15 @@
   "spendingLimitResets": "Yeniden kullanılabilir",
   "spendingLimitNoAutomaticReset": "Bu tutar tek başına limiti aşıyor",
   "spendingLimitChangeInSettings": "Limiti yükseltmek için Ayarlar > Harcama limitleri bölümüne gidin.",
-  "spendingLimitTransactionAuthenticationReason": "Bu işleme devam etmek için kimliğinizi doğrulayın. Bu işlem harcama limitinizi değiştirmez veya devre dışı bırakmaz."
+  "spendingLimitTransactionAuthenticationReason": "Bu işleme devam etmek için kimliğinizi doğrulayın. Bu işlem harcama limitinizi değiştirmez veya devre dışı bırakmaz.",
+  "newContact": "Yeni kişi",
+  "myAccounts": "Hesaplarım",
+  "noContactsYet": "Henüz kişi yok",
+  "noContactsYetHint": "Adla göndermek için bir adres kaydedin.",
+  "contactIsYourAccount": "Bu hesaplarınızdan biri",
+  "contactAlreadySaved": "Zaten $name$ olarak kayıtlı",
+  "editContact": "Kişiyi düzenle",
+  "deleteContact": "Kişiyi sil",
+  "saveContact": "Kaydet",
+  "contactAdded": "Eklendi"
 }

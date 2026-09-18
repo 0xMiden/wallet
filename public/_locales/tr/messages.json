@@ -5142,5 +5142,50 @@
   "spendingLimitTransactionAuthenticationReason": {
     "message": "Bu işleme devam etmek için kimliğinizi doğrulayın. Bu işlem harcama limitinizi değiştirmez veya devre dışı bırakmaz.",
     "englishSource": "Authenticate to continue with this transaction. This does not change or disable your spending limit."
+  },
+  "newContact": {
+    "message": "Yeni kişi",
+    "englishSource": "New contact"
+  },
+  "myAccounts": {
+    "message": "Hesaplarım",
+    "englishSource": "My accounts"
+  },
+  "noContactsYet": {
+    "message": "Henüz kişi yok",
+    "englishSource": "No contacts yet"
+  },
+  "noContactsYetHint": {
+    "message": "Adla göndermek için bir adres kaydedin.",
+    "englishSource": "Save an address to send to it by name."
+  },
+  "contactIsYourAccount": {
+    "message": "Bu hesaplarınızdan biri",
+    "englishSource": "This is one of your accounts"
+  },
+  "contactAlreadySaved": {
+    "message": "Zaten $name$ olarak kayıtlı",
+    "englishSource": "Already saved as $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "editContact": {
+    "message": "Kişiyi düzenle",
+    "englishSource": "Edit contact"
+  },
+  "deleteContact": {
+    "message": "Kişiyi sil",
+    "englishSource": "Delete contact"
+  },
+  "saveContact": {
+    "message": "Kaydet",
+    "englishSource": "Save"
+  },
+  "contactAdded": {
+    "message": "Eklendi",
+    "englishSource": "Added"
   }
 }
