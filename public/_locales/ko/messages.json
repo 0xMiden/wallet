@@ -2825,6 +2825,10 @@
     "message": "이 지갑 파일은 유효하지 않거나 손상되었습니다.",
     "englishSource": "This wallet file is invalid or damaged."
   },
+  "encryptedWalletFileTooLarge": {
+    "message": "해당 파일은 암호화된 지갑 파일로서는 용량이 너무 큽니다. 이 지갑에서 내보낸 파일을 선택하십시오.",
+    "englishSource": "That file is too large to be an encrypted wallet file. Choose the file you exported from this wallet."
+  },
   "encryptedWalletFileUnsupportedVersion": {
     "message": "이 지갑 파일은 최신 버전의 Bread에서 생성되었습니다. Bread를 업데이트한 후 다시 시도하세요.",
     "englishSource": "This wallet file was created by a newer version of Bread. Update Bread and try again."
@@ -2912,6 +2916,15 @@
   "encryptedWalletFileExportFailedDesc": {
     "message": "지갑 파일을 생성할 수 없었으므로 아무것도 저장되지 않았습니다. 다시 내보내기를 시도해 주십시오.",
     "englishSource": "Your wallet file could not be created, so nothing was saved. Please try exporting again."
+  },
+  "encryptedWalletFileExportFailedAccount": {
+    "message": "$accountName$를 백업할 수 없어 암호화된 지갑 파일이 생성되지 않았습니다. 설정에서 해당 계정의 개인 키를 확인하고 저장한 후, 해당 계정을 삭제하고 다시 시도해 보세요.",
+    "englishSource": "The encrypted wallet file was not created because $accountName$ could not be backed up. Reveal and save that account’s private key from Settings, then remove it and try again.",
+    "placeholders": {
+      "accountname": {
+        "content": "$1"
+      }
+    }
   },
   "encryptedWalletFileNotSavedTitle": {
     "message": "아직 저장되지 않음",

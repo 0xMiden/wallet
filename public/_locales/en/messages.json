@@ -2921,7 +2921,7 @@
     "message": "The encrypted wallet file was not created because $accountName$ could not be backed up. Reveal and save that account’s private key from Settings, then remove it and try again.",
     "englishSource": "The encrypted wallet file was not created because $accountName$ could not be backed up. Reveal and save that account’s private key from Settings, then remove it and try again.",
     "placeholders": {
-      "accountName": {
+      "accountname": {
         "content": "$1"
       }
     }

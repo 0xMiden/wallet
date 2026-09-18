@@ -2825,6 +2825,10 @@
     "message": "Ten plik portfela jest nieprawidłowy lub uszkodzony.",
     "englishSource": "This wallet file is invalid or damaged."
   },
+  "encryptedWalletFileTooLarge": {
+    "message": "Ten plik jest zbyt duży, aby mógł być zaszyfrowanym plikiem portfela. Wybierz plik wyeksportowany z tego portfela.",
+    "englishSource": "That file is too large to be an encrypted wallet file. Choose the file you exported from this wallet."
+  },
   "encryptedWalletFileUnsupportedVersion": {
     "message": "Ten plik portfela został utworzony w nowszej wersji Bread. Zaktualizuj Bread i spróbuj ponownie.",
     "englishSource": "This wallet file was created by a newer version of Bread. Update Bread and try again."
@@ -2912,6 +2916,15 @@
   "encryptedWalletFileExportFailedDesc": {
     "message": "Nie udało się utworzyć pliku portfela, więc nic nie zostało zapisane. Spróbuj ponownie wykonać eksport.",
     "englishSource": "Your wallet file could not be created, so nothing was saved. Please try exporting again."
+  },
+  "encryptedWalletFileExportFailedAccount": {
+    "message": "Zaszyfrowany plik portfela nie został utworzony, ponieważ nie udało się wykonać kopii zapasowej adresu $accountName$. Ujawnij i zapisz klucz prywatny tego konta w Ustawieniach, a następnie usuń je i spróbuj ponownie.",
+    "englishSource": "The encrypted wallet file was not created because $accountName$ could not be backed up. Reveal and save that account’s private key from Settings, then remove it and try again.",
+    "placeholders": {
+      "accountname": {
+        "content": "$1"
+      }
+    }
   },
   "encryptedWalletFileNotSavedTitle": {
     "message": "Jeszcze nie zapisano",

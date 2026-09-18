@@ -2825,6 +2825,10 @@
     "message": "Este arquivo de carteira é inválido ou está danificado.",
     "englishSource": "This wallet file is invalid or damaged."
   },
+  "encryptedWalletFileTooLarge": {
+    "message": "Esse arquivo é grande demais para ser um arquivo de carteira criptografado. Escolha o arquivo que você exportou desta carteira.",
+    "englishSource": "That file is too large to be an encrypted wallet file. Choose the file you exported from this wallet."
+  },
   "encryptedWalletFileUnsupportedVersion": {
     "message": "Este arquivo de carteira foi criado por uma versão mais recente do Bread. Atualize o Bread e tente novamente.",
     "englishSource": "This wallet file was created by a newer version of Bread. Update Bread and try again."
@@ -2912,6 +2916,15 @@
   "encryptedWalletFileExportFailedDesc": {
     "message": "Não foi possível criar o arquivo da sua carteira, portanto nada foi salvo. Tente exportar novamente.",
     "englishSource": "Your wallet file could not be created, so nothing was saved. Please try exporting again."
+  },
+  "encryptedWalletFileExportFailedAccount": {
+    "message": "O arquivo da carteira criptografada não foi criado porque não foi possível fazer backup de $accountName$. Revele e salve a chave privada dessa conta em “Configurações”, depois remova-a e tente novamente.",
+    "englishSource": "The encrypted wallet file was not created because $accountName$ could not be backed up. Reveal and save that account’s private key from Settings, then remove it and try again.",
+    "placeholders": {
+      "accountname": {
+        "content": "$1"
+      }
+    }
   },
   "encryptedWalletFileNotSavedTitle": {
     "message": "Ainda não salvo",

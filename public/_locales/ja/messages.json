@@ -2825,6 +2825,10 @@
     "message": "このウォレットファイルは無効か破損しています。",
     "englishSource": "This wallet file is invalid or damaged."
   },
+  "encryptedWalletFileTooLarge": {
+    "message": "そのファイルは大きすぎるため、暗号化されたウォレットファイルではありません。このウォレットからエクスポートしたファイルを選択してください。",
+    "englishSource": "That file is too large to be an encrypted wallet file. Choose the file you exported from this wallet."
+  },
   "encryptedWalletFileUnsupportedVersion": {
     "message": "このウォレットファイルは新しいバージョンのBreadで作成されています。Breadを更新してもう一度お試しください。",
     "englishSource": "This wallet file was created by a newer version of Bread. Update Bread and try again."
@@ -2912,6 +2916,15 @@
   "encryptedWalletFileExportFailedDesc": {
     "message": "ウォレットファイルを作成できなかったため、何も保存されませんでした。再度エクスポートをお試しください。",
     "englishSource": "Your wallet file could not be created, so nothing was saved. Please try exporting again."
+  },
+  "encryptedWalletFileExportFailedAccount": {
+    "message": "暗号化されたウォレットファイルが作成されなかったのは、$accountName$をバックアップできなかったためです。設定からそのアカウントの秘密鍵を表示して保存し、その後アカウントを削除して再度試してください。",
+    "englishSource": "The encrypted wallet file was not created because $accountName$ could not be backed up. Reveal and save that account’s private key from Settings, then remove it and try again.",
+    "placeholders": {
+      "accountname": {
+        "content": "$1"
+      }
+    }
   },
   "encryptedWalletFileNotSavedTitle": {
     "message": "まだ保存されていません",

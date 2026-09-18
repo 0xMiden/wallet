@@ -2825,6 +2825,10 @@
     "message": "Bu cüzdan dosyası geçersiz veya bozuk.",
     "englishSource": "This wallet file is invalid or damaged."
   },
+  "encryptedWalletFileTooLarge": {
+    "message": "Bu dosya, şifrelenmiş bir cüzdan dosyası olamayacak kadar büyük. Bu cüzdandan dışa aktardığınız dosyayı seçin.",
+    "englishSource": "That file is too large to be an encrypted wallet file. Choose the file you exported from this wallet."
+  },
   "encryptedWalletFileUnsupportedVersion": {
     "message": "Bu cüzdan dosyası daha yeni bir Bread sürümüyle oluşturuldu. Bread'i güncelleyip tekrar deneyin.",
     "englishSource": "This wallet file was created by a newer version of Bread. Update Bread and try again."
@@ -2912,6 +2916,15 @@
   "encryptedWalletFileExportFailedDesc": {
     "message": "Cüzdan dosyanız oluşturulamadı, bu nedenle hiçbir şey kaydedilmedi. Lütfen dışa aktarmayı tekrar deneyin.",
     "englishSource": "Your wallet file could not be created, so nothing was saved. Please try exporting again."
+  },
+  "encryptedWalletFileExportFailedAccount": {
+    "message": "$accountName$'ın yedeklenememesi nedeniyle şifrelenmiş cüzdan dosyası oluşturulmadı. Ayarlar'dan o hesabın özel anahtarını görüntüleyip kaydedin, ardından hesabı silin ve tekrar deneyin.",
+    "englishSource": "The encrypted wallet file was not created because $accountName$ could not be backed up. Reveal and save that account’s private key from Settings, then remove it and try again.",
+    "placeholders": {
+      "accountname": {
+        "content": "$1"
+      }
+    }
   },
   "encryptedWalletFileNotSavedTitle": {
     "message": "Henüz Kaydedilmedi",

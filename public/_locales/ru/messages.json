@@ -2825,6 +2825,10 @@
     "message": "Этот файл кошелька недействителен или поврежден.",
     "englishSource": "This wallet file is invalid or damaged."
   },
+  "encryptedWalletFileTooLarge": {
+    "message": "Этот файл слишком велик, чтобы быть файлом зашифрованного кошелька. Выберите файл, который вы экспортировали из этого кошелька.",
+    "englishSource": "That file is too large to be an encrypted wallet file. Choose the file you exported from this wallet."
+  },
   "encryptedWalletFileUnsupportedVersion": {
     "message": "Этот файл кошелька создан в более новой версии Bread. Обновите Bread и повторите попытку.",
     "englishSource": "This wallet file was created by a newer version of Bread. Update Bread and try again."
@@ -2912,6 +2916,15 @@
   "encryptedWalletFileExportFailedDesc": {
     "message": "Файл вашего кошелька не удалось создать, поэтому ничего не было сохранено. Пожалуйста, попробуйте экспортировать ещё раз.",
     "englishSource": "Your wallet file could not be created, so nothing was saved. Please try exporting again."
+  },
+  "encryptedWalletFileExportFailedAccount": {
+    "message": "Файл зашифрованного кошелька не был создан, поскольку не удалось создать резервную копию $accountName$. Раскройте и сохраните закрытый ключ этой учетной записи в разделе «Настройки», затем удалите его и попробуйте ещё раз.",
+    "englishSource": "The encrypted wallet file was not created because $accountName$ could not be backed up. Reveal and save that account’s private key from Settings, then remove it and try again.",
+    "placeholders": {
+      "accountname": {
+        "content": "$1"
+      }
+    }
   },
   "encryptedWalletFileNotSavedTitle": {
     "message": "Ещё не сохранено",

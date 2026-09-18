@@ -2825,6 +2825,10 @@
     "message": "Diese Wallet-Datei ist ungültig oder beschädigt.",
     "englishSource": "This wallet file is invalid or damaged."
   },
+  "encryptedWalletFileTooLarge": {
+    "message": "Diese Datei ist zu groß, um eine verschlüsselte Wallet-Datei zu sein. Wählen Sie die Datei aus, die Sie aus dieser Wallet exportiert haben.",
+    "englishSource": "That file is too large to be an encrypted wallet file. Choose the file you exported from this wallet."
+  },
   "encryptedWalletFileUnsupportedVersion": {
     "message": "Diese Wallet-Datei wurde mit einer neueren Version von Bread erstellt. Aktualisiere Bread und versuche es erneut.",
     "englishSource": "This wallet file was created by a newer version of Bread. Update Bread and try again."
@@ -2912,6 +2916,15 @@
   "encryptedWalletFileExportFailedDesc": {
     "message": "Ihre Wallet-Datei konnte nicht erstellt werden, daher wurde nichts gespeichert. Bitte versuchen Sie den Export erneut.",
     "englishSource": "Your wallet file could not be created, so nothing was saved. Please try exporting again."
+  },
+  "encryptedWalletFileExportFailedAccount": {
+    "message": "Die verschlüsselte Wallet-Datei wurde nicht erstellt, weil $accountName$ nicht gesichert werden konnte. Zeigen Sie den privaten Schlüssel dieses Kontos in den Einstellungen an und speichern Sie ihn, entfernen Sie das Konto anschließend und versuchen Sie es erneut.",
+    "englishSource": "The encrypted wallet file was not created because $accountName$ could not be backed up. Reveal and save that account’s private key from Settings, then remove it and try again.",
+    "placeholders": {
+      "accountname": {
+        "content": "$1"
+      }
+    }
   },
   "encryptedWalletFileNotSavedTitle": {
     "message": "Noch nicht gespeichert",
