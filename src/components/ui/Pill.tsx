@@ -64,8 +64,9 @@ const TONE_CLASSES: Record<Exclude<PillTone, 'plain'>, string> = {
   word: 'border-transparent bg-fill text-ink',
   selected: 'border-transparent bg-accent-tint text-accent-tint-ink',
   // 10%, not 15%: at 15% the ink dropped under 4.5:1 on `page` in light mode (measured
-  // 4.39/4.52/4.69 for negative/pending/positive) — 10% clears AA on both `page` and `fill`
-  // (4.65/4.79/4.85 measured on `page`) in both themes.
+  // 4.39/4.52/4.69 for negative/pending/positive). 10% clears AA on `page` (4.65/4.79/4.85
+  // measured) but NOT on `fill` (4.11/4.24/4.33 measured, still under 4.5) — status pills must
+  // sit on `page`, not stack inside a `fill` container.
   positive: 'border-transparent bg-status-positive/10 text-positive-ink',
   warning: 'border-transparent bg-status-pending/10 text-pending-ink',
   negative: 'border-transparent bg-status-negative/10 text-negative-ink'
