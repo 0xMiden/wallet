@@ -2,30 +2,29 @@ import React from 'react';
 
 import clsx from 'clsx';
 
-import { ACCENT_CLASSES, FlowAccent } from 'components/flow/accent';
 import { hapticLight } from 'lib/mobile/haptics';
 
-/** Height and type scale. `sm` labels and badges; `md` chips and tappable actions. */
+/** Height and type scale. `sm` is the 24px status pill; `md` (32px) is every other chip, badge and action. */
 export type PillSize = 'sm' | 'md';
 
 /**
  * What the pill says about its content:
- * - `neutral` — the default quiet chip.
- * - `selected` — chosen, in the flow's accent.
- * - `accent` — a solid accent fill for a standing badge.
- * - `positive` / `warning` / `negative` — status.
+ * - `neutral` — the default quiet chip, `fill` with `ink`.
+ * - `selected` — chosen, `accent-tint` with `accent-tint-ink`.
+ * - `word` — a seed word: same quiet fill as `neutral`, named for where it's used.
+ * - `positive` / `warning` / `negative` — status, meant for `size="sm"` with `dot`.
  * - `plain` — no colors, for a caller that brings its own (e.g. a network's chip).
  */
-export type PillTone = 'neutral' | 'selected' | 'accent' | 'positive' | 'warning' | 'negative' | 'plain';
+export type PillTone = 'neutral' | 'selected' | 'word' | 'positive' | 'warning' | 'negative' | 'plain';
 
 export interface PillProps {
   children: React.ReactNode;
-  /** Leading glyph, sized by the pill. */
+  /** Leading glyph, sized by the pill. Mutually exclusive with `dot` in practice. */
   icon?: React.ReactNode;
   size?: PillSize;
   tone?: PillTone;
-  /** The flow accent used by the `selected` and `accent` tones. */
-  accent?: FlowAccent;
+  /** A small leading status dot in the pill's own ink color (`currentColor`). */
+  dot?: boolean;
   /** Makes the pill a button, with the tap haptic. */
   onClick?: () => void;
   /** Reflected as `aria-pressed` on a tappable pill. */
@@ -54,10 +53,13 @@ const ICON_CLASSES: Record<PillSize, string> = {
   md: '-ml-1 flex h-4 w-4 shrink-0 items-center justify-center [&>svg]:h-full [&>svg]:w-full'
 };
 
-const STATUS_CLASSES: Record<'positive' | 'warning' | 'negative', string> = {
-  positive: 'border-transparent bg-status-positive/15 text-status-positive',
-  warning: 'border-transparent bg-status-pending/15 text-status-pending',
-  negative: 'border-transparent bg-status-negative/15 text-status-negative'
+const TONE_CLASSES: Record<Exclude<PillTone, 'plain'>, string> = {
+  neutral: 'border-transparent bg-fill text-ink',
+  word: 'border-transparent bg-fill text-ink',
+  selected: 'border-transparent bg-accent-tint text-accent-tint-ink',
+  positive: 'border-transparent bg-status-positive/15 text-positive-ink',
+  warning: 'border-transparent bg-status-pending/15 text-pending-ink',
+  negative: 'border-transparent bg-status-negative/15 text-negative-ink'
 };
 
 /**
@@ -70,7 +72,7 @@ export const Pill: React.FC<PillProps> = ({
   icon,
   size = 'md',
   tone = 'neutral',
-  accent = 'brand',
+  dot,
   onClick,
   selected,
   disabled,
@@ -78,16 +80,7 @@ export const Pill: React.FC<PillProps> = ({
   'aria-label': ariaLabel,
   'data-testid': dataTestId
 }) => {
-  const toneClasses =
-    tone === 'selected'
-      ? clsx(ACCENT_CLASSES[accent].border, ACCENT_CLASSES[accent].tint, 'text-heading-gray')
-      : tone === 'accent'
-        ? clsx('border-transparent text-pure-white', ACCENT_CLASSES[accent].bg)
-        : tone === 'neutral'
-          ? 'border-transparent bg-surface-interactive text-heading-gray'
-          : tone === 'plain'
-            ? undefined
-            : STATUS_CLASSES[tone];
+  const toneClasses = tone === 'plain' ? undefined : TONE_CLASSES[tone];
 
   const classes = clsx(
     'inline-flex max-w-full items-center rounded-full border font-heading font-bold leading-none',
@@ -100,6 +93,7 @@ export const Pill: React.FC<PillProps> = ({
 
   const content = (
     <>
+      {dot && <span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full bg-current" />}
       {icon && <span className={ICON_CLASSES[size]}>{icon}</span>}
       <span className="min-w-0 truncate">{children}</span>
     </>

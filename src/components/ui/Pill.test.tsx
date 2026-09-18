@@ -30,7 +30,7 @@ it('sizes a bare SVG icon, which the build leaves without width or height', () =
 it('becomes a button when tappable, and reports its pressed state', () => {
   const onClick = jest.fn();
   render(
-    <Pill data-testid="pill" onClick={onClick} selected accent="send" tone="selected">
+    <Pill data-testid="pill" onClick={onClick} selected tone="selected">
       Sepolia
     </Pill>
   );
@@ -40,7 +40,7 @@ it('becomes a button when tappable, and reports its pressed state', () => {
 
   expect(pill.tagName).toBe('BUTTON');
   expect(pill).toHaveAttribute('aria-pressed', 'true');
-  expect(pill).toHaveClass('border-accent-send', 'bg-accent-send-tint');
+  expect(pill).toHaveClass('bg-accent-tint', 'text-accent-tint-ink');
   expect(onClick).toHaveBeenCalledTimes(1);
 });
 
@@ -53,7 +53,7 @@ it('keeps one geometry per size, whatever the tone', () => {
   const neutral = screen.getByTestId('pill').className;
 
   rerender(
-    <Pill data-testid="pill" tone="selected" accent="send">
+    <Pill data-testid="pill" tone="selected">
       A
     </Pill>
   );
@@ -67,14 +67,52 @@ it('keeps one geometry per size, whatever the tone', () => {
   }
 });
 
-it('sizes small pills for badges', () => {
+it('sizes small pills for status badges', () => {
   render(
     <Pill data-testid="pill" size="sm" tone="positive">
       Earning
     </Pill>
   );
 
-  expect(screen.getByTestId('pill')).toHaveClass('h-6', 'px-2', 'text-xs', 'text-status-positive');
+  expect(screen.getByTestId('pill')).toHaveClass('h-6', 'px-2', 'text-xs', 'text-positive-ink');
+});
+
+it('renders a leading status dot in the tone’s own ink color', () => {
+  const { container } = render(
+    <Pill size="sm" tone="warning" dot>
+      Pending
+    </Pill>
+  );
+
+  const dot = container.querySelector('[aria-hidden="true"]');
+  expect(dot).toHaveClass('bg-current', 'rounded-full');
+});
+
+it('does not render a dot unless asked', () => {
+  const { container } = render(<Pill tone="positive">Earning</Pill>);
+  expect(container.querySelector('[aria-hidden="true"]')).toBeNull();
+});
+
+it('gives a seed word the same quiet fill as a neutral pill', () => {
+  render(
+    <Pill data-testid="pill" tone="word">
+      apple
+    </Pill>
+  );
+
+  expect(screen.getByTestId('pill')).toHaveClass('bg-fill', 'text-ink');
+});
+
+it('leaves color choices to the caller on a plain pill', () => {
+  render(
+    <Pill data-testid="pill" tone="plain" className="bg-network-miden-tint">
+      Miden
+    </Pill>
+  );
+
+  const pill = screen.getByTestId('pill');
+  expect(pill).not.toHaveClass('bg-fill', 'bg-accent-tint');
+  expect(pill).toHaveClass('bg-network-miden-tint');
 });
 
 it('does not fire while disabled', () => {
