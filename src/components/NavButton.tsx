@@ -12,7 +12,7 @@ export interface NavButtonProps {
   onClick: () => void;
   /** Glyph color class. Defaults to the grey glyph; a flow passes its accent. */
   iconClassName?: string;
-  /** `circle`: the round filled button. `bare`: the glyph alone in a 44px hit area, for page headers. */
+  /** `circle`: the round filled button. `bare`: a 24px glyph alone in a 44px hit area, for page headers. */
   appearance?: 'circle' | 'bare';
   className?: string;
   'data-testid'?: string;
@@ -46,6 +46,6 @@ export const NavButton: React.FC<NavButtonProps> = ({
       className
     )}
   >
-    <Icon name={icon} size="sm" fill="currentColor" className={iconClassName} />
+    <Icon name={icon} size={appearance === 'bare' ? 'md' : 'sm'} fill="currentColor" className={iconClassName} />
   </button>
 );
