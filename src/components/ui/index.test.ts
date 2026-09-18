@@ -12,6 +12,7 @@ import { ActivityRow } from './ActivityRow';
 import { AssetListItem } from './AssetListItem';
 import { BalanceCard } from './BalanceCard';
 import { BottomNav } from './BottomNav';
+import { EmptyState } from './EmptyState';
 import * as UI from './index';
 import { Pill } from './Pill';
 import { PromptCard } from './PromptCard';
@@ -47,7 +48,8 @@ describe('components/ui barrel', () => {
     TabHeaderAction,
     SearchInput,
     Sparkline,
-    ActivityRow
+    ActivityRow,
+    EmptyState
   } as const;
 
   it('re-exports every component under its own name, tied to the source module', () => {
