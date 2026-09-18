@@ -67,6 +67,11 @@ it('keeps one geometry per size, whatever the tone', () => {
   }
 });
 
+it('is always positioned, so an absolutely-positioned sibling behind it paints underneath', () => {
+  render(<Pill data-testid="pill">A</Pill>);
+  expect(screen.getByTestId('pill')).toHaveClass('relative');
+});
+
 it('sizes small pills for status badges', () => {
   render(
     <Pill data-testid="pill" size="sm" tone="positive">
@@ -113,6 +118,16 @@ it('leaves color choices to the caller on a plain pill', () => {
   const pill = screen.getByTestId('pill');
   expect(pill).not.toHaveClass('bg-fill', 'bg-accent-tint');
   expect(pill).toHaveClass('bg-network-miden-tint');
+});
+
+it('defaults a plain pill’s border to transparent, so it never shows a stray currentColor ring', () => {
+  render(
+    <Pill data-testid="pill" tone="plain">
+      Miden
+    </Pill>
+  );
+
+  expect(screen.getByTestId('pill')).toHaveClass('border-transparent');
 });
 
 it('does not fire while disabled', () => {

@@ -64,8 +64,11 @@ const TONE_CLASSES: Record<Exclude<PillTone, 'plain'>, string> = {
 
 /**
  * The app's pill: one height, padding and type scale for every chip, badge, label and small
- * action. Every tone carries a 1px border, so a selected pill is exactly the size of an
- * unselected one and nothing shifts when it is picked.
+ * action. Every tone reserves the same 1px border box (`border-transparent` unless the tone or
+ * the caller gives it a color), so a selected pill is exactly the size of an unselected one and
+ * nothing shifts when it is picked. Always positioned (`relative`), so a caller that overlays an
+ * absolutely-positioned sibling behind it (e.g. a shared selection indicator) paints under the
+ * pill's own content instead of over it — plain in-flow siblings ignore this.
  */
 export const Pill: React.FC<PillProps> = ({
   children,
@@ -80,10 +83,10 @@ export const Pill: React.FC<PillProps> = ({
   'aria-label': ariaLabel,
   'data-testid': dataTestId
 }) => {
-  const toneClasses = tone === 'plain' ? undefined : TONE_CLASSES[tone];
+  const toneClasses = tone === 'plain' ? 'border-transparent' : TONE_CLASSES[tone];
 
   const classes = clsx(
-    'inline-flex max-w-full items-center rounded-full border font-heading font-bold leading-none',
+    'relative inline-flex max-w-full items-center rounded-full border font-heading font-bold leading-none',
     SIZE_CLASSES[size],
     toneClasses,
     onClick && !disabled && 'cursor-pointer',
