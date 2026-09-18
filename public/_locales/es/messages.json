@@ -4895,6 +4895,50 @@
     "message": "No se han podido guardar las transferencias ocultas. Inténtalo de nuevo.",
     "englishSource": "Could not save hidden transfers. Please try again."
   },
+  "exportAccountFile": {
+    "message": "Exportar archivo de cuenta",
+    "englishSource": "Export account file"
+  },
+  "exportAccountFileWarningTitle": {
+    "message": "Este archivo gestiona tus fondos",
+    "englishSource": "This file controls your funds"
+  },
+  "exportAccountFileWarningBody": {
+    "message": "Este archivo permite acceder a los fondos de la cuenta exportada. No lo compartas con nadie.",
+    "englishSource": "This file grants access to funds for the exported account. Do not share it with anyone."
+  },
+  "exportAccountFileGuardianUnavailable": {
+    "message": "Una cuenta de Guardian no se puede exportar a un archivo de cuenta. Su clave de firma se almacena en el hardware seguro de tu dispositivo y nunca sale de él.",
+    "englishSource": "A Guardian account cannot be exported to an account file. Its signing key is held by your device's secure hardware and never leaves it."
+  },
+  "exportAccountFileAcknowledge": {
+    "message": "Entiendo que cualquier persona que tenga este archivo puede acceder a los fondos de la cuenta.",
+    "englishSource": "I understand that anyone with this file can access the account funds."
+  },
+  "exportAccountFilePasswordDescription": {
+    "message": "Introduce la contraseña de tu monedero para exportar esta cuenta.",
+    "englishSource": "Enter your wallet password to export this account."
+  },
+  "exportAccountFileHardwareDescription": {
+    "message": "Confirma con la seguridad de tu dispositivo para exportar esta cuenta.",
+    "englishSource": "Confirm with your device security to export this account."
+  },
+  "exportAccountFilePasscodeDescription": {
+    "message": "Introduce el código de acceso de tu monedero para exportar esta cuenta.",
+    "englishSource": "Enter your wallet passcode to export this account."
+  },
+  "saveAccountFile": {
+    "message": "Guardar el archivo de la cuenta",
+    "englishSource": "Save account file"
+  },
+  "accountFileDownloadStarted": {
+    "message": "Se ha iniciado la descarga del archivo de la cuenta.",
+    "englishSource": "Account file download started."
+  },
+  "accountFileShareSuccess": {
+    "message": "Archivo de la cuenta compartido.",
+    "englishSource": "Account file shared."
+  },
   "activityRejectTransfer": {
     "message": "Rechazar",
     "englishSource": "Decline"

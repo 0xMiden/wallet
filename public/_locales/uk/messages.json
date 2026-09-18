@@ -4895,6 +4895,50 @@
     "message": "Не вдалося зберегти приховані перекази. Спробуйте ще раз.",
     "englishSource": "Could not save hidden transfers. Please try again."
   },
+  "exportAccountFile": {
+    "message": "Експортувати файл облікового запису",
+    "englishSource": "Export account file"
+  },
+  "exportAccountFileWarningTitle": {
+    "message": "Цей файл керує вашими коштами",
+    "englishSource": "This file controls your funds"
+  },
+  "exportAccountFileWarningBody": {
+    "message": "Цей файл надає доступ до коштів на експортованому рахунку. Не діліться ним з ніким.",
+    "englishSource": "This file grants access to funds for the exported account. Do not share it with anyone."
+  },
+  "exportAccountFileGuardianUnavailable": {
+    "message": "Рахунок у форматі «Guardian» не можна експортувати у файл рахунку. Його ключ підпису зберігається у захищеному апаратному забезпеченні вашого пристрою і ніколи його не залишає.",
+    "englishSource": "A Guardian account cannot be exported to an account file. Its signing key is held by your device's secure hardware and never leaves it."
+  },
+  "exportAccountFileAcknowledge": {
+    "message": "Я розумію, що будь-хто, хто має цей файл, може отримати доступ до коштів на рахунку.",
+    "englishSource": "I understand that anyone with this file can access the account funds."
+  },
+  "exportAccountFilePasswordDescription": {
+    "message": "Введіть пароль до гаманця, щоб експортувати цей обліковий запис.",
+    "englishSource": "Enter your wallet password to export this account."
+  },
+  "exportAccountFileHardwareDescription": {
+    "message": "Підтвердьте через налаштування безпеки вашого пристрою, щоб експортувати цей обліковий запис.",
+    "englishSource": "Confirm with your device security to export this account."
+  },
+  "exportAccountFilePasscodeDescription": {
+    "message": "Введіть пароль до гаманця, щоб експортувати цей обліковий запис.",
+    "englishSource": "Enter your wallet passcode to export this account."
+  },
+  "saveAccountFile": {
+    "message": "Зберегти файл облікового запису",
+    "englishSource": "Save account file"
+  },
+  "accountFileDownloadStarted": {
+    "message": "Розпочато завантаження файлу облікового запису.",
+    "englishSource": "Account file download started."
+  },
+  "accountFileShareSuccess": {
+    "message": "Файл з даними про рахунок надано.",
+    "englishSource": "Account file shared."
+  },
   "activityRejectTransfer": {
     "message": "Відхилити",
     "englishSource": "Decline"

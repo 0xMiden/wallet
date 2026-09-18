@@ -4895,6 +4895,50 @@
     "message": "Gizli transferler kaydedilemedi. Lütfen tekrar deneyin.",
     "englishSource": "Could not save hidden transfers. Please try again."
   },
+  "exportAccountFile": {
+    "message": "Hesap dosyasını dışa aktar",
+    "englishSource": "Export account file"
+  },
+  "exportAccountFileWarningTitle": {
+    "message": "Bu dosya fonlarınızı yönetir",
+    "englishSource": "This file controls your funds"
+  },
+  "exportAccountFileWarningBody": {
+    "message": "Bu dosya, dışa aktarılan hesabın fonlarına erişim izni verir. Kimseyle paylaşmayınız.",
+    "englishSource": "This file grants access to funds for the exported account. Do not share it with anyone."
+  },
+  "exportAccountFileGuardianUnavailable": {
+    "message": "Guardian hesabı bir hesap dosyasına aktarılamaz. İmza anahtarı, cihazınızın güvenli donanımında tutulur ve buradan asla çıkmaz.",
+    "englishSource": "A Guardian account cannot be exported to an account file. Its signing key is held by your device's secure hardware and never leaves it."
+  },
+  "exportAccountFileAcknowledge": {
+    "message": "Bu dosyaya sahip olan herkesin hesap fonlarına erişebileceğini anlıyorum.",
+    "englishSource": "I understand that anyone with this file can access the account funds."
+  },
+  "exportAccountFilePasswordDescription": {
+    "message": "Bu hesabı dışa aktarmak için cüzdan şifrenizi girin.",
+    "englishSource": "Enter your wallet password to export this account."
+  },
+  "exportAccountFileHardwareDescription": {
+    "message": "Bu hesabı dışa aktarmak için cihazınızın güvenlik ayarlarını kontrol edin.",
+    "englishSource": "Confirm with your device security to export this account."
+  },
+  "exportAccountFilePasscodeDescription": {
+    "message": "Bu hesabı dışa aktarmak için cüzdan şifrenizi girin.",
+    "englishSource": "Enter your wallet passcode to export this account."
+  },
+  "saveAccountFile": {
+    "message": "Hesap dosyasını kaydet",
+    "englishSource": "Save account file"
+  },
+  "accountFileDownloadStarted": {
+    "message": "Hesap dosyası indirilmeye başlandı.",
+    "englishSource": "Account file download started."
+  },
+  "accountFileShareSuccess": {
+    "message": "Hesap dosyası paylaşıldı.",
+    "englishSource": "Account file shared."
+  },
   "activityRejectTransfer": {
     "message": "Reddet",
     "englishSource": "Decline"
