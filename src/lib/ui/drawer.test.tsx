@@ -31,6 +31,24 @@ describe('Drawer', () => {
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
+  it('draws the header close as a 32px circle on fill, per the design system', () => {
+    render(
+      <Drawer open>
+        <DrawerContent>
+          <DrawerHeader>
+            <DrawerTitle>Settings</DrawerTitle>
+          </DrawerHeader>
+        </DrawerContent>
+      </Drawer>
+    );
+
+    const close = screen.getByLabelText('close');
+    expect(close.className).toContain('h-8');
+    expect(close.className).toContain('w-8');
+    expect(close.className).toContain('bg-fill');
+    expect(close.className).toContain('text-muted');
+  });
+
   it('renders DrawerTitle at 20px/26 Nunito 800, left-aligned, on the ink token', () => {
     render(
       <Drawer open>

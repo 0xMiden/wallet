@@ -4,7 +4,8 @@ import { createContext, useCallback, useContext } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Drawer as VaulDrawer } from 'vaul';
 
-import { Icon, IconName } from 'app/icons/v2';
+import { IconName } from 'app/icons/v2';
+import { IconButton } from 'components/ui/IconButton';
 import { useOverlayScreenKey } from 'lib/e2e/useOverlayScreenKey';
 import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
 import { isExtension } from 'lib/platform';
@@ -131,14 +132,7 @@ function DrawerHeader({ className, children }: { className?: string; children?: 
     <div data-slot="drawer-header" className={cn('border-b border-border-faint mb-4', className)}>
       <div className="flex w-full items-center justify-between gap-3 p-4">
         <div className="flex min-w-0 flex-col gap-0.5">{children}</div>
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label={t('close')}
-          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-gray-100"
-        >
-          <Icon name={IconName.Close} size="xs" fill="currentColor" className="text-heading-gray" />
-        </button>
+        <IconButton icon={IconName.Close} label={t('close')} appearance="circle" onClick={onClose} />
       </div>
     </div>
   );
