@@ -53,6 +53,39 @@ button:disabled,
 @import 'tippy.js/animations/shift-away-subtle.css';
 @import 'vaul/style.css';
 
+/* vaul animates the sheet and its backdrop three ways, and reduced motion has
+ * to beat all three:
+ *   1. open/close — a CSS animation on [data-vaul-drawer] (slideFromBottom /
+ *      slideToBottom, keyed off [data-state]).
+ *   2. drag-release snap-back — resetDrawer() (vaul/dist/index.mjs) sets
+ *      drawerRef.current.style.transition and overlayRef.current.style.transition
+ *      as INLINE styles (`el.style[key] = value` in its `set()` helper, no
+ *      `!important`) once the pointer lets go, on both the drawer AND the
+ *      overlay (opacity fades back to 1 there too).
+ *   3. the backdrop's own open/close fade — a separate CSS animation on
+ *      [data-vaul-overlay], not reachable through the [data-vaul-drawer]
+ *      selector above.
+ * A plain (non-`!important`) rule here loses to #2: an inline style always
+ * outranks a stylesheet selector at normal weight, no matter how specific.
+ * `!important` is what beats an inline style in the CSS cascade, so both
+ * selectors carry it. This does NOT touch vaul's `transition: none` while a
+ * drag is in progress — "none" isn't a duration, so a near-zero duration
+ * layered on top of it changes nothing. Checked against
+ * node_modules/vaul/dist/index.mjs: `set()` is the only place vaul writes
+ * transition/animation inline, and every call site sets either the
+ * TRANSITIONS.DURATION (0.5s) shorthand this rule clamps, or `'none'`
+ * (drag-move, unaffected) — there is no other animated property on
+ * [data-vaul-drawer] or [data-vaul-overlay] left uncovered. */
+@media (prefers-reduced-motion: reduce) {
+  [data-vaul-drawer],
+  [data-vaul-overlay] {
+    transition-duration: 0.01ms !important;
+    transition-delay: 0s !important;
+    animation-duration: 0.01ms !important;
+    animation-delay: 0s !important;
+  }
+}
+
 .tippy-content {
   white-space: pre-line;
 }

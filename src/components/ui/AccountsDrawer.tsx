@@ -48,7 +48,7 @@ export const AccountsDrawer: FC<AccountsDrawerProps> = ({ open, onOpenChange }) 
     <Drawer open={open} onOpenChange={onOpenChange}>
       <DrawerContent>
         <DrawerHeader>
-          <DrawerTitle className="font-extrabold">{t('accounts')}</DrawerTitle>
+          <DrawerTitle>{t('accounts')}</DrawerTitle>
         </DrawerHeader>
 
         <div className="flex flex-col gap-4 px-4 pb-6">
