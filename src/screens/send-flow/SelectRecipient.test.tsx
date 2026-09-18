@@ -138,7 +138,7 @@ describe('SelectRecipient — recent recipients', () => {
     { address: '0x1111111111111111111111111111111111111111', chain: 'ethereum' as const }
   ];
 
-  it('lists recents with names, chain badges and a network fallback, and fills on tap', () => {
+  it('lists recents with names, a network badge per row and a network fallback, and fills on tap', () => {
     const onSelectRecent = jest.fn();
     renderRecipient({ recents: RECENTS, onSelectRecent });
 
@@ -147,8 +147,14 @@ describe('SelectRecipient — recent recipients', () => {
 
     // A saved contact shows its name; an unknown address falls back to the truncated form.
     expect(screen.getByText('Alice')).toBeInTheDocument();
-    // Miden rows get the badge, EVM rows show the network name (falling back to Ethereum).
-    expect(screen.getByText('miden')).toBeInTheDocument();
+    // The network rides the avatar as a badge, so the row never spends its second line on it.
+    expect(screen.getAllByTestId('recipient-avatar').map(el => el.dataset.network)).toEqual([
+      'miden',
+      'ethereum',
+      'ethereum'
+    ]);
+    // Only a named recipient shows the address on the second line; the others already show it
+    // above, so that line names their network instead (falling back to Ethereum).
     expect(screen.getByText('Sepolia')).toBeInTheDocument();
     expect(screen.getByText('ethereum')).toBeInTheDocument();
 

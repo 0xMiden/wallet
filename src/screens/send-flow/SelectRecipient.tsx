@@ -7,7 +7,6 @@ import { useTranslation } from 'react-i18next';
 import { ReactComponent as ScanFrameIcon } from 'app/icons/scan-frame.svg';
 import { ReactComponent as SendAddressBookIcon } from 'app/icons/send-address-book.svg';
 import { Icon, IconName } from 'app/icons/v2';
-import { Avatar } from 'components/Avatar';
 import { Button, ButtonVariant } from 'components/Button';
 import { Pill } from 'components/ui';
 import { hapticLight } from 'lib/mobile/haptics';
@@ -16,6 +15,7 @@ import { truncateAddress } from 'utils/string';
 
 import { BRIDGE_NETWORKS, BridgeNetworkId, getBridgeNetwork, SendNetworkId } from './bridge-networks';
 import { NetworkChip } from './NetworkChip';
+import { RecipientAvatar } from './RecipientAvatar';
 import { SendStepLayout } from './SendStepLayout';
 import { RecentRecipient } from './types';
 
@@ -314,18 +314,19 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
                       index > 0 && 'border-t border-rule-default'
                     )}
                   >
-                    <Avatar image="/misc/avatars/miden-orange.png" size="lg" className="shrink-0" />
+                    <RecipientAvatar kind={recipient.chain === 'miden' ? 'miden' : 'ethereum'} />
                     <span className="flex min-w-0 flex-col gap-0.5">
                       <span className="truncate text-base font-bold text-black">
                         {recipient.name ?? truncateAddress(recipient.address)}
                       </span>
-                      <span className="flex items-center gap-2 text-xs text-text-muted">
-                        {recipient.chain === 'miden' ? (
-                          <NetworkChip kind="miden" label={t('miden')} />
-                        ) : (
-                          <NetworkChip kind="ethereum" label={recipient.networkName ?? t('ethereum')} />
-                        )}
-                        <span className="truncate">{truncateAddress(recipient.address)}</span>
+                      {/* The address once: with no saved name the line above already shows it, so
+                          this line names the network instead. */}
+                      <span className="truncate text-xs text-text-muted">
+                        {recipient.name
+                          ? truncateAddress(recipient.address)
+                          : recipient.chain === 'miden'
+                            ? t('miden')
+                            : (recipient.networkName ?? t('ethereum'))}
                       </span>
                     </span>
                   </button>
