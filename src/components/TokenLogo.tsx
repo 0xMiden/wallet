@@ -15,13 +15,15 @@ const TOKEN_LOGOS: Record<string, { Logo: FC<SVGProps<SVGSVGElement>>; bg: strin
   BTC: { Logo: BtcLogo, bg: 'bg-[#F7931A]' }
 };
 
-type TokenLogoSize = 'sm' | 'md' | 'lg' | 'xl';
+type TokenLogoSize = 'sm' | 'md' | 'lg' | 'xl' | '2xl';
 
 const SIZE_CLASSES: Record<TokenLogoSize, { container: string; icon: string }> = {
   sm: { container: 'w-7 h-7', icon: 'w-4 h-4' },
   md: { container: 'w-9 h-9', icon: 'w-5 h-5' },
   lg: { container: 'w-16 h-16', icon: 'w-10 h-10' },
-  xl: { container: 'w-18 h-18', icon: 'w-12 h-12' }
+  xl: { container: 'w-18 h-18', icon: 'w-12 h-12' },
+  // The design system's 88px hero avatar (skills/miden-wallet-frontend/references/design-system.md).
+  '2xl': { container: 'w-22 h-22', icon: 'w-14 h-14' }
 };
 
 interface TokenLogoProps {
