@@ -522,7 +522,7 @@ body[data-hide-navbar]::after {
     /* Design system tokens - dark variants. Foundations spec is light-mode only;
      * derive dark values by inverting text/surface and keeping action/status hues. */
     --accent-primary: #e77537;
-    --accent-primary-hover: #f08b57;
+    --accent-primary-hover: #c95a21;
     --accent-send: #91acc1;
     --accent-send-tint: #272b2d;
     --accent-receive: #99ac94;
