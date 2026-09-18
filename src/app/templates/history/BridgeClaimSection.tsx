@@ -3,6 +3,7 @@ import React, { FC, useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useNetworkFeeEstimate } from 'app/hooks/useNetworkFeeEstimate';
+import { Button } from 'components/ui/Button';
 import { AgglayerDeposit, claimAgglayerDeposit, findClaimableMidenToEvmDeposit, useBridgeTracker } from 'lib/agglayer';
 import { getCurrentMidenBlock, pollEpochIntentFill } from 'lib/epoch';
 import {
@@ -15,7 +16,6 @@ import { useAccount } from 'lib/miden/front';
 import { hapticMedium } from 'lib/mobile/haptics';
 import { isExtension } from 'lib/platform';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
-import { Button } from 'lib/ui/button';
 import { useEvmWalletProvider } from 'lib/walletconnect/useEvmWalletProvider';
 import { navigate } from 'lib/woozie';
 
@@ -267,13 +267,13 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
               </p>
             )}
             {!isConnected ? (
-              <Button variant="default" size="lg" onClick={connect}>
+              <Button size="sm" onClick={connect}>
                 {t('connectEvmWallet')}
               </Button>
             ) : !connectedMatchesDestination ? (
               <p className="text-xs text-heading-gray/60">{t('connectDestinationWalletToClaim')}</p>
             ) : (
-              <Button variant="default" size="lg" onClick={handleClaim} disabled={!claimable || status === 'claiming'}>
+              <Button size="sm" onClick={handleClaim} disabled={!claimable || status === 'claiming'}>
                 {status === 'claiming' ? t('claiming') : !claimable ? t('claimPending') : t('claimAsset')}
               </Button>
             )}
@@ -300,7 +300,7 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
                   {t('networkFeeMax')} · {maxNetworkFee}
                 </div>
               )}
-              <Button variant="default" size="lg" onClick={handleReclaim} disabled={reclaiming}>
+              <Button size="sm" onClick={handleReclaim} disabled={reclaiming}>
                 {reclaiming ? t('reclaiming') : t('reclaimFunds')}
               </Button>
             </>

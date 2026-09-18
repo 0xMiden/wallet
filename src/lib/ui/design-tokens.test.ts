@@ -76,6 +76,12 @@ describe.each([':root', '.dark'] as const)('design tokens in %s', selector => {
     if (!accentPrimary) throw new Error('accent-primary not defined');
     expect(contrast('#FFFFFF', accentPrimary)).toBeGreaterThanOrEqual(3);
   });
+
+  it('keeps white CTA labels at 3:1 on the hovered brand orange', () => {
+    const accentPrimaryHover = vars['accent-primary-hover'];
+    if (!accentPrimaryHover) throw new Error('accent-primary-hover not defined');
+    expect(contrast('#FFFFFF', accentPrimaryHover)).toBeGreaterThanOrEqual(3);
+  });
 });
 
 it('maps every token to a Tailwind color', () => {

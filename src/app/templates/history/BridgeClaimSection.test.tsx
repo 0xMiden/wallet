@@ -73,7 +73,7 @@ jest.mock('lib/settings/helpers', () => ({ isDelegateProofEnabled: () => false }
 jest.mock('lib/mobile/haptics', () => ({ hapticMedium: jest.fn() }));
 jest.mock('./transactionUtils', () => ({}));
 
-jest.mock('lib/ui/button', () => ({
+jest.mock('components/ui/Button', () => ({
   Button: ({
     children,
     onClick,

@@ -18,17 +18,19 @@ jest.mock('lib/walletconnect/useEvmWalletConnection', () => ({
 
 jest.mock('lib/mobile/haptics', () => ({ hapticMedium: jest.fn() }));
 
-jest.mock('lib/ui/button', () => ({
+jest.mock('components/ui/Button', () => ({
   Button: ({
     children,
     onClick,
+    className,
     'data-testid': testId
   }: {
     children: React.ReactNode;
     onClick?: () => void;
+    className?: string;
     'data-testid'?: string;
   }) => (
-    <button type="button" onClick={onClick} data-testid={testId}>
+    <button type="button" onClick={onClick} className={className} data-testid={testId}>
       {children}
     </button>
   )
@@ -95,6 +97,12 @@ describe('EvmConnectModal (#875)', () => {
     expect(body).not.toContainElement(openWallet);
     expect(openWallet.closest('[data-slot="drawer-footer"]')).not.toBeNull();
     expect(screen.getByTestId('drawer-content')).toHaveClass('overflow-hidden');
+  });
+
+  it('stretches "Open wallet" across the footer instead of the 370px CTA cap', () => {
+    render(<EvmConnectModal open onOpenChange={jest.fn()} />);
+
+    expect(screen.getByTestId('evm-connect-open-wallet')).toHaveClass('max-w-none');
   });
 
   it('hands a dismiss (header X, swipe, overlay tap) to its onOpenChange prop', () => {
