@@ -6,10 +6,10 @@ import { useTranslation } from 'react-i18next';
 import { Icon, IconName } from 'app/icons/v2';
 import { Button } from 'components/Button';
 import { Input } from 'components/Input';
+import { Pill } from 'components/ui/Pill';
 import { DEFAULT_NETWORK, GUARDIAN_OPTIONS, getGuardianOptionsForNetwork } from 'lib/miden-chain/constants';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isValidGuardianUrl, sanitizeGuardianUrl } from 'lib/settings/helpers';
-import { Badge } from 'lib/ui/badge';
 import { cn } from 'lib/ui/util';
 
 import { GuardianProbeState, WalletType } from '../types';
@@ -318,9 +318,9 @@ export const ImportRecoveryMethodScreen: React.FC<ImportRecoveryMethodScreenProp
                 <div className="flex items-center gap-2">
                   <h2 className="font-medium text-base">{option.title}</h2>
                   {option.isDefault && (
-                    <Badge variant={'default'} className="bg-primary-500 text-white">
+                    <Pill size="sm" tone="selected" data-testid="default-badge">
                       {t('default')}
-                    </Badge>
+                    </Pill>
                   )}
                 </div>
               </div>
