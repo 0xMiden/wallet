@@ -1,5 +1,7 @@
 import React, { ComponentProps, FC, Suspense } from 'react';
 
+import { MotionConfig } from 'framer-motion';
+
 // Lock-up checks are extension-only - skip on mobile
 
 import AwaitFonts from 'app/a11y/AwaitFonts';
@@ -39,51 +41,55 @@ interface AppProps extends Partial<PropsWithChildren> {
 
 const App: FC<AppProps> = ({ env }) => {
   return (
-    <ErrorBoundary whileMessage="booting a wallet" className="min-h-screen" windowType={env.windowType}>
-      <DialogsProvider>
-        <Suspense fallback={<RootSuspenseFallback />}>
-          <AppProvider env={env}>
-            <Dialogs />
+    // Every framer animation in the app follows the OS reduced-motion setting: transforms and
+    // layout animations become instant. The `lib/animation` helpers cover the rest.
+    <MotionConfig reducedMotion="user">
+      <ErrorBoundary whileMessage="booting a wallet" className="min-h-screen" windowType={env.windowType}>
+        <DialogsProvider>
+          <Suspense fallback={<RootSuspenseFallback />}>
+            <AppProvider env={env}>
+              <Dialogs />
 
-            <DisableOutlinesForClick />
+              <DisableOutlinesForClick />
 
-            <AwaitI18N />
+              <AwaitI18N />
 
-            <AwaitFonts name="Inter" weights={[300, 400, 500, 600]} className="antialiased font-inter">
-              <BootAnimation>
-                {/* Vaul's shouldScaleBackground scales the element carrying
+              <AwaitFonts name="Inter" weights={[300, 400, 500, 600]} className="antialiased font-inter">
+                <BootAnimation>
+                  {/* Vaul's shouldScaleBackground scales the element carrying
                     data-vaul-drawer-wrapper while a bottom sheet is open
                     (transform + transient border-radius/overflow, all managed
                     by vaul). Must wrap the whole app surface. */}
-                <div data-vaul-drawer-wrapper="" className="h-full bg-app-bg">
-                  {env.confirmWindow ? (
-                    <ConfirmPage />
-                  ) : checkIsMobile() ? (
-                    // The DappBrowserProvider owns the embedded dApp webview lifecycle
-                    // and the bubble host. It must live ABOVE PageRouter so it survives
-                    // tab navigation - a parked dApp's bubble stays interactive even
-                    // when the user moves to a different tab.
-                    <DappBrowserProvider>
+                  <div data-vaul-drawer-wrapper="" className="h-full bg-app-bg">
+                    {env.confirmWindow ? (
+                      <ConfirmPage />
+                    ) : checkIsMobile() ? (
+                      // The DappBrowserProvider owns the embedded dApp webview lifecycle
+                      // and the bubble host. It must live ABOVE PageRouter so it survives
+                      // tab navigation - a parked dApp's bubble stays interactive even
+                      // when the user moves to a different tab.
+                      <DappBrowserProvider>
+                        <UpdateNotificationProvider>
+                          <HotKeyRotationGate />
+                          <GuardianRecoveryProvider />
+                          <PageRouter />
+                        </UpdateNotificationProvider>
+                      </DappBrowserProvider>
+                    ) : (
                       <UpdateNotificationProvider>
                         <HotKeyRotationGate />
                         <GuardianRecoveryProvider />
                         <PageRouter />
                       </UpdateNotificationProvider>
-                    </DappBrowserProvider>
-                  ) : (
-                    <UpdateNotificationProvider>
-                      <HotKeyRotationGate />
-                      <GuardianRecoveryProvider />
-                      <PageRouter />
-                    </UpdateNotificationProvider>
-                  )}
-                </div>
-              </BootAnimation>
-            </AwaitFonts>
-          </AppProvider>
-        </Suspense>
-      </DialogsProvider>
-    </ErrorBoundary>
+                    )}
+                  </div>
+                </BootAnimation>
+              </AwaitFonts>
+            </AppProvider>
+          </Suspense>
+        </DialogsProvider>
+      </ErrorBoundary>
+    </MotionConfig>
   );
 };
 
