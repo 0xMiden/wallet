@@ -41,10 +41,16 @@ const SIZE_CLASSES: Record<PillSize, string> = {
   md: 'h-8 gap-1.5 px-3 text-sm'
 };
 
-/** The leading glyph's box, so every icon in a pill is the same size. */
+/**
+ * The leading glyph's box, so every icon in a pill is the same size.
+ *
+ * The child is sized too: the build strips `width`/`height` off the raw `.svg` icons, so one
+ * passed straight in renders 0x0 unless something gives it a size (the `Icon` component brings
+ * its own, a bare SVG does not).
+ */
 const ICON_CLASSES: Record<PillSize, string> = {
-  sm: '-ml-0.5 flex h-3.5 w-3.5 shrink-0 items-center justify-center',
-  md: '-ml-1 flex h-4 w-4 shrink-0 items-center justify-center'
+  sm: '-ml-0.5 flex h-3.5 w-3.5 shrink-0 items-center justify-center [&>svg]:h-full [&>svg]:w-full',
+  md: '-ml-1 flex h-4 w-4 shrink-0 items-center justify-center [&>svg]:h-full [&>svg]:w-full'
 };
 
 const STATUS_CLASSES: Record<'positive' | 'warning' | 'negative', string> = {
