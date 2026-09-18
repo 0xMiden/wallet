@@ -4,6 +4,7 @@ import classNames from 'clsx';
 import CurrencyInput, { CurrencyInputOnChangeValues } from 'react-currency-input-field';
 
 import { Icon, IconName } from 'app/icons/v2';
+import { Skeleton } from 'components/ui/Skeleton';
 
 /**
  * Scale the amount text down as the entered value grows, to avoid overflow
@@ -101,7 +102,7 @@ export const AmountInput: React.FC<AmountInputProps> = ({
 
       <div className="flex cursor-text items-baseline mt-3" onClick={() => inputRef.current?.focus()}>
         {loading ? (
-          <div className="h-14 w-40 animate-pulse rounded-xl bg-heading-gray/10" />
+          <Skeleton className="h-14 w-40 rounded-xl" />
         ) : (
           <CurrencyInput
             ref={inputRef}

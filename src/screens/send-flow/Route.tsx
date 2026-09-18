@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 
 import { Button, ButtonVariant } from 'components/Button';
 import { ACCENT_CLASSES, FlowAccent } from 'components/flow/accent';
+import { Skeleton } from 'components/ui/Skeleton';
 import { toAdaptiveFixed } from 'lib/i18n/numbers';
 import { hapticLight } from 'lib/mobile/haptics';
 
@@ -81,7 +82,7 @@ export const RouteOptions: React.FC<RouteOptionsProps> = ({
   // no-literal-string i18n lint; "$1.84" is excluded as a $-prefixed value.
   const feeText = fastFeeUsd != null ? `$${toAdaptiveFixed(fastFeeUsd)}` : '—';
   const fastFee = fastQuoteLoading ? (
-    <div className="h-4 w-12 animate-pulse rounded bg-heading-gray/10" />
+    <Skeleton className="h-4 w-12" />
   ) : (
     <span className="text-base font-bold text-heading-gray">{feeText}</span>
   );
