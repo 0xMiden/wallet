@@ -2238,6 +2238,17 @@ describe('HistoryDetails', () => {
       expect(mockCancelTransactionById).toHaveBeenCalledWith('tx-1', 'Transaction was cancelled by user');
     });
 
+    it('renders the cancel button as the canonical Destructive variant, not a faked-red Primary', async () => {
+      setMockRow({ ...baseSendTx, status: STATUS_QUEUED, error: undefined });
+      await renderAndLoad();
+
+      const cancelButton = screen.getByText('cancel').closest('button');
+      // The variant prop paints the negative state; no stray bg-status-negative
+      // className should be fighting it.
+      expect(cancelButton).toHaveClass('text-negative-ink');
+      expect(cancelButton).not.toHaveClass('bg-status-negative');
+    });
+
     it('shows the cancel failure inline when cancelling throws', async () => {
       setMockRow({ ...baseSendTx, status: STATUS_QUEUED, error: undefined });
       mockCancelTransactionById.mockRejectedValue(new Error('cancel exploded'));
