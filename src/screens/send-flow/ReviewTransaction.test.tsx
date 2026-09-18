@@ -396,7 +396,10 @@ describe('ReviewTransaction — rendering', () => {
     expect(screen.getByRole('heading', { level: 1, name: 'reviewDetails' })).toBeInTheDocument();
     expect(screen.getByTestId('back-btn')).toBeInTheDocument();
     expect(screen.getByTestId('network-chip')).toHaveTextContent('miden');
-    expect(screen.getByTestId('review-amount').textContent).toBe('5 MDN');
+    expect(screen.getByTestId('review-amount')).toBeInTheDocument();
+    expect(screen.getByText('5 MDN')).toBeInTheDocument();
+    // The fiat subtitle renders under the hero value once the token's price is known.
+    expect(screen.getByText('approxFiatValue')).toBeInTheDocument();
     // Recipient row value.
     expect(screen.getByText('0xrecipient')).toBeInTheDocument();
 
