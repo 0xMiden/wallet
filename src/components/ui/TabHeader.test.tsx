@@ -16,6 +16,51 @@ jest.mock('lib/woozie', () => ({
 
 const mockNavigate = navigate as jest.Mock;
 
+// SearchInput (rendered once `search.open` is true) reads `t('clear')` for its
+// clear button — stub react-i18next so that doesn't warn about a missing
+// instance, same as every other test that renders it.
+jest.mock('react-i18next', () => ({
+  useTranslation: () => ({ t: (key: string) => key })
+}));
+
+// `AnimatePresence` renders its children directly (no deferred-exit bookkeeping
+// to await — jsdom has no real paint/animation-frame clock to drive that
+// against). `motion.*` becomes the plain tag it wraps, forwarding a ref and
+// every DOM prop, while capturing the animation-only props (`initial`,
+// `animate`, `exit`, `transition`) into `motionCaptures` keyed by the
+// element's own `data-testid` so a test can inspect what TabHeader asked for
+// without a real animation clock. Same shape as the `framer-motion` mock in
+// `src/components/Navigator.test.tsx`.
+const motionCaptures: Record<string, { initial?: unknown; animate?: unknown; exit?: unknown; transition?: unknown }> =
+  {};
+let mockReduceMotion = false;
+
+jest.mock('framer-motion', () => {
+  const react = require('react');
+  return {
+    AnimatePresence: ({ children }: { children?: React.ReactNode }) =>
+      react.createElement(react.Fragment, null, children),
+    motion: new Proxy(
+      {},
+      {
+        get: (_target: unknown, tag: string) =>
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          react.forwardRef(({ children, initial, animate, exit, transition, ...rest }: any, ref: unknown) => {
+            const key = rest['data-testid'] ?? tag;
+            motionCaptures[key] = { initial, animate, exit, transition };
+            return react.createElement(tag, { ...rest, ref }, children);
+          })
+      }
+    ),
+    useReducedMotion: () => mockReduceMotion
+  };
+});
+
+beforeEach(() => {
+  for (const key of Object.keys(motionCaptures)) delete motionCaptures[key];
+  mockReduceMotion = false;
+});
+
 describe('TabHeader — exports', () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -221,5 +266,84 @@ describe('TabHeaderAction', () => {
     fireEvent.click(button);
 
     expect(onClick).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('TabHeader — search swap animation', () => {
+  const search = { open: true, value: '', onChange: jest.fn(), placeholder: 'Search' };
+
+  it('keeps the header at its fixed height whichever side is showing', () => {
+    const { container, rerender } = render(<TabHeader title="Activity" />);
+    expect(container.querySelector('header')!.className).toContain('h-15');
+
+    rerender(<TabHeader title="Activity" search={search} />);
+    expect(container.querySelector('header')!.className).toContain('h-15');
+  });
+
+  it('swaps the title for the search field, and back, through one AnimatePresence slot', () => {
+    const { rerender } = render(<TabHeader title="Activity" search={{ ...search, open: false }} />);
+    expect(screen.getByRole('heading', { level: 1, name: 'Activity' })).toBeInTheDocument();
+    expect(screen.queryByTestId('tab-header-search')).toBeNull();
+
+    rerender(<TabHeader title="Activity" search={{ ...search, open: true }} />);
+    expect(screen.queryByRole('heading', { level: 1 })).toBeNull();
+    expect(screen.getByTestId('tab-header-search')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('Search')).toBeInTheDocument();
+
+    rerender(<TabHeader title="Activity" search={{ ...search, open: false }} />);
+    expect(screen.getByRole('heading', { level: 1, name: 'Activity' })).toBeInTheDocument();
+    expect(screen.queryByTestId('tab-header-search')).toBeNull();
+  });
+
+  it('still autofocuses the search field when it opens', () => {
+    render(<TabHeader title="Activity" search={search} />);
+
+    expect(screen.getByPlaceholderText('Search')).toHaveFocus();
+  });
+
+  it('opens the title sliding left and the search field growing in from the icon side, on the shared spring, with opacity on its own fade', () => {
+    render(<TabHeader title="Activity" search={search} />);
+
+    const captured = motionCaptures['tab-header-search']!;
+    expect(captured.initial).toEqual({ opacity: 0, scale: 0.96, x: 6 });
+    expect(captured.animate).toEqual({ opacity: 1, scale: 1, x: 0 });
+    expect(captured.exit).toEqual({ opacity: 0, scale: 0.96, x: 6 });
+
+    const transition = captured.transition as { default: unknown; opacity: unknown };
+    // A spring (has stiffness/damping) drives position + scale; opacity is a
+    // separate tween so it doesn't inherit the spring's physics.
+    expect(transition.default).toMatchObject({
+      type: 'spring',
+      stiffness: expect.any(Number),
+      damping: expect.any(Number)
+    });
+    expect(transition.opacity).toMatchObject({ duration: expect.any(Number), ease: expect.anything() });
+    expect(transition.default).not.toBe(transition.opacity);
+  });
+
+  it('gives the title the mirrored close-side offset', () => {
+    render(<TabHeader title="Activity" search={{ ...search, open: false }} />);
+
+    const captured = motionCaptures['tab-header-title']!;
+    expect(captured.initial).toEqual({ opacity: 0, x: -6 });
+    expect(captured.animate).toEqual({ opacity: 1, x: 0 });
+    expect(captured.exit).toEqual({ opacity: 0, x: -6 });
+  });
+
+  it('collapses both the spring and the fade to an instant transition under reduced motion', () => {
+    mockReduceMotion = true;
+    render(<TabHeader title="Activity" search={search} />);
+
+    const transition = motionCaptures['tab-header-search']!.transition as { default: unknown; opacity: unknown };
+    expect(transition.default).toEqual({ duration: 0.001 });
+    expect(transition.opacity).toEqual({ duration: 0.001 });
+  });
+
+  it("the search action's active-color swap animates via the shared color-transition utility, not a snap", () => {
+    render(<TabHeaderAction label="Search" icon={IconName.Search} active onClick={jest.fn()} />);
+
+    const button = screen.getByRole('button', { name: 'Search' });
+    expect(button.className).toContain('transition-colors');
+    expect(button.className).toMatch(/duration-\d/);
   });
 });
