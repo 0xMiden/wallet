@@ -9,7 +9,7 @@ import SearchInputDefault, { SearchInput } from './SearchInput';
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 jest.mock('app/icons/v2', () => ({
   Icon: ({ name }: { name: string }) => <svg data-testid={`icon-${name}`} />,
-  IconName: { CloseCircleFill: 'close-circle-fill' }
+  IconName: { CloseCircleFill: 'close-circle-fill', Search: 'search' }
 }));
 
 const getInput = () => screen.getByRole('textbox') as HTMLInputElement;
@@ -48,41 +48,38 @@ describe('SearchInput — exports & defaults', () => {
 });
 
 describe('SearchInput — container & input classes', () => {
-  it('applies the base container classes when no className override is given', () => {
-    const { container } = render(<SearchInput value="" onChange={jest.fn()} />);
-
+  it('draws one bar at both sizes: a surface with a hairline edge and a search glyph', () => {
+    const { container, rerender } = render(<SearchInput value="" onChange={jest.fn()} />);
     const wrapper = container.firstChild as HTMLElement;
-    expect(wrapper.tagName).toBe('DIV');
-    expect(wrapper.className).toContain('w-full');
-    expect(wrapper.className).toContain('bg-gray-25');
-    expect(wrapper.className).toContain('rounded-3xl');
-    expect(wrapper.className).toContain('h-14');
-    // #503 — the container is now the positioning context for the clear button.
-    expect(wrapper.className).toContain('relative');
+
+    expect(wrapper.className).toContain('bg-surface-interactive');
+    expect(wrapper.className).toContain('border-rule-default');
+    expect(wrapper.className).toContain('rounded-full');
+    expect(wrapper.className).toContain('h-11');
+    expect(screen.getByTestId('icon-search')).toBeInTheDocument();
+
+    rerender(<SearchInput value="" onChange={jest.fn()} size="sm" />);
+    expect(wrapper.className).toContain('h-9');
+    expect(wrapper.className).toContain('bg-surface-interactive');
   });
 
   it('appends a caller-supplied className onto the base container classes', () => {
     const { container } = render(<SearchInput value="" onChange={jest.fn()} className="my-extra-class" />);
-
     const wrapper = container.firstChild as HTMLElement;
+
     expect(wrapper.className).toContain('my-extra-class');
-    // Base classes remain alongside the override.
-    expect(wrapper.className).toContain('bg-gray-25');
+    expect(wrapper.className).toContain('bg-surface-interactive');
   });
 
-  it('always applies the fixed input styling classes', () => {
+  it('keeps typed text at 16px and left-aligned, so iOS does not zoom on focus', () => {
     render(<SearchInput value="" onChange={jest.fn()} />);
-
     const input = getInput();
-    expect(input.className).toContain('bg-transparent');
-    expect(input.className).toContain('outline-none');
-    expect(input.className).toContain('text-center');
-    expect(input.className).toContain('placeholder:text-placeholder-gray');
-    expect(input.className).toContain('font-bold');
-  });
-});
 
-describe('SearchInput — data-testid plumbing', () => {
+    expect(input.className).toContain('text-base');
+    expect(input.className).not.toContain('text-center');
+    expect(input.className).toContain('outline-none');
+  });
+
   it('forwards data-testid to the input when provided', () => {
     render(<SearchInput value="" onChange={jest.fn()} data-testid="token-search" />);
 
@@ -235,19 +232,18 @@ describe('SearchInput — clear button & placeholder hint (#503)', () => {
 
   it('reserves right padding for the clear button only when there is a value', () => {
     const { rerender } = render(<SearchInput value="" onChange={jest.fn()} />);
-    expect(getInput().className).toContain('px-4');
+    expect(getInput().className).toContain('pr-4');
     expect(getInput().className).not.toContain('pr-11');
 
     rerender(<SearchInput value="x" onChange={jest.fn()} />);
     expect(getInput().className).toContain('pr-11');
-    expect(getInput().className).not.toContain('px-4');
+    expect(getInput().className).not.toContain('pr-4');
   });
 
-  it('styles the placeholder as a hint — lighter than the input text and hidden on focus', () => {
+  it('styles the placeholder as a hint, lighter than the typed text', () => {
     render(<SearchInput value="" onChange={jest.fn()} placeholder="Search for tokens" />);
     const input = getInput();
     expect(input.className).toContain('placeholder:font-normal');
-    expect(input.className).toContain('focus:placeholder:text-transparent');
     // must NOT match the bold weight of a real value
     expect(input.className).not.toContain('placeholder:font-bold');
   });
