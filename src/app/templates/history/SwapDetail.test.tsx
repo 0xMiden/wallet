@@ -49,13 +49,19 @@ jest.mock('../HashChip', () => ({
   default: ({ hash }: { hash: string }) => <span data-testid="hash-chip">{hash}</span>
 }));
 
-jest.mock('./DetailCard', () => ({
-  DetailCard: ({ children }: { children: React.ReactNode }) => <section>{children}</section>,
+jest.mock('components/ui/DetailCard', () => ({
   DetailRow: ({ label, children }: { label: string; children: React.ReactNode }) => (
     <div data-testid="detail-row" data-label={label}>
       {children}
     </div>
-  ),
+  )
+}));
+
+jest.mock('./DetailSection', () => ({
+  DetailSection: ({ children }: { children: React.ReactNode }) => <section>{children}</section>
+}));
+
+jest.mock('./TransactionStatus', () => ({
   ExternalLinkValue: ({ displayValue, href }: { displayValue: React.ReactNode; href: string }) => (
     <a data-testid="external-link" href={href}>
       {displayValue}
