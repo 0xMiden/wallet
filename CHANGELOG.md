@@ -79,6 +79,7 @@
 - [CHANGE][all] Send flow: the contact picker is titled Address Book and opens with a search over names and addresses, then your accounts and your contacts in separate sections. Contacts show their network (Miden, or a `0x` contact's destination such as Sepolia) and your accounts show Public or Private beside the shortened address, in place of the "External" label.
 - [CHANGE][all] One `EmptyState` for every "nothing here" message: a `fill` card with a 56px icon circle, title and optional body, and an optional secondary action. Contacts' empty list, the pending-notes summary, the Activity list and the QR scanner's no-camera state now share it.
 - [CHANGE][all] One `Skeleton` loading block for the wallet: the send review "you receive" row, the bridge route fee, the amount field, the EVM bridge deposit review and the home balance card now share it instead of five separate ad-hoc `animate-pulse` divs.
+- [CHANGE][all] Detail cards (send review, the transaction receipt, a contact's address) share one `DetailCard`/`DetailRow` component on the `fill` surface with hairline dividers between rows; a row's inline action (Edit, Copy) is always the brand orange instead of the flow's own accent, which was under 3:1 on white for text.
 
 ## 1.16.1 (2026-09-15)
 
