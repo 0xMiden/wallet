@@ -4,7 +4,7 @@ import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import { Button } from 'components/Button';
-import { Badge } from 'lib/ui/badge';
+import { Pill } from 'components/ui/Pill';
 
 import { WalletType } from '../types';
 
@@ -75,9 +75,9 @@ export const SelectRecoveryMethodScreen = ({
               <div className="flex items-center gap-2">
                 <h2 className="font-medium text-base">{option.title}</h2>
                 {option.isDefault && (
-                  <Badge variant={'default'} className="bg-primary-500 text-white">
+                  <Pill size="sm" tone="selected" data-testid="default-badge">
                     {t('default')}
-                  </Badge>
+                  </Pill>
                 )}
               </div>
             </div>

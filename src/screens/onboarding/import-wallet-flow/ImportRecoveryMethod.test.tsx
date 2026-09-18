@@ -53,9 +53,9 @@ jest.mock('app/icons/v2', () => ({
   Icon: ({ name, size }: any) => <span data-testid="chevron-icon" data-name={name} data-size={size} />
 }));
 
-jest.mock('lib/ui/badge', () => ({
-  Badge: ({ variant, className, children }: any) => (
-    <span data-testid="default-badge" data-variant={variant} className={className}>
+jest.mock('components/ui/Pill', () => ({
+  Pill: ({ tone, className, children, 'data-testid': dataTestId }: any) => (
+    <span data-testid={dataTestId} data-tone={tone} className={className}>
       {children}
     </span>
   )
@@ -100,7 +100,7 @@ describe('ImportRecoveryMethodScreen', () => {
     // Only the Guardian option is flagged as default.
     const badge = screen.getByTestId('default-badge');
     expect(badge).toHaveTextContent('default');
-    expect(badge).toHaveAttribute('data-variant', 'default');
+    expect(badge).toHaveAttribute('data-tone', 'selected');
   });
 
   it('defaults to Guardian: shows presets, the endpoint readout, a down chevron, and no custom input', () => {
