@@ -124,7 +124,7 @@ const EarnWithdrawReview: FC<EarnWithdrawReviewProps> = ({ positionId }) => {
           variant={ButtonVariant.Primary}
           onClick={handleWithdraw}
           disabled={isSubmitting || amountValue <= 0 || !position.id}
-          className="w-full max-w-none rounded-full text-base font-semibold"
+          className="w-full max-w-none"
         />
       </div>
     </div>

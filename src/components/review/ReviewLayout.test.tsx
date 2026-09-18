@@ -71,6 +71,13 @@ describe('ReviewLayout', () => {
       expect(btn).toHaveAttribute('data-variant', 'primary');
     });
 
+    it('carries only layout classes (w-full, max-w-none), no restyling override', () => {
+      render(<ReviewLayout {...makeProps()} />);
+      const btn = screen.getByRole('button', { name: 'Confirm' });
+      expect(btn).toHaveClass('w-full', 'max-w-none');
+      expect(btn.className).not.toMatch(/rounded-full|text-base|font-semibold/);
+    });
+
     it("defaults the primary button type to 'button' when not provided", () => {
       render(<ReviewLayout {...makeProps()} />);
       expect(screen.getByRole('button', { name: 'Confirm' })).toHaveAttribute('type', 'button');

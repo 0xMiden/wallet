@@ -141,7 +141,7 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
           onClick={onConfirm}
           disabled={!canConfirm}
           data-testid="send-recipient-confirm"
-          className="w-full max-w-none rounded-full text-base font-semibold"
+          className="w-full max-w-none"
         />
       }
     >

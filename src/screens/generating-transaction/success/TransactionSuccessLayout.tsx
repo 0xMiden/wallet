@@ -174,7 +174,7 @@ const FooterAction: FC<{ action: SuccessAction }> = ({ action }) => (
     variant={action.variant ?? ButtonVariant.Primary}
     title={action.label}
     onClick={action.onClick}
-    className="w-full max-w-none rounded-full"
+    className="w-full max-w-none"
   />
 );
 
