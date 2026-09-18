@@ -12,12 +12,15 @@ const CHALLENGE_WORD = `0x${Array.from({ length: 32 }, (_, index) =>
 
 test.use({ trace: 'off', screenshot: 'off', video: 'off' });
 
-test('an encrypted wallet file restores an imported account that can sign', async ({ walletA, walletB, envConfig }) => {
+test('an encrypted wallet file restores an imported account that can sign', async ({ walletA, walletB }) => {
   const privateKeySeed = Uint8Array.from({ length: 32 }, (_, index) => index + 1);
   const privateKey = Buffer.from(AuthSecretKey.ecdsaWithRNG(privateKeySeed).serialize()).toString('hex');
 
   try {
-    await walletA.createGuardianWalletViaUi(WALLET_PASSWORD, envConfig.guardianUrl);
+    // A plain off-chain wallet on purpose: nothing here is guardian-specific, and
+    // this suite is Tier-1 and deliberately brings up no guardian, so a guardian
+    // wallet can never finish onboarding here (the endpoint card stays Offline).
+    await walletA.createNewWallet(WALLET_PASSWORD);
     const sourceAccountId = await walletA.importPrivateKey(privateKey, IMPORTED_ACCOUNT_NAME);
 
     expect(await walletA.signAccountWord(sourceAccountId, CHALLENGE_WORD)).toMatch(/^0x[0-9a-f]+$/i);
