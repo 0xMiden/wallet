@@ -23,7 +23,7 @@ import RevealSeedPhraseFlow from 'app/templates/RevealSeedPhrase';
 import SpendingLimits from 'app/templates/SpendingLimits';
 import VerifySeedPhraseFlow from 'app/templates/VerifySeedPhraseFlow';
 import { Button, ButtonVariant } from 'components/Button';
-import { NavigationHeader } from 'components/NavigationHeader';
+import { PageHeader } from 'components/PageHeader';
 // Imported from the module rather than the `components/ui` barrel: the barrel
 // pulls in siblings that touch `lib/platform` at module scope, which this
 // page's test suite mocks only partially.
@@ -471,11 +471,10 @@ const Settings: FC<SettingsProps> = ({ tabSlug, rootScrollTop: savedRootScrollTo
           overflow the popup, which would scroll it away. */}
       {activeTab ? (
         !activeTab.hasOwnLayout && (
-          <NavigationHeader
+          <PageHeader
+            className="px-4"
             title={t(activeTab.pageTitleI18nKey ?? activeTab.titleI18nKey)}
             onBack={handleSubPageBack}
-            variant="prominent"
-            titleAlign="left"
             // As drawers these screens were dialogs, so they took focus and were
             // announced by name. Routes are not announced and the row that
             // opened them unmounts with the list, dropping focus to <body>.
@@ -491,7 +490,7 @@ const Settings: FC<SettingsProps> = ({ tabSlug, rootScrollTop: savedRootScrollTo
       ) : (
         // Settings root is a primary tab destination, so it wears the same
         // header as Activity and Explore: a plain title, no back chevron.
-        // Sub-pages above keep NavigationHeader — that back arrow is their only
+        // Sub-pages above keep PageHeader — that back arrow is their only
         // way out.
         <TabHeader title={t('settings')} />
       )}

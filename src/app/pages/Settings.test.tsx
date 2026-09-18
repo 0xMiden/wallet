@@ -125,8 +125,8 @@ jest.mock('components/Button', () => ({
   ButtonVariant: { Primary: 'primary', Secondary: 'secondary' }
 }));
 
-jest.mock('components/NavigationHeader', () => ({
-  NavigationHeader: ({
+jest.mock('components/PageHeader', () => ({
+  PageHeader: ({
     title,
     onBack,
     focusTitleOnMount
@@ -336,7 +336,7 @@ describe('Settings page — root menu (non-guardian)', () => {
     render(<Settings tabSlug={null} />);
 
     // The root wears the same TabHeader as Activity and Explore — a plain
-    // heading, not the sub-page NavigationHeader.
+    // heading, not the sub-page PageHeader.
     expect(screen.getByRole('heading', { level: 1, name: 'settings' })).toBeInTheDocument();
     expect(screen.queryByTestId('nav-header')).toBeNull();
     expect(screen.getByText('settingsVersion')).toBeInTheDocument();

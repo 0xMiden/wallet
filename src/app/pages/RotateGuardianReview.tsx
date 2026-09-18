@@ -10,7 +10,7 @@ import { Icon, IconName } from 'app/icons/v2';
 import PageLayout from 'app/layouts/PageLayout';
 import { Button } from 'components/Button';
 import { GuardianTransitionHero } from 'components/GuardianTransitionHero';
-import { NavigationHeader } from 'components/NavigationHeader';
+import { PageHeader } from 'components/PageHeader';
 import { PasscodeEntry } from 'components/PasscodeEntry';
 import { checkBiometricAvailability, isBiometricEnabled } from 'lib/biometric';
 import {
@@ -360,7 +360,7 @@ const RotateGuardianReview: FC = () => {
 
   return (
     <PageLayout hideToolbar>
-      <NavigationHeader title={t('reviewRotation')} onBack={handleBack} variant="prominent" titleAlign="left" />
+      <PageHeader className="px-4" title={t('reviewRotation')} onBack={handleBack} />
       <div className="flex-1 min-h-0 overflow-y-auto">
         <div className="mx-auto flex min-h-full w-full max-w-lg flex-col px-4 pb-8 font-heading">
           <GuardianRotationIllustration className="mx-auto mb-4 mt-1 h-28 w-auto" aria-hidden="true" />

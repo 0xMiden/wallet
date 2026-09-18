@@ -56,15 +56,16 @@ describe('FlowLayout', () => {
     expect(screen.getByTestId('flow-back').querySelector('svg')).toHaveClass('text-primary-500');
   });
 
-  it('keeps the back row without a back button so titles line up across steps', () => {
-    const { container } = render(
+  it('keeps the 56px header row without a back button so content lines up across steps', () => {
+    render(
       <FlowLayout accent="send" title="Title" footer={<button>cta</button>}>
         <p>content</p>
       </FlowLayout>
     );
 
     expect(screen.queryByTestId('flow-back')).not.toBeInTheDocument();
-    expect(container.querySelector('.h-12')).toBeInTheDocument();
+    expect(screen.getByRole('banner')).toHaveClass('h-14');
+    expect(screen.getByRole('banner')).toHaveTextContent('Title');
   });
 
   it('pins the footer with the mobile cushion and no navbar-collapse hook', () => {
