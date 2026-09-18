@@ -49,6 +49,9 @@ export const SelectImportTypeScreen = ({ onSubmit }: SelectImportTypeScreenProps
           <button
             type="button"
             key={option.id}
+            // The E2E harness drives this step; matching on translated titles
+            // would tie the suite to copy in whichever locale the build carries.
+            data-testid={`import-type-${option.id}`}
             className="flex flex-col border border-border-card w-full p-4 rounded-xl text-left hover:bg-gray-50 transition-colors"
             onClick={() => onSubmit?.(option.id)}
           >

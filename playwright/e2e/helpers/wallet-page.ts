@@ -991,6 +991,9 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     await this.page.locator('#import-link').click();
     // The network notice (#875) precedes the import flow too.
     await this.page.getByTestId('onboarding-network-notice-acknowledge').click({ timeout: 15_000 });
+    // Import now asks WHICH credential first; this helper drives the seed-phrase one.
+    await this.page.getByTestId('import-select-type').waitFor({ timeout: 15_000 });
+    await this.page.getByTestId('import-type-seed-phrase').click();
     await this.page.getByTestId('import-seed-phrase').waitFor({ timeout: 15_000 });
   }
 

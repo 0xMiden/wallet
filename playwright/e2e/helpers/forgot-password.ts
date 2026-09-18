@@ -163,6 +163,9 @@ export async function submitRecoveryFromSeed(page: Page, opts: { seed: string; p
   // line above has already waited for, so there is nothing left for them to wait
   // on.
   await page.locator('#import-link').click({ timeout: 15_000 });
+  // Import now asks WHICH credential first; recovery re-imports a seed phrase.
+  await page.getByTestId('import-select-type').waitFor({ timeout: 15_000 });
+  await page.getByTestId('import-type-seed-phrase').click();
   await page.getByTestId('import-seed-phrase').waitFor({ timeout: 15_000 });
 
   const words = opts.seed.trim().split(/\s+/);
