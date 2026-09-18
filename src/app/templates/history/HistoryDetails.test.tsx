@@ -221,17 +221,23 @@ jest.mock('../HashChip', () => ({
   default: ({ hash }: { hash: string }) => <span data-testid="hash-chip">{hash}</span>
 }));
 
-jest.mock('./DetailCard', () => ({
-  DetailCard: ({ title, children }: { title: string; children: React.ReactNode }) => (
-    <section data-testid="detail-card" data-title={title}>
-      {children}
-    </section>
-  ),
-  DetailRow: ({ label, isLast, children }: { label: string; isLast?: boolean; children: React.ReactNode }) => (
-    <div data-testid="detail-row" data-label={label} data-islast={String(!!isLast)}>
+jest.mock('components/ui/DetailCard', () => ({
+  DetailRow: ({ label, children }: { label: string; children: React.ReactNode }) => (
+    <div data-testid="detail-row" data-label={label}>
       {children}
     </div>
-  ),
+  )
+}));
+
+jest.mock('./DetailSection', () => ({
+  DetailSection: ({ title, children }: { title: string; children: React.ReactNode }) => (
+    <section data-testid="detail-section" data-title={title}>
+      {children}
+    </section>
+  )
+}));
+
+jest.mock('./TransactionStatus', () => ({
   ExternalLinkValue: ({ displayValue, href }: { displayValue: React.ReactNode; href: string }) => (
     <a data-testid="external-link" href={href}>
       {displayValue}
@@ -743,7 +749,7 @@ describe('HistoryDetails', () => {
       expect(hero).toHaveAttribute('data-new-label', 'to');
       expect(screen.getByTestId('status-pill')).toHaveAttribute('data-status', String(STATUS_COMPLETED));
       expect(screen.queryByTestId('tx-icon')).toBeNull();
-      expect(screen.getByTestId('detail-card')).toHaveAttribute('data-title', 'details');
+      expect(screen.getByTestId('detail-section')).toHaveAttribute('data-title', 'details');
       expect(rowByLabel('date')).toBeDefined();
       expect(rowByLabel('txIdLabel')).toBeDefined();
       expect(rowByLabel('from')).toBeUndefined();
@@ -2079,7 +2085,7 @@ describe('HistoryDetails', () => {
       setMockRow(failedSendTx());
       await renderAndLoad();
 
-      const errorCard = Array.from(document.querySelectorAll('[data-testid="detail-card"]')).find(
+      const errorCard = Array.from(document.querySelectorAll('[data-testid="detail-section"]')).find(
         el => el.getAttribute('data-title') === 'error'
       )!;
       expect(errorCard).toBeTruthy();
@@ -2208,7 +2214,7 @@ describe('HistoryDetails', () => {
 
       expect(screen.getByTestId('status-pill').getAttribute('data-cancelled')).toBe('true');
       // The failure card is titled "cancelled" and retry is suppressed.
-      const cancelledCard = Array.from(document.querySelectorAll('[data-testid="detail-card"]')).find(
+      const cancelledCard = Array.from(document.querySelectorAll('[data-testid="detail-section"]')).find(
         el => el.getAttribute('data-title') === 'cancelled'
       );
       expect(cancelledCard).toBeTruthy();
@@ -2660,8 +2666,14 @@ describe('HistoryDetails earn-deposit', () => {
 
     expect(rowByLabel('depositIntentLabel')).toBeUndefined();
     expect(rowByLabel('txIdLabel')).toBeUndefined();
-    // Position owner is then the card's last row.
-    expect(rowByLabel('positionOwnerLabel')).toHaveAttribute('data-islast', 'true');
+    // Position owner is then the card's last (and only) row — the card relies on
+    // `divide-y` for its hairlines, so being last in render order is what keeps
+    // it undivided from below, with no `isLast` flag to assert on directly.
+    const earnDepositCard = Array.from(document.querySelectorAll('[data-testid="detail-section"]')).find(
+      el => el.getAttribute('data-title') === 'earnDepositDetailsTitle'
+    )!;
+    const rows = Array.from(earnDepositCard.querySelectorAll('[data-testid="detail-row"]'));
+    expect(rows[rows.length - 1]).toHaveAttribute('data-label', 'positionOwnerLabel');
   });
 
   // The generic StatusPill would read "Completed" the moment the Miden note
