@@ -399,7 +399,7 @@ export const ReviewTransaction: React.FC = () => {
         <Hero
           data-testid="review-amount"
           className="mt-3"
-          visual={<TokenLogo symbol={token?.name ?? ''} size="xl" />}
+          visual={<TokenLogo symbol={token?.name ?? ''} size="2xl" />}
           value={`${amount} ${token?.name ?? ''}`}
           subtitle={fiatValue !== undefined ? t('approxFiatValue', { value: approxFiatAmount(fiatValue) }) : undefined}
         />
