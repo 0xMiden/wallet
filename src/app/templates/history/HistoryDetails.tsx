@@ -13,6 +13,7 @@ import PageLayout from 'app/layouts/PageLayout';
 import { Button, ButtonVariant } from 'components/Button';
 import { GuardianTransitionHero } from 'components/GuardianTransitionHero';
 import { PageHeader } from 'components/PageHeader';
+import { DetailRow } from 'components/ui/DetailCard';
 import { earnWithdrawalRetryKind } from 'lib/epoch/earn-withdraw-policy';
 import { getAdaptiveDecimalPlaces, toAdaptiveFixed } from 'lib/i18n/numbers';
 import {
@@ -64,12 +65,13 @@ import { useTransactionRow } from 'screens/generating-transaction/useTransaction
 import AddressChip from '../AddressChip';
 import HashChip from '../HashChip';
 import { BridgeClaimSection } from './BridgeClaimSection';
-import { DetailCard, DetailRow, ExternalLinkValue, StatusPill } from './DetailCard';
+import { DetailSection } from './DetailSection';
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
 import { SwapDetail } from './SwapDetail';
 import { deriveSwapReceipt } from './swapReceipt';
 import { TransactionFailureCard } from './TransactionFailureCard';
 import TransactionIcon, { getTransactionIconBackgroundColor } from './TransactionIcon';
+import { ExternalLinkValue, StatusPill } from './TransactionStatus';
 import {
   BRIDGE_STATUS_LABEL_KEY,
   bridgeInRowDisplay,
@@ -785,10 +787,8 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
             <div className="mt-4">
               <SectionDivider color={sectionDividerColor} />
               <div className="mt-5">
-                <DetailCard title={t(isGuardianSwitch ? 'details' : 'transferDetails')}>
-                  <DetailRow label={t('date')}>
-                    <span className="text-sm text-heading-gray font-medium">{formatDate(entry.timestamp)}</span>
-                  </DetailRow>
+                <DetailSection title={t(isGuardianSwitch ? 'details' : 'transferDetails')}>
+                  <DetailRow label={t('date')}>{formatDate(entry.timestamp)}</DetailRow>
 
                   {isBridgeIn && entry.bridgeInSourceAddress && (
                     <DetailRow label={t('from')}>
@@ -807,14 +807,10 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                     </DetailRow>
                   )}
 
-                  {entry.fee && (
-                    <DetailRow label={t('networkFee')}>
-                      <span className="text-sm text-heading-gray font-medium">{entry.fee}</span>
-                    </DetailRow>
-                  )}
+                  {entry.fee && <DetailRow label={t('networkFee')}>{entry.fee}</DetailRow>}
 
                   {entry.externalTxId && (
-                    <DetailRow label={t('txIdLabel')} isLast={isGuardianSwitch} testId="history-detail-tx-id">
+                    <DetailRow label={t('txIdLabel')} data-testid="history-detail-tx-id">
                       <ExternalLinkValue
                         displayValue={
                           <HashChip
@@ -831,7 +827,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                   )}
 
                   {isGuardianSwitch && !entry.externalTxId && entry.txId && (
-                    <DetailRow label={t('txIdLabel')} isLast>
+                    <DetailRow label={t('txIdLabel')}>
                       <HashChip hash={entry.txId} trimHash fill="#9E9E9E" className="ml-2" copyIcon={false} />
                     </DetailRow>
                   )}
@@ -848,7 +844,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                   )}
 
                   {toAddress && (
-                    <DetailRow label={t('to')} isLast testId="history-detail-to">
+                    <DetailRow label={t('to')} data-testid="history-detail-to">
                       <ExternalLinkValue
                         displayValue={
                           <AccountDisplay address={toAddress} account={account} allAccounts={allAccounts} />
@@ -857,7 +853,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                       />
                     </DetailRow>
                   )}
-                </DetailCard>
+                </DetailSection>
               </div>
             </div>
 
@@ -866,9 +862,9 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
               <div className="mt-6">
                 <SectionDivider color={sectionDividerColor} />
                 <div className="mt-5">
-                  <DetailCard title={t('earnWithdrawDetailsTitle')}>
+                  <DetailSection title={t('earnWithdrawDetailsTitle')}>
                     <DetailRow label={t('earnMarketLabel')}>
-                      <span className="text-sm text-heading-gray font-medium select-text">
+                      <span className="select-text">
                         {earnWithdraw.marketUid.split(':')[0] || earnWithdraw.marketUid}
                       </span>
                     </DetailRow>
@@ -913,8 +909,8 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                         />
                       </DetailRow>
                     )}
-                    <DetailRow label={t('note')} isLast={earnWithdraw.phase !== 'failed'}>
-                      <span className="text-sm text-heading-gray font-medium select-text">
+                    <DetailRow label={t('note')}>
+                      <span className="select-text">
                         {earnWithdraw.midenNoteId ? (
                           <HashChip
                             hash={earnWithdraw.midenNoteId}
@@ -929,13 +925,11 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                       </span>
                     </DetailRow>
                     {earnWithdraw.phase === 'failed' && earnWithdraw.error && (
-                      <DetailRow label={t('error')} isLast>
-                        <span className="text-sm text-status-negative font-medium wrap-break-word select-text">
-                          {earnWithdraw.error}
-                        </span>
+                      <DetailRow label={t('error')}>
+                        <span className="text-status-negative wrap-break-word select-text">{earnWithdraw.error}</span>
                       </DetailRow>
                     )}
-                  </DetailCard>
+                  </DetailSection>
                 </div>
               </div>
             )}
@@ -945,16 +939,13 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
               <div className="mt-6">
                 <SectionDivider color={sectionDividerColor} />
                 <div className="mt-5">
-                  <DetailCard title={t('earnDepositDetailsTitle')}>
+                  <DetailSection title={t('earnDepositDetailsTitle')}>
                     <DetailRow label={t('earnMarketLabel')}>
-                      <span className="text-sm text-heading-gray font-medium select-text">
+                      <span className="select-text">
                         {earnDeposit.marketUid.split(':')[0] || earnDeposit.marketUid}
                       </span>
                     </DetailRow>
-                    <DetailRow
-                      label={t('positionOwnerLabel')}
-                      isLast={!earnDeposit.intentNonce && !earnDeposit.evmTxHash}
-                    >
+                    <DetailRow label={t('positionOwnerLabel')}>
                       <ExternalLinkValue
                         displayValue={
                           <HashChip
@@ -969,7 +960,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                       />
                     </DetailRow>
                     {earnDeposit.intentNonce && (
-                      <DetailRow label={t('depositIntentLabel')} isLast={!earnDeposit.evmTxHash}>
+                      <DetailRow label={t('depositIntentLabel')}>
                         <HashChip
                           hash={earnDeposit.intentNonce}
                           trimHash
@@ -980,7 +971,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                       </DetailRow>
                     )}
                     {earnDeposit.evmTxHash && (
-                      <DetailRow label={t('txIdLabel')} isLast>
+                      <DetailRow label={t('txIdLabel')}>
                         <ExternalLinkValue
                           displayValue={
                             <HashChip
@@ -995,7 +986,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                         />
                       </DetailRow>
                     )}
-                  </DetailCard>
+                  </DetailSection>
                 </div>
               </div>
             )}
@@ -1017,25 +1008,29 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
               <div className="mt-6">
                 <SectionDivider color={sectionDividerColor} />
                 <div className="mt-5">
-                  <DetailCard
+                  <DetailSection
                     title={
                       entry.noteDelivery === 'undelivered'
                         ? t('noteDeliveryUndeliveredTitle')
                         : t('noteDeliveryPendingTitle')
                     }
                   >
-                    <p
-                      data-testid="history-note-delivery-warning"
-                      className="px-4 py-3 text-sm font-medium text-status-negative wrap-break-word select-text"
-                    >
-                      {entry.noteDelivery === 'undelivered'
-                        ? t('noteDeliveryUndeliveredBody')
-                        : t('noteDeliveryPendingBody')}
-                    </p>
-                    <p className="px-4 pb-3 text-xs font-medium text-text-muted wrap-break-word select-text">
-                      {t('noteDeliveryRecoveryHint')}
-                    </p>
-                  </DetailCard>
+                    {/* One child, not two: `DetailCard` draws a hairline between every child it's
+                        given (`divide-y`), and the warning + the recovery hint are one body. */}
+                    <div className="px-4 py-3">
+                      <p
+                        data-testid="history-note-delivery-warning"
+                        className="text-sm font-medium text-status-negative wrap-break-word select-text"
+                      >
+                        {entry.noteDelivery === 'undelivered'
+                          ? t('noteDeliveryUndeliveredBody')
+                          : t('noteDeliveryPendingBody')}
+                      </p>
+                      <p className="text-xs font-medium text-text-muted wrap-break-word select-text">
+                        {t('noteDeliveryRecoveryHint')}
+                      </p>
+                    </div>
+                  </DetailSection>
                 </div>
               </div>
             )}
@@ -1057,14 +1052,14 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
               <div className="mt-6">
                 <SectionDivider color={sectionDividerColor} />
                 <div className="mt-5">
-                  <DetailCard title={t('noteDeliveryConfirmedTitle')}>
+                  <DetailSection title={t('noteDeliveryConfirmedTitle')}>
                     <p
                       data-testid="history-note-delivery-confirmed"
                       className="px-4 py-3 text-sm font-medium text-status-positive wrap-break-word select-text"
                     >
                       {t('noteDeliveryConfirmedBody')}
                     </p>
-                  </DetailCard>
+                  </DetailSection>
                 </div>
               </div>
             )}
@@ -1099,11 +1094,9 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
               <div className="mt-6 mb-4">
                 <SectionDivider color={sectionDividerColor} />
                 <div className="mt-5">
-                  <DetailCard title={t('bridgeDetails')}>
+                  <DetailSection title={t('bridgeDetails')}>
                     <DetailRow label={t('route')}>
-                      <span className="text-sm text-heading-gray font-medium">
-                        {entry.bridgeInProvider === 'epoch' ? t('fastRouteLabel') : t('slowRouteLabel')}
-                      </span>
+                      {entry.bridgeInProvider === 'epoch' ? t('fastRouteLabel') : t('slowRouteLabel')}
                     </DetailRow>
                     {entry.bridgeInEvmTxHash && (
                       <DetailRow label={t('txIdLabel')}>
@@ -1121,22 +1114,20 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                         />
                       </DetailRow>
                     )}
-                    <DetailRow label={t('noteId')} isLast>
-                      <span className="text-sm text-heading-gray font-medium">
-                        {entry.bridgeInMidenNoteId ? (
-                          <HashChip
-                            hash={entry.bridgeInMidenNoteId}
-                            trimHash
-                            fill="#9E9E9E"
-                            className="ml-2"
-                            copyIcon={false}
-                          />
-                        ) : (
-                          t('pending')
-                        )}
-                      </span>
+                    <DetailRow label={t('noteId')}>
+                      {entry.bridgeInMidenNoteId ? (
+                        <HashChip
+                          hash={entry.bridgeInMidenNoteId}
+                          trimHash
+                          fill="#9E9E9E"
+                          className="ml-2"
+                          copyIcon={false}
+                        />
+                      ) : (
+                        t('pending')
+                      )}
                     </DetailRow>
-                  </DetailCard>
+                  </DetailSection>
                 </div>
               </div>
             )}
@@ -1146,24 +1137,22 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
               <div className="mt-6 mb-4">
                 <SectionDivider color={sectionDividerColor} />
                 <div className="mt-5">
-                  <DetailCard title={t('notesSection')}>
+                  <DetailSection title={t('notesSection')}>
                     {noteTypeLabel && (
-                      <DetailRow label={t('noteTypeLabel')} testId="history-note-type">
-                        <span className="text-sm text-heading-gray font-medium">{noteTypeLabel}</span>
+                      <DetailRow label={t('noteTypeLabel')} data-testid="history-note-type">
+                        {noteTypeLabel}
                       </DetailRow>
                     )}
 
                     {/* Claims list the input notes they consumed; every other type counts its outputs. */}
                     {consumedNoteIds.length > 0 ? (
-                      <DetailRow label={t('consumed')} isLast>
+                      <DetailRow label={t('consumed')}>
                         <NoteIdList noteIds={consumedNoteIds} testId="history-consumed-notes" />
                       </DetailRow>
                     ) : (
-                      <DetailRow label={t('created')} isLast>
-                        <span className="text-sm text-heading-gray font-medium">{createdCount}</span>
-                      </DetailRow>
+                      <DetailRow label={t('created')}>{createdCount}</DetailRow>
                     )}
-                  </DetailCard>
+                  </DetailSection>
                 </div>
               </div>
             )}
