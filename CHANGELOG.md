@@ -75,6 +75,7 @@
 - [CHANGE][all] Removed about 20 unused UI components (no visible change).
 - [CHANGE][all] Animations across the wallet now follow the system Reduce Motion setting, and the design system's motion presets (fade, reveal, pop, sheet, page, press, indicator, shimmer) are available from `lib/animation`.
 - [CHANGE][all] Buttons and toggles press with the design system's press motion and respond instantly when Reduce Motion is on.
+- [CHANGE][all] Buttons follow the new design system: a 52px pill with a larger label, secondary and destructive buttons on the neutral fill, a 36px compact size, and a spinner that keeps the button's width while it loads.
 
 ## 1.16.1 (2026-09-15)
 
