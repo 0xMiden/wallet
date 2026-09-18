@@ -3,8 +3,8 @@ import React from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { IconName } from 'app/icons/v2';
-import { Avatar } from 'components/Avatar';
 import { CardItem } from 'components/CardItem';
+import { ContactAvatar } from 'components/contacts/ContactAvatar';
 import { EmptyState } from 'components/EmptyState';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 import { truncateAddress } from 'utils/string';
@@ -56,7 +56,7 @@ export const AccountsListDrawer: React.FC<AccountsListDrawerProps> = ({
                   data-testid={`send-contact-${c.id}`}
                   title={c.name}
                   subtitle={`${t(c.contactType)} · ${truncateAddress(c.id)}`}
-                  iconLeft={<Avatar image="/misc/avatars/miden-orange.png" size="lg" />}
+                  iconLeft={<ContactAvatar address={c.id} name={c.name} />}
                   iconRight={c.id === recipientAccountId ? IconName.CheckboxCircleFill : undefined}
                   titleRight={
                     c.isGuardian ? (

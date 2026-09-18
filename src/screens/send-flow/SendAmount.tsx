@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { Icon, IconName } from 'app/icons/v2';
 import { AmountInput } from 'components/AmountInput';
 import { Button, ButtonVariant } from 'components/Button';
+import { NetworkChip } from 'components/NetworkChip';
 import { TokenLogo } from 'components/TokenLogo';
 import { Pill } from 'components/ui';
 import { useMotion } from 'lib/animation';
@@ -16,7 +17,6 @@ import { truncateAddress } from 'utils/string';
 
 import { approxFiatAmount, formatBalance } from './amount-format';
 import { getBridgeNetwork, SendNetworkId } from './bridge-networks';
-import { NetworkChip } from './NetworkChip';
 import { SendStepLayout } from './SendStepLayout';
 import { UIToken } from './types';
 
