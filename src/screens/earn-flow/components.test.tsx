@@ -34,26 +34,23 @@ jest.mock('react-i18next', () => ({
 // forwards, so we can prove the wiring (icon/onClick/aria-label, token symbol)
 // without pulling in haptics / the SVG-logo chrome. This mirrors how the
 // sibling `EarnDepositAmount.test.tsx` stubs its children.
-jest.mock('components/CircleButton', () => ({
-  CircleButton: ({
+jest.mock('components/ui/IconButton', () => ({
+  IconButton: ({
     icon,
     onClick,
-    size,
-    className,
-    'aria-label': ariaLabel
+    label,
+    className
   }: {
     icon: unknown;
     onClick?: () => void;
-    size?: string;
+    label?: string;
     className?: string;
-    'aria-label'?: string;
   }) => (
     <button
-      data-testid="circle-button"
+      data-testid="icon-button"
       data-icon={String(icon)}
-      data-size={size}
       className={className}
-      aria-label={ariaLabel}
+      aria-label={label}
       onClick={onClick}
     />
   )
@@ -108,10 +105,9 @@ describe('EarnFlowHeader', () => {
   it('wires the back button to goBack with the ChevronLeft icon and Back label', () => {
     render(<EarnFlowHeader vault={VAULT} />);
 
-    const button = screen.getByTestId('circle-button');
+    const button = screen.getByTestId('icon-button');
     expect(button).toHaveAttribute('aria-label', 'back');
     expect(button).toHaveAttribute('data-icon', String(IconName.ChevronLeft));
-    expect(button).toHaveAttribute('data-size', 'md');
 
     expect(mockGoBack).not.toHaveBeenCalled();
     fireEvent.click(button);

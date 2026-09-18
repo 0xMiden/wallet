@@ -5,8 +5,8 @@ import { useTranslation } from 'react-i18next';
 
 import aaveLogoUrl from 'app/icons/earn-provider-logos/aave.svg?url';
 import { IconName } from 'app/icons/v2';
-import { CircleButton } from 'components/CircleButton';
 import { TokenLogo } from 'components/TokenLogo';
+import { IconButton } from 'components/ui/IconButton';
 import { goBack } from 'lib/woozie';
 
 import { EarnSummary, EarnVault } from './types';
@@ -20,13 +20,7 @@ export const EarnFlowHeader: FC<{ vault: EarnVault }> = ({ vault }) => {
   return (
     <header className="shrink-0 border-b border-rule-default px-4 pb-4 pt-5">
       <div className="flex min-w-0 items-center gap-3">
-        <CircleButton
-          icon={IconName.ChevronLeft}
-          onClick={goBack}
-          className="h-10 w-10 bg-gray-25 text-heading-gray hover:bg-gray-50 focus:bg-gray-50"
-          size="md"
-          aria-label={t('back')}
-        />
+        <IconButton icon={IconName.ChevronLeft} label={t('back')} onClick={goBack} />
         <h1 className="min-w-0 truncate font-heading text-[26px] font-bold leading-none text-heading-gray">
           {vault.protocol} &bull; {vault.asset}
         </h1>
