@@ -408,18 +408,18 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
                 isLoading={isRetrying}
                 disabled={isRetrying}
                 onClick={onRetry}
-                className="w-full max-w-none rounded-full"
+                className="w-full max-w-none"
               >
-                <span className="text-base font-semibold text-pure-white">{t('retry')}</span>
+                {t('retry')}
               </Button>
             )}
             <Button
               type="button"
               variant={transactionComplete && hasErrors && canRetry ? ButtonVariant.Secondary : ButtonVariant.Primary}
               onClick={onDoneClick}
-              className="w-full max-w-none rounded-full"
+              className="w-full max-w-none"
             >
-              <span className="text-base font-semibold">{actionTitle}</span>
+              {actionTitle}
             </Button>
             {/* #483 — a failed tx needs a direct route to its Activity detail, like
                   SwapSuccess / GuardianSwitchSuccess (which link to the per-tx
@@ -433,9 +433,9 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
                 onClick={() =>
                   navigate(completedTransaction ? `/history-details/${completedTransaction.id}` : '/history')
                 }
-                className="w-full max-w-none rounded-full"
+                className="w-full max-w-none"
               >
-                <span className="text-base font-semibold">{t('viewInActivities')}</span>
+                {t('viewInActivities')}
               </Button>
             )}
             {retryError && (
@@ -454,9 +454,9 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
                 isLoading={isRetrying}
                 disabled={isRetrying}
                 onClick={onRetryAnyway}
-                className="w-full max-w-none rounded-full"
+                className="w-full max-w-none"
               >
-                <span className="text-base font-semibold">{t('retryAnyway')}</span>
+                {t('retryAnyway')}
               </Button>
             )}
           </div>
