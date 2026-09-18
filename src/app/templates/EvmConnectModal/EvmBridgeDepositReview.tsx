@@ -2,8 +2,12 @@ import React from 'react';
 
 import { useTranslation } from 'react-i18next';
 
-import { ReviewAmount, ReviewLayout, ReviewRow } from 'components/review';
+import { ReviewLayout } from 'components/review';
+import { TokenLogo } from 'components/TokenLogo';
+import { DetailCard, DetailRow } from 'components/ui/DetailCard';
+import { Hero } from 'components/ui/Hero';
 import { Skeleton } from 'components/ui/Skeleton';
+import { approxFiatAmount } from 'screens/send-flow/amount-format';
 import { BridgeRoute } from 'screens/send-flow/types';
 
 export interface EvmBridgeDepositReviewProps {
@@ -35,9 +39,10 @@ export interface EvmBridgeDepositReviewProps {
 
 /**
  * Review step for the Receive-from-EVM bridge deposit, shown after the route is
- * chosen. Reuses the shared `ReviewLayout`/`ReviewRow`/`ReviewAmount` shell (same
- * design as the Send review) and defers the actual submit to `onConfirm`, which
- * the manager wires to `executeEVMToMiden` (Fast) or the Agglayer bridge (Slow).
+ * chosen. Reuses the shared `ReviewLayout` shell (same shell as the Send review)
+ * with a `Hero` amount and `DetailCard` rows, and defers the actual submit to
+ * `onConfirm`, which the manager wires to `executeEVMToMiden` (Fast) or the
+ * Agglayer bridge (Slow).
  */
 export const EvmBridgeDepositReview: React.FC<EvmBridgeDepositReviewProps> = ({
   amount,
@@ -62,7 +67,17 @@ export const EvmBridgeDepositReview: React.FC<EvmBridgeDepositReviewProps> = ({
 
   return (
     <ReviewLayout
-      hero={<ReviewAmount symbol={symbol} amount={amount} fiat={fiat} label={t('youAreDepositing')} />}
+      hero={
+        <Hero
+          className="mt-3"
+          visual={<TokenLogo symbol={symbol} size="2xl" />}
+          value={`${amount} ${symbol}`}
+          subtitle={fiat !== undefined ? t('approxFiatValue', { value: approxFiatAmount(fiat) }) : undefined}
+        />
+      }
+      // The rows now live inside one DetailCard (their own hairlines), so ReviewLayout's outer
+      // divide-y around a single child would be a no-op — turned off for clarity.
+      dividers={false}
       error={error}
       primary={{
         label: confirmLabel ?? t('confirmDeposit'),
@@ -73,20 +88,22 @@ export const EvmBridgeDepositReview: React.FC<EvmBridgeDepositReviewProps> = ({
       }}
       secondary={{ label: t('back'), onPress: onBack, disabled: isSubmitting }}
     >
-      <ReviewRow label={t('amount')} value={`${amount} ${symbol}`} />
+      <DetailCard>
+        <DetailRow label={t('amount')}>{`${amount} ${symbol}`}</DetailRow>
 
-      <ReviewRow label={t('from')}>
-        <span className="inline-flex items-center gap-2">
-          <span className="w-2.5 h-2.5 rounded-full bg-primary-500" />
-          {networkName}
-        </span>
-      </ReviewRow>
+        <DetailRow label={t('from')}>
+          <span className="inline-flex items-center gap-2">
+            <span className="w-2.5 h-2.5 rounded-full bg-primary-500" />
+            {networkName}
+          </span>
+        </DetailRow>
 
-      <ReviewRow label={t('route')} value={`${routeLabel} ${arrivalLabel}`} />
+        <DetailRow label={t('route')}>{`${routeLabel} ${arrivalLabel}`}</DetailRow>
 
-      <ReviewRow label={t('youReceive')}>
-        {youReceiveLoading ? <Skeleton className="h-7 w-32" /> : youReceiveLabel}
-      </ReviewRow>
+        <DetailRow label={t('youReceive')}>
+          {youReceiveLoading ? <Skeleton className="h-6 w-28" /> : youReceiveLabel}
+        </DetailRow>
+      </DetailCard>
     </ReviewLayout>
   );
 };

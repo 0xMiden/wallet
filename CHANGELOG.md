@@ -105,6 +105,7 @@
 - [CHANGE][all] Addresses and transaction hashes shown in transaction history are now small tappable pills with a copy icon and "copied" feedback, in place of plain text that gave no indication it could be tapped at all.
 - [CHANGE][all] Page motion comes from one place: a page that slides in and the page it covers move on the design system's `page` motion, a page that fades in uses the shared fade (a touch slower in the extension), and the steps inside a flow (send, swap, wallet file export, bridge deposit, onboarding) swap on the same curve as a page slide, a little quicker in onboarding. With reduced motion turned on, onboarding steps now change instantly instead of still fading.
 - [CHANGE][all] The Processing screen and the success receipt settle on the design system's 64px hero status circle (down from 96px), and the EVM bridge-deposit and Smart Withdraw processing screens move onto the same hero instead of their own copy of it.
+- [CHANGE][all] Swap review and the EVM bridge deposit review move their rows onto the shared detail card, with the amount(s) as a hero value instead of a bespoke 40px block; Guardian Settings' connection details (provider, endpoint, region, last sync) move onto the same detail card, and the new-contact page's avatar moves onto the same centered hero as the rest of the wallet.
 
 ## 1.16.1 (2026-09-15)
 

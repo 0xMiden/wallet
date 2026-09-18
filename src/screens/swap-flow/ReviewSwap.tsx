@@ -4,8 +4,12 @@ import { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 
 import { useNetworkFeeEstimate } from 'app/hooks/useNetworkFeeEstimate';
-import { ReviewAmount, ReviewLabel, ReviewLayout, ReviewRow } from 'components/review';
+import { ReviewLayout } from 'components/review';
 import { Toggle } from 'components/Toggle';
+import { TokenLogo } from 'components/TokenLogo';
+import { DetailCard, DetailRow } from 'components/ui/DetailCard';
+import { Hero } from 'components/ui/Hero';
+import { Pill } from 'components/ui/Pill';
 import { SOLVER_MARGIN, SwapEta, SwapToken } from 'lib/miden/swap/tokens';
 
 export interface ReviewSwapProps {
@@ -69,13 +73,6 @@ const SwapArrows: React.FC = () => (
   </span>
 );
 
-const ReviewControlRow: React.FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => (
-  <div className="flex items-center justify-between gap-4 py-6">
-    <ReviewLabel className="shrink-0">{label}</ReviewLabel>
-    <div className="flex min-w-0 items-center justify-end">{children}</div>
-  </div>
-);
-
 /**
  * Swap review screen: a two-amount hero (You Send / You Receive) with a swap
  * glyph between them, then the Rate row. When a rate is available the receive
@@ -102,26 +99,29 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
   const divider = <div className="h-0.75 flex-1 bg-[#ECEBE8]" />;
   const rate = formatRate(offerToken.symbol, requestToken.symbol, swapEta?.marketPrice);
 
+  // A caption pill identifies which side of the swap each amount belongs to — Hero's own
+  // slots are visual + value + a subtitle *below* the value, with no room for a heading
+  // above it, so the pill sits beside Hero rather than inside it.
   const hero = (
-    <div className="mt-3">
-      <ReviewAmount
-        label={t('youSend')}
-        symbol={offerToken.symbol}
-        logoSymbol={offerToken.logoSymbol}
-        amount={offerAmount}
+    <div className="mt-3 flex w-full flex-col items-center">
+      <Pill tone="neutral">{t('youSend')}</Pill>
+      <Hero
+        className="mt-2"
+        visual={<TokenLogo symbol={offerToken.logoSymbol ?? offerToken.symbol} size="md" />}
+        value={`${offerAmount} ${offerToken.symbol}`}
       />
 
-      <div className="my-4 flex items-center gap-3">
+      <div className="my-4 flex w-full items-center gap-3">
         {divider}
         <SwapArrows />
         {divider}
       </div>
 
-      <ReviewAmount
-        label={t('youReceive')}
-        symbol={requestToken.symbol}
-        logoSymbol={requestToken.logoSymbol}
-        amount={requestAmount}
+      <Pill tone="neutral">{t('youReceive')}</Pill>
+      <Hero
+        className="mt-2"
+        visual={<TokenLogo symbol={requestToken.logoSymbol ?? requestToken.symbol} size="md" />}
+        value={`${requestAmount} ${requestToken.symbol}`}
       />
     </div>
   );
@@ -134,42 +134,51 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
       primary={{ label: t('swap'), onPress: onSubmit, 'data-testid': 'swap-submit' }}
       secondary={{ label: t('back'), onPress: onGoBack }}
     >
-      <ReviewRow label={t('rate')} value={rate} />
-
-      {/* The solver spread below is a DIFFERENT cost; without this row the only fee word on
-          the screen described the provider margin and read as the whole price. */}
-      {networkFee && <ReviewRow label={t('networkFeeMax')} value={networkFee} note={t('networkFeeEstimateNote')} />}
-      {rate && (
-        <p className="pt-1 text-xs text-heading-gray">
-          {t('swapSolverFeeNote', { percent: `${Math.round(SOLVER_MARGIN * 100)}%` })}
-        </p>
-      )}
-      <ReviewRow label={t('usuallyFillsIn')} value={formatFillsIn(t, swapEta)} />
-      <ReviewControlRow label={t('expires')}>
-        <label className="inline-flex items-center justify-end gap-2 font-heading text-2xl font-bold text-heading-gray">
-          <input
-            data-testid="swap-expiry-seconds"
-            type="number"
-            min={1}
-            step={1}
-            inputMode="numeric"
-            enterKeyHint="done"
-            value={expirySeconds}
-            onChange={event => onExpirySecondsChange(event.target.value)}
-            className="w-24 appearance-none rounded-lg border border-border-light bg-transparent px-3 py-2 text-right outline-none [appearance:textfield] focus:border-primary-500 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+      <DetailCard>
+        {/* The solver spread is a DIFFERENT cost from the network fee below; without this note
+            the only fee word on the screen described the provider margin and read as the whole
+            price, so it rides along as the Rate row's own sub-line. */}
+        <DetailRow
+          label={t('rate')}
+          sub={rate ? t('swapSolverFeeNote', { percent: `${Math.round(SOLVER_MARGIN * 100)}%` }) : undefined}
+          data-testid="swap-rate-row"
+        >
+          {rate}
+        </DetailRow>
+        {networkFee && (
+          <DetailRow label={t('networkFeeMax')} sub={t('networkFeeEstimateNote')}>
+            {networkFee}
+          </DetailRow>
+        )}
+        <DetailRow label={t('usuallyFillsIn')} data-testid="swap-fills-in-row">
+          {formatFillsIn(t, swapEta)}
+        </DetailRow>
+        <DetailRow label={t('expires')}>
+          <label className="inline-flex items-center gap-2">
+            <input
+              data-testid="swap-expiry-seconds"
+              type="number"
+              min={1}
+              step={1}
+              inputMode="numeric"
+              enterKeyHint="done"
+              value={expirySeconds}
+              onChange={event => onExpirySecondsChange(event.target.value)}
+              className="w-16 appearance-none rounded-lg border border-hairline bg-transparent px-2 py-1 text-right font-heading text-[15px] font-bold text-ink outline-none [appearance:textfield] focus:border-accent-primary [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+            />
+            <span>{t('seconds')}</span>
+          </label>
+        </DetailRow>
+        <DetailRow label={t('swapAutoConsume')}>
+          <Toggle
+            data-testid="swap-auto-consume"
+            value={autoConsume}
+            onChangeValue={onAutoConsumeChange}
+            aria-label={t('swapAutoConsume')}
+            className="!h-8 !w-16 !px-1.5 [&>div]:!h-5 [&>div]:!w-5"
           />
-          <span>{t('seconds')}</span>
-        </label>
-      </ReviewControlRow>
-      <ReviewControlRow label={t('swapAutoConsume')}>
-        <Toggle
-          data-testid="swap-auto-consume"
-          value={autoConsume}
-          onChangeValue={onAutoConsumeChange}
-          aria-label={t('swapAutoConsume')}
-          className="!h-8 !w-16 !px-1.5 [&>div]:!h-5 [&>div]:!w-5"
-        />
-      </ReviewControlRow>
+        </DetailRow>
+      </DetailCard>
       {submitError && <p className="select-text pt-2 text-sm font-medium text-status-negative">{submitError}</p>}
     </ReviewLayout>
   );
