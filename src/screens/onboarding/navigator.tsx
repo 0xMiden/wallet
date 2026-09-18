@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 
 import { Button, ButtonVariant } from 'components/Button';
 import { ProgressIndicator } from 'components/ProgressIndicator';
+import { pageStepFadeOffset, resolvePageStepTransition } from 'lib/animation';
 import type { DecryptedWalletFile } from 'lib/miden/backup-file';
 import { getEffectiveAllowNoGuardian } from 'lib/miden-chain/effective-endpoints';
 import { isMobile } from 'lib/platform';
@@ -328,6 +329,13 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
     onAction?.({ id: 'back' });
   };
 
+  // A step fades while it drifts `pageStepFadeOffset` the way the `page` model moves: in from the
+  // right going forward, from the left going back. Only mobile animates it (the Chrome extension
+  // swaps at once), and reduced motion makes it instant and still.
+  const rightDrift = reduceMotion ? 0 : pageStepFadeOffset;
+  const leftDrift = reduceMotion ? 0 : `-${pageStepFadeOffset}`;
+  const stepTransition = resolvePageStepTransition(reduceMotion, isMobile());
+
   return (
     <div
       data-onboarding-root="true"
@@ -353,14 +361,10 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
             initial="initialState"
             animate="animateState"
             exit="exitState"
-            transition={{
-              type: 'tween',
-              // Only animate on mobile (disable for Chrome extension)
-              duration: isMobile() ? 0.2 : 0
-            }}
+            transition={stepTransition}
             variants={{
               initialState: {
-                x: reduceMotion ? 0 : navigationDirection === 'forward' ? '1vw' : '-1vw',
+                x: navigationDirection === 'forward' ? rightDrift : leftDrift,
                 opacity: 0
               },
               animateState: {
@@ -368,7 +372,7 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
                 opacity: 1
               },
               exitState: {
-                x: reduceMotion ? 0 : navigationDirection === 'forward' ? '-1vw' : '1vw',
+                x: navigationDirection === 'forward' ? leftDrift : rightDrift,
                 opacity: 0
               }
             }}
