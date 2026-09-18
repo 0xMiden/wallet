@@ -13,7 +13,6 @@ import { Pill } from 'components/ui/Pill';
 import { springs, useMotion } from 'lib/animation';
 import { useAccount } from 'lib/miden/front';
 import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
-import { hapticSelection } from 'lib/mobile/haptics';
 
 type AllHistoryProps = {
   programId?: string | null;
@@ -56,7 +55,6 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
 
   const handleFilterTap = (id: ActivityFilter) => {
     if (id === filter) return;
-    hapticSelection();
     setFilter(id);
   };
 
@@ -112,6 +110,7 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
               <Pill
                 tone={isActive ? 'plain' : 'neutral'}
                 selected={isActive}
+                haptic="selection"
                 onClick={() => handleFilterTap(f.id)}
                 className={clsx(
                   'transition-colors motion-reduce:transition-none',

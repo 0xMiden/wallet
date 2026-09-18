@@ -2,7 +2,7 @@ import React from 'react';
 
 import clsx from 'clsx';
 
-import { hapticLight } from 'lib/mobile/haptics';
+import { hapticLight, hapticSelection } from 'lib/mobile/haptics';
 
 /** Height and type scale. `sm` is the 24px status pill; `md` (32px) is every other chip, badge and action. */
 export type PillSize = 'sm' | 'md';
@@ -25,8 +25,15 @@ export interface PillProps {
   tone?: PillTone;
   /** A small leading status dot in the pill's own ink color (`currentColor`). */
   dot?: boolean;
-  /** Makes the pill a button, with the tap haptic. */
+  /** Makes the pill a button, with a tap haptic. */
   onClick?: () => void;
+  /**
+   * Which haptic the tap fires: `'light'` (default) for an ordinary action, `'selection'` for a
+   * segmented choice — fired only when the tap actually changes the selection (skipped while
+   * `selected` is already true, so re-tapping the active choice in a group is silent) — or
+   * `false` to fire none and let the caller manage it.
+   */
+  haptic?: 'light' | 'selection' | false;
   /** Reflected as `aria-pressed` on a tappable pill. */
   selected?: boolean;
   disabled?: boolean;
@@ -77,6 +84,7 @@ export const Pill: React.FC<PillProps> = ({
   tone = 'neutral',
   dot,
   onClick,
+  haptic = 'light',
   selected,
   disabled,
   className,
@@ -114,7 +122,11 @@ export const Pill: React.FC<PillProps> = ({
     <button
       type="button"
       onClick={() => {
-        hapticLight();
+        if (haptic === 'light') {
+          hapticLight();
+        } else if (haptic === 'selection' && !selected) {
+          hapticSelection();
+        }
         onClick();
       }}
       disabled={disabled}
