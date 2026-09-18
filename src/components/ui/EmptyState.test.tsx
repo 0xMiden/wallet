@@ -16,6 +16,18 @@ jest.mock('app/icons/v2', () => ({
   }
 }));
 
+// `components/Button` pulls in framer-motion and haptics; stub it to a plain
+// button that reflects the props EmptyState sets, mirroring how other ui
+// components in this repo isolate it in tests.
+jest.mock('components/Button', () => ({
+  Button: ({ title, onClick, className, 'data-testid': dataTestId }: any) => (
+    <button data-testid={dataTestId ?? 'button'} data-classname={className} onClick={onClick}>
+      {title}
+    </button>
+  ),
+  ButtonVariant: { Primary: 'primary', Secondary: 'secondary', Ghost: 'ghost' }
+}));
+
 // Import the mocked IconName so tests can reference real enum values.
 const { IconName } = jest.requireMock('app/icons/v2');
 
@@ -27,9 +39,15 @@ describe('EmptyState', () => {
   it('renders the title and description text', () => {
     render(<EmptyState icon={IconName.Home} title="Nothing here" description="Try again later" />);
 
-    const title = screen.getByRole('heading', { level: 1 });
-    expect(title).toHaveTextContent('Nothing here');
+    expect(screen.getByRole('heading', { level: 3 })).toHaveTextContent('Nothing here');
     expect(screen.getByText('Try again later')).toBeInTheDocument();
+  });
+
+  it('renders without a description', () => {
+    render(<EmptyState icon={IconName.Home} title="Nothing here" />);
+
+    expect(screen.getByRole('heading', { level: 3 })).toHaveTextContent('Nothing here');
+    expect(screen.queryByText('Try again later')).not.toBeInTheDocument();
   });
 
   it('renders the Icon with the provided name and fixed fill/size props', () => {
@@ -38,7 +56,7 @@ describe('EmptyState', () => {
     const icon = screen.getByTestId('icon');
     expect(icon).toHaveAttribute('data-name', 'Home');
     expect(icon).toHaveAttribute('data-fill', 'currentColor');
-    expect(icon).toHaveAttribute('data-size', 'xl');
+    expect(icon).toHaveAttribute('data-size', 'md');
   });
 
   it('falls back to the default IconName.Apps when icon is undefined', () => {
@@ -53,7 +71,7 @@ describe('EmptyState', () => {
     const { container } = render(<EmptyState icon={IconName.Home} title="Title" description="Desc" />);
 
     const root = container.firstChild as HTMLElement;
-    expect(root).toHaveClass('flex', 'flex-col', 'items-center', 'justify-center', 'gap-y-1', 'text-heading-gray');
+    expect(root).toHaveClass('flex', 'flex-col', 'items-center', 'justify-center', 'rounded-2xl', 'bg-fill');
   });
 
   it('merges a custom className with the base classes', () => {
@@ -63,16 +81,7 @@ describe('EmptyState', () => {
 
     const root = container.firstChild as HTMLElement;
     expect(root).toHaveClass('custom-class');
-    // Base classes are still present after the merge.
-    expect(root).toHaveClass('flex', 'text-heading-gray');
-  });
-
-  it('renders without a custom className (className undefined branch)', () => {
-    const { container } = render(<EmptyState icon={IconName.Home} title="Title" description="Desc" />);
-
-    const root = container.firstChild as HTMLElement;
-    // clsx drops the falsy value; only base classes remain.
-    expect(root.className).toBe('flex flex-col items-center justify-center gap-y-1 text-heading-gray');
+    expect(root).toHaveClass('flex', 'bg-fill');
   });
 
   it('spreads extra props onto the root container', () => {
@@ -93,5 +102,27 @@ describe('EmptyState', () => {
 
     fireEvent.click(root);
     expect(handleClick).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not render a secondary action by default', () => {
+    render(<EmptyState icon={IconName.Home} title="Title" />);
+
+    expect(screen.queryByTestId('empty-state-action')).not.toBeInTheDocument();
+  });
+
+  it('renders and wires up an optional secondary action', () => {
+    const onClick = jest.fn();
+    render(
+      <EmptyState
+        icon={IconName.Home}
+        title="Title"
+        secondaryAction={{ label: 'Add a contact', onClick, 'data-testid': 'empty-state-action' }}
+      />
+    );
+
+    const action = screen.getByTestId('empty-state-action');
+    expect(action).toHaveTextContent('Add a contact');
+    fireEvent.click(action);
+    expect(onClick).toHaveBeenCalledTimes(1);
   });
 });
