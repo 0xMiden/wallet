@@ -81,3 +81,10 @@ describe.each([':root', '.dark'] as const)('design tokens in %s', selector => {
 it('maps every token to a Tailwind color', () => {
   for (const name of TOKENS) expect(config).toMatch(new RegExp(`'?${name}'?: 'var\\(--ds-${name}\\)'`));
 });
+
+describe.each([':root', '.dark'] as const)('legacy muted text in %s', selector => {
+  it('matches the design system muted color', () => {
+    const vars = themeVars(selector);
+    expect(vars['color-text-muted']).toBe('var(--ds-muted)');
+  });
+});
