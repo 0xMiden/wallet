@@ -147,6 +147,21 @@ it('defaults a plain pill’s border to transparent, so it never shows a stray c
   expect(screen.getByTestId('pill')).toHaveClass('border-transparent');
 });
 
+it('lets a caller’s own border color replace the plain-tone default instead of losing to it', () => {
+  render(
+    <Pill data-testid="pill" tone="plain" className="border-network-miden-border">
+      Miden
+    </Pill>
+  );
+
+  const pill = screen.getByTestId('pill');
+  // `border-transparent` and the caller's border color are both "border-color" utilities;
+  // whichever wins in Tailwind's compiled (alphabetical) order would otherwise silently beat
+  // the caller's class regardless of prop order, so only one may be present here.
+  expect(pill).toHaveClass('border-network-miden-border');
+  expect(pill).not.toHaveClass('border-transparent');
+});
+
 describe('haptic', () => {
   it('fires hapticLight on every tap by default', () => {
     const onClick = jest.fn();

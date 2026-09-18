@@ -1,8 +1,7 @@
 import React from 'react';
 
-import clsx from 'clsx';
-
 import { hapticLight, hapticSelection } from 'lib/mobile/haptics';
+import { cn } from 'lib/ui/util';
 
 /** Height and type scale. `sm` is the 24px status pill; `md` (32px) is every other chip, badge and action. */
 export type PillSize = 'sm' | 'md';
@@ -96,7 +95,12 @@ export const Pill: React.FC<PillProps> = ({
 }) => {
   const toneClasses = tone === 'plain' ? 'border-transparent' : TONE_CLASSES[tone];
 
-  const classes = clsx(
+  // `cn` (tailwind-merge), not `clsx`: a caller's own border/background/text utility in
+  // `className` has to REPLACE the tone default it conflicts with, not just coexist with it —
+  // plain `clsx` leaves both classes in the string, and Tailwind v4's compiled order (alphabetical
+  // by utility name) can then pick the tone default over the caller's class regardless of
+  // argument order, e.g. `border-network-miden-border` losing to `border-transparent`.
+  const classes = cn(
     'relative inline-flex max-w-full items-center rounded-full border font-heading font-bold leading-none',
     SIZE_CLASSES[size],
     toneClasses,
