@@ -144,6 +144,18 @@ describe('SegmentedActionBar — active vs inactive rendering', () => {
     expect(getTab('Receive').querySelector('.bg-white')).toBeNull();
   });
 
+  it('rounds every segment and the sliding pill fully, via the class rather than an inline radius', () => {
+    renderBar({ activeId: 'send' });
+
+    const activeTab = getTab('Send');
+    expect(activeTab.className).toContain('rounded-full');
+    expect(activeTab.style.borderRadius).toBe('');
+
+    const pill = activeTab.querySelector('.bg-white');
+    expect(pill?.className).toContain('rounded-full');
+    expect((pill as HTMLElement | null)?.style.borderRadius).toBe('');
+  });
+
   it('moves the pill and label when a different tab is active', () => {
     renderBar({ activeId: 'swap' });
 
