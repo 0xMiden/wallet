@@ -64,9 +64,12 @@ const TONE_CLASSES: Record<Exclude<PillTone, 'plain'>, string> = {
   neutral: 'border-transparent bg-fill text-ink',
   word: 'border-transparent bg-fill text-ink',
   selected: 'border-transparent bg-accent-tint text-accent-tint-ink',
-  positive: 'border-transparent bg-status-positive/15 text-positive-ink',
-  warning: 'border-transparent bg-status-pending/15 text-pending-ink',
-  negative: 'border-transparent bg-status-negative/15 text-negative-ink'
+  // 10%, not 15%: at 15% the ink dropped under 4.5:1 on `page` in light mode (measured
+  // 4.39/4.52/4.69 for negative/pending/positive) — 10% clears AA on both `page` and `fill`
+  // (4.65/4.79/4.85 measured on `page`) in both themes.
+  positive: 'border-transparent bg-status-positive/10 text-positive-ink',
+  warning: 'border-transparent bg-status-pending/10 text-pending-ink',
+  negative: 'border-transparent bg-status-negative/10 text-negative-ink'
 };
 
 /**
