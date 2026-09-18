@@ -230,6 +230,9 @@ jest.mock('app/templates/VerifySeedPhraseFlow', () => ({
   __esModule: true,
   default: () => <div data-testid="verify-seed-flow" />
 }));
+jest.mock('screens/encrypted-file-flow/EncryptedFileManager', () => ({
+  EncryptedFileFlow: () => <div data-testid="encrypted-file-flow" />
+}));
 jest.mock('./AdvancedSettings', () => ({
   __esModule: true,
   default: () => <div data-testid="advanced-settings" />
@@ -354,6 +357,7 @@ describe('Settings page — root menu (non-guardian)', () => {
     expect(screen.getByTestId('menuitem-language')).toBeInTheDocument();
     expect(screen.getByTestId('menuitem-recoveryPhrase')).toBeInTheDocument();
     expect(screen.getByTestId('menuitem-keys')).toBeInTheDocument();
+    expect(screen.getByTestId('menuitem-encryptedWalletFile')).toBeInTheDocument();
     expect(screen.getByTestId('menuitem-advancedSettings')).toBeInTheDocument();
     expect(screen.getByTestId('menuitem-authorizedDApps')).toBeInTheDocument();
 
@@ -374,9 +378,19 @@ describe('Settings page — root menu (non-guardian)', () => {
     expect(screen.getByTestId('menuitem-addressBook')).toHaveAttribute('data-slug', '/settings/address-book');
     expect(screen.getByTestId('menuitem-language')).toHaveAttribute('data-slug', '/settings/language');
     expect(screen.getByTestId('menuitem-keys')).toHaveAttribute('data-slug', '/settings/keys');
+    expect(screen.getByTestId('menuitem-encryptedWalletFile')).toHaveAttribute(
+      'data-slug',
+      '/settings/encrypted-wallet-file'
+    );
     expect(screen.getByTestId('menuitem-advancedSettings')).toHaveAttribute('data-slug', '/settings/advanced-settings');
     // Distinct slug: '/settings/dapps' belongs to the connected-dApps list page.
     expect(screen.getByTestId('menuitem-authorizedDApps')).toHaveAttribute('data-slug', '/settings/dapp-settings');
+  });
+
+  it('renders the encrypted wallet export flow on its routed settings page', () => {
+    render(<Settings tabSlug="encrypted-wallet-file" />);
+
+    expect(screen.getByTestId('encrypted-file-flow')).toBeInTheDocument();
   });
 
   it('renders the about group as external links with the canonical URLs and no testID', () => {

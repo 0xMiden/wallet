@@ -106,6 +106,10 @@ jest.mock('components/NetworkModeBanner', () => ({
   NetworkModeBanner: () => <div data-testid="network-mode-banner" />
 }));
 jest.mock('app/pages/Explore', () => ({ __esModule: true, default: () => <div data-testid="explore" /> }));
+jest.mock('app/pages/ImportAccount', () => ({
+  __esModule: true,
+  default: () => <div data-testid="import-account" />
+}));
 jest.mock('app/pages/OpenSidePanel', () => ({
   __esModule: true,
   default: () => <div data-testid="open-side-panel" />
@@ -476,6 +480,12 @@ describe('app/PageRouter — ready tab & full-screen routes', () => {
   it('/receive renders Receive inside TabLayout', () => {
     renderAt('/receive', ready);
     expect(screen.getByTestId('tab-layout')).toContainElement(screen.getByTestId('receive'));
+  });
+
+  it('/import-account renders private-key import inside FullScreenPage', () => {
+    renderAt('/import-account', ready);
+
+    expect(screen.getByTestId('full-screen-page')).toContainElement(screen.getByTestId('import-account'));
   });
 
   it('/pending-notes renders PendingNotes inside FullScreenPage', () => {

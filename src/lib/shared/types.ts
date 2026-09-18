@@ -47,6 +47,8 @@ export enum WalletMessageType {
   RevealGuardianKeysResponse = 'REVEAL_GUARDIAN_KEYS_RESPONSE',
   RevealMnemonicRequest = 'REVEAL_MNEMONIC_REQUEST',
   RevealMnemonicResponse = 'REVEAL_MNEMONIC_RESPONSE',
+  ExportWalletBackupMaterialRequest = 'EXPORT_WALLET_BACKUP_MATERIAL_REQUEST',
+  ExportWalletBackupMaterialResponse = 'EXPORT_WALLET_BACKUP_MATERIAL_RESPONSE',
   RemoveSeedPhraseRequest = 'REMOVE_SEED_PHRASE_REQUEST',
   RemoveSeedPhraseResponse = 'REMOVE_SEED_PHRASE_RESPONSE',
   ProvideRecoverySeedRequest = 'PROVIDE_RECOVERY_SEED_REQUEST',
@@ -469,6 +471,21 @@ export interface WalletAccount {
   evmAddress?: string;
 }
 
+export interface ImportedAccountBackup {
+  accountId: string;
+  publicKeyCommitment: string;
+  authScheme: AuthScheme;
+  secretKeyHex: string;
+}
+
+export interface WalletBackupMaterial {
+  seedPhrase: string;
+  accounts: WalletAccount[];
+  midenClientDbContent: string;
+  walletDbContent: string;
+  importedAccounts: ImportedAccountBackup[];
+}
+
 export interface WalletNetwork {
   rpcBaseURL: string;
   id: string;
@@ -668,6 +685,16 @@ export interface RevealMnemonicRequest extends WalletMessageBase {
 export interface RevealMnemonicResponse extends WalletMessageBase {
   type: WalletMessageType.RevealMnemonicResponse;
   mnemonic: string;
+}
+
+export interface ExportWalletBackupMaterialRequest extends WalletMessageBase {
+  type: WalletMessageType.ExportWalletBackupMaterialRequest;
+  password?: string;
+}
+
+export interface ExportWalletBackupMaterialResponse extends WalletMessageBase {
+  type: WalletMessageType.ExportWalletBackupMaterialResponse;
+  material: WalletBackupMaterial;
 }
 
 export interface RemoveAccountRequest extends WalletMessageBase {
@@ -1069,6 +1096,8 @@ export interface ImportFromClientRequest extends WalletMessageBase {
   password?: string; // Optional for hardware-only wallets (mobile/desktop with Secure Enclave)
   mnemonic: string;
   walletAccounts: WalletAccount[];
+  formatVersion?: number;
+  importedAccounts?: ImportedAccountBackup[];
 }
 
 export interface ImportFromClientResponse extends WalletMessageBase {
@@ -1101,6 +1130,7 @@ export type WalletRequest =
   | PrepareRecoveryRequest
   | ReleaseRecoveryRequest
   | RevealMnemonicRequest
+  | ExportWalletBackupMaterialRequest
   | RemoveAccountRequest
   | EditAccountRequest
   | ImportAccountRequest
@@ -1169,6 +1199,7 @@ export type WalletResponse =
   | PrepareRecoveryResponse
   | ReleaseRecoveryResponse
   | RevealMnemonicResponse
+  | ExportWalletBackupMaterialResponse
   | RemoveAccountResponse
   | EditAccountResponse
   | ImportAccountResponse

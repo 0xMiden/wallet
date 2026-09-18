@@ -517,6 +517,26 @@
     "message": "Імпортувати обліковий запис",
     "englishSource": "Import account"
   },
+  "accountName": {
+    "message": "Назва облікового запису",
+    "englishSource": "Account name"
+  },
+  "accountNameInputPlaceholder": {
+    "message": "наприклад, Заощадження",
+    "englishSource": "e.g. Savings"
+  },
+  "accountNameInputInvalid": {
+    "message": "Використовуйте від 1 до 16 символів. Назва не повинна починатися з пробілу чи дефіса.",
+    "englishSource": "Use 1 to 16 characters and do not start with whitespace or a hyphen."
+  },
+  "privateKeyInputDescription": {
+    "message": "Приватний ключ облікового запису, який ви хочете імпортувати.",
+    "englishSource": "The private key of the account you want to import."
+  },
+  "privateKeyInputPlaceholder": {
+    "message": "наприклад, APrivateKey1zkp...",
+    "englishSource": "e.g. APrivateKey1zkp..."
+  },
   "settings": {
     "message": "Налаштування",
     "englishSource": "Settings"
@@ -812,8 +832,8 @@
     "englishSource": "I understand this key cannot be rotated or revoked."
   },
   "encryptedFileImportedAccountsOmitted": {
-    "message": "Імпортовані облікові записи ($importedCount$) не будуть включені до цього файлу. Щоб створити їх резервну копію, експортуйте кожен приватний ключ окремо в меню «Налаштування» → «Показати приватний ключ».",
-    "englishSource": "Imported accounts ($importedCount$) will not be included in this file. To back them up, export each private key individually from Settings → Reveal Private Key.",
+    "message": "Імпортовані облікові записи, відсутні в цьому старому файлі гаманця: $importedCount$. Відновіть їх окремо з резервних копій приватних ключів.",
+    "englishSource": "Imported accounts missing from this older wallet file: $importedCount$. Restore them separately from their private key backups.",
     "placeholders": {
       "importedcount": {
         "content": "$1"
@@ -2041,6 +2061,50 @@
     "message": "Відновити доступ до облікового запису",
     "englishSource": "Recover your account"
   },
+  "chooseImportType": {
+    "message": "Виберіть тип імпорту",
+    "englishSource": "Choose Your Import Type"
+  },
+  "chooseImportTypeDescription": {
+    "message": "Відновіть суспільний баланс своєю фразою з 12 слів. Щоб відновити приватні кошти, завантажте зашифрований файл резервної копії.",
+    "englishSource": "Restore public balance with your 12-word phrase. To restore private balance, upload an encrypted backup file."
+  },
+  "importWithSeedPhrase": {
+    "message": "Імпорт із початковою фразою",
+    "englishSource": "Import with Seed Phrase"
+  },
+  "importWithSeedPhraseDescription": {
+    "message": "Використовуйте існуючу фразу відновлення з 12 слів. Ви також можете імпортувати гаманці від інших постачальників гаманців.",
+    "englishSource": "Use an existing 12 word recovery phrase. You can also import wallets from other wallet providers."
+  },
+  "importWithEncryptedWalletFile": {
+    "message": "Імпорт із зашифрованим файлом гаманця",
+    "englishSource": "Import with Encrypted Wallet File"
+  },
+  "importWithEncryptedWalletFileDescription": {
+    "message": "Завантажте зашифрований файл гаманця, щоб безпечно імпортувати свій обліковий запис. Ваші дані залишаються конфіденційними, лише хешована інформація зберігається в мережі",
+    "englishSource": "Upload your encrypted wallet file to securely import your account. Your data remains private, with only hashed information stored on-chain"
+  },
+  "chooseFromDevice": {
+    "message": "вибрати з пристрою",
+    "englishSource": "Choose from device"
+  },
+  "dragAndDropFile": {
+    "message": "Перетягніть файл або",
+    "englishSource": "Drag and drop file or"
+  },
+  "jsonFileType": {
+    "message": ".JSON",
+    "englishSource": ".JSON"
+  },
+  "enterDecryptionPassword": {
+    "message": "Введіть пароль, який ви встановили під час експорту гаманця. Це розшифрує файл і відновить доступ.",
+    "englishSource": "Enter the password you set when exporting your wallet. This will decrypt the file and restore access."
+  },
+  "continueImport": {
+    "message": "Продовжити імпорт",
+    "englishSource": "Continue Import"
+  },
   "chooseHowToProtect": {
     "message": "Виберіть, як саме ви хочете захистити свій гаманець",
     "englishSource": "Choose how you want to protect your wallet"
@@ -2745,6 +2809,34 @@
     "message": "Введіть пароль для шифрування файлу гаманця.",
     "englishSource": "Enter a password to encrypt your wallet file."
   },
+  "encryptedWalletFileJsonOnly": {
+    "message": "Виберіть файл гаманця у форматі .JSON.",
+    "englishSource": "Choose a .JSON wallet file."
+  },
+  "encryptedWalletFileReadFailed": {
+    "message": "Не вдалося прочитати файл гаманця. Виберіть його знову.",
+    "englishSource": "The wallet file could not be read. Choose it again."
+  },
+  "encryptedWalletFileSelectOne": {
+    "message": "Виберіть файл гаманця, щоб продовжити.",
+    "englishSource": "Choose a wallet file to continue."
+  },
+  "encryptedWalletFileMalformed": {
+    "message": "Цей файл гаманця недійсний або пошкоджений.",
+    "englishSource": "This wallet file is invalid or damaged."
+  },
+  "encryptedWalletFileTooLarge": {
+    "message": "Цей файл занадто великий, щоб бути зашифрованим файлом гаманця. Оберіть файл, який ви експортували з цього гаманця.",
+    "englishSource": "That file is too large to be an encrypted wallet file. Choose the file you exported from this wallet."
+  },
+  "encryptedWalletFileUnsupportedVersion": {
+    "message": "Цей файл гаманця створено в новішій версії Bread. Оновіть Bread і повторіть спробу.",
+    "englishSource": "This wallet file was created by a newer version of Bread. Update Bread and try again."
+  },
+  "encryptedWalletFileRestoreFailed": {
+    "message": "Не вдалося відновити гаманець. Перевірте сховище й повторіть спробу.",
+    "englishSource": "The wallet could not be restored. Check your storage and try again."
+  },
   "contacts": {
     "message": "Контакти",
     "englishSource": "Contacts"
@@ -2824,6 +2916,15 @@
   "encryptedWalletFileExportFailedDesc": {
     "message": "Файл вашого гаманця не вдалося створити, тому нічого не було збережено. Спробуйте експортувати ще раз.",
     "englishSource": "Your wallet file could not be created, so nothing was saved. Please try exporting again."
+  },
+  "encryptedWalletFileExportFailedAccount": {
+    "message": "Зашифрований файл гаманця не було створено, оскільки не вдалося створити резервну копію $accountName$. Відкрийте та збережіть приватний ключ цього облікового запису в розділі «Налаштування», потім видаліть його та спробуйте ще раз.",
+    "englishSource": "The encrypted wallet file was not created because $accountName$ could not be backed up. Reveal and save that account’s private key from Settings, then remove it and try again.",
+    "placeholders": {
+      "accountname": {
+        "content": "$1"
+      }
+    }
   },
   "encryptedWalletFileNotSavedTitle": {
     "message": "Ще не збережено",

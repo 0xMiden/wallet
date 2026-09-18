@@ -6,6 +6,7 @@ import constate from 'constate';
 import { createIntercomClient, IIntercomClient } from 'lib/intercom/client';
 import {
   GuardianSyncStatus,
+  ImportedAccountBackup,
   SignEvmOperation,
   WalletAccount,
   WalletRequest,
@@ -59,6 +60,7 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
   const removeSeedPhrase = useWalletStore(s => s.removeSeedPhrase);
   const provideRecoverySeed = useWalletStore(s => s.provideRecoverySeed);
   const storeRevealMnemonic = useWalletStore(s => s.revealMnemonic);
+  const storeExportWalletBackupMaterial = useWalletStore(s => s.exportWalletBackupMaterial);
   const storeRevealPrivateKey = useWalletStore(s => s.revealPrivateKey);
   const storeRevealHotKey = useWalletStore(s => s.revealHotKey);
   const storeRevealGuardianKeys = useWalletStore(s => s.revealGuardianKeys);
@@ -132,8 +134,14 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
   );
 
   const importWalletFromClient = useCallback(
-    async (password: string | undefined, mnemonic: string, walletAccounts: WalletAccount[]) => {
-      await storeImportWalletFromClient(password, mnemonic, walletAccounts);
+    async (
+      password: string | undefined,
+      mnemonic: string,
+      walletAccounts: WalletAccount[],
+      formatVersion?: number,
+      importedAccounts?: ImportedAccountBackup[]
+    ) => {
+      await storeImportWalletFromClient(password, mnemonic, walletAccounts, formatVersion, importedAccounts);
     },
     [storeImportWalletFromClient]
   );
@@ -171,6 +179,11 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
       return storeRevealMnemonic(password);
     },
     [storeRevealMnemonic]
+  );
+
+  const exportWalletBackupMaterial = useCallback(
+    async (password?: string) => storeExportWalletBackupMaterial(password),
+    [storeExportWalletBackupMaterial]
   );
 
   const revealPrivateKey = useCallback(
@@ -411,6 +424,7 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
     applyUserGuardianEndpoint,
     startGuardianRecovery,
     revealMnemonic,
+    exportWalletBackupMaterial,
     removeSeedPhrase,
     provideRecoverySeed,
     removeAccount,

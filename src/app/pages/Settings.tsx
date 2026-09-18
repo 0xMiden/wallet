@@ -34,6 +34,7 @@ import { useHideDappBubblesWhileOpen } from 'lib/mobile/useHideDappBubblesWhileO
 import { isMobile } from 'lib/platform';
 import { useWalletStore } from 'lib/store';
 import { HistoryAction, navigate } from 'lib/woozie';
+import { EncryptedFileFlow } from 'screens/encrypted-file-flow/EncryptedFileManager';
 import { WalletType } from 'screens/onboarding/types';
 
 import AdvancedSettings from './AdvancedSettings';
@@ -175,6 +176,13 @@ const TAB_GROUPS: TabGroup[] = [
         titleI18nKey: 'keys',
         Component: KeysSettings,
         testID: SettingsSelectors.KeysButton
+      },
+      {
+        slug: 'encrypted-wallet-file',
+        titleI18nKey: 'encryptedWalletFile',
+        Component: EncryptedFileFlow,
+        testID: SettingsSelectors.EncryptedWalletFile,
+        hasOwnLayout: true
       },
       {
         slug: 'guardian-settings',

@@ -517,6 +517,26 @@
     "message": "Импортировать учетную запись",
     "englishSource": "Import account"
   },
+  "accountName": {
+    "message": "Название аккаунта",
+    "englishSource": "Account name"
+  },
+  "accountNameInputPlaceholder": {
+    "message": "например, Сбережения",
+    "englishSource": "e.g. Savings"
+  },
+  "accountNameInputInvalid": {
+    "message": "Используйте от 1 до 16 символов. Название не должно начинаться с пробела или дефиса.",
+    "englishSource": "Use 1 to 16 characters and do not start with whitespace or a hyphen."
+  },
+  "privateKeyInputDescription": {
+    "message": "Приватный ключ аккаунта, который вы хотите импортировать.",
+    "englishSource": "The private key of the account you want to import."
+  },
+  "privateKeyInputPlaceholder": {
+    "message": "например, APrivateKey1zkp...",
+    "englishSource": "e.g. APrivateKey1zkp..."
+  },
   "settings": {
     "message": "Настройки",
     "englishSource": "Settings"
@@ -812,8 +832,8 @@
     "englishSource": "I understand this key cannot be rotated or revoked."
   },
   "encryptedFileImportedAccountsOmitted": {
-    "message": "Импортированные учетные записи ($importedCount$) не будут включены в этот файл. Чтобы создать их резервную копию, экспортируйте каждый закрытый ключ по отдельности в разделе «Настройки» → «Показать закрытый ключ».",
-    "englishSource": "Imported accounts ($importedCount$) will not be included in this file. To back them up, export each private key individually from Settings → Reveal Private Key.",
+    "message": "Импортированные учетные записи, отсутствующие в этом старом файле кошелька: $importedCount$. Восстановите их отдельно из резервных копий закрытых ключей.",
+    "englishSource": "Imported accounts missing from this older wallet file: $importedCount$. Restore them separately from their private key backups.",
     "placeholders": {
       "importedcount": {
         "content": "$1"
@@ -2041,6 +2061,50 @@
     "message": "Восстановите доступ к своей учетной записи",
     "englishSource": "Recover your account"
   },
+  "chooseImportType": {
+    "message": "Выберите тип импорта",
+    "englishSource": "Choose Your Import Type"
+  },
+  "chooseImportTypeDescription": {
+    "message": "Восстановите общественный баланс с помощью фразы из 12 слов. Чтобы восстановить частные средства, загрузите зашифрованный файл резервной копии.",
+    "englishSource": "Restore public balance with your 12-word phrase. To restore private balance, upload an encrypted backup file."
+  },
+  "importWithSeedPhrase": {
+    "message": "Импорт с исходной фразой",
+    "englishSource": "Import with Seed Phrase"
+  },
+  "importWithSeedPhraseDescription": {
+    "message": "Используйте существующую фразу восстановления из 12 слов. Вы также можете импортировать кошельки от других поставщиков кошельков.",
+    "englishSource": "Use an existing 12 word recovery phrase. You can also import wallets from other wallet providers."
+  },
+  "importWithEncryptedWalletFile": {
+    "message": "Импорт с зашифрованным файлом кошелька",
+    "englishSource": "Import with Encrypted Wallet File"
+  },
+  "importWithEncryptedWalletFileDescription": {
+    "message": "Загрузите зашифрованный файл кошелька, чтобы безопасно импортировать свою учетную запись. Ваши данные остаются конфиденциальными, в цепочке хранится только хешированная информация.",
+    "englishSource": "Upload your encrypted wallet file to securely import your account. Your data remains private, with only hashed information stored on-chain"
+  },
+  "chooseFromDevice": {
+    "message": "выбрать с устройства",
+    "englishSource": "Choose from device"
+  },
+  "dragAndDropFile": {
+    "message": "Перетащите файл или",
+    "englishSource": "Drag and drop file or"
+  },
+  "jsonFileType": {
+    "message": ".JSON",
+    "englishSource": ".JSON"
+  },
+  "enterDecryptionPassword": {
+    "message": "Введите пароль, который вы установили при экспорте кошелька. Это позволит расшифровать файл и восстановить доступ.",
+    "englishSource": "Enter the password you set when exporting your wallet. This will decrypt the file and restore access."
+  },
+  "continueImport": {
+    "message": "Продолжить импорт",
+    "englishSource": "Continue Import"
+  },
   "chooseHowToProtect": {
     "message": "Выберите, как вы хотите защитить свой кошелек",
     "englishSource": "Choose how you want to protect your wallet"
@@ -2745,6 +2809,34 @@
     "message": "Введите пароль для шифрования файла кошелька.",
     "englishSource": "Enter a password to encrypt your wallet file."
   },
+  "encryptedWalletFileJsonOnly": {
+    "message": "Выберите файл кошелька в формате .JSON.",
+    "englishSource": "Choose a .JSON wallet file."
+  },
+  "encryptedWalletFileReadFailed": {
+    "message": "Не удалось прочитать файл кошелька. Выберите его снова.",
+    "englishSource": "The wallet file could not be read. Choose it again."
+  },
+  "encryptedWalletFileSelectOne": {
+    "message": "Выберите файл кошелька, чтобы продолжить.",
+    "englishSource": "Choose a wallet file to continue."
+  },
+  "encryptedWalletFileMalformed": {
+    "message": "Этот файл кошелька недействителен или поврежден.",
+    "englishSource": "This wallet file is invalid or damaged."
+  },
+  "encryptedWalletFileTooLarge": {
+    "message": "Этот файл слишком велик, чтобы быть файлом зашифрованного кошелька. Выберите файл, который вы экспортировали из этого кошелька.",
+    "englishSource": "That file is too large to be an encrypted wallet file. Choose the file you exported from this wallet."
+  },
+  "encryptedWalletFileUnsupportedVersion": {
+    "message": "Этот файл кошелька создан в более новой версии Bread. Обновите Bread и повторите попытку.",
+    "englishSource": "This wallet file was created by a newer version of Bread. Update Bread and try again."
+  },
+  "encryptedWalletFileRestoreFailed": {
+    "message": "Не удалось восстановить кошелек. Проверьте хранилище и повторите попытку.",
+    "englishSource": "The wallet could not be restored. Check your storage and try again."
+  },
   "contacts": {
     "message": "Контакты",
     "englishSource": "Contacts"
@@ -2824,6 +2916,15 @@
   "encryptedWalletFileExportFailedDesc": {
     "message": "Файл вашего кошелька не удалось создать, поэтому ничего не было сохранено. Пожалуйста, попробуйте экспортировать ещё раз.",
     "englishSource": "Your wallet file could not be created, so nothing was saved. Please try exporting again."
+  },
+  "encryptedWalletFileExportFailedAccount": {
+    "message": "Файл зашифрованного кошелька не был создан, поскольку не удалось создать резервную копию $accountName$. Раскройте и сохраните закрытый ключ этой учетной записи в разделе «Настройки», затем удалите его и попробуйте ещё раз.",
+    "englishSource": "The encrypted wallet file was not created because $accountName$ could not be backed up. Reveal and save that account’s private key from Settings, then remove it and try again.",
+    "placeholders": {
+      "accountname": {
+        "content": "$1"
+      }
+    }
   },
   "encryptedWalletFileNotSavedTitle": {
     "message": "Ещё не сохранено",

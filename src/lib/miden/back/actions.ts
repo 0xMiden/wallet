@@ -26,12 +26,14 @@ import {
   currentAccountUpdated
 } from 'lib/miden/back/store';
 import { Vault } from 'lib/miden/back/vault';
+import { clearStorage } from 'lib/miden/reset';
 import { installRealmKeystore, withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import { buildSdkSignCallback } from 'lib/miden/transaction/sign-callback';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
 import {
   GuardianRecoveryAction,
   GuardianSyncStatus,
+  ImportedAccountBackup,
   SignEvmOperation,
   WalletAccount,
   WalletSettings,
@@ -244,13 +246,27 @@ export function registerWalletFromHotKey(password?: string, keyPairPayload?: str
   );
 }
 
-export function registerImportedWallet(password?: string, mnemonic?: string, walletAccounts: WalletAccount[] = []) {
+export function registerImportedWallet(
+  password?: string,
+  mnemonic?: string,
+  walletAccounts: WalletAccount[] = [],
+  formatVersion?: number,
+  importedAccounts: ImportedAccountBackup[] = []
+) {
   return withInited(() =>
     getUnlockQueue().add(async () => {
+      let vault: Vault | undefined;
+      let published = false;
       try {
         // Password may be undefined for hardware-only wallets
         // spawnFromMidenClient() returns the vault directly, avoiding a second biometric prompt
-        const vault = await Vault.spawnFromMidenClient(password ?? '', mnemonic ?? '', walletAccounts);
+        vault = await Vault.spawnFromMidenClient(
+          password ?? '',
+          mnemonic ?? '',
+          walletAccounts,
+          formatVersion,
+          importedAccounts
+        );
         const accounts = await vault.fetchAccounts();
         const settings = await vault.fetchSettings();
         const currentAccount = await vault.getCurrentAccount();
@@ -263,7 +279,21 @@ export function registerImportedWallet(password?: string, mnemonic?: string, wal
           ownMnemonic: ownMnemonicFlag,
           seedPhraseStatus: await vault.fetchSeedPhraseStatus()
         });
+        published = true;
       } finally {
+        if (!published && vault) {
+          // The spawn's own undo cannot fire here: it already RESOLVED, and the
+          // four awaits above are what failed. Without this the profile keeps a
+          // complete vault - protector, mnemonic, accounts, current-account
+          // pointer - that a reload would route straight to Unlock, while the UI
+          // reported a failed restore.
+          vault.retire();
+          // Never let the undo replace the cause: this runs in a finally, so a
+          // throw here would surface a storage error instead of the real failure.
+          await clearStorage(false).catch(undoError =>
+            console.error('[registerImportedWallet] could not undo a failed restore:', undoError)
+          );
+        }
         syncRealmInsertKeySink();
       }
     })
@@ -397,6 +427,10 @@ export function revealViewKey(_accPublicKey: string, _password: string) {}
 
 export function revealMnemonic(password?: string) {
   return withInited(() => Vault.revealMnemonic(password));
+}
+
+export function exportWalletBackupMaterial(password?: string) {
+  return withInited(() => Vault.exportWalletBackupMaterial(password));
 }
 
 export function revealPrivateKey(accPubKeyCommitment: string, password?: string) {

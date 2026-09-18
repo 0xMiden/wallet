@@ -443,7 +443,13 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
       await Actions.registerWalletFromHotKey(req.password, req.keyPairPayload, req.guardianEndpoint);
       return { type: WalletMessageType.NewWalletFromHotKeyResponse };
     case WalletMessageType.ImportFromClientRequest:
-      await Actions.registerImportedWallet(req.password, req.mnemonic, req.walletAccounts);
+      await Actions.registerImportedWallet(
+        req.password,
+        req.mnemonic,
+        req.walletAccounts,
+        req.formatVersion,
+        req.importedAccounts
+      );
       return { type: WalletMessageType.ImportFromClientResponse };
     case WalletMessageType.UnlockRequest:
       await Actions.unlock(req.password);
@@ -514,6 +520,12 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
       return {
         type: WalletMessageType.RevealMnemonicResponse,
         mnemonic
+      };
+    case WalletMessageType.ExportWalletBackupMaterialRequest:
+      const material = await Actions.exportWalletBackupMaterial(req.password);
+      return {
+        type: WalletMessageType.ExportWalletBackupMaterialResponse,
+        material
       };
     case WalletMessageType.RemoveAccountRequest:
       await Actions.removeAccount(req.accountPublicKey, req.password);

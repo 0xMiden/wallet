@@ -18,6 +18,12 @@ jest.mock('lib/miden/back/actions', () => ({
   createHDAccount: jest.fn().mockResolvedValue(undefined),
   updateCurrentAccount: jest.fn().mockResolvedValue(undefined),
   revealMnemonic: jest.fn().mockResolvedValue('test mnemonic'),
+  exportWalletBackupMaterial: jest.fn().mockResolvedValue({
+    seedPhrase: 'seed',
+    accounts: [],
+    midenClientDbContent: 'db',
+    importedAccounts: []
+  }),
   revealPrivateKey: jest.fn().mockResolvedValue('deadbeef'),
   removeAccount: jest.fn().mockResolvedValue(undefined),
   editAccount: jest.fn().mockResolvedValue(undefined),
@@ -154,15 +160,39 @@ describe('DesktopIntercomAdapter', () => {
     });
 
     it('handles ImportFromClientRequest', async () => {
+      const importedAccounts = [
+        { accountId: 'account-id', publicKeyCommitment: 'a1b2', authScheme: 'falcon' as const, secretKeyHex: '0102' }
+      ];
       const response = await adapter.request({
         type: WalletMessageType.ImportFromClientRequest,
         password: 'test123',
         mnemonic: 'word1 word2 word3',
-        walletAccounts: []
+        walletAccounts: [],
+        formatVersion: 2,
+        importedAccounts
       });
 
-      expect(Actions.registerImportedWallet).toHaveBeenCalledWith('test123', 'word1 word2 word3', []);
+      expect(Actions.registerImportedWallet).toHaveBeenCalledWith(
+        'test123',
+        'word1 word2 word3',
+        [],
+        2,
+        importedAccounts
+      );
       expect(response).toEqual({ type: WalletMessageType.ImportFromClientResponse });
+    });
+
+    it('handles ExportWalletBackupMaterialRequest', async () => {
+      const response = await adapter.request({
+        type: WalletMessageType.ExportWalletBackupMaterialRequest,
+        password: 'test123'
+      } as any);
+
+      expect(Actions.exportWalletBackupMaterial).toHaveBeenCalledWith('test123');
+      expect(response).toEqual({
+        type: WalletMessageType.ExportWalletBackupMaterialResponse,
+        material: { seedPhrase: 'seed', accounts: [], midenClientDbContent: 'db', importedAccounts: [] }
+      });
     });
 
     it('handles UnlockRequest', async () => {

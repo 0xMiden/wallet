@@ -98,7 +98,7 @@ describe('AccountsDrawer', () => {
     expect(screen.getByTestId('drawer-title').textContent).toBe('accounts');
     expect(screen.getByText('cardColor')).toBeTruthy();
     expect(screen.getByText('settings').closest('button')?.className).toContain('dark:text-pure-white');
-    expect(screen.getByText('addAccountComingSoon')).toBeTruthy();
+    expect(screen.getByText('importAccount')).toBeTruthy();
   });
 
   it('renders one swatch per card color with its background class', () => {
@@ -158,11 +158,17 @@ describe('AccountsDrawer', () => {
     expect(navigate).toHaveBeenCalledWith('/settings');
   });
 
-  it('renders the "Add Account" placeholder as a disabled button', () => {
-    renderDrawer();
+  it('closes the drawer, fires haptics, and opens private-key import', () => {
+    const onOpenChange = jest.fn();
+    renderDrawer({ onOpenChange });
 
-    const addButton = screen.getByText('addAccountComingSoon').closest('button')!;
-    expect(addButton).toBeDisabled();
-    expect(addButton.getAttribute('aria-disabled')).toBe('true');
+    const addButton = screen.getByText('importAccount').closest('button')!;
+    expect(addButton).toBeEnabled();
+
+    fireEvent.click(addButton);
+
+    expect(hapticLight).toHaveBeenCalledTimes(1);
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+    expect(navigate).toHaveBeenCalledWith('/import-account');
   });
 });

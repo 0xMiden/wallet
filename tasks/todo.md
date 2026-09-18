@@ -1,3 +1,40 @@
+# Issue 64: imported account backup and restore
+
+- [x] Add a strict versioned backup parser with legacy compatibility.
+- [x] Export one authenticated and internally consistent backend snapshot.
+- [x] Validate every imported secret before publishing a restored vault.
+- [x] Export complete version 2 encrypted wallet files.
+- [x] Restore encrypted-file onboarding without changing seed recovery.
+- [x] Restore current-design account import and encrypted-file export entry points.
+- [x] Prove the same imported account ID can sign before export and after restore.
+- [ ] Complete full verification, visual grading, Review Council, PR, CI, and merge.
+
+## Issue 64 review
+
+- `yarn check:deps`: passed.
+- `yarn tsc --noEmit`: passed.
+- `yarn lint`, `yarn lint:i18n`, and `yarn lint:e2e`: passed.
+- Prettier checked every changed TypeScript file: passed.
+- Locale source and generated-bundle parity: the keys this change adds are deliberately absent from every
+  non-English bundle, so they reach the DeepL job as untranslated rather than being stamped current. The suite
+  is red locally until that job runs and commits; `pr.yml` runs `translations` first and every other job needs
+  it, so the gate sees the translated files.
+- Affected Jest verification: 19 suites and 933 tests passed.
+- `E2E_NETWORK=testnet yarn playwright test --config playwright.e2e.config.ts playwright/e2e/tests/imported-account-backup-restore.spec.ts --retries=0`: 1 test passed in 20.0 seconds.
+- The E2E artifact scan found no private-key material and no capture archives.
+- `yarn build:desktop`, `yarn build:mobile`, `yarn build:extension`, `yarn test:e2e:blockchain:build`, and `E2E_NETWORK=testnet yarn test:e2e:mobile:build`: passed. The iOS build ended with `BUILD SUCCEEDED`.
+- Expected desktop, mobile, extension, and iOS Simulator application artifacts were present after their builds.
+- `git diff --check`, forbidden-dash scan, and attribution scan: passed.
+- Full `yarn test:coverage --runInBand`: 661 suites and 11,282 tests passed in 3,336.302 seconds. Coverage was 97.40% statements, 95.32% branches, 96.49% functions, and 97.40% lines, above every 95% threshold.
+
+| Approved visual criterion | Pass / Fail | Fresh desktop and iOS evidence |
+| --- | --- | --- |
+| Recover offers Seed Phrase and Encrypted Wallet File | Pass | Both complete choices and descriptions are visible. |
+| File selection is usable | Pass | The drop zone, device picker, JSON restriction, and Import action are visible without clipping. |
+| Wrong password is separate and clear | Pass | The selected filename remains visible and `Incorrect password. Try again.` appears at the password field. |
+| A valid encrypted file advances successfully without exposing secrets | Pass | Desktop advances to password creation and iOS advances to passcode setup; no secret text is visible. |
+| Mobile content has no horizontal clipping or occlusion | Pass | The actual iOS Simulator frames show every relevant label, card, input, and action inside the viewport. |
+
 # Bridge-IN e2e harness — REAL WalletConnect on iOS simulator
 
 ## ✅ PROVEN (both make-or-break unknowns resolved)

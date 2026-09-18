@@ -164,12 +164,14 @@ export const useWalletStore = create<WalletStore>()(
       // State will be synced via StateUpdated notification
     },
 
-    importWalletFromClient: async (password, mnemonic, walletAccounts) => {
+    importWalletFromClient: async (password, mnemonic, walletAccounts, formatVersion, importedAccounts) => {
       const res = await request({
         type: WalletMessageType.ImportFromClientRequest,
         password,
         mnemonic,
-        walletAccounts
+        walletAccounts,
+        formatVersion,
+        importedAccounts
       });
       assertResponse(res.type === WalletMessageType.ImportFromClientResponse);
     },
@@ -281,6 +283,15 @@ export const useWalletStore = create<WalletStore>()(
       });
       assertResponse(res.type === WalletMessageType.RevealMnemonicResponse);
       return res.mnemonic;
+    },
+
+    exportWalletBackupMaterial: async password => {
+      const res = await request({
+        type: WalletMessageType.ExportWalletBackupMaterialRequest,
+        password
+      });
+      assertResponse(res.type === WalletMessageType.ExportWalletBackupMaterialResponse);
+      return res.material;
     },
 
     revealPrivateKey: async (accountPublicKey, password) => {
@@ -848,6 +859,33 @@ if (process.env.MIDEN_E2E_TEST === 'true') {
   (globalThis as any).__TEST_STORE__ = useWalletStore;
   (globalThis as any).__TEST_INTERCOM__ = getIntercom();
   installSwapTestHooks();
+  Reflect.set(globalThis, '__TEST_SIGN_ACCOUNT_WORD__', async (accountPublicKey: string, wordHex: string) => {
+    setTestSyncPaused(true);
+    try {
+      const [{ assertWasmHoldCurrent, getMidenClient, withWasmClientLock }, { resolvePublicKeyCommitments }] =
+        await Promise.all([
+          import('lib/miden/sdk/miden-client'),
+          import('lib/miden/sdk/resolve-public-key-commitments')
+        ]);
+      const publicKeyCommitment = await withWasmClientLock(
+        async hold => {
+          const client = await getMidenClient();
+          assertWasmHoldCurrent(hold, 'e2e-account-sign after the client build');
+          const account = await client.getAccount(accountPublicKey);
+          assertWasmHoldCurrent(hold, 'e2e-account-sign after the account read');
+          if (!account) throw new Error('Account not found');
+
+          const commitments = resolvePublicKeyCommitments(account);
+          if (commitments.length !== 1) throw new Error('Account does not have exactly one signing key');
+          return commitments[0]!.toHex().replace(/^0x/, '');
+        },
+        { label: 'e2e-account-sign' }
+      );
+      return await useWalletStore.getState().signWord(publicKeyCommitment, wordHex);
+    } finally {
+      setTestSyncPaused(false);
+    }
+  });
   // Point the earn (Epoch lending) collateral faucet at a runtime-created test faucet.
   // `openEarnPosition` runs page-side (EarnDepositReview), so the override must be set in
   // THIS (page) realm. The import is LAZY (like the bridge-in hooks) so the Epoch/EVM SDK

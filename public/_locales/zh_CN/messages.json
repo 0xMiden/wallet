@@ -517,6 +517,26 @@
     "message": "导入账户",
     "englishSource": "Import account"
   },
+  "accountName": {
+    "message": "账户名称",
+    "englishSource": "Account name"
+  },
+  "accountNameInputPlaceholder": {
+    "message": "例如：储蓄",
+    "englishSource": "e.g. Savings"
+  },
+  "accountNameInputInvalid": {
+    "message": "请输入 1 至 16 个字符，且不要以空格或连字符开头。",
+    "englishSource": "Use 1 to 16 characters and do not start with whitespace or a hyphen."
+  },
+  "privateKeyInputDescription": {
+    "message": "要导入的账户的私钥。",
+    "englishSource": "The private key of the account you want to import."
+  },
+  "privateKeyInputPlaceholder": {
+    "message": "例如：APrivateKey1zkp...",
+    "englishSource": "e.g. APrivateKey1zkp..."
+  },
   "settings": {
     "message": "设置",
     "englishSource": "Settings"
@@ -812,8 +832,8 @@
     "englishSource": "I understand this key cannot be rotated or revoked."
   },
   "encryptedFileImportedAccountsOmitted": {
-    "message": "导入的账户（$importedCount$）不会包含在此文件中。若要备份这些账户，请通过“设置”→“显示私钥”分别导出每个私钥。",
-    "englishSource": "Imported accounts ($importedCount$) will not be included in this file. To back them up, export each private key individually from Settings → Reveal Private Key.",
+    "message": "此旧钱包文件中缺少的已导入账户：$importedCount$。请分别使用各自的私钥备份进行恢复。",
+    "englishSource": "Imported accounts missing from this older wallet file: $importedCount$. Restore them separately from their private key backups.",
     "placeholders": {
       "importedcount": {
         "content": "$1"
@@ -2041,6 +2061,50 @@
     "message": "找回您的账户",
     "englishSource": "Recover your account"
   },
+  "chooseImportType": {
+    "message": "选择您的导入类型",
+    "englishSource": "Choose Your Import Type"
+  },
+  "chooseImportTypeDescription": {
+    "message": "用你的 12 个词短语恢复公共平衡。如需恢复私人资金，请上传加密的备份文件。",
+    "englishSource": "Restore public balance with your 12-word phrase. To restore private balance, upload an encrypted backup file."
+  },
+  "importWithSeedPhrase": {
+    "message": "使用Seed Phrase导入",
+    "englishSource": "Import with Seed Phrase"
+  },
+  "importWithSeedPhraseDescription": {
+    "message": "使用现有的 12 字恢复短语。您还可以从其他钱包提供商导入钱包。",
+    "englishSource": "Use an existing 12 word recovery phrase. You can also import wallets from other wallet providers."
+  },
+  "importWithEncryptedWalletFile": {
+    "message": "使用加密钱包文件导入",
+    "englishSource": "Import with Encrypted Wallet File"
+  },
+  "importWithEncryptedWalletFileDescription": {
+    "message": "上传您的加密钱包文件以安全地导入您的帐户。您的数据保持私密，仅散列信息存储在链上",
+    "englishSource": "Upload your encrypted wallet file to securely import your account. Your data remains private, with only hashed information stored on-chain"
+  },
+  "chooseFromDevice": {
+    "message": "从设备中选择",
+    "englishSource": "Choose from device"
+  },
+  "dragAndDropFile": {
+    "message": "拖放文件或",
+    "englishSource": "Drag and drop file or"
+  },
+  "jsonFileType": {
+    "message": ".JSON",
+    "englishSource": ".JSON"
+  },
+  "enterDecryptionPassword": {
+    "message": "输入您导出钱包时设置的密码。这将解密文件并恢复访问权限。",
+    "englishSource": "Enter the password you set when exporting your wallet. This will decrypt the file and restore access."
+  },
+  "continueImport": {
+    "message": "继续导入",
+    "englishSource": "Continue Import"
+  },
   "chooseHowToProtect": {
     "message": "选择您希望如何保护您的钱包",
     "englishSource": "Choose how you want to protect your wallet"
@@ -2745,6 +2809,34 @@
     "message": "请输入密码以对您的钱包文件进行加密。",
     "englishSource": "Enter a password to encrypt your wallet file."
   },
+  "encryptedWalletFileJsonOnly": {
+    "message": "请选择 .JSON 钱包文件。",
+    "englishSource": "Choose a .JSON wallet file."
+  },
+  "encryptedWalletFileReadFailed": {
+    "message": "无法读取钱包文件。请重新选择。",
+    "englishSource": "The wallet file could not be read. Choose it again."
+  },
+  "encryptedWalletFileSelectOne": {
+    "message": "请选择钱包文件以继续。",
+    "englishSource": "Choose a wallet file to continue."
+  },
+  "encryptedWalletFileMalformed": {
+    "message": "此钱包文件无效或已损坏。",
+    "englishSource": "This wallet file is invalid or damaged."
+  },
+  "encryptedWalletFileTooLarge": {
+    "message": "该文件过大，不可能是加密钱包文件。请选择您从该钱包导出的文件。",
+    "englishSource": "That file is too large to be an encrypted wallet file. Choose the file you exported from this wallet."
+  },
+  "encryptedWalletFileUnsupportedVersion": {
+    "message": "此钱包文件由较新版本的 Bread 创建。请更新 Bread 后重试。",
+    "englishSource": "This wallet file was created by a newer version of Bread. Update Bread and try again."
+  },
+  "encryptedWalletFileRestoreFailed": {
+    "message": "无法恢复钱包。请检查存储空间后重试。",
+    "englishSource": "The wallet could not be restored. Check your storage and try again."
+  },
   "contacts": {
     "message": "联系方式",
     "englishSource": "Contacts"
@@ -2824,6 +2916,15 @@
   "encryptedWalletFileExportFailedDesc": {
     "message": "无法创建您的钱包文件，因此未保存任何内容。请尝试再次导出。",
     "englishSource": "Your wallet file could not be created, so nothing was saved. Please try exporting again."
+  },
+  "encryptedWalletFileExportFailedAccount": {
+    "message": "加密钱包文件未生成，是因为无法备份 $accountName$ 账户。请在“设置”中显示并保存该账户的私钥，然后将其删除并重试。",
+    "englishSource": "The encrypted wallet file was not created because $accountName$ could not be backed up. Reveal and save that account’s private key from Settings, then remove it and try again.",
+    "placeholders": {
+      "accountname": {
+        "content": "$1"
+      }
+    }
   },
   "encryptedWalletFileNotSavedTitle": {
     "message": "尚未保存",

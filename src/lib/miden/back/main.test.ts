@@ -172,6 +172,7 @@ jest.mock('lib/miden/back/actions', () => ({
   createHDAccount: jest.fn(),
   updateCurrentAccount: jest.fn(),
   revealMnemonic: jest.fn(),
+  exportWalletBackupMaterial: jest.fn(),
   revealPrivateKey: jest.fn(),
   removeAccount: jest.fn(),
   editAccount: jest.fn(),
@@ -214,6 +215,12 @@ beforeEach(async () => {
   Actions.isDAppEnabled.mockResolvedValue(true);
   Actions.getFrontState.mockResolvedValue({ status: 'Ready', accounts: [] });
   Actions.revealMnemonic.mockResolvedValue('the mnemonic');
+  Actions.exportWalletBackupMaterial.mockResolvedValue({
+    seedPhrase: 'seed',
+    accounts: [],
+    midenClientDbContent: 'db',
+    importedAccounts: []
+  });
   Actions.revealPrivateKey.mockResolvedValue('deadbeef');
   Actions.importAccount.mockResolvedValue('mtst1imported-pk');
   Actions.signTransaction.mockResolvedValue('hex-signature');
@@ -504,13 +511,18 @@ describe('processRequest', () => {
   });
 
   it('ImportFromClientRequest delegates to registerImportedWallet', async () => {
+    const importedAccounts = [
+      { accountId: 'account-id', publicKeyCommitment: 'a1b2', authScheme: 'falcon' as const, secretKeyHex: '0102' }
+    ];
     const res = await dispatch({
       type: WalletMessageType.ImportFromClientRequest,
       password: 'pw',
       mnemonic: 'm',
-      walletAccounts: []
+      walletAccounts: [],
+      formatVersion: 2,
+      importedAccounts
     });
-    expect(Actions.registerImportedWallet).toHaveBeenCalledWith('pw', 'm', []);
+    expect(Actions.registerImportedWallet).toHaveBeenCalledWith('pw', 'm', [], 2, importedAccounts);
     expect(res.type).toBe(WalletMessageType.ImportFromClientResponse);
   });
 
@@ -546,6 +558,15 @@ describe('processRequest', () => {
     const res = await dispatch({ type: WalletMessageType.RevealMnemonicRequest, password: 'pw' });
     expect(res.type).toBe(WalletMessageType.RevealMnemonicResponse);
     expect(res.mnemonic).toBe('the mnemonic');
+  });
+
+  it('ExportWalletBackupMaterialRequest returns the authenticated snapshot from Actions', async () => {
+    const res = await dispatch({ type: WalletMessageType.ExportWalletBackupMaterialRequest, password: 'pw' });
+    expect(Actions.exportWalletBackupMaterial).toHaveBeenCalledWith('pw');
+    expect(res).toEqual({
+      type: WalletMessageType.ExportWalletBackupMaterialResponse,
+      material: { seedPhrase: 'seed', accounts: [], midenClientDbContent: 'db', importedAccounts: [] }
+    });
   });
 
   it('RemoveAccountRequest / EditAccountRequest delegate to Actions', async () => {

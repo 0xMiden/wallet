@@ -2,6 +2,9 @@
 
 ## 1.16.2 (TBD)
 
+### Changes
+
+- [CHANGE][all] The encrypted wallet file now carries accounts imported from a private key, so restoring it brings them back with their keys instead of silently leaving them behind. A file written by an older version still restores, and names how many imported accounts it had to omit before you confirm. An imported account whose key the wallet cannot read is named rather than quietly dropped from the backup.
 - [CHANGE][all] Bottom tab bar: new Home, Explore and Activity glyphs, icons only at 32px with no labels (each tab keeps its name for assistive tech), and one light-grey pill that slides between tabs on the shared pill spring.
 - [CHANGE][all] The Overview segmented bar's pill and segment widths animate together on the pill spring instead of a width snap under a tween.
 - [CHANGE][all] Passcode screens: Nunito throughout (subtitle, keypad, links), ExtraBold keypad digits with a press-in scale, and the unlock screen no longer selectable on long press. The home Assets heading steps down from Black to ExtraBold, and the Accounts drawer gets an ExtraBold title with Nunito Bold 16px rows.

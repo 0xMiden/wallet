@@ -8,12 +8,14 @@ import { type TokenPrices } from 'lib/prices/binance';
 import {
   ApplyUserEndpointOutcome,
   GuardianSyncStatus,
+  ImportedAccountBackup,
   GuardianRecoveryAction,
   RecoveryPreparation,
   SerializedConsumableNote,
   SignEvmOperation,
   SeedPhraseStatus,
   WalletAccount,
+  WalletBackupMaterial,
   WalletSettings,
   WalletStatus
 } from 'lib/shared/types';
@@ -144,7 +146,9 @@ export interface WalletActions {
   importWalletFromClient: (
     password: string | undefined,
     mnemonic: string,
-    walletAccounts: WalletAccount[]
+    walletAccounts: WalletAccount[],
+    formatVersion?: number,
+    importedAccounts?: ImportedAccountBackup[]
   ) => Promise<void>;
   unlock: (password?: string) => Promise<void>;
 
@@ -157,6 +161,7 @@ export interface WalletActions {
   prepareRecoveryTransaction: (transactionId: string) => Promise<RecoveryPreparation>;
   releaseRecoveryAuthorization: (transactionId: string) => Promise<void>;
   revealMnemonic: (password?: string) => Promise<string>;
+  exportWalletBackupMaterial: (password?: string) => Promise<WalletBackupMaterial>;
   revealPrivateKey: (accountPublicKey: string, password?: string) => Promise<string>;
   revealHotKey: (accountPublicKey: string, password?: string) => Promise<string>;
   revealGuardianKeys: (

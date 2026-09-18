@@ -49,7 +49,13 @@ export async function processInProcessRequest(req: WalletRequest, label: string)
       return { type: WalletMessageType.NewWalletFromHotKeyResponse };
 
     case WalletMessageType.ImportFromClientRequest:
-      await Actions.registerImportedWallet(req.password, req.mnemonic, req.walletAccounts);
+      await Actions.registerImportedWallet(
+        req.password,
+        req.mnemonic,
+        req.walletAccounts,
+        req.formatVersion,
+        req.importedAccounts
+      );
       return { type: WalletMessageType.ImportFromClientResponse };
 
     case WalletMessageType.UnlockRequest:
@@ -88,6 +94,14 @@ export async function processInProcessRequest(req: WalletRequest, label: string)
       return {
         type: WalletMessageType.RevealMnemonicResponse,
         mnemonic
+      };
+    }
+
+    case WalletMessageType.ExportWalletBackupMaterialRequest: {
+      const material = await Actions.exportWalletBackupMaterial(req.password);
+      return {
+        type: WalletMessageType.ExportWalletBackupMaterialResponse,
+        material
       };
     }
 

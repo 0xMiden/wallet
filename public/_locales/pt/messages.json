@@ -517,6 +517,26 @@
     "message": "Importar conta",
     "englishSource": "Import account"
   },
+  "accountName": {
+    "message": "Nome da conta",
+    "englishSource": "Account name"
+  },
+  "accountNameInputPlaceholder": {
+    "message": "por ex., Poupança",
+    "englishSource": "e.g. Savings"
+  },
+  "accountNameInputInvalid": {
+    "message": "Use de 1 a 16 caracteres e não comece com um espaço em branco ou hífen.",
+    "englishSource": "Use 1 to 16 characters and do not start with whitespace or a hyphen."
+  },
+  "privateKeyInputDescription": {
+    "message": "A chave privada da conta que você quer importar.",
+    "englishSource": "The private key of the account you want to import."
+  },
+  "privateKeyInputPlaceholder": {
+    "message": "por ex., APrivateKey1zkp...",
+    "englishSource": "e.g. APrivateKey1zkp..."
+  },
   "settings": {
     "message": "Configurações",
     "englishSource": "Settings"
@@ -812,8 +832,8 @@
     "englishSource": "I understand this key cannot be rotated or revoked."
   },
   "encryptedFileImportedAccountsOmitted": {
-    "message": "As contas importadas ($importedCount$) não serão incluídas neste arquivo. Para fazer o backup delas, exporte cada chave privada individualmente em Configurações → Revelar chave privada.",
-    "englishSource": "Imported accounts ($importedCount$) will not be included in this file. To back them up, export each private key individually from Settings → Reveal Private Key.",
+    "message": "Contas importadas ausentes deste arquivo de carteira antigo: $importedCount$. Restaure-as separadamente usando os backups das chaves privadas.",
+    "englishSource": "Imported accounts missing from this older wallet file: $importedCount$. Restore them separately from their private key backups.",
     "placeholders": {
       "importedcount": {
         "content": "$1"
@@ -2041,6 +2061,50 @@
     "message": "Recupere sua conta",
     "englishSource": "Recover your account"
   },
+  "chooseImportType": {
+    "message": "Escolha o seu tipo de importação",
+    "englishSource": "Choose Your Import Type"
+  },
+  "chooseImportTypeDescription": {
+    "message": "Restaure o equilíbrio público com sua frase de 12 palavras. Para restaurar fundos privados, carregue o arquivo de backup criptografado.",
+    "englishSource": "Restore public balance with your 12-word phrase. To restore private balance, upload an encrypted backup file."
+  },
+  "importWithSeedPhrase": {
+    "message": "Importar com frase-semente",
+    "englishSource": "Import with Seed Phrase"
+  },
+  "importWithSeedPhraseDescription": {
+    "message": "Use uma Seed Phrase existente de 12 palavras. Você também pode importar carteiras de outros fornecedores de carteiras.",
+    "englishSource": "Use an existing 12 word recovery phrase. You can also import wallets from other wallet providers."
+  },
+  "importWithEncryptedWalletFile": {
+    "message": "Importar com arquivo de carteira criptografado",
+    "englishSource": "Import with Encrypted Wallet File"
+  },
+  "importWithEncryptedWalletFileDescription": {
+    "message": "Carregue seu arquivo de carteira criptografado para importar sua conta com segurança. Seus dados permanecem privados, com apenas informações com hash armazenadas na cadeia",
+    "englishSource": "Upload your encrypted wallet file to securely import your account. Your data remains private, with only hashed information stored on-chain"
+  },
+  "chooseFromDevice": {
+    "message": "escolha do dispositivo",
+    "englishSource": "Choose from device"
+  },
+  "dragAndDropFile": {
+    "message": "Arraste e solte o arquivo ou",
+    "englishSource": "Drag and drop file or"
+  },
+  "jsonFileType": {
+    "message": ".JSON",
+    "englishSource": ".JSON"
+  },
+  "enterDecryptionPassword": {
+    "message": "Digite a senha que você definiu ao exportar sua carteira. Isso descriptografará o arquivo e restaurará o acesso.",
+    "englishSource": "Enter the password you set when exporting your wallet. This will decrypt the file and restore access."
+  },
+  "continueImport": {
+    "message": "Continuar importação",
+    "englishSource": "Continue Import"
+  },
   "chooseHowToProtect": {
     "message": "Escolha como você quer proteger sua carteira",
     "englishSource": "Choose how you want to protect your wallet"
@@ -2745,6 +2809,34 @@
     "message": "Digite uma senha para criptografar o arquivo da sua carteira.",
     "englishSource": "Enter a password to encrypt your wallet file."
   },
+  "encryptedWalletFileJsonOnly": {
+    "message": "Escolha um arquivo de carteira .JSON.",
+    "englishSource": "Choose a .JSON wallet file."
+  },
+  "encryptedWalletFileReadFailed": {
+    "message": "Não foi possível ler o arquivo da carteira. Escolha-o novamente.",
+    "englishSource": "The wallet file could not be read. Choose it again."
+  },
+  "encryptedWalletFileSelectOne": {
+    "message": "Escolha um arquivo de carteira para continuar.",
+    "englishSource": "Choose a wallet file to continue."
+  },
+  "encryptedWalletFileMalformed": {
+    "message": "Este arquivo de carteira é inválido ou está danificado.",
+    "englishSource": "This wallet file is invalid or damaged."
+  },
+  "encryptedWalletFileTooLarge": {
+    "message": "Esse arquivo é grande demais para ser um arquivo de carteira criptografado. Escolha o arquivo que você exportou desta carteira.",
+    "englishSource": "That file is too large to be an encrypted wallet file. Choose the file you exported from this wallet."
+  },
+  "encryptedWalletFileUnsupportedVersion": {
+    "message": "Este arquivo de carteira foi criado por uma versão mais recente do Bread. Atualize o Bread e tente novamente.",
+    "englishSource": "This wallet file was created by a newer version of Bread. Update Bread and try again."
+  },
+  "encryptedWalletFileRestoreFailed": {
+    "message": "Não foi possível restaurar a carteira. Verifique o armazenamento e tente novamente.",
+    "englishSource": "The wallet could not be restored. Check your storage and try again."
+  },
   "contacts": {
     "message": "Contatos",
     "englishSource": "Contacts"
@@ -2824,6 +2916,15 @@
   "encryptedWalletFileExportFailedDesc": {
     "message": "Não foi possível criar o arquivo da sua carteira, portanto nada foi salvo. Tente exportar novamente.",
     "englishSource": "Your wallet file could not be created, so nothing was saved. Please try exporting again."
+  },
+  "encryptedWalletFileExportFailedAccount": {
+    "message": "O arquivo da carteira criptografada não foi criado porque não foi possível fazer backup de $accountName$. Revele e salve a chave privada dessa conta em “Configurações”, depois remova-a e tente novamente.",
+    "englishSource": "The encrypted wallet file was not created because $accountName$ could not be backed up. Reveal and save that account’s private key from Settings, then remove it and try again.",
+    "placeholders": {
+      "accountname": {
+        "content": "$1"
+      }
+    }
   },
   "encryptedWalletFileNotSavedTitle": {
     "message": "Ainda não salvo",
