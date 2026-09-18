@@ -9,6 +9,8 @@ import { hapticLight } from 'lib/mobile/haptics';
 import { useCardColor } from 'lib/settings/card-color';
 import { CardColor } from 'lib/settings/constants';
 
+import { Skeleton } from './Skeleton';
+
 export type BalanceDeltaDirection = 'positive' | 'negative' | 'neutral';
 
 /* Card background per picked color — the card-* tokens resolve light/dark
@@ -56,8 +58,6 @@ export interface BalanceCardProps {
   state?: 'default' | 'loading' | 'zero' | 'hidden';
   className?: string;
 }
-
-const SKELETON_BLOCK = 'animate-pulse rounded-md bg-white/15';
 
 const AMOUNT_MAX_REM = 3.5;
 const AMOUNT_MIN_REM = 2.5;
@@ -162,7 +162,7 @@ export const BalanceCard: FC<BalanceCardProps> = ({
 
         <div ref={rowRef} className="mt-2.5 flex items-end gap-1 leading-none min-w-0">
           {isLoading ? (
-            <div className={classNames(SKELETON_BLOCK, 'h-12 w-48')} />
+            <Skeleton tone="inverse" className="h-12 w-48" />
           ) : (
             <div className="flex items-center gap-0.5 min-w-0">
               <span
