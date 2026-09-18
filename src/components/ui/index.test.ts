@@ -10,6 +10,7 @@
 import { AccountsDrawer } from './AccountsDrawer';
 import { ActivityRow } from './ActivityRow';
 import { AssetListItem } from './AssetListItem';
+import { Avatar } from './Avatar';
 import { BalanceCard } from './BalanceCard';
 import { BottomNav } from './BottomNav';
 import { EmptyState } from './EmptyState';
@@ -40,6 +41,7 @@ describe('components/ui barrel', () => {
   // compile-time only and never appear on the module object.
   const EXPECTED_COMPONENTS = {
     AccountsDrawer,
+    Avatar,
     Pill,
     BalanceCard,
     PromptCard,
