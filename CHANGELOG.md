@@ -81,6 +81,7 @@
 - [CHANGE][all] Settings: each section is a sentence-case label over a grey group of rows with dividers and a chevron (Language shows its current value beside it), in place of the round section icons, large headings and bare rows; the Networks page lists networks the same way with a check on the active one.
 - [CHANGE][all] Settings sections get their coloured icons back: each group heading again shows its round icon (security, preferences, about, developer) beside a larger title, over the grey row groups.
 - [CHANGE][all] Send flow: the contact picker is titled Address Book and opens with a search over names and addresses, then your accounts and your contacts in separate sections. Contacts show their network (Miden, or a `0x` contact's destination such as Sepolia) and your accounts show Public or Private beside the shortened address, in place of the "External" label.
+- [CHANGE][all] One `EmptyState` for every "nothing here" message: a `fill` card with a 56px icon circle, title and optional body, and an optional secondary action. Contacts' empty list, the pending-notes summary, the Activity list and the QR scanner's no-camera state now share it.
 
 ## 1.16.1 (2026-09-15)
 
