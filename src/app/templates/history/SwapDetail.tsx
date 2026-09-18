@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
+import { DetailRow } from 'components/ui/DetailCard';
 import { springs, useMotion } from 'lib/animation';
 import { SwapOrderState, SwapSettlementTransaction } from 'lib/miden/activity';
 import { ITransactionStatus } from 'lib/miden/db/types';
@@ -13,11 +14,12 @@ import { getExplorerTxUrl } from 'lib/miden-chain/constants';
 import { formatAmount } from 'lib/shared/format';
 
 import HashChip from '../HashChip';
-import { DetailCard, DetailRow, ExternalLinkValue, StatusPill } from './DetailCard';
+import { DetailSection } from './DetailSection';
 import { IHistoryEntry } from './IHistoryEntry';
 import { deliveredRequestedToken } from './swapReceipt';
 import { TransactionFailureCard } from './TransactionFailureCard';
 import TransactionIcon from './TransactionIcon';
+import { ExternalLinkValue, StatusPill } from './TransactionStatus';
 import { formatDate } from './transactionUtils';
 
 interface SwapDetailProps {
@@ -438,10 +440,8 @@ export const SwapDetail: FC<SwapDetailProps> = ({
 
         <section className="mt-6 pb-2">
           <div className="mb-5 h-1 w-full rounded-full bg-tx-swap" />
-          <DetailCard title={t('transferDetails')}>
-            <DetailRow label={t('date')}>
-              <span className="text-sm font-medium text-text-primary-token">{formatDate(entry.timestamp)}</span>
-            </DetailRow>
+          <DetailSection title={t('transferDetails')}>
+            <DetailRow label={t('date')}>{formatDate(entry.timestamp)}</DetailRow>
             {entry.externalTxId && (
               <DetailRow label={t('txIdLabel')}>
                 <ExplorerTxValue txId={entry.externalTxId} />
@@ -450,20 +450,14 @@ export const SwapDetail: FC<SwapDetailProps> = ({
             {/* The generic detail card renders this for every other type; swap took a
                 specialised branch and so was the one history view that dropped it.
                 `entry.fee` is already resolved by the caller. */}
-            {entry.fee && (
-              <DetailRow label={t('networkFee')}>
-                <span className="text-sm font-medium text-heading-gray">{entry.fee}</span>
-              </DetailRow>
-            )}
-            <DetailRow label={t('from')} isLast={consumeTransactions.length === 0}>
-              {fromAccount}
-            </DetailRow>
+            {entry.fee && <DetailRow label={t('networkFee')}>{entry.fee}</DetailRow>}
+            <DetailRow label={t('from')}>{fromAccount}</DetailRow>
             {consumeTransactions.map((transaction, index) => {
               const label =
                 consumeTransactions.length === 1 ? t('consumeTxId') : t('consumeTxIdNumber', { number: index + 1 });
 
               return (
-                <DetailRow key={transaction.id} label={label} isLast={index === consumeTransactions.length - 1}>
+                <DetailRow key={transaction.id} label={label}>
                   <ExplorerTxValue
                     txId={transaction.transactionId ?? transaction.id}
                     onChain={transaction.transactionId !== undefined}
@@ -471,7 +465,7 @@ export const SwapDetail: FC<SwapDetailProps> = ({
                 </DetailRow>
               );
             })}
-          </DetailCard>
+          </DetailSection>
         </section>
       </div>
 
