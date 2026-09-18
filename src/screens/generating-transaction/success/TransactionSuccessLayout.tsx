@@ -5,7 +5,6 @@ import { useTranslation } from 'react-i18next';
 
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import { Button, ButtonVariant } from 'components/Button';
-import { ACCENT_CLASSES, FlowAccent } from 'components/flow/accent';
 import { FlowLayout } from 'components/flow/FlowLayout';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import { ITransaction } from 'lib/miden/db/types';
@@ -139,11 +138,7 @@ export const SuccessSummaryPill: FC<{ lhs?: ReactNode; rhs?: ReactNode; separato
 }) => <TransactionSummaryBadge lhs={lhs} rhs={rhs} separator={separator} className="mt-1" />;
 
 /** Key/value receipt rows, as the shared compact details card. Renders nothing when there are no rows. */
-export const ReceiptRows: FC<{ rows: ReceiptRow[]; className?: string; accent?: FlowAccent }> = ({
-  rows,
-  className,
-  accent = 'brand'
-}) => {
+export const ReceiptRows: FC<{ rows: ReceiptRow[]; className?: string }> = ({ rows, className }) => {
   if (rows.length === 0) return null;
 
   return (
@@ -155,10 +150,10 @@ export const ReceiptRows: FC<{ rows: ReceiptRow[]; className?: string; accent?: 
               type="button"
               aria-label={row.actionLabel}
               onClick={row.onClick}
-              className={classNames(
-                'min-w-0 bg-transparent p-0 text-right font-heading font-bold underline-offset-2 hover:underline',
-                ACCENT_CLASSES[accent].text
-              )}
+              // `accent-tint-ink` — same as `DetailRow`'s own inline action — is the
+              // accent pair that actually clears 4.5:1 on `fill`; the flow's own
+              // accent (e.g. `accent-send`) sat at ~2:1 here.
+              className="min-w-0 bg-transparent p-0 text-right font-heading font-bold text-accent-tint-ink underline-offset-2 hover:underline"
             >
               {row.value}
             </button>

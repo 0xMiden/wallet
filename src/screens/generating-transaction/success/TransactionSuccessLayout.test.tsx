@@ -57,16 +57,16 @@ it('keeps the body title one level below a titled header', () => {
   expect(screen.getByRole('heading', { level: 2, name: 'Transaction Complete!' })).toBeInTheDocument();
 });
 
-// The rows are what a receipt actually colours: the layout's frame reads an accent only for a back
-// button it never renders. Asserting the accent HERE, where it has an observable effect, is what
-// pins the plumbing the three receipts rely on - an absence assertion on the layout could not fail.
-it('colours the clickable row value with the flow accent, and brand by default', () => {
+// The flow's own accent (e.g. `accent-send`) sits at ~2:1 on `fill` — under AA
+// for text (Rule 6). `accent-tint-ink` is the accent pair that actually clears
+// 4.5:1 there, so every clickable row value uses it regardless of flow.
+it('colours the clickable row value with accent-tint-ink, never the flow accent', () => {
   const row = { label: 'Transaction ID', value: '0xabc', onClick: jest.fn(), actionLabel: 'View on Midenscan' };
-  const { rerender } = render(<ReceiptRows accent="send" rows={[row]} />);
-  expect(screen.getByRole('button', { name: 'View on Midenscan' })).toHaveClass('text-accent-send');
+  render(<ReceiptRows rows={[row]} />);
 
-  rerender(<ReceiptRows rows={[row]} />);
-  expect(screen.getByRole('button', { name: 'View on Midenscan' })).toHaveClass('text-primary-500');
+  const value = screen.getByRole('button', { name: 'View on Midenscan' });
+  expect(value).toHaveClass('text-accent-tint-ink');
+  expect(value.className).not.toMatch(/text-accent-(send|receive|earn|swap)\b/);
 });
 
 // One element owns the gap: the card takes its margin from its caller. While an empty spacer sat
