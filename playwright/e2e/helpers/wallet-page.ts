@@ -1,4 +1,5 @@
 import { expect, type Page } from '@playwright/test';
+import { IS_LOCALNET } from '../config/environments';
 
 import { encodePrivateKeyPair, parsePrivateKeyPair } from '../../../src/lib/miden/guardian/private-key-pair';
 
@@ -38,7 +39,7 @@ const SYNC_WAIT_MS = 3_500;
  * runs — at 420s the local suite stopped finishing inside its 75-minute cap, which
  * cost the very diagnostics a failing run exists to produce.
  */
-const LOCAL_STACK_CLAIM_FLOOR_MS = process.env.E2E_NETWORK === 'localhost' ? 240_000 : 0;
+const LOCAL_STACK_CLAIM_FLOOR_MS = IS_LOCALNET ? 240_000 : 0;
 
 /** The budget a claim drain should actually use — see {@link LOCAL_STACK_CLAIM_FLOOR_MS}. */
 const effectiveClaimBudgetMs = (requested: number): number => Math.max(requested, LOCAL_STACK_CLAIM_FLOOR_MS);

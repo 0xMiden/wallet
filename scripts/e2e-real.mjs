@@ -19,11 +19,9 @@
  */
 
 import { spawn } from 'node:child_process';
-import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
-const require = createRequire(import.meta.url);
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 const DEFAULT_EPOCH_URL = 'https://testnet-dev.epochprotocol.xyz';
@@ -43,7 +41,11 @@ const MIDEN_RPC = {
   testnet: 'https://rpc.testnet.miden.io',
   devnet: 'https://rpc.devnet.miden.io'
 };
-/** Mirrors `guardianUrl` in playwright/e2e/config/environments.ts. */
+/**
+ * The hosted guardian per network, for the preflight probe only. Mirrors
+ * `guardianUrl` in playwright/e2e/config/environments.ts, which is what the spec
+ * itself reads - this copy exists because the probe runs before Playwright does.
+ */
 const GUARDIAN_URL = {
   testnet: 'https://guardian.openzeppelin.com',
   devnet: 'https://guardian-stg.openzeppelin.com'
@@ -53,44 +55,46 @@ const MIDEN_FAUCET_API = {
   devnet: 'https://faucet-api.devnet.miden.io'
 };
 
-/**
- * `needsEvmKey` marks a suite whose EVM leg is SIGNED by the test (a Compact
- * deposit, a 7702 delegation). Bridge-out is solver-fulfilled - the wallet
- * signs nothing on EVM - so those suites need no key and no gas at all.
- */
-const SUITES = {
+export const SUITES = {
   'bridge-out-epoch': {
     config: 'playwright.bridge.config.ts',
     grep: 'Fast Epoch',
-    needsEvmKey: false,
+    probes: ['epoch', 'sepolia'],
+    // Its single test mints a faucet and triggers a live solver fill, then polls
+    // settlement for 300s. A retry is not a free second look - it spends the
+    // fill again, so a timing flake must not buy one.
+    retries: 0,
     describe: 'Miden testnet -> hosted Epoch solver -> real Sepolia USDC'
   },
   'bridge-out-agglayer': {
     config: 'playwright.bridge.config.ts',
     grep: 'Slow AggLayer',
-    needsEvmKey: false,
+    // No epoch: this route never asks the solver anything, so an Epoch refusal
+    // must not decide whether an AggLayer run happens.
+    probes: ['sepolia'],
     describe: 'Miden testnet -> real AggLayer bridge (Miden leg asserted)'
   },
   'bridge-out': {
     config: 'playwright.bridge.config.ts',
     grep: 'bridge-out',
-    needsEvmKey: false,
+    probes: ['epoch', 'sepolia'],
+    retries: 0, // includes the Epoch route; see bridge-out-epoch.
     describe: 'both bridge-out routes'
   },
   swap: {
     config: 'playwright.swap.config.ts',
+    probes: ['dex'],
     // The guardian scenario is excluded by default: it is the one swap spec that
     // needs a co-signer, and on testnet that means a third party's hosted
     // guardian rather than the container the PR job boots. `swap-guardian` runs
     // it on its own, so a guardian outage cannot red the whole swap suite.
     grepInvert: 'guardian maker',
-    needsEvmKey: false,
     describe: 'in-protocol DEX (PSWAP) fills on public Miden testnet'
   },
   'swap-guardian': {
     config: 'playwright.swap.config.ts',
     grep: 'guardian maker',
-    needsEvmKey: false,
+    probes: ['dex', 'guardian'],
     describe: 'a guardian-co-signed PSWAP maker order against a hosted testnet guardian'
   }
 };
@@ -103,7 +107,7 @@ the hosted Epoch solver, the AggLayer bridge, Sepolia, and public Miden testnet.
 
 Suites
 ${Object.entries(SUITES)
-  .map(([name, s]) => `  ${name.padEnd(21)} ${s.describe}${s.needsEvmKey ? '  [needs --sepolia-key]' : ''}`)
+  .map(([name, s]) => `  ${name.padEnd(21)} ${s.describe}`)
   .join('\n')}
 
 Options
@@ -115,8 +119,6 @@ Options
   --sepolia-key <0x...>     funded Sepolia EOA key, for suites with a signed EVM leg
                             (env: E2E_SEPOLIA_PRIVATE_KEY)
   --min-eth <amount>        preflight gas floor in ether (default: 0.02)
-  --mint-usdc <amount>      top the key's test USDC up to this, in whole USDC
-                            (default: 100; the token mints permissionlessly)
   --preflight-only          probe the services and exit; build and run nothing
   --skip-build              reuse the existing dist/ (it must match --network)
   --headed                  run the browser headed
@@ -125,8 +127,8 @@ Options
 
 No suite here is secret-gated. Bridge-out is solver-fulfilled and swap is
 Miden-side, so neither signs on EVM and neither needs a key; --sepolia-key is
-accepted so a funded account can be checked (gas, and a permissionless test-USDC
-top-up) ahead of a suite that does sign. Bridge-IN would be that suite, and it
+accepted so a funded account's gas and test-USDC balance can be READ ahead of a
+suite that does sign. Bridge-IN would be that suite, and it
 is not here: it cannot run on the extension, whose COEP isolation for the WASM
 prover blocks WalletConnect's cross-origin requests.
 `;
@@ -142,7 +144,6 @@ function parseArgs(argv) {
     sepoliaRpc: process.env.E2E_SEPOLIA_RPC_URL ?? DEFAULT_SEPOLIA_RPC,
     sepoliaKey: process.env.E2E_SEPOLIA_PRIVATE_KEY,
     minEth: '0.02',
-    mintUsdc: '100',
     preflightOnly: false,
     skipBuild: false,
     headed: false,
@@ -156,7 +157,6 @@ function parseArgs(argv) {
     '--sepolia-rpc': 'sepoliaRpc',
     '--sepolia-key': 'sepoliaKey',
     '--min-eth': 'minEth',
-    '--mint-usdc': 'mintUsdc',
     '--grep': 'grep'
   };
   for (let i = 0; i < argv.length; i++) {
@@ -174,6 +174,31 @@ function parseArgs(argv) {
   return opts;
 }
 
+/**
+ * Retries for a suite. One by default, to absorb a transient blip on shared
+ * infrastructure - but zero for a suite whose test performs a non-idempotent
+ * real-money mutation, where a retry spends it again.
+ */
+export function suiteRetries(suite) {
+  return suite.retries ?? 1;
+}
+
+/**
+ * Combine the suite's own route filter with an operator `--grep` into a single
+ * pattern that requires BOTH.
+ *
+ * Playwright collapses repeated `--grep` to the last one, so the two cannot be
+ * passed as separate flags: the suite's filter would be discarded without a
+ * word, and a narrowing flag would silently widen the run onto specs that spend
+ * real money. Lookaheads match anywhere in the title, which is what each pattern
+ * did on its own.
+ */
+export function composeGrep(suiteGrep, userGrep) {
+  if (!suiteGrep) return userGrep;
+  if (!userGrep) return suiteGrep;
+  return `(?=.*${suiteGrep})(?=.*${userGrep})`;
+}
+
 function fail(message) {
   console.error(`\n✗ ${message}\n`);
   process.exit(1);
@@ -187,6 +212,17 @@ function record(ok, label, detail) {
   results.push({ ok, label, detail });
   console.log(`  ${ok ? '✓' : '✗'} ${label.padEnd(34)} ${detail}`);
   return ok;
+}
+
+/**
+ * Report something the run does not depend on.
+ *
+ * An advisory probe cannot fail the preflight, so counting it among the checks
+ * would inflate a number whose only meaning is "things that can stop the run".
+ * These print with a different marker and stay out of `results`.
+ */
+function note(label, detail) {
+  console.log(`  · ${label.padEnd(34)} ${detail}`);
 }
 
 /**
@@ -213,7 +249,7 @@ async function getJson(url, init = {}, timeoutMs = 20_000) {
 }
 
 async function rpc(url, method, params, timeoutMs = 20_000) {
-  const { body } = await getJson(
+  const { status, body } = await getJson(
     url,
     {
       method: 'POST',
@@ -222,8 +258,16 @@ async function rpc(url, method, params, timeoutMs = 20_000) {
     },
     timeoutMs
   );
+  if (status !== 200) throw new Error(`${method}: HTTP ${status}`);
   if (body?.error) throw new Error(`${method}: ${body.error.message ?? JSON.stringify(body.error)}`);
-  return body?.result;
+  // An absent `result` is not an empty answer, it is a reply this code could not
+  // read - a proxy error page, a rate-limit body. Returning undefined let
+  // probeSepoliaContracts measure `String(undefined)` as 3.5 bytes of contract
+  // and pass, and let probeSepolia report "head #NaN" as a success.
+  if (body === null || typeof body !== 'object' || !('result' in body)) {
+    throw new Error(`${method}: reply carried no result`);
+  }
+  return body.result;
 }
 
 async function probeMidenNode(network) {
@@ -273,16 +317,31 @@ async function probeEpochGasless(epochUrl) {
     const { body } = await getJson(`${epochUrl}/gasless-status`);
     const chains = body?.supportedChainIds ?? [];
     const ok = body?.enabled === true && chains.includes(SEPOLIA_CHAIN_ID);
-    // Informational: only the signed-EVM-leg suites care, and they can still run
-    // by paying their own gas.
-    return record(
-      true,
+    return note(
       'Epoch gasless relayer',
       ok ? `enabled for Sepolia (${body.relayerAddress})` : 'not available for Sepolia'
     );
   } catch (err) {
-    return record(true, 'Epoch gasless relayer', `unknown: ${err.message}`);
+    return note('Epoch gasless relayer', `unknown: ${err.message}`);
   }
+}
+
+/**
+ * The priced output amount in a quote reply, or undefined when there is none.
+ *
+ * Exported for test: a reply can be `success: true` and still carry no route, or
+ * carry a zero amount, and neither is a quote this gate should pass.
+ */
+export function pricedAmountFrom(res) {
+  const raw = res?.path?.[0]?.[0]?.[2]?.[1]?.token?.amount;
+  if (raw === undefined || raw === null) return undefined;
+  let value;
+  try {
+    value = BigInt(raw);
+  } catch {
+    return undefined;
+  }
+  return value > 0n ? raw : undefined;
 }
 
 /**
@@ -297,7 +356,17 @@ async function probeEpochGasless(epochUrl) {
  * bundler) without weakening what is being asserted.
  */
 async function probeEpochQuote(epochUrl, faucetId) {
-  const { ARBITER_ADDRESS } = require('@epoch-protocol/epoch-commons-sdk/dist/constants/contractAddresses.js');
+  // Loaded inside the try with every other failure mode: this is a deep subpath
+  // of a sub-1.0 dependency, and a resolution failure here must read as one
+  // failed check, not as an exception that kills the preflight before any
+  // check prints.
+  let ARBITER_ADDRESS;
+  try {
+    ({ ARBITER_ADDRESS } = await import('@epoch-protocol/epoch-commons-sdk/dist/constants/contractAddresses.js'));
+  } catch (err) {
+    return record(false, 'Epoch live quote', `epoch-commons-sdk did not load: ${err.message}`);
+  }
+
   const ZERO_ADDRESS = `0x${'0'.repeat(40)}`;
   const ZERO_HASH = `0x${'0'.repeat(64)}`;
   const NOMINAL_EOA = `0x${'1'.repeat(40)}`;
@@ -355,9 +424,20 @@ async function probeEpochQuote(epochUrl, faucetId) {
         `declined (HTTP ${status}): ${res?.code ?? ''} ${res?.error ?? JSON.stringify(res).slice(0, 160)}`
       );
     }
-    const leg = res?.path?.[0]?.[0]?.[2];
-    const out = leg?.[1]?.token?.amount;
+    // success:true with no priced leg is not a quote. The point of this gate is
+    // that the solver will PRICE the intent, so an absent, unparseable or zero
+    // amount fails it. The parse lives in pricedAmountFrom so it is testable -
+    // an earlier pass added that helper and left this caller on its own inline
+    // copy, which made the helper's tests prove nothing about this gate.
+    const out = pricedAmountFrom(res);
     const filler = res?.path?.[0]?.[0]?.[1]?.[0]?.name;
+    if (out === undefined) {
+      return record(
+        false,
+        'Epoch live quote',
+        `answered success but carried no priced route: ${JSON.stringify(res).slice(0, 160)}`
+      );
+    }
     return record(true, 'Epoch live quote', `1.0 in -> ${formatUnits(out, 18)} USDC out via ${filler ?? 'solver'}`);
   } catch (err) {
     return record(false, 'Epoch live quote', `request failed: ${err.message}`);
@@ -388,7 +468,7 @@ async function probeSwapQuoteService() {
     offered = AccountId.fromBech32('mtst1arqxg9er3xclayt95nud82jnpggl9azj').toString();
     requested = AccountId.fromBech32('mtst1arvdwvzllvg3s5fzjle7nkljeuhkcufr').toString();
   } catch (err) {
-    return record(true, 'DEX quote service', `not checked (SDK load failed: ${err.message})`);
+    return note('DEX quote service', `not checked (SDK load failed: ${err.message})`);
   }
 
   try {
@@ -400,12 +480,12 @@ async function probeSwapQuoteService() {
     });
     const { status, body } = await getJson(`${BASE}/v1/swap-eta?${query}`);
     if (status !== 200) {
-      return record(true, 'DEX quote service', `degraded: HTTP ${status} (the suite does not use it)`);
+      return note('DEX quote service', `degraded: HTTP ${status} (the suite does not use it)`);
     }
     const fill = body?.canFill ? `fillable, eta ${body.estimatedSeconds}s` : 'priced, no filler offering';
-    return record(true, 'DEX quote service', `${fill}, price ${body?.marketPrice}`);
+    return note('DEX quote service', `${fill}, price ${body?.marketPrice}`);
   } catch (err) {
-    return record(true, 'DEX quote service', `unreachable: ${err.message} (the suite does not use it)`);
+    return note('DEX quote service', `unreachable: ${err.message} (the suite does not use it)`);
   }
 }
 
@@ -414,7 +494,11 @@ async function probeSwapQuoteService() {
  * that spec cannot do anything without it.
  */
 async function probeGuardian(network) {
-  const url = GUARDIAN_URL[network];
+  // Resolve exactly as swap-guardian.spec.ts does, so the preflight cannot
+  // approve one operator while the run uses another.
+  // `??`, not `||`: the spec uses `??`, and the two diverge on an empty-string
+  // override - which would have the preflight approve a host the run never uses.
+  const url = process.env.GUARDIAN_URL ?? GUARDIAN_URL[network];
   if (!url) return record(false, 'Guardian', `no hosted guardian known for network "${network}"`);
   try {
     const res = await fetch(url, { headers: { 'user-agent': UA }, signal: AbortSignal.timeout(15_000) });
@@ -462,12 +546,12 @@ async function probeSepoliaContracts(sepoliaRpc) {
   return record(true, 'Sepolia contracts', sizes.join(', '));
 }
 
-async function probeFundedKey(sepoliaRpc, privateKey, minEth, mintUsdcTarget) {
+async function probeFundedKey(sepoliaRpc, privateKey, minEth) {
   let viem;
   let accounts;
   try {
-    viem = require('viem');
-    accounts = require('viem/accounts');
+    viem = await import('viem');
+    accounts = await import('viem/accounts');
   } catch (err) {
     return record(false, 'Sepolia funded key', `viem not resolvable: ${err.message}`);
   }
@@ -479,7 +563,12 @@ async function probeFundedKey(sepoliaRpc, privateKey, minEth, mintUsdcTarget) {
     return record(false, 'Sepolia funded key', 'not a valid private key (expect 32 bytes hex)');
   }
 
-  const wei = BigInt(await rpc(sepoliaRpc, 'eth_getBalance', [account.address, 'latest']));
+  let wei;
+  try {
+    wei = BigInt(await rpc(sepoliaRpc, 'eth_getBalance', [account.address, 'latest']));
+  } catch (err) {
+    return record(false, 'Sepolia gas', `could not read ${account.address}: ${err.message}`);
+  }
   const floor = viem.parseEther(minEth);
   if (wei < floor) {
     return record(
@@ -490,45 +579,21 @@ async function probeFundedKey(sepoliaRpc, privateKey, minEth, mintUsdcTarget) {
   }
   record(true, 'Sepolia gas', `${account.address} holds ${formatUnits(wei, 18)} ETH`);
 
-  // The route's USDC mints permissionlessly, so a low balance is a top-up, not
-  // a blocker - top up rather than telling the operator to go and find some.
-  const balance = BigInt(
-    await rpc(sepoliaRpc, 'eth_call', [
-      { to: SEPOLIA_USDC, data: `0x70a08231${account.address.slice(2).padStart(64, '0')}` },
-      'latest'
-    ])
-  );
-  const target = viem.parseUnits(mintUsdcTarget, 18);
-  if (balance >= target) {
-    return record(true, 'Sepolia test USDC', `${formatUnits(balance, 18)} USDC (target ${mintUsdcTarget})`);
-  }
-
+  // Reported, never topped up. A preflight observes; it does not write. The
+  // route's USDC does mint permissionlessly, so a suite that needs a balance can
+  // mint its own - but no suite here signs on EVM, so minting during preflight
+  // would be an external mutation with no consumer.
+  // C-10: advisory. This can never gate a run, so it is a note(), not a record().
   try {
-    const wallet = viem.createWalletClient({
-      account,
-      chain: { ...require('viem/chains').sepolia, rpcUrls: { default: { http: [sepoliaRpc] } } },
-      transport: viem.http(sepoliaRpc)
-    });
-    const hash = await wallet.writeContract({
-      address: SEPOLIA_USDC,
-      abi: [
-        {
-          type: 'function',
-          name: 'mint',
-          stateMutability: 'nonpayable',
-          inputs: [
-            { name: 'to', type: 'address' },
-            { name: 'amount', type: 'uint256' }
-          ],
-          outputs: []
-        }
-      ],
-      functionName: 'mint',
-      args: [account.address, target - balance]
-    });
-    return record(true, 'Sepolia test USDC', `minted up to ${mintUsdcTarget} USDC (tx ${hash.slice(0, 12)}…)`);
+    const balance = BigInt(
+      await rpc(sepoliaRpc, 'eth_call', [
+        { to: SEPOLIA_USDC, data: `0x70a08231${account.address.slice(2).padStart(64, '0')}` },
+        'latest'
+      ])
+    );
+    return note('Sepolia test USDC', `${formatUnits(balance, 18)} USDC held`);
   } catch (err) {
-    return record(false, 'Sepolia test USDC', `mint failed: ${String(err.message).split('\n')[0]}`);
+    return note('Sepolia test USDC', `not read: ${err.message}`);
   }
 }
 
@@ -544,10 +609,45 @@ function formatUnits(value, decimals) {
 
 // ── run ─────────────────────────────────────────────────────────────────────
 
-function run(command, args, env) {
+export function run(command, args, env) {
   return new Promise(resolve => {
     const child = spawn(command, args, { cwd: REPO_ROOT, stdio: 'inherit', env: { ...process.env, ...env } });
-    child.on('close', code => resolve(code ?? 1));
+
+    // 'error' fires INSTEAD of 'close' when the spawn itself fails, so a
+    // listener on 'close' alone leaves this promise pending forever and hangs
+    // the script on something as ordinary as yarn not being on PATH.
+    let settled = false;
+    const finish = code => {
+      if (settled) return;
+      settled = true;
+      resolve(code ?? 1);
+    };
+
+    // No signal forwarding, deliberately, and this is a decision not an omission.
+    //
+    // Cancelling the wrapper can orphan the child tree when the signal is sent to
+    // this PID alone (`kill <pid>`); a tty's Ctrl-C reaches the whole foreground
+    // process group and does not have that problem. Forwarding it correctly needs
+    // `detached: true` plus `process.kill(-pid)` so the signal reaches the
+    // grandchildren (Playwright's workers and browsers), which changes this
+    // wrapper's job-control and stdio semantics.
+    //
+    // Four attempts to do it without that were each found broken by review: a
+    // one-shot handler that suppressed node's default exit; an escalation that
+    // killed only the launcher and exited; a removal that dropped SIGINT and
+    // SIGTERM together; and a `once` version that leaves the next child unarmed
+    // and still cannot reach grandchildren. It is a developer convenience, not a
+    // correctness property of any test, so it is tracked as a follow-up rather
+    // than guessed at again. To be exact about the baseline: this wrapper is new
+    // in this change, so there is no prior behaviour to regress from - what is
+    // true is that no test's correctness depends on cancellation, and each
+    // attempt so far has been worse than none.
+
+    child.on('error', err => {
+      console.error(`✗ could not start ${command}: ${err.message}`);
+      finish(1);
+    });
+    child.on('close', finish);
   });
 }
 
@@ -561,16 +661,11 @@ async function main() {
   const suite = SUITES[opts.suite];
   if (!suite) fail(`unknown suite "${opts.suite}". One of: ${Object.keys(SUITES).join(', ')}`);
   if (!MIDEN_RPC[opts.network]) fail(`--network must be one of: ${Object.keys(MIDEN_RPC).join(', ')}`);
-  if (suite.needsEvmKey && !opts.sepoliaKey) {
-    fail(`suite "${opts.suite}" signs on EVM, so it needs --sepolia-key (or E2E_SEPOLIA_PRIVATE_KEY)`);
-  }
 
   console.log(`\nSuite    ${opts.suite} - ${suite.describe}`);
   console.log(`Network  ${opts.network}`);
-  if (suite.config === 'playwright.bridge.config.ts') {
-    console.log(`Epoch    ${opts.epochUrl}`);
-    console.log(`Sepolia  ${opts.sepoliaRpc}`);
-  }
+  if (suite.probes?.includes('epoch')) console.log(`Epoch    ${opts.epochUrl}`);
+  if (suite.probes?.includes('sepolia')) console.log(`Sepolia  ${opts.sepoliaRpc}`);
   console.log('');
   console.log('Preflight');
 
@@ -580,22 +675,32 @@ async function main() {
   await probeMidenNode(opts.network);
   await probeMidenFaucet(opts.network);
 
-  if (suite.config === 'playwright.bridge.config.ts') {
+  // Keyed on what the suite actually talks to, not on which Playwright config it
+  // happens to share: both bridge routes use one config, but only the Epoch route
+  // asks the solver anything.
+  const needs = suite.probes ?? [];
+  if (needs.includes('epoch')) {
     await probeEpochHealth(opts.epochUrl);
-    await probeEpochGasless(opts.epochUrl);
     // The spec mints a throwaway faucet per run, so the probe asks about one too:
     // it must reflect what the suite will actually request, not a friendlier token.
     await probeEpochQuote(opts.epochUrl, '0xabcdefabcdefabcdefabcdefabcdef');
+  }
+  if (needs.includes('sepolia')) {
     await probeSepolia(opts.sepoliaRpc);
     await probeSepoliaContracts(opts.sepoliaRpc);
   }
-
-  if (suite.config === 'playwright.swap.config.ts') {
-    await probeSwapQuoteService();
-    if (suite.grep === 'guardian maker') await probeGuardian(opts.network);
+  if (needs.includes('guardian')) await probeGuardian(opts.network);
+  // Only for a suite that actually talks to Sepolia: a key handed to a swap run
+  // must not make Sepolia's availability decide whether that run happens.
+  if (needs.includes('sepolia') && opts.sepoliaKey) {
+    await probeFundedKey(opts.sepoliaRpc, opts.sepoliaKey, opts.minEth);
   }
 
-  if (opts.sepoliaKey) await probeFundedKey(opts.sepoliaRpc, opts.sepoliaKey, opts.minEth, opts.mintUsdc);
+  // Advisory, printed with `·` and never counted: these report services the
+  // PRODUCT depends on and main CI never touches, but no suite here asks them
+  // anything, so neither may decide whether a run happens.
+  if (needs.includes('epoch')) await probeEpochGasless(opts.epochUrl);
+  if (needs.includes('dex')) await probeSwapQuoteService();
 
   const failed = results.filter(r => !r.ok);
   console.log('');
@@ -610,10 +715,10 @@ async function main() {
   const env = {
     E2E_NETWORK: opts.network,
     E2E_REAL_EPOCH: 'true',
-    // swap-guardian reads GUARDIAN_URL directly and falls back to the local
-    // container, which is not running on a testnet; point it at the network's
-    // own hosted guardian so the fallback is never the thing under test.
-    ...(GUARDIAN_URL[opts.network] ? { GUARDIAN_URL: GUARDIAN_URL[opts.network] } : {}),
+    // GUARDIAN_URL is deliberately NOT injected: swap-guardian.spec.ts resolves
+    // it from the run's own environment record, so injecting it here would make
+    // this table a second owner of the same fact. The table below stays because
+    // probeGuardian reads it to decide what to probe.
     EPOCH_ALLOCATOR_URL: opts.epochUrl,
     EPOCH_POSITIONS_URL: opts.epochPositionsUrl,
     E2E_SEPOLIA_RPC_URL: opts.sepoliaRpc,
@@ -632,20 +737,30 @@ async function main() {
     }
   }
 
-  const args = ['playwright', 'test', '--config', suite.config, '--retries=1'];
-  if (suite.grep) args.push('--grep', suite.grep);
+  const args = ['playwright', 'test', '--config', suite.config, `--retries=${suiteRetries(suite)}`];
+  // ONE --grep, always. Playwright keeps only the last one it is given, so
+  // passing the suite's filter and the operator's as two flags silently drops
+  // the suite's - and `--suite bridge-out-agglayer --grep 'Fast Epoch'` would
+  // then run the real-money Epoch spec the suite exists to exclude. Lookaheads
+  // are how two patterns become one that requires both.
+  const grep = composeGrep(suite.grep, opts.grep);
+  if (grep) args.push('--grep', grep);
   if (suite.grepInvert) args.push('--grep-invert', suite.grepInvert);
-  if (opts.grep) args.push('--grep', opts.grep);
   if (opts.headed) args.push('--headed');
 
   console.log(`\nRunning: yarn ${args.join(' ')}\n`);
   return run('yarn', args, env);
 }
 
-main().then(
-  code => process.exit(code),
-  err => {
-    console.error(err);
-    process.exit(1);
-  }
-);
+// Only when run as a command. Importing this file (a test does) must not start a
+// preflight - the same guard scripts/validate-update-manifest.mjs uses.
+const invokedPath = process.argv[1] ? path.resolve(process.argv[1]) : '';
+if (invokedPath === fileURLToPath(import.meta.url)) {
+  main().then(
+    code => process.exit(code),
+    err => {
+      console.error(err);
+      process.exit(1);
+    }
+  );
+}

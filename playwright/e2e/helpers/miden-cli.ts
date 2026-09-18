@@ -2,6 +2,8 @@ import { execSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 
+import { coerce } from 'semver';
+
 import { mintFromPublicFaucet, publicFaucetApiUrl } from './public-faucet';
 import type { CLIRunner } from '../harness/cli-runner';
 import type { CLIInvocation, EnvironmentConfig } from '../harness/types';
@@ -68,8 +70,9 @@ export function isTransientCliError(stderr: string): boolean {
  * So: pull the whole semver token, prerelease and all, and compare it outright.
  */
 export function reportedVersionMatches(reported: string, pinned: string): boolean {
-  const token = reported.match(/\b\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?/)?.[0];
-  return token === pinned;
+  // `includePrerelease` is the whole point: without it coerce() drops the `-rc.5`
+  // and an rc build reads as the stable pin, which is the bug this guards.
+  return coerce(reported, { includePrerelease: true })?.version === pinned;
 }
 
 /**
