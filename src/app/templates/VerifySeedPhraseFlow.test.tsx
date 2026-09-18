@@ -107,8 +107,8 @@ jest.mock('components/Button', () => ({
   ButtonVariant: { Primary: 'Primary', Secondary: 'Secondary' }
 }));
 
-jest.mock('components/NavigationHeader', () => ({
-  NavigationHeader: ({ title, onBack }: { title: string; onBack?: () => void }) => (
+jest.mock('components/PageHeader', () => ({
+  PageHeader: ({ title, onBack }: { title: string; onBack?: () => void }) => (
     <div>
       <span data-testid="nav-title">{title}</span>
       {onBack ? (

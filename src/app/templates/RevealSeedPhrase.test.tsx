@@ -98,9 +98,9 @@ jest.mock('app/icons/v2', () => ({
   IconName: { CheckboxCircleFill: 'CheckboxCircleFill', FileCopy: 'FileCopy' }
 }));
 
-jest.mock('components/NavigationHeader', () => ({
+jest.mock('components/PageHeader', () => ({
   __esModule: true,
-  NavigationHeader: (props: { title?: string; onBack?: () => void }) => (
+  PageHeader: (props: { title?: string; onBack?: () => void }) => (
     <div data-testid="nav-header">
       <span data-testid="nh-title">{props.title}</span>
       <button data-testid="nh-back" onClick={props.onBack} />

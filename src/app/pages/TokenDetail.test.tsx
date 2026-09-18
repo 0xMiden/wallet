@@ -96,8 +96,8 @@ jest.mock('lib/mobile/haptics', () => ({
   hapticLight: jest.fn()
 }));
 
-jest.mock('components/NavigationHeader', () => ({
-  NavigationHeader: ({ title, onBack }: { title: string; onBack: () => void }) => (
+jest.mock('components/PageHeader', () => ({
+  PageHeader: ({ title, onBack }: { title: string; onBack: () => void }) => (
     <div data-testid="nav-header">
       <span data-testid="nav-title">{title}</span>
       <button data-testid="nav-back" onClick={onBack}>
