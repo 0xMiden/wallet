@@ -143,10 +143,10 @@ describe('AllHistory', () => {
     render(<AllHistory />);
 
     expect(getFilterButton('all').getAttribute('aria-pressed')).toBe('true');
-    expect(getFilterButton('all').className).toContain('bg-accent-primary');
+    expect(getFilterButton('all').className).toContain('bg-accent-tint');
 
     expect(getFilterButton('sent').getAttribute('aria-pressed')).toBe('false');
-    expect(getFilterButton('sent').className).toContain('bg-white');
+    expect(getFilterButton('sent').className).toContain('bg-fill');
   });
 
   it('changes the active filter and propagates it to History on tap', () => {

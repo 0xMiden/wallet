@@ -1,6 +1,5 @@
 import React, { FC, useMemo, useState } from 'react';
 
-import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import { IconName } from 'app/icons/v2';
@@ -8,6 +7,7 @@ import { ActivityPendingHistory } from 'app/templates/history/ActivityPendingHis
 import type { ActivityFilter } from 'app/templates/history/History';
 import { DeadletteredNotesNotice } from 'components/DeadletteredNotesNotice';
 import { TabHeader, TabHeaderAction } from 'components/ui';
+import { Pill } from 'components/ui/Pill';
 import { useAccount } from 'lib/miden/front';
 import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { hapticSelection } from 'lib/mobile/haptics';
@@ -74,20 +74,14 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
         {filters.map(f => {
           const isActive = f.id === filter;
           return (
-            <button
+            <Pill
               key={f.id}
-              type="button"
-              aria-pressed={isActive}
+              tone={isActive ? 'selected' : 'neutral'}
+              selected={isActive}
               onClick={() => handleFilterTap(f.id)}
-              className={classNames(
-                'px-6 py-3 rounded-full font-heading text-sm leading-[100%] font-medium transition-colors',
-                isActive
-                  ? 'bg-accent-primary text-pure-white font-semibold'
-                  : 'bg-white text-text-primary-token border border-rule-strong'
-              )}
             >
               {f.label}
-            </button>
+            </Pill>
           );
         })}
       </div>
