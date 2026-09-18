@@ -430,9 +430,9 @@ const Settings: FC<SettingsProps> = ({ tabSlug, rootScrollTop: savedRootScrollTo
   // the viewport, which is where these screens pin their primary action.
   //
   // Through the shared hook rather than the body attribute directly: the flag is
-  // reference-counted, and RevealSecret and every CustomModal are also holders.
-  // Setting it here by hand meant a modal closing over a settings sub-page (the
-  // confirm in Address Book, say) dropped the count to zero and cleared the flag
+  // reference-counted, and RevealSecret and the confirm/alert sheet are also holders.
+  // Setting it here by hand meant a confirmation closing over a settings sub-page (the
+  // one in Address Book, say) dropped the count to zero and cleared the flag
   // while this page still wanted it.
   useHideDappBubblesWhileOpen(showSeedWarning || activeTab !== null);
 

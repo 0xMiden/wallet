@@ -91,52 +91,6 @@ button:disabled,
 }
 
 /**
- * React Modal
- */
-
-.ReactModal__Overlay {
-  opacity: 0;
-  transition: opacity 200ms ease-out;
-}
-
-.ReactModal__Content {
-  transform: scale(0.96);
-  transition: transform 200ms ease-out;
-}
-
-.ReactModal__Overlay--after-open {
-  opacity: 1;
-}
-
-.ReactModal__Overlay--before-close {
-  opacity: 0;
-}
-
-.ReactModal__Overlay--after-open .ReactModal__Content {
-  transform: scale(1);
-}
-
-.ReactModal__Overlay--before-close .ReactModal__Content {
-  transform: scale(0.96);
-}
-
-#recall-height-modal.ReactModal__Content {
-  transform: scale(1);
-  transform: translateY(2rem);
-  transition: transform 200ms ease-out;
-}
-
-.ReactModal__Overlay--after-open #recall-height-modal.ReactModal__Content {
-  transform: scale(1);
-  transform: translateY(0);
-}
-
-.ReactModal__Overlay--before-close #recall-height-modal.ReactModal__Content {
-  transform: scale(1);
-  transform: translateY(2rem);
-}
-
-/**
  * TailwindCSS
  */
 
