@@ -1794,6 +1794,10 @@
     "message": "添加联系人",
     "englishSource": "Add Contact"
   },
+  "contactNamePlaceholder": {
+    "message": "这是谁？",
+    "englishSource": "Who is this?"
+  },
   "addToContactsPrompt": {
     "message": "添加到联系人？",
     "englishSource": "Add to contacts?"

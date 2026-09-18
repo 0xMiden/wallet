@@ -1794,6 +1794,10 @@
     "message": "Añadir contacto",
     "englishSource": "Add Contact"
   },
+  "contactNamePlaceholder": {
+    "message": "¿Quién es?",
+    "englishSource": "Who is this?"
+  },
   "addToContactsPrompt": {
     "message": "¿Añadir a los contactos?",
     "englishSource": "Add to contacts?"

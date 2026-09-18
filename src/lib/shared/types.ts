@@ -790,6 +790,12 @@ export interface WalletSettings {
 export interface WalletContact {
   address: string;
   name: string;
+  /**
+   * Destination network a `0x` contact is for (a bridge network id, e.g. `sepolia`). The same
+   * `0x` address is valid on every EVM chain, so the contact remembers which one; a Miden address
+   * carries its own network and leaves this unset.
+   */
+  network?: string;
   addedAt?: number;
   accountInWallet?: boolean;
   isPublic?: boolean;
