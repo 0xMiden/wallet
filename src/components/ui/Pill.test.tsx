@@ -88,6 +88,17 @@ it('sizes small pills for status badges', () => {
   expect(screen.getByTestId('pill')).toHaveClass('h-6', 'px-2', 'text-xs', 'text-positive-ink');
 });
 
+it('tints a status pill at 10%, not 15% (15% drops under 4.5:1 in light mode)', () => {
+  render(
+    <Pill data-testid="pill" tone="negative">
+      Failed
+    </Pill>
+  );
+
+  expect(screen.getByTestId('pill')).toHaveClass('bg-status-negative/10');
+  expect(screen.getByTestId('pill')).not.toHaveClass('bg-status-negative/15');
+});
+
 it('renders a leading status dot in the tone’s own ink color', () => {
   const { container } = render(
     <Pill size="sm" tone="warning" dot>
