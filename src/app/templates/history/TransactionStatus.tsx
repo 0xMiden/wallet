@@ -1,9 +1,9 @@
 import React, { FC, memo } from 'react';
 
-import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
+import { Pill, PillTone } from 'components/ui/Pill';
 import { ITransactionStatus } from 'lib/miden/db/types';
 
 export const ExternalLinkValue: FC<{
@@ -49,36 +49,11 @@ export const StatusPill: FC<{
   const isCompleted = status === ITransactionStatus.Completed && swapSettlement === undefined;
   // A reclaimed order ended without delivering what was asked for, so it gets
   // the same muted treatment as a cancellation — the history list already tones
-  // it that way.
+  // it that way. Muted maps to the `neutral` pill tone: on `fill` with `ink`,
+  // the app's own "quiet" pill, rather than a fourth status color.
   const isMuted = isCancelled || swapSettlement === 'reclaimed';
 
-  // Muted rather than just cancelled, so a reclaimed order is toned the same way
-  // here as it is in the history list.
-  const bgColor = isMuted
-    ? 'bg-gray-400'
-    : isCompleted
-      ? 'bg-tx-received'
-      : isFailed
-        ? 'bg-status-negative'
-        : 'bg-tx-sent';
-  // Ink is picked per fill, in the same order as `bgColor`, because no single ink
-  // clears AA on all four — each fill is mid-tone in a different direction, and a
-  // user cancellation is BOTH Failed and cancelled (`cancel.ts` records a cancel
-  // as a failure), so any mismatch in the ordering pairs an ink with the wrong
-  // fill. Ratios for 12px semibold text, which AA scores at 4.5:1:
-  //   grey #737373        → white 4.74 (black would be 4.43, under)
-  //   tx-received #99ac94 → black 8.68 (white 2.42)
-  //   tx-sent #91acc1     → black 8.88 (white 2.37)
-  //   status-negative     → the one fill that flips with the theme: black on the
-  //                         light #ff5500 is 6.55, white on the deep dark #c51a0a
-  //                         is 5.96. Fixed-palette tokens, so `dark:` is allowed.
-  const fgColor = isMuted
-    ? 'text-pure-white'
-    : isCompleted
-      ? 'text-pure-black'
-      : isFailed
-        ? 'text-pure-black dark:text-pure-white'
-        : 'text-pure-black';
+  const tone: PillTone = isMuted ? 'neutral' : isCompleted ? 'positive' : isFailed ? 'negative' : 'warning';
   const label = isCancelled
     ? t('cancelled')
     : swapSettlement === 'reclaimed'
@@ -92,29 +67,8 @@ export const StatusPill: FC<{
             : t('inProgress');
 
   return (
-    <div
-      data-testid={testId}
-      className={classNames('flex items-center gap-1.5 px-3.5 py-1 rounded-full', bgColor, fgColor)}
-    >
-      {/* Muted first for the same reason as the colours: a cancellation reads
-          Failed, and a grey "Cancelled" pill wearing the failure ✕ names two
-          outcomes at once.
-
-          Decorative — each glyph restates the label beside it, so leaving them
-          in the accessibility tree announced the status twice, once of them as
-          an unnamed graphic. */}
-      <span aria-hidden="true" className="flex items-center">
-        {isMuted ? (
-          <div className="w-2 h-2 rounded-full bg-current" />
-        ) : isCompleted ? (
-          <Icon name={IconName.Checkmark} size="xs" fill="currentColor" />
-        ) : isFailed ? (
-          <Icon name={IconName.Close} size="xs" fill="currentColor" />
-        ) : (
-          <div className="w-2 h-2 rounded-full bg-current" />
-        )}
-      </span>
-      <span className="text-xs font-semibold">{label}</span>
-    </div>
+    <Pill size="sm" tone={tone} dot data-testid={testId}>
+      {label}
+    </Pill>
   );
 });
