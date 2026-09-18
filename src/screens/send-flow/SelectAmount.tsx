@@ -7,6 +7,7 @@ import { Icon, IconName } from 'app/icons/v2';
 import { AmountInput } from 'components/AmountInput';
 import { Button, ButtonVariant } from 'components/Button';
 import { TokenLogo } from 'components/TokenLogo';
+import { Avatar } from 'components/ui/Avatar';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
 
@@ -69,13 +70,6 @@ export interface SelectAmountProps {
  * user who reads that back into the field is over the cap and rejected, with no
  * Max button to fall back on.
  */
-/** Blue circle used as a placeholder before a token/network is chosen. */
-const PlaceholderCircle: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary-500 text-pure-white">
-    {children}
-  </span>
-);
-
 export const SelectAmount: React.FC<SelectAmountProps> = ({
   token,
   amount,
@@ -125,9 +119,7 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
       {token ? (
         <TokenLogo symbol={logoSymbol ?? token.name} size="md" />
       ) : embedded ? (
-        <span className="flex h-9 w-9 items-center justify-center rounded-full bg-[#2F6BED] text-lg font-bold text-pure-white">
-          $
-        </span>
+        <Avatar size={36} icon={<span className="text-lg font-bold">$</span>} className="bg-[#2F6BED]" />
       ) : null}
       <span className="font-heading text-2xl font-bold text-heading-gray">
         {token ? token.name : t('selectAToken')}
@@ -149,7 +141,11 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
         }}
         className="flex items-center gap-3 text-left"
       >
-        {token ? <TokenLogo symbol={logoSymbol ?? token.name} size="md" /> : <PlaceholderCircle>$</PlaceholderCircle>}
+        {token ? (
+          <TokenLogo symbol={logoSymbol ?? token.name} size="md" />
+        ) : (
+          <Avatar size={36} icon={<span className="text-lg font-bold">$</span>} className="bg-primary-500" />
+        )}
         <span className="font-heading text-2xl font-bold text-heading-gray">
           {token ? token.name : t('selectAToken')}
         </span>
@@ -167,9 +163,11 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
         }}
         className="flex items-start gap-3 text-left"
       >
-        <PlaceholderCircle>
-          <Icon name={IconName.Globe} size="sm" className="text-pure-white" fill="currentColor" />
-        </PlaceholderCircle>
+        <Avatar
+          size={36}
+          icon={<Icon name={IconName.Globe} size="sm" className="text-pure-white" fill="currentColor" />}
+          className="bg-primary-500"
+        />
         <div className="flex flex-col">
           <span className="font-heading text-2xl font-bold text-gray flex items-center gap-1">
             {network ? (
