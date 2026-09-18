@@ -1,14 +1,14 @@
 import React, { useMemo, useState } from 'react';
 
-import clsx from 'clsx';
 import { useTranslation } from 'react-i18next';
 
-import { ReactComponent as ChevronRightIcon } from 'app/icons/v2/chevron-right-lucide.svg';
 import { Button, ButtonVariant } from 'components/Button';
 import { ContactAvatar } from 'components/contacts/ContactAvatar';
+import { ListGroup } from 'components/ui/ListGroup';
+import { ListRow } from 'components/ui/ListRow';
 import { SearchInput } from 'components/ui/SearchInput';
+import { SectionHeader } from 'components/ui/SectionHeader';
 import { useFilteredContacts } from 'lib/miden/front/use-filtered-contacts.hook';
-import { hapticLight } from 'lib/mobile/haptics';
 import { WalletContact } from 'lib/shared/types';
 import { navigate } from 'lib/woozie';
 import { contactNetwork, contactNetworkName } from 'screens/contacts/contact-network';
@@ -21,60 +21,13 @@ function matches(contact: WalletContact, query: string): boolean {
 
 const byName = (a: WalletContact, b: WalletContact) => a.name.localeCompare(b.name);
 
-const SectionTitle: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <h2 className="px-1 pb-2 font-sans text-[13px] font-bold text-muted">{children}</h2>
-);
-
-interface RowProps {
-  contact: WalletContact;
-  subtitle: string;
-  onClick?: () => void;
-  /** Every row after the first: a hairline above it, starting after the avatar. */
-  inset?: boolean;
-  'data-testid': string;
-}
-
-const Row: React.FC<RowProps> = ({ contact, subtitle, onClick, inset, 'data-testid': dataTestId }) => {
+/** Only a `0x` contact gets the badge: the subtitle names every network, and a Miden badge on every row is noise. */
+function avatarFor(contact: WalletContact): React.ReactNode {
   const { kind } = contactNetwork(contact.address, contact.network);
-  const content = (
-    <>
-      {/* Only a `0x` contact gets the badge: the subtitle names every network, and a Miden badge on
-          every row is noise. */}
-      <ContactAvatar address={contact.address} name={contact.name} network={kind === 'ethereum' ? kind : undefined} />
-      <span className="flex min-w-0 flex-1 flex-col">
-        <span className="truncate font-heading text-base font-bold text-ink">{contact.name}</span>
-        <span className="truncate font-sans text-sm text-muted">{subtitle}</span>
-      </span>
-    </>
+  return (
+    <ContactAvatar address={contact.address} name={contact.name} network={kind === 'ethereum' ? kind : undefined} />
   );
-  const className = clsx(
-    'relative flex w-full items-center gap-3 px-4 py-3 text-left',
-    inset && 'before:absolute before:top-0 before:right-0 before:left-[68px] before:h-px before:bg-hairline'
-  );
-
-  return onClick ? (
-    <button
-      type="button"
-      data-testid={dataTestId}
-      onClick={() => {
-        hapticLight();
-        onClick();
-      }}
-      className={clsx(className, 'transition-colors active:bg-fill-pressed')}
-    >
-      {content}
-      <ChevronRightIcon className="h-4 w-4 shrink-0 stroke-muted" aria-hidden="true" />
-    </button>
-  ) : (
-    <div data-testid={dataTestId} className={className}>
-      {content}
-    </div>
-  );
-};
-
-const Group: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <div className="flex flex-col overflow-hidden rounded-2xl bg-fill">{children}</div>
-);
+}
 
 /**
  * Settings → Address Book: saved contacts, then the wallet's own accounts, with one search over
@@ -115,20 +68,21 @@ const AddressBook: React.FC = () => {
           <>
             {(contacts.length > 0 || !query) && (
               <section>
-                <SectionTitle>{t('contacts')}</SectionTitle>
+                <SectionHeader>{t('contacts')}</SectionHeader>
                 {contacts.length > 0 ? (
-                  <Group>
-                    {contacts.map((contact, index) => (
-                      <Row
+                  <ListGroup>
+                    {contacts.map(contact => (
+                      <ListRow
                         key={contact.address}
-                        contact={contact}
-                        inset={index > 0}
+                        title={contact.name}
+                        avatar={avatarFor(contact)}
                         subtitle={`${contactNetworkName(contact.address, contact.network, t('miden'))} · ${truncateAddress(contact.address, true, 8)}`}
                         onClick={() => navigate(contactPath(contact.address))}
+                        chevron
                         data-testid={`address-book-contact-${contact.address}`}
                       />
                     ))}
-                  </Group>
+                  </ListGroup>
                 ) : (
                   !hasSavedContacts && (
                     <div
@@ -145,18 +99,18 @@ const AddressBook: React.FC = () => {
 
             {accounts.length > 0 && (
               <section>
-                <SectionTitle>{t('myAccounts')}</SectionTitle>
-                <Group>
-                  {accounts.map((account, index) => (
-                    <Row
+                <SectionHeader>{t('myAccounts')}</SectionHeader>
+                <ListGroup>
+                  {accounts.map(account => (
+                    <ListRow
                       key={account.address}
-                      contact={account}
-                      inset={index > 0}
+                      title={account.name}
+                      avatar={avatarFor(account)}
                       subtitle={`${account.isPublic ? t('public') : t('private')} · ${truncateAddress(account.address, true, 8)}`}
                       data-testid={`address-book-account-${account.address}`}
                     />
                   ))}
-                </Group>
+                </ListGroup>
               </section>
             )}
           </>
