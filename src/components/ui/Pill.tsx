@@ -14,8 +14,9 @@ export type PillSize = 'sm' | 'md';
  * - `selected` — chosen, in the flow's accent.
  * - `accent` — a solid accent fill for a standing badge.
  * - `positive` / `warning` / `negative` — status.
+ * - `plain` — no colors, for a caller that brings its own (e.g. a network's chip).
  */
-export type PillTone = 'neutral' | 'selected' | 'accent' | 'positive' | 'warning' | 'negative';
+export type PillTone = 'neutral' | 'selected' | 'accent' | 'positive' | 'warning' | 'negative' | 'plain';
 
 export interface PillProps {
   children: React.ReactNode;
@@ -84,7 +85,9 @@ export const Pill: React.FC<PillProps> = ({
         ? clsx('border-transparent text-pure-white', ACCENT_CLASSES[accent].bg)
         : tone === 'neutral'
           ? 'border-transparent bg-surface-interactive text-heading-gray'
-          : STATUS_CLASSES[tone];
+          : tone === 'plain'
+            ? undefined
+            : STATUS_CLASSES[tone];
 
   const classes = clsx(
     'inline-flex max-w-full items-center rounded-full border font-heading font-bold leading-none',

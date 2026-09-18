@@ -421,6 +421,13 @@ body[data-hide-navbar]::after {
     --accent-swap-tint: #f7f5fa;
     /* Circular navigation buttons (back, close) */
     --surface-nav-button: #f9f9f9;
+    /* Network chips: each network's own soft tint in Bread's warm palette; its logo stays as-is. */
+    --network-miden-tint: #fff3ec;
+    --network-miden-border: #f7d6c2;
+    --network-miden-text: #9f4518;
+    --network-ethereum-tint: #eef0fb;
+    --network-ethereum-border: #d3d8f3;
+    --network-ethereum-text: #3d4a8f;
     --text-primary: #3f3f3f;
     --text-secondary: rgba(63, 63, 63, 0.65);
     --text-tertiary: #0000009c;
@@ -512,6 +519,12 @@ body[data-hide-navbar]::after {
     --accent-swap: #beacd2;
     --accent-swap-tint: #2d2b2f;
     --surface-nav-button: #363636;
+    --network-miden-tint: #3a2418;
+    --network-miden-border: #5c3622;
+    --network-miden-text: #f2a57a;
+    --network-ethereum-tint: #1f2340;
+    --network-ethereum-border: #353d6e;
+    --network-ethereum-text: #b3bbf2;
     --text-primary: #ffffff;
     --text-secondary: rgba(255, 255, 255, 0.65);
     --text-tertiary: rgba(255, 255, 255, 0.4);

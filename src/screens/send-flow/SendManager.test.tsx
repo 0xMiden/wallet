@@ -92,6 +92,7 @@ jest.mock('./SelectRecipient', () => ({
   SelectRecipient: (props: any) => (
     <div data-testid="select-recipient">
       <span data-testid="sr-address">{props.address}</span>
+      <span data-testid="sr-network">{props.network ?? ''}</span>
       <span data-testid="sr-valid">{String(props.isValidAddress)}</span>
       <span data-testid="sr-error">{props.error ?? ''}</span>
       <textarea data-testid="sr-input" onChange={props.onAddressChange} />
@@ -161,13 +162,13 @@ jest.mock('./AccountsList', () => ({
   )
 }));
 
-// The add-contact sheet reuses the Settings form, which reaches FormField ->
-// useTippy -> lib/platform at module scope. Stub it to its observable props.
+// The add-contact sheet has its own tests; stub it to its observable props.
 jest.mock('./AddContactDrawer', () => ({
   AddContactDrawer: (props: any) => (
     <div data-testid="add-contact-drawer">
       <span data-testid="acd-open">{String(props.open)}</span>
       <span data-testid="acd-address">{props.address ?? ''}</span>
+      <span data-testid="acd-network">{props.network ?? ''}</span>
       <button data-testid="acd-close" onClick={() => props.onOpenChange(false)} />
     </div>
   )
@@ -178,9 +179,12 @@ jest.mock('./useRecentRecipients', () => ({
   useRecentRecipients: (...a: any[]) => useRecentRecipientsMock(...a)
 }));
 
+let mockBridgeNetworks: Array<{ id: string; name: string; chainId: number }> = [];
 jest.mock('./bridge-networks', () => ({
   DEFAULT_BRIDGE_NETWORK: { id: 'sepolia', name: 'Sepolia', chainId: 11155111 },
-  BRIDGE_NETWORKS: [],
+  get BRIDGE_NETWORKS() {
+    return mockBridgeNetworks;
+  },
   getBridgeNetwork: jest.fn()
 }));
 
@@ -664,6 +668,33 @@ describe('recipient address entry', () => {
     });
     expect(screen.getByTestId('sr-address')).toHaveTextContent('0xpicked');
     expect(screen.getByTestId('ad-recipient')).toHaveTextContent('0xpicked');
+  });
+
+  it('selects the only bridge network for a valid 0x recipient, so Confirm is ready', () => {
+    mockBridgeNetworks = [{ id: 'sepolia', name: 'Sepolia', chainId: 11155111 }];
+    try {
+      mockSelectedContact = { id: '0xpicked', name: 'Bob', isOwned: false, contactType: 'external' };
+      renderFlow();
+      act(() => {
+        fireEvent.click(screen.getByTestId('ad-select'));
+      });
+
+      expect(screen.getByTestId('sr-network')).toHaveTextContent('sepolia');
+    } finally {
+      mockBridgeNetworks = [];
+    }
+  });
+
+  it("preselects a 0x contact's saved network when it is picked", () => {
+    mockSelectedContact = { id: '0xpicked', name: 'Bob', isOwned: false, contactType: 'external', network: 'sepolia' };
+    renderFlow();
+    act(() => {
+      fireEvent.click(screen.getByTestId('ad-select'));
+    });
+
+    expect(screen.getByTestId('sr-network')).toHaveTextContent('sepolia');
+    // The add-contact sheet gets the same network, so saving keeps what was chosen.
+    expect(screen.getByTestId('acd-network')).toHaveTextContent('sepolia');
   });
 
   it('rejects the current account when it is selected from contacts', () => {

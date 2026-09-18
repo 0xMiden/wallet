@@ -31,7 +31,7 @@ import {
 
 import { AccountsListDrawer } from './AccountsList';
 import { AddContactDrawer } from './AddContactDrawer';
-import { BridgeNetworkId, SendNetworkId } from './bridge-networks';
+import { BRIDGE_NETWORKS, BridgeNetworkId, SendNetworkId } from './bridge-networks';
 import { ScanQrDrawer } from './ScanQrDrawer';
 import { SelectRecipient } from './SelectRecipient';
 import { SelectTokenDrawer } from './SelectToken';
@@ -140,7 +140,8 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
         id: contact.address,
         name: contact.name,
         isOwned: false,
-        contactType: 'external' as const
+        contactType: 'external' as const,
+        network: BRIDGE_NETWORKS.find(n => n.id === contact.network)?.id
       }));
 
     return [...walletContacts, ...externalContacts];
@@ -595,8 +596,12 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
     (contact: Contact) => {
       onAction({
         id: SendFlowActionId.SetFormValues,
-        payload: { recipientAddress: contact.id }
+        payload: contact.network
+          ? { recipientAddress: contact.id, bridgeNetwork: contact.network }
+          : { recipientAddress: contact.id }
       });
+      // A `0x` contact carries its destination network, so the network chips come up chosen.
+      if (contact.network) setRecipientNetwork(contact.network);
       // A saved contact can be the account's own address — same guard as typed entry.
       applyRecipientValidation(contact.id);
     },
@@ -611,6 +616,13 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
     },
     [onAction]
   );
+
+  // While there is a single bridge network there is nothing to choose, so a valid 0x recipient
+  // gets it selected; the recipient step shows it as a fact and Confirm is ready.
+  useEffect(() => {
+    const only = BRIDGE_NETWORKS.length === 1 ? BRIDGE_NETWORKS[0] : undefined;
+    if (only && isBridge && isValidRecipient && bridgeNetwork !== only.id) onSelectNetwork(only.id);
+  }, [isBridge, isValidRecipient, bridgeNetwork, onSelectNetwork]);
 
   // A "Recent" row fills the recipient exactly like picking a contact does.
   const onSelectRecent = useCallback(
@@ -805,6 +817,7 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
         open={showAddContactDrawer}
         onOpenChange={setShowAddContactDrawer}
         address={recipientAddress ?? ''}
+        network={isBridge ? bridgeNetwork : undefined}
       />
 
       <ScanQrDrawer

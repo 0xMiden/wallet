@@ -1602,6 +1602,10 @@
     "message": "選擇收件人",
     "englishSource": "Choose recipient"
   },
+  "sendTo": {
+    "message": "傳送至",
+    "englishSource": "Send to"
+  },
   "selectAmount": {
     "message": "選擇金額",
     "englishSource": "Select Amount"
@@ -1793,6 +1797,10 @@
   "addContact": {
     "message": "新增聯絡人",
     "englishSource": "Add Contact"
+  },
+  "contactNamePlaceholder": {
+    "message": "這是誰？",
+    "englishSource": "Who is this?"
   },
   "addToContactsPrompt": {
     "message": "要加入聯絡人嗎？",

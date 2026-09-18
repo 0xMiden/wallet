@@ -52,9 +52,9 @@ jest.mock('app/icons/v2', () => ({
 // Stub the leaf presentational components so this test exercises only the
 // prop-wiring / branching inside AccountsList. Each stub reflects the props
 // AccountsList sets back out as inspectable DOM.
-jest.mock('components/Avatar', () => ({
-  Avatar: ({ image, size }: { image?: string; size?: string }) => (
-    <span data-testid="avatar" data-image={image} data-size={size} />
+jest.mock('components/contacts/ContactAvatar', () => ({
+  ContactAvatar: ({ address, name }: { address: string; name?: string }) => (
+    <span data-testid="avatar" data-address={address} data-name={name} />
   )
 }));
 
@@ -202,13 +202,14 @@ describe('AccountsListDrawer', () => {
       expect(screen.getByTestId('card-subtitle')).toHaveTextContent('public · trunc(public_addr_2)');
     });
 
-    it('marks a card hoverable and renders an Avatar for it', () => {
+    it("marks a card hoverable and gives it the contact's own avatar", () => {
       renderDrawer({ accounts: [plainPublic] });
 
       expect(screen.getByTestId('card-item')).toHaveAttribute('data-hoverable', 'true');
+      // Derived from the contact, so two contacts no longer share one orange image.
       const avatar = screen.getByTestId('avatar');
-      expect(avatar).toHaveAttribute('data-image', '/misc/avatars/miden-orange.png');
-      expect(avatar).toHaveAttribute('data-size', 'lg');
+      expect(avatar).toHaveAttribute('data-address', plainPublic.id);
+      expect(avatar).toHaveAttribute('data-name', plainPublic.name);
     });
 
     it('shows the check icon on the account matching recipientAccountId and none on others', () => {

@@ -1602,6 +1602,10 @@
     "message": "Choisissez un destinataire",
     "englishSource": "Choose recipient"
   },
+  "sendTo": {
+    "message": "Envoyer à",
+    "englishSource": "Send to"
+  },
   "selectAmount": {
     "message": "Sélectionnez un montant",
     "englishSource": "Select Amount"
@@ -1793,6 +1797,10 @@
   "addContact": {
     "message": "Ajouter un contact",
     "englishSource": "Add Contact"
+  },
+  "contactNamePlaceholder": {
+    "message": "Qui est-ce ?",
+    "englishSource": "Who is this?"
   },
   "addToContactsPrompt": {
     "message": "Ajouter aux contacts ?",

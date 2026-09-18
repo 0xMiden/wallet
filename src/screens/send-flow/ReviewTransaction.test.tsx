@@ -74,7 +74,7 @@ jest.mock('./SendStepLayout', () => ({
     </div>
   )
 }));
-jest.mock('./NetworkChip', () => ({
+jest.mock('components/NetworkChip', () => ({
   NetworkChip: ({ label }: any) => <span data-testid="network-chip">{label}</span>
 }));
 

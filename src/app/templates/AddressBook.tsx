@@ -4,8 +4,8 @@ import classNames from 'clsx';
 import { t } from 'i18next';
 
 import { AddNewContactForm } from 'app/templates/AddNewContactForm';
-import { Avatar } from 'components/Avatar';
 import { CardItem } from 'components/CardItem';
+import { ContactAvatar } from 'components/contacts/ContactAvatar';
 import { useContacts } from 'lib/miden/front';
 import { useFilteredContacts } from 'lib/miden/front/use-filtered-contacts.hook';
 import { useConfirm } from 'lib/ui/dialog';
@@ -75,7 +75,7 @@ const AddressBook: React.FC = () => {
               data-testid={`address-book-contact-${contact.address}`}
               title={contact.name}
               subtitle={`${contact.accountInWallet ? (contact.isPublic ? t('public') : t('private')) : t('external')} · ${truncateAddress(contact.address, true, 12)}`}
-              iconLeft={<Avatar image="/misc/avatars/miden-orange.png" size="lg" />}
+              iconLeft={<ContactAvatar address={contact.address} name={contact.name} />}
               hoverable={!contact.accountInWallet}
               onClick={contact.accountInWallet ? undefined : () => handleRemoveContactClick(contact.address)}
               className="bg-app-bg rounded-xl h-auto py-3 px-3"

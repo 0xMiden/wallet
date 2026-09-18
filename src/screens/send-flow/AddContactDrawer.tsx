@@ -1,24 +1,140 @@
-import React from 'react';
+import React, { useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
-import { AddNewContactForm } from 'app/templates/AddNewContactForm';
+import { Button, ButtonVariant } from 'components/Button';
+import { ContactAvatar } from 'components/contacts/ContactAvatar';
+import { useContacts } from 'lib/miden/front';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
+import { detectAddressChain, isValidRecipientAddress } from 'utils/miden';
+
+import { BridgeNetworkId, DEFAULT_BRIDGE_NETWORK } from './bridge-networks';
+import { NetworkField } from './NetworkField';
+
+const NAME_MAX_LENGTH = 50;
 
 export interface AddContactDrawerProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** The recipient address typed on the send step; pre-fills the form, still editable. */
+  /** The recipient address from the send step. It is already known, so the sheet only asks for a name. */
   address: string;
+  /** The destination network chosen for a `0x` recipient; preselected here. */
+  network?: BridgeNetworkId;
 }
 
+interface SheetBodyProps {
+  address: string;
+  initialNetwork?: BridgeNetworkId;
+  onSaved: () => void;
+}
+
+const SheetBody: React.FC<SheetBodyProps> = ({ address, initialNetwork, onSaved }) => {
+  const { t } = useTranslation();
+  const { addContact } = useContacts();
+  const isEvm = detectAddressChain(address) === 'ethereum';
+  const [name, setName] = useState('');
+  const [network, setNetwork] = useState<BridgeNetworkId>(initialNetwork ?? DEFAULT_BRIDGE_NETWORK.id);
+  const [error, setError] = useState<string>();
+  const [saving, setSaving] = useState(false);
+  const trimmedName = name.trim();
+
+  const save = async () => {
+    if (!trimmedName || saving) return;
+    if (!isValidRecipientAddress(address)) {
+      setError(t('invalidAddress'));
+      return;
+    }
+    setSaving(true);
+    setError(undefined);
+    try {
+      await addContact({
+        address,
+        name: trimmedName,
+        addedAt: Date.now(),
+        ...(isEvm ? { network } : {})
+      });
+      onSaved();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err));
+      setSaving(false);
+    }
+  };
+
+  return (
+    <form
+      className="flex flex-col gap-5 px-4 pb-4"
+      onSubmit={event => {
+        event.preventDefault();
+        void save();
+      }}
+    >
+      {/* The address is fixed here (it came from the send step), so it is a card to confirm, not
+          a field to edit, and shown in full. */}
+      <div className="flex items-start gap-3 rounded-2xl bg-surface-interactive p-4">
+        <ContactAvatar address={address} name={trimmedName} network={isEvm ? 'ethereum' : 'miden'} size="lg" />
+        <div className="flex min-w-0 flex-1 flex-col gap-1">
+          <span className="text-sm text-text-muted">{t('address')}</span>
+          <p
+            data-testid="add-contact-address"
+            className="font-heading text-base leading-6 font-bold break-all text-heading-gray"
+          >
+            {address}
+          </p>
+        </div>
+      </div>
+
+      <NetworkField
+        chain={isEvm ? 'ethereum' : 'miden'}
+        network={network}
+        onSelect={setNetwork}
+        testIdPrefix="add-contact"
+      />
+
+      <label className="flex flex-col gap-2">
+        <span className="text-sm text-text-muted">{t('name')}</span>
+        <input
+          value={name}
+          onChange={event => {
+            setName(event.target.value);
+            setError(undefined);
+          }}
+          placeholder={t('contactNamePlaceholder')}
+          maxLength={NAME_MAX_LENGTH}
+          autoFocus
+          autoCapitalize="words"
+          autoCorrect="off"
+          enterKeyHint="done"
+          data-testid="address-book-name-input"
+          className="h-14 w-full rounded-2xl bg-surface-input px-4 font-heading text-lg font-bold text-heading-gray outline-none placeholder:font-medium placeholder:text-text-muted"
+        />
+      </label>
+
+      {error && (
+        <p role="alert" className="-mt-2 text-sm text-status-negative">
+          {error}
+        </p>
+      )}
+
+      <Button
+        type="submit"
+        title={t('addContact')}
+        variant={ButtonVariant.Primary}
+        disabled={!trimmedName || saving}
+        isLoading={saving}
+        data-testid="address-book-add-contact"
+        className="w-full max-w-none rounded-full text-base font-semibold"
+      />
+    </form>
+  );
+};
+
 /**
- * "Add to contacts?" bottom sheet over the recipient step. Wraps the same
- * `AddNewContactForm` the Settings address book uses, pre-filled with the
- * entered recipient, and closes itself once the contact is saved — at which
- * point the recipient matches a contact and the pill reverts to "Address Book".
+ * "Add to contacts?" bottom sheet over the recipient step. The address is already known, so it is
+ * shown in full as a card to confirm, and the sheet asks only for a name (plus, for a `0x`
+ * address, which network the contact is for). Closes once saved, at which point the recipient
+ * matches a contact and the pill reverts to "Address Book".
  */
-export const AddContactDrawer: React.FC<AddContactDrawerProps> = ({ open, onOpenChange, address }) => {
+export const AddContactDrawer: React.FC<AddContactDrawerProps> = ({ open, onOpenChange, address, network }) => {
   const { t } = useTranslation();
 
   return (
@@ -27,9 +143,9 @@ export const AddContactDrawer: React.FC<AddContactDrawerProps> = ({ open, onOpen
         <DrawerHeader>
           <DrawerTitle>{t('addContact')}</DrawerTitle>
         </DrawerHeader>
-        <div className="flex flex-col min-h-0 overflow-y-auto no-scrollbar px-4 pb-4">
-          {/* Remount on address change so the pre-filled default is picked up. */}
-          <AddNewContactForm key={address} defaultAddress={address} hideHeading onAdded={() => onOpenChange(false)} />
+        <div className="flex min-h-0 flex-col overflow-y-auto no-scrollbar">
+          {/* Remount per address so a new recipient starts with an empty name. */}
+          <SheetBody key={address} address={address} initialNetwork={network} onSaved={() => onOpenChange(false)} />
         </div>
       </DrawerContent>
     </Drawer>
