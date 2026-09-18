@@ -1602,6 +1602,10 @@
     "message": "Alıcıyı seçin",
     "englishSource": "Choose recipient"
   },
+  "sendTo": {
+    "message": "Alıcı",
+    "englishSource": "Send to"
+  },
   "selectAmount": {
     "message": "Tutar Seç",
     "englishSource": "Select Amount"

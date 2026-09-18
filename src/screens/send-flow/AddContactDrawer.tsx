@@ -4,12 +4,12 @@ import { useTranslation } from 'react-i18next';
 
 import { Button, ButtonVariant } from 'components/Button';
 import { ContactAvatar } from 'components/contacts/ContactAvatar';
-import { NetworkChip } from 'components/NetworkChip';
 import { useContacts } from 'lib/miden/front';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 import { detectAddressChain, isValidRecipientAddress } from 'utils/miden';
 
-import { BRIDGE_NETWORKS, BridgeNetworkId, DEFAULT_BRIDGE_NETWORK } from './bridge-networks';
+import { BridgeNetworkId, DEFAULT_BRIDGE_NETWORK } from './bridge-networks';
+import { NetworkField } from './NetworkField';
 
 const NAME_MAX_LENGTH = 50;
 
@@ -83,23 +83,12 @@ const SheetBody: React.FC<SheetBodyProps> = ({ address, initialNetwork, onSaved 
         </div>
       </div>
 
-      {isEvm && (
-        <div className="flex flex-col gap-2">
-          <span className="text-sm text-text-muted">{t('network')}</span>
-          <div className="flex flex-wrap gap-2">
-            {BRIDGE_NETWORKS.map(option => (
-              <NetworkChip
-                key={option.id}
-                kind="ethereum"
-                label={option.name}
-                selected={network === option.id}
-                onClick={() => setNetwork(option.id)}
-                data-testid={`add-contact-network-${option.id}`}
-              />
-            ))}
-          </div>
-        </div>
-      )}
+      <NetworkField
+        chain={isEvm ? 'ethereum' : 'miden'}
+        network={network}
+        onSelect={setNetwork}
+        testIdPrefix="add-contact"
+      />
 
       <label className="flex flex-col gap-2">
         <span className="text-sm text-text-muted">{t('name')}</span>

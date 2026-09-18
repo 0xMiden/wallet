@@ -340,6 +340,7 @@
   "addressBook": "Carnet d'adresses",
   "paste": "Coller",
   "chooseRecipient": "Choisissez un destinataire",
+  "sendTo": "Envoyer à",
   "selectAmount": "Sélectionnez un montant",
   "enterAmount": "Saisir le montant",
   "selectAToken": "Sélectionnez un jeton",

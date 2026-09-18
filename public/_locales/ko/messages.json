@@ -1602,6 +1602,10 @@
     "message": "수신자 선택",
     "englishSource": "Choose recipient"
   },
+  "sendTo": {
+    "message": "받는 사람",
+    "englishSource": "Send to"
+  },
   "selectAmount": {
     "message": "금액 선택",
     "englishSource": "Select Amount"

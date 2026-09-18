@@ -179,9 +179,12 @@ jest.mock('./useRecentRecipients', () => ({
   useRecentRecipients: (...a: any[]) => useRecentRecipientsMock(...a)
 }));
 
+let mockBridgeNetworks: Array<{ id: string; name: string; chainId: number }> = [];
 jest.mock('./bridge-networks', () => ({
   DEFAULT_BRIDGE_NETWORK: { id: 'sepolia', name: 'Sepolia', chainId: 11155111 },
-  BRIDGE_NETWORKS: [],
+  get BRIDGE_NETWORKS() {
+    return mockBridgeNetworks;
+  },
   getBridgeNetwork: jest.fn()
 }));
 
@@ -665,6 +668,21 @@ describe('recipient address entry', () => {
     });
     expect(screen.getByTestId('sr-address')).toHaveTextContent('0xpicked');
     expect(screen.getByTestId('ad-recipient')).toHaveTextContent('0xpicked');
+  });
+
+  it('selects the only bridge network for a valid 0x recipient, so Confirm is ready', () => {
+    mockBridgeNetworks = [{ id: 'sepolia', name: 'Sepolia', chainId: 11155111 }];
+    try {
+      mockSelectedContact = { id: '0xpicked', name: 'Bob', isOwned: false, contactType: 'external' };
+      renderFlow();
+      act(() => {
+        fireEvent.click(screen.getByTestId('ad-select'));
+      });
+
+      expect(screen.getByTestId('sr-network')).toHaveTextContent('sepolia');
+    } finally {
+      mockBridgeNetworks = [];
+    }
   });
 
   it("preselects a 0x contact's saved network when it is picked", () => {

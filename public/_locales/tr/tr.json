@@ -340,6 +340,7 @@
   "addressBook": "Adres Defteri",
   "paste": "Yapıştır",
   "chooseRecipient": "Alıcıyı seçin",
+  "sendTo": "Alıcı",
   "selectAmount": "Tutar Seç",
   "enterAmount": "Tutarı girin",
   "selectAToken": "Bir jeton seçin",

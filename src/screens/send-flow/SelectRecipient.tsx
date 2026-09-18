@@ -9,13 +9,13 @@ import { ReactComponent as SendAddressBookIcon } from 'app/icons/send-address-bo
 import { Icon, IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
 import { ContactAvatar } from 'components/contacts/ContactAvatar';
-import { NetworkChip } from 'components/NetworkChip';
 import { Pill } from 'components/ui';
 import { hapticLight } from 'lib/mobile/haptics';
 import { AddressChain } from 'utils/miden';
 import { truncateAddress } from 'utils/string';
 
-import { BRIDGE_NETWORKS, BridgeNetworkId, getBridgeNetwork, SendNetworkId } from './bridge-networks';
+import { BridgeNetworkId, getBridgeNetwork, SendNetworkId } from './bridge-networks';
+import { NetworkField } from './NetworkField';
 import { SendStepLayout } from './SendStepLayout';
 import { RecentRecipient } from './types';
 
@@ -93,13 +93,6 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
     animate: { opacity: 1, y: 0, transition: reduceMotion ? { duration: 0 } : { duration: 0.2, ease: EASE } },
     exit: { opacity: 0, y: -4, transition: reduceMotion ? { duration: 0 } : { duration: 0.14, ease: EASE } }
   };
-  // Pops a small element (chip) in place.
-  const pop = {
-    initial: { opacity: 0, scale: 0.85 },
-    animate: { opacity: 1, scale: 1 },
-    exit: { opacity: 0, scale: 0.85 },
-    transition
-  };
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const selectedNetwork = network === 'miden' ? undefined : getBridgeNetwork(network);
   const isEthereum = chain === 'ethereum';
@@ -138,33 +131,9 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
     ta.style.height = next;
   }, [address]);
 
-  const titleChip = (
-    <AnimatePresence initial={false} mode="popLayout">
-      {isValidAddress && (
-        <motion.span
-          key={isEthereum ? 'ethereum' : 'miden'}
-          className="inline-flex"
-          {...pop}
-          transition={reduceMotion ? { duration: 0 } : { duration: DURATION, ease: EASE, delay: 0.14 }}
-        >
-          {isEthereum ? (
-            <NetworkChip
-              kind="ethereum"
-              label={selectedNetwork?.name ?? t('ethereum')}
-              data-testid="send-recipient-network"
-            />
-          ) : (
-            <NetworkChip kind="miden" label={t('miden')} data-testid="send-recipient-network" />
-          )}
-        </motion.span>
-      )}
-    </AnimatePresence>
-  );
-
   return (
     <SendStepLayout
-      title={t('chooseRecipient')}
-      titleAccessory={titleChip}
+      title={t('sendTo')}
       footer={
         <Button
           title={t('confirm')}
@@ -226,25 +195,15 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
       </AnimatePresence>
 
       <AnimatePresence initial={false}>
-        {isValidAddress && isEthereum && (
+        {isValidAddress && (
           <motion.div key="networks" className="overflow-hidden" {...reveal}>
-            <div className="flex flex-col gap-2 pt-4" data-testid="send-network-options">
-              <span className="text-sm text-text-muted">{t('network')}</span>
-              <div className="flex flex-wrap gap-2">
-                {BRIDGE_NETWORKS.map(option => (
-                  <NetworkChip
-                    key={option.id}
-                    kind="ethereum"
-                    label={option.name}
-                    selected={network === option.id}
-                    onClick={() => {
-                      hapticLight();
-                      onSelectNetwork(option.id);
-                    }}
-                    data-testid={`send-network-${option.id}`}
-                  />
-                ))}
-              </div>
+            <div className="pt-4">
+              <NetworkField
+                chain={isEthereum ? 'ethereum' : 'miden'}
+                network={network === 'miden' ? undefined : network}
+                onSelect={onSelectNetwork}
+                testIdPrefix="send"
+              />
             </div>
           </motion.div>
         )}

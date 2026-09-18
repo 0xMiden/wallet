@@ -340,6 +340,7 @@
   "addressBook": "Адресная книга",
   "paste": "Вставить",
   "chooseRecipient": "Выберите получателя",
+  "sendTo": "Кому",
   "selectAmount": "Выберите сумму",
   "enterAmount": "Введите сумму",
   "selectAToken": "Выберите токен",
