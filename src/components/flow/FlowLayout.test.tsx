@@ -34,6 +34,8 @@ describe('FlowLayout', () => {
 
   it('styles back as a bare ink chevron, never the flow accent', () => {
     // Flow accents are under 3:1 on white, so the spec keeps them off text and the back chevron.
+    // The color lives on the IconButton itself (a `bare` IconButton is always `ink`) and the
+    // glyph inherits it through `fill="currentColor"` — same pattern PageHeader.test.tsx checks.
     render(
       <SendStepLayout title="Title" onBack={jest.fn()} footer={<button>cta</button>}>
         <p>content</p>
@@ -42,10 +44,11 @@ describe('FlowLayout', () => {
 
     const back = screen.getByTestId('flow-back');
     expect(back).not.toHaveClass('bg-surface-nav-button');
+    expect(back).not.toHaveClass('bg-fill');
+    expect(back).toHaveClass('text-ink');
+    expect(back).not.toHaveClass('text-accent-send');
     const glyph = back.querySelector('svg');
     expect(glyph).toHaveAttribute('data-name', 'chevron-left');
-    expect(glyph).toHaveClass('text-ink');
-    expect(glyph).not.toHaveClass('text-accent-send');
   });
 
   it('keeps the 52px header row without a back button so content lines up across steps', () => {
