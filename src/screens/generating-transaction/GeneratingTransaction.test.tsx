@@ -750,6 +750,26 @@ describe('GeneratingTransaction stage + state rendering', () => {
     act(() => root.unmount());
   });
 
+  it("labels Done in the secondary button's own color once Retry takes the primary slot", async () => {
+    const { container, root } = await renderInto(
+      <GeneratingTransaction
+        isGuardian={false}
+        onDoneClick={() => {}}
+        transactionComplete
+        hasErrors
+        canRetry
+        onRetry={() => {}}
+      />
+    );
+    const doneBtn = Array.from(container.querySelectorAll('button')).find(button =>
+      button.textContent?.includes('done')
+    );
+    expect(doneBtn).toHaveAttribute('data-variant', 'secondary');
+    // White would vanish on the light secondary fill; the label inherits the variant's ink.
+    expect(doneBtn?.querySelector('span')).not.toHaveClass('text-pure-white');
+    act(() => root.unmount());
+  });
+
   it('does not show the Activity link on a successful (non-failed) transaction', async () => {
     const { container, root } = await renderInto(
       <GeneratingTransaction isGuardian={false} onDoneClick={() => {}} transactionComplete hasErrors={false} />

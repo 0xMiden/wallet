@@ -419,7 +419,7 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
               onClick={onDoneClick}
               className="w-full max-w-none rounded-full"
             >
-              <span className="text-base font-semibold text-pure-white">{actionTitle}</span>
+              <span className="text-base font-semibold">{actionTitle}</span>
             </Button>
             {/* #483 — a failed tx needs a direct route to its Activity detail, like
                   SwapSuccess / GuardianSwitchSuccess (which link to the per-tx
