@@ -187,21 +187,27 @@ describe('Button', () => {
     it('swaps the label for the spinner and keeps the label in place to hold the width', () => {
       render(<Button isLoading title="Send" />);
 
-      expect(screen.getByTestId('loader')).toBeInTheDocument();
-      const label = screen.getByText('Send');
-      expect(label.closest('[aria-hidden="true"]')).toHaveClass('invisible');
+      expect(screen.getByTestId('loader').closest('[aria-hidden="true"]')).not.toBeNull();
+      expect(screen.getByText('Send').parentElement).toHaveClass('opacity-0');
       expect(screen.getByRole('button')).toHaveAttribute('aria-busy', 'true');
     });
 
-    it('holds the width for children content too', () => {
+    it('keeps the title as the accessible name while loading', () => {
+      render(<Button isLoading title="Send" />);
+
+      expect(screen.getByRole('button', { name: 'Send' })).toBeInTheDocument();
+    });
+
+    it('holds the width and the accessible name for children content too', () => {
       render(
         <Button isLoading>
-          <span>Custom</span>
+          <span>Decline</span>
         </Button>
       );
 
       expect(screen.getByTestId('loader')).toBeInTheDocument();
-      expect(screen.getByText('Custom').closest('[aria-hidden="true"]')).toHaveClass('invisible');
+      expect(screen.getByText('Decline').parentElement).toHaveClass('opacity-0');
+      expect(screen.getByRole('button', { name: 'Decline' })).toBeInTheDocument();
     });
 
     it('disables pointer events when loading', () => {
