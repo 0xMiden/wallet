@@ -119,7 +119,7 @@ export const BalanceCard: FC<BalanceCardProps> = ({
   const cardColor = useCardColor();
   const { rowRef, textRef, fontSizeRem } = useFitFontSize(AMOUNT_MAX_REM, AMOUNT_MIN_REM, !isLoading);
 
-  const pillBg = delta?.direction === 'negative' ? 'bg-status-negative' : 'bg-[#A8BBA3]';
+  const pillBg = delta?.direction === 'negative' ? 'bg-status-negative' : 'bg-status-positive';
 
   const handleMoreClick = () => {
     if (!onMore) return;
@@ -197,7 +197,7 @@ export const BalanceCard: FC<BalanceCardProps> = ({
 
       <div
         className={classNames(
-          'relative flex items-center justify-between gap-2 py-2 border-t border-dashed px-3.5 border-t-[#FFFFFF4D]',
+          'relative flex items-center justify-between gap-2 py-2 border-t border-dashed px-3.5 border-t-surface-balance-divider',
           onMore && 'pointer-events-none',
           CARD_COLOR_BOTTOM[cardColor]
         )}
