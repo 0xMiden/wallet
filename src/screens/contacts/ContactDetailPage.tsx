@@ -6,8 +6,8 @@ import { useTranslation } from 'react-i18next';
 import { useBackWithFallback } from 'app/hooks/useBackWithFallback';
 import { Button, ButtonVariant } from 'components/Button';
 import { ContactAvatar } from 'components/contacts/ContactAvatar';
-import { FlowDetailRow, FlowDetails } from 'components/flow/FlowDetails';
 import { FlowLayout } from 'components/flow/FlowLayout';
+import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import { Pill } from 'components/ui/Pill';
 import { getCurrentLocale } from 'lib/i18n/core';
 import { useContacts } from 'lib/miden/front';
@@ -186,20 +186,20 @@ const ContactView: React.FC<ContactViewProps> = ({ contact, onBack, onDeleted })
       }
     >
       {avatar}
-      <FlowDetails className="mt-4">
-        <FlowDetailRow
+      <DetailCard className="mt-4">
+        <DetailRow
           label={t('address')}
           stacked
           action={{ label: copied ? t('copied') : t('copy'), onClick: () => void copyAddress() }}
           data-testid="contact-address"
         >
           <span className="font-sans font-semibold">{contact.address}</span>
-        </FlowDetailRow>
-        <FlowDetailRow label={t('network')} data-testid="contact-network">
+        </DetailRow>
+        <DetailRow label={t('network')} data-testid="contact-network">
           {bridgeNetwork?.name ?? t('miden')}
-        </FlowDetailRow>
-        {contact.addedAt && <FlowDetailRow label={t('contactAdded')}>{formatAddedDate(contact.addedAt)}</FlowDetailRow>}
-      </FlowDetails>
+        </DetailRow>
+        {contact.addedAt && <DetailRow label={t('contactAdded')}>{formatAddedDate(contact.addedAt)}</DetailRow>}
+      </DetailCard>
     </FlowLayout>
   );
 };
