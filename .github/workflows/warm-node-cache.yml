@@ -1,7 +1,8 @@
 name: Warm E2E node-build cache
 
 # The pr-e2e-* workflows build the local 0.16 node from source and cache it under the
-# architecture-specific key (see .github/actions/run-local-node). A `pull_request`
+# architecture-safe key (see .github/actions/run-local-node). The x64 key keeps its
+# old name so current base-branch caches remain usable. A `pull_request`
 # run only ever SAVES to that PR branch's cache scope, never to `next` — so every brand
 # new PR's first run misses the cache, recompiles the node (~28 min), and the full
 # local-e2e suite then trips its timeout before it can finish.

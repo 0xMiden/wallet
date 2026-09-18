@@ -28,7 +28,7 @@
 - [CHANGE][all] A disabled primary button is a faded version of the brand color with white text, instead of beige with grey text, so it reads as the same button waiting to be enabled.
 - [CHANGE][all] Screen header back and close buttons share the nav button surface (#F9F9F9 in light mode) with a grey glyph; back is no longer an outlined orange arrow.
 - [FIX][ios] With a hardware keyboard attached (the simulator's Mac keyboard, or a Bluetooth keyboard), focusing a field no longer lifts the page by a full on-screen keyboard that is not showing; the layout clears only the visible accessory bar.
-- [CHANGE][ci] Pull request CI cancels old runs, uses smaller ARM runners for Docker E2E jobs, skips Earn and Guardian systems for unrelated changes while keeping their required checks, and moves metadata-only jobs to `ubuntu-slim`.
+- [CHANGE][ci] Pull request CI cancels old runs, uses smaller 2 vCPU runners for Docker E2E jobs, skips Earn and Guardian systems for unrelated changes while keeping their required checks, and moves metadata-only jobs to `ubuntu-slim`.
 
 ### Features
 

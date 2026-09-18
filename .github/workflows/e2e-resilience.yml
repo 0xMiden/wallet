@@ -66,7 +66,12 @@ jobs:
           # key and letting a note-transport bump reuse a stale binary.
           [ -n "$nts_src" ] || { echo "::error::no NOTE_TRANSPORT_* pins in versions.env"; exit 1; }
           nts=$(printf '%s' "$nts_src" | sha256sum | cut -c1-16)
-          echo "key=miden-e2e-cargo-v3-${{ runner.arch }}-rust1.98.1-$nts-$pins" >> "$GITHUB_OUTPUT"
+          if [ "${{ runner.arch }}" = X64 ]; then
+            namespace=miden-e2e-cargo-v2
+          else
+            namespace=miden-e2e-cargo-v3-${{ runner.arch }}
+          fi
+          echo "key=$namespace-rust1.98.1-$nts-$pins" >> "$GITHUB_OUTPUT"
       - name: Cache cargo (cli + note-transport)
         uses: actions/cache@v4
         with:

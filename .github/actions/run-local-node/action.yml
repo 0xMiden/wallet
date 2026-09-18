@@ -321,12 +321,29 @@ runs:
     #
     # The protocol rev is in the key, not just in the build: without it a stock
     # node restores over a patched one and the whole pin is a no-op that looks green.
+    - name: Compute node cache key
+      id: node_cache_key
+      shell: bash
+      env:
+        ARCH: ${{ runner.arch }}
+        REV: ${{ steps.pins.outputs.rev }}
+        FEE: ${{ inputs.verification-base-fee }}
+        PROTOCOL_SUFFIX: ${{ steps.protocol.outputs.cache_suffix }}
+      run: |
+        # The old architecture-neutral key contains x64 binaries. Reuse it only on
+        # x64 so current main caches stay warm, and name every other architecture.
+        if [ "$ARCH" = X64 ]; then
+          namespace=local-node-install
+        else
+          namespace=local-node-install-$ARCH
+        fi
+        echo "key=${namespace}-${REV}-fee${FEE}${PROTOCOL_SUFFIX}-rust1.98.0" >> "$GITHUB_OUTPUT"
     - name: Restore node build
       id: node_cache
       uses: actions/cache/restore@v4
       with:
         path: ${{ runner.temp }}/miden-client/target/test-node/install
-        key: local-node-install-${{ runner.arch }}-${{ steps.pins.outputs.rev }}-fee${{ inputs.verification-base-fee }}${{ steps.protocol.outputs.cache_suffix }}-rust1.98.0
+        key: ${{ steps.node_cache_key.outputs.key }}
     # Fails in ~2 min instead of after the ~36 min cold build. NOT skipped on a cache
     # hit: the node binaries are restored, but gen-genesis is not — start-test-node.sh
     # rebuilds it every run from the miden-client workspace, whose target/release is
@@ -634,7 +651,7 @@ runs:
       uses: actions/cache/save@v4
       with:
         path: ${{ runner.temp }}/miden-client/target/test-node/install
-        key: local-node-install-${{ runner.arch }}-${{ steps.pins.outputs.rev }}-fee${{ inputs.verification-base-fee }}${{ steps.protocol.outputs.cache_suffix }}-rust1.98.0
+        key: ${{ steps.node_cache_key.outputs.key }}
     # start-test-node.sh fails with "a node service exited; see <dir>/logs" and then
     # exits, so the logs it points at are discarded with the runner. That turns any
     # bring-up failure into an unactionable red X — dump them here instead.
