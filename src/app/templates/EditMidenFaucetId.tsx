@@ -4,8 +4,8 @@ import { SubmitHandler, useForm } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
 
 import FormField from 'app/atoms/FormField';
-import FormSubmitButton from 'app/atoms/FormSubmitButton';
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
+import { Button } from 'components/Button';
 import { setFaucetIdSetting } from 'lib/miden/assets';
 
 const SUBMIT_ERROR_TYPE = 'submit-error';
@@ -78,20 +78,9 @@ const EditMidenFaucetId: FC = () => {
           }}
         />
 
-        <FormSubmitButton
-          className="capitalize w-full justify-center mt-6"
-          loading={isSubmitting}
-          style={{
-            fontSize: '18px',
-            lineHeight: '24px',
-            paddingLeft: '0.5rem',
-            paddingRight: '0.5rem',
-            paddingTop: '12px',
-            paddingBottom: '12px'
-          }}
-        >
+        <Button type="submit" className="w-full mt-6" isLoading={isSubmitting}>
           {t('setNewFaucetId')}
-        </FormSubmitButton>
+        </Button>
 
         {submitSuccess && <div className="mt-4 text-green-600 text-sm font-medium">{t('faucetIdUpdated')}</div>}
       </form>
