@@ -1,8 +1,10 @@
 import React, { FC, ReactNode } from 'react';
 
 import classNames from 'clsx';
+import { AnimatePresence, motion, type Transition } from 'framer-motion';
 
 import { Icon, IconName } from 'app/icons/v2';
+import { durations, easings, useMotion, useSprings } from 'lib/animation';
 import { hapticLight } from 'lib/mobile/haptics';
 
 import { SearchInput } from './SearchInput';
@@ -39,7 +41,7 @@ export const TabHeaderAction: FC<{ label: string; icon: IconName; active?: boole
       onClick();
     }}
     className={classNames(
-      'flex items-center justify-center w-11 h-11 rounded-full',
+      'flex items-center justify-center w-11 h-11 rounded-full transition-colors duration-150 ease-hover',
       active ? 'text-accent-primary' : 'text-ink'
     )}
   >
@@ -58,22 +60,53 @@ export const TabHeaderAction: FC<{ label: string; icon: IconName; active?: boole
 export const TabHeader: FC<TabHeaderProps> = ({ title, actions, search }) => {
   const searchOpen = search?.open === true;
 
+  // Movement (position, scale) rides the shared spring; opacity gets its own
+  // tween, so a fade never feels like it's being dragged by the spring's
+  // physics. Both branches collapse to an instant swap under reduced motion —
+  // `useSprings`/`useMotion` do that once, here.
+  const springs = useSprings();
+  const fade = useMotion({ duration: durations.fast, ease: easings.easeOutCubic });
+  const transition: Transition = { default: springs.snappy, opacity: fade };
+
   return (
     <header className="shrink-0 px-4 py-3 flex h-15 items-center justify-between gap-3">
-      {searchOpen && search ? (
-        <SearchInput
-          size="sm"
-          className="min-w-0 flex-1"
-          value={search.value}
-          onChange={search.onChange}
-          placeholder={search.placeholder}
-          autoFocus
-        />
-      ) : (
-        <h1 className="min-w-0 truncate font-heading text-[28px] font-extrabold leading-9 tracking-[-0.5px] text-ink">
-          {title}
-        </h1>
-      )}
+      <AnimatePresence initial={false} mode="popLayout">
+        {searchOpen && search ? (
+          <motion.div
+            key="search"
+            data-testid="tab-header-search"
+            className="min-w-0 flex-1"
+            // The field grows in from just shy of full size, slightly offset toward
+            // the search icon it replaces (on the header's right edge) — closing
+            // retraces the same path back toward the icon, not a plain fade.
+            initial={{ opacity: 0, scale: 0.96, x: 6 }}
+            animate={{ opacity: 1, scale: 1, x: 0 }}
+            exit={{ opacity: 0, scale: 0.96, x: 6 }}
+            transition={transition}
+          >
+            <SearchInput
+              size="sm"
+              className="w-full"
+              value={search.value}
+              onChange={search.onChange}
+              placeholder={search.placeholder}
+              autoFocus
+            />
+          </motion.div>
+        ) : (
+          <motion.h1
+            key="title"
+            data-testid="tab-header-title"
+            className="min-w-0 truncate font-heading text-[28px] font-extrabold leading-9 tracking-[-0.5px] text-ink"
+            initial={{ opacity: 0, x: -6 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -6 }}
+            transition={transition}
+          >
+            {title}
+          </motion.h1>
+        )}
+      </AnimatePresence>
       {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
     </header>
   );

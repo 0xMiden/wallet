@@ -31,20 +31,27 @@ jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
 }));
 
-// framer-motion: AnimatePresence renders children; every `motion.X` becomes a
-// plain wrapper that drops the animation props and just renders children.
-jest.mock('framer-motion', () => ({
-  AnimatePresence: ({ children }: { children: React.ReactNode }) => <>{children}</>,
-  motion: new Proxy(
-    {},
-    {
-      get:
-        () =>
-        ({ children }: { children?: React.ReactNode }) => <div>{children}</div>
-    }
-  ),
-  useReducedMotion: () => mockReduceMotion
-}));
+// framer-motion: AnimatePresence renders children; every `motion.X` becomes
+// the plain tag it wraps (so `motion.h1` still exposes an `h1`, e.g. the
+// TabHeader title/search swap), with the animation-only props dropped and
+// everything else (including `data-testid`, `className`) passed through.
+jest.mock('framer-motion', () => {
+  const react = require('react');
+  return {
+    AnimatePresence: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+    motion: new Proxy(
+      {},
+      {
+        get:
+          (_target: unknown, tag: string) =>
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          ({ children, initial, animate, exit, transition, ...rest }: any) =>
+            react.createElement(tag, rest, children)
+      }
+    ),
+    useReducedMotion: () => mockReduceMotion
+  };
+});
 
 // Deterministic network so the module-level `isDevnet` picks the "orange"
 // icon set. The devnet branch is exercised separately via isolateModules.
