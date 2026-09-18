@@ -11,7 +11,7 @@ import { Icon, IconName } from 'app/icons/v2';
 import { ReactComponent as ReceiveIcon } from 'app/icons/v2/receive-new.svg';
 import { ReactComponent as SendIcon } from 'app/icons/v2/send-new.svg';
 import History from 'app/templates/history/History';
-import { NavigationHeader } from 'components/NavigationHeader';
+import { PageHeader } from 'components/PageHeader';
 import { TokenLogo } from 'components/TokenLogo';
 import { CopyButton } from 'components/ui/CopyButton';
 import { toAdaptiveFixed } from 'lib/i18n/numbers';
@@ -78,7 +78,7 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
 
   return (
     <div className={classNames(containerClass, 'mx-auto overflow-hidden flex flex-col bg-app-bg')}>
-      <NavigationHeader title={symbol} onBack={handleBack} />
+      <PageHeader title={symbol} onBack={handleBack} />
 
       <div className="flex-1 min-h-0 overflow-y-auto" ref={scrollParentRef}>
         <div className="flex flex-col px-4">

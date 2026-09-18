@@ -8,7 +8,7 @@ import Alert from 'app/atoms/Alert';
 import FormField from 'app/atoms/FormField';
 import { Icon, IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
-import { NavigationHeader } from 'components/NavigationHeader';
+import { PageHeader } from 'components/PageHeader';
 import { PasscodeEntry } from 'components/PasscodeEntry';
 import { Vault } from 'lib/miden/back/vault';
 import { useMidenContext, useSecretState } from 'lib/miden/front';
@@ -157,7 +157,7 @@ const RevealSeedPhrase: FC = () => {
   if (secret && words.length > 0) {
     return (
       <div className="flex flex-col flex-1 min-h-0 bg-app-bg text-heading-gray">
-        <NavigationHeader title={t('recoveryPhrase')} onBack={handleHide} />
+        <PageHeader title={t('recoveryPhrase')} onBack={handleHide} />
 
         <div className="flex-1 flex flex-col px-4 pt-4">
           {isGuardReady && (
@@ -216,7 +216,7 @@ const RevealSeedPhrase: FC = () => {
   if (authError) {
     return (
       <div className="flex flex-col flex-1 min-h-0 bg-app-bg">
-        <NavigationHeader title={t('recoveryPhrase')} onBack={() => goBack()} />
+        <PageHeader title={t('recoveryPhrase')} onBack={() => goBack()} />
         <div className="px-4 pt-4">
           <Alert type="error" title={t('error')} description={authError} className="rounded-lg text-black" />
         </div>
@@ -231,7 +231,7 @@ const RevealSeedPhrase: FC = () => {
 
   return (
     <div className="flex flex-col flex-1 min-h-0 bg-app-bg">
-      <NavigationHeader title={t('recoveryPhrase')} onBack={() => goBack()} />
+      <PageHeader title={t('recoveryPhrase')} onBack={() => goBack()} />
 
       <Drawer
         open={showPasswordDrawer}

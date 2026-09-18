@@ -124,9 +124,9 @@ jest.mock('lib/ui/drawer', () => ({
   DrawerTitle: ({ children }: { children: React.ReactNode }) => <h2 data-testid="drawer-title">{children}</h2>
 }));
 
-jest.mock('components/NavigationHeader', () => ({
+jest.mock('components/PageHeader', () => ({
   __esModule: true,
-  NavigationHeader: (props: { title?: string; onBack?: () => void }) => (
+  PageHeader: (props: { title?: string; onBack?: () => void }) => (
     <div data-testid="nav-header">
       <span data-testid="nh-title">{props.title}</span>
       <button data-testid="nh-back" onClick={props.onBack} />
