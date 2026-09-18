@@ -36,6 +36,7 @@
 - [CHANGE][all] Screen header back and close buttons share the nav button surface (#F9F9F9 in light mode) with a grey glyph; back is no longer an outlined orange arrow.
 - [FIX][ios] With a hardware keyboard attached (the simulator's Mac keyboard, or a Bluetooth keyboard), focusing a field no longer lifts the page by a full on-screen keyboard that is not showing; the layout clears only the visible accessory bar.
 - [CHANGE][all] Design system tokens for direction B (page, fill, ink, muted, accent tint, status text colors) with a unit test that holds every text pair to 4.5:1; nothing uses them yet.
+- [FIX][all] Muted text (subtitles, labels, placeholders) is darker in light mode, #6B6B6B instead of #ABABAB, so it is readable at 4.5:1 on white and on grey groups.
 
 ### Features
 

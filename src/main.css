@@ -400,7 +400,7 @@ body[data-hide-navbar]::after {
     --color-chip-bg: #eeeff2;
     --color-input-bg: #f9f9f9;
     --color-border-light: #e6e6e6;
-    --color-text-muted: #ababab;
+    --color-text-muted: var(--ds-muted);
     --color-border-subtle: rgba(63, 63, 63, 0.08);
     --color-hover-bg: #e1dbdb;
 
@@ -516,7 +516,7 @@ body[data-hide-navbar]::after {
     --color-chip-bg: #3f3f3f99;
     --color-input-bg: #3f3f3f99;
     --color-border-light: #444444;
-    --color-text-muted: #999999;
+    --color-text-muted: var(--ds-muted);
     --color-border-subtle: #ffffff15;
     --color-hover-bg: #ffffff0d;
 
