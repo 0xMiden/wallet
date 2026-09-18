@@ -206,6 +206,9 @@ jest.mock('lib/store', () => ({
 
 jest.mock('lib/woozie', () => ({
   useLocation: () => ({ search: mockSearch, historyPosition: 1 }),
+  // useBackWithFallback reads live history at call time.
+  createLocationState: () => ({ historyPosition: 1, href: 'http://localhost/#/rotate-guardian/review' }),
+  listen: () => () => undefined,
   navigate: (...args: unknown[]) => mockNavigate(...args),
   goBack: () => mockGoBack(),
   HistoryAction: { Push: 'push', Replace: 'replace' }

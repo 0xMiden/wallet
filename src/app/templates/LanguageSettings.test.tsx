@@ -39,7 +39,9 @@ let mockHistoryPosition = 1;
 jest.mock('lib/woozie', () => ({
   goBack: (...args: unknown[]) => mockGoBack(...args),
   navigate: (...args: unknown[]) => mockNavigate(...args),
-  useLocation: () => ({ historyPosition: mockHistoryPosition }),
+  // useBackWithFallback reads live history at call time.
+  createLocationState: () => ({ historyPosition: mockHistoryPosition, href: 'http://localhost/#/settings/language' }),
+  listen: () => () => undefined,
   HistoryAction: { Push: 'push', Replace: 'replace' }
 }));
 

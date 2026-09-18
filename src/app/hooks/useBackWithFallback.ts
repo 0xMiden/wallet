@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react';
 
-import { goBack, HistoryAction, navigate, useLocation } from 'lib/woozie';
+import { createLocationState, goBack, HistoryAction, listen, navigate } from 'lib/woozie';
 
 /**
  * Back handler for a screen that draws its own header instead of relying on
@@ -12,23 +12,32 @@ import { goBack, HistoryAction, navigate, useLocation } from 'lib/woozie';
  * guarded that with a fallback destination (`PageLayout.tsx`, `registerBackHandler`),
  * so screens that opt out of the toolbar need the same guard.
  *
+ * Reads LIVE history at call time, never `useLocation()`: MobilePageLayers gives each
+ * page layer a frozen location snapshot, so a page kept mounted under or over another
+ * one (and a slide page re-entered while it is still sliding out, which brings back
+ * the same instance) reads a stale position and never sees the location change.
+ *
  * Fires at most once per location: `history.go(-1)` resolves on a later task, so
  * the screen stays mounted and interactive after the first call and a double tap
- * queued two traversals, overshooting the intended parent. The latch clears when
- * the location actually changes, which is also what makes it safe on a screen the
- * user navigates back INTO.
+ * queued two traversals, overshooting the intended parent. The latch holds the URL
+ * it left from and clears on any history event that moves the live URL off it, so
+ * a screen the user leaves and comes back INTO goes back again.
  */
 export const useBackWithFallback = (fallbackPath = '/') => {
-  const { historyPosition, pathname } = useLocation();
-  const leaving = useRef(false);
+  const leavingFrom = useRef<string | null>(null);
 
-  useEffect(() => {
-    leaving.current = false;
-  }, [pathname, historyPosition]);
+  useEffect(
+    () =>
+      listen(() => {
+        if (createLocationState().href !== leavingFrom.current) leavingFrom.current = null;
+      }),
+    []
+  );
 
   return useCallback(() => {
-    if (leaving.current) return;
-    leaving.current = true;
+    const { href = '', historyPosition } = createLocationState();
+    if (leavingFrom.current === href) return;
+    leavingFrom.current = href;
     if (historyPosition > 0) {
       goBack();
     } else {
@@ -37,5 +46,5 @@ export const useBackWithFallback = (fallbackPath = '/') => {
       // (PageLayout's toolbar handler and MobileBackBridge) replace here.
       navigate(fallbackPath, HistoryAction.Replace);
     }
-  }, [historyPosition, fallbackPath]);
+  }, [fallbackPath]);
 };
