@@ -8,6 +8,7 @@ import { Button, ButtonVariant } from 'components/Button';
 import { ContactAvatar } from 'components/contacts/ContactAvatar';
 import { FlowLayout } from 'components/flow/FlowLayout';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
+import { Hero } from 'components/ui/Hero';
 import { Pill } from 'components/ui/Pill';
 import { getCurrentLocale } from 'lib/i18n/core';
 import { useContacts } from 'lib/miden/front';
@@ -102,15 +103,20 @@ const ContactView: React.FC<ContactViewProps> = ({ contact, onBack, onDeleted })
     await removeContact(contact.address);
   };
 
+  // The name is already in the page header (or, while editing, the name field below), so the
+  // hero here is the avatar alone.
   const avatar = (
-    <div className="flex justify-center pt-6 pb-2">
-      <ContactAvatar
-        address={contact.address}
-        name={editing ? trimmedName : contact.name}
-        network={kind === 'ethereum' ? kind : undefined}
-        size="xl"
-      />
-    </div>
+    <Hero
+      className="pt-6 pb-2"
+      visual={
+        <ContactAvatar
+          address={contact.address}
+          name={editing ? trimmedName : contact.name}
+          network={kind === 'ethereum' ? kind : undefined}
+          size="xl"
+        />
+      }
+    />
   );
 
   if (editing) {
