@@ -206,8 +206,8 @@ jobs:
   bridge-guardian-e2e-gate:
     name: bridge-guardian-e2e-gate
     needs: [bridge-guardian-e2e]
-    if: always()
-    runs-on: ubuntu-latest
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-slim
     steps:
       - run: |
           R="${{ needs.bridge-guardian-e2e.result }}"

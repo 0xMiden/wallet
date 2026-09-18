@@ -216,8 +216,8 @@ jobs:
   earn-e2e-gate:
     name: earn-e2e-gate
     needs: [earn-e2e]
-    if: always()
-    runs-on: ubuntu-latest
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-slim
     steps:
       - run: |
           if [ "${{ needs.earn-e2e.result }}" != "success" ]; then

@@ -255,8 +255,8 @@ jobs:
   guardian-lifecycle-e2e-gate:
     name: guardian-lifecycle-e2e-gate
     needs: [guardian-lifecycle-e2e]
-    if: always()
-    runs-on: ubuntu-latest
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-slim
     steps:
       - run: |
           R="${{ needs.guardian-lifecycle-e2e.result }}"

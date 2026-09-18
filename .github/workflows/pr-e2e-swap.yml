@@ -191,8 +191,8 @@ jobs:
   swap-e2e-gate:
     name: swap-e2e-gate
     needs: [swap-e2e]
-    if: always()
-    runs-on: ubuntu-latest
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-slim
     steps:
       - run: |
           if [ "${{ needs.swap-e2e.result }}" != "success" ]; then
