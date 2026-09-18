@@ -105,7 +105,7 @@ const AllHistory: FC<AllHistoryProps> = ({ programId }) => {
               {isActive && (
                 <motion.span
                   layoutId={FILTER_PILL_LAYOUT_ID}
-                  className="absolute inset-0 rounded-full bg-accent-tint"
+                  className="pointer-events-none absolute inset-0 rounded-full bg-accent-tint"
                   transition={pillTransition}
                 />
               )}

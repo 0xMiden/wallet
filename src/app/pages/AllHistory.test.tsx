@@ -184,6 +184,26 @@ describe('AllHistory', () => {
     expect(getFilterButton('sent').className).toContain('bg-fill');
   });
 
+  it('paints the active chip above its shared-fill indicator and never lets it eat taps', () => {
+    render(<AllHistory />);
+
+    // `Pill` is always `position: relative`, so the later-in-DOM, real button
+    // paints over the earlier, absolutely-positioned indicator span — not the
+    // other way around (CSS paints all positioned siblings after all static
+    // ones, regardless of DOM order, unless the button is itself positioned).
+    expect(getFilterButton('all')).toHaveClass('relative');
+    // Belt and suspenders: the indicator itself never intercepts a tap either.
+    expect(getFilterIndicator()).toHaveClass('pointer-events-none');
+  });
+
+  it('renders exactly one shared-fill indicator at a time', () => {
+    render(<AllHistory />);
+    expect(document.querySelectorAll('[data-layout-id="activity-filter-pill"]')).toHaveLength(1);
+
+    fireEvent.click(getFilterButton('sent'));
+    expect(document.querySelectorAll('[data-layout-id="activity-filter-pill"]')).toHaveLength(1);
+  });
+
   it('changes the active filter and propagates it to History on tap', () => {
     render(<AllHistory />);
 
