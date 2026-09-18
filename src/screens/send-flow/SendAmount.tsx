@@ -7,6 +7,7 @@ import { Icon, IconName } from 'app/icons/v2';
 import { AmountInput } from 'components/AmountInput';
 import { Button, ButtonVariant } from 'components/Button';
 import { TokenLogo } from 'components/TokenLogo';
+import { Pill } from 'components/ui';
 import { useMotion } from 'lib/animation';
 import { durations } from 'lib/animation/durations';
 import { easings } from 'lib/animation/easings';
@@ -141,17 +142,13 @@ export const SendAmount: React.FC<SendAmountProps> = ({
                 exit={{ opacity: 0, scale: 0.85 }}
                 transition={transition}
               >
-                <button
-                  type="button"
+                <Pill
+                  onClick={() => onAmountChange(formatBalance(token.balance))}
+                  className="text-accent-send"
                   data-testid="send-amount-max"
-                  onClick={() => {
-                    hapticLight();
-                    onAmountChange(formatBalance(token.balance));
-                  }}
-                  className="shrink-0 rounded-full border border-border-subtle bg-app-bg px-3 py-1.5 font-heading text-sm font-bold text-accent-send"
                 >
                   {t('max')}
-                </button>
+                </Pill>
               </motion.span>
             )}
           </AnimatePresence>

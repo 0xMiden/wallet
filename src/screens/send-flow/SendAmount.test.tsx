@@ -9,7 +9,12 @@ jest.mock('react-i18next', () => ({
     t: (key: string, params?: Record<string, string>) => (params?.value ? `${key}:${params.value}` : key)
   })
 }));
-jest.mock('lib/platform', () => ({ isMobile: () => true }));
+jest.mock('lib/platform', () => ({
+  isMobile: () => true,
+  isExtension: () => false,
+  isAndroid: () => false,
+  isIOS: () => true
+}));
 jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn() }));
 jest.mock('components/TokenLogo', () => ({
   TokenLogo: ({ symbol }: { symbol: string }) => <span>{symbol}-logo</span>

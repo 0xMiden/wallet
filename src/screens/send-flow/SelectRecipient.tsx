@@ -9,6 +9,7 @@ import { ReactComponent as SendAddressBookIcon } from 'app/icons/send-address-bo
 import { Icon, IconName } from 'app/icons/v2';
 import { Avatar } from 'components/Avatar';
 import { Button, ButtonVariant } from 'components/Button';
+import { Pill } from 'components/ui';
 import { hapticLight } from 'lib/mobile/haptics';
 import { AddressChain } from 'utils/miden';
 import { truncateAddress } from 'utils/string';
@@ -255,57 +256,33 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
             slid over and relabelled itself raced three animations against
             each other. */}
         <AnimatePresence initial={false} mode="wait">
-          <motion.div key={pillSet} className="flex flex-wrap items-start gap-1" {...pillSwap}>
+          <motion.div key={pillSet} className="flex flex-wrap items-start gap-2" {...pillSwap}>
             {pillSet === 'add' ? (
-              <Button
-                variant={ButtonVariant.Secondary}
-                onClick={() => {
-                  hapticLight();
-                  onAddContact?.();
-                }}
+              <Pill
+                icon={<SendAddressBookIcon data-testid="send-address-book-icon" />}
+                onClick={() => onAddContact?.()}
                 data-testid="send-address-book"
-                className="h-auto! w-fit! rounded-full bg-surface-interactive! px-2! py-1! text-base font-bold hover:bg-surface-interactive!"
               >
-                <SendAddressBookIcon data-testid="send-address-book-icon" className="h-4 w-4 shrink-0" />
-                <span>{t('addToContactsPrompt')}</span>
-              </Button>
+                {t('addToContactsPrompt')}
+              </Pill>
             ) : (
               <>
                 {onPaste && pillSet === 'empty' && (
-                  <Button
-                    variant={ButtonVariant.Secondary}
-                    onClick={() => {
-                      hapticLight();
-                      onPaste();
-                    }}
-                    data-testid="send-paste"
-                    className="h-auto! w-fit! rounded-full bg-surface-interactive! px-2! py-1! text-base font-bold hover:bg-surface-interactive!"
-                  >
-                    <Icon name={IconName.FileCopy} size="xs" className="shrink-0" />
-                    <span>{t('paste')}</span>
-                  </Button>
+                  <Pill icon={<Icon name={IconName.FileCopy} size="xs" />} onClick={onPaste} data-testid="send-paste">
+                    {t('paste')}
+                  </Pill>
                 )}
-                <Button
-                  variant={ButtonVariant.Secondary}
-                  onClick={() => {
-                    hapticLight();
-                    onAddressBook();
-                  }}
+                <Pill
+                  icon={<SendAddressBookIcon data-testid="send-address-book-icon" />}
+                  onClick={onAddressBook}
                   data-testid="send-address-book"
-                  className="h-auto! w-fit! rounded-full bg-surface-interactive! px-2! py-1! text-base font-bold hover:bg-surface-interactive!"
                 >
-                  <SendAddressBookIcon data-testid="send-address-book-icon" className="h-4 w-4 shrink-0" />
-                  <span>{t('addressBook')}</span>
-                </Button>
+                  {t('addressBook')}
+                </Pill>
                 {onScan && pillSet === 'empty' && (
-                  <Button
-                    variant={ButtonVariant.Secondary}
-                    onClick={onScan}
-                    className="h-auto! w-fit! rounded-full bg-surface-interactive! px-2! py-1! text-base font-bold hover:bg-surface-interactive!"
-                  >
-                    <ScanFrameIcon data-testid="send-scan-icon" className="h-4 w-4 shrink-0" />
-                    <span>{scanQrCodeLabel}</span>
-                  </Button>
+                  <Pill icon={<ScanFrameIcon data-testid="send-scan-icon" />} onClick={onScan}>
+                    {scanQrCodeLabel}
+                  </Pill>
                 )}
               </>
             )}
