@@ -148,11 +148,9 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
       <div className="relative mt-3">
         {recipientName && (
           <div className="mb-2 flex items-center gap-3">
-            <span
-              data-testid="send-recipient-avatar"
-              className="h-8 w-8 shrink-0 rounded-full bg-grey-300"
-              aria-hidden="true"
-            />
+            <span data-testid="send-recipient-avatar" className="flex shrink-0">
+              <ContactAvatar address={address} name={recipientName} />
+            </span>
             <span data-testid="send-recipient-name" className="font-heading text-2xl font-bold text-black">
               {recipientName}
             </span>
