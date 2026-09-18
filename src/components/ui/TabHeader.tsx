@@ -1,12 +1,11 @@
 import React, { FC, ReactNode } from 'react';
 
-import classNames from 'clsx';
 import { AnimatePresence, motion, type Transition } from 'framer-motion';
 
-import { Icon, IconName } from 'app/icons/v2';
+import { IconName } from 'app/icons/v2';
 import { durations, easings, useMotion, useSprings } from 'lib/animation';
-import { hapticLight } from 'lib/mobile/haptics';
 
+import { IconButton } from './IconButton';
 import { SearchInput } from './SearchInput';
 
 export interface TabHeaderProps {
@@ -25,29 +24,18 @@ export interface TabHeaderProps {
   };
 }
 
-/** Bare icon button for the header's action group: a 24px glyph in a 44px hit area. */
+/**
+ * Bare icon button for the header's action group: a 24px glyph in a 44px hit area, built on the
+ * design system's `IconButton`. `active` renders the accent-colored selected state (e.g. the
+ * search icon while search is open) and sets `aria-pressed`, so this action always reads as a
+ * toggle rather than a one-shot button.
+ */
 export const TabHeaderAction: FC<{ label: string; icon: IconName; active?: boolean; onClick: () => void }> = ({
   label,
   icon,
   active = false,
   onClick
-}) => (
-  <button
-    type="button"
-    aria-label={label}
-    aria-pressed={active}
-    onClick={() => {
-      hapticLight();
-      onClick();
-    }}
-    className={classNames(
-      'flex items-center justify-center w-11 h-11 rounded-full transition-colors duration-150 ease-hover',
-      active ? 'text-accent-primary' : 'text-ink'
-    )}
-  >
-    <Icon name={icon} className="w-6 h-6" fill="currentColor" />
-  </button>
-);
+}) => <IconButton icon={icon} label={label} active={active} onClick={onClick} />;
 
 /**
  * Header for top-level tab pages (Activity, Explore): page title on the
