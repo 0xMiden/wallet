@@ -2,6 +2,8 @@ import React from 'react';
 
 import { act, render, renderHook, screen } from '@testing-library/react';
 
+import { pageStepOffset, pageStepTransition } from 'lib/animation';
+
 import {
   DefaultAnimationConfig,
   Navigator,
@@ -17,15 +19,17 @@ import {
 // `variants` functions can be invoked directly and asserted. Movement is
 // otherwise never driven by jsdom, so capturing is the only way to reach
 // the variant/branch logic. `useReducedMotion` is a switch the tests flip.
-const mockMotionCapture: { props: any } = { props: null };
+const mockMotionCapture: { props: any; presence: any } = { props: null, presence: null };
 let mockReduceMotion = false;
 let mockIsMobile = false;
 
 jest.mock('framer-motion', () => {
   const ReactLib = require('react');
   return {
-    AnimatePresence: ({ children }: { children?: React.ReactNode }) =>
-      ReactLib.createElement(ReactLib.Fragment, null, children),
+    AnimatePresence: ({ children, ...presence }: { children?: React.ReactNode }) => {
+      mockMotionCapture.presence = presence;
+      return ReactLib.createElement(ReactLib.Fragment, null, children);
+    },
     motion: {
       div: ReactLib.forwardRef((props: any, ref: any) => {
         mockMotionCapture.props = props;
@@ -60,6 +64,7 @@ const setupHook = (initialRouteName?: string) =>
 
 beforeEach(() => {
   mockMotionCapture.props = null;
+  mockMotionCapture.presence = null;
   mockReduceMotion = false;
   mockIsMobile = false;
 });
@@ -292,6 +297,39 @@ describe('Navigator component', () => {
     mockIsMobile = true;
     renderNavigator();
     expect(mockMotionCapture.props.transition.duration).toBe(0.15);
+  });
+
+  it('swaps one step at a time: the leaving step goes before the next one mounts', () => {
+    renderNavigator();
+    expect(mockMotionCapture.presence).toEqual({ mode: 'wait', initial: false });
+  });
+
+  it('runs a step swap on the page step transition on mobile', () => {
+    mockIsMobile = true;
+    renderNavigator();
+    expect(mockMotionCapture.props.transition).toEqual({ ...pageStepTransition, when: 'beforeChildren' });
+  });
+
+  it('keeps the page step curve when a caller sets the duration', () => {
+    mockIsMobile = true;
+    renderNavigator({ animationDuration: 0.5 });
+    expect(mockMotionCapture.props.transition).toEqual({
+      ...pageStepTransition,
+      duration: 0.5,
+      when: 'beforeChildren'
+    });
+  });
+
+  it.each([true, false])('makes the swap instant under reduced motion (mobile: %s)', mobile => {
+    mockIsMobile = mobile;
+    mockReduceMotion = true;
+    renderNavigator({ animationDuration: 0.5 });
+    expect(mockMotionCapture.props.transition).toEqual({ duration: 0.001, when: 'beforeChildren' });
+  });
+
+  it('nudges a pushed step in by pageStepOffset, from the right forward and the left back', () => {
+    expect(DefaultAnimationConfig.pushInitialPosition.x).toBe(pageStepOffset);
+    expect(DefaultAnimationConfig.pushBackInitialPosition.x).toBe(`-${pageStepOffset}`);
   });
 
   describe('animation variants (default config)', () => {
