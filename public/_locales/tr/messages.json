@@ -1794,6 +1794,10 @@
     "message": "Kişi Ekle",
     "englishSource": "Add Contact"
   },
+  "contactNamePlaceholder": {
+    "message": "Bu kim?",
+    "englishSource": "Who is this?"
+  },
   "addToContactsPrompt": {
     "message": "Kişilere eklemek ister misiniz?",
     "englishSource": "Add to contacts?"

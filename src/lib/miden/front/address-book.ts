@@ -12,7 +12,9 @@ export function useContacts() {
 
   const addContact = useCallback(
     async (cToAdd: WalletContact) => {
-      if (allContacts.some(c => c.address === cToAdd.address)) {
+      // Case-insensitive: a checksummed `0x` address and its lowercase form are the same account.
+      const address = cToAdd.address.trim().toLowerCase();
+      if (allContacts.some(c => c.address.trim().toLowerCase() === address)) {
         throw new Error(getMessage('contactWithTheSameAddressAlreadyExists'));
       }
       await updateSettings({

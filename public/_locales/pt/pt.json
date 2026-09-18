@@ -378,6 +378,7 @@
   "miden": "Miden",
   "addNewContact": "Novo contato",
   "addContact": "Adicionar contato",
+  "contactNamePlaceholder": "Quem é?",
   "addToContactsPrompt": "Adicionar aos contatos?",
   "recent": "Recentes",
   "newContactPlaceholder": "por exemplo, Alice Bob",

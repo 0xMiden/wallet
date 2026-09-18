@@ -1794,6 +1794,10 @@
     "message": "연락처 추가",
     "englishSource": "Add Contact"
   },
+  "contactNamePlaceholder": {
+    "message": "누구인가요?",
+    "englishSource": "Who is this?"
+  },
   "addToContactsPrompt": {
     "message": "연락처에 추가하시겠습니까?",
     "englishSource": "Add to contacts?"

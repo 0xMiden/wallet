@@ -1794,6 +1794,10 @@
     "message": "連絡先を追加",
     "englishSource": "Add Contact"
   },
+  "contactNamePlaceholder": {
+    "message": "この人は誰ですか？",
+    "englishSource": "Who is this?"
+  },
   "addToContactsPrompt": {
     "message": "連絡先に追加しますか？",
     "englishSource": "Add to contacts?"

@@ -1794,6 +1794,10 @@
     "message": "Додати контакт",
     "englishSource": "Add Contact"
   },
+  "contactNamePlaceholder": {
+    "message": "Хто це?",
+    "englishSource": "Who is this?"
+  },
   "addToContactsPrompt": {
     "message": "Додати до контактів?",
     "englishSource": "Add to contacts?"
