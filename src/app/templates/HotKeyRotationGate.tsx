@@ -173,7 +173,7 @@ const HotKeyRotationOverlay: FC<OverlayProps> = ({ accountPublicKey }) => {
   }
 
   return (
-    // Same translucent scrim recipe as CustomModal: the wallet stays visible
+    // A translucent scrim: the wallet stays visible
     // behind the overlay, just dimmed, blurred, and inert. `hot-key-rotation-gate`
     // is a test-only hook (E2E POM): it marks the overlay for as long as it's
     // mounted (spinning OR showing the terminal-failure surface below) — the

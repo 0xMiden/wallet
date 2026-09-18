@@ -6,6 +6,7 @@ import { ButtonVariant } from 'components/ui/Button';
 import { getCurrentScreen, setRoutePart, __resetScreenKeyForTest } from 'lib/e2e/screen-key';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
+import { Drawer, DrawerContent, DrawerTitle } from 'lib/ui/drawer';
 
 import { AlertSheet } from './AlertSheet';
 
@@ -227,6 +228,43 @@ describe('AlertSheet', () => {
     expect(onCancel).not.toHaveBeenCalled();
     expect(onAction).not.toHaveBeenCalled();
     expect(screen.getByRole('alertdialog')).toBeInTheDocument();
+  });
+
+  it('stacked over a drawer, answering it leaves the drawer open', async () => {
+    // A confirmation is usually asked from inside a drawer (disconnect a dApp). Both are Radix
+    // layers, so a press inside the sheet is not a press outside the drawer beneath it.
+    const onDrawerOpenChange = jest.fn();
+    const onAction = jest.fn();
+    const tree = (sheetOpen: boolean) => (
+      <>
+        <Drawer open onOpenChange={onDrawerOpenChange}>
+          <DrawerContent data-testid="drawer">
+            <DrawerTitle>Connected dApps</DrawerTitle>
+          </DrawerContent>
+        </Drawer>
+        <AlertSheet
+          open={sheetOpen}
+          title="Disconnect"
+          actionLabel="Disconnect"
+          onAction={onAction}
+          onCancel={jest.fn()}
+        >
+          Disconnect this dApp?
+        </AlertSheet>
+      </>
+    );
+    // The drawer is open first; the question is asked from inside it.
+    const { rerender } = render(tree(false));
+    rerender(tree(true));
+    await act(() => new Promise(resolve => setTimeout(resolve, 0)));
+
+    const action = screen.getByRole('button', { name: 'Disconnect' });
+    fireEvent.pointerDown(action);
+    fireEvent.click(action);
+
+    expect(onAction).toHaveBeenCalledTimes(1);
+    expect(onDrawerOpenChange).not.toHaveBeenCalled();
+    expect(screen.getByTestId('drawer')).toBeInTheDocument();
   });
 
   describe('as an alert (no onCancel)', () => {
