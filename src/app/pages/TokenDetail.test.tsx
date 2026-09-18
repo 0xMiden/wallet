@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 
 import TokenDetail from './TokenDetail';
 
@@ -92,7 +92,8 @@ jest.mock('lib/woozie', () => ({
 
 const mockHapticSelection = jest.fn();
 jest.mock('lib/mobile/haptics', () => ({
-  hapticSelection: (...args: unknown[]) => mockHapticSelection(...args)
+  hapticSelection: (...args: unknown[]) => mockHapticSelection(...args),
+  hapticLight: jest.fn()
 }));
 
 jest.mock('components/NavigationHeader', () => ({
@@ -128,7 +129,7 @@ jest.mock('app/templates/history/History', () => ({
 
 jest.mock('app/icons/v2', () => ({
   Icon: ({ name }: { name: string }) => <span data-testid="copy-icon" data-name={name} />,
-  IconName: { Copy: 'Copy' }
+  IconName: { Copy: 'Copy', Checkmark: 'Checkmark' }
 }));
 
 // recharts: render `Tooltip.content` against a spread of arg shapes so every
@@ -179,11 +180,10 @@ jest.mock('framer-motion', () => {
 
 const TOKEN_ID = '0xabcdef1234567890';
 
-const mockWriteText = jest.fn();
-Object.defineProperty(navigator, 'clipboard', {
-  value: { writeText: mockWriteText },
-  configurable: true
-});
+const mockClipboardWrite = jest.fn();
+jest.mock('@capacitor/clipboard', () => ({
+  Clipboard: { write: (...args: unknown[]) => mockClipboardWrite(...args) }
+}));
 
 type Overrides = {
   appEnv?: { fullPage: boolean; sidePanel: boolean };
@@ -455,15 +455,23 @@ describe('TokenDetail', () => {
   });
 
   describe('token info card', () => {
-    it('renders the truncated contract, type, network and copies the address', () => {
+    it('renders the truncated contract, type, network and copies the address', async () => {
+      mockClipboardWrite.mockResolvedValue(undefined);
       renderPage({ network: { name: 'Devnet' } });
 
       expect(screen.getByText('Devnet')).toBeInTheDocument();
       expect(screen.getByText('fungible')).toBeInTheDocument();
 
+      expect(screen.getByTestId('copy-icon')).toHaveAttribute('data-name', 'Copy');
       const copyBtn = screen.getByTestId('copy-icon').closest('button') as HTMLButtonElement;
-      fireEvent.click(copyBtn);
-      expect(mockWriteText).toHaveBeenCalledWith(TOKEN_ID);
+
+      await act(async () => {
+        fireEvent.click(copyBtn);
+      });
+
+      expect(mockClipboardWrite).toHaveBeenCalledWith({ string: TOKEN_ID });
+      // Feedback: the copy glyph swaps to a checkmark once the write resolves.
+      expect(screen.getByTestId('copy-icon')).toHaveAttribute('data-name', 'Checkmark');
     });
   });
 });
