@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
 import { confirmSensitiveAction } from 'lib/biometric';
 import { stringToBigInt } from 'lib/i18n/numbers';
@@ -360,10 +360,12 @@ describe('ReviewTransaction — rendering', () => {
     expect(screen.getByRole('heading', { level: 1, name: 'reviewDetails' })).toBeInTheDocument();
     expect(screen.getByTestId('back-btn')).toBeInTheDocument();
     expect(screen.getByTestId('network-chip')).toHaveTextContent('miden');
-    expect(screen.getByTestId('review-amount')).toBeInTheDocument();
-    expect(screen.getByText('5 MDN')).toBeInTheDocument();
+    // Both the amount and its fiat subtitle live inside the review-amount hero —
+    // scoping to it is what proves they render together, not just somewhere on the page.
+    const hero = within(screen.getByTestId('review-amount'));
+    expect(hero.getByText('5 MDN')).toBeInTheDocument();
     // The fiat subtitle renders under the hero value once the token's price is known.
-    expect(screen.getByText('approxFiatValue')).toBeInTheDocument();
+    expect(hero.getByText('approxFiatValue')).toBeInTheDocument();
     // Recipient row value.
     expect(screen.getByText('0xrecipient')).toBeInTheDocument();
 
