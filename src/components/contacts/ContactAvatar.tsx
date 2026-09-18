@@ -1,20 +1,15 @@
 import React from 'react';
 
-import clsx from 'clsx';
-
 import { NetworkChipKind, NetworkLogo } from 'components/NetworkChip';
+import { Avatar, AvatarSize } from 'components/ui/Avatar';
 
 /** Muted tints from the app's palette (the explore tiles and balance card use the same family). */
 const TINTS = ['#8FA58A', '#94A3B8', '#7E7E96', '#D9885A', '#8A7DA6', '#6F9C9C', '#B08968', '#7C8CB5'];
 const DEFAULT_TINT = '#94A3B8';
 
-export type ContactAvatarSize = 'md' | 'lg' | 'xl';
+export type ContactAvatarSize = 'md' | 'xl';
 
-const SIZE_CLASSES: Record<ContactAvatarSize, { box: string; text: string; badge: string }> = {
-  md: { box: 'h-10 w-10', text: 'text-sm', badge: 'h-5 w-5 -right-1 -bottom-1' },
-  lg: { box: 'h-14 w-14', text: 'text-lg', badge: 'h-6 w-6 -right-1 -bottom-1' },
-  xl: { box: 'h-22 w-22', text: 'text-3xl', badge: 'h-8 w-8 -right-0.5 -bottom-0.5' }
-};
+const AVATAR_SIZES: Record<ContactAvatarSize, AvatarSize> = { md: 40, xl: 88 };
 
 /** Stable per address, so the same contact keeps its color on every screen. */
 export function tintForAddress(address: string): string {
@@ -53,38 +48,17 @@ export interface ContactAvatarProps {
 
 /**
  * A contact's avatar: a color and initials derived from the contact itself, so contacts are
- * distinguishable at a glance instead of all wearing the same orange Miden image.
+ * distinguishable at a glance instead of all wearing the same orange Miden image. A thin wrapper
+ * over the canonical `Avatar`.
  */
-export const ContactAvatar: React.FC<ContactAvatarProps> = ({ address, name, network, size = 'md', className }) => {
-  const sizing = SIZE_CLASSES[size];
-
-  return (
-    <span
-      className={clsx('relative inline-flex shrink-0', className)}
-      data-testid="contact-avatar"
-      data-network={network}
-    >
-      <span
-        aria-hidden="true"
-        className={clsx(
-          'flex items-center justify-center rounded-full font-heading font-bold text-pure-white',
-          sizing.box,
-          sizing.text
-        )}
-        style={{ backgroundColor: tintForAddress(address) }}
-      >
-        {avatarLabel(address, name)}
-      </span>
-      {network && (
-        <span
-          className={clsx(
-            'absolute flex items-center justify-center rounded-full border-2 border-app-bg bg-app-bg',
-            sizing.badge
-          )}
-        >
-          <NetworkLogo kind={network} />
-        </span>
-      )}
-    </span>
-  );
-};
+export const ContactAvatar: React.FC<ContactAvatarProps> = ({ address, name, network, size = 'md', className }) => (
+  <Avatar
+    data-testid="contact-avatar"
+    data-network={network}
+    size={AVATAR_SIZES[size]}
+    initials={avatarLabel(address, name)}
+    color={tintForAddress(address)}
+    badge={network && <NetworkLogo kind={network} />}
+    className={className}
+  />
+);
