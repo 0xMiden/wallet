@@ -94,6 +94,17 @@ it('draws contacts as one fill group with hairlines inset past the avatar', () =
   const first = screen.getByTestId('address-book-contact-mtst1alice');
   const second = screen.getByTestId('address-book-contact-0xzed');
   expect(first.parentElement).toHaveClass('bg-fill', 'rounded-2xl');
-  expect(first).not.toHaveClass('before:bg-hairline');
+  expect(second.parentElement).toBe(first.parentElement);
+  // The first row's hairline is hidden by `first:`; the rest start after the avatar.
+  expect(first).toHaveClass('first:before:hidden');
   expect(second).toHaveClass('before:bg-hairline', 'before:left-[68px]');
+});
+
+it('draws the rows and labels with the shared list components', () => {
+  render(<AddressBook />);
+
+  expect(screen.getByRole('heading', { level: 2, name: 'contacts' })).toHaveClass('text-muted', 'text-[13px]');
+  const contact = screen.getByTestId('address-book-contact-0xzed');
+  expect(contact.querySelector('[data-slot="chevron"]')).not.toBeNull();
+  expect(screen.getByTestId('address-book-account-mtst1mine').querySelector('[data-slot="chevron"]')).toBeNull();
 });
