@@ -16,7 +16,10 @@ const messages = {
   password: 'Password',
   error: 'Error',
   accountFileDownloadStarted: 'Account file download started.',
-  accountFileShareSuccess: 'Account file shared.'
+  accountFileShareSuccess: 'Account file shared.',
+  exportAccountFile: 'Export account file',
+  exportAccountFileGuardianUnavailable:
+    'A Guardian account cannot be exported to an account file. Its signing key is held by your device.'
 } as const;
 
 jest.mock('react-i18next', () => ({
@@ -59,21 +62,40 @@ jest.mock('components/Button', () => ({
   ButtonVariant: { Primary: 'primary' }
 }));
 
+// Faithful on the one thing that matters to these assertions: the real control renders
+// `error ?? subtitle` as its hint, so a stub that drops `error` hides a duplicated failure.
+// (It still submits on every click; the one-submit-per-code latch is covered against the REAL
+// component in ExportAccountFile.passcode.test.tsx.)
 jest.mock('components/PasscodeEntry', () => ({
-  PasscodeEntry: ({ onSubmit, disabled }: { onSubmit: (code: string) => void; disabled?: boolean }) => (
-    <button type="button" disabled={disabled} onClick={() => onSubmit('123456')}>
-      Enter passcode
-    </button>
+  PasscodeEntry: ({
+    onSubmit,
+    disabled,
+    error,
+    subtitle
+  }: {
+    onSubmit: (code: string) => void;
+    disabled?: boolean;
+    error?: string | null;
+    subtitle?: string;
+  }) => (
+    <div>
+      <button type="button" disabled={disabled} onClick={() => onSubmit('123456')}>
+        Enter passcode
+      </button>
+      <span>{error ?? subtitle}</span>
+    </div>
   )
 }));
 
 const mockExportAccountFile = jest.fn();
+let mockAccountPublicKey = 'mtst1account_suffix';
+let mockAccountType = 'on-chain';
 jest.mock('lib/miden/front', () => ({
   useAccount: () => ({
-    publicKey: 'mtst1account_suffix',
+    publicKey: mockAccountPublicKey,
     name: 'Account 1',
     isPublic: true,
-    type: 'on-chain',
+    type: mockAccountType,
     hdIndex: 0
   }),
   useMidenContext: () => ({ exportAccountFile: mockExportAccountFile })
@@ -93,11 +115,13 @@ jest.mock('lib/mobile/useHideDappBubblesWhileOpen', () => ({ useHideDappBubblesW
 
 const mockWriteFile = jest.fn();
 const mockDeleteFile = jest.fn();
+const mockReaddir = jest.fn();
 jest.mock('@capacitor/filesystem', () => ({
   Directory: { Cache: 'CACHE' },
   Filesystem: {
     writeFile: (...args: unknown[]) => mockWriteFile(...args),
-    deleteFile: (...args: unknown[]) => mockDeleteFile(...args)
+    deleteFile: (...args: unknown[]) => mockDeleteFile(...args),
+    readdir: (...args: unknown[]) => mockReaddir(...args)
   }
 }));
 
@@ -116,6 +140,9 @@ beforeEach(() => {
   mockExportAccountFile.mockResolvedValue(new Uint8Array([4, 5, 6]));
   mockWriteFile.mockResolvedValue({ uri: 'file:///cache/mtst1account.mac' });
   mockDeleteFile.mockResolvedValue(undefined);
+  mockReaddir.mockResolvedValue({ files: [] });
+  mockAccountPublicKey = 'mtst1account_suffix';
+  mockAccountType = 'on-chain';
   mockShare.mockResolvedValue(undefined);
   global.URL.createObjectURL = jest.fn(() => 'blob:account-file');
   global.URL.revokeObjectURL = jest.fn();
@@ -226,6 +253,190 @@ it('deletes the sensitive mobile cache file when sharing fails', async () => {
   expect(screen.queryByText(messages.accountFileShareSuccess)).not.toBeInTheDocument();
 });
 
+it('focuses the password field once the hardware probe resolves, and Enter submits', async () => {
+  await renderReady();
+
+  const passwordField = screen.getByLabelText(messages.password);
+  expect(passwordField).toHaveFocus();
+
+  acknowledge();
+  fireEvent.change(passwordField, { target: { value: 'wallet-password' } });
+  fireEvent.submit(passwordField.closest('form')!);
+
+  await screen.findByText(messages.accountFileDownloadStarted);
+  expect(mockExportAccountFile).toHaveBeenCalledWith('mtst1account_suffix', 'wallet-password');
+});
+
+it('does not export on Enter before the warning is acknowledged', async () => {
+  await renderReady();
+
+  const passwordField = screen.getByLabelText(messages.password);
+  fireEvent.change(passwordField, { target: { value: 'wallet-password' } });
+  expect(screen.getByRole('button', { name: messages.saveAccountFile })).toBeDisabled();
+  fireEvent.submit(passwordField.closest('form')!);
+
+  await waitFor(() => expect(mockExportAccountFile).not.toHaveBeenCalled());
+});
+
+it('falls back to the password step-up when the hardware probe rejects', async () => {
+  mockHasHardwareProtector.mockRejectedValueOnce(new Error('probe unavailable'));
+  await renderReady();
+
+  expect(screen.getByLabelText(messages.password)).toBeInTheDocument();
+});
+
+it('zeroes bytes that arrive after the screen is gone, and opens no sheet over what replaced it', async () => {
+  mockMobile = true;
+  const exported = new Uint8Array([4, 5, 6]);
+  let releaseExport: (value: Uint8Array) => void = () => undefined;
+  mockExportAccountFile.mockReturnValueOnce(
+    new Promise<Uint8Array>(resolve => {
+      releaseExport = resolve;
+    })
+  );
+  const view = render(<ExportAccountFile />);
+  await screen.findByText(messages.exportAccountFileWarningBody);
+
+  acknowledge();
+  fireEvent.click(screen.getByRole('button', { name: 'Enter passcode' }));
+  view.unmount();
+  releaseExport(exported);
+
+  await waitFor(() => expect(Array.from(exported)).toEqual([0, 0, 0]));
+  expect(mockShare).not.toHaveBeenCalled();
+});
+
+it('opens no share sheet when the screen goes while the stale-export sweep is in flight', async () => {
+  // The sweep and the write are each a bridge round trip, so the screen can be gone before delivery.
+  // A .mac share sheet must not appear over whatever replaced it - and the plaintext cache copy
+  // must still be reclaimed.
+  mockMobile = true;
+  let releaseSweep: () => void = () => undefined;
+  mockReaddir.mockReturnValueOnce(
+    new Promise(resolve => {
+      releaseSweep = () => resolve({ files: [] });
+    })
+  );
+  const view = render(<ExportAccountFile />);
+  await screen.findByText(messages.exportAccountFileWarningBody);
+
+  acknowledge();
+  fireEvent.click(screen.getByRole('button', { name: 'Enter passcode' }));
+  await waitFor(() => expect(mockReaddir).toHaveBeenCalled());
+
+  view.unmount();
+  releaseSweep();
+
+  await waitFor(() => expect(mockDeleteFile).toHaveBeenCalledWith({ path: 'mtst1account.mac', directory: 'CACHE' }));
+  expect(mockShare).not.toHaveBeenCalled();
+});
+
+it('demands fresh consent when the active account changes under a mounted screen', async () => {
+  // useAccount() is the globally shared currentAccount: another open surface can switch it while
+  // this screen stays mounted, because the Settings route keys its sub-pages by tab slug alone.
+  const view = render(<ExportAccountFile />);
+  await screen.findByText(messages.exportAccountFileWarningBody);
+
+  acknowledge();
+  fireEvent.change(screen.getByLabelText(messages.password), { target: { value: 'wallet-password' } });
+  expect(screen.getByRole('button', { name: messages.saveAccountFile })).toBeEnabled();
+
+  mockAccountPublicKey = 'mtst1other_suffix';
+  view.rerender(<ExportAccountFile />);
+  await screen.findByText(messages.exportAccountFileWarningBody);
+
+  expect(screen.getByRole('checkbox')).not.toBeChecked();
+  expect(screen.getByLabelText(messages.password)).toHaveValue('');
+  expect(screen.getByRole('button', { name: messages.saveAccountFile })).toBeDisabled();
+});
+
+it('zeroes the desktop download copy, which revokeObjectURL does not reach', async () => {
+  const exported = new Uint8Array([4, 5, 6]);
+  mockExportAccountFile.mockResolvedValueOnce(exported);
+  const blobParts: Uint8Array[] = [];
+  const RealBlob = global.Blob;
+  // Capture the array handed to Blob: revokeObjectURL releases the URL mapping, not this copy.
+  global.Blob = class extends RealBlob {
+    constructor(parts: BlobPart[], options?: BlobPropertyBag) {
+      super(parts, options);
+      blobParts.push(parts[0] as Uint8Array);
+    }
+  } as unknown as typeof Blob;
+  try {
+    await renderReady();
+    acknowledge();
+    fireEvent.change(screen.getByLabelText(messages.password), { target: { value: 'wallet-password' } });
+    fireEvent.click(screen.getByRole('button', { name: messages.saveAccountFile }));
+
+    await screen.findByText(messages.accountFileDownloadStarted);
+    expect(blobParts).toHaveLength(1);
+    expect(Array.from(blobParts[0]!)).toEqual([0, 0, 0]);
+  } finally {
+    global.Blob = RealBlob;
+  }
+});
+
+it('reclaims a stale export left behind by a killed share before writing the next one', async () => {
+  mockMobile = true;
+  mockReaddir.mockResolvedValue({ files: [{ name: 'mtst1orphan.mac' }, { name: 'unrelated.png' }] });
+  await renderReady();
+
+  acknowledge();
+  fireEvent.click(screen.getByRole('button', { name: 'Enter passcode' }));
+
+  await waitFor(() => expect(mockWriteFile).toHaveBeenCalled());
+  expect(mockDeleteFile).toHaveBeenCalledWith({ path: 'mtst1orphan.mac', directory: 'CACHE' });
+  expect(mockDeleteFile).not.toHaveBeenCalledWith({ path: 'unrelated.png', directory: 'CACHE' });
+});
+
+it('still exports when the stale-export sweep fails', async () => {
+  mockMobile = true;
+  mockReaddir.mockRejectedValueOnce(new Error('readdir unavailable'));
+  const consoleError = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+  await renderReady();
+
+  acknowledge();
+  fireEvent.click(screen.getByRole('button', { name: 'Enter passcode' }));
+
+  expect(await screen.findByText(messages.accountFileShareSuccess)).toBeInTheDocument();
+  consoleError.mockRestore();
+});
+
+it('treats a dismissed share sheet as a choice, showing neither an error nor a success', async () => {
+  mockMobile = true;
+  const exported = new Uint8Array([4, 5, 6]);
+  mockExportAccountFile.mockResolvedValueOnce(exported);
+  mockShare.mockRejectedValueOnce(new Error('Share canceled'));
+  await renderReady();
+
+  acknowledge();
+  fireEvent.click(screen.getByRole('button', { name: 'Enter passcode' }));
+
+  await waitFor(() => expect(mockDeleteFile).toHaveBeenCalledTimes(1));
+  expect(screen.queryByText(messages.error)).not.toBeInTheDocument();
+  expect(screen.queryByText('Share canceled')).not.toBeInTheDocument();
+  expect(screen.queryByText(messages.accountFileShareSuccess)).not.toBeInTheDocument();
+  expect(screen.queryByText(messages.accountFileDownloadStarted)).not.toBeInTheDocument();
+
+  // The bytes are gone either way: a dismissal is not a reason to keep key material around.
+  await waitFor(() => expect(Array.from(exported)).toEqual([0, 0, 0]));
+});
+
+it('keeps the real share failure when deleting the temporary file also fails', async () => {
+  mockMobile = true;
+  mockShare.mockRejectedValueOnce(new Error('Share failed'));
+  mockDeleteFile.mockRejectedValueOnce(new Error('Delete failed'));
+  const consoleError = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+  await renderReady();
+
+  acknowledge();
+  fireEvent.click(screen.getByRole('button', { name: 'Enter passcode' }));
+
+  expect(await screen.findByText('Share failed')).toBeInTheDocument();
+  expect(screen.queryByText('Delete failed')).not.toBeInTheDocument();
+  consoleError.mockRestore();
+});
+
 it('reports export failures and does not claim the file was saved', async () => {
   mockExportAccountFile.mockRejectedValueOnce(new Error('Export failed'));
   await renderReady();
@@ -238,4 +449,17 @@ it('reports export failures and does not claim the file was saved', async () => 
   expect(screen.queryByText(messages.accountFileDownloadStarted)).not.toBeInTheDocument();
   expect(screen.queryByText(messages.accountFileShareSuccess)).not.toBeInTheDocument();
   expect(global.URL.createObjectURL).not.toHaveBeenCalled();
+});
+
+it('refuses a Guardian account without asking for the warning or a credential', async () => {
+  mockAccountType = 'guardian';
+
+  render(<ExportAccountFile />);
+
+  expect(await screen.findByText(messages.exportAccountFileGuardianUnavailable)).toBeInTheDocument();
+  expect(screen.queryByText(messages.exportAccountFileWarningBody)).not.toBeInTheDocument();
+  expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+  expect(screen.queryByLabelText(messages.password)).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: messages.saveAccountFile })).not.toBeInTheDocument();
+  expect(mockExportAccountFile).not.toHaveBeenCalled();
 });

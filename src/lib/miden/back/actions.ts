@@ -338,7 +338,7 @@ export function revealPrivateKey(accPubKeyCommitment: string, password?: string)
 
 export function exportAccountFile(accountPublicKey: string, password?: string) {
   return withInited(() =>
-    Vault.withAccountFileKeyReader(password, async getKey => {
+    Vault.withAccountFileKeyReader(accountPublicKey, password, async getKey => {
       try {
         return await withWasmClientLock(
           async hold => {
@@ -348,7 +348,16 @@ export function exportAccountFile(accountPublicKey: string, password?: string) {
             const bytes = await client.exportAccountFile(accountPublicKey, step =>
               assertWasmHoldCurrent(hold, 'export-account-file', step)
             );
-            return Buffer.from(bytes).toString('base64');
+            try {
+              // Encoded straight from `bytes` rather than through an intermediate Buffer copy,
+              // because every copy is another live plaintext of the account's auth key that the
+              // screen's own fill(0) cannot reach. The base64 string itself is immutable and stays
+              // resident until GC - the transport is a string here the way revealPrivateKey and
+              // revealMnemonic already are - so this zeroes the one copy it does own.
+              return Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).toString('base64');
+            } finally {
+              bytes.fill(0);
+            }
           },
           { label: 'export-account-file' }
         );

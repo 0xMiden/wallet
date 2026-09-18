@@ -32,6 +32,7 @@ import { Buffer } from 'buffer';
 
 import { isLikelyNetworkError } from 'lib/miden/activity/connectivity-classify';
 import { clearConnectivityIssue, markConnectivityIssue } from 'lib/miden/activity/connectivity-state';
+import { PublicError } from 'lib/miden/back/defaults';
 import { isOffscreenAvailable, proveViaOffscreen } from 'lib/miden/back/offscreen-prover';
 import { getSpeculationManager, type SpeculationParams } from 'lib/miden/back/speculation-manager';
 import { computeSyncBackoffMs, monotonicNowMs } from 'lib/miden/sync-backoff';
@@ -52,6 +53,7 @@ import {
   accountRefToSdk,
   buildPswapCreateRequest,
   buildSendTransactionRequest,
+  canonicalWalletAccountId,
   getBech32AddressFromAccountId,
   walletAccountIdToSdk
 } from './helpers';
@@ -645,16 +647,36 @@ export class MidenClientInterface {
   }
 
   async exportAccountFile(accountPublicKey: string, assertLive: AssertLive = noAssertLive): Promise<Uint8Array> {
-    const accountId = accountPublicKey.split('_')[0] ?? accountPublicKey;
+    const accountId = canonicalWalletAccountId(accountPublicKey);
     const accountFile = await this.client.accounts.export(accountId);
     try {
       assertLive('after account export');
-      if (accountFile.authSecretKeyCount() === 0) {
-        throw new Error('Account file does not contain an authentication secret key');
+      // Bounded on BOTH sides. Zero means the export produced a file that cannot restore the
+      // account. More than one means it folded in a key the user never acknowledged exporting -
+      // the vault reader refuses the commitments it can name, and this is the backstop for the
+      // ones it cannot.
+      const keyCount = accountFile.authSecretKeyCount();
+      if (keyCount !== 1) {
+        // PublicError, not Error: Vault.withError replaces any other error with its generic
+        // 'Failed to export account file', and these two are the security-relevant reasons an
+        // export was refused. A bare Error loses them at that boundary.
+        throw new PublicError(
+          keyCount === 0
+            ? 'Account file does not contain an authentication secret key'
+            : `Account file contains ${keyCount} authentication secret keys, expected exactly one`
+        );
       }
       return accountFile.serialize();
     } finally {
-      accountFile.free();
+      // Never unguarded: this runs on the path assertLive may just have proved abandoned, where the
+      // handle is borrowed from a client somebody else now owns. A throw here would replace the
+      // error that is unwinding - including a WasmClientPoisonedError, whose identity the lock's
+      // kill classifiers depend on - with a cleanup failure.
+      try {
+        accountFile.free();
+      } catch (freeError) {
+        console.error('[exportAccountFile] could not free the account file:', freeError);
+      }
     }
   }
 

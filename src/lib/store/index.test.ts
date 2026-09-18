@@ -383,6 +383,27 @@ describe('useWalletStore', () => {
       });
     });
 
+    it('exportAccountFile decodes through the imported Buffer, not the extension page stub', async () => {
+      // Every extension page loads public/globals.js first, which installs a Buffer whose from()
+      // ignores the encoding argument, and the entry points keep it (globalThis.Buffer || Buffer).
+      // Reading the bare global here returns an EMPTY array, so the user is handed a 0-byte account
+      // file with a success message. Jest runs on Node, where the real global hides that entirely.
+      const realBuffer = (globalThis as any).Buffer;
+      (globalThis as any).Buffer = { isBuffer: () => false, from: (a: unknown) => new Uint8Array(a as number) };
+      try {
+        mockRequest.mockResolvedValueOnce({
+          type: WalletMessageType.ExportAccountFileResponse,
+          accountFileBase64: 'BAUG'
+        });
+
+        const { exportAccountFile } = useWalletStore.getState();
+
+        await expect(exportAccountFile('mtst1account', 'password123')).resolves.toEqual(new Uint8Array([4, 5, 6]));
+      } finally {
+        (globalThis as any).Buffer = realBuffer;
+      }
+    });
+
     it('exportAccountFile decodes the base64 response into bytes', async () => {
       mockRequest.mockResolvedValueOnce({
         type: WalletMessageType.ExportAccountFileResponse,

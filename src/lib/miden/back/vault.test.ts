@@ -7,7 +7,7 @@ import { WalletAccount } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
 import { PublicError } from './defaults';
-import { encryptAndSaveMany, fetchAndDecryptOneWithLegacyFallBack, savePlain } from './safe-storage';
+import { encryptAndSaveMany, fetchAndDecryptOneWithLegacyFallBack, removeMany, savePlain } from './safe-storage';
 import { Vault } from './vault';
 
 jest.setTimeout(30_000);
@@ -213,7 +213,10 @@ jest.mock('../sdk/helpers', () => ({
     }
     if (typeof id === 'string') return id;
     return 'bech32:unknown';
-  })
+  }),
+  // Mirrors the real helper's behaviour when the SDK cannot parse an id: both sides reduce to
+  // their address portion, so a composite `<addr>_<suffix>` still matches its own bare address.
+  sameWalletAccountId: (a: string, b: string) => (a.split('_')[0] ?? a) === (b.split('_')[0] ?? b)
 }));
 
 // ---------------------------------------------------------------------------
@@ -721,24 +724,174 @@ describe('Vault.withAccountFileKeyReader', () => {
     const vaultKey = (vault as any).vaultKey as CryptoKey;
     await encryptAndSaveMany([[keys.accAuthSecretKey('aabb'), '010203']], vaultKey);
 
-    const result = await Vault.withAccountFileKeyReader('pw', async getKey => getKey(new Uint8Array([0xaa, 0xbb])));
+    const result = await Vault.withAccountFileKeyReader('acc-pub-key-1', 'pw', async getKey =>
+      getKey(new Uint8Array([0xaa, 0xbb]))
+    );
 
     expect(result).toEqual(new Uint8Array([1, 2, 3]));
+  });
+
+  it('refuses a Guardian hot key rather than exporting its platform-wrapped ciphertext', async () => {
+    // accAuthSecretKeyStrgKey is polymorphic: persistGuardianKeys stores the hot CIPHERTEXT there,
+    // which signWord dispatches through the secure-hot-key facade instead of deserializing. Handing
+    // those bytes to the SDK would write a file whose "key" is an SE/StrongBox-wrapped blob.
+    const vault = await seedVault('pw', {
+      accounts: [
+        {
+          publicKey: 'guardian-acc',
+          name: 'Guardian',
+          isPublic: true,
+          type: WalletType.Guardian,
+          hotPublicKey: 'aabb'
+        } as any
+      ]
+    });
+    const vaultKey = (vault as any).vaultKey as CryptoKey;
+    await encryptAndSaveMany([[keys.accAuthSecretKey('aabb'), 'deadbeefciphertext']], vaultKey);
+
+    await expect(
+      Vault.withAccountFileKeyReader('guardian-acc', 'pw', async getKey => getKey(new Uint8Array([0xaa, 0xbb])))
+    ).rejects.toThrow('A Guardian account cannot be exported to an account file');
   });
 
   it('fails closed when the SDK requests a key the vault does not hold', async () => {
     await seedVault('pw');
 
     await expect(
-      Vault.withAccountFileKeyReader('pw', async getKey => getKey(new Uint8Array([0xaa, 0xbb])))
+      Vault.withAccountFileKeyReader('acc-pub-key-1', 'pw', async getKey => getKey(new Uint8Array([0xaa, 0xbb])))
     ).rejects.toThrow('Authentication key not found for account export');
+  });
+
+  // The four states below all defeat a guard keyed on the set of known hotPublicKeys, which is why
+  // the refusal is decided from the account's own `type` before any key is served.
+  it('refuses a Guardian account that has no activated hot key yet', async () => {
+    // Post-recovery, pre-activation: nothing to recognize in a hot-key set, but still a Guardian.
+    const vault = await seedVault('pw', {
+      accounts: [{ publicKey: 'guardian-acc', name: 'Guardian', isPublic: true, type: WalletType.Guardian } as any]
+    });
+    const vaultKey = (vault as any).vaultKey as CryptoKey;
+    await encryptAndSaveMany([[keys.accAuthSecretKey('aabb'), 'deadbeefciphertext']], vaultKey);
+
+    await expect(
+      Vault.withAccountFileKeyReader('guardian-acc', 'pw', async getKey => getKey(new Uint8Array([0xaa, 0xbb])))
+    ).rejects.toThrow('A Guardian account cannot be exported to an account file');
+  });
+
+  it("refuses a Guardian account's cold key, which lives under the same storage entity", async () => {
+    // persistGuardianKeys documents that cold also reaches the SDK keystore through the standard
+    // insertKeyCallback path, so the cold secret sits under accAuthSecretKeyStrgKey too - under a
+    // commitment that is never in the hot-key set.
+    const vault = await seedVault('pw', {
+      accounts: [
+        {
+          publicKey: 'guardian-acc',
+          name: 'Guardian',
+          isPublic: true,
+          type: WalletType.Guardian,
+          hotPublicKey: 'aabb',
+          coldPublicKey: 'ccdd'
+        } as any
+      ]
+    });
+    const vaultKey = (vault as any).vaultKey as CryptoKey;
+    await encryptAndSaveMany([[keys.accAuthSecretKey('ccdd'), '010203']], vaultKey);
+
+    await expect(
+      Vault.withAccountFileKeyReader('guardian-acc', 'pw', async getKey => getKey(new Uint8Array([0xcc, 0xdd])))
+    ).rejects.toThrow('A Guardian account cannot be exported to an account file');
+  });
+
+  it('fails closed when the accounts record cannot be read', async () => {
+    // A guard built from stored state must abort, not degrade to "there are no Guardians".
+    const vault = await seedVault('pw');
+    const vaultKey = (vault as any).vaultKey as CryptoKey;
+    await encryptAndSaveMany([[keys.accAuthSecretKey('aabb'), '010203']], vaultKey);
+    // Encrypted entries live under a hashed key, so remove it through the module's own derivation
+    // rather than by string-matching memoryStore. Both the primary and legacy reads then reject.
+    await removeMany([keys.accounts]);
+    const operation = jest.fn();
+
+    // Specifically NOT 'Account not found': swallowing the read into an empty list would report a
+    // present account as absent, and would silently disable the refusal if the lookup ever relaxed.
+    await expect(Vault.withAccountFileKeyReader('acc-pub-key-1', 'pw', operation)).rejects.toThrow(
+      'Failed to export account file'
+    );
+    expect(operation).not.toHaveBeenCalled();
+  });
+
+  it('refuses a commitment belonging to a different account', async () => {
+    const vault = await seedVault('pw', {
+      accounts: [
+        { publicKey: 'acc-pub-key-1', name: 'Mine', isPublic: true, type: WalletType.OnChain },
+        {
+          publicKey: 'guardian-acc',
+          name: 'Someone else',
+          isPublic: true,
+          type: WalletType.Guardian,
+          hotPublicKey: 'ccdd'
+        } as any
+      ]
+    });
+    const vaultKey = (vault as any).vaultKey as CryptoKey;
+    await encryptAndSaveMany([[keys.accAuthSecretKey('ccdd'), '010203']], vaultKey);
+
+    await expect(
+      Vault.withAccountFileKeyReader('acc-pub-key-1', 'pw', async getKey => getKey(new Uint8Array([0xcc, 0xdd])))
+    ).rejects.toThrow('The export asked for a key that belongs to a different account');
+  });
+
+  it('keeps the reason across the SDK boundary that reduces a callback throw to its text', async () => {
+    // The SDK does not propagate the PublicError itself: it comes back as a plain Error carrying
+    // only the message, which withError would otherwise flatten to 'Failed to export account file'.
+    // This double mimics that boundary, which is exactly what a direct getKey call cannot do.
+    await seedVault('pw');
+
+    await expect(
+      Vault.withAccountFileKeyReader('acc-pub-key-1', 'pw', async getKey => {
+        try {
+          return await getKey(new Uint8Array([0xaa, 0xbb]));
+        } catch (cause) {
+          throw new Error(`keystore callback: JsValue(Error: ${(cause as Error).message})`);
+        }
+      })
+    ).rejects.toThrow('Authentication key not found for account export');
+  });
+
+  it('lets an abandonment keep its identity rather than relabelling it with a reader refusal', async () => {
+    // `isWasmClientPoisonedError` is what the lock's kill classifiers read. A recorded getKey
+    // classification must never outrank it: an abandoned operation may still be in flight, and
+    // reporting it as a flat failure is what invites the retry that duplicates work.
+    const { WasmClientPoisonedError } = await import('../sdk/wasm-client-poison');
+    await seedVault('pw');
+
+    const poison = new WasmClientPoisonedError('watchdog', new Error('evicted mid-export'));
+    const failure = await Vault.withAccountFileKeyReader('acc-pub-key-1', 'pw', async getKey => {
+      await Promise.resolve(getKey(new Uint8Array([0xaa, 0xbb]))).catch(() => undefined);
+      throw poison;
+    }).catch((cause: unknown) => cause);
+
+    expect(failure).toBe(poison);
+  });
+
+  it('refuses an empty credential instead of deciding the auth method from a falsy check', async () => {
+    // '' is what a caller sends when it lost track of its own branch. Falling through would route
+    // a passcode wallet to the hardware path and answer it 'Hardware protector is not configured'.
+    await seedVault('pw');
+    const operation = jest.fn();
+
+    await expect(Vault.withAccountFileKeyReader('acc-pub-key-1', '', operation)).rejects.toThrow(
+      'A password or passcode is required to export this account'
+    );
+    expect(operation).not.toHaveBeenCalled();
   });
 
   it('does not expose a key reader when the step-up password is invalid', async () => {
     await seedVault('right-password');
     const operation = jest.fn();
 
-    await expect(Vault.withAccountFileKeyReader('wrong-password', operation)).rejects.toThrow('Invalid password');
+    await expect(Vault.withAccountFileKeyReader('acc-pub-key-1', 'wrong-password', operation)).rejects.toThrow(
+      'Invalid password'
+    );
     expect(operation).not.toHaveBeenCalled();
   });
 });

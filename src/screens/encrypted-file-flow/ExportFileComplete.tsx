@@ -11,6 +11,7 @@ import { useMidenContext } from 'lib/miden/front';
 import { deriveKey, encrypt, encryptJson, generateKey, generateSalt } from 'lib/miden/passworder';
 import { exportDb } from 'lib/miden/repo';
 import { getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
+import { isShareCancellation } from 'lib/mobile/share-cancellation';
 import { isMobile } from 'lib/platform';
 import { EncryptedWalletFile, ENCRYPTED_WALLET_FILE_PASSWORD_CHECK, DecryptedWalletFile } from 'screens/shared';
 
@@ -35,14 +36,6 @@ class ShareCancelledError extends Error {
     this.name = 'ShareCancelledError';
   }
 }
-
-/**
- * Capacitor reports a dismissed sheet as a plain rejection with this message on
- * both platforms — there is no code or typed error to key off, so the message is
- * the only available signal. Matched loosely (the platforms spell it "canceled")
- * and deliberately fail-safe: an unrecognised error stays a hard failure.
- */
-const isShareCancellation = (error: unknown): boolean => error instanceof Error && /cancell?ed/i.test(error.message);
 
 const ExportFileComplete: React.FC<ExportFileCompleteProps> = ({ filePassword, fileName, walletPassword, onDone }) => {
   const { t } = useTranslation();

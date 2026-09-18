@@ -198,7 +198,7 @@ describe('actions', () => {
     mockVaultGetKey.mockReset().mockResolvedValue(new Uint8Array([7]));
     mockWithAccountFileKeyReader
       .mockReset()
-      .mockImplementation(async (_password, operation) => operation(mockVaultGetKey));
+      .mockImplementation(async (_accountPublicKey, _password, operation) => operation(mockVaultGetKey));
     mockInstallRealmKeystore.mockReset().mockImplementation(callbacks => {
       if ('getKey' in callbacks) mockRealmGetKey = callbacks.getKey;
     });
@@ -866,7 +866,11 @@ describe('actions', () => {
     it('exports under one lock and removes the scoped key reader after success', async () => {
       await expect(exportAccountFile('mtst1account_suffix', 'password123')).resolves.toBe('BAUG');
 
-      expect(mockWithAccountFileKeyReader).toHaveBeenCalledWith('password123', expect.any(Function));
+      expect(mockWithAccountFileKeyReader).toHaveBeenCalledWith(
+        'mtst1account_suffix',
+        'password123',
+        expect.any(Function)
+      );
       expect(mockWithWasmClientLock).toHaveBeenCalledWith(expect.any(Function), { label: 'export-account-file' });
       expect(mockAssertWasmHoldCurrent).toHaveBeenCalledWith(
         mockHold,
@@ -876,6 +880,15 @@ describe('actions', () => {
       expect(mockExportAccountFile).toHaveBeenCalledWith('mtst1account_suffix', expect.any(Function));
       expect(mockUninstallRealmKeystore).toHaveBeenCalledWith({ getKey: installedGetKey() });
       expect(mockRealmGetKey).toBeNull();
+    });
+
+    it('zeroes the exported bytes it owns once they have been encoded', async () => {
+      const exported = new Uint8Array([4, 5, 6]);
+      mockExportAccountFile.mockResolvedValueOnce(exported);
+
+      await expect(exportAccountFile('mtst1account_suffix', 'password123')).resolves.toBe('BAUG');
+
+      expect(Array.from(exported)).toEqual([0, 0, 0]);
     });
 
     it('removes the scoped key reader when installation fails after assigning it', async () => {
