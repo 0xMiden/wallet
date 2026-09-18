@@ -1,5 +1,7 @@
 import React from 'react';
 
+import clsx from 'clsx';
+
 import { ReactComponent as EthLogo } from 'app/icons/logos/eth.svg';
 import { ReactComponent as MidenLogo } from 'app/icons/logos/miden.svg';
 import { Pill } from 'components/ui';
@@ -28,9 +30,24 @@ export const NetworkLogo: React.FC<{ kind: NetworkChipKind }> = ({ kind }) =>
     </span>
   );
 
+// Literal class strings, so Tailwind generates them. A selected chip deepens its border to the
+// network's text color, so selection never changes its size.
+const NETWORK_CLASSES: Record<NetworkChipKind, { base: string; border: string; selectedBorder: string }> = {
+  miden: {
+    base: 'bg-network-miden-tint text-network-miden-text',
+    border: 'border-network-miden-border',
+    selectedBorder: 'border-network-miden-text'
+  },
+  ethereum: {
+    base: 'bg-network-ethereum-tint text-network-ethereum-text',
+    border: 'border-network-ethereum-border',
+    selectedBorder: 'border-network-ethereum-text'
+  }
+};
+
 /**
- * A network, as its logo and name on the app's shared Pill: a quiet grey chip that picks up the
- * Send accent when selected.
+ * A network, as its logo and name on the app's shared Pill, tinted in that network's own soft
+ * color from Bread's warm palette. The logo keeps its original colors.
  */
 export const NetworkChip: React.FC<NetworkChipProps> = ({
   kind,
@@ -39,16 +56,19 @@ export const NetworkChip: React.FC<NetworkChipProps> = ({
   selected = false,
   className,
   'data-testid': dataTestId
-}) => (
-  <Pill
-    icon={<NetworkLogo kind={kind} />}
-    tone={selected ? 'selected' : 'neutral'}
-    accent="send"
-    onClick={onClick}
-    selected={onClick ? selected : undefined}
-    className={className}
-    data-testid={dataTestId}
-  >
-    {label}
-  </Pill>
-);
+}) => {
+  const styles = NETWORK_CLASSES[kind];
+
+  return (
+    <Pill
+      icon={<NetworkLogo kind={kind} />}
+      tone="plain"
+      onClick={onClick}
+      selected={onClick ? selected : undefined}
+      className={clsx(styles.base, selected ? styles.selectedBorder : styles.border, className)}
+      data-testid={dataTestId}
+    >
+      {label}
+    </Pill>
+  );
+};
