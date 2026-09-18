@@ -5,9 +5,8 @@ import { shuffle } from 'lodash';
 import { Trans, useTranslation } from 'react-i18next';
 
 import { Button } from 'components/Button';
-import { Chip } from 'components/Chip';
 import { Toggle } from 'components/Toggle';
-import { hapticLight } from 'lib/mobile/haptics';
+import { Pill } from 'components/ui/Pill';
 
 export interface VerifySeedPhraseScreenProps extends React.ButtonHTMLAttributes<HTMLDivElement> {
   seedPhrase: string[];
@@ -35,7 +34,6 @@ export const VerifySeedPhraseScreen: React.FC<VerifySeedPhraseScreenProps> = ({
 
   const onSelectWord = useCallback(
     (index: number) => {
-      hapticLight();
       // we select first word if index was not selected before
       if (firstSelectedWordIndex === null && index !== secondSelectedWordIndex) {
         setFirstSelectedWord(index);
@@ -126,13 +124,14 @@ export const VerifySeedPhraseScreen: React.FC<VerifySeedPhraseScreenProps> = ({
                 {t('last')}
               </div>
             )}
-            <button onClick={() => onSelectWord(index)} className="w-full">
-              <Chip
-                className="w-[104px] h-8 cursor-pointer"
-                selected={firstSelectedWordIndex === index || secondSelectedWordIndex === index}
-                label={word}
-              />
-            </button>
+            <Pill
+              className="w-[104px] justify-center"
+              tone={firstSelectedWordIndex === index || secondSelectedWordIndex === index ? 'selected' : 'word'}
+              selected={firstSelectedWordIndex === index || secondSelectedWordIndex === index}
+              onClick={() => onSelectWord(index)}
+            >
+              {word}
+            </Pill>
           </div>
         ))}
       </article>
