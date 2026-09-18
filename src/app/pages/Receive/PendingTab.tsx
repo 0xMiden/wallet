@@ -14,6 +14,7 @@ import { formatDate } from 'app/templates/history/transactionUtils';
 import { Button, ButtonVariant } from 'components/Button';
 import { SyncWaveBackground } from 'components/SyncWaveBackground';
 import { TokenLogo } from 'components/TokenLogo';
+import { EmptyState } from 'components/ui';
 import { formatBigInt, formatUsd } from 'lib/i18n/numbers';
 import { initiateConsumeTransaction, requestSWTransactionProcessing } from 'lib/miden/activity';
 import { isWorthClaiming } from 'lib/miden/fees/spendable';
@@ -201,8 +202,8 @@ const PendingSummary: React.FC<PendingSummaryProps> = ({
     return (
       <div className="flex-1 min-h-0 overflow-y-auto">
         <div className="w-full mx-auto py-4 px-4 flex flex-col min-h-full">
-          <div className="flex flex-col items-center justify-center flex-1">
-            <p className="text-sm text-center text-text-tertiary-token">{t('noNotesToClaim')}</p>
+          <div className="flex flex-1 items-center justify-center">
+            <EmptyState icon={IconName.PendingNotes} title={t('noNotesToClaim')} className="w-full" />
           </div>
         </div>
       </div>
