@@ -134,11 +134,10 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(function 
     >
       {isLoading ? (
         <>
-          {/* The label stays laid out, invisibly, so the button holds its width. */}
-          <span aria-hidden="true" className="invisible flex items-center justify-center gap-x-2">
-            {content}
-          </span>
-          <span className="absolute inset-0 flex items-center justify-center">
+          {/* The label stays laid out but transparent, so the button holds its width and keeps
+              its accessible name (`invisible` would drop it from the accessibility tree). */}
+          <span className="flex items-center justify-center gap-x-2 opacity-0">{content}</span>
+          <span aria-hidden="true" className="absolute inset-0 flex items-center justify-center">
             <Loader color="currentColor" />
           </span>
         </>
