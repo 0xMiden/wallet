@@ -29,7 +29,9 @@ jest.mock('lib/ui/util', () => ({
 jest.mock('lib/woozie', () => ({
   navigate: jest.fn(),
   HistoryAction: { Replace: 'replace' },
-  useLocation: () => ({ historyPosition: 0 })
+  // useBackWithFallback reads live history at call time.
+  createLocationState: () => ({ historyPosition: 0, href: 'http://localhost/#/import-account' }),
+  listen: () => () => undefined
 }));
 
 jest.mock('components/NavigationHeader', () => ({

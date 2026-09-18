@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 
 import { AnalyticsEventCategory, AnalyticsEventEnum, useAnalytics } from 'lib/analytics';
 import { getCurrentLocale, updateLocale } from 'lib/i18n/react';
@@ -35,11 +35,20 @@ jest.mock('lib/mobile/haptics', () => ({
 const mockGoBack = jest.fn();
 const mockNavigate = jest.fn();
 let mockHistoryPosition = 1;
+let mockHref = 'http://localhost/#/settings/language';
+const mockHistoryListeners = new Set<() => void>();
 
 jest.mock('lib/woozie', () => ({
   goBack: (...args: unknown[]) => mockGoBack(...args),
   navigate: (...args: unknown[]) => mockNavigate(...args),
-  useLocation: () => ({ historyPosition: mockHistoryPosition }),
+  // useBackWithFallback reads live history at call time.
+  createLocationState: () => ({ historyPosition: mockHistoryPosition, href: mockHref }),
+  listen: (listener: () => void) => {
+    mockHistoryListeners.add(listener);
+    return () => {
+      mockHistoryListeners.delete(listener);
+    };
+  },
   HistoryAction: { Push: 'push', Replace: 'replace' }
 }));
 
@@ -73,7 +82,16 @@ describe('LanguageSettings', () => {
     mockUseAnalytics.mockReturnValue({ trackEvent });
     mockGetCurrentLocale.mockReturnValue('en');
     mockHistoryPosition = 1;
+    mockHref = 'http://localhost/#/settings/language';
   });
+
+  /** A history event that puts the live location at `href`, `position` entries deep. */
+  const moveTo = (href: string, position: number) =>
+    act(() => {
+      mockHref = href;
+      mockHistoryPosition = position;
+      mockHistoryListeners.forEach(listener => listener());
+    });
 
   it('renders one radio per supported language, in order, with the right labels', () => {
     render(<LanguageSettings />);
@@ -274,6 +292,22 @@ describe('LanguageSettings', () => {
     expect(mockGoBack).toHaveBeenCalledTimes(1);
     expect(mockUpdateLocale).toHaveBeenCalledTimes(1);
     expect(mockUpdateLocale).toHaveBeenCalledWith('de');
+  });
+
+  it('takes a pick again once the user leaves and reopens the screen', () => {
+    // Reopening within the slide-out brings back the same instance, so a latch that never
+    // resets left every row dead on the second visit.
+    render(<LanguageSettings />);
+    fireEvent.click(screen.getByText('Deutsch'));
+
+    moveTo('http://localhost/#/settings', 0);
+    moveTo('http://localhost/#/settings/language', 1);
+    fireEvent.click(screen.getByText('Français'));
+
+    expect(mockUpdateLocale).toHaveBeenCalledTimes(2);
+    expect(mockUpdateLocale).toHaveBeenLastCalledWith('fr');
+    expect(mockHapticLight).toHaveBeenCalledTimes(2);
+    expect(mockGoBack).toHaveBeenCalledTimes(2);
   });
 
   it('routes to the settings root, replacing, when opened cold with no history to pop', () => {

@@ -86,9 +86,10 @@ jest.mock('lib/woozie', () => ({
   navigate: jest.fn(),
   goBack: jest.fn(),
   HistoryAction: { Push: 'push', Replace: 'replace' },
-  // Read by useBackWithFallback, which decides whether the sub-page header's
-  // back chevron pops history or falls back to the settings root.
-  useLocation: jest.fn(() => ({ historyPosition: mockHistoryPosition }))
+  // Read by useBackWithFallback at call time, which decides whether the sub-page
+  // header's back chevron pops history or falls back to the settings root.
+  createLocationState: () => ({ historyPosition: mockHistoryPosition, href: 'http://localhost/#/settings/sub' }),
+  listen: () => () => undefined
 }));
 
 jest.mock('lib/i18n/core', () => ({
@@ -125,8 +126,8 @@ jest.mock('components/Button', () => ({
   ButtonVariant: { Primary: 'primary', Secondary: 'secondary' }
 }));
 
-jest.mock('components/NavigationHeader', () => ({
-  NavigationHeader: ({
+jest.mock('components/PageHeader', () => ({
+  PageHeader: ({
     title,
     onBack,
     focusTitleOnMount
@@ -328,7 +329,7 @@ describe('Settings page — root menu (non-guardian)', () => {
     render(<Settings tabSlug={null} />);
 
     // The root wears the same TabHeader as Activity and Explore — a plain
-    // heading, not the sub-page NavigationHeader.
+    // heading, not the sub-page PageHeader.
     expect(screen.getByRole('heading', { level: 1, name: 'settings' })).toBeInTheDocument();
     expect(screen.queryByTestId('nav-header')).toBeNull();
     expect(screen.getByText('settingsVersion')).toBeInTheDocument();

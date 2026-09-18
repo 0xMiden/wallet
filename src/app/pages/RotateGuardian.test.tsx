@@ -81,7 +81,9 @@ jest.mock('lib/platform', () => ({
 }));
 
 jest.mock('lib/woozie', () => ({
-  useLocation: () => ({ historyPosition: mockHistoryPosition }),
+  // useBackWithFallback reads live history at call time.
+  createLocationState: () => ({ historyPosition: mockHistoryPosition, href: 'http://localhost/#/rotate-guardian' }),
+  listen: () => () => undefined,
   navigate: (...args: unknown[]) => mockNavigate(...args),
   goBack: () => mockGoBack(),
   Redirect: ({ to }: { to: string }) => <div data-testid="redirect" data-to={to} />,

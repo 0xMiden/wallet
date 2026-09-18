@@ -10,8 +10,10 @@ export interface NavButtonProps {
   /** Already-translated accessible name, e.g. "Back" or "Close". */
   label: string;
   onClick: () => void;
-  /** Glyph color class. Defaults to the grey glyph; a flow passes its accent. */
+  /** Glyph color class. Defaults to the grey glyph; the page header passes `text-ink`. */
   iconClassName?: string;
+  /** `circle`: the round filled button. `bare`: a 24px glyph alone in a 44px hit area, for page headers. */
+  appearance?: 'circle' | 'bare';
   className?: string;
   'data-testid'?: string;
 }
@@ -26,6 +28,7 @@ export const NavButton: React.FC<NavButtonProps> = ({
   label,
   onClick,
   iconClassName = 'text-heading-gray',
+  appearance = 'circle',
   className,
   'data-testid': dataTestId
 }) => (
@@ -38,10 +41,11 @@ export const NavButton: React.FC<NavButtonProps> = ({
     aria-label={label}
     data-testid={dataTestId}
     className={classNames(
-      'flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-surface-nav-button',
+      'flex shrink-0 items-center justify-center rounded-full',
+      appearance === 'bare' ? 'h-11 w-11 -mx-2.5' : 'h-9 w-9 bg-surface-nav-button',
       className
     )}
   >
-    <Icon name={icon} size="sm" fill="currentColor" className={iconClassName} />
+    <Icon name={icon} size={appearance === 'bare' ? 'md' : 'sm'} fill="currentColor" className={iconClassName} />
   </button>
 );
