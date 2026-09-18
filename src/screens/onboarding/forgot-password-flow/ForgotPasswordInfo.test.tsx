@@ -19,12 +19,11 @@ jest.mock('app/icons/v2', () => ({
   IconName: { Lock: 'Lock' }
 }));
 
-// `NavigationHeader` — surface the title, mode and the close handler so the
-// header wiring is assertable without dragging in `CircleButton` / the real
-// icon set.
-jest.mock('components/NavigationHeader', () => ({
-  NavigationHeader: ({ title, mode, onClose }: { title: string; mode?: string; onClose?: () => void }) => (
-    <div data-testid="nav-header" data-mode={mode}>
+// `PageHeader` — surface the title and the close handler so the header
+// wiring is assertable without dragging in `NavButton` / the real icon set.
+jest.mock('components/PageHeader', () => ({
+  PageHeader: ({ title, onClose }: { title: string; onClose?: () => void }) => (
+    <div data-testid="nav-header">
       <span data-testid="nav-header-title">{title}</span>
       <button data-testid="nav-header-close" onClick={onClose}>
         close
@@ -83,12 +82,11 @@ const renderComponent = (onClose: () => void = jest.fn(), onSignOut: () => void 
   render(<ForgotPasswordInfo onClose={onClose} onSignOut={onSignOut} />);
 
 describe('ForgotPasswordInfo', () => {
-  it('renders the navigation header in close mode with the forgot-password title', () => {
+  it('renders the page header with the forgot-password title', () => {
     renderComponent();
 
-    const header = screen.getByTestId('nav-header');
+    expect(screen.getByTestId('nav-header')).toBeInTheDocument();
     expect(screen.getByTestId('nav-header-title')).toHaveTextContent('forgotPassword');
-    expect(header).toHaveAttribute('data-mode', 'close');
   });
 
   it('renders the Message with the forgot-password copy, lock icon and description sizing', () => {
