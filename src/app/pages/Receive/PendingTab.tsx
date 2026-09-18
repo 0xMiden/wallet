@@ -14,7 +14,7 @@ import { formatDate } from 'app/templates/history/transactionUtils';
 import { Button, ButtonVariant } from 'components/Button';
 import { SyncWaveBackground } from 'components/SyncWaveBackground';
 import { TokenLogo } from 'components/TokenLogo';
-import { EmptyState } from 'components/ui';
+import { EmptyState } from 'components/ui/EmptyState';
 import { formatBigInt, formatUsd } from 'lib/i18n/numbers';
 import { initiateConsumeTransaction, requestSWTransactionProcessing } from 'lib/miden/activity';
 import { isWorthClaiming } from 'lib/miden/fees/spendable';

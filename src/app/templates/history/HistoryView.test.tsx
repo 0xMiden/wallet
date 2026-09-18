@@ -82,10 +82,15 @@ jest.mock('components/ui', () => ({
     >
       {icon}
     </div>
-  ),
-  // EmptyState: minimal stand-in — a heading for the title plus the same
-  // `icon` testid shape the row-icon mock above uses, so existing assertions
-  // (`getByTestId('icon')`, `getByText('noOperationsFound')` as an H3) hold.
+  )
+}));
+
+// EmptyState: minimal stand-in — a heading for the title plus the same `icon`
+// testid shape the row-icon mock above uses, so existing assertions
+// (`getByTestId('icon')`, `getByText('noOperationsFound')` as an H3) hold.
+// Imported from its own module path in the source (not the `components/ui`
+// barrel mocked above), so it needs its own mock.
+jest.mock('components/ui/EmptyState', () => ({
   EmptyState: ({ icon, title, className }: { icon: string; title: string; className?: string }) => (
     <div data-testid="empty-state" data-classname={className}>
       <span data-testid="icon" data-name={icon} />
