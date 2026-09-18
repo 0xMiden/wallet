@@ -40,6 +40,7 @@ Build wallet UI by extending the established system instead of copying legacy or
 
 ## References
 
+- [Design system](references/design-system.md): the canonical component for each element, the motion presets and the migration order. Read it first.
 - [Components and styling](references/components-and-styling.md)
 - [Motion and interaction](references/motion-and-interaction.md)
 - [Platform, accessibility, and verification](references/platform-accessibility-verification.md)
