@@ -15,6 +15,7 @@ import { BalanceCard } from './BalanceCard';
 import { BottomNav } from './BottomNav';
 import { CopyButton } from './CopyButton';
 import { EmptyState } from './EmptyState';
+import { IconButton } from './IconButton';
 import * as UI from './index';
 import { Pill } from './Pill';
 import { PromptCard } from './PromptCard';
@@ -61,6 +62,7 @@ describe('components/ui barrel', () => {
     Sparkline,
     ActivityRow,
     EmptyState,
+    IconButton,
     Spinner,
     Skeleton,
     TextField

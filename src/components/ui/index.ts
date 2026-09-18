@@ -43,6 +43,9 @@ export type { ActivityRowProps, ActivityAmountDirection, ActivityStatusTone } fr
 export { EmptyState } from './EmptyState';
 export type { EmptyStateProps, EmptyStateSecondaryAction } from './EmptyState';
 
+export { IconButton } from './IconButton';
+export type { IconButtonProps, IconButtonAppearance } from './IconButton';
+
 export { Spinner } from './Spinner';
 export type { SpinnerProps, SpinnerSize } from './Spinner';
 
