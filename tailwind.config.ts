@@ -228,11 +228,6 @@ export default {
       // Custom spacing values not in Tailwind defaults
       spacing: {
         13: '3.25rem',
-        // 88px — the design system's hero avatar size (`Avatar` size 88). `22`
-        // was already in use on `ContactAvatar`'s `xl` box before this token
-        // existed, but 22 was never a real Tailwind key, so that box rendered
-        // at 0×0; this both names the hero size and fixes that dead class.
-        22: '5.5rem',
         15: '3.75rem',
         35: '8.75rem'
       },
