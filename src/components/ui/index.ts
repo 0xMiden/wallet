@@ -4,6 +4,9 @@ export type { AccountsDrawerProps } from './AccountsDrawer';
 export { BalanceCard } from './BalanceCard';
 export type { BalanceCardProps, BalanceDeltaDirection } from './BalanceCard';
 
+export { Pill } from './Pill';
+export type { PillProps, PillSize, PillTone } from './Pill';
+
 export { PromptCard } from './PromptCard';
 export type { PromptCardHero, PromptCardProps, PromptCardStatus, PromptCardVariant } from './PromptCard';
 

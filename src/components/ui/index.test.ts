@@ -13,6 +13,7 @@ import { AssetListItem } from './AssetListItem';
 import { BalanceCard } from './BalanceCard';
 import { BottomNav } from './BottomNav';
 import * as UI from './index';
+import { Pill } from './Pill';
 import { PromptCard } from './PromptCard';
 import { PromptCarousel } from './PromptCarousel';
 import { SearchInput } from './SearchInput';
@@ -35,6 +36,7 @@ describe('components/ui barrel', () => {
   // compile-time only and never appear on the module object.
   const EXPECTED_COMPONENTS = {
     AccountsDrawer,
+    Pill,
     BalanceCard,
     PromptCard,
     PromptCarousel,
