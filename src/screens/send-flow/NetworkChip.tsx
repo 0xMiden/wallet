@@ -17,7 +17,8 @@ export interface NetworkChipProps {
   'data-testid'?: string;
 }
 
-const NetworkLogo: React.FC<{ kind: NetworkChipKind }> = ({ kind }) =>
+/** The network's mark, sized for a pill or a badge. */
+export const NetworkLogo: React.FC<{ kind: NetworkChipKind }> = ({ kind }) =>
   kind === 'miden' ? (
     // The brand mark from miden.xyz: the orange glyph, no circle behind it.
     <MidenLogo data-testid="miden-logo" aria-hidden="true" className="h-3.5 w-auto" />
