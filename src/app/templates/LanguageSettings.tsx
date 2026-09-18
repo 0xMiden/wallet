@@ -3,6 +3,7 @@ import React, { FC, useCallback, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useBackWithFallback } from 'app/hooks/useBackWithFallback';
+import { useOncePerLocation } from 'app/hooks/useOncePerLocation';
 import { Icon, IconName } from 'app/icons/v2';
 import { AnalyticsEventCategory, AnalyticsEventEnum, useAnalytics } from 'lib/analytics';
 import { getCurrentLocale, updateLocale } from 'lib/i18n/react';
@@ -74,13 +75,14 @@ const LanguageSettings: FC = () => {
   //
   // NOT redundant with the latch inside `useBackWithFallback`: that one only makes
   // the traversal idempotent, while this also stops a second haptic, a second
-  // analytics event and a second `updateLocale` for the row the user grazed.
-  const leaving = useRef(false);
+  // analytics event and a second `updateLocale` for the row the user grazed. It
+  // re-arms when live history moves: reopening the screen within its slide-out
+  // brings back this same instance, and a latch that never reset left every row dead.
+  const claimPick = useOncePerLocation();
 
   const handleSelect = useCallback(
     (code: string) => {
-      if (leaving.current) return;
-      leaving.current = true;
+      if (!claimPick()) return;
       hapticLight();
       trackEvent(AnalyticsEventEnum.LanguageChanged, AnalyticsEventCategory.ButtonPress, { code });
       updateLocale(code);
@@ -89,7 +91,7 @@ const LanguageSettings: FC = () => {
       // without one the selection silently stranded the user here.
       goBackToSettings();
     },
-    [trackEvent, goBackToSettings]
+    [claimPick, trackEvent, goBackToSettings]
   );
 
   // Claiming `role="radiogroup"` promises arrow-key navigation, and thirteen rows

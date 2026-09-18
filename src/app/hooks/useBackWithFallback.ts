@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback } from 'react';
 
-import { createLocationState, goBack, HistoryAction, listen, navigate } from 'lib/woozie';
+import { createLocationState, goBack, HistoryAction, navigate } from 'lib/woozie';
+
+import { useOncePerLocation } from './useOncePerLocation';
 
 /**
  * Back handler for a screen that draws its own header instead of relying on
@@ -17,34 +19,16 @@ import { createLocationState, goBack, HistoryAction, listen, navigate } from 'li
  * one (and a slide page re-entered while it is still sliding out, which brings back
  * the same instance) reads a stale position and never sees the location change.
  *
- * Fires at most once per location: `history.go(-1)` resolves on a later task, so
- * the screen stays mounted and interactive after the first call and a double tap
- * queued two traversals, overshooting the intended parent. The latch holds the live
- * location it left from (history position and URL) and clears on any history event
- * that moves off it, so a screen the user leaves and comes back INTO goes back again.
- * The position is part of it because two adjacent entries can share a URL (a Replace
- * onto the URL of the entry below): a pop between them changes only the position.
+ * Fires at most once per location (`useOncePerLocation`): `history.go(-1)` resolves on
+ * a later task, so the screen stays mounted and interactive after the first call and a
+ * double tap queued two traversals, overshooting the intended parent. The latch clears
+ * when live history moves, so a screen the user leaves and comes back INTO goes back again.
  */
-const liveLocationKey = () => {
-  const { href = '', historyPosition } = createLocationState();
-  return `${historyPosition} ${href}`;
-};
-
 export const useBackWithFallback = (fallbackPath = '/') => {
-  const leavingFrom = useRef<string | null>(null);
-
-  useEffect(
-    () =>
-      listen(() => {
-        if (liveLocationKey() !== leavingFrom.current) leavingFrom.current = null;
-      }),
-    []
-  );
+  const claim = useOncePerLocation();
 
   return useCallback(() => {
-    const here = liveLocationKey();
-    if (leavingFrom.current === here) return;
-    leavingFrom.current = here;
+    if (!claim()) return;
     if (createLocationState().historyPosition > 0) {
       goBack();
     } else {
@@ -53,5 +37,5 @@ export const useBackWithFallback = (fallbackPath = '/') => {
       // (PageLayout's toolbar handler and MobileBackBridge) replace here.
       navigate(fallbackPath, HistoryAction.Replace);
     }
-  }, [fallbackPath]);
+  }, [claim, fallbackPath]);
 };
