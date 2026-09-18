@@ -18,20 +18,20 @@ The rest of this page walks through each group of tests: what it verifies, which
 
 A short glossary so the diagrams read clearly:
 
-| Piece                            | In plain terms                                                                                                                                                                                                                                                                 |
-| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **The wallet app**               | The actual shipped app — the Chrome extension or the iOS app — built with a few hidden test hooks (stripped from real releases) so the tests can click buttons and read state. Otherwise unchanged. This is what's being tested.                                               |
-| **A "note"**                     | How money moves on Miden. Think of it as a sealed envelope of coins addressed to someone. Notes can be **public** (visible on the chain) or **private** (delivered off to the side).                                                                                           |
-| **Proving**                      | Miden hides transaction details, so instead of _showing_ the network what happened, your device computes a cryptographic proof that it followed the rules. That computation — "proving" — is expensive, so it can run on your own machine or be handed to a remote **prover**. |
-| **The Miden blockchain**         | The privacy chain the wallet lives on — the genuine node software, either booted fresh for the test or the real public test network.                                                                                                                                           |
-| **The guardian**                 | An optional **security co-signer**. A "guardian" account needs _two_ signatures to move money — your device _and_ a guardian server — so a stolen phone isn't enough.                                                                                                          |
-| **Bridging**                     | Moving value between Miden and Ethereum. "Bridge-out" = Miden → Ethereum; "bridge-in" = Ethereum → Miden.                                                                                                                                                                      |
-| **USDC**                         | A dollar-pegged coin on Ethereum — think digital dollars. It's what value becomes when it lands on the Ethereum side.                                                                                                                                                          |
-| **Smart contract**               | A small program that lives on Ethereum at a fixed address (e.g. the USDC coin, or the bridge). The wallet calls these by address.                                                                                                                                              |
-| **The bridge / lending service** | A third-party service ("Epoch") that carries value across the two chains and runs lending. It's hosted on their servers, so most tests use a faithful **stand-in**.                                                                                                            |
-| **Collateral / position**        | To earn yield you lock some coins up as backing ("collateral"); your locked-up stake is a "position."                                                                                                                                                                          |
-| **WalletConnect**                | The standard way a wallet and another app agree to sign a transaction together, by passing messages through a shared relay.                                                                                                                                                    |
-| **The command-line client**      | The official Miden client, scripted to act as an **independent other party** — it mints coins, or plays the person on the other end of a trade.                                                                                                                                |
+| Piece | In plain terms |
+|---|---|
+| **The wallet app** | The actual shipped app — the Chrome extension or the iOS app — built with a few hidden test hooks (stripped from real releases) so the tests can click buttons and read state. Otherwise unchanged. This is what's being tested. |
+| **A "note"** | How money moves on Miden. Think of it as a sealed envelope of coins addressed to someone. Notes can be **public** (visible on the chain) or **private** (delivered off to the side). |
+| **Proving** | Miden hides transaction details, so instead of *showing* the network what happened, your device computes a cryptographic proof that it followed the rules. That computation — "proving" — is expensive, so it can run on your own machine or be handed to a remote **prover**. |
+| **The Miden blockchain** | The privacy chain the wallet lives on — the genuine node software, either booted fresh for the test or the real public test network. |
+| **The guardian** | An optional **security co-signer**. A "guardian" account needs *two* signatures to move money — your device *and* a guardian server — so a stolen phone isn't enough. |
+| **Bridging** | Moving value between Miden and Ethereum. "Bridge-out" = Miden → Ethereum; "bridge-in" = Ethereum → Miden. |
+| **USDC** | A dollar-pegged coin on Ethereum — think digital dollars. It's what value becomes when it lands on the Ethereum side. |
+| **Smart contract** | A small program that lives on Ethereum at a fixed address (e.g. the USDC coin, or the bridge). The wallet calls these by address. |
+| **The bridge / lending service** | A third-party service ("Epoch") that carries value across the two chains and runs lending. It's hosted on their servers, so most tests use a faithful **stand-in**. |
+| **Collateral / position** | To earn yield you lock some coins up as backing ("collateral"); your locked-up stake is a "position." |
+| **WalletConnect** | The standard way a wallet and another app agree to sign a transaction together, by passing messages through a shared relay. |
+| **The command-line client** | The official Miden client, scripted to act as an **independent other party** — it mints coins, or plays the person on the other end of a trade. |
 
 ### How to read the diagrams
 
@@ -85,7 +85,6 @@ flowchart TB
 ```
 
 > #### A real blockchain, not a mock
->
 > The chain is never faked. On every pull request the desktop suites boot a genuine Miden network in CI, seed it from a fresh genesis, and tear it down afterward. When the wallet syncs, submits, or reads balances, it does so against real node software — so a passing test reflects real on-chain behaviour rather than a mock's assumptions.
 
 ---
@@ -131,14 +130,12 @@ flowchart LR
 ```
 
 > #### Two independent wallets on one chain
->
 > Many test suites exercise a single app against a mocked backend. This suite runs two independent copies of the shipped wallet, plus the official Miden client as a third party, all against one real chain — so a "send" is a genuine end-to-end transfer that another party receives. Both of the app's proving paths are covered: proofs handed to a remote prover, and proofs computed entirely in the browser.
 
 <details>
 <summary>The tests in this group</summary>
 
 Create-and-unlock, minting & balances, public send, private send, in-browser proving, claiming several notes at once, multiple accounts, and grouped claims.
-
 </details>
 
 ---
@@ -164,31 +161,29 @@ flowchart LR
 ```
 
 > #### Handling the order-discovery timing race
->
 > On a live network, a taker discovers an order by watching the chain — but there is a brief window after an order is posted before it becomes visible. Rather than paper over this with fixed "wait and hope" delays (which make tests slow and flaky), the harness hands the order note directly from the maker to the taker (the thick arrow above), the same approach a production market-making bot uses. The result is deterministic and, if anything, closer to real trading behaviour than a polling loop would be.
 
-These run on a blockchain booted fresh for the job on every pull request. The same suite can also be pointed at the **public test network** with `yarn e2e:real --suite swap`, which swaps the booted chain for the real one, the local prover for the shared hosted prover, and the local coin tap for the public faucet. Nothing about the trade itself changes - the offer is a note and the fill is a note, with no exchange contract in between - so the suite needs no deployment there; what it gains is that every wait is on infrastructure nobody in the test controls.
+These run on a blockchain booted fresh for the job on every pull request. The same suite can also be pointed at the **public test network** with `yarn e2e:real --suite swap`, which swaps the booted chain for the real one, the local prover for the shared hosted prover, and the local coin tap for the public faucet. Nothing about the trade itself changes — the offer is a note and the fill is a note, with no exchange contract in between — so the suite needs no deployment there.
 
 <details>
 <summary>The tests in this group</summary>
 
-Full fill (both directions), partial fill with remainder, cancel-and-reclaim, create-form validation, a guardian-secured maker, and a smoke test. The guardian scenario is held back from the default public-network run (`yarn e2e:real --suite swap-guardian` runs it on its own), because there the co-signer is a third party's hosted service rather than one the job starts - so its availability should not decide whether the trading suite is green.
-
+Full fill (both directions), partial fill with remainder, cancel-and-reclaim, create-form validation, a guardian-secured maker, and a smoke test. The guardian scenario is held back from the default public-network run (`yarn e2e:real --suite swap-guardian` runs it on its own), because there the co-signer is a third party's hosted service rather than one the job starts.
 </details>
 
 ---
 
 ## 3 · Bridging out — Miden money becomes Ethereum money
 
-**What these tests verify:** value can be sent _out_ of Miden and arrive on Ethereum as USDC.
+**What these tests verify:** value can be sent *out* of Miden and arrive on Ethereum as USDC.
 
 The flow is exercised at **two levels of realism**, each suited to a different point in the pipeline:
 
-- **On demand (`yarn e2e:real --suite bridge-out-epoch`):** against the **real** hosted bridge service and the **real** Ethereum test network (Sepolia). The test then confirms that **actual USDC arrives** at the destination - an end-to-end check that includes the third-party solver settling the Ethereum side. It is opt-in rather than automatic, because it spends a real solver fill and a third party declining to quote should not turn `main` red; the runner probes the live solver for a quote before it builds anything, so a service that has stopped pricing costs seconds to find rather than a quarter of an hour.
+- **On demand (`yarn e2e:real --suite bridge-out-epoch`):** against the **real** hosted bridge service and the **real** Ethereum test network (Sepolia). The test then confirms that **actual USDC arrives** at the destination — an end-to-end check that includes the third-party solver settling the Ethereum side. It is opt-in rather than automatic, because it spends a real solver fill and a third party declining to quote should not turn `main` red; the runner probes the live solver for a quote before it builds anything.
 - **Post-merge (after every merge to main):** the AggLayer route against the real bridge, asserting the Miden leg.
 - **Every pull request:** a fully self-contained version using a **stand-in** bridge service and a **local** Ethereum node, so the guardian-secured bridge path is verified on every commit without depending on external infrastructure.
 
-There are also two bridge _routes_ — a **fast** one via the Epoch service and a **slower** one via a bridge network called **AggLayer** — and both are covered.
+There are also two bridge *routes* — a **fast** one via the Epoch service and a **slower** one via a bridge network called **AggLayer** — and both are covered.
 
 ```mermaid
 flowchart LR
@@ -210,18 +205,15 @@ flowchart LR
 ```
 
 > #### Verifying settlement on Ethereum
->
-> The on-demand test (`yarn e2e:real --suite bridge-out-epoch`) does not stop at the app reporting success. After bridging, it reads the destination account on a real Ethereum test network and confirms the USDC balance actually increased. This validates the entire path — including the external solver that settles the Ethereum side — so the app cannot pass merely by believing it succeeded. It is opt-in rather than post-merge because it spends a real solver fill, and a third party declining to quote must not be able to red `main`; the post-merge signal is the AggLayer route, which asserts the Miden leg.
+> The on-demand test (`yarn e2e:real --suite bridge-out-epoch`) does not stop at the app reporting success. After bridging, it reads the destination account on a real Ethereum test network and confirms the USDC balance actually increased. This validates the entire path — including the external solver that settles the Ethereum side — so the app cannot pass merely by believing it succeeded.
 
 > #### On-chain verification of the minted note
->
 > The bridge service accepts only a specific shape of collateral note. The harness reads the committed note directly from the chain and verifies its type and structure are exactly what the service requires. This check was added after a defect — a guardian bridge minting the wrong kind of note — reached a release; with the check in place, that class of mistake now fails a test rather than shipping silently.
 
 <details>
 <summary>The tests in this group</summary>
 
 Fast bridge (real USDC on Sepolia, on demand via `yarn e2e:real`), the slower AggLayer route (post-merge), and a guardian-secured bridge that runs fully offline on every pull request.
-
 </details>
 
 ---
@@ -259,21 +251,19 @@ flowchart TB
 ```
 
 > #### Reproducing a gasless (sponsored) withdrawal offline
->
 > Moving funds on Ethereum normally requires the sender to pay a fee. This flow uses a recent Ethereum feature (account "delegation") so that a relayer pays the fee on the user's behalf. The harness reproduces the full sequence — the delegation, the relayer, and the token contracts — against local stand-ins, so this relatively new mechanism is exercised on every relevant change without touching a live network or spending funds.
 
 <details>
 <summary>The tests in this group</summary>
 
 Deposit collateral and confirm the position opens; withdraw a funded position gasless-ly and confirm the coins bridge back.
-
 </details>
 
 ---
 
 ## 5 · Guardian security — two signatures to move money
 
-**What these tests verify:** a "guardian" account — one that requires **two signatures** (your device _and_ a guardian server) — can still fund, claim, and send. A stolen device alone cannot move the money.
+**What these tests verify:** a "guardian" account — one that requires **two signatures** (your device *and* a guardian server) — can still fund, claim, and send. A stolen device alone cannot move the money.
 
 The notable part is that the guardian is not faked. Each of these tests can start the **real guardian server** — the same software that protects production accounts — and perform the genuine two-signature handshake, rather than asserting against a stub.
 
@@ -294,26 +284,23 @@ flowchart LR
 ```
 
 > #### Testing against a real co-signing server
->
 > Running an actual co-signing server inside an automated test is uncommon; this harness does it. Each guardian test can start the real guardian server and complete the real two-signature handshake, so the "two signatures to move money" guarantee is verified against the production co-signer rather than a stub. This co-signing path is also the foundation the guardian **trade** and **bridge** tests build on.
 
 <details>
 <summary>The tests in this group</summary>
 
 A guardian account funds, claims notes, and sends to a normal wallet — every step co-signed for real.
-
 </details>
 
 ---
 
 ## 6 · Bringing value in on iPhone
 
-**What these tests verify:** on iOS, value can be brought _in_ from Ethereum. The app connects to an Ethereum wallet over WalletConnect, that wallet signs a deposit, and the resulting funds arrive on Miden.
+**What these tests verify:** on iOS, value can be brought *in* from Ethereum. The app connects to an Ethereum wallet over WalletConnect, that wallet signs a deposit, and the resulting funds arrive on Miden.
 
 Testing "connect to another wallet and have it sign" would normally require a second real wallet and a person to operate it. The harness removes that dependency by providing the counterparty itself.
 
 > #### A headless Ethereum wallet that speaks WalletConnect
->
 > To act as the far side of a cross-chain deposit, the harness includes a headless Ethereum wallet that implements the real WalletConnect protocol. It pairs with the app over the genuine public WalletConnect relay, approves the session, and signs Ethereum transactions — with no person and no browser extension involved. The signed transactions are submitted to the local Ethereum node rather than a live network.
 
 ```mermaid
@@ -342,11 +329,9 @@ flowchart TB
 ```
 
 > #### Driving the real app on iOS simulators
->
 > These tests run on iOS simulators — two of them, so the two-wallet scenarios apply on mobile as well — and interact with the app the way a debugger would, tapping real controls and reading real state. Some controls render outside the web view, in the phone's native interface; a dedicated hook lets the tests operate those too.
 
 > #### Stand-in contracts that enforce real invariants
->
 > Ethereum contracts live at fixed addresses. The stand-ins for the bridge and USDC are deployed at the exact addresses the app expects, so the app runs its real bridging code unchanged. These stand-ins are not permissive: the bridge stand-in rejects a malformed deposit on-chain, and the test decodes the app's actual transaction to confirm it requested precisely the right operation. A defect cannot pass by doing something plausible — it has to do the correct thing.
 
 > **Status:** the mobile bridge-in suite is still being stabilised — the shared WalletConnect relay is unreliable on the current free tier — and the feature ships behind a flag, so this suite is not yet a required gate. The harness components described above are implemented and in place.
@@ -355,7 +340,6 @@ flowchart TB
 <summary>The tests in this group</summary>
 
 Bridge-in via the two routes, a WalletConnect-pairing-only check, a delivery-only check, and the guardian flow — all on iPhone. (An Android two-emulator harness also exists in the codebase, not yet wired into CI.)
-
 </details>
 
 ---
@@ -397,13 +381,13 @@ flowchart TB
 
 A wallet on Ethereum talks to **smart contracts** — small on-chain programs at fixed addresses — for things like the USDC coin and the bridge. The real versions live on public networks and can't be copied onto a local chain, so the harness deploys its own stand-ins. It does this with an Anvil capability called **`anvil_setCode`**, which writes a contract's compiled bytecode directly to any address, with no deployment transaction needed.
 
-The important detail is _where_: each stand-in is placed at the **exact address the wallet hardcodes for the real contract**. Because the address matches, the wallet's real code calls the stand-in with no special-casing — it cannot tell the difference.
+The important detail is *where*: each stand-in is placed at the **exact address the wallet hardcodes for the real contract**. Because the address matches, the wallet's real code calls the stand-in with no special-casing — it cannot tell the difference.
 
 Three contracts are supplied this way (compiled from short Solidity sources kept in the repo):
 
 - **MockUSDC**, at the real USDC address — a minimal ERC-20 stand-in. It reports a balance for the deposit screen, returns a maximum allowance (so the deposit path skips its `approve` step), and lets transfers succeed so the other contracts can pull funds.
 - **MockCompact** ("The Compact"), at the address the bridge/lending SDK expects. It answers a status check with "withdrawals not forced" — which the deposit flow requires before it will proceed — and its deposit function verifies it received the expected token, pulls it in, and counts the deposit.
-- **MockAggLayerBridge**, at the real AggLayer bridge address. It implements the real bridge function's signature _and its rule that a native-ETH deposit must carry exactly the stated amount_ — so a malformed deposit **reverts on-chain** and the wallet marks the transaction failed, rather than passing against an empty address.
+- **MockAggLayerBridge**, at the real AggLayer bridge address. It implements the real bridge function's signature *and its rule that a native-ETH deposit must carry exactly the stated amount* — so a malformed deposit **reverts on-chain** and the wallet marks the transaction failed, rather than passing against an empty address.
 
 ### Seeding an account "delegation" for the gasless withdraw
 
@@ -419,11 +403,11 @@ Deploying byte-for-byte contracts at the real addresses, on a real EVM that repo
 - **Anvil:** `127.0.0.1:8545`, chain id `11155111` (Sepolia), started via Foundry's `anvil`; the wallet is pointed at it by the `E2E_EVM_RPC_URL` build override.
 - **Contracts installed via `anvil_setCode`** (runtime bytecode written directly at fixed addresses):
 
-  | Stand-in           | Address (matches the app's hardcoded value)  | Role                                                                                                           |
-  | ------------------ | -------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-  | MockUSDC           | `0x2BB4FfD7E2c6D432b697554Efd77fA13bdbefd69` | balance read; MAX allowance (skips `approve`); transfers succeed                                               |
-  | MockCompact        | `0x00000000000000171ede64904551eeDF3C6C9788` | `getForcedWithdrawalStatus → Disabled`; `depositERC20AndRegister` asserts the token, pulls it, counts deposits |
-  | MockAggLayerBridge | `0x1348947e282138d8f377b467f7d9c2eb0f335d1f` | real `bridgeAsset` signature + `msg.value == amount` invariant → reverts on a malformed deposit                |
+  | Stand-in | Address (matches the app's hardcoded value) | Role |
+  |---|---|---|
+  | MockUSDC | `0x2BB4FfD7E2c6D432b697554Efd77fA13bdbefd69` | balance read; MAX allowance (skips `approve`); transfers succeed |
+  | MockCompact | `0x00000000000000171ede64904551eeDF3C6C9788` | `getForcedWithdrawalStatus → Disabled`; `depositERC20AndRegister` asserts the token, pulls it, counts deposits |
+  | MockAggLayerBridge | `0x1348947e282138d8f377b467f7d9c2eb0f335d1f` | real `bridgeAsset` signature + `msg.value == amount` invariant → reverts on a malformed deposit |
 
 - **EIP-7702 delegation** for the gasless withdraw is seeded by writing `0xef0100` + the approved implementation address at the owner account (again via `anvil_setCode`), so the SDK sees the account as already delegated.
 - Sources: `playwright/e2e/ios/helpers/anvil.ts`, `playwright/e2e/ios/helpers/evm-doubles.ts`, `playwright/e2e/ios/helpers/contracts/*.sol`.
@@ -435,19 +419,19 @@ Deploying byte-for-byte contracts at the real addresses, on a real EVM that repo
 
 The following summarises what is genuine versus stood in:
 
-| Layer                                                      | In the test lab                                                                        |                                 |
-| ---------------------------------------------------------- | -------------------------------------------------------------------------------------- | ------------------------------- |
-| **The wallet app**                                         | the real, shipped app (built with test-observation hooks, stripped from releases)      | ✅ real                         |
-| **The Miden blockchain**                                   | booted fresh per run for pull-request tests; the genuine public test network otherwise | ✅ real                         |
-| **The proving (cryptography)**                             | both the remote and in-browser paths                                                   | ✅ real                         |
-| **Private-note delivery**                                  | the real delivery service                                                              | ✅ real                         |
-| **The guardian co-signer**                                 | the real guardian server                                                               | ✅ real                         |
-| **The independent counterparty**                           | the official command-line client                                                       | ✅ real                         |
-| **WalletConnect**                                          | the real app ↔ real public relay ↔ the harness's robot wallet                          | ✅ real link, 🎭 robot far side |
-| **Ethereum**                                               | genuine Ethereum software, run locally (for bridging & earning)                        | ✅ real (local)                 |
-| **Ethereum contracts (bridge, USDC…)**                     | faithful fakes at the _real_ addresses, enforcing real invariants                      | 🎭 stand-in                     |
-| **The hosted bridge service**                              | real in the on-demand `yarn e2e:real` run; stand-in per pull request                   | 🌍 real / 🎭 stand-in           |
-| **The hosted lending service**                             | always a stand-in                                                                      | 🎭 stand-in                     |
-| **Money actually arriving on Ethereum (on-demand bridge)** | real USDC on a real test network                                                       | ✅ real                         |
+| Layer | In the test lab | |
+|---|---|---|
+| **The wallet app** | the real, shipped app (built with test-observation hooks, stripped from releases) | ✅ real |
+| **The Miden blockchain** | booted fresh per run for pull-request tests; the genuine public test network otherwise | ✅ real |
+| **The proving (cryptography)** | both the remote and in-browser paths | ✅ real |
+| **Private-note delivery** | the real delivery service | ✅ real |
+| **The guardian co-signer** | the real guardian server | ✅ real |
+| **The independent counterparty** | the official command-line client | ✅ real |
+| **WalletConnect** | the real app ↔ real public relay ↔ the harness's robot wallet | ✅ real link, 🎭 robot far side |
+| **Ethereum** | genuine Ethereum software, run locally (for bridging & earning) | ✅ real (local) |
+| **Ethereum contracts (bridge, USDC…)** | faithful fakes at the *real* addresses, enforcing real invariants | 🎭 stand-in |
+| **The hosted bridge service** | real in the on-demand `yarn e2e:real` run; stand-in per pull request | 🌍 real / 🎭 stand-in |
+| **The hosted lending service** | always a stand-in | 🎭 stand-in |
+| **Money actually arriving on Ethereum (on-demand bridge)** | real USDC on a real test network | ✅ real |
 
 > **In summary:** the app, the blockchain, the cryptography, the co-signer, and the counterparty client are all real. The harness stands in only for the external services it cannot run itself, and it builds those stand-ins at the real addresses and to the real invariants — so the app behaves the same as it would in production.
