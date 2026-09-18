@@ -91,7 +91,7 @@ const OpenSidePanel: FC = () => {
               <Button
                 tabIndex={0}
                 title={t('openWallet')}
-                className="self-center w-full text-base"
+                className="self-center w-full"
                 onClick={onOpen}
                 isLoading={opening}
               />

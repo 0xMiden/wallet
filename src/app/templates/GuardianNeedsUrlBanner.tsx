@@ -115,12 +115,7 @@ export const GuardianNeedsUrlBanner: FC<Props> = ({ className }) => {
           {error}
         </p>
       )}
-      <Button
-        title={submitting ? t('loading') : t('continue')}
-        onClick={onSubmit}
-        disabled={submitting}
-        className="h-10"
-      />
+      <Button title={submitting ? t('loading') : t('continue')} onClick={onSubmit} disabled={submitting} />
     </div>
   );
 };

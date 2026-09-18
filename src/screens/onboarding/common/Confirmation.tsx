@@ -134,7 +134,7 @@ export const ConfirmationScreen: React.FC<ConfirmationScreenProps> = ({
             <Button
               tabIndex={0}
               title={primaryButtonTitle}
-              className="self-center w-full text-base"
+              className="self-center w-full"
               onClick={onSubmit}
               isLoading={isLoading}
               disabled={isLoading}

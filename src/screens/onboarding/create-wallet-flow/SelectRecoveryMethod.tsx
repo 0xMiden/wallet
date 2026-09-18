@@ -86,7 +86,7 @@ export const SelectRecoveryMethodScreen = ({
         ))}
       </div>
       <div className="flex flex-col gap-2 self-center w-full mt-auto">
-        <Button title={t('continue')} onClick={handleContinue} className="text-base" />
+        <Button title={t('continue')} onClick={handleContinue} />
       </div>
     </div>
   );

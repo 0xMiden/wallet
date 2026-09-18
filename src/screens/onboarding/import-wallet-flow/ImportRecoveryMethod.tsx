@@ -343,7 +343,6 @@ export const ImportRecoveryMethodScreen: React.FC<ImportRecoveryMethodScreenProp
           title={t('continue')}
           onClick={handleContinue}
           disabled={!canContinue}
-          className="text-base"
         />
       </div>
     </div>
