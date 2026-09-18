@@ -2,9 +2,15 @@ import React from 'react';
 
 import { fireEvent, render, screen } from '@testing-library/react';
 
+import { hapticLight, hapticSelection } from 'lib/mobile/haptics';
+
 import { Pill } from './Pill';
 
-jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn() }));
+jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn(), hapticSelection: jest.fn() }));
+
+beforeEach(() => {
+  jest.clearAllMocks();
+});
 
 it('renders a label as static text, with no button semantics', () => {
   render(
@@ -128,6 +134,64 @@ it('defaults a plain pill’s border to transparent, so it never shows a stray c
   );
 
   expect(screen.getByTestId('pill')).toHaveClass('border-transparent');
+});
+
+describe('haptic', () => {
+  it('fires hapticLight on every tap by default', () => {
+    const onClick = jest.fn();
+    render(
+      <Pill data-testid="pill" onClick={onClick}>
+        Paste
+      </Pill>
+    );
+
+    fireEvent.click(screen.getByTestId('pill'));
+    fireEvent.click(screen.getByTestId('pill'));
+
+    expect(hapticLight).toHaveBeenCalledTimes(2);
+    expect(hapticSelection).not.toHaveBeenCalled();
+    expect(onClick).toHaveBeenCalledTimes(2);
+  });
+
+  it('fires hapticSelection only when the tap actually selects (haptic="selection")', () => {
+    const onClick = jest.fn();
+    const { rerender } = render(
+      <Pill data-testid="pill" onClick={onClick} haptic="selection" selected={false}>
+        received
+      </Pill>
+    );
+
+    fireEvent.click(screen.getByTestId('pill'));
+    expect(hapticSelection).toHaveBeenCalledTimes(1);
+    expect(hapticLight).not.toHaveBeenCalled();
+
+    // Re-tapping an already-selected pill (the caller flips `selected` once it commits the
+    // change) is silent — the equivalent of tapping the already-active filter twice.
+    rerender(
+      <Pill data-testid="pill" onClick={onClick} haptic="selection" selected>
+        received
+      </Pill>
+    );
+    fireEvent.click(screen.getByTestId('pill'));
+
+    expect(hapticSelection).toHaveBeenCalledTimes(1);
+    expect(onClick).toHaveBeenCalledTimes(2);
+  });
+
+  it('fires no haptic at all when haptic is false, leaving it to the caller', () => {
+    const onClick = jest.fn();
+    render(
+      <Pill data-testid="pill" onClick={onClick} haptic={false}>
+        received
+      </Pill>
+    );
+
+    fireEvent.click(screen.getByTestId('pill'));
+
+    expect(hapticLight).not.toHaveBeenCalled();
+    expect(hapticSelection).not.toHaveBeenCalled();
+    expect(onClick).toHaveBeenCalledTimes(1);
+  });
 });
 
 it('does not fire while disabled', () => {

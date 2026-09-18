@@ -2,7 +2,7 @@ import React from 'react';
 
 import { fireEvent, render, screen } from '@testing-library/react';
 
-import { hapticSelection } from 'lib/mobile/haptics';
+import { hapticLight, hapticSelection } from 'lib/mobile/haptics';
 
 import AllHistory from './AllHistory';
 
@@ -210,6 +210,7 @@ describe('AllHistory', () => {
     fireEvent.click(getFilterButton('received'));
 
     expect(hapticSelection).toHaveBeenCalledTimes(1);
+    expect(hapticLight).not.toHaveBeenCalled();
     expect(getFilterButton('received').getAttribute('aria-pressed')).toBe('true');
     expect(getFilterButton('all').getAttribute('aria-pressed')).toBe('false');
     expect(getHistory().getAttribute('data-filter')).toBe('received');
@@ -239,10 +240,13 @@ describe('AllHistory', () => {
   it('ignores a tap on the already-active filter (no haptic, no change)', () => {
     render(<AllHistory />);
 
-    // "all" is active from the start, so tapping it hits the early return.
+    // "all" is active from the start, so tapping it hits the early return —
+    // and `Pill`'s own `haptic="selection"` skips the haptic too, since it
+    // sees `selected` already true.
     fireEvent.click(getFilterButton('all'));
 
     expect(hapticSelection).not.toHaveBeenCalled();
+    expect(hapticLight).not.toHaveBeenCalled();
     expect(getFilterButton('all').getAttribute('aria-pressed')).toBe('true');
     expect(getHistory().getAttribute('data-filter')).toBe('all');
   });
@@ -257,6 +261,7 @@ describe('AllHistory', () => {
     // Second tap on the same (now active) chip returns early.
     fireEvent.click(getFilterButton('faucet'));
     expect(hapticSelection).toHaveBeenCalledTimes(1);
+    expect(hapticLight).not.toHaveBeenCalled();
   });
 
   it('clears the query when the search field closes', () => {
