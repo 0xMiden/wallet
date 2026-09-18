@@ -10,7 +10,7 @@ export interface NavButtonProps {
   /** Already-translated accessible name, e.g. "Back" or "Close". */
   label: string;
   onClick: () => void;
-  /** Glyph color class. Defaults to the grey glyph; a flow passes its accent. */
+  /** Glyph color class. Defaults to the grey glyph; the page header passes `text-ink`. */
   iconClassName?: string;
   /** `circle`: the round filled button. `bare`: a 24px glyph alone in a 44px hit area, for page headers. */
   appearance?: 'circle' | 'bare';
