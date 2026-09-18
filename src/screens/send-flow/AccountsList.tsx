@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 
 import { IconName } from 'app/icons/v2';
 import { ContactAvatar } from 'components/contacts/ContactAvatar';
-import { EmptyState } from 'components/EmptyState';
+import { EmptyState } from 'components/ui';
 import { ListGroup } from 'components/ui/ListGroup';
 import { ListRow } from 'components/ui/ListRow';
 import { Pill } from 'components/ui/Pill';
