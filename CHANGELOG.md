@@ -83,6 +83,7 @@
 - [CHANGE][all] History (transaction details, swap details, bridge claim, the failure/cancelled card) moves onto the same compact detail-card look as the rest of the wallet, kept under a small pill title where one is shown; value text no longer carries its own stray styling, and the failure card's message and its "Show full error" toggle read as one card body instead of two.
 - [CHANGE][all] Send review, the transaction receipt and a contact's page share one centered layout: an avatar or status circle, then the amount or outcome, then a muted line; the receipt's outcome heading steps down to match the rest of the wallet's type scale.
 - [CHANGE][all] One text field (`TextField`) for a `muted` label, a 52px pill or a 16px-radius multi-line box on `fill`, and an error that rings the field and announces itself to assistive tech; the new-contact page's address and name fields and the send flow's add-contact sheet now use it, with Paste and Scan now sitting inside the address field instead of below it.
+- [CHANGE][all] `Pill` moves onto the design system's tokens (neutral on `fill`, selected in `accent-tint`, status pills as a dot and a word), replacing the app's Badge, the transaction history status pill, the seed-word chip and the Activity filter chips; onboarding's "Default" tag moves onto it too. The retired `Badge` and `Chip` components are removed.
 
 ## 1.16.1 (2026-09-15)
 
