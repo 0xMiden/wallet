@@ -129,6 +129,7 @@ export const VerifySeedPhraseScreen: React.FC<VerifySeedPhraseScreenProps> = ({
               tone={firstSelectedWordIndex === index || secondSelectedWordIndex === index ? 'selected' : 'word'}
               selected={firstSelectedWordIndex === index || secondSelectedWordIndex === index}
               onClick={() => onSelectWord(index)}
+              data-testid={`verify-quiz-word-${index}`}
             >
               {word}
             </Pill>
