@@ -11,6 +11,7 @@ import { Button, ButtonVariant } from 'components/Button';
 import { ContactAvatar } from 'components/contacts/ContactAvatar';
 import { FlowLayout } from 'components/flow/FlowLayout';
 import { Pill } from 'components/ui/Pill';
+import { TextField } from 'components/ui/TextField';
 import { useContacts } from 'lib/miden/front';
 import { useFilteredContacts } from 'lib/miden/front/use-filtered-contacts.hook';
 import { isMobile } from 'lib/platform';
@@ -21,7 +22,7 @@ import { ScanQrDrawer } from 'screens/send-flow/ScanQrDrawer';
 import { detectAddressChain, isValidRecipientAddress } from 'utils/miden';
 
 import { ADDRESS_BOOK_PATH } from './contact-paths';
-import { CONTACT_FIELD_CLASS, ContactNameInput } from './ContactNameInput';
+import { ContactNameInput } from './ContactNameInput';
 
 /**
  * New contact, from Settings → Address Book: the address (typed, pasted or scanned), its network,
@@ -150,51 +151,54 @@ export const NewContactPage: React.FC = () => {
             />
           </div>
 
-          <label className="flex flex-col gap-2">
-            <span className="text-sm text-text-muted">{t('address')}</span>
-            <textarea
-              value={address}
-              rows={2}
-              onChange={event => {
-                setAddress(event.target.value);
-                setScanError(undefined);
-                setPasteError(undefined);
-                setSaveError(undefined);
-              }}
-              onBlur={() => setAddressTouched(true)}
-              placeholder={t('enterAddress')}
-              spellCheck={false}
-              autoCapitalize="off"
-              autoCorrect="off"
-              data-testid="address-book-address-input"
-              className={`resize-none py-3.5 leading-7 break-all ${CONTACT_FIELD_CLASS}`}
-            />
-          </label>
-
-          {!trimmedAddress && (isMobile() || isScanAvailable()) && (
-            <div className="-mt-2 flex flex-wrap gap-2">
-              {isMobile() && (
-                <Pill
-                  icon={<Icon name={IconName.FileCopy} size="xs" />}
-                  onClick={() => void onPaste()}
-                  data-testid="contact-paste"
-                >
-                  {t('paste')}
-                </Pill>
-              )}
-              {isScanAvailable() && (
-                <Pill icon={<ScanFrameIcon />} onClick={() => void onScan()} data-testid="contact-scan">
-                  {t('scan')}
-                </Pill>
-              )}
-            </div>
-          )}
-
-          {addressError && (
-            <p role="alert" data-testid="contact-address-error" className="-mt-2 text-sm text-status-negative">
-              {addressError}
-            </p>
-          )}
+          <TextField
+            multiline
+            label={t('address')}
+            value={address}
+            onChange={event => {
+              setAddress(event.target.value);
+              setScanError(undefined);
+              setPasteError(undefined);
+              setSaveError(undefined);
+            }}
+            onBlur={() => setAddressTouched(true)}
+            placeholder={t('enterAddress')}
+            spellCheck={false}
+            autoCapitalize="off"
+            autoCorrect="off"
+            className="break-all"
+            data-testid="address-book-address-input"
+            error={addressError}
+            errorTestId="contact-address-error"
+            trailing={
+              !trimmedAddress && (isMobile() || isScanAvailable()) ? (
+                <>
+                  {isMobile() && (
+                    <Pill
+                      tone="plain"
+                      className="bg-page text-ink"
+                      icon={<Icon name={IconName.FileCopy} size="xs" />}
+                      onClick={() => void onPaste()}
+                      data-testid="contact-paste"
+                    >
+                      {t('paste')}
+                    </Pill>
+                  )}
+                  {isScanAvailable() && (
+                    <Pill
+                      tone="plain"
+                      className="bg-page text-ink"
+                      icon={<ScanFrameIcon />}
+                      onClick={() => void onScan()}
+                      data-testid="contact-scan"
+                    >
+                      {t('scan')}
+                    </Pill>
+                  )}
+                </>
+              ) : undefined
+            }
+          />
 
           <AnimatePresence initial={false}>
             {isValid && (
@@ -219,7 +223,7 @@ export const NewContactPage: React.FC = () => {
           <ContactNameInput value={name} onChange={setName} />
 
           {saveError && (
-            <p role="alert" className="-mt-2 text-sm text-status-negative">
+            <p role="alert" className="-mt-2 text-sm text-negative-ink">
               {saveError}
             </p>
           )}
