@@ -283,7 +283,7 @@ const Explore: FC = () => {
         )}
 
         <div
-          className={`relative flex flex-col gap-3 bg-app-bg px-4 pt-3 pb-32 ${isPulling ? '' : 'transition-transform duration-200 ease-out'}`}
+          className={`relative flex flex-col gap-3 bg-app-bg px-4 pt-3 pb-24 ${isPulling ? '' : 'transition-transform duration-200 ease-out'}`}
           style={{ transform: `translateY(${pullDistance}px)` }}
         >
           <HomeOverview
