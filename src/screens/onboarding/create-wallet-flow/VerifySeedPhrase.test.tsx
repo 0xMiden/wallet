@@ -29,12 +29,21 @@ jest.mock('lib/mobile/haptics', () => ({
 
 // Mock the child components so this unit test stays scoped to the screen's own
 // logic (the real Toggle pulls in framer-motion). Each mock surfaces just the
-// props the screen wires through.
-jest.mock('components/Chip', () => ({
-  Chip: ({ label, selected }: { label: string; selected?: boolean }) => (
-    <span data-testid="chip" data-selected={String(!!selected)}>
-      {label}
-    </span>
+// props the screen wires through. The Pill stub fires the tap haptic itself,
+// same as the real component, since the screen no longer does — selecting a
+// word is now a Pill tap, and Pill owns that haptic.
+jest.mock('components/ui/Pill', () => ({
+  Pill: ({ children, selected, onClick }: { children: React.ReactNode; selected?: boolean; onClick?: () => void }) => (
+    <button
+      data-testid="chip"
+      data-selected={String(!!selected)}
+      onClick={() => {
+        jest.requireMock<{ hapticLight: () => void }>('lib/mobile/haptics').hapticLight();
+        onClick?.();
+      }}
+    >
+      {children}
+    </button>
   )
 }));
 
