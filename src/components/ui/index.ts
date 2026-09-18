@@ -42,3 +42,6 @@ export type { SpinnerProps, SpinnerSize } from './Spinner';
 
 export { Skeleton } from './Skeleton';
 export type { SkeletonProps, SkeletonTone } from './Skeleton';
+
+export { TextField } from './TextField';
+export type { TextFieldProps, TextFieldElement } from './TextField';
