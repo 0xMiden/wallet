@@ -2,8 +2,7 @@ import React, { FC, useState } from 'react';
 
 import { motion, TargetAndTransition, useIsPresent, useReducedMotion } from 'framer-motion';
 
-import { useMotion } from 'lib/animation';
-import { pageAppearance, pageSlideEntrance } from 'lib/animation/page-appearance';
+import { usePreset } from 'lib/animation';
 import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
 import { isReturningFromWebview } from 'lib/mobile/webview-state';
 import { isMobile } from 'lib/platform';
@@ -31,14 +30,18 @@ const FullScreenPage: FC<FullScreenPageProps> = ({ children, entrance = defaultP
   // Keep the previous tab's navbar visible under the incoming page, and give
   // it back the moment this page starts to slide out.
   useHideNavbarWhileOpen(present && (!slide || entered));
-  const transition = useMotion(slide ? pageSlideEntrance : pageAppearance);
+  // A slide page is the incoming page of the `page` preset; the page beneath moves with it in
+  // `MobilePageLayers`. Any other page fades in on `fade`.
+  const page = usePreset('page');
+  const fade = usePreset('fade');
+  const motionPreset = entrance === 'slide' ? page : fade;
   let initial: false | TargetAndTransition = false;
   switch (true) {
     case slide:
-      initial = { x: '100%', opacity: 1 };
+      initial = { ...page.initial, opacity: 1 };
       break;
     case appear:
-      initial = { opacity: 0 };
+      initial = fade.initial ?? false;
       break;
   }
 
@@ -46,8 +49,8 @@ const FullScreenPage: FC<FullScreenPageProps> = ({ children, entrance = defaultP
     <motion.div
       className="flex flex-col h-full w-full bg-app-bg"
       initial={initial}
-      animate={slide ? { x: 0, opacity: 1 } : { opacity: 1 }}
-      transition={transition}
+      animate={slide ? { ...page.animate, opacity: 1 } : fade.animate}
+      transition={motionPreset.transition}
       onAnimationComplete={() => setEntered(true)}
     >
       {children}
