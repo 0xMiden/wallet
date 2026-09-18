@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
 import { initiateB2AggBridge } from 'lib/agglayer/b2agg';
 import { confirmSensitiveAction } from 'lib/biometric';
@@ -396,10 +396,12 @@ describe('ReviewTransaction — rendering', () => {
     expect(screen.getByRole('heading', { level: 1, name: 'reviewDetails' })).toBeInTheDocument();
     expect(screen.getByTestId('back-btn')).toBeInTheDocument();
     expect(screen.getByTestId('network-chip')).toHaveTextContent('miden');
-    expect(screen.getByTestId('review-amount')).toBeInTheDocument();
-    expect(screen.getByText('5 MDN')).toBeInTheDocument();
+    // Both the amount and its fiat subtitle live inside the review-amount hero —
+    // scoping to it is what proves they render together, not just somewhere on the page.
+    const hero = within(screen.getByTestId('review-amount'));
+    expect(hero.getByText('5 MDN')).toBeInTheDocument();
     // The fiat subtitle renders under the hero value once the token's price is known.
-    expect(screen.getByText('approxFiatValue')).toBeInTheDocument();
+    expect(hero.getByText('approxFiatValue')).toBeInTheDocument();
     // Recipient row value.
     expect(screen.getByText('0xrecipient')).toBeInTheDocument();
 
@@ -720,7 +722,9 @@ describe('ReviewTransaction — onSubmit', () => {
       })
     );
     expect(screen.getByTestId('spending-limit-challenge')).toHaveTextContent('revision-2');
-    expect(screen.getByTestId('review-amount').textContent).toBe('5 MDN');
+    // The hero now carries the fiat subtitle too, so assert the value inside it
+    // rather than the whole hero's text.
+    expect(within(screen.getByTestId('review-amount')).getByText('5 MDN')).toBeInTheDocument();
   });
 
   it('cancels a spending-limit challenge without queueing or losing the review draft', async () => {
@@ -742,7 +746,9 @@ describe('ReviewTransaction — onSubmit', () => {
 
     expect(screen.queryByTestId('spending-limit-challenge')).not.toBeInTheDocument();
     expect(initiateMock).not.toHaveBeenCalled();
-    expect(screen.getByTestId('review-amount').textContent).toBe('5 MDN');
+    // The hero now carries the fiat subtitle too, so assert the value inside it
+    // rather than the whole hero's text.
+    expect(within(screen.getByTestId('review-amount')).getByText('5 MDN')).toBeInTheDocument();
   });
 
   it('cancels a bridge challenge before any external bridge work', async () => {
@@ -766,7 +772,9 @@ describe('ReviewTransaction — onSubmit', () => {
 
     expect(bridgeEpochSendMock).not.toHaveBeenCalled();
     expect(screen.queryByTestId('spending-limit-challenge')).not.toBeInTheDocument();
-    expect(screen.getByTestId('review-amount').textContent).toBe('5 MDN');
+    // The hero now carries the fiat subtitle too, so assert the value inside it
+    // rather than the whole hero's text.
+    expect(within(screen.getByTestId('review-amount')).getByText('5 MDN')).toBeInTheDocument();
   });
 
   it('reopens the challenge with the final atomic assessment when authorization expires or loses a race', async () => {
@@ -798,7 +806,9 @@ describe('ReviewTransaction — onSubmit', () => {
     await flush();
 
     expect(screen.getByTestId('spending-limit-challenge')).toHaveTextContent('revision-2');
-    expect(screen.getByTestId('review-amount').textContent).toBe('5 MDN');
+    // The hero now carries the fiat subtitle too, so assert the value inside it
+    // rather than the whole hero's text.
+    expect(within(screen.getByTestId('review-amount')).getByText('5 MDN')).toBeInTheDocument();
     expect(navigateMock).not.toHaveBeenCalled();
   });
 
