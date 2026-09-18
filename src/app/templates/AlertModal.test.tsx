@@ -19,7 +19,7 @@ import { ModalWithTitleProps } from './ModalWithTitle';
 //     `onRequestClose` + any `...restProps` such as `title` / `isOpen` are
 //     passed through) while rendering its children into the DOM — this avoids
 //     pulling in the real react-modal / CustomModal / useAppEnv chain.
-//   - `FormSubmitButton`: a plain <button> that forwards `type`, `className`,
+//   - `components/Button`: a plain <button> that forwards `type`, `className`,
 //     `onClick` and children so the OK-button branch (including the
 //     `onRequestClose` wiring) is assertable without framer-motion / haptics.
 // ---------------------------------------------------------------------------
@@ -45,11 +45,10 @@ jest.mock('app/templates/ModalWithTitle', () => ({
   }
 }));
 
-// FormSubmitButton stub: forward the props AlertModal sets so we can assert them
+// Button stub: forward the props AlertModal sets so we can assert them
 // and drive the onClick handler by clicking.
-jest.mock('app/atoms/FormSubmitButton', () => ({
-  __esModule: true,
-  default: ({
+jest.mock('components/Button', () => ({
+  Button: ({
     children,
     onClick,
     type,
@@ -86,7 +85,9 @@ describe('AlertModal', () => {
     const okButton = screen.getByTestId('ok-button');
     expect(okButton).toHaveTextContent('ok');
     expect(okButton).toHaveAttribute('type', 'button');
-    expect(okButton).toHaveClass('w-full', 'justify-center');
+    expect(okButton).toHaveClass('w-full');
+    // No restyling override left over: layout only.
+    expect(okButton.className).not.toMatch(/justify-center/);
   });
 
   it('forwards onRequestClose and every remaining prop to ModalWithTitle', () => {

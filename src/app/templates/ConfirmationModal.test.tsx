@@ -33,35 +33,42 @@ jest.mock('app/templates/ModalWithTitle', () => ({
   }
 }));
 
-// `FormSecondaryButton` / `FormSubmitButton` wrap the framer-motion `Button` +
-// analytics + tippy tooltip. ConfirmationModal only wires their `onClick`
-// handlers (cancel → onRequestClose, ok → onConfirm), so plain buttons that
-// forward `onClick`, `type`, `className` and children are sufficient and keep
-// the test focused on ConfirmationModal's own logic.
-jest.mock('app/atoms/FormSecondaryButton', () => ({
-  __esModule: true,
-  default: ({
+// `components/Button` wraps framer-motion + haptics. ConfirmationModal only
+// wires its `onClick` handlers (cancel → onRequestClose, ok → onConfirm), so a
+// plain button that forwards `onClick`, `type`, `className`, `data-testid` and
+// children is sufficient and keeps the test focused on ConfirmationModal's own
+// logic. Both the cancel and confirm actions render through this same stub;
+// the component's own `data-testid` prop (`confirmation-modal-cancel` /
+// `confirmation-modal-confirm`) tells them apart, mirrored here onto
+// `cancel-button` / `ok-button` for readability.
+jest.mock('components/Button', () => ({
+  ButtonVariant: { Primary: 'primary', Secondary: 'secondary' },
+  Button: ({
     onClick,
     children,
-    className
+    className,
+    type,
+    'data-testid': dataTestId
   }: {
     onClick?: () => void;
     children?: React.ReactNode;
     className?: string;
-  }) => (
-    <button type="button" data-testid="cancel-button" className={className} onClick={onClick}>
-      {children}
-    </button>
-  )
-}));
-
-jest.mock('app/atoms/FormSubmitButton', () => ({
-  __esModule: true,
-  default: ({ onClick, children, type }: { onClick?: () => void; children?: React.ReactNode; type?: string }) => (
-    <button data-testid="ok-button" data-type={type} onClick={onClick}>
-      {children}
-    </button>
-  )
+    type?: string;
+    'data-testid'?: string;
+  }) => {
+    const isCancel = dataTestId === 'confirmation-modal-cancel';
+    return (
+      <button
+        type={(type as 'button') ?? 'button'}
+        data-testid={isCancel ? 'cancel-button' : 'ok-button'}
+        data-type={type}
+        className={className}
+        onClick={onClick}
+      >
+        {children}
+      </button>
+    );
+  }
 }));
 
 beforeEach(() => {
