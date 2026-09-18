@@ -29,16 +29,34 @@ interface DrawerProps {
    * captured, just without a per-drawer label. E2E-only; no visual effect.
    */
   screenKey?: string;
+  /**
+   * `false` makes the sheet close only when the caller sets `open` to false: no drag down, press
+   * outside or Escape closes it on its own. Callers that want Escape handle it on `DrawerContent`.
+   */
+  dismissible?: boolean;
+  /**
+   * Leave `<body>` styles alone. vaul pins the body (Safari) and paints it black behind the scaled
+   * app, then restores both when ANY sheet closes, so a sheet opened over another sheet passes this
+   * to avoid undoing the one still open beneath it.
+   */
+  noBodyStyles?: boolean;
 }
 
-function Drawer({ open = false, onOpenChange, children, screenKey }: DrawerProps) {
+function Drawer({ open = false, onOpenChange, children, screenKey, dismissible, noBodyStyles }: DrawerProps) {
   const onClose = useCallback(() => onOpenChange?.(false), [onOpenChange]);
   // Keep the bottom tab navbar hidden while any drawer is open.
   useHideNavbarWhileOpen(open);
   useOverlayScreenKey(open, screenKey ? `drawer:${screenKey}` : 'drawer');
   return (
     <DrawerContext.Provider value={{ open, onClose }}>
-      <VaulDrawer.Root open={open} onOpenChange={onOpenChange} shouldScaleBackground={isExtension()} direction="bottom">
+      <VaulDrawer.Root
+        open={open}
+        onOpenChange={onOpenChange}
+        shouldScaleBackground={isExtension()}
+        direction="bottom"
+        dismissible={dismissible}
+        noBodyStyles={noBodyStyles}
+      >
         {children}
       </VaulDrawer.Root>
     </DrawerContext.Provider>

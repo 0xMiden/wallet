@@ -1,11 +1,18 @@
 import React from 'react';
 
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+
+import { isExtension } from 'lib/platform';
 
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from './drawer';
 
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
+}));
+
+jest.mock('lib/platform', () => ({
+  ...jest.requireActual('lib/platform'),
+  isExtension: jest.fn(() => false)
 }));
 
 describe('Drawer', () => {
@@ -96,5 +103,102 @@ describe('Drawer', () => {
     expect(handle!.className).toContain('w-9');
     expect(handle!.className).toContain('h-[5px]');
     expect(handle!.className).toContain('bg-fill-pressed');
+  });
+
+  /** Radix attaches its outside-press listener on the next tick. */
+  const outsideListenerReady = () => act(() => new Promise(resolve => setTimeout(resolve, 0)));
+
+  it('dismisses on Escape by default', () => {
+    const onOpenChange = jest.fn();
+    render(
+      <Drawer open onOpenChange={onOpenChange}>
+        <DrawerContent data-testid="sheet">
+          <DrawerTitle>Settings</DrawerTitle>
+        </DrawerContent>
+      </Drawer>
+    );
+
+    fireEvent.keyDown(screen.getByTestId('sheet'), { key: 'Escape' });
+
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it('dismisses on a press outside by default', async () => {
+    const onOpenChange = jest.fn();
+    render(
+      <Drawer open onOpenChange={onOpenChange}>
+        <DrawerContent data-testid="sheet">
+          <DrawerTitle>Settings</DrawerTitle>
+        </DrawerContent>
+      </Drawer>
+    );
+    await outsideListenerReady();
+
+    fireEvent.pointerDown(document.querySelector('[data-vaul-overlay]')!);
+
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it('never closes itself when dismissible is false (the caller owns closing)', async () => {
+    const onOpenChange = jest.fn();
+    render(
+      <Drawer open onOpenChange={onOpenChange} dismissible={false}>
+        <DrawerContent data-testid="sheet">
+          <DrawerTitle>Settings</DrawerTitle>
+        </DrawerContent>
+      </Drawer>
+    );
+
+    await outsideListenerReady();
+    fireEvent.keyDown(screen.getByTestId('sheet'), { key: 'Escape' });
+    fireEvent.pointerDown(document.querySelector('[data-vaul-overlay]')!);
+
+    expect(onOpenChange).not.toHaveBeenCalled();
+    expect(screen.getByTestId('sheet')).toBeInTheDocument();
+  });
+
+  describe('body styles (extension background scale)', () => {
+    let wrapper: HTMLDivElement;
+
+    beforeEach(() => {
+      jest.mocked(isExtension).mockReturnValue(true);
+      wrapper = document.createElement('div');
+      wrapper.setAttribute('data-vaul-drawer-wrapper', '');
+      document.body.appendChild(wrapper);
+    });
+
+    afterEach(() => {
+      // Unmount first: vaul's scale effect writes body styles on the way out too.
+      cleanup();
+      jest.mocked(isExtension).mockReturnValue(false);
+      wrapper.remove();
+      document.body.style.cssText = '';
+    });
+
+    it('scales the app behind the sheet and paints the body black by default', () => {
+      render(
+        <Drawer open>
+          <DrawerContent>
+            <DrawerTitle>Settings</DrawerTitle>
+          </DrawerContent>
+        </Drawer>
+      );
+
+      expect(wrapper.style.transform).toContain('scale(');
+      expect(document.body.style.cssText).toContain('black');
+    });
+
+    it('leaves the body alone with noBodyStyles, so a sheet stacked on another does not undo its styles', () => {
+      render(
+        <Drawer open noBodyStyles>
+          <DrawerContent>
+            <DrawerTitle>Settings</DrawerTitle>
+          </DrawerContent>
+        </Drawer>
+      );
+
+      expect(wrapper.style.transform).toContain('scale(');
+      expect(document.body.style.cssText).not.toContain('black');
+    });
   });
 });
