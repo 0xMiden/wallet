@@ -12,6 +12,8 @@ export interface NavButtonProps {
   onClick: () => void;
   /** Glyph color class. Defaults to the grey glyph; a flow passes its accent. */
   iconClassName?: string;
+  /** `circle`: the round filled button. `bare`: the glyph alone in a 44px hit area, for page headers. */
+  appearance?: 'circle' | 'bare';
   className?: string;
   'data-testid'?: string;
 }
@@ -26,6 +28,7 @@ export const NavButton: React.FC<NavButtonProps> = ({
   label,
   onClick,
   iconClassName = 'text-heading-gray',
+  appearance = 'circle',
   className,
   'data-testid': dataTestId
 }) => (
@@ -38,7 +41,8 @@ export const NavButton: React.FC<NavButtonProps> = ({
     aria-label={label}
     data-testid={dataTestId}
     className={classNames(
-      'flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-surface-nav-button',
+      'flex shrink-0 items-center justify-center rounded-full',
+      appearance === 'bare' ? 'h-11 w-11 -mx-2.5' : 'h-9 w-9 bg-surface-nav-button',
       className
     )}
   >

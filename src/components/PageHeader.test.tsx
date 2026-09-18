@@ -11,15 +11,18 @@ jest.mock('app/icons/v2', () => ({
   IconName: { BackArrow: 'back-arrow', Close: 'close' }
 }));
 
-it('puts back, title, actions and close in one 56px row', () => {
+it('puts back, title, actions and close in one 52px row', () => {
   const onBack = jest.fn();
   const onClose = jest.fn();
   render(<PageHeader title="Address Book" onBack={onBack} onClose={onClose} actions={<span>edit</span>} />);
 
   const header = screen.getByRole('banner');
-  expect(header).toHaveClass('h-14');
+  expect(header).toHaveClass('h-13');
   expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Address Book');
   expect(header).toHaveTextContent('edit');
+
+  expect(screen.getByTestId('page-back')).not.toHaveClass('bg-surface-nav-button');
+  expect(screen.getByTestId('page-back')).toHaveClass('h-11', 'w-11');
 
   fireEvent.click(screen.getByTestId('page-back'));
   fireEvent.click(screen.getByTestId('page-close'));

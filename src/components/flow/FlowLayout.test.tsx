@@ -36,7 +36,7 @@ describe('FlowLayout', () => {
     expect(onBack).toHaveBeenCalledTimes(1);
   });
 
-  it('styles back as a nav button with the Send accent', () => {
+  it('styles back as a bare chevron with the Send accent', () => {
     const { rerender } = render(
       <FlowLayout accent="send" title="Title" onBack={jest.fn()} footer={<button>cta</button>}>
         <p>content</p>
@@ -44,7 +44,7 @@ describe('FlowLayout', () => {
     );
 
     const back = screen.getByTestId('flow-back');
-    expect(back).toHaveClass('bg-surface-nav-button');
+    expect(back).not.toHaveClass('bg-surface-nav-button');
     // The glyph is the only thing the frame's accent colours, so assert it rather than the shell.
     expect(back.querySelector('svg')).toHaveClass('text-accent-send');
 
@@ -56,7 +56,7 @@ describe('FlowLayout', () => {
     expect(screen.getByTestId('flow-back').querySelector('svg')).toHaveClass('text-primary-500');
   });
 
-  it('keeps the 56px header row without a back button so content lines up across steps', () => {
+  it('keeps the 52px header row without a back button so content lines up across steps', () => {
     render(
       <FlowLayout accent="send" title="Title" footer={<button>cta</button>}>
         <p>content</p>
@@ -64,7 +64,7 @@ describe('FlowLayout', () => {
     );
 
     expect(screen.queryByTestId('flow-back')).not.toBeInTheDocument();
-    expect(screen.getByRole('banner')).toHaveClass('h-14');
+    expect(screen.getByRole('banner')).toHaveClass('h-13');
     expect(screen.getByRole('banner')).toHaveTextContent('Title');
   });
 
