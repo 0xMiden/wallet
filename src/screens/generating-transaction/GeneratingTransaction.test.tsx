@@ -765,8 +765,10 @@ describe('GeneratingTransaction stage + state rendering', () => {
       button.textContent?.includes('done')
     );
     expect(doneBtn).toHaveAttribute('data-variant', 'secondary');
-    // White would vanish on the light secondary fill; the label inherits the variant's ink.
-    expect(doneBtn?.querySelector('span')).not.toHaveClass('text-pure-white');
+    // White would vanish on the light secondary fill; the label is plain text now, styled by
+    // the variant itself (no wrapping span carrying a stray white-text override).
+    expect(doneBtn?.querySelector('span')).toBeNull();
+    expect(doneBtn).not.toHaveClass('text-pure-white');
     act(() => root.unmount());
   });
 
