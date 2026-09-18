@@ -2,9 +2,10 @@ import React from 'react';
 
 import { fireEvent, render, screen } from '@testing-library/react';
 
+import { IconName } from 'app/icons/v2';
 import { navigate } from 'lib/woozie';
 
-import TabHeaderDefault, { TabHeader } from './TabHeader';
+import TabHeaderDefault, { TabHeader, TabHeaderAction } from './TabHeader';
 
 // TabHeader no longer navigates anywhere — the settings gear moved to the
 // bottom nav. The spy stays so the regression tests below can prove the header
@@ -38,11 +39,12 @@ describe('TabHeader — structure & title', () => {
     expect(heading.textContent).toBe('Activity');
     expect(heading.className).toContain('font-heading');
     expect(heading.className).toContain('font-extrabold');
-    expect(heading.className).toContain('text-heading-gray');
-    expect(heading.className).toContain('dark:text-pure-white');
+    expect(heading.className).toContain('text-ink');
+    expect(heading.className).not.toContain('text-heading-gray');
+    expect(heading.className).not.toContain('dark:text-pure-white');
   });
 
-  it('renders the outer element as a <header> with the shared layout classes and a divider bar below', () => {
+  it('renders the outer element as a <header> with the shared layout classes and no grey rule below it', () => {
     const { container } = render(<TabHeader title="Explore" />);
 
     const header = container.querySelector('header');
@@ -52,11 +54,8 @@ describe('TabHeader — structure & title', () => {
     expect(header!.className).toContain('items-center');
     expect(header!.className).toContain('justify-between');
 
-    const divider = header!.nextElementSibling;
-    expect(divider).not.toBeNull();
-    expect(divider!.className).toContain('h-1');
-    expect(divider!.className).toContain('rounded-full');
-    expect(divider!.className).toContain('bg-gray-50');
+    // The 4px grey rule under the title is gone — the header is the last thing rendered.
+    expect(header!.nextElementSibling).toBeNull();
   });
 
   it('reflects whatever title string it is given', () => {
@@ -178,5 +177,49 @@ describe('TabHeader — actions slot', () => {
 
     expect(onExtra).toHaveBeenCalledTimes(1);
     expect(mockNavigate).not.toHaveBeenCalled();
+  });
+});
+
+describe('TabHeaderAction', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('renders a bare 24px icon in a 44px hit area, with no background circle', () => {
+    render(<TabHeaderAction label="Search" icon={IconName.Search} onClick={jest.fn()} />);
+
+    const button = screen.getByRole('button', { name: 'Search' });
+    expect(button.className).toContain('w-11');
+    expect(button.className).toContain('h-11');
+    expect(button.className).not.toMatch(/\bbg-/);
+
+    const icon = button.querySelector('svg');
+    expect(icon).not.toBeNull();
+    expect(icon!.getAttribute('class')).toContain('w-6');
+    expect(icon!.getAttribute('class')).toContain('h-6');
+  });
+
+  it('is ink by default and switches to the accent color when active', () => {
+    const { rerender } = render(<TabHeaderAction label="Search" icon={IconName.Search} onClick={jest.fn()} />);
+
+    expect(screen.getByRole('button', { name: 'Search' }).className).toContain('text-ink');
+
+    rerender(<TabHeaderAction label="Search" icon={IconName.Search} active onClick={jest.fn()} />);
+
+    const button = screen.getByRole('button', { name: 'Search' });
+    expect(button.className).toContain('text-accent-primary');
+    expect(button.getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('keeps its accessible label and fires the click + haptic handler', () => {
+    const onClick = jest.fn();
+    render(<TabHeaderAction label="Search" icon={IconName.Search} onClick={onClick} />);
+
+    const button = screen.getByRole('button', { name: 'Search' });
+    expect(button.getAttribute('aria-label')).toBe('Search');
+
+    fireEvent.click(button);
+
+    expect(onClick).toHaveBeenCalledTimes(1);
   });
 });
