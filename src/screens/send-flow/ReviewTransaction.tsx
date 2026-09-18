@@ -390,7 +390,7 @@ export const ReviewTransaction: React.FC = () => {
               // deliberate refusal.
               disabled={isSubmitting || scaleIsUnknown}
               data-testid="send-review-submit"
-              className="w-full max-w-none rounded-full text-base font-semibold"
+              className="w-full max-w-none"
             />
           </div>
         }

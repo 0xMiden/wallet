@@ -152,7 +152,7 @@ export const Route: React.FC<RouteStepProps> = ({
           onClick={onConfirm}
           disabled={confirmDisabled}
           data-testid="bridge-route-confirm"
-          className="w-full max-w-none rounded-full text-base font-semibold"
+          className="w-full max-w-none"
         />
       </div>
     </div>

@@ -104,7 +104,7 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
           variant={ButtonVariant.Primary}
           onClick={handleOpenPosition}
           disabled={isSubmitting || amountValue <= 0 || !vault.id}
-          className="w-full max-w-none rounded-full text-base font-semibold"
+          className="w-full max-w-none"
         />
       </div>
     </div>

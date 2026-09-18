@@ -148,7 +148,7 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
           onClick={onConfirm}
           disabled={!canProceed}
           data-testid="swap-review-submit"
-          className="w-full max-w-none rounded-full text-base font-semibold"
+          className="w-full max-w-none"
         />
       </div>
     </div>
