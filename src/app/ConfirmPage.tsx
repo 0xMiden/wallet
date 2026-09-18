@@ -13,7 +13,7 @@ import ContentContainer from 'app/layouts/ContentContainer';
 import Unlock from 'app/pages/Unlock';
 import { Button, ButtonVariant } from 'components/Button';
 import { NetworkModeBanner } from 'components/NetworkModeBanner';
-import { CustomRpsContext } from 'lib/analytics';
+import { AnalyticsEventCategory, CustomRpsContext, useAnalytics } from 'lib/analytics';
 import { getAllUncompletedTransactions } from 'lib/miden/activity';
 import { ITransactionStatus } from 'lib/miden/db/types';
 import { useAccount, useMidenContext } from 'lib/miden/front';
@@ -27,8 +27,6 @@ import { navigate, useLocation } from 'lib/woozie';
 import { truncateAddress, truncateHash } from 'utils/string';
 
 import Alert from './atoms/Alert';
-import FormSecondaryButton from './atoms/FormSecondaryButton';
-import FormSubmitButton from './atoms/FormSubmitButton';
 import Name from './atoms/Name';
 import { AdvancedDetails, FoldableField } from './confirm/AdvancedDetails';
 import {
@@ -206,15 +204,15 @@ const PayloadContent: React.FC<PayloadContentProps> = ({ payload, error, account
             {`${truncateAddress(payload.sourcePublicKey)}?`}
           </div>
           <div className="flex items-center justify-center">
-            <FormSecondaryButton
+            <Button
               type="button"
-              className="justify-center w-3/5 bg-chip-bg hover:bg-gray-100 text-black"
-              style={{ fontWeight: '400', border: 'none' }}
+              variant={ButtonVariant.Secondary}
+              size="sm"
+              className="w-3/5"
               onClick={() => downloadData('privateNotes.json', JSON.stringify(payload.privateNotes, null, 2))}
-              small
             >
               {t('downloadPrivateNoteData')}
-            </FormSecondaryButton>
+            </Button>
           </div>
         </>
       );
@@ -460,6 +458,7 @@ export default ConfirmPage;
 
 const ConfirmDAppForm: FC = () => {
   const { t } = useTranslation();
+  const { trackEvent } = useAnalytics();
   const {
     getDAppPayload,
     confirmDAppPermission,
@@ -780,17 +779,19 @@ const ConfirmDAppForm: FC = () => {
           </div>
 
           <div className="w-1/2 pl-2">
-            <FormSubmitButton
+            <Button
               type="button"
-              className="w-full justify-center justify-center rounded-lg py-3"
-              style={{ fontSize: '16px', lineHeight: '24px', padding: '14px 0px', border: 'none' }}
-              loading={confirming}
-              onClick={handleConfirmClick}
-              testID={content.confirmActionTestID}
+              variant={ButtonVariant.Primary}
+              className="w-full"
+              isLoading={confirming}
+              onClick={() => {
+                trackEvent(content.confirmActionTestID, AnalyticsEventCategory.ButtonPress, undefined);
+                handleConfirmClick();
+              }}
               data-testid={content.confirmActionTestID}
             >
               {content.confirmActionTitle}
-            </FormSubmitButton>
+            </Button>
           </div>
         </div>
       </div>
