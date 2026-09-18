@@ -23,7 +23,7 @@ export interface TabHeaderProps {
   };
 }
 
-/** Round icon button for the header's action group. */
+/** Bare icon button for the header's action group: a 24px glyph in a 44px hit area. */
 export const TabHeaderAction: FC<{ label: string; icon: IconName; active?: boolean; onClick: () => void }> = ({
   label,
   icon,
@@ -39,11 +39,11 @@ export const TabHeaderAction: FC<{ label: string; icon: IconName; active?: boole
       onClick();
     }}
     className={classNames(
-      'flex items-center justify-center w-9 h-9 rounded-full',
-      active ? 'bg-accent-primary text-pure-white' : 'bg-gray-25 text-text-primary-token'
+      'flex items-center justify-center w-11 h-11 rounded-full',
+      active ? 'text-accent-primary' : 'text-ink'
     )}
   >
-    <Icon name={icon} className="w-4 h-4" fill="currentColor" />
+    <Icon name={icon} className="w-6 h-6" fill="currentColor" />
   </button>
 );
 
@@ -59,26 +59,23 @@ export const TabHeader: FC<TabHeaderProps> = ({ title, actions, search }) => {
   const searchOpen = search?.open === true;
 
   return (
-    <>
-      <header className="shrink-0 px-4 py-3 flex h-15 items-center justify-between gap-3">
-        {searchOpen && search ? (
-          <SearchInput
-            size="sm"
-            className="min-w-0 flex-1"
-            value={search.value}
-            onChange={search.onChange}
-            placeholder={search.placeholder}
-            autoFocus
-          />
-        ) : (
-          <h1 className="min-w-0 truncate font-heading text-[28px] font-extrabold leading-9 tracking-[-0.5px] text-heading-gray dark:text-pure-white">
-            {title}
-          </h1>
-        )}
-        {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
-      </header>
-      <div aria-hidden="true" className="shrink-0 mx-4 h-1 rounded-full bg-gray-50" />
-    </>
+    <header className="shrink-0 px-4 py-3 flex h-15 items-center justify-between gap-3">
+      {searchOpen && search ? (
+        <SearchInput
+          size="sm"
+          className="min-w-0 flex-1"
+          value={search.value}
+          onChange={search.onChange}
+          placeholder={search.placeholder}
+          autoFocus
+        />
+      ) : (
+        <h1 className="min-w-0 truncate font-heading text-[28px] font-extrabold leading-9 tracking-[-0.5px] text-ink">
+          {title}
+        </h1>
+      )}
+      {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
+    </header>
   );
 };
 
