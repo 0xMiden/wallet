@@ -1,11 +1,11 @@
 import React, { useCallback, useMemo, useState } from 'react';
 
-import classNames from 'clsx';
 import { t } from 'i18next';
 
 import { AddNewContactForm } from 'app/templates/AddNewContactForm';
 import { CardItem } from 'components/CardItem';
 import { ContactAvatar } from 'components/contacts/ContactAvatar';
+import { SearchInput } from 'components/ui/SearchInput';
 import { useContacts } from 'lib/miden/front';
 import { useFilteredContacts } from 'lib/miden/front/use-filtered-contacts.hook';
 import { useConfirm } from 'lib/ui/dialog';
@@ -47,21 +47,11 @@ const AddressBook: React.FC = () => {
 
       <div className="flex flex-col gap-4">
         <span className="text-heading-gray font-medium text-base">{t('currentContacts')}</span>
-        <input
-          type="text"
-          enterKeyHint="search"
-          placeholder={t('searchContacts')}
+        <SearchInput
           value={searchQuery}
-          onChange={e => setSearchQuery(e.target.value)}
-          className={classNames(
-            'w-full h-14 px-4',
-            'bg-gray-25 border border-gray-100 rounded-10',
-            // `font-sans` because Preflight sets `font: inherit` on form controls
-            // and Settings wraps its sub-pages in `font-heading`, which would put
-            // typed wallet addresses in the rounded display face.
-            'font-sans text-base placeholder:text-text-muted placeholder:font-medium',
-            'outline-none focus:border-gray-100'
-          )}
+          onChange={setSearchQuery}
+          placeholder={t('searchContacts')}
+          data-testid="address-book-search"
         />
       </div>
 
