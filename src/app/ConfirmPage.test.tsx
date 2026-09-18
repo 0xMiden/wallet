@@ -120,8 +120,14 @@ jest.mock('components/SpendingLimitChallenge', () => ({
 
 jest.mock('components/Button', () => ({
   ButtonVariant: { Primary: 'primary', Secondary: 'secondary', Ghost: 'ghost' },
-  Button: ({ children, onClick, isLoading, variant }: any) => (
-    <button type="button" onClick={onClick} data-loading={String(!!isLoading)} data-variant={variant}>
+  Button: ({ children, onClick, isLoading, variant, className }: any) => (
+    <button
+      type="button"
+      onClick={onClick}
+      data-loading={String(!!isLoading)}
+      data-variant={variant}
+      className={className}
+    >
       {children}
     </button>
   )
@@ -396,7 +402,12 @@ describe('connect payload', () => {
     expect(screen.queryByTestId('pdp-checkbox')).not.toBeInTheDocument();
     // Confirm/decline labels.
     expect(screen.getByTestId(ConfirmPageSelectors.ConnectAction_ConnectButton)).toHaveTextContent('connect');
-    expect(screen.getByText('deny')).toBeInTheDocument();
+    const declineButton = screen.getByText('deny').closest('button')!;
+    expect(declineButton).toBeInTheDocument();
+    // Only layout survives on the decline button: no restyled text color/weight
+    // or transition fighting the Secondary variant's own anatomy.
+    expect(declineButton).toHaveClass('w-full');
+    expect(declineButton.className).not.toMatch(/text-black|font-medium|transition/);
   });
 
   it('auto-confirms an existing permission during render', () => {
