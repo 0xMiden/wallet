@@ -74,6 +74,7 @@
 - [CHANGE][all] Buttons follow the new design system: a 52px pill with a larger label, secondary and destructive buttons on the neutral fill, a 36px compact size, and a spinner that keeps the button's width while it loads.
 - [CHANGE][all] Tab root headers (Activity, Explore) drop the grey rule under the title, and their header actions become bare icon buttons instead of grey circles; sheet titles are smaller and left-aligned, sheets get a bigger top radius and a smaller handle, and a sheet now opens and closes instantly under reduced motion.
 - [CHANGE][all] Lists share one set of components: a grey 16px group, 64px rows (56px without a second line) with the title over a muted subtitle and a trailing value, check or chevron, and dividers that start after the row's avatar or icon; section labels are 13px bold and sentence case. The address book is the first screen on them.
+- [CHANGE][all] Settings: each section is a sentence-case label over a grey group of rows with dividers and a chevron (Language shows its current value beside it), in place of the round section icons, large headings and bare rows; the Networks page lists networks the same way with a check on the active one.
 
 ## 1.16.1 (2026-09-15)
 

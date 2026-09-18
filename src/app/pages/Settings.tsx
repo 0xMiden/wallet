@@ -4,10 +4,6 @@ import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
 import { useBackWithFallback } from 'app/hooks/useBackWithFallback';
-import { ReactComponent as GroupAboutIcon } from 'app/icons/settings/group-about.svg';
-import { ReactComponent as GroupDeveloperIcon } from 'app/icons/settings/group-developer.svg';
-import { ReactComponent as GroupPreferencesIcon } from 'app/icons/settings/group-preferences.svg';
-import { ReactComponent as GroupSecurityIcon } from 'app/icons/settings/group-security.svg';
 import { Icon, IconName } from 'app/icons/v2';
 import AddressBook from 'app/templates/AddressBook';
 import DAppDrawerSettings from 'app/templates/DAppDrawerSettings';
@@ -17,12 +13,14 @@ import GeneralSettings from 'app/templates/GeneralSettings';
 import GuardianSettings from 'app/templates/GuardianSettings';
 import KeysSettings from 'app/templates/KeysSettings';
 import LanguageSettings from 'app/templates/LanguageSettings';
-import MenuItem from 'app/templates/MenuItem';
 import RevealSecret from 'app/templates/RevealSecret';
 import RevealSeedPhraseFlow from 'app/templates/RevealSeedPhrase';
 import VerifySeedPhraseFlow from 'app/templates/VerifySeedPhraseFlow';
 import { Button, ButtonVariant } from 'components/Button';
 import { PageHeader } from 'components/PageHeader';
+import { ListGroup } from 'components/ui/ListGroup';
+import { ListRow } from 'components/ui/ListRow';
+import { SectionHeader } from 'components/ui/SectionHeader';
 // Imported from the module rather than the `components/ui` barrel: the barrel
 // pulls in siblings that touch `lib/platform` at module scope, which this
 // page's test suite mocks only partially.
@@ -121,14 +119,12 @@ type Tab = {
 
 type TabGroup = {
   titleI18nKey: string;
-  Icon: ImportedSVGComponent;
   tabs: Tab[];
 };
 
 const TAB_GROUPS: TabGroup[] = [
   {
     titleI18nKey: 'preferences',
-    Icon: GroupPreferencesIcon,
     tabs: [
       {
         slug: 'general-settings',
@@ -152,7 +148,6 @@ const TAB_GROUPS: TabGroup[] = [
   },
   {
     titleI18nKey: 'security',
-    Icon: GroupSecurityIcon,
     tabs: [
       {
         slug: 'reveal-seed-phrase',
@@ -194,7 +189,7 @@ const TAB_GROUPS: TabGroup[] = [
         // `focusTitleOnMount` is on here, tapping the row labelled "Guardian
         // Settings" announced "Rotate Guardian, heading level 1".
         Component: GuardianSettings,
-        // Needed now the row is a routed Link: MenuItem forwards testID to both
+        // Needed now the row is a routed Link: ListRow forwards its testid to both
         // the anchor and Link's analytics call, and an absent one became an
         // empty data-testid plus a ButtonPress event with an empty name.
         testID: SettingsSelectors.GuardianSettingsButton,
@@ -204,7 +199,6 @@ const TAB_GROUPS: TabGroup[] = [
   },
   {
     titleI18nKey: 'developer',
-    Icon: GroupDeveloperIcon,
     tabs: [
       {
         slug: 'advanced-settings',
@@ -224,7 +218,6 @@ const TAB_GROUPS: TabGroup[] = [
   },
   {
     titleI18nKey: 'about',
-    Icon: GroupAboutIcon,
     tabs: [
       {
         slug: PRIVACY_POLICY_URL,
@@ -519,71 +512,43 @@ const Settings: FC<SettingsProps> = ({ tabSlug, rootScrollTop: savedRootScrollTo
             </div>
           )
         ) : (
-          // pb-[88px] reserves space at the bottom so the last menu item
-          // can scroll above the React BottomNav.
-          <div className="flex flex-col w-full pb-22 text-heading-gray px-4">
-            <div className="flex flex-col divide-y divide-border-faint">
-              {tabGroups.map(group => (
-                <div key={group.titleI18nKey} className="py-3">
-                  <div className="flex items-center gap-1.5 pb-3">
-                    {/* Decorative: the heading beside it names the group, so an
-                        unlabelled graphic in the tree just adds an anonymous
-                        node before every section. */}
-                    <div
-                      aria-hidden="true"
-                      className="w-8 h-8 rounded-full bg-gray-25 flex items-center justify-center shrink-0"
-                    >
-                      <group.Icon className="w-4 h-4" />
-                    </div>
-                    {/* h2, not h3: the only heading above these is the page title
-                        the header renders as h1, so h3 left a gap in the outline
-                        and screen-reader heading navigation reported a missing
-                        level. */}
-                    <h2 className="font-heading text-lg font-extrabold text-heading-gray">{t(group.titleI18nKey)}</h2>
-                  </div>
-                  {/* `gap-1` now that MenuItem carries its own `py-2.5`: the rows each
-              grew from a 24px line box to a 44px target, so keeping gap-4 on top
-              would have spread a group much taller than the drawers it replaced.
-              Pitch still rises — 40px to 48px, about 136px over the whole root
-              list — which is extra scroll inside `overflow-y-auto` rather than
-              anything clipped. `gap-1` limits the overshoot; it does not undo it,
-              and the touch target is worth the difference. */}
-                  <div className="overflow-hidden flex flex-col gap-1">
-                    {group.tabs.map(tab => {
-                      const isExternal = tab.linksOutsideOfWallet;
-                      const isSeedPhrase = tab.slug === 'reveal-seed-phrase';
-                      // A tab may carry its own onClick (e.g. Send feedback →
-                      // openExternalUrl); such rows never route to a /settings page.
-                      const hasCustomClick = isSeedPhrase || !!tab.onClick;
-                      const linkTo = isExternal ? tab.slug : hasCustomClick ? undefined : `/settings/${tab.slug}`;
-                      // No `hapticLight()` here: MenuItem fires one for every
-                      // branch it renders, so this row buzzed twice on tap while
-                      // every other row buzzed once.
-                      const handleClick = isSeedPhrase ? () => setShowSeedWarning(true) : tab.onClick;
-                      return (
-                        <MenuItem
-                          key={tab.slug + tab.titleI18nKey}
-                          slug={linkTo}
-                          titleI18nKey={tab.titleI18nKey}
-                          testID={tab.testID}
-                          linksOutsideOfWallet={!!isExternal}
-                          rightText={tab.slug === 'language' ? languageLabel : undefined}
-                          onClick={handleClick}
-                        />
-                      );
-                    })}
-                  </div>
-                </div>
-              ))}
-            </div>
+          // pb-22 reserves space at the bottom so the last row can scroll above
+          // the React BottomNav.
+          <div className="flex w-full flex-col gap-5 px-4 pt-1 pb-22">
+            {tabGroups.map(group => (
+              <section key={group.titleI18nKey}>
+                {/* h2: the only heading above these is the page title the header
+                    renders as h1. */}
+                <SectionHeader>{t(group.titleI18nKey)}</SectionHeader>
+                <ListGroup>
+                  {group.tabs.map(tab => {
+                    const isExternal = tab.linksOutsideOfWallet;
+                    const isSeedPhrase = tab.slug === 'reveal-seed-phrase';
+                    // A tab may carry its own onClick (e.g. Send feedback →
+                    // openExternalUrl); such rows never route to a /settings page.
+                    const hasCustomClick = isSeedPhrase || !!tab.onClick;
+                    // No `hapticLight()` here: ListRow fires one for every branch
+                    // it renders, so adding one buzzed twice per tap.
+                    const handleClick = isSeedPhrase ? () => setShowSeedWarning(true) : tab.onClick;
+                    return (
+                      <ListRow
+                        key={tab.slug + tab.titleI18nKey}
+                        title={t(tab.titleI18nKey)}
+                        to={isExternal || hasCustomClick ? undefined : `/settings/${tab.slug}`}
+                        href={isExternal ? tab.slug : undefined}
+                        onClick={isExternal ? undefined : handleClick}
+                        value={tab.slug === 'language' ? languageLabel : undefined}
+                        // Every row opens something: a page, a sheet or a site.
+                        chevron
+                        data-testid={tab.testID}
+                      />
+                    );
+                  })}
+                </ListGroup>
+              </section>
+            ))}
 
-            {/* `text-heading-gray`, as with the other muted text this PR touched:
-                `text-text-muted` is #ababab, which is 2.30:1 on the page, and 14px
-                medium is nowhere near the large-text exemption — the PR shrank
-                this from text-base without changing the ink. */}
-            <p className="font-heading text-sm font-medium text-heading-gray pt-2">
-              {t('settingsVersion', { version: pkg.version })}
-            </p>
+            <p className="px-1 font-sans text-[13px] text-muted">{t('settingsVersion', { version: pkg.version })}</p>
           </div>
         )}
       </div>
