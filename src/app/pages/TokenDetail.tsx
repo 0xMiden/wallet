@@ -83,7 +83,7 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
         <div className="flex flex-col px-4">
           {/* Token Hero */}
           <div className="flex flex-col items-center pt-4 pb-4">
-            <TokenLogo symbol={symbol} size="xl" className="rounded-10" />
+            <TokenLogo symbol={symbol} size="xl" />
 
             <span className="font-heading text-[44px] font-bold text-heading-gray leading-none pt-2">
               {heroBalance}

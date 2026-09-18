@@ -1,6 +1,6 @@
 import React, { FC, SVGProps } from 'react';
 
-import { useTranslation } from 'react-i18next';
+import clsx from 'clsx';
 
 import { ReactComponent as BtcLogo } from 'app/icons/logos/btc.svg';
 import { ReactComponent as EthLogo } from 'app/icons/logos/eth.svg';
@@ -8,11 +8,14 @@ import { ReactComponent as MidenLogo } from 'app/icons/logos/miden.svg';
 import { ReactComponent as UsdcLogo } from 'app/icons/logos/usdc.svg';
 import { Avatar, AvatarSize } from 'components/ui/Avatar';
 
-const TOKEN_LOGOS: Record<string, { Logo: FC<SVGProps<SVGSVGElement>>; color: string }> = {
-  MIDEN: { Logo: MidenLogo, color: '#FFFFFF' },
-  ETH: { Logo: EthLogo, color: '#000000' },
-  USDC: { Logo: UsdcLogo, color: '#0278D2' },
-  BTC: { Logo: BtcLogo, color: '#F7931A' }
+// `bg-white`/`bg-pure-black` (not hex): `white` resolves to `--color-surface`, which auto-flips
+// with the theme, so the MIDEN disc stays a surface color in dark mode instead of a literal
+// white circle. USDC/BTC have no matching semantic token, so they stay arbitrary-value classes.
+const TOKEN_LOGOS: Record<string, { Logo: FC<SVGProps<SVGSVGElement>>; bg: string }> = {
+  MIDEN: { Logo: MidenLogo, bg: 'bg-white' },
+  ETH: { Logo: EthLogo, bg: 'bg-pure-black' },
+  USDC: { Logo: UsdcLogo, bg: 'bg-[#0278D2]' },
+  BTC: { Logo: BtcLogo, bg: 'bg-[#F7931A]' }
 };
 
 type TokenLogoSize = 'sm' | 'md' | 'lg' | 'xl' | '2xl';
@@ -40,7 +43,6 @@ interface TokenLogoProps {
 
 /** A token's mark, in one of the app's four known-logo colors or a generic default. A thin wrapper over `Avatar`. */
 export const TokenLogo: FC<TokenLogoProps> = ({ symbol, size = 'md', className }) => {
-  const { t } = useTranslation();
   const tokenLogo = TOKEN_LOGOS[symbol];
   const avatarSize = AVATAR_SIZES[size];
 
@@ -48,12 +50,13 @@ export const TokenLogo: FC<TokenLogoProps> = ({ symbol, size = 'md', className }
     return (
       <Avatar
         size={avatarSize}
-        color={tokenLogo.color}
         icon={<tokenLogo.Logo className={ICON_CLASSES[size]} />}
-        className={className}
+        className={clsx(tokenLogo.bg, className)}
       />
     );
   }
 
-  return <Avatar size={avatarSize} image="/misc/token-logos/default.svg" alt={t('avatar')} className={className} />;
+  // Decorative, like the known-logo branch above: the symbol is always shown as text beside the
+  // logo, so the image itself names nothing new to a screen reader.
+  return <Avatar size={avatarSize} image="/misc/token-logos/default.svg" className={className} />;
 };
