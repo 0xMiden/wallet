@@ -19,26 +19,33 @@ import { createLocationState, goBack, HistoryAction, listen, navigate } from 'li
  *
  * Fires at most once per location: `history.go(-1)` resolves on a later task, so
  * the screen stays mounted and interactive after the first call and a double tap
- * queued two traversals, overshooting the intended parent. The latch holds the URL
- * it left from and clears on any history event that moves the live URL off it, so
- * a screen the user leaves and comes back INTO goes back again.
+ * queued two traversals, overshooting the intended parent. The latch holds the live
+ * location it left from (history position and URL) and clears on any history event
+ * that moves off it, so a screen the user leaves and comes back INTO goes back again.
+ * The position is part of it because two adjacent entries can share a URL (a Replace
+ * onto the URL of the entry below): a pop between them changes only the position.
  */
+const liveLocationKey = () => {
+  const { href = '', historyPosition } = createLocationState();
+  return `${historyPosition} ${href}`;
+};
+
 export const useBackWithFallback = (fallbackPath = '/') => {
   const leavingFrom = useRef<string | null>(null);
 
   useEffect(
     () =>
       listen(() => {
-        if (createLocationState().href !== leavingFrom.current) leavingFrom.current = null;
+        if (liveLocationKey() !== leavingFrom.current) leavingFrom.current = null;
       }),
     []
   );
 
   return useCallback(() => {
-    const { href = '', historyPosition } = createLocationState();
-    if (leavingFrom.current === href) return;
-    leavingFrom.current = href;
-    if (historyPosition > 0) {
+    const here = liveLocationKey();
+    if (leavingFrom.current === here) return;
+    leavingFrom.current = here;
+    if (createLocationState().historyPosition > 0) {
       goBack();
     } else {
       // Replace, not push: going "back" must not leave an entry that sends the

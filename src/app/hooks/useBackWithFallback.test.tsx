@@ -21,16 +21,26 @@ jest.mock('lib/woozie', () => ({
   navigate: (path: string, action?: string) => navigateMock(path, action)
 }));
 
+// Pin the page slide long, so a layer popped in the tests below is still sliding out when the
+// same route is pushed again, whatever the machine's speed.
+jest.mock('lib/animation/page-appearance', () => ({
+  ...jest.requireActual('lib/animation/page-appearance'),
+  pageSlideEntrance: { type: 'tween', duration: 60 }
+}));
+
 /** Puts the live URL at `path`, `position` entries deep, without a history event. */
 function setLive(path: string, position: number) {
   window.history.replaceState(null, '', `/#${path}`);
   Object.assign(window.history, { position });
 }
 
-/** A traversal back to `path`, as the browser does it: the URL changes, then `popstate`. */
+/**
+ * A traversal back to `path`, as the browser does it: the URL changes with no event of its own, then
+ * `popstate`. The unpatched `replaceState`, so woozie sees only the pop, as it does on a device.
+ */
 function popTo(path: string) {
   act(() => {
-    window.history.replaceState(null, '', `/#${path}`);
+    History.prototype.replaceState.call(window.history, null, '', `/#${path}`);
     window.dispatchEvent(new PopStateEvent('popstate'));
   });
 }
@@ -143,6 +153,21 @@ describe('useBackWithFallback', () => {
     expect(goBackMock).toHaveBeenCalledTimes(2);
   });
 
+  it('re-arms after a pop onto an entry with the same URL', () => {
+    // A Replace onto the URL of the entry below (a fallback, a close) leaves two adjacent
+    // entries with one URL. Going back between them fires only `popstate`: the URL stays,
+    // the position does not.
+    setLive('/rotate-guardian', 3);
+    renderLive('/settings');
+    clickBack();
+    expect(goBackMock).toHaveBeenCalledTimes(1);
+
+    popTo('/rotate-guardian');
+    clickBack();
+
+    expect(goBackMock).toHaveBeenCalledTimes(2);
+  });
+
   it('stays latched through a history event that leaves the URL where it was', () => {
     // A replace of the same URL is not a new location, so the traversal already
     // queued is still the one in flight.
@@ -236,7 +261,7 @@ describe('useBackWithFallback on a page layer (a frozen location snapshot)', () 
         )}
       </MobilePageLayers>
     );
-    const settle = () => act(() => new Promise<void>(resolve => setTimeout(resolve, 50)));
+    const settle = () => act(async () => undefined);
 
     setLive('/settings/address-book', 2);
     const { rerender, container } = render(page(false));
