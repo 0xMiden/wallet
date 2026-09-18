@@ -46,6 +46,22 @@ describe('Hero', () => {
     expect(document.querySelectorAll('p').length).toBe(0);
   });
 
+  it('renders a falsy-but-real subtitle (0) as a wrapped paragraph, not a stray text node', () => {
+    // `subtitle && <p>…</p>` would short-circuit on 0 and render the bare number
+    // outside the `<p>`, losing its styling — the guard must be `!== undefined`.
+    render(<Hero visual={<span />} subtitle={0} />);
+
+    const subtitle = screen.getByText('0');
+    expect(subtitle.tagName).toBe('P');
+    expect(subtitle).toHaveClass('text-muted', 'text-sm');
+  });
+
+  it('does not typecheck with both value and name — a hero draws only one at a time', () => {
+    // @ts-expect-error `value` and `name` are mutually exclusive at the type level.
+    const element = <Hero visual={<span />} value="5 MDN" name="Success!" />;
+    expect(element).toBeTruthy();
+  });
+
   it('forwards a nameRef and nameProps to the name heading, for focus management', () => {
     const Wrapper: React.FC = () => {
       const ref = useRef<HTMLHeadingElement>(null);
