@@ -70,6 +70,7 @@
 - [CHANGE][all] **Test-token funding now mints only native MIDEN.** The Fund action no longer also mints IMIDEN from the forkchoice faucet — the two-source funding is removed, which also retires 1.15.20's per-source retry bookkeeping (there is no second source left to double-mint). One faucet request runs per account at a time no matter how often the card is tapped or remounted, bounded by a 60s timeout that aborts the underlying work, and a failed request shows the faucet's actual error message on the card. The two funding drawers earlier iterations had left unwired (`WalletFundingDrawer`, `FundWalletDrawer`) are deleted along with their orphaned translation keys. The network-discovered native asset now also appears first in the swap token list ahead of the existing DEX test assets.
 - [CHANGE][all] Removed about 20 unused UI components (no visible change).
 - [CHANGE][all] Animations across the wallet now follow the system Reduce Motion setting, and the design system's motion presets (fade, reveal, pop, sheet, page, press, indicator, shimmer) are available from `lib/animation`.
+- [CHANGE][all] Buttons and toggles press with the design system's press motion and respond instantly when Reduce Motion is on.
 
 ## 1.16.1 (2026-09-15)
 

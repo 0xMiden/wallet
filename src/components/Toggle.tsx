@@ -1,8 +1,9 @@
 import React, { HTMLAttributes } from 'react';
 
 import classNames from 'clsx';
-import { motion } from 'framer-motion';
+import { motion, useReducedMotion } from 'framer-motion';
 
+import { presets, resolveTransition } from 'lib/animation';
 import { hapticMedium } from 'lib/mobile/haptics';
 import { isExtension } from 'lib/platform';
 import { PRIMARY_HEX } from 'utils/brand-colors';
@@ -21,6 +22,7 @@ export const Toggle: React.FC<ToggleProps> = ({
   onChangeValue,
   ...props
 }) => {
+  const reduceMotion = useReducedMotion();
   const toggleSwitch = () => {
     if (!disabled && onChangeValue) {
       hapticMedium();
@@ -52,12 +54,10 @@ export const Toggle: React.FC<ToggleProps> = ({
         transition={
           isExtension()
             ? { duration: 0 }
-            : {
-                type: 'spring',
-                stiffness: 700,
-                damping: 30,
-                backgroundColor: { duration: 0.2 }
-              }
+            : resolveTransition(reduceMotion, {
+                ...presets.press.transition,
+                backgroundColor: presets.fade.transition
+              })
         }
       />
     </div>

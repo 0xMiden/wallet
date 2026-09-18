@@ -2,6 +2,7 @@ import React from 'react';
 
 import { render, screen, fireEvent } from '@testing-library/react';
 
+import { presets, springs } from 'lib/animation';
 import { hapticLight } from 'lib/mobile/haptics';
 
 import { Button, ButtonVariant } from './Button';
@@ -16,6 +17,26 @@ jest.mock('lib/mobile/haptics', () => ({
   hapticLight: jest.fn()
 }));
 
+// Surface the motion props the button passes to framer so the press preset is assertable.
+let mockReduceMotion = false;
+jest.mock('framer-motion', () => {
+  const ReactActual = jest.requireActual('react');
+  return {
+    ...jest.requireActual('framer-motion'),
+    useReducedMotion: () => mockReduceMotion,
+    motion: {
+      button: ReactActual.forwardRef(({ whileTap, transition, ...rest }: any, ref: any) => (
+        <button
+          ref={ref}
+          data-while-tap={JSON.stringify(whileTap ?? null)}
+          data-transition={JSON.stringify(transition ?? null)}
+          {...rest}
+        />
+      ))
+    }
+  };
+});
+
 // Mock IconOrComponent
 jest.mock('utils/icon-or-component', () => ({
   IconOrComponent: ({ icon, color }: any) => (
@@ -28,6 +49,7 @@ jest.mock('utils/icon-or-component', () => ({
 describe('Button', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockReduceMotion = false;
   });
 
   it('renders button with default title', () => {
@@ -145,6 +167,35 @@ describe('Button', () => {
       render(<Button iconLeft="left" iconRight="right" />);
 
       expect(screen.getAllByTestId('icon')).toHaveLength(2);
+    });
+  });
+
+  describe('press motion', () => {
+    const motionProp = (name: 'while-tap' | 'transition') =>
+      JSON.parse(screen.getByRole('button').getAttribute(`data-${name}`) as string);
+
+    it('uses the press preset', () => {
+      render(<Button />);
+
+      expect(motionProp('while-tap')).toEqual(presets.press.whileTap);
+      expect(motionProp('transition')).toEqual(springs.snappy);
+    });
+
+    it('presses instantly under reduced motion', () => {
+      mockReduceMotion = true;
+      render(<Button />);
+
+      expect(motionProp('while-tap')).toEqual(presets.press.whileTap);
+      expect(motionProp('transition')).toEqual({ duration: 0.001 });
+    });
+
+    it.each([
+      ['disabled', { disabled: true }],
+      ['loading', { isLoading: true }]
+    ])('does not press while %s', (_state, props) => {
+      render(<Button {...props} />);
+
+      expect(motionProp('while-tap')).toBeNull();
     });
   });
 
