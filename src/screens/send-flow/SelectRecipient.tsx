@@ -8,14 +8,14 @@ import { ReactComponent as ScanFrameIcon } from 'app/icons/scan-frame.svg';
 import { ReactComponent as SendAddressBookIcon } from 'app/icons/send-address-book.svg';
 import { Icon, IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
+import { ContactAvatar } from 'components/contacts/ContactAvatar';
+import { NetworkChip } from 'components/NetworkChip';
 import { Pill } from 'components/ui';
 import { hapticLight } from 'lib/mobile/haptics';
 import { AddressChain } from 'utils/miden';
 import { truncateAddress } from 'utils/string';
 
 import { BRIDGE_NETWORKS, BridgeNetworkId, getBridgeNetwork, SendNetworkId } from './bridge-networks';
-import { NetworkChip } from './NetworkChip';
-import { RecipientAvatar } from './RecipientAvatar';
 import { SendStepLayout } from './SendStepLayout';
 import { RecentRecipient } from './types';
 
@@ -314,7 +314,11 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
                       index > 0 && 'border-t border-rule-default'
                     )}
                   >
-                    <RecipientAvatar kind={recipient.chain === 'miden' ? 'miden' : 'ethereum'} />
+                    <ContactAvatar
+                      address={recipient.address}
+                      name={recipient.name}
+                      network={recipient.chain === 'miden' ? 'miden' : 'ethereum'}
+                    />
                     <span className="flex min-w-0 flex-col gap-0.5">
                       <span className="truncate text-base font-bold text-black">
                         {recipient.name ?? truncateAddress(recipient.address)}

@@ -2,7 +2,7 @@ import React from 'react';
 
 import { fireEvent, render, screen } from '@testing-library/react';
 
-import { NetworkChip } from './NetworkChip';
+import { NetworkChip } from 'components/NetworkChip';
 
 describe('NetworkChip', () => {
   it('renders the Miden logo and label as static text without a handler', () => {

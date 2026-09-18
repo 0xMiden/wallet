@@ -6,6 +6,7 @@
 
 - [CHANGE][all] Chips, badges and small actions share one `Pill` component (two sizes, one set of tones), so the network chip and the recipient step's Paste, Address Book, Scan and "Add to contacts?" pills are the same height, padding and type scale. Every tone carries a 1px border, so selecting a chip no longer resizes it.
 - [CHANGE][all] Send flow: a recent recipient shows its network as a badge on the avatar instead of a chip on the second line, and the address appears once (an unnamed recipient used to show the same shortened address twice).
+- [CHANGE][all] Contacts get their own avatar: a color and initials derived from the contact, in the address book, the send contact picker and recent recipients, instead of the same orange Miden image for everyone.
 
 - [CHANGE][all] The encrypted wallet file now carries accounts imported from a private key, so restoring it brings them back with their keys instead of silently leaving them behind. A file written by an older version still restores, and names how many imported accounts it had to omit before you confirm. An imported account whose key the wallet cannot read is named rather than quietly dropped from the backup.
 - [CHANGE][all] Bottom tab bar: new Home, Explore and Activity glyphs, icons only at 32px with no labels (each tab keeps its name for assistive tech), and one light-grey pill that slides between tabs on the shared pill spring.

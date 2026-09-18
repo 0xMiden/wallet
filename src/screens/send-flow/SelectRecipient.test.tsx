@@ -148,7 +148,7 @@ describe('SelectRecipient — recent recipients', () => {
     // A saved contact shows its name; an unknown address falls back to the truncated form.
     expect(screen.getByText('Alice')).toBeInTheDocument();
     // The network rides the avatar as a badge, so the row never spends its second line on it.
-    expect(screen.getAllByTestId('recipient-avatar').map(el => el.dataset.network)).toEqual([
+    expect(screen.getAllByTestId('contact-avatar').map(el => el.dataset.network)).toEqual([
       'miden',
       'ethereum',
       'ethereum'
