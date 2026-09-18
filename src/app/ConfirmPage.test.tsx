@@ -120,22 +120,29 @@ jest.mock('components/SpendingLimitChallenge', () => ({
 
 jest.mock('components/Button', () => ({
   ButtonVariant: { Primary: 'primary', Secondary: 'secondary', Ghost: 'ghost' },
-  Button: ({ children, onClick, isLoading, variant, className }: any) => (
+  Button: ({ children, onClick, isLoading, variant, className, type, size, 'data-testid': dataTestId }: any) => (
     <button
-      type="button"
+      type={type ?? 'button'}
       onClick={onClick}
       data-loading={String(!!isLoading)}
       data-variant={variant}
+      data-size={size}
       className={className}
+      data-testid={dataTestId}
     >
       {children}
     </button>
   )
 }));
 
+const mockTrackEvent = jest.fn();
 jest.mock('lib/analytics', () => {
   const React2 = require('react');
-  return { CustomRpsContext: React2.createContext(undefined) };
+  return {
+    CustomRpsContext: React2.createContext(undefined),
+    AnalyticsEventCategory: { ButtonPress: 'ButtonPress' },
+    useAnalytics: () => ({ trackEvent: mockTrackEvent })
+  };
 });
 
 // `TransactionAssetView` owns its own pixel-level rendering (asset rows, note
@@ -199,22 +206,6 @@ jest.mock('./atoms/Alert', () => ({
         close
       </button>
     </div>
-  )
-}));
-jest.mock('./atoms/FormSecondaryButton', () => ({
-  __esModule: true,
-  default: ({ children, onClick }: any) => (
-    <button type="button" onClick={onClick} data-testid="form-secondary">
-      {children}
-    </button>
-  )
-}));
-jest.mock('./atoms/FormSubmitButton', () => ({
-  __esModule: true,
-  default: ({ children, onClick, loading, testID }: any) => (
-    <button type="button" onClick={onClick} data-loading={String(!!loading)} data-testid={testID}>
-      {children}
-    </button>
   )
 }));
 jest.mock('./atoms/Name', () => ({
@@ -438,6 +429,14 @@ describe('connect payload', () => {
       expect(ctx.confirmDAppPermission).toHaveBeenLastCalledWith('req-1', true, ACCOUNT.publicKey, UPON_REQUEST, [
         'balance'
       ])
+    );
+    // The analytics tracking Button itself used to own is now wired by hand at
+    // the call site: a click still reports a ButtonPress against the confirm
+    // action's own testid.
+    expect(mockTrackEvent).toHaveBeenCalledWith(
+      ConfirmPageSelectors.ConnectAction_ConnectButton,
+      'ButtonPress',
+      undefined
     );
   });
 
@@ -728,8 +727,11 @@ describe('privateNotes payload', () => {
     render(<ConfirmPage />);
 
     // The intro copy is split across text nodes by a <br/>; match the button.
-    expect(screen.getByText('downloadPrivateNoteData')).toBeInTheDocument();
-    fireEvent.click(screen.getByText('downloadPrivateNoteData'));
+    const downloadButton = screen.getByText('downloadPrivateNoteData').closest('button')!;
+    expect(downloadButton).toBeInTheDocument();
+    // Was FormSecondaryButton's `small` prop; the canonical Button uses `sm`.
+    expect(downloadButton).toHaveAttribute('data-size', 'sm');
+    fireEvent.click(downloadButton);
 
     expect(createObjSpy).toHaveBeenCalledTimes(1);
     expect(clickSpy).toHaveBeenCalled();
