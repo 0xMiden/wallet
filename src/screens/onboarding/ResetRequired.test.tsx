@@ -19,10 +19,10 @@ jest.mock('app/icons/v2', () => ({
   IconName: { MidenLogo: 'MidenLogo' }
 }));
 
-// `NavigationHeader` — surface just the title so the header wiring is
-// assertable without dragging in `CircleButton` / the real icon set.
-jest.mock('components/NavigationHeader', () => ({
-  NavigationHeader: ({ title }: { title: string }) => <div data-testid="nav-header">{title}</div>
+// `PageHeader` — surface just the title so the header wiring is assertable
+// without dragging in `NavButton` / the real icon set.
+jest.mock('components/PageHeader', () => ({
+  PageHeader: ({ title }: { title: string }) => <div data-testid="nav-header">{title}</div>
 }));
 
 // `Message` — echo every prop the screen threads through as data attributes /
