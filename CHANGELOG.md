@@ -100,6 +100,7 @@
 - [CHANGE][all] A new `IconButton` component (a bare 24px ink glyph in a 44px hit area, or a 32/36px circle on `fill` with a `muted` glyph) backs the page header's back/close, the earn flow's back buttons, the drawer sheet's close, and the tab header's action icons, replacing several hand-rolled round buttons that had each drifted slightly (the drawer close was 24px on a flat grey fill; earn's back buttons were 40px with their own hover colors).
 - [CHANGE][all] Confirmations and alerts (delete a contact, disconnect a dApp, decline a transfer, reset the wallet, error alerts) open as bottom sheets instead of centered pop-ups: the title, one sentence, the action over a Cancel button. They are announced as alert dialogs, focus Cancel first, close on Escape or Back, and no longer dismiss on a tap outside, and they sit above any open sheet.
 - [CHANGE][all] The old pop-up modal and its styles are removed now that confirmations are sheets, and with reduced motion on, the extension no longer animates the app shrinking behind an open sheet: it moves there at once.
+- [CHANGE][all] Confirmations name their action instead of "OK" and show it in the destructive style: Delete (a contact), Disconnect (a dApp), Decline (a transfer), Reset Wallet (developer settings) and Reset Extension.
 
 ## 1.16.1 (2026-09-15)
 

@@ -116,7 +116,12 @@ it('requires confirmation before hiding a transfer', async () => {
   const card = expandCard('first');
   fireEvent.click(within(card).getByRole('button', { name: 'activityRejectTransfer' }));
   await waitFor(() => expect(mockHide).toHaveBeenCalledWith('first'));
-  expect(mockConfirm).toHaveBeenCalledWith({ title: 'activityRejectTransfer', children: 'activityRejectExplanation' });
+  expect(mockConfirm).toHaveBeenCalledWith({
+    title: 'activityRejectTransfer',
+    children: 'activityRejectExplanation',
+    confirmLabel: 'activityRejectTransfer',
+    destructive: true
+  });
 });
 
 it('leaves a transfer in place when the decline is cancelled', async () => {

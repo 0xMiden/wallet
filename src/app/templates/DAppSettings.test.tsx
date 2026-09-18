@@ -170,7 +170,9 @@ describe('DAppSettings', () => {
     await waitFor(() => expect(removeDAppSession).toHaveBeenCalledWith('https://app.example.com'));
     expect(confirm).toHaveBeenCalledWith({
       title: 'actionConfirmation',
-      children: 'resetPermissionsConfirmation'
+      children: 'resetPermissionsConfirmation',
+      confirmLabel: 'disconnect',
+      destructive: true
     });
     expect(mutate).toHaveBeenCalledTimes(1);
   });

@@ -124,6 +124,12 @@ it('deletes only after confirming, then goes back', async () => {
     fireEvent.click(screen.getByTestId('contact-delete'));
   });
   expect(removeContactMock).not.toHaveBeenCalled();
+  expect(confirmMock).toHaveBeenCalledWith({
+    title: 'deleteContact',
+    children: 'deleteContactConfirm',
+    confirmLabel: 'delete',
+    destructive: true
+  });
 
   confirmMock.mockResolvedValueOnce(true);
   await act(async () => {
