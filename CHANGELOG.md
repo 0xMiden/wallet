@@ -85,6 +85,8 @@
 - [CHANGE][all] One `Skeleton` loading block for the wallet: the send review "you receive" row, the bridge route fee, the amount field, the EVM bridge deposit review and the home balance card now share it instead of five separate ad-hoc `animate-pulse` divs.
 - [CHANGE][all] Detail cards (send review, the transaction receipt, a contact's address) share one look: a warm fill with hairline dividers between rows, and a row's inline action (Edit, Copy) is always a readable orange instead of sometimes taking the flow's own color, which was too faint to read as text.
 - [CHANGE][all] History (transaction details, swap details, bridge claim, the failure/cancelled card) moves onto the same compact detail-card look as the rest of the wallet, kept under a small pill title where one is shown; value text no longer carries its own stray styling, and the failure card's message and its "Show full error" toggle read as one card body instead of two.
+- [CHANGE][all] Detail cards (send review, the transaction receipt, a contact's address) share one `DetailCard`/`DetailRow` component on the `fill` surface with hairline dividers between rows; a row's inline action (Edit, Copy) is always the brand orange instead of the flow's own accent, which was under 3:1 on white for text.
+- [CHANGE][all] Send review, the transaction receipt and a contact's page share one centered `Hero`: an avatar or status circle, then the amount or outcome, then a muted line; the receipt's outcome heading steps down from 28px to the design system's 24px.
 
 ## 1.16.1 (2026-09-15)
 
