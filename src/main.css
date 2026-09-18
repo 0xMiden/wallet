@@ -108,7 +108,6 @@ button:disabled,
  */
 
 @import 'tailwindcss';
-@import 'tw-animate-css';
 @config '../tailwind.config.ts';
 @source "../src/**/*.{js,jsx,ts,tsx}";
 @source "../public/**/*.html";

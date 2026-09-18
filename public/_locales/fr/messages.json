@@ -95,42 +95,6 @@
     "message": "Chargement en cours",
     "englishSource": "Loading"
   },
-  "priceChangeAmountNeutral": {
-    "message": "$amount$",
-    "englishSource": "$amount$",
-    "placeholders": {
-      "amount": {
-        "content": "$1"
-      }
-    }
-  },
-  "priceChangeAmountPositive": {
-    "message": "+$amount$",
-    "englishSource": "+$amount$",
-    "placeholders": {
-      "amount": {
-        "content": "$1"
-      }
-    }
-  },
-  "priceChangeAmountNegative": {
-    "message": "-$amount$",
-    "englishSource": "-$amount$",
-    "placeholders": {
-      "amount": {
-        "content": "$1"
-      }
-    }
-  },
-  "priceChangePercent": {
-    "message": "$value$",
-    "englishSource": "$value$%",
-    "placeholders": {
-      "value": {
-        "content": "$1"
-      }
-    }
-  },
   "pendingTabApproxUsd": {
     "message": "≈ $value$",
     "englishSource": "≈ $value$",
@@ -567,10 +531,6 @@
     "message": "Cliquez pour afficher ce champ",
     "englishSource": "Click to reveal this field"
   },
-  "clickToReveal": {
-    "message": "Cliquez pour afficher",
-    "englishSource": "Click to reveal"
-  },
   "copiedHash": {
     "message": "Copié.",
     "englishSource": "Copied."
@@ -757,14 +717,6 @@
     "message": "Mnémonique pré-généré valide uniquement",
     "englishSource": "Just valid pre-generated mnemonic"
   },
-  "seedPasteFailedTooManyWords": {
-    "message": "Le collage a échoué car le texte comportait plus de 24 mots.",
-    "englishSource": "Paste failed because it contained over 24 words."
-  },
-  "seedPhraseTip": {
-    "message": "Vous pouvez coller l'intégralité de votre « secret Seed phrase » dans n'importe quel champ",
-    "englishSource": "You can paste your entire secret Seed phrase into any field"
-  },
   "importSeedPhraseError": {
     "message": "Un ou plusieurs mots ne figurent pas dans la liste de mots de la phrase de récupération. Vérifiez les mots surlignés.",
     "englishSource": "One or more words aren't in the recovery phrase word list. Check the highlighted words."
@@ -809,15 +761,6 @@
   "retryAnyway": {
     "message": "Réessayer quand même",
     "englishSource": "Retry anyway"
-  },
-  "maximalAmount": {
-    "message": "Maximal : $amount$",
-    "englishSource": "Maximal: $amount$",
-    "placeholders": {
-      "amount": {
-        "content": "$1"
-      }
-    }
   },
   "privateKeyRevealWarningTitle": {
     "message": "Avant de continuer",
@@ -1794,10 +1737,6 @@
     "message": "Miden",
     "englishSource": "Miden"
   },
-  "addNewContact": {
-    "message": "Nouveau contact",
-    "englishSource": "New contact"
-  },
   "addContact": {
     "message": "Ajouter un contact",
     "englishSource": "Add Contact"
@@ -1814,10 +1753,6 @@
     "message": "Récents",
     "englishSource": "Recent"
   },
-  "newContactPlaceholder": {
-    "message": "par exemple : Alice, Bob",
-    "englishSource": "e.g. Alice Bob"
-  },
   "contactWithTheSameAddressAlreadyExists": {
     "message": "Un contact portant la même adresse existe déjà",
     "englishSource": "Contact with the same address already exists"
@@ -1833,10 +1768,6 @@
   "deleteContactConfirm": {
     "message": "Êtes-vous sûr de vouloir supprimer ce contact ?",
     "englishSource": "Are you sure you want to delete this contact?"
-  },
-  "ownAccount": {
-    "message": "Propre",
-    "englishSource": "Own"
   },
   "noContactsFound": {
     "message": "Aucun contact trouvé",

@@ -95,42 +95,6 @@
     "message": "Завантаження",
     "englishSource": "Loading"
   },
-  "priceChangeAmountNeutral": {
-    "message": "$amount$",
-    "englishSource": "$amount$",
-    "placeholders": {
-      "amount": {
-        "content": "$1"
-      }
-    }
-  },
-  "priceChangeAmountPositive": {
-    "message": "+$amount$",
-    "englishSource": "+$amount$",
-    "placeholders": {
-      "amount": {
-        "content": "$1"
-      }
-    }
-  },
-  "priceChangeAmountNegative": {
-    "message": "-$amount$",
-    "englishSource": "-$amount$",
-    "placeholders": {
-      "amount": {
-        "content": "$1"
-      }
-    }
-  },
-  "priceChangePercent": {
-    "message": "$value$",
-    "englishSource": "$value$%",
-    "placeholders": {
-      "value": {
-        "content": "$1"
-      }
-    }
-  },
   "pendingTabApproxUsd": {
     "message": "≈ $value$",
     "englishSource": "≈ $value$",
@@ -567,10 +531,6 @@
     "message": "Натисніть, щоб розгорнути це поле",
     "englishSource": "Click to reveal this field"
   },
-  "clickToReveal": {
-    "message": "Натисніть, щоб розгорнути",
-    "englishSource": "Click to reveal"
-  },
   "copiedHash": {
     "message": "Скопійовано.",
     "englishSource": "Copied."
@@ -757,14 +717,6 @@
     "message": "Лише дійсна попередньо згенерована мнемоніка",
     "englishSource": "Just valid pre-generated mnemonic"
   },
-  "seedPasteFailedTooManyWords": {
-    "message": "Вставлення не вдалося, оскільки текст містив понад 24 слова.",
-    "englishSource": "Paste failed because it contained over 24 words."
-  },
-  "seedPhraseTip": {
-    "message": "Ви можете вставити весь свій секретний код Seed phrase у будь-яке поле",
-    "englishSource": "You can paste your entire secret Seed phrase into any field"
-  },
   "importSeedPhraseError": {
     "message": "Одне або кілька слів відсутні у списку слів фрази відновлення. Перевірте виділені слова.",
     "englishSource": "One or more words aren't in the recovery phrase word list. Check the highlighted words."
@@ -809,15 +761,6 @@
   "retryAnyway": {
     "message": "Усе одно повторити",
     "englishSource": "Retry anyway"
-  },
-  "maximalAmount": {
-    "message": "Maximal: $amount$",
-    "englishSource": "Maximal: $amount$",
-    "placeholders": {
-      "amount": {
-        "content": "$1"
-      }
-    }
   },
   "privateKeyRevealWarningTitle": {
     "message": "Перш ніж продовжувати",
@@ -1794,10 +1737,6 @@
     "message": "Міден",
     "englishSource": "Miden"
   },
-  "addNewContact": {
-    "message": "Новий контакт",
-    "englishSource": "New contact"
-  },
   "addContact": {
     "message": "Додати контакт",
     "englishSource": "Add Contact"
@@ -1814,10 +1753,6 @@
     "message": "Останні",
     "englishSource": "Recent"
   },
-  "newContactPlaceholder": {
-    "message": "наприклад, Аліса Боб",
-    "englishSource": "e.g. Alice Bob"
-  },
   "contactWithTheSameAddressAlreadyExists": {
     "message": "Контакт із такою самою адресою вже існує",
     "englishSource": "Contact with the same address already exists"
@@ -1833,10 +1768,6 @@
   "deleteContactConfirm": {
     "message": "Ви впевнені, що хочете видалити цей контакт?",
     "englishSource": "Are you sure you want to delete this contact?"
-  },
-  "ownAccount": {
-    "message": "Власний",
-    "englishSource": "Own"
   },
   "noContactsFound": {
     "message": "Контакти не знайдено",
