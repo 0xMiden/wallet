@@ -103,6 +103,7 @@
 - [CHANGE][all] Confirmations name their action instead of "OK" and show it in the destructive style: Delete (a contact), Disconnect (a dApp), Decline (a transfer), Reset Wallet (developer settings) and Reset Extension.
 - [CHANGE][all] Copying a connected app's account id, the receive screen's address, or the balance card's account label now shows a checkmark or "Copied" for a moment, instead of copying with no sign anything happened.
 - [CHANGE][all] Addresses and transaction hashes shown in transaction history are now small tappable pills with a copy icon and "copied" feedback, in place of plain text that gave no indication it could be tapped at all.
+- [CHANGE][all] Page motion comes from one place: a page that slides in and the page it covers move on the design system's `page` motion, a page that fades in uses the shared fade (a touch slower in the extension), and the steps inside a flow (send, swap, wallet file export, bridge deposit, onboarding) swap on the same curve as a page slide, a little quicker in onboarding. With reduced motion turned on, onboarding steps now change instantly instead of still fading.
 
 ## 1.16.1 (2026-09-15)
 
