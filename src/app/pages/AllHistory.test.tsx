@@ -10,25 +10,34 @@ jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
 }));
 
+// A single mutable flag drives both mocks below, the same way real
+// `prefers-reduced-motion` drives framer's own `useReducedMotion` AND
+// `lib/animation`'s `useMotion` in production.
+const mockReducedMotion = { value: false };
+
 // The selected filter's fill is a `motion.span` sharing a `layoutId` with the
-// previous selection; render it as a plain span surfacing the id so its
-// presence/position is assertable without framer-motion's layout machinery.
+// previous selection; render it as a plain span surfacing the id (and the
+// resolved `transition`, stringified, so the reduced-motion swap is
+// assertable) so its presence/position is testable without framer's layout
+// machinery.
 jest.mock('framer-motion', () => ({
   __esModule: true,
   motion: {
     span: ({ children, layout, layoutId, initial, animate, transition, ...props }: any) => (
-      <span data-layout-id={layoutId} {...props}>
+      <span data-layout-id={layoutId} data-transition={JSON.stringify(transition)} {...props}>
         {children}
       </span>
     )
   },
-  useReducedMotion: () => false
+  useReducedMotion: () => mockReducedMotion.value
 }));
 
 jest.mock('lib/animation', () => ({
   __esModule: true,
   springs: { pill: { type: 'spring' } },
-  useMotion: (transition: unknown) => transition
+  // Mirrors the real `useMotion`: the spring unchanged, or an instant tween
+  // once reduced motion is on.
+  useMotion: (transition: unknown) => (mockReducedMotion.value ? { duration: 0 } : transition)
 }));
 
 // The dead-letter notice owns its own data (SWR over the note dead-letter
@@ -123,6 +132,7 @@ describe('AllHistory', () => {
     jest.clearAllMocks();
     mockEndpoint.rpcUrl = 'https://rpc-a.example';
     mockPendingMounts.count = 0;
+    mockReducedMotion.value = false;
     HTMLElement.prototype.scrollIntoView = jest.fn();
   });
 
@@ -202,6 +212,37 @@ describe('AllHistory', () => {
 
     fireEvent.click(getFilterButton('sent'));
     expect(document.querySelectorAll('[data-layout-id="activity-filter-pill"]')).toHaveLength(1);
+  });
+
+  describe('reduced motion', () => {
+    beforeEach(() => {
+      mockReducedMotion.value = true;
+    });
+
+    it('scrolls the selection into view instantly instead of smoothly', () => {
+      render(<AllHistory />);
+
+      expect(HTMLElement.prototype.scrollIntoView).toHaveBeenCalledWith({
+        behavior: 'auto',
+        block: 'nearest',
+        inline: 'nearest'
+      });
+    });
+
+    it('collapses the shared-fill indicator to an instant transition', () => {
+      render(<AllHistory />);
+
+      // The mocked `useMotion` swaps the spring for `{ duration: 0 }` once
+      // reduced motion is on — the same collapse the real helper performs.
+      expect(getFilterIndicator()).toHaveAttribute('data-transition', JSON.stringify({ duration: 0 }));
+    });
+
+    it('still renders exactly one indicator, and it stays untappable', () => {
+      render(<AllHistory />);
+
+      expect(document.querySelectorAll('[data-layout-id="activity-filter-pill"]')).toHaveLength(1);
+      expect(getFilterIndicator()).toHaveClass('pointer-events-none');
+    });
   });
 
   it('changes the active filter and propagates it to History on tap', () => {
