@@ -192,11 +192,7 @@ const HotKeyRotationOverlay: FC<OverlayProps> = ({ accountPublicKey }) => {
         <div data-testid="hot-key-rotation-failed" className="flex flex-col items-center gap-4">
           <h1 className="text-lg font-semibold text-black">{t('hotKeyRotationFailedTitle')}</h1>
           <p className="text-sm text-heading-gray break-words select-text">{failureMessage}</p>
-          <Button
-            data-testid="hot-key-rotation-retry"
-            className="px-6 py-2 rounded-lg text-sm font-semibold"
-            onClick={onRetry}
-          >
+          <Button data-testid="hot-key-rotation-retry" onClick={onRetry}>
             {t('hotKeyRotationRetry')}
           </Button>
         </div>
