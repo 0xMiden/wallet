@@ -20,7 +20,9 @@ jest.mock('react-i18next', () => ({
 jest.mock('lib/woozie', () => ({
   goBack: (...args: unknown[]) => mockGoBack(...args),
   navigate: (...args: unknown[]) => mockNavigate(...args),
-  useLocation: () => ({ historyPosition: mockHistoryPosition }),
+  // useBackWithFallback reads live history at call time.
+  createLocationState: () => ({ historyPosition: mockHistoryPosition, href: 'http://localhost/#/pending-notes' }),
+  listen: () => () => undefined,
   HistoryAction: { Push: 'push', Replace: 'replace' }
 }));
 

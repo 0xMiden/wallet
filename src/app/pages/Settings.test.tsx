@@ -86,9 +86,10 @@ jest.mock('lib/woozie', () => ({
   navigate: jest.fn(),
   goBack: jest.fn(),
   HistoryAction: { Push: 'push', Replace: 'replace' },
-  // Read by useBackWithFallback, which decides whether the sub-page header's
-  // back chevron pops history or falls back to the settings root.
-  useLocation: jest.fn(() => ({ historyPosition: mockHistoryPosition }))
+  // Read by useBackWithFallback at call time, which decides whether the sub-page
+  // header's back chevron pops history or falls back to the settings root.
+  createLocationState: () => ({ historyPosition: mockHistoryPosition, href: 'http://localhost/#/settings/sub' }),
+  listen: () => () => undefined
 }));
 
 jest.mock('lib/i18n/core', () => ({
