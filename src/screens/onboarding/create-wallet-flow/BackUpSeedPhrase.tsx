@@ -73,7 +73,7 @@ export const BackUpSeedPhraseScreen: React.FC<BackUpSeedPhraseScreenProps> = ({
               <span
                 className={classNames(
                   'flex flex-row gap-1 w-full',
-                  'transition duration-300 ease-in-out justify-between',
+                  'transition duration-300 ease-in-out justify-between motion-reduce:transition-none',
                   isWordsVisible ? 'blur-none' : 'blur-sm'
                 )}
               >

@@ -179,6 +179,12 @@ describe('BackUpSeedPhraseScreen', () => {
       expect(toggle).toHaveAttribute('data-icon', 'ICON_EYE');
     });
 
+    it('respects reduced motion on the blur transition', () => {
+      renderComponent();
+      const firstChip = screen.getAllByTestId(/^seed-word-\d+$/)[0]!;
+      expect(firstChip.querySelector('.blur-sm, .blur-none')).toHaveClass('motion-reduce:transition-none');
+    });
+
     it('reveals the words and flips the toggle label/icon when clicked', () => {
       renderComponent();
 
