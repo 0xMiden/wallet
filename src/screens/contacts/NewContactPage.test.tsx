@@ -1,6 +1,9 @@
 import React from 'react';
 
+import { Clipboard } from '@capacitor/clipboard';
 import { act, fireEvent, render, screen } from '@testing-library/react';
+
+import { isMobile } from 'lib/platform';
 
 import { NewContactPage } from './NewContactPage';
 
@@ -41,7 +44,7 @@ jest.mock('screens/send-flow/bridge-networks', () => ({
   DEFAULT_BRIDGE_NETWORK: { id: 'sepolia', name: 'Sepolia', chainId: 1 }
 }));
 jest.mock('screens/send-flow/ScanQrDrawer', () => ({ ScanQrDrawer: () => null }));
-jest.mock('lib/platform', () => ({ isMobile: () => false }));
+jest.mock('lib/platform', () => ({ isMobile: jest.fn(() => false) }));
 jest.mock('lib/qr', () => ({ isScanAvailable: () => false, scanQRCode: jest.fn() }));
 jest.mock('@capacitor/clipboard', () => ({ Clipboard: { read: jest.fn() } }));
 jest.mock('utils/miden', () => ({
@@ -55,6 +58,8 @@ beforeEach(() => {
   addContactMock.mockReset().mockResolvedValue(undefined);
   backMock.mockReset();
   contactsMock.mockReturnValue([{ name: 'Alice', address: 'mtst1goodalice' }]);
+  (isMobile as jest.Mock).mockReturnValue(false);
+  (Clipboard.read as jest.Mock).mockReset();
 });
 
 const typeAddress = (value: string) => {
@@ -121,4 +126,30 @@ it('catches one of my own accounts', () => {
   typeAddress('mtst1goodmine');
 
   expect(screen.getByTestId('contact-address-error')).toHaveTextContent('contactIsYourAccount');
+});
+
+it('says so when a paste finds nothing on the clipboard', async () => {
+  (isMobile as jest.Mock).mockReturnValue(true);
+  (Clipboard.read as jest.Mock).mockRejectedValue(new Error('There is no data on the clipboard'));
+  render(<NewContactPage />);
+
+  await act(async () => {
+    fireEvent.click(screen.getByTestId('contact-paste'));
+  });
+
+  expect(screen.getByTestId('contact-address-error')).toHaveTextContent('nothingToPaste');
+  expect(screen.getByTestId('address-book-address-input')).toHaveValue('');
+});
+
+it('fills the address from a successful paste, with no error', async () => {
+  (isMobile as jest.Mock).mockReturnValue(true);
+  (Clipboard.read as jest.Mock).mockResolvedValue({ value: EVM, type: 'text/plain' });
+  render(<NewContactPage />);
+
+  await act(async () => {
+    fireEvent.click(screen.getByTestId('contact-paste'));
+  });
+
+  expect(screen.getByTestId('address-book-address-input')).toHaveValue(EVM);
+  expect(screen.queryByTestId('contact-address-error')).not.toBeInTheDocument();
 });

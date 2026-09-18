@@ -339,6 +339,7 @@
   "more": "daha fazla",
   "addressBook": "Adres Defteri",
   "paste": "Yapıştır",
+  "nothingToPaste": "Yapıştırılacak bir şey yok. Önce bir adres kopyalayın.",
   "chooseRecipient": "Alıcıyı seçin",
   "sendTo": "Alıcı",
   "selectAmount": "Tutar Seç",

@@ -1598,6 +1598,10 @@
     "message": "붙여넣기",
     "englishSource": "Paste"
   },
+  "nothingToPaste": {
+    "message": "붙여넣을 내용이 없습니다. 먼저 주소를 복사하세요.",
+    "englishSource": "Nothing to paste. Copy an address first."
+  },
   "chooseRecipient": {
     "message": "수신자 선택",
     "englishSource": "Choose recipient"

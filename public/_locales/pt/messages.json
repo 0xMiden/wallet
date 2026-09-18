@@ -1598,6 +1598,10 @@
     "message": "Colar",
     "englishSource": "Paste"
   },
+  "nothingToPaste": {
+    "message": "Nada para colar. Copie um endereço primeiro.",
+    "englishSource": "Nothing to paste. Copy an address first."
+  },
   "chooseRecipient": {
     "message": "Escolha o destinatário",
     "englishSource": "Choose recipient"

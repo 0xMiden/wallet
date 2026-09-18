@@ -1598,6 +1598,10 @@
     "message": "Paste",
     "englishSource": "Paste"
   },
+  "nothingToPaste": {
+    "message": "Nothing to paste. Copy an address first.",
+    "englishSource": "Nothing to paste. Copy an address first."
+  },
   "chooseRecipient": {
     "message": "Choose recipient",
     "englishSource": "Choose recipient"
