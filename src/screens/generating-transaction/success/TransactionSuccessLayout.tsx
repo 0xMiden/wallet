@@ -7,6 +7,7 @@ import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import { Button, ButtonVariant } from 'components/Button';
 import { FlowLayout } from 'components/flow/FlowLayout';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
+import { Hero } from 'components/ui/Hero';
 import { ITransaction } from 'lib/miden/db/types';
 import { resolveDisplayMetadata } from 'lib/miden/metadata/resolve';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
@@ -251,17 +252,9 @@ export const TransactionSuccessLayout: FC<TransactionSuccessLayoutProps> = ({
         }
       >
         <section className="flex w-full flex-col items-center pt-6">
-          {hero ?? <SuccessHero />}
-
           {/* The moment's heading and the focus target on the view change, so the outcome is
               announced. `tabIndex={-1}` makes it focusable without joining the tab order. */}
-          <h2
-            ref={titleRef}
-            tabIndex={-1}
-            className="mt-5 w-full text-center font-heading text-[1.75rem] leading-none font-bold text-heading-gray outline-none"
-          >
-            {title}
-          </h2>
+          <Hero visual={hero ?? <SuccessHero />} name={title} nameRef={titleRef} nameProps={{ tabIndex: -1 }} />
 
           {children}
         </section>
