@@ -115,6 +115,15 @@ const renderTab = (props: Partial<React.ComponentProps<typeof PendingTab>> = {})
 /** Enter the per-asset detail view by tapping its summary row. */
 const openDetail = () => fireEvent.click(screen.getByTestId('pending-asset-row'));
 
+describe('PendingTab — empty state', () => {
+  it('renders the EmptyState copy when there is nothing to claim', () => {
+    renderTab({ safeClaimableNotes: [] });
+
+    expect(screen.getByText('noNotesToClaim')).toBeInTheDocument();
+    expect(screen.queryByTestId('pending-asset-row')).not.toBeInTheDocument();
+  });
+});
+
 describe('PendingTab — dust notes', () => {
   it('marks a NATIVE group the wallet will not auto-claim because it is worth less than the fee', () => {
     // Auto-consume skips these, so without a hint the note just sits there with no
