@@ -100,7 +100,7 @@ describe('SelectRecipient', () => {
     });
 
     expect(screen.getByText('Charlie')).toBeInTheDocument();
-    expect(screen.getByTestId('send-recipient-avatar')).toBeInTheDocument();
+    expect(screen.getByTestId('send-recipient-avatar')).toHaveTextContent('C');
   });
 
   it('shows the only bridge network as a fact rather than a lone selectable chip', () => {
