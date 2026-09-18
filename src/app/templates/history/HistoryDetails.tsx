@@ -1173,12 +1173,12 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
             {cancelError && <p className="mb-2 text-center text-sm text-status-negative">{cancelError}</p>}
             <Button
               data-testid="history-cancel-button"
-              variant={ButtonVariant.Primary}
+              variant={ButtonVariant.Destructive}
               title={t('cancel')}
               isLoading={isCancelling}
               disabled={isCancelling}
               onClick={handleCancel}
-              className="max-w-none bg-status-negative hover:bg-status-negative focus:bg-status-negative"
+              className="max-w-none"
             />
           </div>
         )}
