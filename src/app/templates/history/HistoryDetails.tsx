@@ -12,7 +12,7 @@ import { Icon, IconName } from 'app/icons/v2';
 import PageLayout from 'app/layouts/PageLayout';
 import { Button, ButtonVariant } from 'components/Button';
 import { GuardianTransitionHero } from 'components/GuardianTransitionHero';
-import { NavigationHeader } from 'components/NavigationHeader';
+import { PageHeader } from 'components/PageHeader';
 import { earnWithdrawalRetryKind } from 'lib/epoch/earn-withdraw-policy';
 import { getAdaptiveDecimalPlaces, toAdaptiveFixed } from 'lib/i18n/numbers';
 import {
@@ -701,11 +701,10 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
     <PageLayout hideToolbar>
       {/* A swap receipt is reachable from the swap flow itself, so it keeps the
           close-to-home affordance the previous ScreenHeader carried. */}
-      <NavigationHeader
+      <PageHeader
+        className="px-4"
         title={t('transaction')}
         onBack={goBack}
-        variant="prominent"
-        titleAlign="left"
         onClose={entry?.txType === 'swap' ? () => navigate('/') : undefined}
       />
       <div className="flex flex-1 flex-col min-h-0 px-4">

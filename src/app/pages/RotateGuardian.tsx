@@ -5,7 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { useBackWithFallback } from 'app/hooks/useBackWithFallback';
 import { useCurrentGuardianEndpoint } from 'app/hooks/useCurrentGuardianEndpoint';
 import PageLayout from 'app/layouts/PageLayout';
-import { NavigationHeader } from 'components/NavigationHeader';
+import { PageHeader } from 'components/PageHeader';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { sanitizeGuardianUrl } from 'lib/settings/helpers';
 import { navigate } from 'lib/woozie';
@@ -53,7 +53,7 @@ const RotateGuardian: FC = () => {
           titling the header too gave the page two level-1 headings and two
           stacked titles. Hiding the picker's header instead would drop the
           description and the info affordance with it. */}
-      <NavigationHeader onBack={handleBack} variant="prominent" titleAlign="left" />
+      <PageHeader className="px-4" onBack={handleBack} />
       <ChooseGuardianScreen
         onSubmit={handleSubmit}
         currentEndpoint={currentEndpoint}
