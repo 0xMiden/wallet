@@ -53,6 +53,17 @@ button:disabled,
 @import 'tippy.js/animations/shift-away-subtle.css';
 @import 'vaul/style.css';
 
+/* vaul's open/close (a CSS animation on [data-vaul-drawer]) and its drag-release
+ * snap (a CSS transition on the same selector) both collapse to instant under
+ * reduced motion — no separate keyframe, just a near-zero duration on the
+ * selector vaul already targets. */
+@media (prefers-reduced-motion: reduce) {
+  [data-vaul-drawer] {
+    transition-duration: 0.01ms;
+    animation-duration: 0.01ms;
+  }
+}
+
 .tippy-content {
   white-space: pre-line;
 }
