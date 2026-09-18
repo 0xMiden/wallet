@@ -9,7 +9,7 @@ export interface DetailRowProps {
   children: React.ReactNode;
   /** Secondary line under the value, e.g. a fee note. */
   sub?: React.ReactNode;
-  /** Inline text action after the value, e.g. "Edit" or "Copy". Always the accent color. */
+  /** Inline text action after the value, e.g. "Edit" or "Copy". Always `accent-tint-ink` — the only accent that clears 4.5:1 on `fill` (Rule 6). */
   action?: { label: string; onClick: () => void };
   /** Stack the value under the label, for values too long to sit beside it (e.g. a full address). */
   stacked?: boolean;
@@ -31,9 +31,14 @@ export const DetailRow: React.FC<DetailRowProps> = ({
     data-testid={dataTestId}
     className={cn('flex gap-x-4 gap-y-1 px-4 py-3', stacked ? 'flex-col' : 'items-start', className)}
   >
-    <span className={cn('shrink-0 text-sm leading-6 text-muted', !stacked && 'min-w-20')}>{label}</span>
+    <span className={cn('shrink-0 font-sans text-sm leading-6 text-muted', !stacked && 'min-w-20')}>{label}</span>
     <div className={cn('flex min-w-0 flex-1 flex-col gap-1', stacked ? 'items-start' : 'items-end text-right')}>
-      <div className="flex max-w-full items-center gap-2 font-heading text-[15px] leading-6 font-bold text-ink break-all">
+      <div
+        className={cn(
+          'flex max-w-full items-center gap-2 font-heading text-[15px] leading-6 font-bold text-ink',
+          stacked && 'break-all'
+        )}
+      >
         {children}
         {action && (
           <button
@@ -42,7 +47,7 @@ export const DetailRow: React.FC<DetailRowProps> = ({
               hapticLight();
               action.onClick();
             }}
-            className="shrink-0 font-heading text-sm font-bold text-accent-primary"
+            className="shrink-0 font-heading text-sm font-bold text-accent-tint-ink"
           >
             {action.label}
           </button>

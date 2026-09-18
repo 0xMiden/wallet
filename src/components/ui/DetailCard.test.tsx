@@ -2,6 +2,8 @@ import React from 'react';
 
 import { fireEvent, render, screen } from '@testing-library/react';
 
+import { hapticLight } from 'lib/mobile/haptics';
+
 import { DetailCard, DetailRow } from './DetailCard';
 
 jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn() }));
@@ -30,10 +32,26 @@ describe('DetailRow', () => {
     render(<DetailRow label="Network">Miden</DetailRow>);
 
     const label = screen.getByText('Network');
-    expect(label).toHaveClass('text-muted', 'text-sm');
+    // Inter, not the ancestor's Nunito: `DetailSection` (history) wraps its
+    // cards in `font-heading`, and the label must stay Inter under it.
+    expect(label).toHaveClass('font-sans', 'text-muted', 'text-sm');
 
     const value = screen.getByText('Miden');
     expect(value).toHaveClass('text-ink', 'text-[15px]', 'font-bold');
+  });
+
+  it('does not break an unstacked value, which is always short', () => {
+    render(<DetailRow label="Network">Miden</DetailRow>);
+    expect(screen.getByText('Miden')).not.toHaveClass('break-all');
+  });
+
+  it('breaks a stacked value, for a full address that must wrap instead of overflow', () => {
+    render(
+      <DetailRow label="To" stacked>
+        0xabc...def
+      </DetailRow>
+    );
+    expect(screen.getByText('0xabc...def')).toHaveClass('break-all');
   });
 
   it('lays the value out beside the label by default, right-aligned', () => {
@@ -68,7 +86,7 @@ describe('DetailRow', () => {
     expect(screen.queryByRole('button')).not.toBeInTheDocument();
   });
 
-  it('renders an orange text action and fires its handler with a haptic', () => {
+  it('renders a text action at 4.5:1 on fill and fires its handler with a haptic', () => {
     const onClick = jest.fn();
     render(
       <DetailRow label="Address" action={{ label: 'Copy', onClick }}>
@@ -77,9 +95,13 @@ describe('DetailRow', () => {
     );
 
     const action = screen.getByRole('button', { name: 'Copy' });
-    expect(action).toHaveClass('text-accent-primary');
+    // `text-accent-primary` is 2.64:1 on `fill` — under AA. `accent-tint-ink` is
+    // the accent pair that actually clears 4.5:1 there (5.05:1 light, 7.69:1 dark).
+    expect(action).toHaveClass('text-accent-tint-ink');
+    expect(action).not.toHaveClass('text-accent-primary');
 
     fireEvent.click(action);
+    expect(hapticLight).toHaveBeenCalledTimes(1);
     expect(onClick).toHaveBeenCalledTimes(1);
   });
 
@@ -90,5 +112,14 @@ describe('DetailRow', () => {
       </DetailRow>
     );
     expect(screen.getByTestId('detail-address')).toBeInTheDocument();
+  });
+
+  it('forwards a caller className to the row root for layout', () => {
+    const { container } = render(
+      <DetailRow label="Address" className="mt-2">
+        0xabc
+      </DetailRow>
+    );
+    expect(container.firstChild).toHaveClass('mt-2');
   });
 });
