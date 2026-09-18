@@ -97,6 +97,7 @@
 - [CHANGE][all] Reset-required, forgot-password and the recovery-seed prompt move onto `PageHeader`, and the now-unused `NavigationHeader` is removed.
 - [CHANGE][all] The bridge deposit screens and developer settings move onto `PageHeader`.
 - [CHANGE][all] The Earn vault, position and withdraw-review/status headers move onto `PageHeader`, gaining haptic feedback on back that the old hand-rolled headers never wired up; the now-unused `ScreenHeader` is removed.
+- [CHANGE][all] A new `IconButton` component (a bare 24px ink glyph in a 44px hit area, or a 32/36px circle on `fill` with a `muted` glyph) backs the page header's back/close, the earn flow's back buttons, the drawer sheet's close, and the tab header's action icons, replacing several hand-rolled round buttons that had each drifted slightly (the drawer close was 24px on a flat grey fill; earn's back buttons were 40px with their own hover colors).
 
 ## 1.16.1 (2026-09-15)
 
