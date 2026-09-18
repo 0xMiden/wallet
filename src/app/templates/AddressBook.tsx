@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 
+import clsx from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import { ReactComponent as ChevronRightIcon } from 'app/icons/v2/chevron-right-lucide.svg';
@@ -21,17 +22,19 @@ function matches(contact: WalletContact, query: string): boolean {
 const byName = (a: WalletContact, b: WalletContact) => a.name.localeCompare(b.name);
 
 const SectionTitle: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <h2 className="px-1 pb-2 text-sm font-semibold text-text-muted">{children}</h2>
+  <h2 className="px-1 pb-2 font-sans text-[13px] font-bold text-muted">{children}</h2>
 );
 
 interface RowProps {
   contact: WalletContact;
   subtitle: string;
   onClick?: () => void;
+  /** Every row after the first: a hairline above it, starting after the avatar. */
+  inset?: boolean;
   'data-testid': string;
 }
 
-const Row: React.FC<RowProps> = ({ contact, subtitle, onClick, 'data-testid': dataTestId }) => {
+const Row: React.FC<RowProps> = ({ contact, subtitle, onClick, inset, 'data-testid': dataTestId }) => {
   const { kind } = contactNetwork(contact.address, contact.network);
   const content = (
     <>
@@ -39,12 +42,15 @@ const Row: React.FC<RowProps> = ({ contact, subtitle, onClick, 'data-testid': da
           every row is noise. */}
       <ContactAvatar address={contact.address} name={contact.name} network={kind === 'ethereum' ? kind : undefined} />
       <span className="flex min-w-0 flex-1 flex-col">
-        <span className="truncate font-heading text-base font-bold text-heading-gray">{contact.name}</span>
-        <span className="truncate font-sans text-sm text-text-muted">{subtitle}</span>
+        <span className="truncate font-heading text-base font-bold text-ink">{contact.name}</span>
+        <span className="truncate font-sans text-sm text-muted">{subtitle}</span>
       </span>
     </>
   );
-  const className = 'flex w-full items-center gap-3 px-4 py-3 text-left';
+  const className = clsx(
+    'relative flex w-full items-center gap-3 px-4 py-3 text-left',
+    inset && 'before:absolute before:top-0 before:right-0 before:left-[68px] before:h-px before:bg-hairline'
+  );
 
   return onClick ? (
     <button
@@ -54,10 +60,10 @@ const Row: React.FC<RowProps> = ({ contact, subtitle, onClick, 'data-testid': da
         hapticLight();
         onClick();
       }}
-      className={`${className} transition-colors active:bg-gray-50`}
+      className={clsx(className, 'transition-colors active:bg-fill-pressed')}
     >
       {content}
-      <ChevronRightIcon className="h-4 w-4 shrink-0 stroke-text-muted" aria-hidden="true" />
+      <ChevronRightIcon className="h-4 w-4 shrink-0 stroke-muted" aria-hidden="true" />
     </button>
   ) : (
     <div data-testid={dataTestId} className={className}>
@@ -67,7 +73,7 @@ const Row: React.FC<RowProps> = ({ contact, subtitle, onClick, 'data-testid': da
 };
 
 const Group: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <div className="flex flex-col divide-y divide-border-faint overflow-hidden rounded-2xl bg-gray-25">{children}</div>
+  <div className="flex flex-col overflow-hidden rounded-2xl bg-fill">{children}</div>
 );
 
 /**
@@ -104,7 +110,7 @@ const AddressBook: React.FC = () => {
 
       <div className="flex flex-col gap-6 pt-6 pb-4">
         {nothingFound ? (
-          <p className="py-4 text-center text-sm text-text-muted">{t('noContactsFound')}</p>
+          <p className="py-4 text-center text-sm text-muted">{t('noContactsFound')}</p>
         ) : (
           <>
             {(contacts.length > 0 || !query) && (
@@ -112,10 +118,11 @@ const AddressBook: React.FC = () => {
                 <SectionTitle>{t('contacts')}</SectionTitle>
                 {contacts.length > 0 ? (
                   <Group>
-                    {contacts.map(contact => (
+                    {contacts.map((contact, index) => (
                       <Row
                         key={contact.address}
                         contact={contact}
+                        inset={index > 0}
                         subtitle={`${contactNetworkName(contact.address, contact.network, t('miden'))} · ${truncateAddress(contact.address, true, 8)}`}
                         onClick={() => navigate(contactPath(contact.address))}
                         data-testid={`address-book-contact-${contact.address}`}
@@ -126,10 +133,10 @@ const AddressBook: React.FC = () => {
                   !hasSavedContacts && (
                     <div
                       data-testid="address-book-empty"
-                      className="flex flex-col items-center gap-1 rounded-2xl bg-gray-25 px-6 py-8 text-center"
+                      className="flex flex-col items-center gap-1 rounded-2xl bg-fill px-6 py-8 text-center"
                     >
-                      <span className="font-heading text-base font-bold text-heading-gray">{t('noContactsYet')}</span>
-                      <span className="text-sm text-text-muted">{t('noContactsYetHint')}</span>
+                      <span className="font-heading text-base font-bold text-ink">{t('noContactsYet')}</span>
+                      <span className="text-sm text-muted">{t('noContactsYetHint')}</span>
                     </div>
                   )
                 )}
@@ -140,10 +147,11 @@ const AddressBook: React.FC = () => {
               <section>
                 <SectionTitle>{t('myAccounts')}</SectionTitle>
                 <Group>
-                  {accounts.map(account => (
+                  {accounts.map((account, index) => (
                     <Row
                       key={account.address}
                       contact={account}
+                      inset={index > 0}
                       subtitle={`${account.isPublic ? t('public') : t('private')} · ${truncateAddress(account.address, true, 8)}`}
                       data-testid={`address-book-account-${account.address}`}
                     />
@@ -159,10 +167,10 @@ const AddressBook: React.FC = () => {
       <div className="sticky bottom-0 mt-auto bg-app-bg pt-2 pb-4">
         <Button
           title={t('newContact')}
-          variant={ButtonVariant.Primary}
+          variant={ButtonVariant.Secondary}
           onClick={() => navigate(NEW_CONTACT_PATH)}
           data-testid="address-book-new-contact"
-          className="w-full max-w-none rounded-full text-base font-semibold"
+          className="w-full max-w-none rounded-full bg-fill text-base font-semibold text-ink"
         />
       </div>
     </div>
