@@ -17,7 +17,7 @@ describe('TransactionFailureCard', () => {
     );
 
     // The card (`DetailCard`'s own root, identified by its `divide-y` class — the
-    // section also has a sibling title-pill div) has exactly one child: the
+    // section also has a sibling SectionHeader) has exactly one child: the
     // wrapper that holds both the message and the toggle. Two children would
     // mean `divide-y` draws a hairline between the message and the toggle.
     const card = screen.getByText('Prover timed out').closest('section')!.querySelector('.divide-y')!;
