@@ -71,17 +71,6 @@ jest.mock('lib/miden/back/miden-client-proxy', () => {
   };
 });
 
-// The speculation singleton, made settable per test. `initSpeculationManager` returns
-// null — leaving `getSpeculationManager()` null — whenever the send that would claim a
-// speculation runs in the offscreen realm (issue #260), which is the extension's
-// DEFAULT configuration. The real module cannot reach that state here: jsdom has no
-// `chrome.offscreen`, so its gate always wires a manager and the two SPECULATE
-// handlers' null branches — now the default production path — would never be executed.
-_g.__mainTest.speculationManager = null;
-jest.mock('lib/miden/back/speculation-manager', () => ({
-  initSpeculationManager: jest.fn(() => (globalThis as any).__mainTest.speculationManager),
-  getSpeculationManager: () => (globalThis as any).__mainTest.speculationManager
-}));
 const proxyMock: any = jest.requireMock('lib/miden/back/miden-client-proxy');
 
 // In-memory storage so connectivity-state's mirror (the copy the popup renders, and
@@ -223,7 +212,6 @@ beforeEach(async () => {
   // effect of the code under test — otherwise a test's stated setup can be deleted and
   // it still passes on state leaked from the previous one.
   connectivityMock.resetConnectivityState();
-  _g.__mainTest.speculationManager = null;
   Actions.isDAppEnabled.mockResolvedValue(true);
   Actions.getFrontState.mockResolvedValue({ status: 'Ready', accounts: [] });
   Actions.revealMnemonic.mockResolvedValue('the mnemonic');
@@ -1051,65 +1039,5 @@ describe('registerOffscreenSignHandler (reverse-IPC sign channel, issue #260 sli
     const resp = sendResponse.mock.calls[0][0];
     expect(resp.ok).toBe(false);
     expect(resp.sign_id).toBe('sign-y');
-  });
-});
-
-/**
- * The two SPECULATE handlers, in the configuration the realm gate created (issue
- * #260): flag-on Chrome, `getSpeculationManager()` is null and both handlers must be
- * inert but still ANSWER — the popup's `requestSpeculateSend` /
- * `requestSpeculateInvalidate` are intercom requests, so a throw or a missing
- * response surfaces as a rejected request on the review screen rather than as the
- * silent no-op it is meant to be.
- */
-describe('SPECULATE handlers (issue #260 realm gate)', () => {
-  const params = {
-    accountId: 'mtst1acct',
-    recipientAccountId: 'mtst1recip',
-    faucetId: 'mtst1faucet',
-    noteType: 'private' as const,
-    amount: '1234'
-  };
-
-  it('answers SpeculateSendRequest without throwing when there is no manager', async () => {
-    expect(_g.__mainTest.speculationManager).toBeNull();
-    await expect(dispatch({ type: WalletMessageType.SpeculateSendRequest, ...params })).resolves.toEqual({
-      type: WalletMessageType.SpeculateSendResponse
-    });
-  });
-
-  it('answers SpeculateInvalidate without throwing when there is no manager', async () => {
-    expect(_g.__mainTest.speculationManager).toBeNull();
-    await expect(dispatch({ type: WalletMessageType.SpeculateInvalidate })).resolves.toEqual({
-      type: WalletMessageType.SpeculateInvalidateResponse
-    });
-  });
-
-  // The other half: where a manager IS wired (flag-off, or a browser with no
-  // chrome.offscreen) the request still has to reach it, with `amount` decoded back
-  // from the string the intercom message carries into the bigint SpeculationParams
-  // hashes on — a mismatch there is a guaranteed cache miss.
-  it('forwards the decoded params to a wired manager, amount as a BigInt', async () => {
-    const speculate = jest.fn();
-    _g.__mainTest.speculationManager = { speculate, invalidate: jest.fn() };
-
-    await dispatch({ type: WalletMessageType.SpeculateSendRequest, ...params });
-
-    expect(speculate).toHaveBeenCalledWith({
-      accountId: 'mtst1acct',
-      recipientAccountId: 'mtst1recip',
-      faucetId: 'mtst1faucet',
-      noteType: 'private',
-      amount: 1234n
-    });
-  });
-
-  it('forwards SpeculateInvalidate to a wired manager', async () => {
-    const invalidate = jest.fn();
-    _g.__mainTest.speculationManager = { speculate: jest.fn(), invalidate };
-
-    await dispatch({ type: WalletMessageType.SpeculateInvalidate });
-
-    expect(invalidate).toHaveBeenCalledTimes(1);
   });
 });

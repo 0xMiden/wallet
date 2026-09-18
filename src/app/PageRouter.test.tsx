@@ -89,6 +89,7 @@ jest.mock('app/a11y/RootSuspenseFallback', () => ({
 // Layouts render their children so the wrapped page stays assertable.
 jest.mock('app/layouts/FullScreenPage', () => ({
   __esModule: true,
+  defaultPageEntrance: () => 'fade',
   default: ({ children, entrance }: { children?: React.ReactNode; entrance?: string }) => (
     <div data-testid="full-screen-page" data-entrance={entrance}>
       {children}

@@ -80,6 +80,9 @@
 # App plugin
 -keep class com.capacitorjs.plugins.app.** { *; }
 
+# Clipboard plugin
+-keep class com.capacitorjs.plugins.clipboard.** { *; }
+
 # Barcode scanning plugin
 -keep class com.niceforyou.barcodescanner.** { *; }
 -keep class com.niceforyou.capacitor.barcodescanner.** { *; }

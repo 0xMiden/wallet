@@ -4,6 +4,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 import { getCurrentLocale } from 'lib/i18n/core';
 import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
+import { SeedPhraseStatus } from 'lib/shared/types';
 import { goBack, navigate } from 'lib/woozie';
 
 import { PRIVACY_POLICY_URL } from '../constants';
@@ -15,7 +16,10 @@ import Settings from './Settings';
 // `mock`-prefixed so jest allows them inside the (hoisted) mock factories.
 // ---------------------------------------------------------------------------
 type MockAccount = { type?: string; hotPublicKey?: string } | undefined;
-const mockWalletState: { currentAccount: MockAccount } = { currentAccount: { type: 'on-chain' } };
+const mockWalletState: { currentAccount: MockAccount; seedPhraseStatus?: SeedPhraseStatus } = {
+  currentAccount: { type: 'on-chain' },
+  seedPhraseStatus: 'stored'
+};
 let mockIsMobile = false;
 let mockHistoryPosition = 1;
 let mockReduceMotion: boolean | null = false;
@@ -254,6 +258,7 @@ beforeEach(() => {
   mockHistoryPosition = 1;
   mockReduceMotion = false;
   mockShowDevEndpoints.value = false;
+  mockWalletState.seedPhraseStatus = 'stored';
   setAccount({ type: 'on-chain' });
   mockGetCurrentLocale.mockReturnValue('en-US');
   document.body.removeAttribute('data-drawer-open');
@@ -266,6 +271,59 @@ afterEach(() => {
 });
 
 describe('Settings page — root menu (non-guardian)', () => {
+  it.each<SeedPhraseStatus | undefined>(['removing', 'removed', 'unavailable', undefined])(
+    'hides recovery phrase settings when seed status is %s',
+    status => {
+      mockWalletState.seedPhraseStatus = status;
+      render(<Settings tabSlug={null} />);
+
+      expect(screen.queryByTestId('menuitem-recoveryPhrase')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('menuitem-removeSeedPhrase')).not.toBeInTheDocument();
+    }
+  );
+
+  // Hiding the ROW is deliberate (above). Hiding the ROUTE is not: `allTabs` is
+  // what resolves a sub-page, and the panel behind this slug is the only place
+  // that reports an interrupted removal. Without it a wallet stuck at 'removing'
+  // is indistinguishable from a finished one while the seed stays unusable.
+  it.each<SeedPhraseStatus>(['removing', 'removed', 'unavailable'])(
+    'still resolves the seed sub-page route when the row is hidden, status %s',
+    status => {
+      mockWalletState.seedPhraseStatus = status;
+      mockNavigate.mockClear();
+
+      render(<Settings tabSlug="remove-seed-phrase" />);
+
+      expect(screen.getByTestId('verify-seed-flow')).toBeInTheDocument();
+      // invalidTab would bounce the user back to the menu instead.
+      expect(mockNavigate).not.toHaveBeenCalledWith('/settings', expect.anything());
+    }
+  );
+
+  // The other side of that rule. RevealSecret returns null once the seed is gone,
+  // so restoring this route would resolve to a header over an empty body. Only a
+  // tab whose panel actually reports the state earns its route back.
+  it('does not restore the route of a seed-gated tab whose panel renders nothing', () => {
+    mockWalletState.seedPhraseStatus = 'removed';
+    mockNavigate.mockClear();
+
+    render(<Settings tabSlug="reveal-private-key" />);
+
+    expect(mockNavigate).toHaveBeenCalledWith('/settings', expect.anything());
+  });
+
+  it('removes the recovery phrase settings when the seed status changes', () => {
+    const view = render(<Settings tabSlug={null} />);
+    expect(screen.getByTestId('menuitem-recoveryPhrase')).toBeInTheDocument();
+    expect(screen.getByTestId('menuitem-removeSeedPhrase')).toBeInTheDocument();
+
+    mockWalletState.seedPhraseStatus = 'removed';
+    view.rerender(<Settings tabSlug={null} />);
+
+    expect(screen.queryByTestId('menuitem-recoveryPhrase')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('menuitem-removeSeedPhrase')).not.toBeInTheDocument();
+  });
+
   it('renders the settings header and version footer', () => {
     render(<Settings tabSlug={null} />);
 

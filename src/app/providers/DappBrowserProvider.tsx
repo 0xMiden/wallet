@@ -219,6 +219,17 @@ export function useHideForegroundDappWhileOpen(open: boolean): void {
 }
 
 /**
+ * True while a dApp session owns the screen. A persistent notice reads this and
+ * waits rather than taking a host-overlay hold: a hold hides the dApp window for
+ * as long as it is held, which is right for a sheet the user opened and wrong
+ * for a card that stays until it is dismissed. False outside the provider:
+ * extension, desktop, confirm window.
+ */
+export function useForegroundDappActive(): boolean {
+  return useContext(DappBrowserContext)?.mode === 'active';
+}
+
+/**
  * Send a JSON response back to the injected bridge in a specific instance.
  * Mirrors the PR-3 helper in `useDappBrowserWebView`; the retry loop protects
  * against the rare case where executeScript races the injection of

@@ -17,6 +17,7 @@ const MIDEN_ADDRESS = 'mtst1recipient';
 
 jest.mock('./bridge-networks', () => ({
   BRIDGE_OUTPUT_TOKEN_SYMBOL: 'USDC',
+  BRIDGE_NETWORKS: [{ id: 'sepolia', name: 'Sepolia', chainId: 11155111 }],
   getBridgeNetwork: (id: string | undefined) =>
     id === 'sepolia' ? { id: 'sepolia', name: 'Sepolia', chainId: 11155111 } : undefined
 }));
@@ -36,8 +37,8 @@ jest.mock('components/Button', () => {
   };
 });
 
-function renderRecipient(overrides: Partial<SelectRecipientProps> = {}) {
-  const props: SelectRecipientProps = {
+function baseRecipientProps(overrides: Partial<SelectRecipientProps> = {}): SelectRecipientProps {
+  return {
     address: '',
     isValidAddress: false,
     chain: 'miden',
@@ -47,6 +48,10 @@ function renderRecipient(overrides: Partial<SelectRecipientProps> = {}) {
     onConfirm: jest.fn(),
     ...overrides
   };
+}
+
+function renderRecipient(overrides: Partial<SelectRecipientProps> = {}) {
+  const props = baseRecipientProps(overrides);
 
   render(<SelectRecipient {...props} />);
   return props;
@@ -56,7 +61,7 @@ describe('SelectRecipient', () => {
   it('hides the network selector before an address is entered', () => {
     renderRecipient();
 
-    expect(screen.queryByTestId('send-network-selector')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('send-network-options')).not.toBeInTheDocument();
   });
 
   it('uses the chain-aware address placeholder and leaves unknown recipients plain', () => {
@@ -102,31 +107,33 @@ describe('SelectRecipient', () => {
     expect(screen.getByTestId('send-recipient-avatar')).toBeInTheDocument();
   });
 
-  it('requires an EVM network and opens the network picker', () => {
+  it('requires an EVM network and offers each bridge network as a chip', () => {
     const props = renderRecipient({ address: ETH_ADDRESS, isValidAddress: true, chain: 'ethereum' });
 
     expect(screen.getByTestId('send-recipient-confirm')).toBeDisabled();
-    fireEvent.click(screen.getByTestId('send-network-selector'));
-    expect(props.onSelectNetwork).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('send-network-sepolia')).toHaveAttribute('aria-pressed', 'false');
+    fireEvent.click(screen.getByTestId('send-network-sepolia'));
+    expect(props.onSelectNetwork).toHaveBeenCalledWith('sepolia');
   });
 
   it('hides the network selector for an incomplete EVM address', () => {
     renderRecipient({ address: '0x1234', isValidAddress: false, chain: 'ethereum' });
 
-    expect(screen.queryByTestId('send-network-selector')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('send-network-options')).not.toBeInTheDocument();
   });
 
   it('enables EVM confirmation after Sepolia is selected', () => {
     renderRecipient({ address: ETH_ADDRESS, isValidAddress: true, chain: 'ethereum', network: 'sepolia' });
 
-    expect(screen.getByText('Sepolia')).toBeInTheDocument();
+    expect(screen.getByTestId('send-network-sepolia')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByTestId('send-recipient-network')).toHaveTextContent('Sepolia');
     expect(screen.getByTestId('send-recipient-confirm')).toBeEnabled();
   });
 
   it('hides the network block and allows a valid Miden recipient', () => {
     renderRecipient({ address: MIDEN_ADDRESS, isValidAddress: true, chain: 'miden' });
 
-    expect(screen.queryByTestId('send-network-selector')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('send-network-options')).not.toBeInTheDocument();
     expect(screen.getByTestId('send-recipient-confirm')).toBeEnabled();
   });
 });
@@ -228,9 +235,60 @@ describe('SelectRecipient — mobile keyboard (regression)', () => {
     expect(document.activeElement).not.toBe(textarea);
   });
 
-  it('has a navbar cushion on the confirm footer so it snugs up when the navbar hides', () => {
+  it('keeps the confirm footer at a fixed height that only the keyboard shrinks', () => {
     renderRecipient();
     const footer = screen.getByTestId('send-recipient-confirm').parentElement;
-    expect(footer?.getAttribute('data-navbar-cushion')).toBe('true');
+    // No data-navbar-cushion: that CSS collapses the cushion whenever the tab bar
+    // hides, which would move the CTA between steps.
+    expect(footer?.hasAttribute('data-navbar-cushion')).toBe(false);
+    expect(footer?.className).toContain('var(--keyboard-height,0px)');
+  });
+});
+
+describe('SelectRecipient — paste', () => {
+  it('shows Paste while the address field is empty and calls onPaste', () => {
+    const props = renderRecipient({ onPaste: jest.fn() });
+
+    fireEvent.click(screen.getByTestId('send-paste'));
+
+    expect(screen.getByText('paste')).toBeInTheDocument();
+    expect(props.onPaste).toHaveBeenCalledTimes(1);
+  });
+
+  it('hides Paste once an address is entered', () => {
+    renderRecipient({ address: MIDEN_ADDRESS, isValidAddress: true, onPaste: jest.fn() });
+
+    expect(screen.queryByTestId('send-paste')).not.toBeInTheDocument();
+  });
+
+  it('hides Paste when no paste handler is provided', () => {
+    renderRecipient();
+
+    expect(screen.queryByTestId('send-paste')).not.toBeInTheDocument();
+  });
+});
+
+describe('SelectRecipient — address field growth', () => {
+  // The field measures with height:auto, which cannot be interpolated, so the height it is drawn
+  // at has to go back before the new one or the CSS transition is cancelled. Restoring the last
+  // inline target instead snapped the field for a keystroke that landed mid-grow.
+  it('writes back the height it is drawn at before the new height', () => {
+    const { rerender } = render(<SelectRecipient {...baseRecipientProps()} address="mtst1a" />);
+    const field = screen.getByTestId('send-recipient-input') as HTMLTextAreaElement;
+
+    // One wrapped line is already applied, and the field is mid-transition at 90px.
+    field.style.height = '120px';
+    jest.spyOn(window, 'getComputedStyle').mockReturnValue({ height: '90px' } as CSSStyleDeclaration);
+    const writes: string[] = [];
+    Object.defineProperty(field.style, 'height', {
+      configurable: true,
+      get: () => writes[writes.length - 1] ?? '120px',
+      set: (value: string) => writes.push(value)
+    });
+    Object.defineProperty(field, 'scrollHeight', { value: 150, configurable: true });
+
+    rerender(<SelectRecipient {...baseRecipientProps()} address="mtst1abcdefghijklmnop" />);
+
+    expect(writes).toEqual(['auto', '90px', '150px']);
   });
 });

@@ -1,4 +1,7 @@
 import { expect, type Page } from '@playwright/test';
+import { IS_LOCALNET } from '../config/environments';
+
+import { encodePrivateKeyPair, parsePrivateKeyPair } from '../../../src/lib/miden/guardian/private-key-pair';
 
 import { readTransactionRows } from './history';
 import type { IdbDumpSource } from './idb-dump';
@@ -36,7 +39,7 @@ const SYNC_WAIT_MS = 3_500;
  * runs — at 420s the local suite stopped finishing inside its 75-minute cap, which
  * cost the very diagnostics a failing run exists to produce.
  */
-const LOCAL_STACK_CLAIM_FLOOR_MS = process.env.E2E_NETWORK === 'localhost' ? 240_000 : 0;
+const LOCAL_STACK_CLAIM_FLOOR_MS = IS_LOCALNET ? 240_000 : 0;
 
 /** The budget a claim drain should actually use — see {@link LOCAL_STACK_CLAIM_FLOOR_MS}. */
 const effectiveClaimBudgetMs = (requested: number): number => Math.max(requested, LOCAL_STACK_CLAIM_FLOOR_MS);
@@ -258,6 +261,23 @@ export interface ChromeWalletPageApi extends WalletPage, IdbDumpSource {
    * → Continue → Confirmation → submit → `completeHotKeyRotation()`.
    */
   recoverGuardianFromSeed(seed: string, opts: { viaUI: boolean; guardianUrl?: string }): Promise<void>;
+  /**
+   * Import a Guardian account with its hot and EVM private key pair — the
+   * seed-less import path. Drives the real screens: Welcome → "Recover your
+   * account" → seed grid → "Import with key instead" link → key paste →
+   * submit → full password step → ImportRecoveryMethod (probe by hot-key
+   * commitment, Guardian pinned) → Continue → Confirmation → submit → home.
+   * Unlike `recoverGuardianFromSeed` this ends WITHOUT a hot-key rotation:
+   * the pasted key IS the working device key, so the gate must never appear.
+   */
+  recoverGuardianFromHotKey(keyPairPayload: string): Promise<void>;
+  /**
+   * Reveal the current Guardian account's hot and EVM private keys through
+   * Settings → Keys → Reveal private key, returning the hot:evm payload.
+   * Extension builds authenticate with the
+   * onboarding password.
+   */
+  revealHotKey(password?: string): Promise<string>;
   /**
    * Drive a fresh, not-yet-onboarded wallet from the Welcome screen to the
    * ImportSeedPhrase 12-word grid (Welcome → "Recover your account"),
@@ -1027,6 +1047,86 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     // recovered account always carries requiresHotKeyRotation — see
     // HotKeyRotationGate.tsx.
     await this.completeHotKeyRotation();
+  }
+
+  /**
+   * See the interface doc comment (ChromeWalletPageApi).
+   */
+  async recoverGuardianFromHotKey(keyPairPayload: string): Promise<void> {
+    const pair = parsePrivateKeyPair(keyPairPayload);
+    if (!pair) throw new Error('Invalid private key pair');
+    // Welcome → "Recover your account" → seed grid → the seed-less fork.
+    await this.openImportSeedPhraseScreen();
+    await this.page.getByTestId('import-with-key-link').click();
+
+    await this.page.getByTestId('import-hot-key').waitFor({ timeout: 15_000 });
+    await this.page.getByRole('button', { name: 'Enter keys manually' }).click();
+    await this.page.locator('#hot-key-input').fill(pair.hotPrivateKey);
+    await this.page.locator('#evm-key-input').fill(pair.evmPrivateKey);
+    await this.page.getByTestId('import-hot-key-submit').click();
+
+    // Extension builds always route through the full password step (no
+    // hardware security off mobile/desktop) — same as the seed path.
+    await this.page.getByTestId('create-password-input').waitFor({ timeout: 15_000 });
+    await this.page.getByTestId('create-password-input').fill(PASSWORD);
+    await this.page.getByTestId('create-password-verify-input').fill(PASSWORD);
+    await this.page.getByTestId('create-password-submit').click();
+
+    // ImportRecoveryMethod, Guardian pinned: wait for the hot-key-commitment
+    // probe to reach a terminal state, then accept the detected/default
+    // endpoint as-is.
+    await this.page
+      .getByTestId('guardian-detected')
+      .or(this.page.getByTestId('guardian-not-detected'))
+      .first()
+      .waitFor({ timeout: 30_000 });
+    await this.page.getByTestId('recovery-method-continue').click();
+
+    await this.page.getByTestId('onboarding-confirmation').waitFor({ timeout: 30_000 });
+    await this.page.getByTestId('onboarding-confirmation-submit').click();
+
+    // The pasted key IS the working hot key: the account must come up ready,
+    // with no rotation gate in the way. Wait for the home surface the same way
+    // createWalletViaBypass does, then assert the gate never mounted.
+    await this.page.waitForFunction(
+      () => {
+        const store = (
+          window as unknown as { __TEST_STORE__?: { getState(): { currentAccount?: { publicKey?: string } } } }
+        ).__TEST_STORE__;
+        const pk = store?.getState?.().currentAccount?.publicKey ?? '';
+        if (/^m[a-z]{1,4}1[a-z0-9]+/i.test(pk)) return true;
+        return !!document.querySelector('[data-testid="explore-page"]');
+      },
+      undefined,
+      { timeout: 120_000 }
+    );
+    await expect(
+      this.page.getByTestId('hot-key-rotation-gate'),
+      'a hot-key import must not trigger the rotation gate — the pasted key is the working device key'
+    ).toHaveCount(0);
+  }
+
+  /**
+   * See the interface doc comment (ChromeWalletPageApi).
+   */
+  async revealHotKey(password: string = PASSWORD): Promise<string> {
+    await this.navigateTo('/settings/reveal-hot-key');
+
+    // Extension vaults are password-protected: RevealSecret renders the
+    // password form (`#reveal-secret-password`) and a single Continue button.
+    const passwordField = this.page.locator('#reveal-secret-password');
+    await passwordField.waitFor({ timeout: 20_000 });
+    await passwordField.fill(password);
+    await this.page.getByRole('button', { name: /continue/i }).click();
+
+    await this.page.getByRole('img', { name: 'Private keys QR code' }).waitFor({ timeout: 30_000 });
+    await this.page.getByRole('button', { name: 'Show keys as text' }).click();
+    const hot = await this.page.getByLabel('Miden hot private key').inputValue();
+    const evm = await this.page.getByLabel('EVM private key').inputValue();
+    const pair = parsePrivateKeyPair(`${hot}:${evm}`);
+    if (!pair) throw new Error('Reveal did not return a valid private key pair');
+    await this.navigateHome();
+    return encodePrivateKeyPair(pair);
   }
 
   /**
@@ -2627,7 +2727,6 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     // 2. SelectRecipient: fill the recipient address and confirm.
     await sendFlow.getByTestId('send-recipient-input').fill(params.recipientAddress);
     if (params.recipientAddress.trim().startsWith('0x')) {
-      await sendFlow.getByTestId('send-network-selector').click({ timeout: STEP_TIMEOUT_MS });
       await this.page.getByTestId('send-network-sepolia').click({ timeout: STEP_TIMEOUT_MS });
     }
     await sendFlow.getByTestId('send-recipient-confirm').click({ timeout: STEP_TIMEOUT_MS });

@@ -199,7 +199,12 @@ describe('zustandProvider', () => {
 
   it('signWord delegates to the store', async () => {
     await zustandProvider.signWord('pub', '0xhex');
-    expect(storeState.signWord).toHaveBeenCalledWith('pub', '0xhex');
+    expect(storeState.signWord).toHaveBeenCalledWith('pub', '0xhex', undefined);
+  });
+
+  it('passes the recovery transaction ID to the signing store', async () => {
+    await zustandProvider.signWord('pub', '0xhex', 'recovery-tx');
+    expect(storeState.signWord).toHaveBeenCalledWith('pub', '0xhex', 'recovery-tx');
   });
 
   it('persistNewHotKey delegates to the store', async () => {

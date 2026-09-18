@@ -2,7 +2,7 @@ import React, { FC, useLayoutEffect, useMemo, useRef } from 'react';
 
 import RootSuspenseFallback from 'app/a11y/RootSuspenseFallback';
 import { OpenInFullPage, useAppEnv } from 'app/env';
-import FullScreenPage, { FullScreenPageProps } from 'app/layouts/FullScreenPage';
+import FullScreenPage, { defaultPageEntrance, FullScreenPageProps } from 'app/layouts/FullScreenPage';
 import MobilePageLayers from 'app/layouts/MobilePageLayers';
 import TabLayout from 'app/layouts/TabLayout';
 import Explore from 'app/pages/Explore';
@@ -370,7 +370,7 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
   [
     '/generating-transaction/:txId',
     onlyReady(({ txId }) => (
-      <FullScreenPage>
+      <FullScreenPage entrance="fade">
         <GeneratingTransactionPage txId={txId!} />
       </FullScreenPage>
     ))
@@ -378,7 +378,7 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
   [
     '/generating-transaction-full/:txId',
     onlyReady(({ txId }) => (
-      <FullScreenPage>
+      <FullScreenPage entrance="fade">
         <GeneratingTransactionPage txId={txId!} keepOpen={true} />
       </FullScreenPage>
     ))
@@ -423,7 +423,9 @@ const PageRouter: FC = () => {
   // the layer stack is skipped until the wallet is ready, unlocked and hydrated.
   const tabPage = React.isValidElement(page) && page.type === TabLayout;
   const slide =
-    React.isValidElement<FullScreenPageProps>(page) && page.type === FullScreenPage && page.props.entrance === 'slide';
+    React.isValidElement<FullScreenPageProps>(page) &&
+    page.type === FullScreenPage &&
+    (page.props.entrance ?? defaultPageEntrance()) === 'slide';
   const layered =
     !ctx.ready || ctx.locked || !ctx.hydrated ? (
       page

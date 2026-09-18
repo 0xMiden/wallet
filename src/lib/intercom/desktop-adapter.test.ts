@@ -467,7 +467,7 @@ describe('DesktopIntercomAdapter', () => {
           accountPublicKey: 'acc',
           password: 'pw'
         } as any)
-      ).toEqual({ type: WalletMessageType.RevealHotKeyResponse, hotPrivateKey: 'hot-private-key' });
+      ).toEqual({ type: WalletMessageType.RevealHotKeyResponse, keyPairPayload: 'hot-private-key' });
 
       expect(
         await adapter.request({

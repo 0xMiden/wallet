@@ -109,6 +109,7 @@ export const useWalletStore = create<WalletStore>()(
         networks: state.networks,
         settings: state.settings,
         ownMnemonic: state.ownMnemonic,
+        seedPhraseStatus: state.seedPhraseStatus,
         isInitialized: true,
         lastSyncedAt: Date.now()
       });
@@ -149,6 +150,17 @@ export const useWalletStore = create<WalletStore>()(
         guardianEndpoint
       });
       assertResponse(res.type === WalletMessageType.NewWalletResponse);
+      // State will be synced via StateUpdated notification
+    },
+
+    registerWalletFromHotKey: async (password, keyPairPayload, guardianEndpoint) => {
+      const res = await request({
+        type: WalletMessageType.NewWalletFromHotKeyRequest,
+        password,
+        keyPairPayload,
+        guardianEndpoint
+      });
+      assertResponse(res.type === WalletMessageType.NewWalletFromHotKeyResponse);
       // State will be synced via StateUpdated notification
     },
 
@@ -239,6 +251,31 @@ export const useWalletStore = create<WalletStore>()(
       }
     },
 
+    removeSeedPhrase: async password => {
+      const res = await request({ type: WalletMessageType.RemoveSeedPhraseRequest, password });
+      assertResponse(res.type === WalletMessageType.RemoveSeedPhraseResponse);
+      const state = await request({ type: WalletMessageType.GetStateRequest });
+      assertResponse(state.type === WalletMessageType.GetStateResponse);
+      get().syncFromBackend(state.state);
+    },
+    provideRecoverySeed: async (transactionId, mnemonic, action) => {
+      const res = await request({
+        type: WalletMessageType.ProvideRecoverySeedRequest,
+        transactionId,
+        mnemonic,
+        action
+      });
+      assertResponse(res.type === WalletMessageType.ProvideRecoverySeedResponse);
+    },
+    prepareRecoveryTransaction: async transactionId => {
+      const res = await request({ type: WalletMessageType.PrepareRecoveryRequest, transactionId });
+      assertResponse(res.type === WalletMessageType.PrepareRecoveryResponse);
+      return { ready: res.ready, coldPublicKey: res.coldPublicKey };
+    },
+    releaseRecoveryAuthorization: async transactionId => {
+      const res = await request({ type: WalletMessageType.ReleaseRecoveryRequest, transactionId });
+      assertResponse(res.type === WalletMessageType.ReleaseRecoveryResponse);
+    },
     revealMnemonic: async password => {
       const res = await request({
         type: WalletMessageType.RevealMnemonicRequest,
@@ -274,7 +311,7 @@ export const useWalletStore = create<WalletStore>()(
         password
       });
       assertResponse(res.type === WalletMessageType.RevealHotKeyResponse);
-      return res.hotPrivateKey;
+      return res.keyPairPayload;
     },
 
     revealGuardianKeys: async (accountPublicKey, password) => {
@@ -346,9 +383,10 @@ export const useWalletStore = create<WalletStore>()(
       return new Uint8Array(Buffer.from(signatureAsHex, 'hex'));
     },
 
-    signWord: async (publicKey, wordHex) => {
+    signWord: async (publicKey, wordHex, transactionId) => {
       const res = await request({
         type: WalletMessageType.SignWordRequest,
+        transactionId,
         publicKey,
         wordHex
       });

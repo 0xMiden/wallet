@@ -42,6 +42,7 @@ export enum OnboardingStep {
   BackupSeedPhrase = 'backup-seed-phrase',
   VerifySeedPhrase = 'verify-seed-phrase',
   ImportFromSeed = 'import-from-seed',
+  ImportFromKey = 'import-from-key',
   CreatePassword = 'create-password',
   BiometricSetup = 'biometric-setup',
   SelectImportType = 'select-import-type',
@@ -99,6 +100,17 @@ export type ImportFromSeedAction = {
 
 export type ImportFromFileAction = {
   id: 'import-from-file';
+};
+
+/** Switch the import flow from seed-phrase entry to hot-key paste. */
+export type ImportWithKeyAction = {
+  id: 'import-with-key';
+};
+
+/** Submit the pasted hot key (normalized hex) from the key-paste screen. */
+export type ImportHotKeySubmitAction = {
+  id: 'import-hot-key-submit';
+  payload: string;
 };
 
 export type ImportWalletFileSubmitAction = {
@@ -197,6 +209,8 @@ export type OnboardingAction =
   | ImportFromSeedAction
   | ImportFromFileAction
   | ImportWalletFileSubmitAction
+  | ImportWithKeyAction
+  | ImportHotKeySubmitAction
   | RetryGuardianProbeAction
   | SwitchToPasswordAction;
 

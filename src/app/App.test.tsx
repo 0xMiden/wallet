@@ -91,6 +91,13 @@ jest.mock('app/a11y/BootAnimation', () => ({
 jest.mock('app/providers/DappBrowserProvider', () => ({
   DappBrowserProvider: ({ children }: { children?: React.ReactNode }) => (
     <div data-testid="dapp-browser-provider">{children}</div>
+  ),
+  useHideForegroundDappWhileOpen: jest.fn()
+}));
+
+jest.mock('app/providers/UpdateNotificationProvider', () => ({
+  UpdateNotificationProvider: ({ children }: { children?: React.ReactNode }) => (
+    <div data-testid="update-notification-provider">{children}</div>
   )
 }));
 
@@ -193,6 +200,7 @@ describe('app/App', () => {
 
       // Main content -> PageRouter (the default branch).
       expect(getByTestId('page-router')).toBeInTheDocument();
+      expect(getByTestId('update-notification-provider')).toContainElement(getByTestId('page-router'));
       // Extension-only prompt is mounted.
       expect(getByTestId('pin-extension-prompt')).toBeInTheDocument();
 
@@ -222,6 +230,7 @@ describe('app/App', () => {
       expect(dappHost).toBeInTheDocument();
       // PageRouter lives INSIDE the dApp browser host on mobile.
       expect(dappHost).toContainElement(getByTestId('page-router'));
+      expect(dappHost).toContainElement(getByTestId('update-notification-provider'));
 
       // Mobile back bridge is mounted; extension prompt is not.
       expect(getByTestId('mobile-back-bridge')).toBeInTheDocument();
@@ -242,6 +251,7 @@ describe('app/App', () => {
 
       expect(getByTestId('confirm-page')).toBeInTheDocument();
       expect(queryByTestId('page-router')).not.toBeInTheDocument();
+      expect(queryByTestId('update-notification-provider')).not.toBeInTheDocument();
       expect(queryByTestId('dapp-browser-provider')).not.toBeInTheDocument();
     });
 
@@ -256,6 +266,7 @@ describe('app/App', () => {
       expect(getByTestId('confirm-page')).toBeInTheDocument();
       expect(queryByTestId('dapp-browser-provider')).not.toBeInTheDocument();
       expect(queryByTestId('page-router')).not.toBeInTheDocument();
+      expect(queryByTestId('update-notification-provider')).not.toBeInTheDocument();
     });
   });
 
@@ -275,6 +286,7 @@ describe('app/App', () => {
       expect(await findByTestId('desktop-confirm-modal')).toBeInTheDocument();
 
       await waitFor(() => expect(getByTestId('page-router')).toBeInTheDocument());
+      expect(getByTestId('update-notification-provider')).toContainElement(getByTestId('page-router'));
 
       // Desktop is neither mobile nor extension in this configuration.
       expect(queryByTestId('mobile-back-bridge')).not.toBeInTheDocument();

@@ -6,6 +6,7 @@ import { start } from 'lib/miden/back/main';
 import { doSync, setupSyncManager } from 'lib/miden/back/sync-manager';
 import { setupTransactionProcessor } from 'lib/miden/back/transaction-processor';
 import { failInterruptedTransactions } from 'lib/miden/transaction';
+import { registerChromeUpdateListener } from 'lib/update/chrome';
 
 // NOTE: onInstalled and other synchronous MV3 listeners are registered in
 // background-entry.ts (the actual SW entry point) before this module loads.
@@ -24,12 +25,8 @@ if (process.env.TARGET_BROWSER === 'chrome') {
       });
     }
   });
+  registerChromeUpdateListener();
 }
-
-runtime.onUpdateAvailable.addListener(() => {
-  // Swaps in the new version immediately
-  runtime.reload();
-});
 
 // A real browser/profile cold-start (NOT an SW idle-wake) means any transaction
 // still in `GeneratingTransaction` was orphaned when the browser closed — the

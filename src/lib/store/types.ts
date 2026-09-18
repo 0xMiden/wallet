@@ -9,8 +9,11 @@ import {
   ApplyUserEndpointOutcome,
   GuardianSyncStatus,
   ImportedAccountBackup,
+  GuardianRecoveryAction,
+  RecoveryPreparation,
   SerializedConsumableNote,
   SignEvmOperation,
+  SeedPhraseStatus,
   WalletAccount,
   WalletBackupMaterial,
   WalletSettings,
@@ -22,6 +25,7 @@ import { WalletType } from 'screens/onboarding/types';
  * Core wallet state (synced from backend)
  */
 export interface WalletSlice {
+  seedPhraseStatus?: SeedPhraseStatus;
   status: WalletStatus;
   accounts: WalletAccount[];
   currentAccount: WalletAccount | null;
@@ -134,6 +138,11 @@ export interface WalletActions {
     ownMnemonic: boolean,
     guardianEndpoint?: string
   ) => Promise<void>;
+  registerWalletFromHotKey: (
+    password: string | undefined,
+    keyPairPayload: string,
+    guardianEndpoint?: string
+  ) => Promise<void>;
   importWalletFromClient: (
     password: string | undefined,
     mnemonic: string,
@@ -147,6 +156,10 @@ export interface WalletActions {
   createAccount: (walletType: WalletType, name?: string) => Promise<void>;
   updateCurrentAccount: (accountPublicKey: string) => Promise<void>;
   editAccountName: (accountPublicKey: string, name: string) => Promise<void>;
+  removeSeedPhrase: (password?: string) => Promise<void>;
+  provideRecoverySeed: (transactionId: string, mnemonic: string, action: GuardianRecoveryAction) => Promise<void>;
+  prepareRecoveryTransaction: (transactionId: string) => Promise<RecoveryPreparation>;
+  releaseRecoveryAuthorization: (transactionId: string) => Promise<void>;
   revealMnemonic: (password?: string) => Promise<string>;
   exportWalletBackupMaterial: (password?: string) => Promise<WalletBackupMaterial>;
   revealPrivateKey: (accountPublicKey: string, password?: string) => Promise<string>;
@@ -163,7 +176,7 @@ export interface WalletActions {
   // Signing actions
   signData: (publicKey: string, signingInputs: string) => Promise<string>;
   signTransaction: (publicKey: string, signingInputs: string) => Promise<Uint8Array>;
-  signWord: (publicKey: string, wordHex: string) => Promise<string>;
+  signWord: (publicKey: string, wordHex: string, transactionId?: string) => Promise<string>;
   signEvm: (accountPublicKey: string, operation: SignEvmOperation) => Promise<`0x${string}`>;
   persistNewHotKey: (newHotPubKey: string, newHotCiphertext: string) => Promise<void>;
   swapHotKey: (accountPublicKey: string, newHotPubKey: string) => Promise<void>;

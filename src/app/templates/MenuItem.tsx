@@ -30,7 +30,7 @@ const ClickableContent: FC<Partial<MenuItemProps>> = ({ titleI18nKey, rightText 
           icons pulled adjacent rows 8px closer together at the same time. */}
       <div className="flex items-center justify-between py-2.5">
         <div className="flex items-center gap-2">
-          <div className="font-heading text-base font-semibold text-heading-gray">{t(titleI18nKey || '')}</div>
+          <div className="font-heading text-base font-bold text-heading-gray">{t(titleI18nKey || '')}</div>
         </div>
         <div className="flex items-center gap-3 shrink-0 ml-2">
           {/* Not `text-text-muted`: that token is #ababab in light mode, which is

@@ -185,6 +185,7 @@ export default defineConfig({
   define: {
     'process.env.VERSION': JSON.stringify(pkg.version),
     'process.env.MIDEN_PLATFORM': JSON.stringify('mobile'),
+    'process.env.MIDEN_UPDATE_NOTIFICATIONS': JSON.stringify(process.env.MIDEN_UPDATE_NOTIFICATIONS ?? 'true'),
     'process.env.MIDEN_USE_MOCK_CLIENT': JSON.stringify(process.env.MIDEN_USE_MOCK_CLIENT ?? 'false'),
     // Issue #260: hardcoded OFF on mobile — Capacitor / WKWebView / Android
     // WebView have no chrome.offscreen document to rehost the client into.
@@ -227,11 +228,6 @@ export default defineConfig({
     // (isOffscreenAvailable) also catches it, but pinning the build-time
     // constant lets dead-code elimination drop the offscreen import entirely.
     'process.env.MIDEN_USE_OFFSCREEN_PROVING': JSON.stringify('false'),
-    // Speculative pre-prove also pinned false on mobile: speculation
-    // dispatches the prove to a chrome.offscreen document, which doesn't
-    // exist in WKWebView/Capacitor. Without offscreen, there's nothing
-    // to speculate against.
-    'process.env.MIDEN_USE_SPECULATIVE_PROVING': JSON.stringify('false'),
     'process.browser': 'true',
     global: 'globalThis'
   }
