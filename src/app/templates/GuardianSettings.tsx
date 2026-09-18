@@ -11,6 +11,7 @@ import {
 import { GUARDIAN_LOGOS, guardianLogoColorClass } from 'app/icons/guardian-operator-logs';
 import { ReactComponent as GuardianAvatar } from 'app/icons/onboarding/guardian-avatar.svg';
 import { Button } from 'components/Button';
+import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import {
   getGuardianLastSyncAt,
   isGuardianLastSyncFresh,
@@ -22,17 +23,6 @@ import { hapticLight } from 'lib/mobile/haptics';
 import { useWalletStore } from 'lib/store';
 import { navigate } from 'lib/woozie';
 import { GuardianInfoDrawer } from 'screens/onboarding/common/GuardianInfoDrawer';
-
-const GuardianDetailRow: FC<{ label: string; value: string; isLast?: boolean }> = ({ label, value, isLast }) => (
-  <div
-    className={`flex min-h-12 items-center justify-between gap-4 py-3 text-heading-gray text-sm font-medium ${isLast ? '' : 'border-b border-border-faint'}`}
-  >
-    <span className="shrink-0">{label}</span>
-    <span className="min-w-0 truncate text-right" title={value}>
-      {value}
-    </span>
-  </div>
-);
 
 function formatLastSync(timestamp: number, locale: string): string {
   const elapsedSeconds = Math.max(0, Math.round((Date.now() - timestamp) / 1000));
@@ -308,12 +298,14 @@ const GuardianSettings: FC = () => {
         <h3 className="inline-block rounded-full bg-gray-25 px-3 py-1 text-sm font-semibold text-heading-gray">
           {t('details')}
         </h3>
-        <div className="mt-1">
-          <GuardianDetailRow label={t('guardianProvider')} value={provider} />
-          <GuardianDetailRow label={t('guardianEndpointLabel')} value={endpoint} />
-          <GuardianDetailRow label={t('guardianRegion')} value={region} />
-          <GuardianDetailRow label={t('guardianLastSync')} value={lastSync} isLast />
-        </div>
+        <DetailCard className="mt-2">
+          <DetailRow label={t('guardianProvider')}>{provider}</DetailRow>
+          <DetailRow label={t('guardianEndpointLabel')} stacked>
+            {endpoint}
+          </DetailRow>
+          <DetailRow label={t('guardianRegion')}>{region}</DetailRow>
+          <DetailRow label={t('guardianLastSync')}>{lastSync}</DetailRow>
+        </DetailCard>
       </section>
 
       {/* Always offered: a rotation is cold-signed, and an account with no local

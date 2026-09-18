@@ -19,13 +19,13 @@ export interface ReviewAction {
 }
 
 export interface ReviewLayoutProps {
-  /** Hero block — a ReviewAmount (send) or a composed swap hero. */
+  /** Hero block — a `Hero` amount (bridge deposit) or a composed swap hero. */
   hero: React.ReactNode;
-  /** Orange underline under the hero. Default true (send); pass false for swap (its hero owns its dividers). */
+  /** Orange underline under the hero. Default true (bridge deposit); pass false for swap (its hero owns its dividers). */
   heroDivider?: boolean;
-  /** Divider lines between the detail rows. Default true (send); pass false for swap. */
+  /** Divider lines around the children. Default true; a caller whose rows already live in one `DetailCard` (its own hairlines) passes false. */
   dividers?: boolean;
-  /** The ReviewRow list. */
+  /** The row content — a `DetailCard` of `DetailRow`s. */
   children: React.ReactNode;
   primary: ReviewAction;
   secondary?: ReviewAction;
