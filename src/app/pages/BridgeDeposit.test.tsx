@@ -32,7 +32,7 @@ jest.mock('lib/woozie', () => ({ navigate: jest.fn() }));
 
 jest.mock('lib/mobile/haptics', () => ({ hapticMedium: jest.fn() }));
 
-jest.mock('lib/ui/button', () => ({
+jest.mock('components/ui/Button', () => ({
   Button: ({ children, onClick }: { children: React.ReactNode; onClick?: () => void }) => (
     <button type="button" onClick={onClick}>
       {children}
