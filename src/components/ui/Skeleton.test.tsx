@@ -2,7 +2,7 @@ import React from 'react';
 
 import { fireEvent, render, screen } from '@testing-library/react';
 
-import { Skeleton } from './skeleton';
+import { Skeleton } from './Skeleton';
 
 describe('Skeleton', () => {
   it('renders a div carrying the skeleton data-slot and the base classes', () => {
@@ -13,24 +13,34 @@ describe('Skeleton', () => {
     expect(el.tagName).toBe('DIV');
     expect(el).toBe(container.firstChild);
     expect(el).toHaveAttribute('data-slot', 'skeleton');
-    expect(el).toHaveClass('bg-muted', 'rounded-md', 'animate-pulse');
+    expect(el).toHaveClass('animate-pulse', 'rounded-md', 'motion-reduce:animate-none', 'bg-fill');
+  });
+
+  it('defaults to the `fill` tone', () => {
+    render(<Skeleton data-testid="skeleton" />);
+    expect(screen.getByTestId('skeleton')).toHaveClass('bg-fill');
+  });
+
+  it('renders the `inverse` tone for a skeleton on a colored surface', () => {
+    render(<Skeleton data-testid="skeleton" tone="inverse" />);
+
+    const el = screen.getByTestId('skeleton');
+    expect(el).toHaveClass('bg-white/15');
+    expect(el).not.toHaveClass('bg-fill');
   });
 
   it('merges a caller-supplied className with the base classes', () => {
     render(<Skeleton data-testid="skeleton" className="h-4 w-24" />);
 
     const el = screen.getByTestId('skeleton');
-    // Base classes survive alongside the extras.
-    expect(el).toHaveClass('bg-muted', 'rounded-md', 'animate-pulse', 'h-4', 'w-24');
+    expect(el).toHaveClass('animate-pulse', 'bg-fill', 'h-4', 'w-24');
   });
 
   it('lets a caller-supplied className win a tailwind-merge conflict', () => {
-    // `cn` runs through tailwind-merge, so a conflicting utility from the
-    // caller (rounded-full vs the base rounded-md) should replace the base.
     render(<Skeleton data-testid="skeleton" className="rounded-full" />);
 
     const el = screen.getByTestId('skeleton');
-    expect(el).toHaveClass('rounded-full', 'bg-muted', 'animate-pulse');
+    expect(el).toHaveClass('rounded-full', 'bg-fill', 'animate-pulse');
     expect(el).not.toHaveClass('rounded-md');
   });
 
@@ -55,12 +65,5 @@ describe('Skeleton', () => {
 
     fireEvent.click(screen.getByTestId('skeleton'));
     expect(onClick).toHaveBeenCalledTimes(1);
-  });
-
-  it('renders with only the base classes when no className is provided', () => {
-    render(<Skeleton data-testid="skeleton" />);
-
-    const el = screen.getByTestId('skeleton');
-    expect(el.className).toBe('bg-muted rounded-md animate-pulse');
   });
 });
