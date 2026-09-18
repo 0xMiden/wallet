@@ -3,6 +3,7 @@ import React from 'react';
 import { motion } from 'framer-motion';
 
 import { IconName } from 'app/icons/v2';
+import { usePreset } from 'lib/animation';
 import { hapticLight } from 'lib/mobile/haptics';
 import { cn } from 'lib/ui/util';
 import { IconOrComponent } from 'utils/icon-or-component';
@@ -75,6 +76,7 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(function 
   },
   ref
 ) {
+  const press = usePreset('press');
   const variantProps = propsPerButtonVariant[variant];
   let color = variantProps.color;
   let fontWeight = variantProps.fontWeight;
@@ -132,8 +134,8 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(function 
       )}
       disabled={disabled}
       type="button"
-      whileTap={!disabled && !isLoading ? { scale: 0.95, transition: { duration: 0.03 } } : undefined}
-      transition={{ type: 'spring', stiffness: 800, damping: 35 }}
+      whileTap={!disabled && !isLoading ? press.whileTap : undefined}
+      transition={press.transition}
       {...motionButtonProps}
       onClick={onClick}
     >
