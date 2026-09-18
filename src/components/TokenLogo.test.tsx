@@ -42,11 +42,13 @@ const KNOWN_TOKENS: Array<[string, string]> = [
 ];
 
 // size → [container class, icon class], per SIZE_CLASSES.
-const SIZES: Array<['sm' | 'md' | 'lg' | 'xl', string, string]> = [
+const SIZES: Array<['sm' | 'md' | 'lg' | 'xl' | '2xl', string, string]> = [
   ['sm', 'w-7 h-7', 'w-4 h-4'],
   ['md', 'w-9 h-9', 'w-5 h-5'],
   ['lg', 'w-16 h-16', 'w-10 h-10'],
-  ['xl', 'w-18 h-18', 'w-12 h-12']
+  ['xl', 'w-18 h-18', 'w-12 h-12'],
+  // The design system's 88px hero avatar.
+  ['2xl', 'w-22 h-22', 'w-14 h-14']
 ];
 
 describe('TokenLogo', () => {
