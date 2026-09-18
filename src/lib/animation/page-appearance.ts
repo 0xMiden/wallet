@@ -1,5 +1,7 @@
 import type { Transition } from 'framer-motion';
 
+import { easings } from './easings';
+
 export const pageAppearance: Transition = {
   type: 'tween',
   duration: 0.12,
@@ -13,7 +15,7 @@ export const pageAppearance: Transition = {
 export const pageSlideEntrance: Transition = {
   type: 'tween',
   duration: 0.34,
-  ease: [0.4, 0, 0.2, 1]
+  ease: easings.standard
 };
 
 // Horizontal offset of the page that sits under a slid-in page.

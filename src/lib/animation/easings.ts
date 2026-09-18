@@ -14,7 +14,11 @@ export const easings = {
   /** Symmetrical, balanced */
   easeInOut: [0.65, 0, 0.35, 1] as const,
   /** Slight overshoot — used for the bubble pop-in on park */
-  easeOutBack: [0.34, 1.56, 0.64, 1] as const
+  easeOutBack: [0.34, 1.56, 0.64, 1] as const,
+  /** Material standard curve — the stacked-page slide (`presets.page`) */
+  standard: [0.4, 0, 0.2, 1] as const,
+  /** vaul's drawer curve — for tween or CSS motion that has to match a vaul sheet */
+  sheet: [0.32, 0.72, 0, 1] as const
 };
 
 export type EasingName = keyof typeof easings;
