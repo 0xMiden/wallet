@@ -256,7 +256,7 @@ const TokenInfoCard: FC<{ tokenId: string }> = ({ tokenId }) => {
               {truncateAddress(tokenId)}
               <CopyButton
                 text={tokenId}
-                aria-label={t('copy')}
+                aria-label={copied => (copied ? t('copied') : t('copy'))}
                 className="w-6.5 h-6.5 bg-chip-bg rounded-lg flex items-center justify-center cursor-pointer"
               >
                 {copied => (

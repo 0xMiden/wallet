@@ -35,6 +35,20 @@ it('writes the given text to the clipboard on tap, with the tap haptic', async (
   expect(hapticLight).toHaveBeenCalledTimes(1);
 });
 
+it('uses the accent-tint-ink text token (there is no "accent" color)', () => {
+  render(<CopyButton text="0xabc123" data-testid="copy" />);
+
+  expect(screen.getByTestId('copy')).toHaveClass('text-accent-tint-ink');
+  expect(screen.getByTestId('copy')).not.toHaveClass('text-accent');
+});
+
+it('wraps its label in an aria-live region, so "Copied" is announced', () => {
+  render(<CopyButton text="0xabc123" data-testid="copy" />);
+
+  const live = screen.getByTestId('copy').querySelector('[aria-live="polite"]');
+  expect(live).toHaveTextContent('copy');
+});
+
 it('shows "Copy" by default, then "Copied" for a beat after a successful copy', async () => {
   render(<CopyButton text="0xabc123" />);
 
@@ -106,6 +120,22 @@ it('forwards aria-label and stays disableable', () => {
 
   const button = screen.getByRole('button', { name: 'copy the address' });
   expect(button).toBeDisabled();
+});
+
+it('lets a caller compute aria-label from the copied state (e.g. an icon-only button)', async () => {
+  render(
+    <CopyButton text="0xabc123" aria-label={copied => (copied ? 'copied the address' : 'copy the address')}>
+      <svg data-testid="copy-icon" />
+    </CopyButton>
+  );
+
+  expect(screen.getByRole('button', { name: 'copy the address' })).toBeInTheDocument();
+
+  await act(async () => {
+    fireEvent.click(screen.getByTestId('copy-icon'));
+  });
+
+  expect(screen.getByRole('button', { name: 'copied the address' })).toBeInTheDocument();
 });
 
 it('does not write to the clipboard while disabled', async () => {
