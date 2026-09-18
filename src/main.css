@@ -75,10 +75,15 @@ button:disabled,
  * transition/animation inline, and every call site sets either the
  * TRANSITIONS.DURATION (0.5s) shorthand this rule clamps, or `'none'`
  * (drag-move, unaffected) — there is no other animated property on
- * [data-vaul-drawer] or [data-vaul-overlay] left uncovered. */
+ * [data-vaul-drawer] or [data-vaul-overlay] left uncovered.
+ * On the extension (`shouldScaleBackground`) vaul also scales the app behind
+ * the sheet: useScaleBackground() writes an inline 0.5s transition-duration on
+ * [data-vaul-drawer-wrapper] (App.tsx), so the wrapper is clamped here too and
+ * the scale lands at once under reduced motion. */
 @media (prefers-reduced-motion: reduce) {
   [data-vaul-drawer],
-  [data-vaul-overlay] {
+  [data-vaul-overlay],
+  [data-vaul-drawer-wrapper] {
     transition-duration: 0.01ms !important;
     transition-delay: 0s !important;
     animation-duration: 0.01ms !important;

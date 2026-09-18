@@ -29,6 +29,12 @@ describe('main.css — vaul reduced motion', () => {
     expect(block).toContain('[data-vaul-overlay]');
   });
 
+  it('covers the app wrapper vaul scales behind a sheet on the extension', () => {
+    // useScaleBackground (vaul/dist/index.mjs) writes an inline 0.5s transition-duration on
+    // [data-vaul-drawer-wrapper] (App.tsx) when shouldScaleBackground is on.
+    expect(block).toContain('[data-vaul-drawer-wrapper]');
+  });
+
   it('clamps duration and delay for both transitions and animations, all !important', () => {
     for (const decl of ['transition-duration', 'transition-delay', 'animation-duration', 'animation-delay']) {
       const re = new RegExp(`${decl}:\\s*[^;]*!important`);
