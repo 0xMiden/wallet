@@ -147,6 +147,9 @@ export async function completeSeedImportOnboarding(page: Page, fullpageUrl: stri
   await page.locator('#import-link').click({ timeout: ACTION_TIMEOUT });
   // The network notice (#875) precedes the import flow.
   await page.getByTestId('onboarding-network-notice-acknowledge').click({ timeout: ACTION_TIMEOUT });
+  // Import now asks WHICH credential first; this helper drives the seed-phrase one.
+  await page.getByTestId('import-select-type').waitFor({ timeout: timeoutMs });
+  await page.getByTestId('import-type-seed-phrase').click({ timeout: ACTION_TIMEOUT });
   await page.getByTestId('import-seed-phrase').waitFor({ timeout: timeoutMs });
 
   const words = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about'.split(

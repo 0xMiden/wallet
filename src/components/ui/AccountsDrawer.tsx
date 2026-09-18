@@ -20,7 +20,7 @@ export interface AccountsDrawerProps {
 /**
  * Bottom sheet opened from the BalanceCard settings button. Lists
  * the balance-card color picker and account-level actions: Settings
- * (navigates to /settings) and a disabled "Add Account" placeholder.
+ * (navigates to /settings) and private-key account import.
  */
 export const AccountsDrawer: FC<AccountsDrawerProps> = ({ open, onOpenChange }) => {
   const { t } = useTranslation();
@@ -30,6 +30,12 @@ export const AccountsDrawer: FC<AccountsDrawerProps> = ({ open, onOpenChange }) 
     hapticLight();
     onOpenChange(false);
     navigate('/settings');
+  };
+
+  const handleImportAccount = () => {
+    hapticLight();
+    onOpenChange(false);
+    navigate('/import-account');
   };
 
   const handleCardColorSelect = (color: CardColor) => {
@@ -42,7 +48,7 @@ export const AccountsDrawer: FC<AccountsDrawerProps> = ({ open, onOpenChange }) 
     <Drawer open={open} onOpenChange={onOpenChange}>
       <DrawerContent>
         <DrawerHeader>
-          <DrawerTitle>{t('accounts')}</DrawerTitle>
+          <DrawerTitle className="font-extrabold">{t('accounts')}</DrawerTitle>
         </DrawerHeader>
 
         <div className="flex flex-col gap-4 px-4 pb-6">
@@ -79,7 +85,7 @@ export const AccountsDrawer: FC<AccountsDrawerProps> = ({ open, onOpenChange }) 
             className={classNames(
               'flex w-full items-center justify-center gap-2 rounded-xl px-4 py-4',
               'bg-surface-input',
-              'text-sm font-semibold text-gray-secondary dark:text-pure-white',
+              'font-heading text-base font-bold text-gray-secondary dark:text-pure-white',
               'transition-colors hover:bg-[#ECEAE7] dark:hover:bg-[#3f3f3f] rounded-2xl'
             )}
           >
@@ -89,16 +95,16 @@ export const AccountsDrawer: FC<AccountsDrawerProps> = ({ open, onOpenChange }) 
 
           <button
             type="button"
-            disabled
-            aria-disabled="true"
+            onClick={handleImportAccount}
             className={classNames(
-              'flex w-full items-center justify-center gap-2 rounded-xl px-4 py-4 cursor-default',
-              'border border-dashed border-[#C7C7CC] bg-transparent',
-              'text-sm font-medium text-gray-secondary rounded-2xl'
+              'flex w-full items-center justify-center gap-2 rounded-xl px-4 py-4',
+              'bg-surface-input',
+              'text-sm font-semibold text-gray-secondary dark:text-pure-white',
+              'transition-colors hover:bg-[#ECEAE7] dark:hover:bg-[#3f3f3f] rounded-2xl'
             )}
           >
             <Icon name={IconName.Add} className="w-4 h-4" fill="currentColor" />
-            <span>{t('addAccountComingSoon')}</span>
+            <span>{t('importAccount')}</span>
           </button>
         </div>
       </DrawerContent>

@@ -10,12 +10,19 @@ jest.mock('lib/miden/back/actions', () => ({
   init: jest.fn().mockResolvedValue(undefined),
   getFrontState: jest.fn().mockResolvedValue({ accounts: [], settings: {} }),
   registerNewWallet: jest.fn().mockResolvedValue(undefined),
+  registerWalletFromHotKey: jest.fn().mockResolvedValue(undefined),
   registerImportedWallet: jest.fn().mockResolvedValue(undefined),
   unlock: jest.fn().mockResolvedValue(undefined),
   lock: jest.fn().mockResolvedValue(undefined),
   createHDAccount: jest.fn().mockResolvedValue(undefined),
   updateCurrentAccount: jest.fn().mockResolvedValue(undefined),
   revealMnemonic: jest.fn().mockResolvedValue('test mnemonic'),
+  exportWalletBackupMaterial: jest.fn().mockResolvedValue({
+    seedPhrase: 'seed',
+    accounts: [],
+    midenClientDbContent: 'db',
+    importedAccounts: []
+  }),
   revealPrivateKey: jest.fn().mockResolvedValue('deadbeef'),
   removeAccount: jest.fn().mockResolvedValue(undefined),
   editAccount: jest.fn().mockResolvedValue(undefined),
@@ -115,15 +122,39 @@ describe('MobileIntercomAdapter', () => {
     });
 
     it('handles ImportFromClientRequest', async () => {
+      const importedAccounts = [
+        { accountId: 'account-id', publicKeyCommitment: 'a1b2', authScheme: 'falcon' as const, secretKeyHex: '0102' }
+      ];
       const response = await adapter.request({
         type: WalletMessageType.ImportFromClientRequest,
         password: 'test123',
         mnemonic: 'word1 word2 word3',
-        walletAccounts: []
+        walletAccounts: [],
+        formatVersion: 2,
+        importedAccounts
       });
 
-      expect(Actions.registerImportedWallet).toHaveBeenCalledWith('test123', 'word1 word2 word3', []);
+      expect(Actions.registerImportedWallet).toHaveBeenCalledWith(
+        'test123',
+        'word1 word2 word3',
+        [],
+        2,
+        importedAccounts
+      );
       expect(response).toEqual({ type: WalletMessageType.ImportFromClientResponse });
+    });
+
+    it('handles ExportWalletBackupMaterialRequest', async () => {
+      const response = await adapter.request({
+        type: WalletMessageType.ExportWalletBackupMaterialRequest,
+        password: 'test123'
+      } as any);
+
+      expect(Actions.exportWalletBackupMaterial).toHaveBeenCalledWith('test123');
+      expect(response).toEqual({
+        type: WalletMessageType.ExportWalletBackupMaterialResponse,
+        material: { seedPhrase: 'seed', accounts: [], midenClientDbContent: 'db', importedAccounts: [] }
+      });
     });
 
     it('handles UnlockRequest', async () => {
@@ -275,8 +306,24 @@ describe('MobileIntercomAdapter', () => {
       expect(Actions.revealHotKey).toHaveBeenCalledWith('pub-key-123', 'test123');
       expect(response).toEqual({
         type: WalletMessageType.RevealHotKeyResponse,
-        hotPrivateKey: 'hotkey-hex'
+        keyPairPayload: 'hotkey-hex'
       });
+    });
+
+    it('passes both private keys to the shared backend import handler', async () => {
+      const keyPairPayload = `${'ab'.repeat(32)}:${'cd'.repeat(32)}`;
+      const response = await adapter.request({
+        type: WalletMessageType.NewWalletFromHotKeyRequest,
+        password: 'pw',
+        keyPairPayload,
+        guardianEndpoint: 'https://guardian.example.com'
+      });
+      expect(Actions.registerWalletFromHotKey).toHaveBeenCalledWith(
+        'pw',
+        keyPairPayload,
+        'https://guardian.example.com'
+      );
+      expect(response).toEqual({ type: WalletMessageType.NewWalletFromHotKeyResponse });
     });
 
     it('falls back to an empty hot key when none is returned', async () => {
@@ -290,7 +337,7 @@ describe('MobileIntercomAdapter', () => {
 
       expect(response).toEqual({
         type: WalletMessageType.RevealHotKeyResponse,
-        hotPrivateKey: ''
+        keyPairPayload: ''
       });
     });
 
@@ -334,11 +381,22 @@ describe('MobileIntercomAdapter', () => {
         wordHex: '0xabc'
       } as any);
 
-      expect(Actions.signWord).toHaveBeenCalledWith('pub-key-123', '0xabc');
+      expect(Actions.signWord).toHaveBeenCalledWith('pub-key-123', '0xabc', undefined);
       expect(response).toEqual({
         type: WalletMessageType.SignWordResponse,
         signature: 'word-signature'
       });
+    });
+
+    it('passes the recovery transaction ID from SignWordRequest', async () => {
+      await adapter.request({
+        type: WalletMessageType.SignWordRequest,
+        publicKey: 'pub-key-123',
+        wordHex: '0xabc',
+        transactionId: 'recovery-tx'
+      });
+
+      expect(Actions.signWord).toHaveBeenCalledWith('pub-key-123', '0xabc', 'recovery-tx');
     });
 
     it('handles PersistNewHotKeyRequest', async () => {

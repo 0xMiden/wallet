@@ -13,8 +13,12 @@ export default {
   // fails the gate — drift can no longer hide, and coveragePathIgnorePatterns
   // below is the single, reviewable record of intentional exclusions.
   collectCoverageFrom: [
-    'src/**/*.{ts,tsx}',
+    // `.mjs` is in the list because a module keeps the same gate whatever its
+    // extension: the update-catalog validator ships as ESM so a plain `node` CI
+    // step can share it with the app bundle.
+    'src/**/*.{ts,tsx,mjs}',
     '!src/**/*.d.ts',
+    '!src/**/*.d.mts',
     '!src/**/*.test.{ts,tsx}',
     '!src/**/*.spec.ts',
     '!src/**/__mocks__/**',

@@ -26,6 +26,11 @@ export interface ImportRecoveryMethodScreenProps {
   isError?: boolean;
   /** Guardian auto-detection progress. Omitted => classic manual picker. */
   probe?: GuardianProbeState;
+  /**
+   * Hot-key import: a pasted hot key only ever belongs to a Guardian multisig
+   * account, so the public-account option is hidden and Guardian stays pinned.
+   */
+  guardianOnly?: boolean;
   onRetryProbe?: () => void;
   onSubmit: (payload: { walletType: WalletType; guardianEndpoint?: string }) => void;
 }
@@ -33,6 +38,7 @@ export interface ImportRecoveryMethodScreenProps {
 export const ImportRecoveryMethodScreen: React.FC<ImportRecoveryMethodScreenProps> = ({
   isError,
   probe,
+  guardianOnly = false,
   onRetryProbe,
   onSubmit
 }) => {
@@ -132,22 +138,23 @@ export const ImportRecoveryMethodScreen: React.FC<ImportRecoveryMethodScreenProp
   }, [detected]);
 
   const options = useMemo(
-    () => [
-      {
-        id: WalletType.Guardian,
-        title: t('importViaGuardian'),
-        description: t('importViaGuardianDescription'),
-        isDefault: true,
-        onSelect: handleSelectGuardian
-      },
-      {
-        id: WalletType.OnChain,
-        title: t('importPublicAccount'),
-        description: t('importPublicAccountDescription'),
-        onSelect: handleSelectOnChain
-      }
-    ],
-    [t]
+    () =>
+      [
+        {
+          id: WalletType.Guardian,
+          title: t('importViaGuardian'),
+          description: t('importViaGuardianDescription'),
+          isDefault: true,
+          onSelect: handleSelectGuardian
+        },
+        {
+          id: WalletType.OnChain,
+          title: t('importPublicAccount'),
+          description: t('importPublicAccountDescription'),
+          onSelect: handleSelectOnChain
+        }
+      ].filter(option => !guardianOnly || option.id === WalletType.Guardian),
+    [t, guardianOnly]
   );
 
   // The preset grid + endpoint readout + URL input. Always on for the classic

@@ -299,15 +299,20 @@ describe('useWalletStore', () => {
 
     it('importWalletFromClient sends correct request', async () => {
       mockRequest.mockResolvedValueOnce({ type: WalletMessageType.ImportFromClientResponse });
+      const importedAccounts = [
+        { accountId: 'account-id', publicKeyCommitment: 'a1b2', authScheme: 'falcon' as const, secretKeyHex: '0102' }
+      ];
 
       const { importWalletFromClient } = useWalletStore.getState();
-      await importWalletFromClient('password123', 'mnemonic words', []);
+      await importWalletFromClient('password123', 'mnemonic words', [], 2, importedAccounts);
 
       expect(mockRequest).toHaveBeenCalledWith({
         type: WalletMessageType.ImportFromClientRequest,
         password: 'password123',
         mnemonic: 'mnemonic words',
-        walletAccounts: []
+        walletAccounts: [],
+        formatVersion: 2,
+        importedAccounts
       });
     });
 
@@ -417,6 +422,18 @@ describe('useWalletStore', () => {
       expect(mockRequest).toHaveBeenCalledWith({
         type: WalletMessageType.ExportAccountFileRequest,
         accountPublicKey: 'mtst1account',
+    it('exportWalletBackupMaterial returns the dedicated snapshot response', async () => {
+      const material = { seedPhrase: 'seed', accounts: [], midenClientDbContent: 'db', importedAccounts: [] };
+      mockRequest.mockResolvedValueOnce({
+        type: WalletMessageType.ExportWalletBackupMaterialResponse,
+        material
+      });
+
+      const result = await useWalletStore.getState().exportWalletBackupMaterial('password123');
+
+      expect(result).toBe(material);
+      expect(mockRequest).toHaveBeenCalledWith({
+        type: WalletMessageType.ExportWalletBackupMaterialRequest,
         password: 'password123'
       });
     });
@@ -955,9 +972,16 @@ describe('useWalletStore', () => {
 
     it('importWalletFromClient sends ImportFromClientRequest', async () => {
       mockRequest.mockResolvedValueOnce({ type: WalletMessageType.ImportFromClientResponse });
-      await useWalletStore.getState().importWalletFromClient('pw', 'm', []);
+      const importedAccounts = [
+        { accountId: 'account-id', publicKeyCommitment: 'a1b2', authScheme: 'falcon' as const, secretKeyHex: '0102' }
+      ];
+      await useWalletStore.getState().importWalletFromClient('pw', 'm', [], 2, importedAccounts);
       expect(mockRequest).toHaveBeenCalledWith(
-        expect.objectContaining({ type: WalletMessageType.ImportFromClientRequest })
+        expect.objectContaining({
+          type: WalletMessageType.ImportFromClientRequest,
+          formatVersion: 2,
+          importedAccounts
+        })
       );
     });
 

@@ -35,12 +35,18 @@ export const useNavigator = () => {
   return context;
 };
 
-export const NavigatorProvider: React.FC<{ children: ReactNode; routes: Route[]; initialRouteName?: string }> = ({
-  children,
-  routes,
-  initialRouteName
-}) => {
+export const NavigatorProvider: React.FC<{
+  children: ReactNode;
+  routes: Route[];
+  initialRouteName?: string;
+  /** Start with several routes stacked (first is the bottom), so back from the
+   *  top one reaches the earlier steps. Takes precedence over initialRouteName. */
+  initialRouteNames?: string[];
+}> = ({ children, routes, initialRouteName, initialRouteNames }) => {
   const [cardStack, setCardStack] = useState<Route[]>(() => {
+    if (initialRouteNames?.length) {
+      return initialRouteNames.flatMap(name => routes.filter(r => r.name === name).slice(0, 1));
+    }
     if (initialRouteName) {
       const initial = routes.find(r => r.name === initialRouteName);
       if (initial) return [initial];
@@ -132,6 +138,7 @@ export type NavigatorProps = {
   animationConfig?: {
     pushInitialPosition: AnimationConfig;
     focusPosition: AnimationConfig;
+    pushBackInitialPosition: AnimationConfig;
     pushExitPosition: AnimationConfig;
     pushHiddenPosition: AnimationConfig;
     pushModalBackgroundPosition: AnimationConfig;
@@ -158,6 +165,12 @@ const PushInitialPosition: AnimationConfig = {
   backgroundColor: 'var(--color-app-bg)',
   y: '0vw',
   scale: 1
+};
+
+// Back mirrors forward: the step being returned to slides in from the left.
+const PushBackInitialPosition: AnimationConfig = {
+  ...PushInitialPosition,
+  x: '-8%'
 };
 
 const FocusPosition: AnimationConfig = {
@@ -211,6 +224,7 @@ const PresentExitPosition: AnimationConfig = {
 export const DefaultAnimationConfig = {
   pushInitialPosition: PushInitialPosition,
   focusPosition: FocusPosition,
+  pushBackInitialPosition: PushBackInitialPosition,
   pushExitPosition: PushExitPosition,
   pushHiddenPosition: PushHiddenPosition,
   pushModalBackgroundPosition: PushModalBackgroundPosition,
@@ -222,6 +236,7 @@ export const DefaultAnimationConfig = {
 export const ReducedMotionAnimationConfig = {
   ...DefaultAnimationConfig,
   pushInitialPosition: { ...PushInitialPosition, x: '0vw' },
+  pushBackInitialPosition: { ...PushBackInitialPosition, x: '0vw' },
   presentInitialPosition: { ...PresentInitialPosition, y: '0vw' },
   presentExitPosition: { ...PresentExitPosition, y: '0vw' }
 };
@@ -248,7 +263,7 @@ export const Navigator: React.FC<NavigatorProps> = ({
 
           return config.direction === 'forward'
             ? effectiveConfig.pushInitialPosition
-            : effectiveConfig.pushHiddenPosition;
+            : effectiveConfig.pushBackInitialPosition;
         } else {
           return effectiveConfig.presentInitialPosition;
         }

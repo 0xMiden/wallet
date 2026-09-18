@@ -18,8 +18,8 @@ on:
           - devnet
 
 permissions:
-  contents: write   # needed to attach assets to a GitHub Release
-  actions: write    # needed for artifact cleanup
+  contents: write # needed to attach assets to a GitHub Release
+  actions: write # needed for artifact cleanup
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

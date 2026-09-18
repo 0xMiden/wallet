@@ -4,11 +4,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 
 import { confirmSensitiveAction } from 'lib/biometric';
 import { stringToBigInt } from 'lib/i18n/numbers';
-import {
-  initiateSendTransaction,
-  requestSpeculateInvalidate,
-  requestSWTransactionProcessing
-} from 'lib/miden/activity';
+import { initiateSendTransaction, requestSWTransactionProcessing } from 'lib/miden/activity';
 import { isExtension } from 'lib/platform';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { goBack, navigate } from 'lib/woozie';
@@ -66,45 +62,44 @@ jest.mock('app/env', () => ({
   useAppEnv: () => ({ fullPage: mockFullPage })
 }));
 
-jest.mock('components/ScreenHeader', () => ({
-  ScreenHeader: ({ title, onBack, backLabel }: any) => (
-    <div data-testid="screen-header">
-      <span>{title}</span>
-      <button data-testid="back-btn" aria-label={backLabel} onClick={onBack}>
+jest.mock('./SendStepLayout', () => ({
+  SendStepLayout: ({ title, onBack, children, footer }: any) => (
+    <div data-testid="review-layout">
+      <h1>{title}</h1>
+      <button data-testid="back-btn" aria-label="back" onClick={onBack}>
         back
       </button>
+      <div data-testid="hero">{children}</div>
+      <div data-testid="footer">{footer}</div>
     </div>
   )
 }));
+jest.mock('./NetworkChip', () => ({
+  NetworkChip: ({ label }: any) => <span data-testid="network-chip">{label}</span>
+}));
 
-jest.mock('components/review', () => ({
-  ReviewAmount: ({ symbol, amount, label }: any) => (
-    <div data-testid="review-amount">
-      {label}|{amount}|{symbol}
-    </div>
-  ),
-  ReviewLayout: ({ hero, children, primary, error }: any) => (
-    <div data-testid="review-layout">
-      <div data-testid="hero">{hero}</div>
-      <div data-testid="rows">{children}</div>
-      <button data-testid={primary['data-testid']} onClick={primary.onPress} disabled={primary.disabled}>
-        {primary.label}
-      </button>
-      {error !== undefined && <div data-testid="review-error">{error}</div>}
-    </div>
-  ),
-  ReviewRow: ({ label, value, children, onEdit, editLabel, note }: any) => (
+jest.mock('components/flow/FlowDetails', () => ({
+  FlowDetails: ({ children }: any) => <div data-testid="rows">{children}</div>,
+  FlowDetailRow: ({ label, children, action, sub }: any) => (
     <div data-testid="review-row">
       <span data-testid="row-label">{label}</span>
-      {value !== undefined && <span data-testid="row-value">{value}</span>}
       {children !== undefined && <span data-testid="row-children">{children}</span>}
-      {onEdit && (
-        <button data-testid="row-edit" onClick={onEdit}>
-          {editLabel}
+      {action && (
+        <button data-testid="row-edit" onClick={action.onClick}>
+          {action.label}
         </button>
       )}
-      {note !== undefined && <span data-testid="row-note">{note}</span>}
+      {sub !== undefined && <span data-testid="row-note">{sub}</span>}
     </div>
+  )
+}));
+jest.mock('components/TokenLogo', () => ({ TokenLogo: () => <span data-testid="token-logo" /> }));
+jest.mock('components/Button', () => ({
+  ButtonVariant: { Primary: 'primary', Secondary: 'secondary' },
+  Button: ({ title, variant: _variant, isLoading: _isLoading, ...rest }: any) => (
+    <button type="button" {...rest}>
+      {title}
+    </button>
   )
 }));
 
@@ -125,12 +120,12 @@ jest.mock('lib/epoch', () => ({
 }));
 
 jest.mock('lib/i18n/numbers', () => ({
+  toAdaptiveFixed: (v: number) => v.toFixed(2),
   stringToBigInt: jest.fn()
 }));
 
 jest.mock('lib/miden/activity', () => ({
   initiateSendTransaction: jest.fn(),
-  requestSpeculateInvalidate: jest.fn(),
   requestSWTransactionProcessing: jest.fn()
 }));
 
@@ -217,7 +212,6 @@ jest.mock('./useEpochQuote', () => ({
 const confirmMock = confirmSensitiveAction as jest.Mock;
 const stringToBigIntMock = stringToBigInt as jest.Mock;
 const initiateMock = initiateSendTransaction as jest.Mock;
-const requestSpeculateInvalidateMock = requestSpeculateInvalidate as jest.Mock;
 const requestSWMock = requestSWTransactionProcessing as jest.Mock;
 const isExtensionMock = isExtension as jest.Mock;
 const isDelegateProofEnabledMock = isDelegateProofEnabled as jest.Mock;
@@ -294,7 +288,6 @@ beforeEach(() => {
   mockEpochQuote = { amount: undefined, loading: false, error: null };
 
   delete process.env.MIDEN_E2E_TEST;
-  delete process.env.MIDEN_USE_SPECULATIVE_PROVING;
 });
 
 afterEach(() => {
@@ -364,8 +357,10 @@ describe('ReviewTransaction — rendering', () => {
     render(<ReviewTransaction />);
     await flush();
 
-    expect(screen.getByTestId('screen-header')).toBeInTheDocument();
-    expect(screen.getByTestId('review-amount').textContent).toBe('youAreSending|5|MDN');
+    expect(screen.getByRole('heading', { level: 1, name: 'reviewDetails' })).toBeInTheDocument();
+    expect(screen.getByTestId('back-btn')).toBeInTheDocument();
+    expect(screen.getByTestId('network-chip')).toHaveTextContent('miden');
+    expect(screen.getByTestId('review-amount').textContent).toBe('5 MDN');
     // Recipient row value.
     expect(screen.getByText('0xrecipient')).toBeInTheDocument();
 
@@ -384,7 +379,7 @@ describe('ReviewTransaction — rendering', () => {
     render(<ReviewTransaction />);
     await flush();
 
-    expect(screen.getByTestId('review-amount').textContent).toBe('youAreSending|5|');
+    expect(screen.getByTestId('review-amount').textContent).toBe('5 ');
 
     // onSubmit early-returns because there is no token: nothing fires.
     await act(async () => {
@@ -696,43 +691,5 @@ describe('ReviewTransaction — E2E share-privately hook', () => {
 
     unmount();
     expect((globalThis as any).__TEST_SET_SHARE_PRIVATELY__).toBeUndefined();
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Speculative-proving invalidation cleanup
-// ---------------------------------------------------------------------------
-describe('ReviewTransaction — speculative proving cleanup', () => {
-  it('invalidates cached speculation on unmount when enabled on extension', async () => {
-    process.env.MIDEN_USE_SPECULATIVE_PROVING = 'true';
-    isExtensionMock.mockReturnValue(true);
-    setValidRoute();
-    const { unmount } = render(<ReviewTransaction />);
-    await flush();
-
-    expect(requestSpeculateInvalidateMock).not.toHaveBeenCalled();
-    unmount();
-    expect(requestSpeculateInvalidateMock).toHaveBeenCalledTimes(1);
-  });
-
-  it('does not invalidate on unmount when not on an extension', async () => {
-    process.env.MIDEN_USE_SPECULATIVE_PROVING = 'true';
-    isExtensionMock.mockReturnValue(false);
-    setValidRoute();
-    const { unmount } = render(<ReviewTransaction />);
-    await flush();
-
-    unmount();
-    expect(requestSpeculateInvalidateMock).not.toHaveBeenCalled();
-  });
-
-  it('does not invalidate on unmount when the flag is off', async () => {
-    isExtensionMock.mockReturnValue(true);
-    setValidRoute();
-    const { unmount } = render(<ReviewTransaction />);
-    await flush();
-
-    unmount();
-    expect(requestSpeculateInvalidateMock).not.toHaveBeenCalled();
   });
 });

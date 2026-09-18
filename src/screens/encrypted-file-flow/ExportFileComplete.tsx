@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import { Directory, Encoding, Filesystem } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
@@ -7,10 +7,9 @@ import { useTranslation } from 'react-i18next';
 import { ActivitySpinner } from 'app/atoms/ActivitySpinner';
 import { Icon, IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
+import { CURRENT_BACKUP_FORMAT_VERSION, parseImportedAccountBackupFailure } from 'lib/miden/backup-file';
 import { useMidenContext } from 'lib/miden/front';
 import { deriveKey, encrypt, encryptJson, generateKey, generateSalt } from 'lib/miden/passworder';
-import { exportDb } from 'lib/miden/repo';
-import { getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import { isShareCancellation } from 'lib/mobile/share-cancellation';
 import { isMobile } from 'lib/platform';
 import { EncryptedWalletFile, ENCRYPTED_WALLET_FILE_PASSWORD_CHECK, DecryptedWalletFile } from 'screens/shared';
@@ -37,38 +36,39 @@ class ShareCancelledError extends Error {
   }
 }
 
+class BackupSnapshotError extends Error {
+  constructor(readonly publicMessage: string) {
+    super(publicMessage);
+    this.name = 'BackupSnapshotError';
+  }
+}
+
 const ExportFileComplete: React.FC<ExportFileCompleteProps> = ({ filePassword, fileName, walletPassword, onDone }) => {
   const { t } = useTranslation();
-  const { revealMnemonic, accounts } = useMidenContext();
-
-  // Imported accounts (hdIndex < 0) can't be reconstructed from the
-  // mnemonic — their auth key is the raw hex the user pasted in. The
-  // encrypted-file format doesn't carry raw secrets, so emitting them
-  // here would produce an unrestorable account on the other side
-  // (`Vault.spawnFromMidenClient` would either throw or fill the
-  // keystore with mnemonic-derived garbage). Filter them out so the
-  // restore path sees a consistent list; users are told in the
-  // changelog and via `Settings → Reveal Private Key` that imported
-  // keys need to be backed up separately.
-  const exportableAccounts = useMemo(() => accounts.filter(a => a.hdIndex >= 0), [accounts]);
-  const omittedImportedCount = accounts.length - exportableAccounts.length;
+  const { exportWalletBackupMaterial } = useMidenContext();
 
   const getExportFile = useCallback(async () => {
-    // Wrap WASM client operations in a lock to prevent concurrent access
-    const midenClientDbDump = await withWasmClientLock(async () => {
-      const midenClient = await getMidenClient();
-      return midenClient.exportDb();
+    const backupMaterial = await exportWalletBackupMaterial(walletPassword).catch(error => {
+      // A backend message is never shown: it is untranslated and can carry
+      // internal detail. Only the one failure the user can act on is named, and
+      // it travels as a code plus the account name.
+      // The cause never reaches the user, but it is the only thing that says why
+      // an export refused to run, so it is logged before it is replaced.
+      console.error('Encrypted wallet file snapshot failed:', error);
+      const accountName = error instanceof Error ? parseImportedAccountBackupFailure(error.message) : null;
+      throw new BackupSnapshotError(
+        accountName
+          ? t('encryptedWalletFileExportFailedAccount', { accountName })
+          : t('encryptedWalletFileExportFailedDesc')
+      );
     });
-    const walletDbDump = await exportDb();
-
-    const seedPhrase = await revealMnemonic(walletPassword);
-
+    // The accounts and the miden-client dump come from the backend's one
+    // serialized turn, so they cannot describe two different wallets. The wallet
+    // transaction dump is taken after that turn on purpose: it is display history
+    // and nothing in the restore checks it against the accounts.
     const filePayload: DecryptedWalletFile = {
-      seedPhrase,
-      midenClientDbContent: midenClientDbDump as string,
-      walletDbContent: walletDbDump,
-      accounts: exportableAccounts,
-      omittedImportedAccountCount: omittedImportedCount
+      ...backupMaterial,
+      formatVersion: CURRENT_BACKUP_FORMAT_VERSION
     };
 
     const salt = generateSalt();
@@ -135,23 +135,20 @@ const ExportFileComplete: React.FC<ExportFileCompleteProps> = ({ filePassword, f
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
     }
-  }, [walletPassword, filePassword, fileName, revealMnemonic, t, exportableAccounts, omittedImportedCount]);
+  }, [walletPassword, filePassword, fileName, exportWalletBackupMaterial, t]);
 
   // "Exported!" is a claim about a file on disk, so it waits for the write to
   // actually land. Rendering it on mount — as this screen used to — tells the
   // user a backup exists while the export is still running, and keeps telling
   // them so if it then fails: the one thing a backup flow must never do.
   const [exportState, setExportState] = useState<'pending' | 'success' | 'error' | 'cancelled'>('pending');
+  const [exportFailureMessage, setExportFailureMessage] = useState<string>();
   // Set only on the cancelled path, where the encrypted file is already written
   // and re-sharing it costs nothing beyond re-opening the sheet.
   const sharedFileUriRef = useRef<string | undefined>(undefined);
 
-  // Exactly once per mount. `getExportFile` is a `useCallback` over values that
-  // include `exportableAccounts` — a `useMemo` over the context's `accounts` —
-  // so its identity is only as stable as that array's. Any re-render that
-  // reseats it would otherwise re-run the WHOLE export: re-derive the mnemonic,
-  // re-encrypt, and on mobile open a second share sheet for a file the user was
-  // already handed. The state update below makes such a re-render certain.
+  // Exactly once per mount. A changed context callback must not re-run the
+  // export and open a second mobile share sheet for the same screen.
   const exportStartedRef = useRef(false);
   // Tracks the COMPONENT, not the effect run. Scoping it per-effect deadlocks
   // the screen: if `getExportFile`'s identity changes while the export is in
@@ -183,6 +180,7 @@ const ExportFileComplete: React.FC<ExportFileCompleteProps> = ({ filePassword, f
           setExportState('cancelled');
           return;
         }
+        setExportFailureMessage(error instanceof BackupSnapshotError ? error.publicMessage : undefined);
         setExportState('error');
       }
     );
@@ -271,7 +269,9 @@ const ExportFileComplete: React.FC<ExportFileCompleteProps> = ({ filePassword, f
             <h1 className="text-[32px] leading-[120%] tracking-[-0.04em] font-semibold">
               {t('encryptedWalletFileExportFailedTitle')}
             </h1>
-            <p className="pt-6 text-base leading-[130%] select-text">{t('encryptedWalletFileExportFailedDesc')}</p>
+            <p className="pt-6 text-base leading-[130%] select-text">
+              {exportFailureMessage ?? t('encryptedWalletFileExportFailedDesc')}
+            </p>
           </div>
         </div>
         <div className="w-full pt-8 pb-4">
@@ -302,11 +302,6 @@ const ExportFileComplete: React.FC<ExportFileCompleteProps> = ({ filePassword, f
             <p>{t('encryptedWalletFileExportedDesc1')}</p>
             <p className="font-bold pt-5">{t('encryptedWalletFileExportedDesc2')}</p>
             <p className="pt-5">{t('encryptedWalletFileExportedDesc3')}</p>
-            {omittedImportedCount > 0 && (
-              <p className="pt-5 text-sm text-red-600">
-                {t('encryptedFileImportedAccountsOmitted', { importedCount: String(omittedImportedCount) })}
-              </p>
-            )}
           </div>
         </div>
       </div>
