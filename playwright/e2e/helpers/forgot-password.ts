@@ -162,10 +162,10 @@ export async function submitRecoveryFromSeed(page: Page, opts: { seed: string; p
   // unbounded on purpose: they target inputs inside a container whose testid the
   // line above has already waited for, so there is nothing left for them to wait
   // on.
+  // No import-type step here: the forgot-password recovery route goes straight to
+  // seed entry, unlike the onboarding import flow. Verified by CI - adding the
+  // chooser wait made both guardian-forgot-password specs time out.
   await page.locator('#import-link').click({ timeout: 15_000 });
-  // Import now asks WHICH credential first; recovery re-imports a seed phrase.
-  await page.getByTestId('import-select-type').waitFor({ timeout: 15_000 });
-  await page.getByTestId('import-type-seed-phrase').click();
   await page.getByTestId('import-seed-phrase').waitFor({ timeout: 15_000 });
 
   const words = opts.seed.trim().split(/\s+/);
