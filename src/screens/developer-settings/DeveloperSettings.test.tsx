@@ -360,7 +360,9 @@ describe('DeveloperSettings', () => {
     await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1));
     expect(confirm).toHaveBeenCalledWith({
       title: 'actionConfirmation',
-      children: 'devEndpointResetConfirm'
+      children: 'devEndpointResetConfirm',
+      confirmLabel: 'reset',
+      destructive: true
     });
   });
 

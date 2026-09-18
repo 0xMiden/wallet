@@ -97,7 +97,12 @@ const ContactView: React.FC<ContactViewProps> = ({ contact, onBack, onDeleted })
   };
 
   const remove = async () => {
-    const confirmed = await confirm({ title: t('deleteContact'), children: t('deleteContactConfirm') });
+    const confirmed = await confirm({
+      title: t('deleteContact'),
+      children: t('deleteContactConfirm'),
+      confirmLabel: t('delete'),
+      destructive: true
+    });
     if (!confirmed) return;
     onDeleted();
     await removeContact(contact.address);

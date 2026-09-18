@@ -39,7 +39,9 @@ const DAppSettings: FC = () => {
       if (
         await confirm({
           title: t('actionConfirmation'),
-          children: t('resetPermissionsConfirmation', { origin: origin })
+          children: t('resetPermissionsConfirmation', { origin: origin }),
+          confirmLabel: t('disconnect'),
+          destructive: true
         })
       ) {
         await removeDAppSession(origin);

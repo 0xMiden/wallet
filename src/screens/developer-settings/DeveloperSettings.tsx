@@ -171,7 +171,9 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
     // "Reset Wallet" for the same pattern) so a single stray tap can't wipe the wallet.
     const confirmed = await confirm({
       title: t('actionConfirmation'),
-      children: t('devEndpointResetConfirm')
+      children: t('devEndpointResetConfirm'),
+      confirmLabel: t('reset'),
+      destructive: true
     });
     if (!confirmed) return;
 

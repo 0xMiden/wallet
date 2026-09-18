@@ -82,7 +82,12 @@ export const ActivityPendingHistory = ({ search, filter, programId }: ActivityPe
   useHideNavbarWhileOpen(showAcceptAll && onActivityTab);
 
   const reject = async (note: NoteWithMetadata) => {
-    const accepted = await confirm({ title: t('activityRejectTransfer'), children: t('activityRejectExplanation') });
+    const accepted = await confirm({
+      title: t('activityRejectTransfer'),
+      children: t('activityRejectExplanation'),
+      confirmLabel: t('activityRejectTransfer'),
+      destructive: true
+    });
     if (!accepted) return;
     const latest = currentItems.current.find(item => item.note.id === note.id);
     if (!latest || (latest.status !== 'pending' && latest.status !== 'failed')) return;
