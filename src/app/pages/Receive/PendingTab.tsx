@@ -683,7 +683,8 @@ const DetailNoteRow: React.FC<DetailNoteRowProps> = ({
         {showButton ? (
           <Button
             data-testid="claim-button"
-            className="w-auto shrink-0 px-4 h-8 text-sm leading-none"
+            size="sm"
+            className="w-auto shrink-0"
             variant={ButtonVariant.Primary}
             onClick={handleClaim}
             disabled={note.fromCache === true}
@@ -695,7 +696,8 @@ const DetailNoteRow: React.FC<DetailNoteRowProps> = ({
           // that consume's own progress screen, which already renders per-step rows and timings.
           <Button
             data-testid="claiming-status-button"
-            className="w-auto shrink-0 px-4 h-8 text-sm leading-none"
+            size="sm"
+            className="w-auto shrink-0"
             variant={ButtonVariant.Secondary}
             onClick={() => navigate(`/generating-transaction-full/${encodeURIComponent(note.claimingTxId!)}`)}
             title={t('claiming')}

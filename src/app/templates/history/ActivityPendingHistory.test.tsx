@@ -81,10 +81,13 @@ jest.mock('components/Button', () => ({
     title,
     variant,
     isLoading,
+    size,
     children,
     ...props
-  }: React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: string; isLoading?: boolean }) => (
-    <button {...props}>{children ?? (isLoading ? <span data-testid="claim-spinner" /> : title)}</button>
+  }: React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: string; isLoading?: boolean; size?: string }) => (
+    <button {...props} data-size={size}>
+      {children ?? (isLoading ? <span data-testid="claim-spinner" /> : title)}
+    </button>
   )
 }));
 
@@ -264,7 +267,11 @@ it('offers Restore under the Pending filter while declined transfers can still b
   rerender(<ActivityPendingHistory search="" filter="pending" />);
   expect(screen.getByTestId('timeline').querySelector('[data-pending-note-id="first"]')).toBeNull();
   expect(screen.getByText('activityHiddenTransfers')).toBeInTheDocument();
-  fireEvent.click(screen.getByRole('button', { name: 'activityRestoreTransfers' }));
+  const restoreButton = screen.getByRole('button', { name: 'activityRestoreTransfers' });
+  // The canonical `sm` size replaces the old manual px-3/py-2/text-xs override.
+  expect(restoreButton).toHaveAttribute('data-size', 'sm');
+  expect(restoreButton.className).not.toMatch(/\btext-xs\b|\bpy-2\b/);
+  fireEvent.click(restoreButton);
   expect(mockRestore).toHaveBeenCalledTimes(1);
 });
 
