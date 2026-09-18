@@ -7,30 +7,27 @@ import { TokenLogo } from './TokenLogo';
 // TokenLogo has two branches, both of which now go through the canonical
 // `Avatar` (components/ui/Avatar):
 //   1. Known symbol (MIDEN / ETH / USDC / BTC) → Avatar with the token's own
-//      color and its logo as the `icon`.
+//      background class and its logo as the `icon`.
 //   2. Unknown symbol → Avatar with the default token-logo image.
 //
 // The four logo imports resolve through the repo's global `\\.svg$` mock
 // (__mocks__/svgMock.js), which exports the string `'svg'` for
 // `ReactComponent`. React therefore renders each `<tokenLogo.Logo />` as a
 // host `<svg>` element, so all four known tokens produce an identical `<svg>`;
-// they are distinguished by the circle's background color.
-jest.mock('react-i18next', () => ({
-  useTranslation: () => ({
-    t: (key: string) => key
-  })
-}));
+// they are distinguished by the circle's background class.
 
 const getCircle = (container: HTMLElement) => container.querySelector('span > span') as HTMLElement;
 const getSvg = (container: HTMLElement) => container.querySelector('svg') as SVGSVGElement;
 const getImg = (container: HTMLElement) => container.querySelector('img') as HTMLImageElement;
 
-// Symbol → expected circle background color, per TOKEN_LOGOS.
+// Symbol → expected circle background class, per TOKEN_LOGOS. `bg-white` (not
+// a hex literal) for MIDEN: it resolves to the theme-flipping `--color-surface`
+// token, so the disc isn't a hardcoded white circle in dark mode.
 const KNOWN_TOKENS: Array<[string, string]> = [
-  ['MIDEN', 'rgb(255, 255, 255)'],
-  ['ETH', 'rgb(0, 0, 0)'],
-  ['USDC', 'rgb(2, 120, 210)'],
-  ['BTC', 'rgb(247, 147, 26)']
+  ['MIDEN', 'bg-white'],
+  ['ETH', 'bg-pure-black'],
+  ['USDC', 'bg-[#0278D2]'],
+  ['BTC', 'bg-[#F7931A]']
 ];
 
 // size → [avatar box class, icon class], per AVATAR_SIZES/ICON_CLASSES.
@@ -45,12 +42,11 @@ const SIZES: Array<['sm' | 'md' | 'lg' | 'xl' | '2xl', string, string]> = [
 
 describe('TokenLogo', () => {
   describe('known symbols', () => {
-    it.each(KNOWN_TOKENS)('renders %s on the token color, wrapping an <svg>', (symbol, color) => {
+    it.each(KNOWN_TOKENS)('renders %s on the token background class, wrapping an <svg>', (symbol, bgClass) => {
       const { container } = render(<TokenLogo symbol={symbol} />);
       const circle = getCircle(container);
 
-      expect(circle).toHaveClass('rounded-full');
-      expect(circle.style.backgroundColor).toBe(color);
+      expect(circle).toHaveClass('rounded-full', bgClass);
 
       const svg = getSvg(container);
       expect(svg).toBeInTheDocument();
@@ -72,21 +68,22 @@ describe('TokenLogo', () => {
       expect(getSvg(container)).toHaveClass(...iconCls.split(' '));
     });
 
-    it('forwards a custom className onto the Avatar circle', () => {
+    it('forwards a custom className onto the Avatar circle, alongside the token background', () => {
       const { container } = render(<TokenLogo symbol="BTC" className="my-extra-class" />);
 
-      expect(getCircle(container)).toHaveClass('my-extra-class');
+      expect(getCircle(container)).toHaveClass('my-extra-class', 'bg-[#F7931A]');
     });
   });
 
   describe('unknown symbols (Avatar image fallback)', () => {
-    it('renders the default-image Avatar for an unrecognised symbol', () => {
+    it('renders the default-image Avatar for an unrecognised symbol, decoratively', () => {
       const { container } = render(<TokenLogo symbol="DOGE" />);
 
       const img = getImg(container);
       expect(img).toBeInTheDocument();
       expect(img).toHaveAttribute('src', '/misc/token-logos/default.svg');
-      expect(img).toHaveAttribute('alt', 'avatar');
+      // Decorative: the symbol is always shown as text beside the logo elsewhere on screen.
+      expect(img).toHaveAttribute('alt', '');
 
       expect(getSvg(container)).toBeNull();
     });
