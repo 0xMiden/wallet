@@ -10,6 +10,27 @@ jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
 }));
 
+// The selected filter's fill is a `motion.span` sharing a `layoutId` with the
+// previous selection; render it as a plain span surfacing the id so its
+// presence/position is assertable without framer-motion's layout machinery.
+jest.mock('framer-motion', () => ({
+  __esModule: true,
+  motion: {
+    span: ({ children, layout, layoutId, initial, animate, transition, ...props }: any) => (
+      <span data-layout-id={layoutId} {...props}>
+        {children}
+      </span>
+    )
+  },
+  useReducedMotion: () => false
+}));
+
+jest.mock('lib/animation', () => ({
+  __esModule: true,
+  springs: { pill: { type: 'spring' } },
+  useMotion: (transition: unknown) => transition
+}));
+
 // The dead-letter notice owns its own data (SWR over the note dead-letter
 // store) and has its own suite; a stub keeps this page test from pulling the
 // storage adapter into the graph while still pinning that the page mounts it.
@@ -89,12 +110,24 @@ jest.mock('lib/woozie', () => ({
 
 const getHistory = () => screen.getByTestId('history');
 const getFilterButton = (label: string) => screen.getByRole('button', { name: label });
+// The selected chip's shared fill: a sibling `motion.span` (mocked to a plain
+// span) carrying the layoutId, not a class on the Pill button itself.
+const getFilterIndicator = () => document.querySelector('[data-layout-id="activity-filter-pill"]');
+
+// jsdom does not implement scrollIntoView; install a spy so the
+// keep-selection-in-view effect can run without throwing.
+const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
 
 describe('AllHistory', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockEndpoint.rpcUrl = 'https://rpc-a.example';
     mockPendingMounts.count = 0;
+    HTMLElement.prototype.scrollIntoView = jest.fn();
+  });
+
+  afterEach(() => {
+    HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
   });
 
   it('renders the activity header, filter chips and search field', () => {
@@ -143,7 +176,9 @@ describe('AllHistory', () => {
     render(<AllHistory />);
 
     expect(getFilterButton('all').getAttribute('aria-pressed')).toBe('true');
-    expect(getFilterButton('all').className).toContain('bg-accent-tint');
+    expect(getFilterButton('all').className).toContain('text-accent-tint-ink');
+    // The shared fill sits behind the active chip, not styled onto it directly.
+    expect(getFilterIndicator()).toHaveClass('bg-accent-tint');
 
     expect(getFilterButton('sent').getAttribute('aria-pressed')).toBe('false');
     expect(getFilterButton('sent').className).toContain('bg-fill');
@@ -158,6 +193,27 @@ describe('AllHistory', () => {
     expect(getFilterButton('received').getAttribute('aria-pressed')).toBe('true');
     expect(getFilterButton('all').getAttribute('aria-pressed')).toBe('false');
     expect(getHistory().getAttribute('data-filter')).toBe('received');
+
+    // The shared fill moves to the newly-selected chip.
+    expect(getFilterButton('received').className).toContain('text-accent-tint-ink');
+    expect(getFilterButton('all').className).not.toContain('text-accent-tint-ink');
+
+    // The newly-selected chip is scrolled into view.
+    expect(HTMLElement.prototype.scrollIntoView).toHaveBeenCalledWith({
+      behavior: 'smooth',
+      block: 'nearest',
+      inline: 'nearest'
+    });
+  });
+
+  it('scrolls the initially-selected chip into view on mount', () => {
+    render(<AllHistory />);
+
+    expect(HTMLElement.prototype.scrollIntoView).toHaveBeenCalledWith({
+      behavior: 'smooth',
+      block: 'nearest',
+      inline: 'nearest'
+    });
   });
 
   it('ignores a tap on the already-active filter (no haptic, no change)', () => {
