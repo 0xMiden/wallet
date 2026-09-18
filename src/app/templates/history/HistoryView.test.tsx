@@ -82,6 +82,15 @@ jest.mock('components/ui', () => ({
     >
       {icon}
     </div>
+  ),
+  // EmptyState: minimal stand-in — a heading for the title plus the same
+  // `icon` testid shape the row-icon mock above uses, so existing assertions
+  // (`getByTestId('icon')`, `getByText('noOperationsFound')` as an H3) hold.
+  EmptyState: ({ icon, title, className }: { icon: string; title: string; className?: string }) => (
+    <div data-testid="empty-state" data-classname={className}>
+      <span data-testid="icon" data-name={icon} />
+      <h3>{title}</h3>
+    </div>
   )
 }));
 

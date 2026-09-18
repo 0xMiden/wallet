@@ -11,7 +11,7 @@ import { guardianEndpointDisplayName } from 'app/hooks/useCurrentGuardianEndpoin
 import { Icon, IconName } from 'app/icons/v2';
 import { ReactComponent as FailedCrossIcon } from 'app/icons/v2/failed-cross.svg';
 import { ReactComponent as SwapIcon } from 'app/icons/v2/swap.svg';
-import { ActivityRow, ActivityRowProps, ActivityStatusTone } from 'components/ui';
+import { ActivityRow, ActivityRowProps, ActivityStatusTone, EmptyState } from 'components/ui';
 import { springs, useMotion } from 'lib/animation';
 import { navigate } from 'lib/woozie';
 
@@ -385,26 +385,20 @@ const HistoryView = memo<HistoryViewProps>(
       );
     }, [entries, pendingItems]);
     const noEntries = timeline.length === 0;
-    const noOperationsClass = fullHistory
-      ? 'mt-8 items-center text-left text-black'
-      : 'm-4 items-start text-left text-black';
     const groupedEntries = useMemo(() => groupEntriesByDate(timeline), [timeline]);
 
     if (noEntries) {
       if (initialLoading) return <ActivitySpinner />;
       if (centerEmptyState) {
         return (
-          <div className="flex flex-col items-center justify-center flex-1 pt-16">
-            <Icon name={IconName.ArrowUpDown} size="xl" fill="currentColor" className="mb-4 text-text-tertiary-token" />
-            <p className="font-heading text-sm text-center text-text-tertiary-token">{t('noOperationsFound')}</p>
+          <div className="flex flex-1 items-center justify-center pt-16">
+            <EmptyState icon={IconName.ArrowUpDown} title={t('noOperationsFound')} className="w-full" />
           </div>
         );
       }
       return (
-        <div className={classNames('mb-12', 'flex flex-col justify-left', noOperationsClass)}>
-          <h3 className="text-sm text-left" style={{ maxWidth: '20rem' }}>
-            {t('noOperationsFound')}
-          </h3>
+        <div className={classNames('flex flex-col justify-left', fullHistory ? 'mt-8' : 'm-4')}>
+          <EmptyState icon={IconName.ArrowUpDown} title={t('noOperationsFound')} className="w-full" />
         </div>
       );
     }
