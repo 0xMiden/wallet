@@ -1598,6 +1598,10 @@
     "message": "Paste",
     "englishSource": "Paste"
   },
+  "nothingToPaste": {
+    "message": "Nothing to paste. Copy an address first.",
+    "englishSource": "Nothing to paste. Copy an address first."
+  },
   "chooseRecipient": {
     "message": "Choose recipient",
     "englishSource": "Choose recipient"
@@ -5014,5 +5018,50 @@
   "updateNotificationActionFailed": {
     "message": "The update could not be started. Try again.",
     "englishSource": "The update could not be started. Try again."
+  },
+  "newContact": {
+    "message": "New contact",
+    "englishSource": "New contact"
+  },
+  "myAccounts": {
+    "message": "My accounts",
+    "englishSource": "My accounts"
+  },
+  "noContactsYet": {
+    "message": "No contacts yet",
+    "englishSource": "No contacts yet"
+  },
+  "noContactsYetHint": {
+    "message": "Save an address to send to it by name.",
+    "englishSource": "Save an address to send to it by name."
+  },
+  "contactIsYourAccount": {
+    "message": "This is one of your accounts",
+    "englishSource": "This is one of your accounts"
+  },
+  "contactAlreadySaved": {
+    "message": "Already saved as $name$",
+    "englishSource": "Already saved as $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "editContact": {
+    "message": "Edit contact",
+    "englishSource": "Edit contact"
+  },
+  "deleteContact": {
+    "message": "Delete contact",
+    "englishSource": "Delete contact"
+  },
+  "saveContact": {
+    "message": "Save",
+    "englishSource": "Save"
+  },
+  "contactAdded": {
+    "message": "Added",
+    "englishSource": "Added"
   }
 }

@@ -91,9 +91,17 @@ export interface SendManagerProps {
   preselectedTokenId?: string | null;
   /** Values restored when the user backs out of the full-screen review page. */
   draft?: SendDraft | null;
+  /** Recipient handed over by a contact's page, with its saved network for a `0x` contact. */
+  preselectedRecipient?: string | null;
+  preselectedNetwork?: string | null;
 }
 
-export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, draft }) => {
+export const SendManager: React.FC<SendManagerProps> = ({
+  preselectedTokenId,
+  draft,
+  preselectedRecipient,
+  preselectedNetwork
+}) => {
   const { navigateTo, goBack, cardStack } = useNavigator();
   const { pathname } = useLocation();
   const allAccounts = useAllAccounts();
@@ -608,6 +616,22 @@ export const SendManager: React.FC<SendManagerProps> = ({ preselectedTokenId, dr
     [onAction, applyRecipientValidation]
   );
 
+  // Opened from a contact's page (`/send?to=…&network=…`): start with that contact as the recipient.
+  useEffect(() => {
+    if (!preselectedRecipient) return;
+    const network = BRIDGE_NETWORKS.find(n => n.id === preselectedNetwork)?.id;
+    onAction({
+      id: SendFlowActionId.SetFormValues,
+      payload: network
+        ? { recipientAddress: preselectedRecipient, bridgeNetwork: network }
+        : { recipientAddress: preselectedRecipient }
+    });
+    if (network) setRecipientNetwork(network);
+    applyRecipientValidation(preselectedRecipient);
+    // Once per contact opened, not on every change of the callbacks.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [preselectedRecipient, preselectedNetwork]);
+
   // A 0x recipient's destination network, picked from the chips on the recipient step.
   const onSelectNetwork = useCallback(
     (network: BridgeNetworkId) => {
@@ -836,7 +860,11 @@ const NavigatorWrapper: React.FC<{ isLoading: boolean }> = props => {
   // Restore their values and reopen on the Amount step; the token restores
   // through the preselect effect via its id.
   const [draft] = useState(consumeSendDraft);
-  const preselectedTokenId = draft?.tokenId ?? new URLSearchParams(search).get('tokenId');
+  const params = new URLSearchParams(search);
+  const preselectedTokenId = draft?.tokenId ?? params.get('tokenId');
+  // A restored draft already carries its recipient.
+  const preselectedRecipient = draft ? null : params.get('to');
+  const preselectedNetwork = draft ? null : params.get('network');
   // Otherwise start at recipient selection; a preselected token just pre-fills
   // the token for the Amount step (see the preselect effect in SendManager).
   // A restored draft reopens on Amount with Recipient beneath it, so back returns
@@ -849,7 +877,13 @@ const NavigatorWrapper: React.FC<{ isLoading: boolean }> = props => {
 
   return (
     <NavigatorProvider routes={ROUTES} initialRouteNames={initialRoutes}>
-      <SendManager {...props} preselectedTokenId={preselectedTokenId} draft={draft} />
+      <SendManager
+        {...props}
+        preselectedTokenId={preselectedTokenId}
+        draft={draft}
+        preselectedRecipient={preselectedRecipient}
+        preselectedNetwork={preselectedNetwork}
+      />
     </NavigatorProvider>
   );
 };

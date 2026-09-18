@@ -23,13 +23,12 @@
  *     gone. The helpers below still drive them by CLICKING the menu row, which
  *     is what a user does and exercises the row wiring as well as the page.
  *
- *  2. `AddressBook/AddNewContact` is a PHANTOM selector. It is written as
- *     `testID` on `FormSubmitButton`, but `FormSubmitButton` destructures
- *     `testID` out and only uses it for `trackEvent` — it never renders it. Grep
- *     finds it; the DOM does not have it. This module uses the raw
- *     `address-book-add-contact` data-testid instead. The same is true of every
- *     `General Settings/*Toggle` string, which is why `ToggleSwitch` now emits
- *     its `testID` as a data-testid too.
+ *  2. A `testID` prop is not always a DOM selector. `FormSubmitButton`
+ *     destructures `testID` out and only uses it for `trackEvent`, so it never
+ *     renders; grep finds it, the DOM does not have it. Every
+ *     `General Settings/*Toggle` string was one of these, which is why
+ *     `ToggleSwitch` now emits its `testID` as a data-testid too. This module
+ *     drives raw data-testids only.
  *
  *  3. Contact identity is ADDRESS-KEYED and self-healing:
  *     `use-filtered-contacts.hook.ts` silently deletes (during render!) any
@@ -37,10 +36,13 @@
  *     A contact must therefore point at the OTHER wallet, and `addContact`
  *     PREPENDS — so nothing here may assume list ordering.
  *
- *  4. Deleting a contact goes through `useConfirm()`, i.e. the app-wide
- *     ConfirmationModal, and only rows with `accountInWallet === false` are
- *     clickable at all. "Click the first row" is a no-op on a wallet's own
- *     account row.
+ *  4. Adding and deleting happen on their own pages, not in the list. The list's
+ *     "New contact" button opens `/contacts/new`, which returns to the list on
+ *     save. A contact row opens `/contacts/<address>`; Delete sits in that page's
+ *     Edit mode and goes through `useConfirm()`, i.e. the app-wide
+ *     ConfirmationModal. The wallet's own accounts are listed under
+ *     `address-book-account-*` and are not links, so they are never mistaken for
+ *     a contact here.
  */
 import { type Locator, type Page } from '@playwright/test';
 
@@ -151,21 +153,34 @@ export async function addContact(
 ): Promise<Locator> {
   const book = wallet.page.getByTestId('address-book');
   await book.waitFor({ state: 'visible', timeout: timeoutMs });
+  await book.getByTestId('address-book-new-contact').click({ timeout: timeoutMs });
 
-  await book.getByTestId('address-book-name-input').fill(contact.name);
-  await book.getByTestId('address-book-address-input').fill(contact.address);
-
-  const submit = book.getByTestId('address-book-add-contact');
+  const form = wallet.page.getByTestId('contact-new');
   try {
-    await submit.waitFor({ state: 'visible', timeout: timeoutMs });
+    await form.waitFor({ state: 'visible', timeout: timeoutMs });
+  } catch {
+    throw new Error(
+      `addContact("${contact.name}"): clicked New contact but the new-contact page ` +
+        `([data-testid="contact-new"]) never appeared within ${timeoutMs}ms. URL: ${wallet.page.url()}`
+    );
+  }
+
+  await form.getByTestId('address-book-address-input').fill(contact.address);
+  await form.getByTestId('address-book-name-input').fill(contact.name);
+
+  const submit = form.getByTestId('address-book-add-contact');
+  try {
     await submit.click({ timeout: timeoutMs });
   } catch {
     throw new Error(
       `addContact("${contact.name}"): could not click [data-testid="address-book-add-contact"] ` +
-        `within ${timeoutMs}ms — the Add Contact button stays disabled until BOTH name and address ` +
-        `are non-empty. Drawer text: ${await safeText(book)}`
+        `within ${timeoutMs}ms — it stays disabled until the address is valid, not already saved, ` +
+        `and a name is typed. Page text (carries any address message): ${await safeText(form)}`
     );
   }
+
+  // Saving returns to the list.
+  await book.waitFor({ state: 'visible', timeout: timeoutMs });
 
   const row = wallet.page.getByTestId(`${CONTACT_ROW_PREFIX}${contact.address}`);
   try {
@@ -174,7 +189,7 @@ export async function addContact(
     throw new Error(
       `addContact("${contact.name}", ${contact.address}): no contact row appeared within ${timeoutMs}ms. ` +
         `Addresses in the book: ${JSON.stringify(await listAddressBookContacts(wallet.page))}. ` +
-        `Drawer text (carries any validation message): ${await safeText(book)}`
+        `Address book text: ${await safeText(book)}`
     );
   }
 
@@ -189,10 +204,11 @@ export async function addContact(
 }
 
 /**
- * Delete a contact from the OPEN address-book drawer, going through the real
- * confirmation modal (see trap 4).
+ * Delete a contact from the OPEN address book: open its page, enter Edit, tap
+ * Delete and go through the real confirmation modal (see trap 4).
  *
- * Postcondition: the row for `address` is gone from the DOM.
+ * Postcondition: the page returned to the address book, and the row for
+ * `address` is gone from it.
  */
 export async function deleteContact(wallet: ChromeWalletPageApi, address: string, timeoutMs = 30_000): Promise<void> {
   const row = wallet.page.getByTestId(`${CONTACT_ROW_PREFIX}${address}`);
@@ -206,15 +222,23 @@ export async function deleteContact(wallet: ChromeWalletPageApi, address: string
   }
   await row.click();
 
+  const detail = wallet.page.getByTestId('contact-detail');
+  try {
+    await detail.waitFor({ state: 'visible', timeout: timeoutMs });
+  } catch {
+    throw new Error(
+      `deleteContact(${address}): clicking the contact row did not open its page ` +
+        `([data-testid="contact-detail"]) within ${timeoutMs}ms. URL: ${wallet.page.url()}`
+    );
+  }
+  await detail.getByTestId('contact-edit').click({ timeout: timeoutMs });
+  await detail.getByTestId('contact-delete').click({ timeout: timeoutMs });
+
   const confirmButton = wallet.page.getByTestId('confirmation-modal-confirm');
   try {
     await confirmButton.waitFor({ state: 'visible', timeout: 15_000 });
   } catch {
-    throw new Error(
-      `deleteContact(${address}): clicking the contact row did not open the confirmation modal. ` +
-        `Only rows with accountInWallet === false are clickable — a wallet's OWN account row is inert, ` +
-        `so this address is probably one of this wallet's accounts rather than an external contact.`
-    );
+    throw new Error(`deleteContact(${address}): tapping Delete contact did not open the confirmation modal.`);
   }
   // Bounded, and verified by its POSTCONDITION rather than by the click
   // returning. Two things went wrong here before:
@@ -240,6 +264,17 @@ export async function deleteContact(wallet: ChromeWalletPageApi, address: string
     );
   }
 
+  // The row is also absent while the contact's page is showing, so the list has to be back
+  // before its absence means anything.
+  const book = wallet.page.getByTestId('address-book');
+  try {
+    await book.waitFor({ state: 'visible', timeout: timeoutMs });
+  } catch {
+    throw new Error(
+      `deleteContact(${address}): confirmed the delete but the page never returned to the address ` +
+        `book within ${timeoutMs}ms. URL: ${wallet.page.url()}`
+    );
+  }
   try {
     await row.waitFor({ state: 'detached', timeout: timeoutMs });
   } catch {

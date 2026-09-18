@@ -339,6 +339,7 @@
   "more": "далі",
   "addressBook": "Адресна книга",
   "paste": "Вставити",
+  "nothingToPaste": "Нема чого вставити. Спершу скопіюйте адресу.",
   "chooseRecipient": "Виберіть одержувача",
   "sendTo": "Кому",
   "selectAmount": "Виберіть суму",
@@ -1124,5 +1125,15 @@
   "updateNotificationActionIos": "Open App Store",
   "updateNotificationActionInProgress": "Starting update",
   "updateNotificationDismiss": "Dismiss this update",
-  "updateNotificationActionFailed": "The update could not be started. Try again."
+  "updateNotificationActionFailed": "The update could not be started. Try again.",
+  "newContact": "Новий контакт",
+  "myAccounts": "Мої рахунки",
+  "noContactsYet": "Контактів ще немає",
+  "noContactsYetHint": "Збережіть адресу, щоб надсилати за іменем.",
+  "contactIsYourAccount": "Це один із ваших рахунків",
+  "contactAlreadySaved": "Уже збережено як $name$",
+  "editContact": "Редагувати контакт",
+  "deleteContact": "Видалити контакт",
+  "saveContact": "Зберегти",
+  "contactAdded": "Додано"
 }

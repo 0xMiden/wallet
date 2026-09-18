@@ -32,6 +32,15 @@ export function useContacts() {
     [contacts, updateSettings]
   );
 
+  // Only the name and a `0x` contact's network are editable: the address is the contact's identity.
+  const updateContact = useCallback(
+    async (address: string, changes: Pick<WalletContact, 'name' | 'network'>) =>
+      await updateSettings({
+        contacts: contacts.map(c => (c.address === address ? { ...c, ...changes } : c))
+      }),
+    [contacts, updateSettings]
+  );
+
   const getContact = useCallback(
     (address: string) => allContacts.find(c => c.address === address) ?? null,
     [allContacts]
@@ -39,6 +48,7 @@ export function useContacts() {
 
   return {
     addContact,
+    updateContact,
     removeContact,
     getContact
   };

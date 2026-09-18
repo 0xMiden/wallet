@@ -72,6 +72,26 @@ describe('useContacts', () => {
     });
   });
 
+  it('updateContact renames one contact and keeps the rest of it', async () => {
+    mockUseFilteredContacts.mockReturnValue({
+      contacts: [
+        { name: 'A', address: 'a', addedAt: 1 },
+        { name: 'B', address: '0xb', network: 'sepolia' }
+      ],
+      allContacts: []
+    });
+    const { result } = renderHook(() => useContacts());
+    await act(async () => {
+      await result.current.updateContact('0xb', { name: 'Bea', network: 'sepolia' });
+    });
+    expect(mockUpdateSettings).toHaveBeenCalledWith({
+      contacts: [
+        { name: 'A', address: 'a', addedAt: 1 },
+        { name: 'Bea', address: '0xb', network: 'sepolia' }
+      ]
+    });
+  });
+
   it('getContact returns the matching contact or null', () => {
     mockUseFilteredContacts.mockReturnValue({
       contacts: [],

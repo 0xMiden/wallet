@@ -339,6 +339,7 @@
   "more": "plus",
   "addressBook": "Carnet d'adresses",
   "paste": "Coller",
+  "nothingToPaste": "Rien à coller. Copiez d'abord une adresse.",
   "chooseRecipient": "Choisissez un destinataire",
   "sendTo": "Envoyer à",
   "selectAmount": "Sélectionnez un montant",
@@ -1124,5 +1125,15 @@
   "updateNotificationActionIos": "Open App Store",
   "updateNotificationActionInProgress": "Starting update",
   "updateNotificationDismiss": "Dismiss this update",
-  "updateNotificationActionFailed": "The update could not be started. Try again."
+  "updateNotificationActionFailed": "The update could not be started. Try again.",
+  "newContact": "Nouveau contact",
+  "myAccounts": "Mes comptes",
+  "noContactsYet": "Aucun contact pour le moment",
+  "noContactsYetHint": "Enregistrez une adresse pour envoyer par nom.",
+  "contactIsYourAccount": "C’est l’un de vos comptes",
+  "contactAlreadySaved": "Déjà enregistré sous $name$",
+  "editContact": "Modifier le contact",
+  "deleteContact": "Supprimer le contact",
+  "saveContact": "Enregistrer",
+  "contactAdded": "Ajouté"
 }
