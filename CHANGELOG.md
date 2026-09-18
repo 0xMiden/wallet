@@ -80,6 +80,7 @@
 - [CHANGE][all] Lists share one set of components: a grey 16px group, 64px rows (56px without a second line) with the title over a muted subtitle and a trailing value, check or chevron, and dividers that start after the row's avatar or icon; section labels are 13px bold and sentence case. The address book is the first screen on them.
 - [CHANGE][all] Settings: each section is a sentence-case label over a grey group of rows with dividers and a chevron (Language shows its current value beside it), in place of the round section icons, large headings and bare rows; the Networks page lists networks the same way with a check on the active one.
 - [CHANGE][all] Settings sections get their coloured icons back: each group heading again shows its round icon (security, preferences, about, developer) beside a larger title, over the grey row groups.
+- [CHANGE][all] Send flow: the contact picker is titled Address Book and opens with a search over names and addresses, then your accounts and your contacts in separate sections. Contacts show their network (Miden, or a `0x` contact's destination such as Sepolia) and your accounts show Public or Private beside the shortened address, in place of the "External" label.
 
 ## 1.16.1 (2026-09-15)
 
