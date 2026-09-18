@@ -25,12 +25,15 @@ const MAX_VISIBLE = 4;
 
 // Muted tints for tiles without a favicon, keyed off the name so a dApp
 // keeps its color between visits. Same family as the balance-card colors.
-const TILE_TINTS = ['#8FA58A', '#94A3B8', '#7E7E96', '#D9885A', '#8A7DA6'];
+const DEFAULT_TILE_TINT = '#8FA58A';
+const TILE_TINTS = [DEFAULT_TILE_TINT, '#94A3B8', '#7E7E96', '#D9885A', '#8A7DA6'];
 
 function tintFor(name: string): string {
   let hash = 0;
   for (const char of name) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
-  return TILE_TINTS[hash % TILE_TINTS.length];
+  // The index is always in range; the fallback is what keeps the return type a string
+  // under `noUncheckedIndexedAccess`.
+  return TILE_TINTS[hash % TILE_TINTS.length] ?? DEFAULT_TILE_TINT;
 }
 
 function hostOf(dapp: RecentDapp): string {
