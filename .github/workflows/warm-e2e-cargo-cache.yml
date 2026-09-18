@@ -46,7 +46,13 @@ concurrency:
 
 jobs:
   warm:
-    runs-on: warp-ubuntu-latest-x64-8x
+    strategy:
+      fail-fast: false
+      matrix:
+        runner:
+          - warp-ubuntu-latest-arm64-8x
+          - warp-ubuntu-latest-x64-8x
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
@@ -71,7 +77,7 @@ jobs:
           # key and letting a note-transport bump reuse a stale binary.
           [ -n "$nts_src" ] || { echo "::error::no NOTE_TRANSPORT_* pins in versions.env"; exit 1; }
           nts=$(printf '%s' "$nts_src" | sha256sum | cut -c1-16)
-          echo "key=miden-e2e-cargo-v2-rust1.98.1-$nts-$pins" >> "$GITHUB_OUTPUT"
+          echo "key=miden-e2e-cargo-v3-${{ runner.arch }}-rust1.98.1-$nts-$pins" >> "$GITHUB_OUTPUT"
       - name: Cache cargo (cli + note-transport)
         id: cache
         uses: actions/cache@v4

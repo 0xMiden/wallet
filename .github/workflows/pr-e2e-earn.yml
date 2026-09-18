@@ -9,15 +9,58 @@ concurrency:
   cancel-in-progress: true
 permissions:
   contents: read
+  pull-requests: read
 jobs:
-  # Runs on EVERY PR (no path filter, by choice) so a change that breaks the
-  # Epoch "Earn" deposit WITHOUT touching earn paths -- an @epoch-protocol SDK
-  # bump, an @miden-sdk bump, a shared-file edit -- is still caught. Runs in
-  # parallel with the other CI workflows on its own runner. DEPOSIT-ONLY for now
-  # (withdraw scenarios land in phase 2). earn-e2e-gate is the stable
-  # required-check name.
+  select-earn-e2e:
+    name: Select Earn E2E
+    runs-on: ubuntu-slim
+    outputs:
+      run: ${{ steps.select.outputs.run }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Read current pull request body
+        id: pull-request
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number
+            });
+            core.setOutput('body', data.body ?? '');
+      - name: Check changed paths
+        id: select
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_BODY: ${{ steps.pull-request.outputs.body }}
+        run: |
+          set -euo pipefail
+          run=false
+          if [ "$GITHUB_EVENT_NAME" != pull_request ]; then
+            run=true
+          elif printf '%s\n' "$PR_BODY" \
+            | grep -qiE '^[[:space:]]*(Client|Guardian|Protocol|Web SDK) PR:[[:space:]]*([0-9a-zA-Z._-]+/[0-9a-zA-Z._-]+)?#[0-9]+'; then
+            run=true
+          else
+            changed=$(git diff --no-renames --name-only "$BASE_SHA...$HEAD_SHA")
+            if printf '%s\n' "$changed" | bash scripts/select-e2e-changes.sh earn; then
+              run=true
+            else
+              status=$?
+              [ "$status" -eq 1 ] || exit "$status"
+            fi
+          fi
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+
   earn-e2e:
     name: earn-e2e (chrome)
+    needs: select-earn-e2e
+    if: needs.select-earn-e2e.outputs.run == 'true'
     # 2 vCPUs is ADEQUATE — do not "fix" this suite by chasing a larger runner.
     # That was measured twice. On this runner two consumes completed end to end in
     # 12.1s and 9.9s, and the node batched both; capping the prover's rayon pool to
@@ -26,7 +69,7 @@ jobs:
     # here was wrong: at this log level the prover emits only the
     # `Generated execution traces` INFO line, and it emitted one for each request
     # INCLUDING the two that succeeded.
-    runs-on: warp-ubuntu-latest-x64-8x
+    runs-on: warp-ubuntu-latest-arm64-2x
     # 120 rather than 60/75: while this branch carries `Client PR:` / `Web SDK PR:` /
     # `Guardian PR:` markers, the suite builds the miden-client CLI and the node from
     # source. That is a cold cargo build the pin-keyed cache cannot serve until one run
@@ -85,7 +128,7 @@ jobs:
           # key and letting a note-transport bump reuse a stale binary.
           [ -n "$nts_src" ] || { echo "::error::no NOTE_TRANSPORT_* pins in versions.env"; exit 1; }
           nts=$(printf '%s' "$nts_src" | sha256sum | cut -c1-16)
-          echo "key=miden-e2e-cargo-v2-rust1.98.1-$nts-$pins" >> "$GITHUB_OUTPUT"
+          echo "key=miden-e2e-cargo-v3-${{ runner.arch }}-rust1.98.1-$nts-$pins" >> "$GITHUB_OUTPUT"
       - name: Cache cargo (cli + note-transport)
         uses: actions/cache@v4
         with:
@@ -215,11 +258,23 @@ jobs:
   # directly) so the required check name stays stable if the job is renamed.
   earn-e2e-gate:
     name: earn-e2e-gate
-    needs: [earn-e2e]
+    needs: [select-earn-e2e, earn-e2e]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-slim
     steps:
       - run: |
-          if [ "${{ needs.earn-e2e.result }}" != "success" ]; then
-            echo "earn-e2e ${{ needs.earn-e2e.result }}"; exit 1; fi
-          echo "earn-e2e ok"
+          SELECT_RESULT="${{ needs.select-earn-e2e.result }}"
+          SELECTED="${{ needs.select-earn-e2e.outputs.run }}"
+          E2E_RESULT="${{ needs.earn-e2e.result }}"
+
+          [ "$SELECT_RESULT" = "success" ] || {
+            echo "Earn selector $SELECT_RESULT"; exit 1;
+          }
+
+          case "$SELECTED" in
+            true) [ "$E2E_RESULT" = "success" ] || { echo "earn-e2e $E2E_RESULT"; exit 1; } ;;
+            false) [ "$E2E_RESULT" = "skipped" ] || { echo "earn-e2e $E2E_RESULT"; exit 1; } ;;
+            *) echo "Earn selector returned '$SELECTED'"; exit 1 ;;
+          esac
+
+          echo "earn-e2e $E2E_RESULT"

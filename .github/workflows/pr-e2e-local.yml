@@ -28,7 +28,7 @@ jobs:
             specs: "playwright/e2e/tests/send-private.spec.ts playwright/e2e/tests/recall-reclaim.spec.ts"
     name: local-e2e (chrome)${{ matrix.name_suffix }}
     # 2 vCPUs is adequate here — see the measurements in pr-e2e-earn.yml.
-    runs-on: warp-ubuntu-latest-x64-8x
+    runs-on: warp-ubuntu-latest-arm64-2x
     # Cold-cache runs compile the local 0.16 node from source (~28m) + miden-client-cli
     # (~8m) + note-transport (~5m) before any spec runs; warm-cache runs are ~20m. The
     # node-build cache is warmed on `next` (warm-node-cache.yml) so PRs branch off a
@@ -83,7 +83,7 @@ jobs:
           # key and letting a note-transport bump reuse a stale binary.
           [ -n "$nts_src" ] || { echo "::error::no NOTE_TRANSPORT_* pins in versions.env"; exit 1; }
           nts=$(printf '%s' "$nts_src" | sha256sum | cut -c1-16)
-          echo "key=miden-e2e-cargo-v2-rust1.98.1-$nts-$pins" >> "$GITHUB_OUTPUT"
+          echo "key=miden-e2e-cargo-v3-${{ runner.arch }}-rust1.98.1-$nts-$pins" >> "$GITHUB_OUTPUT"
       - name: Cache cargo (cli + note-transport)
         uses: actions/cache@v4
         with:

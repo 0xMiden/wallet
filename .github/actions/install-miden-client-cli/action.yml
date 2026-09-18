@@ -109,7 +109,7 @@ runs:
         pins=$(printf '%s|%s|%s|%s' "$git_url" "$git_rev" "$url" "$rev" | sha256sum | cut -c1-16)
         {
           echo "proto_rev=$rev"
-          echo "cache_key=miden-client-cli-${{ runner.os }}-rustc$rustc_id-$pins-proto$rev"
+          echo "cache_key=miden-client-cli-${{ runner.os }}-${{ runner.arch }}-rustc$rustc_id-$pins-proto$rev"
           echo "bin=$root/bin/miden-client"
         } >> "$GITHUB_OUTPUT"
         echo "CLI will be built against protocol ${url} @ ${rev} (from ${origin})."
