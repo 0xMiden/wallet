@@ -464,6 +464,9 @@ describe('TokenDetail', () => {
 
       expect(screen.getByTestId('copy-icon')).toHaveAttribute('data-name', 'Copy');
       const copyBtn = screen.getByTestId('copy-icon').closest('button') as HTMLButtonElement;
+      // The icon carries no text, so the accessible name (not aria-live text) is what has to
+      // change for a screen reader to learn the copy succeeded.
+      expect(copyBtn).toHaveAccessibleName('copy');
 
       await act(async () => {
         fireEvent.click(copyBtn);
@@ -472,6 +475,7 @@ describe('TokenDetail', () => {
       expect(mockClipboardWrite).toHaveBeenCalledWith({ string: TOKEN_ID });
       // Feedback: the copy glyph swaps to a checkmark once the write resolves.
       expect(screen.getByTestId('copy-icon')).toHaveAttribute('data-name', 'Checkmark');
+      expect(copyBtn).toHaveAccessibleName('copied');
     });
   });
 });
