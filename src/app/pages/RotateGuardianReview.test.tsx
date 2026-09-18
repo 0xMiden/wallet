@@ -146,15 +146,6 @@ jest.mock('components/Alert', () => ({
   AlertVariant: { Warning: 'warning' }
 }));
 
-jest.mock('lib/ui/DetailCard', () => ({
-  DetailCard: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  DetailRow: ({ label, value }: { label: string; value: string }) => (
-    <div>
-      {label}:{value}
-    </div>
-  )
-}));
-
 jest.mock('lib/biometric', () => ({
   isBiometricEnabled: jest.fn().mockResolvedValue(false),
   checkBiometricAvailability: jest.fn()

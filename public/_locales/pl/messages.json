@@ -95,42 +95,6 @@
     "message": "Ładowanie",
     "englishSource": "Loading"
   },
-  "priceChangeAmountNeutral": {
-    "message": "$amount$",
-    "englishSource": "$amount$",
-    "placeholders": {
-      "amount": {
-        "content": "$1"
-      }
-    }
-  },
-  "priceChangeAmountPositive": {
-    "message": "+$amount$",
-    "englishSource": "+$amount$",
-    "placeholders": {
-      "amount": {
-        "content": "$1"
-      }
-    }
-  },
-  "priceChangeAmountNegative": {
-    "message": "-$amount$",
-    "englishSource": "-$amount$",
-    "placeholders": {
-      "amount": {
-        "content": "$1"
-      }
-    }
-  },
-  "priceChangePercent": {
-    "message": "$value$",
-    "englishSource": "$value$%",
-    "placeholders": {
-      "value": {
-        "content": "$1"
-      }
-    }
-  },
   "pendingTabApproxUsd": {
     "message": "≈ $value$",
     "englishSource": "≈ $value$",
@@ -567,10 +531,6 @@
     "message": "Kliknij, aby wyświetlić to pole",
     "englishSource": "Click to reveal this field"
   },
-  "clickToReveal": {
-    "message": "Kliknij, aby wyświetlić",
-    "englishSource": "Click to reveal"
-  },
   "copiedHash": {
     "message": "Skopiowano.",
     "englishSource": "Copied."
@@ -757,14 +717,6 @@
     "message": "Tylko prawidłowy, wygenerowany wcześniej mnemonic",
     "englishSource": "Just valid pre-generated mnemonic"
   },
-  "seedPasteFailedTooManyWords": {
-    "message": "Wklejenie nie powiodło się, ponieważ tekst zawierał ponad 24 słowa.",
-    "englishSource": "Paste failed because it contained over 24 words."
-  },
-  "seedPhraseTip": {
-    "message": "Możesz wkleić cały swój tajny adres Seed phrase w dowolne pole",
-    "englishSource": "You can paste your entire secret Seed phrase into any field"
-  },
   "importSeedPhraseError": {
     "message": "Jedno lub więcej słów nie znajduje się na liście słów frazy odzyskiwania. Sprawdź zaznaczone słowa.",
     "englishSource": "One or more words aren't in the recovery phrase word list. Check the highlighted words."
@@ -809,15 +761,6 @@
   "retryAnyway": {
     "message": "Ponów mimo to",
     "englishSource": "Retry anyway"
-  },
-  "maximalAmount": {
-    "message": "Maximal: $amount$",
-    "englishSource": "Maximal: $amount$",
-    "placeholders": {
-      "amount": {
-        "content": "$1"
-      }
-    }
   },
   "privateKeyRevealWarningTitle": {
     "message": "Zanim przejdziesz dalej",
@@ -1794,10 +1737,6 @@
     "message": "Miden",
     "englishSource": "Miden"
   },
-  "addNewContact": {
-    "message": "Nowy kontakt",
-    "englishSource": "New contact"
-  },
   "addContact": {
     "message": "Dodaj kontakt",
     "englishSource": "Add Contact"
@@ -1814,10 +1753,6 @@
     "message": "Najnowsze",
     "englishSource": "Recent"
   },
-  "newContactPlaceholder": {
-    "message": "np. Alicja Bob",
-    "englishSource": "e.g. Alice Bob"
-  },
   "contactWithTheSameAddressAlreadyExists": {
     "message": "Istnieje już kontakt o tym samym adresie",
     "englishSource": "Contact with the same address already exists"
@@ -1833,10 +1768,6 @@
   "deleteContactConfirm": {
     "message": "Czy na pewno chcesz usunąć ten kontakt?",
     "englishSource": "Are you sure you want to delete this contact?"
-  },
-  "ownAccount": {
-    "message": "Własny",
-    "englishSource": "Own"
   },
   "noContactsFound": {
     "message": "Nie znaleziono żadnych kontaktów",

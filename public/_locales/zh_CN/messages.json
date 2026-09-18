@@ -95,42 +95,6 @@
     "message": "正在加载",
     "englishSource": "Loading"
   },
-  "priceChangeAmountNeutral": {
-    "message": "$amount$",
-    "englishSource": "$amount$",
-    "placeholders": {
-      "amount": {
-        "content": "$1"
-      }
-    }
-  },
-  "priceChangeAmountPositive": {
-    "message": "+$amount$",
-    "englishSource": "+$amount$",
-    "placeholders": {
-      "amount": {
-        "content": "$1"
-      }
-    }
-  },
-  "priceChangeAmountNegative": {
-    "message": "-$amount$",
-    "englishSource": "-$amount$",
-    "placeholders": {
-      "amount": {
-        "content": "$1"
-      }
-    }
-  },
-  "priceChangePercent": {
-    "message": "$value$",
-    "englishSource": "$value$%",
-    "placeholders": {
-      "value": {
-        "content": "$1"
-      }
-    }
-  },
   "pendingTabApproxUsd": {
     "message": "≈ $value$",
     "englishSource": "≈ $value$",
@@ -567,10 +531,6 @@
     "message": "点击显示此字段",
     "englishSource": "Click to reveal this field"
   },
-  "clickToReveal": {
-    "message": "点击查看",
-    "englishSource": "Click to reveal"
-  },
   "copiedHash": {
     "message": "已复制。",
     "englishSource": "Copied."
@@ -757,14 +717,6 @@
     "message": "仅限有效的预生成助记词",
     "englishSource": "Just valid pre-generated mnemonic"
   },
-  "seedPasteFailedTooManyWords": {
-    "message": "粘贴失败，因为内容超过了24个单词。",
-    "englishSource": "Paste failed because it contained over 24 words."
-  },
-  "seedPhraseTip": {
-    "message": "您可以将完整的密钥 Seed phrase 粘贴到任何输入框中",
-    "englishSource": "You can paste your entire secret Seed phrase into any field"
-  },
   "importSeedPhraseError": {
     "message": "恢复短语中的单词列表中缺少一个或多个单词。请检查已高亮显示的单词。",
     "englishSource": "One or more words aren't in the recovery phrase word list. Check the highlighted words."
@@ -809,15 +761,6 @@
   "retryAnyway": {
     "message": "仍然重试",
     "englishSource": "Retry anyway"
-  },
-  "maximalAmount": {
-    "message": "Maximal：$amount$",
-    "englishSource": "Maximal: $amount$",
-    "placeholders": {
-      "amount": {
-        "content": "$1"
-      }
-    }
   },
   "privateKeyRevealWarningTitle": {
     "message": "在继续之前",
@@ -1794,10 +1737,6 @@
     "message": "米登",
     "englishSource": "Miden"
   },
-  "addNewContact": {
-    "message": "新联系人",
-    "englishSource": "New contact"
-  },
   "addContact": {
     "message": "添加联系人",
     "englishSource": "Add Contact"
@@ -1814,10 +1753,6 @@
     "message": "近期",
     "englishSource": "Recent"
   },
-  "newContactPlaceholder": {
-    "message": "例如：爱丽丝、鲍勃",
-    "englishSource": "e.g. Alice Bob"
-  },
   "contactWithTheSameAddressAlreadyExists": {
     "message": "已存在与该地址相同的联系人",
     "englishSource": "Contact with the same address already exists"
@@ -1833,10 +1768,6 @@
   "deleteContactConfirm": {
     "message": "您确定要删除此联系人吗？",
     "englishSource": "Are you sure you want to delete this contact?"
-  },
-  "ownAccount": {
-    "message": "拥有",
-    "englishSource": "Own"
   },
   "noContactsFound": {
     "message": "未找到联系人",
