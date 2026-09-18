@@ -95,42 +95,6 @@
     "message": "Загрузка",
     "englishSource": "Loading"
   },
-  "priceChangeAmountNeutral": {
-    "message": "$amount$",
-    "englishSource": "$amount$",
-    "placeholders": {
-      "amount": {
-        "content": "$1"
-      }
-    }
-  },
-  "priceChangeAmountPositive": {
-    "message": "+$amount$",
-    "englishSource": "+$amount$",
-    "placeholders": {
-      "amount": {
-        "content": "$1"
-      }
-    }
-  },
-  "priceChangeAmountNegative": {
-    "message": "-$amount$",
-    "englishSource": "-$amount$",
-    "placeholders": {
-      "amount": {
-        "content": "$1"
-      }
-    }
-  },
-  "priceChangePercent": {
-    "message": "$value$",
-    "englishSource": "$value$%",
-    "placeholders": {
-      "value": {
-        "content": "$1"
-      }
-    }
-  },
   "pendingTabApproxUsd": {
     "message": "≈ $value$",
     "englishSource": "≈ $value$",
@@ -567,10 +531,6 @@
     "message": "Нажмите, чтобы отобразить это поле",
     "englishSource": "Click to reveal this field"
   },
-  "clickToReveal": {
-    "message": "Нажмите, чтобы показать",
-    "englishSource": "Click to reveal"
-  },
   "copiedHash": {
     "message": "Скопировано.",
     "englishSource": "Copied."
@@ -757,14 +717,6 @@
     "message": "Просто действительная заранее сгенерированная мнемоника",
     "englishSource": "Just valid pre-generated mnemonic"
   },
-  "seedPasteFailedTooManyWords": {
-    "message": "Вставка не удалась, так как текст содержал более 24 слов.",
-    "englishSource": "Paste failed because it contained over 24 words."
-  },
-  "seedPhraseTip": {
-    "message": "Вы можете вставить весь свой секретный код Seed phrase в любое поле",
-    "englishSource": "You can paste your entire secret Seed phrase into any field"
-  },
   "importSeedPhraseError": {
     "message": "Одно или несколько слов отсутствуют в списке слов восстановительной фразы. Проверьте выделенные слова.",
     "englishSource": "One or more words aren't in the recovery phrase word list. Check the highlighted words."
@@ -809,15 +761,6 @@
   "retryAnyway": {
     "message": "Всё равно повторить",
     "englishSource": "Retry anyway"
-  },
-  "maximalAmount": {
-    "message": "Maximal: $amount$",
-    "englishSource": "Maximal: $amount$",
-    "placeholders": {
-      "amount": {
-        "content": "$1"
-      }
-    }
   },
   "privateKeyRevealWarningTitle": {
     "message": "Прежде чем продолжить",
@@ -1794,10 +1737,6 @@
     "message": "Миден",
     "englishSource": "Miden"
   },
-  "addNewContact": {
-    "message": "Новый контакт",
-    "englishSource": "New contact"
-  },
   "addContact": {
     "message": "Добавить контакт",
     "englishSource": "Add Contact"
@@ -1814,10 +1753,6 @@
     "message": "Последние",
     "englishSource": "Recent"
   },
-  "newContactPlaceholder": {
-    "message": "например, Алиса Боб",
-    "englishSource": "e.g. Alice Bob"
-  },
   "contactWithTheSameAddressAlreadyExists": {
     "message": "Контакт с таким же адресом уже существует",
     "englishSource": "Contact with the same address already exists"
@@ -1833,10 +1768,6 @@
   "deleteContactConfirm": {
     "message": "Вы уверены, что хотите удалить этот контакт?",
     "englishSource": "Are you sure you want to delete this contact?"
-  },
-  "ownAccount": {
-    "message": "Собственный",
-    "englishSource": "Own"
   },
   "noContactsFound": {
     "message": "Контакты не найдены",
