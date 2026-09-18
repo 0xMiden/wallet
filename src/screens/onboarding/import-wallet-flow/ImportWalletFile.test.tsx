@@ -24,8 +24,8 @@ import { ImportWalletFileScreen } from './ImportWalletFile';
  *     crypto primitives, and `lib/miden/repo`'s `importDb` are jest.fn()s so we
  *     can trace exactly what the component threads through the decrypt pipeline
  *     and drive the wrong-password / thrown-error / omitted-accounts arms.
- *   - `FormField` / `FormSubmitButton` / the v2 icon barrel are thin harnesses
- *     that surface only the props under test (errorCaption, disabled, loading,
+ *   - `FormField` / `components/Button` / the v2 icon barrel are thin harnesses
+ *     that surface only the props under test (errorCaption, disabled, isLoading,
  *     children).
  *   - The global `FileReader` is replaced with a synchronous fake so the
  *     `onload` (valid JSON / invalid JSON) and `onerror` arms of `processFiles`
@@ -138,17 +138,26 @@ jest.mock('app/atoms/FormField', () => {
   };
 });
 
-jest.mock('app/atoms/FormSubmitButton', () => {
+jest.mock('components/Button', () => {
   const ReactLib = require('react');
   return {
-    __esModule: true,
-    default: ({ children, disabled, loading }: { children: React.ReactNode; disabled?: boolean; loading?: boolean }) =>
+    Button: ({
+      children,
+      type,
+      disabled,
+      isLoading
+    }: {
+      children: React.ReactNode;
+      type?: string;
+      disabled?: boolean;
+      isLoading?: boolean;
+    }) =>
       ReactLib.createElement(
         'button',
         {
-          type: 'submit',
+          type: type ?? 'submit',
           'data-testid': 'submit-button',
-          'data-loading': String(Boolean(loading)),
+          'data-loading': String(Boolean(isLoading)),
           disabled: Boolean(disabled)
         },
         children

@@ -5,8 +5,8 @@ import { useForm } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
 
 import FormField, { PASSWORD_ERROR_CAPTION } from 'app/atoms/FormField';
-import FormSubmitButton from 'app/atoms/FormSubmitButton';
 import { Icon, IconName } from 'app/icons/v2';
+import { Button } from 'components/Button';
 import {
   type DecryptedWalletFile,
   isRecord,
@@ -404,14 +404,14 @@ export const ImportWalletFileScreen: React.FC<ImportWalletFileScreenProps> = ({ 
       )}
 
       <div className="mt-auto w-full pt-4">
-        <FormSubmitButton
-          loading={isSubmitting || isRestoring}
-          className="w-full text-base"
-          style={{ display: 'block', fontWeight: 500, padding: '12px 0px' }}
+        <Button
+          type="submit"
+          isLoading={isSubmitting || isRestoring}
+          className="w-full"
           disabled={isSubmitting || isRestoring || (pendingRestore == null && (!isValid || !walletFile))}
         >
           {pendingRestore != null ? t('continueImport') : t('import')}
-        </FormSubmitButton>
+        </Button>
       </div>
     </form>
   );
