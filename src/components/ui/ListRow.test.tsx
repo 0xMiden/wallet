@@ -23,6 +23,8 @@ it('renders a static row as a div with a title over a muted subtitle', () => {
   const row = screen.getByTestId('row');
   expect(row.tagName).toBe('DIV');
   expect(screen.getByText('Account 1')).toHaveClass('text-ink', 'font-bold', 'text-base');
+  // The e2e helpers read a row's name off this slot.
+  expect(row.querySelector('[data-slot="title"]')).toHaveTextContent('Account 1');
   expect(screen.getByText('Private · mtst1…wr6w')).toHaveClass('text-muted', 'text-[13px]');
   expect(row).toHaveClass('min-h-16');
   expect(row.querySelector('[data-slot="chevron"]')).toBeNull();

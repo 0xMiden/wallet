@@ -340,7 +340,7 @@ export async function openSendContactPicker(wallet: ChromeWalletPageApi, timeout
 
 /**
  * Every row of the OPEN contact picker, as `{ name, address }`. The name is the
- * CardItem title; the address comes off the row's testid, so this reports the
+ * ListRow title; the address comes off the row's testid, so this reports the
  * name→address mapping the user is actually choosing between.
  */
 export async function listSendPickerContacts(page: Page): Promise<PickerContact[]> {
@@ -348,7 +348,7 @@ export async function listSendPickerContacts(page: Page): Promise<PickerContact[
     (els, prefix) =>
       els.map(el => ({
         address: (el.getAttribute('data-testid') ?? '').slice(prefix.length),
-        name: (el.querySelector('p')?.textContent ?? '').trim()
+        name: (el.querySelector('[data-slot="title"]')?.textContent ?? '').trim()
       })),
     PICKER_ROW_PREFIX
   );

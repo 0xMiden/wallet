@@ -40,21 +40,29 @@ jest.mock('lib/ui/drawer', () => ({
   DrawerTitle: ({ children }: { children: React.ReactNode }) => <div data-testid="drawer-title">{children}</div>
 }));
 
-// `app/icons/v2` is a barrel of SVG re-exports; AccountsList only reads the
-// `IconName` enum from it. Stub the two members it references.
+// `app/icons/v2` is a barrel of SVG re-exports; stub the glyph component and
+// the one enum member AccountsList references.
 jest.mock('app/icons/v2', () => ({
-  IconName: {
-    Users: 'Users',
-    CheckboxCircleFill: 'CheckboxCircleFill'
-  }
+  Icon: () => null,
+  IconName: { Users: 'Users', Search: 'Search', CloseCircleFill: 'CloseCircleFill' }
+}));
+
+jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn() }));
+jest.mock('lib/woozie', () => ({ Link: () => null }));
+jest.mock('screens/send-flow/bridge-networks', () => ({
+  BRIDGE_NETWORKS: [{ id: 'sepolia', name: 'Sepolia', chainId: 1 }],
+  DEFAULT_BRIDGE_NETWORK: { id: 'sepolia', name: 'Sepolia', chainId: 1 }
+}));
+jest.mock('utils/miden', () => ({
+  detectAddressChain: (a: string) => (a.startsWith('0x') ? 'ethereum' : 'miden')
 }));
 
 // Stub the leaf presentational components so this test exercises only the
 // prop-wiring / branching inside AccountsList. Each stub reflects the props
 // AccountsList sets back out as inspectable DOM.
 jest.mock('components/contacts/ContactAvatar', () => ({
-  ContactAvatar: ({ address, name }: { address: string; name?: string }) => (
-    <span data-testid="avatar" data-address={address} data-name={name} />
+  ContactAvatar: ({ address, name, network }: { address: string; name?: string; network?: string }) => (
+    <span data-testid="avatar" data-address={address} data-name={name} data-network={network} />
   )
 }));
 
@@ -77,48 +85,20 @@ jest.mock('components/EmptyState', () => ({
   )
 }));
 
-jest.mock('components/CardItem', () => ({
-  CardItem: ({
-    title,
-    subtitle,
-    iconLeft,
-    iconRight,
-    titleRight,
-    hoverable,
-    onClick
-  }: {
-    title?: string;
-    subtitle?: string;
-    iconLeft?: React.ReactNode;
-    iconRight?: unknown;
-    titleRight?: React.ReactNode;
-    hoverable?: boolean;
-    onClick?: (e: React.MouseEvent<HTMLDivElement>) => void;
-  }) => (
-    <div
-      data-testid="card-item"
-      data-icon-right={iconRight === undefined ? 'none' : String(iconRight)}
-      data-hoverable={String(hoverable)}
-      onClick={onClick}
-    >
-      <span data-testid="card-icon-left">{iconLeft}</span>
-      <span data-testid="card-title">{title}</span>
-      <span data-testid="card-subtitle">{subtitle}</span>
-      <span data-testid="card-title-right">{titleRight}</span>
-    </div>
-  )
-}));
-
 // Deterministic, dependency-free truncation for stable subtitle assertions.
 jest.mock('utils/string', () => ({
   truncateAddress: (addr: string) => `trunc(${addr})`
 }));
 
+jest.mock('components/ui/Pill', () => ({
+  Pill: ({ children }: { children: React.ReactNode }) => <span data-testid="pill">{children}</span>
+}));
+
 const guardian: Contact = {
   id: 'guardian_addr_1',
   name: 'Guardian Account',
-  isOwned: false,
-  contactType: 'external',
+  isOwned: true,
+  contactType: 'private',
   isGuardian: true
 };
 
@@ -129,13 +109,22 @@ const plainPublic: Contact = {
   contactType: 'public'
 };
 
-const plainPrivate: Contact = {
-  id: 'private_addr_3',
-  name: 'Private Account',
+const alice: Contact = {
+  id: 'mtst1alice',
+  name: 'Alice',
   isOwned: false,
-  contactType: 'private',
-  isGuardian: false
+  contactType: 'external'
 };
+
+const zed: Contact = {
+  id: '0xzed',
+  name: 'Zed',
+  isOwned: false,
+  contactType: 'external',
+  network: 'sepolia'
+};
+
+const row = (id: string) => screen.getByTestId(`send-contact-${id}`);
 
 const renderDrawer = (props: Partial<React.ComponentProps<typeof AccountsListDrawer>> = {}) => {
   const onOpenChange = jest.fn();
@@ -157,11 +146,11 @@ beforeEach(() => {
 });
 
 describe('AccountsListDrawer', () => {
-  it('renders the drawer shell with the translated title and forwards `open`', () => {
+  it('renders the drawer shell titled Address Book and forwards `open`', () => {
     renderDrawer({ open: true });
 
     expect(screen.getByTestId('drawer')).toHaveAttribute('data-open', 'true');
-    expect(screen.getByTestId('drawer-title')).toHaveTextContent('contacts');
+    expect(screen.getByTestId('drawer-title')).toHaveTextContent('addressBook');
     expect(drawerOpenChangeSpy).toHaveBeenCalledWith(true);
   });
 
@@ -173,88 +162,121 @@ describe('AccountsListDrawer', () => {
   });
 
   describe('empty state', () => {
-    it('renders EmptyState (and no cards) when there are no accounts', () => {
+    it('renders EmptyState, and no search or rows, when there is no one to pick', () => {
       renderDrawer({ accounts: [] });
 
       const empty = screen.getByTestId('empty-state');
-      expect(empty).toBeInTheDocument();
       expect(empty).toHaveAttribute('data-icon', 'Users');
       expect(empty).toHaveAttribute('data-classname', 'flex-1');
       expect(screen.getByTestId('empty-title')).toHaveTextContent('noOtherAccounts');
       expect(screen.getByTestId('empty-description')).toHaveTextContent('noOtherAccountsDescription');
-      expect(screen.queryByTestId('card-item')).not.toBeInTheDocument();
+      expect(screen.getByTestId('send-contacts-list')).toContainElement(empty);
+      expect(screen.queryByTestId('send-contacts-search')).not.toBeInTheDocument();
+      expect(screen.queryAllByTestId(/^send-contact-/)).toHaveLength(0);
     });
   });
 
   describe('populated list', () => {
-    it('renders one CardItem per account and never an EmptyState', () => {
-      renderDrawer({ accounts: [guardian, plainPublic, plainPrivate] });
+    it('lists my accounts, then contacts, each under its own label in its own group', () => {
+      renderDrawer({ accounts: [alice, plainPublic, zed, guardian] });
 
-      expect(screen.getAllByTestId('card-item')).toHaveLength(3);
+      const rows = screen.getAllByTestId(/^send-contact-/);
+      expect(rows.map(r => r.getAttribute('data-testid'))).toEqual([
+        'send-contact-public_addr_2',
+        'send-contact-guardian_addr_1',
+        'send-contact-mtst1alice',
+        'send-contact-0xzed'
+      ]);
+      const headings = screen.getAllByRole('heading', { level: 2 }).map(h => h.textContent);
+      expect(headings).toEqual(['myAccounts', 'contacts']);
+      expect(row('public_addr_2').parentElement).toHaveClass('bg-fill', 'rounded-2xl');
+      expect(row('mtst1alice').parentElement).not.toBe(row('public_addr_2').parentElement);
       expect(screen.queryByTestId('empty-state')).not.toBeInTheDocument();
     });
 
-    it('composes each card title/subtitle from the contact name, type and truncated id', () => {
-      renderDrawer({ accounts: [plainPublic] });
+    it('omits a section with no one in it', () => {
+      renderDrawer({ accounts: [alice] });
 
-      expect(screen.getByTestId('card-title')).toHaveTextContent('Public Account');
-      // subtitle = `${t(contactType)} · ${truncateAddress(id)}`
-      expect(screen.getByTestId('card-subtitle')).toHaveTextContent('public · trunc(public_addr_2)');
+      expect(screen.getAllByRole('heading', { level: 2 }).map(h => h.textContent)).toEqual(['contacts']);
     });
 
-    it("marks a card hoverable and gives it the contact's own avatar", () => {
-      renderDrawer({ accounts: [plainPublic] });
+    it("subtitles my accounts with their visibility and contacts with their network, and drops 'External'", () => {
+      renderDrawer({ accounts: [plainPublic, guardian, alice, zed] });
 
-      expect(screen.getByTestId('card-item')).toHaveAttribute('data-hoverable', 'true');
-      // Derived from the contact, so two contacts no longer share one orange image.
-      const avatar = screen.getByTestId('avatar');
-      expect(avatar).toHaveAttribute('data-address', plainPublic.id);
-      expect(avatar).toHaveAttribute('data-name', plainPublic.name);
+      expect(row('public_addr_2')).toHaveTextContent('public · trunc(public_addr_2)');
+      expect(row('guardian_addr_1')).toHaveTextContent('private · trunc(guardian_addr_1)');
+      expect(row('mtst1alice')).toHaveTextContent('miden · trunc(mtst1alice)');
+      expect(row('0xzed')).toHaveTextContent('Sepolia · trunc(0xzed)');
+      expect(screen.queryByText(/external/)).not.toBeInTheDocument();
     });
 
-    it('shows the check icon on the account matching recipientAccountId and none on others', () => {
-      renderDrawer({
-        accounts: [plainPublic, plainPrivate],
-        recipientAccountId: 'private_addr_3'
-      });
+    it("gives each row the contact's own avatar, badged only for a 0x contact", () => {
+      renderDrawer({ accounts: [plainPublic, alice, zed] });
 
-      const cards = screen.getAllByTestId('card-item');
-      // First card (public) does not match → no icon.
-      expect(cards[0]).toHaveAttribute('data-icon-right', 'none');
-      // Second card (private) matches the recipient → check icon.
-      expect(cards[1]).toHaveAttribute('data-icon-right', 'CheckboxCircleFill');
+      const avatar = (id: string) => row(id).querySelector('[data-testid="avatar"]');
+      expect(avatar('public_addr_2')).toHaveAttribute('data-name', 'Public Account');
+      expect(avatar('public_addr_2')).not.toHaveAttribute('data-network');
+      expect(avatar('mtst1alice')).not.toHaveAttribute('data-network');
+      expect(avatar('0xzed')).toHaveAttribute('data-network', 'ethereum');
     });
 
-    it('shows no check icon on any card when recipientAccountId is undefined', () => {
-      renderDrawer({ accounts: [plainPublic, plainPrivate] });
+    it('checks the row matching recipientAccountId and no other', () => {
+      renderDrawer({ accounts: [plainPublic, alice], recipientAccountId: 'mtst1alice' });
 
-      for (const card of screen.getAllByTestId('card-item')) {
-        expect(card).toHaveAttribute('data-icon-right', 'none');
-      }
+      expect(row('mtst1alice')).toHaveAttribute('aria-pressed', 'true');
+      expect(row('public_addr_2')).toHaveAttribute('aria-pressed', 'false');
     });
 
-    it('renders the guardian badge only for guardian contacts', () => {
-      renderDrawer({ accounts: [guardian, plainPublic, plainPrivate] });
+    it('shows the guardian badge only on a guardian account', () => {
+      renderDrawer({ accounts: [guardian, plainPublic] });
 
-      const titleRights = screen.getAllByTestId('card-title-right');
-      // guardian → badge label present
-      expect(titleRights[0]).toHaveTextContent('guardianBadge');
-      // non-guardian (isGuardian undefined) → empty
-      expect(titleRights[1]).toBeEmptyDOMElement();
-      // non-guardian (isGuardian === false) → empty
-      expect(titleRights[2]).toBeEmptyDOMElement();
+      expect(row('guardian_addr_1')).toHaveTextContent('guardianBadge');
+      expect(row('public_addr_2')).not.toHaveTextContent('guardianBadge');
     });
 
-    it('invokes onSelectContact with the contact and closes the drawer on click', () => {
-      const { onSelectContact, onOpenChange } = renderDrawer({
-        accounts: [plainPublic, plainPrivate]
-      });
+    it('invokes onSelectContact with the contact and closes the drawer on tap', () => {
+      const { onSelectContact, onOpenChange } = renderDrawer({ accounts: [plainPublic, alice] });
 
-      fireEvent.click(screen.getAllByTestId('card-item')[1]!);
+      fireEvent.click(row('mtst1alice'));
 
       expect(onSelectContact).toHaveBeenCalledTimes(1);
-      expect(onSelectContact).toHaveBeenCalledWith(plainPrivate);
+      expect(onSelectContact).toHaveBeenCalledWith(alice);
       expect(onOpenChange).toHaveBeenCalledWith(false);
+    });
+  });
+
+  describe('search', () => {
+    it('filters both sections by name or address, and says when nothing matches', () => {
+      renderDrawer({ accounts: [plainPublic, alice, zed] });
+      const search = screen.getByTestId('send-contacts-search');
+
+      fireEvent.change(search, { target: { value: 'ALI' } });
+      expect(screen.getAllByTestId(/^send-contact-/).map(r => r.getAttribute('data-testid'))).toEqual([
+        'send-contact-mtst1alice'
+      ]);
+      expect(screen.queryByText('myAccounts')).not.toBeInTheDocument();
+
+      fireEvent.change(search, { target: { value: '0xz' } });
+      expect(screen.getAllByTestId(/^send-contact-/).map(r => r.getAttribute('data-testid'))).toEqual([
+        'send-contact-0xzed'
+      ]);
+
+      fireEvent.change(search, { target: { value: 'nobody' } });
+      expect(screen.queryAllByTestId(/^send-contact-/)).toHaveLength(0);
+      expect(screen.getByText('noContactsFound')).toBeInTheDocument();
+      expect(screen.queryByTestId('empty-state')).not.toBeInTheDocument();
+    });
+
+    it('starts over empty each time the sheet opens', () => {
+      const { rerender, onOpenChange, onSelectContact } = renderDrawer({ accounts: [plainPublic, alice] });
+      fireEvent.change(screen.getByTestId('send-contacts-search'), { target: { value: 'ali' } });
+
+      const props = { onOpenChange, onSelectContact, accounts: [plainPublic, alice] };
+      rerender(<AccountsListDrawer open={false} {...props} />);
+      rerender(<AccountsListDrawer open {...props} />);
+
+      expect(screen.getByTestId('send-contacts-search')).toHaveValue('');
+      expect(screen.getAllByTestId(/^send-contact-/)).toHaveLength(2);
     });
   });
 });
