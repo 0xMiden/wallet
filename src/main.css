@@ -479,6 +479,20 @@ body[data-hide-navbar]::after {
     --card-blue-deep: #405565;
     --card-green-deep: #50634c;
     --card-purple-deep: #5d5368;
+
+    /* Design system, direction B (skills/miden-wallet-frontend/references/design-system.md).
+     * Prefixed so a copied shadcn primitive can never redefine them. */
+    --ds-page: #ffffff;
+    --ds-fill: #f3f0ec;
+    --ds-fill-pressed: #e9e5e0;
+    --ds-hairline: rgba(63, 63, 63, 0.1);
+    --ds-ink: #3f3f3f;
+    --ds-muted: #6b6b6b;
+    --ds-accent-tint: #fdeee5;
+    --ds-accent-tint-ink: #a84a18;
+    --ds-positive-ink: #3d7a34;
+    --ds-pending-ink: #b8451a;
+    --ds-negative-ink: #c63a00;
   }
 
   .dark {
@@ -568,5 +582,17 @@ body[data-hide-navbar]::after {
     --card-blue-deep: #405565;
     --card-green-deep: #50634c;
     --card-purple-deep: #5d5368;
+
+    --ds-page: #191919;
+    --ds-fill: #262422;
+    --ds-fill-pressed: #33302d;
+    --ds-hairline: rgba(255, 255, 255, 0.09);
+    --ds-ink: #ffffff;
+    --ds-muted: #a8a29c;
+    --ds-accent-tint: #3a2418;
+    --ds-accent-tint-ink: #f2a57a;
+    --ds-positive-ink: #90ba89;
+    --ds-pending-ink: #f08b57;
+    --ds-negative-ink: #ff7a4d;
   }
 }
