@@ -9,17 +9,29 @@ import { FlowSpinner } from 'components/flow/FlowSpinner';
 import { easings, springs, useMotion } from 'lib/animation';
 
 import { PENDING_STEP_COLOR } from './constants';
-import type { StatusIndicatorProps, TransactionHeroIconProps, TransactionStepRowProps } from './types';
+import type {
+  StatusIndicatorProps,
+  TransactionHeroIconProps,
+  TransactionHeroIconSize,
+  TransactionStepRowProps
+} from './types';
 
-export const TransactionHeroIcon: React.FC<TransactionHeroIconProps> = ({ state, accent = 'brand' }) => {
+// The check/cross glyphs keep the same 44x44 viewBox at every size and scale by width/height
+// alone, so the stroke stays proportional without a second path per size.
+const HERO_ICON_BOX_CLASS: Record<TransactionHeroIconSize, string> = { 64: 'size-16', 96: 'size-24' };
+const HERO_ICON_GLYPH_SIZE: Record<TransactionHeroIconSize, number> = { 64: 30, 96: 44 };
+const HERO_ICON_SPINNER_SIZE: Record<TransactionHeroIconSize, number> = { 64: 35, 96: 52 };
+
+export const TransactionHeroIcon: React.FC<TransactionHeroIconProps> = ({ state, accent = 'brand', size = 64 }) => {
   const reduceMotion = useReducedMotion();
   const entranceTransition = useMotion(springs.standard);
   const glyphTransition = useMotion({ duration: 0.32, ease: easings.easeOutCubic });
+  const glyphSize = HERO_ICON_GLYPH_SIZE[size];
 
   return (
     // shrink-0: the hero sits in a scrolling flex column, which squashed a fixed-size circle into
     // a pill on a short screen.
-    <div className="relative flex size-24 shrink-0 items-center justify-center">
+    <div className={classNames('relative flex shrink-0 items-center justify-center', HERO_ICON_BOX_CLASS[size])}>
       <AnimatePresence initial={false} mode="popLayout">
         <motion.div
           key={state}
@@ -34,9 +46,11 @@ export const TransactionHeroIcon: React.FC<TransactionHeroIconProps> = ({ state,
           exit={{ opacity: 0, scale: 1.04 }}
           transition={entranceTransition}
         >
-          {state === 'processing' && <FlowSpinner accent={accent} size={52} thickness={0.13} />}
+          {state === 'processing' && (
+            <FlowSpinner accent={accent} size={HERO_ICON_SPINNER_SIZE[size]} thickness={0.13} />
+          )}
           {state === 'success' && (
-            <svg width="44" height="44" viewBox="0 0 44 44" fill="none" aria-hidden="true">
+            <svg width={glyphSize} height={glyphSize} viewBox="0 0 44 44" fill="none" aria-hidden="true">
               <motion.path
                 d="M11 23L18.5 30.5L33 15"
                 stroke="white"
@@ -50,7 +64,7 @@ export const TransactionHeroIcon: React.FC<TransactionHeroIconProps> = ({ state,
             </svg>
           )}
           {state === 'failed' && (
-            <svg width="44" height="44" viewBox="0 0 44 44" fill="none" aria-hidden="true">
+            <svg width={glyphSize} height={glyphSize} viewBox="0 0 44 44" fill="none" aria-hidden="true">
               <path d="M15 15L29 29M29 15L15 29" stroke="white" strokeWidth="5" strokeLinecap="round" />
             </svg>
           )}

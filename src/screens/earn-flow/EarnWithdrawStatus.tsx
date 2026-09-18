@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { formatEarnWithdrawAmount } from 'app/templates/history/transactionUtils';
 import { Button, ButtonVariant } from 'components/Button';
 import { PageHeader } from 'components/PageHeader';
+import { Hero } from 'components/ui/Hero';
 import { Spinner } from 'components/ui/Spinner';
 import { IEarnWithdrawExtraInputs } from 'lib/miden/db/types';
 import { navigate } from 'lib/woozie';
@@ -87,10 +88,10 @@ export const EarnWithdrawStatus: React.FC<EarnWithdrawStatusProps> = ({ txId }) 
       <PageHeader title={t('transactionProcessingHeader')} onClose={onDone} />
       <main className="flex flex-1 flex-col">
         <section className="flex flex-1 flex-col items-center pt-5">
-          <TransactionHeroIcon state={failed ? 'failed' : 'processing'} />
-          <h2 className="mt-6 text-center font-heading text-[2rem] font-bold leading-none">
-            {failed ? t('withdrawalFailed') : t('withdrawalProcessing')}
-          </h2>
+          <Hero
+            visual={<TransactionHeroIcon state={failed ? 'failed' : 'processing'} />}
+            name={failed ? t('withdrawalFailed') : t('withdrawalProcessing')}
+          />
           <TransactionSummaryBadge lhs={amountLabel} rhs="Miden" className="mt-4" />
           <p className="mt-4 text-center text-sm font-medium text-heading-gray">
             {failed
