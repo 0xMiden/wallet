@@ -14,6 +14,7 @@ import { mnemonicToAccount, privateKeyToAccount } from 'viem/accounts';
 
 import { getMessage } from 'lib/i18n';
 import { isLikelyNetworkError } from 'lib/miden/activity/connectivity-classify';
+import { getAccountsWriteQueue } from 'lib/miden/back/accounts-write-queue';
 import { PublicError } from 'lib/miden/back/defaults';
 import {
   encryptAndSaveMany,
@@ -24,6 +25,7 @@ import {
   savePlain
 } from 'lib/miden/back/safe-storage';
 import * as Passworder from 'lib/miden/passworder';
+import * as Repo from 'lib/miden/repo';
 import { clearStorage } from 'lib/miden/reset';
 import { getEffectiveDefaultGuardianEndpoint } from 'lib/miden-chain/effective-endpoints';
 import { isDesktop, isMobile } from 'lib/platform';
@@ -42,8 +44,7 @@ import {
 import { WalletType } from 'screens/onboarding/types';
 
 import { midenClientProxy } from './miden-client-proxy';
-import { compareAccountIds } from '../activity/utils';
-import { normalizeBackupHex } from '../backup-file';
+import { MNEMONIC_PATTERN, importedAccountBackupFailure, isWalletAccount, normalizeBackupHex } from '../backup-file';
 import { fetchFromStorage } from '../front/storage';
 import type { CreatedGuardianKeys } from '../guardian/account';
 import {
@@ -120,6 +121,15 @@ const detectAuthScheme = (key: AuthSecretKey): AuthScheme => {
     return 'falcon';
   }
 };
+
+type ExportAbortReason =
+  | 'not-public-onchain'
+  | 'missing-sdk-account'
+  | 'account-id-mismatch'
+  | 'commitment-count'
+  | 'secret-read'
+  | 'secret-deserialize'
+  | 'binding-mismatch';
 
 const buildImportedAccount = (secretKey: AuthSecretKey) =>
   new AccountBuilder(new Uint8Array(32).fill(0))
@@ -362,84 +372,135 @@ export class Vault {
   }
 
   static async exportWalletBackupMaterial(password?: string): Promise<WalletBackupMaterial> {
+    // Authentication is not serialized work, and on mobile and desktop it is a
+    // hardware prompt the user answers in their own time. Taking the accounts
+    // write queue around it would stall unlock and every account write behind a
+    // dialog. The queue is taken below, around the reads that need it.
     const vaultKey = password ? await Vault.unlockWithPassword(password) : await Vault.getHardwareVaultKey();
 
     return withError('Failed to prepare encrypted wallet backup', async () => {
-      const [seedPhrase, accounts] = await Promise.all([
-        fetchAndDecryptOneWithLegacyFallBack<string>(mnemonicStrgKey, vaultKey),
-        fetchAndDecryptOneWithLegacyFallBack<WalletAccount[]>(accountsStrgKey, vaultKey)
-      ]);
-      if (!Array.isArray(accounts)) {
-        throw new PublicError('Accounts not found');
-      }
+      // Every member of the file comes from one turn of the single-writer queue,
+      // so an account write cannot land between the accounts read and either
+      // database dump and leave the file describing two different wallets. The
+      // queue is taken before the WASM lock because createHDAccount and
+      // importAccount take them in that order; inverting here would deadlock.
+      const snapshot = await getAccountsWriteQueue().add(async () => {
+        // Read the seed tolerantly: local seed-phrase removal deletes this key
+        // outright, and fetching an absent key throws. Such a wallet still holds
+        // imported secrets worth backing up, so it gets a file with no phrase
+        // rather than a dead end.
+        const hasStoredMnemonic = await isStored(mnemonicStrgKey);
+        const [seedPhrase, accounts] = await Promise.all([
+          hasStoredMnemonic
+            ? fetchAndDecryptOneWithLegacyFallBack<string>(mnemonicStrgKey, vaultKey)
+            : Promise.resolve(''),
+          fetchAndDecryptOneWithLegacyFallBack<WalletAccount[]>(accountsStrgKey, vaultKey)
+        ]);
+        if (!Array.isArray(accounts)) {
+          throw new PublicError('Accounts not found');
+        }
+        // A phrase that exists has to be a real one: the old exporter read it
+        // through revealMnemonic, so this pattern gated every file ever written.
+        if (seedPhrase !== '' && !MNEMONIC_PATTERN.test(seedPhrase)) {
+          throw new PublicError('Mnemonic does not match the expected pattern');
+        }
+        // With no phrase, an HD account cannot be restored at all: its key is
+        // re-derived from the seed and is not carried in the file. Refuse by name
+        // rather than write a backup this wallet would later reject.
+        // The reader refuses a record that fails this predicate, so a file carrying
+        // one decrypts and is then rejected as invalid or damaged: a backup that
+        // silently is not one, which is the defect this whole change exists to end.
+        if (!accounts.every(isWalletAccount)) {
+          console.error('[walletBackup] refused: a stored account record is not one this wallet can restore');
+          throw new PublicError('Wallet account records cannot be written to a backup file');
+        }
+        if (seedPhrase === '' && accounts.some(account => account.hdIndex >= 0)) {
+          console.error('[walletBackup] refused: no seed phrase, and an account still needs one');
+          throw new PublicError('Wallet has no seed phrase to back up its derived accounts');
+        }
 
-      const { importedAccounts, midenClientDbContent } = await withWasmClientLock(
-        async hold => {
-          const midenClient = await getMidenClient();
-          assertWasmHoldCurrent(hold, 'in exportWalletBackupMaterial after the client build');
-          const backups: ImportedAccountBackup[] = [];
+        const { importedAccounts, midenClientDbContent } = await withWasmClientLock(
+          async hold => {
+            const midenClient = await getMidenClient();
+            assertWasmHoldCurrent(hold, 'in exportWalletBackupMaterial after the client build');
+            const backups: ImportedAccountBackup[] = [];
 
-          for (const walletAccount of accounts.filter(account => account.hdIndex < 0)) {
-            const fail = (): never => {
-              throw new PublicError(
-                `The encrypted wallet file was not created because ${walletAccount.name} could not be backed up. Repair or remove this account and try again.`
-              );
-            };
-            if (!walletAccount.isPublic || walletAccount.type !== WalletType.OnChain) fail();
+            for (const walletAccount of accounts.filter(account => account.hdIndex < 0)) {
+              // Every abort reads the same to the user, so the reason is logged
+              // here or the failure cannot be diagnosed from a report. The name is
+              // the only account detail that travels; no secret or commitment does.
+              const fail = (reason: ExportAbortReason, cause?: unknown): never => {
+                console.error('[walletBackup] imported account cannot be backed up:', reason, cause ?? '');
+                throw new PublicError(importedAccountBackupFailure(walletAccount.name));
+              };
+              if (!walletAccount.isPublic || walletAccount.type !== WalletType.OnChain) fail('not-public-onchain');
 
-            const account = await midenClient.getAccount(walletAccount.publicKey);
-            assertWasmHoldCurrent(hold, 'in exportWalletBackupMaterial after the account read');
-            const sdkAccount = account ?? fail();
-            if (!sameWalletAccountId(getBech32AddressFromAccountId(sdkAccount.id()), walletAccount.publicKey)) fail();
+              const account = await midenClient.getAccount(walletAccount.publicKey);
+              assertWasmHoldCurrent(hold, 'in exportWalletBackupMaterial after the account read');
+              const sdkAccount = account ?? fail('missing-sdk-account');
+              if (!sameWalletAccountId(getBech32AddressFromAccountId(sdkAccount.id()), walletAccount.publicKey)) {
+                fail('account-id-mismatch');
+              }
 
-            const commitments = resolvePublicKeyCommitments(sdkAccount);
-            if (commitments.length !== 1) fail();
-            const publicKeyCommitment = normalizeBackupHex(commitments[0]!.toHex());
+              const commitments = resolvePublicKeyCommitments(sdkAccount);
+              if (commitments.length !== 1) fail('commitment-count');
+              const publicKeyCommitment = normalizeBackupHex(commitments[0]!.toHex());
 
-            let secretKeyHex: string;
-            try {
-              secretKeyHex = await fetchAndDecryptOneWithLegacyFallBack<string>(
-                accAuthSecretKeyStrgKey(publicKeyCommitment),
-                vaultKey
-              );
-            } catch {
-              fail();
+              let secretKeyHex: string;
+              try {
+                secretKeyHex = await fetchAndDecryptOneWithLegacyFallBack<string>(
+                  accAuthSecretKeyStrgKey(publicKeyCommitment),
+                  vaultKey
+                );
+              } catch (cause) {
+                fail('secret-read', cause);
+              }
+              assertWasmHoldCurrent(hold, 'in exportWalletBackupMaterial after the secret read');
+
+              let secretKey: AuthSecretKey;
+              try {
+                secretKey = AuthSecretKey.deserialize(new Uint8Array(Buffer.from(secretKeyHex!, 'hex')));
+              } catch (cause) {
+                fail('secret-deserialize', cause);
+              }
+              if (
+                detectAuthScheme(secretKey!) !== getAccountAuthScheme(walletAccount) ||
+                normalizeBackupHex(secretKey!.publicKey().toCommitment().toHex()) !== publicKeyCommitment ||
+                !sameWalletAccountId(
+                  getBech32AddressFromAccountId(buildImportedAccount(secretKey!).id()),
+                  walletAccount.publicKey
+                )
+              ) {
+                fail('binding-mismatch');
+              }
+
+              backups.push({
+                accountId: walletAccount.publicKey,
+                publicKeyCommitment,
+                authScheme: getAccountAuthScheme(walletAccount),
+                secretKeyHex: secretKeyHex!
+              });
             }
-            assertWasmHoldCurrent(hold, 'in exportWalletBackupMaterial after the secret read');
 
-            let secretKey: AuthSecretKey;
-            try {
-              secretKey = AuthSecretKey.deserialize(new Uint8Array(Buffer.from(secretKeyHex!, 'hex')));
-            } catch {
-              fail();
-            }
-            if (
-              detectAuthScheme(secretKey!) !== getAccountAuthScheme(walletAccount) ||
-              normalizeBackupHex(secretKey!.publicKey().toCommitment().toHex()) !== publicKeyCommitment ||
-              !sameWalletAccountId(
-                getBech32AddressFromAccountId(buildImportedAccount(secretKey!).id()),
-                walletAccount.publicKey
-              )
-            ) {
-              fail();
-            }
+            const database = await midenClient.exportDb();
+            assertWasmHoldCurrent(hold, 'in exportWalletBackupMaterial after the database export');
+            return { importedAccounts: backups, midenClientDbContent: database };
+          },
+          { label: 'vault-export-wallet-backup' }
+        );
 
-            backups.push({
-              accountId: walletAccount.publicKey,
-              publicKeyCommitment,
-              authScheme: getAccountAuthScheme(walletAccount),
-              secretKeyHex: secretKeyHex!
-            });
-          }
+        return { seedPhrase, accounts, midenClientDbContent, importedAccounts };
+      });
 
-          const database = await midenClient.exportDb();
-          assertWasmHoldCurrent(hold, 'in exportWalletBackupMaterial after the database export');
-          return { importedAccounts: backups, midenClientDbContent: database };
-        },
-        { label: 'vault-export-wallet-backup' }
-      );
+      if (!snapshot) throw new PublicError('Failed to prepare encrypted wallet backup');
 
-      return { seedPhrase, accounts, midenClientDbContent, importedAccounts };
+      // Outside the turn on purpose. The queue is also the unlock queue, so every
+      // turn of it costs an unlock and every account write, and nothing in the
+      // restore cross-checks transactions against the accounts: this dump is
+      // display history, not part of what the turn keeps mutually consistent.
+      const walletDbContent = await Repo.exportDb();
+
+      return { ...snapshot, walletDbContent };
     });
   }
 
@@ -823,24 +884,45 @@ export class Vault {
     importedAccounts: ImportedAccountBackup[] = []
   ): Promise<Vault> {
     let spawned: Vault | undefined;
+    // The protector has to exist before the keystore inserts, but everything else
+    // that makes the vault real is written only after the validation below. This
+    // records that a rejection downstream has a protector to undo.
+    let protectorInstalled = false;
     return withError('Failed to spawn from miden client', async (): Promise<Vault> => {
-      const failMalformedImport = (): never => {
+      // The export path names why it refused; a restore that refuses is read
+      // from the same logs, so it names its reason too. No secret, commitment or
+      // key material is logged, only which check fired.
+      const failMalformedImport = (reason: string, cause?: unknown): never => {
+        console.error('[walletRestore] rejected: malformed imported account data:', reason, cause ?? '');
         throw new PublicError('Encrypted file contains malformed imported account data');
       };
-      const failMissingImport = (): never => {
+      const failMissingImport = (reason: string): never => {
+        console.error('[walletRestore] rejected: missing imported account data:', reason);
         throw new PublicError('Encrypted file is missing imported account data');
       };
-      const failMismatchedImport = (): never => {
+      const failMismatchedImport = (reason: string): never => {
+        console.error('[walletRestore] rejected: imported secret does not match its account:', reason);
         throw new PublicError('Encrypted file imported account secret does not match its account');
       };
       const importedWalletAccounts = walletAccounts.filter(account => account.hdIndex < 0);
+      // A phrase that is present has to be a real one, and no phrase is legal only
+      // when no account needs one. Both restore arms derive HD keys from the seed,
+      // so an empty phrase with an HD account present would derive that key from
+      // mnemonicToSeedSync(''), a fixed value, while the wallet presented the
+      // account as ordinary. Checked once, before any WASM or keystore work.
+      if (mnemonic !== '' && !MNEMONIC_PATTERN.test(mnemonic)) {
+        failMalformedImport('seed-phrase-not-a-real-phrase');
+      }
+      if (mnemonic === '' && walletAccounts.some(account => account.hdIndex >= 0)) {
+        failMalformedImport('hd-account-without-seed');
+      }
       if (formatVersion !== undefined && formatVersion !== 2) {
         throw new PublicError('Encrypted file uses an unsupported backup version');
       }
-      if (formatVersion === undefined && importedAccounts.length > 0) failMalformedImport();
+      if (formatVersion === undefined && importedAccounts.length > 0) failMalformedImport('legacy-file-with-imports');
       if (formatVersion === 2) {
-        if (importedAccounts.length < importedWalletAccounts.length) failMissingImport();
-        if (importedAccounts.length > importedWalletAccounts.length) failMalformedImport();
+        if (importedAccounts.length < importedWalletAccounts.length) failMissingImport('fewer-imports-than-accounts');
+        if (importedAccounts.length > importedWalletAccounts.length) failMalformedImport('more-imports-than-accounts');
         for (let index = 0; index < importedAccounts.length; index++) {
           const backup = importedAccounts[index]!;
           const commitment = normalizeBackupHex(backup.publicKeyCommitment);
@@ -856,22 +938,22 @@ export class Vault {
             !/^[0-9a-f]+$/.test(secretKeyHex) ||
             (backup.authScheme !== 'falcon' && backup.authScheme !== 'ecdsa')
           ) {
-            failMalformedImport();
+            failMalformedImport('import-field-shape');
           }
           const matchingWalletAccounts = importedWalletAccounts.filter(account =>
-            compareAccountIds(account.publicKey, backup.accountId)
+            sameWalletAccountId(account.publicKey, backup.accountId)
           );
-          if (matchingWalletAccounts.length === 0) failMismatchedImport();
-          if (matchingWalletAccounts.length > 1) failMalformedImport();
+          if (matchingWalletAccounts.length === 0) failMismatchedImport('no-account-for-import');
+          if (matchingWalletAccounts.length > 1) failMalformedImport('several-accounts-for-import');
           const duplicatesPrevious = importedAccounts.slice(0, index).some(previous => {
             return (
-              compareAccountIds(previous.accountId, backup.accountId) ||
+              sameWalletAccountId(previous.accountId, backup.accountId) ||
               normalizeBackupHex(previous.publicKeyCommitment) === commitment ||
               normalizeBackupHex(previous.secretKeyHex) === secretKeyHex
             );
           });
           if (duplicatesPrevious) {
-            failMalformedImport();
+            failMalformedImport('duplicate-import-entry');
           }
         }
       }
@@ -894,6 +976,8 @@ export class Vault {
       // If no password (hardware-only mode), use hardware protection
       const useHardwareOnly = !password;
       const hardwareAvailable = await isHardwareSecurityAvailableForVault();
+
+      protectorInstalled = true;
 
       if (useHardwareOnly && hardwareAvailable) {
         // Try hardware-only mode (user chose biometric authentication)
@@ -945,7 +1029,7 @@ export class Vault {
             }
             const accountId = account.id();
             const accountAddress = getBech32AddressFromAccountId(accountId);
-            const walletAccount = walletAccounts.find(wa => compareAccountIds(wa.publicKey, accountAddress));
+            const walletAccount = walletAccounts.find(wa => sameWalletAccountId(wa.publicKey, accountAddress));
             if (!walletAccount) {
               // Account exists in the restored miden-client DB but has no
               // matching legacy `WalletAccount` entry. Version 2's complete
@@ -954,15 +1038,19 @@ export class Vault {
             }
             if (walletAccount.hdIndex < 0) {
               if (formatVersion === undefined) continue;
-              if (!walletAccount.isPublic || walletAccount.type !== WalletType.OnChain) failMismatchedImport();
-              const backup = importedAccounts.find(item => compareAccountIds(item.accountId, walletAccount.publicKey));
-              const restoredBackup = backup ?? failMissingImport();
-              if (!compareAccountIds(restoredBackup.accountId, accountAddress)) failMismatchedImport();
+              if (!walletAccount.isPublic || walletAccount.type !== WalletType.OnChain)
+                failMismatchedImport('not-public-onchain');
+              const backup = importedAccounts.find(item =>
+                sameWalletAccountId(item.accountId, walletAccount.publicKey)
+              );
+              const restoredBackup = backup ?? failMissingImport('no-import-for-account');
+              if (!sameWalletAccountId(restoredBackup.accountId, accountAddress))
+                failMismatchedImport('account-id-mismatch');
               const commitments = resolvePublicKeyCommitments(account);
-              if (commitments.length !== 1) failMismatchedImport();
+              if (commitments.length !== 1) failMismatchedImport('commitment-count');
               const publicKeyCommitment = normalizeBackupHex(commitments[0]!.toHex());
               if (publicKeyCommitment !== normalizeBackupHex(restoredBackup.publicKeyCommitment)) {
-                failMismatchedImport();
+                failMismatchedImport('commitment-mismatch');
               }
 
               let secretKey: AuthSecretKey;
@@ -970,16 +1058,19 @@ export class Vault {
                 secretKey = AuthSecretKey.deserialize(
                   new Uint8Array(Buffer.from(normalizeBackupHex(restoredBackup.secretKeyHex), 'hex'))
                 );
-              } catch {
-                failMalformedImport();
+              } catch (cause) {
+                failMalformedImport('secret-deserialize', cause);
               }
               if (
                 detectAuthScheme(secretKey!) !== restoredBackup.authScheme ||
                 getAccountAuthScheme(walletAccount) !== restoredBackup.authScheme ||
                 normalizeBackupHex(secretKey!.publicKey().toCommitment().toHex()) !== publicKeyCommitment ||
-                !compareAccountIds(getBech32AddressFromAccountId(buildImportedAccount(secretKey!).id()), accountAddress)
+                !sameWalletAccountId(
+                  getBech32AddressFromAccountId(buildImportedAccount(secretKey!).id()),
+                  accountAddress
+                )
               ) {
-                failMismatchedImport();
+                failMismatchedImport('binding-mismatch');
               }
               preparedKeys.push({ accountId, imported: true, secretKey: secretKey! });
               validatedImportedAccountIds.push(walletAccount.publicKey);
@@ -998,10 +1089,12 @@ export class Vault {
             (validatedImportedAccountIds.length !== importedWalletAccounts.length ||
               importedWalletAccounts.some(
                 walletAccount =>
-                  !validatedImportedAccountIds.some(accountId => compareAccountIds(accountId, walletAccount.publicKey))
+                  !validatedImportedAccountIds.some(accountId =>
+                    sameWalletAccountId(accountId, walletAccount.publicKey)
+                  )
               ))
           ) {
-            failMissingImport();
+            failMissingImport('unvalidated-imported-account');
           }
 
           for (const prepared of preparedKeys) {
@@ -1010,6 +1103,12 @@ export class Vault {
               await midenClient.client.keystore.insert(prepared.accountId, prepared.secretKey);
             } catch (error) {
               if (prepared.imported && !isWasmClientPoisonedError(error)) {
+                // Every other refusal in this function names its reason in the log
+                // through the fail* helpers. This one replaces the SDK's error with
+                // a generic one, so without this line the single failure that is the
+                // wallet's fault rather than the file's leaves nothing behind. The
+                // secret itself is never logged, only the cause.
+                console.error('[walletRestore] rejected: imported secret insert failed:', error);
                 throw new PublicError('Failed to restore imported account secret');
               }
               throw error;
@@ -1021,38 +1120,43 @@ export class Vault {
       );
 
       // Stamp wallet-derived EVM identities for HD accounts and persist their
-      // encrypted key blobs (the encrypted file carries account records only,
-      // so blobs must be re-derived on every import). Guard on a real
-      // mnemonic: registerImportedWallet may pass '' when the file carried no
-      // seed, and no EVM key is derivable then.
-      let accountsToSave = walletAccounts;
-      if (mnemonic) {
-        accountsToSave = [];
-        for (const wa of walletAccounts) {
-          if (wa.hdIndex < 0) {
-            accountsToSave.push(wa);
-            continue;
-          }
-          const evmKey = deriveEvmKeyPair(mnemonic, wa.type, wa.hdIndex);
-          await persistEvmKey(vaultKey, evmKey.address, evmKey.privateKeyHex);
-          accountsToSave.push({ ...wa, evmAddress: evmKey.address });
+      // encrypted key blobs (the encrypted file carries account records only, so
+      // blobs must be re-derived on every import). A file with no phrase carries
+      // no HD account - the guard above refuses that pairing - so this loop simply
+      // has nothing to derive in that case.
+      const accountsToSave: WalletAccount[] = [];
+      for (const wa of walletAccounts) {
+        if (wa.hdIndex < 0) {
+          accountsToSave.push(wa);
+          continue;
         }
+        const evmKey = deriveEvmKeyPair(mnemonic, wa.type, wa.hdIndex);
+        await persistEvmKey(vaultKey, evmKey.address, evmKey.privateKeyHex);
+        accountsToSave.push({ ...wa, evmAddress: evmKey.address });
       }
 
       await encryptAndSaveMany(
         [
           [checkStrgKey, generateCheck()],
-          [mnemonicStrgKey, mnemonic ?? ''],
+          [mnemonicStrgKey, mnemonic],
           [accountsStrgKey, accountsToSave]
         ],
         vaultKey
       );
       await savePlain(currentAccPubKeyStrgKey, accountsToSave[0]!.publicKey);
-      await savePlain(ownMnemonicStrgKey, true);
+      // A restore from a file with no phrase does not own a mnemonic, and saying it
+      // does offers the user a reveal and a backup that can only ever fail.
+      await savePlain(ownMnemonicStrgKey, mnemonic !== '');
 
       return spawned;
-    }).catch(error => {
+    }).catch(async error => {
       spawned?.retire();
+      // Returns the profile to what the restore started from. clearStorage(false)
+      // is the same call the restore opens with, so it takes the protector and any
+      // other plain key this attempt wrote and leaves the transactions table alone.
+      // Guarded, so a failure before the protector existed cannot wipe a profile
+      // this restore never touched.
+      if (protectorInstalled) await clearStorage(false);
       throw error;
     });
   }
@@ -1090,6 +1194,18 @@ export class Vault {
       }
       hdAccIndex = accounts.length;
       console.log('[Vault.createHDAccount] Step 4: hdAccIndex =', hdAccIndex);
+
+      // A vault with no seed cannot derive an account. An encrypted-file restore
+      // whose accounts are all imported stores '' here, and deriving from it would
+      // run mnemonicToSeedSync('') - the same fixed value on every device - so the
+      // new account's key would not be secret and anything sent to it could be
+      // taken by anyone. The EVM sibling below and the two other readers of this
+      // key (migrateLegacyGuardianAccounts, backfillEvmAddresses) already refuse
+      // this state; this is the site that did not.
+      if (!mnemonic) {
+        console.error('[Vault.createHDAccount] refused: this wallet has no seed phrase to derive from');
+        throw new PublicError('This wallet has no seed phrase, so it cannot create a new account');
+      }
 
       const walletSeed = deriveClientSeed(walletType, mnemonic, hdAccIndex);
 
@@ -1197,9 +1313,11 @@ export class Vault {
 
       const accName = name || getNewAccountName(allAccounts);
 
-      // Wallet-derived EVM identity. Skipped when the vault has no real
-      // mnemonic (encrypted-file imports may store '').
-      const evmKey = mnemonic ? deriveEvmKeyPair(mnemonic, walletType, hdAccIndex) : undefined;
+      // Wallet-derived EVM identity. The guard at the top of this function refuses
+      // a seedless vault outright, so there is no no-seed arm here: a stale comment
+      // claiming this function tolerates an empty mnemonic is what let the Miden
+      // derivation above go unguarded in the first place.
+      const evmKey = deriveEvmKeyPair(mnemonic, walletType, hdAccIndex);
 
       const newAccount: WalletAccount = {
         type: walletType,
@@ -1208,7 +1326,7 @@ export class Vault {
         isPublic: walletType === WalletType.OnChain,
         hdIndex: hdAccIndex,
         authScheme: newScheme,
-        ...(evmKey && { evmAddress: evmKey.address }),
+        evmAddress: evmKey.address,
         ...(created.guardianEndpoint && { guardianEndpoint: created.guardianEndpoint }),
         ...(created.guardianKeys && {
           hotPublicKey: created.guardianKeys.hotPublicKey,
@@ -1229,9 +1347,7 @@ export class Vault {
       if (created.guardianKeys) {
         await persistGuardianKeys(this.vaultKey, created.guardianKeys);
       }
-      if (evmKey) {
-        await persistEvmKey(this.vaultKey, evmKey.address, evmKey.privateKeyHex);
-      }
+      await persistEvmKey(this.vaultKey, evmKey.address, evmKey.privateKeyHex);
 
       return newAllAcounts;
     });
@@ -1937,8 +2053,7 @@ export class Vault {
 
     return withError('Failed to reveal seed phrase', async () => {
       const mnemonic = await fetchAndDecryptOneWithLegacyFallBack<string>(mnemonicStrgKey, vaultKey);
-      const mnemonicPattern = /^(\b\w+\b\s?){12}$/;
-      if (!mnemonicPattern.test(mnemonic)) {
+      if (!MNEMONIC_PATTERN.test(mnemonic)) {
         throw new PublicError('Mnemonic does not match the expected pattern');
       }
       return mnemonic;

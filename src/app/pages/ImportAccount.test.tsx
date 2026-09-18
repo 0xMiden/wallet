@@ -130,12 +130,18 @@ it('clears the clipboard when a secret is pasted', () => {
 
 it('shows an import failure without navigating or logging the secret', async () => {
   mockImportAccount.mockRejectedValue(new Error('Invalid private key'));
+  const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
   render(<ImportAccount />);
 
   fireEvent.change(screen.getByLabelText('privateKey'), { target: { value: 'secret-value' } });
   fireEvent.submit(screen.getByTestId('import-account-form'));
 
-  expect(await screen.findByRole('alert')).toHaveTextContent('error: Invalid private key');
+  // The backend sentence is untranslated, so the screen shows its own copy and
+  // keeps the cause in the log.
+  expect(await screen.findByRole('alert')).toHaveTextContent('error: smthWentWrong');
+  expect(consoleErrorSpy).toHaveBeenCalled();
+  expect(JSON.stringify(consoleErrorSpy.mock.calls)).not.toContain('secret-value');
+  consoleErrorSpy.mockRestore();
   expect(mockUpdateCurrentAccount).not.toHaveBeenCalled();
   expect(navigate).not.toHaveBeenCalled();
   expect(screen.queryByText('secret-value')).not.toBeInTheDocument();

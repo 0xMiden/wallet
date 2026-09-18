@@ -7,10 +7,9 @@ import { useTranslation } from 'react-i18next';
 import { ActivitySpinner } from 'app/atoms/ActivitySpinner';
 import { Icon, IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
-import { CURRENT_BACKUP_FORMAT_VERSION } from 'lib/miden/backup-file';
+import { CURRENT_BACKUP_FORMAT_VERSION, parseImportedAccountBackupFailure } from 'lib/miden/backup-file';
 import { useMidenContext } from 'lib/miden/front';
 import { deriveKey, encrypt, encryptJson, generateKey, generateSalt } from 'lib/miden/passworder';
-import { exportDb } from 'lib/miden/repo';
 import { isMobile } from 'lib/platform';
 import { EncryptedWalletFile, ENCRYPTED_WALLET_FILE_PASSWORD_CHECK, DecryptedWalletFile } from 'screens/shared';
 
@@ -57,16 +56,26 @@ const ExportFileComplete: React.FC<ExportFileCompleteProps> = ({ filePassword, f
 
   const getExportFile = useCallback(async () => {
     const backupMaterial = await exportWalletBackupMaterial(walletPassword).catch(error => {
-      const publicMessage = error instanceof Error ? error.message : '';
-      if (!publicMessage) throw new BackupSnapshotError(t('encryptedWalletFileExportFailedDesc'));
-      throw new BackupSnapshotError(publicMessage);
+      // A backend message is never shown: it is untranslated and can carry
+      // internal detail. Only the one failure the user can act on is named, and
+      // it travels as a code plus the account name.
+      // The cause never reaches the user, but it is the only thing that says why
+      // an export refused to run, so it is logged before it is replaced.
+      console.error('Encrypted wallet file snapshot failed:', error);
+      const accountName = error instanceof Error ? parseImportedAccountBackupFailure(error.message) : null;
+      throw new BackupSnapshotError(
+        accountName
+          ? t('encryptedWalletFileExportFailedAccount', { accountName })
+          : t('encryptedWalletFileExportFailedDesc')
+      );
     });
-    const walletDbDump = await exportDb();
-
+    // The accounts and the miden-client dump come from the backend's one
+    // serialized turn, so they cannot describe two different wallets. The wallet
+    // transaction dump is taken after that turn on purpose: it is display history
+    // and nothing in the restore checks it against the accounts.
     const filePayload: DecryptedWalletFile = {
       ...backupMaterial,
-      formatVersion: CURRENT_BACKUP_FORMAT_VERSION,
-      walletDbContent: walletDbDump
+      formatVersion: CURRENT_BACKUP_FORMAT_VERSION
     };
 
     const salt = generateSalt();

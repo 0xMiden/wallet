@@ -2,6 +2,8 @@ import React from 'react';
 
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
+import { importedAccountBackupFailure } from 'lib/miden/backup-file';
+
 import ExportFileComplete, { ExportFileCompleteProps } from './ExportFileComplete';
 
 // ---------------------------------------------------------------------------
@@ -9,10 +11,13 @@ import ExportFileComplete, { ExportFileCompleteProps } from './ExportFileComplet
 // ---------------------------------------------------------------------------
 
 // `react-i18next` pulls in the full i18n runtime; stub `useTranslation` so
-// `t(key)` echoes the key back.
+// `t(key)` echoes the key back, with any interpolation argument folded in, so a
+// test can assert the one detail the failure copy carries: which account could
+// not be backed up.
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (key: string) => key
+    t: (key: string, options?: Record<string, unknown>) =>
+      options?.accountName === undefined ? key : `${key}:${String(options.accountName)}`
   })
 }));
 
@@ -129,6 +134,7 @@ describe('ExportFileComplete', () => {
     mockExportWalletBackupMaterial.mockResolvedValue({
       seedPhrase: 'seed words twelve',
       midenClientDbContent: 'MIDEN_DB_DUMP',
+      walletDbContent: 'WALLET_DB_DUMP',
       accounts: mockAccounts,
       importedAccounts: []
     });
@@ -221,6 +227,7 @@ describe('ExportFileComplete', () => {
     mockExportWalletBackupMaterial.mockResolvedValueOnce({
       seedPhrase: 'seed words twelve',
       midenClientDbContent: 'MIDEN_DB_DUMP',
+      walletDbContent: 'WALLET_DB_DUMP',
       accounts: mockAccounts,
       importedAccounts: [
         { accountId: 'imported-a', publicKeyCommitment: 'a1b2', authScheme: 'falcon', secretKeyHex: '0102' },
@@ -259,6 +266,7 @@ describe('ExportFileComplete', () => {
     mockExportWalletBackupMaterial.mockResolvedValueOnce({
       seedPhrase: 'seed words twelve',
       midenClientDbContent: 'MIDEN_DB_DUMP',
+      walletDbContent: 'WALLET_DB_DUMP',
       accounts: mockAccounts,
       importedAccounts
     });
@@ -268,7 +276,9 @@ describe('ExportFileComplete', () => {
     await waitFor(() => expect(mockEncryptJson).toHaveBeenCalled());
 
     expect(mockExportWalletBackupMaterial).toHaveBeenCalledWith('wallet-pass');
-    expect(mockExportDb).toHaveBeenCalledTimes(1);
+    // The wallet dump travels with the snapshot, so the screen takes none of its
+    // own: a second read here would be a second point in time in one file.
+    expect(mockExportDb).not.toHaveBeenCalled();
     expect(mockRevealMnemonic).not.toHaveBeenCalled();
     expect(mockGetMidenClient).not.toHaveBeenCalled();
 
@@ -305,6 +315,7 @@ describe('ExportFileComplete', () => {
     mockExportWalletBackupMaterial.mockResolvedValueOnce({
       seedPhrase: 'seed words twelve',
       midenClientDbContent: 'MIDEN_DB_DUMP',
+      walletDbContent: 'WALLET_DB_DUMP',
       accounts,
       importedAccounts
     });
@@ -427,8 +438,10 @@ describe('ExportFileComplete', () => {
   // -------------------------------------------------------------------------
 
   it('replaces the success screen with a failure screen when the export throws', async () => {
+    // A failure AFTER the snapshot: the dump now travels with it, so the
+    // serialization that can still throw here is the file encryption.
     const error = new Error('Do not know how to serialize a BigInt');
-    mockExportDb.mockRejectedValue(error);
+    mockEncryptJson.mockRejectedValue(error);
     const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
 
     renderComponent();
@@ -445,14 +458,15 @@ describe('ExportFileComplete', () => {
   });
 
   it('creates no download or share result when the authenticated snapshot fails', async () => {
-    const message = 'Imported Account could not be backed up. Repair or remove this account and try again.';
-    mockExportWalletBackupMaterial.mockRejectedValueOnce(new Error(message));
+    // The backend names the one account the user can act on through a code; the
+    // screen localizes it and never renders the backend's own text.
+    mockExportWalletBackupMaterial.mockRejectedValueOnce(new Error(importedAccountBackupFailure('Imported Account')));
     const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
 
     renderComponent();
     await screen.findByText('encryptedWalletFileExportFailedTitle');
 
-    expect(screen.getByText(message)).toBeInTheDocument();
+    expect(screen.getByText('encryptedWalletFileExportFailedAccount:Imported Account')).toBeInTheDocument();
     expect(mockExportDb).not.toHaveBeenCalled();
     expect(global.URL.createObjectURL).not.toHaveBeenCalled();
     expect(mockWriteFile).not.toHaveBeenCalled();
@@ -461,8 +475,20 @@ describe('ExportFileComplete', () => {
     consoleErrorSpy.mockRestore();
   });
 
+  it('shows the generic failure description for a backend error it cannot name', async () => {
+    mockExportWalletBackupMaterial.mockRejectedValueOnce(new Error('recursive use of an object'));
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    renderComponent();
+    await screen.findByText('encryptedWalletFileExportFailedTitle');
+
+    expect(screen.getByText('encryptedWalletFileExportFailedDesc')).toBeInTheDocument();
+    expect(screen.queryByText('recursive use of an object')).not.toBeInTheDocument();
+    consoleErrorSpy.mockRestore();
+  });
+
   it('still offers a way out of the failure screen', async () => {
-    mockExportDb.mockRejectedValue(new Error('quota exceeded'));
+    mockExportWalletBackupMaterial.mockRejectedValue(new Error('quota exceeded'));
     const onDone = jest.fn();
     const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
 

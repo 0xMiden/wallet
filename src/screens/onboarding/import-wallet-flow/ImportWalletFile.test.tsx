@@ -59,6 +59,8 @@ const mockImportStore = jest.fn();
 const mockImportDb = jest.fn();
 const mockStoreIdentifier = jest.fn();
 const mockGetMidenClient = jest.fn();
+const mockWithWasmClientLock = jest.fn();
+const mockAssertWasmHoldCurrent = jest.fn();
 const mockGenerateKey = jest.fn();
 const mockDeriveKey = jest.fn();
 const mockDecrypt = jest.fn();
@@ -86,12 +88,6 @@ jest.mock('react-hook-form', () => ({
   })
 }));
 
-jest.mock('@miden-sdk/react/lazy', () => ({
-  useImportStore: () => ({
-    importStore: (...args: unknown[]) => mockImportStore(...args)
-  })
-}));
-
 jest.mock('lib/miden/passworder', () => ({
   generateKey: (...args: unknown[]) => mockGenerateKey(...args),
   deriveKey: (...args: unknown[]) => mockDeriveKey(...args),
@@ -106,11 +102,13 @@ jest.mock('lib/miden/repo', () => ({
   importDb: (...args: unknown[]) => mockImportDb(...args)
 }));
 
-// The restore must write the miden-client dump into the same IndexedDB store
-// the active client reads from. That store name comes from the client's
-// `storeIdentifier()`, so mock `getMidenClient` to hand back a deterministic one.
+// The restore replaces the store the active client has open, so it goes through
+// the client interface under the realm's WASM lock. The lock is mocked so the
+// test can assert it was taken, with a label, before any client call.
 jest.mock('lib/miden/sdk/miden-client', () => ({
-  getMidenClient: (...args: unknown[]) => mockGetMidenClient(...args)
+  getMidenClient: (...args: unknown[]) => mockGetMidenClient(...args),
+  withWasmClientLock: (...args: unknown[]) => mockWithWasmClientLock(...args),
+  assertWasmHoldCurrent: (...args: unknown[]) => mockAssertWasmHoldCurrent(...args)
 }));
 
 jest.mock('app/icons/v2', () => ({
@@ -161,8 +159,9 @@ jest.mock('app/atoms/FormSubmitButton', () => {
 // ---------------------------------------------------------------------------
 // FileReader fake - drives processFiles' onload/onerror synchronously.
 // ---------------------------------------------------------------------------
-type ReaderJob = { mode: 'load' | 'error'; content?: string };
+type ReaderJob = { mode: 'load' | 'error'; content?: string; deferred?: boolean };
 let fileReaderQueue: ReaderJob[] = [];
+let pendingReads: Array<() => void> = [];
 const OriginalFileReader = global.FileReader;
 
 class FakeFileReader {
@@ -172,12 +171,22 @@ class FakeFileReader {
 
   readAsArrayBuffer(_file: unknown) {
     const job = fileReaderQueue.shift() ?? { mode: 'load', content: '{}' };
-    if (job.mode === 'error') {
-      this.onerror?.();
+    const settle = () => {
+      if (job.mode === 'error') {
+        this.onerror?.();
+        return;
+      }
+      this.result = new TextEncoder().encode(job.content ?? '{}').buffer;
+      this.onload?.();
+    };
+    // A real read is asynchronous, so a `deferred` job hands the settling back to
+    // the test. Without it two reads can never overlap here and the staleness
+    // guards on onload/onerror are untestable.
+    if (job.deferred) {
+      pendingReads.push(settle);
       return;
     }
-    this.result = new TextEncoder().encode(job.content ?? '{}').buffer;
-    this.onload?.();
+    settle();
   }
 }
 
@@ -201,7 +210,7 @@ const VALID_ACCOUNT = {
 
 const VERSION_TWO_PAYLOAD: DecryptedWalletFile = {
   formatVersion: 2,
-  seedPhrase: 'seed phrase words',
+  seedPhrase: 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about',
   midenClientDbContent: 'miden-client-db',
   walletDbContent: 'wallet-db',
   accounts: [VALID_ACCOUNT],
@@ -216,10 +225,10 @@ const getDropzone = (container: HTMLElement) => container.querySelector('.border
 const getFileInput = (container: HTMLElement) => container.querySelector('input[type="file"]') as HTMLInputElement;
 
 // Upload via the hidden <input>'s change event (exercises `onUploadFile`).
-const uploadViaInput = (container: HTMLElement, fileName: string, job?: ReaderJob) => {
+const uploadViaInput = (container: HTMLElement, fileName: string, job?: ReaderJob, size = 1_024) => {
   if (job) fileReaderQueue.push(job);
   const input = getFileInput(container);
-  Object.defineProperty(input, 'files', { value: [{ name: fileName }], configurable: true });
+  Object.defineProperty(input, 'files', { value: [{ name: fileName, size }], configurable: true });
   fireEvent.change(input);
 };
 
@@ -235,6 +244,7 @@ let consoleErrorSpy: jest.SpyInstance;
 beforeEach(() => {
   jest.clearAllMocks();
   fileReaderQueue = [];
+  pendingReads = [];
   mockWatchPassword = 'pw';
   mockFormState = { errors: {}, isSubmitting: false, isValid: true };
 
@@ -245,7 +255,9 @@ beforeEach(() => {
   mockImportStore.mockResolvedValue(undefined);
   mockImportDb.mockResolvedValue(undefined);
   mockStoreIdentifier.mockResolvedValue('MidenClientDB_mtst');
-  mockGetMidenClient.mockResolvedValue({ client: { storeIdentifier: mockStoreIdentifier } });
+  mockGetMidenClient.mockResolvedValue({ importDb: mockImportStore, client: { storeIdentifier: mockStoreIdentifier } });
+  mockWithWasmClientLock.mockImplementation(async (run: (hold: unknown) => Promise<unknown>) => run({ id: 'hold' }));
+  mockAssertWasmHoldCurrent.mockImplementation(() => undefined);
 
   (global as unknown as { FileReader: unknown }).FileReader = FakeFileReader as unknown;
   alertSpy = jest.spyOn(window, 'alert').mockImplementation(() => undefined);
@@ -548,8 +560,146 @@ describe('decryption flow', () => {
     expect(mockDeriveKey).toHaveBeenCalledWith('pass-key', new Uint8Array([10, 20, 30]));
     expect(mockDecrypt).toHaveBeenCalledWith({ dt: 'check-dt', iv: 'check-iv' }, 'derived-key');
     expect(mockDecryptJson).toHaveBeenCalledWith({ dt: 'payload-dt', iv: 'payload-iv' }, 'derived-key');
-    expect(mockImportStore).toHaveBeenCalledWith('miden-client-db', 'MidenClientDB_mtst');
+    expect(mockImportStore).toHaveBeenCalledWith('miden-client-db');
     expect(mockImportDb).toHaveBeenCalledWith('wallet-db');
+  });
+
+  it('refuses a file too large to be a backup before reading it', async () => {
+    const { container } = renderScreen();
+
+    // 64 MiB + 1: decoding and parsing happen on the UI thread, so the size is
+    // checked before FileReader is constructed at all.
+    uploadViaInput(container, 'huge.json', undefined, 64 * 1024 * 1024 + 1);
+
+    expect(alertSpy).toHaveBeenCalledWith('encryptedWalletFileTooLarge');
+    expect(fileReaderQueue).toHaveLength(0);
+    expect(screen.queryByText('huge.json')).not.toBeInTheDocument();
+  });
+
+  it('holds the lane from the first submit, before decryption finishes', async () => {
+    const onSubmit = jest.fn();
+    let finishDerive!: (key: string) => void;
+    mockDeriveKey.mockImplementationOnce(() => new Promise<string>(resolve => (finishDerive = resolve)));
+    const { container } = renderScreen({ onSubmit });
+    loadFile(container);
+
+    await submit(container);
+    // The second submit arrives while key derivation is still running, which is
+    // the longest part of the handler and was outside the lane before.
+    await submit(container);
+    await act(async () => finishDerive('derived-key'));
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    expect(mockDeriveKey).toHaveBeenCalledTimes(1);
+    expect(mockImportStore).toHaveBeenCalledTimes(1);
+  });
+
+  it('runs one restore at a time, whichever way the form is submitted', async () => {
+    const onSubmit = jest.fn();
+    let finishImport!: () => void;
+    mockImportStore.mockImplementationOnce(() => new Promise<void>(resolve => (finishImport = resolve)));
+    const { container } = renderScreen({ onSubmit });
+    loadFile(container);
+
+    await submit(container);
+    // Enter in the password field submits the form again while the first
+    // restore is still replacing both databases.
+    await submit(container);
+    await act(async () => finishImport());
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    expect(mockImportStore).toHaveBeenCalledTimes(1);
+    expect(mockImportDb).toHaveBeenCalledTimes(1);
+  });
+
+  it('abandons a restore whose file was cleared while it was still decrypting', async () => {
+    const onSubmit = jest.fn();
+    let finishDerive!: (key: string) => void;
+    mockDeriveKey.mockImplementationOnce(() => new Promise<string>(resolve => (finishDerive = resolve)));
+    const { container } = renderScreen({ onSubmit });
+    loadFile(container);
+    await submit(container);
+
+    fireEvent.click(screen.getByRole('button', { name: 'clear' }));
+    await act(async () => finishDerive('derived-key'));
+
+    expect(mockImportStore).not.toHaveBeenCalled();
+    expect(mockImportDb).not.toHaveBeenCalled();
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it('does not advance onboarding after the screen is left', async () => {
+    // Back out of the step and the restore keeps running; it must not pull the
+    // user into the confirmation screen for the file they just abandoned.
+    const onSubmit = jest.fn();
+    let finishStoreSwap!: () => void;
+    mockImportStore.mockImplementationOnce(() => new Promise<void>(resolve => (finishStoreSwap = resolve)));
+    const { container, unmount } = renderScreen({ onSubmit });
+    loadFile(container);
+    await submit(container);
+
+    unmount();
+    await act(async () => finishStoreSwap());
+
+    expect(mockImportDb).not.toHaveBeenCalled();
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it('does not show a discarded file failure against the file staged after it', async () => {
+    const onSubmit = jest.fn();
+    let finishDerive!: (key: string) => void;
+    mockDeriveKey.mockImplementationOnce(() => new Promise<string>(resolve => (finishDerive = resolve)));
+    const { container } = renderScreen({ onSubmit });
+    loadFile(container);
+    await submit(container);
+
+    fireEvent.click(screen.getByRole('button', { name: 'clear' }));
+    loadFile(container);
+    // Only now does the discarded file's key derivation finish, and its password
+    // check fails. That verdict belongs to a file the user already discarded.
+    mockDecrypt.mockResolvedValueOnce('not-the-check-value');
+    await act(async () => finishDerive('derived-key'));
+
+    expect(screen.queryByText('incorrectPassword')).not.toBeInTheDocument();
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it('stops writing when the file is cleared mid-restore, and holds the lane until that run ends', async () => {
+    const onSubmit = jest.fn();
+    let finishStoreSwap!: () => void;
+    mockImportStore.mockImplementationOnce(() => new Promise<void>(resolve => (finishStoreSwap = resolve)));
+    const { container } = renderScreen({ onSubmit });
+    loadFile(container);
+    await submit(container);
+
+    fireEvent.click(screen.getByRole('button', { name: 'clear' }));
+    // A second file cannot start while the discarded restore is still writing,
+    // and the button says so rather than swallowing the press.
+    loadFile(container);
+    expect(screen.getByTestId('submit-button')).toBeDisabled();
+    expect(screen.getByTestId('submit-button')).toHaveAttribute('data-loading', 'true');
+    await submit(container);
+    await act(async () => finishStoreSwap());
+
+    expect(mockImportStore).toHaveBeenCalledTimes(1);
+    expect(mockImportDb).not.toHaveBeenCalled();
+    expect(onSubmit).not.toHaveBeenCalled();
+    // The lane is released when that run ends, so the staged file can be restored.
+    expect(screen.getByTestId('submit-button')).toBeEnabled();
+  });
+
+  it('does not advance onboarding with a file cleared while its restore was running', async () => {
+    const onSubmit = jest.fn();
+    let finishImport!: () => void;
+    mockImportStore.mockImplementationOnce(() => new Promise<void>(resolve => (finishImport = resolve)));
+    const { container } = renderScreen({ onSubmit });
+    loadFile(container);
+    await submit(container);
+
+    fireEvent.click(screen.getByRole('button', { name: 'clear' }));
+    await act(async () => finishImport());
+
+    expect(onSubmit).not.toHaveBeenCalled();
   });
 
   it('keeps versioned imported account bindings inside the parsed payload', async () => {
@@ -572,21 +722,110 @@ describe('decryption flow', () => {
     expect(onSubmit).toHaveBeenCalledTimes(1);
   });
 
-  it('restores the miden-client dump into the active client store name, not the hardcoded "miden-wallet"', async () => {
-    // Regression for #253: the export path writes the dump into the client's
-    // own store (`storeIdentifier()` -> `MidenClientDB_<network>`), so the
-    // restore must target that exact store or the running client keeps reading
-    // its empty DB and balances stay 0.
+  it('lets the same file be chosen again after Clear', async () => {
+    // The picker raises no change event for an unchanged value, so a screen that
+    // keeps the old value silently ignores the most common retry there is.
+    const { container } = renderScreen({});
+    loadFile(container);
+    expect(screen.getByText('wallet.json')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'clear' }));
+
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+    expect(input.value).toBe('');
+  });
+
+  it('does not stage a file whose read the user has already superseded', async () => {
+    // The onload guard's own branch: a slow SUCCESSFUL read for a file the user
+    // replaced must not stage itself over the newer selection.
+    const { container } = renderScreen({});
+    fileReaderQueue.push({ mode: 'load', content: VALID_WALLET_JSON, deferred: true });
+    uploadViaInput(container, 'first.json');
+    fileReaderQueue.push({ mode: 'load', content: VALID_WALLET_JSON });
+    uploadViaInput(container, 'second.json');
+
+    await act(async () => {
+      pendingReads.forEach(settle => settle());
+    });
+
+    expect(screen.getByText('second.json')).toBeInTheDocument();
+    expect(screen.queryByText('first.json')).not.toBeInTheDocument();
+  });
+
+  it('stops before the store swap when the file is cleared during the client build', async () => {
+    // The first gate inside importParsedWallet: the client build is the longest
+    // parking await before anything is written.
     const onSubmit = jest.fn();
-    mockStoreIdentifier.mockResolvedValue('MidenClientDB_mtst');
+    let finishClientBuild!: () => void;
+    mockGetMidenClient.mockImplementationOnce(
+      () =>
+        new Promise(resolve => {
+          finishClientBuild = () =>
+            resolve({ importDb: mockImportStore, client: { storeIdentifier: mockStoreIdentifier } });
+        })
+    );
+    const { container } = renderScreen({ onSubmit });
+    loadFile(container);
+    await submit(container);
+
+    fireEvent.click(screen.getByRole('button', { name: 'clear' }));
+    await act(async () => finishClientBuild());
+
+    expect(mockImportStore).not.toHaveBeenCalled();
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it('does not advance onboarding when the file is cleared during the wallet-db import', async () => {
+    // The last gate: both databases have been written by now, so the only thing
+    // left to withhold is the onboarding advance.
+    const onSubmit = jest.fn();
+    let finishWalletDb!: () => void;
+    mockImportDb.mockImplementationOnce(() => new Promise<void>(resolve => (finishWalletDb = resolve)));
+    const { container } = renderScreen({ onSubmit });
+    loadFile(container);
+    await submit(container);
+
+    await waitFor(() => expect(mockImportDb).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole('button', { name: 'clear' }));
+    await act(async () => finishWalletDb());
+
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it('does not alert for a read the user has already superseded', async () => {
+    // A real read is asynchronous: select one file, pick another before the first
+    // settles, and the first file's failure belongs to nobody.
+    const alertSpy = jest.spyOn(window, 'alert').mockImplementation(() => {});
+    const { container } = renderScreen({});
+    fileReaderQueue.push({ mode: 'error', deferred: true });
+    uploadViaInput(container, 'first.json');
+    fileReaderQueue.push({ mode: 'load', content: VALID_WALLET_JSON });
+    uploadViaInput(container, 'second.json');
+
+    await act(async () => {
+      pendingReads.forEach(settle => settle());
+    });
+
+    expect(alertSpy).not.toHaveBeenCalledWith('encryptedWalletFileReadFailed');
+    alertSpy.mockRestore();
+  });
+
+  it('restores the miden-client dump through the client interface, inside the realm lock', async () => {
+    // Regression for #253: the dump belongs in the client's OWN store, so the
+    // restore goes through the interface that owns the store name rather than
+    // naming one itself. Asserting the labelled hold is what pins that: a
+    // component that imported into a literal store name would not take it.
+    const onSubmit = jest.fn();
     const { container } = renderScreen({ onSubmit });
     loadFile(container);
 
     await submit(container);
 
     await waitFor(() => expect(mockImportStore).toHaveBeenCalled());
-    expect(mockImportStore).toHaveBeenCalledWith('miden-client-db', 'MidenClientDB_mtst');
-    expect(mockImportStore).not.toHaveBeenCalledWith('miden-client-db', 'miden-wallet');
+    expect(mockImportStore).toHaveBeenCalledWith('miden-client-db');
+    expect(mockWithWasmClientLock).toHaveBeenCalledWith(expect.any(Function), {
+      label: 'onboarding-restore-import-store'
+    });
   });
 
   it('defaults filePassword to an empty string when the watched value is undefined', async () => {
@@ -604,7 +843,7 @@ describe('decryption flow', () => {
   it('completes a valid legacy payload directly when no imported accounts were omitted', async () => {
     const onSubmit = jest.fn();
     const legacyPayload: DecryptedWalletFile = {
-      seedPhrase: 'seed',
+      seedPhrase: 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about',
       midenClientDbContent: 'mc',
       walletDbContent: 'wd',
       accounts: [{ ...VALID_ACCOUNT, name: 'A' }]
@@ -745,7 +984,7 @@ describe('omitted-accounts two-step confirmation', () => {
   it('stages a pending restore, shows the notice, and completes on the second confirm click', async () => {
     const onSubmit = jest.fn();
     const legacyPayload: DecryptedWalletFile = {
-      seedPhrase: 'restored seed',
+      seedPhrase: 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about',
       midenClientDbContent: 'mc',
       walletDbContent: 'wd',
       accounts: [{ ...VALID_ACCOUNT, name: 'Kept' }],
@@ -776,7 +1015,7 @@ describe('omitted-accounts two-step confirmation', () => {
     await submit(container);
 
     await waitFor(() => expect(onSubmit).toHaveBeenCalledWith(legacyPayload));
-    expect(mockImportStore).toHaveBeenCalledWith('mc', 'MidenClientDB_mtst');
+    expect(mockImportStore).toHaveBeenCalledWith('mc');
     expect(mockImportDb).toHaveBeenCalledWith('wd');
     expect(mockGenerateKey).not.toHaveBeenCalled();
   });
@@ -785,7 +1024,7 @@ describe('omitted-accounts two-step confirmation', () => {
     mockFormState = { errors: {}, isSubmitting: false, isValid: false };
     const onSubmit = jest.fn();
     mockDecryptJson.mockResolvedValueOnce({
-      seedPhrase: 's',
+      seedPhrase: 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about',
       midenClientDbContent: 'mc',
       walletDbContent: 'wd',
       accounts: [VALID_ACCOUNT],

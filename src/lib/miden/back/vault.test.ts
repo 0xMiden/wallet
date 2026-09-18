@@ -2,6 +2,7 @@
 // In-memory storage adapter used by `safe-storage`. Mocked at module scope so
 // the real `safe-storage` code runs but writes/reads go to `memoryStore`.
 // ---------------------------------------------------------------------------
+import { importedAccountBackupFailure } from 'lib/miden/backup-file';
 import * as Passworder from 'lib/miden/passworder';
 import { ImportedAccountBackup, WalletAccount } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
@@ -64,6 +65,13 @@ const mockGetAccounts = jest.fn(async () => [] as any[]);
 const mockGetAccount = jest.fn(async (_id: string) => null as any);
 const mockSyncState = jest.fn(async () => {});
 const mockExportDb = jest.fn(async () => 'miden-db-dump');
+// The wallet transaction dump. Only this one export is mocked; every other
+// `lib/miden/repo` binding stays real so the Dexie-backed tests are unchanged.
+const mockRepoExportDb = jest.fn(async () => '{"transactions":[]}');
+jest.mock('lib/miden/repo', () => ({
+  ...jest.requireActual('lib/miden/repo'),
+  exportDb: (...args: unknown[]) => mockRepoExportDb(...(args as []))
+}));
 // `.client.accounts.insert` / `.client.keystore.insert` are the raw WASM
 // surface; `importAccountFromPrivateKey` calls these directly on the
 // `MidenClientInterface.client` field.
@@ -769,6 +777,7 @@ describe('Vault.exportWalletBackupMaterial', () => {
       seedPhrase: VALID_MNEMONIC,
       accounts: [hdAccount, importedAccount],
       midenClientDbContent: 'miden-db-dump',
+      walletDbContent: '{"transactions":[]}',
       importedAccounts: [
         {
           accountId: importedAccount.publicKey,
@@ -781,11 +790,165 @@ describe('Vault.exportWalletBackupMaterial', () => {
     expect(mockExportDb).toHaveBeenCalledTimes(1);
   });
 
+  it('refuses to write a record its own reader would reject', async () => {
+    // The writer and the reader are two schemas over one object. A record that
+    // fails the reader yields a file that decrypts and is then refused as invalid.
+    await seedVault('pw', { accounts: [{ ...hdAccount, name: '' }] });
+
+    await expect(Vault.exportWalletBackupMaterial('pw')).rejects.toThrow(
+      'Wallet account records cannot be written to a backup file'
+    );
+    expect(mockExportDb).not.toHaveBeenCalled();
+  });
+
+  it('backs up a seed-removed wallet whose accounts are all imported', async () => {
+    // Local seed-phrase removal deletes the stored mnemonic outright. Reading an
+    // absent key throws, so without tolerating it these wallets hit a dead end.
+    await seedVault('pw', { accounts: [importedAccount] });
+    const seeded = await seedVault('pw', { accounts: [importedAccount] });
+    await seeded.insertKeySink(new Uint8Array([0xa1, 0xb2]), new Uint8Array([1, 2, 3, 4]));
+    const { removeMany } = require('./safe-storage');
+    await removeMany([keys.mnemonic]);
+    mockMidenClient.getAccount.mockResolvedValueOnce(sdkAccount());
+
+    await expect(Vault.exportWalletBackupMaterial('pw')).resolves.toEqual(expect.objectContaining({ seedPhrase: '' }));
+  });
+
+  it('refuses to back up a seed-removed wallet that still has a derived account', async () => {
+    // An HD account's key is re-derived from the seed and is not carried in the
+    // file, so writing one would produce a backup this wallet would later refuse.
+    await seedVault('pw', { accounts: [hdAccount] });
+    const { removeMany } = require('./safe-storage');
+    await removeMany([keys.mnemonic]);
+
+    await expect(Vault.exportWalletBackupMaterial('pw')).rejects.toThrow(
+      'Wallet has no seed phrase to back up its derived accounts'
+    );
+    expect(mockExportDb).not.toHaveBeenCalled();
+  });
+
+  it('refuses to write a file whose stored seed phrase is not a usable one', async () => {
+    // The old exporter read the seed through revealMnemonic, so its pattern gated
+    // every file written. Reading the stored value directly must not lose that:
+    // such a file restores into a wallet that can never reveal its seed.
+    await seedVault('pw', { mnemonic: 'abandon abandon abandon', accounts: [hdAccount, importedAccount] });
+
+    await expect(Vault.exportWalletBackupMaterial('pw')).rejects.toThrow(
+      'Mnemonic does not match the expected pattern'
+    );
+    expect(mockExportDb).not.toHaveBeenCalled();
+  });
+
+  it('captures every member of the snapshot in one turn of the accounts write queue', async () => {
+    // An account write landing between the accounts read and either dump would
+    // produce a file describing two different wallets. Park the export inside its
+    // own turn and no later queue entry may run.
+    const { getAccountsWriteQueue } = require('lib/miden/back/accounts-write-queue');
+    await seedImportedSecret();
+    mockMidenClient.getAccount.mockResolvedValueOnce(sdkAccount());
+    let releaseExport!: () => void;
+    mockExportDb.mockImplementationOnce(
+      () => new Promise<string>(resolve => (releaseExport = () => resolve('miden-db-dump')))
+    );
+
+    const pending = Vault.exportWalletBackupMaterial('pw');
+    // Deterministic: wait until the export has actually reached its dump rather
+    // than for a fixed delay.
+    while (releaseExport === undefined) await new Promise(resolve => setTimeout(resolve, 1));
+
+    let laterWriteRan = false;
+    const laterWrite = getAccountsWriteQueue().add(() => {
+      laterWriteRan = true;
+    });
+    await new Promise(resolve => setTimeout(resolve, 1));
+    expect(laterWriteRan).toBe(false);
+
+    releaseExport();
+    await expect(pending).resolves.toEqual(expect.objectContaining({ midenClientDbContent: 'miden-db-dump' }));
+    await laterWrite;
+    expect(laterWriteRan).toBe(true);
+  });
+
+  it('releases that queue before dumping the wallet transactions', async () => {
+    // The queue is also the unlock queue, and nothing cross-checks transactions
+    // against the accounts, so this dump must not extend the turn.
+    const { getAccountsWriteQueue } = require('lib/miden/back/accounts-write-queue');
+    await seedImportedSecret();
+    mockMidenClient.getAccount.mockResolvedValueOnce(sdkAccount());
+    let releaseWalletDump!: () => void;
+    const walletDumpStarted = new Promise<void>(started => {
+      mockRepoExportDb.mockImplementationOnce(
+        () =>
+          new Promise<string>(resolve => {
+            releaseWalletDump = () => resolve('{"transactions":[]}');
+            started();
+          })
+      );
+    });
+
+    const pending = Vault.exportWalletBackupMaterial('pw');
+    await walletDumpStarted;
+
+    let laterWriteRan = false;
+    const laterWrite = getAccountsWriteQueue().add(() => {
+      laterWriteRan = true;
+    });
+    await laterWrite;
+    expect(laterWriteRan).toBe(true);
+
+    releaseWalletDump();
+    await expect(pending).resolves.toEqual(expect.objectContaining({ walletDbContent: '{"transactions":[]}' }));
+  });
+
+  it('authenticates before it takes that queue, so a prompt cannot stall account writes', async () => {
+    // On mobile and desktop the authentication is a hardware prompt the user
+    // answers in their own time. A wrong password is refused here while the
+    // queue is still parked, which is only possible if the check ran outside it.
+    const { getAccountsWriteQueue } = require('lib/miden/back/accounts-write-queue');
+    await seedImportedSecret();
+    let releaseQueue!: () => void;
+    const parked = getAccountsWriteQueue().add(() => new Promise<void>(resolve => (releaseQueue = resolve)));
+
+    await expect(Vault.exportWalletBackupMaterial('wrong')).rejects.toThrow(PublicError);
+
+    releaseQueue();
+    await parked;
+  });
+
+  it.each([
+    { label: 'is not public', overrides: { isPublic: false } },
+    { label: 'is not an on-chain wallet', overrides: { type: WalletType.OffChain } }
+  ])('fails before reading the SDK store when the imported account $label', async ({ overrides }) => {
+    // The guard runs before getAccount, so a store read at all means it did not fire.
+    await seedVault('pw', { accounts: [hdAccount, { ...importedAccount, ...overrides }] });
+
+    await expect(Vault.exportWalletBackupMaterial('pw')).rejects.toThrow(
+      importedAccountBackupFailure(importedAccount.name)
+    );
+    expect(mockMidenClient.getAccount).not.toHaveBeenCalled();
+    expect(mockExportDb).not.toHaveBeenCalled();
+  });
+
+  it('fails before reading the secret when the SDK account answers a different id', async () => {
+    await seedImportedSecret();
+    mockMidenClient.getAccount.mockResolvedValueOnce({
+      ...sdkAccount(),
+      id: () => ({ __marker: 'another-account-id' })
+    });
+
+    await expect(Vault.exportWalletBackupMaterial('pw')).rejects.toThrow(
+      importedAccountBackupFailure(importedAccount.name)
+    );
+    expect(mockExportDb).not.toHaveBeenCalled();
+  });
+
   it('fails before returning a snapshot when the imported SDK account is absent', async () => {
     await seedImportedSecret();
     mockMidenClient.getAccount.mockResolvedValueOnce(null);
 
-    await expect(Vault.exportWalletBackupMaterial('pw')).rejects.toThrow(PublicError);
+    await expect(Vault.exportWalletBackupMaterial('pw')).rejects.toThrow(
+      importedAccountBackupFailure(importedAccount.name)
+    );
     expect(mockExportDb).not.toHaveBeenCalled();
   });
 
@@ -795,7 +958,9 @@ describe('Vault.exportWalletBackupMaterial', () => {
       await seedImportedSecret();
       mockMidenClient.getAccount.mockResolvedValueOnce(sdkAccount(commitments));
 
-      await expect(Vault.exportWalletBackupMaterial('pw')).rejects.toThrow(PublicError);
+      await expect(Vault.exportWalletBackupMaterial('pw')).rejects.toThrow(
+        importedAccountBackupFailure(importedAccount.name)
+      );
       expect(mockExportDb).not.toHaveBeenCalled();
     }
   );
@@ -804,7 +969,9 @@ describe('Vault.exportWalletBackupMaterial', () => {
     await seedVault('pw', { accounts: [hdAccount, importedAccount] });
     mockMidenClient.getAccount.mockResolvedValueOnce(sdkAccount());
 
-    await expect(Vault.exportWalletBackupMaterial('pw')).rejects.toThrow(PublicError);
+    await expect(Vault.exportWalletBackupMaterial('pw')).rejects.toThrow(
+      importedAccountBackupFailure(importedAccount.name)
+    );
     expect(mockExportDb).not.toHaveBeenCalled();
   });
 
@@ -816,7 +983,9 @@ describe('Vault.exportWalletBackupMaterial', () => {
       publicKey: jest.fn(() => ({ toCommitment: jest.fn(() => ({ toHex: jest.fn(() => '0xa1b2') })) }))
     } as any);
 
-    await expect(Vault.exportWalletBackupMaterial('pw')).rejects.toThrow(PublicError);
+    await expect(Vault.exportWalletBackupMaterial('pw')).rejects.toThrow(
+      importedAccountBackupFailure(importedAccount.name)
+    );
     expect(mockExportDb).not.toHaveBeenCalled();
   });
 
@@ -825,7 +994,9 @@ describe('Vault.exportWalletBackupMaterial', () => {
     mockMidenClient.getAccount.mockResolvedValueOnce(sdkAccount());
     mockDeserializedCommitment = 'ffff';
 
-    await expect(Vault.exportWalletBackupMaterial('pw')).rejects.toThrow(PublicError);
+    await expect(Vault.exportWalletBackupMaterial('pw')).rejects.toThrow(
+      importedAccountBackupFailure(importedAccount.name)
+    );
     expect(mockExportDb).not.toHaveBeenCalled();
   });
 
@@ -834,7 +1005,9 @@ describe('Vault.exportWalletBackupMaterial', () => {
     mockMidenClient.getAccount.mockResolvedValueOnce(sdkAccount());
     mockBuiltAccountIdMarker = 'different-account-id';
 
-    await expect(Vault.exportWalletBackupMaterial('pw')).rejects.toThrow(PublicError);
+    await expect(Vault.exportWalletBackupMaterial('pw')).rejects.toThrow(
+      importedAccountBackupFailure(importedAccount.name)
+    );
     expect(mockExportDb).not.toHaveBeenCalled();
   });
 });
@@ -1041,6 +1214,21 @@ describe('Vault.setGuardianOperatorCommitment / setGuardianSyncStatus', () => {
 });
 
 describe('Vault.createHDAccount', () => {
+  it('refuses to derive an account on a wallet that has no seed phrase', async () => {
+    // A restore whose accounts are all imported stores '' here. Deriving from it
+    // runs mnemonicToSeedSync(''), the same fixed value on every device, so the
+    // new account's key would not be secret: anything sent to it could be taken
+    // by anyone. Both the EVM sibling and the two other readers of this key
+    // already refuse this state.
+    const vault = await seedVault('pw', { mnemonic: '' });
+
+    await expect(vault.createHDAccount(WalletType.OnChain)).rejects.toThrow(
+      'This wallet has no seed phrase, so it cannot create a new account'
+    );
+    expect(mockMidenClient.createMidenWallet).not.toHaveBeenCalled();
+    expect(mockMidenClient.createGuardianMidenWallet).not.toHaveBeenCalled();
+  });
+
   it('appends a new on-chain account with a derived default name', async () => {
     const vault = await seedVault('pw');
     mockMidenClient.createMidenWallet.mockResolvedValueOnce('acc-pub-key-2');
@@ -1251,6 +1439,9 @@ describe('Vault.spawn', () => {
   });
 });
 
+const MALFORMED = 'Encrypted file contains malformed imported account data';
+const MISMATCHED = 'Encrypted file imported account secret does not match its account';
+
 describe('Vault.spawnFromMidenClient', () => {
   const importedWalletAccount: WalletAccount = {
     publicKey: 'bech32:imported-account-id',
@@ -1315,12 +1506,85 @@ describe('Vault.spawnFromMidenClient', () => {
     expect(mockKeystoreInsert).toHaveBeenCalledWith(account.id(), secret);
   });
 
+  it.each([
+    { label: 'is not public', overrides: { isPublic: false } },
+    { label: 'is not an on-chain wallet', overrides: { type: WalletType.OffChain } }
+  ])('rejects a version 2 restore whose imported account $label', async ({ overrides }) => {
+    // The export refuses to back such an account up, so a file claiming one was
+    // not written by this wallet; the restore refuses it before inserting a key.
+    const account = importedSdkAccount();
+    mockMidenClient.getAccounts.mockResolvedValueOnce([account]);
+    mockMidenClient.getAccount.mockResolvedValueOnce(account);
+
+    await expect(restoreVersionTwo([{ ...importedWalletAccount, ...overrides }])).rejects.toThrow(PublicError);
+    expect(mockKeystoreInsert).not.toHaveBeenCalled();
+  });
+
+  it('restores a phrase-less backup and records that the wallet owns no mnemonic', async () => {
+    // The success arm of the no-phrase file. Only the REJECTION arm was covered,
+    // so reverting ownMnemonic to a hardcoded true left the suite green.
+    const account = importedSdkAccount();
+    mockMidenClient.getAccounts.mockResolvedValueOnce([account]);
+    mockMidenClient.getAccount.mockResolvedValueOnce(account);
+
+    const vault = await Vault.spawnFromMidenClient('pw', '', [importedWalletAccount], 2, [importedBackup]);
+
+    expect(vault).toBeInstanceOf(Vault);
+    await expect(vault.isOwnMnemonic()).resolves.toBe(false);
+    expect(mockKeystoreInsert).toHaveBeenCalledWith(account.id(), expect.any(Object));
+    // No seed means nothing to derive an EVM identity from, so the stored record
+    // carries none.
+    const stored = await vault.fetchAccounts();
+    expect(stored.every(account => account.evmAddress === undefined)).toBe(true);
+  });
+
+  it('rejects a restore whose seed phrase is present but not a real phrase', async () => {
+    // The sibling arm. Both throw the SAME user-facing message, so only the logged
+    // reason can tell them apart, and an empty phrase does not satisfy this one.
+    const account = importedSdkAccount();
+    mockMidenClient.getAccounts.mockResolvedValueOnce([account]);
+    mockMidenClient.getAccount.mockResolvedValueOnce(account);
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    await expect(
+      Vault.spawnFromMidenClient('pw', 'abandon abandon abandon', [importedWalletAccount], 2, [importedBackup])
+    ).rejects.toThrow(MALFORMED);
+
+    const logged = consoleErrorSpy.mock.calls.map(call => call.map(String).join(' ')).join('\n');
+    expect(logged).toContain('seed-phrase-not-a-real-phrase');
+    consoleErrorSpy.mockRestore();
+  });
+
+  it('rejects a restore with an HD account and no seed phrase', async () => {
+    // Without this the HD branch derives its signing key from
+    // mnemonicToSeedSync(''), a fixed value, while the EVM half already treats an
+    // empty mnemonic as "no seed".
+    const account = importedSdkAccount();
+    mockMidenClient.getAccounts.mockResolvedValueOnce([account]);
+    mockMidenClient.getAccount.mockResolvedValueOnce(account);
+    const hdAccount: WalletAccount = {
+      publicKey: 'bech32:hd-account-id',
+      name: 'HD',
+      isPublic: true,
+      type: WalletType.OnChain,
+      hdIndex: 0,
+      authScheme: 'ecdsa'
+    };
+
+    await expect(Vault.spawnFromMidenClient('pw', '', [hdAccount], 2, [])).rejects.toThrow(
+      'Encrypted file contains malformed imported account data'
+    );
+    expect(mockKeystoreInsert).not.toHaveBeenCalled();
+  });
+
   it('rejects a version 2 restore with a missing imported-secret entry', async () => {
     const account = importedSdkAccount();
     mockMidenClient.getAccounts.mockResolvedValueOnce([account]);
     mockMidenClient.getAccount.mockResolvedValueOnce(account);
 
-    await expect(restoreVersionTwo([importedWalletAccount], [])).rejects.toThrow(PublicError);
+    await expect(restoreVersionTwo([importedWalletAccount], [])).rejects.toThrow(
+      'Encrypted file is missing imported account data'
+    );
     expect(mockKeystoreInsert).not.toHaveBeenCalled();
   });
 
@@ -1382,15 +1646,26 @@ describe('Vault.spawnFromMidenClient', () => {
   });
 
   it.each([
-    { label: 'malformed secret', backup: { ...importedBackup, secretKeyHex: 'not-hex' } },
-    { label: 'wrong scheme', backup: { ...importedBackup, authScheme: 'ecdsa' as const } },
-    { label: 'wrong commitment', backup: { ...importedBackup, publicKeyCommitment: 'ffff' } }
-  ])('rejects a version 2 restore with a $label', async ({ backup }) => {
+    // The message is the discriminator. A malformed SHAPE is refused by the
+    // structural guard; a well-formed value that simply does not match the account
+    // falls through to the semantic check one arm later. Asserting only the error
+    // type cannot tell the two apart, so deleting the shape guard would look green.
+    { label: 'malformed secret', backup: { ...importedBackup, secretKeyHex: 'not-hex' }, message: MALFORMED },
+    { label: 'wrong scheme', backup: { ...importedBackup, authScheme: 'ecdsa' as const }, message: MISMATCHED },
+    { label: 'empty commitment', backup: { ...importedBackup, publicKeyCommitment: '' }, message: MALFORMED },
+    { label: 'odd-length commitment', backup: { ...importedBackup, publicKeyCommitment: 'a1b' }, message: MALFORMED },
+    { label: 'non-hex commitment', backup: { ...importedBackup, publicKeyCommitment: 'zzzz' }, message: MALFORMED },
+    {
+      label: 'well-formed commitment that is not the account',
+      backup: { ...importedBackup, publicKeyCommitment: 'ffff' },
+      message: MISMATCHED
+    }
+  ])('rejects a version 2 restore with a $label', async ({ backup, message }) => {
     const account = importedSdkAccount();
     mockMidenClient.getAccounts.mockResolvedValueOnce([account]);
     mockMidenClient.getAccount.mockResolvedValueOnce(account);
 
-    await expect(restoreVersionTwo(undefined, [backup])).rejects.toThrow(PublicError);
+    await expect(restoreVersionTwo(undefined, [backup])).rejects.toThrow(message);
     expect(mockKeystoreInsert).not.toHaveBeenCalled();
   });
 
@@ -1401,6 +1676,21 @@ describe('Vault.spawnFromMidenClient', () => {
     mockBuiltAccountIdMarker = 'different-account-id';
 
     await expect(restoreVersionTwo()).rejects.toThrow(PublicError);
+    expect(mockKeystoreInsert).not.toHaveBeenCalled();
+  });
+
+  it('leaves no vault-key protector behind when a version 2 restore is rejected', async () => {
+    // The protector is written before the validation, so a rejection downstream
+    // would otherwise leave a wrapped vault key for a vault that never existed.
+    const { getPlain } = require('./safe-storage');
+    const account = importedSdkAccount();
+    mockMidenClient.getAccounts.mockResolvedValueOnce([account]);
+    mockMidenClient.getAccount.mockResolvedValueOnce(account);
+    mockBuiltAccountIdMarker = 'different-account-id';
+
+    await expect(restoreVersionTwo()).rejects.toThrow(PublicError);
+
+    expect(await getPlain(keys.vaultKeyPassword)).toBeUndefined();
     expect(mockKeystoreInsert).not.toHaveBeenCalled();
   });
 
@@ -1441,10 +1731,17 @@ describe('Vault.spawnFromMidenClient', () => {
     mockKeystoreInsert.mockRejectedValueOnce(new Error('keystore rejected insert'));
     (globalThis as any).__vaultTestRealmInsertKey = null;
     (globalThis as any).__vaultTestRealmUninstalled = null;
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
 
     await expect(restoreVersionTwo()).rejects.toThrow(PublicError);
     expect((globalThis as any).__vaultTestRealmUninstalled).toEqual(expect.any(Function));
     expect((globalThis as any).__vaultTestRealmInsertKey).toBeNull();
+    // This arm replaces the SDK's error with a generic one, so it is the only
+    // record of why the restore refused. The secret never travels with it.
+    const logged = consoleErrorSpy.mock.calls.map(call => call.map(String).join(' ')).join('\n');
+    expect(logged).toContain('keystore rejected insert');
+    expect(logged).not.toContain(importedBackup.secretKeyHex);
+    consoleErrorSpy.mockRestore();
   });
 
   it('validates the entire imported collection before inserting the first secret', async () => {

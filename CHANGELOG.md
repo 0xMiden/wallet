@@ -2,6 +2,10 @@
 
 ## 1.16.2 (TBD)
 
+### Changes
+
+- [CHANGE][all] The encrypted wallet file now carries accounts imported from a private key, so restoring it brings them back with their keys instead of silently leaving them behind. A file written by an older version still restores, and names how many imported accounts it had to omit before you confirm. An imported account whose key the wallet cannot read is named rather than quietly dropped from the backup.
+
 ### Fixes
 
 - [FIX][ci] The dependency-integrity gate that runs before every production build no longer refuses a correct `node_modules` when the build itself runs with `NODE_ENV=production`. `yarn check --integrity` also compares the flags the install was made with, so a job that installs without that variable and builds with it was rejected; the check now verifies the whole dependency tree whatever the environment, which is what it is there to do. The v1.16.1 release's Chrome extension build failed on this.

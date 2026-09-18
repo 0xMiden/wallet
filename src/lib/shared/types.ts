@@ -501,6 +501,7 @@ export interface WalletBackupMaterial {
   seedPhrase: string;
   accounts: WalletAccount[];
   midenClientDbContent: string;
+  walletDbContent: string;
   importedAccounts: ImportedAccountBackup[];
 }
 

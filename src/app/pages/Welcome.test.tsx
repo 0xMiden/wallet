@@ -2006,6 +2006,20 @@ describe('Welcome — back navigation', () => {
     expect(mockNavigate).toHaveBeenCalledWith('/');
   });
 
+  it('returns a rejected file restore to file selection instead of stranding it on Confirmation', async () => {
+    await renderWelcome();
+    await stageFileRestore();
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    await setHash('#confirmation');
+    mockNavigate.mockClear();
+
+    // The registration is cached against this payload, so a retry would fail the
+    // same way; the way out is another file.
+    await dispatch({ id: 'back' });
+
+    expect(mockNavigate).toHaveBeenCalledWith('/#import-from-file');
+  });
+
   it('returns to Welcome from ChooseProtection', async () => {
     mockIsMobileFn.mockReturnValue(true);
     await renderWelcome();

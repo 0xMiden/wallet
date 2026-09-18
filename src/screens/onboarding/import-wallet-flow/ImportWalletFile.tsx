@@ -1,6 +1,5 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 
-import { useImportStore } from '@miden-sdk/react/lazy';
 import classNames from 'clsx';
 import { useForm } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
@@ -10,12 +9,13 @@ import FormSubmitButton from 'app/atoms/FormSubmitButton';
 import { Icon, IconName } from 'app/icons/v2';
 import {
   type DecryptedWalletFile,
+  isRecord,
   parseDecryptedWalletFile,
   UnsupportedBackupVersionError
 } from 'lib/miden/backup-file';
 import { decrypt, decryptJson, deriveKey, generateKey } from 'lib/miden/passworder';
 import { importDb } from 'lib/miden/repo';
-import { getMidenClient } from 'lib/miden/sdk/miden-client';
+import { assertWasmHoldCurrent, getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import { ENCRYPTED_WALLET_FILE_PASSWORD_CHECK, EncryptedWalletFile } from 'screens/shared';
 
 interface FormData {
@@ -34,8 +34,10 @@ type WalletFile = Omit<EncryptedWalletFile, 'salt'> & {
 
 type ImportError = 'wrong-password' | 'malformed' | 'unsupported' | 'restore';
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null && !Array.isArray(value);
+// A backup carries two base64 database dumps, so the ceiling is generous; it
+// exists to stop an unrelated or hostile file from being decoded and parsed on
+// the UI thread, not to bound a legitimate wallet.
+const MAX_WALLET_FILE_BYTES = 64 * 1024 * 1024;
 
 const isWalletFile = (value: unknown): value is Omit<WalletFile, 'name'> => {
   if (
@@ -58,12 +60,18 @@ const isWalletFile = (value: unknown): value is Omit<WalletFile, 'name'> => {
 
 export const ImportWalletFileScreen: React.FC<ImportWalletFileScreenProps> = ({ className, onSubmit }) => {
   const { t } = useTranslation();
-  const { importStore } = useImportStore();
   const walletFileRef = useRef<HTMLInputElement>(null);
+  // A restore replaces two databases and then advances onboarding, so it owns a
+  // generation: clearing the file retires the running restore's claim on both.
+  const restoreInFlight = useRef(false);
+  const restoreGeneration = useRef(0);
   const [walletFile, setWalletFile] = useState<WalletFile | null>(null);
   const [importError, setImportError] = useState<ImportError>();
   const [isDragging, setIsDragging] = useState(false);
   const [pendingRestore, setPendingRestore] = useState<DecryptedWalletFile | null>(null);
+  // The ref decides; this mirrors it for the button, so a restore that is still
+  // winding down after a clear reads as busy instead of swallowing the press.
+  const [isRestoring, setIsRestoring] = useState(false);
 
   const {
     watch,
@@ -76,73 +84,135 @@ export const ImportWalletFileScreen: React.FC<ImportWalletFileScreenProps> = ({ 
 
   const filePassword = watch('password') ?? '';
 
+  // Leaving the step retires the running restore for the same reason clearing the
+  // file does: the user is no longer asking for it. Without this the run keeps
+  // going after the screen unmounts and its onSubmit drags onboarding forward
+  // into the restore the user just backed out of.
+  useEffect(
+    () => () => {
+      restoreGeneration.current += 1;
+    },
+    []
+  );
+
   const handleClear = () => {
+    // A restore already running belongs to the file being discarded, so it must
+    // stop writing and must not advance onboarding. Its own run clears the
+    // in-flight flag when it ends: until then nothing else may write.
+    restoreGeneration.current += 1;
     setWalletFile(null);
     setPendingRestore(null);
     setImportError(undefined);
+    // The picker fires no change event for an unchanged value, so without this the
+    // user cannot re-select the SAME file - which is exactly the retry they make
+    // after a mistyped password, and it looks like a frozen screen.
+    if (walletFileRef.current) walletFileRef.current.value = '';
   };
 
   const handleImportSubmit = async () => {
     if (!walletFile || !onSubmit) return;
+    // A restore replaces both databases, so a second one must never overlap it:
+    // the button is not the only way in, since Enter in the password field
+    // submits too.
+    if (restoreInFlight.current) return;
+    restoreInFlight.current = true;
+    setIsRestoring(true);
+    // Captured before the first await, so everything this run does afterwards -
+    // decrypting, parsing, writing, advancing - belongs to the file that was
+    // staged when the user pressed Import.
+    const generation = restoreGeneration.current;
+    // Every state this run publishes belongs to the file that was staged when the
+    // user pressed Import. A cleared file retires the generation, so nothing this
+    // run learns afterwards - an error just as much as a successful restore - may
+    // land on whatever is staged now.
+    const current = () => generation === restoreGeneration.current;
 
     const importParsedWallet = async (payload: DecryptedWalletFile) => {
+      // A discarded file must reach none of the three steps below, so each one
+      // is gated immediately before it runs rather than after it finishes.
+      const current = () => generation === restoreGeneration.current;
       try {
         setImportError(undefined);
-        const storeName = await (await getMidenClient()).client.storeIdentifier();
-        await importStore(payload.midenClientDbContent, storeName);
+        // The SDK client is single threaded and this replaces the store it has
+        // open, so the swap runs under the realm lock and through the interface
+        // that owns the store name. Waiting for that lock is the longest window
+        // a clear can land in, so the generation is re-read inside it.
+        await withWasmClientLock(
+          async hold => {
+            const midenClient = await getMidenClient();
+            assertWasmHoldCurrent(hold, 'in the encrypted-file restore after the client build');
+            if (!current()) return;
+            await midenClient.importDb(payload.midenClientDbContent);
+          },
+          { label: 'onboarding-restore-import-store' }
+        );
+        if (!current()) return;
         await importDb(payload.walletDbContent);
+        if (!current()) return;
         onSubmit(payload);
       } catch (error) {
         console.error('Wallet restore failed:', error);
-        setImportError('restore');
+        if (current()) setImportError('restore');
       }
     };
 
-    if (pendingRestore) {
-      await importParsedWallet(pendingRestore);
-      return;
-    }
-
-    setImportError(undefined);
-    let derivedKey: CryptoKey;
     try {
-      const passKey = await generateKey(filePassword);
-      const saltU8 = new Uint8Array(Object.values(walletFile.salt));
-      derivedKey = await deriveKey(passKey, saltU8);
-      const decryptedCheck = await decrypt(walletFile.encryptedPasswordCheck, derivedKey);
-      if (decryptedCheck !== ENCRYPTED_WALLET_FILE_PASSWORD_CHECK) {
-        setImportError('wrong-password');
+      if (pendingRestore) {
+        await importParsedWallet(pendingRestore);
         return;
       }
-    } catch (error) {
-      console.error('Decryption failed:', error);
-      setImportError('wrong-password');
-      return;
-    }
 
-    let decryptedWallet: unknown;
-    try {
-      decryptedWallet = await decryptJson({ dt: walletFile.dt, iv: walletFile.iv }, derivedKey);
-    } catch (error) {
-      console.error('Wallet payload decryption failed:', error);
-      setImportError('malformed');
-      return;
-    }
+      setImportError(undefined);
+      let derivedKey: CryptoKey;
+      try {
+        const passKey = await generateKey(filePassword);
+        const saltU8 = new Uint8Array(Object.values(walletFile.salt));
+        derivedKey = await deriveKey(passKey, saltU8);
+        const decryptedCheck = await decrypt(walletFile.encryptedPasswordCheck, derivedKey);
+        if (decryptedCheck !== ENCRYPTED_WALLET_FILE_PASSWORD_CHECK) {
+          if (current()) setImportError('wrong-password');
+          return;
+        }
+      } catch (error) {
+        console.error('Decryption failed:', error);
+        if (current()) setImportError('wrong-password');
+        return;
+      }
 
-    let parsedWallet: DecryptedWalletFile;
-    try {
-      parsedWallet = parseDecryptedWalletFile(decryptedWallet);
-    } catch (error) {
-      setImportError(error instanceof UnsupportedBackupVersionError ? 'unsupported' : 'malformed');
-      return;
-    }
+      let decryptedWallet: unknown;
+      try {
+        decryptedWallet = await decryptJson({ dt: walletFile.dt, iv: walletFile.iv }, derivedKey);
+      } catch (error) {
+        console.error('Wallet payload decryption failed:', error);
+        if (current()) setImportError('malformed');
+        return;
+      }
 
-    if (parsedWallet.formatVersion === undefined && (parsedWallet.omittedImportedAccountCount ?? 0) > 0) {
-      setPendingRestore(parsedWallet);
-      return;
-    }
+      let parsedWallet: DecryptedWalletFile;
+      try {
+        parsedWallet = parseDecryptedWalletFile(decryptedWallet);
+      } catch (error) {
+        // The other three failure arms log their cause; a malformed backup is the
+        // one a support report is most likely to be about.
+        console.error('Wallet file parse failed:', error);
+        if (current()) setImportError(error instanceof UnsupportedBackupVersionError ? 'unsupported' : 'malformed');
+        return;
+      }
 
-    await importParsedWallet(parsedWallet);
+      if (!current()) return;
+
+      if (parsedWallet.formatVersion === undefined && (parsedWallet.omittedImportedAccountCount ?? 0) > 0) {
+        setPendingRestore(parsedWallet);
+        return;
+      }
+
+      await importParsedWallet(parsedWallet);
+    } finally {
+      // Released by the run that took it, so a cleared file does not free the
+      // lane while its own writes are still landing.
+      restoreInFlight.current = false;
+      setIsRestoring(false);
+    }
   };
 
   const onDragEnter = (e: React.DragEvent<HTMLDivElement>) => {
@@ -164,19 +234,34 @@ export const ImportWalletFileScreen: React.FC<ImportWalletFileScreenProps> = ({ 
 
   const onUploadFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     processFiles(e.target.files);
+    // Same rule on the re-selection path, so picking the same file twice in a row
+    // raises an event both times.
+    e.target.value = '';
   };
 
   const processFiles = (files: FileList | null) => {
     const file = files?.[0];
     if (file) {
-      const reader = new FileReader();
-
       if (!file.name.toLowerCase().endsWith('.json')) {
         alert(t('encryptedWalletFileJsonOnly'));
         return;
       }
 
+      // Decoding and parsing happen on the UI thread, so a file far larger than
+      // any wallet backup is refused before it is read at all.
+      if (file.size > MAX_WALLET_FILE_BYTES) {
+        alert(t('encryptedWalletFileTooLarge'));
+        return;
+      }
+
+      const reader = new FileReader();
+      // Selecting a file retires whatever came before it, so a slow read cannot
+      // stage itself over a newer selection or over a cleared screen.
+      restoreGeneration.current += 1;
+      const generation = restoreGeneration.current;
+
       reader.onload = () => {
+        if (generation !== restoreGeneration.current) return;
         try {
           const decoder = new TextDecoder();
           const decodedContent = decoder.decode(reader.result as ArrayBuffer);
@@ -193,13 +278,15 @@ export const ImportWalletFileScreen: React.FC<ImportWalletFileScreenProps> = ({ 
       };
 
       reader.onerror = () => {
+        // Same retirement rule as onload above: a read the user has superseded or
+        // walked away from must not interrupt whatever they are doing now.
+        if (generation !== restoreGeneration.current) return;
         alert(t('encryptedWalletFileReadFailed'));
       };
 
       reader.readAsArrayBuffer(file);
     } else {
       alert(t('encryptedWalletFileSelectOne'));
-      return;
     }
   };
 
@@ -212,9 +299,7 @@ export const ImportWalletFileScreen: React.FC<ImportWalletFileScreenProps> = ({ 
   };
 
   const onUploadFileClick = () => {
-    if (walletFileRef != null && walletFileRef.current != null) {
-      walletFileRef.current.click();
-    }
+    walletFileRef.current?.click();
   };
 
   const errorCaption =
@@ -320,10 +405,10 @@ export const ImportWalletFileScreen: React.FC<ImportWalletFileScreenProps> = ({ 
 
       <div className="mt-auto w-full pt-4">
         <FormSubmitButton
-          loading={isSubmitting}
+          loading={isSubmitting || isRestoring}
           className="w-full text-base"
           style={{ display: 'block', fontWeight: 500, padding: '12px 0px' }}
-          disabled={pendingRestore != null ? false : !isValid || !walletFile}
+          disabled={isSubmitting || isRestoring || (pendingRestore == null && (!isValid || !walletFile))}
         >
           {pendingRestore != null ? t('continueImport') : t('import')}
         </FormSubmitButton>

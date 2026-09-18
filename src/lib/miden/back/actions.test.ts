@@ -150,25 +150,39 @@ jest.mock('./dapp', () => ({
   waitForTransaction: jest.fn()
 }));
 
-jest.mock('webextension-polyfill', () => ({
-  runtime: {
-    onMessage: {
-      addListener: jest.fn()
-    }
-  },
-  storage: {
+// `clear` is what the failed-restore undo calls through clearStorage; without it
+// the undo throws inside a finally and masks the failure it was undoing.
+const mockStorageClear = jest.fn().mockResolvedValue(undefined);
+
+jest.mock('webextension-polyfill', () => {
+  // One object behind both views: consumers read `default ?? module`, and a test
+  // that steers `storage.local.get` must steer the same mock either way.
+  const storage = {
     local: {
-      get: jest.fn().mockResolvedValue({ DAppEnabled: true })
+      get: jest.fn().mockResolvedValue({ DAppEnabled: true }),
+      // `clear` is what the failed-restore undo reaches through clearStorage.
+      clear: (...args: unknown[]) => mockStorageClear(...args)
     }
-  }
-}));
+  };
+  const runtime = { onMessage: { addListener: jest.fn() } };
+  return { __esModule: true, default: { storage, runtime }, storage, runtime };
+});
 
 describe('actions', () => {
   let consoleLogSpy: jest.SpyInstance;
 
   beforeEach(() => {
     consoleLogSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
-    // Reset only the mocks we care about, not the module mocks
+    // Reset only the mocks we care about, not the module mocks. The static
+    // `Vault.*` mocks belong in here too: they live on the module factory, not on
+    // `mockVault`, so without this a call recorded by one test satisfies a later
+    // test's assertion and a negative assertion goes red for an unrelated reason.
+    const { Vault: staticVault } = jest.requireMock<{ Vault: Record<string, jest.Mock> }>('lib/miden/back/vault');
+    Object.values(staticVault).forEach(mock => mock.mockClear());
+    // Steered per-test with mockRejectedValueOnce, so it resets where the others
+    // do: an unconsumed one-shot would otherwise run a later test's undo down the
+    // failure arm while its name claims the successful one.
+    mockStorageClear.mockReset().mockResolvedValue(undefined);
     mockInited.mockClear();
     mockLocked.mockClear();
     mockUnlocked.mockClear();
@@ -569,7 +583,6 @@ describe('actions', () => {
         isOwnMnemonic: jest.fn().mockResolvedValue(true)
       };
       Vault.spawnFromMidenClient.mockResolvedValueOnce(mockVaultInstance);
-      Vault.setup.mockClear();
 
       await registerImportedWallet('password123', 'mnemonic words', [], 2, importedAccounts);
 
@@ -590,9 +603,35 @@ describe('actions', () => {
       };
       Vault.spawnFromMidenClient.mockResolvedValueOnce(provisionalVault);
 
+      mockStorageClear.mockClear();
+
       await expect(registerImportedWallet('password', 'mnemonic', [], 2, [])).rejects.toThrow('account read failed');
       expect(provisionalVault.retire).toHaveBeenCalledTimes(1);
       expect(mockUnlocked).not.toHaveBeenCalled();
+      // The spawn RESOLVED, so its own undo cannot fire: without this one the
+      // profile keeps a complete, unlockable vault while the UI reports failure.
+      expect(mockStorageClear).toHaveBeenCalled();
+    });
+
+    it('does not let a failed undo replace the failure it was undoing', async () => {
+      const { Vault } = jest.requireMock('lib/miden/back/vault');
+      Vault.spawnFromMidenClient.mockResolvedValueOnce({
+        fetchAccounts: jest.fn().mockRejectedValue(new Error('account read failed')),
+        fetchSettings: jest.fn(),
+        getCurrentAccount: jest.fn(),
+        isOwnMnemonic: jest.fn(),
+        retire: jest.fn()
+      });
+      mockStorageClear.mockRejectedValueOnce(new Error('storage unavailable'));
+      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+      // The undo runs in a finally, so an unguarded throw there would surface the
+      // storage error and hide the real cause.
+      await expect(registerImportedWallet('password', 'mnemonic', [], 2, [])).rejects.toThrow('account read failed');
+      // Prove the undo was actually attempted: without this the assertion above is
+      // equally satisfied by a run in which it never fired.
+      expect(mockStorageClear).toHaveBeenCalled();
+      consoleErrorSpy.mockRestore();
     });
   });
 
@@ -1177,10 +1216,18 @@ describe('actions', () => {
   });
 
   describe('exportWalletBackupMaterial', () => {
-    it('serializes one authenticated backup snapshot on the accounts write queue', async () => {
+    it('forwards the password and returns the vault snapshot unchanged', async () => {
+      // The serialization this used to assert now lives with the queue, in
+      // Vault.exportWalletBackupMaterial; this layer only authenticates and forwards.
       const { Vault } = require('lib/miden/back/vault');
-      const snapshot = { seedPhrase: 'seed', accounts: [], midenClientDbContent: 'db', importedAccounts: [] };
-      Vault.exportWalletBackupMaterial.mockResolvedValueOnce(snapshot);
+      const snapshot = {
+        seedPhrase: 'words',
+        accounts: [],
+        midenClientDbContent: 'mc',
+        walletDbContent: 'wallet',
+        importedAccounts: []
+      };
+      (Vault.exportWalletBackupMaterial as jest.Mock).mockResolvedValueOnce(snapshot);
 
       await expect(exportWalletBackupMaterial('password')).resolves.toBe(snapshot);
       expect(Vault.exportWalletBackupMaterial).toHaveBeenCalledWith('password');

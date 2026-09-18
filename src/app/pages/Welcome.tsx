@@ -118,49 +118,14 @@ async function waitForReadyState(syncFromBackend: (state: any) => void): Promise
   return false;
 }
 
+// The registration key must tell two backups apart without ever carrying a
+// secret, so it keeps the payload as it is and drops only secretKeyHex; a field
+// added to either record later stays in the key by construction.
 const fileRegistrationBinding = (payload: DecryptedWalletFile) => ({
   formatVersion: payload.formatVersion ?? null,
-  accounts: payload.accounts.map(
-    ({
-      publicKey,
-      name,
-      isPublic,
-      type,
-      hdIndex,
-      hotPublicKey,
-      coldPublicKey,
-      requiresHotKeyRotation,
-      guardianNoteRecoveryPending,
-      guardianEndpoint,
-      guardianOperatorCommitment,
-      guardianSyncStatus,
-      authScheme,
-      evmAddress
-    }) => ({
-      publicKey,
-      name,
-      isPublic,
-      type,
-      hdIndex,
-      hotPublicKey,
-      coldPublicKey,
-      requiresHotKeyRotation,
-      guardianNoteRecoveryPending,
-      guardianEndpoint,
-      guardianOperatorCommitment,
-      guardianSyncStatus,
-      authScheme,
-      evmAddress
-    })
-  ),
+  accounts: payload.accounts,
   importedAccounts:
-    payload.formatVersion === 2
-      ? payload.importedAccounts.map(({ accountId, publicKeyCommitment, authScheme }) => ({
-          accountId,
-          publicKeyCommitment,
-          authScheme
-        }))
-      : []
+    payload.formatVersion === 2 ? payload.importedAccounts.map(({ secretKeyHex: _secretKeyHex, ...rest }) => rest) : []
 });
 
 const Welcome: FC = () => {
@@ -733,6 +698,12 @@ const Welcome: FC = () => {
           }
         } else if (step === OnboardingStep.ImportFromSeed || step === OnboardingStep.ImportFromFile) {
           navigate('/#select-import-type');
+        } else if (step === OnboardingStep.Confirmation && importType === ImportType.WalletFile) {
+          // Confirmation is where a rejected file restore lands. Retrying in
+          // place is already possible; this is the way out when the file itself
+          // is the problem, since the file, not the password, is what the user
+          // would change.
+          navigate('/#import-from-file');
         }
         break;
       default:

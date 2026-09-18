@@ -13,6 +13,25 @@ import { WalletType } from 'screens/onboarding/types';
 // the active client or vault.
 export const CURRENT_BACKUP_FORMAT_VERSION = 2 as const;
 
+// A backend failure reaches the frontend as message text only, so the one
+// failure the user can act on travels as a stable code plus the account name.
+// The screen localizes it; the message itself is never rendered.
+export const IMPORTED_ACCOUNT_BACKUP_FAILED_CODE = 'imported-account-backup-failed';
+
+// The vault's own contract for a seed phrase. It lives here, in the leaf module,
+// so the parser and the exporter check the same thing the reveal path does: the
+// old exporter read the seed THROUGH revealMnemonic, so this pattern gated every
+// file ever written, and reading the stored value directly dropped that guard.
+export const MNEMONIC_PATTERN = /^(\b\w+\b\s?){12}$/;
+
+export const importedAccountBackupFailure = (accountName: string) =>
+  `${IMPORTED_ACCOUNT_BACKUP_FAILED_CODE}:${accountName}`;
+
+export const parseImportedAccountBackupFailure = (message: string): string | null =>
+  message.startsWith(`${IMPORTED_ACCOUNT_BACKUP_FAILED_CODE}:`)
+    ? message.slice(IMPORTED_ACCOUNT_BACKUP_FAILED_CODE.length + 1)
+    : null;
+
 // Absence of a version is the legacy discriminator. Do not rewrite it to
 // version 1: older files were never stamped and must keep parsing unchanged.
 export type LegacyDecryptedWalletFile = {
@@ -50,7 +69,7 @@ export class UnsupportedBackupVersionError extends Error {
   }
 }
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
+export const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 
 const isAuthScheme = (value: unknown): value is ImportedAccountBackup['authScheme'] =>
@@ -66,7 +85,10 @@ const isHex = (value: unknown): value is string => {
   return body.length > 0 && body.length <= 32_768 && body.length % 2 === 0 && /^[0-9a-f]+$/i.test(body);
 };
 
-const isWalletAccount = (value: unknown): value is WalletAccount => {
+// Exported so the EXPORT can hold itself to the same contract the reader applies.
+// The two are separate schemas over one object, and a record that fails here would
+// produce a file this wallet decrypts and then refuses as invalid or damaged.
+export const isWalletAccount = (value: unknown): value is WalletAccount => {
   if (!isRecord(value)) return false;
   // Optional account metadata is intentionally preserved. The required fields
   // establish the record shape, while feature-specific readers validate their
@@ -100,10 +122,20 @@ const parseImportedAccount = (value: unknown): ImportedAccountBackup => {
 const requireCommonPayload = (value: Record<string, unknown>): WalletAccount[] => {
   if (
     typeof value.seedPhrase !== 'string' ||
+    // A phrase that is present has to be a real one. No phrase at all is legal,
+    // because local seed-phrase removal deletes the stored mnemonic and such a
+    // wallet can still back up its imported secrets; the pairing rule below is
+    // what keeps that case honest.
+    (value.seedPhrase !== '' && !MNEMONIC_PATTERN.test(value.seedPhrase)) ||
     typeof value.midenClientDbContent !== 'string' ||
     typeof value.walletDbContent !== 'string' ||
     !Array.isArray(value.accounts) ||
-    !value.accounts.every(isWalletAccount)
+    !value.accounts.every(isWalletAccount) ||
+    // No phrase is legal only when no account needs one: an HD account's key is
+    // re-derived from the seed and is not carried in the file, so this pairing
+    // describes a wallet that cannot be restored. Checked after the narrowing
+    // above, which is what makes `accounts` typed here.
+    (value.seedPhrase === '' && value.accounts.some(account => account.hdIndex >= 0))
   ) {
     throw new MalformedBackupFileError();
   }

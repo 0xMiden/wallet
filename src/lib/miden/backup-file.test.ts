@@ -1,6 +1,12 @@
 import { WalletType } from 'screens/onboarding/types';
 
-import { MalformedBackupFileError, UnsupportedBackupVersionError, parseDecryptedWalletFile } from './backup-file';
+import {
+  MalformedBackupFileError,
+  UnsupportedBackupVersionError,
+  importedAccountBackupFailure,
+  parseDecryptedWalletFile,
+  parseImportedAccountBackupFailure
+} from './backup-file';
 
 const hdAccount = {
   publicKey: 'miden-account-hd',
@@ -21,7 +27,7 @@ const importedAccount = {
 };
 
 const legacyPayload = {
-  seedPhrase: 'seed words',
+  seedPhrase: 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about',
   midenClientDbContent: 'miden-db',
   walletDbContent: 'wallet-db',
   accounts: [hdAccount],
@@ -37,7 +43,7 @@ const importedBackup = {
 
 const versionTwoPayload = {
   formatVersion: 2,
-  seedPhrase: 'seed words',
+  seedPhrase: 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about',
   midenClientDbContent: 'miden-db',
   walletDbContent: 'wallet-db',
   accounts: [hdAccount, importedAccount],
@@ -128,5 +134,48 @@ describe('parseDecryptedWalletFile', () => {
         ]
       })
     ).toThrow(MalformedBackupFileError);
+  });
+});
+
+// The export encodes which account blocked the backup into the error message,
+// because that is the only detail that survives the intercom boundary, and the
+// screen turns it back into a localized string. Both halves are asserted here:
+// the class-only assertions elsewhere cannot fail if this encoding breaks.
+describe('imported-account backup failure code', () => {
+  it('round-trips the account name', () => {
+    expect(parseImportedAccountBackupFailure(importedAccountBackupFailure('Imported account'))).toBe(
+      'Imported account'
+    );
+  });
+
+  it('round-trips a name containing the separator', () => {
+    // Parsing slices at the first separator rather than splitting on it, so a
+    // name carrying a colon survives whole.
+    expect(parseImportedAccountBackupFailure(importedAccountBackupFailure('a:b:c'))).toBe('a:b:c');
+  });
+
+  it('answers null for a message that is not this failure', () => {
+    expect(parseImportedAccountBackupFailure('Failed to prepare encrypted wallet backup')).toBeNull();
+  });
+});
+
+describe('seed phrase contract', () => {
+  const withSeed = (seedPhrase: string) => ({ ...versionTwoPayload, seedPhrase });
+
+  it('rejects a phrase that is not twelve words', () => {
+    expect(() => parseDecryptedWalletFile(withSeed('abandon abandon abandon'))).toThrow(MalformedBackupFileError);
+  });
+
+  it('rejects no phrase when an account still needs one', () => {
+    // An HD account's key is re-derived from the seed and is not carried in the
+    // file, so this pairing describes a wallet that cannot be restored.
+    expect(() => parseDecryptedWalletFile({ ...versionTwoPayload, seedPhrase: '' })).toThrow(MalformedBackupFileError);
+  });
+
+  it('accepts no phrase when every account is imported', () => {
+    // Local seed-phrase removal deletes the stored mnemonic; such a wallet can
+    // still back up its imported secrets, and this is that file.
+    const importedOnly = { ...versionTwoPayload, seedPhrase: '', accounts: [importedAccount] };
+    expect(parseDecryptedWalletFile(importedOnly).seedPhrase).toBe('');
   });
 });

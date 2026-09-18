@@ -15,7 +15,10 @@
 - `yarn tsc --noEmit`: passed.
 - `yarn lint`, `yarn lint:i18n`, and `yarn lint:e2e`: passed.
 - Prettier checked every changed TypeScript file: passed.
-- Locale source and generated-bundle parity: 49 tests passed.
+- Locale source and generated-bundle parity: the keys this change adds are deliberately absent from every
+  non-English bundle, so they reach the DeepL job as untranslated rather than being stamped current. The suite
+  is red locally until that job runs and commits; `pr.yml` runs `translations` first and every other job needs
+  it, so the gate sees the translated files.
 - Affected Jest verification: 19 suites and 933 tests passed.
 - `E2E_NETWORK=testnet yarn playwright test --config playwright.e2e.config.ts playwright/e2e/tests/imported-account-backup-restore.spec.ts --retries=0`: 1 test passed in 20.0 seconds.
 - The E2E artifact scan found no private-key material and no capture archives.

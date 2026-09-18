@@ -39,7 +39,10 @@ const ImportAccount: FC = () => {
         await updateCurrentAccount(accountPublicKey);
         navigate('/');
       } catch (cause) {
-        setError(cause instanceof Error ? cause.message : t('smthWentWrong'));
+        // A backend message is never shown: it is untranslated and can carry
+        // internal detail. The cause is logged instead, without the key itself.
+        console.error('Private key import failed:', cause);
+        setError(t('smthWentWrong'));
       }
     },
     [importAccount, isSubmitting, t, updateCurrentAccount]

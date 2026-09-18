@@ -95,7 +95,13 @@ The backend should expose one purpose-specific request for backup material rathe
 8. Persist all account records under the new vault key only after the complete imported collection validates and all keystore inserts succeed.
 9. Set the current account only after a non-empty, fully validated account collection is ready.
 
-The restore remains atomic from the application's perspective. A failure rejects the spawn and leaves no unlocked partial wallet available to the UI.
+The vault is all or nothing: a failure rejects the spawn, so no partial or unlocked wallet is ever available to
+the UI and no account record or secret is persisted. The two database dumps are not covered by that guarantee
+and cannot be, because the checks that validate an imported account read the accounts out of the miden-client
+store, so the store has to hold the file's content before they can run. A rejected restore therefore leaves the
+onboarding profile's stores holding the refused file's dumps. That is bounded: this flow is reachable only when
+no wallet exists (root-view.ts routes a locked wallet to Unlock), the stores hold no key material, and the next
+restore replaces both dumps. It is not an atomic-restore guarantee and must not be described as one.
 
 ## Security Invariants
 

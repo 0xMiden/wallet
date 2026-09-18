@@ -23,6 +23,7 @@ import {
   currentAccountUpdated
 } from 'lib/miden/back/store';
 import { Vault } from 'lib/miden/back/vault';
+import { clearStorage } from 'lib/miden/reset';
 import { installRealmKeystore, withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import { buildSdkSignCallback } from 'lib/miden/transaction/sign-callback';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
@@ -235,7 +236,19 @@ export function registerImportedWallet(
         unlocked({ vault, accounts, settings, currentAccount, ownMnemonic: ownMnemonicFlag });
         published = true;
       } finally {
-        if (!published) vault?.retire();
+        if (!published && vault) {
+          // The spawn's own undo cannot fire here: it already RESOLVED, and the
+          // four awaits above are what failed. Without this the profile keeps a
+          // complete vault - protector, mnemonic, accounts, current-account
+          // pointer - that a reload would route straight to Unlock, while the UI
+          // reported a failed restore.
+          vault.retire();
+          // Never let the undo replace the cause: this runs in a finally, so a
+          // throw here would surface a storage error instead of the real failure.
+          await clearStorage(false).catch(undoError =>
+            console.error('[registerImportedWallet] could not undo a failed restore:', undoError)
+          );
+        }
         syncRealmInsertKeySink();
       }
     })
@@ -344,7 +357,7 @@ export function revealMnemonic(password?: string) {
 }
 
 export function exportWalletBackupMaterial(password?: string) {
-  return withInited(() => getAccountsWriteQueue().add(() => Vault.exportWalletBackupMaterial(password)));
+  return withInited(() => Vault.exportWalletBackupMaterial(password));
 }
 
 export function revealPrivateKey(accPubKeyCommitment: string, password?: string) {
