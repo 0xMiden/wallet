@@ -154,7 +154,7 @@ export const ActivityRow: FC<ActivityRowProps> = ({
       <div className="flex items-center gap-2">
         <div
           className={classNames(
-            'shrink-0 flex items-center justify-center w-10 h-10 rounded-10 text-pure-white',
+            'shrink-0 flex items-center justify-center w-10 h-10 rounded-full text-pure-white',
             '[&_svg]:w-4 [&_svg]:h-4',
             iconBg
           )}
@@ -169,7 +169,7 @@ export const ActivityRow: FC<ActivityRowProps> = ({
           {subtitle && (
             <span
               data-testid={testId && `${testId}-subtitle`}
-              className="font-heading text-xs opacity-50 font-medium leading-[100%]"
+              className="font-heading text-xs text-muted font-medium leading-[100%]"
             >
               {subtitle}
             </span>
@@ -228,7 +228,7 @@ export const ActivityRow: FC<ActivityRowProps> = ({
             {status.label}
           </span>
         )}
-        {timestamp && <span className="text-[10px] text-[#8E8E93] font-regular">{timestamp}</span>}
+        {timestamp && <span className="text-[10px] text-gray-secondary font-regular">{timestamp}</span>}
       </div>
     </motion.div>
   );
