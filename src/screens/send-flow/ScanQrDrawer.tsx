@@ -2,7 +2,9 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
+import { IconName } from 'app/icons/v2';
 import { Loader } from 'components/Loader';
+import { EmptyState } from 'components/ui';
 import { createQrDetector, detectAddressFromFrame } from 'lib/qr/webcam-scanner';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 import useIsMounted from 'lib/ui/useIsMounted';
@@ -214,15 +216,12 @@ export const ScanQrDrawer: React.FC<ScanQrDrawerProps> = ({
           )}
 
           {scanState === 'no-camera' && (
-            <div data-testid="scan-qr-no-camera" className="flex flex-col items-center gap-3 py-6">
-              <p className="text-sm text-text-muted">{t('noCameraFound')}</p>
-              <button
-                type="button"
-                onClick={close}
-                className="rounded-full bg-primary-500 px-6 py-2.5 text-sm font-medium text-pure-white"
-              >
-                {t('close')}
-              </button>
+            <div data-testid="scan-qr-no-camera" className="w-full">
+              <EmptyState
+                icon={IconName.QrScan}
+                title={t('noCameraFound')}
+                secondaryAction={{ label: t('close'), onClick: close }}
+              />
             </div>
           )}
         </div>
