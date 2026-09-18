@@ -72,10 +72,22 @@ jest.mock('components/Button', () => ({
   ButtonVariant: { Primary: 'primary', Secondary: 'secondary', Ghost: 'ghost' },
   // `disabled` is reported as data, not applied, so a test can still tap a disabled Claim and prove
   // the handler's own check.
-  Button: ({ title, onClick, disabled, ...props }: { title?: string; onClick?: () => void; disabled?: boolean }) => (
+  Button: ({
+    title,
+    onClick,
+    disabled,
+    size,
+    ...props
+  }: {
+    title?: string;
+    onClick?: () => void;
+    disabled?: boolean;
+    size?: string;
+  }) => (
     <button
       data-testid={(props as Record<string, string>)['data-testid']}
       data-disabled={disabled ? 'true' : undefined}
+      data-size={size}
       onClick={onClick}
     >
       {title}
@@ -236,9 +248,12 @@ describe('PendingTab — DetailNoteRow treatment (#456)', () => {
     openDetail();
 
     const row = screen.getByTestId('detail-note-row');
-    expect(within(row).getByTestId('claim-button')).toHaveTextContent('claim');
+    const claimButton = within(row).getByTestId('claim-button');
+    expect(claimButton).toHaveTextContent('claim');
     expect(within(row).queryByText('noteClaimFailedRetry')).not.toBeInTheDocument();
     expect(within(row).queryByText('noteUnavailable')).not.toBeInTheDocument();
+    // The canonical `sm` size replaces the old manual h-8/text-sm override.
+    expect(claimButton).toHaveAttribute('data-size', 'sm');
   });
 
   it('renders a spinner and NO button for a note being consumed', () => {

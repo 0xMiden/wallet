@@ -132,7 +132,8 @@ export const ActivityPendingHistory = ({ search, filter, programId }: ActivityPe
             <span>{t('activityHiddenTransfers', { count: hiddenCount })}</span>
             <Button
               variant={ButtonVariant.Secondary}
-              className="w-auto px-3 py-2 text-xs"
+              size="sm"
+              className="w-auto"
               title={t('activityRestoreTransfers')}
               onClick={() => hidden.restore()}
             />
