@@ -12,7 +12,7 @@ jest.mock('lib/miden/front/use-filtered-contacts.hook', () => ({
 }));
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 jest.mock('components/Button', () => ({
-  ButtonVariant: { Primary: 'primary' },
+  ButtonVariant: { Primary: 'primary', Secondary: 'secondary' },
   Button: ({ title, variant: _variant, ...rest }: any) => <button {...rest}>{title}</button>
 }));
 jest.mock('components/contacts/ContactAvatar', () => ({
@@ -87,4 +87,13 @@ it('shows an empty state with no saved contacts, and opens the new-contact page'
   expect(screen.getByTestId('address-book-empty')).toHaveTextContent('noContactsYet');
   fireEvent.click(screen.getByTestId('address-book-new-contact'));
   expect(navigateMock).toHaveBeenCalledWith('/contacts/new');
+});
+
+it('draws contacts as one fill group with hairlines inset past the avatar', () => {
+  render(<AddressBook />);
+  const first = screen.getByTestId('address-book-contact-mtst1alice');
+  const second = screen.getByTestId('address-book-contact-0xzed');
+  expect(first.parentElement).toHaveClass('bg-fill', 'rounded-2xl');
+  expect(first).not.toHaveClass('before:bg-hairline');
+  expect(second).toHaveClass('before:bg-hairline', 'before:left-[68px]');
 });
