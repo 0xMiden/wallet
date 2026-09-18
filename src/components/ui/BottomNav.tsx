@@ -83,7 +83,7 @@ export const BottomNav: FC<BottomNavProps> = ({ items, activeId, onChange, docke
               )}
               <span className="relative flex items-center justify-center">{iconNode}</span>
               {item.showDot && (
-                <span aria-hidden className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-red-500" />
+                <span aria-hidden className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-status-negative" />
               )}
             </span>
           </button>
