@@ -18,7 +18,7 @@ jest.mock('lib/walletconnect/useEvmWalletConnection', () => ({
 
 jest.mock('lib/mobile/haptics', () => ({ hapticMedium: jest.fn() }));
 
-jest.mock('lib/ui/button', () => ({
+jest.mock('components/ui/Button', () => ({
   Button: ({
     children,
     onClick,

@@ -6,9 +6,9 @@ import { useTranslation } from 'react-i18next';
 import { EvmBridgeDepositScreen } from 'app/templates/EvmConnectModal/EvmBridgeDepositScreen';
 import { ScreenHeader } from 'components/ScreenHeader';
 import { TestNetworkWarning } from 'components/TestNetworkWarning';
+import { Button } from 'components/ui/Button';
 import { hapticMedium } from 'lib/mobile/haptics';
 import { useWalletStore } from 'lib/store';
-import { Button } from 'lib/ui/button';
 import { useEvmWalletConnection } from 'lib/walletconnect/useEvmWalletConnection';
 import { navigate } from 'lib/woozie';
 
@@ -98,7 +98,7 @@ export const BridgeDeposit: React.FC<BridgeDepositProps> = ({ onClose }) => {
           </div>
         )}
 
-        <Button variant="default" size="lg" onClick={handleConnect} className="w-full max-w-80">
+        <Button onClick={handleConnect} className="max-w-80">
           {t('openWallet')}
         </Button>
       </div>

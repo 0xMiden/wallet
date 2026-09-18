@@ -4,8 +4,8 @@ import { useAppKit } from '@reown/appkit/react';
 import { useTranslation } from 'react-i18next';
 
 import { TestNetworkWarning } from 'components/TestNetworkWarning';
+import { Button } from 'components/ui/Button';
 import { hapticMedium } from 'lib/mobile/haptics';
-import { Button } from 'lib/ui/button';
 import { Drawer, DrawerContent, DrawerDescription, DrawerFooter, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 import { useEvmWalletConnection } from 'lib/walletconnect/useEvmWalletConnection';
 
@@ -66,13 +66,7 @@ export const EvmConnectModal: React.FC<EvmConnectModalProps> = ({ open, onOpenCh
             </div>
           </div>
           <DrawerFooter className="shrink-0">
-            <Button
-              variant="default"
-              size="lg"
-              onClick={handleConnect}
-              className="w-full"
-              data-testid="evm-connect-open-wallet"
-            >
+            <Button onClick={handleConnect} data-testid="evm-connect-open-wallet">
               {t('openWallet')}
             </Button>
           </DrawerFooter>
