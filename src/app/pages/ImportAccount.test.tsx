@@ -34,8 +34,8 @@ jest.mock('lib/woozie', () => ({
   listen: () => () => undefined
 }));
 
-jest.mock('components/NavigationHeader', () => ({
-  NavigationHeader: ({ title, onBack }: { title: string; onBack: () => void }) => (
+jest.mock('components/PageHeader', () => ({
+  PageHeader: ({ title, onBack }: { title: string; onBack: () => void }) => (
     <header>
       <h1>{title}</h1>
       <button type="button" onClick={onBack}>
