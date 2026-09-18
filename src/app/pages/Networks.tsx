@@ -1,7 +1,8 @@
 import React, { FC } from 'react';
 
 import { Icon, IconName } from 'app/icons/v2';
-import { CardItem } from 'components/CardItem';
+import { ListGroup } from 'components/ui/ListGroup';
+import { ListRow } from 'components/ui/ListRow';
 import { useNetwork, useSetNetworkId } from 'lib/miden/front';
 import { NETWORKS } from 'lib/miden/networks';
 
@@ -9,30 +10,20 @@ const NetworksSettings: FC = () => {
   const setNetworkId = useSetNetworkId();
   const network = useNetwork();
 
-  const onNetworkSelect = async (networkId: string) => {
-    setNetworkId(networkId);
-  };
-
   return (
-    <div className="flex justify-center py-6">
-      <div className="flex flex-col w-[328px] gap-y-4">
-        <ul className="flex flex-col gap-y-4">
-          {NETWORKS.map(item => (
-            <CardItem
-              key={item.id}
-              title={item.name}
-              className="hover:bg-gray-100 cursor-pointer"
-              iconLeft={
-                <div className="bg-black rounded-full w-8 h-8 flex items-center justify-center p-2">
-                  <Icon name={IconName.MidenLogoWhite} />
-                </div>
-              }
-              iconRight={network.id === item.id ? IconName.CheckboxCircleFill : null}
-              onClick={() => onNetworkSelect(item.id)}
-            />
-          ))}
-        </ul>
-      </div>
+    <div className="py-4">
+      <ListGroup>
+        {NETWORKS.map(item => (
+          <ListRow
+            key={item.id}
+            title={item.name}
+            icon={<Icon name={IconName.MidenLogo} />}
+            checked={network.id === item.id}
+            onClick={() => setNetworkId(item.id)}
+            data-testid={`networks-${item.id}`}
+          />
+        ))}
+      </ListGroup>
     </div>
   );
 };
