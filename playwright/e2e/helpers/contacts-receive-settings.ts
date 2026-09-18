@@ -239,7 +239,7 @@ export async function deleteContact(wallet: ChromeWalletPageApi, address: string
   try {
     await confirmButton.waitFor({ state: 'visible', timeout: 15_000 });
   } catch {
-    throw new Error(`deleteContact(${address}): tapping Delete contact did not open the confirmation modal.`);
+    throw new Error(`deleteContact(${address}): tapping Delete contact did not open the confirmation sheet.`);
   }
   // Bounded, and verified by its POSTCONDITION rather than by the click
   // returning. Two things went wrong here before:
@@ -247,9 +247,9 @@ export async function deleteContact(wallet: ChromeWalletPageApi, address: string
   //      budget and failed with a closed-context error naming nothing;
   //   2. a blind `force: true` retry, which "succeeded" while the delete never
   //      happened — the run then failed 30s later with the row still present.
-  // The modal DISAPPEARING is the proof the click was handled (`useConfirm`
-  // unmounts it in the same tick it resolves), so retry against that rather
-  // than against the click resolving.
+  // The sheet DISAPPEARING is the proof the click was handled (`useConfirm`
+  // closes it in the same tick it resolves; it detaches once its slide-out
+  // ends), so retry against that rather than against the click resolving.
   const confirmClickLanded = async (opts: { force: boolean }): Promise<boolean> => {
     await confirmButton.click({ timeout: 15_000, force: opts.force }).catch(() => {});
     return confirmButton
@@ -259,9 +259,9 @@ export async function deleteContact(wallet: ChromeWalletPageApi, address: string
   };
   if (!(await confirmClickLanded({ force: false })) && !(await confirmClickLanded({ force: true }))) {
     throw new Error(
-      `deleteContact(${address}): clicked the confirmation modal's Confirm button but the modal stayed ` +
+      `deleteContact(${address}): clicked the confirmation sheet's Confirm button but the sheet stayed ` +
         `open, so the delete was never dispatched. The button is present and visible — something is ` +
-        `swallowing the click (an overlay, or a modal still animating in).`
+        `swallowing the click (an overlay, or a sheet still animating in).`
     );
   }
 
