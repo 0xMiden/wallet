@@ -49,10 +49,9 @@ export const SearchInput: FC<SearchInputProps> = ({
   return (
     <div
       className={classNames(
-        // One search bar for the whole wallet: a warm surface with a hairline edge, so it separates
-        // from the page on white and in dark mode, and a border that firms up while typing.
-        'relative flex w-full items-center rounded-full border border-rule-default bg-surface-interactive',
-        'transition-colors duration-150 focus-within:border-rule-strong',
+        // Direction B: the shared `fill`, no border; an accent ring while typing.
+        'relative flex w-full items-center rounded-full bg-fill',
+        'focus-within:ring-[1.5px] focus-within:ring-accent-primary',
         size === 'sm' ? 'h-9' : 'h-11',
         className
       )}
@@ -62,10 +61,7 @@ export const SearchInput: FC<SearchInputProps> = ({
         size="sm"
         fill="currentColor"
         aria-hidden="true"
-        className={classNames(
-          'pointer-events-none absolute shrink-0 text-text-muted',
-          size === 'sm' ? 'left-3' : 'left-4'
-        )}
+        className={classNames('pointer-events-none absolute shrink-0 text-muted', size === 'sm' ? 'left-3' : 'left-4')}
       />
       <input
         ref={inputRef}
@@ -86,12 +82,12 @@ export const SearchInput: FC<SearchInputProps> = ({
           // 16px text: anything smaller makes iOS zoom the page on focus. `font-sans` because
           // Preflight sets `font: inherit` and a query can be an address, which reads badly in the
           // rounded display face.
-          'h-full w-full min-w-0 bg-transparent font-sans text-base font-medium text-heading-gray outline-none',
+          'h-full w-full min-w-0 bg-transparent font-sans text-base font-medium text-ink outline-none',
           size === 'sm' ? 'pl-9' : 'pl-11',
           // Room for the clear button only while it shows.
           value ? 'pr-11' : 'pr-4',
           // #503 — the placeholder reads as a hint, lighter than typed text.
-          'placeholder:font-normal placeholder:text-text-muted'
+          'placeholder:font-normal placeholder:text-muted'
         )}
       />
       {/* #503 — clear (X) affordance to erase the input, shown only when non-empty. */}
@@ -102,7 +98,7 @@ export const SearchInput: FC<SearchInputProps> = ({
           onClick={handleClear}
           className="absolute right-1.5 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center"
         >
-          <Icon name={IconName.CloseCircleFill} size="sm" className="text-text-muted" fill="currentColor" />
+          <Icon name={IconName.CloseCircleFill} size="sm" className="text-muted" fill="currentColor" />
         </button>
       )}
     </div>

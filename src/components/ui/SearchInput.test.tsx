@@ -52,15 +52,16 @@ describe('SearchInput — container & input classes', () => {
     const { container, rerender } = render(<SearchInput value="" onChange={jest.fn()} />);
     const wrapper = container.firstChild as HTMLElement;
 
-    expect(wrapper.className).toContain('bg-surface-interactive');
-    expect(wrapper.className).toContain('border-rule-default');
+    expect(wrapper.className).toContain('bg-fill');
+    expect(wrapper.className).not.toContain('border');
+    expect(wrapper.className).toContain('focus-within:ring-accent-primary');
     expect(wrapper.className).toContain('rounded-full');
     expect(wrapper.className).toContain('h-11');
     expect(screen.getByTestId('icon-search')).toBeInTheDocument();
 
     rerender(<SearchInput value="" onChange={jest.fn()} size="sm" />);
     expect(wrapper.className).toContain('h-9');
-    expect(wrapper.className).toContain('bg-surface-interactive');
+    expect(wrapper.className).toContain('bg-fill');
   });
 
   it('appends a caller-supplied className onto the base container classes', () => {
@@ -68,7 +69,7 @@ describe('SearchInput — container & input classes', () => {
     const wrapper = container.firstChild as HTMLElement;
 
     expect(wrapper.className).toContain('my-extra-class');
-    expect(wrapper.className).toContain('bg-surface-interactive');
+    expect(wrapper.className).toContain('bg-fill');
   });
 
   it('keeps typed text at 16px and left-aligned, so iOS does not zoom on focus', () => {
