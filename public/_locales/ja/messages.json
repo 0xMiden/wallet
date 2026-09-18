@@ -1598,6 +1598,10 @@
     "message": "貼り付け",
     "englishSource": "Paste"
   },
+  "nothingToPaste": {
+    "message": "貼り付けるものがありません。先にアドレスをコピーしてください。",
+    "englishSource": "Nothing to paste. Copy an address first."
+  },
   "chooseRecipient": {
     "message": "受信者を選択してください",
     "englishSource": "Choose recipient"

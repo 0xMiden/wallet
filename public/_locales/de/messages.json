@@ -1598,6 +1598,10 @@
     "message": "Einfügen",
     "englishSource": "Paste"
   },
+  "nothingToPaste": {
+    "message": "Nichts zum Einfügen. Kopieren Sie zuerst eine Adresse.",
+    "englishSource": "Nothing to paste. Copy an address first."
+  },
   "chooseRecipient": {
     "message": "Empfänger auswählen",
     "englishSource": "Choose recipient"

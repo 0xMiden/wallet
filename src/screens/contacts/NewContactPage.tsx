@@ -42,6 +42,7 @@ export const NewContactPage: React.FC = () => {
   const [name, setName] = useState('');
   const [network, setNetwork] = useState<BridgeNetworkId>(DEFAULT_BRIDGE_NETWORK.id);
   const [scanError, setScanError] = useState<string>();
+  const [pasteError, setPasteError] = useState<string>();
   const [saveError, setSaveError] = useState<string>();
   const [saving, setSaving] = useState(false);
   const [showScanDrawer, setShowScanDrawer] = useState(false);
@@ -56,6 +57,7 @@ export const NewContactPage: React.FC = () => {
 
   let addressError: string | undefined;
   if (scanError) addressError = t(scanError);
+  else if (pasteError) addressError = t(pasteError);
   else if (trimmedAddress && !isValid && addressTouched) addressError = t('invalidAddress');
   else if (existing?.accountInWallet) addressError = t('contactIsYourAccount');
   else if (existing) addressError = t('contactAlreadySaved', { name: existing.name });
@@ -66,22 +68,28 @@ export const NewContactPage: React.FC = () => {
     setAddress(value);
     setAddressTouched(true);
     setScanError(undefined);
+    setPasteError(undefined);
     setSaveError(undefined);
   }, []);
 
   // Mobile only, as in the send flow: the native clipboard is the one read that works there, and
   // off mobile the platform's own paste into the field does.
   const onPaste = async () => {
+    setScanError(undefined);
+    setPasteError(undefined);
     try {
       const { value, type } = await Clipboard.read();
       const text = type?.startsWith('text') ? value.trim() : '';
       if (text) fillAddress(text);
+      else setPasteError('nothingToPaste');
     } catch {
-      // An empty clipboard or a refused prompt leaves the field as it is.
+      // Rejects with no data on the clipboard (empty clipboard, or the paste prompt was refused).
+      setPasteError('nothingToPaste');
     }
   };
 
   const onScan = async () => {
+    setPasteError(undefined);
     if (!isMobile()) {
       setShowScanDrawer(true);
       return;
@@ -150,6 +158,7 @@ export const NewContactPage: React.FC = () => {
               onChange={event => {
                 setAddress(event.target.value);
                 setScanError(undefined);
+                setPasteError(undefined);
                 setSaveError(undefined);
               }}
               onBlur={() => setAddressTouched(true)}
@@ -165,7 +174,11 @@ export const NewContactPage: React.FC = () => {
           {!trimmedAddress && (isMobile() || isScanAvailable()) && (
             <div className="-mt-2 flex flex-wrap gap-2">
               {isMobile() && (
-                <Pill icon={<Icon name={IconName.FileCopy} size="xs" />} onClick={() => void onPaste()}>
+                <Pill
+                  icon={<Icon name={IconName.FileCopy} size="xs" />}
+                  onClick={() => void onPaste()}
+                  data-testid="contact-paste"
+                >
                   {t('paste')}
                 </Pill>
               )}

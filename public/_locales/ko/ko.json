@@ -339,6 +339,7 @@
   "more": "더 보기",
   "addressBook": "주소록",
   "paste": "붙여넣기",
+  "nothingToPaste": "붙여넣을 내용이 없습니다. 먼저 주소를 복사하세요.",
   "chooseRecipient": "수신자 선택",
   "sendTo": "받는 사람",
   "selectAmount": "금액 선택",

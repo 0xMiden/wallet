@@ -1598,6 +1598,10 @@
     "message": "Yapıştır",
     "englishSource": "Paste"
   },
+  "nothingToPaste": {
+    "message": "Yapıştırılacak bir şey yok. Önce bir adres kopyalayın.",
+    "englishSource": "Nothing to paste. Copy an address first."
+  },
   "chooseRecipient": {
     "message": "Alıcıyı seçin",
     "englishSource": "Choose recipient"

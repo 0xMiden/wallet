@@ -1598,6 +1598,10 @@
     "message": "Вставити",
     "englishSource": "Paste"
   },
+  "nothingToPaste": {
+    "message": "Нема чого вставити. Спершу скопіюйте адресу.",
+    "englishSource": "Nothing to paste. Copy an address first."
+  },
   "chooseRecipient": {
     "message": "Виберіть одержувача",
     "englishSource": "Choose recipient"

@@ -339,6 +339,7 @@
   "more": "więcej",
   "addressBook": "Książka adresowa",
   "paste": "Wklej",
+  "nothingToPaste": "Nie ma nic do wklejenia. Najpierw skopiuj adres.",
   "chooseRecipient": "Wybierz odbiorcę",
   "sendTo": "Wyślij do",
   "selectAmount": "Wybierz kwotę",

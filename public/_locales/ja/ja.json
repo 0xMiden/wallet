@@ -339,6 +339,7 @@
   "more": "続きを読む",
   "addressBook": "アドレス帳",
   "paste": "貼り付け",
+  "nothingToPaste": "貼り付けるものがありません。先にアドレスをコピーしてください。",
   "chooseRecipient": "受信者を選択してください",
   "sendTo": "送金先",
   "selectAmount": "金額を選択してください",

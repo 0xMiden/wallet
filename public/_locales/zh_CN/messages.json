@@ -1598,6 +1598,10 @@
     "message": "粘贴",
     "englishSource": "Paste"
   },
+  "nothingToPaste": {
+    "message": "没有可粘贴的内容。请先复制地址。",
+    "englishSource": "Nothing to paste. Copy an address first."
+  },
   "chooseRecipient": {
     "message": "选择收件人",
     "englishSource": "Choose recipient"

@@ -339,6 +339,7 @@
   "more": "mais",
   "addressBook": "Agenda de Contatos",
   "paste": "Colar",
+  "nothingToPaste": "Nada para colar. Copie um endereço primeiro.",
   "chooseRecipient": "Escolha o destinatário",
   "sendTo": "Enviar para",
   "selectAmount": "Selecione o valor",

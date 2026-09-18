@@ -339,6 +339,7 @@
   "more": "plus",
   "addressBook": "Carnet d'adresses",
   "paste": "Coller",
+  "nothingToPaste": "Rien à coller. Copiez d'abord une adresse.",
   "chooseRecipient": "Choisissez un destinataire",
   "sendTo": "Envoyer à",
   "selectAmount": "Sélectionnez un montant",
