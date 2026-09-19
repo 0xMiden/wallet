@@ -1,10 +1,10 @@
 import React, { FC, useCallback, useEffect, useState } from 'react';
 
-import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
+import { AnimatePresence, useReducedMotion } from 'framer-motion';
 
 import { PageHeader } from 'components/PageHeader';
 import { ProgressIndicator } from 'components/ProgressIndicator';
-import { pageStepFadeOffset, resolvePageStepTransition } from 'lib/animation';
+import { pageSlideEntrance, usePreset } from 'lib/animation';
 import type { DecryptedWalletFile } from 'lib/miden/backup-file';
 import { getEffectiveAllowNoGuardian } from 'lib/miden-chain/effective-endpoints';
 import { isMobile } from 'lib/platform';
@@ -15,6 +15,7 @@ import { ChooseProtectionScreen } from './common/ChooseProtection';
 import { ConfirmationScreen } from './common/Confirmation';
 import { CreatePasswordScreen } from './common/CreatePassword';
 import { NetworkNoticeScreen } from './common/NetworkNotice';
+import { OnboardingStepLayer } from './common/OnboardingStepLayer';
 import { SetupBiometricScreen } from './common/SetupBiometric';
 import { SetupPasscodeScreen } from './common/SetupPasscode';
 import { WelcomeScreen } from './common/Welcome';
@@ -340,12 +341,12 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
     onAction?.({ id: 'back' });
   };
 
-  // A step fades while it drifts `pageStepFadeOffset` the way the `page` model moves: in from the
-  // right going forward, from the left going back. Only mobile animates it (the Chrome extension
-  // swaps at once), and reduced motion makes it instant and still.
-  const rightDrift = reduceMotion ? 0 : pageStepFadeOffset;
-  const leftDrift = reduceMotion ? 0 : `-${pageStepFadeOffset}`;
-  const stepTransition = resolvePageStepTransition(reduceMotion, isMobile());
+  // A step moves like a pushed page (the `page` preset): going forward it slides in from the right
+  // over the step it replaces, which parks at `pageSlideParallax` under the `pageSlideDim` dim; going
+  // back the step on top slides out to the right and uncovers the one beneath. Only mobile animates
+  // (the extension swaps at once, as its pages do), and reduced motion is instant everywhere.
+  const pagePreset = usePreset('page');
+  const stepTransition = reduceMotion || isMobile() ? pagePreset.transition : { ...pageSlideEntrance, duration: 0 };
 
   return (
     <div
@@ -364,32 +365,16 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
             />
           )}
         </AnimatePresence>
-        <AnimatePresence mode={'wait'} initial={false}>
-          <motion.div
-            className="flex flex-col flex-1 min-h-0"
-            key={step}
-            initial="initialState"
-            animate="animateState"
-            exit="exitState"
-            transition={stepTransition}
-            variants={{
-              initialState: {
-                x: navigationDirection === 'forward' ? rightDrift : leftDrift,
-                opacity: 0
-              },
-              animateState: {
-                x: 0,
-                opacity: 1
-              },
-              exitState: {
-                x: navigationDirection === 'forward' ? leftDrift : rightDrift,
-                opacity: 0
-              }
-            }}
-          >
-            {renderStep()}
-          </motion.div>
-        </AnimatePresence>
+        {/* Both steps are on screen while they cross, stacked in one grid cell, as a page and the page
+            beneath it are; the leaving one is inert (`OnboardingStepLayer`). `custom` hands the
+            leaving step the direction of the move that removes it. */}
+        <div className="relative grid min-h-0 flex-1 grid-cols-1 grid-rows-1 overflow-hidden">
+          <AnimatePresence initial={false} custom={navigationDirection}>
+            <OnboardingStepLayer key={step} direction={navigationDirection} transition={stepTransition}>
+              {renderStep()}
+            </OnboardingStepLayer>
+          </AnimatePresence>
+        </div>
       </div>
     </div>
   );

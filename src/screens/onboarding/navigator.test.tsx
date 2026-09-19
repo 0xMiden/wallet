@@ -2,8 +2,9 @@ import React from 'react';
 
 import { render, screen, fireEvent, act } from '@testing-library/react';
 
-import { pageStepFadeOffset, pageStepTransition, reducedMotionTransition } from 'lib/animation';
+import { pageSlideDim, pageSlideEntrance, pageSlideParallax, presets, reducedMotionTransition } from 'lib/animation';
 
+import { onboardingStepDimVariants, onboardingStepVariants } from './common/OnboardingStepLayer';
 import { OnboardingFlow } from './navigator';
 import { ImportType, OnboardingStep, OnboardingType, WalletType } from './types';
 
@@ -51,13 +52,16 @@ jest.mock('framer-motion', () => {
       mockMotion.presences.push(presence);
       return R.createElement(R.Fragment, null, children);
     },
+    PresenceContext: R.createContext(null),
     motion: new Proxy(
       {},
       {
         get:
           () =>
-          ({ children, initial, animate, exit, transition, variants, ...rest }: any) => {
-            if (variants) mockMotion.step = { initial, animate, exit, transition, variants };
+          ({ children, initial, animate, exit, transition, variants, custom, ...rest }: any) => {
+            // The step layer (not its dim) is the element that carries the layer marker.
+            if (variants && rest['data-onboarding-step-layer'])
+              mockMotion.step = { initial, animate, exit, transition, variants, custom };
             return R.createElement('div', rest, children);
           }
       }
@@ -563,44 +567,52 @@ describe('OnboardingFlow — motion variants (reduced motion & direction)', () =
     expect(onAction).toHaveBeenLastCalledWith({ id: 'choose-protection' });
   });
 
-  it('swaps one step at a time: every presence waits for the leaving step', () => {
+  it('crosses steps like pages: the step presence keeps both, handing the leaving one the direction', () => {
     renderFlow({ step: OnboardingStep.BackupSeedPhrase });
-    expect(mockMotion.presences.length).toBeGreaterThan(0);
-    for (const presence of mockMotion.presences) expect(presence).toEqual({ mode: 'wait', initial: false });
-    expect(mockMotion.step).toMatchObject({ initial: 'initialState', animate: 'animateState', exit: 'exitState' });
+    // The header's presence still swaps one at a time; the steps' presence runs both at once.
+    expect(mockMotion.presences).toContainEqual({ mode: 'wait', initial: false });
+    expect(mockMotion.presences).toContainEqual({ initial: false, custom: 'forward' });
+    expect(mockMotion.step).toMatchObject({ initial: 'enter', animate: 'center', exit: 'exit', custom: 'forward' });
+    expect(mockMotion.step.variants).toBe(onboardingStepVariants);
   });
 
-  it('on mobile, fades a step in from the right on the page step transition going forward', () => {
+  it('on mobile, moves on the page preset: in from the right, the step beneath to the parallax', () => {
     mockPlatform.isMobile = true;
     renderFlow({ step: OnboardingStep.BackupSeedPhrase });
-    expect(mockMotion.step.transition).toEqual(pageStepTransition);
-    expect(mockMotion.step.variants).toEqual({
-      initialState: { x: pageStepFadeOffset, opacity: 0 },
-      animateState: { x: 0, opacity: 1 },
-      exitState: { x: `-${pageStepFadeOffset}`, opacity: 0 }
-    });
+    expect(mockMotion.step.transition).toEqual(presets.page.transition);
+    expect(onboardingStepVariants.enter).toBeInstanceOf(Function);
+    const enter = onboardingStepVariants.enter as (d: string) => object;
+    const exit = onboardingStepVariants.exit as (d: string) => object;
+    expect(enter('forward')).toEqual({ x: presets.page.initial?.x });
+    expect(exit('forward')).toEqual({ x: pageSlideParallax });
+    const dimExit = onboardingStepDimVariants.exit as (d: string) => object;
+    expect(dimExit('forward')).toEqual({ opacity: pageSlideDim });
   });
 
-  it('mirrors the drift going back', () => {
+  it('mirrors the move going back: uncovered from beneath, the leaving step out to the right', () => {
     mockPlatform.isMobile = true;
     renderFlow({ step: OnboardingStep.BackupSeedPhrase, onAction: jest.fn() });
     fireEvent.click(screen.getByTestId('onboarding-back'));
-    expect(mockMotion.step.variants.initialState).toEqual({ x: `-${pageStepFadeOffset}`, opacity: 0 });
-    expect(mockMotion.step.variants.exitState).toEqual({ x: pageStepFadeOffset, opacity: 0 });
+    expect(mockMotion.step.custom).toBe('backward');
+    expect(mockMotion.presences).toContainEqual({ initial: false, custom: 'backward' });
+    const enter = onboardingStepVariants.enter as (d: string) => object;
+    const exit = onboardingStepVariants.exit as (d: string) => object;
+    const dimEnter = onboardingStepDimVariants.enter as (d: string) => object;
+    expect(enter('backward')).toEqual({ x: pageSlideParallax });
+    expect(exit('backward')).toEqual({ x: presets.page.exit?.x });
+    expect(dimEnter('backward')).toEqual({ opacity: pageSlideDim });
   });
 
   it('swaps steps at once off mobile, on the same curve', () => {
     mockPlatform.isMobile = false;
     renderFlow({ step: OnboardingStep.BackupSeedPhrase });
-    expect(mockMotion.step.transition).toEqual({ ...pageStepTransition, duration: 0 });
+    expect(mockMotion.step.transition).toEqual({ ...pageSlideEntrance, duration: 0 });
   });
 
-  it.each([true, false])('makes the swap instant and still under reduced motion (mobile: %s)', mobile => {
+  it.each([true, false])('makes the move instant under reduced motion (mobile: %s)', mobile => {
     mockPlatform.isMobile = mobile;
     mockReduceMotion = true;
     renderFlow({ step: OnboardingStep.BackupSeedPhrase });
     expect(mockMotion.step.transition).toEqual(reducedMotionTransition);
-    expect(mockMotion.step.variants.initialState).toEqual({ x: 0, opacity: 0 });
-    expect(mockMotion.step.variants.exitState).toEqual({ x: 0, opacity: 0 });
   });
 });
