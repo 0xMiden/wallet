@@ -18,6 +18,13 @@ jest.mock('lib/dapp-browser', () => ({
   getRecentDapps: () => Promise.resolve(mockRecents)
 }));
 
+let mockBackHandler: (() => boolean | void) | null = null;
+jest.mock('lib/mobile/useMobileBackHandler', () => ({
+  useMobileBackHandler: (handler: () => boolean | void) => {
+    mockBackHandler = handler;
+  }
+}));
+
 let mockReduce: boolean | null = false;
 jest.mock('framer-motion', () => ({
   ...jest.requireActual('framer-motion'),
@@ -41,7 +48,8 @@ const catalog: ExploreCatalog = {
       type: 'tool',
       category: 'tools',
       name: 'Forkchoice Faucet',
-      tagline: 'Gamified faucet',
+      tagline: 'Get testnet tokens for swap',
+      taglineKey: 'exploreForkchoiceFaucetTagline',
       url: 'https://forkchoice.example/'
     },
     { id: 'quest', type: 'game', category: 'games', name: 'Quest', tagline: 'Play', url: 'https://quest.example/' }
@@ -77,6 +85,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockRecents = [recent];
   mockReduce = false;
+  mockBackHandler = null;
   resetRevealed();
 });
 
@@ -97,8 +106,9 @@ describe('DappLauncher', () => {
       'data-dapp-url',
       'https://recent.example/'
     );
-    // The search stays, with the testid the E2E driver waits on.
-    expect(screen.getByTestId('dapp-hero-search')).toBeInTheDocument();
+    // Search lives in the header now, closed until its button opens it.
+    expect(screen.getByTestId('explore-search-toggle')).toBeInTheDocument();
+    expect(screen.queryByTestId('dapp-hero-search')).not.toBeInTheDocument();
   });
 
   it('hides recents when there are none', async () => {
@@ -200,5 +210,114 @@ describe('DappLauncher', () => {
     expect(screen.getByTestId('explore-section-featured').style.opacity).not.toBe('0');
     expect(screen.getByTestId('explore-section-featured').style.transform).not.toContain('translateY');
     await act(async () => {});
+  });
+
+  it("shows an item's translated tagline, like the swap faucet's", async () => {
+    await renderLauncher();
+    const section = screen.getByTestId('explore-section-helper-tools');
+    fireEvent.click(within(section).getByRole('button', { name: 'exploreSeeAll' }));
+    const row = within(section).getByRole('button', { name: 'Forkchoice Faucet' });
+    expect(row).toHaveTextContent('exploreForkchoiceFaucetTagline');
+    expect(row).not.toHaveTextContent('Get testnet tokens for swap');
+  });
+});
+
+describe('DappLauncher header search', () => {
+  const field = () => screen.queryByTestId('dapp-hero-search');
+
+  async function openSearch() {
+    fireEvent.click(screen.getByTestId('explore-search-toggle'));
+    return screen.findByTestId('dapp-hero-search');
+  }
+
+  it('opens from the header icon into a focused URL field, and closes and clears on a second tap', async () => {
+    await renderLauncher();
+    const toggle = screen.getByTestId('explore-search-toggle');
+    expect(toggle).toHaveAccessibleName('exploreSearch');
+
+    const input = await openSearch();
+    expect(input).toHaveFocus();
+    expect(input).toHaveAttribute('inputmode', 'url');
+    expect(input).toHaveAttribute('enterkeyhint', 'go');
+    expect(toggle).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByTestId('tab-header-search')).toBeInTheDocument();
+
+    fireEvent.change(input, { target: { value: 'quest' } });
+    fireEvent.click(toggle);
+    await waitFor(() => expect(field()).not.toBeInTheDocument());
+    expect(screen.getByRole('heading', { level: 1, name: 'explore' })).toBeInTheDocument();
+
+    // Reopened, the query is gone.
+    expect(await openSearch()).toHaveValue('');
+  });
+
+  it('closes on Escape and on back', async () => {
+    await renderLauncher();
+
+    fireEvent.keyDown(await openSearch(), { key: 'Escape' });
+    await waitFor(() => expect(field()).not.toBeInTheDocument());
+
+    const input = await openSearch();
+    fireEvent.change(input, { target: { value: 'quest' } });
+    let handled: boolean | void = false;
+    act(() => {
+      handled = mockBackHandler?.();
+    });
+    expect(handled).toBe(true);
+    await waitFor(() => expect(field()).not.toBeInTheDocument());
+    await waitFor(() => expect(sectionIds()).toEqual(['featured', 'helper-tools', 'games', 'recents']));
+
+    // Closed, back is not the search's to take.
+    expect(mockBackHandler?.()).toBe(false);
+  });
+
+  it('collapses the sections into one results list as you type, and says so when nothing matches', async () => {
+    await renderLauncher();
+    const input = await openSearch();
+
+    fireEvent.change(input, { target: { value: 'faucet' } });
+    await waitFor(() => expect(sectionIds()).toEqual(['search-results']));
+    const results = screen.getByTestId('explore-section-search-results');
+    expect(within(results).getByRole('heading', { level: 2, name: 'exploreResults' })).toBeInTheDocument();
+    expect(
+      within(results)
+        .getAllByTestId('dapp-grid-card')
+        .map(el => el.getAttribute('data-dapp-url'))
+    ).toEqual(['https://faucet.example/', 'https://forkchoice.example/']);
+
+    fireEvent.change(input, { target: { value: 'zzz' } });
+    const empty = await screen.findByTestId('explore-empty');
+    expect(empty).toHaveTextContent('exploreNoResultsTitle');
+    expect(empty).toHaveTextContent('exploreNoResultsDescription');
+
+    fireEvent.change(input, { target: { value: '' } });
+    await waitFor(() => expect(sectionIds()).toEqual(['featured', 'helper-tools', 'games', 'recents']));
+  });
+
+  it('opens a typed or pasted URL in the browser on Enter, with a tap haptic', async () => {
+    const { onOpen } = await renderLauncher();
+    const input = await openSearch();
+
+    jest.mocked(hapticLight).mockClear();
+    fireEvent.change(input, { target: { value: 'app.zoroswap.com' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(onOpen).toHaveBeenLastCalledWith('https://app.zoroswap.com');
+
+    fireEvent.change(input, { target: { value: 'http://localhost:4173/alpha' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(onOpen).toHaveBeenLastCalledWith('http://localhost:4173/alpha');
+    expect(hapticLight).toHaveBeenCalledTimes(2);
+  });
+
+  it('opens the first match for a name on Enter, and does nothing for an empty query', async () => {
+    const { onOpen } = await renderLauncher();
+    const input = await openSearch();
+
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(onOpen).not.toHaveBeenCalled();
+
+    fireEvent.change(input, { target: { value: 'quest' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(onOpen).toHaveBeenCalledWith('https://quest.example/');
   });
 });
