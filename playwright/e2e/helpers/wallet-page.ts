@@ -106,6 +106,20 @@ export type StageTrackedTransactionType = 'switch-guardian' | 'replace-hot-key';
  * Chrome-only specs that reach into Playwright internals use the
  * ChromeWalletPageApi extension below.
  */
+/**
+ * The send-flow parameters every page object accepts.
+ *
+ * Declared once because method parameters compare BIVARIANTLY: a field added to a restated copy
+ * is not flagged against the others, so five hand-synchronised literals would drift silently and
+ * `yarn ts` would not say so.
+ */
+export interface SendTokensParams {
+  recipientAddress: string;
+  amount: string;
+  isPrivate: boolean;
+  tokenSymbol?: string;
+}
+
 export interface WalletPage {
   navigateTo(hash: string): Promise<void>;
   navigateHome(): Promise<void>;
@@ -115,12 +129,7 @@ export interface WalletPage {
   getBalance(tokenSymbol?: string): Promise<number>;
   triggerSync(force?: boolean): Promise<void>;
   claimAllNotes(timeoutMs?: number): Promise<void>;
-  sendTokens(params: {
-    recipientAddress: string;
-    amount: string;
-    isPrivate: boolean;
-    tokenSymbol?: string;
-  }): Promise<void>;
+  sendTokens(params: SendTokensParams): Promise<void>;
   waitForBalanceAbove(
     minBalance: number,
     timeoutMs: number,
@@ -164,13 +173,7 @@ export interface ChromeWalletPageApi extends WalletPage, IdbDumpSource {
    * specs run on device.
    */
   getEvmAddress(): Promise<string>;
-  sendTokens(params: {
-    recipientAddress: string;
-    amount: string;
-    isPrivate: boolean;
-    tokenSymbol?: string;
-    tokenId?: string;
-  }): Promise<void>;
+  sendTokens(params: SendTokensParams & { tokenId?: string }): Promise<void>;
   /**
    * Complete the create-wallet flow choosing the Guardian recovery method,
    * pointing the account at `guardianUrl` (a locally-spawned guardian). The
@@ -2383,20 +2386,12 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
    * and the wallet is not sitting on a rendered error surface. Both are thrown,
    * not logged — see the comment on step 6.
    */
-  async sendTokens(params: {
-    recipientAddress: string;
-    amount: string;
-    isPrivate: boolean;
-    /**
-     * Optional token symbol (e.g. "TST"). When set, picks that token's row
-     * from the SelectToken list. Default: first row — fine when only one
-     * fundable token exists, but not when MIDEN sits at 0 balance above the
-     * real balance row.
-     */
-    tokenSymbol?: string;
-    /** Exact faucet account ID. Chrome stress tests use this instead of a symbol. */
-    tokenId?: string;
-  }): Promise<void> {
+  /**
+   * `tokenSymbol` picks that token's row from the SelectToken list; the default is the first row,
+   * which is fine only when one fundable token exists, not when MIDEN sits at 0 balance above the
+   * real balance row. `tokenId` is the exact faucet account id the stress suite uses instead.
+   */
+  async sendTokens(params: SendTokensParams & { tokenId?: string }): Promise<void> {
     // 1. Navigate to send. The v0-UI order is recipient → amount(+token) → review.
     await this.navigateTo('/send');
     const sendFlow = this.page.getByTestId('send-flow');
