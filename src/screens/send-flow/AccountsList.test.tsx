@@ -66,7 +66,7 @@ jest.mock('components/contacts/ContactAvatar', () => ({
   )
 }));
 
-jest.mock('components/EmptyState', () => ({
+jest.mock('components/ui/EmptyState', () => ({
   EmptyState: ({
     icon,
     title,
