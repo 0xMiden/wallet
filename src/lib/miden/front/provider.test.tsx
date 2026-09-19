@@ -33,11 +33,18 @@ jest.mock('lib/miden/front/client', () => ({
 }));
 
 jest.mock('./assets', () => ({
+  ALL_TOKENS_BASE_METADATA_STORAGE_KEY: 'tokens_base_metadata',
   TokensMetadataProvider: ({ children }: any) => <>{children}</>
 }));
 
 jest.mock('lib/fiat-currency', () => ({
+  FIAT_CURRENCY_STORAGE_KEY: 'fiat_currency',
   FiatCurrencyProvider: ({ children }: any) => <>{children}</>
+}));
+
+const mockPreloadStorage = jest.fn((_keys: string[]) => Promise.resolve());
+jest.mock('./storage', () => ({
+  preloadStorage: (keys: string[]) => mockPreloadStorage(keys)
 }));
 
 jest.mock('lib/prices', () => ({
@@ -74,6 +81,7 @@ beforeEach(() => {
   _g.__providerTest.isExtension = false;
   _g.__providerTest.ready = true;
   _g.__providerTest.getMidenClientCalls = 0;
+  mockPreloadStorage.mockClear();
 });
 
 describe('MidenProvider', () => {
@@ -121,5 +129,16 @@ describe('MidenProvider', () => {
     // asserting the client was never initialized.
     await findByText('x');
     expect(_g.__providerTest.getMidenClientCalls).toBe(0);
+  });
+
+  it('preloads the storage keys the ready-only providers read, before the wallet is ready', () => {
+    _g.__providerTest.ready = false;
+    render(
+      <MidenProvider>
+        <div>x</div>
+      </MidenProvider>
+    );
+    expect(mockPreloadStorage).toHaveBeenCalledTimes(1);
+    expect(mockPreloadStorage).toHaveBeenCalledWith(['tokens_base_metadata', 'fiat_currency']);
   });
 });

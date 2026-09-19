@@ -13,7 +13,7 @@ import { ExchangeRateRecord, FiatCurrencyOption } from './types';
 //   `/simple/price?ids=aleo&vs_currencies=${FIAT_CURRENCIES.map(({ apiLabel }) => apiLabel).join(',')}`
 // );
 
-const FIAT_CURRENCY_STORAGE_KEY = 'fiat_currency';
+export const FIAT_CURRENCY_STORAGE_KEY = 'fiat_currency';
 
 export function useAssetFiatCurrencyPrice(slug: string) {
   const exchangeRate = 1; // TODO, fix this

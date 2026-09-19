@@ -4,7 +4,7 @@ import { MidenProvider as SdkMidenProvider } from '@miden-sdk/react/lazy';
 
 import { NoteToastProvider } from 'components/NoteToastProvider';
 import { EarnIntentWatcher } from 'lib/epoch/EarnIntentWatcher';
-import { FiatCurrencyProvider } from 'lib/fiat-currency';
+import { FIAT_CURRENCY_STORAGE_KEY, FiatCurrencyProvider } from 'lib/fiat-currency';
 import { BridgeIntentWatcher } from 'lib/miden/activity/BridgeIntentWatcher';
 import { MidenContextProvider, useMidenContext } from 'lib/miden/front/client';
 import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
@@ -21,9 +21,10 @@ import { PropsWithChildren } from 'lib/props-with-children';
 import { mirrorBackgroundSettings } from 'lib/settings/helpers';
 import { WalletStoreProvider } from 'lib/store/WalletStoreProvider';
 
-import { TokensMetadataProvider } from './assets';
+import { ALL_TOKENS_BASE_METADATA_STORAGE_KEY, TokensMetadataProvider } from './assets';
 import { NativeNoteAutoConsumeManager } from './NativeNoteAutoConsumeManager';
 import { OrphanedTransactionRecovery } from './OrphanedTransactionRecovery';
+import { preloadStorage } from './storage';
 import { SwapOrderTrackingManager } from './SwapOrderTrackingManager';
 import { SwapSettlementManager } from './SwapSettlementManager';
 import { useForegroundRefresh } from './useForegroundRefresh';
@@ -87,6 +88,17 @@ export const MidenProvider: FC<PropsWithChildren> = ({ children }) => {
   // re-toggle.
   useEffect(() => {
     mirrorBackgroundSettings();
+  }, []);
+
+  // TokensMetadataProvider and FiatCurrencyProvider mount when the wallet turns ready, right after
+  // unlock, and read these keys through suspending storage hooks. Uncached, that read suspended the
+  // whole app behind WalletStoreProvider's null fallback, and the screen went blank for about 120 ms
+  // between the passcode and Home. Reading them now, while the lock screen is up, means they are
+  // cached before those providers mount.
+  useEffect(() => {
+    preloadStorage([ALL_TOKENS_BASE_METADATA_STORAGE_KEY, FIAT_CURRENCY_STORAGE_KEY]).catch(err =>
+      console.warn('[MidenProvider] storage preload failed:', err)
+    );
   }, []);
 
   // Eagerly initialize the Miden client singleton once overrides + WASM are
