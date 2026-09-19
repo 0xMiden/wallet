@@ -3,6 +3,8 @@ import React from 'react';
 import { SubPageLayout, SubPageLayoutProps } from 'components/ui/SubPageLayout';
 
 export interface OnboardingStepLayoutProps {
+  /** Above the title: a tag such as the network's chip. */
+  eyebrow?: React.ReactNode;
   /** The step's title: 28px Nunito 800, left, the step's one `h1`. */
   title?: React.ReactNode;
   /** 15px `muted` line under the title. */
@@ -25,6 +27,7 @@ export interface OnboardingStepLayoutProps {
  * body, never scrolled away on a short screen.
  */
 export const OnboardingStepLayout: React.FC<OnboardingStepLayoutProps> = ({
+  eyebrow,
   title,
   description,
   aside,
@@ -34,8 +37,9 @@ export const OnboardingStepLayout: React.FC<OnboardingStepLayoutProps> = ({
   'data-testid': dataTestId
 }) => (
   <SubPageLayout data-testid={dataTestId} footer={footer} footerLayout={footerLayout}>
-    {(title || description || aside) && (
+    {(eyebrow || title || description || aside) && (
       <div data-slot="step-heading" className="flex flex-col items-start gap-2 pt-4">
+        {eyebrow && <div className="pb-1">{eyebrow}</div>}
         {title && (
           <h1 className="font-heading text-[28px] leading-9 font-extrabold tracking-[-0.5px] text-ink">{title}</h1>
         )}
