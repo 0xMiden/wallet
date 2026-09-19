@@ -52,6 +52,8 @@ export interface PillProps {
   selected?: boolean;
   disabled?: boolean;
   className?: string;
+  /** `'status'` for a static pill whose content changes while it is on screen (a live status). */
+  role?: 'status';
   'aria-label'?: string;
   'data-testid'?: string;
 }
@@ -142,6 +144,7 @@ export const Pill: React.FC<PillProps> = ({
   selected,
   disabled,
   className,
+  role,
   'aria-label': ariaLabel,
   'data-testid': dataTestId
 }) => {
@@ -167,7 +170,7 @@ export const Pill: React.FC<PillProps> = ({
 
   if (!onClick) {
     return (
-      <span className={classes} aria-label={ariaLabel} data-testid={dataTestId}>
+      <span className={classes} role={role} aria-label={ariaLabel} data-testid={dataTestId}>
         {content}
       </span>
     );
