@@ -3,7 +3,7 @@ import React from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Button, ButtonVariant } from 'components/Button';
-import { ScreenHeader } from 'components/ScreenHeader';
+import { PageHeader } from 'components/PageHeader';
 import { Spinner } from 'components/ui/Spinner';
 import { IBridgedReceiveExtraInputs } from 'lib/miden/db/types';
 import { openExternalUrl } from 'lib/mobile/external-browser';
@@ -81,7 +81,7 @@ export const EvmBridgeDepositStatus: React.FC<EvmBridgeDepositStatusProps> = ({ 
 
   return (
     <div className="flex flex-1 flex-col overflow-y-auto bg-app-bg px-4 text-heading-gray">
-      <ScreenHeader title={t('transactionProcessingHeader')} closeLabel={t('close')} onClose={onDone} />
+      <PageHeader title={t('transactionProcessingHeader')} onClose={onDone} />
       <main className="flex flex-1 flex-col">
         <section className="flex flex-1 flex-col items-center pt-5">
           <TransactionHeroIcon state={failed ? 'failed' : 'processing'} />

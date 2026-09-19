@@ -40,8 +40,8 @@ jest.mock('components/ui/Button', () => ({
   )
 }));
 
-jest.mock('components/ScreenHeader', () => ({
-  ScreenHeader: ({ title }: { title: string }) => <div>{title}</div>
+jest.mock('components/PageHeader', () => ({
+  PageHeader: ({ title }: { title: string }) => <div>{title}</div>
 }));
 
 jest.mock('app/templates/EvmConnectModal/EvmBridgeDepositScreen', () => ({
