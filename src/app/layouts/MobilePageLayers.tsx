@@ -20,9 +20,17 @@ interface LayerStack {
   poppedKey: string | null;
   // Keys of every mounted layer, present or retained.
   mounted: Set<string>;
+  // The page on screen. An earlier layer of the same page that is still leaving goes at once, so the
+  // page is never in the DOM twice.
+  pageKey: string;
 }
 
-const LayerStackContext = createContext<LayerStack>({ retain: false, poppedKey: null, mounted: new Set() });
+const LayerStackContext = createContext<LayerStack>({
+  retain: false,
+  poppedKey: null,
+  mounted: new Set(),
+  pageKey: ''
+});
 
 // How a layer moves while another layer slides over or off it.
 // - `still`: no motion. The layer shows or is removed at once.
@@ -32,6 +40,7 @@ const LayerStackContext = createContext<LayerStack>({ retain: false, poppedKey: 
 type LayerMotion = 'still' | 'cover' | 'uncover' | 'reveal';
 
 interface PageLayerProps extends PropsWithChildren {
+  pageKey: string;
   layerKey: string;
   location: LocationState;
   slide: boolean;
@@ -43,9 +52,9 @@ const coveredTarget: TargetAndTransition = { x: pageSlideParallax };
 const restTarget: TargetAndTransition = { x: 0 };
 const uncoverTarget: TargetAndTransition = { x: '100%' };
 
-const PageLayer: FC<PageLayerProps> = ({ layerKey, location, slide, revealed, animated, children }) => {
+const PageLayer: FC<PageLayerProps> = ({ pageKey, layerKey, location, slide, revealed, animated, children }) => {
   const [present, remove] = usePresence();
-  const { retain, poppedKey, mounted } = useContext(LayerStackContext);
+  const { retain, poppedKey, mounted, pageKey: currentPageKey } = useContext(LayerStackContext);
   const ref = useRef<HTMLDivElement>(null);
   const transition = useMotion(pageSlideEntrance);
   // A layer that started to slide out keeps sliding out. It is off screen,
@@ -57,9 +66,12 @@ const PageLayer: FC<PageLayerProps> = ({ layerKey, location, slide, revealed, an
   // until then, so a later push to its page never finds a second copy of that page in the DOM.
   const [gone, setGone] = useState(false);
   if (present && gone) setGone(false);
+  const superseded = !present && pageKey === currentPageKey;
 
   let layerMotion: LayerMotion = 'still';
   switch (true) {
+    case superseded:
+      break;
     case present && revealed && animated:
       layerMotion = 'reveal';
       break;
@@ -92,7 +104,7 @@ const PageLayer: FC<PageLayerProps> = ({ layerKey, location, slide, revealed, an
     remove?.();
   }, [present, layerMotion, remove]);
 
-  if (gone) return null;
+  if (gone || superseded) return null;
 
   let initial: false | TargetAndTransition = false;
   let animate: TargetAndTransition = restTarget;
@@ -187,8 +199,8 @@ const MobilePageLayers: FC<MobilePageLayersProps> = ({ pageKey, slide, location,
   const layerKey = layerKeyOf(pageKey, entry.pops);
   const retain = slide && animated;
   const stack = useMemo<LayerStack>(
-    () => ({ retain, poppedKey: entry.poppedKey, mounted }),
-    [retain, entry.poppedKey, mounted]
+    () => ({ retain, poppedKey: entry.poppedKey, mounted, pageKey }),
+    [retain, entry.poppedKey, mounted, pageKey]
   );
 
   return (
@@ -197,6 +209,7 @@ const MobilePageLayers: FC<MobilePageLayersProps> = ({ pageKey, slide, location,
         <AnimatePresence initial={false}>
           <PageLayer
             key={layerKey}
+            pageKey={pageKey}
             layerKey={layerKey}
             location={location}
             slide={slide}

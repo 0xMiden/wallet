@@ -230,8 +230,10 @@ it('drops a popped page once it has left, so pushing it again while a covered pa
   // Back home and into Settings before the popped page has finished sliding out.
   rerender(view('/', false, 'tabs', HistoryAction.Pop));
   rerender(view('/settings', true, '/settings', HistoryAction.Pop));
-  // Open the sub-page again: Settings is now covered and waits under it.
+  // Open the sub-page again: Settings is now covered and waits under it. The popped copy, still
+  // sliding out, goes at once rather than sitting in the DOM beside the new one.
   rerender(view('/settings/general', true));
+  expect(container.querySelectorAll('[data-page-layer="/settings/general"]')).toHaveLength(1);
   await settle();
 
   const copies = container.querySelectorAll('[data-page-layer="/settings/general"]');
