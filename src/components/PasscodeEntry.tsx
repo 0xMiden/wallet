@@ -3,6 +3,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Numpad } from 'components/Numpad';
+import { PasscodeDots } from 'components/PasscodeDots';
 import { cn } from 'lib/ui/util';
 
 export const PASSCODE_LENGTH = 6;
@@ -46,11 +47,14 @@ export const PasscodeEntry: React.FC<PasscodeEntryProps> = ({
   // unlock, or a fresh inline onSubmit identity) cannot re-fire the same
   // passcode. Guarantees exactly one submit per distinct completed code.
   const submittedCodeRef = useRef<string | null>(null);
+  // Counts errors shown; each new value shakes the dots once.
+  const [errorCount, setErrorCount] = useState(0);
 
   useEffect(() => {
     if (error) {
       setCode('');
       codeRef.current = '';
+      setErrorCount(count => count + 1);
     }
   }, [error]);
 
@@ -97,21 +101,11 @@ export const PasscodeEntry: React.FC<PasscodeEntryProps> = ({
       className={cn('flex flex-col items-center', className)}
       data-testid="passcode-entry"
     >
-      <div className="flex items-center gap-3.5" aria-hidden="true">
-        {Array.from({ length: PASSCODE_LENGTH }).map((_, index) => {
-          const filled = index < code.length;
-          return (
-            <div
-              key={index}
-              className={cn('w-3.5 h-3.5 rounded-full border-2 border-[#C7C7CC]', filled && 'bg-[#C7C7CC]')}
-            />
-          );
-        })}
-      </div>
+      <PasscodeDots filled={code.length} length={PASSCODE_LENGTH} errorKey={errorCount} />
       <p
         role="status"
         aria-live="polite"
-        className={cn('min-h-5 text-sm text-center mt-3 wrap-break-word', error ? 'text-red-500' : 'text-text-muted')}
+        className={cn('min-h-5 text-sm text-center mt-3 wrap-break-word', error ? 'text-negative-ink' : 'text-muted')}
       >
         {hint}
       </p>
