@@ -2,6 +2,7 @@ import React from 'react';
 
 import { fireEvent, render, screen, within } from '@testing-library/react';
 
+import { hapticSelection } from 'lib/mobile/haptics';
 import { goBack, navigate } from 'lib/woozie';
 
 import EarnPositionDetail from './EarnPositionDetail';
@@ -315,25 +316,24 @@ describe('EarnPositionDetail', () => {
     expect(mockNavigate).toHaveBeenLastCalledWith('/earn/positions/pos-flat/withdraw/review');
   });
 
-  it('renders the four timeframe buttons with 1M active by default and switches on click', () => {
+  it('renders the four timeframes as the shared segmented control, 1M selected, switching on tap', () => {
     renderDetail('pos-flat');
 
-    const oneMonth = screen.getByRole('button', { name: '1M' });
-    const oneWeek = screen.getByRole('button', { name: '1W' });
-    const oneDay = screen.getByRole('button', { name: '1D' });
-    const all = screen.getByRole('button', { name: 'All' });
+    expect(screen.getByRole('radiogroup', { name: 'chartTimeframe' })).toHaveClass('w-full');
+    const radio = (name: string) => screen.getByRole('radio', { name });
 
-    // Default active timeframe is 1M.
-    expect(oneMonth).toHaveClass('font-semibold', 'text-pure-black');
-    expect(oneWeek).not.toHaveClass('font-semibold');
-    expect(oneDay).not.toHaveClass('font-semibold');
-    expect(all).not.toHaveClass('font-semibold');
+    expect(radio('1M')).toHaveAttribute('aria-checked', 'true');
+    ['1D', '1W', 'All'].forEach(label => expect(radio(label)).toHaveAttribute('aria-checked', 'false'));
+    expect(radio('1M').querySelector('[data-slot="motion-highlight"]')).toHaveClass('bg-raised');
 
-    // Clicking another timeframe moves the active styling (covers the onClick
-    // handler + the `timeframe === item` ternary flipping both ways).
-    fireEvent.click(oneWeek);
-    expect(oneWeek).toHaveClass('font-semibold', 'text-pure-black');
-    expect(oneMonth).not.toHaveClass('font-semibold');
+    fireEvent.click(radio('1W'));
+    expect(hapticSelection).toHaveBeenCalledTimes(1);
+    expect(radio('1W')).toHaveAttribute('aria-checked', 'true');
+    expect(radio('1M')).toHaveAttribute('aria-checked', 'false');
+
+    // A tap on the selected timeframe is silent.
+    fireEvent.click(radio('1W'));
+    expect(hapticSelection).toHaveBeenCalledTimes(1);
   });
 
   it('invokes goBack when the back button is pressed', () => {
