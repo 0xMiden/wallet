@@ -182,16 +182,16 @@ describe('ChooseGuardianScreen', () => {
     const ozSvgs = Array.from(ozBtn!.querySelectorAll('svg'));
     // Light + dark wordmark variants, toggled by `dark:` rather than recolored.
     expect(ozSvgs.length).toBeGreaterThanOrEqual(2);
-    ozSvgs.forEach(svg => expect(svg).not.toHaveClass('[&_path]:fill-heading-gray'));
+    ozSvgs.forEach(svg => expect(svg).not.toHaveClass('[&_path]:fill-ink'));
 
     // The brand-kit tile behind it: pure white in light mode, a dark neutral
     // in dark mode.
     const ozTile = ozSvgs[0]!.parentElement;
     expect(ozTile).toHaveClass('bg-pure-white', 'dark:bg-grey-800');
 
-    // Every other provider is untouched: still recolored grey, no brand tile.
+    // Every other provider is untouched: still recolored to ink, no brand tile.
     const gatewaySvg = gatewayBtn!.querySelector('svg');
-    expect(gatewaySvg).toHaveClass('[&_path]:fill-heading-gray');
+    expect(gatewaySvg).toHaveClass('[&_path]:fill-ink');
     expect(gatewaySvg!.parentElement).not.toHaveClass('bg-pure-white');
   });
 
