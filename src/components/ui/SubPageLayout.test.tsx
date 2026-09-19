@@ -140,6 +140,12 @@ describe('SubPageSection', () => {
     expect(order.indexOf('Rotate')).toBeLessThan(order.indexOf('Small print'));
   });
 
+  it('drops the label a level under a hero heading', () => {
+    render(<SubPageSection title="Details" titleAs="h3" />);
+
+    expect(screen.getByRole('heading', { level: 3, name: 'Details' })).toBeInTheDocument();
+  });
+
   it('renders only what it is given', () => {
     render(
       <SubPageSection data-testid="s">

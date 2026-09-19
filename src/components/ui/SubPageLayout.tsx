@@ -95,6 +95,8 @@ export const SubPageLayout: React.FC<SubPageLayoutProps> = ({
 export interface SubPageSectionProps {
   /** The section label, drawn as a `SectionHeader`. */
   title?: React.ReactNode;
+  /** The label's heading level: `h2` under the page title, `h3` under a hero's own `h2`. */
+  titleAs?: 'h2' | 'h3';
   /** `muted` copy under the label, above the section's content. */
   description?: React.ReactNode;
   /** `muted` copy under the content, such as what a toggle above it does. */
@@ -114,6 +116,7 @@ const noteClass = 'px-1 font-sans text-sm leading-5 text-muted';
  */
 export const SubPageSection: React.FC<SubPageSectionProps> = ({
   title,
+  titleAs,
   description,
   footnote,
   children,
@@ -121,7 +124,7 @@ export const SubPageSection: React.FC<SubPageSectionProps> = ({
   'data-testid': dataTestId
 }) => (
   <section data-testid={dataTestId} className={cn('flex flex-col', className)}>
-    {title && <SectionHeader>{title}</SectionHeader>}
+    {title && <SectionHeader as={titleAs}>{title}</SectionHeader>}
     {description && <div className={cn(noteClass, 'pb-3')}>{description}</div>}
     {children}
     {footnote && <div className={cn(noteClass, 'pt-2')}>{footnote}</div>}
