@@ -7,6 +7,7 @@
 export const TYPE_STYLES = [
   'display',
   'entry',
+  'entry-unit',
   'title-tab',
   'hero-value',
   'hero-name',
