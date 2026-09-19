@@ -44,18 +44,9 @@ import { getSnapshot, subscribeSnapshots } from 'lib/dapp-browser/snapshot-store
 
 import { DappExpanderOverlay, EXPAND_TOTAL_DURATION_MS } from './DappExpanderOverlay';
 import { CARD_HEIGHT, CARD_STACK_OFFSET, CARD_WIDTH, DappPeekCard } from './DappPeekCard';
+import { FOOTER_HEIGHT_FALLBACK, resolveFooterClearance } from './peek-footer';
 import { resolveTargetRect } from './peek-target-rect';
 
-// Fallback anchor distance from the bottom of the viewport. This
-// accounts for the React BottomNav height plus the iPhone home-indicator
-// safe area. Bumped above the old 110 so the tray clears the nav
-// comfortably.
-const FOOTER_HEIGHT_FALLBACK = 130;
-// Minimum footer height we'll accept from a measurement. Below this
-// we're almost certainly measuring the React footer DURING its brief
-// pre-overlay render (it's 97pt at that moment before `display:none`
-// kicks in), which would leave the tray too close to the navbar.
-const MIN_MEASURED_FOOTER = 110;
 const MAX_VISIBLE_CARDS = 3;
 // Side padding from the right edge of the screen. 16pt matches the
 // wallet's standard content gutter so the tray aligns with everything
@@ -156,15 +147,12 @@ export const DappPeekTray: FC = () => {
   // snapshots swap in without unmounting their card.
   useEffect(() => subscribeSnapshots(() => setSnapshotTick(tick => tick + 1)), []);
 
-  // Measure the footer overlay so the tray sits just above BottomNav.
-  // Fall back when the footer is not yet measured, and reject tiny
-  // transient measurements that would leave the tray too low.
+  // Measure the footer overlay so the tray sits just above BottomNav (see peek-footer).
   useEffect(() => {
     const measure = () => {
-      const footer = document.querySelector('[data-tabbar-footer="true"]') as HTMLElement | null;
-      const measured = footer?.offsetHeight ?? 0;
-      const next = measured >= MIN_MEASURED_FOOTER ? measured : FOOTER_HEIGHT_FALLBACK;
-      setFooterHeight(next);
+      setFooterHeight(
+        resolveFooterClearance(document.querySelector<HTMLElement>('[data-tabbar-footer="true"]')?.offsetHeight)
+      );
     };
     measure();
     window.addEventListener('resize', measure);
