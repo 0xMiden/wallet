@@ -54,8 +54,9 @@ type HistoryProps = {
   filter?: ActivityFilter;
 };
 
-// The chips above the activity list. `pending` shows only the notes that
-// wait for a claim, so it removes every settled history row.
+// The chips above the activity list. `pending` shows the notes that wait for a
+// claim and the wallet's own transactions still in flight, so it removes every
+// settled history row.
 export type ActivityFilter = 'all' | 'pending' | 'sent' | 'received' | 'faucet';
 
 const History = memo<HistoryProps>(
@@ -107,9 +108,11 @@ const History = memo<HistoryProps>(
     }, [safeStateKey]);
 
     const onScreen = usePageActive();
-    // The Pending filter shows transfer cards only, and a retained page off screen shows nothing, so the
-    // transaction reads run only while neither holds.
-    const reading = onScreen && filter !== 'pending';
+    // A retained page off screen shows nothing, so neither transaction read runs there. The Pending filter shows
+    // transfer cards and in-flight transactions only, so the settled-history read (and its paging) pauses under it
+    // while the in-flight read keeps running.
+    const readingCompleted = onScreen && filter !== 'pending';
+    const readingPending = onScreen;
 
     const {
       data: latestTransactions,
@@ -123,11 +126,15 @@ const History = memo<HistoryProps>(
         refreshInterval: 10_000,
         dedupingInterval: 3_000,
         keepPreviousData: true,
-        isPaused: () => !reading
+        isPaused: () => !readingCompleted
       }
     );
 
-    const { data: latestPendingTransactions, mutate: mutateTx } = useRetryableSWR(
+    const {
+      data: latestPendingTransactions,
+      isLoading: pendingTransactionsLoading,
+      mutate: mutateTx
+    } = useRetryableSWR(
       [`latest-pending-transactions`, address, tokenId],
       async () => fetchPendingTransactionsAsHistoryEntries(address, tokenId),
       {
@@ -135,19 +142,21 @@ const History = memo<HistoryProps>(
         refreshInterval: 5_000,
         dedupingInterval: 3_000,
         keepPreviousData: true,
-        isPaused: () => !reading
+        isPaused: () => !readingPending
       }
     );
     // A paused read only ticks again on its next interval, so reads that resume refresh at once: a page back on
-    // screen, or a filter moved off Pending.
-    const wasReading = useRef(reading);
+    // screen, or (for the settled history) a filter moved off Pending.
+    const wasReadingCompleted = useRef(readingCompleted);
     useEffect(() => {
-      if (reading && !wasReading.current) {
-        void mutateLatest();
-        void mutateTx();
-      }
-      wasReading.current = reading;
-    }, [reading, mutateLatest, mutateTx]);
+      if (readingCompleted && !wasReadingCompleted.current) void mutateLatest();
+      wasReadingCompleted.current = readingCompleted;
+    }, [readingCompleted, mutateLatest]);
+    const wasReadingPending = useRef(readingPending);
+    useEffect(() => {
+      if (readingPending && !wasReadingPending.current) void mutateTx();
+      wasReadingPending.current = readingPending;
+    }, [readingPending, mutateTx]);
 
     const pendingTransactions = useMemo(
       () =>
@@ -251,7 +260,8 @@ const History = memo<HistoryProps>(
       // Failed/cancelled rows lose their directional icon (it becomes FAILED),
       // so the Sent/Received filters fall back to the underlying tx type.
       entries = entries.filter(e => {
-        if (filter === 'pending') return false;
+        // Only rows still in flight; the settled rows the paused read already holds stay out.
+        if (filter === 'pending') return isInFlight(e.status);
         if (filter === 'sent') {
           return e.transactionIcon === 'SEND' || (e.transactionIcon === 'FAILED' && isSendType(e.txType));
         }
@@ -273,12 +283,13 @@ const History = memo<HistoryProps>(
     return (
       <HistoryView
         entries={entries ?? []}
-        // Under Pending both reads are paused, and one that never ran reports loading until they resume.
-        initialLoading={filter !== 'pending' && transactionsLoading}
+        // Under Pending the settled-history read is paused, and one that never ran reports loading until it
+        // resumes, so only the in-flight read decides.
+        initialLoading={filter === 'pending' ? pendingTransactionsLoading : transactionsLoading}
         loadMore={loadMore}
-        // Paging reads transaction rows too, so it stops wherever the reads above pause: under Pending, where every
-        // row is filtered out, and off screen.
-        hasMore={reading && hasMore}
+        // Paging reads settled rows, so it stops wherever that read pauses: under Pending, where every settled row
+        // is filtered out, and off screen.
+        hasMore={readingCompleted && hasMore}
         scrollParentRef={scrollParentRef}
         tokenId={tokenId}
         fullHistory={fullHistory}
@@ -292,6 +303,11 @@ const History = memo<HistoryProps>(
 );
 
 export default History;
+
+/** Queued or generating: the rows the Pending filter keeps. */
+function isInFlight(status: IHistoryEntry['status']): boolean {
+  return status === ITransactionStatus.Queued || status === ITransactionStatus.GeneratingTransaction;
+}
 
 /** Types whose (non-failed) row would carry the SEND icon. */
 function isSendType(txType: IHistoryEntry['txType']): boolean {

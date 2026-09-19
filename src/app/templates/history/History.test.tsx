@@ -1220,7 +1220,7 @@ it('suppresses a consume row represented by its claiming note, but retains a bat
   expect(mockHistoryViewProps.entries[0].txId).toBe('batch');
 });
 
-it('suppresses legacy single-note consume rows behind a claimed card, keeps rows no card represents, and hides history under Pending', async () => {
+it('suppresses legacy single-note consume rows behind a claimed card, keeps rows no card represents, and keeps only in-flight rows under Pending', async () => {
   mockGetCompletedTransactions.mockResolvedValue([
     {
       id: 'legacy',
@@ -1281,7 +1281,44 @@ it('suppresses legacy single-note consume rows behind a claimed card, keeps rows
   await act(async () => {
     rerender(<History address="0xme" pendingItems={[claimed]} filter="pending" />);
   });
+  expect(entryKeys()).toEqual(['pending-queued-send']);
+});
+
+it('lists in-flight transactions under Pending beside the note cards, and no settled row', async () => {
+  const note: PendingActivityItem = {
+    note: {
+      id: 'incoming',
+      faucetId: 'fa1',
+      amount: '100',
+      senderAddress: 'sender',
+      isBeingClaimed: false,
+      type: 'unknown',
+      metadata: { name: 'Token', symbol: 'TOK', decimals: 6 }
+    },
+    status: 'pending'
+  };
+  await renderHistory({ filter: 'pending', pendingItems: [note] });
+  // Queued and generating rows (a send, a swap, a consume) stay; completed, failed and cancelled rows do not.
+  await waitFor(() => expect(entryKeys()).toEqual(['pending-PQ', 'pending-PP', 'pending-undefined']));
+  expect(mockHistoryViewProps.pendingItems).toEqual([note]);
+});
+
+it('drops settled rows the paused history read still holds once the Pending filter is chosen', async () => {
+  const { rerender } = await renderHistory({ filter: 'all', pendingItems: [] });
+  await waitFor(() => expect(entryKeys()).toContain('completed-S'));
+
+  await act(async () => {
+    rerender(<History address="0xme" filter="pending" pendingItems={[]} />);
+  });
+  expect(entryKeys()).toEqual(['pending-PQ', 'pending-PP', 'pending-undefined']);
+});
+
+it('hands Pending an empty, settled list when there is neither a note nor an in-flight transaction', async () => {
+  mockGetUncompletedTransactions.mockResolvedValue([]);
+  await renderHistory({ filter: 'pending', pendingItems: [] });
+  await waitFor(() => expect(mockHistoryViewProps.initialLoading).toBe(false));
   expect(entryKeys()).toEqual([]);
+  expect(mockHistoryViewProps.pendingItems).toEqual([]);
 });
 
 it('hides a failed consume row while its failed card offers the retry, and shows it again once no card does', async () => {
@@ -1327,10 +1364,11 @@ it('hides a failed consume row while its failed card offers the retry, and shows
   expect(entryKeys()).toEqual(['completed-failed-claim']);
 });
 
-it('stops paging and polling transaction history while the Pending filter shows only transfer cards', async () => {
+it('stops paging and polling settled history under Pending but keeps polling in-flight transactions', async () => {
   const { rerender } = await renderHistory({ filter: 'pending' });
   expect(mockHistoryViewProps.hasMore).toBe(false);
-  expect(mockUseRetryableSWR.mock.calls.slice(-2).map(call => call[2]?.isPaused?.())).toEqual([true, true]);
+  // [settled history, in-flight transactions]
+  expect(mockUseRetryableSWR.mock.calls.slice(-2).map(call => call[2]?.isPaused?.())).toEqual([true, false]);
 
   await act(async () => {
     rerender(<History address="0xme" filter="all" />);
@@ -1361,7 +1399,7 @@ it('pauses both transaction polls while the page is off screen and refreshes the
   await waitFor(() => expect(reads()).toBeGreaterThan(before));
 });
 
-it('refreshes both transaction reads whenever they resume, and only then', async () => {
+it('refreshes each transaction read whenever it resumes, and only then', async () => {
   const view = (onScreen: boolean, filter: 'pending' | 'all') => (
     <PageActiveContext.Provider value={onScreen}>
       <History address="0xme" filter={filter} />
@@ -1375,27 +1413,27 @@ it('refreshes both transaction reads whenever they resume, and only then', async
   });
   await waitFor(() => expect(screen.getByTestId('history-view')).toBeTruthy());
 
-  // Off screen and back with Pending still selected: the reads never resumed, so nothing refreshes.
+  // Off screen and back with Pending still selected: only the in-flight read resumed, so only it refreshes.
   await act(async () => {
     utils?.rerender(view(false, 'pending'));
   });
   await act(async () => {
     utils?.rerender(view(true, 'pending'));
   });
-  expect(refreshes()).toEqual([0, 0]);
+  expect(refreshes()).toEqual([0, 1]);
 
-  // Leaving Pending resumes both reads, and each refreshes at once rather than on its next interval.
+  // Leaving Pending resumes the settled-history read, which refreshes at once rather than on its next interval.
   await act(async () => {
     utils?.rerender(view(true, 'all'));
   });
   expect(refreshes()).toEqual([1, 1]);
 });
 
-it('shows no transaction loading state under Pending, whose list is transfer cards only', async () => {
+it('takes the loading state under Pending from the in-flight read alone', async () => {
   // A read that never settles keeps reporting loading, as a paused read that never ran does.
   mockGetCompletedTransactions.mockImplementation(() => new Promise(() => {}));
   const { rerender } = await renderHistory({ filter: 'pending', pendingItems: [] });
-  expect(mockHistoryViewProps.initialLoading).toBe(false);
+  await waitFor(() => expect(mockHistoryViewProps.initialLoading).toBe(false));
 
   await act(async () => {
     rerender(<History address="0xme" filter="all" pendingItems={[]} />);
