@@ -12,6 +12,11 @@ case "$suite" in
     ;;
 esac
 
+# NOTE: the shared block below matches src/* , so ANY source change runs BOTH suites. The
+# per-suite arms exist only for paths the shared block does not reach - they are not per-suite
+# source coverage, and the guardian arm deliberately names no guardian library path. Narrowing
+# src/* to gain selectivity would therefore silently strip guardian coverage of every guardian
+# source file; give each arm its real source paths first.
 selected=false
 
 while IFS= read -r path; do
@@ -32,7 +37,7 @@ while IFS= read -r path; do
     playwright/e2e/harness/* | \
     playwright/e2e/helpers/* | \
     playwright/e2e/local-stack/* | \
-    scripts/select-e2e-changes.sh | \
+    scripts/* | \
     src/* | \
     tailwind.config.ts | \
     tsconfig.json | \
@@ -48,10 +53,7 @@ while IFS= read -r path; do
       playwright.earn.config.ts | \
       playwright/e2e/ios/helpers/anvil.ts | \
       playwright/e2e/ios/helpers/evm-doubles.ts | \
-      playwright/e2e/helpers/epoch-* | \
-      playwright/e2e/tests/earn/* | \
-      src/lib/epoch/* | \
-      src/screens/earn-flow/*)
+      playwright/e2e/tests/earn/*)
         selected=true
         ;;
     esac
@@ -59,8 +61,7 @@ while IFS= read -r path; do
     case "$path" in
       .github/workflows/pr-e2e-guardian-lifecycle.yml | \
       playwright.guardian.config.ts | \
-      playwright/e2e/tests/*guardian-*.spec.ts | \
-      src/screens/onboarding/*)
+      playwright/e2e/tests/*guardian-*.spec.ts)
         selected=true
         ;;
     esac
