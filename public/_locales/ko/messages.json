@@ -3651,6 +3651,26 @@
     "message": "Miden에 새로 출시되는 앱이 여기에 표시됩니다.",
     "englishSource": "New apps show up here as they launch on Miden."
   },
+  "exploreSearch": {
+    "message": "dApp 검색",
+    "englishSource": "Search dApps"
+  },
+  "exploreResults": {
+    "message": "결과",
+    "englishSource": "Results"
+  },
+  "exploreNoResultsTitle": {
+    "message": "결과 없음",
+    "englishSource": "No results"
+  },
+  "exploreNoResultsDescription": {
+    "message": "다른 이름을 입력하거나 dApp URL을 붙여 넣으세요.",
+    "englishSource": "Try another name, or paste a dApp's URL."
+  },
+  "exploreForkchoiceFaucetTagline": {
+    "message": "스왑용 테스트넷 토큰 받기",
+    "englishSource": "Get testnet tokens for swap"
+  },
   "minimize": {
     "message": "최소화",
     "englishSource": "Minimize"

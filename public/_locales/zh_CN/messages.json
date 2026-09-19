@@ -3651,6 +3651,26 @@
     "message": "新应用在 Miden 上线后会显示在这里。",
     "englishSource": "New apps show up here as they launch on Miden."
   },
+  "exploreSearch": {
+    "message": "搜索 dApp",
+    "englishSource": "Search dApps"
+  },
+  "exploreResults": {
+    "message": "结果",
+    "englishSource": "Results"
+  },
+  "exploreNoResultsTitle": {
+    "message": "无结果",
+    "englishSource": "No results"
+  },
+  "exploreNoResultsDescription": {
+    "message": "试试其他名称，或粘贴 dApp 的 URL。",
+    "englishSource": "Try another name, or paste a dApp's URL."
+  },
+  "exploreForkchoiceFaucetTagline": {
+    "message": "获取用于兑换的测试网代币",
+    "englishSource": "Get testnet tokens for swap"
+  },
   "minimize": {
     "message": "最小化",
     "englishSource": "Minimize"

@@ -3651,6 +3651,26 @@
     "message": "Yeni uygulamalar Miden’de yayınlandıkça burada görünür.",
     "englishSource": "New apps show up here as they launch on Miden."
   },
+  "exploreSearch": {
+    "message": "dApp ara",
+    "englishSource": "Search dApps"
+  },
+  "exploreResults": {
+    "message": "Sonuçlar",
+    "englishSource": "Results"
+  },
+  "exploreNoResultsTitle": {
+    "message": "Sonuç yok",
+    "englishSource": "No results"
+  },
+  "exploreNoResultsDescription": {
+    "message": "Başka bir ad deneyin veya bir dApp’in URL’sini yapıştırın.",
+    "englishSource": "Try another name, or paste a dApp's URL."
+  },
+  "exploreForkchoiceFaucetTagline": {
+    "message": "Takas için testnet token’ı alın",
+    "englishSource": "Get testnet tokens for swap"
+  },
   "minimize": {
     "message": "Küçült",
     "englishSource": "Minimize"
