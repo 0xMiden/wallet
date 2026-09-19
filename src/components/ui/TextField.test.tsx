@@ -207,3 +207,18 @@ describe('TextField — forwards native props, a ref, and events', () => {
     expect(screen.getByTestId('address-input')).toBe(screen.getByRole('textbox'));
   });
 });
+
+describe('TextField — leading prefix', () => {
+  it('draws a muted, decorative prefix before a single-line input', () => {
+    render(<TextField id="word-1" leading="1." value="" onChange={() => undefined} />);
+    const prefix = screen.getByText('1.');
+    expect(prefix).toHaveAttribute('aria-hidden', 'true');
+    expect(prefix).toHaveClass('text-muted');
+    expect(prefix.nextElementSibling).toBe(document.getElementById('word-1'));
+  });
+
+  it('ignores the prefix on a multi-line field', () => {
+    render(<TextField multiline leading="1." value="" onChange={() => undefined} />);
+    expect(screen.queryByText('1.')).not.toBeInTheDocument();
+  });
+});
