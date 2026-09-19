@@ -75,3 +75,6 @@ export type { CardProps, CardButtonProps, CardPadding } from './Card';
 
 export { ChoiceCardGroup } from './ChoiceCard';
 export type { ChoiceCardGroupProps, ChoiceCardItem, ChoiceCardDataAttributes } from './ChoiceCard';
+
+export { TextAction } from './TextAction';
+export type { TextActionProps } from './TextAction';

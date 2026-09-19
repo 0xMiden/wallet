@@ -31,6 +31,7 @@ import { Sparkline } from './Sparkline';
 import { Spinner } from './Spinner';
 import { StatusBadge } from './StatusBadge';
 import { TabHeader, TabHeaderAction } from './TabHeader';
+import { TextAction } from './TextAction';
 import { TextField } from './TextField';
 
 // vaul (the drawer primitive AccountsDrawer pulls in) walks the DOM on load;
@@ -76,7 +77,8 @@ describe('components/ui barrel', () => {
     TextField,
     Card,
     CardButton,
-    ChoiceCardGroup
+    ChoiceCardGroup,
+    TextAction
   } as const;
 
   it('re-exports every component under its own name, tied to the source module', () => {
