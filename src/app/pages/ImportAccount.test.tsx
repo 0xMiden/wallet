@@ -67,6 +67,10 @@ it('renders an accessible private-key import form', () => {
   expect(screen.getByLabelText('privateKey')).toHaveAttribute('id', 'importacc-privatekey');
   expect(screen.getByLabelText('accountName')).toHaveAttribute('id', 'importacc-name');
   expect(screen.getByRole('button', { name: 'importAccount' })).toBeEnabled();
+  // FormSubmitButton defaulted to type="submit"; the canonical Button defaults to
+  // type="button", so the caller has to pin it explicitly or a real click (not just
+  // this suite's `fireEvent.submit` on the form) would stop submitting.
+  expect(screen.getByRole('button', { name: 'importAccount' })).toHaveAttribute('type', 'submit');
 });
 
 it('normalizes the secret and name, selects the imported account, and returns home', async () => {
