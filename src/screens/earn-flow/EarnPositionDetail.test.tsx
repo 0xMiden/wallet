@@ -267,6 +267,22 @@ describe('EarnPositionDetail', () => {
     expect(screen.getByRole('button', { name: 'withdraw' })).toBeInTheDocument();
   });
 
+  it('carries only grid-placement layout on the action buttons, no restyled variant colors', () => {
+    renderDetail('pos-flat');
+
+    // Was `h-14 ... border-rule-strong bg-white text-base font-bold text-accent-primary
+    // hover:bg-white focus:bg-white` (a fixed white fill that never flips in dark mode) /
+    // `h-14 ... text-base font-bold` — both now carry only the grid-placement class
+    // (`rounded-full` and `font-extrabold` below are the canonical Button's own base
+    // classes, not a caller override, so they're expected and not asserted against here).
+    const depositMore = screen.getByTestId('earn-deposit-more-btn');
+    const withdraw = screen.getByTestId('earn-withdraw-btn');
+    expect(depositMore).toHaveClass('max-w-none');
+    expect(depositMore.className).not.toMatch(/bg-white|h-14|border-rule-strong|\btext-base\b|\bfont-bold\b/);
+    expect(withdraw).toHaveClass('max-w-none');
+    expect(withdraw.className).not.toMatch(/h-14|\btext-base\b|\bfont-bold\b/);
+  });
+
   it('falls back to the placeholder position when the id does not match any position', () => {
     renderDetail('does-not-exist');
 
