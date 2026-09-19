@@ -1089,6 +1089,7 @@
   "ethereumSepolia": "Ethereum Sepolia",
   "shareAddressText": "Meu endereço Miden $network$ (apenas tokens de teste): $address$",
   "networkModeBanner": "Você está usando o Bread no Miden $network$",
+  "networkModeStripLabel": "$network$ — sobre esta rede",
   "activityRestoreTransfers": "Restaurar",
   "activityHiddenNotesError": "Não foi possível salvar as transferências ocultas. Tente novamente.",
   "exportAccountFile": "Exportar arquivo da conta",

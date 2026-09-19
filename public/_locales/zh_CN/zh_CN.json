@@ -1089,6 +1089,7 @@
   "ethereumSepolia": "以太坊 Sepolia",
   "shareAddressText": "我的 Miden $network$ 地址（仅限测试代币）：$address$",
   "networkModeBanner": "您正在 Miden $network$ 上使用 Bread",
+  "networkModeStripLabel": "$network$ — 关于此网络",
   "activityRestoreTransfers": "恢复",
   "activityHiddenNotesError": "无法保存隐藏转账。请重试。",
   "exportAccountFile": "导出账户文件",

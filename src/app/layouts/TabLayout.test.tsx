@@ -133,8 +133,9 @@ jest.mock('framer-motion', () => ({
 // clickable buttons plus a synthetic "unknown id" button so the layout's
 // route-lookup guard branches are all reachable.
 jest.mock('components/ui', () => ({
-  BottomNav: ({ items, activeId, onChange, docked }: any) => (
+  BottomNav: ({ items, activeId, onChange, docked, accessory }: any) => (
     <div data-testid="bottom-nav" data-active={activeId} data-docked={String(!!docked)}>
+      <div data-testid="bottom-nav-accessory">{accessory}</div>
       {items.map((it: any) => (
         <button
           key={it.id}
@@ -162,6 +163,11 @@ jest.mock('components/ui', () => ({
       </button>
     </div>
   )
+}));
+
+// The strip has its own suite; here it only has to land in the bar's accessory slot.
+jest.mock('components/NetworkModeStrip', () => ({
+  NetworkModeStrip: () => <div data-testid="network-mode-strip" />
 }));
 
 const mockNavigate = navigate as jest.Mock;
@@ -339,6 +345,22 @@ describe('TabLayout — tabs list composition', () => {
     mockHasUnclaimed.value = false;
     renderLayout();
     expect(screen.getByTestId('nav-activity')).toHaveAttribute('data-dot', 'false');
+  });
+});
+
+describe('TabLayout — network strip', () => {
+  it.each([
+    ['mobile (docked)', true],
+    ['extension/desktop (floating)', false]
+  ])('puts the network strip in the bottom nav’s accessory slot on %s', (_label, mobile) => {
+    mockPlatform.isMobile = mobile;
+    renderLayout();
+    expect(screen.getByTestId('bottom-nav-accessory')).toContainElement(screen.getByTestId('network-mode-strip'));
+  });
+
+  it('shows no banner above the tabs', () => {
+    renderLayout();
+    expect(screen.queryByTestId('network-mode-banner')).not.toBeInTheDocument();
   });
 });
 

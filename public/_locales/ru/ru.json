@@ -1089,6 +1089,7 @@
   "ethereumSepolia": "Ethereum Sepolia",
   "shareAddressText": "Мой адрес Miden $network$ (только тестовые токены): $address$",
   "networkModeBanner": "Вы используете Bread на Miden $network$",
+  "networkModeStripLabel": "$network$ — об этой сети",
   "activityRestoreTransfers": "Восстановить",
   "activityHiddenNotesError": "Не удалось сохранить скрытые переводы. Пожалуйста, попробуйте ещё раз.",
   "exportAccountFile": "Экспорт файла учетной записи",

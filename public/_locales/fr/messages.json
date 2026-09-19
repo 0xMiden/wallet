@@ -4826,6 +4826,15 @@
       }
     }
   },
+  "networkModeStripLabel": {
+    "message": "$network$ — à propos de ce réseau",
+    "englishSource": "$network$ — about this network",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
   "activityRestoreTransfers": {
     "message": "Restaurer",
     "englishSource": "Restore"

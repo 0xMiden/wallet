@@ -9,9 +9,8 @@ export interface SlotRect {
 // this session yet AND nothing is cached), fall back to a computed slot
 // that matches DappActive's layout:
 //   - FALLBACK_CAPSULE_HEIGHT (145): safe-area-inset-top (~62) + the
-//     capsule's drag handle + content row (83).
-//   - the router's network banner (#875), measured: PageRouter renders it
-//     above every page on test networks and renders nothing on mainnet.
+//     capsule's drag handle + content row (83). Nothing tops the page above
+//     it: the test network is named in the bottom nav's strip, not a banner.
 //   - FALLBACK_BOTTOM_GUTTER (34): safe-area-inset-bottom on devices
 //     with a home indicator. Subtract the bottom safe area directly as
 //     a constant instead of trying to derive it from live CSS.
@@ -20,8 +19,6 @@ export interface SlotRect {
 // every case after the first restore.
 export const FALLBACK_CAPSULE_HEIGHT = 145;
 export const FALLBACK_BOTTOM_GUTTER = 34;
-// NetworkModeBanner.test pins this to the rendered banner.
-export const NETWORK_BANNER_SELECTOR = '[data-testid="network-mode-banner"]';
 
 const isMeasured = (rect: SlotRect | null): rect is SlotRect => !!rect && rect.width > 0 && rect.height > 0;
 
@@ -32,12 +29,10 @@ const isMeasured = (rect: SlotRect | null): rect is SlotRect => !!rect && rect.w
 export function resolveTargetRect(liveSlotRect: SlotRect | null, cachedSlotRect: SlotRect | null): SlotRect {
   if (isMeasured(liveSlotRect)) return liveSlotRect;
   if (isMeasured(cachedSlotRect)) return cachedSlotRect;
-  const banner = document.querySelector<HTMLElement>(NETWORK_BANNER_SELECTOR)?.offsetHeight ?? 0;
-  const top = FALLBACK_CAPSULE_HEIGHT + banner;
   return {
     x: 0,
-    y: top,
+    y: FALLBACK_CAPSULE_HEIGHT,
     width: window.innerWidth,
-    height: window.innerHeight - top - FALLBACK_BOTTOM_GUTTER
+    height: window.innerHeight - FALLBACK_CAPSULE_HEIGHT - FALLBACK_BOTTOM_GUTTER
   };
 }

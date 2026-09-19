@@ -4826,6 +4826,15 @@
       }
     }
   },
+  "networkModeStripLabel": {
+    "message": "$network$ — 이 네트워크 정보",
+    "englishSource": "$network$ — about this network",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
   "activityRestoreTransfers": {
     "message": "복원",
     "englishSource": "Restore"

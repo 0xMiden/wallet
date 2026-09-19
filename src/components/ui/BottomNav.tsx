@@ -124,7 +124,13 @@ export const BottomNav: FC<BottomNavProps> = ({ items, activeId, onChange, docke
           ))}
         </Highlight>
       </div>
-      {accessory && <div className="flex min-w-0 shrink items-center pl-1">{accessory}</div>}
+      {/* The accessory gets the row's top 48px (pt-1 above a 44px target): docked on a device with
+          a home indicator, the bar's bottom padding is the inset minus 16px, so the row's bottom
+          16px lies inside the indicator's gesture zone and a target there would compete with it. */}
+      {/* `empty:hidden`: an accessory that renders nothing (the strip on mainnet) leaves no gap. */}
+      {accessory && (
+        <div className="flex min-w-0 shrink items-start self-stretch pt-1 pl-1 empty:hidden">{accessory}</div>
+      )}
     </nav>
   );
 };
