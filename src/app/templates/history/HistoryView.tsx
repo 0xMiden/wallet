@@ -403,7 +403,9 @@ const HistoryView = memo<HistoryViewProps>(
         );
       }
       return (
-        <div className={classNames('flex flex-col justify-left', fullHistory ? 'mt-8' : 'm-4')}>
+        // Full history outside the Activity tab (the token page) sits under its own section
+        // header, which already spaces it; the summary view keeps its own margin.
+        <div className={classNames('flex flex-col justify-left', !fullHistory && 'm-4')}>
           <EmptyState icon={IconName.ArrowUpDown} title={t('noOperationsFound')} className="w-full" />
         </div>
       );

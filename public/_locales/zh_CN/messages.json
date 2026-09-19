@@ -3957,11 +3957,11 @@
   },
   "tokenPrice": {
     "message": "代币价格",
-    "englishSource": "Token Price"
+    "englishSource": "Token price"
   },
   "tokenInfo": {
     "message": "代币信息",
-    "englishSource": "Token Info"
+    "englishSource": "Token info"
   },
   "fungible": {
     "message": "可互换的",
@@ -3973,7 +3973,7 @@
   },
   "recentActivity": {
     "message": "最近的活动",
-    "englishSource": "Recent Activity"
+    "englishSource": "Recent activity"
   },
   "type": {
     "message": "类型",

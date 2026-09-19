@@ -3,6 +3,7 @@ import React from 'react';
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 
 import TokenDetail from './TokenDetail';
+import enMessages from '../../../public/_locales/en/en.json';
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -91,9 +92,10 @@ jest.mock('lib/woozie', () => ({
 }));
 
 const mockHapticSelection = jest.fn();
+const mockHapticLight = jest.fn();
 jest.mock('lib/mobile/haptics', () => ({
   hapticSelection: (...args: unknown[]) => mockHapticSelection(...args),
-  hapticLight: jest.fn()
+  hapticLight: (...args: unknown[]) => mockHapticLight(...args)
 }));
 
 jest.mock('components/PageHeader', () => ({
@@ -127,11 +129,6 @@ jest.mock('app/templates/history/History', () => ({
   )
 }));
 
-jest.mock('app/icons/v2', () => ({
-  Icon: ({ name }: { name: string }) => <span data-testid="copy-icon" data-name={name} />,
-  IconName: { Copy: 'Copy', Checkmark: 'Checkmark' }
-}));
-
 // recharts: render `Tooltip.content` against a spread of arg shapes so every
 // branch of TokenDetail's inline tooltip renderer (+ `formatTooltipTime`) is
 // exercised on each render.
@@ -161,28 +158,52 @@ jest.mock('recharts', () => ({
   )
 }));
 
-// framer-motion: `motion.div` -> passthrough div (framer-only props stripped so
-// React doesn't warn), mirroring HomeSwipeContainer.test.tsx.
+// framer-motion: `motion.<tag>` -> a plain <tag> with the framer-only props
+// stripped (so React doesn't warn), keeping the element a real `button` for the
+// pill `Button`. The shared indicator's `layoutId` is surfaced as a data
+// attribute so the test can find the one fill that slides between timeframes.
 jest.mock('framer-motion', () => {
   const ReactActual = jest.requireActual('react');
-  const passthrough = ({
-    children,
-    layoutId,
-    transition,
-    ...rest
-  }: {
-    children?: React.ReactNode;
-    layoutId?: string;
-    transition?: unknown;
-  }) => ReactActual.createElement('div', rest, children);
-  return { __esModule: true, motion: new Proxy({}, { get: () => passthrough }) };
+  // Cached per tag: a fresh component type on every access would remount the element each render.
+  const cache: Record<string, unknown> = {};
+  const build = (tag: string) =>
+    ReactActual.forwardRef(
+      (
+        {
+          children,
+          layoutId,
+          transition: _transition,
+          whileTap: _whileTap,
+          ...rest
+        }: { children?: React.ReactNode; layoutId?: string; transition?: unknown; whileTap?: unknown },
+        ref: unknown
+      ) => ReactActual.createElement(tag, { ...rest, ref, 'data-layout-id': layoutId }, children)
+    );
+  return {
+    __esModule: true,
+    motion: new Proxy({}, { get: (_target, tag: string) => (cache[tag] ??= build(tag)) }),
+    useReducedMotion: () => false
+  };
 });
 
-const TOKEN_ID = '0xabcdef1234567890';
+// A realistic bech32 faucet id, long enough to exercise HashShortView's middle truncation
+// (default trimAfter 20) the way a real Miden faucet id does.
+const TOKEN_ID = 'mtst1aqvpq8a9ytqhfvt9al20wzsrs56g83ec_qr7qqq9wr6w';
 
 const mockClipboardWrite = jest.fn();
 jest.mock('@capacitor/clipboard', () => ({
   Clipboard: { write: (...args: unknown[]) => mockClipboardWrite(...args) }
+}));
+
+const mockGetExplorerAccountUrl = jest.fn();
+jest.mock('lib/miden-chain/constants', () => ({
+  ...jest.requireActual('lib/miden-chain/constants'),
+  getExplorerAccountUrl: (...args: unknown[]) => mockGetExplorerAccountUrl(...args)
+}));
+
+const mockOpenExternalUrl = jest.fn();
+jest.mock('lib/mobile/external-browser', () => ({
+  openExternalUrl: (...args: unknown[]) => mockOpenExternalUrl(...args)
 }));
 
 type Overrides = {
@@ -193,6 +214,10 @@ type Overrides = {
   network?: { name: string };
   priceInfo?: { price: number; change24h: number; percentageChange24h?: number };
   klineData?: unknown;
+  /** The first kline load still in flight: SWR reports `data: undefined`. */
+  klineLoading?: boolean;
+  /** `null` simulates a build with no explorer configured; omitted uses a default URL. */
+  explorerUrl?: string | null;
 };
 
 function configure(o: Overrides = {}) {
@@ -205,9 +230,13 @@ function configure(o: Overrides = {}) {
   mockUseAllTokensBaseMetadata.mockReturnValue(o.metadata ?? {});
   mockUseNetwork.mockReturnValue(o.network ?? { name: 'Testnet' });
   mockGetTokenPrice.mockReturnValue(o.priceInfo ?? { price: 2000, change24h: 3.2, percentageChange24h: 0.1 });
+  mockGetExplorerAccountUrl.mockReturnValue(
+    o.explorerUrl === null ? undefined : (o.explorerUrl ?? `https://testnet.midenscan.com/account/${TOKEN_ID}`)
+  );
   mockFetchKlineData.mockResolvedValue([]);
-  const data =
-    o.klineData === undefined
+  const data = o.klineLoading
+    ? undefined
+    : o.klineData === undefined
       ? [
           { time: 1_700_000_000_000, value: 1 },
           { time: 1_700_000_060_000, value: 2 },
@@ -239,11 +268,22 @@ describe('TokenDetail', () => {
     // PageHeader has no horizontal padding of its own — the page supplies it,
     // or the back chevron's hit area is clipped by an overflow-hidden ancestor.
     expect(screen.getByTestId('nav-header')).toHaveClass('px-4');
-    expect(screen.getByTestId('token-logo')).toHaveAttribute('data-symbol', 'ETH');
-    expect(screen.getByTestId('token-logo')).toHaveAttribute('data-size', 'xl');
     // Standard 2dp balance formatting and fiatValue = 12.5 * 2000.
     expect(screen.getByText('12.50')).toBeInTheDocument();
     expect(screen.getByText('$25000.00')).toBeInTheDocument();
+  });
+
+  it('draws the shared Hero: the 88px logo circle, the amount as the value and the fiat line muted', () => {
+    renderPage();
+
+    const hero = screen.getByTestId('token-detail-hero');
+    const logo = within(hero).getByTestId('token-logo');
+    expect(logo).toHaveAttribute('data-symbol', 'ETH');
+    // `2xl` is TokenLogo's step for the design system's 88px hero avatar.
+    expect(logo).toHaveAttribute('data-size', '2xl');
+    // Hero value: 32px Nunito black.
+    expect(within(hero).getByText('12.50')).toHaveClass('text-[32px]', 'font-black', 'text-ink');
+    expect(within(hero).getByText('$25000.00')).toHaveClass('text-muted');
   });
 
   it('expands precision for a small non-zero hero balance and fiat value', () => {
@@ -259,7 +299,9 @@ describe('TokenDetail', () => {
   it('forwards account address, tokenId and fullHistory to the History template', () => {
     renderPage();
 
-    const history = screen.getByTestId('history');
+    // Under its own section header. `fullHistory` is what selects the Activity tab's shared rows
+    // (`Card` + `ActivityRow`) and the shared `EmptyState` (covered in HistoryView.test.tsx).
+    const history = within(screen.getByTestId('token-detail-activity')).getByTestId('history');
     expect(history).toHaveAttribute('data-address', 'pk-123');
     expect(history).toHaveAttribute('data-token-id', TOKEN_ID);
     expect(history).toHaveAttribute('data-full-history', 'true');
@@ -281,6 +323,49 @@ describe('TokenDetail', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'receive' }));
     expect(mockNavigate).toHaveBeenCalledWith('/receive');
+  });
+
+  it('draws Send and Receive as the pill Button pair, primary then secondary, side by side', () => {
+    renderPage();
+
+    const send = screen.getByTestId('token-detail-send');
+    const receive = screen.getByTestId('token-detail-receive');
+    expect(send).toBe(screen.getByRole('button', { name: 'send' }));
+    expect(receive).toBe(screen.getByRole('button', { name: 'receive' }));
+    // The 52px pill: accent fill for the primary, `fill` for the secondary.
+    expect(send).toHaveClass('rounded-full', 'h-13', 'bg-accent-primary', 'flex-1');
+    expect(receive).toHaveClass('rounded-full', 'h-13', 'bg-fill', 'text-ink', 'flex-1');
+    // 10px apart, each taking half the row.
+    expect(send.parentElement).toBe(receive.parentElement);
+    expect(send.parentElement).toHaveClass('flex', 'gap-2.5');
+    // The tap haptic comes from Button itself.
+    fireEvent.click(send);
+    expect(mockHapticLight).toHaveBeenCalled();
+  });
+
+  it('separates sections with spacing, not full-width rules', () => {
+    const { container } = renderPage();
+
+    expect(container.querySelector('hr')).toBeNull();
+    expect(screen.getByTestId('token-detail-price').parentElement).toHaveClass('gap-5', 'px-4');
+  });
+
+  it('labels every section with a left-aligned, sentence-case SectionHeader', () => {
+    renderPage();
+
+    for (const [section, key] of [
+      ['token-detail-price', 'tokenPrice'],
+      ['token-detail-info', 'tokenInfo'],
+      ['token-detail-activity', 'recentActivity']
+    ] as const) {
+      const heading = within(screen.getByTestId(section)).getByRole('heading', { level: 2, name: key });
+      expect(heading).toHaveClass('text-muted', 'font-bold');
+      expect(heading).not.toHaveClass('uppercase');
+      expect(heading).not.toHaveClass('text-center');
+      // The English copy itself is sentence case: only the first word is capitalised.
+      const english = enMessages[key];
+      expect(english).toBe(english.charAt(0) + english.slice(1).toLowerCase());
+    }
   });
 
   describe('symbol / metadata / balance fallbacks', () => {
@@ -386,6 +471,40 @@ describe('TokenDetail', () => {
       expect(screen.getByText('tokenDetailChange24h_-1.5')).toBeInTheDocument();
     });
 
+    it.each([
+      [3.2, 'text-positive-ink', '+3.2'],
+      [-1.5, 'text-negative-ink', '-1.5'],
+      // Rounds to 0.0 as shown, so neutral and unsigned rather than a red "-0.0%".
+      [-0.04, 'text-ink', '0.0'],
+      [0, 'text-ink', '0.0']
+    ])('tones a %p change as a status pill (%s)', (change24h, inkClass, label) => {
+      renderPage({ priceInfo: { price: 2000, change24h } });
+
+      const pill = screen.getByTestId('token-detail-price-change');
+      expect(pill).toHaveTextContent(`tokenDetailChange24h_${label}`);
+      expect(pill).toHaveClass('rounded-full', 'h-6', inkClass);
+    });
+
+    it('shows a skeleton in the chart slot until the first kline load resolves', () => {
+      renderPage({ klineLoading: true });
+
+      const price = screen.getByTestId('token-detail-price');
+      expect(price.querySelector('[data-slot="skeleton"]')).not.toBeNull();
+      expect(screen.queryByTestId('line-chart')).not.toBeInTheDocument();
+      // The price and its change do not wait on the chart.
+      expect(screen.getByTestId('token-detail-price-change')).toBeInTheDocument();
+    });
+
+    it('keeps the previous line while another timeframe loads', () => {
+      renderPage();
+
+      expect(mockUseRetryableSWR).toHaveBeenLastCalledWith(
+        expect.anything(),
+        expect.any(Function),
+        expect.objectContaining({ keepPreviousData: true })
+      );
+    });
+
     it('renders the flat-line fallback when kline data is empty (padding fallback branch)', () => {
       renderPage({ klineData: [] });
 
@@ -455,30 +574,97 @@ describe('TokenDetail', () => {
         expect(screen.getByRole('button', { name: tf })).toBeInTheDocument();
       }
     });
+
+    it('marks the active timeframe as the selected pill under the one shared indicator', () => {
+      renderPage();
+
+      const pill = (tf: string) => screen.getByTestId(`token-detail-timeframe-${tf}`);
+      const indicatorOf = (tf: string) => pill(tf).parentElement?.querySelector('[data-layout-id]') ?? null;
+
+      expect(pill('1D')).toHaveAttribute('aria-pressed', 'true');
+      expect(pill('1D')).toHaveClass('text-accent-tint-ink');
+      expect(pill('1W')).toHaveAttribute('aria-pressed', 'false');
+      expect(pill('1W')).toHaveClass('bg-fill', 'text-ink');
+      expect(indicatorOf('1D')).toHaveAttribute('data-layout-id', 'token-detail-timeframe-pill');
+      expect(indicatorOf('1D')).toHaveClass('bg-accent-tint');
+      expect(indicatorOf('1W')).toBeNull();
+
+      fireEvent.click(pill('1W'));
+
+      expect(mockHapticSelection).toHaveBeenCalledTimes(1);
+      expect(pill('1W')).toHaveAttribute('aria-pressed', 'true');
+      expect(pill('1D')).toHaveAttribute('aria-pressed', 'false');
+      expect(indicatorOf('1W')).toHaveAttribute('data-layout-id', 'token-detail-timeframe-pill');
+      expect(indicatorOf('1D')).toBeNull();
+      // Only ever one indicator, so it slides rather than cross-fading.
+      expect(document.querySelectorAll('[data-layout-id="token-detail-timeframe-pill"]')).toHaveLength(1);
+    });
+
+    it('stays silent when the active timeframe is tapped again', () => {
+      renderPage();
+
+      fireEvent.click(screen.getByTestId('token-detail-timeframe-1D'));
+
+      expect(mockHapticSelection).not.toHaveBeenCalled();
+    });
   });
 
   describe('token info card', () => {
-    it('renders the truncated contract, type, network and copies the address', async () => {
-      mockClipboardWrite.mockResolvedValue(undefined);
+    it('renders a short, middle-truncated contract id (not the raw id) in the regular value style', () => {
       renderPage({ network: { name: 'Devnet' } });
 
-      expect(screen.getByText('Devnet')).toBeInTheDocument();
-      expect(screen.getByText('fungible')).toBeInTheDocument();
+      const info = screen.getByTestId('token-detail-info');
+      const contract = within(info).getByTestId('token-detail-contract');
+      // The shared DetailCard: `fill`, 16px radius, hairlines between rows.
+      expect(contract.parentElement).toHaveClass('bg-fill', 'rounded-2xl', 'divide-hairline');
+      expect(within(contract).getByText('contract')).toBeInTheDocument();
 
-      expect(screen.getByTestId('copy-icon')).toHaveAttribute('data-name', 'Copy');
-      const copyBtn = screen.getByTestId('copy-icon').closest('button') as HTMLButtonElement;
-      // The icon carries no text, so the accessible name (not aria-live text) is what has to
-      // change for a screen reader to learn the copy succeeded.
-      expect(copyBtn).toHaveAccessibleName('copy');
+      const copy = within(contract).getByTestId('token-detail-copy-contract');
+      // Regular weight (`HashChip`'s own `font-normal` overrides `DetailRow`'s bold value style),
+      // truncated in the middle, not the full 49-char id dumped in bold.
+      expect(copy).toHaveClass('font-normal');
+      expect(copy).not.toHaveTextContent(TOKEN_ID);
+      expect(copy).toHaveTextContent(TOKEN_ID.slice(0, 7));
+      expect(copy).toHaveTextContent(TOKEN_ID.slice(-4));
+
+      expect(within(info).getByText('fungible')).toBeInTheDocument();
+      expect(within(info).getByText('Devnet')).toBeInTheDocument();
+    });
+
+    it('copies the full contract id, not the truncated display value', async () => {
+      mockClipboardWrite.mockResolvedValue(undefined);
+      renderPage();
+
+      const copy = screen.getByTestId('token-detail-copy-contract');
 
       await act(async () => {
-        fireEvent.click(copyBtn);
+        fireEvent.click(copy);
       });
 
       expect(mockClipboardWrite).toHaveBeenCalledWith({ string: TOKEN_ID });
-      // Feedback: the copy glyph swaps to a checkmark once the write resolves.
-      expect(screen.getByTestId('copy-icon')).toHaveAttribute('data-name', 'Checkmark');
-      expect(copyBtn).toHaveAccessibleName('copied');
+      expect(mockHapticLight).toHaveBeenCalled();
+    });
+
+    it('opens the MidenScan explorer for this faucet in the in-app browser', () => {
+      const explorerUrl = `https://devnet.midenscan.com/account/${TOKEN_ID}`;
+      renderPage({ explorerUrl });
+
+      expect(mockGetExplorerAccountUrl).toHaveBeenCalledWith(TOKEN_ID);
+
+      const explorerRow = screen.getByTestId('token-detail-explorer');
+      expect(explorerRow).toHaveTextContent('viewOnMidenscan');
+
+      fireEvent.click(explorerRow);
+
+      expect(mockOpenExternalUrl).toHaveBeenCalledWith({ url: explorerUrl, title: 'Midenscan' });
+      expect(mockHapticLight).toHaveBeenCalled();
+    });
+
+    it('hides the MidenScan row on a build with no explorer configured', () => {
+      renderPage({ explorerUrl: null });
+
+      expect(screen.queryByTestId('token-detail-explorer')).not.toBeInTheDocument();
+      expect(mockOpenExternalUrl).not.toHaveBeenCalled();
     });
   });
 });
