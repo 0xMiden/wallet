@@ -3,7 +3,7 @@ import React from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 import { getCurrentLocale } from 'lib/i18n/core';
-import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
+import { hapticLight } from 'lib/mobile/haptics';
 import { SeedPhraseStatus } from 'lib/shared/types';
 import { goBack, navigate } from 'lib/woozie';
 
@@ -262,7 +262,6 @@ jest.mock('./Networks', () => ({
 const mockNavigate = navigate as jest.Mock;
 const mockGoBack = goBack as jest.Mock;
 const mockHapticLight = hapticLight as jest.Mock;
-const mockHapticMedium = hapticMedium as jest.Mock;
 const mockGetCurrentLocale = getCurrentLocale as jest.Mock;
 
 function setAccount(account: MockAccount) {
@@ -696,51 +695,30 @@ describe('Settings page — guardian account', () => {
   });
 });
 
-describe('Settings page — seed phrase warning overlay', () => {
-  it('shows the warning overlay when the recovery phrase item is clicked', () => {
+describe('Settings page — recovery phrase row', () => {
+  // The row used to open a warning overlay on the Settings root, which is a tab
+  // page, so the tab bar covered the overlay's Close and View. It now routes to
+  // its full-screen sub-page like every other row, and the warning is that
+  // page's first step (RevealSeedPhrase).
+  it('routes to /settings/reveal-seed-phrase like every other row', () => {
+    render(<Settings tabSlug={null} />);
+
+    const row = screen.getByTestId('row-recoveryPhrase');
+    expect(row).toHaveAttribute('data-slug', '/settings/reveal-seed-phrase');
+    expect(row).toHaveAttribute('data-selector', 'Settings/RevealSeedPhraseButton');
+  });
+
+  it('renders no overlay on the Settings root when the row is tapped, with a single haptic', () => {
     render(<Settings tabSlug={null} />);
 
     fireEvent.click(screen.getByTestId('row-recoveryPhrase'));
 
     expect(mockHapticLight).toHaveBeenCalledTimes(1);
-    expect(screen.getByText('viewThisInPrivatePlace')).toBeInTheDocument();
-    expect(screen.getByText('pleaseWriteDownRecoveryPhrase')).toBeInTheDocument();
-  });
-
-  // Each of these taps must produce exactly ONE buzz, from Button. The handlers
-  // used to add their own on top, so Close buzzed twice and View fired a medium
-  // and a light together.
-  it('closes the overlay via the Close button with a single haptic and no navigation', () => {
-    render(<Settings tabSlug={null} />);
-    fireEvent.click(screen.getByTestId('row-recoveryPhrase'));
-
-    fireEvent.click(screen.getByTestId('btn-close'));
-
-    expect(mockHapticLight).toHaveBeenCalledTimes(2); // one for the row, one for Close
-    expect(mockHapticMedium).not.toHaveBeenCalled();
-    expect(mockNavigate).not.toHaveBeenCalled();
     expect(screen.queryByText('viewThisInPrivatePlace')).not.toBeInTheDocument();
-  });
-
-  it('navigates to reveal-seed-phrase via the View button with a single haptic', () => {
-    render(<Settings tabSlug={null} />);
-    fireEvent.click(screen.getByTestId('row-recoveryPhrase'));
-
-    fireEvent.click(screen.getByTestId('btn-view'));
-
-    expect(mockHapticLight).toHaveBeenCalledTimes(2); // one for the row, one for View
-    expect(mockHapticMedium).not.toHaveBeenCalled();
-    expect(mockNavigate).toHaveBeenCalledWith('/settings/reveal-seed-phrase');
-    expect(screen.queryByText('viewThisInPrivatePlace')).not.toBeInTheDocument();
-  });
-
-  it('still renders the overlay when reduced motion is requested', () => {
-    mockReduceMotion = true;
-    render(<Settings tabSlug={null} />);
-
-    fireEvent.click(screen.getByTestId('row-recoveryPhrase'));
-
-    expect(screen.getByText('viewThisInPrivatePlace')).toBeInTheDocument();
+    expect(screen.queryByText('pleaseWriteDownRecoveryPhrase')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('btn-view')).not.toBeInTheDocument();
+    // Still the root menu: nothing replaced it.
+    expect(screen.getByTestId('row-generalSettings')).toBeInTheDocument();
   });
 });
 
@@ -886,28 +864,22 @@ describe('Settings page — mobile body attribute effects', () => {
     expect(document.body.hasAttribute('data-edge-to-edge')).toBe(false);
   });
 
-  it('clears data-drawer-open when unmounted while the seed warning is open', () => {
+  it('parks dApp trays on the recovery phrase sub-page and releases them on the way out', () => {
     mockIsMobile = true;
-    const { unmount } = render(<Settings tabSlug={null} />);
+    const { unmount } = render(<Settings tabSlug="reveal-seed-phrase" />);
 
-    expect(document.body.hasAttribute('data-drawer-open')).toBe(false);
-
-    fireEvent.click(screen.getByTestId('row-recoveryPhrase'));
     expect(document.body.hasAttribute('data-drawer-open')).toBe(true);
 
-    // Unmounting while the overlay is still open exercises the cleanup path.
     unmount();
     expect(document.body.hasAttribute('data-drawer-open')).toBe(false);
   });
 
-  it('sets data-drawer-open while the seed warning is open and clears it on close', () => {
+  it('does not park dApp trays on the root when the recovery phrase row is tapped', () => {
     mockIsMobile = true;
     render(<Settings tabSlug={null} />);
 
     fireEvent.click(screen.getByTestId('row-recoveryPhrase'));
-    expect(document.body.hasAttribute('data-drawer-open')).toBe(true);
 
-    fireEvent.click(screen.getByTestId('btn-close'));
     expect(document.body.hasAttribute('data-drawer-open')).toBe(false);
   });
 
@@ -924,7 +896,7 @@ describe('Settings page — mobile body attribute effects', () => {
   it('parks dApp trays for the whole time a sub-page is open, and releases them on the way out', () => {
     // A sub-page pins its primary action to the bottom of the viewport, which is
     // exactly where a parked dApp tray floats — so the flag has to be held for
-    // the sub-page, not just for the seed-warning overlay.
+    // the whole sub-page.
     mockIsMobile = true;
     const { unmount } = render(<Settings tabSlug="keys" />);
 
