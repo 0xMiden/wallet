@@ -99,6 +99,14 @@
           },
           {
             "group": [
+              "components/TabPicker",
+              "**/components/TabPicker"
+            ],
+            "caseSensitive": true,
+            "message": "components/TabPicker was retired by the design system (skills/miden-wallet-frontend/references/design-system.md). Use components/ui/SegmentedControl."
+          },
+          {
+            "group": [
               "lib/ui/skeleton",
               "**/lib/ui/skeleton"
             ],
