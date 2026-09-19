@@ -251,10 +251,10 @@ describe('HistoryView empty state', () => {
     expect(container.querySelector('.mt-8')).toBeNull();
   });
 
-  it('renders the full-history empty state with the mt-8 layout class', () => {
+  it('renders the full-history empty state flush under its section header', () => {
     const { container } = render(<HistoryView {...baseProps} entries={[]} fullHistory />);
     expect(screen.getByText('noOperationsFound')).toBeInTheDocument();
-    expect(container.querySelector('.mt-8')).not.toBeNull();
+    expect(container.querySelector('.mt-8')).toBeNull();
     expect(container.querySelector('.m-4')).toBeNull();
   });
 });
