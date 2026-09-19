@@ -214,7 +214,8 @@ const TAB_GROUPS: TabGroup[] = [
         // the anchor and Link's analytics call, and an absent one became an
         // empty data-testid plus a ButtonPress event with an empty name.
         testID: SettingsSelectors.GuardianSettingsButton,
-        guardianOnly: true
+        guardianOnly: true,
+        rendersSubPageLayout: true
       }
     ]
   },
