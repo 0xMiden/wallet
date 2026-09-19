@@ -6,6 +6,7 @@ import { ReviewLayout } from 'components/review';
 import { TokenLogo } from 'components/TokenLogo';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import { Hero } from 'components/ui/Hero';
+import { Pill } from 'components/ui/Pill';
 import { Skeleton } from 'components/ui/Skeleton';
 import { approxFiatAmount } from 'screens/send-flow/amount-format';
 import { BridgeRoute } from 'screens/send-flow/types';
@@ -68,13 +69,19 @@ export const EvmBridgeDepositReview: React.FC<EvmBridgeDepositReviewProps> = ({
   return (
     <ReviewLayout
       hero={
-        <Hero
-          className="mt-3"
-          visual={<TokenLogo symbol={symbol} size="2xl" />}
-          value={`${amount} ${symbol}`}
-          subtitle={fiat !== undefined ? t('approxFiatValue', { value: approxFiatAmount(fiat) }) : undefined}
-        />
+        // The caption identifies what the hero amount is for — same shape as ReviewSwap's
+        // You Send / You Receive pills, since Hero itself has no slot above its value.
+        <div className="mt-3 flex w-full flex-col items-center">
+          <Pill tone="neutral">{t('youAreDepositing')}</Pill>
+          <Hero
+            className="mt-2"
+            visual={<TokenLogo symbol={symbol} size="2xl" />}
+            value={`${amount} ${symbol}`}
+            subtitle={fiat !== undefined ? t('approxFiatValue', { value: approxFiatAmount(fiat) }) : undefined}
+          />
+        </div>
       }
+      heroDivider={false}
       // The rows now live inside one DetailCard (their own hairlines), so ReviewLayout's outer
       // divide-y around a single child would be a no-op — turned off for clarity.
       dividers={false}

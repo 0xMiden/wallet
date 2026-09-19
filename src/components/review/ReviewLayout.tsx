@@ -21,7 +21,7 @@ export interface ReviewAction {
 export interface ReviewLayoutProps {
   /** Hero block — a `Hero` amount (bridge deposit) or a composed swap hero. */
   hero: React.ReactNode;
-  /** Orange underline under the hero. Default true (bridge deposit); pass false for swap (its hero owns its dividers). */
+  /** Orange underline under the hero. Default true; every current caller passes false (kept for a future hero that wants the accent divider back). */
   heroDivider?: boolean;
   /** Divider lines around the children. Default true; a caller whose rows already live in one `DetailCard` (its own hairlines) passes false. */
   dividers?: boolean;

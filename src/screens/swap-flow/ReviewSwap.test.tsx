@@ -121,11 +121,14 @@ describe('ReviewSwap', () => {
       expect(container.querySelector('svg')).not.toBeNull();
     });
 
-    it('owns its own dividers, so the row list has no outer hairlines beyond the DetailCard', () => {
+    it('owns its own dividers, so ReviewLayout adds neither the orange hero bar nor an outer row-list divide-y', () => {
       const { container } = renderComponent();
-      // The orange hero-divider bar the layout can render is absent (`heroDivider={false}`);
-      // the swap hero draws its own pair of horizontal rules around the arrow glyph instead.
+      // heroDivider={false}: the swap hero draws its own pair of horizontal rules around the
+      // arrow glyph instead of the orange bar the layout can render under the hero.
       expect(container.querySelector('.bg-primary-500.h-2')).not.toBeInTheDocument();
+      // dividers={false}: the rows' hairlines come from the DetailCard itself, so ReviewLayout's
+      // outer children wrapper carries no divide-y.
+      expect(container.querySelector('.divide-y.divide-rule-default')).not.toBeInTheDocument();
     });
   });
 
