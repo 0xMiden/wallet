@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useCallback, ReactNode, use
 
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 
-import { durations, pageStepOffset, resolvePageStepTransition } from 'lib/animation';
+import { durations, pageStepOffset, pageStepPresentOffset, resolvePageStepTransition } from 'lib/animation';
 import { setCardPart } from 'lib/e2e/screen-key';
 import { isMobile } from 'lib/platform';
 
@@ -210,7 +210,7 @@ const PushModalBackgroundPosition: AnimationConfig = {
 
 const PresentInitialPosition: AnimationConfig = {
   x: '0vw',
-  y: '25vw',
+  y: pageStepPresentOffset,
   opacity: 0,
   scale: 1,
   backgroundColor: 'var(--color-app-bg)'
@@ -218,7 +218,7 @@ const PresentInitialPosition: AnimationConfig = {
 
 const PresentExitPosition: AnimationConfig = {
   x: '0vw',
-  y: '25vw',
+  y: pageStepPresentOffset,
   opacity: 0,
   scale: 1,
   backgroundColor: 'var(--color-app-bg)'

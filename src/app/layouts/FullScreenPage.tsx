@@ -34,7 +34,7 @@ const FullScreenPage: FC<FullScreenPageProps> = ({ children, entrance = defaultP
   // `MobilePageLayers`. Any other page fades in on `fade`.
   const page = usePreset('page');
   const fade = usePreset('fade');
-  const motionPreset = entrance === 'slide' ? page : fade;
+  const motionPreset = slide ? page : fade;
   let initial: false | TargetAndTransition = false;
   switch (true) {
     case slide:

@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
-import { pageSlideDim, pageSlideParallax, presets } from 'lib/animation';
+import { pageSlideDim, pageSlideParallax, presets, reducedMotionTransition } from 'lib/animation';
 import { setReturningFromWebview } from 'lib/mobile/webview-state';
 import { HistoryAction } from 'lib/woozie/history';
 import { LocationState, useLocation } from 'lib/woozie/location';
@@ -220,5 +220,5 @@ it('slides a popped page out to the page preset exit and brings the page beneath
 it('makes the layer transition instant under reduced motion', () => {
   mockMotion.reduce = true;
   render(view('/settings', true));
-  expect(mockMotion.layers['/settings'].transition).toEqual({ duration: 0.001 });
+  expect(mockMotion.layers['/settings'].transition).toEqual(reducedMotionTransition);
 });

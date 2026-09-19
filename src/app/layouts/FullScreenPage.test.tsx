@@ -2,7 +2,7 @@ import React from 'react';
 
 import { render, screen, waitFor } from '@testing-library/react';
 
-import { presets } from 'lib/animation';
+import { presets, reducedMotionTransition } from 'lib/animation';
 
 import FullScreenPage from './FullScreenPage';
 
@@ -10,6 +10,9 @@ const mockMotion: { reduce: boolean; props: Record<string, any> | null } = { red
 
 let mockIsMobile = true;
 jest.mock('lib/platform', () => ({ isMobile: () => mockIsMobile }));
+
+let mockReturningFromWebview = false;
+jest.mock('lib/mobile/webview-state', () => ({ isReturningFromWebview: () => mockReturningFromWebview }));
 
 // The real motion.div, which also records the props it was last rendered with.
 jest.mock('framer-motion', () => {
@@ -26,6 +29,7 @@ afterEach(() => {
   mockMotion.reduce = false;
   mockMotion.props = null;
   mockIsMobile = true;
+  mockReturningFromWebview = false;
 });
 
 it('slides in by default on mobile', () => {
@@ -87,6 +91,15 @@ it.each(['slide', 'fade'] as const)('makes a %s page instant under reduced motio
   mockMotion.reduce = true;
   const { container } = render(<FullScreenPage entrance={entrance}>Page</FullScreenPage>);
   expect(mockMotion.props?.initial).toBe(false);
-  expect(mockMotion.props?.transition).toEqual({ duration: 0.001 });
+  expect(mockMotion.props?.transition).toEqual(reducedMotionTransition);
   expect(container.firstElementChild).toHaveStyle({ opacity: '1' });
+});
+
+it('runs a slide page that cannot slide (back from a webview) on the fade preset, not the page one', () => {
+  mockReturningFromWebview = true;
+  const { container } = render(<FullScreenPage entrance="slide">Page</FullScreenPage>);
+  expect(mockMotion.props?.initial).toBe(false);
+  expect(mockMotion.props?.animate).toEqual(presets.fade.animate);
+  expect(mockMotion.props?.transition).toBe(presets.fade.transition);
+  expect(container.firstElementChild).not.toHaveStyle({ transform: 'translateX(100%)' });
 });

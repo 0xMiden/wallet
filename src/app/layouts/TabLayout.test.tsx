@@ -63,9 +63,17 @@ jest.mock('lib/mobile/useKeyboardVisible', () => ({
 }));
 
 // `springs` is animation config only; the value is irrelevant to behaviour.
+// `usePreset('fade')` returns a stand-in whose values the mount-fade tests
+// look for on the motion wrapper.
+const mockFadePreset = {
+  initial: { opacity: 0 },
+  animate: { opacity: 1 },
+  transition: { type: 'tween', duration: 0.42 }
+};
 jest.mock('lib/animation', () => ({
   springs: { standard: { type: 'spring' } },
-  useMotion: (transition: Transition) => transition
+  useMotion: (transition: Transition) => transition,
+  usePreset: (name: string) => (name === 'fade' ? mockFadePreset : undefined)
 }));
 
 // Icons are SVG re-exports; render nothing but expose the enum keys the layout
@@ -107,7 +115,14 @@ jest.mock('framer-motion', () => ({
   useReducedMotion: () => false,
   motion: {
     div: React.forwardRef(({ children, initial, animate, transition, ...props }: any, ref: any) => (
-      <div ref={ref} data-testid="motion-div" data-initial={JSON.stringify(initial)} {...props}>
+      <div
+        ref={ref}
+        data-testid="motion-div"
+        data-initial={JSON.stringify(initial)}
+        data-animate={JSON.stringify(animate)}
+        data-transition={JSON.stringify(transition)}
+        {...props}
+      >
         {children}
       </div>
     ))
@@ -562,6 +577,15 @@ describe('TabLayout — mount fade and tab panes', () => {
     mockLocation.pathname = '/history';
     renderLayout();
     expect(initialOf()).toBe(JSON.stringify({ opacity: 0 }));
+  });
+
+  it('fades on the design system fade preset', () => {
+    mockLocation.pathname = '/history';
+    renderLayout();
+    const wrapper = screen.getByTestId('motion-div');
+    expect(wrapper.getAttribute('data-initial')).toBe(JSON.stringify(mockFadePreset.initial));
+    expect(wrapper.getAttribute('data-animate')).toBe(JSON.stringify(mockFadePreset.animate));
+    expect(wrapper.getAttribute('data-transition')).toBe(JSON.stringify(mockFadePreset.transition));
   });
 
   it('skips the fade when returning from a webview on mobile', () => {
