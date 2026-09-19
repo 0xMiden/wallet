@@ -210,7 +210,7 @@ describe('BalanceCard states, delta, and interactions', () => {
 
     const label = screen.getByTestId('balance-card-label');
     expect(label).toHaveTextContent('balanceCardTotalBalance');
-    expect(label).toHaveClass('font-sans', 'text-[13px]', 'font-bold');
+    expect(label).toHaveClass('text-label');
     expect(label.className).not.toMatch(/muted|opacity/);
   });
 
@@ -219,7 +219,7 @@ describe('BalanceCard states, delta, and interactions', () => {
 
     const currency = screen.getByTestId('balance-card-currency');
     expect(currency).toHaveTextContent('USD');
-    expect(currency).toHaveClass('text-[22px]', 'font-bold');
+    expect(currency).toHaveClass('text-entry-unit');
     expect(currency.className).not.toMatch(/muted|opacity/);
     expect(currency.parentElement).toHaveClass('items-baseline');
     expect(currency.previousElementSibling).toHaveTextContent('$123.45');
