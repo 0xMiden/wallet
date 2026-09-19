@@ -198,9 +198,7 @@ const PriceChart: FC<{ symbol: string; priceInfo: TokenPriceInfo }> = ({ symbol,
     <section data-testid="token-detail-price">
       <SectionHeader>{t('tokenPrice')}</SectionHeader>
       <div className="flex items-center justify-between gap-3 px-1">
-        <span className="min-w-0 truncate font-heading text-xl leading-[26px] font-extrabold text-ink">
-          ${toAdaptiveFixed(priceInfo.price, 3)}
-        </span>
+        <span className="min-w-0 truncate text-title-page text-ink">${toAdaptiveFixed(priceInfo.price, 3)}</span>
         <Pill size="sm" tone={change.tone} data-testid="token-detail-price-change">
           {t('tokenDetailChange24h', { change: change.label })}
         </Pill>
@@ -218,7 +216,7 @@ const PriceChart: FC<{ symbol: string; priceInfo: TokenPriceInfo }> = ({ symbol,
                   const point = payload[0].payload;
                   return (
                     <div className="rounded-xl bg-ink px-2 py-1 text-xs text-page">
-                      <div className="font-heading font-bold">${toAdaptiveFixed(point.value)}</div>
+                      <div className="text-badge">${toAdaptiveFixed(point.value)}</div>
                       {point.time && <div>{formatTooltipTime(point.time, timeframe)}</div>}
                     </div>
                   );

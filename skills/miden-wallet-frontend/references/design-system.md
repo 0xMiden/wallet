@@ -176,7 +176,7 @@ reads as a sentence or a label, Inter; if it is a name, a number or a thing they
 | `text-hero-value` | Nunito | 32 / 36 | 900 | `Hero` value: amounts on review and receipt |
 | `text-hero-name` | Nunito | 24 / 28 | 900 | `Hero` name, outcome and passcode titles |
 | `text-title-page` | Nunito | 20 / 26 | 800 | `PageHeader`, `DrawerTitle`, `AlertSheet`, `SectionHeader` `xl` |
-| `text-title-section` | Nunito | 18 / 24 | 800 | `SectionHeader` `lg`, `EmptyState` title |
+| `text-title-section` | Nunito | 18 / 24 | 800 | `SectionHeader` `lg`, `EmptyState` title, Explore app names |
 | `text-cta` | Nunito | 19 / 24 | 800 | `Button` `lg` |
 | `text-cta-sm` | Nunito | 15 / 20 | 800 | `Button` `sm` |
 | `text-row-title` | Nunito | 16 / 20 | 700 | `ListRow`, Activity and asset row titles, a row's price |

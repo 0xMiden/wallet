@@ -81,7 +81,7 @@ const HealthNote: React.FC<HealthNoteProps> = ({ url, kind }) => {
         ? 'devEndpointReachable'
         : 'devEndpointNoResponse';
 
-  return <p className={`px-1 font-sans text-[13px] leading-[17px] ${color}`}>{t(labelKey)}</p>;
+  return <p className={`px-1 text-caption ${color}`}>{t(labelKey)}</p>;
 };
 
 export interface DeveloperSettingsProps {
