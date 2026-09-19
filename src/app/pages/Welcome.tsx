@@ -949,6 +949,10 @@ const Welcome: FC = () => {
           guardianProbe={guardianProbeState}
           confirmCreating={sidePanelHandoff && confirmPhase === 'creating'}
           importViaKey={Boolean(keyPairPayload)}
+          // Confirmation creates the wallet, so there is nothing to step back to, except when a file
+          // restore was rejected: back returns to the file choice (see the 'back' action), and never
+          // while an attempt is running.
+          canGoBack={step !== OnboardingStep.Confirmation || (importType === ImportType.WalletFile && !isLoading)}
           onBiometricChange={setUseBiometric}
           onAction={onAction}
         />
