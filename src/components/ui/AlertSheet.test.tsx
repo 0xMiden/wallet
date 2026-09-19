@@ -119,6 +119,70 @@ describe('AlertSheet', () => {
     expect(screen.getByTestId('confirmation-modal-cancel')).toHaveFocus();
   });
 
+  describe('focus return', () => {
+    function Harness({ open, showTrigger = true }: { open: boolean; showTrigger?: boolean }) {
+      return (
+        <>
+          {showTrigger && (
+            <button type="button" data-testid="trigger">
+              Delete contact
+            </button>
+          )}
+          <AlertSheet open={open} title="Delete contact" actionLabel="Delete" onAction={jest.fn()} onCancel={jest.fn()}>
+            Are you sure?
+          </AlertSheet>
+        </>
+      );
+    }
+
+    // jsdom never runs vaul's slideToBottom animation, so Radix Presence keeps the closing sheet
+    // mounted until told the animation ended, as a browser does after 0.5s. jsdom has no
+    // AnimationEvent (fireEvent.animationEnd drops `animationName`), so the event is built by hand.
+    const finishSlideOut = (sheet: HTMLElement) => {
+      expect(getComputedStyle(sheet).animationName).toBe('slideToBottom');
+      const animationEnd = Object.assign(new Event('animationend', { bubbles: true }), {
+        animationName: 'slideToBottom'
+      });
+      act(() => {
+        sheet.dispatchEvent(animationEnd);
+      });
+      expect(sheet.isConnected).toBe(false);
+    };
+    // Radix FocusScope runs its close-autofocus in a setTimeout(0) after the content unmounts.
+    const closeAutoFocus = () => act(() => new Promise(resolve => setTimeout(resolve, 0)));
+
+    it('returns focus to the element that had it when the sheet closes', async () => {
+      const { rerender } = render(<Harness open={false} />);
+      const trigger = screen.getByTestId('trigger');
+      trigger.focus();
+
+      rerender(<Harness open />);
+      expect(trigger).not.toHaveFocus();
+
+      const sheet = screen.getByRole('alertdialog');
+      rerender(<Harness open={false} />);
+      finishSlideOut(sheet);
+      await closeAutoFocus();
+      expect(trigger).toHaveFocus();
+    });
+
+    it('skips the return quietly when that element is gone by the time the sheet closes', async () => {
+      const { rerender } = render(<Harness open={false} />);
+      const trigger = screen.getByTestId('trigger');
+      trigger.focus();
+      rerender(<Harness open />);
+      // The page under the sheet re-rendered without it (say, the row was deleted).
+      rerender(<Harness open showTrigger={false} />);
+
+      const sheet = screen.getByRole('alertdialog');
+      rerender(<Harness open={false} showTrigger={false} />);
+      finishSlideOut(sheet);
+      await closeAutoFocus();
+      expect(trigger.isConnected).toBe(false);
+      expect(document.activeElement).toBe(document.body);
+    });
+  });
+
   it('cancels on Escape', () => {
     const { onAction, onCancel } = renderConfirm();
 
