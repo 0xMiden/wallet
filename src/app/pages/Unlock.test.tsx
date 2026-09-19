@@ -525,10 +525,13 @@ describe('Unlock — mobile passcode numpad', () => {
     const root = screen.getByTestId('unlock-passcode');
     expect(root).toContainElement(screen.getByTestId('passcode-screen-layout'));
     expect(screen.getByTestId('passcode-keypad-dock')).toContainElement(screen.getByTestId('numpad'));
-    // Forgot passcode is a text action under the dots, not beside the keys.
+    // Forgot passcode is a 44px text action centred under the keypad, after it in DOM order.
     const forgot = root.querySelector('#forgot-password') as HTMLButtonElement;
-    expect(forgot).toHaveClass('text-accent-tint-ink');
-    expect(screen.getByTestId('passcode-keypad-dock')).not.toContainElement(forgot);
+    expect(forgot).toHaveClass('text-accent-tint-ink', 'min-h-11');
+    expect(screen.getByTestId('passcode-screen-action')).toContainElement(forgot);
+    expect(
+      screen.getByTestId('numpad').compareDocumentPosition(forgot) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
   });
 
   it('has no biometric key when the device holds no biometric key', async () => {
