@@ -115,7 +115,9 @@ export const ListRow: React.FC<ListRowProps> = ({
         )
       )}
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span className="truncate font-heading text-base leading-5 font-bold text-ink">{title}</span>
+        <span data-slot="title" className="truncate font-heading text-base leading-5 font-bold text-ink">
+          {title}
+        </span>
         {subtitle && <span className="truncate font-sans text-[13px] leading-[17px] text-muted">{subtitle}</span>}
       </span>
       {value !== undefined && <span className="shrink-0 font-sans text-sm font-semibold text-muted">{value}</span>}
