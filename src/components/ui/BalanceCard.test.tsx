@@ -130,7 +130,7 @@ describe('BalanceCard states, delta, and interactions', () => {
   it('renders the loading skeleton instead of the amount', () => {
     const { container } = render(<BalanceCard accountNumber="mtst1aqg...940z" amount="$123.45" state="loading" />);
 
-    expect(container.querySelector('.animate-pulse')).not.toBeNull();
+    expect(container.querySelector('[data-slot="skeleton"]')).not.toBeNull();
     expect(screen.queryByText('$123.45')).toBeNull();
   });
 
