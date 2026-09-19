@@ -4,6 +4,7 @@
 
 ### Changes
 
+- [CHANGE][all] OpenZeppelin's logo follows its brand kit: official colours and mark, on a white tile.
 - [CHANGE][all] Chips, badges and small actions share one `Pill` component (two sizes, one set of tones), so the network chip and the recipient step's Paste, Address Book, Scan and "Add to contacts?" pills are the same height, padding and type scale. Every tone carries a 1px border, so selecting a chip no longer resizes it.
 - [CHANGE][all] Send flow: a recent recipient shows its network as a badge on the avatar instead of a chip on the second line, and the address appears once (an unnamed recipient used to show the same shortened address twice).
 - [CHANGE][all] Contacts get their own avatar: a color and initials derived from the contact, in the address book, the send contact picker and recent recipients, instead of the same orange Miden image for everyone.

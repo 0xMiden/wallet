@@ -12,6 +12,7 @@ import { GUARDIAN_LOGOS, guardianLogoColorClass } from 'app/icons/guardian-opera
 import { ReactComponent as GuardianAvatar } from 'app/icons/onboarding/guardian-avatar.svg';
 import { Button } from 'components/Button';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
+import { Hero } from 'components/ui/Hero';
 import {
   getGuardianLastSyncAt,
   isGuardianLastSyncFresh,
@@ -186,79 +187,106 @@ const GuardianSettings: FC = () => {
     navigate('/rotate-guardian');
   };
 
+  // Both halves of this pill needed their own shade. `dark:text-green-400`
+  // compiled to nothing — `theme.colors` in tailwind.config.ts replaces
+  // Tailwind's palette rather than extending it — so dark mode kept
+  // green-700 (#38824A) at 3.05:1; green-300 is 6.6:1 there. Light mode was
+  // green-700 on green-50 at 4.34:1, short of AA now that this PR grew the
+  // text from 12px to 14px, so it takes the new green-800 (7.3:1).
+  // `role="status"` + polite live region: this pill CHANGES under a user
+  // who is already on the page (the outage arms from the 3s sync tick,
+  // and "checking" resolves to "online" the moment the first sync
+  // lands), and a bare div announces nothing when it does. Polite, not
+  // assertive — it must not interrupt whatever is being read.
+  // "Checking" uses the auto-flipping neutral tokens (`bg-fill` /
+  // `text-ink`) already used elsewhere on this page, so it
+  // needs no `dark:` pairing of its own — unlike the red/green states,
+  // which use the fixed palette and therefore do.
+  //
+  // Extracted from the hero markup below so it renders identically whether
+  // the hero is the Mark-in-a-circle layout (Hero) or the legacy
+  // wordmark-tile layout — one pill, two possible parents.
+  const statusPill = currentEndpoint && (
+    <div
+      role="status"
+      aria-live="polite"
+      className={clsx(
+        'mt-1.5 flex items-center gap-2 rounded-full px-3 py-1 text-sm font-semibold',
+        isGuardianFault
+          ? // red-700 is 5.9:1 on red-50; red-300 was added for the dark fill
+            // (see tailwind-colors.js) — 500, the next shade down, is ~4.6:1
+            // there, short of AA at this size. Both fault states take it:
+            // "unreachable" and "answering but unusable" differ in cause,
+            // not in whether the account can transact.
+            'bg-red-50 text-red-700 dark:bg-red-500/15 dark:text-red-300'
+          : guardianStatus === 'online'
+            ? 'bg-green-50 text-green-800 dark:bg-green-500/15 dark:text-green-300'
+            : // Both neutral states share the auto-flipping tokens: neither is
+              // a fault, and "not connected" is resolved by activating the
+              // device key, which the app prompts for elsewhere.
+              'bg-fill text-ink'
+      )}
+    >
+      <span
+        className={clsx(
+          'h-2 w-2 rounded-full',
+          isGuardianFault ? 'bg-red-500' : guardianStatus === 'online' ? 'bg-green-500' : 'bg-gray-400'
+        )}
+      />
+      <span>
+        {guardianStatus === 'offline'
+          ? t('guardianOfflineLabel')
+          : // Drift shares the unrepairable copy: both are "the operator is
+            // answering and this account still cannot rely on it, and you
+            // need to act". The causes differ, but no copy in the design
+            // distinguishes them, and inventing a string here would cost a
+            // 14-locale re-translation cycle (see the ledger's F-136).
+            guardianStatus === 'unrepairable' || guardianStatus === 'drifted'
+            ? t('guardianNeedsAttentionLabel')
+            : guardianStatus === 'online'
+              ? t('online')
+              : guardianStatus === 'checking'
+                ? t('guardianCheckingLabel')
+                : t('guardianNotConnectedLabel')}
+      </span>
+    </div>
+  );
+
   return (
     <div className="flex min-h-full w-full flex-col">
       <div className="flex flex-col items-center pt-1">
-        <div className="flex h-16 min-w-16 max-w-full items-center justify-center overflow-hidden rounded-xl bg-fill px-3">
-          {logoEntry ? (
-            <logoEntry.Logo
-              data-testid="guardian-operator-logo"
-              className={clsx('h-12 w-auto max-w-48', guardianLogoColorClass(logoEntry))}
+        {logoEntry?.Mark ? (
+          // OpenZeppelin ships a standalone colour mark (see GuardianLogoEntry),
+          // so its hero drops the wordmark-tile layout for the design-system
+          // Hero: the mark centred in an 88px circle, the provider name as the
+          // Hero title (replacing the wordmark-plus-repeated-name pairing
+          // below), and the same status pill underneath.
+          <>
+            <Hero
+              visual={
+                <div className="flex h-22 w-22 items-center justify-center rounded-full border border-hairline bg-pure-white dark:bg-grey-800">
+                  <logoEntry.Mark data-testid="guardian-operator-logo" className="h-10 w-auto" />
+                </div>
+              }
+              name={guardianName}
             />
-          ) : (
-            <GuardianAvatar data-testid="guardian-avatar" className="h-14 w-14" />
-          )}
-        </div>
-        <h2 className="mt-2 break-all text-center font-heading text-xl font-bold text-ink">{guardianName}</h2>
-        {/* Both halves of this pill needed their own shade. `dark:text-green-400`
-            compiled to nothing — `theme.colors` in tailwind.config.ts replaces
-            Tailwind's palette rather than extending it — so dark mode kept
-            green-700 (#38824A) at 3.05:1; green-300 is 6.6:1 there. Light mode was
-            green-700 on green-50 at 4.34:1, short of AA now that this PR grew the
-            text from 12px to 14px, so it takes the new green-800 (7.3:1). */}
-        {/* `role="status"` + polite live region: this pill CHANGES under a user
-            who is already on the page (the outage arms from the 3s sync tick,
-            and "checking" resolves to "online" the moment the first sync
-            lands), and a bare div announces nothing when it does. Polite, not
-            assertive — it must not interrupt whatever is being read. */}
-        {/* "Checking" uses the auto-flipping neutral tokens (`bg-fill` /
-            `text-ink`) already used elsewhere on this page, so it
-            needs no `dark:` pairing of its own — unlike the red/green states,
-            which use the fixed palette and therefore do. */}
-        {currentEndpoint && (
-          <div
-            role="status"
-            aria-live="polite"
-            className={clsx(
-              'mt-1.5 flex items-center gap-2 rounded-full px-3 py-1 text-sm font-semibold',
-              isGuardianFault
-                ? // red-700 is 5.9:1 on red-50; red-300 was added for the dark fill
-                  // (see tailwind-colors.js) — 500, the next shade down, is ~4.6:1
-                  // there, short of AA at this size. Both fault states take it:
-                  // "unreachable" and "answering but unusable" differ in cause,
-                  // not in whether the account can transact.
-                  'bg-red-50 text-red-700 dark:bg-red-500/15 dark:text-red-300'
-                : guardianStatus === 'online'
-                  ? 'bg-green-50 text-green-800 dark:bg-green-500/15 dark:text-green-300'
-                  : // Both neutral states share the auto-flipping tokens: neither is
-                    // a fault, and "not connected" is resolved by activating the
-                    // device key, which the app prompts for elsewhere.
-                    'bg-fill text-ink'
-            )}
-          >
-            <span
-              className={clsx(
-                'h-2 w-2 rounded-full',
-                isGuardianFault ? 'bg-red-500' : guardianStatus === 'online' ? 'bg-green-500' : 'bg-gray-400'
+            {statusPill}
+          </>
+        ) : (
+          <>
+            <div className="flex h-16 min-w-16 max-w-full items-center justify-center overflow-hidden rounded-xl bg-fill px-3">
+              {logoEntry ? (
+                <logoEntry.Logo
+                  data-testid="guardian-operator-logo"
+                  className={clsx('h-12 w-auto max-w-48', guardianLogoColorClass(logoEntry))}
+                />
+              ) : (
+                <GuardianAvatar data-testid="guardian-avatar" className="h-14 w-14" />
               )}
-            />
-            <span>
-              {guardianStatus === 'offline'
-                ? t('guardianOfflineLabel')
-                : // Drift shares the unrepairable copy: both are "the operator is
-                  // answering and this account still cannot rely on it, and you
-                  // need to act". The causes differ, but no copy in the design
-                  // distinguishes them, and inventing a string here would cost a
-                  // 14-locale re-translation cycle (see the ledger's F-136).
-                  guardianStatus === 'unrepairable' || guardianStatus === 'drifted'
-                  ? t('guardianNeedsAttentionLabel')
-                  : guardianStatus === 'online'
-                    ? t('online')
-                    : guardianStatus === 'checking'
-                      ? t('guardianCheckingLabel')
-                      : t('guardianNotConnectedLabel')}
-            </span>
-          </div>
+            </div>
+            <h2 className="mt-2 break-all text-center font-heading text-xl font-bold text-ink">{guardianName}</h2>
+            {statusPill}
+          </>
         )}
       </div>
 

@@ -171,6 +171,30 @@ describe('ChooseGuardianScreen', () => {
     expect(screen.getByTestId('info-drawer')).toHaveAttribute('data-open', 'false');
   });
 
+  // GUARDIAN_LOGOS['open-zeppelin'] is `keepBrandColor`, so its wordmark must
+  // reach the DOM without the grey recolour class every other provider's
+  // wordmark gets, sitting on the brand-kit tile instead of whatever the card
+  // would otherwise show through.
+  it('renders the OpenZeppelin wordmark on the brand-kit tile, without the grey recolour class', () => {
+    const { container } = render(<ChooseGuardianScreen />);
+    const [ozBtn, gatewayBtn] = optionButtons(container);
+
+    const ozSvgs = Array.from(ozBtn!.querySelectorAll('svg'));
+    // Light + dark wordmark variants, toggled by `dark:` rather than recolored.
+    expect(ozSvgs.length).toBeGreaterThanOrEqual(2);
+    ozSvgs.forEach(svg => expect(svg).not.toHaveClass('[&_path]:fill-ink'));
+
+    // The brand-kit tile behind it: pure white in light mode, a dark neutral
+    // in dark mode.
+    const ozTile = ozSvgs[0]!.parentElement;
+    expect(ozTile).toHaveClass('bg-pure-white', 'dark:bg-grey-800');
+
+    // Every other provider is untouched: still recolored to ink, no brand tile.
+    const gatewaySvg = gatewayBtn!.querySelector('svg');
+    expect(gatewaySvg).toHaveClass('[&_path]:fill-ink');
+    expect(gatewaySvg!.parentElement).not.toHaveClass('bg-pure-white');
+  });
+
   it('honours custom title / description / submitLabel props', () => {
     render(<ChooseGuardianScreen title="Pick one" description="Choose wisely" submitLabel="Go" />);
     expect(screen.getByRole('heading', { name: 'Pick one' })).toBeInTheDocument();
