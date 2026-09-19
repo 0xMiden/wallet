@@ -17,16 +17,16 @@ const ConfirmationModal: FC<ConfirmationModalProps> = props => {
     <ModalWithTitle {...restProps} onRequestClose={onRequestClose}>
       <>
         <div className="mb-8">{children}</div>
-        <div className="flex justify-end">
+        <div className="flex gap-2.5">
           <Button
             variant={ButtonVariant.Secondary}
-            className="mr-3"
+            className="flex-1"
             onClick={onRequestClose}
             data-testid="confirmation-modal-cancel"
           >
             {t('cancel')}
           </Button>
-          <Button type="button" onClick={onConfirm} data-testid="confirmation-modal-confirm">
+          <Button type="button" className="flex-1" onClick={onConfirm} data-testid="confirmation-modal-confirm">
             {t('ok')}
           </Button>
         </div>
