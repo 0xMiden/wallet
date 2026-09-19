@@ -132,7 +132,7 @@ const ContactView: React.FC<ContactViewProps> = ({ contact, onBack, onDeleted })
             disabled={!trimmedName || !changed || saving}
             isLoading={saving}
             data-testid="contact-save"
-            className="w-full max-w-none rounded-full text-base font-semibold"
+            className="w-full max-w-none"
           />
         }
       >
@@ -187,7 +187,7 @@ const ContactView: React.FC<ContactViewProps> = ({ contact, onBack, onDeleted })
           variant={ButtonVariant.Primary}
           onClick={() => navigate(sendToContactPath(contact))}
           data-testid="contact-send"
-          className="w-full max-w-none rounded-full text-base font-semibold"
+          className="w-full max-w-none"
         />
       }
     >
