@@ -141,7 +141,8 @@ const TAB_GROUPS: TabGroup[] = [
         slug: 'general-settings',
         titleI18nKey: 'generalSettings',
         Component: GeneralSettings,
-        testID: SettingsSelectors.GeneralButton
+        testID: SettingsSelectors.GeneralButton,
+        rendersSubPageLayout: true
       },
       {
         slug: 'address-book',
