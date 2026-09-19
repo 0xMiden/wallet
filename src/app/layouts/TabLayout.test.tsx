@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import type { Transition } from 'framer-motion';
 
 import { hapticSelection } from 'lib/mobile/haptics';
@@ -76,10 +76,12 @@ jest.mock('lib/animation', () => ({
   usePreset: (name: string) => (name === 'fade' ? mockFadePreset : undefined)
 }));
 
-// Icons are SVG re-exports; render nothing but expose the enum keys the layout
-// references so `IconName.X` lookups don't blow up.
+// Icons are SVG re-exports; render a stub that carries the name and classes the layout gives it,
+// and expose the enum keys the layout references so `IconName.X` lookups don't blow up.
 jest.mock('app/icons/v2', () => ({
-  Icon: () => null,
+  Icon: ({ name, className }: { name: string; className?: string }) => (
+    <span data-testid={`icon-${name}`} className={className} />
+  ),
   IconName: {
     Home: 'Home',
     Explore: 'Explore',
@@ -155,6 +157,7 @@ jest.mock('components/ui', () => ({
     <div data-testid="action-bar" data-active={activeId}>
       {items.map((it: any) => (
         <button key={it.id} data-testid={`action-${it.id}`} onClick={() => onChange(it.id)}>
+          {it.icon}
           {it.label}
         </button>
       ))}
@@ -386,6 +389,21 @@ describe('TabLayout — swap action availability (isSwapEnabled)', () => {
     expect(screen.getByTestId('action-overview')).toBeInTheDocument();
     expect(screen.getByTestId('action-send')).toBeInTheDocument();
     expect(screen.getByTestId('action-receive')).toBeInTheDocument();
+  });
+});
+
+describe('TabLayout — action colours', () => {
+  it.each([
+    ['overview', 'Wallet'],
+    ['send', 'Send'],
+    ['receive', 'Receive'],
+    ['earn', 'Earn'],
+    ['swap', 'Convert']
+  ])('draws the %s icon in its action colour', (action, icon) => {
+    mockLocation.pathname = '/';
+    renderLayout();
+    const glyph = within(screen.getByTestId(`action-${action}`)).getByTestId(`icon-${icon}`);
+    expect(glyph).toHaveClass(`text-action-${action}`);
   });
 });
 
