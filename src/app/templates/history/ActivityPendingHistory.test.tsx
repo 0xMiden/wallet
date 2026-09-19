@@ -314,3 +314,12 @@ it('keeps cached, unconfirmed notes out of Accept All and off the card actions',
     cached.note = confirmed;
   }
 });
+
+it('draws each pending transfer on the shared fill card, with no border', () => {
+  render(<ActivityPendingHistory search="" filter="all" />);
+  const card = screen.getByTestId('timeline').querySelector('[data-pending-note-id="first"] article');
+  if (!(card instanceof HTMLElement)) throw new Error('Missing pending card');
+  expect(card).toHaveClass('bg-fill', 'rounded-2xl', 'overflow-hidden');
+  expect(card.className.split(/\s+/).some(c => /^border(-|$)/.test(c))).toBe(false);
+  expect(card).not.toHaveClass('bg-white');
+});

@@ -5,6 +5,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { hapticLight } from 'lib/mobile/haptics';
 
 import ActivityRowDefault, { ActivityRow } from './ActivityRow';
+import { Card } from './Card';
 
 jest.mock('lib/mobile/haptics', () => ({
   hapticLight: jest.fn()
@@ -70,6 +71,19 @@ describe('ActivityRow', () => {
     expect(container.querySelector('.bg-receive-green')).not.toBeNull();
     expect(container.querySelector('.bg-fill')).toBeNull();
     expect(container.querySelector('.my-extra-class')).not.toBeNull();
+  });
+
+  it('takes a row card surface from Card, whose padding replaces its own', () => {
+    render(
+      <Card asChild padding="row">
+        <ActivityRow icon={<svg />} title="Sent MIDEN" status={baseStatus} testId="row" />
+      </Card>
+    );
+
+    const row = screen.getByTestId('row');
+    expect(row).toHaveClass('bg-fill', 'rounded-2xl', 'px-4', 'py-3');
+    expect(row).not.toHaveClass('py-4');
+    expect(row.className.split(/\s+/).some(c => /^border(-|$)/.test(c))).toBe(false);
   });
 
   it('renders the subtitle when provided and omits it when absent', () => {
