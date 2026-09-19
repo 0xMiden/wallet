@@ -186,11 +186,24 @@ jest.mock('framer-motion', () => {
   };
 });
 
-const TOKEN_ID = '0xabcdef1234567890';
+// A realistic bech32 faucet id, long enough to exercise HashShortView's middle truncation
+// (default trimAfter 20) the way a real Miden faucet id does.
+const TOKEN_ID = 'mtst1aqvpq8a9ytqhfvt9al20wzsrs56g83ec_qr7qqq9wr6w';
 
 const mockClipboardWrite = jest.fn();
 jest.mock('@capacitor/clipboard', () => ({
   Clipboard: { write: (...args: unknown[]) => mockClipboardWrite(...args) }
+}));
+
+const mockGetExplorerAccountUrl = jest.fn();
+jest.mock('lib/miden-chain/constants', () => ({
+  ...jest.requireActual('lib/miden-chain/constants'),
+  getExplorerAccountUrl: (...args: unknown[]) => mockGetExplorerAccountUrl(...args)
+}));
+
+const mockOpenExternalUrl = jest.fn();
+jest.mock('lib/mobile/external-browser', () => ({
+  openExternalUrl: (...args: unknown[]) => mockOpenExternalUrl(...args)
 }));
 
 type Overrides = {
@@ -203,6 +216,8 @@ type Overrides = {
   klineData?: unknown;
   /** The first kline load still in flight: SWR reports `data: undefined`. */
   klineLoading?: boolean;
+  /** `null` simulates a build with no explorer configured; omitted uses a default URL. */
+  explorerUrl?: string | null;
 };
 
 function configure(o: Overrides = {}) {
@@ -215,6 +230,9 @@ function configure(o: Overrides = {}) {
   mockUseAllTokensBaseMetadata.mockReturnValue(o.metadata ?? {});
   mockUseNetwork.mockReturnValue(o.network ?? { name: 'Testnet' });
   mockGetTokenPrice.mockReturnValue(o.priceInfo ?? { price: 2000, change24h: 3.2, percentageChange24h: 0.1 });
+  mockGetExplorerAccountUrl.mockReturnValue(
+    o.explorerUrl === null ? undefined : (o.explorerUrl ?? `https://testnet.midenscan.com/account/${TOKEN_ID}`)
+  );
   mockFetchKlineData.mockResolvedValue([]);
   const data = o.klineLoading
     ? undefined
@@ -592,24 +610,32 @@ describe('TokenDetail', () => {
   });
 
   describe('token info card', () => {
-    it('renders the full contract, type and network in a DetailCard, and copies the contract', async () => {
-      mockClipboardWrite.mockResolvedValue(undefined);
+    it('renders a short, middle-truncated contract id (not the raw id) in the regular value style', () => {
       renderPage({ network: { name: 'Devnet' } });
 
       const info = screen.getByTestId('token-detail-info');
       const contract = within(info).getByTestId('token-detail-contract');
       // The shared DetailCard: `fill`, 16px radius, hairlines between rows.
       expect(contract.parentElement).toHaveClass('bg-fill', 'rounded-2xl', 'divide-hairline');
-      // In full, stacked, not truncated.
-      expect(within(contract).getByText(TOKEN_ID)).toBeInTheDocument();
       expect(within(contract).getByText('contract')).toBeInTheDocument();
+
+      const copy = within(contract).getByTestId('token-detail-copy-contract');
+      // Regular weight (`HashChip`'s own `font-normal` overrides `DetailRow`'s bold value style),
+      // truncated in the middle, not the full 49-char id dumped in bold.
+      expect(copy).toHaveClass('font-normal');
+      expect(copy).not.toHaveTextContent(TOKEN_ID);
+      expect(copy).toHaveTextContent(TOKEN_ID.slice(0, 7));
+      expect(copy).toHaveTextContent(TOKEN_ID.slice(-4));
+
       expect(within(info).getByText('fungible')).toBeInTheDocument();
       expect(within(info).getByText('Devnet')).toBeInTheDocument();
+    });
 
-      // The shared text copy action, not a square icon button.
-      const copy = within(contract).getByTestId('token-detail-copy-contract');
-      expect(copy).toHaveTextContent('copy');
-      expect(copy).toHaveClass('text-accent-tint-ink');
+    it('copies the full contract id, not the truncated display value', async () => {
+      mockClipboardWrite.mockResolvedValue(undefined);
+      renderPage();
+
+      const copy = screen.getByTestId('token-detail-copy-contract');
 
       await act(async () => {
         fireEvent.click(copy);
@@ -617,7 +643,28 @@ describe('TokenDetail', () => {
 
       expect(mockClipboardWrite).toHaveBeenCalledWith({ string: TOKEN_ID });
       expect(mockHapticLight).toHaveBeenCalled();
-      expect(copy).toHaveTextContent('copied');
+    });
+
+    it('opens the MidenScan explorer for this faucet in the in-app browser', () => {
+      const explorerUrl = `https://devnet.midenscan.com/account/${TOKEN_ID}`;
+      renderPage({ explorerUrl });
+
+      expect(mockGetExplorerAccountUrl).toHaveBeenCalledWith(TOKEN_ID);
+
+      const explorerRow = screen.getByTestId('token-detail-explorer');
+      expect(explorerRow).toHaveTextContent('viewOnMidenscan');
+
+      fireEvent.click(explorerRow);
+
+      expect(mockOpenExternalUrl).toHaveBeenCalledWith({ url: explorerUrl, title: 'Midenscan' });
+      expect(mockHapticLight).toHaveBeenCalled();
+    });
+
+    it('hides the MidenScan row on a build with no explorer configured', () => {
+      renderPage({ explorerUrl: null });
+
+      expect(screen.queryByTestId('token-detail-explorer')).not.toBeInTheDocument();
+      expect(mockOpenExternalUrl).not.toHaveBeenCalled();
     });
   });
 });

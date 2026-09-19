@@ -7,13 +7,15 @@ import { useTranslation } from 'react-i18next';
 import { Line, LineChart, Tooltip, YAxis } from 'recharts';
 
 import { useAppEnv } from 'app/env';
+import { ReactComponent as ExternalLinkSmallIcon } from 'app/icons/external-link-small.svg';
 import { ReactComponent as ReceiveIcon } from 'app/icons/v2/receive-new.svg';
 import { ReactComponent as SendIcon } from 'app/icons/v2/send-new.svg';
+import HashChip from 'app/templates/HashChip';
 import History from 'app/templates/history/History';
+import { NetworkChip } from 'components/NetworkChip';
 import { PageHeader } from 'components/PageHeader';
 import { TokenLogo } from 'components/TokenLogo';
 import { Button, ButtonVariant } from 'components/ui/Button';
-import { CopyButton } from 'components/ui/CopyButton';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import { Hero } from 'components/ui/Hero';
 import { Pill, PillTone } from 'components/ui/Pill';
@@ -23,6 +25,9 @@ import { usePreset } from 'lib/animation';
 import { toAdaptiveFixed } from 'lib/i18n/numbers';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata, useNetwork } from 'lib/miden/front';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
+import { getExplorerAccountUrl } from 'lib/miden-chain/constants';
+import { openExternalUrl } from 'lib/mobile/external-browser';
+import { hapticLight } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
 import { fetchKlineData, getTokenPrice } from 'lib/prices';
 import type { Timeframe, TokenPriceInfo } from 'lib/prices';
@@ -30,6 +35,11 @@ import { useWalletStore } from 'lib/store';
 import { useRetryableSWR } from 'lib/swr';
 import { ChartContainer } from 'lib/ui/charts';
 import { goBack, navigate } from 'lib/woozie';
+
+// Matches the in-app browser's window title for every other Midenscan link in the wallet
+// (`generating-transaction/constants.ts`'s `EXPLORER_TITLE`) — chrome, not user-facing copy, so
+// it isn't translated.
+const EXPLORER_TITLE = 'Midenscan';
 
 const TIMEFRAMES: Timeframe[] = ['1H', '1D', '1W', '1M', 'YTD'];
 
@@ -261,19 +271,51 @@ const PriceChart: FC<{ symbol: string; priceInfo: TokenPriceInfo }> = ({ symbol,
 const TokenInfo: FC<{ tokenId: string }> = ({ tokenId }) => {
   const { t } = useTranslation();
   const network = useNetwork();
+  // Undefined on a build with no explorer configured for the effective network (e.g. a custom
+  // dev-settings override with a blank explorer URL) — the row below degrades by not rendering,
+  // the same way history's explorer links do (`TransactionStatus.tsx`'s `ExternalLinkValue`).
+  const explorerUrl = getExplorerAccountUrl(tokenId);
+
+  const handleViewExplorer = () => {
+    if (!explorerUrl) return;
+    hapticLight();
+    void openExternalUrl({ url: explorerUrl, title: EXPLORER_TITLE });
+  };
 
   return (
     <section data-testid="token-detail-info">
       <SectionHeader>{t('tokenInfo')}</SectionHeader>
       <DetailCard>
-        {/* The full id, stacked, like every address in a detail card: a truncated one can't be
-            checked against an explorer. */}
-        <DetailRow label={t('contract')} stacked data-testid="token-detail-contract">
-          <span className="min-w-0 font-sans font-semibold">{tokenId}</span>
-          <CopyButton text={tokenId} data-testid="token-detail-copy-contract" />
+        {/* The same compact middle-truncated hash chip as history and contacts (`HashChip`, a
+            `CopyChip` around `HashShortView`): trimmed to read, copied and stored in full — the
+            hidden sibling input `CopyChip` renders carries the untrimmed id for the E2E suite. */}
+        <DetailRow label={t('contract')} data-testid="token-detail-contract">
+          <HashChip
+            hash={tokenId}
+            data-testid="token-detail-copy-contract"
+            className="min-w-0 font-sans text-[15px] font-normal text-ink"
+          />
         </DetailRow>
         <DetailRow label={t('type')}>{t('fungible')}</DetailRow>
-        <DetailRow label={t('network')}>{network.name}</DetailRow>
+        <DetailRow label={t('network')}>
+          <NetworkChip kind="miden" label={network.name} />
+        </DetailRow>
+        {explorerUrl && (
+          // An `accent-tint-ink` text action, not a nested `ListRow`: a `ListRow` draws its own
+          // hairline via a `before:` pseudo-element, which would double up with `DetailCard`'s
+          // `divide-y` on every row after the first. This reuses the same action styling as the
+          // "Copy" row above and the success receipt's "View on Midenscan" link
+          // (`generating-transaction/success/TransactionSuccessLayout.tsx`).
+          <button
+            type="button"
+            onClick={handleViewExplorer}
+            data-testid="token-detail-explorer"
+            className="flex w-full items-center justify-between px-4 py-3 text-left font-heading text-[15px] font-bold text-accent-tint-ink"
+          >
+            {t('viewOnMidenscan')}
+            <ExternalLinkSmallIcon aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
+          </button>
+        )}
       </DetailCard>
     </section>
   );
