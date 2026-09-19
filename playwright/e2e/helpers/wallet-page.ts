@@ -1318,7 +1318,7 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     await this.page.locator('#import-link').click();
     await acknowledgeNetworkNotice(this.page, 15_000);
     await this.page.getByTestId('import-select-type').waitFor({ timeout: 15_000 });
-    await this.page.getByRole('button', { name: /Import with Encrypted Wallet File/ }).click();
+    await this.page.getByTestId('import-type-wallet-file').click();
 
     await this.page.locator('input[type="file"]').setInputFiles(options.backupPath);
     await this.page.locator('#newwallet-password').fill(options.filePassword);
