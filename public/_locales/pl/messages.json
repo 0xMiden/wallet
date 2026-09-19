@@ -3903,6 +3903,14 @@
     "message": "Zobacz powiązane",
     "englishSource": "See connected"
   },
+  "noConnectedDApps": {
+    "message": "Brak połączonych dApps",
+    "englishSource": "No connected dApps"
+  },
+  "noConnectedDAppsDescription": {
+    "message": "dApps połączone z tym kontem pojawią się tutaj.",
+    "englishSource": "dApps you connect to this account show up here."
+  },
   "transferDetails": {
     "message": "Szczegóły przelewu",
     "englishSource": "Transfer Details"

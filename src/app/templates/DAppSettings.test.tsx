@@ -22,42 +22,43 @@ jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
 }));
 
-// `AddressShortView` pulls in `utils/string`; render the raw address so the
-// account value is directly assertable.
-jest.mock('app/atoms/AddressShortView', () => ({
-  __esModule: true,
-  default: ({ address }: { address: string }) => <span data-testid="addr-short">{address}</span>
-}));
-
 // The canonical CopyButton does its own clipboard write internally (covered by its own test
-// suite); stub it to a marker that surfaces the `text` it would copy plus its children, and
-// records every call's props so a dedicated test below can invoke the render-function `children`
-// directly to assert the copied-state icon swap.
-const mockCopyButtonProps = jest.fn();
+// suite); stub it to a marker that surfaces the `text` it would copy.
 jest.mock('components/ui/CopyButton', () => ({
   __esModule: true,
-  CopyButton: (props: {
-    text: string;
-    children?: React.ReactNode | ((copied: boolean) => React.ReactNode);
-    className?: string;
-  }) => {
-    mockCopyButtonProps(props);
-    return (
-      <button data-testid="copy-btn" data-copy-text={props.text} className={props.className}>
-        {typeof props.children === 'function' ? props.children(false) : props.children}
-      </button>
-    );
-  }
+  CopyButton: (props: { text: string; className?: string }) => (
+    <button data-testid="copy-btn" data-copy-text={props.text} className={props.className}>
+      copy
+    </button>
+  )
 }));
 
-// `Icon`/`IconName` mocked the same way `components/ui/BalanceCard.test.tsx` does, so the
-// copied-state checkmark is identifiable by a stable `data-name` without pulling in the real SVG
-// registry.
+jest.mock('components/Button', () => ({
+  Button: ({
+    title,
+    onClick,
+    variant,
+    size,
+    'data-testid': testId
+  }: {
+    title: string;
+    onClick?: () => void;
+    variant?: string;
+    size?: string;
+    'data-testid'?: string;
+  }) => (
+    <button type="button" onClick={onClick} data-variant={variant} data-size={size} data-testid={testId}>
+      {title}
+    </button>
+  ),
+  ButtonVariant: { Primary: 'primary', Secondary: 'secondary', Destructive: 'destructive' }
+}));
+
 jest.mock('app/icons/v2', () => ({
   Icon: ({ name, className }: { name: string; className?: string }) => (
     <span data-testid="icon" data-name={name} className={className} />
   ),
-  IconName: { Checkmark: 'checkmark' }
+  IconName: { Apps: 'apps' }
 }));
 
 // `lib/miden/front` is a barrel over the SDK; mock only the two members used.
@@ -158,22 +159,9 @@ describe('DAppSettings', () => {
     expect(screen.getByText('testnet')).toBeInTheDocument();
     expect(screen.getByText('localnet')).toBeInTheDocument();
 
-    // AddressShortView receives the matched accountId for every card.
-    expect(screen.getAllByTestId('addr-short')).toHaveLength(2);
-    expect(screen.getAllByTestId('addr-short')[0]).toHaveTextContent(ACCOUNT_ID);
-
-    // CopyButton is wired with the accountId as its copy text, and a tap target + hover matching
-    // the neighboring explorer link's (`p-1 rounded-sm hover:bg-fill-pressed transition-colors
-    // ease-hover duration-150`).
+    // The account row shows the shortened id and copies the full one.
+    expect(screen.getAllByTestId('copy-btn')).toHaveLength(2);
     expect(screen.getAllByTestId('copy-btn')[0]).toHaveAttribute('data-copy-text', ACCOUNT_ID);
-    expect(screen.getAllByTestId('copy-btn')[0]).toHaveClass(
-      'p-1',
-      'rounded-sm',
-      'hover:bg-fill-pressed',
-      'transition-colors',
-      'ease-hover',
-      'duration-150'
-    );
 
     // UponRequest → permissionUponRequest; Auto → permissionAutomatic.
     expect(screen.getByText('permissionUponRequest')).toBeInTheDocument();
@@ -182,19 +170,25 @@ describe('DAppSettings', () => {
     expect(screen.getAllByText('permissionLabel')).toHaveLength(2);
   });
 
-  it('swaps the copy glyph for a checkmark while the account id is copied', () => {
+  it('renders each dApp through SubPageLayout as a labelled section over a detail card', () => {
     render(<DAppSettings />);
 
-    // Not yet copied: the copy glyph renders, no checkmark.
-    expect(screen.getAllByTestId('copy-btn')[0]!.querySelector('[data-name="checkmark"]')).not.toBeInTheDocument();
-
-    // CopyButton's `children` render-function is invoked by the stub with `copied=false`; render
-    // it again with `copied=true` (the state a real click flips to, covered by
-    // CopyButton.test.tsx) to assert DAppSettings' own render function swaps the icon.
-    const renderChildren = mockCopyButtonProps.mock.calls[0][0].children as (copied: boolean) => React.ReactNode;
-    const { container } = render(<>{renderChildren(true)}</>);
-
-    expect(container.querySelector('[data-name="checkmark"]')).toBeInTheDocument();
+    const page = screen.getByTestId('dapp-settings');
+    const sections = screen.getAllByTestId('dapp-session');
+    expect(sections).toHaveLength(2);
+    expect(sections[0]!.parentElement).toBe(page.querySelector('[data-slot="body"]'));
+    // The hostname is the section label; the rows sit in the shared DetailCard, labels without
+    // the legacy trailing colon.
+    expect(within(sections[0]!).getByRole('heading', { name: 'app.example.com' })).toHaveClass('text-muted');
+    expect(within(sections[0]!).getByText('originLabel').closest('.rounded-2xl')).toHaveClass('bg-fill');
+    // Permissions are Pills; the explorer link is named for assistive tech.
+    expect(within(sections[0]!).getByText('permissionLabel').closest('.rounded-full')).not.toBeNull();
+    expect(within(sections[0]!).getByRole('link')).toHaveAccessibleName('viewOnMidenscan');
+    // Disconnecting is a compact destructive button, not an unlabelled ✕.
+    const disconnect = within(sections[0]!).getByTestId('dapp-disconnect');
+    expect(disconnect).toHaveTextContent('disconnect');
+    expect(disconnect).toHaveAttribute('data-variant', 'destructive');
+    expect(disconnect).toHaveAttribute('data-size', 'sm');
   });
 
   it('builds the explorer link from the accountId prefix before the underscore', () => {
@@ -209,8 +203,7 @@ describe('DAppSettings', () => {
   it('removes the session and revalidates when the confirm dialog is accepted', async () => {
     render(<DAppSettings />);
 
-    const header = screen.getByText('app.example.com').parentElement as HTMLElement;
-    fireEvent.click(within(header).getByRole('button'));
+    fireEvent.click(within(screen.getAllByTestId('dapp-session')[0]!).getByTestId('dapp-disconnect'));
 
     await waitFor(() => expect(removeDAppSession).toHaveBeenCalledWith('https://app.example.com'));
     expect(confirm).toHaveBeenCalledWith({
@@ -226,20 +219,23 @@ describe('DAppSettings', () => {
     confirm.mockResolvedValue(false);
     render(<DAppSettings />);
 
-    const header = screen.getByText('app.example.com').parentElement as HTMLElement;
-    fireEvent.click(within(header).getByRole('button'));
+    fireEvent.click(within(screen.getAllByTestId('dapp-session')[0]!).getByTestId('dapp-disconnect'));
 
     await waitFor(() => expect(confirm).toHaveBeenCalled());
     expect(removeDAppSession).not.toHaveBeenCalled();
     expect(mutate).not.toHaveBeenCalled();
   });
 
-  it('renders nothing when there are no matching sessions', () => {
+  it('shows the shared empty state when there are no matching sessions', () => {
     setData({});
     const { container } = render(<DAppSettings />);
 
     expect(container.querySelectorAll('a')).toHaveLength(0);
     expect(screen.queryByText('originLabel')).not.toBeInTheDocument();
+    const empty = screen.getByTestId('dapp-settings-empty');
+    expect(empty).toHaveClass('bg-fill', 'rounded-2xl');
+    expect(within(empty).getByRole('heading', { name: 'noConnectedDApps' })).toBeInTheDocument();
+    expect(within(empty).getByText('noConnectedDAppsDescription')).toBeInTheDocument();
   });
 
   it('falls back to the full accountId for the explorer link when the prefix is empty', () => {

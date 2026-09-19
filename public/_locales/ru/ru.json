@@ -881,6 +881,8 @@
   "permissionAutomatic": "Автоматический",
   "dAppsToggleDescription": "Переключите переключатель, чтобы включить или отключить подключения к DApp и отображение баланса.",
   "seeConnected": "См. связанные материалы",
+  "noConnectedDApps": "Нет подключённых dApp",
+  "noConnectedDAppsDescription": "Здесь появятся dApp, которые вы подключите к этому аккаунту.",
   "transferDetails": "Детали перевода",
   "advancedDetails": "Подробная информация",
   "options": "Параметры",

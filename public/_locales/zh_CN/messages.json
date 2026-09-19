@@ -3903,6 +3903,14 @@
     "message": "参见相关内容",
     "englishSource": "See connected"
   },
+  "noConnectedDApps": {
+    "message": "没有已连接的 dApp",
+    "englishSource": "No connected dApps"
+  },
+  "noConnectedDAppsDescription": {
+    "message": "你连接到此账户的 dApp 会显示在这里。",
+    "englishSource": "dApps you connect to this account show up here."
+  },
   "transferDetails": {
     "message": "转账详情",
     "englishSource": "Transfer Details"

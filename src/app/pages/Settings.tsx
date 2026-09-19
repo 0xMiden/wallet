@@ -321,7 +321,8 @@ const HIDDEN_TABS: Tab[] = [
   {
     slug: 'dapps',
     titleI18nKey: 'authorizedDApps',
-    Component: DAppSettings
+    Component: DAppSettings,
+    rendersSubPageLayout: true
   }
 ];
 

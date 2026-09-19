@@ -3,18 +3,20 @@ import React, { FC, useCallback } from 'react';
 import { PrivateDataPermission } from '@miden-sdk/miden-wallet-adapter-base';
 import { useTranslation } from 'react-i18next';
 
-import AddressShortView from 'app/atoms/AddressShortView';
-import { ReactComponent as CloseIcon } from 'app/icons/close.svg';
-import { ReactComponent as CopySmallIcon } from 'app/icons/copy-small.svg';
 import { ReactComponent as ExternalLinkSmallIcon } from 'app/icons/external-link-small.svg';
-import { Icon, IconName } from 'app/icons/v2';
-import { Card } from 'components/ui/Card';
+import { IconName } from 'app/icons/v2';
+import { Button, ButtonVariant } from 'components/Button';
 import { CopyButton } from 'components/ui/CopyButton';
+import { DetailCard, DetailRow } from 'components/ui/DetailCard';
+import { EmptyState } from 'components/ui/EmptyState';
+import { Pill } from 'components/ui/Pill';
+import { SubPageLayout, SubPageSection } from 'components/ui/SubPageLayout';
 import { useMidenContext, useAccount } from 'lib/miden/front';
 import { MidenDAppSession, MidenDAppSessions } from 'lib/miden/types';
 import { getExplorerAccountUrl } from 'lib/miden-chain/constants';
 import { useRetryableSWR } from 'lib/swr';
 import { useConfirm } from 'lib/ui/dialog';
+import { truncateAddress } from 'utils/string';
 
 const DAppSettings: FC = () => {
   const { t } = useTranslation();
@@ -56,17 +58,30 @@ const DAppSettings: FC = () => {
   const dAppEntries = Object.entries(dAppSessions);
 
   return (
-    <div className="w-full max-w-sm mx-auto my-8">
-      {dAppEntries.map(([origin, session]) => (
-        <DAppCard key={origin} origin={origin} session={session} onRemove={handleRemoveClick} />
-      ))}
-    </div>
+    <SubPageLayout data-testid="dapp-settings">
+      {dAppEntries.length === 0 ? (
+        <EmptyState
+          icon={IconName.Apps}
+          title={t('noConnectedDApps')}
+          description={t('noConnectedDAppsDescription')}
+          data-testid="dapp-settings-empty"
+        />
+      ) : (
+        dAppEntries.map(([origin, session]) => (
+          <DAppSection key={origin} origin={origin} session={session} onRemove={handleRemoveClick} />
+        ))
+      )}
+    </SubPageLayout>
   );
 };
 
 export default DAppSettings;
 
-const DAppCard: FC<{
+/** The detail labels predate the detail card and end in a colon ("Origin:"); a row label has none. */
+const rowLabel = (label: string) => label.replace(/\s*[:：]\s*$/, '');
+
+/** One connected dApp: its hostname as the section label, its session as a detail card. */
+const DAppSection: FC<{
   origin: string;
   session: MidenDAppSession;
   onRemove: (origin: string) => void;
@@ -82,14 +97,6 @@ const DAppCard: FC<{
     }
   })();
 
-  const handleRemoveClick = useCallback(
-    (e: React.MouseEvent<HTMLButtonElement>) => {
-      e.stopPropagation();
-      onRemove(origin);
-    },
-    [onRemove, origin]
-  );
-
   const permissionLabel =
     privateDataPermission === PrivateDataPermission.UponRequest ? t('permissionUponRequest') : t('permissionAutomatic');
 
@@ -97,74 +104,45 @@ const DAppCard: FC<{
   const explorerAccountUrl = getExplorerAccountUrl(explorerHash);
 
   return (
-    <Card padding="none" className="mb-4">
-      {/* Header */}
-      <div className="flex justify-between items-center border-b border-border-card px-4 py-3">
-        <span className="text-[14px] font-medium text-ink">{hostname}</span>
-        <button
-          className="flex-none text-text-muted hover:text-ink transition ease-in-out duration-200"
-          onClick={handleRemoveClick}
-        >
-          <CloseIcon className="w-auto h-5 stroke-current stroke-2" title={t('delete')} />
-        </button>
-      </div>
-
-      <div className="p-4">
-        {/* Origin */}
-        <div className="flex justify-between items-center">
-          <span className="text-text-muted text-sm">{t('originLabel')}</span>
-          <span className="text-sm text-ink">{origin}</span>
-        </div>
-
-        {/* Network */}
-        <div className="flex justify-between items-center pt-2">
-          <span className="text-text-muted text-sm">{t('networkLabel')}</span>
-          <span className="text-sm text-ink capitalize">{network}</span>
-        </div>
-
-        {/* Account */}
-        <div className="flex justify-between items-center pt-2">
-          <span className="text-text-muted text-sm">{t('pkhLabel')}</span>
-          <div className="flex items-center gap-1">
-            <span className="text-sm text-accent-orange">
-              <AddressShortView address={accountId} />
-            </span>
-            <CopyButton
-              text={accountId}
-              className="p-1 rounded-sm hover:bg-fill-pressed transition-colors ease-hover duration-150"
+    <SubPageSection title={hostname} data-testid="dapp-session">
+      <DetailCard>
+        <DetailRow label={rowLabel(t('originLabel'))} stacked>
+          {origin}
+        </DetailRow>
+        <DetailRow label={rowLabel(t('networkLabel'))}>
+          <span className="capitalize">{network}</span>
+        </DetailRow>
+        <DetailRow label={rowLabel(t('pkhLabel'))}>
+          <span>{truncateAddress(accountId, false, 8)}</span>
+          <CopyButton text={accountId} className="shrink-0 font-heading text-sm font-bold" />
+          {explorerAccountUrl && (
+            <a
+              href={explorerAccountUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label={t('viewOnMidenscan')}
+              className="flex shrink-0 items-center text-muted"
             >
-              {copied =>
-                copied ? (
-                  <Icon name={IconName.Checkmark} className="w-3! h-3! text-text-muted" />
-                ) : (
-                  <CopySmallIcon className="w-3 h-3 text-text-muted" />
-                )
-              }
-            </CopyButton>
-            {explorerAccountUrl && (
-              <a
-                href={explorerAccountUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="p-1 hover:bg-fill-pressed rounded-sm transition-colors ease-hover duration-150"
-              >
-                <ExternalLinkSmallIcon className="w-3 h-3 text-text-muted" />
-              </a>
-            )}
-          </div>
-        </div>
+              <ExternalLinkSmallIcon aria-hidden="true" className="h-3.5 w-3.5" />
+            </a>
+          )}
+        </DetailRow>
+        <DetailRow label={t('permissions')} stacked>
+          <span className="flex flex-wrap gap-1.5">
+            <Pill size="sm">{t('permissionLabel')}</Pill>
+            <Pill size="sm">{permissionLabel}</Pill>
+          </span>
+        </DetailRow>
+      </DetailCard>
 
-        {/* Permissions */}
-        <div className="mt-2 border-border-card pt-1 border-t-[0.63px]">
-          <span className="text-text-muted text-sm">{t('permissions')}</span>
-          <div className="flex gap-2 mt-1">
-            <span className="bg-chip-bg rounded-sm px-2 py-1 text-[11px] font-medium text-ink">
-              {t('permissionLabel')}
-            </span>
-            <span className="bg-chip-bg rounded-sm px-2 py-1 text-[11px] font-medium text-ink">{permissionLabel}</span>
-          </div>
-        </div>
-      </div>
-    </Card>
+      <Button
+        variant={ButtonVariant.Destructive}
+        size="sm"
+        className="mt-3 self-start"
+        title={t('disconnect')}
+        onClick={() => onRemove(origin)}
+        data-testid="dapp-disconnect"
+      />
+    </SubPageSection>
   );
 };
