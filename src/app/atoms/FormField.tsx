@@ -173,11 +173,11 @@ const FormField = forwardRef<FormFieldRef, FormFieldProps>(
               errorCaption ? 'border-red-500' : 'border-gray-100',
               secretBannerDisplayed ? 'border border-border-light' : 'border',
               'bg-fill focus:bg-transparent',
-              // text-black maps to --color-text-primary → black in light,
+              // text-ink maps to --ds-ink → #3f3f3f in light,
               // white in dark. Without this the <input> inherits the browser
               // default (pure black), which renders the masked password dots
               // invisible against the dark field background.
-              'text-black',
+              'text-ink',
               'outline-none',
               'transition ease-in-out duration-200',
               'leading-tight',
@@ -240,7 +240,7 @@ const ExtraInner: React.FC<ExtraInnerProps> = ({ useDefaultInnerWrapper, innerCo
           'pointer-events-none'
         )}
       >
-        <span className="mx-4 text-xs font-medium text-black">{innerComponent}</span>
+        <span className="mx-4 text-xs font-medium text-ink">{innerComponent}</span>
       </div>
     );
   return <>{innerComponent}</>;
@@ -267,7 +267,7 @@ const SecretBanner: React.FC<SecretBannerProps> = ({ secretBannerDisplayed, hand
       onClick={handleSecretBannerClick}
     >
       <div className="rounded-lg flex flex-col items-center">
-        <EyeClosedIcon className="m-auto h-5 w-5 text-heading-gray opacity-60" />
+        <EyeClosedIcon className="m-auto h-5 w-5 text-ink opacity-60" />
 
         <p className="mt-1 flex items-center text-sm text-text-muted">
           <span>{t('clickToRevealField')}</span>
@@ -316,10 +316,10 @@ const LabelComponent: React.FC<LabelComponentProps> = ({
 }) =>
   label ? (
     <label className={classNames('leading-tight', 'flex flex-col', 'mb-4')} htmlFor={id}>
-      <span className={classNames('text-heading-gray font-medium text-[20px]', className)}>{label}</span>
+      <span className={classNames('text-ink font-medium text-[20px]', className)}>{label}</span>
 
       {description && (
-        <span className={classNames('mt-2', 'text-sm text-black leading-4', descriptionClassName)}>{description}</span>
+        <span className={classNames('mt-2', 'text-sm text-ink leading-4', descriptionClassName)}>{description}</span>
       )}
 
       {warning && <span className={classNames('mt-1', 'text-xs font-medium text-red-600')}>{warning}</span>}

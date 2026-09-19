@@ -146,7 +146,7 @@ describe('HistoryItem', () => {
     const { container } = render(<HistoryItem entry={entry} fullHistory lastEntry={false} className="extra-class" />);
 
     // Outer wrapper carries the passed className.
-    expect(container.firstChild).toHaveClass('w-full', 'text-black', 'extra-class');
+    expect(container.firstChild).toHaveClass('w-full', 'text-ink', 'extra-class');
 
     // Explorer-link branch: a real <a> with the external-link attributes.
     const anchor = container.querySelector('a[href]') as HTMLAnchorElement;

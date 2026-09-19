@@ -81,7 +81,7 @@ export const EvmBridgeDepositStatus: React.FC<EvmBridgeDepositStatusProps> = ({ 
   }
 
   return (
-    <div className="flex flex-1 flex-col overflow-y-auto bg-app-bg px-4 text-heading-gray">
+    <div className="flex flex-1 flex-col overflow-y-auto bg-app-bg px-4 text-ink">
       <PageHeader title={t('transactionProcessingHeader')} onClose={onDone} />
       <main className="flex flex-1 flex-col">
         <section className="flex flex-1 flex-col items-center pt-5">
@@ -90,7 +90,7 @@ export const EvmBridgeDepositStatus: React.FC<EvmBridgeDepositStatusProps> = ({ 
             name={failed ? t('bridgeDepositFailed') : t('bridgeDepositProcessing')}
           />
           <TransactionSummaryBadge lhs={`${inputs.sourceAmount} ${inputs.sourceSymbol}`} rhs="Miden" className="mt-4" />
-          <p className="mt-4 text-center text-sm font-medium text-heading-gray">
+          <p className="mt-4 text-center text-sm font-medium text-ink">
             {failed ? (inputs.error ?? t('transactionErrorDescription')) : t('bridgeDepositProcessingDescription')}
           </p>
         </section>

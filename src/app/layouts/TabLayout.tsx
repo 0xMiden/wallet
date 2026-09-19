@@ -230,7 +230,7 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
     {
       id: 'overview',
       label: 'Overview',
-      icon: <Icon name={IconName.Wallet} className="w-5 h-5 text-heading-gray" />
+      icon: <Icon name={IconName.Wallet} className="w-5 h-5 text-ink" />
     },
     {
       id: 'send',

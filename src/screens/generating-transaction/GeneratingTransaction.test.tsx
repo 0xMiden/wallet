@@ -641,7 +641,7 @@ describe('GeneratingTransaction stage + state rendering', () => {
       paragraph =>
         paragraph.textContent === 'generatingTransactionDescription' && paragraph.classList.contains('font-bold')
     );
-    expect(helper).toHaveClass('text-heading-gray');
+    expect(helper).toHaveClass('text-ink');
     expect(helper).not.toHaveClass('dark:text-white');
     act(() => root.unmount());
   });

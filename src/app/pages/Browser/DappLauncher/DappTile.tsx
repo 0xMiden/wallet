@@ -112,7 +112,7 @@ export const DappTile: FC<DappTileProps> = ({
       <motion.span
         layoutId={enableSharedLayout ? `dapp-name-${url}` : undefined}
         transition={springs.morph}
-        className="w-full truncate text-center text-xs font-medium text-heading-gray"
+        className="w-full truncate text-center text-xs font-medium text-ink"
         aria-hidden="true"
       >
         {name}

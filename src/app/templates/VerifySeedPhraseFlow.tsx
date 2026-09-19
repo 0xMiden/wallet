@@ -184,10 +184,10 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean }> = ({ remove = false }) => {
 
   if (step === 'confirm') {
     return (
-      <div className="flex flex-1 min-h-0 flex-col bg-app-bg text-heading-gray">
+      <div className="flex flex-1 min-h-0 flex-col bg-app-bg text-ink">
         <PageHeader className="px-4" title={t('removeSeedPhrase')} onBack={onExit} />
         <div className="flex flex-1 flex-col justify-center w-full max-w-md mx-auto px-4 py-6 gap-6">
-          <p className="text-sm text-center text-heading-gray">{t('removeSeedPhraseConfirmation')}</p>
+          <p className="text-sm text-center text-ink">{t('removeSeedPhraseConfirmation')}</p>
           {authError && (
             <p role="alert" className="text-sm text-center">
               {authError}
@@ -222,12 +222,12 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean }> = ({ remove = false }) => {
             </div>
 
             <div className="mt-4 bg-white rounded-xl p-4 text-center">
-              <p className="text-sm text-heading-gray">
+              <p className="text-sm text-ink">
                 {t(remove ? 'removeSeedPhraseDescription' : 'verifySeedPhraseWarningBody')}
               </p>
             </div>
             {authError && (
-              <Alert type="error" title={t('error')} description={authError} className="mt-4 rounded-lg text-black" />
+              <Alert type="error" title={t('error')} description={authError} className="mt-4 rounded-lg text-ink" />
             )}
           </div>
 
@@ -237,8 +237,8 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean }> = ({ remove = false }) => {
                 <Icon name={IconName.EyeOff} size="md" fill="white" />
               </div>
 
-              <h3 className="text-base font-medium text-black mb-1">{t('viewThisInPrivatePlace')}</h3>
-              <p className="text-sm text-black mb-8 font-medium">{t('anyoneWithRecoveryPhrase')}</p>
+              <h3 className="text-base font-medium text-ink mb-1">{t('viewThisInPrivatePlace')}</h3>
+              <p className="text-sm text-ink mb-8 font-medium">{t('anyoneWithRecoveryPhrase')}</p>
             </div>
             <div className="flex gap-4 w-full px-4">
               <Button
@@ -271,7 +271,7 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean }> = ({ remove = false }) => {
           <PageHeader className="px-4" title={t('verifySeedPhrase')} onBack={() => setStep('warning')} />
           <div className="flex-1 flex flex-col px-4 pt-4 pb-6">
             <div className="flex flex-col gap-2 mb-6">
-              <h1 className="text-2xl font-semibold text-heading-gray">{t('enterYourPasscode')}</h1>
+              <h1 className="text-2xl font-semibold text-ink">{t('enterYourPasscode')}</h1>
               <p className="text-sm text-text-muted">{t('verifySeedPhrasePasswordBody')}</p>
             </div>
             <PasscodeEntry
@@ -291,7 +291,7 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean }> = ({ remove = false }) => {
         <PageHeader className="px-4" title={t('verifySeedPhrase')} onBack={() => setStep('warning')} />
         <form className="flex-1 flex flex-col px-4 pt-4 pb-6" onSubmit={handleSubmit(onPasswordSubmit)}>
           <div className="flex flex-col gap-2 mb-6">
-            <h1 className="text-2xl font-semibold text-heading-gray">{t('enterPassword')}</h1>
+            <h1 className="text-2xl font-semibold text-ink">{t('enterPassword')}</h1>
             <p className="text-sm text-text-muted">{t('verifySeedPhrasePasswordBody')}</p>
           </div>
           <FormField
@@ -307,7 +307,7 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean }> = ({ remove = false }) => {
               clearErrors();
             }}
             containerClassName="mb-4"
-            labelClassName="text-black"
+            labelClassName="text-ink"
           />
           <div className="mt-auto">
             <Button
@@ -326,10 +326,10 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean }> = ({ remove = false }) => {
 
   if (step === 'review' && words.length === 12) {
     return (
-      <div className="flex flex-col flex-1 min-h-0 bg-app-bg text-heading-gray">
+      <div className="flex flex-col flex-1 min-h-0 bg-app-bg text-ink">
         <PageHeader className="px-4" title={t('recoveryPhrase')} onBack={onExit} />
         <div className="flex-1 flex flex-col px-4 pt-4 pb-6">
-          <p className="text-sm text-black text-center mb-4">
+          <p className="text-sm text-ink text-center mb-4">
             {t(remove ? 'removeSeedPhraseWriteDown' : 'verifySeedPhraseReviewBody')}
           </p>
 
@@ -345,7 +345,7 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean }> = ({ remove = false }) => {
                       hapticLight();
                       copy();
                     }}
-                    className="flex items-center gap-1.5 px-4 py-1.5 border border-border-card rounded-2xl text-sm font-medium text-heading-gray hover:opacity-80 cursor-pointer"
+                    className="flex items-center gap-1.5 px-4 py-1.5 border border-border-card rounded-2xl text-sm font-medium text-ink hover:opacity-80 cursor-pointer"
                   >
                     <Icon name={copied ? IconName.CheckboxCircleFill : IconName.FileCopy} size="xs" />
                     {t(copied ? 'copied' : 'copyToClipboard')}
@@ -358,7 +358,7 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean }> = ({ remove = false }) => {
                   {words.map((word, idx) => (
                     <div key={idx} className="flex items-center gap-2 min-w-0">
                       <span className="text-xs text-text-muted w-5 text-right">{idx + 1}.</span>
-                      <span data-testid={`seed-word-${idx}`} className="text-sm font-medium text-heading-gray">
+                      <span data-testid={`seed-word-${idx}`} className="text-sm font-medium text-ink">
                         {word}
                       </span>
                     </div>
@@ -384,7 +384,7 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean }> = ({ remove = false }) => {
   return (
     <div className="flex flex-col flex-1 min-h-0 bg-app-bg">
       <PageHeader className="px-4" title={t('verifySeedPhrase')} onBack={() => setStep('review')} />
-      <div className="px-4 pt-4 text-sm text-black text-center">
+      <div className="px-4 pt-4 text-sm text-ink text-center">
         <p>{t('verifyMessagePrefix')}</p>
         <p>
           <Trans i18nKey="verifyMessageSuffix" components={{ b: <span className="font-bold" /> }} />

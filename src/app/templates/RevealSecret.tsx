@@ -205,7 +205,7 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
             />
           ),
           attention: (
-            <div className="flex flex-col text-left text-black">
+            <div className="flex flex-col text-left text-ink">
               <span className="font-medium" style={{ fontSize: '14px', lineHeight: '20px', marginBottom: '4px' }}>
                 {t('doNotSharePrivateKey1')} <br />
               </span>
@@ -221,7 +221,7 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
           accountBanner: null,
           attention: null,
           fieldDesc: (
-            <div className="flex flex-col text-heading-gray text-sm gap-3">
+            <div className="flex flex-col text-ink text-sm gap-3">
               <p className="">{t('seedPhraseDescription')}</p>
               <p className="font-bold">{t('doNotShareWithAnyone')}</p>
               <p className="">
@@ -236,7 +236,7 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
           name: t('privateKey'),
           accountBanner: null,
           attention: null,
-          fieldDesc: <div className="text-heading-gray text-sm">{t('revealHotKeyDescription')}</div>
+          fieldDesc: <div className="text-ink text-sm">{t('revealHotKeyDescription')}</div>
         };
 
       case 'guardian-keys':
@@ -244,7 +244,7 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
           name: t('coldPrivateKey'),
           accountBanner: null,
           attention: null,
-          fieldDesc: <div className="text-heading-gray text-sm">{t('guardianKeysRevealDescription')}</div>
+          fieldDesc: <div className="text-ink text-sm">{t('guardianKeysRevealDescription')}</div>
         };
     }
   }, [reveal, t, account]);
@@ -269,7 +269,7 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
             rows={3}
             readOnly
             label={t('coldPrivateKey')}
-            labelClassName="text-base/[20px] font-semibold text-heading-gray mb-0"
+            labelClassName="text-base/[20px] font-semibold text-ink mb-0"
             labelDescription={<div className="mb-3">{texts.fieldDesc}</div>}
             id="reveal-guardian-cold-private"
             spellCheck={false}
@@ -281,7 +281,7 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
             rows={2}
             readOnly
             label={t('coldPublicKeyLabel')}
-            labelClassName="text-base/[20px] font-semibold text-heading-gray mb-0"
+            labelClassName="text-base/[20px] font-semibold text-ink mb-0"
             id="reveal-guardian-cold-public"
             spellCheck={false}
             className="resize-none notranslate font-sans"
@@ -293,7 +293,7 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
               rows={2}
               readOnly
               label={t('hotPublicKeyLabel')}
-              labelClassName="text-base/[20px] font-semibold text-heading-gray mb-0"
+              labelClassName="text-base/[20px] font-semibold text-ink mb-0"
               id="reveal-guardian-hot-public"
               spellCheck={false}
               className="resize-none notranslate font-sans"
@@ -316,7 +316,7 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
             rows={4}
             readOnly
             label={texts.name}
-            labelClassName="text-base/[20px] font-semibold text-heading-gray mb-t0"
+            labelClassName="text-base/[20px] font-semibold text-ink mb-t0"
             labelDescription={<div className="mb-3">{texts.fieldDesc}</div>}
             id="reveal-secret-secret"
             spellCheck={false}
@@ -331,7 +331,7 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
       <form ref={formRef} onSubmit={handleSubmit(onSubmit)}>
         {hasHardwareProtector ? (
           <>
-            <p className="text-sm text-heading-gray pt-8 mb-4">
+            <p className="text-sm text-ink pt-8 mb-4">
               {t('revealSecretUnlockDescription', { secretName: texts.name })}
             </p>
             {errors.password && (
@@ -339,7 +339,7 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
                 type="error"
                 title={t('error')}
                 description={errors.password.message || ''}
-                className="mb-4 rounded-lg text-black"
+                className="mb-4 rounded-lg text-ink"
               />
             )}
           </>
@@ -413,7 +413,7 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
             description={<p>{t('privateKeyRevealWarningBody')}</p>}
             className="mb-4 rounded-lg"
           />
-          <label className="mb-4 flex items-start gap-2 text-sm text-black cursor-pointer select-none">
+          <label className="mb-4 flex items-start gap-2 text-sm text-ink cursor-pointer select-none">
             <input
               type="checkbox"
               className="mt-0.5"

@@ -119,7 +119,7 @@ const VaultAreaChart: FC<{ vault: EarnVault }> = ({ vault }) => {
               if (!active || !payload?.[0]) return null;
               const point = payload[0].payload;
               return (
-                <div className="rounded-lg bg-heading-gray px-2 py-1 text-xs text-pure-white shadow">
+                <div className="rounded-lg bg-ink px-2 py-1 text-xs text-pure-white shadow">
                   <div className="font-heading font-semibold">{Number(point.value).toFixed(2)}%</div>
                   <div className="opacity-75">{point.label}</div>
                 </div>
@@ -156,7 +156,7 @@ const VaultStats: FC<{ vault: EarnVault }> = ({ vault }) => {
         label={t('earnAuditedLabel')}
         value={vault.audited ? `✓ ${t('yes')}` : t('no')}
         className="px-3"
-        valueClassName={vault.audited ? 'text-heading-gray' : undefined}
+        valueClassName={vault.audited ? 'text-ink' : undefined}
       />
     </div>
   );
@@ -167,8 +167,8 @@ const VaultAbout: FC<{ vault: EarnVault }> = ({ vault }) => {
 
   return (
     <section className="mt-4">
-      <h2 className="font-heading text-base font-bold leading-none text-heading-gray">{t('about')}</h2>
-      <p className="mt-3 text-sm leading-snug text-heading-gray">{vault.about}</p>
+      <h2 className="font-heading text-base font-bold leading-none text-ink">{t('about')}</h2>
+      <p className="mt-3 text-sm leading-snug text-ink">{vault.about}</p>
     </section>
   );
 };

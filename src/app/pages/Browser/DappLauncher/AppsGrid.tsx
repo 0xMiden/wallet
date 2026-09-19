@@ -73,7 +73,7 @@ const AppCard: FC<AppCardProps> = ({ dapp, onOpen }) => {
         <motion.span
           layoutId={`dapp-name-${dapp.url}`}
           transition={springs.morph}
-          className="font-heading text-base font-bold text-heading-gray"
+          className="font-heading text-base font-bold text-ink"
           aria-hidden="true"
         >
           {dapp.name}

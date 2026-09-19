@@ -320,7 +320,7 @@ export const ImportWalletFileScreen: React.FC<ImportWalletFileScreenProps> = ({ 
       className={classNames(
         'flex-1 h-full',
         'flex flex-col justify-content items-center gap-y-2',
-        'bg-app-bg text-heading-gray px-4 pt-6',
+        'bg-app-bg text-ink px-4 pt-6',
         className
       )}
       onSubmit={handleSubmit(handleImportSubmit)}
@@ -378,7 +378,7 @@ export const ImportWalletFileScreen: React.FC<ImportWalletFileScreenProps> = ({ 
 
       {walletFile != null && pendingRestore == null && (
         <div className="flex flex-col w-full max-w-[360px]">
-          <p className="text-sm text-black my-3">{t('enterDecryptionPassword')}</p>
+          <p className="text-sm text-ink my-3">{t('enterDecryptionPassword')}</p>
           <FormField
             {...register('password', {
               required: PASSWORD_ERROR_CAPTION

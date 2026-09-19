@@ -130,7 +130,7 @@ const OpaqueSignatureWarning: React.FC<{ rawValue: string }> = ({ rawValue }) =>
 const RequestOriginBanner: FC<{ origin: string; children: React.ReactNode }> = ({ origin, children }) => (
   <div
     className={classNames(
-      'text-sm text-left text-black',
+      'text-sm text-left text-ink',
       'flex w-full gap-x-3 items-center p-4',
       'border border-gray-100 rounded-2xl mb-4'
     )}
@@ -231,7 +231,7 @@ const PayloadContent: React.FC<PayloadContentProps> = ({ payload, error, account
               <hr className="h-px bg-border-light my-4" />
               <div className="flex justify-between text-sm">
                 <span className="text-text-muted">{t('account')}</span>
-                <div className="text-black flex flex-col items-end">
+                <div className="text-ink flex flex-col items-end">
                   <span>{account.name}</span>
                   <span>{truncateAddress(account.publicKey)}</span>
                 </div>
@@ -252,7 +252,7 @@ const PayloadContent: React.FC<PayloadContentProps> = ({ payload, error, account
             return (
               <div className="flex justify-between my-2 text-sm" key={i + 2}>
                 <span className="text-text-muted">{label}</span>
-                <span className="text-black" data-testid={txRowValueTestId(label)}>
+                <span className="text-ink" data-testid={txRowValueTestId(label)}>
                   {value}
                 </span>
               </div>
@@ -274,14 +274,14 @@ const PayloadContent: React.FC<PayloadContentProps> = ({ payload, error, account
               <hr className="h-px bg-border-light my-4" />
               <div className="flex justify-between text-sm">
                 <span className="text-text-muted">{t('account')}</span>
-                <div className="text-black flex flex-col items-end">
+                <div className="text-ink flex flex-col items-end">
                   <span>{account.name}</span>
                   <span>{truncateAddress(account.publicKey)}</span>
                 </div>
               </div>
               <div className="flex justify-between text-sm">
                 <span className="text-text-muted">{t('noteId')}</span>
-                <div className="text-black flex flex-col items-end">
+                <div className="text-ink flex flex-col items-end">
                   <span>{truncateHash(payload.noteId)}</span>
                 </div>
               </div>
@@ -297,7 +297,7 @@ const PayloadContent: React.FC<PayloadContentProps> = ({ payload, error, account
             return (
               <div className="flex justify-between my-2 text-sm" key={i + 2}>
                 <span className="text-text-muted">{label}</span>
-                <span className="text-black">{value}</span>
+                <span className="text-ink">{value}</span>
               </div>
             );
           })}
@@ -310,12 +310,12 @@ const PayloadContent: React.FC<PayloadContentProps> = ({ payload, error, account
     <div className={classNames('w-full', 'flex flex-col')}>
       {t('payload') && (
         <h2 className={classNames('mb-2', 'leading-tight', 'flex flex-col')}>
-          <span className="text-black font-medium" style={{ fontSize: '14px', lineHeight: '20px' }}>
+          <span className="text-ink font-medium" style={{ fontSize: '14px', lineHeight: '20px' }}>
             {t('payload')}
           </span>
         </h2>
       )}
-      <span className="text-sm text-black">{error ? error : content}</span>
+      <span className="text-sm text-ink">{error ? error : content}</span>
     </div>
   );
 };
@@ -763,7 +763,7 @@ const ConfirmDAppForm: FC = () => {
         }}
       >
         <div className="flex flex-col items-left px-4">
-          <h2 className="py-6 flex text-black text-lg font-semibold">{content.title}</h2>
+          <h2 className="py-6 flex text-ink text-lg font-semibold">{content.title}</h2>
 
           {payload.type === 'connect' && (
             <ConnectBanner type={payload.type} origin={payload.origin} appMeta={payload.appMeta} />

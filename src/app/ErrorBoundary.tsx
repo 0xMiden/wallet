@@ -94,7 +94,7 @@ const ErrorDisplay: FC<ErrorDisplayProps> = ({ className, whileMessage, windowTy
         fullPage && 'mt-[-24px]'
       )}
     >
-      <div className={classNames('p-4', 'flex flex-col items-center', 'text-black')}>
+      <div className={classNames('p-4', 'flex flex-col items-center', 'text-ink')}>
         <Icon name={IconName.Frown} size="3xl" className="mb-8" />
 
         <h2 className="mb-1 text-2xl">{t('oops')}</h2>

@@ -70,7 +70,7 @@ export const SetupPasscodeScreen: React.FC<SetupPasscodeScreenProps> = ({ onSubm
     <div className="bg-app-bg h-full overflow-y-auto" data-testid="onboarding-setup-passcode">
       <div className="min-h-full flex flex-col items-center px-6 pb-8">
         <div className="flex flex-col items-center w-full mt-8 shrink-0">
-          <h1 className="text-3xl font-semibold font-heading text-heading-gray text-center leading-[100%] tracking-tight">
+          <h1 className="text-3xl font-semibold font-heading text-ink text-center leading-[100%] tracking-tight">
             {phase === 'enter' ? t('setUpYourPasscode') : t('confirmYourPasscode')}
           </h1>
           <p className={`text-lg text-center mt-3 ${mismatch ? 'text-red-500' : 'text-gray-secondary'}`}>

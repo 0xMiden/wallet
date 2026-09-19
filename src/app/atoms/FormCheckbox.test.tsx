@@ -56,7 +56,7 @@ describe('FormCheckbox', () => {
 
     const labelText = screen.getByText('Accept terms');
     expect(labelText).toBeInTheDocument();
-    expect(labelText).toHaveClass('text-sm', 'font-semibold', 'text-black');
+    expect(labelText).toHaveClass('text-sm', 'font-semibold', 'text-ink');
 
     // The label text lives inside the ml-4 wrapper div; no description span yet.
     const wrapper = labelText.parentElement as HTMLElement;
@@ -72,7 +72,7 @@ describe('FormCheckbox', () => {
 
     const description = screen.getByText('You must agree to continue');
     expect(description).toBeInTheDocument();
-    expect(description).toHaveClass('mt-1', 'text-sm', 'text-black');
+    expect(description).toHaveClass('mt-1', 'text-sm', 'text-ink');
   });
 
   it('does not render a description block when only labelDescription is set (no label)', () => {

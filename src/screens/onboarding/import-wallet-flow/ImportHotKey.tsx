@@ -101,7 +101,7 @@ export const ImportHotKeyScreen: React.FC<ImportHotKeyScreenProps> = ({
   return (
     <div
       className={classNames(
-        'flex-1 min-h-0 overflow-y-auto flex flex-col items-center bg-app-bg text-heading-gray px-4 pt-6',
+        'flex-1 min-h-0 overflow-y-auto flex flex-col items-center bg-app-bg text-ink px-4 pt-6',
         className
       )}
       data-testid="import-hot-key"

@@ -607,7 +607,7 @@ const Settings: FC<SettingsProps> = ({ tabSlug, rootScrollTop: savedRootScrollTo
                 </div>
 
                 <div className="mt-4 bg-white rounded-xl p-4 text-center">
-                  <p className="text-sm text-heading-gray">{t('pleaseWriteDownRecoveryPhrase')}</p>
+                  <p className="text-sm text-ink">{t('pleaseWriteDownRecoveryPhrase')}</p>
                 </div>
               </div>
 
@@ -617,8 +617,8 @@ const Settings: FC<SettingsProps> = ({ tabSlug, rootScrollTop: savedRootScrollTo
                     <Icon name={IconName.EyeOff} size="md" fill="white" />
                   </div>
 
-                  <h3 className="text-base font-medium text-black mb-1">{t('viewThisInPrivatePlace')}</h3>
-                  <p className="text-sm text-black mb-8 font-medium">{t('anyoneWithRecoveryPhrase')}</p>
+                  <h3 className="text-base font-medium text-ink mb-1">{t('viewThisInPrivatePlace')}</h3>
+                  <p className="text-sm text-ink mb-8 font-medium">{t('anyoneWithRecoveryPhrase')}</p>
                 </div>
                 <div className="flex gap-4 w-full px-4">
                   <Button

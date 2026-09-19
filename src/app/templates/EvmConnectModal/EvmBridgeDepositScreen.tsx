@@ -739,7 +739,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   );
 
   return (
-    <div className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-app-bg text-heading-gray">
+    <div className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-app-bg text-ink">
       {activeRoute?.name !== ReceiveStep.ShowBridgePageStatus && (
         <div className="shrink-0 px-4">
           <PageHeader title={t('midenBridge')} onBack={handleHeaderBack} />

@@ -235,8 +235,8 @@ it('renders the current and destination endpoints in the shared transition hero'
 it('uses theme-aware text colors for the rotation warning', async () => {
   render(<RotateGuardianReview />);
 
-  expect(screen.getByText('oldGuardianCantBlockTitle')).toHaveClass('text-heading-gray');
-  expect(screen.getByText('oldGuardianCantBlockBody')).toHaveClass('text-heading-gray');
+  expect(screen.getByText('oldGuardianCantBlockTitle')).toHaveClass('text-ink');
+  expect(screen.getByText('oldGuardianCantBlockBody')).toHaveClass('text-ink');
   await waitFor(() => expect(screen.getByTestId('rotate-guardian-confirm')).toBeEnabled());
 });
 

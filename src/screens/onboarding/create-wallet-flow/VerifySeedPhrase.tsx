@@ -88,7 +88,7 @@ export const VerifySeedPhraseScreen: React.FC<VerifySeedPhraseScreenProps> = ({
       {...props}
     >
       {showIntro && (
-        <div className="flex flex-col items-center gap-2 text-heading-gray">
+        <div className="flex flex-col items-center gap-2 text-ink">
           <header className="text-[28px] font-medium">{t('verifySeedPhrase')}</header>
           <p className="text-sm font-normal text-center">{t('verifyMessagePrefix')}</p>
         </div>
@@ -101,11 +101,7 @@ export const VerifySeedPhraseScreen: React.FC<VerifySeedPhraseScreenProps> = ({
         data-testid="verify-seed-prompt"
         className={classNames(
           'text-center text-sm font-medium',
-          stepPrompt.tone === 'error'
-            ? 'text-red-500'
-            : stepPrompt.tone === 'success'
-              ? 'text-green-500'
-              : 'text-heading-gray'
+          stepPrompt.tone === 'error' ? 'text-red-500' : stepPrompt.tone === 'success' ? 'text-green-500' : 'text-ink'
         )}
       >
         <Trans i18nKey={stepPrompt.key} components={{ b: <span className="font-bold" /> }} />

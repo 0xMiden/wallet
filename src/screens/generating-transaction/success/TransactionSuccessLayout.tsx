@@ -237,7 +237,7 @@ export const TransactionSuccessLayout: FC<TransactionSuccessLayoutProps> = ({
   const actions = ordered.map(action => <FooterAction key={action.label} action={action} />);
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-app-bg text-heading-gray">
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-app-bg text-ink">
       {/* The receipt replaces Processing in place, so it keeps the same frame: close top right, a
           title where Processing's was, the hero and heading below, the CTAs pinned to the bottom.
           Only the body scrolls on a short popup, so the CTAs stay reachable (#463). */}

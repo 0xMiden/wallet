@@ -84,7 +84,7 @@ export const EarnWithdrawStatus: React.FC<EarnWithdrawStatusProps> = ({ txId }) 
   }
 
   return (
-    <div className="flex flex-1 flex-col overflow-y-auto bg-app-bg px-4 text-heading-gray">
+    <div className="flex flex-1 flex-col overflow-y-auto bg-app-bg px-4 text-ink">
       <PageHeader title={t('transactionProcessingHeader')} onClose={onDone} />
       <main className="flex flex-1 flex-col">
         <section className="flex flex-1 flex-col items-center pt-5">
@@ -93,7 +93,7 @@ export const EarnWithdrawStatus: React.FC<EarnWithdrawStatusProps> = ({ txId }) 
             name={failed ? t('withdrawalFailed') : t('withdrawalProcessing')}
           />
           <TransactionSummaryBadge lhs={amountLabel} rhs="Miden" className="mt-4" />
-          <p className="mt-4 text-center text-sm font-medium text-heading-gray">
+          <p className="mt-4 text-center text-sm font-medium text-ink">
             {failed
               ? (inputs.error ?? t('transactionErrorDescription'))
               : t(prepared ? 'withdrawalCheckingDescription' : 'withdrawalProcessingDescription')}

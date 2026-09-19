@@ -163,10 +163,10 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
       <div className="min-h-full flex flex-col px-6 pb-6">
         {!hideHeader && (
           <div className="pt-8 shrink-0">
-            <h1 className="text-[2rem] font-semibold font-heading text-heading-gray leading-[105%] tracking-tight">
+            <h1 className="text-[2rem] font-semibold font-heading text-ink leading-[105%] tracking-tight">
               {title ?? t('chooseYourGuardian')}
             </h1>
-            <p className="text-lg font-medium text-heading-gray mt-2 leading-[130%]">
+            <p className="text-lg font-medium text-ink mt-2 leading-[130%]">
               {description ?? t('chooseGuardianDescription')}
             </p>
             <button
@@ -255,7 +255,7 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
                         isOffline
                           ? 'bg-red-50 text-red-700 dark:bg-red-500/15 dark:text-red-300'
                           : isCurrent
-                            ? 'bg-grey-200 text-heading-gray dark:bg-grey-700'
+                            ? 'bg-grey-200 text-ink dark:bg-grey-700'
                             : 'bg-primary-500 text-pure-white'
                       )}
                     >
@@ -306,7 +306,7 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
                 : 'border-[#E3E3E3] dark:border-grey-800'
             )}
           >
-            <span className="text-base font-semibold text-heading-gray">{t('noGuardianOptionTitle')}</span>
+            <span className="text-base font-semibold text-ink">{t('noGuardianOptionTitle')}</span>
             <span className="mt-1 text-xs text-gray-secondary dark:text-pure-white">
               {t('noGuardianOptionSubtitle')}
             </span>

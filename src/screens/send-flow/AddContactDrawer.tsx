@@ -77,7 +77,7 @@ const SheetBody: React.FC<SheetBodyProps> = ({ address, initialNetwork, onSaved 
           <span className="text-sm text-text-muted">{t('address')}</span>
           <p
             data-testid="add-contact-address"
-            className="font-heading text-base leading-6 font-bold break-all text-heading-gray"
+            className="font-heading text-base leading-6 font-bold break-all text-ink"
           >
             {address}
           </p>

@@ -384,7 +384,7 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
   const accent = accentForTransactionType(activeType ?? completedTransaction?.type);
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-app-bg text-heading-gray">
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-app-bg text-ink">
       <FlowLayout
         title={processingTitle}
         onClose={onDoneClick}
@@ -397,7 +397,7 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
               // Retry requeues as a fresh transaction paying a fresh fee. This is the screen
               // every claim, send and swap lands on when it fails, so it is where the cost
               // of trying again has to be stated.
-              <div className="-mb-2 text-center text-xs text-heading-gray">
+              <div className="-mb-2 text-center text-xs text-ink">
                 {t('networkFeeMax')} · {maxNetworkFee}
               </div>
             )}
@@ -465,7 +465,7 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
         <section className="flex w-full flex-col items-center pt-6">
           <TransactionHeroIcon state={heroState} accent={accent} />
 
-          <h2 className="mt-5 w-full px-1 text-center font-heading text-[1.75rem] font-bold leading-none text-heading-gray">
+          <h2 className="mt-5 w-full px-1 text-center font-heading text-[1.75rem] font-bold leading-none text-ink">
             {visibleTitle}
           </h2>
 
@@ -489,9 +489,7 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
             })}
           </div>
           {footerDescription && (
-            <p className="w-full pt-4 text-center font-heading text-sm font-bold text-heading-gray">
-              {footerDescription}
-            </p>
+            <p className="w-full pt-4 text-center font-heading text-sm font-bold text-ink">{footerDescription}</p>
           )}
           <div className="sr-only" aria-live="polite">
             <p>{headerText()}</p>

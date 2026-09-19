@@ -99,9 +99,9 @@ const DAppCard: FC<{
     <div className="border border-border-card rounded-10 mb-4 bg-white">
       {/* Header */}
       <div className="flex justify-between items-center border-b border-border-card px-4 py-3">
-        <span className="text-[14px] font-medium text-black">{hostname}</span>
+        <span className="text-[14px] font-medium text-ink">{hostname}</span>
         <button
-          className="flex-none text-text-muted hover:text-black transition ease-in-out duration-200"
+          className="flex-none text-text-muted hover:text-ink transition ease-in-out duration-200"
           onClick={handleRemoveClick}
         >
           <CloseIcon className="w-auto h-5 stroke-current stroke-2" title={t('delete')} />
@@ -112,13 +112,13 @@ const DAppCard: FC<{
         {/* Origin */}
         <div className="flex justify-between items-center">
           <span className="text-text-muted text-sm">{t('originLabel')}</span>
-          <span className="text-sm text-heading-gray">{origin}</span>
+          <span className="text-sm text-ink">{origin}</span>
         </div>
 
         {/* Network */}
         <div className="flex justify-between items-center pt-2">
           <span className="text-text-muted text-sm">{t('networkLabel')}</span>
-          <span className="text-sm text-heading-gray capitalize">{network}</span>
+          <span className="text-sm text-ink capitalize">{network}</span>
         </div>
 
         {/* Account */}
@@ -157,12 +157,10 @@ const DAppCard: FC<{
         <div className="mt-2 border-border-card pt-1 border-t-[0.63px]">
           <span className="text-text-muted text-sm">{t('permissions')}</span>
           <div className="flex gap-2 mt-1">
-            <span className="bg-chip-bg rounded-sm px-2 py-1 text-[11px] font-medium text-heading-gray">
+            <span className="bg-chip-bg rounded-sm px-2 py-1 text-[11px] font-medium text-ink">
               {t('permissionLabel')}
             </span>
-            <span className="bg-chip-bg rounded-sm px-2 py-1 text-[11px] font-medium text-heading-gray">
-              {permissionLabel}
-            </span>
+            <span className="bg-chip-bg rounded-sm px-2 py-1 text-[11px] font-medium text-ink">{permissionLabel}</span>
           </div>
         </div>
       </div>

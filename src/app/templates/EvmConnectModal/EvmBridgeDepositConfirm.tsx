@@ -37,7 +37,7 @@ export const EvmBridgeDepositConfirm: React.FC<EvmBridgeDepositConfirmProps> = (
   const { t } = useTranslation();
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-app-bg text-heading-gray">
+    <div className="flex h-full min-h-0 flex-col bg-app-bg text-ink">
       <div className="shrink-0 px-4">
         <PageHeader title={t('bridgeDepositTitle')} onBack={onBack} onClose={onClose} />
       </div>
@@ -45,7 +45,7 @@ export const EvmBridgeDepositConfirm: React.FC<EvmBridgeDepositConfirmProps> = (
       <div className="flex flex-1 min-h-0 flex-col px-4 pt-4">
         <div className="flex-1 overflow-y-auto">
           <div className="text-center">
-            <h2 className="text-[28px] font-semibold leading-tight text-black">{t('bridgeDepositHeading')}</h2>
+            <h2 className="text-[28px] font-semibold leading-tight text-ink">{t('bridgeDepositHeading')}</h2>
             <p className="text-sm text-text-tertiary-token">{t('bridgeDepositSubheading')}</p>
           </div>
 
@@ -89,6 +89,6 @@ interface ConfirmRowProps {
 const ConfirmRow: React.FC<ConfirmRowProps> = ({ label, value, isLast }) => (
   <div className={`flex items-center justify-between py-2.5 ${isLast ? '' : 'border-b border-border-faint'}`}>
     <span className="min-w-0 text-xs text-text-tertiary-token">{label}</span>
-    <span className="min-w-0 truncate text-right text-xs font-semibold text-black">{value}</span>
+    <span className="min-w-0 truncate text-right text-xs font-semibold text-ink">{value}</span>
   </div>
 );

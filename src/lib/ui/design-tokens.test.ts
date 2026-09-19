@@ -122,3 +122,22 @@ describe('retired legacy surfaces', () => {
     }
   });
 });
+
+describe('legacy ink', () => {
+  it('no longer maps heading-gray to a Tailwind color (use ink)', () => {
+    expect(config).not.toMatch(/'heading-gray':/);
+  });
+
+  it.each([':root', '.dark'] as const)(
+    'drops the heading-gray var and aliases the legacy black to ink in %s',
+    selector => {
+      const vars = themeVars(selector);
+      expect(vars['color-text-secondary']).toBeUndefined();
+      expect(vars['color-text-primary']).toBe('var(--ds-ink)');
+    }
+  );
+
+  it('still routes the legacy black through that aliased var', () => {
+    expect(config).toMatch(/\bblack: 'var\(--color-text-primary\)'/);
+  });
+});

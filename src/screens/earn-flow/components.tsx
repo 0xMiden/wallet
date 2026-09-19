@@ -21,10 +21,10 @@ export const EarnFlowHeader: FC<{ vault: EarnVault }> = ({ vault }) => {
     <header className="shrink-0 border-b border-rule-default px-4 pb-4 pt-5">
       <div className="flex min-w-0 items-center gap-3">
         <IconButton icon={IconName.ChevronLeft} label={t('back')} onClick={goBack} />
-        <h1 className="min-w-0 truncate font-heading text-[26px] font-bold leading-none text-heading-gray">
+        <h1 className="min-w-0 truncate font-heading text-[26px] font-bold leading-none text-ink">
           {vault.protocol} &bull; {vault.asset}
         </h1>
-        <span className="shrink-0 rounded-full bg-[#DDD4CE] px-3 py-1.5 text-xs font-medium leading-none text-heading-gray">
+        <span className="shrink-0 rounded-full bg-[#DDD4CE] px-3 py-1.5 text-xs font-medium leading-none text-ink">
           {t('earnAssetOnNetwork', { asset: vault.asset, network: vault.network })}
         </span>
       </div>
@@ -40,7 +40,7 @@ export const MetricCard: FC<{ label: string; value: string; valueClassName?: str
 }) => (
   <div className={classNames('flex py-3 flex-col items-center justify-center rounded-10 bg-fill px-10', className)}>
     <div className="text-center text-[10px] font-semibold uppercase leading-none text-gray-secondary">{label}</div>
-    <div className={classNames('mt-1 text-center text-sm font-bold leading-none text-black', valueClassName)}>
+    <div className={classNames('mt-1 text-center text-sm font-bold leading-none text-ink', valueClassName)}>
       {value}
     </div>
   </div>
@@ -60,9 +60,7 @@ export const EarnSummaryPanel: FC<{
         {t('earnTotalEarnedRewards')}
       </h1>
 
-      <div className="mt-0.5 font-heading text-[56px] font-bold leading-16 text-heading-gray">
-        {summary.totalRewards}
-      </div>
+      <div className="mt-0.5 font-heading text-[56px] font-bold leading-16 text-ink">{summary.totalRewards}</div>
 
       <div className="mt-0.5 text-base font-semibold text-status-positive">
         {t('earnEarningBlendedApy', { apy: summary.blendedApy })}

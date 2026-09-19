@@ -151,7 +151,7 @@ const LanguageSettings: FC = () => {
                 missing-glyph boxes; falling straight to sans-serif renders them. */}
             <span
               lang={bcp47}
-              className={`text-base ${isSelected ? 'text-primary-500 font-semibold' : 'text-heading-gray font-medium'}`}
+              className={`text-base ${isSelected ? 'text-primary-500 font-semibold' : 'text-ink font-medium'}`}
               style={{ fontFamily: "'Nunito', sans-serif" }}
             >
               {label}

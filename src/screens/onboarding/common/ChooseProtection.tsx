@@ -20,7 +20,7 @@ export const ChooseProtectionScreen: React.FC<ChooseProtectionScreenProps> = ({
       <div className="min-h-full flex flex-col items-center px-6">
         <div className="flex-1 flex flex-col items-center w-full pt-20 py-8">
           <ProtectedIllustration style={{ width: 278, height: 'auto' }} />
-          <h1 className="text-[1.75rem] font-bold font-heading text-heading-gray text-center mt-8 leading-[105%] tracking-tight">
+          <h1 className="text-[1.75rem] font-bold font-heading text-ink text-center mt-8 leading-[105%] tracking-tight">
             {t('chooseHowToProtect')}
           </h1>
         </div>

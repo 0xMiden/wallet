@@ -31,7 +31,6 @@ export default {
         'border-light': 'var(--color-border-light)',
         'text-muted': 'var(--color-text-muted)',
         'border-subtle': 'var(--color-border-subtle)',
-        'heading-gray': 'var(--color-text-secondary)',
         gray: {
           DEFAULT: 'var(--text-gray)',
           100: 'var(--color-hover-bg)',

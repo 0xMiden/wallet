@@ -98,7 +98,7 @@ export const ImportSeedPhraseScreen: React.FC<ImportSeedPhraseScreenProps> = ({
       className={classNames(
         'flex-1',
         'flex flex-col justify-start items-center',
-        'bg-app-bg text-heading-gray px-4 pt-6',
+        'bg-app-bg text-ink px-4 pt-6',
         className
       )}
       data-testid="import-seed-phrase"

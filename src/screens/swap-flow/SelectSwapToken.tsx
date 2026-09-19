@@ -52,7 +52,7 @@ export const SelectSwapTokenDrawer: React.FC<SelectSwapTokenDrawerProps> = ({
                 data-testid={`swap-token-${token.symbol}`}
               >
                 <TokenLogo symbol={token.logoSymbol} size="md" />
-                <span className="flex-1 font-heading text-base font-bold text-heading-gray">{token.symbol}</span>
+                <span className="flex-1 font-heading text-base font-bold text-ink">{token.symbol}</span>
                 {token.faucetId === currentFaucetId && <span className="h-2.5 w-2.5 rounded-full bg-primary-500" />}
               </button>
             ))}

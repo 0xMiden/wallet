@@ -58,7 +58,7 @@ export const SeedLengthSelect: FC<SeedLengthSelectProps> = ({
   return (
     <div
       ref={selectRef}
-      className={classNames('absolute right-0 z-10 text-black border-2 rounded-md bg-surface-solid cursor-pointer')}
+      className={classNames('absolute right-0 z-10 text-ink border-2 rounded-md bg-surface-solid cursor-pointer')}
     >
       <div className={classNames('flex flex-row justify-around p-2')} onClick={() => setIsOpen(!isOpen)}>
         <span className="text-base">{t('seedInputNumberOfWords', { num: selectedOption })}</span>
@@ -74,7 +74,7 @@ export const SeedLengthSelect: FC<SeedLengthSelectProps> = ({
               className={classNames(
                 selectedOption === option ? 'bg-fill' : 'bg-white hover:bg-fill-pressed',
                 'py-1',
-                'text-black',
+                'text-ink',
                 'flex justify-center'
               )}
               style={{ fontSize: 17 }}

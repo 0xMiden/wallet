@@ -46,8 +46,8 @@ const AdvancedSettings: FC = () => {
             {listItems.map((item, index) => (
               <li className="flex gap-x-2" key={`list-item-${index}`}>
                 <div className="flex flex-col gap-y-2">
-                  <p className="font-medium text-sm text-black">{item.title}</p>
-                  <p className="text-xs text-black">{item.subtitle}</p>
+                  <p className="font-medium text-sm text-ink">{item.title}</p>
+                  <p className="text-xs text-ink">{item.subtitle}</p>
                 </div>
                 {item.value !== undefined && (
                   <div>

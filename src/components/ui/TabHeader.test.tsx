@@ -85,7 +85,6 @@ describe('TabHeader — structure & title', () => {
     expect(heading.className).toContain('font-heading');
     expect(heading.className).toContain('font-extrabold');
     expect(heading.className).toContain('text-ink');
-    expect(heading.className).not.toContain('text-heading-gray');
     expect(heading.className).not.toContain('dark:text-pure-white');
   });
 

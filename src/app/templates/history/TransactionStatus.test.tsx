@@ -73,7 +73,7 @@ describe('ExternalLinkValue', () => {
       'items-center',
       'gap-1',
       'text-sm',
-      'text-heading-gray',
+      'text-ink',
       'font-medium'
     );
 

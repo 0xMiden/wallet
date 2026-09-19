@@ -102,7 +102,7 @@ export const DeadletteredNotesNotice: FC<DeadletteredNotesNoticeProps> = ({ clas
         <Icon name={IconName.WarningFill} size="md" fill="#FEA644" />
       </div>
       <div className="flex-1 flex flex-col justify-center items-start min-w-0">
-        <p className="text-black text-sm font-medium">
+        <p className="text-ink text-sm font-medium">
           {count === 1 ? t('deadletteredNotesTitleOne') : t('deadletteredNotesTitle')}
         </p>
         <p className="text-text-muted text-xs">
