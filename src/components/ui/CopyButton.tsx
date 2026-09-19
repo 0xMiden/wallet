@@ -1,12 +1,10 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React from 'react';
 
-import { Clipboard } from '@capacitor/clipboard';
-import clsx from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import { hapticLight } from 'lib/mobile/haptics';
-
-const COPIED_FEEDBACK_MS = 1500;
+import { useClipboardCopy } from 'lib/ui/useClipboardCopy';
+import { cn } from 'lib/ui/util';
 
 export interface CopyButtonProps {
   /** The value written to the clipboard. */
@@ -43,21 +41,11 @@ export const CopyButton: React.FC<CopyButtonProps> = ({
   'aria-label': ariaLabel
 }) => {
   const { t } = useTranslation();
-  const [copied, setCopied] = useState(false);
-  const timerRef = useRef<ReturnType<typeof setTimeout>>();
-
-  useEffect(() => () => clearTimeout(timerRef.current), []);
+  const { copied, copy } = useClipboardCopy(text);
 
   const handleCopy = async () => {
     hapticLight();
-    try {
-      await Clipboard.write({ string: text });
-      setCopied(true);
-      clearTimeout(timerRef.current);
-      timerRef.current = setTimeout(() => setCopied(false), COPIED_FEEDBACK_MS);
-    } catch {
-      // Nothing to report — the value stays on screen to copy by hand.
-    }
+    await copy();
   };
 
   return (
@@ -67,7 +55,12 @@ export const CopyButton: React.FC<CopyButtonProps> = ({
       disabled={disabled}
       data-testid={dataTestId}
       aria-label={typeof ariaLabel === 'function' ? ariaLabel(copied) : ariaLabel}
-      className={clsx('shrink-0 font-heading text-sm font-bold text-accent-tint-ink disabled:opacity-50', className)}
+      // `cn` (tailwind-merge), not `clsx`: a caller's own text color in `className` has to
+      // REPLACE the default `text-accent-tint-ink` it conflicts with, not just coexist with it —
+      // plain `clsx` leaves both classes in the string, with the winner decided by Tailwind's
+      // compiled order rather than the caller's intent (the same class of bug `Pill` had for
+      // border color).
+      className={cn('shrink-0 font-heading text-sm font-bold text-accent-tint-ink disabled:opacity-50', className)}
     >
       {/* `aria-live` so "Copied" is announced even though nothing moves focus — the tap that
           triggers it already has the user's attention, but a screen reader user tabbing past

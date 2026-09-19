@@ -42,6 +42,18 @@ it('uses the accent-tint-ink text token (there is no "accent" color)', () => {
   expect(screen.getByTestId('copy')).not.toHaveClass('text-accent');
 });
 
+it("lets a caller's className replace the default text color instead of losing to it", () => {
+  // `cn` (tailwind-merge), not `clsx`: a caller that wants a different text color (e.g. a card
+  // that paints its own foreground) passes it via `className`, and it must win over the default
+  // `text-accent-tint-ink` rather than both classes landing in the string and the winner being
+  // decided by Tailwind's compiled order (the same class of bug `Pill` had for border color).
+  render(<CopyButton text="0xabc123" data-testid="copy" className="text-surface-balance-fg" />);
+
+  const button = screen.getByTestId('copy');
+  expect(button).toHaveClass('text-surface-balance-fg');
+  expect(button).not.toHaveClass('text-accent-tint-ink');
+});
+
 it('wraps its label in an aria-live region, so "Copied" is announced', () => {
   render(<CopyButton text="0xabc123" data-testid="copy" />);
 
