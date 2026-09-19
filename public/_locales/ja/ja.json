@@ -881,6 +881,8 @@
   "permissionAutomatic": "自動",
   "dAppsToggleDescription": "このスイッチを切り替えて、DAppへの接続および残高の表示を有効または無効にしてください。",
   "seeConnected": "関連情報はこちら",
+  "noConnectedDApps": "接続済みのdAppはありません",
+  "noConnectedDAppsDescription": "このアカウントに接続したdAppがここに表示されます。",
   "transferDetails": "移籍の詳細",
   "advancedDetails": "詳細情報",
   "options": "オプション",

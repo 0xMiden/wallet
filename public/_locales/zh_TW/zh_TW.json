@@ -881,6 +881,8 @@
   "permissionAutomatic": "自動",
   "dAppsToggleDescription": "切換以啟用或停用 DApp 連線及餘額顯示功能。",
   "seeConnected": "參見相關內容",
+  "noConnectedDApps": "沒有已連接的 dApp",
+  "noConnectedDAppsDescription": "你連接到此帳戶的 dApp 會顯示在這裡。",
   "transferDetails": "轉帳詳情",
   "advancedDetails": "進階詳情",
   "options": "選項",

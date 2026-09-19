@@ -881,6 +881,8 @@
   "permissionAutomatic": "Automatyczny",
   "dAppsToggleDescription": "Przełącz, aby włączyć lub wyłączyć połączenia z aplikacjami DApp oraz widoczność salda.",
   "seeConnected": "Zobacz powiązane",
+  "noConnectedDApps": "Brak połączonych dApps",
+  "noConnectedDAppsDescription": "dApps połączone z tym kontem pojawią się tutaj.",
   "transferDetails": "Szczegóły przelewu",
   "advancedDetails": "Szczegółowe informacje",
   "options": "Opcje",

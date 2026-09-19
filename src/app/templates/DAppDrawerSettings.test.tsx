@@ -34,20 +34,20 @@ jest.mock('app/atoms/ToggleSwitch', () => ({
     checked,
     onChange,
     name,
+    id,
     testID
   }: {
     checked: boolean;
     onChange: (evt: React.ChangeEvent<HTMLInputElement>) => void;
     name: string;
+    id?: string;
     testID: string;
-  }) => <input type="checkbox" data-testid={testID} name={name} checked={checked} onChange={onChange} />
+  }) => <input type="checkbox" id={id} data-testid={testID} name={name} checked={checked} onChange={onChange} />
 }));
 
-// `app/icons/v2` bundles SVG components; surface the icon name as a marker so
-// the chevron in the "see connected" button is assertable.
 jest.mock('app/icons/v2', () => ({
-  Icon: ({ name }: { name: string }) => <span data-testid="icon" data-name={name} />,
-  IconName: { ChevronRightLucide: 'chevron-right-lucide' }
+  Icon: () => null,
+  IconName: { ChevronLeft: 'chevron-left', Close: 'close' }
 }));
 
 // `lib/miden/front` is a barrel over the SDK / storage layer; mock only the
@@ -63,7 +63,8 @@ jest.mock('lib/swr', () => ({
 }));
 
 jest.mock('lib/woozie', () => ({
-  navigate: jest.fn()
+  navigate: jest.fn(),
+  Link: () => null
 }));
 
 const mockUseStorage = useStorage as jest.Mock;
@@ -120,6 +121,17 @@ describe('DAppDrawerSettings', () => {
     expect(toggle).toHaveAttribute('name', 'dAppEnabled');
   });
 
+  it('renders through SubPageLayout: the switch as a ListRow, its description the footnote', () => {
+    render(<DAppDrawerSettings />);
+
+    const page = screen.getByTestId('dapp-drawer-settings');
+    expect(page.querySelector('[data-slot="body"]')).toHaveClass('px-4', 'gap-5');
+    const row = screen.getByText('dAppsInteraction').closest('label')!;
+    expect(row).toHaveAttribute('for', 'dAppEnabled');
+    expect(row.parentElement).toHaveClass('bg-fill', 'rounded-2xl');
+    expect(screen.getByText('dAppsToggleDescription')).toHaveClass('text-sm', 'text-muted');
+  });
+
   it('wires useStorage with the DAppEnabled key defaulting to enabled and useRetryableSWR with the sessions loader', () => {
     render(<DAppDrawerSettings />);
 
@@ -174,7 +186,10 @@ describe('DAppDrawerSettings', () => {
     render(<DAppDrawerSettings />);
 
     expect(screen.getByText('seeConnected')).toBeInTheDocument();
-    expect(screen.getByTestId('icon')).toHaveAttribute('data-name', 'chevron-right-lucide');
+    // A navigating ListRow in its own group: the chevron is ListRow's.
+    const row = screen.getByTestId('dapp-see-connected');
+    expect(row.querySelector('[data-slot="chevron"]')).not.toBeNull();
+    expect(row.parentElement).toHaveClass('bg-fill', 'rounded-2xl');
   });
 
   it('navigates to the dapps settings when "see connected" is clicked', () => {

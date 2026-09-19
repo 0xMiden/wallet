@@ -3903,6 +3903,14 @@
     "message": "関連情報はこちら",
     "englishSource": "See connected"
   },
+  "noConnectedDApps": {
+    "message": "接続済みのdAppはありません",
+    "englishSource": "No connected dApps"
+  },
+  "noConnectedDAppsDescription": {
+    "message": "このアカウントに接続したdAppがここに表示されます。",
+    "englishSource": "dApps you connect to this account show up here."
+  },
   "transferDetails": {
     "message": "移籍の詳細",
     "englishSource": "Transfer Details"
