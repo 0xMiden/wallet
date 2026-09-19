@@ -196,7 +196,20 @@ jest.mock('components/ui/ListRow', () => ({
   )
 }));
 
-// Every settings template renders as an inert stub.
+// Every settings template renders as an inert stub. Pages that render the shared
+// SubPageLayout are stubbed THROUGH it (the real layout, over the PageHeader mock
+// above), so the header they take from this host is still what is asserted.
+function mockLayoutPage(testId: string) {
+  return function MockLayoutPage() {
+    const { SubPageLayout } = jest.requireActual('components/ui/SubPageLayout');
+    return (
+      <SubPageLayout data-testid={testId}>
+        <span />
+      </SubPageLayout>
+    );
+  };
+}
+
 jest.mock('app/templates/GeneralSettings', () => ({
   __esModule: true,
   default: () => <div data-testid="general-settings" />
@@ -221,7 +234,7 @@ jest.mock('app/templates/GuardianSettings', () => ({
 }));
 jest.mock('app/templates/KeysSettings', () => ({
   __esModule: true,
-  default: () => <div data-testid="keys-settings" />
+  default: mockLayoutPage('keys-settings')
 }));
 jest.mock('app/templates/LanguageSettings', () => ({
   __esModule: true,
@@ -756,6 +769,33 @@ describe('Settings page — active tab routing', () => {
 
     fireEvent.click(screen.getByTestId('nav-back'));
     expect(mockGoBack).toHaveBeenCalledTimes(1);
+  });
+
+  it('hands a SubPageLayout page its title, back and focus from the route', () => {
+    render(<Settings tabSlug="keys" />);
+
+    const page = screen.getByTestId('keys-settings');
+    // One header, the page's own: the host renders none of its own around it.
+    expect(screen.getAllByTestId('nav-header')).toHaveLength(1);
+    expect(page).toContainElement(screen.getByTestId('nav-header'));
+    expect(screen.getByTestId('nav-title')).toHaveTextContent('keys');
+    expect(screen.getByTestId('nav-header')).toHaveAttribute('data-focus-title', 'true');
+    // The layout's body is the only scroller; the host adds no padded wrapper.
+    expect(page.querySelector('[data-slot="body"]')).toHaveClass('overflow-y-auto', 'px-4');
+    expect(document.querySelectorAll('.overflow-y-auto')).toHaveLength(1);
+
+    fireEvent.click(screen.getByTestId('nav-back'));
+    expect(mockGoBack).toHaveBeenCalledTimes(1);
+  });
+
+  it('remounts a SubPageLayout page, header and all, on a sibling move', () => {
+    const { rerender } = render(<Settings tabSlug="keys" />);
+    const first = screen.getByTestId('nav-header');
+
+    rerender(<Settings tabSlug="general-settings" />);
+    rerender(<Settings tabSlug="keys" />);
+
+    expect(screen.getByTestId('nav-header')).not.toBe(first);
   });
 
   it('sends back to the settings root, replacing, when a sub-page was opened cold', () => {
