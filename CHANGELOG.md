@@ -8,6 +8,7 @@
 - [FEATURE][all] Advanced Settings can export the current account as a CLI-compatible `.mac` file after password, passcode, or device-security confirmation. The flow warns that the file grants access to the account's funds and requires an explicit acknowledgement before saving or sharing it (#537).
 ### Changes
 
+- [CHANGE][all] Transaction details close with the back button only; the extra X and Close button are gone.
 - [CHANGE][all] OpenZeppelin's logo follows its brand kit: official colours and mark, on a white tile.
 - [CHANGE][all] Chips, badges and small actions share one `Pill` component (two sizes, one set of tones), so the network chip and the recipient step's Paste, Address Book, Scan and "Add to contacts?" pills are the same height, padding and type scale. Every tone carries a 1px border, so selecting a chip no longer resizes it.
 - [CHANGE][all] Send flow: a recent recipient shows its network as a badge on the avatar instead of a chip on the second line, and the address appears once (an unnamed recipient used to show the same shortened address twice).
