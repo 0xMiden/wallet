@@ -2,7 +2,7 @@ import React from 'react';
 
 import { Filesystem } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
-import { waitFor } from '@testing-library/react';
+import { fireEvent, waitFor } from '@testing-library/react';
 import { createRoot } from 'react-dom/client';
 import { act } from 'react-dom/test-utils';
 
@@ -25,6 +25,14 @@ jest.mock('@capacitor/share', () => ({
 jest.mock('@capacitor/filesystem', () => ({
   Directory: { Cache: 'CACHE' },
   Filesystem: { writeFile: jest.fn() }
+}));
+
+// The canonical CopyButton (AddressTab's tap-to-copy address) writes through
+// `@capacitor/clipboard`, which jsdom has no native implementation for; mock it the same way
+// CopyButton.test.tsx does so the copied-feedback test below resolves deterministically.
+const mockClipboardWrite = jest.fn().mockResolvedValue(undefined);
+jest.mock('@capacitor/clipboard', () => ({
+  Clipboard: { write: (...args: unknown[]) => mockClipboardWrite(...args) }
 }));
 
 jest.mock('app/atoms/FormField', () => React.forwardRef(() => null));
@@ -147,6 +155,7 @@ describe('Receive - Address', () => {
     mockQrBlob = null;
     mockQrError = null;
     mockCopy.mockClear();
+    mockClipboardWrite.mockClear();
     mockIsMobile.mockReturnValue(false);
   });
 
@@ -177,6 +186,27 @@ describe('Receive - Address', () => {
 
     const full = container.querySelector('[data-testid="receive-address-full"]');
     expect(full?.textContent).toBe('test-account-123');
+  });
+
+  it('shows "copied" for a beat after tapping the address, then reverts to the truncated address', async () => {
+    jest.useFakeTimers({ doNotFake: ['queueMicrotask'] });
+    const container = await renderReceive();
+    const copyButton = container.querySelector('[data-testid="receive-copy-address"]')!;
+
+    expect(copyButton.textContent).toBe('test-acc');
+
+    await act(async () => {
+      fireEvent.click(copyButton);
+    });
+    expect(mockClipboardWrite).toHaveBeenCalledWith({ string: 'test-account-123' });
+    expect(copyButton.textContent).toBe('copied');
+
+    act(() => {
+      jest.advanceTimersByTime(1500);
+    });
+    expect(copyButton.textContent).toBe('test-acc');
+
+    jest.useRealTimers();
   });
 
   it('warns about test funds before the share and bridge actions (#875)', async () => {
