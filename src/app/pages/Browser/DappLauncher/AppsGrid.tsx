@@ -45,7 +45,7 @@ const AppCard: FC<AppCardProps> = ({ dapp, onOpen }) => {
     <button
       type="button"
       onClick={handleClick}
-      className="flex flex-col items-center gap-3 rounded-2xl border border-[#E5E5EA] bg-white p-4 text-left active:opacity-90"
+      className="flex flex-col items-center gap-3 rounded-2xl border border-hairline bg-white p-4 text-left active:opacity-90"
       aria-label={dapp.name}
       data-testid="dapp-grid-card"
       data-dapp-url={dapp.url}
@@ -73,7 +73,7 @@ const AppCard: FC<AppCardProps> = ({ dapp, onOpen }) => {
         <motion.span
           layoutId={`dapp-name-${dapp.url}`}
           transition={springs.morph}
-          className="font-heading text-base font-bold text-heading-gray"
+          className="font-heading text-base font-bold text-ink"
           aria-hidden="true"
         >
           {dapp.name}
@@ -83,9 +83,7 @@ const AppCard: FC<AppCardProps> = ({ dapp, onOpen }) => {
             {dapp.genre}
           </span>
         )}
-        <span className="font-heading text-xs font-medium leading-snug text-heading-gray opacity-50">
-          {dapp.shortDescription}
-        </span>
+        <span className="font-heading text-xs font-medium leading-snug text-muted">{dapp.shortDescription}</span>
       </div>
     </button>
   );

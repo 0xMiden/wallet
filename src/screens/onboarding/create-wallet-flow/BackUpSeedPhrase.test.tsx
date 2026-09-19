@@ -35,14 +35,22 @@ jest.mock('components/Button', () => ({
     title,
     iconLeft,
     onClick,
-    className
+    className,
+    size
   }: {
     title?: string;
     iconLeft?: unknown;
     onClick?: () => void;
     className?: string;
+    size?: string;
   }) => (
-    <button data-testid={`btn-${title}`} data-icon={String(iconLeft)} data-classname={className} onClick={onClick}>
+    <button
+      data-testid={`btn-${title}`}
+      data-icon={String(iconLeft)}
+      data-classname={className}
+      data-size={size}
+      onClick={onClick}
+    >
       {title}
     </button>
   )
@@ -166,6 +174,32 @@ describe('BackUpSeedPhraseScreen', () => {
       expect(screen.getByTestId('btn-show')).toBeInTheDocument();
       expect(screen.getByTestId('btn-copyToClipboard')).toBeInTheDocument();
       expect(screen.getByTestId('btn-continue')).toBeInTheDocument();
+    });
+
+    it('gives the show/copy row buttons the canonical `sm` size instead of a manual height override', () => {
+      renderComponent();
+      const show = screen.getByTestId('btn-show');
+      const copy = screen.getByTestId('btn-copyToClipboard');
+      expect(show).toHaveAttribute('data-size', 'sm');
+      expect(copy).toHaveAttribute('data-size', 'sm');
+      expect(show.getAttribute('data-classname')).not.toMatch(/\bh-8\b|\btext-xs\b/);
+      expect(copy.getAttribute('data-classname')).not.toMatch(/\bh-8\b|\btext-xs\b/);
+      // Continue keeps the plain lg CTA anatomy: no manual text-size override.
+      expect(screen.getByTestId('btn-continue').getAttribute('data-classname')).toBeFalsy();
+    });
+
+    it("gives the show/copy row buttons equal flex-1 shares instead of a fixed w-1/2 (so a longer ru/uk label doesn't overflow at 320px), 10px apart", () => {
+      renderComponent();
+      const show = screen.getByTestId('btn-show');
+      const copy = screen.getByTestId('btn-copyToClipboard');
+      expect(show).toHaveAttribute('data-classname', 'flex-1');
+      expect(copy).toHaveAttribute('data-classname', 'flex-1');
+      expect(show.getAttribute('data-classname')).not.toMatch(/w-1\/2/);
+      expect(copy.getAttribute('data-classname')).not.toMatch(/w-1\/2/);
+
+      // The row wrapper holding both buttons sets the 10px gap between them.
+      expect(show.parentElement).toBe(copy.parentElement);
+      expect(show.parentElement).toHaveClass('gap-2.5');
     });
   });
 

@@ -42,6 +42,14 @@ describe('AssetListItem', () => {
     expect((container.firstChild as HTMLElement).className).toContain('my-extra-class');
   });
 
+  it('renders the amount in the muted token rather than opacity-50', () => {
+    renderItem();
+
+    const amount = screen.getByText('12.5 MIDEN');
+    expect(amount.className).toContain('text-muted');
+    expect(amount.className).not.toContain('opacity-50');
+  });
+
   describe('chart rendering', () => {
     it('renders the chart node when provided', () => {
       renderItem({ chart: <div data-testid="chart" /> });

@@ -76,6 +76,203 @@
         "selector": "CallExpression[callee.property.name='outputNotes']",
         "message": "The kernel's TX_FEE note is an output note too, so a raw outputNotes() read hands you the fee note alongside the user's -- and indexing or counting that array silently picks or over-counts on any fee-charging chain while staying green at fee 0. Read output notes only via splitExecutedOutputNotes() in lib/miden/activity/fee-notes.ts."
       }
+    ],
+    "no-restricted-imports": [
+      "error",
+      {
+        "patterns": [
+          {
+            "group": [
+              "lib/ui/button",
+              "**/lib/ui/button"
+            ],
+            "caseSensitive": true,
+            "message": "lib/ui/button was retired by the design system (skills/miden-wallet-frontend/references/design-system.md). Use components/ui/Button (or components/Button, which re-exports it)."
+          },
+          {
+            "group": [
+              "lib/ui/badge",
+              "**/lib/ui/badge"
+            ],
+            "caseSensitive": true,
+            "message": "lib/ui/badge was retired by the design system (skills/miden-wallet-frontend/references/design-system.md). Use components/ui/Pill."
+          },
+          {
+            "group": [
+              "lib/ui/skeleton",
+              "**/lib/ui/skeleton"
+            ],
+            "caseSensitive": true,
+            "message": "lib/ui/skeleton was retired by the design system (skills/miden-wallet-frontend/references/design-system.md). Use components/ui/Skeleton."
+          },
+          {
+            "group": [
+              "lib/ui/DetailCard",
+              "**/lib/ui/DetailCard"
+            ],
+            "caseSensitive": true,
+            "message": "lib/ui/DetailCard was retired by the design system (skills/miden-wallet-frontend/references/design-system.md). Use components/ui/DetailCard."
+          },
+          {
+            "group": [
+              "components/EmptyState",
+              "**/components/EmptyState"
+            ],
+            "caseSensitive": true,
+            "message": "components/EmptyState was retired by the design system (skills/miden-wallet-frontend/references/design-system.md). Use components/ui/EmptyState."
+          },
+          {
+            "group": [
+              "components/flow/FlowDetails",
+              "**/components/flow/FlowDetails"
+            ],
+            "caseSensitive": true,
+            "message": "components/flow/FlowDetails was retired by the design system (skills/miden-wallet-frontend/references/design-system.md). Use components/ui/DetailCard."
+          },
+          {
+            "group": [
+              "components/NavigationHeader",
+              "**/components/NavigationHeader"
+            ],
+            "caseSensitive": true,
+            "message": "components/NavigationHeader was retired by the design system (skills/miden-wallet-frontend/references/design-system.md). Use components/PageHeader."
+          },
+          {
+            "group": [
+              "components/ScreenHeader",
+              "**/components/ScreenHeader"
+            ],
+            "caseSensitive": true,
+            "message": "components/ScreenHeader was retired by the design system (skills/miden-wallet-frontend/references/design-system.md). Use components/PageHeader."
+          },
+          {
+            "group": [
+              "components/CircleButton",
+              "**/components/CircleButton"
+            ],
+            "caseSensitive": true,
+            "message": "components/CircleButton was retired by the design system (skills/miden-wallet-frontend/references/design-system.md). Use components/ui/IconButton."
+          },
+          {
+            "group": [
+              "components/NavButton",
+              "**/components/NavButton"
+            ],
+            "caseSensitive": true,
+            "message": "components/NavButton was retired by the design system (skills/miden-wallet-frontend/references/design-system.md). Use components/ui/IconButton."
+          },
+          {
+            "group": [
+              "components/CardItem",
+              "**/components/CardItem"
+            ],
+            "caseSensitive": true,
+            "message": "components/CardItem was retired by the design system (skills/miden-wallet-frontend/references/design-system.md). Use components/ui/ListRow inside a components/ui/ListGroup."
+          },
+          {
+            "group": [
+              "components/ListItem",
+              "**/components/ListItem"
+            ],
+            "caseSensitive": true,
+            "message": "components/ListItem was retired by the design system (skills/miden-wallet-frontend/references/design-system.md). Use components/ui/ListRow inside a components/ui/ListGroup."
+          },
+          {
+            "group": [
+              "app/templates/MenuItem",
+              "**/app/templates/MenuItem"
+            ],
+            "caseSensitive": true,
+            "message": "app/templates/MenuItem was retired by the design system (skills/miden-wallet-frontend/references/design-system.md). Use components/ui/ListRow inside a components/ui/ListGroup."
+          },
+          {
+            "group": [
+              "components/Chip",
+              "**/components/Chip"
+            ],
+            "caseSensitive": true,
+            "message": "components/Chip was retired by the design system (skills/miden-wallet-frontend/references/design-system.md). Use components/ui/Pill."
+          },
+          {
+            "group": [
+              "components/TextArea",
+              "**/components/TextArea"
+            ],
+            "caseSensitive": true,
+            "message": "components/TextArea was retired by the design system (skills/miden-wallet-frontend/references/design-system.md). Use components/ui/TextField (multiline)."
+          },
+          {
+            "group": [
+              "components/review/ReviewRow",
+              "**/components/review/ReviewRow"
+            ],
+            "caseSensitive": true,
+            "message": "components/review/ReviewRow was retired by the design system (skills/miden-wallet-frontend/references/design-system.md). Use components/ui/DetailCard (DetailRow)."
+          },
+          {
+            "group": [
+              "components/review/ReviewAmount",
+              "**/components/review/ReviewAmount"
+            ],
+            "caseSensitive": true,
+            "message": "components/review/ReviewAmount was retired by the design system (skills/miden-wallet-frontend/references/design-system.md). Use components/ui/Hero."
+          },
+          {
+            "group": [
+              "app/templates/history/DetailCard",
+              "**/app/templates/history/DetailCard"
+            ],
+            "caseSensitive": true,
+            "message": "app/templates/history/DetailCard was retired by the design system (skills/miden-wallet-frontend/references/design-system.md). Use components/ui/DetailCard."
+          },
+          {
+            "group": [
+              "app/templates/ConfirmationModal",
+              "**/app/templates/ConfirmationModal"
+            ],
+            "caseSensitive": true,
+            "message": "app/templates/ConfirmationModal was retired by the design system (skills/miden-wallet-frontend/references/design-system.md). Use useConfirm from lib/ui/dialog (a confirm sheet)."
+          },
+          {
+            "group": [
+              "app/templates/AlertModal",
+              "**/app/templates/AlertModal"
+            ],
+            "caseSensitive": true,
+            "message": "app/templates/AlertModal was retired by the design system (skills/miden-wallet-frontend/references/design-system.md). Use useAlert from lib/ui/dialog (an alert sheet)."
+          },
+          {
+            "group": [
+              "app/templates/ModalWithTitle",
+              "**/app/templates/ModalWithTitle"
+            ],
+            "caseSensitive": true,
+            "message": "app/templates/ModalWithTitle was retired by the design system (skills/miden-wallet-frontend/references/design-system.md). Use the Drawer sheet in lib/ui/drawer."
+          },
+          {
+            "group": [
+              "app/templates/SearchField",
+              "**/app/templates/SearchField"
+            ],
+            "caseSensitive": true,
+            "message": "app/templates/SearchField was retired by the design system (skills/miden-wallet-frontend/references/design-system.md). Use components/ui/SearchInput."
+          },
+          {
+            "group": [
+              "app/templates/SearchAssetField",
+              "**/app/templates/SearchAssetField"
+            ],
+            "caseSensitive": true,
+            "message": "app/templates/SearchAssetField was retired by the design system (skills/miden-wallet-frontend/references/design-system.md). Use components/ui/SearchInput."
+          },
+          {
+            "group": [
+              "react-modal"
+            ],
+            "message": "Modals are sheets now: use the Drawer in lib/ui/drawer, or useConfirm / useAlert from lib/ui/dialog."
+          }
+        ]
+      }
     ]
   },
   "overrides": [
@@ -94,6 +291,59 @@
       ],
       "rules": {
         "no-restricted-syntax": "off"
+      }
+    },
+    {
+      "files": [
+        "**/*.ts",
+        "**/*.tsx"
+      ],
+      "rules": {
+        "@typescript-eslint/no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": [
+                  "app/atoms/*",
+                  "**/app/atoms/**",
+                  "**/atoms/*",
+                  "**/atoms/**"
+                ],
+                "message": "src/app/atoms is frozen (design-system Rule 3): fix bugs in it, do not add importers. Use the canonical component in components/ui instead; see skills/miden-wallet-frontend/references/design-system.md."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": [
+        "src/app/atoms/**",
+        "src/app/ConfirmPage.tsx",
+        "src/app/pages/ImportAccount.tsx",
+        "src/app/pages/Receive/AddressTab.tsx",
+        "src/app/pages/RotateGuardianReview.tsx",
+        "src/app/templates/AccountBanner.tsx",
+        "src/app/templates/AddressChip.tsx",
+        "src/app/templates/AdvancedSettings.tsx",
+        "src/app/templates/ConnectBanner.tsx",
+        "src/app/templates/DAppDrawerSettings.tsx",
+        "src/app/templates/DAppSettings.tsx",
+        "src/app/templates/EditMidenFaucetId.tsx",
+        "src/app/templates/HashChip.tsx",
+        "src/app/templates/history/HistoryItem.tsx",
+        "src/app/templates/PrivateDataPermissionCheckbox.tsx",
+        "src/app/templates/RevealSecret.tsx",
+        "src/app/templates/RevealSeedPhrase.tsx",
+        "src/app/templates/SettingToggle.tsx",
+        "src/app/templates/VerifySeedPhraseFlow.tsx",
+        "src/components/Avatar.tsx",
+        "src/screens/encrypted-file-flow/EncryptedWalletFileWalletPassword.tsx",
+        "src/screens/onboarding/import-wallet-flow/ImportWalletFile.tsx"
+      ],
+      "rules": {
+        "@typescript-eslint/no-restricted-imports": "off"
       }
     }
   ]

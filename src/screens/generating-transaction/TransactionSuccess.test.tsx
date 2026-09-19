@@ -20,15 +20,6 @@ jest.mock('components/Button', () => ({
   ButtonVariant: { Primary: 'Primary' }
 }));
 
-jest.mock('components/ScreenHeader', () => ({
-  ScreenHeader: ({ title, onClose }: { title: string; onClose?: () => void }) => (
-    <div data-testid="screen-header">
-      <span>{title}</span>
-      <button aria-label="header-close" onClick={onClose} />
-    </div>
-  )
-}));
-
 const mockMidenMeta: { symbol: string | undefined; decimals: number } = { symbol: 'MIDEN', decimals: 6 };
 
 jest.mock('lib/miden/metadata', () => ({

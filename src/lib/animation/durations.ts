@@ -10,6 +10,10 @@ export const durations = {
   normal: 0.28,
   slow: 0.42,
   extraSlow: 0.6,
+  /** A stacked page sliding in or out, and the page beneath moving with it (`presets.page`) */
+  page: 0.34,
+  /** A step swap inside one page: the `Navigator` flows and onboarding (`pageStepTransition`) */
+  pageStep: 0.15,
   /** One pass of a looping shimmer (`presets.shimmer`) */
   shimmer: 1.2
 } as const;

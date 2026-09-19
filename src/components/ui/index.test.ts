@@ -14,7 +14,9 @@ import { Avatar } from './Avatar';
 import { BalanceCard } from './BalanceCard';
 import { BottomNav } from './BottomNav';
 import { CopyButton } from './CopyButton';
+import { CopyChip } from './CopyChip';
 import { EmptyState } from './EmptyState';
+import { IconButton } from './IconButton';
 import * as UI from './index';
 import { Pill } from './Pill';
 import { PromptCard } from './PromptCard';
@@ -50,6 +52,7 @@ describe('components/ui barrel', () => {
     Pill,
     BalanceCard,
     CopyButton,
+    CopyChip,
     PromptCard,
     PromptCarousel,
     AssetListItem,
@@ -61,6 +64,7 @@ describe('components/ui barrel', () => {
     Sparkline,
     ActivityRow,
     EmptyState,
+    IconButton,
     Spinner,
     Skeleton,
     TextField

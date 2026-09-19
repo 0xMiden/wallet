@@ -2,7 +2,7 @@ import React, { FC, useCallback, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
-import FormSubmitButton from 'app/atoms/FormSubmitButton';
+import { Button } from 'components/Button';
 import { initiateReplaceHotKeyTransaction, requestSWTransactionProcessing } from 'lib/miden/activity';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import { isExtension } from 'lib/platform';
@@ -48,26 +48,20 @@ const GuardianReplaceHotKey: FC = () => {
 
   return (
     <div className="w-full pb-10">
-      <p className="text-sm text-heading-gray font-medium mb-1">{t('replaceHotKey')}</p>
-      <p className="text-xs text-heading-gray mb-3 select-text">{t('replaceHotKeyDescription')}</p>
+      <p className="text-sm text-ink font-medium mb-1">{t('replaceHotKey')}</p>
+      <p className="text-xs text-ink mb-3 select-text">{t('replaceHotKeyDescription')}</p>
 
-      {confirming && <div className="text-xs text-heading-gray mb-3 select-text">{t('replaceHotKeyConfirmation')}</div>}
+      {confirming && <div className="text-xs text-ink mb-3 select-text">{t('replaceHotKeyConfirmation')}</div>}
 
-      <FormSubmitButton
+      <Button
         type="button"
         onClick={onClick}
-        loading={submitting}
+        isLoading={submitting}
         disabled={!currentAccount || submitting}
-        className="capitalize w-full justify-center"
-        style={{
-          fontSize: '16px',
-          lineHeight: '20px',
-          paddingTop: '10px',
-          paddingBottom: '10px'
-        }}
+        className="w-full"
       >
         {confirming ? t('confirmReplaceHotKey') : t('replaceHotKey')}
-      </FormSubmitButton>
+      </Button>
 
       {error && <div className="mt-3 text-red-600 text-sm font-medium select-text wrap-break-word">{error}</div>}
     </div>

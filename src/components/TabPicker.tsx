@@ -34,7 +34,7 @@ const TabPickerItem: React.FC<TabPickerItemProps> = ({
 }) => {
   // Icon fill is a literal CSS color (SVG fill prop), so Tailwind dark:
   // variants don't reach it — resolve against the current theme at render
-  // time. `text-black` / `text-white` Tailwind tokens map to CSS variables
+  // time. `text-ink` / `text-white` Tailwind tokens map to CSS variables
   // that already flip with .dark, but this `fill=` is a direct string.
   const isDarkMode = typeof document !== 'undefined' && document.documentElement.classList.contains('dark');
   const iconColor = useMemo(
@@ -65,9 +65,9 @@ const TabPickerItem: React.FC<TabPickerItemProps> = ({
       ) : null}
       <p
         className={classNames('text-sm font-medium z-10', {
-          // text-black maps to --color-text-primary (white in dark mode) via
+          // text-ink maps to --ds-ink (white in dark mode) via
           // the Tailwind config — no explicit dark: variant needed.
-          'text-black': !disabled,
+          'text-ink': !disabled,
           'text-grey-400': disabled
         })}
       >
@@ -97,9 +97,8 @@ export const TabPicker: React.FC<TabPickerProps> = ({ tabs, className, onTabChan
 
   return (
     <div
-      // bg-gray-50 → var(--color-surface-tertiary): #f3f3f3 in light (matches
-      // the previous fixed bg-grey-50), #333333 in dark.
-      className={classNames('flex rounded-full overflow-hidden p-1', 'bg-gray-50', className)}
+      // bg-fill → var(--ds-fill): #f3f0ec in light, #262422 in dark.
+      className={classNames('flex rounded-full overflow-hidden p-1', 'bg-fill', className)}
       {...props}
     >
       <MotionConfig transition={skipAnimations ? { duration: 0 } : undefined}>

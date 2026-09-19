@@ -226,7 +226,7 @@ it('renders the current and destination endpoints in the shared transition hero'
   expect(hero).toHaveAttribute('data-previous', 'https://old.example');
   expect(hero).toHaveAttribute('data-new', 'https://new.example');
   expect(hero).toHaveAttribute('data-variant', 'review');
-  // The review screen owns its header now (prominent NavigationHeader) instead
+  // The review screen owns its header now (its own PageHeader) instead
   // of PageLayout's toolbar title.
   expect(screen.getByRole('heading', { name: 'reviewRotation' })).toBeInTheDocument();
   await waitFor(() => expect(screen.getByTestId('rotate-guardian-confirm')).toBeEnabled());
@@ -235,8 +235,8 @@ it('renders the current and destination endpoints in the shared transition hero'
 it('uses theme-aware text colors for the rotation warning', async () => {
   render(<RotateGuardianReview />);
 
-  expect(screen.getByText('oldGuardianCantBlockTitle')).toHaveClass('text-heading-gray');
-  expect(screen.getByText('oldGuardianCantBlockBody')).toHaveClass('text-heading-gray');
+  expect(screen.getByText('oldGuardianCantBlockTitle')).toHaveClass('text-ink');
+  expect(screen.getByText('oldGuardianCantBlockBody')).toHaveClass('text-ink');
   await waitFor(() => expect(screen.getByTestId('rotate-guardian-confirm')).toBeEnabled());
 });
 

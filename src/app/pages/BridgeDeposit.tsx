@@ -4,7 +4,7 @@ import { useAppKit, useDisconnect } from '@reown/appkit/react';
 import { useTranslation } from 'react-i18next';
 
 import { EvmBridgeDepositScreen } from 'app/templates/EvmConnectModal/EvmBridgeDepositScreen';
-import { ScreenHeader } from 'components/ScreenHeader';
+import { PageHeader } from 'components/PageHeader';
 import { TestNetworkWarning } from 'components/TestNetworkWarning';
 import { Button } from 'components/ui/Button';
 import { hapticMedium } from 'lib/mobile/haptics';
@@ -73,13 +73,13 @@ export const BridgeDeposit: React.FC<BridgeDepositProps> = ({ onClose }) => {
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-app-bg text-heading-gray">
+    <div className="flex h-full min-h-0 flex-col bg-app-bg text-ink">
       <div className="shrink-0 px-4">
-        <ScreenHeader title={t('midenBridge')} closeLabel={t('close')} onClose={handleClose} />
+        <PageHeader title={t('midenBridge')} onClose={handleClose} />
       </div>
 
       <div className="flex flex-1 flex-col items-center justify-center gap-4 px-6 text-center">
-        <h2 className="text-2xl font-semibold text-heading-gray">{t('connectEvmWallet')}</h2>
+        <h2 className="text-2xl font-semibold text-ink">{t('connectEvmWallet')}</h2>
         <p className="max-w-80 text-sm text-text-tertiary-token">{t('connectEvmWalletDescription')}</p>
 
         {/* Same warning as the Receive-side connect drawer (#875). */}

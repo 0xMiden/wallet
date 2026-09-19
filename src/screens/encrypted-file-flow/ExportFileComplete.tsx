@@ -4,9 +4,9 @@ import { Directory, Encoding, Filesystem } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
 import { useTranslation } from 'react-i18next';
 
-import { ActivitySpinner } from 'app/atoms/ActivitySpinner';
 import { Icon, IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
+import { Spinner } from 'components/ui/Spinner';
 import { CURRENT_BACKUP_FORMAT_VERSION, parseImportedAccountBackupFailure } from 'lib/miden/backup-file';
 import { useMidenContext } from 'lib/miden/front';
 import { deriveKey, encrypt, encryptJson, generateKey, generateSalt } from 'lib/miden/passworder';
@@ -219,8 +219,10 @@ const ExportFileComplete: React.FC<ExportFileCompleteProps> = ({ filePassword, f
           aria-live="polite"
           className="flex flex-col w-full items-center justify-center flex-1 gap-y-4"
         >
-          <ActivitySpinner />
-          <p className="text-base text-heading-gray">{t('encryptedWalletFileExporting')}</p>
+          <div className="flex h-8 justify-center pt-5">
+            <Spinner />
+          </div>
+          <p className="text-base text-ink">{t('encryptedWalletFileExporting')}</p>
         </div>
       </div>
     );
@@ -238,7 +240,7 @@ const ExportFileComplete: React.FC<ExportFileCompleteProps> = ({ filePassword, f
             {/* Self-coloured brand glyph — no `fill`/`text-*` needed, unlike `Close`. */}
             <Icon name={IconName.Share} size="4xl" />
           </div>
-          <div className="flex flex-col items-center max-w-sm text-center text-heading-gray">
+          <div className="flex flex-col items-center max-w-sm text-center text-ink">
             <h1 className="text-[32px] leading-[120%] tracking-[-0.04em] font-semibold">
               {t('encryptedWalletFileNotSavedTitle')}
             </h1>
@@ -272,7 +274,7 @@ const ExportFileComplete: React.FC<ExportFileCompleteProps> = ({ filePassword, f
                 class alone renders nothing — the fill has to be passed through. */}
             <Icon name={IconName.Close} size="4xl" fill="currentColor" className="text-status-negative" />
           </div>
-          <div role="alert" className="flex flex-col items-center max-w-sm text-center text-heading-gray">
+          <div role="alert" className="flex flex-col items-center max-w-sm text-center text-ink">
             <h1 className="text-[32px] leading-[120%] tracking-[-0.04em] font-semibold">
               {t('encryptedWalletFileExportFailedTitle')}
             </h1>
@@ -299,7 +301,7 @@ const ExportFileComplete: React.FC<ExportFileCompleteProps> = ({ filePassword, f
         <div className="w-49 aspect-square flex items-center justify-center">
           <Icon name={IconName.Success} size="4xl" />
         </div>
-        <div className="flex flex-col items-center max-w-sm text-center text-heading-gray">
+        <div className="flex flex-col items-center max-w-sm text-center text-ink">
           <h1 className="text-[32px] leading-[120%] tracking-[-0.04em]">
             <span className="font-semibold">{t('encryptedWalletFileExportedTitle1')}</span>
             <br />

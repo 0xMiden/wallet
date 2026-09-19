@@ -89,9 +89,8 @@ jest.mock('app/ErrorBoundary', () => ({
   __esModule: true,
   default: ({ children }: any) => <div data-testid="error-boundary">{children}</div>
 }));
-jest.mock('app/atoms/Spinner/Spinner', () => ({
-  __esModule: true,
-  default: () => <div data-testid="spinner" />
+jest.mock('components/ui/Spinner', () => ({
+  Spinner: () => <div data-testid="spinner" />
 }));
 jest.mock('app/pages/Unlock', () => ({
   __esModule: true,
@@ -105,17 +104,38 @@ jest.mock('components/NetworkModeBanner', () => ({
 
 jest.mock('components/Button', () => ({
   ButtonVariant: { Primary: 'primary', Secondary: 'secondary', Ghost: 'ghost' },
-  Button: ({ children, onClick, isLoading, variant }: any) => (
-    <button type="button" onClick={onClick} data-loading={String(!!isLoading)} data-variant={variant}>
+  Button: ({ children, onClick, isLoading, variant, className, type, size, 'data-testid': dataTestId }: any) => (
+    <button
+      type={type ?? 'button'}
+      onClick={onClick}
+      data-loading={String(!!isLoading)}
+      data-variant={variant}
+      data-size={size}
+      className={className}
+      data-testid={dataTestId}
+    >
       {children}
     </button>
   )
 }));
 
-jest.mock('lib/analytics', () => {
-  const React2 = require('react');
-  return { CustomRpsContext: React2.createContext(undefined) };
-});
+// `lib/analytics` itself is NOT mocked: `ConfirmSubmitButton`'s `useAnalytics()` call has to
+// really read `CustomRpsContext` via `useContext` to prove it sees the Provider value
+// `ConfirmDAppForm` renders around it (the bug this covers: a `useAnalytics()` call made
+// directly in `ConfirmDAppForm`'s own body runs before that Provider exists in the tree and
+// would silently read `rpc: undefined` instead). Only the lowest-level network call
+// (`sendTrackEvent`) and the local-storage-backed `useAnalyticsState` are stubbed, so the real
+// `useAnalytics` → `useAnalyticsNetwork` → `useContext(CustomRpsContext)` chain runs for real.
+const mockSendTrackEvent = jest.fn();
+jest.mock('lib/analytics/use-analytics-state.hook', () => ({
+  sendTrackEvent: (...args: unknown[]) => mockSendTrackEvent(...args),
+  sendPageEvent: jest.fn(),
+  sendPerformanceEvent: jest.fn(),
+  useAnalyticsState: () => ({
+    analyticsState: { enabled: true, userId: 'test-user' },
+    setAnalyticsState: jest.fn()
+  })
+}));
 
 // `TransactionAssetView` owns its own pixel-level rendering (asset rows, note
 // counts, storage warning) and is unit-tested in TransactionAssetView.test.tsx.
@@ -172,22 +192,6 @@ jest.mock('./atoms/Alert', () => ({
         close
       </button>
     </div>
-  )
-}));
-jest.mock('./atoms/FormSecondaryButton', () => ({
-  __esModule: true,
-  default: ({ children, onClick }: any) => (
-    <button type="button" onClick={onClick} data-testid="form-secondary">
-      {children}
-    </button>
-  )
-}));
-jest.mock('./atoms/FormSubmitButton', () => ({
-  __esModule: true,
-  default: ({ children, onClick, loading, testID }: any) => (
-    <button type="button" onClick={onClick} data-loading={String(!!loading)} data-testid={testID}>
-      {children}
-    </button>
   )
 }));
 jest.mock('./atoms/Name', () => ({
@@ -375,7 +379,12 @@ describe('connect payload', () => {
     expect(screen.queryByTestId('pdp-checkbox')).not.toBeInTheDocument();
     // Confirm/decline labels.
     expect(screen.getByTestId(ConfirmPageSelectors.ConnectAction_ConnectButton)).toHaveTextContent('connect');
-    expect(screen.getByText('deny')).toBeInTheDocument();
+    const declineButton = screen.getByText('deny').closest('button')!;
+    expect(declineButton).toBeInTheDocument();
+    // Only layout survives on the decline button: no restyled text color/weight
+    // or transition fighting the Secondary variant's own anatomy.
+    expect(declineButton).toHaveClass('w-full');
+    expect(declineButton.className).not.toMatch(/text-ink|font-medium|transition/);
   });
 
   it('auto-confirms an existing permission during render', () => {
@@ -406,6 +415,18 @@ describe('connect payload', () => {
       expect(ctx.confirmDAppPermission).toHaveBeenLastCalledWith('req-1', true, ACCOUNT.publicKey, UPON_REQUEST, [
         'balance'
       ])
+    );
+    // The analytics tracking Button itself used to own is now wired by hand in
+    // `ConfirmSubmitButton`, rendered inside `CustomRpsContext.Provider`: a click reports a
+    // ButtonPress against the confirm action's own testid, AND the real `useAnalyticsNetwork()`
+    // context read carries through as the `rpc` argument — 'TODO' (the Provider's value), not
+    // `undefined`, which is exactly what regresses if the hook call moves outside the Provider.
+    expect(mockSendTrackEvent).toHaveBeenCalledWith(
+      'test-user',
+      'TODO',
+      ConfirmPageSelectors.ConnectAction_ConnectButton,
+      'ButtonPress',
+      undefined
     );
   });
 
@@ -639,8 +660,11 @@ describe('privateNotes payload', () => {
     render(<ConfirmPage />);
 
     // The intro copy is split across text nodes by a <br/>; match the button.
-    expect(screen.getByText('downloadPrivateNoteData')).toBeInTheDocument();
-    fireEvent.click(screen.getByText('downloadPrivateNoteData'));
+    const downloadButton = screen.getByText('downloadPrivateNoteData').closest('button')!;
+    expect(downloadButton).toBeInTheDocument();
+    // Was FormSecondaryButton's `small` prop; the canonical Button uses `sm`.
+    expect(downloadButton).toHaveAttribute('data-size', 'sm');
+    fireEvent.click(downloadButton);
 
     expect(createObjSpy).toHaveBeenCalledTimes(1);
     expect(clickSpy).toHaveBeenCalled();

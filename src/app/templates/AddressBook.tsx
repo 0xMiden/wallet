@@ -124,7 +124,7 @@ const AddressBook: React.FC = () => {
           variant={ButtonVariant.Secondary}
           onClick={() => navigate(NEW_CONTACT_PATH)}
           data-testid="address-book-new-contact"
-          className="w-full max-w-none rounded-full bg-fill text-base font-semibold text-ink"
+          className="w-full max-w-none"
         />
       </div>
     </div>

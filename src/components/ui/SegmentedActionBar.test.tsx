@@ -68,7 +68,7 @@ describe('SegmentedActionBar — exports & structure', () => {
     expect(tablist).toBeTruthy();
     // Base layout classes always present on the container.
     expect(tablist.className).toContain('h-16');
-    expect(tablist.className).toContain('bg-gray-25');
+    expect(tablist.className).toContain('bg-fill');
 
     const tabs = screen.getAllByRole('tab');
     expect(tabs).toHaveLength(3);
@@ -142,6 +142,18 @@ describe('SegmentedActionBar — active vs inactive rendering', () => {
     const activePill = getTab('Send').querySelector('.bg-white');
     expect(activePill).not.toBeNull();
     expect(getTab('Receive').querySelector('.bg-white')).toBeNull();
+  });
+
+  it('rounds every segment and the sliding pill fully, via the class rather than an inline radius', () => {
+    renderBar({ activeId: 'send' });
+
+    const activeTab = getTab('Send');
+    expect(activeTab.className).toContain('rounded-full');
+    expect(activeTab.style.borderRadius).toBe('');
+
+    const pill = activeTab.querySelector('.bg-white');
+    expect(pill?.className).toContain('rounded-full');
+    expect((pill as HTMLElement | null)?.style.borderRadius).toBe('');
   });
 
   it('moves the pill and label when a different tab is active', () => {

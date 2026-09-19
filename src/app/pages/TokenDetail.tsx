@@ -11,7 +11,7 @@ import { Icon, IconName } from 'app/icons/v2';
 import { ReactComponent as ReceiveIcon } from 'app/icons/v2/receive-new.svg';
 import { ReactComponent as SendIcon } from 'app/icons/v2/send-new.svg';
 import History from 'app/templates/history/History';
-import { NavigationHeader } from 'components/NavigationHeader';
+import { PageHeader } from 'components/PageHeader';
 import { TokenLogo } from 'components/TokenLogo';
 import { CopyButton } from 'components/ui/CopyButton';
 import { toAdaptiveFixed } from 'lib/i18n/numbers';
@@ -78,7 +78,7 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
 
   return (
     <div className={classNames(containerClass, 'mx-auto overflow-hidden flex flex-col bg-app-bg')}>
-      <NavigationHeader title={symbol} onBack={handleBack} />
+      <PageHeader className="px-4" title={symbol} onBack={handleBack} />
 
       <div className="flex-1 min-h-0 overflow-y-auto" ref={scrollParentRef}>
         <div className="flex flex-col px-4">
@@ -86,11 +86,9 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
           <div className="flex flex-col items-center pt-4 pb-4">
             <TokenLogo symbol={symbol} size="xl" />
 
-            <span className="font-heading text-[44px] font-bold text-heading-gray leading-none pt-2">
-              {heroBalance}
-            </span>
+            <span className="font-heading text-[44px] font-bold text-ink leading-none pt-2">{heroBalance}</span>
             {scaleIsKnown && (
-              <span className="font-heading text-sm font-semibold text-heading-gray opacity-50 leading-none pt-1">
+              <span className="font-heading text-sm font-semibold text-ink opacity-50 leading-none pt-1">
                 ${toAdaptiveFixed(fiatValue)}
               </span>
             )}
@@ -107,7 +105,7 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
             </button>
             <button
               onClick={() => navigate('/receive')}
-              className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl bg-button-secondary hover:bg-button-secondary-hover text-heading-gray font-semibold text-sm cursor-pointer transition-colors duration-150"
+              className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl bg-fill hover:bg-fill-pressed text-ink font-semibold text-sm cursor-pointer transition-colors duration-150"
             >
               <ReceiveIcon className="w-4 h-4 [&_path]:fill-current" />
               {t('receive')}
@@ -122,7 +120,7 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
 
           {/* Recent Activity */}
           <div className="mb-4">
-            <span className="text-sm font-bold text-heading-gray opacity-[0.32] uppercase block text-center mb-3">
+            <span className="text-sm font-bold text-ink opacity-[0.32] uppercase block text-center mb-3">
               {t('recentActivity')}
             </span>
             <History
@@ -160,7 +158,7 @@ const PriceChart: FC<{ symbol: string; priceInfo: TokenPriceInfo }> = ({ symbol,
     <>
       <div className="rounded-2xl bg-white px-4 pt-4">
         <div className="flex items-center justify-between mb-1">
-          <span className="text-xs font-semibold text-heading-gray opacity-[0.32] uppercase">{t('tokenPrice')}</span>
+          <span className="text-xs font-semibold text-ink opacity-[0.32] uppercase">{t('tokenPrice')}</span>
           <span
             className={classNames(
               'font-heading text-xs font-semibold px-2 py-0.5 rounded-full',
@@ -174,9 +172,7 @@ const PriceChart: FC<{ symbol: string; priceInfo: TokenPriceInfo }> = ({ symbol,
             })}
           </span>
         </div>
-        <span className="font-heading text-2xl font-bold text-heading-gray">
-          ${toAdaptiveFixed(priceInfo.price, 3)}
-        </span>
+        <span className="font-heading text-2xl font-bold text-ink">${toAdaptiveFixed(priceInfo.price, 3)}</span>
         <div className="mt-3 h-20">
           <ChartContainer config={{ price: { color: PRIMARY_HEX } }} className="h-full w-full aspect-auto">
             <LineChart data={chartData}>
@@ -186,7 +182,7 @@ const PriceChart: FC<{ symbol: string; priceInfo: TokenPriceInfo }> = ({ symbol,
                   if (!active || !payload?.[0]) return null;
                   const point = payload[0].payload;
                   return (
-                    <div className="rounded-lg bg-heading-gray px-2 py-1 text-xs text-pure-white shadow">
+                    <div className="rounded-lg bg-ink px-2 py-1 text-xs text-pure-white shadow">
                       <div className="font-heading font-semibold">${toAdaptiveFixed(point.value)}</div>
                       {point.time && <div className="opacity-75">{formatTooltipTime(point.time, timeframe)}</div>}
                     </div>
@@ -222,7 +218,7 @@ const PriceChart: FC<{ symbol: string; priceInfo: TokenPriceInfo }> = ({ symbol,
                 transition={{ type: 'spring', bounce: 0.15, duration: 0.4 }}
               />
             )}
-            <span className={classNames('relative z-10', tf === timeframe ? 'text-primary-500' : 'text-black')}>
+            <span className={classNames('relative z-10', tf === timeframe ? 'text-primary-500' : 'text-ink')}>
               {tf}
             </span>
           </button>
@@ -234,8 +230,8 @@ const PriceChart: FC<{ symbol: string; priceInfo: TokenPriceInfo }> = ({ symbol,
 
 const InfoRow: FC<{ left: React.ReactNode; right: React.ReactNode }> = ({ left, right }) => (
   <div className="flex items-center justify-between px-4 py-3">
-    <span className="text-sm text-heading-gray opacity-50">{left}</span>
-    <span className="text-sm text-heading-gray font-medium">{right}</span>
+    <span className="text-sm text-ink opacity-50">{left}</span>
+    <span className="text-sm text-ink font-medium">{right}</span>
   </div>
 );
 
@@ -245,10 +241,10 @@ const TokenInfoCard: FC<{ tokenId: string }> = ({ tokenId }) => {
 
   return (
     <div className="mb-6">
-      <span className="text-sm font-bold text-heading-gray opacity-[0.32] uppercase block text-center mb-4">
+      <span className="text-sm font-bold text-ink opacity-[0.32] uppercase block text-center mb-4">
         {t('tokenInfo')}
       </span>
-      <div className="rounded-2xl bg-white divide-y divide-heading-gray/10">
+      <div className="rounded-2xl bg-white divide-y divide-ink/10">
         <InfoRow
           left={t('contract')}
           right={

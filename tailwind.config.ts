@@ -31,11 +31,8 @@ export default {
         'border-light': 'var(--color-border-light)',
         'text-muted': 'var(--color-text-muted)',
         'border-subtle': 'var(--color-border-subtle)',
-        'heading-gray': 'var(--color-text-secondary)',
         gray: {
           DEFAULT: 'var(--text-gray)',
-          25: 'var(--color-surface-secondary)',
-          50: 'var(--color-surface-tertiary)',
           100: 'var(--color-hover-bg)',
           200: '#59657C',
           250: '#484848',
@@ -148,7 +145,6 @@ export default {
         'accent-earn-tint': 'var(--accent-earn-tint)',
         'accent-swap': 'var(--accent-swap)',
         'accent-swap-tint': 'var(--accent-swap-tint)',
-        'surface-nav-button': 'var(--surface-nav-button)',
         'network-miden-tint': 'var(--network-miden-tint)',
         'network-miden-border': 'var(--network-miden-border)',
         'network-miden-text': 'var(--network-miden-text)',
@@ -160,11 +156,7 @@ export default {
         'text-tertiary-token': 'var(--text-tertiary)',
         'text-on-accent': 'var(--text-on-accent)',
         'surface-page': 'var(--surface-page)',
-        'surface-input': 'var(--surface-input)',
-        'surface-interactive': 'var(--surface-interactive)',
         'surface-inactive': 'var(--surface-inactive)',
-        'button-secondary': 'var(--surface-button-secondary)',
-        'button-secondary-hover': 'var(--surface-button-secondary-hover)',
         'gray-secondary': 'var(--text-gray-secondary)',
         'placeholder-gray': 'var(--text-placeholder)',
         'status-positive': `var(--status-positive, ${successGreen})`,
@@ -225,12 +217,6 @@ export default {
     },
 
     extend: {
-      // Custom spacing values not in Tailwind defaults
-      spacing: {
-        13: '3.25rem',
-        15: '3.75rem',
-        35: '8.75rem'
-      },
       // Custom shadows
       boxShadow: {
         'xs-white': '0 0 0 1px rgba(255, 255, 255, 0.05)',

@@ -106,3 +106,22 @@ it('sizes the badge down for the 40px avatar', () => {
   render(<Avatar size={40} badge={<span data-testid="badge-glyph" />} initials="A" />);
   expect(screen.getByTestId('badge-glyph').parentElement).toHaveClass('h-5', 'w-5');
 });
+
+describe('variants', () => {
+  it.each([
+    [24, ['h-6', 'w-6', 'text-[10px]'], ['h-3.5', 'w-3.5', '-right-0.5', '-bottom-0.5']],
+    [36, ['h-9', 'w-9', 'text-sm'], ['h-4', 'w-4', '-right-1', '-bottom-1']],
+    [40, ['h-10', 'w-10', 'text-sm'], ['h-5', 'w-5', '-right-1', '-bottom-1']],
+    [88, ['h-22', 'w-22', 'text-3xl'], ['h-8', 'w-8', '-right-0.5', '-bottom-0.5']]
+  ] as const)('sizes the %ipx avatar, its initials and its badge', (size, circleClasses, badgeClasses) => {
+    render(<Avatar data-testid="avatar" size={size} initials="A" badge={<span data-testid="badge-glyph" />} />);
+    expect(screen.getByTestId('avatar').firstChild as HTMLElement).toHaveClass('rounded-full', ...circleClasses);
+    expect(screen.getByTestId('badge-glyph').parentElement).toHaveClass(
+      'absolute',
+      'border-2',
+      'border-page',
+      'bg-page',
+      ...badgeClasses
+    );
+  });
+});

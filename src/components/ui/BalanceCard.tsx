@@ -3,12 +3,12 @@ import React, { FC, ReactNode, useLayoutEffect, useRef, useState } from 'react';
 import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
-import CopyButton from 'app/atoms/CopyButton';
 import { Icon, IconName } from 'app/icons/v2';
 import { hapticLight } from 'lib/mobile/haptics';
 import { useCardColor } from 'lib/settings/card-color';
 import { CardColor } from 'lib/settings/constants';
 
+import { CopyButton } from './CopyButton';
 import { Skeleton } from './Skeleton';
 
 export type BalanceDeltaDirection = 'positive' | 'negative' | 'neutral';
@@ -119,7 +119,7 @@ export const BalanceCard: FC<BalanceCardProps> = ({
   const cardColor = useCardColor();
   const { rowRef, textRef, fontSizeRem } = useFitFontSize(AMOUNT_MAX_REM, AMOUNT_MIN_REM, !isLoading);
 
-  const pillBg = delta?.direction === 'negative' ? 'bg-status-negative' : 'bg-[#A8BBA3]';
+  const pillBg = delta?.direction === 'negative' ? 'bg-status-negative' : 'bg-status-positive';
 
   const handleMoreClick = () => {
     if (!onMore) return;
@@ -197,7 +197,7 @@ export const BalanceCard: FC<BalanceCardProps> = ({
 
       <div
         className={classNames(
-          'relative flex items-center justify-between gap-2 py-2 border-t border-dashed px-3.5 border-t-[#FFFFFF4D]',
+          'relative flex items-center justify-between gap-2 py-2 border-t border-dashed px-3.5 border-t-surface-balance-divider',
           onMore && 'pointer-events-none',
           CARD_COLOR_BOTTOM[cardColor]
         )}
@@ -208,15 +208,23 @@ export const BalanceCard: FC<BalanceCardProps> = ({
           <CopyButton
             text={accountId ?? accountNumber}
             className={classNames(
-              'flex items-center gap-1 text-xs font-heading font-bold leading-none tracking-tight min-w-0 text-left',
+              'min-w-0 text-left',
               'text-surface-balance-fg hover:bg-transparent active:opacity-80 transition-opacity'
             )}
           >
-            <span className="truncate">{t('balanceCardAccount', { number: accountNumber })}</span>
-            {/* The `!` on the size classes is load-bearing: <Icon> injects a default `md` (w-6 h-6)
-                size class that, under Tailwind v4's scale-ordered output, otherwise wins the cascade.
-                Do not drop the `!`. */}
-            <Icon name={IconName.CopyNew} className="w-3.5! h-3.5! shrink-0" />
+            {copied => (
+              // `CopyButton` wraps `children` in its own `<span aria-live>`, so the flex layout
+              // (gap, centering, truncate) has to live on an inner span that's the actual parent
+              // of the label and icon — putting it on the button's own `className` above has no
+              // effect on layout, since the button's only direct child is that aria-live wrapper.
+              <span className="flex min-w-0 items-center gap-1 text-xs font-heading font-bold leading-none tracking-tight">
+                <span className="truncate">{t('balanceCardAccount', { number: accountNumber })}</span>
+                {/* The `!` on the size classes is load-bearing: <Icon> injects a default `md`
+                    (w-6 h-6) size class that, under Tailwind v4's scale-ordered output, otherwise
+                    wins the cascade. Do not drop the `!`. */}
+                <Icon name={copied ? IconName.Checkmark : IconName.CopyNew} className="w-3.5! h-3.5! shrink-0" />
+              </span>
+            )}
           </CopyButton>
         </span>
       </div>

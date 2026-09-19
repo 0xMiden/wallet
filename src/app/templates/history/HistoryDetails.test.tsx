@@ -165,8 +165,8 @@ jest.mock('./useSwapSettlementNotes', () => ({
 // Presentational dependency mocks - light DOM so the test stays focused on
 // HistoryDetails' own branches (mirrors how sibling tests stub sub-components).
 // ---------------------------------------------------------------------------
-jest.mock('app/atoms/ActivitySpinner', () => ({
-  ActivitySpinner: () => <div data-testid="spinner" />
+jest.mock('components/ui/Spinner', () => ({
+  Spinner: () => <div data-testid="spinner" />
 }));
 
 jest.mock('app/layouts/PageLayout', () => ({
@@ -2236,6 +2236,17 @@ describe('HistoryDetails', () => {
       await flush();
 
       expect(mockCancelTransactionById).toHaveBeenCalledWith('tx-1', 'Transaction was cancelled by user');
+    });
+
+    it('renders the cancel button as the canonical Destructive variant, not a faked-red Primary', async () => {
+      setMockRow({ ...baseSendTx, status: STATUS_QUEUED, error: undefined });
+      await renderAndLoad();
+
+      const cancelButton = screen.getByText('cancel').closest('button');
+      // The variant prop paints the negative state; no stray bg-status-negative
+      // className should be fighting it.
+      expect(cancelButton).toHaveClass('text-negative-ink');
+      expect(cancelButton).not.toHaveClass('bg-status-negative');
     });
 
     it('shows the cancel failure inline when cancelling throws', async () => {

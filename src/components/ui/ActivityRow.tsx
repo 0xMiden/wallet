@@ -105,7 +105,7 @@ function formatDisplayAmount(value: string): string {
 
 export const ActivityRow: FC<ActivityRowProps> = ({
   icon,
-  iconBg = 'bg-gray-50',
+  iconBg = 'bg-fill',
   title,
   subtitle,
   amount,
@@ -154,7 +154,7 @@ export const ActivityRow: FC<ActivityRowProps> = ({
       <div className="flex items-center gap-2">
         <div
           className={classNames(
-            'shrink-0 flex items-center justify-center w-10 h-10 rounded-10 text-pure-white',
+            'shrink-0 flex items-center justify-center w-10 h-10 rounded-full text-pure-white',
             '[&_svg]:w-4 [&_svg]:h-4',
             iconBg
           )}
@@ -162,14 +162,14 @@ export const ActivityRow: FC<ActivityRowProps> = ({
           {icon}
         </div>
 
-        <div className="flex flex-col text-heading-gray leading-tight dark:text-pure-white">
+        <div className="flex flex-col text-ink leading-tight dark:text-pure-white">
           <span data-testid={testId && `${testId}-title`} className="font-heading text-base font-bold">
             {title}
           </span>
           {subtitle && (
             <span
               data-testid={testId && `${testId}-subtitle`}
-              className="font-heading text-xs opacity-50 font-medium leading-[100%]"
+              className="font-heading text-xs text-muted font-medium leading-[100%]"
             >
               {subtitle}
             </span>
@@ -187,7 +187,7 @@ export const ActivityRow: FC<ActivityRowProps> = ({
               <span className={AMOUNT_COLOR[amount.direction ?? 'neutral']}>{formatDisplayAmount(amount.value)}</span>
             )}
             {amount.symbol ? (
-              <span className="text-heading-gray">{amount.value === '' ? amount.symbol : ` ${amount.symbol}`}</span>
+              <span className="text-ink">{amount.value === '' ? amount.symbol : ` ${amount.symbol}`}</span>
             ) : null}
             {/* Every further asset of a batch claim follows inline: "+20 A, +10 B".
                 The test id is indexed so each asset stays individually addressable —
@@ -198,17 +198,17 @@ export const ActivityRow: FC<ActivityRowProps> = ({
             {visibleExtra.map((line, index) => (
               <span key={line.key} data-testid={testId && `${testId}-amount-extra-${index}`}>
                 {/* eslint-disable-next-line i18next/no-literal-string -- list separator, not translatable copy */}
-                <span className="text-heading-gray">, </span>
+                <span className="text-ink">, </span>
                 {line.value !== '' && (
                   <span className={AMOUNT_COLOR[amount.direction ?? 'neutral']}>{formatDisplayAmount(line.value)}</span>
                 )}
                 {line.symbol ? (
-                  <span className="text-heading-gray">{line.value === '' ? line.symbol : ` ${line.symbol}`}</span>
+                  <span className="text-ink">{line.value === '' ? line.symbol : ` ${line.symbol}`}</span>
                 ) : null}
               </span>
             ))}
             {extraOverflowCount > 0 && (
-              <span data-testid={testId && `${testId}-amount-extra-overflow`} className="text-heading-gray">
+              <span data-testid={testId && `${testId}-amount-extra-overflow`} className="text-ink">
                 {/* eslint-disable-next-line i18next/no-literal-string -- list separator, not translatable copy */}
                 <span>, </span>
                 {t('andMoreAssets', { count: extraOverflowCount })}
@@ -228,7 +228,7 @@ export const ActivityRow: FC<ActivityRowProps> = ({
             {status.label}
           </span>
         )}
-        {timestamp && <span className="text-[10px] text-[#8E8E93] font-regular">{timestamp}</span>}
+        {timestamp && <span className="text-[10px] text-gray-secondary font-regular">{timestamp}</span>}
       </div>
     </motion.div>
   );

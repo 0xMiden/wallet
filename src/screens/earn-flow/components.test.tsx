@@ -17,7 +17,7 @@ jest.mock('app/hooks/useVerificationBaseFee', () => ({ __esModule: true, default
 jest.mock('app/hooks/useMidenFaucetId', () => ({ __esModule: true, default: () => 'MIDEN-ID' }));
 jest.mock('app/icons/earn-provider-logos/aave.svg?url', () => 'aave-logo-url-stub', { virtual: true });
 
-// `EarnFlowHeader` wires the back button's `onClick` to `lib/woozie`'s `goBack`,
+// `EarnFlowHeader` hands `lib/woozie`'s `goBack` to its PageHeader's back button,
 // which reaches for browser history on import. Stub it so we can assert the
 // wiring without running the real router.
 jest.mock('lib/woozie', () => ({
@@ -34,26 +34,23 @@ jest.mock('react-i18next', () => ({
 // forwards, so we can prove the wiring (icon/onClick/aria-label, token symbol)
 // without pulling in haptics / the SVG-logo chrome. This mirrors how the
 // sibling `EarnDepositAmount.test.tsx` stubs its children.
-jest.mock('components/CircleButton', () => ({
-  CircleButton: ({
+jest.mock('components/ui/IconButton', () => ({
+  IconButton: ({
     icon,
     onClick,
-    size,
-    className,
-    'aria-label': ariaLabel
+    label,
+    className
   }: {
     icon: unknown;
     onClick?: () => void;
-    size?: string;
+    label?: string;
     className?: string;
-    'aria-label'?: string;
   }) => (
     <button
-      data-testid="circle-button"
+      data-testid="icon-button"
       data-icon={String(icon)}
-      data-size={size}
       className={className}
-      aria-label={ariaLabel}
+      aria-label={label}
       onClick={onClick}
     />
   )
@@ -108,14 +105,31 @@ describe('EarnFlowHeader', () => {
   it('wires the back button to goBack with the ChevronLeft icon and Back label', () => {
     render(<EarnFlowHeader vault={VAULT} />);
 
-    const button = screen.getByTestId('circle-button');
+    const button = screen.getByTestId('icon-button');
     expect(button).toHaveAttribute('aria-label', 'back');
     expect(button).toHaveAttribute('data-icon', String(IconName.ChevronLeft));
-    expect(button).toHaveAttribute('data-size', 'md');
 
     expect(mockGoBack).not.toHaveBeenCalled();
     fireEvent.click(button);
     expect(mockGoBack).toHaveBeenCalledTimes(1);
+  });
+
+  it('is the shared PageHeader row, carrying the 16px page margin its unpadded pages lack', () => {
+    render(<EarnFlowHeader vault={VAULT} />);
+
+    const header = screen.getByRole('banner');
+    expect(header).toHaveClass('h-13', 'px-4', 'shrink-0');
+    // No bespoke divider or 26px title: the page header draws neither.
+    expect(header).not.toHaveClass('border-b');
+    expect(screen.getByRole('heading', { level: 1 })).toHaveClass('text-xl', 'font-extrabold');
+  });
+
+  it('shows the "asset on network" label as a neutral Pill in the header actions', () => {
+    render(<EarnFlowHeader vault={VAULT} />);
+
+    const pill = screen.getByText('earnAssetOnNetwork').closest<HTMLElement>('span.rounded-full');
+    expect(pill).toHaveClass('bg-fill', 'text-ink', 'h-8');
+    expect(screen.getByRole('banner')).toContainElement(pill);
   });
 
   it('reflects a different vault protocol/asset/network', () => {
@@ -140,11 +154,11 @@ describe('MetricCard', () => {
     const { container } = render(<MetricCard label="Label" value="Value" />);
 
     const card = container.firstChild as HTMLElement;
-    expect(card).toHaveClass('bg-gray-25');
+    expect(card).toHaveClass('bg-fill');
 
     const valueEl = screen.getByText('Value');
     // Base value classes are always present; no valueClassName was supplied.
-    expect(valueEl).toHaveClass('font-bold', 'text-black');
+    expect(valueEl).toHaveClass('font-bold', 'text-ink');
     expect(valueEl).not.toHaveClass('text-[#0B0B0C]');
   });
 
@@ -155,7 +169,7 @@ describe('MetricCard', () => {
 
     const card = container.firstChild as HTMLElement;
     expect(card).toHaveClass('my-card');
-    expect(card).toHaveClass('bg-gray-25');
+    expect(card).toHaveClass('bg-fill');
 
     const valueEl = screen.getByText('+$24.50');
     expect(valueEl).toHaveClass('text-status-positive');

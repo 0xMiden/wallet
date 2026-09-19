@@ -48,7 +48,7 @@ jest.mock('screens/onboarding/common/ChooseGuardian', () => ({
         `hideHeader` is false — and this page does not set it). It makes the "no
         duplicate heading" test below meaningful: without it that test asserted
         the absence of a second heading against markup that had none at all, so it
-        would have passed even if NavigationHeader had gone back to rendering one.
+        would have passed even if the page header had gone back to rendering one.
         It does NOT prove the route has a heading — ChooseGuardian is mocked, so
         the real h1 could disappear and this stays green. That belongs in a
         ChooseGuardian test. */}

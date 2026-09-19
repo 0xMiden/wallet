@@ -176,7 +176,7 @@ export const ImportRecoveryMethodScreen: React.FC<ImportRecoveryMethodScreenProp
                   isActive ? 'border-primary-500' : 'border-grey-200'
                 )}
               >
-                <span className="text-xs font-semibold text-heading-gray leading-tight">{provider.name}</span>
+                <span className="text-xs font-semibold text-ink leading-tight">{provider.name}</span>
                 <span className="text-[10px] text-grey-600 mt-0.5">{provider.location}</span>
               </button>
             );
@@ -294,7 +294,7 @@ export const ImportRecoveryMethodScreen: React.FC<ImportRecoveryMethodScreenProp
 
   return (
     <div
-      className="flex-1 flex flex-col items-center bg-transparent pt-6 h-full px-4 text-heading-gray gap-6"
+      className="flex-1 flex flex-col items-center bg-transparent pt-6 h-full px-4 text-ink gap-6"
       data-testid="import-recovery-method"
     >
       <div className="flex flex-col items-center gap-2">
@@ -343,7 +343,6 @@ export const ImportRecoveryMethodScreen: React.FC<ImportRecoveryMethodScreenProp
           title={t('continue')}
           onClick={handleContinue}
           disabled={!canContinue}
-          className="text-base"
         />
       </div>
     </div>

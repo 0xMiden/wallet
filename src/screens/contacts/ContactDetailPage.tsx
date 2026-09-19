@@ -97,7 +97,12 @@ const ContactView: React.FC<ContactViewProps> = ({ contact, onBack, onDeleted })
   };
 
   const remove = async () => {
-    const confirmed = await confirm({ title: t('deleteContact'), children: t('deleteContactConfirm') });
+    const confirmed = await confirm({
+      title: t('deleteContact'),
+      children: t('deleteContactConfirm'),
+      confirmLabel: t('delete'),
+      destructive: true
+    });
     if (!confirmed) return;
     onDeleted();
     await removeContact(contact.address);
@@ -132,7 +137,7 @@ const ContactView: React.FC<ContactViewProps> = ({ contact, onBack, onDeleted })
             disabled={!trimmedName || !changed || saving}
             isLoading={saving}
             data-testid="contact-save"
-            className="w-full max-w-none rounded-full text-base font-semibold"
+            className="w-full max-w-none"
           />
         }
       >
@@ -163,7 +168,7 @@ const ContactView: React.FC<ContactViewProps> = ({ contact, onBack, onDeleted })
               void remove();
             }}
             data-testid="contact-delete"
-            className="mt-2 h-12 w-full rounded-full bg-surface-interactive font-heading text-base font-bold text-status-negative"
+            className="mt-2 h-12 w-full rounded-full bg-fill font-heading text-base font-bold text-status-negative"
           >
             {t('deleteContact')}
           </button>
@@ -187,7 +192,7 @@ const ContactView: React.FC<ContactViewProps> = ({ contact, onBack, onDeleted })
           variant={ButtonVariant.Primary}
           onClick={() => navigate(sendToContactPath(contact))}
           data-testid="contact-send"
-          className="w-full max-w-none rounded-full text-base font-semibold"
+          className="w-full max-w-none"
         />
       }
     >

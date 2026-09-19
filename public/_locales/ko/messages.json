@@ -531,14 +531,6 @@
     "message": "이 필드를 보려면 클릭하세요",
     "englishSource": "Click to reveal this field"
   },
-  "copiedHash": {
-    "message": "복사했습니다.",
-    "englishSource": "Copied."
-  },
-  "copyHashToClipboard": {
-    "message": "클립보드에 복사",
-    "englishSource": "Copy to clipboard"
-  },
   "accounts": {
     "message": "계정",
     "englishSource": "Accounts"

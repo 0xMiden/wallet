@@ -37,15 +37,38 @@ describe('ActivityRow', () => {
 
     expect(screen.getByTestId('glyph')).toBeTruthy();
     expect(screen.getByText('Sent MIDEN')).toBeTruthy();
-    // default iconBg = 'bg-gray-50'
-    expect(container.querySelector('.bg-gray-50')).not.toBeNull();
+    // default iconBg = 'bg-fill'
+    expect(container.querySelector('.bg-fill')).not.toBeNull();
+  });
+
+  it('renders the icon tile round, not the retired square token', () => {
+    const { container } = renderRow();
+
+    expect(container.querySelector('.bg-fill')?.className).toContain('rounded-full');
+    expect(container.querySelector('.rounded-10')).toBeNull();
+  });
+
+  it('renders the subtitle in the muted token rather than opacity-50', () => {
+    render(<ActivityRow icon={<svg />} title="Sent MIDEN" subtitle="to mtst1aqg...940z" status={baseStatus} />);
+
+    const subtitle = screen.getByText('to mtst1aqg...940z');
+    expect(subtitle.className).toContain('text-muted');
+    expect(subtitle.className).not.toContain('opacity-50');
+  });
+
+  it('renders the timestamp in the gray-secondary token, not a raw hex literal', () => {
+    render(<ActivityRow icon={<svg />} title="Sent MIDEN" timestamp="Just now" />);
+
+    const timestamp = screen.getByText('Just now');
+    expect(timestamp.className).toContain('text-gray-secondary');
+    expect(timestamp.className).not.toContain('text-[#8E8E93]');
   });
 
   it('applies a custom iconBg and outer className', () => {
     const { container } = renderRow({ iconBg: 'bg-receive-green', className: 'my-extra-class' });
 
     expect(container.querySelector('.bg-receive-green')).not.toBeNull();
-    expect(container.querySelector('.bg-gray-50')).toBeNull();
+    expect(container.querySelector('.bg-fill')).toBeNull();
     expect(container.querySelector('.my-extra-class')).not.toBeNull();
   });
 

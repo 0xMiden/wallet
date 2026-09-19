@@ -3,10 +3,10 @@ import React, { FC, useMemo, useState } from 'react';
 import clsx from 'clsx';
 import { useTranslation } from 'react-i18next';
 
-import { IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
-import { CircleButton } from 'components/CircleButton';
+import { PageHeader } from 'components/PageHeader';
 import { TokenLogo } from 'components/TokenLogo';
+import { Pill } from 'components/ui/Pill';
 import { gaslessEarnWithdrawalToMiden } from 'lib/epoch';
 import { toAdaptiveFixed } from 'lib/i18n/numbers';
 import { useAccount } from 'lib/miden/front';
@@ -76,33 +76,26 @@ const EarnWithdrawReview: FC<EarnWithdrawReviewProps> = ({ positionId }) => {
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-app-bg font-inter" data-testid="earn-withdraw-review-page">
-      <header className="shrink-0 border-b border-rule-default px-4 pb-4 pt-5">
-        <div className="flex min-w-0 items-center gap-3">
-          <CircleButton
-            icon={IconName.ChevronLeft}
-            onClick={goBack}
-            className="h-10 w-10 bg-gray-25 text-heading-gray hover:bg-gray-50 focus:bg-gray-50"
-            size="md"
-            aria-label={t('back')}
-          />
-          <h1 className="min-w-0 truncate font-heading text-[26px] font-bold leading-none text-heading-gray">
-            {position.protocol} &bull; {position.asset}
-          </h1>
-          <span className="shrink-0 rounded-full bg-[#DDD4CE] px-3 py-1.5 text-xs font-medium leading-none text-heading-gray">
-            {position.asset} on {position.network}
-          </span>
-        </div>
-      </header>
+      <PageHeader
+        className="shrink-0 px-4"
+        title={`${position.protocol} • ${position.asset}`}
+        onBack={goBack}
+        actions={
+          <Pill className="shrink-0">
+            {t('earnAssetOnNetwork', { asset: position.asset, network: position.network })}
+          </Pill>
+        }
+      />
 
       <div className="min-h-0 flex-1 overflow-y-auto no-scrollbar">
         <div className={clsx('flex flex-col px-6 pt-6')}>
           <span className="font-heading text-2xl font-bold leading-none text-gray">{t('earnWithdrawAmount')}</span>
-          <div className="mt-3 font-heading text-[4rem] font-bold leading-none text-heading-gray">
+          <div className="mt-3 font-heading text-[4rem] font-bold leading-none text-ink">
             {toAdaptiveFixed(amountValue)}
           </div>
           <div className="flex items-center gap-1">
             <TokenLogo symbol={withdrawSymbol} size="md" />
-            <span className="font-heading text-2xl font-bold text-heading-gray">{withdrawSymbol}</span>
+            <span className="font-heading text-2xl font-bold text-ink">{withdrawSymbol}</span>
           </div>
 
           <div className="mt-8 space-y-6 pb-4">
@@ -124,7 +117,7 @@ const EarnWithdrawReview: FC<EarnWithdrawReviewProps> = ({ positionId }) => {
           variant={ButtonVariant.Primary}
           onClick={handleWithdraw}
           disabled={isSubmitting || amountValue <= 0 || !position.id}
-          className="w-full max-w-none rounded-full text-base font-semibold"
+          className="w-full max-w-none"
         />
       </div>
     </div>
@@ -133,7 +126,7 @@ const EarnWithdrawReview: FC<EarnWithdrawReviewProps> = ({ positionId }) => {
 
 const DetailRow: FC<{ label: string; value: string }> = ({ label, value }) => (
   <div className="flex items-center justify-between gap-4 text-sm leading-tight">
-    <div className="text-heading-gray font-regular">{label}</div>
+    <div className="text-ink font-regular">{label}</div>
     <div className="text-right font-bold text-[#8C877F]">{value}</div>
   </div>
 );

@@ -2,6 +2,8 @@ import React from 'react';
 
 import { render, screen, fireEvent, act } from '@testing-library/react';
 
+import { pageStepFadeOffset, pageStepTransition, reducedMotionTransition } from 'lib/animation';
+
 import { OnboardingFlow } from './navigator';
 import { ImportType, OnboardingStep, OnboardingType, WalletType } from './types';
 
@@ -17,6 +19,10 @@ let mockReduceMotion: boolean | null = false;
 // name. Tests grab the captured callback and invoke it with a chosen payload to
 // exercise the `renderStep` inner handlers (and their switch branches).
 const mockCaptured: Record<string, any> = {};
+
+// The step container's motion props (the only motion element with `variants`)
+// and the props of every AnimatePresence, as last rendered.
+const mockMotion: { step: any; presences: any[] } = { step: null, presences: [] };
 
 // A screen stub: records props under `name` and renders an identifiable node.
 function mockScreen(name: string) {
@@ -35,22 +41,25 @@ jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
 }));
 
-// `framer-motion` — AnimatePresence is a passthrough; `motion.*` drops the
-// animation props (which are still *evaluated* to build the object, so their
-// ternary branches count for coverage) and renders a plain div; `useReducedMotion`
-// reads the shared toggle.
+// `framer-motion` — AnimatePresence is a passthrough that records its props;
+// `motion.*` records the step container's animation props, drops them and
+// renders a plain div; `useReducedMotion` reads the shared toggle.
 jest.mock('framer-motion', () => {
   const R = require('react');
   return {
-    AnimatePresence: ({ children }: { children: React.ReactNode }) => R.createElement(R.Fragment, null, children),
+    AnimatePresence: ({ children, ...presence }: { children: React.ReactNode }) => {
+      mockMotion.presences.push(presence);
+      return R.createElement(R.Fragment, null, children);
+    },
     motion: new Proxy(
       {},
       {
         get:
           () =>
-          // eslint-disable-next-line @typescript-eslint/no-unused-vars
-          ({ children, initial, animate, exit, transition, variants, ...rest }: any) =>
-            R.createElement('div', rest, children)
+          ({ children, initial, animate, exit, transition, variants, ...rest }: any) => {
+            if (variants) mockMotion.step = { initial, animate, exit, transition, variants };
+            return R.createElement('div', rest, children);
+          }
       }
     ),
     useReducedMotion: () => mockReduceMotion
@@ -149,6 +158,8 @@ beforeEach(() => {
   mockPlatform.isMobile = false;
   mockReduceMotion = false;
   mockAllowNoGuardian = false;
+  mockMotion.step = null;
+  mockMotion.presences = [];
   for (const k of Object.keys(mockCaptured)) delete mockCaptured[k];
 });
 
@@ -542,7 +553,7 @@ describe('OnboardingFlow — motion variants (reduced motion & direction)', () =
 
   it('evaluates the backward direction branch after a back navigation (motion enabled)', () => {
     mockReduceMotion = false;
-    mockPlatform.isMobile = true; // exercises the 0.2 transition-duration branch
+    mockPlatform.isMobile = true; // exercises the animated step-transition branch
     const onAction = jest.fn();
     renderFlow({ step: OnboardingStep.BackupSeedPhrase, onboardingType: OnboardingType.Import, onAction });
 
@@ -560,5 +571,46 @@ describe('OnboardingFlow — motion variants (reduced motion & direction)', () =
     // A forward action re-renders with navigationDirection 'forward'.
     act(() => mockCaptured.welcome.onSubmit('select-wallet-type'));
     expect(onAction).toHaveBeenLastCalledWith({ id: 'choose-protection' });
+  });
+
+  it('swaps one step at a time: every presence waits for the leaving step', () => {
+    renderFlow({ step: OnboardingStep.BackupSeedPhrase });
+    expect(mockMotion.presences.length).toBeGreaterThan(0);
+    for (const presence of mockMotion.presences) expect(presence).toEqual({ mode: 'wait', initial: false });
+    expect(mockMotion.step).toMatchObject({ initial: 'initialState', animate: 'animateState', exit: 'exitState' });
+  });
+
+  it('on mobile, fades a step in from the right on the page step transition going forward', () => {
+    mockPlatform.isMobile = true;
+    renderFlow({ step: OnboardingStep.BackupSeedPhrase });
+    expect(mockMotion.step.transition).toEqual(pageStepTransition);
+    expect(mockMotion.step.variants).toEqual({
+      initialState: { x: pageStepFadeOffset, opacity: 0 },
+      animateState: { x: 0, opacity: 1 },
+      exitState: { x: `-${pageStepFadeOffset}`, opacity: 0 }
+    });
+  });
+
+  it('mirrors the drift going back', () => {
+    mockPlatform.isMobile = true;
+    renderFlow({ step: OnboardingStep.BackupSeedPhrase, onAction: jest.fn() });
+    fireEvent.click(screen.getByTestId('back-button'));
+    expect(mockMotion.step.variants.initialState).toEqual({ x: `-${pageStepFadeOffset}`, opacity: 0 });
+    expect(mockMotion.step.variants.exitState).toEqual({ x: pageStepFadeOffset, opacity: 0 });
+  });
+
+  it('swaps steps at once off mobile, on the same curve', () => {
+    mockPlatform.isMobile = false;
+    renderFlow({ step: OnboardingStep.BackupSeedPhrase });
+    expect(mockMotion.step.transition).toEqual({ ...pageStepTransition, duration: 0 });
+  });
+
+  it.each([true, false])('makes the swap instant and still under reduced motion (mobile: %s)', mobile => {
+    mockPlatform.isMobile = mobile;
+    mockReduceMotion = true;
+    renderFlow({ step: OnboardingStep.BackupSeedPhrase });
+    expect(mockMotion.step.transition).toEqual(reducedMotionTransition);
+    expect(mockMotion.step.variants.initialState).toEqual({ x: 0, opacity: 0 });
+    expect(mockMotion.step.variants.exitState).toEqual({ x: 0, opacity: 0 });
   });
 });

@@ -213,18 +213,18 @@ const PendingSummary: React.FC<PendingSummaryProps> = ({
   return (
     <div className="flex-1 min-h-0 overflow-y-auto">
       <div className="w-full mx-auto py-2 px-6 flex flex-col min-h-full">
-        <div className="bg-surface-interactive rounded-10 px-4 py-3">
-          <p className="text-[10px] text-center text-black font-heading font-semibold leading-snug">
+        <div className="bg-fill rounded-10 px-4 py-3">
+          <p className="text-[10px] text-center text-ink font-heading font-semibold leading-snug">
             {t('pendingNotesInfo')}
           </p>
         </div>
 
         <div className="mt-5 flex flex-col gap-1 font-heading">
           <span className="text-sm font-bold text-primary-500 leading-none">{t('totalPending')}</span>
-          <span className="font-heading text-5xl font-extrabold text-heading-gray leading-none tracking-tight">
+          <span className="font-heading text-5xl font-extrabold text-ink leading-none tracking-tight">
             {formatUsd(totals.totalUsd)}
           </span>
-          <span className="mt-1 text-sm font-bold text-heading-gray font-heading">
+          <span className="mt-1 text-sm font-bold text-ink font-heading">
             <span className="mr-1.5">•</span>
             {t('notesPendingAcrossAssets', { notes: totals.notesCount, assets: totals.assetsCount })}
           </span>
@@ -265,7 +265,7 @@ const PendingSummary: React.FC<PendingSummaryProps> = ({
                 stated before the user commits. Label and amount are separate nodes so
                 no placeholder-only string has to survive translation. */}
             {maxNetworkFee && (
-              <div className="mb-2 text-center text-xs text-heading-gray">
+              <div className="mb-2 text-center text-xs text-ink">
                 <div>
                   {t('networkFeeMax')} · {maxNetworkFee}
                 </div>
@@ -333,18 +333,15 @@ const AssetSummaryRow: React.FC<AssetSummaryRowProps> = ({
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3 min-w-0">
           <TokenLogo symbol={symbol} size="md" />
-          <span className="text-lg font-heading font-extrabold text-heading-gray dark:text-pure-white leading-tight truncate">
+          <span className="text-lg font-heading font-extrabold text-ink dark:text-pure-white leading-tight truncate">
             {metadata?.name || symbol}
           </span>
         </div>
         <div className="flex flex-col items-end shrink-0">
-          <span
-            data-testid="pending-asset-amount"
-            className="font-heading text-base font-bold text-heading-gray leading-tight"
-          >
+          <span data-testid="pending-asset-amount" className="font-heading text-base font-bold text-ink leading-tight">
             {formattedTotal} {symbol}
           </span>
-          <span className="font-heading text-sm text-black opacity-50 leading-tight">
+          <span className="font-heading text-sm text-ink opacity-50 leading-tight">
             {t('pendingTabApproxUsd', { value: formatUsd(usdValue) })}
           </span>
         </div>
@@ -353,16 +350,14 @@ const AssetSummaryRow: React.FC<AssetSummaryRowProps> = ({
         // Auto-consume skips this group, so say why rather than leaving it to sit
         // there unexplained. Claiming stays available: the call is the user's, the
         // wallet just will not spend their money on it unprompted.
-        <div className="mt-3 w-full text-center text-sm font-heading text-black opacity-50">
-          {t('notWorthClaiming')}
-        </div>
+        <div className="mt-3 w-full text-center text-sm font-heading text-ink opacity-50">{t('notWorthClaiming')}</div>
       )}
       {needsAttentionCount > 0 ? (
         <div className="mt-3 w-full rounded-full bg-red-500/10 py-2 text-center text-base font-heading font-semibold text-red-500">
           {t('notesUnresolved', { count: needsAttentionCount })}
         </div>
       ) : (
-        <div className="mt-3 w-full rounded-full bg-surface-interactive py-2 text-center text-base font-heading font-semibold text-black opacity-60">
+        <div className="mt-3 w-full rounded-full bg-fill py-2 text-center text-base font-heading font-semibold text-ink opacity-60">
           {t('incomingTransfersCount', { count: notes.length })}
         </div>
       )}
@@ -434,15 +429,15 @@ const AssetPendingDetail: React.FC<AssetPendingDetailProps> = ({
           // The verdict belongs on the screen with the Claim buttons, not only on the row
           // the user tapped to get here. Claiming stays enabled: the wallet declines to
           // spend their money unprompted, it does not refuse the choice.
-          <div className="mb-3 w-full text-center text-sm font-heading text-black opacity-50">
+          <div className="mb-3 w-full text-center text-sm font-heading text-ink opacity-50">
             {t('notWorthClaiming')}
           </div>
         )}
         <div className="w-full mx-auto pt-6 px-6 flex flex-col">
           <div className="flex flex-col items-center">
-            <div className="inline-flex items-center px-3 py-1 rounded-5 bg-surface-interactive text-[10px] font-bold tracking-[0.08em] uppercase text-text-primary-token">
+            <div className="inline-flex items-center px-3 py-1 rounded-5 bg-fill text-[10px] font-bold tracking-[0.08em] uppercase text-text-primary-token">
               <span>{name}</span>
-              <span className="mx-2 text-heading-gray">•</span>
+              <span className="mx-2 text-ink">•</span>
               <span>{t('incomingCount', { count: notes.length })}</span>
             </div>
 
@@ -450,10 +445,10 @@ const AssetPendingDetail: React.FC<AssetPendingDetailProps> = ({
               <span className="font-heading text-[44px] font-extrabold text-text-primary-token leading-none tracking-tight">
                 {formattedAmount}
               </span>
-              <span className="font-heading text-base font-bold text-heading-gray pb-1">{symbol}</span>
+              <span className="font-heading text-base font-bold text-ink pb-1">{symbol}</span>
             </div>
 
-            <div className="font-heading mt-2 text-sm text-heading-gray">
+            <div className="font-heading mt-2 text-sm text-ink">
               {t('pendingTabApproxUsd', { value: formatUsd(usdValue) })}
             </div>
 
@@ -486,7 +481,7 @@ const AssetPendingDetail: React.FC<AssetPendingDetailProps> = ({
         // button no longer has to be scrolled to.
         <div className="w-full mx-auto shrink-0 px-6 pb-4 pt-3">
           {maxNetworkFee && (
-            <div className="mb-2 text-center text-xs text-heading-gray">
+            <div className="mb-2 text-center text-xs text-ink">
               <div>
                 {t('networkFeeMax')} · {maxNetworkFee}
               </div>
@@ -504,7 +499,7 @@ const AssetPendingDetail: React.FC<AssetPendingDetailProps> = ({
             onClick={handleClaimGroup}
             disabled={!canClaimAllGroup}
             className={classNames(
-              'w-full rounded-2xl bg-surface-interactive py-3.5 text-base font-bold text-accent-primary',
+              'w-full rounded-2xl bg-fill py-3.5 text-base font-bold text-accent-primary',
               'hover:bg-grey-50 transition-colors',
               !canClaimAllGroup && 'opacity-50 cursor-not-allowed'
             )}
@@ -657,7 +652,7 @@ const DetailNoteRow: React.FC<DetailNoteRowProps> = ({
     >
       <SyncWaveBackground isSyncing={showSpinner} className="rounded-none" />
       <div className="flex items-center gap-3 py-3.5 relative z-10">
-        <div className="flex min-w-0 flex-1 flex-col gap-1 font-heading text-heading-gray">
+        <div className="flex min-w-0 flex-1 flex-col gap-1 font-heading text-ink">
           <div className="flex items-end gap-1.5">
             <span data-testid="detail-note-amount" className="inline-flex items-end gap-1.5">
               <span className="text-xl font-extrabold leading-none text-receive-green">{formattedAmount}</span>
@@ -683,7 +678,8 @@ const DetailNoteRow: React.FC<DetailNoteRowProps> = ({
         {showButton ? (
           <Button
             data-testid="claim-button"
-            className="w-auto shrink-0 px-4 h-8 text-sm leading-none"
+            size="sm"
+            className="w-auto shrink-0"
             variant={ButtonVariant.Primary}
             onClick={handleClaim}
             disabled={note.fromCache === true}
@@ -695,13 +691,14 @@ const DetailNoteRow: React.FC<DetailNoteRowProps> = ({
           // that consume's own progress screen, which already renders per-step rows and timings.
           <Button
             data-testid="claiming-status-button"
-            className="w-auto shrink-0 px-4 h-8 text-sm leading-none"
+            size="sm"
+            className="w-auto shrink-0"
             variant={ButtonVariant.Secondary}
             onClick={() => navigate(`/generating-transaction-full/${encodeURIComponent(note.claimingTxId!)}`)}
             title={t('claiming')}
           />
         ) : (
-          <div className="w-20 h-8 shrink-0" />
+          <div className="w-20 h-9 shrink-0" />
         )}
       </div>
       {(isRetriable || isFailed) && (

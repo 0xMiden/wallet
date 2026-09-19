@@ -2,10 +2,11 @@ import React from 'react';
 
 import { useTranslation } from 'react-i18next';
 
-import { ActivitySpinner } from 'app/atoms/ActivitySpinner';
 import { formatEarnWithdrawAmount } from 'app/templates/history/transactionUtils';
 import { Button, ButtonVariant } from 'components/Button';
-import { ScreenHeader } from 'components/ScreenHeader';
+import { PageHeader } from 'components/PageHeader';
+import { Hero } from 'components/ui/Hero';
+import { Spinner } from 'components/ui/Spinner';
 import { IEarnWithdrawExtraInputs } from 'lib/miden/db/types';
 import { navigate } from 'lib/woozie';
 import { TransactionHeroIcon } from 'screens/generating-transaction/components';
@@ -31,7 +32,12 @@ export const EarnWithdrawStatus: React.FC<EarnWithdrawStatusProps> = ({ txId }) 
   const { row, loaded } = useTransactionRow(txId);
   const onDone = () => navigate('/');
 
-  if (!loaded || !row) return <ActivitySpinner />;
+  if (!loaded || !row)
+    return (
+      <div className="flex h-8 justify-center pt-5">
+        <Spinner />
+      </div>
+    );
 
   const inputs: IEarnWithdrawExtraInputs = row.extraInputs;
   const failed = inputs.phase === 'failed';
@@ -78,16 +84,16 @@ export const EarnWithdrawStatus: React.FC<EarnWithdrawStatusProps> = ({ txId }) 
   }
 
   return (
-    <div className="flex flex-1 flex-col overflow-y-auto bg-app-bg px-4 text-heading-gray">
-      <ScreenHeader title={t('transactionProcessingHeader')} closeLabel={t('close')} onClose={onDone} />
+    <div className="flex flex-1 flex-col overflow-y-auto bg-app-bg px-4 text-ink">
+      <PageHeader title={t('transactionProcessingHeader')} onClose={onDone} />
       <main className="flex flex-1 flex-col">
         <section className="flex flex-1 flex-col items-center pt-5">
-          <TransactionHeroIcon state={failed ? 'failed' : 'processing'} />
-          <h2 className="mt-6 text-center font-heading text-[2rem] font-bold leading-none">
-            {failed ? t('withdrawalFailed') : t('withdrawalProcessing')}
-          </h2>
+          <Hero
+            visual={<TransactionHeroIcon state={failed ? 'failed' : 'processing'} />}
+            name={failed ? t('withdrawalFailed') : t('withdrawalProcessing')}
+          />
           <TransactionSummaryBadge lhs={amountLabel} rhs="Miden" className="mt-4" />
-          <p className="mt-4 text-center text-sm font-medium text-heading-gray">
+          <p className="mt-4 text-center text-sm font-medium text-ink">
             {failed
               ? (inputs.error ?? t('transactionErrorDescription'))
               : t(prepared ? 'withdrawalCheckingDescription' : 'withdrawalProcessingDescription')}

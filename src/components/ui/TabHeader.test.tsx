@@ -3,6 +3,7 @@ import React from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
 
 import { IconName } from 'app/icons/v2';
+import { reducedMotionTransition } from 'lib/animation';
 import { navigate } from 'lib/woozie';
 
 import TabHeaderDefault, { TabHeader, TabHeaderAction } from './TabHeader';
@@ -85,7 +86,6 @@ describe('TabHeader — structure & title', () => {
     expect(heading.className).toContain('font-heading');
     expect(heading.className).toContain('font-extrabold');
     expect(heading.className).toContain('text-ink');
-    expect(heading.className).not.toContain('text-heading-gray');
     expect(heading.className).not.toContain('dark:text-pure-white');
   });
 
@@ -335,8 +335,8 @@ describe('TabHeader — search swap animation', () => {
     render(<TabHeader title="Activity" search={search} />);
 
     const transition = motionCaptures['tab-header-search']!.transition as { default: unknown; opacity: unknown };
-    expect(transition.default).toEqual({ duration: 0.001 });
-    expect(transition.opacity).toEqual({ duration: 0.001 });
+    expect(transition.default).toEqual(reducedMotionTransition);
+    expect(transition.opacity).toEqual(reducedMotionTransition);
   });
 
   it("the search action's active-color swap animates via the shared color-transition utility, not a snap", () => {

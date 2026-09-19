@@ -96,8 +96,6 @@
   "versionLabel": "версия: $version$",
   "resetPermissionsConfirmation": "Вы действительно хотите сбросить права доступа для\n $origin$?",
   "clickToRevealField": "Нажмите, чтобы отобразить это поле",
-  "copiedHash": "Скопировано.",
-  "copyHashToClipboard": "Скопировать в буфер обмена",
   "accounts": "Счета",
   "cardColor": "Цвет карты",
   "lock": "Блокировка",

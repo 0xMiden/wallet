@@ -20,8 +20,14 @@ jest.mock('app/icons/v2', () => ({
 // button that reflects the props EmptyState sets, mirroring how other ui
 // components in this repo isolate it in tests.
 jest.mock('components/Button', () => ({
-  Button: ({ title, onClick, className, 'data-testid': dataTestId }: any) => (
-    <button data-testid={dataTestId ?? 'button'} data-classname={className} onClick={onClick}>
+  Button: ({ title, onClick, className, variant, size, 'data-testid': dataTestId }: any) => (
+    <button
+      data-testid={dataTestId ?? 'button'}
+      data-classname={className}
+      data-variant={variant}
+      data-size={size}
+      onClick={onClick}
+    >
       {title}
     </button>
   ),
@@ -124,5 +130,20 @@ describe('EmptyState', () => {
     expect(action).toHaveTextContent('Add a contact');
     fireEvent.click(action);
     expect(onClick).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses the canonical `sm` size for the secondary action instead of a manual height override', () => {
+    render(
+      <EmptyState
+        icon={IconName.Home}
+        title="Title"
+        secondaryAction={{ label: 'Add a contact', onClick: jest.fn(), 'data-testid': 'empty-state-action' }}
+      />
+    );
+
+    const action = screen.getByTestId('empty-state-action');
+    expect(action).toHaveAttribute('data-size', 'sm');
+    // Layout only: no stray height/text-size override fighting the sm anatomy.
+    expect(action.getAttribute('data-classname')).not.toMatch(/\bh-9\b|\btext-sm\b/);
   });
 });

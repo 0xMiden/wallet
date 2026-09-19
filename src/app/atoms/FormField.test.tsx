@@ -2,8 +2,6 @@ import React from 'react';
 
 import { act, fireEvent, render, screen } from '@testing-library/react';
 
-import useCopyToClipboard from 'lib/ui/useCopyToClipboard';
-
 import FormField, { PASSWORD_ERROR_CAPTION } from './FormField';
 
 // i18n: return the key so we can assert on stable strings.
@@ -11,44 +9,15 @@ jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
 }));
 
-// FormField calls useCopyToClipboard() directly and forwards `copy` to the
-// CopyIcon onClick. A stable jest.fn (captured in the factory closure) lets us
-// assert it was invoked without depending on the real clipboard plumbing.
-jest.mock('lib/ui/useCopyToClipboard', () => {
-  const copy = jest.fn();
-  return {
-    __esModule: true,
-    default: jest.fn(() => ({ copy, fieldRef: { current: null }, copied: false, setCopied: jest.fn() }))
-  };
-});
-
 // Stub the child atoms so the test exercises FormField's own branches without
-// dragging in tippy / analytics / haptics. The stubs preserve the props
-// FormField relies on (onClick, style, text, children).
+// dragging in tippy / analytics / haptics. The stub preserves the props
+// FormField relies on (onClick).
 jest.mock('app/atoms/CleanButton', () => {
   const ReactLib = require('react');
   return {
     __esModule: true,
     default: ({ onClick }: { onClick: () => void }) =>
       ReactLib.createElement('button', { type: 'button', 'data-testid': 'clean-button', onClick })
-  };
-});
-
-jest.mock('app/atoms/CopyButton', () => {
-  const ReactLib = require('react');
-  return {
-    __esModule: true,
-    default: ({ children, text, style }: any) =>
-      ReactLib.createElement(
-        'div',
-        {
-          'data-testid': 'copy-button',
-          'data-text': String(text),
-          'data-bottom': style?.bottom,
-          'data-right': style?.right
-        },
-        children
-      )
   };
 });
 
@@ -217,7 +186,7 @@ describe('FormField', () => {
 
       const banner = screen.getByText('clickToRevealField');
       expect(banner).toBeInTheDocument();
-      expect(container.querySelector('svg')).toHaveClass('text-heading-gray');
+      expect(container.querySelector('svg')).toHaveClass('text-ink');
 
       act(() => {
         fireEvent.click(banner);
@@ -349,40 +318,6 @@ describe('FormField', () => {
       render(<FormField />);
 
       expect(screen.queryByTestId('clean-button')).not.toBeInTheDocument();
-    });
-  });
-
-  describe('Copyable', () => {
-    it('renders a copy button and invokes copy() when the icon is clicked (no cleanable offset)', () => {
-      const copy = (useCopyToClipboard as unknown as jest.Mock)().copy;
-
-      render(<FormField copyable value="copy me" onChange={() => undefined} />);
-
-      const copyButton = screen.getByTestId('copy-button');
-      expect(copyButton).toHaveAttribute('data-text', 'copy me');
-      // cleanable falsy -> bottom 0px / right 5px
-      expect(copyButton).toHaveAttribute('data-bottom', '0px');
-      expect(copyButton).toHaveAttribute('data-right', '5px');
-
-      const icon = copyButton.querySelector('svg') as SVGElement;
-      act(() => {
-        fireEvent.click(icon);
-      });
-      expect(copy).toHaveBeenCalled();
-    });
-
-    it('offsets the copy button when the field is also cleanable', () => {
-      render(<FormField copyable cleanable value="copy me" onChange={() => undefined} />);
-
-      const copyButton = screen.getByTestId('copy-button');
-      expect(copyButton).toHaveAttribute('data-bottom', '3px');
-      expect(copyButton).toHaveAttribute('data-right', '30px');
-    });
-
-    it('renders no copy button when copyable is false', () => {
-      render(<FormField />);
-
-      expect(screen.queryByTestId('copy-button')).not.toBeInTheDocument();
     });
   });
 

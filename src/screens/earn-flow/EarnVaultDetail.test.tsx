@@ -19,7 +19,7 @@ import EarnVaultDetail from './EarnVaultDetail';
 // props via data-* attributes so we can assert what `EarnVaultDetail` passed
 // (label / value / valueClassName), which is where the audited-branch styling
 // lives.
-// i18n: the component and the shared Button/CircleButton call `useTranslation`.
+// i18n: the component and the shared Button/IconButton call `useTranslation`.
 // Stub it so `t(key)` echoes the key, letting us assert on stable keys instead
 // of translated English.
 jest.mock('react-i18next', () => ({
@@ -52,7 +52,7 @@ jest.mock('lib/woozie', () => ({
 }));
 
 // Haptics wrap the Capacitor plugin. `EarnVaultDetail` calls `hapticSelection`
-// on timeframe taps; the real `Button` / `CircleButton` we render call
+// on timeframe taps; the real `Button` / `IconButton` we render call
 // `hapticLight`. Stub both so no native code is touched.
 jest.mock('lib/mobile/haptics', () => ({
   hapticSelection: jest.fn(),
@@ -178,6 +178,17 @@ describe('EarnVaultDetail', () => {
     expect(screen.getByRole('button', { name: 'earnDeposit' })).not.toBeDisabled();
   });
 
+  it('carries only layout on the deposit CTA, no restyled height/radius/weight', () => {
+    render(<EarnVaultDetail vaultId="v-audited" />);
+
+    // Was `h-14 max-w-none rounded-full text-lg font-bold` (`rounded-full` and
+    // `font-extrabold` below are the canonical Button's own base classes, not a
+    // caller override, so they're expected and not asserted against here).
+    const depositBtn = screen.getByTestId('earn-vault-deposit-btn');
+    expect(depositBtn).toHaveClass('max-w-none');
+    expect(depositBtn.className).not.toMatch(/h-14|\btext-lg\b|\bfont-bold\b/);
+  });
+
   it('renders the audited vault: header, APY block, stats, about and chart', () => {
     render(<EarnVaultDetail vaultId="v-audited" />);
 
@@ -195,12 +206,12 @@ describe('EarnVaultDetail', () => {
     // "5.24%" appears in the APY headline (and in the mocked tooltip body).
     expect(screen.getAllByText('5.24%').length).toBeGreaterThanOrEqual(1);
 
-    // Stats: audited → "✓ yes" with the heading-gray value class.
+    // Stats: audited → "✓ yes" with the ink value class.
     expect(metricValue('earnTvlLabel')).toHaveTextContent('$1.2B');
     expect(metricValue('earnRiskLabel')).toHaveTextContent('Low');
     const audited = metricValue('earnAuditedLabel');
     expect(audited).toHaveTextContent('✓ yes');
-    expect(audited).toHaveAttribute('data-value-class', 'text-heading-gray');
+    expect(audited).toHaveAttribute('data-value-class', 'text-ink');
 
     // About section copy.
     expect(screen.getByText('About the audited vault.')).toBeInTheDocument();

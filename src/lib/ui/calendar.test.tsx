@@ -54,7 +54,7 @@ describe('Calendar', () => {
     const { container } = render(<Calendar showOutsideDays={false} />);
 
     const navButton = container.querySelector('.rdp-button_previous');
-    expect(navButton).toHaveClass('inline-flex', 'rounded-lg', 'hover:bg-gray-100', 'size-(--cell-size)');
+    expect(navButton).toHaveClass('inline-flex', 'rounded-lg', 'hover:bg-fill-pressed', 'size-(--cell-size)');
     expect(container.querySelector('[data-slot="calendar"]')).not.toBeNull();
   });
 
@@ -144,7 +144,7 @@ describe('CalendarDayButton', () => {
 
     const btn = screen.getByRole('button', { name: 'day-15' });
     expect(btn).toHaveAttribute('type', 'button');
-    expect(btn).toHaveClass('rounded-lg', 'hover:bg-gray-100');
+    expect(btn).toHaveClass('rounded-lg', 'hover:bg-fill-pressed');
     // No locale -> toLocaleDateString(undefined).
     expect(btn).toHaveAttribute('data-day', date.toLocaleDateString(undefined));
     // With no modifiers, `modifiers.selected && ...` short-circuits to

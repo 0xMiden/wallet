@@ -4,7 +4,7 @@ import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
-import { CircleButton } from 'components/CircleButton';
+import { PageHeader } from 'components/PageHeader';
 import { hapticLight } from 'lib/mobile/haptics';
 import { goBack, navigate } from 'lib/woozie';
 
@@ -25,20 +25,7 @@ const EarnPositions: FC = () => {
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-app-bg font-inter" data-testid="earn-positions-page">
-      <header className="shrink-0 border-b border-rule-default px-4 pb-4 pt-5">
-        <div className="flex items-center gap-3">
-          <CircleButton
-            icon={IconName.ChevronLeft}
-            onClick={goBack}
-            className="h-10 w-10 bg-gray-25 text-heading-gray hover:bg-gray-50 focus:bg-gray-50"
-            size="md"
-            aria-label={t('back')}
-          />
-          <h1 className="font-heading text-[26px] font-bold leading-none text-heading-gray">
-            {t('earnPositionsTitle')}
-          </h1>
-        </div>
-      </header>
+      <PageHeader className="shrink-0 px-4" title={t('earnPositionsTitle')} onBack={goBack} />
 
       <div className="flex-1 overflow-y-auto">
         <div className="flex flex-col px-4 pb-8 pt-4">
@@ -48,7 +35,7 @@ const EarnPositions: FC = () => {
               data-testid="earn-positions-load-error"
               role="alert"
             >
-              <p className="max-w-xs text-base leading-snug text-heading-gray">{t('earnPositionsLoadError')}</p>
+              <p className="max-w-xs text-base leading-snug text-ink">{t('earnPositionsLoadError')}</p>
               <button
                 type="button"
                 data-testid="earn-positions-retry"
@@ -56,7 +43,7 @@ const EarnPositions: FC = () => {
                   hapticLight();
                   refetch();
                 }}
-                className="rounded-full bg-gray-25 px-5 py-2.5 text-sm font-bold text-heading-gray hover:bg-gray-50 focus:bg-gray-50"
+                className="rounded-full bg-fill px-5 py-2.5 text-sm font-bold text-ink hover:bg-fill-pressed focus:bg-fill-pressed"
               >
                 {t('retry')}
               </button>
@@ -94,7 +81,7 @@ const EarnPositionDetailCard: FC<{ position: EarnPosition }> = ({ position }) =>
       <div className="flex items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-2">
           <ProviderLogo protocol={position.protocol} className="h-4 w-4" />
-          <div className="truncate text-base font-medium leading-none text-heading-gray">
+          <div className="truncate text-base font-medium leading-none text-ink">
             {position.protocol} &bull; {position.asset}
           </div>
         </div>
@@ -103,12 +90,12 @@ const EarnPositionDetailCard: FC<{ position: EarnPosition }> = ({ position }) =>
         </div>
       </div>
 
-      <div className="mt-4 font-heading text-[36px] font-bold leading-none text-heading-gray">{position.amount}</div>
+      <div className="mt-4 font-heading text-[36px] font-bold leading-none text-ink">{position.amount}</div>
       <div className="mt-3 text-base font-bold leading-none text-green-500">{position.rewards}</div>
 
       <div className="mt-2 mb-4 h-px bg-[#2525251C]" />
 
-      <div className="flex items-center justify-between gap-4 text-sm leading-none text-heading-gray">
+      <div className="flex items-center justify-between gap-4 text-sm leading-none text-ink">
         <div>
           {t('earnDeposited')} <span className="font-bold">{position.depositedAmount}</span>
         </div>

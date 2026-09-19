@@ -72,6 +72,12 @@ export function resolveTransition(reduce: boolean | null, transition: Transition
   return transition;
 }
 
+/**
+ * What every animation becomes under reduced motion: an effectively instant tween (not
+ * `duration: 0`, so completion callbacks such as `onAnimationComplete` still fire).
+ */
+export const reducedMotionTransition: Readonly<Transition> = Object.freeze({ duration: 0.001 });
+
 function instantTransition(): Transition {
-  return { duration: 0.001 };
+  return { ...reducedMotionTransition };
 }

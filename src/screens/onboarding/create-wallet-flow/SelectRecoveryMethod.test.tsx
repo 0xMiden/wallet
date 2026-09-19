@@ -123,7 +123,8 @@ describe('SelectRecoveryMethodScreen', () => {
 
       const button = screen.getByTestId('continue-button');
       expect(button).toHaveTextContent('continue');
-      expect(button).toHaveAttribute('data-classname', 'text-base');
+      // No restyling override: the canonical Button anatomy applies untouched.
+      expect(button).not.toHaveAttribute('data-classname');
 
       fireEvent.click(button);
       expect(onSubmit).toHaveBeenCalledTimes(1);

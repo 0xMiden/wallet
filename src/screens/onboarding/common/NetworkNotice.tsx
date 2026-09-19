@@ -34,7 +34,7 @@ export const NetworkNoticeScreen: React.FC<NetworkNoticeScreenProps> = ({ onSubm
             </span>
           </div>
 
-          <h1 className="text-[2.125rem] font-extrabold font-heading text-heading-gray mt-4 leading-[112%] tracking-tight">
+          <h1 className="text-[2.125rem] font-extrabold font-heading text-ink mt-4 leading-[112%] tracking-tight">
             {t('networkModeBanner', { network })}
           </h1>
           <p className="text-[15px] leading-[147%] text-text-secondary-token mt-3">{t('networkNoticeBody')}</p>

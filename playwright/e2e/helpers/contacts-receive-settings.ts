@@ -23,9 +23,10 @@
  *     gone. The helpers below still drive them by CLICKING the menu row, which
  *     is what a user does and exercises the row wiring as well as the page.
  *
- *  2. A `testID` prop is not always a DOM selector. `FormSubmitButton`
- *     destructures `testID` out and only uses it for `trackEvent`, so it never
- *     renders; grep finds it, the DOM does not have it. Every
+ *  2. A `testID` prop is not always a DOM selector. It was analytics-only
+ *     convention across several components (the now-retired `FormSubmitButton`
+ *     destructured it and only ever passed it to `trackEvent`, never to the
+ *     DOM): grep finds it, the DOM does not have it. Every
  *     `General Settings/*Toggle` string was one of these, which is why
  *     `ToggleSwitch` now emits its `testID` as a data-testid too. This module
  *     drives raw data-testids only.
@@ -40,7 +41,7 @@
  *     "New contact" button opens `/contacts/new`, which returns to the list on
  *     save. A contact row opens `/contacts/<address>`; Delete sits in that page's
  *     Edit mode and goes through `useConfirm()`, i.e. the app-wide
- *     ConfirmationModal. The wallet's own accounts are listed under
+ *     confirm sheet. The wallet's own accounts are listed under
  *     `address-book-account-*` and are not links, so they are never mistaken for
  *     a contact here.
  */
@@ -238,7 +239,7 @@ export async function deleteContact(wallet: ChromeWalletPageApi, address: string
   try {
     await confirmButton.waitFor({ state: 'visible', timeout: 15_000 });
   } catch {
-    throw new Error(`deleteContact(${address}): tapping Delete contact did not open the confirmation modal.`);
+    throw new Error(`deleteContact(${address}): tapping Delete contact did not open the confirmation sheet.`);
   }
   // Bounded, and verified by its POSTCONDITION rather than by the click
   // returning. Two things went wrong here before:
@@ -246,9 +247,9 @@ export async function deleteContact(wallet: ChromeWalletPageApi, address: string
   //      budget and failed with a closed-context error naming nothing;
   //   2. a blind `force: true` retry, which "succeeded" while the delete never
   //      happened — the run then failed 30s later with the row still present.
-  // The modal DISAPPEARING is the proof the click was handled (`useConfirm`
-  // unmounts it in the same tick it resolves), so retry against that rather
-  // than against the click resolving.
+  // The sheet DISAPPEARING is the proof the click was handled (`useConfirm`
+  // closes it in the same tick it resolves; it detaches once its slide-out
+  // ends), so retry against that rather than against the click resolving.
   const confirmClickLanded = async (opts: { force: boolean }): Promise<boolean> => {
     await confirmButton.click({ timeout: 15_000, force: opts.force }).catch(() => {});
     return confirmButton
@@ -258,9 +259,9 @@ export async function deleteContact(wallet: ChromeWalletPageApi, address: string
   };
   if (!(await confirmClickLanded({ force: false })) && !(await confirmClickLanded({ force: true }))) {
     throw new Error(
-      `deleteContact(${address}): clicked the confirmation modal's Confirm button but the modal stayed ` +
+      `deleteContact(${address}): clicked the confirmation sheet's Confirm button but the sheet stayed ` +
         `open, so the delete was never dispatched. The button is present and visible — something is ` +
-        `swallowing the click (an overlay, or a modal still animating in).`
+        `swallowing the click (an overlay, or a sheet still animating in).`
     );
   }
 
@@ -639,8 +640,9 @@ export async function readClipboardWrites(page: Page): Promise<string[]> {
  * Click the Receive screen's copy button and wait for the clipboard write it is
  * supposed to make.
  *
- * `useCopyToClipboard` latches `copied` for 2s and makes a second click within
- * that window a NO-OP, so this never re-clicks — it waits on the first write.
+ * The canonical `CopyButton`'s `useClipboardCopy` hook has no latch: every click re-writes and
+ * resets its 1.5s "Copied" feedback timer. This helper only ever clicks once, so it just waits on
+ * that one write rather than guarding against a second click being a no-op.
  *
  * @returns every write recorded so far, so the caller can assert the FIRST one
  *          and that there was exactly one.

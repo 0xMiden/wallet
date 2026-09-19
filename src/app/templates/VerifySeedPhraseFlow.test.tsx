@@ -107,9 +107,9 @@ jest.mock('components/Button', () => ({
   ButtonVariant: { Primary: 'Primary', Secondary: 'Secondary' }
 }));
 
-jest.mock('components/NavigationHeader', () => ({
-  NavigationHeader: ({ title, onBack }: { title: string; onBack?: () => void }) => (
-    <div>
+jest.mock('components/PageHeader', () => ({
+  PageHeader: ({ title, onBack, className }: { title: string; onBack?: () => void; className?: string }) => (
+    <div data-testid="nav-header" className={className}>
       <span data-testid="nav-title">{title}</span>
       {onBack ? (
         <button data-testid="nav-back" onClick={onBack}>
@@ -246,6 +246,13 @@ describe('VerifySeedPhraseFlow', () => {
     fireEvent.click(screen.getByTestId('nav-back'));
     expect(mockHapticLight).toHaveBeenCalledTimes(1);
     expect(mockGoBack).toHaveBeenCalledTimes(1);
+  });
+
+  it('gives the warning header its own horizontal padding', async () => {
+    // PageHeader has no horizontal padding of its own — the page supplies it,
+    // or the back chevron's hit area is clipped by an overflow-hidden ancestor.
+    await renderFlow();
+    expect(screen.getByTestId('nav-header')).toHaveClass('px-4');
   });
 
   it('exits from the warning close button', async () => {

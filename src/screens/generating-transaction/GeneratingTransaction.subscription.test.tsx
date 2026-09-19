@@ -10,7 +10,6 @@ import { GeneratingTransactionPage } from './GeneratingTransaction';
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 jest.mock('lib/platform', () => ({ isExtension: () => true, isMobile: () => false }));
 jest.mock('app/hooks/useNetworkFeeEstimate', () => ({ useNetworkFeeEstimate: () => undefined }));
-jest.mock('components/ScreenHeader', () => ({ ScreenHeader: () => null }));
 jest.mock('lib/miden/front', () => ({ useMidenContext: () => ({ signTransaction: jest.fn() }) }));
 jest.mock('lib/miden/front/guardian-sync', () => ({ zustandProvider: {} }));
 jest.mock('lib/mobile/external-browser', () => ({ openExternalUrl: jest.fn() }));

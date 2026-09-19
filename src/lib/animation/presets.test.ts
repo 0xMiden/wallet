@@ -5,6 +5,7 @@ import { easings } from './easings';
 import { pageSlideEntrance } from './page-appearance';
 import { presetNames, presets, resolvePreset, usePreset } from './presets';
 import { springs } from './springs';
+import { reducedMotionTransition } from './use-motion';
 
 let mockReduce: boolean | null = false;
 jest.mock('framer-motion', () => ({
@@ -12,7 +13,7 @@ jest.mock('framer-motion', () => ({
   useReducedMotion: () => mockReduce
 }));
 
-const INSTANT = { duration: 0.001 };
+const INSTANT = reducedMotionTransition;
 
 describe('lib/animation/presets', () => {
   beforeEach(() => {

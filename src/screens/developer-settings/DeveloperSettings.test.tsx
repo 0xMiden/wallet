@@ -116,19 +116,11 @@ jest.mock('lib/store', () => {
 // House components — replace with lightweight stand-ins that forward the
 // props DeveloperSettings actually passes, so testids/values stay assertable
 // without pulling in framer-motion / icon assets.
-jest.mock('components/ScreenHeader', () => ({
-  ScreenHeader: ({
-    title,
-    onBack,
-    backLabel
-  }: {
-    title?: React.ReactNode;
-    onBack?: () => void;
-    backLabel?: string;
-  }) => (
+jest.mock('components/PageHeader', () => ({
+  PageHeader: ({ title, onBack }: { title?: React.ReactNode; onBack?: () => void }) => (
     <div data-testid="screen-header">
       <span>{title}</span>
-      <button type="button" aria-label={backLabel} onClick={onBack}>
+      <button type="button" aria-label="back" onClick={onBack}>
         back
       </button>
     </div>
@@ -368,7 +360,9 @@ describe('DeveloperSettings', () => {
     await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1));
     expect(confirm).toHaveBeenCalledWith({
       title: 'actionConfirmation',
-      children: 'devEndpointResetConfirm'
+      children: 'devEndpointResetConfirm',
+      confirmLabel: 'reset',
+      destructive: true
     });
   });
 

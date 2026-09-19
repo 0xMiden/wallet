@@ -7,10 +7,10 @@ export interface GuardianLogoEntry {
   Logo: ImportedSVGComponent;
   // Horizontal padding tuned per wordmark for the ChooseGuardian provider cards.
   paddingXClass: string;
-  // Grey (#484848) marks get `[&_path]:fill-heading-gray` at the render site to
+  // Grey (#484848) marks get `[&_path]:fill-ink` at the render site to
   // recolor them to the auto-flipping heading token so they stay legible in both
   // themes; `keepBrandColor` opts a logo out of the blanket recolor — its
-  // `currentColor` paths pick up the heading token via `text-heading-gray`
+  // `currentColor` paths pick up the heading token via `text-ink`
   // while hardcoded brand-color paths stay untouched.
   keepBrandColor?: boolean;
 }
@@ -26,5 +26,5 @@ export const GUARDIAN_LOGOS: Record<string, GuardianLogoEntry> = {
 // The theme-recolor classes described on GuardianLogoEntry, shared by every
 // render site so all logos flip consistently.
 export function guardianLogoColorClass(entry: GuardianLogoEntry): string {
-  return entry.keepBrandColor ? 'text-heading-gray' : '[&_path]:fill-heading-gray';
+  return entry.keepBrandColor ? 'text-ink' : '[&_path]:fill-ink';
 }

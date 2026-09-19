@@ -10,6 +10,7 @@ import { Icon, IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
 import { ContactAvatar } from 'components/contacts/ContactAvatar';
 import { FlowLayout } from 'components/flow/FlowLayout';
+import { Hero } from 'components/ui/Hero';
 import { Pill } from 'components/ui/Pill';
 import { TextField } from 'components/ui/TextField';
 import { useContacts } from 'lib/miden/front';
@@ -131,7 +132,7 @@ export const NewContactPage: React.FC = () => {
             disabled={!canSave}
             isLoading={saving}
             data-testid="address-book-add-contact"
-            className="w-full max-w-none rounded-full text-base font-semibold"
+            className="w-full max-w-none"
           />
         }
       >
@@ -142,14 +143,18 @@ export const NewContactPage: React.FC = () => {
             void save();
           }}
         >
-          <div className="flex justify-center">
-            <ContactAvatar
-              address={trimmedAddress || '0'}
-              name={trimmedName}
-              network={isValid && isEvm ? 'ethereum' : undefined}
-              size="xl"
-            />
-          </div>
+          {/* The name is already in the flow title above (or the name field below), so the
+              hero here is the avatar alone — same shape as the existing contact's own page. */}
+          <Hero
+            visual={
+              <ContactAvatar
+                address={trimmedAddress || '0'}
+                name={trimmedName}
+                network={isValid && isEvm ? 'ethereum' : undefined}
+                size="xl"
+              />
+            }
+          />
 
           <TextField
             multiline

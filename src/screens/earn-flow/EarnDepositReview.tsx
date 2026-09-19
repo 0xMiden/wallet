@@ -82,12 +82,12 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
       <div className="min-h-0 flex-1 overflow-y-auto no-scrollbar">
         <div className={clsx('flex flex-col px-6 pt-6')}>
           <span className="font-heading text-2xl font-bold leading-none text-gray">{t('earnDepositAmountTitle')}</span>
-          <div className="mt-3 font-heading text-[4rem] font-bold leading-none text-heading-gray">
+          <div className="mt-3 font-heading text-[4rem] font-bold leading-none text-ink">
             {toAdaptiveFixed(amountValue)}
           </div>
           <div className="flex items-center gap-1">
             <TokenLogo symbol={depositSymbol} size="md" />
-            <span className="font-heading text-2xl font-bold text-heading-gray">{depositSymbol}</span>
+            <span className="font-heading text-2xl font-bold text-ink">{depositSymbol}</span>
           </div>
 
           <DepositProjection vault={vault} amount={amountValue} />
@@ -104,7 +104,7 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
           variant={ButtonVariant.Primary}
           onClick={handleOpenPosition}
           disabled={isSubmitting || amountValue <= 0 || !vault.id}
-          className="w-full max-w-none rounded-full text-base font-semibold"
+          className="w-full max-w-none"
         />
       </div>
     </div>
@@ -189,7 +189,7 @@ const DepositProjection: FC<{ vault: EarnVault; amount: number }> = ({ vault, am
 
 const DetailRow: FC<{ label: string; value: string }> = ({ label, value }) => (
   <div className="flex items-center justify-between gap-4 text-sm leading-tight">
-    <div className="text-heading-gray font-regular">{label}</div>
+    <div className="text-ink font-regular">{label}</div>
     <div className="text-right font-bold text-[#8C877F]">{value}</div>
   </div>
 );

@@ -96,9 +96,9 @@ jest.mock('lib/mobile/haptics', () => ({
   hapticLight: jest.fn()
 }));
 
-jest.mock('components/NavigationHeader', () => ({
-  NavigationHeader: ({ title, onBack }: { title: string; onBack: () => void }) => (
-    <div data-testid="nav-header">
+jest.mock('components/PageHeader', () => ({
+  PageHeader: ({ title, onBack, className }: { title: string; onBack: () => void; className?: string }) => (
+    <div data-testid="nav-header" className={className}>
       <span data-testid="nav-title">{title}</span>
       <button data-testid="nav-back" onClick={onBack}>
         back
@@ -236,6 +236,9 @@ describe('TokenDetail', () => {
     renderPage();
 
     expect(screen.getByTestId('nav-title')).toHaveTextContent('ETH');
+    // PageHeader has no horizontal padding of its own — the page supplies it,
+    // or the back chevron's hit area is clipped by an overflow-hidden ancestor.
+    expect(screen.getByTestId('nav-header')).toHaveClass('px-4');
     expect(screen.getByTestId('token-logo')).toHaveAttribute('data-symbol', 'ETH');
     expect(screen.getByTestId('token-logo')).toHaveAttribute('data-size', 'xl');
     // Standard 2dp balance formatting and fiatValue = 12.5 * 2000.

@@ -202,18 +202,19 @@ describe('BottomNav — notification dot', () => {
     ];
     render(<BottomNav items={dotItems} activeId="home" onChange={jest.fn()} />);
 
-    // Exactly one dot in the whole nav — the one on Home.
-    const dots = document.querySelectorAll('.bg-red-500');
+    // Exactly one dot in the whole nav — the one on Home. Uses the status
+    // token, not a raw Tailwind red.
+    const dots = document.querySelectorAll('.bg-status-negative');
     expect(dots).toHaveLength(1);
 
     // It lives inside the Home button and is hidden from the a11y tree.
-    const homeDot = getTab('Home').querySelector('.bg-red-500');
+    const homeDot = getTab('Home').querySelector('.bg-status-negative');
     expect(homeDot).not.toBeNull();
     expect(homeDot!.getAttribute('aria-hidden')).toBe('true');
 
     // No dot on the items that did not opt in.
-    expect(getTab('Settings').querySelector('.bg-red-500')).toBeNull();
-    expect(getTab('Activity').querySelector('.bg-red-500')).toBeNull();
+    expect(getTab('Settings').querySelector('.bg-status-negative')).toBeNull();
+    expect(getTab('Activity').querySelector('.bg-status-negative')).toBeNull();
   });
 });
 

@@ -68,13 +68,13 @@ describe('AmountInput', () => {
       render(<AmountInput value="10" error="Too much" data-testid={TESTID} />);
       const input = getInput();
       expect(input).toHaveClass('text-red-500', 'placeholder-red-500');
-      expect(input).not.toHaveClass('text-black');
+      expect(input).not.toHaveClass('text-ink');
     });
 
     it('renders black text when a value is present and there is no error', () => {
       render(<AmountInput value="10" data-testid={TESTID} />);
       const input = getInput();
-      expect(input).toHaveClass('text-black');
+      expect(input).toHaveClass('text-ink');
       expect(input).not.toHaveClass('text-red-500');
     });
 

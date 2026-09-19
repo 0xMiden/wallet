@@ -468,7 +468,7 @@ describe('ReviewTransaction — rendering', () => {
     await flush();
 
     expect(screen.getByText('fast fastArrival')).toBeInTheDocument();
-    expect(container.querySelector('.animate-pulse')).toBeInTheDocument();
+    expect(container.querySelector('[data-slot="skeleton"]')).toBeInTheDocument();
   });
 });
 

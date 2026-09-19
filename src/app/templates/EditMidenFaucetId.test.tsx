@@ -76,13 +76,27 @@ jest.mock('app/atoms/FormField', () =>
   )
 );
 
-// `FormSubmitButton` defaults to type="submit"; render a plain submit button so
-// clicking it drives the form's onSubmit, and expose the loading (isSubmitting)
-// flag so the in-flight state is assertable.
-jest.mock('app/atoms/FormSubmitButton', () => ({
-  __esModule: true,
-  default: ({ children, loading, disabled }: { children?: React.ReactNode; loading?: boolean; disabled?: boolean }) => (
-    <button type="submit" disabled={disabled} data-loading={String(!!loading)} data-testid="submit-btn">
+// The component passes `type="submit"` explicitly; render a plain submit
+// button so clicking it drives the form's onSubmit, and expose the isLoading
+// (isSubmitting) flag so the in-flight state is assertable.
+jest.mock('components/Button', () => ({
+  Button: ({
+    children,
+    type,
+    isLoading,
+    disabled
+  }: {
+    children?: React.ReactNode;
+    type?: string;
+    isLoading?: boolean;
+    disabled?: boolean;
+  }) => (
+    <button
+      type={(type as 'submit') ?? 'button'}
+      disabled={disabled}
+      data-loading={String(!!isLoading)}
+      data-testid="submit-btn"
+    >
       {children}
     </button>
   )
@@ -121,6 +135,9 @@ describe('EditMidenFaucetId', () => {
     // No success message and no error before any interaction.
     expect(screen.queryByText('faucetIdUpdated')).not.toBeInTheDocument();
     expect(screen.queryByTestId('error-faucetId')).not.toBeInTheDocument();
+    // FormSubmitButton defaulted to type="submit"; the canonical Button defaults to
+    // type="button", so the caller has to pin it explicitly.
+    expect(screen.getByTestId('submit-btn')).toHaveAttribute('type', 'submit');
   });
 
   it('autofocuses the faucet-id input on mount (useLayoutEffect)', () => {

@@ -94,3 +94,50 @@ describe.each([':root', '.dark'] as const)('legacy muted text in %s', selector =
     expect(vars['color-text-muted']).toBe('var(--ds-muted)');
   });
 });
+
+describe('retired legacy surfaces', () => {
+  it.each(['surface-input', 'surface-interactive', 'surface-nav-button', 'button-secondary', 'button-secondary-hover'])(
+    'no longer maps %s to a Tailwind color (use fill / fill-pressed)',
+    name => {
+      expect(config).not.toMatch(new RegExp(`'${name}':`));
+    }
+  );
+
+  it('no longer defines the gray-25 / gray-50 surfaces', () => {
+    expect(config).not.toMatch(/^\s*(25|50): 'var\(--color-surface-(secondary|tertiary)\)'/m);
+  });
+
+  it.each([':root', '.dark'] as const)('declares none of the retired surface vars in %s', selector => {
+    const vars = themeVars(selector);
+    for (const name of [
+      'color-surface-secondary',
+      'color-surface-tertiary',
+      'surface-input',
+      'surface-interactive',
+      'surface-nav-button',
+      'surface-button-secondary',
+      'surface-button-secondary-hover'
+    ]) {
+      expect(vars[name]).toBeUndefined();
+    }
+  });
+});
+
+describe('legacy ink', () => {
+  it('no longer maps heading-gray to a Tailwind color (use ink)', () => {
+    expect(config).not.toMatch(/'heading-gray':/);
+  });
+
+  it.each([':root', '.dark'] as const)(
+    'drops the heading-gray var and aliases the legacy black to ink in %s',
+    selector => {
+      const vars = themeVars(selector);
+      expect(vars['color-text-secondary']).toBeUndefined();
+      expect(vars['color-text-primary']).toBe('var(--ds-ink)');
+    }
+  );
+
+  it('still routes the legacy black through that aliased var', () => {
+    expect(config).toMatch(/\bblack: 'var\(--color-text-primary\)'/);
+  });
+});

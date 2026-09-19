@@ -6,12 +6,11 @@ import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import InfiniteScroll from 'react-infinite-scroller';
 
-import { ActivitySpinner } from 'app/atoms/ActivitySpinner';
 import { guardianEndpointDisplayName } from 'app/hooks/useCurrentGuardianEndpoint';
 import { Icon, IconName } from 'app/icons/v2';
 import { ReactComponent as FailedCrossIcon } from 'app/icons/v2/failed-cross.svg';
 import { ReactComponent as SwapIcon } from 'app/icons/v2/swap.svg';
-import { ActivityRow, ActivityRowProps, ActivityStatusTone } from 'components/ui';
+import { ActivityRow, ActivityRowProps, ActivityStatusTone, Spinner } from 'components/ui';
 import { EmptyState } from 'components/ui/EmptyState';
 import { springs, useMotion } from 'lib/animation';
 import { navigate } from 'lib/woozie';
@@ -77,7 +76,7 @@ const DateSeparator: React.FC<{ dateMs: number }> = ({ dateMs }) => {
   const longDate = format(d, 'MMMM d, yyyy');
   const day = format(d, 'EEEE');
   return (
-    <div className="flex items-center justify-between font-heading font-extrabold text-heading-gray dark:text-pure-white text-base leading-[100%]">
+    <div className="flex items-center justify-between font-heading font-extrabold text-ink dark:text-pure-white text-base leading-[100%]">
       <span className="">{longDate}</span>
       <span className="text-accent-primary">{day}</span>
     </div>
@@ -145,7 +144,7 @@ function buildRowProps(
   const isFailed = !isCancelled && (icon === 'FAILED' || entry.message === 'Transaction failed');
 
   let iconNode: React.ReactNode;
-  let iconBg = 'bg-gray-50';
+  let iconBg = 'bg-fill';
   let amountDirection: 'positive' | 'negative' | 'neutral' = 'neutral';
 
   // Glyphs mirror the home action-bar logos (Send / Receive / Earn / Swap),
@@ -389,7 +388,12 @@ const HistoryView = memo<HistoryViewProps>(
     const groupedEntries = useMemo(() => groupEntriesByDate(timeline), [timeline]);
 
     if (noEntries) {
-      if (initialLoading) return <ActivitySpinner />;
+      if (initialLoading)
+        return (
+          <div className="flex h-8 justify-center pt-5">
+            <Spinner />
+          </div>
+        );
       if (centerEmptyState) {
         return (
           <div className="flex flex-1 items-center justify-center pt-16">
@@ -437,9 +441,7 @@ const HistoryView = memo<HistoryViewProps>(
             className={classNames('flex flex-col gap-3 py-3', index === 0 && 'pt-4')}
           >
             {dateMs === -1 ? (
-              <span className="font-heading font-extrabold text-heading-gray text-base">
-                {t('activityDateUnavailable')}
-              </span>
+              <span className="font-heading font-extrabold text-ink text-base">{t('activityDateUnavailable')}</span>
             ) : (
               <DateSeparator dateMs={dateMs} />
             )}

@@ -47,15 +47,13 @@ export const WelcomeScreen = ({ onSubmit }: WelcomeScreenProps) => {
           >
             <BreadLogo style={{ width: 130, height: 'auto' }} />
           </div>
-          <h1 className="text-7xl font-bold font-heading text-heading-gray text-center mt-4 leading-[99%] tracking-tight">
+          <h1 className="text-7xl font-bold font-heading text-ink text-center mt-4 leading-[99%] tracking-tight">
             <span className="block">{t('welcome')}</span>
             <span className="block">
               {t('toLowercase')} <span className="">{t('midenWallet')}</span>
             </span>
           </h1>
-          <p className="text-xl leading-[130%] text-heading-gray font-medium text-center mt-4">
-            {t('breadWalletDescription')}
-          </p>
+          <p className="text-xl leading-[130%] text-ink font-medium text-center mt-4">{t('breadWalletDescription')}</p>
         </div>
         <div className={clsx('w-full flex flex-col items-center gap-3 pb-6 shrink-0', isMobile() ? 'pt-8' : 'pt-6')}>
           <Button

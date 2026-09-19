@@ -100,13 +100,13 @@ describe('TabPicker — container', () => {
     const { container } = renderPicker();
 
     const root = container.firstChild as HTMLElement;
-    expect(root).toHaveClass('flex', 'rounded-full', 'overflow-hidden', 'p-1', 'bg-gray-50');
+    expect(root).toHaveClass('flex', 'rounded-full', 'overflow-hidden', 'p-1', 'bg-fill');
   });
 
   it('appends a caller-supplied className to the root', () => {
     const { container } = renderPicker({ className: 'my-extra' });
 
-    expect(container.firstChild).toHaveClass('bg-gray-50', 'my-extra');
+    expect(container.firstChild).toHaveClass('bg-fill', 'my-extra');
   });
 
   it('spreads arbitrary HTMLDivElement props onto the root', () => {
@@ -242,11 +242,11 @@ describe('TabPicker — icon fill colour (iconColor useMemo)', () => {
 });
 
 describe('TabPicker — title styling (disabled branch)', () => {
-  it('renders the title with text-black when enabled', () => {
+  it('renders the title with text-ink when enabled', () => {
     renderPicker({ tabs: [buildTab({ title: 'Enabled' })] });
 
     const title = screen.getByText('Enabled');
-    expect(title).toHaveClass('text-black');
+    expect(title).toHaveClass('text-ink');
     expect(title).not.toHaveClass('text-grey-400');
   });
 
@@ -255,7 +255,7 @@ describe('TabPicker — title styling (disabled branch)', () => {
 
     const title = screen.getByText('Disabled');
     expect(title).toHaveClass('text-grey-400');
-    expect(title).not.toHaveClass('text-black');
+    expect(title).not.toHaveClass('text-ink');
   });
 });
 

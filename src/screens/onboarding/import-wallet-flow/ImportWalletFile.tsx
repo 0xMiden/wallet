@@ -5,8 +5,8 @@ import { useForm } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
 
 import FormField, { PASSWORD_ERROR_CAPTION } from 'app/atoms/FormField';
-import FormSubmitButton from 'app/atoms/FormSubmitButton';
 import { Icon, IconName } from 'app/icons/v2';
+import { Button } from 'components/Button';
 import {
   type DecryptedWalletFile,
   isRecord,
@@ -320,7 +320,7 @@ export const ImportWalletFileScreen: React.FC<ImportWalletFileScreenProps> = ({ 
       className={classNames(
         'flex-1 h-full',
         'flex flex-col justify-content items-center gap-y-2',
-        'bg-app-bg text-heading-gray px-4 pt-6',
+        'bg-app-bg text-ink px-4 pt-6',
         className
       )}
       onSubmit={handleSubmit(handleImportSubmit)}
@@ -378,7 +378,7 @@ export const ImportWalletFileScreen: React.FC<ImportWalletFileScreenProps> = ({ 
 
       {walletFile != null && pendingRestore == null && (
         <div className="flex flex-col w-full max-w-[360px]">
-          <p className="text-sm text-black my-3">{t('enterDecryptionPassword')}</p>
+          <p className="text-sm text-ink my-3">{t('enterDecryptionPassword')}</p>
           <FormField
             {...register('password', {
               required: PASSWORD_ERROR_CAPTION
@@ -404,14 +404,14 @@ export const ImportWalletFileScreen: React.FC<ImportWalletFileScreenProps> = ({ 
       )}
 
       <div className="mt-auto w-full pt-4">
-        <FormSubmitButton
-          loading={isSubmitting || isRestoring}
-          className="w-full text-base"
-          style={{ display: 'block', fontWeight: 500, padding: '12px 0px' }}
+        <Button
+          type="submit"
+          isLoading={isSubmitting || isRestoring}
+          className="w-full"
           disabled={isSubmitting || isRestoring || (pendingRestore == null && (!isValid || !walletFile))}
         >
           {pendingRestore != null ? t('continueImport') : t('import')}
-        </FormSubmitButton>
+        </Button>
       </div>
     </form>
   );

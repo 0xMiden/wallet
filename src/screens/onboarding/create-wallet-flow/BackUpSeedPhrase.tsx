@@ -52,7 +52,7 @@ export const BackUpSeedPhraseScreen: React.FC<BackUpSeedPhraseScreenProps> = ({
 
   return (
     <div className={classNames('flex flex-col flex-1', 'bg-app-bg gap-6 px-4 pt-4', className)} {...props}>
-      <div className="flex flex-col items-center text-heading-gray gap-2">
+      <div className="flex flex-col items-center text-ink gap-2">
         <header className="text-[28px] font-medium">{t('backUpYourWallet')}</header>
         <div className="text-[10px] text-center font-regular">
           <p>{t('backUpWalletInstructions')}</p>
@@ -84,16 +84,18 @@ export const BackUpSeedPhraseScreen: React.FC<BackUpSeedPhraseScreenProps> = ({
           ))}
       </article>
 
-      <div className="flex gap-2 w-full text-heading-gray">
+      <div className="flex gap-2.5 w-full text-ink">
         <Button
-          className="border-border-card border-[0.5px] text-xs font-medium h-8 w-1/2 py-5"
+          size="sm"
+          className="flex-1"
           variant={ButtonVariant.Ghost}
           title={t(isWordsVisible ? 'hide' : 'show')}
           iconLeft={isWordsVisible ? IconName.EyeOff : IconName.Eye}
           onClick={onWordsVisibilityToggle}
         />
         <Button
-          className="text-xs font-medium h-8 border-0 w-1/2 py-5"
+          size="sm"
+          className="flex-1"
           variant={ButtonVariant.Ghost}
           title={t(isCopied ? 'copied' : 'copyToClipboard')}
           iconLeft={isCopied ? IconName.CheckboxCircleFill : IconName.FileCopy}
@@ -102,7 +104,7 @@ export const BackUpSeedPhraseScreen: React.FC<BackUpSeedPhraseScreenProps> = ({
       </div>
 
       <div className="flex flex-col gap-2 self-center w-full mt-auto">
-        <Button data-testid="backup-seed-continue" title={t('continue')} onClick={onSubmit} className="text-base" />
+        <Button data-testid="backup-seed-continue" title={t('continue')} onClick={onSubmit} />
       </div>
     </div>
   );

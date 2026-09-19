@@ -5,9 +5,9 @@ import { useTranslation } from 'react-i18next';
 
 import Alert from 'app/atoms/Alert';
 import FormField from 'app/atoms/FormField';
-import FormSubmitButton from 'app/atoms/FormSubmitButton';
 import { ACCOUNT_NAME_PATTERN } from 'app/defaults';
 import { useBackWithFallback } from 'app/hooks/useBackWithFallback';
+import { Button } from 'components/Button';
 import { PageHeader } from 'components/PageHeader';
 import { useMidenContext } from 'lib/miden/front';
 import { clearClipboard } from 'lib/ui/util';
@@ -83,14 +83,15 @@ const ImportAccount: FC = () => {
           errorCaption={errors.name?.message}
           containerClassName="mt-4"
         />
-        <FormSubmitButton
+        <Button
+          type="submit"
           data-testid="import-account-submit"
-          className="mt-auto w-full justify-center"
-          loading={isSubmitting}
+          className="mt-auto w-full"
+          isLoading={isSubmitting}
           disabled={isSubmitting}
         >
           {t('importAccount')}
-        </FormSubmitButton>
+        </Button>
       </form>
     </div>
   );

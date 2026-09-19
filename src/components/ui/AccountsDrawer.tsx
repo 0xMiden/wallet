@@ -83,10 +83,10 @@ export const AccountsDrawer: FC<AccountsDrawerProps> = ({ open, onOpenChange }) 
             type="button"
             onClick={handleSettings}
             className={classNames(
-              'flex w-full items-center justify-center gap-2 rounded-xl px-4 py-4',
-              'bg-surface-input',
+              'flex w-full items-center justify-center gap-2 rounded-2xl px-4 py-4',
+              'bg-fill',
               'font-heading text-base font-bold text-gray-secondary dark:text-pure-white',
-              'transition-colors hover:bg-[#ECEAE7] dark:hover:bg-[#3f3f3f] rounded-2xl'
+              'transition-colors hover:bg-fill-pressed'
             )}
           >
             <Icon name={IconName.SettingsNew} className="w-4 h-4" fill="currentColor" />
@@ -97,10 +97,10 @@ export const AccountsDrawer: FC<AccountsDrawerProps> = ({ open, onOpenChange }) 
             type="button"
             onClick={handleImportAccount}
             className={classNames(
-              'flex w-full items-center justify-center gap-2 rounded-xl px-4 py-4',
-              'bg-surface-input',
+              'flex w-full items-center justify-center gap-2 rounded-2xl px-4 py-4',
+              'bg-fill',
               'text-sm font-semibold text-gray-secondary dark:text-pure-white',
-              'transition-colors hover:bg-[#ECEAE7] dark:hover:bg-[#3f3f3f] rounded-2xl'
+              'transition-colors hover:bg-fill-pressed'
             )}
           >
             <Icon name={IconName.Add} className="w-4 h-4" fill="currentColor" />

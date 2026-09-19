@@ -75,10 +75,15 @@ button:disabled,
  * transition/animation inline, and every call site sets either the
  * TRANSITIONS.DURATION (0.5s) shorthand this rule clamps, or `'none'`
  * (drag-move, unaffected) — there is no other animated property on
- * [data-vaul-drawer] or [data-vaul-overlay] left uncovered. */
+ * [data-vaul-drawer] or [data-vaul-overlay] left uncovered.
+ * On the extension (`shouldScaleBackground`) vaul also scales the app behind
+ * the sheet: useScaleBackground() writes an inline 0.5s transition-duration on
+ * [data-vaul-drawer-wrapper] (App.tsx), so the wrapper is clamped here too and
+ * the scale lands at once under reduced motion. */
 @media (prefers-reduced-motion: reduce) {
   [data-vaul-drawer],
-  [data-vaul-overlay] {
+  [data-vaul-overlay],
+  [data-vaul-drawer-wrapper] {
     transition-duration: 0.01ms !important;
     transition-delay: 0s !important;
     animation-duration: 0.01ms !important;
@@ -88,52 +93,6 @@ button:disabled,
 
 .tippy-content {
   white-space: pre-line;
-}
-
-/**
- * React Modal
- */
-
-.ReactModal__Overlay {
-  opacity: 0;
-  transition: opacity 200ms ease-out;
-}
-
-.ReactModal__Content {
-  transform: scale(0.96);
-  transition: transform 200ms ease-out;
-}
-
-.ReactModal__Overlay--after-open {
-  opacity: 1;
-}
-
-.ReactModal__Overlay--before-close {
-  opacity: 0;
-}
-
-.ReactModal__Overlay--after-open .ReactModal__Content {
-  transform: scale(1);
-}
-
-.ReactModal__Overlay--before-close .ReactModal__Content {
-  transform: scale(0.96);
-}
-
-#recall-height-modal.ReactModal__Content {
-  transform: scale(1);
-  transform: translateY(2rem);
-  transition: transform 200ms ease-out;
-}
-
-.ReactModal__Overlay--after-open #recall-height-modal.ReactModal__Content {
-  transform: scale(1);
-  transform: translateY(0);
-}
-
-.ReactModal__Overlay--before-close #recall-height-modal.ReactModal__Content {
-  transform: scale(1);
-  transform: translateY(2rem);
 }
 
 /**
@@ -422,10 +381,9 @@ body[data-hide-navbar]::after {
     --color-app-bg: #ffffff;
     --color-surface: #ffffff;
     --color-surface-solid: #ffffff;
-    --color-surface-secondary: #f9f9f9;
-    --color-surface-tertiary: #f3f3f3;
-    --color-text-primary: #3f3f3f;
-    --color-text-secondary: #484848;
+    /* Legacy `black`: text-black is now text-ink, but the overlays and the camera frame still
+     * read bg-black / border-black / from-black, so the var follows ink rather than going. */
+    --color-text-primary: var(--ds-ink);
     --color-text-tertiary: rgba(63, 63, 63, 0.4);
     --color-border: rgba(63, 63, 63, 0.16);
     --color-border-secondary: #e9ebef;
@@ -451,8 +409,6 @@ body[data-hide-navbar]::after {
     --accent-earn-tint: #efeef1;
     --accent-swap: #beacd2;
     --accent-swap-tint: #f7f5fa;
-    /* Circular navigation buttons (back, close) */
-    --surface-nav-button: #f9f9f9;
     /* Network chips: each network's own soft tint in Bread's warm palette; its logo stays as-is. */
     --network-miden-tint: #fff3ec;
     --network-miden-border: #f7d6c2;
@@ -465,11 +421,7 @@ body[data-hide-navbar]::after {
     --text-tertiary: #0000009c;
     --text-on-accent: #ffffff;
     --surface-page: #ffffff;
-    --surface-input: #f9f9f9;
-    --surface-interactive: #f6f4f2;
     --surface-inactive: #dcd4c8;
-    --surface-button-secondary: #f9f9f9;
-    --surface-button-secondary-hover: #eceae7;
     --text-gray: #808080;
     --text-gray-secondary: #8e8e93;
     --text-placeholder: #00000047;
@@ -538,10 +490,7 @@ body[data-hide-navbar]::after {
     --color-app-bg: #191919;
     --color-surface: #3f3f3f99;
     --color-surface-solid: #191919;
-    --color-surface-secondary: #3f3f3f99;
-    --color-surface-tertiary: #3f3f3f99;
-    --color-text-primary: #ffffff;
-    --color-text-secondary: #ffffff;
+    --color-text-primary: var(--ds-ink);
     --color-text-tertiary: #999999;
     --color-border: #ffffff22;
     --color-border-secondary: #444444;
@@ -564,7 +513,6 @@ body[data-hide-navbar]::after {
     --accent-earn-tint: #242426;
     --accent-swap: #beacd2;
     --accent-swap-tint: #2d2b2f;
-    --surface-nav-button: #363636;
     --network-miden-tint: #3a2418;
     --network-miden-border: #5c3622;
     --network-miden-text: #f2a57a;
@@ -576,11 +524,7 @@ body[data-hide-navbar]::after {
     --text-tertiary: rgba(255, 255, 255, 0.4);
     --text-on-accent: #ffffff;
     --surface-page: #191919;
-    --surface-input: #363636;
-    --surface-interactive: #363636;
     --surface-inactive: #3f3f3f99;
-    --surface-button-secondary: #484848;
-    --surface-button-secondary-hover: #3f3f3f;
     --text-gray: #e1d8d8;
     --text-gray-secondary: #8e8e93;
     --text-placeholder: #ffffff;

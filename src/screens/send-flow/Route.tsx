@@ -50,7 +50,7 @@ const RouteCard: React.FC<RouteCardProps> = ({ label, selected, onSelect, fee, e
   >
     <div className={clsx('flex flex-1 text-[20px] font-bold', ACCENT_CLASSES[accent].text)}>{label}</div>
     <span className="h-6 w-px shrink-0 bg-border-card" />
-    <div className="flex flex-1 items-center justify-center text-heading-gray font-bold">{fee}</div>
+    <div className="flex flex-1 items-center justify-center text-ink font-bold">{fee}</div>
     <span className="h-6 w-px shrink-0 bg-border-card" />
     <div className="flex flex-1 items-center justify-end text-base font-medium text-[#808080]">{eta}</div>
   </button>
@@ -84,7 +84,7 @@ export const RouteOptions: React.FC<RouteOptionsProps> = ({
   const fastFee = fastQuoteLoading ? (
     <Skeleton className="h-4 w-12" />
   ) : (
-    <span className="text-base font-bold text-heading-gray">{feeText}</span>
+    <span className="text-base font-bold text-ink">{feeText}</span>
   );
 
   return (
@@ -104,12 +104,12 @@ export const RouteOptions: React.FC<RouteOptionsProps> = ({
         label={t('slow')}
         selected={route === 'agglayer'}
         onSelect={() => select('agglayer')}
-        fee={<span className="text-base font-bold text-heading-gray">{t('noFee')}</span>}
+        fee={<span className="text-base font-bold text-ink">{t('noFee')}</span>}
         eta={t('slowArrival')}
         testId="bridge-route-slow"
         accent={accent}
       />
-      {notice && <p className="text-xs text-heading-gray/60">{notice}</p>}
+      {notice && <p className="text-xs text-ink/60">{notice}</p>}
     </div>
   );
 };
@@ -152,7 +152,7 @@ export const Route: React.FC<RouteStepProps> = ({
           onClick={onConfirm}
           disabled={confirmDisabled}
           data-testid="bridge-route-confirm"
-          className="w-full max-w-none rounded-full text-base font-semibold"
+          className="w-full max-w-none"
         />
       </div>
     </div>

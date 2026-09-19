@@ -6,7 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
 import { Message } from 'components/Message';
-import { NavigationHeader } from 'components/NavigationHeader';
+import { PageHeader } from 'components/PageHeader';
 
 interface ResetRequiredScreenProps {
   onConfirm: () => void;
@@ -25,7 +25,7 @@ const ForgotPasswordInfoScreen: FC<ResetRequiredScreenProps> = ({ onConfirm }) =
         'overflow-hidden relative'
       )}
     >
-      <NavigationHeader title={t('resetRequired')} />
+      <PageHeader className="px-4" title={t('resetRequired')} />
       <div className="flex flex-col flex-1 p-4 justify-between md:w-[460px] md:mx-auto">
         <div className="flex flex-col grow items-center justify-center">
           <Message

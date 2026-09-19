@@ -97,17 +97,17 @@ export const TransactionSummaryBadge: FC<TransactionSummaryBadgeProps> = ({
     // reads as "this whole list → Consumed".
     <div
       className={classNames(
-        'flex w-full items-center justify-center gap-2 rounded-3xl bg-surface-interactive px-4 py-4 text-base',
+        'flex w-full items-center justify-center gap-2 rounded-3xl bg-fill px-4 py-4 text-base',
         className
       )}
     >
-      <div className="flex min-w-0 flex-wrap justify-center font-heading items-center gap-1.5 font-extrabold text-heading-gray text-xl dark:text-pure-white">
+      <div className="flex min-w-0 flex-wrap justify-center font-heading items-center gap-1.5 font-extrabold text-ink text-xl dark:text-pure-white">
         {lhs}
       </div>
       <span className="shrink-0" aria-hidden="true">
         {separator ?? <HorizontalArrowGlyph fill={fillForArrow} />}
       </span>
-      <div className="flex min-w-0 items-center gap-2 font-bold text-heading-gray text-xl font-heading dark:text-pure-white">
+      <div className="flex min-w-0 items-center gap-2 font-bold text-ink text-xl font-heading dark:text-pure-white">
         {rhs}
       </div>
     </div>
@@ -134,7 +134,7 @@ interface ResolvedAsset {
 // without a quantity rather than shown at an invented one.
 const SwapAmountText: FC<{ amount?: string; symbol: string }> = ({ amount, symbol }) => (
   <span className="min-w-0 truncate whitespace-nowrap text-2xl font-extrabold">
-    {amount !== undefined && <span className="text-heading-gray">{amount}</span>}
+    {amount !== undefined && <span className="text-ink">{amount}</span>}
     <span className="text-gray">{symbol}</span>
   </span>
 );

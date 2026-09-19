@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
+import { pageSlideDim, pageSlideParallax, presets, reducedMotionTransition } from 'lib/animation';
 import { setReturningFromWebview } from 'lib/mobile/webview-state';
 import { HistoryAction } from 'lib/woozie/history';
 import { LocationState, useLocation } from 'lib/woozie/location';
@@ -10,11 +11,18 @@ import FullScreenPage from './FullScreenPage';
 import MobilePageLayers from './MobilePageLayers';
 import { usePageActive } from './page-active';
 
-const mockMotion = { reduce: false };
+const mockMotion: { reduce: boolean; layers: Record<string, any> } = { reduce: false, layers: {} };
 
+// The real framer-motion. motion.div also records the props each page layer last rendered with.
 jest.mock('framer-motion', () => {
   const actual = jest.requireActual<typeof import('framer-motion')>('framer-motion');
-  return { ...actual, useReducedMotion: () => mockMotion.reduce };
+  const R = require('react');
+  const div = R.forwardRef((props: any, ref: any) => {
+    if (props['data-page-layer']) mockMotion.layers[props['data-page-layer']] = props;
+    return R.createElement(actual.motion.div, { ...props, ref });
+  });
+  const motion = new Proxy(actual.motion, { get: (target, key) => (key === 'div' ? div : Reflect.get(target, key)) });
+  return { ...actual, motion, useReducedMotion: () => mockMotion.reduce };
 });
 
 function location(pathname: string, trigger = HistoryAction.Push): LocationState {
@@ -56,6 +64,7 @@ function view(pathname: string, slide = false, key = pathname, trigger = History
 
 afterEach(() => {
   mockMotion.reduce = false;
+  mockMotion.layers = {};
   setReturningFromWebview(false);
 });
 
@@ -183,4 +192,33 @@ it.each(['reduced motion', 'webview return'])('skips retention for %s', async mo
   rerender(view('/settings', true));
   await waitFor(() => expect(container.querySelectorAll('[data-page-layer]')).toHaveLength(1));
   expect(screen.getByRole('button')).toHaveTextContent('/settings count 0');
+});
+
+it('moves the layers on the page preset: the covered page to the parallax offset under the dim', async () => {
+  const { container, rerender } = render(view('/history'));
+  rerender(view('/settings', true));
+
+  const covered = mockMotion.layers['/history'];
+  expect(covered.animate).toEqual({ x: pageSlideParallax });
+  expect(covered.transition).toBe(presets.page.transition);
+  expect(mockMotion.layers['/settings'].transition).toBe(presets.page.transition);
+
+  const dim = container.querySelector('[data-page-layer="/history"] > [aria-hidden]:last-child');
+  await waitFor(() => expect(dim).toHaveStyle({ opacity: String(pageSlideDim) }));
+});
+
+it('slides a popped page out to the page preset exit and brings the page beneath back from the parallax offset', () => {
+  const { rerender } = render(view('/history'));
+  rerender(view('/history-details/one', true));
+  rerender(view('/history', false, '/history', HistoryAction.Pop));
+
+  expect(mockMotion.layers['/history-details/one'].animate).toEqual(presets.page.exit);
+  expect(mockMotion.layers['/history'].animate).toEqual(presets.page.animate);
+  expect(mockMotion.layers['/history'].transition).toBe(presets.page.transition);
+});
+
+it('makes the layer transition instant under reduced motion', () => {
+  mockMotion.reduce = true;
+  render(view('/settings', true));
+  expect(mockMotion.layers['/settings'].transition).toEqual(reducedMotionTransition);
 });

@@ -52,10 +52,7 @@ export const SelectRecoveryMethodScreen = ({
   };
 
   return (
-    <div
-      className="flex-1 flex flex-col items-center bg-transparent pt-6 h-full px-4 text-heading-gray gap-6"
-      {...props}
-    >
+    <div className="flex-1 flex flex-col items-center bg-transparent pt-6 h-full px-4 text-ink gap-6" {...props}>
       <div className="flex flex-col items-center gap-2">
         <h1 className="font-semibold text-2xl lh-title">{t('chooseRecoveryMethod')}</h1>
         <p className="text-xs text-center lh-title px-4">{t('chooseRecoveryMethodDescription')}</p>
@@ -86,7 +83,7 @@ export const SelectRecoveryMethodScreen = ({
         ))}
       </div>
       <div className="flex flex-col gap-2 self-center w-full mt-auto">
-        <Button title={t('continue')} onClick={handleContinue} className="text-base" />
+        <Button title={t('continue')} onClick={handleContinue} />
       </div>
     </div>
   );

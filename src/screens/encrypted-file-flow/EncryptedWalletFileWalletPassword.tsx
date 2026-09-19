@@ -138,7 +138,7 @@ const EncryptedWalletFileWalletPassword: React.FC<EncryptedWalletFileWalletPassw
   }
 
   return (
-    <div className="flex flex-col flex-1 min-h-0 text-heading-gray pb-6">
+    <div className="flex flex-col flex-1 min-h-0 text-ink pb-6">
       <div className="flex flex-col">
         <div className="flex flex-col justify-stretch gap-y-4">
           <p className="text-base font-medium leading-[130%]">
@@ -178,7 +178,7 @@ const EncryptedWalletFileWalletPassword: React.FC<EncryptedWalletFileWalletPassw
               type="error"
               title={t('error')}
               description={`${t('unlockPasswordErrorDelay')} ${timeleft}`}
-              className="mt-8 rounded-lg text-black mx-auto"
+              className="mt-8 rounded-lg text-ink mx-auto"
               style={{ width: '80%' }}
             />
           )}
@@ -187,7 +187,7 @@ const EncryptedWalletFileWalletPassword: React.FC<EncryptedWalletFileWalletPassw
               type="error"
               title={t('error')}
               description={errors.password.message || ''}
-              className="mt-4 rounded-lg text-black mx-auto"
+              className="mt-4 rounded-lg text-ink mx-auto"
               style={{ width: '80%' }}
             />
           )}

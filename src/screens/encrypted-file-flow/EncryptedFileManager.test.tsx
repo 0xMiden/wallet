@@ -124,10 +124,10 @@ jest.mock('lib/ui/drawer', () => ({
   DrawerTitle: ({ children }: { children: React.ReactNode }) => <h2 data-testid="drawer-title">{children}</h2>
 }));
 
-jest.mock('components/NavigationHeader', () => ({
+jest.mock('components/PageHeader', () => ({
   __esModule: true,
-  NavigationHeader: (props: { title?: string; onBack?: () => void }) => (
-    <div data-testid="nav-header">
+  PageHeader: (props: { title?: string; onBack?: () => void; className?: string }) => (
+    <div data-testid="nav-header" className={props.className}>
       <span data-testid="nh-title">{props.title}</span>
       <button data-testid="nh-back" onClick={props.onBack} />
     </div>
@@ -303,6 +303,9 @@ describe('export chrome / renderStep', () => {
 
     expect(screen.getByTestId('nav-header')).toBeInTheDocument();
     expect(screen.getByTestId('nh-title')).toHaveTextContent('encryptedWalletFile');
+    // PageHeader has no horizontal padding of its own — the page supplies it,
+    // or the back chevron's hit area is clipped by an overflow-hidden ancestor.
+    expect(screen.getByTestId('nav-header')).toHaveClass('px-4');
     expect(screen.getByTestId('navigator')).toBeInTheDocument();
     expect(screen.getByTestId('drawer')).toHaveAttribute('data-open', 'false');
   });

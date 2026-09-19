@@ -47,7 +47,7 @@ const DAppDrawerSettings: FC = () => {
     <div className="w-full flex flex-col gap-6">
       <div className="flex flex-col">
         <div className="flex w-full justify-between">
-          <span className="font-medium text-sm text-heading-gray">{t('dAppsInteraction')}</span>
+          <span className="font-medium text-sm text-ink">{t('dAppsInteraction')}</span>
           <ToggleSwitch
             checked={dAppEnabled}
             onChange={handleChange}
@@ -55,14 +55,14 @@ const DAppDrawerSettings: FC = () => {
             testID={GeneralSettingsSelectors.DAppToggle}
           />
         </div>
-        {/* `text-heading-gray`: `text-text-muted` is #ababab, 2.30:1 on the light
+        {/* `text-ink`: `text-text-muted` is #ababab, 2.30:1 on the light
             page, and this 12px line is the only explanation of what the toggle does. */}
-        <span className="text-xs text-heading-gray">{t('dAppsToggleDescription')}</span>
+        <span className="text-xs text-ink">{t('dAppsToggleDescription')}</span>
       </div>
 
       {hasConnectedDApps && (
         <button type="button" onClick={() => navigate('/settings/dapps')} className="w-full">
-          <div className="flex items-center justify-between text-heading-gray">
+          <div className="flex items-center justify-between text-ink">
             <div className="flex flex-col">
               <span className="font-medium text-base">{t('seeConnected')}</span>
             </div>

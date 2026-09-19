@@ -194,7 +194,7 @@ export const PromptCard: FC<PromptCardProps> = ({
       }}
       onClick={onClick ? handleClick : undefined}
       className={classNames(
-        'relative overflow-hidden w-full h-[72px] bg-surface-input rounded-10',
+        'relative overflow-hidden w-full h-[72px] bg-fill rounded-2xl',
         'flex items-center gap-3 px-4',
         // Tappable cards press in like the app's buttons do.
         onClick && 'transition-transform active:scale-[0.98]',
@@ -260,12 +260,12 @@ export const PromptCard: FC<PromptCardProps> = ({
                 <Icon name={hero.icon} size="xs" fill="currentColor" />
               </motion.span>
             </span>
-            <span className="font-heading text-xl font-extrabold text-heading-gray">{hero.label}</span>
+            <span className="font-heading text-xl font-extrabold text-ink">{hero.label}</span>
           </div>
           {hero.subLabel && <span className="text-xs font-normal text-text-tertiary-token">{hero.subLabel}</span>}
         </motion.div>
       ) : (
-        <Lockup className="flex flex-col gap-1 min-w-0 flex-1 text-left text-black">
+        <Lockup className="flex flex-col gap-1 min-w-0 flex-1 text-left text-ink">
           <div className={classNames('text-base font-bold font-heading leading-tight truncate')}>{title}</div>
           {body && <div className="text-xs font-normal line-clamp-2">{body}</div>}
         </Lockup>

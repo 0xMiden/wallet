@@ -4,9 +4,8 @@ import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 import { Area, AreaChart, Tooltip, YAxis } from 'recharts';
 
-import { IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
-import { CircleButton } from 'components/CircleButton';
+import { PageHeader } from 'components/PageHeader';
 import { toAdaptiveFixed } from 'lib/i18n/numbers';
 import { hapticLight, hapticSelection } from 'lib/mobile/haptics';
 import { ChartContainer } from 'lib/ui/charts';
@@ -35,20 +34,11 @@ const EarnPositionDetail: FC<EarnPositionDetailProps> = ({ positionId }) => {
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-app-bg font-inter" data-testid="earn-position-detail-page">
-      <header className="shrink-0 border-b border-rule-default px-4 pb-4 pt-5">
-        <div className="flex items-center gap-3">
-          <CircleButton
-            icon={IconName.ChevronLeft}
-            onClick={goBack}
-            className="h-10 w-10 bg-gray-25 text-heading-gray hover:bg-gray-50 focus:bg-gray-50"
-            size="md"
-            aria-label={t('back')}
-          />
-          <h1 className="min-w-0 truncate font-heading text-[26px] font-bold leading-none text-heading-gray">
-            {t('earnPositionHeaderTitle', { protocol: position.protocol, asset: position.asset })}
-          </h1>
-        </div>
-      </header>
+      <PageHeader
+        className="shrink-0 px-4"
+        title={t('earnPositionHeaderTitle', { protocol: position.protocol, asset: position.asset })}
+        onBack={goBack}
+      />
 
       <div className="flex-1 overflow-y-auto">
         <div className="flex flex-col px-4 pb-8 pt-6">
@@ -113,7 +103,7 @@ const PositionAreaChart: FC<{ position: EarnPosition }> = ({ position }) => {
               if (!active || !payload?.[0]) return null;
               const point = payload[0].payload;
               return (
-                <div className="rounded-lg bg-heading-gray px-2 py-1 text-xs text-pure-white shadow">
+                <div className="rounded-lg bg-ink px-2 py-1 text-xs text-pure-white shadow">
                   <div className="font-heading font-semibold">${toAdaptiveFixed(point.value)}</div>
                   <div className="opacity-75">{point.label}</div>
                 </div>
@@ -145,10 +135,10 @@ const PositionHeading: FC<{ position: EarnPosition }> = ({ position }) => {
   return (
     <div className="mt-4 flex items-center gap-2">
       <PositionLogo asset={position.asset} className="h-6 w-6" />
-      <h2 className="font-heading text-[26px] font-bold leading-none text-heading-gray">
+      <h2 className="font-heading text-[26px] font-bold leading-none text-ink">
         {position.protocol} &bull; {position.asset}
       </h2>
-      <span className="rounded-full bg-[#DDD4CE] px-2 py-1 text-[10px] font-medium leading-none text-heading-gray">
+      <span className="rounded-full bg-[#DDD4CE] px-2 py-1 text-[10px] font-medium leading-none text-ink">
         {t('earnAssetOnNetwork', { asset: position.asset, network: position.network })}
       </span>
     </div>
@@ -226,8 +216,8 @@ const PositionDetails: FC<{ position: EarnPosition }> = ({ position }) => {
       <div className="flex flex-col gap-5">
         {rows.map(row => (
           <div key={row.label} className="flex items-center justify-between gap-4 text-base leading-tight">
-            <div className="text-heading-gray">{row.label}</div>
-            <div className="text-right font-bold text-heading-gray">{row.value}</div>
+            <div className="text-ink">{row.label}</div>
+            <div className="text-right font-bold text-ink">{row.value}</div>
           </div>
         ))}
       </div>
@@ -243,7 +233,7 @@ const PositionActions: FC<{
 
   return (
     <div className="mt-16">
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-2 gap-2.5">
         <Button
           data-testid="earn-deposit-more-btn"
           title={t('earnDepositMore')}
@@ -253,7 +243,7 @@ const PositionActions: FC<{
             hapticLight();
             navigate(`/earn/vaults/${position.vaultId}/deposit`);
           }}
-          className="h-14 max-w-none rounded-full border-rule-strong bg-white text-base font-bold text-accent-primary hover:bg-white focus:bg-white"
+          className="max-w-none"
         />
         <Button
           data-testid="earn-withdraw-btn"
@@ -264,7 +254,7 @@ const PositionActions: FC<{
             hapticLight();
             onWithdraw();
           }}
-          className="h-14 max-w-none rounded-full text-base font-bold"
+          className="max-w-none"
         />
       </div>
     </div>

@@ -71,13 +71,13 @@ const SheetBody: React.FC<SheetBodyProps> = ({ address, initialNetwork, onSaved 
     >
       {/* The address is fixed here (it came from the send step), so it is a card to confirm, not
           a field to edit, and shown in full. */}
-      <div className="flex items-start gap-3 rounded-2xl bg-surface-interactive p-4">
+      <div className="flex items-start gap-3 rounded-2xl bg-fill p-4">
         <ContactAvatar address={address} name={trimmedName} network={isEvm ? 'ethereum' : 'miden'} />
         <div className="flex min-w-0 flex-1 flex-col gap-1">
           <span className="text-sm text-text-muted">{t('address')}</span>
           <p
             data-testid="add-contact-address"
-            className="font-heading text-base leading-6 font-bold break-all text-heading-gray"
+            className="font-heading text-base leading-6 font-bold break-all text-ink"
           >
             {address}
           </p>
@@ -120,7 +120,7 @@ const SheetBody: React.FC<SheetBodyProps> = ({ address, initialNetwork, onSaved 
         disabled={!trimmedName || saving}
         isLoading={saving}
         data-testid="address-book-add-contact"
-        className="w-full max-w-none rounded-full text-base font-semibold"
+        className="w-full max-w-none"
       />
     </form>
   );

@@ -47,10 +47,7 @@ export const SegmentedActionBar: FC<SegmentedActionBarProps> = ({
   };
 
   return (
-    <div
-      role="tablist"
-      className={classNames('flex h-16 items-center gap-1 overflow-hidden bg-gray-25 px-3', className)}
-    >
+    <div role="tablist" className={classNames('flex h-16 items-center gap-1 overflow-hidden bg-fill px-3', className)}>
       {items.map(item => {
         const isActive = item.id === activeId;
         return (
@@ -63,9 +60,8 @@ export const SegmentedActionBar: FC<SegmentedActionBarProps> = ({
             onClick={() => handleSelect(item.id)}
             layout
             transition={barTransition}
-            style={{ borderRadius: 22 }}
             className={classNames(
-              'relative flex h-12 min-w-0 items-center justify-center overflow-hidden',
+              'relative flex h-12 min-w-0 items-center justify-center overflow-hidden rounded-full',
               'text-text-primary-token transition-colors duration-200',
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary/30',
               isActive
@@ -76,8 +72,7 @@ export const SegmentedActionBar: FC<SegmentedActionBarProps> = ({
             {isActive && (
               <motion.span
                 layoutId={layoutId}
-                style={{ borderRadius: 22 }}
-                className="absolute inset-0 bg-white shadow-[0_1px_2px_rgba(0,0,0,0.04)]"
+                className="absolute inset-0 rounded-full bg-white shadow-[0_1px_2px_rgba(0,0,0,0.04)]"
                 transition={barTransition}
               />
             )}

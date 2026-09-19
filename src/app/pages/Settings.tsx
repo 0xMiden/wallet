@@ -417,9 +417,9 @@ const Settings: FC<SettingsProps> = ({ tabSlug, rootScrollTop: savedRootScrollTo
   // the viewport, which is where these screens pin their primary action.
   //
   // Through the shared hook rather than the body attribute directly: the flag is
-  // reference-counted, and RevealSecret and every CustomModal are also holders.
-  // Setting it here by hand meant a modal closing over a settings sub-page (the
-  // confirm in Address Book, say) dropped the count to zero and cleared the flag
+  // reference-counted, and RevealSecret and the confirm/alert sheet are also holders.
+  // Setting it here by hand meant a confirmation closing over a settings sub-page (the
+  // one in Address Book, say) dropped the count to zero and cleared the flag
   // while this page still wanted it.
   useHideDappBubblesWhileOpen(showSeedWarning || activeTab !== null);
 
@@ -585,16 +585,16 @@ const Settings: FC<SettingsProps> = ({ tabSlug, rootScrollTop: savedRootScrollTo
               transition={{ duration: 0.3, ease: 'easeOut' }}
             >
               <div className="mt-6 px-4">
-                <div className="bg-gray-25 rounded-2xl px-6 py-8">
+                <div className="bg-fill rounded-2xl px-6 py-8">
                   <div className="grid grid-cols-2 gap-x-6 gap-y-5 place-items-center">
                     {Array.from({ length: 12 }).map((_, i) => (
-                      <div key={i} className="h-1.5 rounded-full bg-gray-50" style={{ width: 144 }} />
+                      <div key={i} className="h-1.5 rounded-full bg-fill-pressed" style={{ width: 144 }} />
                     ))}
                   </div>
                 </div>
 
                 <div className="mt-4 bg-white rounded-xl p-4 text-center">
-                  <p className="text-sm text-heading-gray">{t('pleaseWriteDownRecoveryPhrase')}</p>
+                  <p className="text-sm text-ink">{t('pleaseWriteDownRecoveryPhrase')}</p>
                 </div>
               </div>
 
@@ -604,8 +604,8 @@ const Settings: FC<SettingsProps> = ({ tabSlug, rootScrollTop: savedRootScrollTo
                     <Icon name={IconName.EyeOff} size="md" fill="white" />
                   </div>
 
-                  <h3 className="text-base font-medium text-black mb-1">{t('viewThisInPrivatePlace')}</h3>
-                  <p className="text-sm text-black mb-8 font-medium">{t('anyoneWithRecoveryPhrase')}</p>
+                  <h3 className="text-base font-medium text-ink mb-1">{t('viewThisInPrivatePlace')}</h3>
+                  <p className="text-sm text-ink mb-8 font-medium">{t('anyoneWithRecoveryPhrase')}</p>
                 </div>
                 <div className="flex gap-4 w-full px-4">
                   <Button

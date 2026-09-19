@@ -19,13 +19,13 @@ export interface ReviewAction {
 }
 
 export interface ReviewLayoutProps {
-  /** Hero block — a ReviewAmount (send) or a composed swap hero. */
+  /** Hero block — a `Hero` amount (bridge deposit) or a composed swap hero. */
   hero: React.ReactNode;
-  /** Orange underline under the hero. Default true (send); pass false for swap (its hero owns its dividers). */
+  /** Orange underline under the hero. Default true; every current caller passes false (kept for a future hero that wants the accent divider back). */
   heroDivider?: boolean;
-  /** Divider lines between the detail rows. Default true (send); pass false for swap. */
+  /** Divider lines around the children. Default true; a caller whose rows already live in one `DetailCard` (its own hairlines) passes false. */
   dividers?: boolean;
-  /** The ReviewRow list. */
+  /** The row content — a `DetailCard` of `DetailRow`s. */
   children: React.ReactNode;
   primary: ReviewAction;
   secondary?: ReviewAction;
@@ -74,7 +74,7 @@ export const ReviewLayout: React.FC<ReviewLayoutProps> = ({
           isLoading={primary.loading}
           disabled={primary.disabled || primary.loading}
           data-testid={primary['data-testid']}
-          className="w-full max-w-none rounded-full text-base font-semibold"
+          className="w-full max-w-none"
         />
         {secondary && (
           <Button
@@ -83,7 +83,7 @@ export const ReviewLayout: React.FC<ReviewLayoutProps> = ({
             variant={ButtonVariant.Secondary}
             onClick={secondary.onPress}
             disabled={secondary.disabled}
-            className="w-full max-w-none rounded-full text-base font-semibold"
+            className="w-full max-w-none"
           />
         )}
       </div>

@@ -206,7 +206,7 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
             <Icon name={IconName.Globe} className="text-primary-600" />
           </div>
           <div className="min-w-0 flex-1">
-            <h2 id="dapp-confirmation-title" className="truncate text-lg font-semibold text-black">
+            <h2 id="dapp-confirmation-title" className="truncate text-lg font-semibold text-ink">
               {appName}
             </h2>
             <p className="truncate text-sm text-text-muted">{request.origin}</p>
@@ -218,7 +218,7 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
           <p className="mb-4 text-sm text-text-muted">{t(confirmationPromptKey(request.type))}</p>
 
           {isTransaction && transactionMessages.length > 0 && (
-            <div className="mb-4 rounded-xl bg-gray-50 p-4">
+            <div className="mb-4 rounded-xl bg-fill p-4">
               {transactionMessages.map((msg, i) => (
                 <div
                   key={i}
@@ -268,9 +268,9 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
             </div>
           )}
 
-          <div className="rounded-xl bg-gray-50 p-4">
+          <div className="rounded-xl bg-fill p-4">
             <p className="mb-1 text-xs text-text-muted">{t('network')}</p>
-            <p className="text-sm capitalize text-black">{request.network}</p>
+            <p className="text-sm capitalize text-ink">{request.network}</p>
           </div>
         </div>
 

@@ -90,7 +90,7 @@ export const SendAmount: React.FC<SendAmountProps> = ({
           onClick={onConfirm}
           disabled={!canProceed}
           data-testid="send-amount-confirm"
-          className="w-full max-w-none rounded-full text-base font-semibold"
+          className="w-full max-w-none"
         />
       }
     >
@@ -104,7 +104,7 @@ export const SendAmount: React.FC<SendAmountProps> = ({
         onValueChange={(value, _name, values) => onAmountChange(values?.formatted || value || '')}
       />
 
-      <div className="mt-8 rounded-2xl bg-surface-interactive">
+      <div className="mt-8 rounded-2xl bg-fill">
         <div className="flex items-center gap-3 px-4 py-3">
           <button
             type="button"
@@ -121,7 +121,7 @@ export const SendAmount: React.FC<SendAmountProps> = ({
               <span className="h-9 w-9 shrink-0 rounded-full bg-gray-100" aria-hidden="true" />
             )}
             <span className="flex min-w-0 flex-col gap-0.5">
-              <span className="flex items-center gap-1 font-heading text-lg leading-tight font-bold text-heading-gray">
+              <span className="flex items-center gap-1 font-heading text-lg leading-tight font-bold text-ink">
                 {token ? token.name : t('selectAToken')}
                 <Icon name={IconName.ChevronDown} size="xs" className="text-accent-send" fill="currentColor" />
               </span>
@@ -160,7 +160,7 @@ export const SendAmount: React.FC<SendAmountProps> = ({
           <span className="text-sm text-text-muted">{t('to')}</span>
           <span
             data-testid="send-amount-recipient"
-            className="min-w-0 flex-1 truncate font-heading text-base font-bold text-heading-gray"
+            className="min-w-0 flex-1 truncate font-heading text-base font-bold text-ink"
           >
             {recipientName ?? truncateAddress(recipientAddress)}
           </span>
@@ -191,10 +191,10 @@ export const SendAmount: React.FC<SendAmountProps> = ({
                   name={IconName.InformationFill}
                   size="xs"
                   fill="currentColor"
-                  className="mt-0.5 shrink-0 text-heading-gray"
+                  className="mt-0.5 shrink-0 text-ink"
                 />
                 <div className="flex flex-col items-start gap-1">
-                  <span className="text-sm text-heading-gray">{t('insufficientFeeAsset')}</span>
+                  <span className="text-sm text-ink">{t('insufficientFeeAsset')}</span>
                   <button
                     type="button"
                     data-testid="send-fee-notice-receive"

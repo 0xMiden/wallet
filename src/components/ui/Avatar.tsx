@@ -1,23 +1,36 @@
 import React from 'react';
 
-import clsx from 'clsx';
+import { cva } from 'class-variance-authority';
 
 /** The design system's avatar scale. `36` exists for token logos; everything else in the app uses 24, 40 or 88. */
 export type AvatarSize = 24 | 36 | 40 | 88;
 
-const SIZE_CLASSES: Record<AvatarSize, { box: string; text: string }> = {
-  24: { box: 'h-6 w-6', text: 'text-[10px]' },
-  36: { box: 'h-9 w-9', text: 'text-sm' },
-  40: { box: 'h-10 w-10', text: 'text-sm' },
-  88: { box: 'h-22 w-22', text: 'text-3xl' }
-};
+const avatarVariants = cva(
+  'flex items-center justify-center overflow-hidden rounded-full font-heading font-bold text-pure-white',
+  {
+    variants: {
+      size: {
+        24: 'h-6 w-6 text-[10px]',
+        36: 'h-9 w-9 text-sm',
+        40: 'h-10 w-10 text-sm',
+        88: 'h-22 w-22 text-3xl'
+      } satisfies Record<AvatarSize, string>
+    },
+    defaultVariants: { size: 40 }
+  }
+);
 
-const BADGE_CLASSES: Record<AvatarSize, string> = {
-  24: 'h-3.5 w-3.5 -right-0.5 -bottom-0.5',
-  36: 'h-4 w-4 -right-1 -bottom-1',
-  40: 'h-5 w-5 -right-1 -bottom-1',
-  88: 'h-8 w-8 -right-0.5 -bottom-0.5'
-};
+const avatarBadgeVariants = cva('absolute flex items-center justify-center rounded-full border-2 border-page bg-page', {
+  variants: {
+    size: {
+      24: 'h-3.5 w-3.5 -right-0.5 -bottom-0.5',
+      36: 'h-4 w-4 -right-1 -bottom-1',
+      40: 'h-5 w-5 -right-1 -bottom-1',
+      88: 'h-8 w-8 -right-0.5 -bottom-0.5'
+    } satisfies Record<AvatarSize, string>
+  },
+  defaultVariants: { size: 40 }
+});
 
 export interface AvatarProps {
   size?: AvatarSize;
@@ -56,17 +69,12 @@ export const Avatar: React.FC<AvatarProps> = ({
   'data-testid': dataTestId,
   ...dataAttributes
 }) => {
-  const sizing = SIZE_CLASSES[size];
-
   return (
     <span className="relative inline-flex shrink-0" data-testid={dataTestId} {...dataAttributes}>
       <span
-        className={clsx(
-          'flex items-center justify-center overflow-hidden rounded-full font-heading font-bold text-pure-white',
-          sizing.box,
-          sizing.text,
-          className
-        )}
+        // Plain concatenation (no tailwind-merge): a caller's class sits beside the variant's, as
+        // it always has (e.g. a squared token tile adds its radius next to `rounded-full`).
+        className={avatarVariants({ size, className })}
         style={!image && color ? { backgroundColor: color } : undefined}
       >
         {image ? (
@@ -77,16 +85,7 @@ export const Avatar: React.FC<AvatarProps> = ({
           icon
         )}
       </span>
-      {badge && (
-        <span
-          className={clsx(
-            'absolute flex items-center justify-center rounded-full border-2 border-page bg-page',
-            BADGE_CLASSES[size]
-          )}
-        >
-          {badge}
-        </span>
-      )}
+      {badge && <span className={avatarBadgeVariants({ size })}>{badge}</span>}
     </span>
   );
 };

@@ -96,8 +96,6 @@
   "versionLabel": "版本：$version$",
   "resetPermissionsConfirmation": "您確定要重設\n $origin$的權限嗎？",
   "clickToRevealField": "點擊以顯示此欄位",
-  "copiedHash": "已複製。",
-  "copyHashToClipboard": "複製到剪貼簿",
   "accounts": "帳戶",
   "cardColor": "卡片顏色",
   "lock": "鎖",

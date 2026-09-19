@@ -61,18 +61,32 @@ describe('ExternalLinkValue', () => {
       />
     );
 
-    // Wrapper carries the layout/typography classes.
+    // Wrapper carries the layout/typography classes. `min-w-0` lets a Pill-with-copy displayValue
+    // (whose own `truncate` needs a bounded width) actually shrink within a narrow row instead of
+    // forcing it wider; `max-w-full` caps the row at its parent's width so a long value (e.g. a
+    // "You (account name)" chip) truncates against that cap instead of overflowing it.
     const root = container.firstChild as HTMLElement;
-    expect(root).toHaveClass('flex', 'items-center', 'gap-1', 'text-sm', 'text-heading-gray', 'font-medium');
+    expect(root).toHaveClass(
+      'flex',
+      'min-w-0',
+      'max-w-full',
+      'items-center',
+      'gap-1',
+      'text-sm',
+      'text-ink',
+      'font-medium'
+    );
 
     // The provided ReactNode is rendered verbatim.
     expect(screen.getByTestId('disp')).toHaveTextContent('0xabc…def');
 
-    // External anchor with the security attributes and target.
+    // External anchor with the security attributes and target, and `shrink-0` so the min-w-0 row
+    // squeezes the displayValue rather than the link's own arrow glyph.
     const anchor = container.querySelector('a') as HTMLAnchorElement;
     expect(anchor).toHaveAttribute('href', 'https://explorer.example/tx/1');
     expect(anchor).toHaveAttribute('target', '_blank');
     expect(anchor).toHaveAttribute('rel', 'noreferrer');
+    expect(anchor).toHaveClass('shrink-0');
 
     // Icon forwarded with the ArrowRightUp name + xs size + gray fill.
     const icon = screen.getByTestId('v2-icon');

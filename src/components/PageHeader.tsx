@@ -4,7 +4,7 @@ import clsx from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import { IconName } from 'app/icons/v2';
-import { NavButton } from 'components/NavButton';
+import { IconButton } from 'components/ui/IconButton';
 
 export interface PageHeaderProps {
   /** Omit when the page's body owns its heading, so there is never an empty `<h1>`. */
@@ -50,15 +50,8 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
   return (
     <header className={clsx('flex h-13 shrink-0 items-center gap-3', className)}>
       {onBack && (
-        <NavButton
-          icon={IconName.ChevronLeft}
-          label={t('back')}
-          onClick={onBack}
-          appearance="bare"
-          // Always ink, in a flow too: the flow accents are under 3:1 on white.
-          iconClassName="text-ink"
-          data-testid={backTestId}
-        />
+        // `bare` is always `ink`, in a flow too: the flow accents are under 3:1 on white.
+        <IconButton icon={IconName.ChevronLeft} label={t('back')} onClick={onBack} data-testid={backTestId} />
       )}
       {title ? (
         <h1
@@ -73,16 +66,7 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
         <span className="flex-1" />
       )}
       {actions}
-      {onClose && (
-        <NavButton
-          icon={IconName.Close}
-          label={t('close')}
-          onClick={onClose}
-          appearance="bare"
-          iconClassName="text-ink"
-          data-testid={closeTestId}
-        />
-      )}
+      {onClose && <IconButton icon={IconName.Close} label={t('close')} onClick={onClose} data-testid={closeTestId} />}
     </header>
   );
 };
