@@ -104,6 +104,7 @@
 - [CHANGE][all] Swap review and the EVM bridge deposit review move their rows onto the shared detail card, with the amount(s) as a hero value instead of a bespoke 40px block; Guardian Settings' connection details (provider, endpoint, region, last sync) move onto the same detail card, and the new-contact page's avatar moves onto the same centered hero as the rest of the wallet.
 - [FIX][all] Home/Explore/top-bar consistency pass: the prompt card and Explore app tiles use the 16px design-system radius, the segmented action bar's segments and pill are fully round instead of a fixed 22px corner, Activity's icon tiles are round instead of square, and the last raw hex colors on these screens (the balance delta pill, the balance card's divider rule, Activity's timestamp, the Explore tile border, the Accounts drawer's hover fill, and the bottom nav's notification dot) now point at design tokens. The Accounts drawer's Settings/Import Account rows no longer carry two conflicting border-radius classes, and Home's bottom scroll padding now matches Explore's.
 - [FIX][all] Text fields show their whole focus and error outline; on the New contact page it was cut off at the left and right edges.
+- [CHANGE][all] The last grey surfaces and text colors from before the design system move onto its tokens: inputs, cards, secondary buttons and chips sit on the same warm fill (a pressed or hovered one on its darker step), and headings and body text use one ink color instead of two slightly different greys.
 
 ## 1.16.1 (2026-09-15)
 

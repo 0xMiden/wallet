@@ -48,10 +48,10 @@ const GuardianReplaceHotKey: FC = () => {
 
   return (
     <div className="w-full pb-10">
-      <p className="text-sm text-heading-gray font-medium mb-1">{t('replaceHotKey')}</p>
-      <p className="text-xs text-heading-gray mb-3 select-text">{t('replaceHotKeyDescription')}</p>
+      <p className="text-sm text-ink font-medium mb-1">{t('replaceHotKey')}</p>
+      <p className="text-xs text-ink mb-3 select-text">{t('replaceHotKeyDescription')}</p>
 
-      {confirming && <div className="text-xs text-heading-gray mb-3 select-text">{t('replaceHotKeyConfirmation')}</div>}
+      {confirming && <div className="text-xs text-ink mb-3 select-text">{t('replaceHotKeyConfirmation')}</div>}
 
       <Button
         type="button"

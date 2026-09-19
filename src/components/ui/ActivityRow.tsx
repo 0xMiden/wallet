@@ -162,7 +162,7 @@ export const ActivityRow: FC<ActivityRowProps> = ({
           {icon}
         </div>
 
-        <div className="flex flex-col text-heading-gray leading-tight dark:text-pure-white">
+        <div className="flex flex-col text-ink leading-tight dark:text-pure-white">
           <span data-testid={testId && `${testId}-title`} className="font-heading text-base font-bold">
             {title}
           </span>
@@ -187,7 +187,7 @@ export const ActivityRow: FC<ActivityRowProps> = ({
               <span className={AMOUNT_COLOR[amount.direction ?? 'neutral']}>{formatDisplayAmount(amount.value)}</span>
             )}
             {amount.symbol ? (
-              <span className="text-heading-gray">{amount.value === '' ? amount.symbol : ` ${amount.symbol}`}</span>
+              <span className="text-ink">{amount.value === '' ? amount.symbol : ` ${amount.symbol}`}</span>
             ) : null}
             {/* Every further asset of a batch claim follows inline: "+20 A, +10 B".
                 The test id is indexed so each asset stays individually addressable —
@@ -198,17 +198,17 @@ export const ActivityRow: FC<ActivityRowProps> = ({
             {visibleExtra.map((line, index) => (
               <span key={line.key} data-testid={testId && `${testId}-amount-extra-${index}`}>
                 {/* eslint-disable-next-line i18next/no-literal-string -- list separator, not translatable copy */}
-                <span className="text-heading-gray">, </span>
+                <span className="text-ink">, </span>
                 {line.value !== '' && (
                   <span className={AMOUNT_COLOR[amount.direction ?? 'neutral']}>{formatDisplayAmount(line.value)}</span>
                 )}
                 {line.symbol ? (
-                  <span className="text-heading-gray">{line.value === '' ? line.symbol : ` ${line.symbol}`}</span>
+                  <span className="text-ink">{line.value === '' ? line.symbol : ` ${line.symbol}`}</span>
                 ) : null}
               </span>
             ))}
             {extraOverflowCount > 0 && (
-              <span data-testid={testId && `${testId}-amount-extra-overflow`} className="text-heading-gray">
+              <span data-testid={testId && `${testId}-amount-extra-overflow`} className="text-ink">
                 {/* eslint-disable-next-line i18next/no-literal-string -- list separator, not translatable copy */}
                 <span>, </span>
                 {t('andMoreAssets', { count: extraOverflowCount })}

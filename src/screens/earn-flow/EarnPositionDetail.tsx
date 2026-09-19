@@ -103,7 +103,7 @@ const PositionAreaChart: FC<{ position: EarnPosition }> = ({ position }) => {
               if (!active || !payload?.[0]) return null;
               const point = payload[0].payload;
               return (
-                <div className="rounded-lg bg-heading-gray px-2 py-1 text-xs text-pure-white shadow">
+                <div className="rounded-lg bg-ink px-2 py-1 text-xs text-pure-white shadow">
                   <div className="font-heading font-semibold">${toAdaptiveFixed(point.value)}</div>
                   <div className="opacity-75">{point.label}</div>
                 </div>
@@ -135,10 +135,10 @@ const PositionHeading: FC<{ position: EarnPosition }> = ({ position }) => {
   return (
     <div className="mt-4 flex items-center gap-2">
       <PositionLogo asset={position.asset} className="h-6 w-6" />
-      <h2 className="font-heading text-[26px] font-bold leading-none text-heading-gray">
+      <h2 className="font-heading text-[26px] font-bold leading-none text-ink">
         {position.protocol} &bull; {position.asset}
       </h2>
-      <span className="rounded-full bg-[#DDD4CE] px-2 py-1 text-[10px] font-medium leading-none text-heading-gray">
+      <span className="rounded-full bg-[#DDD4CE] px-2 py-1 text-[10px] font-medium leading-none text-ink">
         {t('earnAssetOnNetwork', { asset: position.asset, network: position.network })}
       </span>
     </div>
@@ -216,8 +216,8 @@ const PositionDetails: FC<{ position: EarnPosition }> = ({ position }) => {
       <div className="flex flex-col gap-5">
         {rows.map(row => (
           <div key={row.label} className="flex items-center justify-between gap-4 text-base leading-tight">
-            <div className="text-heading-gray">{row.label}</div>
-            <div className="text-right font-bold text-heading-gray">{row.value}</div>
+            <div className="text-ink">{row.label}</div>
+            <div className="text-right font-bold text-ink">{row.value}</div>
           </div>
         ))}
       </div>

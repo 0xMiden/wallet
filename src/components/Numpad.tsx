@@ -15,7 +15,7 @@ export interface NumpadProps {
 const DIGITS = ['1', '2', '3', '4', '5', '6', '7', '8', '9'];
 
 const keyClass =
-  'size-23 rounded-2xl bg-fill text-heading-gray font-heading text-[34px] font-extrabold flex items-center justify-center select-none transition-transform duration-100 ease-out active:scale-90 motion-reduce:transition-none motion-reduce:active:scale-100';
+  'size-23 rounded-2xl bg-fill text-ink font-heading text-[34px] font-extrabold flex items-center justify-center select-none transition-transform duration-100 ease-out active:scale-90 motion-reduce:transition-none motion-reduce:active:scale-100';
 
 export const Numpad: React.FC<NumpadProps> = ({ onDigit, onDelete, className }) => {
   const { t } = useTranslation();
@@ -50,7 +50,7 @@ export const Numpad: React.FC<NumpadProps> = ({ onDigit, onDelete, className }) 
       <button
         type="button"
         aria-label={t('delete')}
-        className="size-23 rounded-2xl text-heading-gray flex items-center justify-center select-none transition-transform duration-100 ease-out active:scale-90 motion-reduce:transition-none motion-reduce:active:scale-100"
+        className="size-23 rounded-2xl text-ink flex items-center justify-center select-none transition-transform duration-100 ease-out active:scale-90 motion-reduce:transition-none motion-reduce:active:scale-100"
         onClick={handleDelete}
         data-testid="numpad-delete"
       >

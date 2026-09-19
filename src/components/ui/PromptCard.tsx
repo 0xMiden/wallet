@@ -260,12 +260,12 @@ export const PromptCard: FC<PromptCardProps> = ({
                 <Icon name={hero.icon} size="xs" fill="currentColor" />
               </motion.span>
             </span>
-            <span className="font-heading text-xl font-extrabold text-heading-gray">{hero.label}</span>
+            <span className="font-heading text-xl font-extrabold text-ink">{hero.label}</span>
           </div>
           {hero.subLabel && <span className="text-xs font-normal text-text-tertiary-token">{hero.subLabel}</span>}
         </motion.div>
       ) : (
-        <Lockup className="flex flex-col gap-1 min-w-0 flex-1 text-left text-black">
+        <Lockup className="flex flex-col gap-1 min-w-0 flex-1 text-left text-ink">
           <div className={classNames('text-base font-bold font-heading leading-tight truncate')}>{title}</div>
           {body && <div className="text-xs font-normal line-clamp-2">{body}</div>}
         </Lockup>

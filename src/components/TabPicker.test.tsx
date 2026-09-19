@@ -242,11 +242,11 @@ describe('TabPicker — icon fill colour (iconColor useMemo)', () => {
 });
 
 describe('TabPicker — title styling (disabled branch)', () => {
-  it('renders the title with text-black when enabled', () => {
+  it('renders the title with text-ink when enabled', () => {
     renderPicker({ tabs: [buildTab({ title: 'Enabled' })] });
 
     const title = screen.getByText('Enabled');
-    expect(title).toHaveClass('text-black');
+    expect(title).toHaveClass('text-ink');
     expect(title).not.toHaveClass('text-grey-400');
   });
 
@@ -255,7 +255,7 @@ describe('TabPicker — title styling (disabled branch)', () => {
 
     const title = screen.getByText('Disabled');
     expect(title).toHaveClass('text-grey-400');
-    expect(title).not.toHaveClass('text-black');
+    expect(title).not.toHaveClass('text-ink');
   });
 });
 

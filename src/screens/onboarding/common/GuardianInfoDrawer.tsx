@@ -24,7 +24,7 @@ const InfoRow: React.FC<InfoRowProps> = ({ badge, title, description, hasDivider
     <div className="mx-auto flex max-w-[32rem] flex-col items-center px-4 py-4 text-center">
       <div className="flex max-w-full items-center justify-center gap-3">
         {badge}
-        <h3 className="min-w-0 break-words text-left font-heading text-[18px] font-semibold leading-[1.2] text-[#151515] dark:text-heading-gray">
+        <h3 className="min-w-0 break-words text-left font-heading text-[18px] font-semibold leading-[1.2] text-ink">
           {title}
         </h3>
       </div>
@@ -47,13 +47,13 @@ export const GuardianInfoDrawer: React.FC<GuardianInfoDrawerProps> = ({ open, on
         overlayClassName="bg-transparent backdrop-blur-0 dark:bg-transparent"
       >
         <div className="flex flex-col overflow-y-auto px-5 pb-4 pt-4">
-          <DrawerTitle className="text-center font-heading text-[28px] font-semibold leading-[1.1] text-heading-gray">
+          <DrawerTitle className="text-center font-heading text-[28px] font-semibold leading-[1.1] text-ink">
             {t('whatIsAGuardian')}
           </DrawerTitle>
 
           <WhatIsGuardianHero className="mx-auto mt-2 h-[111px] w-[125px] shrink-0" />
 
-          <p className="mx-auto mt-3 max-w-[34rem] text-center text-[18px] font-normal leading-[1.28] text-heading-gray">
+          <p className="mx-auto mt-3 max-w-[34rem] text-center text-[18px] font-normal leading-[1.28] text-ink">
             <Trans i18nKey="guardianInfoDescription" components={{ b: <span className="font-semibold" /> }} />
           </p>
 

@@ -151,7 +151,7 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
             <span data-testid="send-recipient-avatar" className="flex shrink-0">
               <ContactAvatar address={address} name={recipientName} />
             </span>
-            <span data-testid="send-recipient-name" className="font-heading text-2xl font-bold text-black">
+            <span data-testid="send-recipient-name" className="font-heading text-2xl font-bold text-ink">
               {recipientName}
             </span>
           </div>
@@ -165,8 +165,8 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
             'font-heading w-full resize-none overflow-hidden bg-transparent outline-none',
             'transition-[height] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none',
             'text-[40px] font-bold leading-tight wrap-break-word',
-            'text-heading-gray caret-accent-send',
-            error ? 'text-red-500' : 'text-black'
+            'text-ink caret-accent-send',
+            error ? 'text-red-500' : 'text-ink'
           )}
           value={address}
           onChange={onAddressChange}
@@ -277,7 +277,7 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
                       network={recipient.chain === 'miden' ? 'miden' : 'ethereum'}
                     />
                     <span className="flex min-w-0 flex-col gap-0.5">
-                      <span className="truncate text-base font-bold text-black">
+                      <span className="truncate text-base font-bold text-ink">
                         {recipient.name ?? truncateAddress(recipient.address)}
                       </span>
                       {/* The address once: with no saved name the line above already shows it, so

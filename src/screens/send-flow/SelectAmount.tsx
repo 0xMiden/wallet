@@ -126,9 +126,7 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
       ) : embedded ? (
         <Avatar size={36} icon={<span className="text-lg font-bold">$</span>} color={PLACEHOLDER_BLUE} />
       ) : null}
-      <span className="font-heading text-2xl font-bold text-heading-gray">
-        {token ? token.name : t('selectAToken')}
-      </span>
+      <span className="font-heading text-2xl font-bold text-ink">{token ? token.name : t('selectAToken')}</span>
       <Icon name={IconName.ChevronDown} size="sm" className="text-primary-500" fill="currentColor" />
     </button>
   );
@@ -151,9 +149,7 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
         ) : (
           <Avatar size={36} icon={<span className="text-lg font-bold">$</span>} color={PRIMARY_HEX} />
         )}
-        <span className="font-heading text-2xl font-bold text-heading-gray">
-          {token ? token.name : t('selectAToken')}
-        </span>
+        <span className="font-heading text-2xl font-bold text-ink">{token ? token.name : t('selectAToken')}</span>
         <Icon name={IconName.ChevronRightLucide} size="sm" className="text-primary-500" />
       </button>
 

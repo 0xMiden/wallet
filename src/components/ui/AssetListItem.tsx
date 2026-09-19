@@ -60,7 +60,7 @@ export const AssetListItem: FC<AssetListItemProps> = ({
         <div className="shrink-0 w-9 h-9 rounded-full flex items-center justify-center overflow-hidden">{icon}</div>
 
         <div className="flex flex-col min-w-0 shrink-0 font-bold">
-          <div className="text-base  leading-tight text-heading-gray truncate">{name}</div>
+          <div className="text-base  leading-tight text-ink truncate">{name}</div>
           <div className="font-heading text-sm leading-tight text-muted">{amount}</div>
         </div>
       </div>
@@ -68,7 +68,7 @@ export const AssetListItem: FC<AssetListItemProps> = ({
       <div className="flex items-center justify-center">{chart}</div>
 
       <div className="flex flex-col items-end font-bold">
-        {price && <div className="text-base font-semibold leading-tight text-heading-gray">{price}</div>}
+        {price && <div className="text-base font-semibold leading-tight text-ink">{price}</div>}
         {delta && <div className={classNames('text-xs leading-tight', deltaColor)}>{delta.value}</div>}
       </div>
     </div>

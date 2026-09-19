@@ -112,7 +112,7 @@ export const AmountInput: React.FC<AmountInputProps> = ({
               invalid || error
                 ? 'text-red-500 placeholder-red-500'
                 : value
-                  ? 'text-black'
+                  ? 'text-ink'
                   : 'text-grey-300 placeholder-grey-300'
             )}
             value={value}

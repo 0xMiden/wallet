@@ -19,7 +19,7 @@ export const ExternalLinkValue: FC<{
   // matter how narrow the row around it is. `max-w-full` caps the row itself at its parent's
   // width, so a long value (e.g. a "You (account name)" chip) truncates against that cap instead
   // of pushing the row wider than the space actually available for it.
-  <div className="flex min-w-0 max-w-full items-center gap-1 text-sm text-heading-gray font-medium">
+  <div className="flex min-w-0 max-w-full items-center gap-1 text-sm text-ink font-medium">
     {displayValue}
     {href && (
       <a href={href} target="_blank" rel="noreferrer" className="shrink-0">

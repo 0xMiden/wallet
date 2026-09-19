@@ -97,7 +97,7 @@ const HistoryContent: FC<HistoryItemProps> = ({ fullHistory, entry, lastEntry })
 
       {/* Content */}
       <div className="flex flex-col grow min-w-0">
-        <span className="text-black font-medium truncate text-sm leading-none">{title}</span>
+        <span className="text-ink font-medium truncate text-sm leading-none">{title}</span>
 
         {entry.secondaryAddress && (
           <span className="text-xs text-text-muted truncate flex gap-0.5">
@@ -121,7 +121,7 @@ const HistoryContent: FC<HistoryItemProps> = ({ fullHistory, entry, lastEntry })
             {entry.amount.toString()}
           </span>
           {entry.token && (
-            <span className="font-heading text-sm text-black opacity-64 font-medium leading-none">{entry.token}</span>
+            <span className="font-heading text-sm text-ink opacity-64 font-medium leading-none">{entry.token}</span>
           )}
         </div>
       )}
@@ -187,7 +187,7 @@ const BridgeRowContent: FC<Pick<HistoryItemProps, 'entry' | 'fullHistory' | 'las
       </div>
 
       <div className="flex flex-col grow min-w-0">
-        <span className="text-black font-medium truncate text-sm leading-none">
+        <span className="text-ink font-medium truncate text-sm leading-none">
           {t('bridgeRowTitle', { from: inSymbol, to: outSymbol })}
         </span>
         <span className="text-xs text-grey-500 truncate mt-1">
@@ -197,7 +197,7 @@ const BridgeRowContent: FC<Pick<HistoryItemProps, 'entry' | 'fullHistory' | 'las
 
       <div className="flex flex-col items-end shrink-0 gap-1">
         {outAmount !== undefined && (
-          <span className="text-sm font-medium leading-none text-black">
+          <span className="text-sm font-medium leading-none text-ink">
             {outAmount} {outSymbol}
           </span>
         )}
@@ -246,7 +246,7 @@ const EarnWithdrawRowContent: FC<Pick<HistoryItemProps, 'entry' | 'fullHistory' 
       </div>
 
       <div className="flex flex-col grow min-w-0">
-        <span className="text-black font-medium truncate text-sm leading-none">{t('earnWithdrawRowTitle')}</span>
+        <span className="text-ink font-medium truncate text-sm leading-none">{t('earnWithdrawRowTitle')}</span>
         <span className="text-xs text-text-muted truncate mt-1">{t('earnWithdrawRowVia')}</span>
       </div>
 
@@ -271,7 +271,7 @@ const EarnWithdrawRowContent: FC<Pick<HistoryItemProps, 'entry' | 'fullHistory' 
 
 const HistoryItem = memo<HistoryItemProps>(({ className, fullHistory, entry, lastEntry }) => {
   return (
-    <div className={classNames('w-full text-black', className)}>
+    <div className={classNames('w-full text-ink', className)}>
       {entry.explorerLink ? (
         <a draggable={false} href={entry.explorerLink} target="_blank" rel="noreferrer">
           <HistoryContent fullHistory={fullHistory} entry={entry} lastEntry={lastEntry} />

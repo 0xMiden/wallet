@@ -313,11 +313,11 @@ const RotateGuardianReview: FC = () => {
         setStep={handleAuthBack}
       >
         <div className="w-full max-w-sm mx-auto px-4 pb-8 flex flex-col flex-1 min-h-0">
-          {/* `text-heading-gray` like the rest of this screen: `text-text-muted` is
+          {/* `text-ink` like the rest of this screen: `text-text-muted` is
               #ababab, 2.30:1 on the page in light mode. The sweep replaced this token
               across the flow and missed the one paragraph on the step where the user
               is being asked to type their password. */}
-          <p className="pt-6 text-sm text-heading-gray">{t('guardianSwitchAuthenticationDescription')}</p>
+          <p className="pt-6 text-sm text-ink">{t('guardianSwitchAuthenticationDescription')}</p>
           {isMobile() ? (
             <PasscodeEntry
               onSubmit={code => void authenticateAndSwitch(code)}
@@ -374,18 +374,18 @@ const RotateGuardianReview: FC = () => {
           />
 
           <div className="mt-4">
-            {/* `text-heading-gray` throughout rather than `text-text-muted`: the
+            {/* `text-ink` throughout rather than `text-text-muted`: the
                 muted token is #ababab, 2.3:1 on the app background in light mode.
                 These are row labels, not decoration, and the DetailCard rows this
                 block replaced carried the readable ink. */}
-            <h3 className="text-sm font-semibold text-heading-gray">{t('details')}</h3>
+            <h3 className="text-sm font-semibold text-ink">{t('details')}</h3>
             <div className="flex items-center justify-between border-b border-border-faint py-3 text-sm">
-              <span className="font-medium text-heading-gray">{t('walletKeyHot')}</span>
-              <span className="font-semibold text-heading-gray">{hotKeyLabel}</span>
+              <span className="font-medium text-ink">{t('walletKeyHot')}</span>
+              <span className="font-semibold text-ink">{hotKeyLabel}</span>
             </div>
             <div className="flex items-center justify-between py-3 text-sm">
-              <span className="font-medium text-heading-gray">{t('recoveryPhraseCold')}</span>
-              <span className="font-semibold text-heading-gray">{t('required')}</span>
+              <span className="font-medium text-ink">{t('recoveryPhraseCold')}</span>
+              <span className="font-semibold text-ink">{t('required')}</span>
             </div>
           </div>
 
@@ -411,8 +411,8 @@ const RotateGuardianReview: FC = () => {
               aria-hidden="true"
             />
             <div className="text-sm">
-              <p className="font-semibold text-heading-gray">{t('oldGuardianCantBlockTitle')}</p>
-              <p className="mt-1 leading-5 text-heading-gray">{t('oldGuardianCantBlockBody')}</p>
+              <p className="font-semibold text-ink">{t('oldGuardianCantBlockTitle')}</p>
+              <p className="mt-1 leading-5 text-ink">{t('oldGuardianCantBlockBody')}</p>
             </div>
           </div>
         </div>

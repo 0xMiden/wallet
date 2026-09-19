@@ -226,7 +226,7 @@ const Toolbar: FC<ToolbarProps> = ({
         {pageTitle && (
           <div
             className={classNames(
-              'flex items-center text-black font-semibold leading-none',
+              'flex items-center text-ink font-semibold leading-none',
               navigationStyle === 'back' ? 'flex-1 text-left' : 'text-right'
             )}
             style={{ fontSize: navigationStyle === 'back' ? '24px' : '18px', lineHeight: '44px' }}
@@ -242,7 +242,7 @@ const Toolbar: FC<ToolbarProps> = ({
               variant={ButtonVariant.Ghost}
               className={classNames(
                 'h-auto w-auto max-w-none p-2 border-0',
-                'text-black font-bold text-shadow-black',
+                'text-ink font-bold text-shadow-black',
                 'opacity-90 hover:opacity-100'
               )}
               style={{ fontSize: 16, lineHeight: '20px' }}
@@ -263,7 +263,7 @@ const Toolbar: FC<ToolbarProps> = ({
             className={classNames(
               'h-auto w-auto max-w-none px-4 py-2 border-0',
               'rounded',
-              'font-sans text-black text-shadow-black',
+              'font-sans text-ink text-shadow-black',
               'text-sm font-semibold leading-none',
               'opacity-90 hover:opacity-100'
             )}

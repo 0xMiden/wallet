@@ -141,7 +141,7 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
               className="w-full rounded-full! text-center py-5 bg-fill hover:bg-fill"
             >
               {copied => (
-                <span className="text-base font-heading font-bold text-heading-gray">
+                <span className="text-base font-heading font-bold text-ink">
                   {copied ? t('copied') : truncateAddress(address, false, 16, 8)}
                 </span>
               )}
@@ -160,11 +160,11 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
           <div className="w-full flex flex-col items-center gap-8 pt-6">
             <button type="button" onClick={handleShare} className="flex items-center gap-4 text-accent-primary">
               <Icon name={IconName.Share} size="lg" className="shrink-0" />
-              <span className="font-heading text-[2.5rem] font-bold leading-none text-heading-gray">{t('share')}</span>
+              <span className="font-heading text-[2.5rem] font-bold leading-none text-ink">{t('share')}</span>
             </button>
             {/* <div className="flex items-center gap-4 text-accent-primary">
               <Icon name={IconName.Add} size="lg" className="shrink-0 fill-current" />
-              <span className="font-heading text-[2.5rem] font-bold leading-none text-heading-gray">Request</span>
+              <span className="font-heading text-[2.5rem] font-bold leading-none text-ink">Request</span>
             </div> */}
             {/* WalletConnect is not supported on the extension: the Reown relay
                 rejects the extension bundle's auth JWT (WebSocket close 3000), so
@@ -178,9 +178,7 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
               >
                 <Icon name={IconName.CrossChain} size="lg" className="shrink-0" />
                 <span className="flex flex-col items-start gap-1">
-                  <span className="font-heading text-[2.5rem] font-bold leading-none text-heading-gray">
-                    {t('crossChain')}
-                  </span>
+                  <span className="font-heading text-[2.5rem] font-bold leading-none text-ink">{t('crossChain')}</span>
                   {/* Name the actual source test network, not a bare "Testnet" (#875). */}
                   <span className="text-xs font-medium leading-none text-text-tertiary-token">
                     {t('crossChainFromNetwork', { network: t('ethereumSepolia') })}

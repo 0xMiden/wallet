@@ -38,9 +38,9 @@ const KeysSettings: FC = () => {
     <div className="w-full flex flex-col gap-6 pb-6">
       {rows.map(row => (
         <button key={row.titleI18nKey} type="button" onClick={() => openPage(row.path)} className="w-full">
-          <div className="flex items-center justify-between text-heading-gray">
+          <div className="flex items-center justify-between text-ink">
             <span className="font-medium text-base">{t(row.titleI18nKey)}</span>
-            <Icon name={IconName.ChevronRightLucide} className="w-5 h-5 stroke-black" fill="none" />
+            <Icon name={IconName.ChevronRightLucide} className="w-5 h-5 stroke-ink" fill="none" />
           </div>
         </button>
       ))}

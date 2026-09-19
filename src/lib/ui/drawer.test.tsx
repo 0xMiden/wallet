@@ -74,7 +74,6 @@ describe('Drawer', () => {
     expect(title.className).toContain('font-heading');
     expect(title.className).toContain('text-left');
     expect(title.className).toContain('text-ink');
-    expect(title.className).not.toContain('text-heading-gray');
   });
 
   it('gives the sheet a 28px top radius', () => {

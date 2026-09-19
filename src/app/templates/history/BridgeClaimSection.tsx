@@ -270,7 +270,7 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
                 {t('connectEvmWallet')}
               </Button>
             ) : !connectedMatchesDestination ? (
-              <p className="text-xs text-heading-gray/60">{t('connectDestinationWalletToClaim')}</p>
+              <p className="text-xs text-ink/60">{t('connectDestinationWalletToClaim')}</p>
             ) : (
               <Button size="sm" onClick={handleClaim} disabled={!claimable || status === 'claiming'}>
                 {status === 'claiming' ? t('claiming') : !claimable ? t('claimPending') : t('claimAsset')}
@@ -295,7 +295,7 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
               {maxNetworkFee && (
                 // Reclaiming consumes the recallable note -- a real transaction with a
                 // real fee, submitted on this tap with no review step in between.
-                <div className="text-center text-xs text-heading-gray">
+                <div className="text-center text-xs text-ink">
                   {t('networkFeeMax')} · {maxNetworkFee}
                 </div>
               )}
@@ -304,7 +304,7 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
               </Button>
             </>
           ) : (
-            <p className="text-xs text-heading-gray/60">
+            <p className="text-xs text-ink/60">
               {t('reclaimableAfterBlock')} {reclaimHeight}
             </p>
           )}

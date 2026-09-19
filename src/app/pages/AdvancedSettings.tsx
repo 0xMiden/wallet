@@ -51,12 +51,12 @@ const AdvancedSettings: FC = () => {
 
   return (
     <div className="w-full flex flex-col gap-6 pb-6">
-      <div className="flex items-center justify-between text-heading-gray">
+      <div className="flex items-center justify-between text-ink">
         <div className="flex flex-col">
           <span className="font-medium text-base">{t('accountPublicKey')}</span>
-          {/* `text-heading-gray`, not `text-text-muted` (#ababab, 2.30:1 in light):
+          {/* `text-ink`, not `text-text-muted` (#ababab, 2.30:1 in light):
               this is a public key the user is meant to read and copy, at 12px. */}
-          <span className="text-xs font-mono text-heading-gray select-text">{truncatedPublicKey}</span>
+          <span className="text-xs font-mono text-ink select-text">{truncatedPublicKey}</span>
         </div>
         <button
           type="button"
@@ -64,16 +64,16 @@ const AdvancedSettings: FC = () => {
           disabled={!publicKey}
           className="flex items-center cursor-pointer hover:bg-fill-pressed disabled:opacity-40 disabled:cursor-not-allowed"
         >
-          <Icon name={copied ? IconName.Checkmark : IconName.Copy} className={clsx('w-5 h-5 p-1 stroke-black')} />
+          <Icon name={copied ? IconName.Checkmark : IconName.Copy} className={clsx('w-5 h-5 p-1 stroke-ink')} />
         </button>
       </div>
 
       <button type="button" onClick={() => navigate('/settings/edit-miden-faucet-id')} className="w-full">
-        <div className="flex items-center justify-between text-heading-gray">
+        <div className="flex items-center justify-between text-ink">
           <div className="flex flex-col">
             <span className="font-medium text-base">{t('editMidenFaucetId')}</span>
           </div>
-          <Icon name={IconName.ChevronRightLucide} className="w-5 h-5 stroke-black" fill="none" />
+          <Icon name={IconName.ChevronRightLucide} className="w-5 h-5 stroke-ink" fill="none" />
         </div>
       </button>
 

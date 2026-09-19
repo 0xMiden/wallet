@@ -56,16 +56,16 @@ describe('InputAmount', () => {
   });
 
   describe('textColor (useMemo)', () => {
-    it('is text-black when there is no error', () => {
+    it('is text-ink when there is no error', () => {
       const { container } = render(<InputAmount />);
-      expect(getInput(container)).toHaveClass('text-black');
+      expect(getInput(container)).toHaveClass('text-ink');
     });
 
     it('is text-red-500 when error is true', () => {
       const { container } = render(<InputAmount error />);
       const input = getInput(container);
       expect(input).toHaveClass('text-red-500');
-      expect(input).not.toHaveClass('text-black');
+      expect(input).not.toHaveClass('text-ink');
     });
   });
 

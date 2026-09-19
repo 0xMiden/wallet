@@ -77,8 +77,8 @@ export const EvmBridgeTokenDrawer: React.FC<EvmBridgeTokenDrawerProps> = ({
             >
               <TokenLogo symbol={token} size="md" />
               <div className="flex min-w-0 flex-1 flex-col">
-                <span className="font-heading text-base font-bold text-heading-gray">{token}</span>
-                <span className="text-xs font-semibold text-heading-gray/60">
+                <span className="font-heading text-base font-bold text-ink">{token}</span>
+                <span className="text-xs font-semibold text-ink/60">
                   {loading ? t('loading') : `${balance} ${token}`}
                 </span>
               </div>

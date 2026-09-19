@@ -76,7 +76,7 @@ const DateSeparator: React.FC<{ dateMs: number }> = ({ dateMs }) => {
   const longDate = format(d, 'MMMM d, yyyy');
   const day = format(d, 'EEEE');
   return (
-    <div className="flex items-center justify-between font-heading font-extrabold text-heading-gray dark:text-pure-white text-base leading-[100%]">
+    <div className="flex items-center justify-between font-heading font-extrabold text-ink dark:text-pure-white text-base leading-[100%]">
       <span className="">{longDate}</span>
       <span className="text-accent-primary">{day}</span>
     </div>
@@ -441,9 +441,7 @@ const HistoryView = memo<HistoryViewProps>(
             className={classNames('flex flex-col gap-3 py-3', index === 0 && 'pt-4')}
           >
             {dateMs === -1 ? (
-              <span className="font-heading font-extrabold text-heading-gray text-base">
-                {t('activityDateUnavailable')}
-              </span>
+              <span className="font-heading font-extrabold text-ink text-base">{t('activityDateUnavailable')}</span>
             ) : (
               <DateSeparator dateMs={dateMs} />
             )}

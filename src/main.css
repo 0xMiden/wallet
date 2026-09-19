@@ -381,8 +381,9 @@ body[data-hide-navbar]::after {
     --color-app-bg: #ffffff;
     --color-surface: #ffffff;
     --color-surface-solid: #ffffff;
-    --color-text-primary: #3f3f3f;
-    --color-text-secondary: #484848;
+    /* Legacy `black`: text-black is now text-ink, but the overlays and the camera frame still
+     * read bg-black / border-black / from-black, so the var follows ink rather than going. */
+    --color-text-primary: var(--ds-ink);
     --color-text-tertiary: rgba(63, 63, 63, 0.4);
     --color-border: rgba(63, 63, 63, 0.16);
     --color-border-secondary: #e9ebef;
@@ -489,8 +490,7 @@ body[data-hide-navbar]::after {
     --color-app-bg: #191919;
     --color-surface: #3f3f3f99;
     --color-surface-solid: #191919;
-    --color-text-primary: #ffffff;
-    --color-text-secondary: #ffffff;
+    --color-text-primary: var(--ds-ink);
     --color-text-tertiary: #999999;
     --color-border: #ffffff22;
     --color-border-secondary: #444444;

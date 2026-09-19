@@ -156,7 +156,7 @@ const RevealSeedPhrase: FC = () => {
   // Revealed view
   if (secret && words.length > 0) {
     return (
-      <div className="flex flex-col flex-1 min-h-0 bg-app-bg text-heading-gray">
+      <div className="flex flex-col flex-1 min-h-0 bg-app-bg text-ink">
         <PageHeader className="px-4" title={t('recoveryPhrase')} onBack={handleHide} />
 
         <div className="flex-1 flex flex-col px-4 pt-4">
@@ -176,7 +176,7 @@ const RevealSeedPhrase: FC = () => {
                   className={classNames(
                     'flex items-center gap-1.5 px-4 py-1.5',
                     'border border-border-card rounded-2xl',
-                    'text-sm font-medium text-heading-gray',
+                    'text-sm font-medium text-ink',
                     'hover:opacity-80 cursor-pointer'
                   )}
                 >
@@ -189,7 +189,7 @@ const RevealSeedPhrase: FC = () => {
               <div className="p-6 bg-white rounded-10">
                 <div className="grid grid-cols-4 gap-x-4 gap-y-6">
                   {words.map((word, idx) => (
-                    <span key={idx} className="text-base font-medium text-heading-gray text-center">
+                    <span key={idx} className="text-base font-medium text-ink text-center">
                       {word.charAt(0).toUpperCase() + word.slice(1)}
                     </span>
                   ))}
@@ -218,7 +218,7 @@ const RevealSeedPhrase: FC = () => {
       <div className="flex flex-col flex-1 min-h-0 bg-app-bg">
         <PageHeader className="px-4" title={t('recoveryPhrase')} onBack={() => goBack()} />
         <div className="px-4 pt-4">
-          <Alert type="error" title={t('error')} description={authError} className="rounded-lg text-black" />
+          <Alert type="error" title={t('error')} description={authError} className="rounded-lg text-ink" />
         </div>
       </div>
     );
@@ -266,7 +266,7 @@ const RevealSeedPhrase: FC = () => {
                   register('password').onChange(e);
                   clearErrors();
                 }}
-                labelClassName="text-black"
+                labelClassName="text-ink"
               />
               <Button
                 className="w-full justify-center"

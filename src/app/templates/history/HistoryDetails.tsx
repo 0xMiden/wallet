@@ -144,10 +144,10 @@ const BridgeHeroAmounts: FC<{ entry: IHistoryEntry }> = ({ entry }) => {
   const displayedOutAmount = formatBridgeOutputAmount(outAmount) ?? inAmount;
   return (
     <div className="mt-1 flex w-full min-w-0 max-w-full flex-wrap items-baseline justify-center gap-2 text-center font-heading font-extrabold text-[2.5rem] leading-none break-all">
-      <span className="min-w-0 text-heading-gray">{inAmount}</span>
+      <span className="min-w-0 text-ink">{inAmount}</span>
       <span className="min-w-0 text-text-muted">{inSymbol}</span>
       <Icon name={IconName.ArrowRight} size="md" className="mx-0.5 shrink-0 self-center" />
-      <span className="min-w-0 text-heading-gray">{displayedOutAmount}</span>
+      <span className="min-w-0 text-ink">{displayedOutAmount}</span>
       <span className="min-w-0 text-text-muted">{outSymbol}</span>
     </div>
   );
@@ -264,7 +264,7 @@ const NoteIdList: FC<{ noteIds: string[]; testId: string }> = ({ noteIds, testId
           type="button"
           onClick={handleExpand}
           data-testid={`${testId}-show-all`}
-          className="text-sm font-medium text-heading-gray underline transition-opacity active:opacity-60"
+          className="text-sm font-medium text-ink underline transition-opacity active:opacity-60"
         >
           {t('showAllNotes', { count: overflowCount })}
         </button>
@@ -754,7 +754,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                   ) : (
                     <div className="mt-1 flex max-w-full items-baseline justify-center gap-2 text-center font-heading font-extrabold text-[2.5rem] leading-none">
                       {entry.amount !== undefined && (
-                        <span className="text-heading-gray">{formatDisplayAmount(entry.amount)}</span>
+                        <span className="text-ink">{formatDisplayAmount(entry.amount)}</span>
                       )}
                       {entry.token && <span className="text-text-muted">{entry.token}</span>}
                     </div>
@@ -1098,10 +1098,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
         )}
 
         {isEarnWithdraw && earnWithdraw?.phase === 'failed' && !canRetry && !transaction?.restoredFromBackup && (
-          <p
-            data-testid="withdrawal-recovery-unavailable"
-            className="shrink-0 pt-3 pb-4 text-center text-sm text-heading-gray"
-          >
+          <p data-testid="withdrawal-recovery-unavailable" className="shrink-0 pt-3 pb-4 text-center text-sm text-ink">
             {t('withdrawalRecoveryUnavailable')}
           </p>
         )}
@@ -1117,7 +1114,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
               // Requeues as a NEW transaction paying a NEW fee, on one tap with no
               // review step. The recorded `networkFee` row above is what the failed
               // attempt already paid, not a bound on what this retry will cost.
-              <div className="mb-2 text-center text-xs text-heading-gray">
+              <div className="mb-2 text-center text-xs text-ink">
                 {t('networkFeeMax')} · {maxNetworkFee}
               </div>
             )}

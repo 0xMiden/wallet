@@ -20,7 +20,7 @@ const BrandIcon = () => {
   return (
     <div className="flex flex-col items-center gap-2">
       <BreadLogo style={{ width: 80, height: 'auto' }} />
-      <span className="text-3xl font-semibold font-heading text-heading-gray">{t('unlockBrandName')}</span>
+      <span className="text-3xl font-semibold font-heading text-ink">{t('unlockBrandName')}</span>
     </div>
   );
 };
@@ -304,7 +304,7 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
         <div className="min-h-full flex flex-col items-center px-6 pb-8">
           <div className="flex flex-col items-center w-full mt-10 shrink-0">
             <BrandIcon />
-            <h1 className="text-3xl font-semibold font-heading text-heading-gray text-center leading-[100%] tracking-tight mt-8">
+            <h1 className="text-3xl font-semibold font-heading text-ink text-center leading-[100%] tracking-tight mt-8">
               {t('enterYourPassword')}
             </h1>
             <p
@@ -344,7 +344,7 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
             id="forgot-password"
             type="button"
             onClick={onForgotPasswordClick}
-            className="mt-6 text-heading-gray text-base font-medium"
+            className="mt-6 text-ink text-base font-medium"
           >
             {t('forgotPassword')}
           </button>
@@ -365,7 +365,7 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
     <div className="bg-app-bg h-full overflow-y-auto font-heading select-none" data-testid="unlock-passcode">
       <div className="min-h-full flex flex-col items-center px-6 pb-8">
         <div className="flex flex-col items-center w-full mt-8 shrink-0">
-          <h1 className="text-3xl font-extrabold font-heading text-heading-gray text-center leading-[100%] tracking-tight">
+          <h1 className="text-3xl font-extrabold font-heading text-ink text-center leading-[100%] tracking-tight">
             {t('enterYourPasscode')}
           </h1>
           <p className={`text-lg text-center mt-3 ${subtitleClass}`}>{subtitle}</p>
@@ -395,7 +395,7 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
           id="forgot-password"
           type="button"
           onClick={onForgotPasswordClick}
-          className="mt-4 text-heading-gray text-base font-medium"
+          className="mt-4 text-ink text-base font-medium"
         >
           {t('forgotPasscode')}
         </button>

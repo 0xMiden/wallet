@@ -199,7 +199,7 @@ export const ConnectivityIssueBanner: FC<ConnectivityIssueBannerProps> = ({ clas
         <Icon name={view.iconName} size="md" fill={view.iconColor} />
       </div>
       <div className="flex-1 flex flex-col justify-center items-start min-w-0">
-        <p className="text-black text-sm font-medium">{t(view.titleKey)}</p>
+        <p className="text-ink text-sm font-medium">{t(view.titleKey)}</p>
         <p className="text-text-muted text-xs">{t(view.bodyKey)}</p>
       </div>
       {view.ctaKey && (

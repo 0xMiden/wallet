@@ -384,7 +384,7 @@ describe('connect payload', () => {
     // Only layout survives on the decline button: no restyled text color/weight
     // or transition fighting the Secondary variant's own anatomy.
     expect(declineButton).toHaveClass('w-full');
-    expect(declineButton.className).not.toMatch(/text-black|font-medium|transition/);
+    expect(declineButton.className).not.toMatch(/text-ink|font-medium|transition/);
   });
 
   it('auto-confirms an existing permission during render', () => {

@@ -206,12 +206,12 @@ describe('EarnVaultDetail', () => {
     // "5.24%" appears in the APY headline (and in the mocked tooltip body).
     expect(screen.getAllByText('5.24%').length).toBeGreaterThanOrEqual(1);
 
-    // Stats: audited → "✓ yes" with the heading-gray value class.
+    // Stats: audited → "✓ yes" with the ink value class.
     expect(metricValue('earnTvlLabel')).toHaveTextContent('$1.2B');
     expect(metricValue('earnRiskLabel')).toHaveTextContent('Low');
     const audited = metricValue('earnAuditedLabel');
     expect(audited).toHaveTextContent('✓ yes');
-    expect(audited).toHaveAttribute('data-value-class', 'text-heading-gray');
+    expect(audited).toHaveAttribute('data-value-class', 'text-ink');
 
     // About section copy.
     expect(screen.getByText('About the audited vault.')).toBeInTheDocument();

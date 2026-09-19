@@ -199,7 +199,7 @@ const GuardianSettings: FC = () => {
             <GuardianAvatar data-testid="guardian-avatar" className="h-14 w-14" />
           )}
         </div>
-        <h2 className="mt-2 break-all text-center font-heading text-xl font-bold text-heading-gray">{guardianName}</h2>
+        <h2 className="mt-2 break-all text-center font-heading text-xl font-bold text-ink">{guardianName}</h2>
         {/* Both halves of this pill needed their own shade. `dark:text-green-400`
             compiled to nothing — `theme.colors` in tailwind.config.ts replaces
             Tailwind's palette rather than extending it — so dark mode kept
@@ -212,7 +212,7 @@ const GuardianSettings: FC = () => {
             lands), and a bare div announces nothing when it does. Polite, not
             assertive — it must not interrupt whatever is being read. */}
         {/* "Checking" uses the auto-flipping neutral tokens (`bg-fill` /
-            `text-heading-gray`) already used elsewhere on this page, so it
+            `text-ink`) already used elsewhere on this page, so it
             needs no `dark:` pairing of its own — unlike the red/green states,
             which use the fixed palette and therefore do. */}
         {currentEndpoint && (
@@ -233,7 +233,7 @@ const GuardianSettings: FC = () => {
                   : // Both neutral states share the auto-flipping tokens: neither is
                     // a fault, and "not connected" is resolved by activating the
                     // device key, which the app prompts for elsewhere.
-                    'bg-fill text-heading-gray'
+                    'bg-fill text-ink'
             )}
           >
             <span
@@ -263,21 +263,19 @@ const GuardianSettings: FC = () => {
       </div>
 
       <section className="mt-5">
-        {/* `text-heading-gray`, the token the Settings page's own group headings
-            use, rather than `text-text-muted`: muted is #ababab, and on the
-            gray-25 chip this sits on (#f9f9f9) that is 2.18:1 — a 14px semibold
-            heading, so it needs 4.5:1, not the large-text 3:1. heading-gray is
-            8.69:1 there and pure white on the dark chip.
+        {/* `text-ink`, the token the Settings page's own group headings
+            use, rather than `text-muted`: a 14px semibold heading on the `fill`
+            chip needs 4.5:1, not the large-text 3:1, and ink is the strongest pair
+            the design system has there (held to 4.5:1 or better in both themes by
+            design-tokens.test.ts).
 
             `h3`, subordinate to the guardian name's h2 above: these are sections
             within the page, not siblings of its subject. The "settings group
             headings skipped h2" fix belonged to the Settings root list, where
             there was genuinely no h2 to be subordinate to; promoting these gave
             the page three sibling h2s and flattened a correct outline. */}
-        <h3 className="inline-block rounded-full bg-fill px-3 py-1 text-sm font-semibold text-heading-gray">
-          {t('about')}
-        </h3>
-        <p className="mt-2 text-sm leading-5 text-heading-gray">
+        <h3 className="inline-block rounded-full bg-fill px-3 py-1 text-sm font-semibold text-ink">{t('about')}</h3>
+        <p className="mt-2 text-sm leading-5 text-ink">
           <Trans i18nKey="guardianInfoDescription" components={{ b: <span className="font-semibold" /> }} />
         </p>
         <button
@@ -295,9 +293,7 @@ const GuardianSettings: FC = () => {
       <hr className="my-3 border-border-faint" />
 
       <section className="pb-4">
-        <h3 className="inline-block rounded-full bg-fill px-3 py-1 text-sm font-semibold text-heading-gray">
-          {t('details')}
-        </h3>
+        <h3 className="inline-block rounded-full bg-fill px-3 py-1 text-sm font-semibold text-ink">{t('details')}</h3>
         <DetailCard className="mt-2">
           <DetailRow label={t('guardianProvider')}>{provider}</DetailRow>
           <DetailRow label={t('guardianEndpointLabel')} stacked>

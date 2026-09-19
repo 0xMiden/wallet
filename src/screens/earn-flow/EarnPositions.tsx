@@ -35,7 +35,7 @@ const EarnPositions: FC = () => {
               data-testid="earn-positions-load-error"
               role="alert"
             >
-              <p className="max-w-xs text-base leading-snug text-heading-gray">{t('earnPositionsLoadError')}</p>
+              <p className="max-w-xs text-base leading-snug text-ink">{t('earnPositionsLoadError')}</p>
               <button
                 type="button"
                 data-testid="earn-positions-retry"
@@ -43,7 +43,7 @@ const EarnPositions: FC = () => {
                   hapticLight();
                   refetch();
                 }}
-                className="rounded-full bg-fill px-5 py-2.5 text-sm font-bold text-heading-gray hover:bg-fill-pressed focus:bg-fill-pressed"
+                className="rounded-full bg-fill px-5 py-2.5 text-sm font-bold text-ink hover:bg-fill-pressed focus:bg-fill-pressed"
               >
                 {t('retry')}
               </button>
@@ -81,7 +81,7 @@ const EarnPositionDetailCard: FC<{ position: EarnPosition }> = ({ position }) =>
       <div className="flex items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-2">
           <ProviderLogo protocol={position.protocol} className="h-4 w-4" />
-          <div className="truncate text-base font-medium leading-none text-heading-gray">
+          <div className="truncate text-base font-medium leading-none text-ink">
             {position.protocol} &bull; {position.asset}
           </div>
         </div>
@@ -90,12 +90,12 @@ const EarnPositionDetailCard: FC<{ position: EarnPosition }> = ({ position }) =>
         </div>
       </div>
 
-      <div className="mt-4 font-heading text-[36px] font-bold leading-none text-heading-gray">{position.amount}</div>
+      <div className="mt-4 font-heading text-[36px] font-bold leading-none text-ink">{position.amount}</div>
       <div className="mt-3 text-base font-bold leading-none text-green-500">{position.rewards}</div>
 
       <div className="mt-2 mb-4 h-px bg-[#2525251C]" />
 
-      <div className="flex items-center justify-between gap-4 text-sm leading-none text-heading-gray">
+      <div className="flex items-center justify-between gap-4 text-sm leading-none text-ink">
         <div>
           {t('earnDeposited')} <span className="font-bold">{position.depositedAmount}</span>
         </div>

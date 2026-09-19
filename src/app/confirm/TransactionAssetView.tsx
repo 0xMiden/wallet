@@ -218,7 +218,7 @@ export const TransactionAssetView: React.FC<TransactionAssetViewProps> = ({ view
         >
           <span className="flex flex-row items-center justify-center gap-x-2">
             <Icon name={IconName.Download} fill="currentColor" size="md" />
-            <span className="text-lg text-black font-medium">{t('downloadFullSummary')}</span>
+            <span className="text-lg text-ink font-medium">{t('downloadFullSummary')}</span>
           </span>
         </Button>
       )}

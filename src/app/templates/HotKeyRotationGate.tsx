@@ -185,13 +185,13 @@ const HotKeyRotationOverlay: FC<OverlayProps> = ({ accountPublicKey }) => {
       {failureMessage === null ? (
         <>
           <Spinner />
-          <h1 className="text-lg font-semibold text-black">{t('hotKeyRotationOverlayTitle')}</h1>
-          <p className="text-sm text-heading-gray select-text">{t('hotKeyRotationOverlayBody')}</p>
+          <h1 className="text-lg font-semibold text-ink">{t('hotKeyRotationOverlayTitle')}</h1>
+          <p className="text-sm text-ink select-text">{t('hotKeyRotationOverlayBody')}</p>
         </>
       ) : (
         <div data-testid="hot-key-rotation-failed" className="flex flex-col items-center gap-4">
-          <h1 className="text-lg font-semibold text-black">{t('hotKeyRotationFailedTitle')}</h1>
-          <p className="text-sm text-heading-gray break-words select-text">{failureMessage}</p>
+          <h1 className="text-lg font-semibold text-ink">{t('hotKeyRotationFailedTitle')}</h1>
+          <p className="text-sm text-ink break-words select-text">{failureMessage}</p>
           <Button data-testid="hot-key-rotation-retry" onClick={onRetry}>
             {t('hotKeyRotationRetry')}
           </Button>

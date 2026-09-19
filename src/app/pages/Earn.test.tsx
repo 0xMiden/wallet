@@ -140,12 +140,12 @@ describe('Earn page', () => {
       .getAllByRole('button')
       .find(button => button.textContent !== 'earnSeeAll')!;
     expect(within(positionCard).getByText(`${positions[0]!.protocol} • ${positions[0]!.asset}`)).toHaveClass(
-      'text-black'
+      'text-ink'
     );
-    expect(within(positionCard).getByText(positions[0]!.amount)).toHaveClass('text-black');
+    expect(within(positionCard).getByText(positions[0]!.amount)).toHaveClass('text-ink');
 
     const vaultRow = within(vaultsSection()).getAllByRole('button')[0]!;
-    expect(within(vaultRow).getByText(vaults[0]!.protocol)).toHaveClass('text-black');
+    expect(within(vaultRow).getByText(vaults[0]!.protocol)).toHaveClass('text-ink');
   });
 
   it('navigates to a position detail when its card is tapped', () => {

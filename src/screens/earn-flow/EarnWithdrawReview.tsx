@@ -90,12 +90,12 @@ const EarnWithdrawReview: FC<EarnWithdrawReviewProps> = ({ positionId }) => {
       <div className="min-h-0 flex-1 overflow-y-auto no-scrollbar">
         <div className={clsx('flex flex-col px-6 pt-6')}>
           <span className="font-heading text-2xl font-bold leading-none text-gray">{t('earnWithdrawAmount')}</span>
-          <div className="mt-3 font-heading text-[4rem] font-bold leading-none text-heading-gray">
+          <div className="mt-3 font-heading text-[4rem] font-bold leading-none text-ink">
             {toAdaptiveFixed(amountValue)}
           </div>
           <div className="flex items-center gap-1">
             <TokenLogo symbol={withdrawSymbol} size="md" />
-            <span className="font-heading text-2xl font-bold text-heading-gray">{withdrawSymbol}</span>
+            <span className="font-heading text-2xl font-bold text-ink">{withdrawSymbol}</span>
           </div>
 
           <div className="mt-8 space-y-6 pb-4">
@@ -126,7 +126,7 @@ const EarnWithdrawReview: FC<EarnWithdrawReviewProps> = ({ positionId }) => {
 
 const DetailRow: FC<{ label: string; value: string }> = ({ label, value }) => (
   <div className="flex items-center justify-between gap-4 text-sm leading-tight">
-    <div className="text-heading-gray font-regular">{label}</div>
+    <div className="text-ink font-regular">{label}</div>
     <div className="text-right font-bold text-[#8C877F]">{value}</div>
   </div>
 );

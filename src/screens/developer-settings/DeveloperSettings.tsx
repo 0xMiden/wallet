@@ -209,7 +209,7 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
       <PageHeader title={t('developerSettingsTitle')} onBack={() => goBack()} className="mx-4 shrink-0" />
       <div className="flex-1 min-h-0 overflow-y-auto px-4 pt-4 flex flex-col gap-5">
         <div className="w-full bg-fill rounded-10 px-4 py-3">
-          <div className="text-base font-bold font-heading leading-tight text-black">
+          <div className="text-base font-bold font-heading leading-tight text-ink">
             {t('developerSettingsWarningTitle')}
           </div>
           <div className="text-xs mt-1 text-text-muted">{t('developerSettingsWarning')}</div>
@@ -217,7 +217,7 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
 
         {!readOnly && (
           <div className="flex flex-col gap-2">
-            <span className="text-sm font-medium text-heading-gray">{t('devEndpointPreset')}</span>
+            <span className="text-sm font-medium text-ink">{t('devEndpointPreset')}</span>
             <TabPicker tabs={presetTabs} onTabChange={applyPreset} />
           </div>
         )}
@@ -241,7 +241,7 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
         ))}
 
         <div className="flex flex-col gap-2">
-          <span className="text-sm font-medium text-heading-gray">{t('devEndpointNetworkId')}</span>
+          <span className="text-sm font-medium text-ink">{t('devEndpointNetworkId')}</span>
           <TabPicker
             tabs={NETWORK_ID_OPTIONS.map(network => ({
               id: network,
@@ -275,7 +275,7 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
           }
           className="flex items-center justify-between gap-3 text-left"
         >
-          <span className="text-sm font-medium text-heading-gray">{t('devAllowNoGuardian')}</span>
+          <span className="text-sm font-medium text-ink">{t('devAllowNoGuardian')}</span>
           <Checkbox value={form.allowNoGuardian} />
         </button>
       </div>
