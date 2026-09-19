@@ -96,7 +96,6 @@ describe('NetworkModeRibbon', () => {
 
     expect(band()).toHaveClass('absolute', '-rotate-45', 'h-3', 'w-[200px]');
     expect(ribbon()).toHaveClass('uppercase', 'font-extrabold', 'text-[10px]', 'tracking-[0.06em]', 'truncate');
-    expect(ribbon()).toHaveClass('max-w-[58px]');
   });
 
   it('takes taps on the word only: the band lets them through to the tabs underneath', () => {
@@ -106,16 +105,17 @@ describe('NetworkModeRibbon', () => {
     expect(ribbon()).toHaveClass('pointer-events-auto');
   });
 
-  it('sits above the home indicator zone when docked, and in the pill’s corner when floating', () => {
+  it('rides on the tab row above the home indicator when docked, and in the pill’s corner when floating', () => {
     const { unmount } = render(<NetworkModeRibbon docked />);
-    expect(band()).toHaveClass('-right-[75px]');
-    expect(band().className).toContain(
-      'bottom-[calc(var(--app-safe-bottom,max(16px,env(safe-area-inset-bottom)))+16.5px)]'
-    );
+    // Anchored to the bar's own bottom padding (the inset, 8px floor), not the body's.
+    expect(band()).toHaveClass('-right-[75px]', 'bottom-[calc(max(8px,env(safe-area-inset-bottom))+16.5px)]');
+    expect(ribbon()).toHaveClass('text-[10px]', 'max-w-[58px]');
     unmount();
 
+    // The 56px pill's corner is smaller: 9px type, centred 20px from each edge.
     render(<NetworkModeRibbon docked={false} />);
-    expect(band()).toHaveClass('-right-[78px]', 'bottom-4');
+    expect(band()).toHaveClass('-right-[80px]', 'bottom-3.5');
+    expect(ribbon()).toHaveClass('text-[9px]', 'max-w-[53px]');
   });
 
   it('is the accent tint with its ink (5.1:1)', () => {
