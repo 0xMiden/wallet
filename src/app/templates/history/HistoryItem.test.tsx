@@ -156,9 +156,9 @@ describe('HistoryItem', () => {
     expect(screen.getByTestId('addr')).toHaveAttribute('data-trim', 'false');
     expect(screen.getByTestId('addr')).toHaveTextContent('0xsender');
 
-    // Positive amount, receive-green class, token symbol.
+    // Positive amount in the positive ink, token symbol.
     const amount = screen.getByText('+123');
-    expect(amount).toHaveClass('text-receive-green');
+    expect(amount).toHaveClass('text-positive-ink');
     expect(screen.getByText('MIDEN')).toBeInTheDocument();
 
     // Cancel button present with selector testid + label.
@@ -218,8 +218,8 @@ describe('HistoryItem', () => {
     // Not receive => "to" label, negative amount, red class.
     expect(screen.getByText(/t:to/)).toBeInTheDocument();
     const amount = screen.getByText('-456');
-    expect(amount).toHaveClass('text-[#DC2626]');
-    expect(amount).not.toHaveClass('text-receive-green');
+    expect(amount).toHaveClass('text-negative-ink');
+    expect(amount).not.toHaveClass('text-positive-ink');
 
     // isMobile() true => trim=true.
     expect(screen.getByTestId('addr')).toHaveAttribute('data-trim', 'true');

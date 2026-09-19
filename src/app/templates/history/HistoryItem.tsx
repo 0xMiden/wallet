@@ -97,7 +97,7 @@ const HistoryContent: FC<HistoryItemProps> = ({ fullHistory, entry, lastEntry })
           <span
             className={classNames(
               'font-heading text-sm font-medium leading-none',
-              isReceive ? 'text-receive-green' : 'text-[#DC2626]'
+              isReceive ? 'text-positive-ink' : 'text-negative-ink'
             )}
           >
             {/* eslint-disable-next-line i18next/no-literal-string -- numeric amount sign prefix, not translatable copy */}
@@ -219,7 +219,7 @@ const EarnWithdrawRowContent: FC<Pick<HistoryItemProps, 'entry' | 'fullHistory' 
       <div className="flex flex-col items-end shrink-0 gap-1">
         {/* eslint-disable i18next/no-literal-string -- numeric amount sign prefix, not translatable copy */}
         {showAmount && (
-          <span className="text-sm font-medium leading-none text-receive-green">
+          <span className="text-sm font-medium leading-none text-positive-ink">
             +{entry.amount?.toString()} {entry.token}
           </span>
         )}
