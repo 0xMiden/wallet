@@ -265,26 +265,23 @@ describe('EarnVaultDetail', () => {
     expect(navigate).toHaveBeenCalledWith('/earn/vaults/v-audited/deposit');
   });
 
-  it('defaults the active timeframe to 1M and switches on tap with haptic feedback', () => {
+  it('renders the timeframes as the shared segmented control, 1M selected, one haptic per change', () => {
     render(<EarnVaultDetail vaultId="v-audited" />);
 
-    const oneMonth = screen.getByRole('button', { name: '1M' });
-    const oneDay = screen.getByRole('button', { name: '1D' });
+    expect(screen.getByRole('radiogroup', { name: 'chartTimeframe' })).toHaveClass('w-full');
+    const radio = (name: string) => screen.getByRole('radio', { name });
+    ['1D', '1W', '1M', 'All'].forEach(label => expect(radio(label)).toBeInTheDocument());
 
-    // Initial state: 1M is the selected (bold / black) timeframe.
-    expect(oneMonth).toHaveClass('font-semibold', 'text-pure-black');
-    expect(oneDay).not.toHaveClass('font-semibold');
-    expect(oneDay).toHaveClass('text-gray-secondary');
+    expect(radio('1M')).toHaveAttribute('aria-checked', 'true');
+    expect(radio('1D')).toHaveAttribute('aria-checked', 'false');
+    expect(radio('1M').querySelector('[data-slot="motion-highlight"]')).toHaveClass('bg-raised');
 
-    // Tap 1D → haptic fires and selection moves.
-    fireEvent.click(oneDay);
+    fireEvent.click(radio('1D'));
     expect(hapticSelection).toHaveBeenCalledTimes(1);
-    expect(oneDay).toHaveClass('font-semibold', 'text-pure-black');
-    expect(oneMonth).not.toHaveClass('font-semibold');
+    expect(radio('1D')).toHaveAttribute('aria-checked', 'true');
+    expect(radio('1M')).toHaveAttribute('aria-checked', 'false');
 
-    // All four timeframe options are rendered.
-    ['1D', '1W', '1M', 'All'].forEach(label => {
-      expect(screen.getByRole('button', { name: label })).toBeInTheDocument();
-    });
+    fireEvent.click(radio('1D'));
+    expect(hapticSelection).toHaveBeenCalledTimes(1);
   });
 });

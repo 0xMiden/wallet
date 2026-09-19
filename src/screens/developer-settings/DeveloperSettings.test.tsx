@@ -18,7 +18,8 @@ jest.mock('react-i18next', () => ({
 const hapticMedium = jest.fn();
 jest.mock('lib/mobile/haptics', () => ({
   hapticLight: jest.fn(),
-  hapticMedium: () => hapticMedium()
+  hapticMedium: () => hapticMedium(),
+  hapticSelection: jest.fn()
 }));
 
 // `isExtension` gates which reload path handleReset takes; a mutable flag lets
@@ -157,30 +158,6 @@ jest.mock('components/Button', () => ({
   )
 }));
 
-jest.mock('components/TabPicker', () => ({
-  TabPicker: ({
-    tabs,
-    onTabChange
-  }: {
-    tabs: { id: string; title: string; active?: boolean }[];
-    onTabChange?: (index: number) => void;
-  }) => (
-    <div data-testid="tab-picker">
-      {tabs.map((tab, index) => (
-        <button
-          key={tab.id}
-          type="button"
-          data-testid={`tab-${tab.id}`}
-          data-active={String(!!tab.active)}
-          onClick={() => onTabChange?.(index)}
-        >
-          {tab.title}
-        </button>
-      ))}
-    </div>
-  )
-}));
-
 beforeEach(() => {
   jest.clearAllMocks();
   mockHealthStatus.value = 'idle';
@@ -268,12 +245,12 @@ describe('DeveloperSettings', () => {
 
   it('switching to a different preset prefills the fields and marks it active', () => {
     render(<DeveloperSettings />);
-    const presetPicker = screen.getAllByTestId('tab-picker')[0]!;
-    fireEvent.click(within(presetPicker).getByTestId('tab-devnet'));
+    const presetPicker = screen.getByTestId('dev-endpoint-preset');
+    fireEvent.click(within(presetPicker).getByTestId('dev-endpoint-preset-devnet'));
 
     expect(screen.getByTestId('dev-endpoint-rpcUrl')).toHaveValue('https://rpc.devnet');
-    expect(within(presetPicker).getByTestId('tab-devnet')).toHaveAttribute('data-active', 'true');
-    expect(within(presetPicker).getByTestId('tab-testnet')).toHaveAttribute('data-active', 'false');
+    expect(within(presetPicker).getByTestId('dev-endpoint-preset-devnet')).toHaveAttribute('aria-checked', 'true');
+    expect(within(presetPicker).getByTestId('dev-endpoint-preset-testnet')).toHaveAttribute('aria-checked', 'false');
   });
 
   it('editing a field value flips the preset picker to custom', () => {
@@ -281,16 +258,16 @@ describe('DeveloperSettings', () => {
     fireEvent.change(screen.getByTestId('dev-endpoint-rpcUrl'), { target: { value: 'https://custom.example' } });
 
     expect(screen.getByTestId('dev-endpoint-rpcUrl')).toHaveValue('https://custom.example');
-    const presetPicker = screen.getAllByTestId('tab-picker')[0]!;
-    expect(within(presetPicker).getByTestId('tab-custom')).toHaveAttribute('data-active', 'true');
+    const presetPicker = screen.getByTestId('dev-endpoint-preset');
+    expect(within(presetPicker).getByTestId('dev-endpoint-preset-custom')).toHaveAttribute('aria-checked', 'true');
   });
 
   it('selecting the Custom preset tab directly marks it active without touching field values', () => {
     render(<DeveloperSettings />);
-    const presetPicker = screen.getAllByTestId('tab-picker')[0]!;
-    fireEvent.click(within(presetPicker).getByTestId('tab-custom'));
+    const presetPicker = screen.getByTestId('dev-endpoint-preset');
+    fireEvent.click(within(presetPicker).getByTestId('dev-endpoint-preset-custom'));
 
-    expect(within(presetPicker).getByTestId('tab-custom')).toHaveAttribute('data-active', 'true');
+    expect(within(presetPicker).getByTestId('dev-endpoint-preset-custom')).toHaveAttribute('aria-checked', 'true');
     expect(screen.getByTestId('dev-endpoint-rpcUrl')).toHaveValue('https://rpc.testnet');
   });
 
@@ -304,41 +281,45 @@ describe('DeveloperSettings', () => {
 
   it('switching the Network ID picker updates the network and flips the preset to custom', () => {
     render(<DeveloperSettings />);
-    const [presetPicker, networkPicker] = screen.getAllByTestId('tab-picker');
-    fireEvent.click(within(networkPicker!).getByTestId('tab-localnet'));
+    const presetPicker = screen.getByTestId('dev-endpoint-preset');
+    const networkPicker = screen.getByTestId('dev-endpoint-network-id');
+    fireEvent.click(within(networkPicker).getByTestId('dev-endpoint-network-localnet'));
 
-    expect(within(networkPicker!).getByTestId('tab-localnet')).toHaveAttribute('data-active', 'true');
-    expect(within(presetPicker!).getByTestId('tab-custom')).toHaveAttribute('data-active', 'true');
+    expect(within(networkPicker).getByTestId('dev-endpoint-network-localnet')).toHaveAttribute('aria-checked', 'true');
+    expect(within(presetPicker).getByTestId('dev-endpoint-preset-custom')).toHaveAttribute('aria-checked', 'true');
   });
 
   it('offers Mainnet on the Network ID picker but not on the preset/URL-prefill picker', () => {
     render(<DeveloperSettings />);
-    const [presetPicker, networkPicker] = screen.getAllByTestId('tab-picker');
+    const presetPicker = screen.getByTestId('dev-endpoint-preset');
+    const networkPicker = screen.getByTestId('dev-endpoint-network-id');
 
-    expect(within(networkPicker!).getByTestId('tab-mainnet')).toBeInTheDocument();
-    expect(within(presetPicker!).queryByTestId('tab-mainnet')).not.toBeInTheDocument();
+    expect(within(networkPicker).getByTestId('dev-endpoint-network-mainnet')).toBeInTheDocument();
+    expect(within(presetPicker).queryByTestId('dev-endpoint-preset-mainnet')).not.toBeInTheDocument();
   });
 
   it('capitalizes the preset and network-id tab labels for display, keeping the raw id for logic', () => {
     render(<DeveloperSettings />);
-    const [presetPicker, networkPicker] = screen.getAllByTestId('tab-picker');
+    const presetPicker = screen.getByTestId('dev-endpoint-preset');
+    const networkPicker = screen.getByTestId('dev-endpoint-network-id');
 
-    expect(within(presetPicker!).getByTestId('tab-testnet')).toHaveTextContent('Testnet');
-    expect(within(presetPicker!).getByTestId('tab-devnet')).toHaveTextContent('Devnet');
-    expect(within(presetPicker!).getByTestId('tab-localnet')).toHaveTextContent('Localnet');
-    expect(within(presetPicker!).getByTestId('tab-custom')).toHaveTextContent('devEndpointCustom');
+    expect(within(presetPicker).getByTestId('dev-endpoint-preset-testnet')).toHaveTextContent('Testnet');
+    expect(within(presetPicker).getByTestId('dev-endpoint-preset-devnet')).toHaveTextContent('Devnet');
+    expect(within(presetPicker).getByTestId('dev-endpoint-preset-localnet')).toHaveTextContent('Localnet');
+    expect(within(presetPicker).getByTestId('dev-endpoint-preset-custom')).toHaveTextContent('devEndpointCustom');
 
-    expect(within(networkPicker!).getByTestId('tab-mainnet')).toHaveTextContent('Mainnet');
-    expect(within(networkPicker!).getByTestId('tab-testnet')).toHaveTextContent('Testnet');
+    expect(within(networkPicker).getByTestId('dev-endpoint-network-mainnet')).toHaveTextContent('Mainnet');
+    expect(within(networkPicker).getByTestId('dev-endpoint-network-testnet')).toHaveTextContent('Testnet');
   });
 
   it('read-only mode leaves the Network ID picker inert', () => {
     render(<DeveloperSettings readOnly />);
-    const networkPicker = screen.getByTestId('tab-picker');
-    fireEvent.click(within(networkPicker).getByTestId('tab-devnet'));
+    const networkPicker = screen.getByTestId('dev-endpoint-network-id');
+    expect(within(networkPicker).getByTestId('dev-endpoint-network-devnet')).toBeDisabled();
+    fireEvent.click(within(networkPicker).getByTestId('dev-endpoint-network-devnet'));
 
-    expect(within(networkPicker).getByTestId('tab-testnet')).toHaveAttribute('data-active', 'true');
-    expect(within(networkPicker).getByTestId('tab-devnet')).toHaveAttribute('data-active', 'false');
+    expect(within(networkPicker).getByTestId('dev-endpoint-network-testnet')).toHaveAttribute('aria-checked', 'true');
+    expect(within(networkPicker).getByTestId('dev-endpoint-network-devnet')).toHaveAttribute('aria-checked', 'false');
   });
 
   it('asks for confirmation before resetting, with a clearly-worded destructive message', async () => {

@@ -4,13 +4,14 @@ import { useTranslation } from 'react-i18next';
 
 import { Button, ButtonVariant } from 'components/Button';
 import { Checkbox } from 'components/Checkbox';
-import { TabPicker } from 'components/TabPicker';
 import { ListGroup } from 'components/ui/ListGroup';
 import { ListRow } from 'components/ui/ListRow';
+import { SegmentedControl, SegmentedControlItem } from 'components/ui/SegmentedControl';
 import { SubPageLayout, SubPageSection } from 'components/ui/SubPageLayout';
 import { TextField } from 'components/ui/TextField';
 import { clearSyncFuseForEndpointChange } from 'lib/miden/front/sync-fuse';
 import { resetStorageDestructive } from 'lib/miden/reset';
+import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/constants';
 import {
   applyEndpointOverride,
   buildDefaultOverrideFor,
@@ -106,19 +107,32 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
   // `handleSave`'s SW nudge is only safe to send in this state — see its comment.
   const noWalletYet = useWalletStore(selectIsIdle);
 
-  const presetTabs = useMemo(
-    () =>
-      [
-        ...ENDPOINT_PRESETS.map(preset => ({ id: preset, title: capitalize(preset) })),
-        { id: CUSTOM_PRESET, title: t('devEndpointCustom') }
-      ].map(tab => ({ ...tab, active: form.presetName === tab.id })),
-    [form.presetName, t]
+  const presetItems = useMemo<SegmentedControlItem[]>(
+    () => [
+      ...ENDPOINT_PRESETS.map(preset => ({
+        id: preset,
+        label: capitalize(preset),
+        'data-testid': `dev-endpoint-preset-${preset}`
+      })),
+      { id: CUSTOM_PRESET, label: t('devEndpointCustom'), 'data-testid': `dev-endpoint-preset-${CUSTOM_PRESET}` }
+    ],
+    [t]
   );
 
-  const applyPreset = (index: number) => {
-    // `presetTabs` is every known preset followed by one trailing "Custom" tab, so an index
-    // past the end of `ENDPOINT_PRESETS` is always that trailing tab.
-    const network = ENDPOINT_PRESETS[index];
+  const networkIdItems = useMemo<SegmentedControlItem<MIDEN_NETWORK_NAME>[]>(
+    () =>
+      NETWORK_ID_OPTIONS.map(network => ({
+        id: network,
+        label: capitalize(network),
+        disabled: readOnly,
+        'data-testid': `dev-endpoint-network-${network}`
+      })),
+    [readOnly]
+  );
+
+  const applyPreset = (id: string) => {
+    // Every known preset loads its endpoints; the trailing "Custom" keeps the fields as they are.
+    const network = ENDPOINT_PRESETS.find(preset => preset === id);
     if (network) {
       setForm(presetToOverride(network));
       return;
@@ -249,7 +263,14 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
 
       {!readOnly && (
         <SubPageSection title={t('devEndpointPreset')}>
-          <TabPicker tabs={presetTabs} onTabChange={applyPreset} />
+          <SegmentedControl
+            items={presetItems}
+            value={form.presetName}
+            onChange={applyPreset}
+            layout="fill"
+            aria-label={t('devEndpointPreset')}
+            data-testid="dev-endpoint-preset"
+          />
         </SubPageSection>
       )}
 
@@ -274,20 +295,13 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
       </SubPageSection>
 
       <SubPageSection title={t('devEndpointNetworkId')}>
-        <TabPicker
-          tabs={NETWORK_ID_OPTIONS.map(network => ({
-            id: network,
-            title: capitalize(network),
-            active: form.networkName === network
-          }))}
-          onTabChange={
-            readOnly
-              ? undefined
-              : index => {
-                  const network = NETWORK_ID_OPTIONS[index];
-                  if (network) setForm(prev => ({ ...prev, networkName: network, presetName: CUSTOM_PRESET }));
-                }
-          }
+        <SegmentedControl
+          items={networkIdItems}
+          value={form.networkName}
+          onChange={network => setForm(prev => ({ ...prev, networkName: network, presetName: CUSTOM_PRESET }))}
+          layout="fill"
+          aria-label={t('devEndpointNetworkId')}
+          data-testid="dev-endpoint-network-id"
         />
       </SubPageSection>
 

@@ -1,13 +1,13 @@
 import React, { FC, useMemo, useState } from 'react';
 
-import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 import { Area, AreaChart, Tooltip, YAxis } from 'recharts';
 
 import { Button, ButtonVariant } from 'components/Button';
 import { PageHeader } from 'components/PageHeader';
+import { SegmentedControl, SegmentedControlItem } from 'components/ui/SegmentedControl';
 import { toAdaptiveFixed } from 'lib/i18n/numbers';
-import { hapticLight, hapticSelection } from 'lib/mobile/haptics';
+import { hapticLight } from 'lib/mobile/haptics';
 import { ChartContainer } from 'lib/ui/charts';
 import { goBack, navigate } from 'lib/woozie';
 
@@ -16,7 +16,14 @@ import { placeholderPosition } from './earn-mapping';
 import { EarnPosition } from './types';
 import { useEarnPositions } from './useEarnPositions';
 
-const TIMEFRAMES = ['1D', '1W', '1M', 'All'];
+type EarnTimeframe = '1D' | '1W' | '1M' | 'All';
+
+const TIMEFRAMES: EarnTimeframe[] = ['1D', '1W', '1M', 'All'];
+
+const TIMEFRAME_ITEMS: SegmentedControlItem<EarnTimeframe>[] = TIMEFRAMES.map(tf => ({
+  id: tf,
+  label: tf
+}));
 const CHART_GREEN = '#90BA89';
 
 interface EarnPositionDetailProps {
@@ -25,7 +32,7 @@ interface EarnPositionDetailProps {
 
 const EarnPositionDetail: FC<EarnPositionDetailProps> = ({ positionId }) => {
   const { t } = useTranslation();
-  const [timeframe, setTimeframe] = useState('1M');
+  const [timeframe, setTimeframe] = useState<EarnTimeframe>('1M');
   const { summary, positions } = useEarnPositions();
   const position = useMemo(
     () => positions.find(item => item.id === positionId) ?? placeholderPosition(),
@@ -46,24 +53,15 @@ const EarnPositionDetail: FC<EarnPositionDetailProps> = ({ positionId }) => {
 
           <PositionAreaChart position={position} />
 
-          <div className="mt-4 flex items-center justify-between px-4 text-sm font-medium text-gray-secondary">
-            {TIMEFRAMES.map(item => (
-              <button
-                key={item}
-                type="button"
-                onClick={() => {
-                  hapticSelection();
-                  setTimeframe(item);
-                }}
-                className={classNames(
-                  'rounded-full px-3 py-2 leading-none',
-                  timeframe === item ? 'bg-[#F2F2F4] font-semibold text-pure-black' : 'text-gray-secondary'
-                )}
-              >
-                {item}
-              </button>
-            ))}
-          </div>
+          <SegmentedControl
+            items={TIMEFRAME_ITEMS}
+            value={timeframe}
+            onChange={setTimeframe}
+            size="sm"
+            layout="fill"
+            aria-label={t('chartTimeframe')}
+            className="mt-3"
+          />
 
           <PositionHeading position={position} />
           <PositionStats position={position} />
