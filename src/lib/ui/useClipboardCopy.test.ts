@@ -1,3 +1,5 @@
+import React from 'react';
+
 import { act, renderHook } from '@testing-library/react';
 
 import { useClipboardCopy } from './useClipboardCopy';
@@ -64,4 +66,21 @@ it('does not arm the revert timer for a write that resolves after unmount', asyn
   expect(setTimeoutSpy).not.toHaveBeenCalled();
 
   setTimeoutSpy.mockRestore();
+});
+
+it('resets the mounted guard on a remount, so feedback still works afterward', async () => {
+  // React 18 Strict Mode (dev only) mounts, unmounts, then remounts every component once, on the
+  // SAME hook call — so `mountedRef` isn't a fresh `useRef(true)` the second time around; only
+  // the effect's own setup can put it back to `true`. Without that reset, the cleanup's `false`
+  // sticks forever and every `copy()` after the remount silently no-ops (the early return added
+  // for the unmount guard fires even though the component is back on screen).
+  const { result } = renderHook(() => useClipboardCopy('0xabc123'), { wrapper: React.StrictMode });
+
+  await act(async () => {
+    const p = result.current.copy();
+    resolveWrite?.();
+    await p;
+  });
+
+  expect(result.current.copied).toBe(true);
 });
