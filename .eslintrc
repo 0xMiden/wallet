@@ -330,7 +330,6 @@
         "src/app/templates/ConnectBanner.tsx",
         "src/app/templates/DAppDrawerSettings.tsx",
         "src/app/templates/DAppSettings.tsx",
-        "src/app/templates/EditMidenFaucetId.tsx",
         "src/app/templates/HashChip.tsx",
         "src/app/templates/history/HistoryItem.tsx",
         "src/app/templates/PrivateDataPermissionCheckbox.tsx",
