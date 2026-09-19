@@ -94,7 +94,7 @@ const flush = () =>
     await Promise.resolve();
   });
 
-// Drive the captured FormSubmitButton.onClick (the only entry into the rotation
+// Drive the captured Button's onClick (the only entry into the rotation
 // flow), awaiting the async handler and letting React flush effects.
 const click = async () => {
   await act(async () => {

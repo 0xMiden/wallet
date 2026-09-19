@@ -23,9 +23,10 @@
  *     gone. The helpers below still drive them by CLICKING the menu row, which
  *     is what a user does and exercises the row wiring as well as the page.
  *
- *  2. A `testID` prop is not always a DOM selector. `FormSubmitButton`
- *     destructures `testID` out and only uses it for `trackEvent`, so it never
- *     renders; grep finds it, the DOM does not have it. Every
+ *  2. A `testID` prop is not always a DOM selector. It was analytics-only
+ *     convention across several components (the now-retired `FormSubmitButton`
+ *     destructured it and only ever passed it to `trackEvent`, never to the
+ *     DOM): grep finds it, the DOM does not have it. Every
  *     `General Settings/*Toggle` string was one of these, which is why
  *     `ToggleSwitch` now emits its `testID` as a data-testid too. This module
  *     drives raw data-testids only.
