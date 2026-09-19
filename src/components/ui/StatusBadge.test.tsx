@@ -2,8 +2,8 @@ import React from 'react';
 
 import { render, screen } from '@testing-library/react';
 
-import enMessages from '../../../public/_locales/en/en.json';
 import { Status, STATUS_BADGE, StatusBadge } from './StatusBadge';
+import enMessages from '../../../public/_locales/en/en.json';
 
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => `t:${key}` })
