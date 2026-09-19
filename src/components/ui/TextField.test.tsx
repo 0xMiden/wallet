@@ -131,6 +131,17 @@ describe('TextField — hint and error', () => {
     expect(screen.getByRole('textbox')).toHaveAttribute('aria-invalid', 'false');
   });
 
+  it('draws both rings inset so a scrolling or clipping parent cannot cut them off', () => {
+    const { rerender } = render(<TextField value="" onChange={jest.fn()} />);
+    expect(screen.getByRole('textbox').parentElement).toHaveClass('focus-within:ring-2', 'focus-within:ring-inset');
+
+    rerender(<TextField value="" onChange={jest.fn()} error="Invalid" />);
+    expect(screen.getByRole('textbox').parentElement).toHaveClass('ring-2', 'ring-inset', 'ring-status-negative');
+
+    rerender(<TextField value="" onChange={jest.fn()} multiline />);
+    expect(screen.getByRole('textbox').parentElement).toHaveClass('focus-within:ring-inset');
+  });
+
   it('describes the field by the error message id when present', () => {
     render(<TextField value="" onChange={jest.fn()} error="Invalid" />);
     const field = screen.getByRole('textbox');
