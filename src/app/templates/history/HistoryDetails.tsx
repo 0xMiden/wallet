@@ -257,7 +257,7 @@ const NoteIdList: FC<{ noteIds: string[]; testId: string }> = ({ noteIds, testId
   return (
     <div data-testid={testId} className="flex min-w-0 flex-col items-end gap-1">
       {visibleNoteIds.map(noteId => (
-        <HashChip key={noteId} hash={noteId} trimHash fill="#9E9E9E" copyIcon={false} />
+        <HashChip key={noteId} hash={noteId} trimHash />
       ))}
       {isCollapsed && (
         <button
@@ -292,15 +292,7 @@ const AccountDisplay: FC<{
     return undefined;
   };
 
-  return (
-    <AddressChip
-      address={address}
-      fill="#9E9E9E"
-      className="ml-2"
-      displayName={getDisplayName(address)}
-      copyIcon={false}
-    />
-  );
+  return <AddressChip address={address} className="ml-2" displayName={getDisplayName(address)} />;
 });
 
 export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
@@ -795,15 +787,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                   {isBridgeIn && entry.bridgeInSourceAddress && (
                     <DetailRow label={t('from')}>
                       <ExternalLinkValue
-                        displayValue={
-                          <HashChip
-                            hash={entry.bridgeInSourceAddress}
-                            trimHash
-                            fill="#9E9E9E"
-                            className="ml-2"
-                            copyIcon={false}
-                          />
-                        }
+                        displayValue={<HashChip hash={entry.bridgeInSourceAddress} trimHash className="ml-2" />}
                         href={SEPOLIA_ADDRESS_URL(entry.bridgeInSourceAddress)}
                       />
                     </DetailRow>
@@ -814,15 +798,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                   {entry.externalTxId && (
                     <DetailRow label={t('txIdLabel')} data-testid="history-detail-tx-id">
                       <ExternalLinkValue
-                        displayValue={
-                          <HashChip
-                            hash={entry.externalTxId}
-                            trimHash
-                            fill="#9E9E9E"
-                            className="ml-2"
-                            copyIcon={false}
-                          />
-                        }
+                        displayValue={<HashChip hash={entry.externalTxId} trimHash className="ml-2" />}
                         href={getExplorerTxUrl(entry.externalTxId)}
                       />
                     </DetailRow>
@@ -830,7 +806,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
 
                   {isGuardianSwitch && !entry.externalTxId && entry.txId && (
                     <DetailRow label={t('txIdLabel')}>
-                      <HashChip hash={entry.txId} trimHash fill="#9E9E9E" className="ml-2" copyIcon={false} />
+                      <HashChip hash={entry.txId} trimHash className="ml-2" />
                     </DetailRow>
                   )}
 
@@ -872,41 +848,19 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                     </DetailRow>
                     <DetailRow label={t('positionOwnerLabel')}>
                       <ExternalLinkValue
-                        displayValue={
-                          <HashChip
-                            hash={earnWithdraw.evmOwner}
-                            trimHash
-                            fill="#9E9E9E"
-                            className="ml-2"
-                            copyIcon={false}
-                          />
-                        }
+                        displayValue={<HashChip hash={earnWithdraw.evmOwner} trimHash className="ml-2" />}
                         href={SEPOLIA_ADDRESS_URL(earnWithdraw.evmOwner)}
                       />
                     </DetailRow>
                     {earnWithdraw.withdrawIntentNonce && (
                       <DetailRow label={t('redeemIntentLabel')}>
-                        <HashChip
-                          hash={earnWithdraw.withdrawIntentNonce}
-                          trimHash
-                          fill="#9E9E9E"
-                          className="ml-2"
-                          copyIcon={false}
-                        />
+                        <HashChip hash={earnWithdraw.withdrawIntentNonce} trimHash className="ml-2" />
                       </DetailRow>
                     )}
                     {earnWithdraw.evmTxHash && (
                       <DetailRow label={t('txIdLabel')}>
                         <ExternalLinkValue
-                          displayValue={
-                            <HashChip
-                              hash={earnWithdraw.evmTxHash}
-                              trimHash
-                              fill="#9E9E9E"
-                              className="ml-2"
-                              copyIcon={false}
-                            />
-                          }
+                          displayValue={<HashChip hash={earnWithdraw.evmTxHash} trimHash className="ml-2" />}
                           href={SEPOLIA_TX_URL(earnWithdraw.evmTxHash)}
                         />
                       </DetailRow>
@@ -914,13 +868,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                     <DetailRow label={t('note')}>
                       <span className="select-text">
                         {earnWithdraw.midenNoteId ? (
-                          <HashChip
-                            hash={earnWithdraw.midenNoteId}
-                            trimHash
-                            fill="#9E9E9E"
-                            className="ml-2"
-                            copyIcon={false}
-                          />
+                          <HashChip hash={earnWithdraw.midenNoteId} trimHash className="ml-2" />
                         ) : (
                           t('pending')
                         )}
@@ -949,41 +897,19 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                     </DetailRow>
                     <DetailRow label={t('positionOwnerLabel')}>
                       <ExternalLinkValue
-                        displayValue={
-                          <HashChip
-                            hash={earnDeposit.evmRecipient}
-                            trimHash
-                            fill="#9E9E9E"
-                            className="ml-2"
-                            copyIcon={false}
-                          />
-                        }
+                        displayValue={<HashChip hash={earnDeposit.evmRecipient} trimHash className="ml-2" />}
                         href={SEPOLIA_ADDRESS_URL(earnDeposit.evmRecipient)}
                       />
                     </DetailRow>
                     {earnDeposit.intentNonce && (
                       <DetailRow label={t('depositIntentLabel')}>
-                        <HashChip
-                          hash={earnDeposit.intentNonce}
-                          trimHash
-                          fill="#9E9E9E"
-                          className="ml-2"
-                          copyIcon={false}
-                        />
+                        <HashChip hash={earnDeposit.intentNonce} trimHash className="ml-2" />
                       </DetailRow>
                     )}
                     {earnDeposit.evmTxHash && (
                       <DetailRow label={t('txIdLabel')}>
                         <ExternalLinkValue
-                          displayValue={
-                            <HashChip
-                              hash={earnDeposit.evmTxHash}
-                              trimHash
-                              fill="#9E9E9E"
-                              className="ml-2"
-                              copyIcon={false}
-                            />
-                          }
+                          displayValue={<HashChip hash={earnDeposit.evmTxHash} trimHash className="ml-2" />}
                           href={SEPOLIA_TX_URL(earnDeposit.evmTxHash)}
                         />
                       </DetailRow>
@@ -1103,28 +1029,14 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                     {entry.bridgeInEvmTxHash && (
                       <DetailRow label={t('txIdLabel')}>
                         <ExternalLinkValue
-                          displayValue={
-                            <HashChip
-                              hash={entry.bridgeInEvmTxHash}
-                              trimHash
-                              fill="#9E9E9E"
-                              className="ml-2"
-                              copyIcon={false}
-                            />
-                          }
+                          displayValue={<HashChip hash={entry.bridgeInEvmTxHash} trimHash className="ml-2" />}
                           href={SEPOLIA_TX_URL(entry.bridgeInEvmTxHash)}
                         />
                       </DetailRow>
                     )}
                     <DetailRow label={t('noteId')}>
                       {entry.bridgeInMidenNoteId ? (
-                        <HashChip
-                          hash={entry.bridgeInMidenNoteId}
-                          trimHash
-                          fill="#9E9E9E"
-                          className="ml-2"
-                          copyIcon={false}
-                        />
+                        <HashChip hash={entry.bridgeInMidenNoteId} trimHash className="ml-2" />
                       ) : (
                         t('pending')
                       )}
