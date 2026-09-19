@@ -127,6 +127,7 @@ describe('StatusBadge', () => {
       rerender(<StatusBadge status="pending" live data-testid="badge" />);
       const region = screen.getByRole('status');
       expect(region).toBe(screen.getByTestId('badge'));
+      expect(region).toHaveAttribute('aria-live', 'polite');
       expect(region).toHaveTextContent('t:pending');
     });
   });
