@@ -196,13 +196,21 @@ jest.mock('components/GuardianTransitionHero', () => ({
   )
 }));
 
+// Forwards `onClose` (rather than silently dropping it, as the old mock did)
+// so a regression that reintroduces a header close control is caught here
+// rather than only in the real PageHeader's own suite.
 jest.mock('components/PageHeader', () => ({
-  PageHeader: ({ title, onBack }: { title: string; onBack: () => void }) => (
+  PageHeader: ({ title, onBack, onClose }: { title: string; onBack: () => void; onClose?: () => void }) => (
     <div data-testid="screen-header">
       <span data-testid="header-title">{title}</span>
       <button data-testid="back-button" onClick={onBack}>
         back
       </button>
+      {onClose && (
+        <button data-testid="header-close" onClick={onClose}>
+          close
+        </button>
+      )}
     </div>
   )
 }));
@@ -817,6 +825,48 @@ describe('HistoryDetails', () => {
     });
   });
 
+  describe('header close control', () => {
+    // The header used to carry a close X for swap rows (a shortcut straight
+    // home) alongside the back chevron. It is gone: the back button is the
+    // only way off this page now, for every transaction type.
+    it('renders no close X for an ordinary transaction', async () => {
+      setMockRow({ ...baseSendTx });
+      await renderAndLoad();
+      expect(screen.queryByTestId('header-close')).not.toBeInTheDocument();
+    });
+
+    it('renders no close X for a swap row either', async () => {
+      setMockRow({
+        ...baseSendTx,
+        type: 'swap',
+        amount: undefined,
+        faucetId: 'faucet-1',
+        outputNoteIds: undefined,
+        transactionId: undefined,
+        extraInputs: { orderId: 42n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n }
+      });
+      await renderAndLoad();
+      expect(screen.queryByTestId('header-close')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('pending-cancel action', () => {
+    const STATUS_QUEUED = 0;
+
+    it('still renders the cancel button for a queued transaction and cancels on click', async () => {
+      setMockRow({ ...baseSendTx, status: STATUS_QUEUED, displayMessage: 'Sending' });
+      await renderAndLoad();
+
+      const cancelButton = screen.getByTestId('history-cancel-button');
+      expect(cancelButton).toBeInTheDocument();
+
+      fireEvent.click(cancelButton);
+      await flush();
+
+      expect(mockCancelTransactionById).toHaveBeenCalledWith('tx-1', 'Transaction was cancelled by user');
+    });
+  });
+
   describe('sent transaction rendering', () => {
     it('renders amount, token, fiat, status, date, external tx id, from/to and notes', async () => {
       setMockRow({ ...baseSendTx });
@@ -1170,11 +1220,9 @@ describe('HistoryDetails', () => {
       expect(screen.getByTestId('swap-order-status').textContent).toBe('orderStatusActive');
     });
 
-    it('keeps a way off the screen once the order is filled', async () => {
-      // Close is a dismiss, not a cancellation, so no order state can take it
-      // away. Deriving it from the order state left a filled receipt with only
-      // the header controls, and slid it into the primary slot the instant a
-      // fill landed - under a finger already travelling toward the other button.
+    it('keeps a way off the screen once the order is filled, via the header back button only', async () => {
+      // The receipt no longer owns its own dismiss control; the only way off
+      // this screen in any order state is the page's own back chevron.
       mockGetSwapTokenByFaucetId.mockReturnValue({ symbol: 'ETH', decimals: 8 });
       seedTracking({
         orderId: '42',
@@ -1189,7 +1237,8 @@ describe('HistoryDetails', () => {
       await renderAndLoad();
 
       expect(screen.getByTestId('swap-order-status').textContent).toBe('orderStatusFilled');
-      expect(screen.getByText('close')).toBeInTheDocument();
+      expect(screen.queryByText('close')).not.toBeInTheDocument();
+      expect(screen.getByTestId('back-button')).toBeInTheDocument();
     });
 
     it('calls a partly-matched open order partially filled, not open', async () => {

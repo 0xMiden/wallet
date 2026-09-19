@@ -125,7 +125,6 @@ const renderDetail = (over: Partial<React.ComponentProps<typeof SwapDetail>> = {
       reclaimedTransactions={[]}
       fromAccount={<span>me</span>}
       showActions={false}
-      onDismiss={jest.fn()}
       {...over}
     />
   );
@@ -338,13 +337,13 @@ describe('SwapDetail explorer links', () => {
 });
 
 describe('SwapDetail actions', () => {
-  it('always offers a way off the screen when it owns the action bar', () => {
-    // An order that reached the DEX has no cancel path, so this must not borrow
-    // the destructive label - and there is no order state in which leaving the
-    // screen stops being available.
+  it('renders no dismiss control of its own - leaving the screen is the page back button', () => {
+    // An order that reached the DEX has no cancel path, but there is also no
+    // in-card way off the screen any more: the routed page's own back chevron
+    // is the only exit, in every order state.
     renderDetail({ showActions: true, orderState: 'filled' });
 
-    expect(screen.getByText('close')).toBeInTheDocument();
+    expect(screen.queryByText('close')).not.toBeInTheDocument();
     expect(screen.queryByText('swapOpenPendingNotes')).not.toBeInTheDocument();
   });
 
