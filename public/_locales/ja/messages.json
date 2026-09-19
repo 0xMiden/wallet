@@ -1017,7 +1017,7 @@
   },
   "importWallet": {
     "message": "ウォレットをインポート",
-    "englishSource": "Import Wallet"
+    "englishSource": "Import wallet"
   },
   "importWithKeyInstead": {
     "message": "代わりにキーを使用してインポートしてください",
@@ -2001,7 +2001,7 @@
   },
   "chooseImportType": {
     "message": "インポートタイプを選択してください",
-    "englishSource": "Choose Your Import Type"
+    "englishSource": "Choose your import type"
   },
   "chooseImportTypeDescription": {
     "message": "12 語のフレーズで社会のバランスを取り戻しましょう。プライベート資金を復元するには、暗号化されたバックアップ ファイルをアップロードします。",
@@ -2009,7 +2009,7 @@
   },
   "importWithSeedPhrase": {
     "message": "Seed Phraseを使用してインポートする",
-    "englishSource": "Import with Seed Phrase"
+    "englishSource": "Import with seed phrase"
   },
   "importWithSeedPhraseDescription": {
     "message": "既存の 12 単語のリカバリ フレーズを使用します。他のウォレットプロバイダーからウォレットをインポートすることもできます。",
@@ -2017,7 +2017,7 @@
   },
   "importWithEncryptedWalletFile": {
     "message": "暗号化されたウォレットファイルを使用してインポートする",
-    "englishSource": "Import with Encrypted Wallet File"
+    "englishSource": "Import with encrypted wallet file"
   },
   "importWithEncryptedWalletFileDescription": {
     "message": "暗号化されたウォレット ファイルをアップロードして、アカウントを安全にインポートします。データはプライベートのままで、ハッシュ化された情報のみがオンチェーンに保存されます",
@@ -2049,7 +2049,7 @@
   },
   "useFaceIdOrBiometric": {
     "message": "Face ID または生体認証を使用する",
-    "englishSource": "Use FaceID or Biometric"
+    "englishSource": "Use Face ID or biometrics"
   },
   "setUpYourPasscode": {
     "message": "パスコードを設定する",
@@ -2261,11 +2261,11 @@
   },
   "enterYourWalletSeedPhrase": {
     "message": "ウォレットの12語からなる「Seed phrase」を入力してください。",
-    "englishSource": "Enter your wallet's 12-word Seed phrase."
+    "englishSource": "Enter your wallet's 12-word seed phrase."
   },
   "onlyMidenSeedPhrasesAreSupported": {
     "message": "Miden Seedのフレーズのみがサポートされています。",
-    "englishSource": "Only Miden Seed phrases are supported."
+    "englishSource": "Only Miden seed phrases are supported."
   },
   "yourWalletIsReady": {
     "message": "<highlight>ウォレット</highlight>の準備が完了しました！",
@@ -3014,7 +3014,7 @@
   },
   "chooseRecoveryMethod": {
     "message": "アカウントの復旧設定",
-    "englishSource": "Set Up Account Recovery"
+    "englishSource": "Set up account recovery"
   },
   "chooseRecoveryMethodDescription": {
     "message": "アカウントにアクセスできなくなった場合に備え、アカウントの復旧方法を選択してください。",
@@ -3030,7 +3030,7 @@
   },
   "fullyPrivateRecovery": {
     "message": "完全非公開",
-    "englishSource": "Fully Private"
+    "englishSource": "Fully private"
   },
   "fullyPrivateRecoveryDescription": {
     "message": "地域限定であり、あなた以外にはあなたの状態は誰にも見えませんが、復元機能はありません。デバイスを紛失した場合、資金は永久に失われてしまいます。",
