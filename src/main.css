@@ -434,7 +434,7 @@ body[data-hide-navbar]::after {
     --tx-sent: #91acc1;
     --tx-swap: #beacd2;
     --tx-earn: #777487;
-    --tx-faucet: #891db1;
+    --tx-faucet: #cca4b8;
     --rule-default: rgba(63, 63, 63, 0.08);
     --rule-strong: rgba(63, 63, 63, 0.16);
     --color-border-button: #cbcbcb;
@@ -540,7 +540,7 @@ body[data-hide-navbar]::after {
     --tx-sent: #91acc1;
     --tx-swap: #beacd2;
     --tx-earn: #777487;
-    --tx-faucet: #891db1;
+    --tx-faucet: #cca4b8;
     --rule-default: rgba(255, 255, 255, 0.08);
     --rule-strong: rgba(255, 255, 255, 0.16);
     --color-border-button: #444444;

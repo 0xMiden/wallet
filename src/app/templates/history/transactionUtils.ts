@@ -342,7 +342,12 @@ export const fontColorForType = (type: ITransactionType): string => {
 export const TRANSACTION_COLORS = {
   send: '#91ACC1',
   receive: '#99AC94',
-  faucet: '#891DB1'
+  // Same muted-pastel family as the other activity accents (--tx-received/
+  // sent/swap/earn): a dusty rose distinct from Received's sage and Swap's
+  // lavender, so a faucet mint reads as its own accent rather than the
+  // previous highly-saturated #891DB1, which broke the pastel pattern.
+  // Mirrors --tx-faucet in main.css — keep both in sync.
+  faucet: '#CCA4B8'
 } as const;
 
 export const formatDate = (timestamp: number | string): string => {
