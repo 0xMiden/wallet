@@ -3,10 +3,11 @@ import React, { KeyboardEvent, ReactNode, useId, useRef } from 'react';
 import { cva } from 'class-variance-authority';
 import { motion } from 'framer-motion';
 
-import { Icon, IconName } from 'app/icons/v2';
 import { useTabBarMotion, useTabIconPop } from 'lib/animation';
 import { hapticSelection } from 'lib/mobile/haptics';
 import { cn } from 'lib/ui/util';
+
+import { CheckboxIndicator } from './Checkbox';
 
 /** `data-*` attributes forwarded to an option's `button`, e.g. an E2E hook keyed on its value. */
 export type ChoiceCardDataAttributes = Partial<Record<`data-${string}`, string>>;
@@ -60,17 +61,6 @@ const card = cva(
     defaultVariants: { selected: false }
   }
 );
-
-const indicator = cva('flex size-5.5 shrink-0 items-center justify-center rounded-full', {
-  variants: {
-    selected: {
-      true: 'bg-accent-primary text-pure-white',
-      // On `page`, like anything drawn inside a card; a hairline ring so the empty radio still reads.
-      false: 'bg-page ring-1 ring-inset ring-hairline'
-    }
-  },
-  defaultVariants: { selected: false }
-});
 
 interface OptionProps<T extends string> {
   item: ChoiceCardItem<T>;
@@ -136,9 +126,9 @@ function ChoiceCardOption<T extends string>({ item, selected, focusable, onSelec
         animate={pop.animate}
         transition={pop.transition}
         onAnimationComplete={pop.onAnimationComplete}
-        className={indicator({ selected })}
+        className="flex shrink-0"
       >
-        {selected && <Icon name={IconName.Checkmark} size="xs" fill="currentColor" />}
+        <CheckboxIndicator checked={selected} />
       </motion.span>
     </motion.button>
   );

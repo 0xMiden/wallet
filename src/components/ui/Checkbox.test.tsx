@@ -83,7 +83,7 @@ describe('CheckboxIndicator', () => {
     const { container } = render(<CheckboxIndicator checked={false} />);
     const box = slot(container, 'checkbox-indicator');
     expect(box).toHaveAttribute('aria-hidden', 'true');
-    expect(box).toHaveClass('size-5.5', 'rounded-md', 'bg-page', 'ring-muted');
+    expect(box).toHaveClass('size-5.5', 'rounded-full', 'bg-page', 'ring-hairline');
   });
 
   it('fills on the snappy spring and draws the check on the tab-bar spring when checked', () => {

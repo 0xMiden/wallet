@@ -13,10 +13,11 @@ export interface CheckboxIndicatorProps {
 }
 
 /**
- * The 22px box (6px corners) that every checkbox in the wallet draws. Empty it is `page` with a
- * `muted` edge (3:1 on `page` and `fill`); checking fills it with `accent` on a quick spring and draws
- * the check in on the tab-bar spring, and unchecking runs both back. Under reduced motion both are
- * instant. Decorative: the control that owns it carries the role and the state.
+ * The 22px round mark every selection in the wallet draws, a checklist row's and a `ChoiceCard`'s
+ * alike. Empty it is a `page` disc with a hairline edge, like anything drawn inside a `fill` card;
+ * checking fills it with `accent` on a quick spring and draws the check in on the tab-bar spring, and
+ * unchecking runs both back. Under reduced motion both are instant. Decorative: the control that owns
+ * it carries the role and the state.
  */
 export const CheckboxIndicator: React.FC<CheckboxIndicatorProps> = ({ checked, className }) => {
   const reduce = useReducedMotion();
@@ -29,14 +30,14 @@ export const CheckboxIndicator: React.FC<CheckboxIndicatorProps> = ({ checked, c
       data-slot="checkbox-indicator"
       data-state={checked ? 'checked' : 'unchecked'}
       className={cn(
-        'relative flex size-5.5 shrink-0 items-center justify-center overflow-hidden rounded-md bg-page',
-        'ring-[1.5px] ring-muted ring-inset',
+        'relative flex size-5.5 shrink-0 items-center justify-center overflow-hidden rounded-full bg-page',
+        'ring-1 ring-hairline ring-inset',
         className
       )}
     >
       <motion.span
         data-slot="checkbox-fill"
-        className="absolute inset-0 rounded-md bg-accent-primary"
+        className="absolute inset-0 rounded-full bg-accent-primary"
         initial={false}
         animate={{ scale: checked ? 1 : 0, opacity: checked ? 1 : 0 }}
         transition={fill}

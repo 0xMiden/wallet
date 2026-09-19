@@ -41,7 +41,7 @@ jest.mock('framer-motion', () => {
     );
   return {
     ...jest.requireActual('framer-motion'),
-    motion: { div: make('div'), span: make('span'), button: make('button') },
+    motion: { div: make('div'), span: make('span'), button: make('button'), path: make('path') },
     useReducedMotion: () => mockReduce
   };
 });
