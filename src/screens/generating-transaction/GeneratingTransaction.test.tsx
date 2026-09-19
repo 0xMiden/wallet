@@ -16,7 +16,6 @@ jest.mock('lib/platform', () => ({
   isExtension: jest.fn(() => false)
 }));
 
-jest.mock('app/atoms/CircularProgress', () => () => null);
 jest.mock('components/Alert', () => ({
   Alert: ({ title }: { title: string }) => <div data-testid="alert">{title}</div>,
   AlertVariant: { Warning: 'Warning' }
