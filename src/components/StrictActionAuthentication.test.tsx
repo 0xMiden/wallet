@@ -99,6 +99,34 @@ describe('StrictActionAuthentication', () => {
     expect(mockVerify).toHaveBeenNthCalledWith(2, 'correct');
   });
 
+  it('ignores a submit with no password entered', async () => {
+    const onResult = jest.fn();
+    render(<StrictActionAuthentication reason="Confirm this action" onResult={onResult} />);
+
+    await screen.findByLabelText('password');
+    fireEvent.click(screen.getByRole('button', { name: 'continue' }));
+
+    // No verification attempt at all: an empty submit is a mis-click, not a wrong password, and
+    // counting it would spend an attempt and clear the field for nothing.
+    await waitFor(() => expect(mockGetProtectors).toHaveBeenCalled());
+    expect(mockVerify).not.toHaveBeenCalled();
+    expect(onResult).not.toHaveBeenCalled();
+  });
+
+  it('names the biometric failure and relabels the action as a retry', async () => {
+    mockGetPlatform.mockReturnValue('desktop');
+    mockGetProtectors.mockResolvedValue({ hardware: true, password: false });
+    mockVerify.mockRejectedValueOnce(new Error('sensor said no'));
+    render(<StrictActionAuthentication reason="Confirm this action" onResult={jest.fn()} />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'continue' }));
+
+    // A hardware rejection must not read as a generic wallet error; the user needs to know it was
+    // the biometric check that refused, and the action needs to invite another attempt.
+    expect(await screen.findByRole('alert')).toHaveTextContent('biometricFailed');
+    expect(screen.getByRole('button', { name: 'tryAgain' })).toBeInTheDocument();
+  });
+
   it('returns cancelled from the explicit cancel action', async () => {
     const onResult = jest.fn();
     render(<StrictActionAuthentication reason="Confirm this action" onResult={onResult} />);

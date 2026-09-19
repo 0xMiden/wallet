@@ -4,6 +4,7 @@ import { NoteTypeEnum } from '../types';
 import {
   assessOutgoingSpendingLimit,
   assessOutgoingSpendingLimitDetails,
+  hasSpendingLimits,
   queueOutgoingTransaction,
   spendsOf
 } from './queue';
@@ -350,5 +351,67 @@ describe('queueOutgoingTransaction with a multi-asset spend list', () => {
     );
 
     await expect(transactions.get('candidate')).resolves.toBeDefined();
+  });
+});
+
+describe('default assessment clock', () => {
+  // Every other test injects `now`, so the fallback the PRODUCTION callers actually take was never
+  // executed: the initiate paths all reach these functions without a time. Asserting the stamp is
+  // the real clock, rather than the fixture's NOW, is what proves the fallback ran. Fake timers
+  // are deliberately not used here - they stall the Dexie transaction the queue opens.
+  it('assesses against the wall clock when no time is supplied', async () => {
+    await spendingLimits.put(config());
+
+    const assessment = await assessOutgoingSpendingLimit({
+      accountId: 'account-a',
+      faucetId: 'faucet-a',
+      amount: 20n
+    });
+
+    expect(assessment?.assessedAt).toBeGreaterThan(1_700_000_000);
+  });
+
+  it('queues against the wall clock when no time is supplied', async () => {
+    await spendingLimits.put(config());
+    const candidate = outgoing(20n, 'candidate');
+
+    await queueOutgoingTransaction(candidate, spendsOf(candidate));
+
+    await expect(transactions.get('candidate')).resolves.toBeDefined();
+  });
+});
+
+describe('hasSpendingLimits', () => {
+  // The dApp gate refuses an unassessable custom request only when this answers true, so it
+  // decides whether "make the simulation fail" is a bypass. Every dApp suite mocks it, which left
+  // the real implementation with no test at all.
+  it('answers false when the account has no configured limit', async () => {
+    await expect(hasSpendingLimits('account-a')).resolves.toBe(false);
+  });
+
+  it('answers true for any configured faucet on the account', async () => {
+    await spendingLimits.put(config({ faucetId: 'faucet-b' }));
+
+    await expect(hasSpendingLimits('account-a')).resolves.toBe(true);
+  });
+
+  it('matches the account through its canonical identity, not its spelling', async () => {
+    await spendingLimits.put(config());
+
+    // A composite `<address>_<suffix>` and the bare address are the same account; answering false
+    // here would silently drop the refusal for a wallet that has a limit set.
+    await expect(hasSpendingLimits('account-a_route')).resolves.toBe(true);
+  });
+
+  it('fails closed when the configuration store cannot be read', async () => {
+    const where = jest.spyOn(spendingLimits, 'where').mockImplementationOnce(() => {
+      throw new Error('storage offline');
+    });
+
+    try {
+      await expect(hasSpendingLimits('account-a')).rejects.toThrow(/policy is unavailable/i);
+    } finally {
+      where.mockRestore();
+    }
   });
 });

@@ -107,6 +107,15 @@ describe('spending-limit configuration', () => {
     await expect(save(next, 'revision-1', false)).resolves.toMatchObject({ revision: 'revision-next' });
   });
 
+  it('classifies a no-op draft against no configuration as safe', () => {
+    // Both caps absent with nothing stored asks for nothing, so it needs no step-up. The
+    // classifier's other arm (something absent, something set) is covered below; this one is the
+    // empty-to-empty case a user reaches by opening the row and saving without typing.
+    expect(classifySpendingLimitChange(undefined, draft({ dailyLimit: undefined, weeklyLimit: undefined }))).toBe(
+      'safe'
+    );
+  });
+
   it.each([
     ['adding the first period', undefined, draft({ weeklyLimit: undefined })],
     ['adding another period', existing({ weeklyLimit: undefined }), draft()],
@@ -257,5 +266,18 @@ describe('spending-limit configuration', () => {
     await queueOutgoingTransaction(transaction, spendsOf(transaction), undefined, NOW);
 
     await expect(transactions.get('candidate')).resolves.toMatchObject({ amount: 80n });
+  });
+});
+
+describe('default clock and revision generator', () => {
+  // `save()` in this file always injects both. Production supplies neither, so these two
+  // fallbacks were the only part of saveSpendingLimit no test had ever run.
+  it('stamps the wall clock and generates a revision when neither is supplied', async () => {
+    const saved = await saveSpendingLimit(draft(), { observedRevision: undefined, strictlyAuthenticated: true });
+
+    expect(saved?.updatedAt).toBeGreaterThan(1_700_000_000);
+    expect(saved?.createdAt).toBe(saved?.updatedAt);
+    // A uuid, not the fixture's 'revision-next'.
+    expect(saved?.revision).toMatch(/^[0-9a-f-]{36}$/);
   });
 });

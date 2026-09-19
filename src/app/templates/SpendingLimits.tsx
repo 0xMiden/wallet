@@ -26,8 +26,9 @@ export function parseSpendingLimitInput(value: string, decimals: number): bigint
   if (!Number.isInteger(decimals) || decimals < 0 || decimals > 255) throw new RangeError('Invalid asset decimals');
   const match = /^(\d+)(?:\.(\d*))?$/.exec(trimmed);
   if (!match) throw new RangeError('Invalid spending limit');
-  const integer = match[1];
-  if (integer === undefined) throw new RangeError('Invalid spending limit');
+  // The mandatory `(\d+)` group: a successful match always carries it, so this is an assertion
+  // rather than a fallback - a `??` here would read as a case that can happen.
+  const integer = match[1]!;
   const fraction = match[2] ?? '';
   if (fraction.length > decimals) throw new RangeError('Spending limit exceeds asset precision');
   const amount = BigInt(integer) * 10n ** BigInt(decimals) + BigInt(fraction.padEnd(decimals, '0') || '0');

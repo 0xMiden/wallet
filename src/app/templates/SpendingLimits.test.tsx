@@ -105,6 +105,14 @@ describe('parseSpendingLimitInput', () => {
   });
 });
 
+describe('parseSpendingLimitInput asset scale', () => {
+  it.each([[-1], [256], [1.5]])('refuses an impossible asset scale of %p', decimals => {
+    // The scale comes from token metadata, which is not the wallet's to trust: a bad one would
+    // silently shift the limit by orders of magnitude rather than fail.
+    expect(() => parseSpendingLimitInput('1', decimals)).toThrow(RangeError);
+  });
+});
+
 describe('formatSpendingLimitInput', () => {
   it('formats base units without precision loss and trims insignificant zeros', () => {
     expect(formatSpendingLimitInput(20_000_000n, 6)).toBe('20');
@@ -144,6 +152,56 @@ describe('SpendingLimits', () => {
       createdAt: 1,
       updatedAt: 3
     }));
+  });
+
+  it('reports a load failure rather than an empty list when there is no current account', async () => {
+    // The whole screen keys off the account: with none there is nothing to read limits for, and
+    // rendering "no assets" would read as "you have no limits" rather than "this did not load".
+    mockWalletState.currentAccount = null;
+
+    render(<SpendingLimits />);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('spendingLimitLoadFailed');
+    expect(mockListSpendingLimits).not.toHaveBeenCalled();
+  });
+
+  it('treats an account with no balances entry as having none, not as loading', async () => {
+    // The store is keyed per account and a freshly switched-to account has no entry at all yet,
+    // which is different from an entry that is empty or still loading.
+    mockWalletState.balances = {};
+    mockWalletState.balancesLoading = {};
+    mockListSpendingLimits.mockResolvedValue([]);
+
+    render(<SpendingLimits />);
+
+    expect(await screen.findByText('spendingLimitNoAssets')).toBeInTheDocument();
+  });
+
+  it('says there is nothing to limit when the account holds no assets', async () => {
+    // Distinct from the load failure above: the read succeeded and the answer is genuinely empty,
+    // which is what a fresh wallet sees before its first balance arrives.
+    mockWalletState.balances['account-a'] = [];
+    mockListSpendingLimits.mockResolvedValue([]);
+
+    render(<SpendingLimits />);
+
+    expect(await screen.findByText('spendingLimitNoAssets')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('orders two assets sharing a symbol by faucet id', async () => {
+    // localeCompare on the symbol ties, so the faucet id is what makes the order stable. Without
+    // the tiebreak the rows could swap between renders.
+    mockWalletState.balances['account-a'] = [
+      { tokenId: 'faucet-b', metadata: { symbol: 'DUP', name: 'Dup B', decimals: 6 } },
+      { tokenId: 'faucet-a', metadata: { symbol: 'DUP', name: 'Dup A', decimals: 6 } }
+    ];
+    mockListSpendingLimits.mockResolvedValue([]);
+
+    render(<SpendingLimits />);
+
+    const headings = await screen.findAllByRole('heading', { name: 'DUP' });
+    expect(headings).toHaveLength(2);
   });
 
   it('shows current-balance assets and configured zero-balance assets', async () => {

@@ -275,3 +275,34 @@ describe('spending-limit persistence types', () => {
     expect(() => parseSerializedSpendingLimitAssessment(value)).toThrow(SpendingLimitPolicyUnavailableError);
   });
 });
+
+describe('breach parsing edges', () => {
+  // Both arrive from the intercom boundary, where the shape is whatever the other realm sent.
+  it('refuses a breach that is not an object at all', () => {
+    expect(() =>
+      parseSerializedSpendingLimitAssessment({
+        accountId: 'account-a',
+        faucetId: 'faucet-a',
+        amount: '20',
+        revision: 'revision-1',
+        assessedAt: 1_000,
+        breaches: ['not-a-breach']
+      })
+    ).toThrow(/breach is invalid/i);
+  });
+
+  it('accepts a breach whose reset time is genuinely absent', () => {
+    // `resetAt: null` is the real shape when the proposed amount alone exceeds the cap, so no
+    // amount of waiting frees capacity. Only the non-null arm had a test.
+    const parsed = parseSerializedSpendingLimitAssessment({
+      accountId: 'account-a',
+      faucetId: 'faucet-a',
+      amount: '120',
+      revision: 'revision-1',
+      assessedAt: 1_000,
+      breaches: [{ period: '24h', spent: '0', proposedTotal: '120', limit: '100', overBy: '20', resetAt: null }]
+    });
+
+    expect(parsed.breaches[0]?.resetAt).toBeNull();
+  });
+});

@@ -294,6 +294,31 @@ describe('EarnDepositReview', () => {
       );
     });
 
+    it('discards an authorization that no longer matches the deposit it was minted for', async () => {
+      // The assessment names another account, so the authorization the challenge returns is bound
+      // to a different (account, faucet, amount) than the one about to be opened. Honouring it
+      // would spend this deposit against a credential issued for something else.
+      mockWalletStoreState.assessSpendingLimit.mockResolvedValue({
+        accountId: 'mm1someotheraccount',
+        faucetId: 'mtst1usdc',
+        amount: 1_000_000_000n,
+        revision: 'revision-1',
+        assessedAt: 100,
+        breaches: [
+          { period: '24h', spent: 1n, proposedTotal: 1_000_000_001n, limit: 2n, overBy: 999_999_999n, resetAt: 200 }
+        ]
+      });
+      renderReview('aave-usdc-ethereum-1', '?amount=1,000');
+
+      fireEvent.click(screen.getByTestId('open-position-btn'));
+
+      // The staleness guard discards it on sight, so the challenge never reaches the user and no
+      // position is opened: a challenge for another account is not one this deposit may satisfy.
+      await waitFor(() => expect(mockWalletStoreState.assessSpendingLimit).toHaveBeenCalled());
+      expect(screen.queryByTestId('spending-limit-challenge')).not.toBeInTheDocument();
+      expect(mockOpenEarnPosition).not.toHaveBeenCalled();
+    });
+
     it('cancels the Earn challenge before quote or intent work and preserves the amount', async () => {
       mockWalletStoreState.assessSpendingLimit.mockResolvedValue({
         accountId: 'mm1testaccount',

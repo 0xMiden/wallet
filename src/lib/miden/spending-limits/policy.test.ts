@@ -243,6 +243,22 @@ describe('assessSpendingLimit', () => {
     expect(assessment.breaches).toMatchObject([{ period: '24h', spent: 90n, proposedTotal: 110n }]);
   });
 
+  it('fails closed when a custom row states a non-bigint amount for the configured faucet', () => {
+    // `spentAssetTotals` crosses the intercom boundary and is persisted, so the amount is only as
+    // trustworthy as the row. A matching entry that is not a bigint could be hiding spend.
+    const custom = row({ type: 'execute', faucetId: undefined, amount: undefined });
+    custom.spentAssetTotals = [{ faucetId: config.faucetId, amount: '90' as unknown as bigint }];
+
+    expect(() =>
+      assessSpendingLimit(config, [custom], {
+        accountId: config.accountId,
+        faucetId: config.faucetId,
+        amount: 20n,
+        now: NOW
+      })
+    ).toThrow(SpendingLimitPolicyUnavailableError);
+  });
+
   it('ignores a custom row whose totals name only other faucets', () => {
     const custom = row({ type: 'execute', faucetId: undefined, amount: undefined });
     custom.spentAssetTotals = [{ faucetId: 'faucet-other', amount: 900n }];

@@ -394,6 +394,20 @@ describe('simulateCustomTransaction', () => {
   });
 });
 
+describe('an abandoned dry run', () => {
+  it('reports an interruption rather than wallet-internal eviction text', async () => {
+    // The dApp consent sheet interpolates this string onto a line the signer reads. "WASM client
+    // poisoned (watchdog): held the WASM client lock past its watchdog ceiling" says nothing a
+    // signer can act on, and naming our internals to an untrusted page is its own problem.
+    const { WasmClientPoisonedError } = jest.requireActual('lib/miden/sdk/wasm-client-poison');
+    (executeForSummary as jest.Mock).mockRejectedValueOnce(new WasmClientPoisonedError('watchdog'));
+
+    const res = await simulateCustomTransaction({ address: 'mtst1abc', transactionRequest: 'reqB64' });
+
+    expect(res).toEqual({ error: 'the simulation was interrupted before it finished' });
+  });
+});
+
 describe('introduced-note provenance', () => {
   // The spending-limit policy may offset what LEAVES only against what this request BROUGHT IN.
   // `importNotes` is dApp-authored and its ids can name a note the user already holds, so the

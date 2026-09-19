@@ -603,6 +603,29 @@ describe('SwapFlow / SwapManager', () => {
       expect(mockWalletState.assessSpendingLimit).toHaveBeenCalledWith('pk-1', 'faucet-A', 10n);
     });
 
+    it('discards a spending-limit assessment minted for another account', async () => {
+      // The staleness guard exists because the account can change under an open challenge. An
+      // assessment naming a different account can never authorize this swap, so it is dropped
+      // before it reaches the user rather than being shown and then refused at the chokepoint.
+      mockWalletState.assessSpendingLimit.mockResolvedValue({
+        accountId: 'pk-someone-else',
+        faucetId: 'faucet-A',
+        amount: 10n,
+        revision: 'revision-1',
+        assessedAt: 100,
+        breaches: [{ period: '24h', spent: 95n, proposedTotal: 105n, limit: 100n, overBy: 5n, resetAt: 200 }]
+      });
+      renderFlow();
+      setOffer('10');
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('rs-submit'));
+      });
+
+      expect(screen.queryByTestId('spending-limit-challenge')).not.toBeInTheDocument();
+      expect(mockInitiateSwap).not.toHaveBeenCalled();
+    });
+
     it('uses strict authentication instead of ordinary confirmation for a spending-limit breach', async () => {
       mockWalletState.assessSpendingLimit.mockResolvedValue({
         accountId: 'pk-1',

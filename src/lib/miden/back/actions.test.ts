@@ -925,6 +925,37 @@ describe('actions', () => {
       });
     });
 
+    it('reports no assessment when the account has no policy for that faucet', async () => {
+      // The transport must distinguish "no limit configured" from "assessed and fine": the dApp
+      // and UI branches both key off undefined to skip the challenge entirely.
+      await expect(assessOutgoingSpendingLimit('account-a', 'faucet-unconfigured', '20')).resolves.toBeUndefined();
+    });
+
+    it('reports no configuration back when a save removes the last period', async () => {
+      await saveSpendingLimit(
+        {
+          accountId: 'account-a',
+          faucetId: 'faucet-a',
+          dailyLimit: '100',
+          asset: { symbol: 'MIDEN', decimals: 8 }
+        },
+        undefined,
+        true
+      );
+      const stored = await listSpendingLimits('account-a');
+
+      // Clearing every period deletes the record, and the caller needs undefined rather than a
+      // stale row so the settings screen stops showing a limit that no longer exists.
+      await expect(
+        saveSpendingLimit(
+          { accountId: 'account-a', faucetId: 'faucet-a', asset: { symbol: 'MIDEN', decimals: 8 } },
+          stored[0]?.revision,
+          true
+        )
+      ).resolves.toBeUndefined();
+      await expect(listSpendingLimits('account-a')).resolves.toEqual([]);
+    });
+
     it('rejects a non-canonical preflight proposal amount', async () => {
       await expect(assessOutgoingSpendingLimit('account-a', 'faucet-a', '020')).rejects.toThrow(
         /policy is unavailable/i
