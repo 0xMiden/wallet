@@ -31,12 +31,11 @@ describe('GUARDIAN_LOGOS', () => {
     expect(svgs[1]).toHaveClass('hidden', 'dark:block', 'h-12');
   });
 
-  it('gives no other provider a Mark, so they keep the wordmark-tile hero layout', () => {
-    expect(GUARDIAN_LOGOS.gateway!.Mark).toBeUndefined();
-    expect(GUARDIAN_LOGOS['lambda-class']!.Mark).toBeUndefined();
-    // Kodax is also `keepBrandColor`, but ships no standalone mark — it must
-    // stay on the wordmark-tile layout too, not follow OpenZeppelin's Hero.
+  it('gives Gateway and Kodax a mark cut from their wordmarks, and Lambda Class none', () => {
+    expect(GUARDIAN_LOGOS.gateway!.Mark).toBeDefined();
+    expect(GUARDIAN_LOGOS.kodax!.Mark).toBeDefined();
     expect(GUARDIAN_LOGOS.kodax!.keepBrandColor).toBe(true);
-    expect(GUARDIAN_LOGOS.kodax!.Mark).toBeUndefined();
+    // No standalone mark in Lambda Class's kit: its wordmark is scaled into the tile instead.
+    expect(GUARDIAN_LOGOS['lambda-class']!.Mark).toBeUndefined();
   });
 });
