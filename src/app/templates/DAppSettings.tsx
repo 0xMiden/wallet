@@ -4,10 +4,11 @@ import { PrivateDataPermission } from '@miden-sdk/miden-wallet-adapter-base';
 import { useTranslation } from 'react-i18next';
 
 import AddressShortView from 'app/atoms/AddressShortView';
-import CopyButton from 'app/atoms/CopyButton';
 import { ReactComponent as CloseIcon } from 'app/icons/close.svg';
 import { ReactComponent as CopySmallIcon } from 'app/icons/copy-small.svg';
 import { ReactComponent as ExternalLinkSmallIcon } from 'app/icons/external-link-small.svg';
+import { Icon, IconName } from 'app/icons/v2';
+import { CopyButton } from 'components/ui/CopyButton';
 import { useMidenContext, useAccount } from 'lib/miden/front';
 import { MidenDAppSession, MidenDAppSessions } from 'lib/miden/types';
 import { getExplorerAccountUrl } from 'lib/miden-chain/constants';
@@ -127,8 +128,14 @@ const DAppCard: FC<{
             <span className="text-sm text-accent-orange">
               <AddressShortView address={accountId} />
             </span>
-            <CopyButton text={accountId} small>
-              <CopySmallIcon className="w-3 h-3 text-text-muted" />
+            <CopyButton text={accountId} className="p-1 rounded-sm">
+              {copied =>
+                copied ? (
+                  <Icon name={IconName.Checkmark} className="w-3! h-3! text-text-muted" />
+                ) : (
+                  <CopySmallIcon className="w-3 h-3 text-text-muted" />
+                )
+              }
             </CopyButton>
             {explorerAccountUrl && (
               <a
