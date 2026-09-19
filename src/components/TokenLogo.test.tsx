@@ -94,6 +94,14 @@ describe('TokenLogo', () => {
       expect(getCircle(container)).toHaveClass(...circleCls.split(' '));
     });
 
+    it('draws the transparent default mark on a fill disc at hero size only', () => {
+      const { container: hero } = render(<TokenLogo symbol="XYZ" size="2xl" />);
+      expect(getCircle(hero)).toHaveClass('bg-fill');
+
+      const { container: row } = render(<TokenLogo symbol="XYZ" size="md" />);
+      expect(getCircle(row)).not.toHaveClass('bg-fill');
+    });
+
     it('forwards a custom className onto the Avatar circle on the fallback branch too', () => {
       const { container } = render(<TokenLogo symbol="XYZ" className="fallback-extra" />);
 
