@@ -1164,6 +1164,10 @@
     "message": "Условия предоставления услуг",
     "englishSource": "Terms of Service"
   },
+  "support": {
+    "message": "Поддержка",
+    "englishSource": "Support"
+  },
   "sendFeedback": {
     "message": "Отправить отзыв",
     "englishSource": "Send feedback"

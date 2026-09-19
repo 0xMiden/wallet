@@ -1164,6 +1164,10 @@
     "message": "利用規約",
     "englishSource": "Terms of Service"
   },
+  "support": {
+    "message": "サポート",
+    "englishSource": "Support"
+  },
   "sendFeedback": {
     "message": "ご意見・ご感想をお寄せください",
     "englishSource": "Send feedback"
