@@ -1,26 +1,28 @@
-import { installFaucetAddressTestHook, type FaucetAddressHelpers } from './faucet-address';
+import { installFaucetAddressTestHook } from './faucet-address';
+
+// Mocked by import path, which is this repo's idiom for a dynamically imported local module
+// (native-asset.test.ts mocks this very module the same way). An injected loader parameter would
+// only be a seam no production caller uses.
+jest.mock('lib/miden/sdk/helpers', () => ({
+  accountRefToSdk: jest.fn((ref: string) => ({ __accountFor: ref })),
+  getBech32AddressFromAccountId: jest.fn((id: { __accountFor: string }) => `mlcl1${id.__accountFor}`)
+}));
 
 describe('installFaucetAddressTestHook', () => {
-  it('loads the production helpers when no test loader is supplied', async () => {
-    const target: { __TEST_HEX_TO_BECH32_FAUCET__?: (hex: string) => string } = {};
-
-    await installFaucetAddressTestHook(target);
-
-    expect(target.__TEST_HEX_TO_BECH32_FAUCET__).toEqual(expect.any(Function));
+  afterEach(() => {
+    Reflect.deleteProperty(globalThis, '__TEST_HEX_TO_BECH32_FAUCET__');
   });
 
-  it('composes the canonical account parser and network-aware address formatter', async () => {
-    const accountId = {} as ReturnType<FaucetAddressHelpers['accountRefToSdk']>;
-    const helpers = {
-      accountRefToSdk: jest.fn(() => accountId),
-      getBech32AddressFromAccountId: jest.fn(() => 'mlcl1tracked')
-    } as unknown as FaucetAddressHelpers;
-    const target: { __TEST_HEX_TO_BECH32_FAUCET__?: (hex: string) => string } = {};
+  it('installs a hook that parses the account ref and then formats it for the active network', async () => {
+    // Driven with no arguments, exactly as src/lib/store/index.ts calls it, so the test covers the
+    // real install path rather than an injected one. The composition order is the whole behaviour:
+    // formatting an unparsed hex string, or parsing without formatting, both produce an id the
+    // harness would compare against `token.tokenId` and never match.
+    await installFaucetAddressTestHook();
 
-    await installFaucetAddressTestHook(target, async () => helpers);
+    const convert = (globalThis as { __TEST_HEX_TO_BECH32_FAUCET__?: (hex: string) => string })
+      .__TEST_HEX_TO_BECH32_FAUCET__;
 
-    expect(target.__TEST_HEX_TO_BECH32_FAUCET__?.('0xtracked')).toBe('mlcl1tracked');
-    expect(helpers.accountRefToSdk).toHaveBeenCalledWith('0xtracked');
-    expect(helpers.getBech32AddressFromAccountId).toHaveBeenCalledWith(accountId);
+    expect(convert?.('0xtracked')).toBe('mlcl10xtracked');
   });
 });
