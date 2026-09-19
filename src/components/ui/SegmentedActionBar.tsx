@@ -95,7 +95,16 @@ export const SegmentedActionBar: FC<SegmentedActionBarProps> = ({ items, activeI
   };
 
   return (
-    <div role="tablist" className={cn('flex h-16 items-center gap-1 overflow-hidden bg-fill px-3', className)}>
+    // The 48px segments set the height. 4px above them keeps the row snug under the status bar (the
+    // strip's top edge is the safe-area line; nothing else pads it); 8px below them and a hairline
+    // rule mirror the bottom nav's top rule, dividing the row from the content under it.
+    <div
+      role="tablist"
+      className={cn(
+        'flex items-center gap-1 overflow-hidden border-b border-hairline bg-fill px-3 pt-1 pb-2',
+        className
+      )}
+    >
       {/* The white pill slides between segments on the shared Highlight primitive; its layoutId is
           scoped to this bar, so two mounted bars never trade pills. */}
       <Highlight
