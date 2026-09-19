@@ -4,6 +4,8 @@ import { pathToFileURL } from 'node:url';
 
 import sharp from 'sharp';
 
+import { assert, resolveInside } from './shared.mjs';
+
 /*
  * Store assets are publication inputs, so equal manifests and raw captures
  * must produce equal PNG bytes without timestamps, machine paths, or ambient
@@ -35,22 +37,6 @@ function parseArguments(argv) {
     else throw new Error(`Unknown argument: ${flag}`);
   }
   return options;
-}
-
-function assert(condition, message) {
-  if (!condition) throw new Error(message);
-}
-
-function resolveInside(root, relativePath, label) {
-  // Publication builds must not depend on a file outside the reviewable root.
-  assert(typeof relativePath === 'string' && relativePath.length > 0, `${label} path is required`);
-  const resolved = path.resolve(root, relativePath);
-  const relation = path.relative(root, resolved);
-  assert(
-    relation !== '..' && !relation.startsWith(`..${path.sep}`) && !path.isAbsolute(relation),
-    `${label} escapes root`
-  );
-  return resolved;
 }
 
 function escapeXml(value) {

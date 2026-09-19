@@ -4,6 +4,8 @@ import { pathToFileURL } from 'node:url';
 
 import { format } from 'prettier';
 
+import { allStrings, assert, resolveInside } from './shared.mjs';
+
 /*
  * The canonical model stores each shared fact once. Store outputs may append
  * platform facts, but they never receive a separately editable shared copy.
@@ -51,10 +53,6 @@ function parseArguments(argv) {
   return options;
 }
 
-function assert(condition, message) {
-  if (!condition) throw new Error(message);
-}
-
 function orderedBlocks(collection, label) {
   assert(collection && Array.isArray(collection.blocks), `${label} blocks must be an array`);
   assert(Array.isArray(collection.blockOrder), `${label} block order must be an array`);
@@ -74,15 +72,6 @@ function orderedBlocks(collection, label) {
     assert(block, `${label} block order references missing fact id: ${id}`);
     return block;
   });
-}
-
-function allStrings(value) {
-  // Recursive policy scanning covers later schema additions automatically. A
-  // new text field cannot bypass forbidden-claim or punctuation checks.
-  if (typeof value === 'string') return [value];
-  if (Array.isArray(value)) return value.flatMap(allStrings);
-  if (value && typeof value === 'object') return Object.values(value).flatMap(allStrings);
-  return [];
 }
 
 function blockFacts(block) {
@@ -348,7 +337,13 @@ async function main() {
 
   for (const platformKey of platformKeys) {
     const output = outputs[platformKey];
-    const outputDirectory = path.resolve(options.outputRoot, source.platforms[platformKey].slug);
+    // Contained, because the slug comes from the manifest: an absolute or '..' slug would
+    // otherwise make this write outside the package, anywhere the process can reach.
+    const outputDirectory = resolveInside(
+      path.resolve(options.outputRoot),
+      source.platforms[platformKey].slug,
+      `${platformKey} slug`
+    );
     await mkdir(outputDirectory, { recursive: true });
     // Formatting is part of generation so a clean rebuild never creates a
     // formatter-only diff and hash comparisons remain meaningful.

@@ -234,6 +234,18 @@ describe('store listing copy composition', () => {
     ]);
   });
 
+  // The generated-copy directory is resolved from a slug the MANIFEST supplies. Without
+  // containment, `path.resolve` happily walks out of the output root, so these two shapes wrote
+  // wherever the process could reach. Both pass on an unguarded composer.
+  it.each([
+    ['a relative escape', '../escape'],
+    ['an absolute path', path.join(tmpdir(), 'bread-listing-escape')]
+  ])('refuses %s in a platform slug', (_label, slug) => {
+    expectInvalid(source => {
+      source.platforms.appStore.slug = slug;
+    }, 'escapes root');
+  });
+
   it('describes the canonical source with a JSON schema', () => {
     const schema = JSON.parse(readFileSync(schemaPath, 'utf8')) as {
       $schema: string;

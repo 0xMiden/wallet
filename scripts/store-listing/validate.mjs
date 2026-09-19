@@ -5,6 +5,7 @@ import { pathToFileURL } from 'node:url';
 import sharp from 'sharp';
 
 import { compose } from './compose-copy.mjs';
+import { allStrings, assert, resolveInside } from './shared.mjs';
 
 /*
  * This validator treats manifests, copy, raw captures, and rendered files as a
@@ -43,17 +44,6 @@ function parseArguments(argv) {
   return options;
 }
 
-function assert(condition, message) {
-  if (!condition) throw new Error(message);
-}
-
-function allStrings(value) {
-  if (typeof value === 'string') return [value];
-  if (Array.isArray(value)) return value.flatMap(allStrings);
-  if (value && typeof value === 'object') return Object.values(value).flatMap(allStrings);
-  return [];
-}
-
 function validatePunctuation(...documents) {
   const invalid = documents.flatMap(allStrings).find(value => /[\u2013\u2014]/u.test(value));
   assert(!invalid, 'Unicode dashes are not allowed');
@@ -74,19 +64,6 @@ function validateRuleAge(rules, asOf) {
   const ageDays = (evaluationDate.valueOf() - checkedAt.valueOf()) / millisecondsPerDay;
   assert(ageDays >= 0, 'Store rules cannot be checked in the future');
   assert(ageDays <= rules.maxAgeDays, `Store rules are stale: checked ${rules.checkedAt}`);
-}
-
-function resolveInside(root, relativePath, label) {
-  // Publication inputs must remain reviewable repository files. A manifest
-  // path outside the root could make local validation depend on private state.
-  assert(typeof relativePath === 'string' && relativePath.length > 0, `${label} path is required`);
-  const resolved = path.resolve(root, relativePath);
-  const relation = path.relative(root, resolved);
-  assert(
-    relation !== '..' && !relation.startsWith(`..${path.sep}`) && !path.isAbsolute(relation),
-    `${label} escapes root`
-  );
-  return resolved;
 }
 
 async function exists(filePath) {
