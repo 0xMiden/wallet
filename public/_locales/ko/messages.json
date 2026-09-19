@@ -3607,6 +3607,50 @@
     "message": "소셜",
     "englishSource": "Social"
   },
+  "categoryGames": {
+    "message": "게임",
+    "englishSource": "Games"
+  },
+  "categoryNfts": {
+    "message": "NFT",
+    "englishSource": "NFTs"
+  },
+  "categoryLearn": {
+    "message": "배우기",
+    "englishSource": "Learn"
+  },
+  "exploreCategoriesLabel": {
+    "message": "카테고리",
+    "englishSource": "Categories"
+  },
+  "exploreFeatured": {
+    "message": "추천",
+    "englishSource": "Featured"
+  },
+  "exploreHelperTools": {
+    "message": "도우미 도구",
+    "englishSource": "Helper tools"
+  },
+  "exploreOpen": {
+    "message": "열기",
+    "englishSource": "Open"
+  },
+  "exploreSeeAll": {
+    "message": "모두 보기",
+    "englishSource": "See all"
+  },
+  "exploreShowLess": {
+    "message": "간단히 보기",
+    "englishSource": "Show less"
+  },
+  "exploreComingSoonTitle": {
+    "message": "Miden에 곧 출시",
+    "englishSource": "Coming soon to Miden"
+  },
+  "exploreComingSoonDescription": {
+    "message": "Miden에 새로 출시되는 앱이 여기에 표시됩니다.",
+    "englishSource": "New apps show up here as they launch on Miden."
+  },
   "minimize": {
     "message": "최소화",
     "englishSource": "Minimize"

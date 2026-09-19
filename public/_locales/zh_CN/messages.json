@@ -3607,6 +3607,50 @@
     "message": "社交",
     "englishSource": "Social"
   },
+  "categoryGames": {
+    "message": "游戏",
+    "englishSource": "Games"
+  },
+  "categoryNfts": {
+    "message": "NFT",
+    "englishSource": "NFTs"
+  },
+  "categoryLearn": {
+    "message": "学习",
+    "englishSource": "Learn"
+  },
+  "exploreCategoriesLabel": {
+    "message": "类别",
+    "englishSource": "Categories"
+  },
+  "exploreFeatured": {
+    "message": "精选",
+    "englishSource": "Featured"
+  },
+  "exploreHelperTools": {
+    "message": "辅助工具",
+    "englishSource": "Helper tools"
+  },
+  "exploreOpen": {
+    "message": "打开",
+    "englishSource": "Open"
+  },
+  "exploreSeeAll": {
+    "message": "查看全部",
+    "englishSource": "See all"
+  },
+  "exploreShowLess": {
+    "message": "收起",
+    "englishSource": "Show less"
+  },
+  "exploreComingSoonTitle": {
+    "message": "即将登陆 Miden",
+    "englishSource": "Coming soon to Miden"
+  },
+  "exploreComingSoonDescription": {
+    "message": "新应用在 Miden 上线后会显示在这里。",
+    "englishSource": "New apps show up here as they launch on Miden."
+  },
   "minimize": {
     "message": "最小化",
     "englishSource": "Minimize"
