@@ -18,13 +18,6 @@ import { streamIndexedDBToFile } from '../helpers/idb-dump';
 
 const INITIAL_MINT_AMOUNT = 100_000_000_000; // matches mint-and-balance.spec.ts
 
-/**
- * The symbol of the token this suite trades.
- *
- * `midenCli.createFaucet()` defaults to this symbol. Conservation is scoped to the exact
- * faucet deployed for the run because unrelated faucets may reuse the same symbol.
- */
-
 function intEnv(key: string, dflt: number): number {
   const raw = process.env[key];
   if (raw == null || raw === '') return dflt;
