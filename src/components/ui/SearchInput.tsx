@@ -10,6 +10,8 @@ export interface SearchInputProps {
   onChange: (value: string) => void;
   /** Fired when the user presses Enter (or the mobile keyboard's go/return key). */
   onSubmit?: () => void;
+  /** Fired when the user presses Escape, e.g. to close a search that opened in place. */
+  onEscape?: () => void;
   placeholder?: string;
   className?: string;
   autoFocus?: boolean;
@@ -24,6 +26,7 @@ export const SearchInput: FC<SearchInputProps> = ({
   value,
   onChange,
   onSubmit,
+  onEscape,
   placeholder = 'Search',
   className,
   autoFocus,
@@ -38,6 +41,9 @@ export const SearchInput: FC<SearchInputProps> = ({
     if (e.key === 'Enter' && onSubmit) {
       e.preventDefault();
       onSubmit();
+    } else if (e.key === 'Escape' && onEscape) {
+      e.preventDefault();
+      onEscape();
     }
   };
 
@@ -69,7 +75,7 @@ export const SearchInput: FC<SearchInputProps> = ({
         data-testid={dataTestId}
         value={value}
         onChange={(e: ChangeEvent<HTMLInputElement>) => onChange(e.target.value)}
-        onKeyDown={onSubmit ? handleKeyDown : undefined}
+        onKeyDown={onSubmit || onEscape ? handleKeyDown : undefined}
         placeholder={placeholder}
         aria-label={placeholder}
         autoFocus={autoFocus}

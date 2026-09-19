@@ -249,3 +249,23 @@ describe('SearchInput — clear button & placeholder hint (#503)', () => {
     expect(input.className).not.toContain('placeholder:font-bold');
   });
 });
+
+describe('SearchInput — Escape', () => {
+  it('calls onEscape on Escape, and not on other keys', () => {
+    const onEscape = jest.fn();
+    render(<SearchInput value="abc" onChange={jest.fn()} onEscape={onEscape} />);
+    fireEvent.keyDown(screen.getByRole('textbox'), { key: 'a' });
+    expect(onEscape).not.toHaveBeenCalled();
+    fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Escape' });
+    expect(onEscape).toHaveBeenCalledTimes(1);
+  });
+
+  it('still submits on Enter alongside onEscape', () => {
+    const onSubmit = jest.fn();
+    const onEscape = jest.fn();
+    render(<SearchInput value="abc" onChange={jest.fn()} onSubmit={onSubmit} onEscape={onEscape} />);
+    fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter' });
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    expect(onEscape).not.toHaveBeenCalled();
+  });
+});
