@@ -2426,6 +2426,14 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
 
     if (params.tokenId) {
       const exactToken = this.page.locator(`[data-token-id=${JSON.stringify(params.tokenId)}]`);
+      // The wait above is on the search INPUT; the rows render from store state that can arrive
+      // later. `count()` is a point-in-time read, so without this the stress driver aborts a whole
+      // run on the one lap where the rows have not committed yet. The count stays as the
+      // uniqueness check, which is what owns the message below.
+      await exactToken
+        .first()
+        .waitFor({ state: 'attached', timeout: STEP_TIMEOUT_MS })
+        .catch(() => {});
       const exactTokenCount = await exactToken.count().catch(() => 0);
       if (exactTokenCount !== 1) {
         throw new Error(

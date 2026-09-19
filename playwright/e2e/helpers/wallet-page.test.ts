@@ -12,7 +12,13 @@ function makePage(): Page {
   } as unknown as Page;
 }
 
-function makeSendPage(tokenIds: string[]): { page: Page; clickedTokenIds: string[] } {
+/**
+ * `appearOnWait` models rows that have not committed when the drawer opens and arrive while the
+ * helper waits. That is the real timing the stress driver hits, and the only way to tell a waiting
+ * gate from a bare point-in-time count.
+ */
+function makeSendPage(tokenIds: string[], appearOnWait: string[] = []): { page: Page; clickedTokenIds: string[] } {
+  const present = new Set(tokenIds);
   const clickedTokenIds: string[] = [];
   const noopLocator = {
     waitFor: jest.fn(async () => undefined),
@@ -37,9 +43,13 @@ function makeSendPage(tokenIds: string[]): { page: Page; clickedTokenIds: string
       if (selector === 'body') return noopLocator;
       const match = selector.match(/^\[data-token-id=(.+)\]$/);
       const tokenId = JSON.parse(match?.[1] ?? '""') as string;
-      const exists = tokenIds.includes(tokenId);
       return {
-        count: jest.fn(async () => (exists ? 1 : 0)),
+        count: jest.fn(async () => (present.has(tokenId) ? 1 : 0)),
+        first: () => ({
+          waitFor: jest.fn(async () => {
+            if (appearOnWait.includes(tokenId)) present.add(tokenId);
+          })
+        }),
         locator: jest.fn(() => ({
           first: () => ({ click: jest.fn(async () => clickedTokenIds.push(tokenId)) })
         }))
@@ -216,6 +226,20 @@ describe('ChromeWalletPage exact token selection', () => {
     });
 
     expect(clickedTokenIds).toEqual(['faucet-b']);
+  });
+
+  it('waits for a row that commits after the drawer opens', async () => {
+    const { page, clickedTokenIds } = makeSendPage([], ['faucet-late']);
+    const wallet = new ChromeWalletPage(page, 'test');
+
+    await wallet.sendTokens({
+      recipientAddress: 'account-b',
+      amount: '1',
+      isPrivate: false,
+      tokenId: 'faucet-late'
+    });
+
+    expect(clickedTokenIds).toEqual(['faucet-late']);
   });
 
   it('fails instead of falling back when the requested token id is absent', async () => {
