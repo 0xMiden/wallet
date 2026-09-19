@@ -105,12 +105,18 @@ export function savePlain<T>(key: string, value: T) {
   return getStorage().set({ [key]: value });
 }
 
+/**
+ * How this layer signals ABSENCE, as opposed to a decrypt or storage failure. Exported so a caller
+ * that must tell the two apart compares against the contract rather than a copied string literal.
+ */
+export const STORAGE_ITEM_NOT_FOUND = 'Some storage item not found';
+
 async function fetchEncryptedOne<T>(key: string) {
   const items = await getStorage().get([key]);
   if (items[key] !== undefined) {
     return items[key] as T;
   } else {
-    throw new Error('Some storage item not found');
+    throw new Error(STORAGE_ITEM_NOT_FOUND);
   }
 }
 

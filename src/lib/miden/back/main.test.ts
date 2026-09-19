@@ -174,6 +174,7 @@ jest.mock('lib/miden/back/actions', () => ({
   revealMnemonic: jest.fn(),
   exportWalletBackupMaterial: jest.fn(),
   revealPrivateKey: jest.fn(),
+  exportAccountFile: jest.fn(),
   removeAccount: jest.fn(),
   editAccount: jest.fn(),
   importAccount: jest.fn(),
@@ -222,6 +223,7 @@ beforeEach(async () => {
     importedAccounts: []
   });
   Actions.revealPrivateKey.mockResolvedValue('deadbeef');
+  Actions.exportAccountFile.mockResolvedValue('BAUG');
   Actions.importAccount.mockResolvedValue('mtst1imported-pk');
   Actions.signTransaction.mockResolvedValue('hex-signature');
   Actions.getAuthSecretKey.mockResolvedValue('secret-key');
@@ -604,6 +606,16 @@ describe('processRequest', () => {
     expect(Actions.revealPrivateKey).toHaveBeenCalledWith('pk-commitment', 'pw');
     expect(res.type).toBe(WalletMessageType.RevealPrivateKeyResponse);
     expect(res.privateKey).toBe('deadbeef');
+  });
+
+  it('ExportAccountFileRequest returns the base64 account file from Actions', async () => {
+    const res = await dispatch({
+      type: WalletMessageType.ExportAccountFileRequest,
+      accountPublicKey: 'mtst1account',
+      password: 'pw'
+    });
+    expect(Actions.exportAccountFile).toHaveBeenCalledWith('mtst1account', 'pw');
+    expect(res).toEqual({ type: WalletMessageType.ExportAccountFileResponse, accountFileBase64: 'BAUG' });
   });
 
   it('UpdateSettingsRequest forwards settings to Actions', async () => {

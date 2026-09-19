@@ -1,3 +1,4 @@
+import { Buffer } from 'buffer';
 import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
 
@@ -302,6 +303,24 @@ export const useWalletStore = create<WalletStore>()(
       });
       assertResponse(res.type === WalletMessageType.RevealPrivateKeyResponse);
       return res.privateKey;
+    },
+
+    exportAccountFile: async (accountPublicKey, password) => {
+      const res = await request({
+        type: WalletMessageType.ExportAccountFileRequest,
+        accountPublicKey,
+        password
+      });
+      assertResponse(res.type === WalletMessageType.ExportAccountFileResponse);
+      // Buffer is IMPORTED, never the bare global: on every extension page `public/globals.js`
+      // installs a stub whose `from()` ignores the encoding argument, and the entry points keep it
+      // (`globalThis.Buffer = globalThis.Buffer || Buffer`), so a bare global decode returns an
+      // EMPTY array and the user is handed a 0-byte account file with a success message.
+      // A VIEW over the decoded buffer, not a copy of it, so the array the export screen zeroes is
+      // the only mutable plaintext of the account's auth key this realm holds. The three-argument
+      // form is bounded to this buffer's own region, so Node's shared pool is never exposed.
+      const decoded = Buffer.from(res.accountFileBase64, 'base64');
+      return new Uint8Array(decoded.buffer, decoded.byteOffset, decoded.byteLength);
     },
 
     revealHotKey: async (accountPublicKey, password) => {

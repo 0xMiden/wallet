@@ -146,6 +146,7 @@ describe('MidenClientInterface', () => {
       getBech32AddressFromAccountId: (id: any) => String(id),
       walletAccountIdToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
       accountRefToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
+      canonicalWalletAccountId: (id: string) => `sdk-${id.split('_')[0] ?? id}`,
       buildSendTransactionRequest: jest.fn(() => ({ kind: 'request', serialize: () => new Uint8Array([1]) }))
     }));
     jest.doMock('../helpers', () => ({
@@ -225,6 +226,7 @@ describe('MidenClientInterface', () => {
       getBech32AddressFromAccountId: (id: any) => String(id),
       walletAccountIdToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
       accountRefToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
+      canonicalWalletAccountId: (id: string) => `sdk-${id.split('_')[0] ?? id}`,
       buildSendTransactionRequest: jest.fn(() => ({ kind: 'request', serialize: () => new Uint8Array([1]) }))
     }));
     jest.doMock('lib/miden/activity/connectivity-state', () => ({
@@ -306,6 +308,7 @@ describe('MidenClientInterface', () => {
       getBech32AddressFromAccountId: (id: any) => String(id),
       walletAccountIdToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
       accountRefToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
+      canonicalWalletAccountId: (id: string) => `sdk-${id.split('_')[0] ?? id}`,
       buildSendTransactionRequest: jest.fn(() => ({ kind: 'request', serialize: () => new Uint8Array([1]) }))
     }));
     jest.doMock('lib/miden/activity/connectivity-state', () => ({
@@ -332,6 +335,7 @@ describe('MidenClientInterface', () => {
       getBech32AddressFromAccountId: (id: any) => String(id),
       walletAccountIdToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
       accountRefToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
+      canonicalWalletAccountId: (id: string) => `sdk-${id.split('_')[0] ?? id}`,
       buildSendTransactionRequest: jest.fn(() => ({ kind: 'request', serialize: () => new Uint8Array([1]) }))
     }));
     jest.doMock('lib/miden/activity/connectivity-state', () => ({
@@ -345,6 +349,122 @@ describe('MidenClientInterface', () => {
     const result = await client.importMidenWallet(new Uint8Array([1, 2, 3]));
     expect(result).toBe('id');
     expect(fakeMidenClient.accounts.import).toHaveBeenCalled();
+  });
+
+  it('exports a serialized account file through the supported SDK account export path', async () => {
+    const accountFile = {
+      authSecretKeyCount: jest.fn(() => 1),
+      serialize: jest.fn(() => new Uint8Array([4, 5, 6])),
+      free: jest.fn()
+    };
+    const fakeMidenClient = buildFakeMidenClient({
+      accounts: { export: jest.fn(async () => accountFile) }
+    });
+    const assertLive = jest.fn();
+
+    const { MidenClientInterface } = await import('./miden-client-interface');
+    const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
+
+    await expect(client.exportAccountFile('mtst1account_suffix', assertLive)).resolves.toEqual(
+      new Uint8Array([4, 5, 6])
+    );
+    expect(fakeMidenClient.accounts.export).toHaveBeenCalledWith('sdk-mtst1account');
+    expect(assertLive).toHaveBeenCalledWith('after account export');
+    expect(accountFile.authSecretKeyCount).toHaveBeenCalledTimes(1);
+    expect(accountFile.serialize).toHaveBeenCalledTimes(1);
+    expect(accountFile.free).toHaveBeenCalledTimes(1);
+  });
+
+  it('reduces a hex-form composite id through the canonical helper, not a bare underscore split', async () => {
+    const accountFile = {
+      authSecretKeyCount: jest.fn(() => 1),
+      serialize: jest.fn(() => new Uint8Array([4, 5, 6])),
+      free: jest.fn()
+    };
+    const fakeMidenClient = buildFakeMidenClient({
+      accounts: { export: jest.fn(async () => accountFile) }
+    });
+
+    const { MidenClientInterface } = await import('./miden-client-interface');
+    const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
+
+    await client.exportAccountFile('0x1234abcd_suffix');
+
+    // A bare split would hand the SDK '0x1234abcd' unchanged; the helper canonicalizes it.
+    expect(fakeMidenClient.accounts.export).toHaveBeenCalledWith('sdk-0x1234abcd');
+  });
+
+  it('refuses an account file with no authentication secret key and frees it', async () => {
+    const accountFile = {
+      authSecretKeyCount: jest.fn(() => 0),
+      serialize: jest.fn(),
+      free: jest.fn()
+    };
+    const fakeMidenClient = buildFakeMidenClient({
+      accounts: { export: jest.fn(async () => accountFile) }
+    });
+
+    const { MidenClientInterface } = await import('./miden-client-interface');
+    const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
+
+    const { PublicError: PublicErrorClass } = await import('lib/miden/back/defaults');
+    const refusal = await client.exportAccountFile('mtst1account').catch((cause: unknown) => cause);
+    expect(refusal).toBeInstanceOf(PublicErrorClass);
+    expect((refusal as Error).message).toBe('Account file does not contain an authentication secret key');
+    expect(accountFile.serialize).not.toHaveBeenCalled();
+    expect(accountFile.free).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses an account file carrying more keys than the one account being exported', async () => {
+    // The vault reader refuses the commitments it can name; this is the backstop for the ones it
+    // cannot, so a file can never fold in a key the user never acknowledged exporting.
+    const accountFile = {
+      authSecretKeyCount: jest.fn(() => 2),
+      serialize: jest.fn(),
+      free: jest.fn()
+    };
+    const fakeMidenClient = buildFakeMidenClient({
+      accounts: { export: jest.fn(async () => accountFile) }
+    });
+
+    const { MidenClientInterface } = await import('./miden-client-interface');
+    const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
+
+    // PublicError specifically: Vault.withError preserves only that class, so a bare Error would
+    // reach the user as the generic 'Failed to export account file' instead of this reason.
+    // One invocation, both assertions, so the free() count below still measures one export.
+    const { PublicError } = await import('lib/miden/back/defaults');
+    const refusal = await client.exportAccountFile('mtst1account').catch((cause: unknown) => cause);
+    expect(refusal).toBeInstanceOf(PublicError);
+    expect((refusal as Error).message).toBe('Account file contains 2 authentication secret keys, expected exactly one');
+    expect(accountFile.serialize).not.toHaveBeenCalled();
+    expect(accountFile.free).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the unwinding error when releasing the account file also fails', async () => {
+    // free() runs on the path assertLive may just have proved abandoned, where the handle belongs
+    // to a client somebody else now owns. A throw there must not replace the real cause.
+    const accountFile = {
+      authSecretKeyCount: jest.fn(() => 1),
+      serialize: jest.fn(),
+      free: jest.fn(() => {
+        throw new Error('free failed');
+      })
+    };
+    const fakeMidenClient = buildFakeMidenClient({
+      accounts: { export: jest.fn(async () => accountFile) }
+    });
+    const assertLive = jest.fn(() => {
+      throw new Error('export-account-file abandoned');
+    });
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    const { MidenClientInterface } = await import('./miden-client-interface');
+    const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
+
+    await expect(client.exportAccountFile('mtst1account', assertLive)).rejects.toThrow('export-account-file abandoned');
+    expect(accountFile.free).toHaveBeenCalledTimes(1);
+    consoleError.mockRestore();
   });
 
   it('sends private note', async () => {
@@ -381,6 +501,7 @@ describe('MidenClientInterface', () => {
       getBech32AddressFromAccountId: (id: any) => String(id),
       walletAccountIdToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
       accountRefToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
+      canonicalWalletAccountId: (id: string) => `sdk-${id.split('_')[0] ?? id}`,
       buildSendTransactionRequest: jest.fn(() => ({ kind: 'request', serialize: () => new Uint8Array([1]) }))
     }));
     jest.doMock('lib/miden/activity/connectivity-state', () => ({
@@ -446,6 +567,7 @@ describe('MidenClientInterface', () => {
       getBech32AddressFromAccountId: (id: any) => String(id),
       walletAccountIdToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
       accountRefToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
+      canonicalWalletAccountId: (id: string) => `sdk-${id.split('_')[0] ?? id}`,
       buildSendTransactionRequest: jest.fn(() => ({ kind: 'request', serialize: () => new Uint8Array([1]) }))
     }));
     jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
@@ -490,6 +612,7 @@ describe('MidenClientInterface', () => {
       getBech32AddressFromAccountId: (id: any) => String(id),
       walletAccountIdToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
       accountRefToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
+      canonicalWalletAccountId: (id: string) => `sdk-${id.split('_')[0] ?? id}`,
       buildSendTransactionRequest: jest.fn(() => ({ kind: 'request', serialize: () => new Uint8Array([1]) }))
     }));
     jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
@@ -548,6 +671,7 @@ describe('MidenClientInterface', () => {
       getBech32AddressFromAccountId: (id: any) => String(id),
       walletAccountIdToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
       accountRefToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
+      canonicalWalletAccountId: (id: string) => `sdk-${id.split('_')[0] ?? id}`,
       buildSendTransactionRequest: jest.fn(() => ({ kind: 'request', serialize: () => new Uint8Array([1]) }))
     }));
     jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
@@ -631,6 +755,7 @@ describe('MidenClientInterface', () => {
         getBech32AddressFromAccountId: (id: any) => String(id),
         walletAccountIdToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
         accountRefToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
+        canonicalWalletAccountId: (id: string) => `sdk-${id.split('_')[0] ?? id}`,
         buildSendTransactionRequest: jest.fn(() => ({ kind: 'request', serialize: () => new Uint8Array([1]) }))
       }));
       jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
@@ -677,6 +802,7 @@ describe('MidenClientInterface', () => {
       getBech32AddressFromAccountId: (id: any) => String(id),
       walletAccountIdToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
       accountRefToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
+      canonicalWalletAccountId: (id: string) => `sdk-${id.split('_')[0] ?? id}`,
       buildSendTransactionRequest: jest.fn(() => ({ kind: 'request', serialize: () => new Uint8Array([1]) }))
     }));
     jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
@@ -763,6 +889,7 @@ describe('MidenClientInterface', () => {
       getBech32AddressFromAccountId: (id: any) => String(id),
       walletAccountIdToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
       accountRefToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
+      canonicalWalletAccountId: (id: string) => `sdk-${id.split('_')[0] ?? id}`,
       buildPswapCreateRequest: jest.fn(() => ({ kind: 'pswap', serialize: () => new Uint8Array([4]) }))
     }));
     jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
@@ -952,6 +1079,7 @@ describe('MidenClientInterface', () => {
         getBech32AddressFromAccountId: (id: any) => String(id),
         walletAccountIdToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
         accountRefToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
+        canonicalWalletAccountId: (id: string) => `sdk-${id.split('_')[0] ?? id}`,
         buildSendTransactionRequest: jest.fn(() => ({ kind: 'request', serialize: () => new Uint8Array([1]) }))
       }));
       jest.doMock('lib/miden/activity/connectivity-issues', () => ({ addConnectivityIssue: jest.fn() }));
@@ -996,6 +1124,7 @@ describe('MidenClientInterface', () => {
         getBech32AddressFromAccountId: (id: any) => String(id),
         walletAccountIdToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
         accountRefToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
+        canonicalWalletAccountId: (id: string) => `sdk-${id.split('_')[0] ?? id}`,
         buildSendTransactionRequest: jest.fn(() => ({ kind: 'request', serialize: () => new Uint8Array([1]) }))
       }));
       jest.doMock('lib/miden/activity/connectivity-issues', () => ({ addConnectivityIssue: jest.fn() }));
@@ -1038,6 +1167,7 @@ describe('MidenClientInterface', () => {
         getBech32AddressFromAccountId: (id: any) => String(id),
         walletAccountIdToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
         accountRefToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
+        canonicalWalletAccountId: (id: string) => `sdk-${id.split('_')[0] ?? id}`,
         buildSendTransactionRequest: jest.fn(() => ({ kind: 'request', serialize: () => new Uint8Array([1]) }))
       }));
       jest.doMock('lib/miden/activity/connectivity-issues', () => ({ addConnectivityIssue: jest.fn() }));
@@ -1079,6 +1209,7 @@ describe('MidenClientInterface', () => {
         getBech32AddressFromAccountId: (id: any) => (typeof id === 'function' ? id().toString() : String(id)),
         walletAccountIdToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
         accountRefToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
+        canonicalWalletAccountId: (id: string) => `sdk-${id.split('_')[0] ?? id}`,
         buildSendTransactionRequest: jest.fn(() => ({ kind: 'request', serialize: () => new Uint8Array([1]) }))
       }));
       jest.doMock('screens/onboarding/types', () => ({
@@ -1309,6 +1440,7 @@ describe('MidenClientInterface', () => {
         getBech32AddressFromAccountId: (id: any) => String(id),
         walletAccountIdToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
         accountRefToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
+        canonicalWalletAccountId: (id: string) => `sdk-${id.split('_')[0] ?? id}`,
         buildSendTransactionRequest: jest.fn(() => ({ kind: 'request', serialize: () => new Uint8Array([1]) }))
       }));
       jest.doMock('screens/onboarding/types', () => ({
@@ -1771,6 +1903,7 @@ describe('MidenClientInterface', () => {
         getBech32AddressFromAccountId: (id: any) => String(id),
         walletAccountIdToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
         accountRefToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
+        canonicalWalletAccountId: (id: string) => `sdk-${id.split('_')[0] ?? id}`,
         buildSendTransactionRequest: jest.fn(() => ({ kind: 'request', serialize: () => new Uint8Array([1]) }))
       }));
       jest.doMock('lib/miden/activity/connectivity-state', () => ({
@@ -2116,6 +2249,7 @@ describe('MidenClientInterface', () => {
         getBech32AddressFromAccountId: (id: any) => String(id),
         walletAccountIdToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
         accountRefToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
+        canonicalWalletAccountId: (id: string) => `sdk-${id.split('_')[0] ?? id}`,
         buildSendTransactionRequest: jest.fn(() => ({ kind: 'request', serialize: () => new Uint8Array([1]) }))
       }));
       jest.doMock('../helpers', () => ({

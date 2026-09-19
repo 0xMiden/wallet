@@ -84,15 +84,16 @@ const renderWithResolvedKey = async () => {
 beforeEach(() => {
   jest.clearAllMocks();
   mockCopied = false;
-  mockUseAccount.mockReturnValue({ publicKey: 'account-id-1' });
+  mockUseAccount.mockReturnValue({ publicKey: 'account-id-1', type: 'on-chain' });
 });
 
 describe('AdvancedSettings (page)', () => {
-  it('renders both section labels', async () => {
+  it('renders all section labels', async () => {
     await renderWithResolvedKey();
 
     expect(screen.getByText('accountPublicKey')).toBeInTheDocument();
     expect(screen.getByText('editMidenFaucetId')).toBeInTheDocument();
+    expect(screen.getByText('exportAccountFile')).toBeInTheDocument();
   });
 
   it('resolves the account public key and displays the truncated chip', async () => {
@@ -184,4 +185,23 @@ describe('AdvancedSettings (page)', () => {
     expect(mockNavigate).toHaveBeenCalledTimes(1);
     expect(mockNavigate).toHaveBeenCalledWith('/settings/edit-miden-faucet-id');
   });
+
+  it('navigates to the guarded account-file export when its row is pressed', async () => {
+    await renderWithResolvedKey();
+
+    fireEvent.click(screen.getByText('exportAccountFile'));
+
+    expect(mockHapticLight).toHaveBeenCalledTimes(1);
+    expect(mockNavigate).toHaveBeenCalledWith('/settings/export-account-file');
+  });
+});
+
+it('does not offer the account-file export for a Guardian account', () => {
+  // The vault refuses a Guardian export outright, so offering the row would only lead the user
+  // through the funds warning and a credential prompt to a certain refusal.
+  mockUseAccount.mockReturnValue({ publicKey: 'guardian-account', type: 'guardian' });
+
+  render(<AdvancedSettings />);
+
+  expect(screen.queryByText('exportAccountFile')).not.toBeInTheDocument();
 });

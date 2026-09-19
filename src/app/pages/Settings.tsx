@@ -38,6 +38,7 @@ import { EncryptedFileFlow } from 'screens/encrypted-file-flow/EncryptedFileMana
 import { WalletType } from 'screens/onboarding/types';
 
 import AdvancedSettings from './AdvancedSettings';
+import ExportAccountFile from './ExportAccountFile';
 import NetworksSettings from './Networks';
 import { SettingsSelectors } from './Settings.selectors';
 import pkg from '../../../package.json';
@@ -284,6 +285,11 @@ const HIDDEN_TABS: Tab[] = [
     titleI18nKey: 'editMidenFaucetId',
     Component: EditMidenFaucetId,
     testID: SettingsSelectors.EditMidenFaucetButton
+  },
+  {
+    slug: 'export-account-file',
+    titleI18nKey: 'exportAccountFile',
+    Component: ExportAccountFile
   },
   {
     slug: 'networks',

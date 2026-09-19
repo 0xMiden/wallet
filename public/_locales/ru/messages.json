@@ -4895,6 +4895,50 @@
     "message": "Не удалось сохранить скрытые переводы. Пожалуйста, попробуйте ещё раз.",
     "englishSource": "Could not save hidden transfers. Please try again."
   },
+  "exportAccountFile": {
+    "message": "Экспорт файла учетной записи",
+    "englishSource": "Export account file"
+  },
+  "exportAccountFileWarningTitle": {
+    "message": "Этот файл управляет вашими средствами",
+    "englishSource": "This file controls your funds"
+  },
+  "exportAccountFileWarningBody": {
+    "message": "Этот файл предоставляет доступ к средствам на экспортированном счёте. Не передавайте его никому.",
+    "englishSource": "This file grants access to funds for the exported account. Do not share it with anyone."
+  },
+  "exportAccountFileGuardianUnavailable": {
+    "message": "Учётную запись Guardian нельзя экспортировать в файл учётной записи. Её ключ подписи хранится в защищённом аппаратном обеспечении вашего устройства и никогда не покидает его.",
+    "englishSource": "A Guardian account cannot be exported to an account file. Its signing key is held by your device's secure hardware and never leaves it."
+  },
+  "exportAccountFileAcknowledge": {
+    "message": "Я понимаю, что любой, у кого есть этот файл, может получить доступ к средствам на счете.",
+    "englishSource": "I understand that anyone with this file can access the account funds."
+  },
+  "exportAccountFilePasswordDescription": {
+    "message": "Введите пароль кошелька, чтобы экспортировать эту учетную запись.",
+    "englishSource": "Enter your wallet password to export this account."
+  },
+  "exportAccountFileHardwareDescription": {
+    "message": "Подтвердите с помощью системы безопасности вашего устройства, чтобы экспортировать эту учетную запись.",
+    "englishSource": "Confirm with your device security to export this account."
+  },
+  "exportAccountFilePasscodeDescription": {
+    "message": "Введите пароль кошелька, чтобы экспортировать эту учетную запись.",
+    "englishSource": "Enter your wallet passcode to export this account."
+  },
+  "saveAccountFile": {
+    "message": "Сохранить файл учетной записи",
+    "englishSource": "Save account file"
+  },
+  "accountFileDownloadStarted": {
+    "message": "Началась загрузка файла учетной записи.",
+    "englishSource": "Account file download started."
+  },
+  "accountFileShareSuccess": {
+    "message": "Файл с данными счёта предоставлен.",
+    "englishSource": "Account file shared."
+  },
   "activityRejectTransfer": {
     "message": "Отклонить",
     "englishSource": "Decline"

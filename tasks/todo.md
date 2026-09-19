@@ -1,39 +1,50 @@
-# Issue 64: imported account backup and restore
+# Issue #537 - guarded .mac account export
 
-- [x] Add a strict versioned backup parser with legacy compatibility.
-- [x] Export one authenticated and internally consistent backend snapshot.
-- [x] Validate every imported secret before publishing a restored vault.
-- [x] Export complete version 2 encrypted wallet files.
-- [x] Restore encrypted-file onboarding without changing seed recovery.
-- [x] Restore current-design account import and encrypted-file export entry points.
-- [x] Prove the same imported account ID can sign before export and after restore.
-- [ ] Complete full verification, visual grading, Review Council, PR, CI, and merge.
+## Plan
 
-## Issue 64 review
+- [x] Read the issue, repository instructions, decision profile, frontend guidance, and required TDD references.
+- [x] Trace the supported web-client `accounts.export()` path, wallet vault key storage, realm keystore lifecycle, intercom actions, and Advanced Settings routing.
+- [x] Measure TypeScript and TSX comment density before editing production code.
+- [x] RED: add focused tests for a scoped vault-backed `getKey` callback and serialized account-file export, then run them and record the expected failures.
+- [x] GREEN: implement scoped realm `getKey` installation, authenticated vault key reads, and `MidenClientInterface` account-file serialization.
+- [x] RED: add request, store, and context tests for a base64-safe account-file export action, then run them and record the expected failures.
+- [x] GREEN: wire the export through the backend, both intercom paths, Zustand, and `useMidenContext`.
+- [x] RED: add Advanced Settings and export-screen tests covering warning acknowledgement, credential step-up, binary download/share, success, and failure.
+- [x] GREEN: add the routed export screen under Advanced Settings with localized fund-access warning copy.
+- [x] Add the issue changelog entry under the unreleased version.
+- [x] Run focused Jest suites, scoped type and lint gates, i18n lint, and formatting checks.
+- [x] RED: prove an in-flight `getKey` result escaped after its client generation was replaced.
+- [x] GREEN: add the universal post-await generation check to the per-client `getKey` trampoline.
+- [x] Run all affected tests and static gates, the configured 95% coverage gate, affected builds with artifact/error checks, and visual verification.
+- [x] Inspect the final diff, scan authored text for U+2014/U+2013 and attribution, and create the signed implementation commit.
+- [ ] Run the four-seat Review Council from a fresh session, apply all actionable findings, and reverify.
+- [ ] Push once, open the non-draft PR with `Closes #537`, babysit CI/review/conflicts to green, and admin squash merge.
 
-- `yarn check:deps`: passed.
-- `yarn tsc --noEmit`: passed.
-- `yarn lint`, `yarn lint:i18n`, and `yarn lint:e2e`: passed.
-- Prettier checked every changed TypeScript file: passed.
-- Locale source and generated-bundle parity: the keys this change adds are deliberately absent from every
-  non-English bundle, so they reach the DeepL job as untranslated rather than being stamped current. The suite
-  is red locally until that job runs and commits; `pr.yml` runs `translations` first and every other job needs
-  it, so the gate sees the translated files.
-- Affected Jest verification: 19 suites and 933 tests passed.
-- `E2E_NETWORK=testnet yarn playwright test --config playwright.e2e.config.ts playwright/e2e/tests/imported-account-backup-restore.spec.ts --retries=0`: 1 test passed in 20.0 seconds.
-- The E2E artifact scan found no private-key material and no capture archives.
-- `yarn build:desktop`, `yarn build:mobile`, `yarn build:extension`, `yarn test:e2e:blockchain:build`, and `E2E_NETWORK=testnet yarn test:e2e:mobile:build`: passed. The iOS build ended with `BUILD SUCCEEDED`.
-- Expected desktop, mobile, extension, and iOS Simulator application artifacts were present after their builds.
-- `git diff --check`, forbidden-dash scan, and attribution scan: passed.
-- Full `yarn test:coverage --runInBand`: 661 suites and 11,282 tests passed in 3,336.302 seconds. Coverage was 97.40% statements, 95.32% branches, 96.49% functions, and 97.40% lines, above every 95% threshold.
+## Architecture
 
-| Approved visual criterion | Pass / Fail | Fresh desktop and iOS evidence |
-| --- | --- | --- |
-| Recover offers Seed Phrase and Encrypted Wallet File | Pass | Both complete choices and descriptions are visible. |
-| File selection is usable | Pass | The drop zone, device picker, JSON restriction, and Import action are visible without clipping. |
-| Wrong password is separate and clear | Pass | The selected filename remains visible and `Incorrect password. Try again.` appears at the password field. |
-| A valid encrypted file advances successfully without exposing secrets | Pass | Desktop advances to password creation and iOS advances to passcode setup; no secret text is visible. |
-| Mobile content has no horizontal clipping or occlusion | Pass | The actual iOS Simulator frames show every relevant label, card, input, and action inside the viewport. |
+The wallet's singleton client already uses the supported web-client `accounts.export()` API, but its external keystore intentionally refuses `getKey` during normal operation. The export action will authenticate first, install a vault-backed key reader only for one mutex-held export, remove it by identity in `finally`, serialize the returned `AccountFile`, and carry the bytes through intercom as base64. A routed Advanced Settings screen will require an explicit fund-access acknowledgement plus password, passcode, or device-security confirmation before downloading or sharing `<account-id>.mac`.
+
+## Review
+
+- RED core: 10 expected failures across four suites because the realm `getKey` slot, vault reader, SDK export method, and action did not exist.
+- RED transport: three expected failures because the request enum, dispatch cases, and store action did not exist.
+- RED UI: the new page module and route were absent, and Advanced Settings had no export row.
+- RED hardening: one callback-install cleanup test and two mobile cache-cleanup assertions failed before their guards existed.
+- RED 537A race: one parked-key test resolved stale secret bytes after the client generation changed.
+- RED watchdog cleanup: a parked SDK export survived the lock watchdog without uninstalling its scoped callback; the outer identity-safe `finally` now removes it before the action rejects.
+- RED interaction cleanup: the export row and acknowledgement emitted no haptics, and a thrown browser download click left its temporary anchor attached.
+- RED dark-theme contrast: the new export page's account address inherited black text until the page supplied the established heading color token.
+- RED completion semantics: the desktop path still claimed the account file was saved after only dispatching an anchor download, while the mobile path did not distinguish a completed share.
+- GREEN completion semantics: desktop reports that the download started and mobile reports that the file was shared; neither path claims confirmed browser persistence.
+- GREEN: 611 tests pass across 11 affected suites. TypeScript, full source ESLint, scoped Prettier, i18n lint, and dependency integrity pass.
+- Full pre-translation coverage: 11,175 tests pass across 656 suites; statements 97.41%, branches 95.37%, functions 96.42%, and lines 97.41%. The sole expected failure is source/generated locale parity for the new English keys; the verified translation workflow generates and commits those bundles before every downstream coverage and build gate.
+- Final production builds pass for Chrome, mobile, desktop, Android, and iOS. Targeted error scans are empty, and the Chrome manifest/zip, mobile and desktop bundles/WASM, Android APK, and iOS app executable/Info.plist all exist.
+- Fresh routed light/dark visual checks pass at the supported 640 px fullpage width: the exact fund-access warning, acknowledgement, password step-up, disabled-to-enabled save transition, account identity contrast, and horizontal geometry are visible and correct.
+- Final comment density: TypeScript 20%, TSX 10%, `miden-client.ts` 55%, `vault.ts` 30%, `actions.ts` 25%, `AdvancedSettings.tsx` 4%, `ExportAccountFile.tsx` 0%, and `Settings.tsx` 16%. New comments are limited to lifecycle rationale.
+- Mobile share files are deleted from app cache in `finally`, including when the share fails.
+- Remaining verification risk: the tests exercise the supported web-client `accounts.export()` API and byte-preserving save paths with doubles; a live wallet-to-CLI import round trip and native share sheet were not run in this worktree. After the translation commit, the exact remote branch tree still requires a fully green coverage rerun before merge.
+
+---
 
 # Bridge-IN e2e harness — REAL WalletConnect on iOS simulator
 

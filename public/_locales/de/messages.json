@@ -4895,6 +4895,50 @@
     "message": "Versteckte Überweisungen konnten nicht gespeichert werden. Bitte versuchen Sie es erneut.",
     "englishSource": "Could not save hidden transfers. Please try again."
   },
+  "exportAccountFile": {
+    "message": "Kontodatei exportieren",
+    "englishSource": "Export account file"
+  },
+  "exportAccountFileWarningTitle": {
+    "message": "Diese Datei verwaltet Ihr Guthaben",
+    "englishSource": "This file controls your funds"
+  },
+  "exportAccountFileWarningBody": {
+    "message": "Diese Datei gewährt Zugriff auf die Guthaben des exportierten Kontos. Geben Sie sie nicht an Dritte weiter.",
+    "englishSource": "This file grants access to funds for the exported account. Do not share it with anyone."
+  },
+  "exportAccountFileGuardianUnavailable": {
+    "message": "Ein „Guardian“-Konto kann nicht in eine Kontodatei exportiert werden. Sein Signaturschlüssel wird von der sicheren Hardware Ihres Geräts verwahrt und verlässt diese niemals.",
+    "englishSource": "A Guardian account cannot be exported to an account file. Its signing key is held by your device's secure hardware and never leaves it."
+  },
+  "exportAccountFileAcknowledge": {
+    "message": "Mir ist bewusst, dass jeder, der über diese Datei verfügt, auf die Kontoguthaben zugreifen kann.",
+    "englishSource": "I understand that anyone with this file can access the account funds."
+  },
+  "exportAccountFilePasswordDescription": {
+    "message": "Geben Sie Ihr Wallet-Passwort ein, um dieses Konto zu exportieren.",
+    "englishSource": "Enter your wallet password to export this account."
+  },
+  "exportAccountFileHardwareDescription": {
+    "message": "Bestätigen Sie dies über die Sicherheitseinstellungen Ihres Geräts, um dieses Konto zu exportieren.",
+    "englishSource": "Confirm with your device security to export this account."
+  },
+  "exportAccountFilePasscodeDescription": {
+    "message": "Geben Sie den Passcode Ihrer Wallet ein, um dieses Konto zu exportieren.",
+    "englishSource": "Enter your wallet passcode to export this account."
+  },
+  "saveAccountFile": {
+    "message": "Kontodatei speichern",
+    "englishSource": "Save account file"
+  },
+  "accountFileDownloadStarted": {
+    "message": "Der Download der Kontodatei wurde gestartet.",
+    "englishSource": "Account file download started."
+  },
+  "accountFileShareSuccess": {
+    "message": "Kontodatei geteilt.",
+    "englishSource": "Account file shared."
+  },
   "activityRejectTransfer": {
     "message": "Ablehnen",
     "englishSource": "Decline"

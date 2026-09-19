@@ -41,6 +41,8 @@ export enum WalletMessageType {
   RevealViewKeyResponse = 'REVEAL_VIEW_KEY_RESPONSE',
   RevealPrivateKeyRequest = 'REVEAL_PRIVATE_KEY_REQUEST',
   RevealPrivateKeyResponse = 'REVEAL_PRIVATE_KEY_RESPONSE',
+  ExportAccountFileRequest = 'EXPORT_ACCOUNT_FILE_REQUEST',
+  ExportAccountFileResponse = 'EXPORT_ACCOUNT_FILE_RESPONSE',
   RevealHotKeyRequest = 'REVEAL_HOT_KEY_REQUEST',
   RevealHotKeyResponse = 'REVEAL_HOT_KEY_RESPONSE',
   RevealGuardianKeysRequest = 'REVEAL_GUARDIAN_KEYS_REQUEST',
@@ -612,6 +614,17 @@ export interface RevealPrivateKeyResponse extends WalletMessageBase {
   privateKey: string;
 }
 
+export interface ExportAccountFileRequest extends WalletMessageBase {
+  type: WalletMessageType.ExportAccountFileRequest;
+  accountPublicKey: string;
+  password?: string;
+}
+
+export interface ExportAccountFileResponse extends WalletMessageBase {
+  type: WalletMessageType.ExportAccountFileResponse;
+  accountFileBase64: string;
+}
+
 export interface RevealHotKeyRequest extends WalletMessageBase {
   type: WalletMessageType.RevealHotKeyRequest;
   accountPublicKey: string;
@@ -1123,6 +1136,7 @@ export type WalletRequest =
   | RevealPublicKeyRequest
   | RevealViewKeyRequest
   | RevealPrivateKeyRequest
+  | ExportAccountFileRequest
   | RevealHotKeyRequest
   | RevealGuardianKeysRequest
   | RemoveSeedPhraseRequest
@@ -1192,6 +1206,7 @@ export type WalletResponse =
   | RevealPublicKeyResponse
   | RevealViewKeyResponse
   | RevealPrivateKeyResponse
+  | ExportAccountFileResponse
   | RevealHotKeyResponse
   | RevealGuardianKeysResponse
   | RemoveSeedPhraseResponse

@@ -27,7 +27,13 @@ import {
 } from 'lib/miden/back/store';
 import { Vault } from 'lib/miden/back/vault';
 import { clearStorage } from 'lib/miden/reset';
-import { installRealmKeystore, withWasmClientLock } from 'lib/miden/sdk/miden-client';
+import {
+  assertWasmHoldCurrent,
+  getMidenClient,
+  installRealmKeystore,
+  uninstallRealmKeystore,
+  withWasmClientLock
+} from 'lib/miden/sdk/miden-client';
 import { buildSdkSignCallback } from 'lib/miden/transaction/sign-callback';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
 import {
@@ -435,6 +441,38 @@ export function exportWalletBackupMaterial(password?: string) {
 
 export function revealPrivateKey(accPubKeyCommitment: string, password?: string) {
   return withInited(() => Vault.revealPrivateKey(accPubKeyCommitment, password));
+}
+
+export function exportAccountFile(accountPublicKey: string, password?: string) {
+  return withInited(() =>
+    Vault.withAccountFileKeyReader(accountPublicKey, password, async getKey => {
+      try {
+        return await withWasmClientLock(
+          async hold => {
+            installRealmKeystore({ getKey });
+            const client = await getMidenClient();
+            assertWasmHoldCurrent(hold, 'export-account-file', 'after client acquisition');
+            const bytes = await client.exportAccountFile(accountPublicKey, step =>
+              assertWasmHoldCurrent(hold, 'export-account-file', step)
+            );
+            try {
+              // Encoded straight from `bytes` rather than through an intermediate Buffer copy,
+              // because every copy is another live plaintext of the account's auth key that the
+              // screen's own fill(0) cannot reach. The base64 string itself is immutable and stays
+              // resident until GC - the transport is a string here the way revealPrivateKey and
+              // revealMnemonic already are - so this zeroes the one copy it does own.
+              return Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).toString('base64');
+            } finally {
+              bytes.fill(0);
+            }
+          },
+          { label: 'export-account-file' }
+        );
+      } finally {
+        uninstallRealmKeystore({ getKey });
+      }
+    })
+  );
 }
 
 export function revealHotKey(accountPublicKey: string, password?: string) {

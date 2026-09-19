@@ -3,6 +3,7 @@ import {
   AccountComponent,
   AccountStorageMode,
   AuthSecretKey,
+  type GetKeyCallback,
   getWasmOrThrow,
   SigningInputs,
   Word,
@@ -24,7 +25,8 @@ import {
   getPlain,
   isStored,
   removeMany,
-  savePlain
+  savePlain,
+  STORAGE_ITEM_NOT_FOUND
 } from 'lib/miden/back/safe-storage';
 import { ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import { encodePrivateKeyPair, parsePrivateKeyPair } from 'lib/miden/guardian/private-key-pair';
@@ -2524,6 +2526,102 @@ export class Vault {
         throw new PublicError('Private key not found for this account');
       }
       return secretKeyHex;
+    });
+  }
+
+  static async withAccountFileKeyReader<T>(
+    accountPublicKey: string,
+    password: string | undefined,
+    operation: (getKey: GetKeyCallback) => Promise<T>
+  ): Promise<T> {
+    return withError('Failed to export account file', async () => {
+      // An empty string is not a credential, it is a caller that lost track of its own branch.
+      // Letting it fall through would decide the AUTHENTICATION METHOD from a falsy check and
+      // answer a passcode wallet with 'Hardware protector is not configured'.
+      if (password === '') {
+        throw new PublicError('A password or passcode is required to export this account');
+      }
+      const vaultKey = password ? await Vault.unlockWithPassword(password) : await Vault.getHardwareVaultKey();
+      // The invariant is about the ACCOUNT, not about the key the SDK happens to ask for, so it is
+      // decided here, once, before any key is served. Keying it on the requested commitment cannot
+      // work: accAuthSecretKeyStrgKey is polymorphic - insertKeyCallbackWrapper stores a serialized
+      // AuthSecretKey there, persistGuardianKeys stores a Guardian's PLATFORM-WRAPPED hot ciphertext
+      // under the same shape, and a Guardian's COLD secret is under it too (see persistGuardianKeys:
+      // cold also reaches the SDK keystore through the standard insertKeyCallback path). A Guardian
+      // whose hot key is not yet activated has no hot commitment to recognize at all. `type` is the
+      // one signal that holds in every one of those states, and it is what revealHotKey uses.
+      // No `.catch` here on purpose: a guard built from stored state fails CLOSED, so an unreadable
+      // accounts record aborts the export instead of silently disabling the refusal.
+      const accounts = await fetchAndDecryptOneWithLegacyFallBack<WalletAccount[]>(accountsStrgKey, vaultKey);
+      const account = (Array.isArray(accounts) ? accounts : []).find(acc =>
+        sameWalletAccountId(acc.publicKey, accountPublicKey)
+      );
+      if (!account) {
+        throw new PublicError('Account not found');
+      }
+      if (account.type === WalletType.Guardian) {
+        throw new PublicError('A Guardian account cannot be exported to an account file');
+      }
+
+      // Defence in depth for the keys we CAN name. A non-Guardian account's own auth commitment is
+      // not recorded on WalletAccount, so this cannot be a whitelist of one; it is a denylist of
+      // every other account's known key material, so a future SDK change that asks for the wrong
+      // commitment mid-export cannot fold a second account's secret into this file.
+      const otherAccountKeys = new Set(
+        (Array.isArray(accounts) ? accounts : [])
+          .filter(acc => acc !== account)
+          .flatMap(acc => [acc.hotPublicKey, acc.coldPublicKey])
+          .filter((key): key is string => Boolean(key))
+          .map(key => key.replace(/^0x/i, '').toLowerCase())
+      );
+
+      // The SDK reduces a keystore callback's throw to its message text, so a PublicError raised
+      // inside getKey loses its identity crossing back and `withError` below flattens it to the
+      // generic verdict. Record the classification here and restore it on the near side of that
+      // boundary, or the reason the export failed reaches the user as "something went wrong".
+      let readerFailure: PublicError | null = null;
+
+      const getKey: GetKeyCallback = async publicKey => {
+        // Cleared per call: a stale classification from an earlier key must never describe why a
+        // later one ended.
+        readerFailure = null;
+        const commitment = Buffer.from(publicKey).toString('hex');
+        if (otherAccountKeys.has(commitment.replace(/^0x/i, '').toLowerCase())) {
+          console.error('[accountFileExport] refused: this key belongs to a different account');
+          readerFailure = new PublicError('The export asked for a key that belongs to a different account');
+          throw readerFailure;
+        }
+        const secretKeyHex = await fetchAndDecryptOneWithLegacyFallBack<string>(
+          accAuthSecretKeyStrgKey(commitment),
+          vaultKey
+        ).catch(cause => {
+          // A keystore callback's throw crosses the SDK boundary as its message alone, so this is
+          // the whole diagnostic a failed export will ever have. Only an ABSENT key may be reported
+          // as an absent key - safe-storage signals that with STORAGE_ITEM_NOT_FOUND - while a
+          // decrypt or storage failure keeps its own cause instead of being mislabelled.
+          if (cause instanceof Error && cause.message === STORAGE_ITEM_NOT_FOUND) {
+            readerFailure = new PublicError('Authentication key not found for account export');
+            throw readerFailure;
+          }
+          console.error('[accountFileExport] could not read the authentication key:', cause);
+          throw cause;
+        });
+        if (!secretKeyHex) {
+          readerFailure = new PublicError('Authentication key not found for account export');
+          throw readerFailure;
+        }
+        return new Uint8Array(Buffer.from(secretKeyHex, 'hex'));
+      };
+
+      try {
+        return await operation(getKey);
+      } catch (cause: unknown) {
+        // An abandonment keeps its identity: `isWasmClientPoisonedError` is what kill classifiers
+        // read, and a rewrap would report an operation that may still be in flight as a flat
+        // failure. Only a non-abandonment failure may be re-labelled with what getKey classified.
+        if (readerFailure && !isWasmClientPoisonedError(cause)) throw readerFailure;
+        throw cause;
+      }
     });
   }
 

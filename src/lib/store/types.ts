@@ -163,6 +163,7 @@ export interface WalletActions {
   revealMnemonic: (password?: string) => Promise<string>;
   exportWalletBackupMaterial: (password?: string) => Promise<WalletBackupMaterial>;
   revealPrivateKey: (accountPublicKey: string, password?: string) => Promise<string>;
+  exportAccountFile: (accountPublicKey: string, password?: string) => Promise<Uint8Array>;
   revealHotKey: (accountPublicKey: string, password?: string) => Promise<string>;
   revealGuardianKeys: (
     accountPublicKey: string,

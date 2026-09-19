@@ -4895,6 +4895,50 @@
     "message": "숨겨진 전송 내역을 저장할 수 없습니다. 다시 시도해 주십시오.",
     "englishSource": "Could not save hidden transfers. Please try again."
   },
+  "exportAccountFile": {
+    "message": "계정 파일 내보내기",
+    "englishSource": "Export account file"
+  },
+  "exportAccountFileWarningTitle": {
+    "message": "이 파일은 귀하의 자금을 관리합니다",
+    "englishSource": "This file controls your funds"
+  },
+  "exportAccountFileWarningBody": {
+    "message": "이 파일은 내보낸 계정의 자금에 대한 접근 권한을 부여합니다. 누구와도 공유하지 마십시오.",
+    "englishSource": "This file grants access to funds for the exported account. Do not share it with anyone."
+  },
+  "exportAccountFileGuardianUnavailable": {
+    "message": "Guardian 계정은 계정 파일로 내보낼 수 없습니다. 해당 계정의 서명 키는 사용자의 기기 내 보안 하드웨어에 보관되며, 기기 외부로 절대 유출되지 않습니다.",
+    "englishSource": "A Guardian account cannot be exported to an account file. Its signing key is held by your device's secure hardware and never leaves it."
+  },
+  "exportAccountFileAcknowledge": {
+    "message": "이 파일을 소지한 사람이라면 누구나 계정 자금을 이용할 수 있다는 점을 이해합니다.",
+    "englishSource": "I understand that anyone with this file can access the account funds."
+  },
+  "exportAccountFilePasswordDescription": {
+    "message": "이 계정을 내보내려면 지갑 비밀번호를 입력하세요.",
+    "englishSource": "Enter your wallet password to export this account."
+  },
+  "exportAccountFileHardwareDescription": {
+    "message": "이 계정을 내보내려면 기기 보안 설정을 확인하십시오.",
+    "englishSource": "Confirm with your device security to export this account."
+  },
+  "exportAccountFilePasscodeDescription": {
+    "message": "이 계정을 내보내려면 지갑 비밀번호를 입력하세요.",
+    "englishSource": "Enter your wallet passcode to export this account."
+  },
+  "saveAccountFile": {
+    "message": "계정 파일 저장",
+    "englishSource": "Save account file"
+  },
+  "accountFileDownloadStarted": {
+    "message": "계정 파일 다운로드가 시작되었습니다.",
+    "englishSource": "Account file download started."
+  },
+  "accountFileShareSuccess": {
+    "message": "계정 파일을 공유했습니다.",
+    "englishSource": "Account file shared."
+  },
   "activityRejectTransfer": {
     "message": "거절",
     "englishSource": "Decline"

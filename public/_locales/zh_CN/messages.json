@@ -4895,6 +4895,50 @@
     "message": "无法保存隐藏转账。请重试。",
     "englishSource": "Could not save hidden transfers. Please try again."
   },
+  "exportAccountFile": {
+    "message": "导出账户文件",
+    "englishSource": "Export account file"
+  },
+  "exportAccountFileWarningTitle": {
+    "message": "此文件管理您的资金",
+    "englishSource": "This file controls your funds"
+  },
+  "exportAccountFileWarningBody": {
+    "message": "此文件授予对导出账户资金的访问权限。请勿与任何人分享。",
+    "englishSource": "This file grants access to funds for the exported account. Do not share it with anyone."
+  },
+  "exportAccountFileGuardianUnavailable": {
+    "message": "Guardian账户无法导出为账户文件。其签名密钥由您设备的加密硬件持有，且绝不会离开该设备。",
+    "englishSource": "A Guardian account cannot be exported to an account file. Its signing key is held by your device's secure hardware and never leaves it."
+  },
+  "exportAccountFileAcknowledge": {
+    "message": "我理解，任何拥有此文件的人都可以访问该账户的资金。",
+    "englishSource": "I understand that anyone with this file can access the account funds."
+  },
+  "exportAccountFilePasswordDescription": {
+    "message": "请输入您的钱包密码以导出此账户。",
+    "englishSource": "Enter your wallet password to export this account."
+  },
+  "exportAccountFileHardwareDescription": {
+    "message": "请通过设备安全验证以导出该账户。",
+    "englishSource": "Confirm with your device security to export this account."
+  },
+  "exportAccountFilePasscodeDescription": {
+    "message": "请输入您的钱包密码以导出此账户。",
+    "englishSource": "Enter your wallet passcode to export this account."
+  },
+  "saveAccountFile": {
+    "message": "保存账户文件",
+    "englishSource": "Save account file"
+  },
+  "accountFileDownloadStarted": {
+    "message": "账户文件下载已开始。",
+    "englishSource": "Account file download started."
+  },
+  "accountFileShareSuccess": {
+    "message": "已分享账户文件。",
+    "englishSource": "Account file shared."
+  },
   "activityRejectTransfer": {
     "message": "拒绝",
     "englishSource": "Decline"
