@@ -3607,6 +3607,70 @@
     "message": "ソーシャル",
     "englishSource": "Social"
   },
+  "categoryGames": {
+    "message": "ゲーム",
+    "englishSource": "Games"
+  },
+  "categoryNfts": {
+    "message": "NFT",
+    "englishSource": "NFTs"
+  },
+  "categoryLearn": {
+    "message": "学ぶ",
+    "englishSource": "Learn"
+  },
+  "exploreCategoriesLabel": {
+    "message": "カテゴリ",
+    "englishSource": "Categories"
+  },
+  "exploreFeatured": {
+    "message": "おすすめ",
+    "englishSource": "Featured"
+  },
+  "exploreHelperTools": {
+    "message": "ヘルパーツール",
+    "englishSource": "Helper tools"
+  },
+  "exploreOpen": {
+    "message": "開く",
+    "englishSource": "Open"
+  },
+  "exploreSeeAll": {
+    "message": "すべて表示",
+    "englishSource": "See all"
+  },
+  "exploreShowLess": {
+    "message": "表示を減らす",
+    "englishSource": "Show less"
+  },
+  "exploreComingSoonTitle": {
+    "message": "Midenに近日登場",
+    "englishSource": "Coming soon to Miden"
+  },
+  "exploreComingSoonDescription": {
+    "message": "Midenで公開された新しいアプリがここに表示されます。",
+    "englishSource": "New apps show up here as they launch on Miden."
+  },
+  "exploreSearch": {
+    "message": "dAppを検索",
+    "englishSource": "Search dApps"
+  },
+  "exploreResults": {
+    "message": "結果",
+    "englishSource": "Results"
+  },
+  "exploreNoResultsTitle": {
+    "message": "結果がありません",
+    "englishSource": "No results"
+  },
+  "exploreNoResultsDescription": {
+    "message": "別の名前を試すか、dAppのURLを貼り付けてください。",
+    "englishSource": "Try another name, or paste a dApp's URL."
+  },
+  "exploreForkchoiceFaucetTagline": {
+    "message": "スワップ用のテストネットトークンを入手",
+    "englishSource": "Get testnet tokens for swap"
+  },
   "minimize": {
     "message": "最小化",
     "englishSource": "Minimize"

@@ -4,6 +4,7 @@
 
 ### Changes
 
+- [CHANGE][all] Explore is reorganised like an app store: featured app, categories, grouped lists and recents, with the tab bars' bouncy motion. Search moves to a header button as on Activity: it narrows the apps as you type and opens a typed or pasted URL.
 - [CHANGE][mobile] The passcode keypad sits in thumb reach at the bottom of the screen, with larger keys and a Face ID key.
 - [CHANGE][all] Receive fits on one screen with aligned QR, address, notice and actions.
 - [CHANGE][all] The Home balance card keeps its plain brand account colour, with a clearer label, currency and change pill and a hairline above the address footer.

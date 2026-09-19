@@ -3607,6 +3607,70 @@
     "message": "Réseaux sociaux",
     "englishSource": "Social"
   },
+  "categoryGames": {
+    "message": "Jeux",
+    "englishSource": "Games"
+  },
+  "categoryNfts": {
+    "message": "NFT",
+    "englishSource": "NFTs"
+  },
+  "categoryLearn": {
+    "message": "Apprendre",
+    "englishSource": "Learn"
+  },
+  "exploreCategoriesLabel": {
+    "message": "Catégories",
+    "englishSource": "Categories"
+  },
+  "exploreFeatured": {
+    "message": "À la une",
+    "englishSource": "Featured"
+  },
+  "exploreHelperTools": {
+    "message": "Outils",
+    "englishSource": "Helper tools"
+  },
+  "exploreOpen": {
+    "message": "Ouvrir",
+    "englishSource": "Open"
+  },
+  "exploreSeeAll": {
+    "message": "Tout voir",
+    "englishSource": "See all"
+  },
+  "exploreShowLess": {
+    "message": "Voir moins",
+    "englishSource": "Show less"
+  },
+  "exploreComingSoonTitle": {
+    "message": "Bientôt sur Miden",
+    "englishSource": "Coming soon to Miden"
+  },
+  "exploreComingSoonDescription": {
+    "message": "Les nouvelles apps apparaîtront ici dès leur lancement sur Miden.",
+    "englishSource": "New apps show up here as they launch on Miden."
+  },
+  "exploreSearch": {
+    "message": "Rechercher des dApps",
+    "englishSource": "Search dApps"
+  },
+  "exploreResults": {
+    "message": "Résultats",
+    "englishSource": "Results"
+  },
+  "exploreNoResultsTitle": {
+    "message": "Aucun résultat",
+    "englishSource": "No results"
+  },
+  "exploreNoResultsDescription": {
+    "message": "Essayez un autre nom ou collez l’URL d’une dApp.",
+    "englishSource": "Try another name, or paste a dApp's URL."
+  },
+  "exploreForkchoiceFaucetTagline": {
+    "message": "Obtenez des jetons testnet pour les swaps",
+    "englishSource": "Get testnet tokens for swap"
+  },
   "minimize": {
     "message": "Réduire",
     "englishSource": "Minimize"

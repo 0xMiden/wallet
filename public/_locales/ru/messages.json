@@ -3607,6 +3607,70 @@
     "message": "Социальные сети",
     "englishSource": "Social"
   },
+  "categoryGames": {
+    "message": "Игры",
+    "englishSource": "Games"
+  },
+  "categoryNfts": {
+    "message": "NFT",
+    "englishSource": "NFTs"
+  },
+  "categoryLearn": {
+    "message": "Обучение",
+    "englishSource": "Learn"
+  },
+  "exploreCategoriesLabel": {
+    "message": "Категории",
+    "englishSource": "Categories"
+  },
+  "exploreFeatured": {
+    "message": "Рекомендуем",
+    "englishSource": "Featured"
+  },
+  "exploreHelperTools": {
+    "message": "Вспомогательные инструменты",
+    "englishSource": "Helper tools"
+  },
+  "exploreOpen": {
+    "message": "Открыть",
+    "englishSource": "Open"
+  },
+  "exploreSeeAll": {
+    "message": "Смотреть все",
+    "englishSource": "See all"
+  },
+  "exploreShowLess": {
+    "message": "Свернуть",
+    "englishSource": "Show less"
+  },
+  "exploreComingSoonTitle": {
+    "message": "Скоро в Miden",
+    "englishSource": "Coming soon to Miden"
+  },
+  "exploreComingSoonDescription": {
+    "message": "Здесь появятся новые приложения, как только они выйдут в Miden.",
+    "englishSource": "New apps show up here as they launch on Miden."
+  },
+  "exploreSearch": {
+    "message": "Поиск dApps",
+    "englishSource": "Search dApps"
+  },
+  "exploreResults": {
+    "message": "Результаты",
+    "englishSource": "Results"
+  },
+  "exploreNoResultsTitle": {
+    "message": "Ничего не найдено",
+    "englishSource": "No results"
+  },
+  "exploreNoResultsDescription": {
+    "message": "Попробуйте другое название или вставьте URL dApp.",
+    "englishSource": "Try another name, or paste a dApp's URL."
+  },
+  "exploreForkchoiceFaucetTagline": {
+    "message": "Получите тестовые токены для обмена",
+    "englishSource": "Get testnet tokens for swap"
+  },
   "minimize": {
     "message": "Свернуть",
     "englishSource": "Minimize"

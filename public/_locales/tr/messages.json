@@ -3607,6 +3607,70 @@
     "message": "Sosyal",
     "englishSource": "Social"
   },
+  "categoryGames": {
+    "message": "Oyunlar",
+    "englishSource": "Games"
+  },
+  "categoryNfts": {
+    "message": "NFT’ler",
+    "englishSource": "NFTs"
+  },
+  "categoryLearn": {
+    "message": "Öğren",
+    "englishSource": "Learn"
+  },
+  "exploreCategoriesLabel": {
+    "message": "Kategoriler",
+    "englishSource": "Categories"
+  },
+  "exploreFeatured": {
+    "message": "Öne çıkan",
+    "englishSource": "Featured"
+  },
+  "exploreHelperTools": {
+    "message": "Yardımcı araçlar",
+    "englishSource": "Helper tools"
+  },
+  "exploreOpen": {
+    "message": "Aç",
+    "englishSource": "Open"
+  },
+  "exploreSeeAll": {
+    "message": "Tümünü gör",
+    "englishSource": "See all"
+  },
+  "exploreShowLess": {
+    "message": "Daha az göster",
+    "englishSource": "Show less"
+  },
+  "exploreComingSoonTitle": {
+    "message": "Yakında Miden’de",
+    "englishSource": "Coming soon to Miden"
+  },
+  "exploreComingSoonDescription": {
+    "message": "Yeni uygulamalar Miden’de yayınlandıkça burada görünür.",
+    "englishSource": "New apps show up here as they launch on Miden."
+  },
+  "exploreSearch": {
+    "message": "dApp ara",
+    "englishSource": "Search dApps"
+  },
+  "exploreResults": {
+    "message": "Sonuçlar",
+    "englishSource": "Results"
+  },
+  "exploreNoResultsTitle": {
+    "message": "Sonuç yok",
+    "englishSource": "No results"
+  },
+  "exploreNoResultsDescription": {
+    "message": "Başka bir ad deneyin veya bir dApp’in URL’sini yapıştırın.",
+    "englishSource": "Try another name, or paste a dApp's URL."
+  },
+  "exploreForkchoiceFaucetTagline": {
+    "message": "Takas için testnet token’ı alın",
+    "englishSource": "Get testnet tokens for swap"
+  },
   "minimize": {
     "message": "Küçült",
     "englishSource": "Minimize"

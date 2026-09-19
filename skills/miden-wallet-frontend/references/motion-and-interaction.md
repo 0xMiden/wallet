@@ -12,7 +12,7 @@
 | Loader spin, pulse, or a simple utility effect | A Tailwind utility with a `motion-reduce:` variant (a loading block is `Skeleton`, a ring is `Spinner`) |
 | Root, library, or cross-tree transition | `src/main.css`, with reduced-motion behavior |
 
-Use the spring name that matches the interaction: `snappy` for button/chrome feedback, `standard` for screens, `sheetPresent` for sheets, `morph` for shared-element movement, and `dragRelease` for a post-drag rebound. Do not invent per-component stiffness and damping values.
+Use the spring name that matches the interaction: `snappy` for button/chrome feedback, `standard` for screens, `sheetPresent` for sheets, and `dragRelease` for a post-drag rebound. Do not invent per-component stiffness and damping values.
 
 ```tsx
 import { motion } from 'framer-motion';

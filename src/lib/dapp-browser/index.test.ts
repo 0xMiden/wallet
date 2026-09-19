@@ -58,6 +58,7 @@ jest.mock('@capacitor/filesystem', () => ({
 
 import * as categoryData from './category-data';
 import * as dappSession from './dapp-session';
+import * as exploreCatalog from './explore-catalog';
 import * as faviconCache from './favicon-cache';
 import * as featuredDapps from './featured-dapps';
 import * as barrel from './index';
@@ -108,6 +109,12 @@ describe('dapp-browser barrel — re-export identity', () => {
     ['getExploreGridDapps', featuredDapps, 'getExploreGridDapps'],
     // category-data
     ['CATEGORIES', categoryData, 'CATEGORIES'],
+    // explore-catalog
+    ['EXPLORE_CATALOG', exploreCatalog, 'EXPLORE_CATALOG'],
+    ['EXPLORE_FILTERS', exploreCatalog, 'EXPLORE_FILTERS'],
+    ['getExploreCatalog', exploreCatalog, 'getExploreCatalog'],
+    ['resolveExploreSections', exploreCatalog, 'resolveExploreSections'],
+    ['searchExploreCatalog', exploreCatalog, 'searchExploreCatalog'],
     // recent-dapps
     ['getRecentDapps', recentDapps, 'getRecentDapps'],
     ['recordRecentDapp', recentDapps, 'recordRecentDapp'],

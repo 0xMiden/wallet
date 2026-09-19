@@ -24,3 +24,10 @@ export {
   type TabIconPop,
   type TabIconPopPhase
 } from './tab-bar';
+export {
+  exploreMotion,
+  exploreSectionVariant,
+  resolveExploreMotion,
+  useExploreMotion,
+  type ExploreMotion
+} from './explore';
