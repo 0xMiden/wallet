@@ -14,6 +14,7 @@ import { Avatar } from './Avatar';
 import { BalanceCard } from './BalanceCard';
 import { BottomNav } from './BottomNav';
 import { Card, CardButton } from './Card';
+import { ChoiceCardGroup } from './ChoiceCard';
 import { CopyButton } from './CopyButton';
 import { CopyChip } from './CopyChip';
 import { EmptyState } from './EmptyState';
@@ -74,7 +75,8 @@ describe('components/ui barrel', () => {
     Skeleton,
     TextField,
     Card,
-    CardButton
+    CardButton,
+    ChoiceCardGroup
   } as const;
 
   it('re-exports every component under its own name, tied to the source module', () => {
