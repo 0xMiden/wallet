@@ -5,7 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { Button, ButtonVariant } from 'components/Button';
 import { Checkbox } from 'components/Checkbox';
 import { Input } from 'components/Input';
-import { ScreenHeader } from 'components/ScreenHeader';
+import { PageHeader } from 'components/PageHeader';
 import { TabPicker } from 'components/TabPicker';
 import { clearSyncFuseForEndpointChange } from 'lib/miden/front/sync-fuse';
 import { resetStorageDestructive } from 'lib/miden/reset';
@@ -204,12 +204,7 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
 
   return (
     <div className="flex flex-col h-full min-h-0 bg-app-bg">
-      <ScreenHeader
-        title={t('developerSettingsTitle')}
-        backLabel={t('back')}
-        onBack={() => goBack()}
-        className="mx-4 shrink-0"
-      />
+      <PageHeader title={t('developerSettingsTitle')} onBack={() => goBack()} className="mx-4 shrink-0" />
       <div className="flex-1 min-h-0 overflow-y-auto px-4 pt-4 flex flex-col gap-5">
         <div className="w-full bg-surface-input rounded-10 px-4 py-3">
           <div className="text-base font-bold font-heading leading-tight text-black">

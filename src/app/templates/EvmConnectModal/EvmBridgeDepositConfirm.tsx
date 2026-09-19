@@ -3,7 +3,7 @@ import React from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Button, ButtonVariant } from 'components/Button';
-import { ScreenHeader } from 'components/ScreenHeader';
+import { PageHeader } from 'components/PageHeader';
 
 interface EvmBridgeDepositConfirmProps {
   amount: string;
@@ -15,7 +15,6 @@ interface EvmBridgeDepositConfirmProps {
   error: string | null;
   confirmLabel: string;
   confirmDisabled: boolean;
-  closeLabel: string;
   onBack: () => void;
   onClose: () => void;
   onConfirm: () => void;
@@ -31,7 +30,6 @@ export const EvmBridgeDepositConfirm: React.FC<EvmBridgeDepositConfirmProps> = (
   error,
   confirmLabel,
   confirmDisabled,
-  closeLabel,
   onBack,
   onClose,
   onConfirm
@@ -41,7 +39,7 @@ export const EvmBridgeDepositConfirm: React.FC<EvmBridgeDepositConfirmProps> = (
   return (
     <div className="flex h-full min-h-0 flex-col bg-app-bg text-heading-gray">
       <div className="shrink-0 px-4">
-        <ScreenHeader title={t('bridgeDepositTitle')} closeLabel={closeLabel} onBack={onBack} onClose={onClose} />
+        <PageHeader title={t('bridgeDepositTitle')} onBack={onBack} onClose={onClose} />
       </div>
 
       <div className="flex flex-1 min-h-0 flex-col px-4 pt-4">

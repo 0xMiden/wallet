@@ -8,7 +8,7 @@ import { useWriteContract } from 'wagmi';
 
 import { ReceiveStep } from 'app/pages/Receive/steps';
 import { Navigator, NavigatorProvider, Route, useNavigator } from 'components/Navigator';
-import { ScreenHeader } from 'components/ScreenHeader';
+import { PageHeader } from 'components/PageHeader';
 import {
   AGGLAYER_BRIDGE_ABI,
   AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL,
@@ -742,7 +742,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     <div className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-app-bg text-heading-gray">
       {activeRoute?.name !== ReceiveStep.ShowBridgePageStatus && (
         <div className="shrink-0 px-4">
-          <ScreenHeader title={t('midenBridge')} backLabel={t('back')} onBack={handleHeaderBack} />
+          <PageHeader title={t('midenBridge')} onBack={handleHeaderBack} />
         </div>
       )}
       <Navigator renderRoute={renderStep} />
