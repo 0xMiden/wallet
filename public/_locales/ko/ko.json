@@ -1177,5 +1177,6 @@
   "editContact": "연락처 편집",
   "deleteContact": "연락처 삭제",
   "saveContact": "저장",
-  "contactAdded": "추가됨"
+  "contactAdded": "추가됨",
+  "guardianCardMeta": "운영: $operator$ · $location$"
 }

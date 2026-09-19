@@ -1177,5 +1177,6 @@
   "editContact": "Kişiyi düzenle",
   "deleteContact": "Kişiyi sil",
   "saveContact": "Kaydet",
-  "contactAdded": "Eklendi"
+  "contactAdded": "Eklendi",
+  "guardianCardMeta": "İşleten: $operator$ · $location$"
 }

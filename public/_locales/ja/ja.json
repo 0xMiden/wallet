@@ -1177,5 +1177,6 @@
   "editContact": "連絡先を編集",
   "deleteContact": "連絡先を削除",
   "saveContact": "保存",
-  "contactAdded": "追加日"
+  "contactAdded": "追加日",
+  "guardianCardMeta": "運営: $operator$ · $location$"
 }

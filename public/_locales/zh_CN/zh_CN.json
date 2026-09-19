@@ -1177,5 +1177,6 @@
   "editContact": "编辑联系人",
   "deleteContact": "删除联系人",
   "saveContact": "保存",
-  "contactAdded": "添加时间"
+  "contactAdded": "添加时间",
+  "guardianCardMeta": "运营方：$operator$ · $location$"
 }

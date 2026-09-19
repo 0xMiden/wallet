@@ -5206,5 +5206,17 @@
   "contactAdded": {
     "message": "添加时间",
     "englishSource": "Added"
+  },
+  "guardianCardMeta": {
+    "message": "运营方：$operator$ · $location$",
+    "englishSource": "Operated by $operator$ · $location$",
+    "placeholders": {
+      "operator": {
+        "content": "$1"
+      },
+      "location": {
+        "content": "$2"
+      }
+    }
   }
 }
