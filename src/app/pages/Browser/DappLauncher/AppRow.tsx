@@ -58,7 +58,9 @@ export const AppRow: FC<AppRowProps> = ({ item, onOpen, morph = false }) => {
         >
           {item.name}
         </AppName>
-        <span className="truncate font-sans text-[13px] leading-[17px] text-muted">{item.tagline}</span>
+        <span className="truncate font-sans text-[13px] leading-[17px] text-muted">
+          {item.taglineKey ? t(item.taglineKey) : item.tagline}
+        </span>
       </span>
       <Pill tone="selected" className="shrink-0">
         {t('exploreOpen')}
