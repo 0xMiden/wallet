@@ -3956,12 +3956,12 @@
     "englishSource": "Invalid amount"
   },
   "tokenPrice": {
-    "message": "Token Price",
-    "englishSource": "Token Price"
+    "message": "Token price",
+    "englishSource": "Token price"
   },
   "tokenInfo": {
-    "message": "Token Info",
-    "englishSource": "Token Info"
+    "message": "Token info",
+    "englishSource": "Token info"
   },
   "fungible": {
     "message": "Fungible",
@@ -3972,8 +3972,8 @@
     "englishSource": "Network"
   },
   "recentActivity": {
-    "message": "Recent Activity",
-    "englishSource": "Recent Activity"
+    "message": "Recent activity",
+    "englishSource": "Recent activity"
   },
   "type": {
     "message": "Type",

@@ -3957,11 +3957,11 @@
   },
   "tokenPrice": {
     "message": "Precio del token",
-    "englishSource": "Token Price"
+    "englishSource": "Token price"
   },
   "tokenInfo": {
     "message": "Información sobre el token",
-    "englishSource": "Token Info"
+    "englishSource": "Token info"
   },
   "fungible": {
     "message": "Fungible",
@@ -3973,7 +3973,7 @@
   },
   "recentActivity": {
     "message": "Actividad reciente",
-    "englishSource": "Recent Activity"
+    "englishSource": "Recent activity"
   },
   "type": {
     "message": "Tipo",

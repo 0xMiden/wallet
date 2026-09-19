@@ -3957,11 +3957,11 @@
   },
   "tokenPrice": {
     "message": "トークン価格",
-    "englishSource": "Token Price"
+    "englishSource": "Token price"
   },
   "tokenInfo": {
     "message": "トークン情報",
-    "englishSource": "Token Info"
+    "englishSource": "Token info"
   },
   "fungible": {
     "message": "代替可能",
@@ -3973,7 +3973,7 @@
   },
   "recentActivity": {
     "message": "最近の活動",
-    "englishSource": "Recent Activity"
+    "englishSource": "Recent activity"
   },
   "type": {
     "message": "種類",

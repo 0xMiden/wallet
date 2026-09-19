@@ -3956,12 +3956,12 @@
     "englishSource": "Invalid amount"
   },
   "tokenPrice": {
-    "message": "Token Fiyatı",
-    "englishSource": "Token Price"
+    "message": "Token fiyatı",
+    "englishSource": "Token price"
   },
   "tokenInfo": {
-    "message": "Token Bilgileri",
-    "englishSource": "Token Info"
+    "message": "Token bilgileri",
+    "englishSource": "Token info"
   },
   "fungible": {
     "message": "Değiştirilebilir",
@@ -3972,8 +3972,8 @@
     "englishSource": "Network"
   },
   "recentActivity": {
-    "message": "Son Etkinlikler",
-    "englishSource": "Recent Activity"
+    "message": "Son etkinlikler",
+    "englishSource": "Recent activity"
   },
   "type": {
     "message": "Tür",

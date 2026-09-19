@@ -3957,11 +3957,11 @@
   },
   "tokenPrice": {
     "message": "Ціна токена",
-    "englishSource": "Token Price"
+    "englishSource": "Token price"
   },
   "tokenInfo": {
     "message": "Інформація про токен",
-    "englishSource": "Token Info"
+    "englishSource": "Token info"
   },
   "fungible": {
     "message": "Замінний",
@@ -3973,7 +3973,7 @@
   },
   "recentActivity": {
     "message": "Останні дії",
-    "englishSource": "Recent Activity"
+    "englishSource": "Recent activity"
   },
   "type": {
     "message": "Тип",
