@@ -20,9 +20,9 @@ describe('lib/animation/presets', () => {
     mockReduce = false;
   });
 
-  it('exports the nine presets the design system names', () => {
+  it('exports the ten presets the design system names', () => {
     expect([...presetNames].sort()).toEqual(
-      ['fade', 'indicator', 'page', 'pop', 'press', 'reveal', 'shake', 'sheet', 'shimmer'].sort()
+      ['fade', 'indicator', 'page', 'pop', 'press', 'pulse', 'reveal', 'shake', 'sheet', 'shimmer'].sort()
     );
     expect(Object.keys(presets).sort()).toEqual([...presetNames].sort());
   });
@@ -107,6 +107,18 @@ describe('lib/animation/presets', () => {
         ease: easings.easeInOut
       });
     });
+
+    it('pulse: a 1.6s opacity breath on easeInOut, looping', () => {
+      expect(presets.pulse.initial).toBeUndefined();
+      expect(presets.pulse.animate).toEqual({ opacity: [1, 0.35, 1] });
+      expect(presets.pulse.transition).toEqual({
+        type: 'tween',
+        duration: durations.pulse,
+        ease: easings.easeInOut,
+        repeat: Infinity
+      });
+      expect(durations.pulse).toBe(1.6);
+    });
   });
 
   describe('resolvePreset', () => {
@@ -115,7 +127,7 @@ describe('lib/animation/presets', () => {
       expect(resolvePreset(null, name)).toBe(presets[name]);
     });
 
-    it.each(presetNames.filter(name => name !== 'shimmer' && name !== 'shake'))(
+    it.each(presetNames.filter(name => name !== 'shimmer' && name !== 'shake' && name !== 'pulse'))(
       'makes %s instant under reduced motion and keeps its targets',
       name => {
         const reduced = resolvePreset(true, name);
@@ -126,8 +138,8 @@ describe('lib/animation/presets', () => {
       }
     );
 
-    it('holds shimmer still under reduced motion', () => {
-      const reduced = resolvePreset(true, 'shimmer');
+    it.each(['shimmer', 'pulse'] as const)('holds %s still under reduced motion', name => {
+      const reduced = resolvePreset(true, name);
       expect(reduced.initial).toBeUndefined();
       expect(reduced.animate).toBeUndefined();
       expect(reduced.transition).toEqual(INSTANT);
