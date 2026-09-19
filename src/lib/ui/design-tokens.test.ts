@@ -255,3 +255,116 @@ describe.each([':root', '.dark'] as const)('balance card ink on every card color
     ).toBeGreaterThanOrEqual(4.5);
   });
 });
+
+/** A custom property's value in a theme, `var(--x)` chains followed: `.dark` sits on the same root
+ * element as `:root`, so it overrides `:root` and an alias declared once resolves per theme. */
+function resolved(selector: ':root' | '.dark', name: string): string {
+  const vars = selector === ':root' ? themeVars(':root') : { ...themeVars(':root'), ...themeVars('.dark') };
+  let value = vars[name];
+  for (let hops = 0; value?.startsWith('var(--') && hops < 5; hops++) value = vars[value.slice(6, -1)];
+  if (!value) throw new Error(`--${name} does not resolve in ${selector}`);
+  return value;
+}
+
+// Home's five actions each take one account card colour; the tab's icon and its flow's accent are
+// that one colour (references/design-system.md, "Action colours").
+const ACTION_CARD = [
+  ['overview', 'orange'],
+  ['send', 'blue'],
+  ['receive', 'green'],
+  ['earn', 'slate'],
+  ['swap', 'purple']
+] as const;
+const FLOWS = ['send', 'receive', 'earn', 'swap'] as const;
+
+describe('action colours', () => {
+  const root = themeVars(':root');
+
+  it.each(ACTION_CARD)('%s is the %s card colour', (action, card) => {
+    expect(root[`action-${action}`]).toBe(`var(--card-${card})`);
+  });
+
+  it.each(FLOWS)('the %s flow accent, its tint and its ink alias the action tokens', flow => {
+    expect(root[`accent-${flow}`]).toBe(`var(--action-${flow})`);
+    expect(root[`accent-${flow}-tint`]).toBe(`var(--action-${flow}-tint)`);
+    expect(root[`accent-${flow}-ink`]).toBe(`var(--action-${flow}-ink)`);
+  });
+
+  it('draws every action in exactly its brand card colour, in both themes', () => {
+    const brand = {
+      ':root': { overview: '#e77537', send: '#607c92', receive: '#778c72', earn: '#777386', swap: '#847595' },
+      '.dark': { overview: '#e77537', send: '#91acc1', receive: '#a8bba3', earn: '#777386', swap: '#beacd2' }
+    } as const;
+    for (const selector of [':root', '.dark'] as const) {
+      for (const [action] of ACTION_CARD) {
+        expect(resolved(selector, `action-${action}`).toLowerCase()).toBe(brand[selector][action]);
+      }
+    }
+  });
+
+  it.each([
+    ['sent', 'send'],
+    ['received', 'receive'],
+    ['swap', 'swap'],
+    ['earn', 'earn']
+  ])('draws the %s activity icon in the %s action colour', (row, action) => {
+    expect(root[`tx-${row}`]).toBe(`var(--action-${action})`);
+    expect(themeVars('.dark')[`tx-${row}`]).toBeUndefined();
+  });
+
+  it('leaves the dark theme no flow accent of its own to drift', () => {
+    const dark = themeVars('.dark');
+    for (const flow of FLOWS) {
+      expect(dark[`accent-${flow}`]).toBeUndefined();
+      expect(dark[`accent-${flow}-tint`]).toBeUndefined();
+      expect(dark[`accent-${flow}-ink`]).toBeUndefined();
+    }
+  });
+
+  // The tab sets the colour with `text-action-*`; a hex baked into the glyph would override it.
+  it.each(['wallet', 'send-new', 'receive-new', 'earn', 'convert'])(
+    'draws the %s action glyph in currentColor',
+    icon => {
+      const svg = fs.readFileSync(path.join(__dirname, `../../app/icons/v2/${icon}.svg`), 'utf8');
+      expect(svg).toContain('currentColor');
+      expect(svg.replace(/xmlns="[^"]*"/, '')).not.toMatch(/#[0-9a-f]{3,8}\b/i);
+    }
+  );
+
+  it.each(ACTION_CARD)('maps action-%s, its tint and its ink to Tailwind colors', action => {
+    expect(config).toContain(`'action-${action}': 'var(--action-${action})'`);
+    expect(config).toContain(`'action-${action}-tint': 'var(--action-${action}-tint)'`);
+    expect(config).toContain(`'action-${action}-ink': 'var(--action-${action}-ink)'`);
+  });
+});
+
+// An action colour is a brand colour and is never darkened for contrast (references/design-system.md,
+// "Action colours"). As a glyph (a tab icon, a chevron, the processing spinner, a border) it needs
+// 3:1 on what it sits on; as text (Max, the Receive link, a route label) it is drawn in its `-ink`,
+// which needs 4.5:1.
+describe.each([':root', '.dark'] as const)('action colour contrast in %s', selector => {
+  const value = (name: string) => resolved(selector, name);
+
+  it.each(ACTION_CARD)('%s tint is the colour at 12%% over the page', action => {
+    const [r, g, b] = rgba(value(`action-${action}`));
+    expect(value(`action-${action}-tint`)).toBe(over(`rgba(${r}, ${g}, ${b}, 0.12)`, value('ds-page')));
+  });
+
+  it.each(ACTION_CARD)('%s draws its tab icon at 3:1 on the action bar (page, and the raised bubble)', action => {
+    for (const surface of ['ds-page', 'ds-raised']) {
+      expect(contrast(value(`action-${action}`), value(surface))).toBeGreaterThanOrEqual(3);
+    }
+  });
+
+  it.each(FLOWS)('%s draws its flow glyphs at 3:1 on page, fill and its own tint', action => {
+    for (const surface of ['ds-page', 'ds-fill', `action-${action}-tint`]) {
+      expect(contrast(value(`action-${action}`), value(surface))).toBeGreaterThanOrEqual(3);
+    }
+  });
+
+  it.each(ACTION_CARD)('%s ink reads as text at 4.5:1 on page, fill and its own tint', action => {
+    for (const surface of ['ds-page', 'ds-fill', `action-${action}-tint`]) {
+      expect(contrast(value(`action-${action}-ink`), value(surface))).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+});

@@ -314,8 +314,8 @@ describe('fontColorForType', () => {
 describe('TRANSACTION_COLORS', () => {
   it('exposes the fixed palette', () => {
     expect(TRANSACTION_COLORS).toEqual({
-      send: '#91ACC1',
-      receive: '#99AC94',
+      send: 'var(--tx-sent)',
+      receive: 'var(--tx-received)',
       faucet: '#CCA4B8'
     });
   });

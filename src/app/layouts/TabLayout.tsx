@@ -234,26 +234,27 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
     }
   ];
 
+  // Each action's icon is its action colour, the same token its flow's accent aliases (main.css).
   const actionItems = [
     {
       id: 'overview',
       label: 'Overview',
-      icon: <Icon name={IconName.Wallet} className="w-5 h-5 text-ink" />
+      icon: <Icon name={IconName.Wallet} className="w-5 h-5 text-action-overview" />
     },
     {
       id: 'send',
       label: 'Send',
-      icon: <Icon name={IconName.Send} className="w-5 h-5" />
+      icon: <Icon name={IconName.Send} className="w-5 h-5 text-action-send" />
     },
     {
       id: 'receive',
       label: 'Receive',
-      icon: <Icon name={IconName.Receive} className="w-5 h-5" />
+      icon: <Icon name={IconName.Receive} className="w-5 h-5 text-action-receive" />
     },
     {
       id: 'earn',
       label: 'Earn',
-      icon: <Icon name={IconName.Earn} className="w-5 h-5" />
+      icon: <Icon name={IconName.Earn} className="w-5 h-5 text-action-earn" />
     },
     // Only the Swap segment is feature-gated (isSwapEnabled); Earn ships unconditionally.
     ...(isSwapEnabled()
@@ -261,7 +262,7 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
           {
             id: 'swap',
             label: 'Swap',
-            icon: <Icon name={IconName.Convert} className="w-5 h-5" fill="currentColor" />
+            icon: <Icon name={IconName.Convert} className="w-5 h-5 text-action-swap" />
           }
         ]
       : [])

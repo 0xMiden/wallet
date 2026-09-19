@@ -123,6 +123,15 @@ describe('SendAmount', () => {
     expect(props.onReceive).toHaveBeenCalledTimes(1);
   });
 
+  it('draws Max and the Receive link in the Send ink, never the bare brand colour', () => {
+    renderAmount({ error: 'insufficientFeeAsset' });
+
+    // The brand #607c92 is 3.85:1 on fill: text in the Send colour takes its 4.5:1 ink.
+    expect(screen.getByTestId('send-amount-max')).toHaveClass('text-accent-send-ink');
+    expect(screen.getByTestId('send-fee-notice-receive')).toHaveClass('text-accent-send-ink');
+    expect(screen.getByTestId('send-amount-max')).not.toHaveClass('text-accent-send');
+  });
+
   it('does not mark an empty field as an invalid amount', () => {
     renderAmount({ amount: '', error: 'invalidAmount' });
     expect(screen.queryByTestId('amount-error')).not.toBeInTheDocument();

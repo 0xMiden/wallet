@@ -41,7 +41,7 @@ export interface TransactionSummaryBadgeContent {
 /** Default separator — the horizontal "→" arrow, tinted by `fill`. */
 const HorizontalArrowGlyph: FC<{ fill?: string }> = ({ fill }) => (
   <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-    <rect width="24" height="24" rx="12" fill={fill ?? '#91ACC1'} />
+    <rect width="24" height="24" rx="12" style={{ fill: fill ?? 'var(--action-send)' }} />
     <path d="M6.22266 12.0889H16.5071" stroke="white" stroke-width="2.20995" stroke-linecap="round" />
     <path
       d="M14.6582 9.77832L17.0849 12.0894L14.6582 14.4006"
@@ -53,10 +53,10 @@ const HorizontalArrowGlyph: FC<{ fill?: string }> = ({ fill }) => (
   </svg>
 );
 
-/** Separator used when opening an earn position — an up "↑" arrow in a grey circle. */
+/** Separator used when opening an earn position — an up "↑" arrow in the Earn action colour. */
 export const EarnDepositArrowGlyph: FC = () => (
   <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-    <rect width="24" height="24" rx="12" fill="#6E6E73" />
+    <rect width="24" height="24" rx="12" style={{ fill: 'var(--action-earn)' }} />
     <path d="M11.6523 17.5195L11.6523 7.23506" stroke="white" stroke-width="2.20995" stroke-linecap="round" />
     <path
       d="M9.3418 9.08398L11.6529 6.65731L13.964 9.08398"
@@ -263,7 +263,8 @@ export const useTransactionSummaryBadgeContent = (
 
       return {
         lhs: parts.join(', '),
-        rhs: t('consumed', { defaultValue: 'Consumed' })
+        rhs: t('consumed', { defaultValue: 'Consumed' }),
+        fillForArrow: 'var(--action-receive)'
       };
     }
 
@@ -299,7 +300,7 @@ export const useTransactionSummaryBadgeContent = (
       return {
         lhs: <SwapAmountText amount={offeredAmount} symbol={offered.symbol} />,
         rhs: <SwapAmountText amount={requestedAmount} symbol={requested.symbol} />,
-        fillForArrow: '#BEACD2'
+        fillForArrow: 'var(--action-swap)'
       };
     }
 
