@@ -238,7 +238,7 @@ jest.mock('app/templates/KeysSettings', () => ({
 }));
 jest.mock('app/templates/LanguageSettings', () => ({
   __esModule: true,
-  default: () => <div data-testid="language-settings" />
+  default: mockLayoutPage('language-settings')
 }));
 jest.mock('app/templates/RevealSecret', () => ({
   __esModule: true,

@@ -154,7 +154,8 @@ const TAB_GROUPS: TabGroup[] = [
         slug: 'language',
         titleI18nKey: 'language',
         Component: LanguageSettings,
-        testID: SettingsSelectors.LanguageButton
+        testID: SettingsSelectors.LanguageButton,
+        rendersSubPageLayout: true
       }
     ]
   },

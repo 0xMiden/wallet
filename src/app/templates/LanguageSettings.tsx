@@ -4,11 +4,12 @@ import { useTranslation } from 'react-i18next';
 
 import { useBackWithFallback } from 'app/hooks/useBackWithFallback';
 import { useOncePerLocation } from 'app/hooks/useOncePerLocation';
-import { Icon, IconName } from 'app/icons/v2';
+import { ListGroup } from 'components/ui/ListGroup';
+import { ListRow } from 'components/ui/ListRow';
+import { SubPageLayout } from 'components/ui/SubPageLayout';
 import { AnalyticsEventCategory, AnalyticsEventEnum, useAnalytics } from 'lib/analytics';
 import { getCurrentLocale, updateLocale } from 'lib/i18n/react';
 import { hapticLight } from 'lib/mobile/haptics';
-import { PRIMARY_HEX } from 'utils/brand-colors';
 
 /**
  * Exported so tests assert against the shipped list rather than a copy of it —
@@ -119,52 +120,47 @@ const LanguageSettings: FC = () => {
   }, []);
 
   return (
-    // A radiogroup, not thirteen loose buttons: the choice is single-select, and
-    // that is the only thing that conveys "one of 13" and mutual exclusivity.
-    // `aria-pressed` would announce "toggle button, pressed" — a two-state
-    // control the user could un-press, when in fact activating the current row
-    // just leaves the screen.
-    <div className="flex flex-col" role="radiogroup" aria-label={t('language')}>
-      {LANGUAGES.map(({ code, label, bcp47 }, index) => {
-        const isSelected = code === currentCode;
-        return (
-          <button
-            key={code}
-            ref={node => {
-              rowsRef.current[index] = node;
-            }}
-            type="button"
-            role="radio"
-            // Selection is otherwise conveyed only by colour, weight and an
-            // unlabelled checkmark, so a screen reader heard thirteen identical
-            // "English, button" rows with no way to tell which one is active.
-            aria-checked={isSelected}
-            // Roving: one tab stop for the group, arrows to move within it. The
-            // stop sits on the current language, so Tab lands where the user is.
-            tabIndex={isSelected ? 0 : -1}
-            onKeyDown={event => handleKeyDown(event, index)}
-            className="flex items-center justify-between py-3 w-full text-left"
-            onClick={() => handleSelect(code)}
-          >
-            {/* Explicit stack without system-ui: on iOS WKWebView, system-ui/-apple-system
-                swallow per-glyph fallback so CJK names (日本語, 한국어, 中文) render as
-                missing-glyph boxes; falling straight to sans-serif renders them. */}
-            <span
-              lang={bcp47}
-              className={`text-base ${isSelected ? 'text-primary-500 font-semibold' : 'text-ink font-medium'}`}
-              style={{ fontFamily: "'Nunito', sans-serif" }}
-            >
-              {label}
-            </span>
-            {isSelected && (
-              <span aria-hidden="true">
-                <Icon name={IconName.Checkmark} size="xs" fill={PRIMARY_HEX} />
-              </span>
-            )}
-          </button>
-        );
-      })}
-    </div>
+    <SubPageLayout data-testid="language-settings">
+      {/* A radiogroup, not thirteen loose buttons: the choice is single-select, and
+          that is the only thing that conveys "one of 13" and mutual exclusivity.
+          `aria-pressed` would announce "toggle button, pressed" — a two-state
+          control the user could un-press, when in fact activating the current row
+          just leaves the screen. */}
+      <div role="radiogroup" aria-label={t('language')}>
+        <ListGroup>
+          {LANGUAGES.map(({ code, label, bcp47 }, index) => {
+            const isSelected = code === currentCode;
+            return (
+              <ListRow
+                key={code}
+                ref={node => {
+                  rowsRef.current[index] = node;
+                }}
+                radio
+                // Selection is conveyed by the row's check and `aria-checked`, so a
+                // screen reader hears which of the thirteen is active.
+                checked={isSelected}
+                // Roving: one tab stop for the group, arrows to move within it. The
+                // stop sits on the current language, so Tab lands where the user is.
+                tabIndex={isSelected ? 0 : -1}
+                onKeyDown={event => handleKeyDown(event, index)}
+                // The pick buzzes itself, and only when it is taken: see claimPick.
+                haptic={false}
+                onClick={() => handleSelect(code)}
+                title={
+                  // Explicit stack without system-ui: on iOS WKWebView, system-ui/-apple-system
+                  // swallow per-glyph fallback so CJK names (日本語, 한국어, 中文) render as
+                  // missing-glyph boxes; falling straight to sans-serif renders them.
+                  <span lang={bcp47} style={{ fontFamily: "'Nunito', sans-serif" }}>
+                    {label}
+                  </span>
+                }
+              />
+            );
+          })}
+        </ListGroup>
+      </div>
+    </SubPageLayout>
   );
 };
 

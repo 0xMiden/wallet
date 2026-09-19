@@ -117,27 +117,20 @@ describe('LanguageSettings', () => {
     });
   });
 
-  it('marks the exact-match locale as selected: bold styling + a single checkmark', () => {
+  // The row that carries the shared check, and the number of checks on the page.
+  const checkedRowText = () => document.querySelector('[data-slot="check"]')!.closest('button')!.textContent;
+  const checkCount = () => document.querySelectorAll('[data-slot="check"]').length;
+
+  it('marks the exact-match locale as selected: the shared check on that row alone', () => {
     mockGetCurrentLocale.mockReturnValue('es');
     render(<LanguageSettings />);
 
-    // Exactly one checkmark, on the selected row only.
-    const icons = screen.getAllByTestId('icon');
-    expect(icons).toHaveLength(1);
-    expect(icons[0]).toHaveAttribute('data-name', 'Checkmark');
-    // The literal, not the imported binding: the module is mocked just below, so
-    // asserting against `PRIMARY_HEX` compared the mock to itself and held for any
-    // colour the component might have used instead.
-    expect(icons[0]).toHaveAttribute('data-fill', '#E77537');
-    expect(icons[0]).toHaveAttribute('data-size', 'xs');
-
-    // The Español label carries the selected styling…
-    const selectedLabel = screen.getByText('Español');
-    expect(selectedLabel).toHaveClass('text-primary-500', 'font-semibold');
-
-    // …while an unselected row carries the default styling.
-    const unselectedLabel = screen.getByText('English');
-    expect(unselectedLabel).toHaveClass('text-ink', 'font-medium');
+    // Exactly one check, on the selected row only: ListRow's 22px accent circle.
+    expect(checkCount()).toBe(1);
+    expect(checkedRowText()).toBe('Español');
+    expect(document.querySelector('[data-slot="check"]')).toHaveClass('bg-accent-primary', 'rounded-full');
+    expect(screen.getByRole('radio', { name: 'Español' })).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByRole('radio', { name: 'English' })).toHaveAttribute('aria-checked', 'false');
   });
 
   it('falls back to the base language when the locale is region-tagged (en-US → en)', () => {
@@ -145,17 +138,16 @@ describe('LanguageSettings', () => {
     render(<LanguageSettings />);
 
     // `en-US` has no exact row, but its base `en` does — English is selected.
-    expect(screen.getByText('English')).toHaveClass('text-primary-500', 'font-semibold');
-    const icons = screen.getAllByTestId('icon');
-    expect(icons).toHaveLength(1);
+    expect(checkedRowText()).toBe('English');
+    expect(checkCount()).toBe(1);
   });
 
   it('supports underscore region tags too (fr_CA → fr)', () => {
     mockGetCurrentLocale.mockReturnValue('fr_CA');
     render(<LanguageSettings />);
 
-    expect(screen.getByText('Français')).toHaveClass('text-primary-500', 'font-semibold');
-    expect(screen.getAllByTestId('icon')).toHaveLength(1);
+    expect(checkedRowText()).toBe('Français');
+    expect(checkCount()).toBe(1);
   });
 
   it('defaults to English when the locale matches no language at all', () => {
@@ -163,8 +155,19 @@ describe('LanguageSettings', () => {
     render(<LanguageSettings />);
 
     // Neither `xx-YY` nor base `xx` exists → the 'en' fallback selects English.
-    expect(screen.getByText('English')).toHaveClass('text-primary-500', 'font-semibold');
-    expect(screen.getAllByTestId('icon')).toHaveLength(1);
+    expect(checkedRowText()).toBe('English');
+    expect(checkCount()).toBe(1);
+  });
+
+  it('renders through SubPageLayout as one ListGroup of ListRows', () => {
+    render(<LanguageSettings />);
+
+    const page = screen.getByTestId('language-settings');
+    expect(page.querySelector('[data-slot="body"]')).toHaveClass('px-4', 'overflow-y-auto');
+    const rows = screen.getAllByRole('radio');
+    expect(new Set(rows.map(row => row.parentElement)).size).toBe(1);
+    expect(rows[0]!.parentElement).toHaveClass('bg-fill', 'rounded-2xl');
+    expect(rows[0]!.querySelector('[data-slot="title"]')).toHaveTextContent('English');
   });
 
   it('selecting a language fires haptics + analytics, persists the locale, and leaves', () => {
