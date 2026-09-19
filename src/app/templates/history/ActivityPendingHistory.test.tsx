@@ -52,17 +52,20 @@ jest.mock('lib/mobile/useHideNavbarWhileOpen', () => ({
 }));
 jest.mock('app/icons/v2', () => ({ Icon: () => null, IconName: {} }));
 jest.mock('lib/i18n/numbers', () => ({ formatBigInt: () => '1', getAdaptiveDecimalPlaces: () => 3 }));
-const mockHistoryRenders: Array<{ pendingItems: PendingActivityItem[]; renderPendingItem: unknown }> = [];
+const mockHistoryRenders: Array<{ pendingItems: PendingActivityItem[]; renderPendingItem: unknown; filter?: string }> =
+  [];
 jest.mock('./History', () => ({
   __esModule: true,
   default: ({
     pendingItems,
-    renderPendingItem
+    renderPendingItem,
+    filter
   }: {
     pendingItems: PendingActivityItem[];
     renderPendingItem: (item: PendingActivityItem) => React.ReactNode;
+    filter?: string;
   }) => {
-    mockHistoryRenders.push({ pendingItems, renderPendingItem });
+    mockHistoryRenders.push({ pendingItems, renderPendingItem, filter });
     return (
       <div data-testid="timeline">
         {pendingItems.map(item => (
@@ -186,6 +189,14 @@ it('keeps the navbar on the other filters and when every note is claimed', () =>
     item.status = 'claimed';
   });
   rerender(<ActivityPendingHistory search="" filter="pending" />);
+  expect(screen.queryByRole('button', { name: 'acceptAll' })).not.toBeInTheDocument();
+  expect(mockHideNavbar).toHaveBeenLastCalledWith(false);
+});
+
+it('still hands Pending to the timeline with no notes, so in-flight transactions list without Accept All', () => {
+  mockState.items = [];
+  render(<ActivityPendingHistory search="" filter="pending" />);
+  expect(mockHistoryRenders.at(-1)).toMatchObject({ filter: 'pending', pendingItems: [] });
   expect(screen.queryByRole('button', { name: 'acceptAll' })).not.toBeInTheDocument();
   expect(mockHideNavbar).toHaveBeenLastCalledWith(false);
 });
