@@ -37,7 +37,7 @@ describe('TabHeader — structure & title', () => {
     expect(heading.tagName).toBe('H1');
     expect(heading.textContent).toBe('Activity');
     expect(heading.className).toContain('font-heading');
-    expect(heading.className).toContain('font-bold');
+    expect(heading.className).toContain('font-extrabold');
     expect(heading.className).toContain('text-heading-gray');
     expect(heading.className).toContain('dark:text-pure-white');
   });

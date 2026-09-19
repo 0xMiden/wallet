@@ -14,6 +14,7 @@ import { WalletMessageType } from 'lib/shared/types';
 
 import { getAccountsWriteQueue } from './accounts-write-queue';
 import { getIntercom } from './defaults';
+import { clearRecoveryAuthorization } from './recovery-authorization';
 import { accountsUpdated, withUnlocked } from './store';
 
 // NOTE: `webextension-polyfill` throws at module load time when
@@ -76,6 +77,10 @@ export async function swSignCallback(publicKey: string, signingInputs: string): 
  * Uses the Vault directly instead of the Zustand store.
  */
 export const vaultGuardianProvider: GuardianAccountProvider = {
+  prepareRecoveryTransaction: id => withUnlocked(({ vault }) => vault.prepareRecoveryTransaction(id)),
+  releaseRecoveryAuthorization: async id => {
+    clearRecoveryAuthorization(id);
+  },
   getAccounts: async () => {
     return withUnlocked(async ({ vault }) => {
       return await vault.fetchAccounts();
@@ -86,9 +91,9 @@ export const vaultGuardianProvider: GuardianAccountProvider = {
       return await vault.getPublicKeyForCommitment(commitment);
     });
   },
-  signWord: async (publicKey: string, wordHex: string) => {
+  signWord: async (publicKey: string, wordHex: string, transactionId?: string) => {
     return withUnlocked(async ({ vault }) => {
-      return await vault.signWord(publicKey, wordHex);
+      return await vault.signWord(publicKey, wordHex, transactionId);
     });
   },
   persistNewHotKey: async (newHotPubKey: string, newHotCiphertext: string) => {

@@ -40,6 +40,41 @@ describe('IosWalletPage.screenshot', () => {
   });
 });
 
+describe('IosWalletPage.prepareSendReview', () => {
+  it('scopes shared amount controls to the Send flow', async () => {
+    const evalJs = jest.fn(async () => true);
+    const page = new IosWalletPage({
+      cdp: { eval: evalJs } as unknown as CdpSession,
+      sim: {} as SimulatorControl,
+      udid: 'udid',
+      bundleId: 'bundle'
+    });
+    const pollForSelector = jest.fn(async () => undefined);
+    const click = jest.fn(async () => undefined);
+    Object.assign(page as unknown as Record<string, unknown>, {
+      navigateTo: jest.fn(async () => undefined),
+      pollForSelector,
+      pollForCondition: jest.fn(async () => undefined),
+      fillInput: jest.fn(async () => undefined),
+      click,
+      clickWhenEnabled: jest.fn(async () => undefined)
+    });
+
+    await page.prepareSendReview({
+      recipientAddress: 'mtst1recipient',
+      amount: '2',
+      tokenSymbol: 'TST',
+      isPrivate: false
+    });
+
+    const sendFlow = '[data-testid="send-flow"]';
+    expect(pollForSelector).toHaveBeenCalledWith(`${sendFlow} [data-testid="send-token-selector"]`, 15_000);
+    expect(click).toHaveBeenCalledWith(`${sendFlow} [data-testid="send-token-selector"]`);
+    expect(pollForSelector).toHaveBeenCalledWith(`${sendFlow} [data-testid="send-amount-input"]`, 30_000);
+    expect(pollForSelector).toHaveBeenCalledWith('[data-testid="send-review-submit"]', 45_000);
+  });
+});
+
 describe('IosWalletPage.hexToBech32Faucet', () => {
   it('passes only the hex id to the wallet-owned network-aware hook', async () => {
     const evalJs = jest.fn(async (_script: string) => 'mlcl1tracked');

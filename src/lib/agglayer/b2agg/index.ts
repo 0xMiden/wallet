@@ -18,6 +18,7 @@ import {
 import type { GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
 import { accountRefToSdk, getBech32AddressFromAccountId, randomFeeSalt } from 'lib/miden/sdk/helpers';
 import { assertWasmHoldCurrent, withWasmClientLock } from 'lib/miden/sdk/miden-client';
+import type { SpendingLimitAuthorization } from 'lib/miden/spending-limits/types';
 import { isExtension } from 'lib/platform';
 
 import { MIDEN_BRIDGE_ID } from './constant';
@@ -79,8 +80,10 @@ export async function initiateB2AggBridge(args: {
   destinationAddress: `0x${string}`;
   senderPublicKey: string;
   destinationNetwork: number;
+  spendingLimitAuthorization?: SpendingLimitAuthorization;
 }): Promise<string> {
-  const { amount, faucetId, destinationAddress, senderPublicKey, destinationNetwork } = args;
+  const { amount, faucetId, destinationAddress, senderPublicKey, destinationNetwork, spendingLimitAuthorization } =
+    args;
 
   // Build the note + TransactionRequest under the WASM lock; the queue stores
   // the serialized request and the processor submits it.
@@ -139,7 +142,9 @@ export async function initiateB2AggBridge(args: {
     destinationNetwork,
     'agglayer',
     requestBytes,
-    true
+    true,
+    undefined,
+    spendingLimitAuthorization
   );
 }
 

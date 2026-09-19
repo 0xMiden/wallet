@@ -8,7 +8,7 @@ import {
 } from '@miden-sdk/miden-sdk/lazy';
 
 import { splitExecutedOutputNotes } from 'lib/miden/activity/fee-notes';
-import { getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
+import { canonicalWalletAccountId, getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
 import { b64ToU8 } from 'lib/shared/helpers';
 
 export interface AssetAmount {
@@ -61,7 +61,7 @@ function noteAssets(note: { assets(): { fungibleAssets(): any[] } | undefined } 
  * bare Note (the dApp chooses which, mirroring importNoteBytes). Handling only
  * one format would throw for the other and blank the declared incoming assets.
  */
-function importedNoteAssets(b64: string): AssetAmount[] {
+export function importedNoteAssets(b64: string): AssetAmount[] {
   const bytes = b64ToU8(b64);
   try {
     const nf = NoteFile.deserialize(bytes);
@@ -135,6 +135,56 @@ export function summaryToView(ts: TransactionSummary): TxAssetView {
     fee,
     storageChanged: !delta.storage().isEmpty()
   };
+}
+
+/**
+ * The view for a dry-run result, whichever ground-truth shape it produced.
+ *
+ * `summaryBytes` and `executedBytes` are mutually exclusive and the account decides which: a
+ * summary exists only while authorization is still pending (a guardian/multisig account below its
+ * threshold), and every ordinary single-sig account on the 0.16 line takes the executed path
+ * instead. `undefined` means the dry run produced neither, i.e. the effects are genuinely unknown.
+ *
+ * Exists so that ladder is written ONCE. It was previously inline in the confirm screen and absent
+ * from the backend, and a backend consumer that decoded only the summary shape silently treated
+ * every ordinary account as unsimulatable.
+ */
+export function simulatedBytesToView(result: {
+  summaryBytes?: string;
+  executedBytes?: string;
+}): TxAssetView | undefined {
+  if (result.summaryBytes) return summaryBytesToView(result.summaryBytes);
+  if (result.executedBytes) return executedBytesToView(result.executedBytes);
+  return undefined;
+}
+
+/**
+ * Per-faucet value leaving the account, for spending-limit accounting.
+ *
+ * `credit` is the value this request BROUGHT IN and may therefore offset: the assets of the notes
+ * the request itself introduced. It is passed in rather than read from `view.incoming` because
+ * `incoming` is every consumed note, and `importNotes` is dApp-authored - its own comment says the
+ * ids "can name a note the user already holds". Crediting those let a dApp consume a pending 1000
+ * of the user's and send 1050 while only 50 was charged. The caller computes `credit` behind the
+ * wallet's own provenance check, so membership cannot be forged from the request.
+ *
+ * ONE ENTRY PER CANONICAL FAUCET. The executed view flat-maps over output notes, so two notes on
+ * one faucet arrive as two entries, and the same faucet can arrive under two spellings. Both
+ * consumers downstream assess each entry independently, so 60 and 60 would each pass a cap of 100.
+ * Folding here rather than at either consumer is what keeps the number the user is shown and the
+ * number the queue enforces the same one.
+ */
+export function netOutflowByFaucet(view: TxAssetView, credit: readonly AssetAmount[] = []): AssetAmount[] {
+  const signed = new Map<string, bigint>();
+  const add = (faucetId: string, amount: bigint) => {
+    const key = canonicalWalletAccountId(faucetId);
+    signed.set(key, (signed.get(key) ?? 0n) + amount);
+  };
+  for (const asset of view.outgoing) add(asset.faucetId, asset.amount);
+  for (const asset of credit) add(asset.faucetId, -asset.amount);
+  const outflow: AssetAmount[] = [];
+  for (const [faucetId, amount] of signed) if (amount > 0n) outflow.push({ faucetId, amount });
+  return outflow;
 }
 
 export function summaryBytesToView(summaryB64: string): TxAssetView {

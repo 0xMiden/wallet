@@ -4,7 +4,7 @@ import { accountIdStringToSdk } from 'lib/miden/sdk/helpers';
 import { getNativeAssetIdSync, getNativeAssetMetadataSync } from 'lib/miden-chain/native-asset';
 
 /**
- * Swap starts with this fixed set of Miden testnet 0.16 DEX tokens and adds the
+ * Swap starts with this fixed set of Miden testnet 0.16 DEX tokens and prepends the
  * network's discovered native asset at runtime. The fixed test tokens use
  * 8 decimals (`SWAP_TOKEN_DECIMALS`): the user enters a human-readable amount
  * and `stringToBigInt(amount, token.decimals)` converts it to base units.
@@ -62,8 +62,8 @@ let _swapTokensOverride: SwapToken[] | undefined;
  * Live registry read — all consumers use this so an E2E override takes effect.
  *
  * The native asset ID is network-derived and may not be available during the
- * first render. Once discovery populates the synchronous cache, include MIDEN
- * alongside the fixed DEX test tokens. Callers naturally re-read this accessor
+ * first render. Once discovery populates the synchronous cache, put MIDEN ahead
+ * of the fixed DEX test tokens. Callers naturally re-read this accessor
  * on their next render (for example, when opening the token drawer).
  */
 export const getSwapTokens = (): SwapToken[] => {
@@ -74,14 +74,29 @@ export const getSwapTokens = (): SwapToken[] => {
 
   const nativeMetadata = getNativeAssetMetadataSync();
   return [
-    ...SWAP_TOKENS,
     {
       symbol: nativeMetadata?.symbol ?? MIDEN_METADATA.symbol,
       faucetId: nativeAssetId,
       decimals: nativeMetadata?.decimals ?? MIDEN_METADATA.decimals,
       logoSymbol: 'MIDEN'
-    }
+    },
+    ...SWAP_TOKENS
   ];
+};
+
+/**
+ * The pair the swap form opens on. Chosen by SYMBOL, never by list position:
+ * `getSwapTokens()` puts the discovered native asset first once discovery has
+ * landed, so seeding from index 0/1 gave a cold start into /swap a different
+ * default pair than a warm one - same build, same user, different defaults on a
+ * money screen. Falls back to the fixed list when a symbol is not present.
+ */
+export const getDefaultSwapPair = (): { offer: SwapToken; request: SwapToken } => {
+  const tokens = getSwapTokens();
+  const bySymbol = (symbol: string) => tokens.find(token => token.symbol === symbol);
+  const offer = bySymbol(TOKEN_IMIDEN.symbol) ?? tokens[0]!;
+  const request = bySymbol(TOKEN_IETH.symbol) ?? tokens[1]!;
+  return { offer, request };
 };
 
 /** Test-only setter (also driven via the E2E window hook). Pass undefined to reset. */

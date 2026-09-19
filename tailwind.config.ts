@@ -116,6 +116,13 @@ export default {
         'primary-white': '#fcfaf7',
         'primary-orange': isDevnet ? '#8A9DB5' : '#E77537',
         'primary-orange-disabled': isDevnet ? '#7F95AD' : '#DCD4C8',
+        // Disabled primary button: the brand color at 40% over the page
+        // background, pre-blended to a solid so it matches the palette's
+        // opaque fills (light over #fbfbfb, dark over #191919).
+        'primary-disabled': {
+          DEFAULT: isDevnet ? '#C4CCD7' : '#F3C5AD',
+          dark: isDevnet ? '#3D454F' : '#6B3E25'
+        },
         'primary-orange-light': isDevnet ? '#C5D0DC' : '#F7C8B1',
         'primary-orange-dark': isDevnet ? '#4E5F73' : '#9F4518',
         'primary-orange-lighter': isDevnet ? '#EEF1F4' : '#FFF3EC',
@@ -133,6 +140,15 @@ export default {
         // Light/dark values resolve from CSS vars in src/main.css.
         'accent-primary': 'var(--accent-primary)',
         'accent-primary-hover': 'var(--accent-primary-hover)',
+        'accent-send': 'var(--accent-send)',
+        'accent-send-tint': 'var(--accent-send-tint)',
+        'accent-receive': 'var(--accent-receive)',
+        'accent-receive-tint': 'var(--accent-receive-tint)',
+        'accent-earn': 'var(--accent-earn)',
+        'accent-earn-tint': 'var(--accent-earn-tint)',
+        'accent-swap': 'var(--accent-swap)',
+        'accent-swap-tint': 'var(--accent-swap-tint)',
+        'surface-nav-button': 'var(--surface-nav-button)',
         'text-primary-token': 'var(--text-primary)',
         'text-secondary-token': 'var(--text-secondary)',
         'text-tertiary-token': 'var(--text-tertiary)',

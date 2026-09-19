@@ -174,7 +174,7 @@ describe('BalanceCard states, delta, and interactions', () => {
     expect(screen.queryByText(/\+0\.1%/)).toBeNull();
   });
 
-  it('fires haptic feedback and onMore when the settings button is clicked', () => {
+  it('fires haptic feedback and onMore when the card is tapped', () => {
     const onMore = jest.fn();
     render(<BalanceCard accountNumber="mtst1aqg...940z" amount="$123.45" onMore={onMore} />);
 
@@ -184,7 +184,7 @@ describe('BalanceCard states, delta, and interactions', () => {
     expect(hapticLight).toHaveBeenCalledTimes(1);
   });
 
-  it('renders the new copy icon and an edit icon colored with the card secondary tone', () => {
+  it('renders the new copy icon and no edit glyph: the whole card is the account-options control', () => {
     render(<BalanceCard accountNumber="mtst1aqg...940z" amount="$123.45" onMore={jest.fn()} />);
 
     const copyIcon = screen.getByText('balanceCardAccount').nextElementSibling;
@@ -192,15 +192,49 @@ describe('BalanceCard states, delta, and interactions', () => {
     // Guards the load-bearing `!` size override (Icon injects a default md size that otherwise wins).
     expect(copyIcon?.className).toContain('w-3.5!');
 
-    // An edit glyph, not a gear: the button opens account options, and a gear
-    // here read as "Settings", which is now its own bottom-nav destination.
-    const optionsIcon = screen.getByRole('button', { name: 'balanceCardAccountOptions' }).querySelector('[data-name]');
-    expect(optionsIcon?.getAttribute('data-name')).toBe('Edit');
-    expect(optionsIcon?.className).toContain('text-card-slate-deep');
-    expect(optionsIcon?.className).toContain('w-3!');
+    expect(document.querySelector('[data-name="Edit"]')).toBeNull();
   });
 
-  it('omits the settings button when onMore is not provided', () => {
+  // A role=button container presents its children as decoration, so the balance and the copy
+  // control disappeared for assistive tech and one focusable button sat inside another. The
+  // options target is a real button under the content instead, which also brings native keyboard
+  // activation back in place of a hand-rolled Enter/Space handler.
+  it('keeps the balance and the copy control outside the account-options control', () => {
+    render(<BalanceCard accountNumber="mtst1aqg...940z" amount="$123.45" onMore={jest.fn()} />);
+
+    const options = screen.getByRole('button', { name: 'balanceCardAccountOptions' });
+    expect(options.tagName).toBe('BUTTON');
+    expect(options.querySelectorAll('button')).toHaveLength(0);
+    expect(options).not.toContainElement(screen.getByText('$123.45'));
+    expect(options).not.toContainElement(screen.getByText('balanceCardAccount'));
+    expect(screen.getByText('balanceCardAccount').closest('[role="button"]')).toBeNull();
+  });
+
+  it('keeps a visible focus ring and lets a tap anywhere on the card reach the options', () => {
+    render(<BalanceCard accountNumber="mtst1aqg...940z" amount="$123.45" onMore={jest.fn()} />);
+
+    // The ring is inset because the card clips to this button's own border box.
+    const options = screen.getByRole('button', { name: 'balanceCardAccountOptions' });
+    expect(options).toHaveClass('focus-visible:ring-2', 'focus-visible:ring-inset');
+
+    // These classes ARE the tap-anywhere behaviour: the content lets taps through to the button
+    // underneath, and only the copy control takes its own. jsdom dispatches clicks at the target
+    // whatever pointer-events says, so without this assertion dropping them fails no test.
+    const balance = screen.getByText('$123.45');
+    expect(balance.closest('.pointer-events-none')).not.toBeNull();
+    expect(screen.getByText('balanceCardAccount').closest('.pointer-events-auto')).not.toBeNull();
+  });
+
+  it('does not open the account options when the address is copied', () => {
+    const onMore = jest.fn();
+    render(<BalanceCard accountNumber="mtst1aqg...940z" amount="$123.45" onMore={onMore} />);
+
+    fireEvent.click(screen.getByText('balanceCardAccount'));
+
+    expect(onMore).not.toHaveBeenCalled();
+  });
+
+  it('is not a control when onMore is not provided', () => {
     render(<BalanceCard accountNumber="mtst1aqg...940z" amount="$123.45" />);
 
     expect(screen.queryByRole('button', { name: 'balanceCardAccountOptions' })).toBeNull();

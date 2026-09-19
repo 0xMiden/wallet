@@ -1,5 +1,5 @@
 import { IBridgeProvider } from 'lib/miden/db/types';
-import { truncateAddress, truncateHash } from 'utils/string';
+import { truncateHash } from 'utils/string';
 
 import { ReceiptRow } from './TransactionSuccessLayout';
 
@@ -55,7 +55,9 @@ export const buildReceiptRows = (
   if (destinationAddress) {
     rows.push({
       label: destinationLabel ?? t('to'),
-      value: truncateAddress(destinationAddress, true, 6, 4, 4)
+      // In full: the receipt is where the user confirms where the funds went.
+      value: destinationAddress,
+      stacked: true
     });
   }
 
