@@ -114,13 +114,21 @@ const HomeSwipeContainer: FC = () => {
     ...(isSwapEnabled() ? [{ id: 'swap', path: '/swap', node: <SwapFlow /> }] : [])
   ];
 
-  const activeIdx = (() => {
+  // The home page the route names, or -1 when it names none.
+  const routeIdx = (() => {
     const exact = pages.findIndex(p => p.path === pathname);
     if (exact !== -1) return exact;
     // Match by prefix for nested routes (e.g. /send/sub-step).
-    const prefix = pages.findIndex(p => p.path !== '/' && pathname.startsWith(`${p.path}/`));
-    return prefix === -1 ? 0 : prefix;
+    return pages.findIndex(p => p.path !== '/' && pathname.startsWith(`${p.path}/`));
   })();
+  // TabLayout keeps this pane mounted, hidden, while another tab shows, and the
+  // route then names no home page. The track holds the page it was on rather
+  // than sliding to Overview out of sight, which is what the pane showed on the
+  // way back before it slid to the page the action bar named.
+  const onHome = routeIdx !== -1;
+  const lastHomeIdxRef = useRef(0);
+  const wasOnHomeRef = useRef(onHome);
+  const activeIdx = onHome ? routeIdx : lastHomeIdxRef.current;
 
   // Measure container width — drives both the snap positions and the
   // drag constraints. Set synchronously on mount so the first render
@@ -188,6 +196,11 @@ const HomeSwipeContainer: FC = () => {
   useEffect(() => {
     const dragTargetIdx = dragTargetIdxRef.current;
     dragTargetIdxRef.current = null;
+    // The pane was hidden until now, so this is a tab change, which swaps rather
+    // than slides — across every page in between, it would read as a glitch.
+    const returning = onHome && !wasOnHomeRef.current;
+    wasOnHomeRef.current = onHome;
+    if (onHome) lastHomeIdxRef.current = activeIdx;
     if (!width) {
       x.set(-activeIdx * (containerRef.current?.clientWidth ?? 0));
       return;
@@ -202,9 +215,13 @@ const HomeSwipeContainer: FC = () => {
     if (dragTargetIdx === activeIdx && isReleaseRunning()) return;
     // Any other route change outranks a release still in flight.
     endRelease(true);
+    if (returning) {
+      x.set(-activeIdx * width);
+      return;
+    }
     const controls = animate(x, -activeIdx * width, resolveTransition(reduceMotion, springs.standard));
     return () => controls.stop();
-  }, [activeIdx, width, x, reduceMotion, endRelease, isReleaseRunning]);
+  }, [activeIdx, onHome, width, x, reduceMotion, endRelease, isReleaseRunning]);
 
   useEffect(() => () => releaseRef.current?.cancel(), []);
 
