@@ -200,7 +200,7 @@ export const BalanceCard: FC<BalanceCardProps> = ({
               data-testid="balance-card-delta"
               icon={
                 deltaDirection === 'neutral' ? undefined : (
-                  // The `!` beats the default md size <Icon> injects (see the copy glyph below).
+                  // The `!` beats the default md size <Icon> injects; under Tailwind v4 it otherwise wins.
                   <Icon
                     name={deltaDirection === 'negative' ? IconName.ArrowDown : IconName.ArrowUp}
                     className="w-4! h-4!"
@@ -237,22 +237,13 @@ export const BalanceCard: FC<BalanceCardProps> = ({
             text={accountId ?? accountNumber}
             data-testid="balance-card-copy-address"
             aria-label={copied => (copied ? t('balanceCardAddressCopied') : t('balanceCardCopyAddress'))}
+            label={accountNumber}
+            // The address stays put; the glyph alone morphs to the check.
+            copiedLabel={null}
+            icon="trailing"
             className="-mr-2 flex min-h-11 min-w-0 items-center px-2 text-surface-balance-fg active:opacity-80 transition-opacity"
-          >
-            {copied => (
-              // `CopyButton` wraps `children` in its own `<span aria-live>`, so the flex layout
-              // (gap, centering, truncate) has to live on an inner span that's the actual parent
-              // of the address and icon — putting it on the button's own `className` above has no
-              // effect on that layout, since the button's only direct child is that aria-live wrapper.
-              <span className="flex min-w-0 items-center gap-1.5 text-label leading-none">
-                <span className="truncate">{accountNumber}</span>
-                {/* The `!` on the size classes is load-bearing: <Icon> injects a default `md`
-                    (w-6 h-6) size class that, under Tailwind v4's scale-ordered output, otherwise
-                    wins the cascade. Do not drop the `!`. */}
-                <Icon name={copied ? IconName.Checkmark : IconName.CopyNew} className="w-4! h-4! shrink-0" />
-              </span>
-            )}
-          </CopyButton>
+            contentClassName="text-label leading-none"
+          />
         </span>
       </div>
     </div>
