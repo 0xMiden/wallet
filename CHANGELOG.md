@@ -97,6 +97,7 @@
 - [CHANGE][all] Confirmations and alerts (delete a contact, disconnect a dApp, decline a transfer, reset the wallet, error alerts) open as bottom sheets instead of centered pop-ups: the title, one sentence, the action over a Cancel button. They are announced as alert dialogs, focus Cancel first, close on Escape or Back, and no longer dismiss on a tap outside, and they sit above any open sheet.
 - [CHANGE][all] The old pop-up modal and its styles are removed now that confirmations are sheets, and with reduced motion on, the extension no longer animates the app shrinking behind an open sheet: it moves there at once.
 - [CHANGE][all] Confirmations name their action instead of "OK" and show it in the destructive style: Delete (a contact), Disconnect (a dApp), Decline (a transfer), Reset Wallet (developer settings) and Reset Extension.
+- [CHANGE][all] Copying a connected app's account id, the receive screen's address, or the balance card's account label now shows a checkmark or "Copied" for a moment, instead of copying with no sign anything happened.
 
 ## 1.16.1 (2026-09-15)
 
