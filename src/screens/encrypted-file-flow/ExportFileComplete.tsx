@@ -6,12 +6,14 @@ import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
-import { Spinner } from 'components/ui/Spinner';
+import { Hero } from 'components/ui/Hero';
+import { SubPageLayout } from 'components/ui/SubPageLayout';
 import { CURRENT_BACKUP_FORMAT_VERSION, parseImportedAccountBackupFailure } from 'lib/miden/backup-file';
 import { useMidenContext } from 'lib/miden/front';
 import { deriveKey, encrypt, encryptJson, generateKey, generateSalt } from 'lib/miden/passworder';
 import { isShareCancellation } from 'lib/mobile/share-cancellation';
 import { isMobile } from 'lib/platform';
+import { TransactionHeroIcon } from 'screens/generating-transaction/components';
 import { EncryptedWalletFile, ENCRYPTED_WALLET_FILE_PASSWORD_CHECK, DecryptedWalletFile } from 'screens/shared';
 
 export interface ExportFileCompleteProps {
@@ -204,20 +206,19 @@ const ExportFileComplete: React.FC<ExportFileCompleteProps> = ({ filePassword, f
     }
   }, [fileName, t]);
 
+  const actionButton = 'flex-1 max-w-none';
+
   if (exportState === 'pending') {
     return (
-      <div className="flex flex-col flex-1 items-center px-4 bg-app-bg">
-        <div
-          role="status"
-          aria-live="polite"
-          className="flex flex-col w-full items-center justify-center flex-1 gap-y-4"
-        >
-          <div className="flex h-8 justify-center pt-5">
-            <Spinner />
-          </div>
-          <p className="text-base text-ink">{t('encryptedWalletFileExporting')}</p>
+      <SubPageLayout data-testid="export-file-complete">
+        <div role="status" aria-live="polite" className="flex flex-1 flex-col items-center justify-center">
+          <Hero
+            visual={<TransactionHeroIcon state="processing" />}
+            subtitle={t('encryptedWalletFileExporting')}
+            data-testid="export-outcome"
+          />
         </div>
-      </div>
+      </SubPageLayout>
     );
   }
 
@@ -227,91 +228,92 @@ const ExportFileComplete: React.FC<ExportFileCompleteProps> = ({ filePassword, f
   // that already succeeded.
   if (exportState === 'cancelled') {
     return (
-      <div className="flex flex-col flex-1 items-center px-4 bg-app-bg">
-        <div className="flex flex-col w-full items-center justify-center flex-1 gap-y-2">
-          <div className="w-49 aspect-square flex items-center justify-center">
-            {/* Self-coloured brand glyph — no `fill`/`text-*` needed, unlike `Close`. */}
-            <Icon name={IconName.Share} size="4xl" />
-          </div>
-          <div className="flex flex-col items-center max-w-sm text-center text-ink">
-            <h1 className="text-[32px] leading-[120%] tracking-[-0.04em] font-semibold">
-              {t('encryptedWalletFileNotSavedTitle')}
-            </h1>
-            <p className="pt-6 text-base leading-[130%]">{t('encryptedWalletFileNotSavedDesc')}</p>
-          </div>
-        </div>
-        <div className="w-full pt-8 pb-4 flex flex-col gap-y-3">
-          <Button
-            className="w-full justify-center"
-            title={t('encryptedWalletFileSaveAgain')}
-            variant={ButtonVariant.Primary}
-            onClick={handleShareAgain}
-          />
-          <Button
-            className="w-full justify-center"
-            title={t('done')}
-            variant={ButtonVariant.Secondary}
-            onClick={onDone}
-          />
-        </div>
-      </div>
+      <SubPageLayout
+        data-testid="export-file-complete"
+        footerLayout="stack"
+        footer={
+          <>
+            <Button
+              className={actionButton}
+              title={t('encryptedWalletFileSaveAgain')}
+              variant={ButtonVariant.Primary}
+              onClick={handleShareAgain}
+            />
+            <Button className={actionButton} title={t('done')} variant={ButtonVariant.Secondary} onClick={onDone} />
+          </>
+        }
+      >
+        <OutcomeHero
+          visual={
+            <div className="flex size-16 items-center justify-center rounded-full bg-fill">
+              {/* Self-coloured brand glyph — no `fill`/`text-*` needed. */}
+              <Icon name={IconName.Share} size="md" />
+            </div>
+          }
+          title={t('encryptedWalletFileNotSavedTitle')}
+        >
+          <p>{t('encryptedWalletFileNotSavedDesc')}</p>
+        </OutcomeHero>
+      </SubPageLayout>
     );
   }
 
   if (exportState === 'error') {
     return (
-      <div className="flex flex-col flex-1 items-center px-4 bg-app-bg">
-        <div className="flex flex-col w-full items-center justify-center flex-1 gap-y-2">
-          <div className="w-49 aspect-square flex items-center justify-center">
-            {/* `close.svg` is `fill="none"` with an unfilled path, so a `text-*`
-                class alone renders nothing — the fill has to be passed through. */}
-            <Icon name={IconName.Close} size="4xl" fill="currentColor" className="text-status-negative" />
-          </div>
-          <div role="alert" className="flex flex-col items-center max-w-sm text-center text-ink">
-            <h1 className="text-[32px] leading-[120%] tracking-[-0.04em] font-semibold">
-              {t('encryptedWalletFileExportFailedTitle')}
-            </h1>
-            <p className="pt-6 text-base leading-[130%] select-text">
-              {exportFailureMessage ?? t('encryptedWalletFileExportFailedDesc')}
-            </p>
-          </div>
+      <SubPageLayout
+        data-testid="export-file-complete"
+        footer={<Button className={actionButton} title={t('done')} variant={ButtonVariant.Primary} onClick={onDone} />}
+      >
+        <div role="alert" className="flex flex-1 flex-col">
+          <OutcomeHero
+            visual={<TransactionHeroIcon state="failed" />}
+            title={t('encryptedWalletFileExportFailedTitle')}
+          >
+            <p className="select-text">{exportFailureMessage ?? t('encryptedWalletFileExportFailedDesc')}</p>
+          </OutcomeHero>
         </div>
-        <div className="w-full pt-8 pb-4">
-          <Button
-            className="w-full justify-center"
-            title={t('done')}
-            variant={ButtonVariant.Primary}
-            onClick={onDone}
-          />
-        </div>
-      </div>
+      </SubPageLayout>
     );
   }
 
   return (
-    <div className="flex flex-col flex-1 items-center px-4 bg-app-bg">
-      <div className="flex flex-col w-full items-center justify-center flex-1 gap-y-2">
-        <div className="w-49 aspect-square flex items-center justify-center">
-          <Icon name={IconName.Success} size="4xl" />
-        </div>
-        <div className="flex flex-col items-center max-w-sm text-center text-ink">
-          <h1 className="text-[32px] leading-[120%] tracking-[-0.04em]">
-            <span className="font-semibold">{t('encryptedWalletFileExportedTitle1')}</span>
+    <SubPageLayout
+      data-testid="export-file-complete"
+      footer={<Button className={actionButton} title={t('done')} variant={ButtonVariant.Primary} onClick={onDone} />}
+    >
+      <OutcomeHero
+        visual={<TransactionHeroIcon state="success" />}
+        title={
+          <>
+            <span>{t('encryptedWalletFileExportedTitle1')}</span>
             <br />
-            <span className="font-medium">{t('encryptedWalletFileExportedTitle2')}</span>
-          </h1>
-          <div className="pt-6 text-base leading-[130%]">
-            <p>{t('encryptedWalletFileExportedDesc1')}</p>
-            <p className="font-bold pt-5">{t('encryptedWalletFileExportedDesc2')}</p>
-            <p className="pt-5">{t('encryptedWalletFileExportedDesc3')}</p>
-          </div>
-        </div>
-      </div>
-      <div className="w-full pt-8 pb-4">
-        <Button className="w-full justify-center" title={t('done')} variant={ButtonVariant.Primary} onClick={onDone} />
-      </div>
-    </div>
+            <span>{t('encryptedWalletFileExportedTitle2')}</span>
+          </>
+        }
+      >
+        <p>{t('encryptedWalletFileExportedDesc1')}</p>
+        <p className="font-bold text-ink">{t('encryptedWalletFileExportedDesc2')}</p>
+        <p>{t('encryptedWalletFileExportedDesc3')}</p>
+      </OutcomeHero>
+    </SubPageLayout>
   );
 };
+
+/**
+ * An export outcome: the shared Hero (the 64px status circle every transaction outcome uses and a
+ * 24px title), centred in the body, then its explanation in 14px `muted`.
+ */
+const OutcomeHero: React.FC<{ visual: React.ReactNode; title: React.ReactNode; children: React.ReactNode }> = ({
+  visual,
+  title,
+  children
+}) => (
+  <div className="flex flex-1 flex-col items-center justify-center" data-testid="export-outcome">
+    <Hero visual={visual} name={title} />
+    <div className="mt-3 flex max-w-sm flex-col gap-3 text-center font-sans text-sm leading-5 text-muted">
+      {children}
+    </div>
+  </div>
+);
 
 export default ExportFileComplete;

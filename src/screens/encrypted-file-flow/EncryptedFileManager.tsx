@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 
 import { Navigator, NavigatorProvider, Route, useNavigator } from 'components/Navigator';
 import { PageHeader } from 'components/PageHeader';
+import type { TextFieldElement } from 'components/ui/TextField';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 import { navigate } from 'lib/woozie';
@@ -120,7 +121,7 @@ export const EncryptedFileManager: React.FC<{}> = () => {
   );
 
   const onFileNameChange = useCallback(
-    (event: ChangeEvent<HTMLInputElement>) => {
+    (event: ChangeEvent<TextFieldElement>) => {
       onAction({
         id: EncryptedFileActionId.SetFormValues,
         payload: { fileName: event.target.value }
@@ -130,7 +131,7 @@ export const EncryptedFileManager: React.FC<{}> = () => {
   );
 
   const onFilePasswordChange = useCallback(
-    (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    (event: React.ChangeEvent<TextFieldElement>) => {
       onAction({
         id: EncryptedFileActionId.SetFormValues,
         payload: { filePassword: event.target.value }
