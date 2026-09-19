@@ -207,10 +207,31 @@ function over(top: string, bottom: string): string {
     .join('')}`;
 }
 
-// The Home balance card draws every piece of its text (the label, the currency, the address and
-// the account name, all 13-22px) in `surface-balance-fg` on the account's card color, and the
-// change pill in the same ink on `surface-balance-pill` over that color. Light mode paints the card
-// solid; dark mode paints it at 50% over the page (`dark:bg-card-*\/50` on `app-bg`).
+// The five card colors are BRAND colors: they never shift for contrast. Readability on them comes
+// from the type and a local scrim instead, and this pins both halves of that rule.
+describe('card colors are the brand colors', () => {
+  const BRAND: Record<string, string> = {
+    slate: '#777386',
+    orange: '#e77537',
+    blue: '#607c92',
+    green: '#778c72',
+    purple: '#847595'
+  };
+  const vars = themeVars(':root');
+
+  it.each(Object.entries(BRAND))('light %s is exactly %s', (color, hex) => {
+    expect(vars[`card-${color}`]?.toLowerCase()).toBe(hex);
+  });
+});
+
+// The Home balance card draws its text in `surface-balance-fg` on the account's card color. Light
+// mode paints the card solid; dark mode paints it at 50% over the page (`dark:bg-card-*\/50` on
+// `app-bg`). What each text needs depends on its size (WCAG 1.4.3):
+// - the amount (40-56px extrabold) and the currency (22px bold) are large text: 3:1 on the bare
+//   color. White on the brand orange is 3.0:1, which is why they may never shrink below 18.66px bold.
+// - the label and the footer (13px bold) are small text: 4.5:1, on `surface-balance-scrim` over
+//   the color, the only place the scrim is painted.
+// - the change pill (14px) is small text: 4.5:1 on `surface-balance-pill` over the color.
 describe.each([':root', '.dark'] as const)('balance card ink on every card color in %s', selector => {
   const vars = themeVars(selector);
   const need = (name: string): string => {
@@ -224,8 +245,14 @@ describe.each([':root', '.dark'] as const)('balance card ink on every card color
     return selector === ':root' ? need(`card-${color}`) : over(`rgba(${r}, ${g}, ${b}, 0.5)`, need('color-app-bg'));
   };
 
-  it.each(CARD_COLORS)('%s carries the card ink at 4.5:1', color => {
-    expect(contrast(need('surface-balance-fg'), card(color))).toBeGreaterThanOrEqual(4.5);
+  it.each(CARD_COLORS)('%s carries the large amount and currency at 3:1 on the bare color', color => {
+    expect(contrast(need('surface-balance-fg'), card(color))).toBeGreaterThanOrEqual(3);
+  });
+
+  it.each(CARD_COLORS)('%s carries the small label and footer at 4.5:1 on the scrim', color => {
+    expect(
+      contrast(need('surface-balance-fg'), over(need('surface-balance-scrim'), card(color)))
+    ).toBeGreaterThanOrEqual(4.5);
   });
 
   it.each(CARD_COLORS)('%s carries the change pill at 4.5:1', color => {

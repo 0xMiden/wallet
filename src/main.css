@@ -447,21 +447,25 @@ body[data-hide-navbar]::after {
     --surface-balance-fg: #ffffff;
     --surface-balance-rule: rgba(255, 255, 255, 0.18);
     /* The balance card's change pill: a darker well of the card's own color, so it suits every
-     * card color. A white well would lift the card under the white text below 4.5:1. */
-    --surface-balance-pill: rgba(0, 0, 0, 0.16);
+     * card color. At 0.24 the pill's white 14px text is 4.5:1 even on the brand orange. */
+    --surface-balance-pill: rgba(0, 0, 0, 0.24);
+    /* The balance card's local scrim: a darker band of the card's own color, painted only behind
+     * its small text (the label at the top, the account footer at the bottom), never over the
+     * whole card. 0.24 carries 13px white at 4.5:1 on every card color, the brand orange included. */
+    --surface-balance-scrim: rgba(0, 0, 0, 0.24);
     --surface-balance-positive: #4ade80;
     --surface-balance-handle: #b2b2b2;
 
     /* Balance-card color options (AccountsDrawer picker). Blue/green/purple
-     * get lighter variants in dark mode; slate/orange stay fixed. Each light value is the
-     * darkest-needed shade of its hue that carries the card's white 13px text at 4.5:1
-     * (orange is the brand #e77537 darkened, which only reached 3.0:1); the balance card's
-     * contrast test in design-tokens.test.ts holds every one of them to it. */
+     * get lighter variants in dark mode; slate/orange stay fixed. These five are BRAND colors:
+     * never shift them for contrast. The card solves readability with type size and weight
+     * (amount, currency) and a local scrim (label, footer), see BalanceCard and the contrast
+     * test in design-tokens.test.ts. */
     --card-slate: #777386;
-    --card-orange: #b65c2b;
-    --card-blue: #5d788e;
-    --card-green: #687a63;
-    --card-purple: #7d6f8e;
+    --card-orange: #e77537;
+    --card-blue: #607c92;
+    --card-green: #778c72;
+    --card-purple: #847595;
 
     /* Design system, direction B (skills/miden-wallet-frontend/references/design-system.md).
      * Prefixed so a copied shadcn primitive can never redefine them. */
@@ -558,8 +562,12 @@ body[data-hide-navbar]::after {
     --surface-balance-fg: #ffffff;
     --surface-balance-rule: rgba(255, 255, 255, 0.18);
     /* The balance card's change pill: a darker well of the card's own color, so it suits every
-     * card color. A white well would lift the card under the white text below 4.5:1. */
-    --surface-balance-pill: rgba(0, 0, 0, 0.16);
+     * card color. At 0.24 the pill's white 14px text is 4.5:1 even on the brand orange. */
+    --surface-balance-pill: rgba(0, 0, 0, 0.24);
+    /* The balance card's local scrim: a darker band of the card's own color, painted only behind
+     * its small text (the label at the top, the account footer at the bottom), never over the
+     * whole card. 0.24 carries 13px white at 4.5:1 on every card color, the brand orange included. */
+    --surface-balance-scrim: rgba(0, 0, 0, 0.24);
     --surface-balance-positive: #4ade80;
     --surface-balance-handle: #b2b2b2;
 
