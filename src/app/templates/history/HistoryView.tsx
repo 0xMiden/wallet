@@ -10,7 +10,7 @@ import { guardianEndpointDisplayName } from 'app/hooks/useCurrentGuardianEndpoin
 import { Icon, IconName } from 'app/icons/v2';
 import { ReactComponent as FailedCrossIcon } from 'app/icons/v2/failed-cross.svg';
 import { ReactComponent as SwapIcon } from 'app/icons/v2/swap.svg';
-import { ActivityRow, ActivityRowProps, ActivityStatusTone, Card, Spinner } from 'components/ui';
+import { ActivityRow, ActivityRowProps, Card, Spinner, Status } from 'components/ui';
 import { EmptyState } from 'components/ui/EmptyState';
 import { springs, useMotion } from 'lib/animation';
 import { navigate } from 'lib/woozie';
@@ -19,13 +19,9 @@ import HistoryItem from './HistoryItem';
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
 import type { PendingActivityItem } from './PendingActivityCard';
 import {
-  BRIDGE_STATUS_LABEL_KEY,
   bridgeInRowDisplay,
   bridgeRowDisplay,
-  EARN_DEPOSIT_STATUS_LABEL_KEY,
-  EARN_WITHDRAW_STATUS_LABEL_KEY,
   earnDepositSettlementOf,
-  earnWithdrawToneOf,
   isBridgeInEntry,
   isEarnWithdrawEntry,
   isFaucetRequest
@@ -111,7 +107,7 @@ function buildRowProps(
             direction: bridgeIn ? ('positive' as const) : ('neutral' as const)
           }
         : undefined,
-      status: { label: t(BRIDGE_STATUS_LABEL_KEY[d.status]), tone: d.status }
+      status: d.status
     };
   }
 
@@ -134,7 +130,8 @@ function buildRowProps(
         failed || entry.amount === undefined
           ? undefined
           : { value: `+${entry.amount.toString()}`, symbol: entry.token, direction: 'positive' as const },
-      status: { label: t(EARN_WITHDRAW_STATUS_LABEL_KEY[phase]), tone: earnWithdrawToneOf(phase) }
+      // Each withdraw phase is a status of its own: Redeeming, Delivering, Received, Failed.
+      status: phase
     };
   }
 
@@ -300,37 +297,29 @@ function buildRowProps(
     }
   }
 
-  let statusTone: ActivityStatusTone = 'confirmed';
-  let statusLabel = t('confirmed');
+  let status: Status = 'confirmed';
   if (isCancelled) {
-    statusTone = 'cancelled';
-    statusLabel = t('cancelled');
+    status = 'cancelled';
   } else if (isFailed) {
-    statusTone = 'failed';
-    statusLabel = t('failed');
+    status = 'failed';
   } else if (
     entry.type === HistoryEntryType.PendingTransaction ||
     entry.type === HistoryEntryType.ProcessingTransaction
   ) {
-    statusTone = 'pending';
-    statusLabel = t('pending');
+    status = 'pending';
   } else if (entry.txType === 'earn-deposit' && earnDepositSettlementOf(entry) !== 'confirmed') {
     // A deposit row completes when the Miden collateral note lands, but the
     // position only exists once the solver-fulfilled Sepolia lending leg settles —
     // the chip tracks that leg (mirrors `EarnDepositStatusPill` on the details
     // page). Deliberately checked AFTER cancelled/failed/pending so a Miden-side
     // failure always wins over the lending leg's state.
-    const settlement = earnDepositSettlementOf(entry);
-    statusTone = settlement;
-    statusLabel = t(EARN_DEPOSIT_STATUS_LABEL_KEY[settlement]);
+    status = earnDepositSettlementOf(entry);
   } else if (isSwap && entry.swapSettlement === 'pending') {
     // A completed swap row is the single trace of the whole order (its
     // settlement consumes are suppressed) — the chip reflects settlement.
-    statusTone = 'pending';
-    statusLabel = t('pending');
+    status = 'pending';
   } else if (isSwap && entry.swapSettlement === 'reclaimed') {
-    statusTone = 'cancelled';
-    statusLabel = t('reclaimed');
+    status = 'reclaimed';
   }
 
   return {
@@ -339,7 +328,7 @@ function buildRowProps(
     title,
     subtitle,
     amount,
-    status: { label: statusLabel, tone: statusTone }
+    status
   };
 }
 
