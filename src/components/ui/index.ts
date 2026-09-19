@@ -10,6 +10,9 @@ export type { BalanceCardProps, BalanceDeltaDirection } from './BalanceCard';
 export { CopyButton } from './CopyButton';
 export type { CopyButtonProps } from './CopyButton';
 
+export { CopyChip } from './CopyChip';
+export type { CopyChipProps } from './CopyChip';
+
 export { Pill } from './Pill';
 export type { PillProps, PillSize, PillTone } from './Pill';
 
