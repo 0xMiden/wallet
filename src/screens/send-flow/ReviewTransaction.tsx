@@ -6,7 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { useAppEnv } from 'app/env';
 import { useNetworkFeeEstimate } from 'app/hooks/useNetworkFeeEstimate';
 import { Button, ButtonVariant } from 'components/Button';
-import { NetworkChip } from 'components/NetworkChip';
+import { NetworkLogo } from 'components/NetworkChip';
 import { SpendingLimitChallenge } from 'components/SpendingLimitChallenge';
 import { TokenLogo } from 'components/TokenLogo';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
@@ -480,16 +480,17 @@ export const ReviewTransaction: React.FC = () => {
         />
 
         <DetailCard className="mt-6">
-          {/* The full address, never truncated: this is the last look before funds move. */}
+          {/* The full address, never truncated: this is the last look before funds move. Set in body
+              text rather than the bold value face, so it reads as something to check, not a headline. */}
           <DetailRow label={t('to')} stacked data-testid="review-row-to">
-            {to}
+            <span className="text-body-sm break-all text-ink">{to}</span>
           </DetailRow>
+          {/* A plain value with the network's mark, like every other row: a chip here read as a button. */}
           <DetailRow label={t('network')}>
-            {isBridge ? (
-              <NetworkChip kind="ethereum" label={bridgeNetworkObj?.name ?? t('ethereum')} />
-            ) : (
-              <NetworkChip kind="miden" label={t('miden')} />
-            )}
+            <span className="flex items-center gap-1.5">
+              <NetworkLogo kind={isBridge ? 'ethereum' : 'miden'} />
+              {isBridge ? (bridgeNetworkObj?.name ?? t('ethereum')) : t('miden')}
+            </span>
           </DetailRow>
 
           {/* The exact fee is `baseFee x (floor(log2(cycles)) + 1)` and cycles are not known until
@@ -497,9 +498,8 @@ export const ReviewTransaction: React.FC = () => {
               against — the same amount the amount step withheld from `Available`. Absent on a
               zero-fee chain and before discovery; see `useNetworkFeeEstimate`. */}
           {networkFee && (
-            <DetailRow label={t('networkFeeMax')} sub={t('networkFeeEstimateNote')}>
-              {networkFee}
-            </DetailRow>
+            // "Max" in the label already says the fee is an upper bound; the receipt shows what was paid.
+            <DetailRow label={t('networkFeeMax')}>{networkFee}</DetailRow>
           )}
 
           {isBridge ? (
@@ -511,15 +511,21 @@ export const ReviewTransaction: React.FC = () => {
             </>
           ) : (
             <DetailRow
-              label={t('expirationDate')}
+              label={t('expires')}
               action={{ label: t('edit'), onClick: () => setShowCalendar(true) }}
-              sub={recallBlocks ? t('recallReturnsNote', { amount: `${amount} ${token?.name ?? ''}` }) : undefined}
               data-testid="review-row-expiration"
             >
               {expirationLabel}
             </DetailRow>
           )}
         </DetailCard>
+        {/* The reassurance about an unclaimed payment is one caption under the card, not a paragraph
+            squeezed into the value column. */}
+        {!isBridge && recallBlocks ? (
+          <p className="mt-3 px-4 text-caption text-muted" data-testid="review-recall-note">
+            {t('recallReturnsNote', { amount: `${amount} ${token?.name ?? ''}` })}
+          </p>
+        ) : null}
       </SendStepLayout>
 
       {!isBridge && (
