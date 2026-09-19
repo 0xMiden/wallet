@@ -108,94 +108,77 @@ const authorizationMatches = async (
 };
 
 /**
- * Rechecks policy, validates one-time authority, and inserts under one Dexie
- * write lock. Splitting any of those steps lets concurrent callers overspend
- * the same remaining allowance or replay one credential challenge.
+ * Rechecks policy, validates one-time authority, and inserts under one Dexie write lock.
+ * Splitting any of those steps lets concurrent callers overspend the same remaining allowance or
+ * replay one credential challenge.
+ *
+ * `spends` is what the row moves, per faucet. Ordinary outgoing transactions name one asset and
+ * pass a single entry; a dApp custom request states its value only through the approval-time dry
+ * run and can name several, so the list is the general shape and one entry is the common case.
+ *
+ * The list stays a PARAMETER and is never written onto the row for a single-asset type. The policy
+ * checks `row.spentAssetTotals` FIRST and would then ignore the row's own `faucetId`/`amount`, so
+ * a send carrying totals would be counted through the wrong branch.
  */
 export const queueOutgoingTransaction = async (
-  transaction: QueueableOutgoingTransaction,
+  transaction: ITransaction,
+  spends: readonly IConsumedAssetTotal[],
   authorization?: SpendingLimitAuthorization,
   now: number = Math.floor(Date.now() / 1000)
 ): Promise<void> => {
   await Repo.db.transaction('rw', Repo.spendingLimits, Repo.transactions, async () => {
-    const persisted = await readPolicy(transaction.accountId, transaction.faucetId);
-    if (persisted === undefined) {
-      await Repo.transactions.add(transaction);
-      return;
-    }
-
-    const config = parsePersistedSpendingLimit(persisted);
-    const assessment = assessSpendingLimit(config, await readHistory(now), {
-      accountId: transaction.accountId,
-      faucetId: transaction.faucetId,
-      amount: transaction.amount,
-      now
-    });
-    if (assessment.breaches.length === 0) {
-      await Repo.transactions.add(transaction);
-      return;
-    }
-
-    if (
-      authorization === undefined ||
-      !(await authorizationMatches(authorization, transaction, config.revision, now))
-    ) {
-      throw new SpendingLimitAuthorizationRequiredError(assessment);
-    }
-    await Repo.transactions.add({ ...transaction, spendingLimitAuthorizationId: authorization.id });
-  });
-};
-
-/**
- * Queue a dApp CUSTOM (`execute`) row under the same rules as any other outgoing transaction.
- *
- * A custom request carries opaque bytes, so the value it moves is `spentAssetTotals`, recorded
- * from the approval-time dry run. That makes it several spends at once, one per faucet, which is
- * the only way this differs from `queueOutgoingTransaction`: each is assessed against its own
- * policy, and a request that breaches MORE than one is refused outright rather than authorized,
- * because a single one-time credential can only be bound to one (account, faucet, amount).
- */
-export const queueOutgoingCustomTransaction = async (
-  transaction: ITransaction & { spentAssetTotals: IConsumedAssetTotal[] },
-  authorization?: SpendingLimitAuthorization,
-  now: number = Math.floor(Date.now() / 1000)
-): Promise<void> => {
-  await Repo.db.transaction('rw', Repo.spendingLimits, Repo.transactions, async () => {
-    const history = await readHistory(now);
-    const breached: { assessment: SpendingLimitAssessment; revision: string; spend: IConsumedAssetTotal }[] = [];
-
-    for (const spend of transaction.spentAssetTotals) {
+    // Find a policy before reading any history: an account with no limit on any of these faucets
+    // must not pay for a window scan inside the write lock on the busiest table.
+    const configured: { config: ReturnType<typeof parsePersistedSpendingLimit>; spend: IConsumedAssetTotal }[] = [];
+    for (const spend of spends) {
       const persisted = await readPolicy(transaction.accountId, spend.faucetId);
-      if (persisted === undefined) continue;
-      const config = parsePersistedSpendingLimit(persisted);
-      const assessment = assessSpendingLimit(config, history, {
-        accountId: transaction.accountId,
-        faucetId: spend.faucetId,
-        amount: spend.amount,
-        now
-      });
-      if (assessment.breaches.length > 0) breached.push({ assessment, revision: config.revision, spend });
+      if (persisted !== undefined) configured.push({ config: parsePersistedSpendingLimit(persisted), spend });
     }
+    if (configured.length === 0) {
+      await Repo.transactions.add(transaction);
+      return;
+    }
+
+    const history = await readHistory(now);
+    const breached = configured
+      .map(({ config, spend }) => ({
+        config,
+        spend,
+        assessment: assessSpendingLimit(config, history, {
+          accountId: transaction.accountId,
+          faucetId: spend.faucetId,
+          amount: spend.amount,
+          now
+        })
+      }))
+      .filter(entry => entry.assessment.breaches.length > 0);
 
     if (breached.length === 0) {
       await Repo.transactions.add(transaction);
       return;
     }
+    // One one-time credential binds to exactly one (account, faucet, amount), so two breaches
+    // cannot be authorized in a single step. Unreachable for a single-entry list.
     if (breached.length > 1) {
-      throw unavailable('a custom transaction cannot exceed more than one spending limit at once');
+      throw unavailable('a transaction cannot exceed more than one spending limit at once');
     }
 
     const only = breached[0]!;
     const matches = await authorizationMatches(
       authorization,
       { accountId: transaction.accountId, faucetId: only.spend.faucetId, amount: only.spend.amount },
-      only.revision,
+      only.config.revision,
       now
     );
     if (!matches) throw new SpendingLimitAuthorizationRequiredError(only.assessment);
     await Repo.transactions.add({ ...transaction, spendingLimitAuthorizationId: authorization!.id });
   });
 };
+
+/** The single-asset spend list an ordinary outgoing row states through its own fields. */
+export const spendsOf = (transaction: QueueableOutgoingTransaction): IConsumedAssetTotal[] => [
+  { faucetId: transaction.faucetId, amount: transaction.amount }
+];
 
 /**
  * True when ANY spending limit is configured for this account.

@@ -865,7 +865,7 @@ if (process.env.MIDEN_E2E_TEST === 'true') {
     globalThis,
     '__TEST_RUN_SPENDING_LIMIT_RACE__',
     async (input: { recipientAddress: string; faucetId: string; amountBaseUnits: string }) => {
-      const [{ SendTransaction, ITransactionStatus }, { NoteTypeEnum }, { queueOutgoingTransaction }, Repo] =
+      const [{ SendTransaction, ITransactionStatus }, { NoteTypeEnum }, { queueOutgoingTransaction, spendsOf }, Repo] =
         await Promise.all([
           import('lib/miden/db/types'),
           import('lib/miden/types'),
@@ -886,7 +886,9 @@ if (process.env.MIDEN_E2E_TEST === 'true') {
       }
 
       try {
-        const results = await Promise.allSettled(candidates.map(candidate => queueOutgoingTransaction(candidate)));
+        const results = await Promise.allSettled(
+          candidates.map(candidate => queueOutgoingTransaction(candidate, spendsOf(candidate)))
+        );
         const inserted = await Repo.transactions.bulkGet(candidates.map(candidate => candidate.id));
         return {
           fulfilledCount: results.filter(result => result.status === 'fulfilled').length,

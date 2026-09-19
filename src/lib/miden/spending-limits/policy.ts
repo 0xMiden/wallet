@@ -90,8 +90,14 @@ const rowSpendUnderFaucet = (row: ITransaction, faucetId: string): { amount: unk
   // An execute row's value is opaque in `requestBytes`, so the approval-time dry run records it
   // per faucet instead. Checked first: such a row has no top-level faucet to match on.
   if (row.spentAssetTotals !== undefined) {
-    const total = row.spentAssetTotals.find(entry => sameSpendingLimitIdentity(entry.faucetId, faucetId));
-    return total === undefined ? undefined : { amount: total.amount };
+    // SUM every matching entry, never take the first. The producer folds per faucet before this is
+    // written, so a duplicate should not exist - but this reads rows persisted by earlier builds,
+    // and by any future producer that forgets to fold. Taking the first match would silently drop
+    // the rest of that faucet's value out of the rolling total.
+    const matching = row.spentAssetTotals.filter(entry => sameSpendingLimitIdentity(entry.faucetId, faucetId));
+    if (matching.length === 0) return undefined;
+    if (matching.some(entry => typeof entry.amount !== 'bigint')) return { amount: undefined };
+    return { amount: matching.reduce((total, entry) => total + entry.amount, 0n) };
   }
   if (row.faucetId === undefined || !sameSpendingLimitIdentity(row.faucetId, faucetId)) return undefined;
   return { amount: row.amount };

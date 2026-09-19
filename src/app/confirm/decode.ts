@@ -137,6 +137,50 @@ export function summaryToView(ts: TransactionSummary): TxAssetView {
   };
 }
 
+/**
+ * The view for a dry-run result, whichever ground-truth shape it produced.
+ *
+ * `summaryBytes` and `executedBytes` are mutually exclusive and the account decides which: a
+ * summary exists only while authorization is still pending (a guardian/multisig account below its
+ * threshold), and every ordinary single-sig account on the 0.16 line takes the executed path
+ * instead. `undefined` means the dry run produced neither, i.e. the effects are genuinely unknown.
+ *
+ * Exists so that ladder is written ONCE. It was previously inline in the confirm screen and absent
+ * from the backend, and a backend consumer that decoded only the summary shape silently treated
+ * every ordinary account as unsimulatable.
+ */
+export function simulatedBytesToView(result: {
+  summaryBytes?: string;
+  executedBytes?: string;
+}): TxAssetView | undefined {
+  if (result.summaryBytes) return summaryBytesToView(result.summaryBytes);
+  if (result.executedBytes) return executedBytesToView(result.executedBytes);
+  return undefined;
+}
+
+/**
+ * Per-faucet NET value leaving the account, for spending-limit accounting.
+ *
+ * Two corrections the raw `outgoing` list cannot be used without:
+ *
+ * NET, not gross. `summaryToView` derives outgoing from the account vault delta and nets it
+ * through a signed per-faucet map, while `executedBytesToView` lists the assets of every output
+ * note. Charging the gross figure would make one cap mean two different things depending on the
+ * account type, and would charge a request for a note it hands straight back to itself.
+ *
+ * ONE ENTRY PER FAUCET. The executed view flat-maps over output notes, so two notes drawing on one
+ * faucet arrive as two entries. Downstream each entry is assessed separately, so 60 and 60 would
+ * both pass a cap of 100.
+ */
+export function netOutflowByFaucet(view: TxAssetView): AssetAmount[] {
+  const signed = new Map<string, bigint>();
+  for (const asset of view.outgoing) signed.set(asset.faucetId, (signed.get(asset.faucetId) ?? 0n) + asset.amount);
+  for (const asset of view.incoming) signed.set(asset.faucetId, (signed.get(asset.faucetId) ?? 0n) - asset.amount);
+  const outflow: AssetAmount[] = [];
+  for (const [faucetId, amount] of signed) if (amount > 0n) outflow.push({ faucetId, amount });
+  return outflow;
+}
+
 export function summaryBytesToView(summaryB64: string): TxAssetView {
   return summaryToView(TransactionSummary.deserialize(b64ToU8(summaryB64)));
 }

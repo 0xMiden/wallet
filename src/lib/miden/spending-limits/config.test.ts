@@ -9,7 +9,7 @@ import {
   listSpendingLimits,
   saveSpendingLimit
 } from './config';
-import { queueOutgoingTransaction } from './queue';
+import { queueOutgoingTransaction, spendsOf } from './queue';
 import { SpendingLimitConfiguration } from './types';
 
 const NOW = 2_000_000;
@@ -212,7 +212,7 @@ describe('spending-limit configuration', () => {
 
     const [saved, queued] = await Promise.allSettled([
       save(draft({ dailyLimit: 100n, weeklyLimit: undefined }), 'revision-1', true, 'revision-2'),
-      queueOutgoingTransaction(transaction, undefined, NOW)
+      queueOutgoingTransaction(transaction, spendsOf(transaction), undefined, NOW)
     ]);
 
     expect(saved.status).toBe('fulfilled');
@@ -254,7 +254,7 @@ describe('spending-limit configuration', () => {
     // The deterministic half of the race above: 80 is over the old cap and under the new one, so
     // this can only pass if the queue re-reads the policy rather than caching the pre-save value.
     await save(draft({ dailyLimit: 100n, weeklyLimit: undefined }), 'revision-1', true, 'revision-2');
-    await queueOutgoingTransaction(transaction, undefined, NOW);
+    await queueOutgoingTransaction(transaction, spendsOf(transaction), undefined, NOW);
 
     await expect(transactions.get('candidate')).resolves.toMatchObject({ amount: 80n });
   });

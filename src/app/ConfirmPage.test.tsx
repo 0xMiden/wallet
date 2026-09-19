@@ -151,32 +151,38 @@ jest.mock('./confirm/TransactionAssetView', () => ({
 // Partial mock: `summaryToView` stays real (the sign->TransactionSummary tests
 // below assert on its actual mapping); only the custom-tx decode entry points
 // are stubbed so these UI tests don't touch the WASM SDK.
-jest.mock('./confirm/decode', () => ({
-  ...jest.requireActual('./confirm/decode'),
-  declaredRequestToView: jest.fn(() => ({
+jest.mock('./confirm/decode', () => {
+  const view = (account: string, incoming: { faucetId: string; amount: bigint }[] = []) => ({
+    account,
     outgoing: [{ faucetId: 'fA', amount: 10n }],
-    incoming: [],
-    inputNotesConsumed: 0,
+    incoming,
+    inputNotesConsumed: incoming.length,
     outputNotesCreated: 1,
     storageChanged: false
-  })),
-  summaryBytesToView: jest.fn(() => ({
-    account: 'mtst1acct',
-    outgoing: [{ faucetId: 'fA', amount: 10n }],
-    incoming: [{ faucetId: 'fB', amount: 3n }],
-    inputNotesConsumed: 1,
-    outputNotesCreated: 1,
-    storageChanged: false
-  })),
-  executedBytesToView: jest.fn(() => ({
-    account: 'mtst1executed',
-    outgoing: [{ faucetId: 'fA', amount: 10n }],
-    incoming: [],
-    inputNotesConsumed: 0,
-    outputNotesCreated: 1,
-    storageChanged: false
-  }))
-}));
+  });
+  const summaryBytesToView = jest.fn(() => view('mtst1acct', [{ faucetId: 'fB', amount: 3n }]));
+  const executedBytesToView = jest.fn(() => view('mtst1executed'));
+  return {
+    ...jest.requireActual('./confirm/decode'),
+    declaredRequestToView: jest.fn(() => ({
+      outgoing: [{ faucetId: 'fA', amount: 10n }],
+      incoming: [],
+      inputNotesConsumed: 0,
+      outputNotesCreated: 1,
+      storageChanged: false
+    })),
+    summaryBytesToView,
+    executedBytesToView,
+    // Dispatches to the two stubs above. The real selector calls its builders module-internally,
+    // where a jest.mock override cannot reach them, so without this the page would decode these
+    // fixture strings for real.
+    simulatedBytesToView: jest.fn((result: { summaryBytes?: string; executedBytes?: string }) => {
+      if (result.summaryBytes) return summaryBytesToView();
+      if (result.executedBytes) return executedBytesToView();
+      return undefined;
+    })
+  };
+});
 
 jest.mock('./atoms/Alert', () => ({
   __esModule: true,

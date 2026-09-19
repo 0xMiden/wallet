@@ -35,7 +35,7 @@ import {
 import { assertValidRecallBlocks, toNoteTypeString } from '../helpers';
 import { sameWalletAccountId } from '../sdk/helpers';
 import { withWasmClientLock } from '../sdk/miden-client';
-import { queueOutgoingCustomTransaction, queueOutgoingTransaction } from '../spending-limits/queue';
+import { queueOutgoingTransaction, spendsOf } from '../spending-limits/queue';
 import { SpendingLimitAuthorization } from '../spending-limits/types';
 import { ConsumableNote, NoteTypeEnum, NoteType as NoteTypeString } from '../types';
 
@@ -62,7 +62,7 @@ export const requestCustomTransaction = async (
   // A custom request that moves nothing is not a spend, so it keeps the plain insert. One that
   // does goes through the same chokepoint as every other outgoing transaction.
   if (spentAssetTotals !== undefined && spentAssetTotals.length > 0) {
-    await queueOutgoingCustomTransaction({ ...transaction, spentAssetTotals }, spendingLimitAuthorization);
+    await queueOutgoingTransaction({ ...transaction, spentAssetTotals }, spentAssetTotals, spendingLimitAuthorization);
   } else {
     await Repo.transactions.add(transaction);
   }
@@ -414,7 +414,7 @@ export const initiateSwapTransaction = async (
     expirySeconds,
     autoConsume
   );
-  await queueOutgoingTransaction(dbTransaction, spendingLimitAuthorization);
+  await queueOutgoingTransaction(dbTransaction, spendsOf(dbTransaction), spendingLimitAuthorization);
 
   return dbTransaction.id;
 };
@@ -472,7 +472,7 @@ export const initiateSendTransaction = async (
     recallBlocks,
     delegateTransaction
   );
-  await queueOutgoingTransaction(dbTransaction, spendingLimitAuthorization);
+  await queueOutgoingTransaction(dbTransaction, spendsOf(dbTransaction), spendingLimitAuthorization);
 
   return dbTransaction.id;
 };
@@ -510,7 +510,7 @@ export const initiateBridgedSendTransaction = async (
     delegateTransaction,
     sendParams
   );
-  await queueOutgoingTransaction(dbTransaction, spendingLimitAuthorization);
+  await queueOutgoingTransaction(dbTransaction, spendsOf(dbTransaction), spendingLimitAuthorization);
 
   return dbTransaction.id;
 };
@@ -542,7 +542,7 @@ export const initiateEarnDepositTransaction = async (
     delegateTransaction,
     requestBytes
   );
-  await queueOutgoingTransaction(dbTransaction, spendingLimitAuthorization);
+  await queueOutgoingTransaction(dbTransaction, spendsOf(dbTransaction), spendingLimitAuthorization);
   return dbTransaction.id;
 };
 

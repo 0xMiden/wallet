@@ -9,13 +9,15 @@
  * closes, so it asserts which path the insert took and nothing else.
  */
 
-const mockQueueOutgoingCustomTransaction = jest.fn((..._args: unknown[]) => Promise.resolve(undefined));
+const mockQueueOutgoing = jest.fn((..._args: unknown[]) => Promise.resolve(undefined));
 const mockAdd = jest.fn((..._args: unknown[]) => Promise.resolve(undefined));
 const mockQueueNoteImport = jest.fn((..._args: unknown[]) => Promise.resolve(undefined));
 
 jest.mock('../spending-limits/queue', () => ({
-  queueOutgoingCustomTransaction: (...args: unknown[]) => mockQueueOutgoingCustomTransaction(...args),
-  queueOutgoingTransaction: jest.fn(async () => undefined)
+  queueOutgoingTransaction: (...args: unknown[]) => mockQueueOutgoing(...args),
+  spendsOf: (transaction: { faucetId: string; amount: bigint }) => [
+    { faucetId: transaction.faucetId, amount: transaction.amount }
+  ]
 }));
 
 jest.mock('../repo', () => ({
@@ -58,8 +60,11 @@ describe('requestCustomTransaction', () => {
     );
 
     expect(mockAdd).not.toHaveBeenCalled();
-    expect(mockQueueOutgoingCustomTransaction).toHaveBeenCalledWith(
+    // The spend list is passed as its own argument AND recorded on the row: the policy reads the
+    // row's totals for later windows, the chokepoint assesses the argument for this one.
+    expect(mockQueueOutgoing).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'execute', accountId: 'account-a', spentAssetTotals: totals }),
+      totals,
       authorization
     );
   });
@@ -67,7 +72,7 @@ describe('requestCustomTransaction', () => {
   it('inserts directly when the request moves no value', async () => {
     await requestCustomTransaction('account-a', REQUEST_BYTES);
 
-    expect(mockQueueOutgoingCustomTransaction).not.toHaveBeenCalled();
+    expect(mockQueueOutgoing).not.toHaveBeenCalled();
     expect(mockAdd).toHaveBeenCalledWith(expect.objectContaining({ type: 'execute' }));
   });
 
@@ -76,7 +81,7 @@ describe('requestCustomTransaction', () => {
     // the undefined the dApp layer refuses on. Nothing to assess, so nothing to gate.
     await requestCustomTransaction('account-a', REQUEST_BYTES, undefined, undefined, undefined, undefined, []);
 
-    expect(mockQueueOutgoingCustomTransaction).not.toHaveBeenCalled();
+    expect(mockQueueOutgoing).not.toHaveBeenCalled();
     expect(mockAdd).toHaveBeenCalledTimes(1);
   });
 });

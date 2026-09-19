@@ -4,8 +4,8 @@ import { NoteTypeEnum } from '../types';
 import {
   assessOutgoingSpendingLimit,
   assessOutgoingSpendingLimitDetails,
-  queueOutgoingCustomTransaction,
-  queueOutgoingTransaction
+  queueOutgoingTransaction,
+  spendsOf
 } from './queue';
 import { PersistedSpendingLimit, SpendingLimitAuthorization, SpendingLimitAuthorizationRequiredError } from './types';
 
@@ -46,7 +46,7 @@ describe('queueOutgoingTransaction', () => {
     const candidate = outgoing(101n, 'candidate');
     candidate.accountId = 'account-a_route';
 
-    await expect(queueOutgoingTransaction(candidate, undefined, NOW)).rejects.toBeInstanceOf(
+    await expect(queueOutgoingTransaction(candidate, spendsOf(candidate), undefined, NOW)).rejects.toBeInstanceOf(
       SpendingLimitAuthorizationRequiredError
     );
     await expect(transactions.get('candidate')).resolves.toBeUndefined();
@@ -58,7 +58,9 @@ describe('queueOutgoingTransaction', () => {
     existing.accountId = 'account-a_route';
     await transactions.add(existing);
 
-    await expect(queueOutgoingTransaction(outgoing(20n, 'candidate'), undefined, NOW)).rejects.toMatchObject({
+    await expect(
+      queueOutgoingTransaction(outgoing(20n, 'candidate'), spendsOf(outgoing(20n, 'candidate')), undefined, NOW)
+    ).rejects.toMatchObject({
       assessment: { breaches: [{ spent: 90n, proposedTotal: 110n, limit: 100n }] }
     });
     await expect(transactions.get('candidate')).resolves.toBeUndefined();
@@ -97,7 +99,7 @@ describe('queueOutgoingTransaction', () => {
   });
 
   it('queues when no spending limit is configured', async () => {
-    await queueOutgoingTransaction(outgoing(20n, 'candidate'), undefined, NOW);
+    await queueOutgoingTransaction(outgoing(20n, 'candidate'), spendsOf(outgoing(20n, 'candidate')), undefined, NOW);
 
     await expect(transactions.get('candidate')).resolves.toBeDefined();
   });
@@ -105,7 +107,7 @@ describe('queueOutgoingTransaction', () => {
   it('queues below the configured limit without an authorization', async () => {
     await spendingLimits.put(config());
 
-    await queueOutgoingTransaction(outgoing(100n, 'candidate'), undefined, NOW);
+    await queueOutgoingTransaction(outgoing(100n, 'candidate'), spendsOf(outgoing(100n, 'candidate')), undefined, NOW);
 
     // Assert the row exists BEFORE asserting its shape: `.not.toHaveProperty` on an absent row
     // resolves undefined and passes, which is the same result as the insert never happening. This
@@ -118,7 +120,9 @@ describe('queueOutgoingTransaction', () => {
     await spendingLimits.put(config());
     await transactions.add(outgoing(90n, 'existing'));
 
-    await expect(queueOutgoingTransaction(outgoing(20n, 'candidate'), undefined, NOW)).rejects.toMatchObject({
+    await expect(
+      queueOutgoingTransaction(outgoing(20n, 'candidate'), spendsOf(outgoing(20n, 'candidate')), undefined, NOW)
+    ).rejects.toMatchObject({
       code: 'SPENDING_LIMIT_AUTHORIZATION_REQUIRED',
       assessment: {
         accountId: 'account-a',
@@ -133,9 +137,9 @@ describe('queueOutgoingTransaction', () => {
   it('fails closed when a matching policy record is malformed', async () => {
     await spendingLimits.put(config({ dailyLimit: '01' }));
 
-    await expect(queueOutgoingTransaction(outgoing(20n, 'candidate'), undefined, NOW)).rejects.toThrow(
-      /policy is unavailable/i
-    );
+    await expect(
+      queueOutgoingTransaction(outgoing(20n, 'candidate'), spendsOf(outgoing(20n, 'candidate')), undefined, NOW)
+    ).rejects.toThrow(/policy is unavailable/i);
     await expect(transactions.get('candidate')).resolves.toBeUndefined();
   });
 
@@ -143,9 +147,9 @@ describe('queueOutgoingTransaction', () => {
     const read = jest.spyOn(spendingLimits, 'get').mockRejectedValueOnce(new Error('storage offline'));
 
     try {
-      await expect(queueOutgoingTransaction(outgoing(20n, 'candidate'), undefined, NOW)).rejects.toThrow(
-        /policy is unavailable/i
-      );
+      await expect(
+        queueOutgoingTransaction(outgoing(20n, 'candidate'), spendsOf(outgoing(20n, 'candidate')), undefined, NOW)
+      ).rejects.toThrow(/policy is unavailable/i);
       await expect(transactions.get('candidate')).resolves.toBeUndefined();
     } finally {
       read.mockRestore();
@@ -157,7 +161,7 @@ describe('queueOutgoingTransaction', () => {
     const where = jest.spyOn(transactions, 'where');
 
     try {
-      await queueOutgoingTransaction(outgoing(20n, 'candidate'), undefined, NOW);
+      await queueOutgoingTransaction(outgoing(20n, 'candidate'), spendsOf(outgoing(20n, 'candidate')), undefined, NOW);
       // The scan runs inside the rw lock on `transactions`, so an unbounded read is backpressure
       // on the write path that grows with total wallet history. Only the widest window matters.
       expect(where).toHaveBeenCalledWith('initiatedAt');
@@ -176,9 +180,9 @@ describe('queueOutgoingTransaction', () => {
     });
 
     try {
-      await expect(queueOutgoingTransaction(outgoing(20n, 'candidate'), undefined, NOW)).rejects.toThrow(
-        /policy is unavailable/i
-      );
+      await expect(
+        queueOutgoingTransaction(outgoing(20n, 'candidate'), spendsOf(outgoing(20n, 'candidate')), undefined, NOW)
+      ).rejects.toThrow(/policy is unavailable/i);
       await expect(transactions.get('candidate')).resolves.toBeUndefined();
     } finally {
       read.mockRestore();
@@ -199,7 +203,12 @@ describe('queueOutgoingTransaction', () => {
     await transactions.add(outgoing(90n, 'existing'));
 
     await expect(
-      queueOutgoingTransaction(outgoing(20n, 'candidate'), authorization(overrides), NOW)
+      queueOutgoingTransaction(
+        outgoing(20n, 'candidate'),
+        spendsOf(outgoing(20n, 'candidate')),
+        authorization(overrides),
+        NOW
+      )
     ).rejects.toBeInstanceOf(SpendingLimitAuthorizationRequiredError);
     await expect(transactions.get('candidate')).resolves.toBeUndefined();
   });
@@ -208,7 +217,12 @@ describe('queueOutgoingTransaction', () => {
     await spendingLimits.put(config());
     await transactions.add(outgoing(90n, 'existing'));
 
-    await queueOutgoingTransaction(outgoing(20n, 'candidate'), authorization(), NOW);
+    await queueOutgoingTransaction(
+      outgoing(20n, 'candidate'),
+      spendsOf(outgoing(20n, 'candidate')),
+      authorization(),
+      NOW
+    );
 
     await expect(transactions.get('candidate')).resolves.toMatchObject({
       spendingLimitAuthorizationId: 'authorization-1'
@@ -218,11 +232,11 @@ describe('queueOutgoingTransaction', () => {
   it('rejects replay of an authorization already attached to a row', async () => {
     await spendingLimits.put(config());
     await transactions.add(outgoing(90n, 'existing'));
-    await queueOutgoingTransaction(outgoing(20n, 'first'), authorization(), NOW);
+    await queueOutgoingTransaction(outgoing(20n, 'first'), spendsOf(outgoing(20n, 'first')), authorization(), NOW);
 
-    await expect(queueOutgoingTransaction(outgoing(20n, 'replay'), authorization(), NOW)).rejects.toBeInstanceOf(
-      SpendingLimitAuthorizationRequiredError
-    );
+    await expect(
+      queueOutgoingTransaction(outgoing(20n, 'replay'), spendsOf(outgoing(20n, 'replay')), authorization(), NOW)
+    ).rejects.toBeInstanceOf(SpendingLimitAuthorizationRequiredError);
     await expect(transactions.get('replay')).resolves.toBeUndefined();
   });
 
@@ -230,8 +244,8 @@ describe('queueOutgoingTransaction', () => {
     await spendingLimits.put(config());
 
     const results = await Promise.allSettled([
-      queueOutgoingTransaction(outgoing(60n, 'first'), undefined, NOW),
-      queueOutgoingTransaction(outgoing(60n, 'second'), undefined, NOW)
+      queueOutgoingTransaction(outgoing(60n, 'first'), spendsOf(outgoing(60n, 'first')), undefined, NOW),
+      queueOutgoingTransaction(outgoing(60n, 'second'), spendsOf(outgoing(60n, 'second')), undefined, NOW)
     ]);
 
     expect(results.filter(result => result.status === 'fulfilled')).toHaveLength(1);
@@ -241,16 +255,18 @@ describe('queueOutgoingTransaction', () => {
 
   it('rechecks a previously allowed preflight after a preceding insertion wins the race', async () => {
     await spendingLimits.put(config());
-    await queueOutgoingTransaction(outgoing(60n, 'first'), undefined, NOW);
+    await queueOutgoingTransaction(outgoing(60n, 'first'), spendsOf(outgoing(60n, 'first')), undefined, NOW);
 
-    await expect(queueOutgoingTransaction(outgoing(60n, 'raced'), undefined, NOW)).rejects.toMatchObject({
+    await expect(
+      queueOutgoingTransaction(outgoing(60n, 'raced'), spendsOf(outgoing(60n, 'raced')), undefined, NOW)
+    ).rejects.toMatchObject({
       assessment: { breaches: [{ spent: 60n, proposedTotal: 120n, limit: 100n }] }
     });
     await expect(transactions.get('raced')).resolves.toBeUndefined();
   });
 });
 
-describe('queueOutgoingCustomTransaction', () => {
+describe('queueOutgoingTransaction with a multi-asset spend list', () => {
   const custom = (totals: { faucetId: string; amount: bigint }[]) => {
     const transaction = new Transaction('account-a', new Uint8Array([1]), undefined, undefined, undefined, totals);
     transaction.id = 'candidate';
@@ -261,7 +277,12 @@ describe('queueOutgoingCustomTransaction', () => {
   it('queues a custom transaction whose simulated spend is under the limit', async () => {
     await spendingLimits.put(config());
 
-    await queueOutgoingCustomTransaction(custom([{ faucetId: 'faucet-a', amount: 100n }]), undefined, NOW);
+    await queueOutgoingTransaction(
+      custom([{ faucetId: 'faucet-a', amount: 100n }]),
+      [{ faucetId: 'faucet-a', amount: 100n }],
+      undefined,
+      NOW
+    );
 
     await expect(transactions.get('candidate')).resolves.toMatchObject({ spentAssetTotals: [{ amount: 100n }] });
   });
@@ -270,7 +291,12 @@ describe('queueOutgoingCustomTransaction', () => {
     await spendingLimits.put(config());
 
     await expect(
-      queueOutgoingCustomTransaction(custom([{ faucetId: 'faucet-a', amount: 101n }]), undefined, NOW)
+      queueOutgoingTransaction(
+        custom([{ faucetId: 'faucet-a', amount: 101n }]),
+        [{ faucetId: 'faucet-a', amount: 101n }],
+        undefined,
+        NOW
+      )
     ).rejects.toBeInstanceOf(SpendingLimitAuthorizationRequiredError);
     await expect(transactions.get('candidate')).resolves.toBeUndefined();
   });
@@ -278,8 +304,9 @@ describe('queueOutgoingCustomTransaction', () => {
   it('admits an over-limit custom transaction bound to a matching authorization', async () => {
     await spendingLimits.put(config());
 
-    await queueOutgoingCustomTransaction(
+    await queueOutgoingTransaction(
       custom([{ faucetId: 'faucet-a', amount: 101n }]),
+      [{ faucetId: 'faucet-a', amount: 101n }],
       authorization({ amount: 101n }),
       NOW
     );
@@ -296,11 +323,15 @@ describe('queueOutgoingCustomTransaction', () => {
     // One one-time credential binds to exactly one (account, faucet, amount), so two breaches
     // cannot be authorized in a single step and the request is refused rather than half-allowed.
     await expect(
-      queueOutgoingCustomTransaction(
+      queueOutgoingTransaction(
         custom([
           { faucetId: 'faucet-a', amount: 101n },
           { faucetId: 'faucet-b', amount: 101n }
         ]),
+        [
+          { faucetId: 'faucet-a', amount: 101n },
+          { faucetId: 'faucet-b', amount: 101n }
+        ],
         authorization({ amount: 101n }),
         NOW
       )
@@ -311,7 +342,12 @@ describe('queueOutgoingCustomTransaction', () => {
   it('ignores faucets that have no configured limit', async () => {
     await spendingLimits.put(config());
 
-    await queueOutgoingCustomTransaction(custom([{ faucetId: 'faucet-unlimited', amount: 10_000n }]), undefined, NOW);
+    await queueOutgoingTransaction(
+      custom([{ faucetId: 'faucet-unlimited', amount: 10_000n }]),
+      [{ faucetId: 'faucet-unlimited', amount: 10_000n }],
+      undefined,
+      NOW
+    );
 
     await expect(transactions.get('candidate')).resolves.toBeDefined();
   });

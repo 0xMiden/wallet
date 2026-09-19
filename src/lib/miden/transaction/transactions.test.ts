@@ -34,6 +34,9 @@ import {
 } from './index';
 
 jest.mock('../spending-limits/queue', () => ({
+  spendsOf: (transaction: { faucetId: string; amount: bigint }) => [
+    { faucetId: transaction.faucetId, amount: transaction.amount }
+  ],
   queueOutgoingTransaction: jest.fn(async transaction => {
     const repo = jest.requireMock('lib/miden/repo');
     await repo.transactions.add(transaction);
@@ -540,6 +543,9 @@ describe('transactions utilities', () => {
 
       expect(mockQueueOutgoingTransaction).toHaveBeenCalledWith(
         expect.objectContaining({ type: 'send' }),
+        // The spend list is its own argument, never written onto a single-asset row: the policy
+        // checks `spentAssetTotals` first and would then ignore the row's own faucet and amount.
+        [{ faucetId: expect.any(String), amount: expect.any(BigInt) }],
         authorization
       );
     });
@@ -549,6 +555,9 @@ describe('transactions utilities', () => {
 
       expect(mockQueueOutgoingTransaction).toHaveBeenCalledWith(
         expect.objectContaining({ type: 'swap' }),
+        // The spend list is its own argument, never written onto a single-asset row: the policy
+        // checks `spentAssetTotals` first and would then ignore the row's own faucet and amount.
+        [{ faucetId: expect.any(String), amount: expect.any(BigInt) }],
         authorization
       );
     });
@@ -569,6 +578,9 @@ describe('transactions utilities', () => {
 
       expect(mockQueueOutgoingTransaction).toHaveBeenCalledWith(
         expect.objectContaining({ type: 'bridged-send' }),
+        // The spend list is its own argument, never written onto a single-asset row: the policy
+        // checks `spentAssetTotals` first and would then ignore the row's own faucet and amount.
+        [{ faucetId: expect.any(String), amount: expect.any(BigInt) }],
         authorization
       );
     });
@@ -588,6 +600,9 @@ describe('transactions utilities', () => {
 
       expect(mockQueueOutgoingTransaction).toHaveBeenCalledWith(
         expect.objectContaining({ type: 'earn-deposit' }),
+        // The spend list is its own argument, never written onto a single-asset row: the policy
+        // checks `spentAssetTotals` first and would then ignore the row's own faucet and amount.
+        [{ faucetId: expect.any(String), amount: expect.any(BigInt) }],
         authorization
       );
     });

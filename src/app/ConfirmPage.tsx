@@ -33,13 +33,7 @@ import FormSecondaryButton from './atoms/FormSecondaryButton';
 import FormSubmitButton from './atoms/FormSubmitButton';
 import Name from './atoms/Name';
 import { AdvancedDetails, FoldableField } from './confirm/AdvancedDetails';
-import {
-  declaredRequestToView,
-  executedBytesToView,
-  summaryBytesToView,
-  summaryToView,
-  TxAssetView
-} from './confirm/decode';
+import { declaredRequestToView, simulatedBytesToView, summaryToView, TxAssetView } from './confirm/decode';
 import { TransactionAssetView } from './confirm/TransactionAssetView';
 import { ConfirmPageSelectors } from './ConfirmPage.selectors';
 import { Icon, IconName } from './icons/v2';
@@ -396,15 +390,13 @@ const CustomTransactionContent: React.FC<{
       try {
         const { summaryBytes, executedBytes } = await simulateCustomTransaction(id);
         if (cancelled) return;
-        if (summaryBytes) {
-          setVerifiedView(summaryBytesToView(summaryBytes));
-          return;
-        }
-        // Already-fully-authorized account (every ordinary single-sig one on
-        // web-sdk 0.16): no summary is produced, the dry run returns the executed
-        // transaction instead. Same ground truth — see simulate-custom-tx.ts.
-        if (executedBytes) {
-          setVerifiedView(executedBytesToView(executedBytes));
+        // Summary when authorization is still pending, executed transaction for every ordinary
+        // single-sig account on web-sdk 0.16 - same ground truth either way. The choice lives in
+        // `simulatedBytesToView` so the backend's spending-limit gate decodes it identically;
+        // a second copy of this ladder there once treated every ordinary account as unsimulatable.
+        const view = simulatedBytesToView({ summaryBytes, executedBytes });
+        if (view) {
+          setVerifiedView(view);
           return;
         }
         setSimError(true);
