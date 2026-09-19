@@ -19,7 +19,6 @@ import { isMobile } from 'lib/platform';
 import { useWalletStore } from 'lib/store';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 import useCopyToClipboard from 'lib/ui/useCopyToClipboard';
-import { goBack } from 'lib/woozie';
 
 import { SEED_STATE_NOTICE } from './seed-state-notice';
 
@@ -44,6 +43,13 @@ const RevealSeedPhrase: FC = () => {
   const { fieldRef, copy, copied } = useCopyToClipboard();
   const [secret, setSecret] = useSecretState();
   const [step, setStep] = useState<Step>('warning');
+  // Every exit from this page goes through `leave`, never `goBack()` directly.
+  // Several paths want out at once — a failed biometric reveal's catch, then the
+  // auto-close effect once `finally` clears isSubmitting; Hide and the drawer's
+  // close, which also trip that effect — and `history.go(-1)` settles on a later
+  // task, so each call popped another page (Settings too). The hook fires once
+  // per location, and routes to the Settings root when opened cold.
+  const leave = useBackWithFallback('/settings');
   const [hasHardwareProtector, setHasHardwareProtector] = useState<boolean | null>(null);
   const [showPasswordDrawer, setShowPasswordDrawer] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -110,14 +116,10 @@ const RevealSeedPhrase: FC = () => {
         if (generation !== secretGeneration.current) return;
         setAuthError(err instanceof Error ? err.message : String(err));
         setStep('reveal');
-        goBack();
+        leave();
       })
       .finally(() => setIsSubmitting(false));
-  }, [hasHardwareProtector, isSubmitting, revealMnemonic, setSecret]);
-
-  // Close and back on the warning: pops to Settings, or routes there when the
-  // page was opened cold and there is nothing to pop.
-  const handleWarningBack = useBackWithFallback('/settings');
+  }, [hasHardwareProtector, isSubmitting, revealMnemonic, setSecret, leave]);
 
   useEffect(() => {
     return () => setSecret(null);
@@ -127,9 +129,9 @@ const RevealSeedPhrase: FC = () => {
   // where no secret has been asked for yet.
   useEffect(() => {
     if (step === 'reveal' && secret === null && hasHardwareProtector !== null && !isSubmitting && !showPasswordDrawer) {
-      goBack();
+      leave();
     }
-  }, [step, secret, hasHardwareProtector, isSubmitting, showPasswordDrawer]);
+  }, [step, secret, hasHardwareProtector, isSubmitting, showPasswordDrawer, leave]);
 
   const words = secret ? secret.split(' ') : [];
 
@@ -158,13 +160,13 @@ const RevealSeedPhrase: FC = () => {
   const handleHide = useCallback(() => {
     hapticLight();
     setSecret(null);
-    goBack();
-  }, [setSecret]);
+    leave();
+  }, [setSecret, leave]);
 
   const handlePasswordDrawerClose = useCallback(() => {
     setShowPasswordDrawer(false);
-    goBack();
-  }, []);
+    leave();
+  }, [leave]);
 
   if (seedStatus && seedStatus !== 'stored')
     return (
@@ -180,7 +182,7 @@ const RevealSeedPhrase: FC = () => {
   if (step === 'warning') {
     return (
       <div className="flex flex-col flex-1 min-h-0 bg-app-bg">
-        <PageHeader className="px-4" title={t('recoveryPhrase')} onBack={handleWarningBack} focusTitleOnMount />
+        <PageHeader className="px-4" title={t('recoveryPhrase')} onBack={leave} focusTitleOnMount />
 
         <div className="flex-1 min-h-0 overflow-y-auto flex flex-col px-4 pt-2">
           {/* A blurred stand-in for the word grid: the shape of the phrase, none of its words. */}
@@ -204,7 +206,7 @@ const RevealSeedPhrase: FC = () => {
         </div>
 
         <div className="flex shrink-0 gap-2.5 px-4 pt-6 pb-4">
-          <Button className="flex-1" variant={ButtonVariant.Secondary} title={t('close')} onClick={handleWarningBack} />
+          <Button className="flex-1" variant={ButtonVariant.Secondary} title={t('close')} onClick={leave} />
           <Button
             className="flex-1"
             variant={ButtonVariant.Primary}
@@ -285,7 +287,7 @@ const RevealSeedPhrase: FC = () => {
   if (authError) {
     return (
       <div className="flex flex-col flex-1 min-h-0 bg-app-bg">
-        <PageHeader className="px-4" title={t('recoveryPhrase')} onBack={() => goBack()} />
+        <PageHeader className="px-4" title={t('recoveryPhrase')} onBack={leave} />
         <div className="px-4 pt-4">
           <Alert type="error" title={t('error')} description={authError} className="rounded-lg text-ink" />
         </div>
@@ -300,7 +302,7 @@ const RevealSeedPhrase: FC = () => {
 
   return (
     <div className="flex flex-col flex-1 min-h-0 bg-app-bg">
-      <PageHeader className="px-4" title={t('recoveryPhrase')} onBack={() => goBack()} />
+      <PageHeader className="px-4" title={t('recoveryPhrase')} onBack={leave} />
 
       <Drawer
         open={showPasswordDrawer}
