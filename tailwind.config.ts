@@ -217,12 +217,6 @@ export default {
     },
 
     extend: {
-      // Custom spacing values not in Tailwind defaults
-      spacing: {
-        13: '3.25rem',
-        15: '3.75rem',
-        35: '8.75rem'
-      },
       // Custom shadows
       boxShadow: {
         'xs-white': '0 0 0 1px rgba(255, 255, 255, 0.05)',
