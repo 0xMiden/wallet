@@ -91,11 +91,12 @@ describe('NetworkModeRibbon', () => {
     expect(ribbon()).toHaveAttribute('aria-expanded', 'false');
   });
 
-  it('is a 45° sash, out of flow, in uppercase bold 10px letter-spaced type that ellipsizes', () => {
+  it('is a crisp 45° sash, out of flow, in uppercase bold 10px letter-spaced type that ellipsizes', () => {
     render(<NetworkModeRibbon docked />);
 
-    expect(band()).toHaveClass('absolute', '-rotate-45', 'h-3', 'w-[200px]');
+    expect(band()).toHaveClass('absolute', '-rotate-45', 'h-3.5', 'w-[200px]', 'shadow-ribbon');
     expect(ribbon()).toHaveClass('uppercase', 'font-extrabold', 'text-[10px]', 'tracking-[0.06em]', 'truncate');
+    expect(ribbon()).toHaveClass('max-w-[56px]', 'leading-[14px]');
   });
 
   it('takes taps on the word only: the band lets them through to the tabs underneath', () => {
@@ -105,31 +106,35 @@ describe('NetworkModeRibbon', () => {
     expect(ribbon()).toHaveClass('pointer-events-auto');
   });
 
-  it('rides on the tab row above the home indicator when docked, and in the pill’s corner when floating', () => {
+  it('adapts to the bar: on its tab row when docked, in the pill’s corner when floating', () => {
     const { unmount } = render(<NetworkModeRibbon docked />);
-    // Anchored to the bar's own bottom padding (the inset, 8px floor), not the body's.
-    expect(band()).toHaveClass('-right-[75px]', 'bottom-[calc(max(8px,env(safe-area-inset-bottom))+16.5px)]');
-    expect(ribbon()).toHaveClass('text-[10px]', 'max-w-[58px]');
+    // Anchored to the bar's own bottom padding, so it follows the bar wherever the bar goes.
+    expect(band()).toHaveClass(
+      '-right-[78.5px]',
+      'bottom-[calc(max(0.5rem,calc(var(--app-safe-bottom,max(16px,env(safe-area-inset-bottom)))-16px))+29px)]'
+    );
     unmount();
 
-    // The 56px pill's corner is smaller: 9px type, centred 20px from each edge.
     render(<NetworkModeRibbon docked={false} />);
-    expect(band()).toHaveClass('-right-[80px]', 'bottom-3.5');
-    expect(ribbon()).toHaveClass('text-[9px]', 'max-w-[53px]');
+    expect(band()).toHaveClass('-right-[76px]', 'bottom-[17px]');
   });
 
-  it('is the accent tint with its ink (5.1:1)', () => {
+  it('is a solid brand band with white text (6.3:1 on #9F4518, 6.5:1 on devnet slate), in both themes', () => {
     render(<NetworkModeRibbon docked />);
 
-    expect(band()).toHaveClass('bg-accent-tint', 'text-accent-tint-ink');
+    expect(band()).toHaveClass('bg-primary-orange-dark', 'text-pure-white');
+    // A fixed palette, not a theme-flipping token, so dark mode keeps the same passing pair.
+    expect(band().className).not.toMatch(/(^|\s)dark:/);
+    expect(band()).not.toHaveClass('bg-accent-tint');
   });
 
-  it('turns slate on a devnet build, following the brand ramp', () => {
+  it('follows the build’s brand ramp, which is slate on a devnet build', () => {
+    // tailwind.config.ts resolves `primary-orange-dark` per build (#4E5F73 on devnet), so the class
+    // is the same on every network and the build picks the colour.
     mockBuild.network = 'devnet';
     render(<NetworkModeRibbon docked />);
 
-    expect(band()).toHaveClass('bg-primary-orange-lighter', 'text-primary-orange-dark');
-    expect(band()).not.toHaveClass('bg-accent-tint');
+    expect(band()).toHaveClass('bg-primary-orange-dark');
   });
 
   it('opens the explanation sheet on tap, with one light haptic', () => {
