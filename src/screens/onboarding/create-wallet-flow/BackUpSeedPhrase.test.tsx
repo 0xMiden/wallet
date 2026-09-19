@@ -15,13 +15,11 @@ jest.mock('react-i18next', () => ({
 }));
 
 // `app/icons/v2` is a heavy SVG barrel; the component only reads `IconName`
-// members, so expose stable marker strings for the four it references.
+// members, so expose stable marker strings for the two it references.
 jest.mock('app/icons/v2', () => ({
   IconName: {
     Eye: 'ICON_EYE',
-    EyeOff: 'ICON_EYE_OFF',
-    FileCopy: 'ICON_FILE_COPY',
-    CheckboxCircleFill: 'ICON_CHECK'
+    EyeOff: 'ICON_EYE_OFF'
   }
 }));
 
@@ -36,8 +34,10 @@ jest.mock('components/Button', () => ({
     iconLeft,
     onClick,
     className,
-    size
+    size,
+    children
   }: {
+    children?: React.ReactNode;
     title?: string;
     iconLeft?: unknown;
     onClick?: () => void;
@@ -51,8 +51,17 @@ jest.mock('components/Button', () => ({
       data-size={size}
       onClick={onClick}
     >
-      {title}
+      {children ?? title}
     </button>
+  )
+}));
+
+// The shared copy confirmation (glyph morph + label roll) has its own suite; stub it to markers
+// that surface the `copied` state this screen feeds it.
+jest.mock('components/ui/CopyFeedback', () => ({
+  AnimatedCopyIcon: ({ copied }: { copied: boolean }) => <span data-testid="copy-glyph" data-copied={String(copied)} />,
+  CopyLabel: ({ copied, copiedLabel, children }: { copied: boolean; copiedLabel: string; children: string }) => (
+    <span data-testid="copy-label">{copied ? copiedLabel : children}</span>
   )
 }));
 
@@ -245,35 +254,34 @@ describe('BackUpSeedPhraseScreen', () => {
   });
 
   describe('copy to clipboard', () => {
-    it('writes the space-joined seed phrase and flips the button to the "copied" state', () => {
+    it('writes the space-joined seed phrase and hands the shared copy confirmation the copied state', () => {
       renderComponent();
 
       const copyBtn = screen.getByTestId('btn-copyToClipboard');
-      expect(copyBtn).toHaveAttribute('data-icon', 'ICON_FILE_COPY');
+      expect(screen.getByTestId('copy-glyph')).toHaveAttribute('data-copied', 'false');
+      expect(screen.getByTestId('copy-label')).toHaveTextContent('copyToClipboard');
 
       fireEvent.click(copyBtn);
 
       expect(mockWriteText).toHaveBeenCalledTimes(1);
       expect(mockWriteText).toHaveBeenCalledWith(SEED.join(' '));
-
-      const copied = screen.getByTestId('btn-copied');
-      expect(copied).toHaveAttribute('data-icon', 'ICON_CHECK');
+      expect(screen.getByTestId('copy-glyph')).toHaveAttribute('data-copied', 'true');
+      expect(screen.getByTestId('copy-label')).toHaveTextContent('copied');
     });
 
-    it('reverts to the default copy state after the 2s timeout', () => {
+    it('reverts to the default copy state after the shared 1.5s feedback window', () => {
       jest.useFakeTimers();
       renderComponent();
 
       fireEvent.click(screen.getByTestId('btn-copyToClipboard'));
-      expect(screen.getByTestId('btn-copied')).toBeInTheDocument();
+      expect(screen.getByTestId('copy-glyph')).toHaveAttribute('data-copied', 'true');
 
       act(() => {
-        jest.advanceTimersByTime(2000);
+        jest.advanceTimersByTime(1500);
       });
 
-      expect(screen.getByTestId('btn-copyToClipboard')).toBeInTheDocument();
-      expect(screen.queryByTestId('btn-copied')).not.toBeInTheDocument();
-      expect(screen.getByTestId('btn-copyToClipboard')).toHaveAttribute('data-icon', 'ICON_FILE_COPY');
+      expect(screen.getByTestId('copy-glyph')).toHaveAttribute('data-copied', 'false');
+      expect(screen.getByTestId('copy-label')).toHaveTextContent('copyToClipboard');
     });
 
     it('stays in the copied state before the timeout elapses', () => {
@@ -283,10 +291,10 @@ describe('BackUpSeedPhraseScreen', () => {
       fireEvent.click(screen.getByTestId('btn-copyToClipboard'));
 
       act(() => {
-        jest.advanceTimersByTime(1999);
+        jest.advanceTimersByTime(1499);
       });
 
-      expect(screen.getByTestId('btn-copied')).toBeInTheDocument();
+      expect(screen.getByTestId('copy-glyph')).toHaveAttribute('data-copied', 'true');
     });
   });
 

@@ -11,6 +11,8 @@ import { Icon, IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
 import { PageHeader } from 'components/PageHeader';
 import { PasscodeEntry } from 'components/PasscodeEntry';
+import { AnimatedCopyIcon, CopyLabel } from 'components/ui/CopyFeedback';
+import { COPY_FEEDBACK_MS } from 'lib/animation/copy';
 import { Vault } from 'lib/miden/back/vault';
 import { useMidenContext, useSecretState } from 'lib/miden/front';
 import { hapticLight } from 'lib/mobile/haptics';
@@ -40,7 +42,7 @@ const RevealSeedPhrase: FC = () => {
     },
     [seedStatus]
   );
-  const { fieldRef, copy, copied } = useCopyToClipboard();
+  const { fieldRef, copy, copied } = useCopyToClipboard(COPY_FEEDBACK_MS);
   const [secret, setSecret] = useSecretState();
   const [step, setStep] = useState<Step>('warning');
   // Every exit from this page goes through `leave`, never `goBack()` directly.
@@ -251,8 +253,10 @@ const RevealSeedPhrase: FC = () => {
                     'hover:opacity-80 cursor-pointer'
                   )}
                 >
-                  <Icon name={copied ? IconName.CheckboxCircleFill : IconName.FileCopy} size="xs" />
-                  {t(copied ? 'copied' : 'copyToClipboard')}
+                  <AnimatedCopyIcon copied={copied} />
+                  <CopyLabel copied={copied} copiedLabel={t('copied')}>
+                    {t('copyToClipboard')}
+                  </CopyLabel>
                 </button>
               </div>
 

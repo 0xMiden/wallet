@@ -5,7 +5,9 @@ import { useTranslation } from 'react-i18next';
 
 import { IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
+import { AnimatedCopyIcon, CopyLabel } from 'components/ui/CopyFeedback';
 import { Pill } from 'components/ui/Pill';
+import { COPY_FEEDBACK_MS } from 'lib/animation/copy';
 import { useScreenshotGuard } from 'lib/mobile/screenshot-guard';
 
 import { OnboardingStepLayout } from '../common/OnboardingStepLayout';
@@ -32,7 +34,7 @@ export const BackUpSeedPhraseScreen: React.FC<BackUpSeedPhraseScreenProps> = ({
   const onCopyToClipboard = useCallback(() => {
     navigator.clipboard.writeText(seedPhrase.join(' '));
     setIsCopied(true);
-    setTimeout(() => setIsCopied(false), 2000);
+    setTimeout(() => setIsCopied(false), COPY_FEEDBACK_MS);
   }, [seedPhrase]);
 
   const onWordsVisibilityToggle = useCallback(() => {
@@ -104,10 +106,14 @@ export const BackUpSeedPhraseScreen: React.FC<BackUpSeedPhraseScreenProps> = ({
             size="sm"
             className="flex-1"
             variant={ButtonVariant.Secondary}
-            title={t(isCopied ? 'copied' : 'copyToClipboard')}
-            iconLeft={isCopied ? IconName.CheckboxCircleFill : IconName.FileCopy}
+            title={t('copyToClipboard')}
             onClick={onCopyToClipboard}
-          />
+          >
+            <AnimatedCopyIcon copied={isCopied} size="sm" />
+            <CopyLabel copied={isCopied} copiedLabel={t('copied')}>
+              {t('copyToClipboard')}
+            </CopyLabel>
+          </Button>
         </div>
       </div>
     </OnboardingStepLayout>
