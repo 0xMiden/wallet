@@ -3651,6 +3651,26 @@
     "message": "Нові застосунки з’являтимуться тут, щойно вони запрацюють у Miden.",
     "englishSource": "New apps show up here as they launch on Miden."
   },
+  "exploreSearch": {
+    "message": "Пошук dApps",
+    "englishSource": "Search dApps"
+  },
+  "exploreResults": {
+    "message": "Результати",
+    "englishSource": "Results"
+  },
+  "exploreNoResultsTitle": {
+    "message": "Нічого не знайдено",
+    "englishSource": "No results"
+  },
+  "exploreNoResultsDescription": {
+    "message": "Спробуйте іншу назву або вставте URL dApp.",
+    "englishSource": "Try another name, or paste a dApp's URL."
+  },
+  "exploreForkchoiceFaucetTagline": {
+    "message": "Отримайте тестові токени для обміну",
+    "englishSource": "Get testnet tokens for swap"
+  },
   "minimize": {
     "message": "Згорнути",
     "englishSource": "Minimize"

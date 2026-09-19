@@ -3651,6 +3651,26 @@
     "message": "Les nouvelles apps apparaîtront ici dès leur lancement sur Miden.",
     "englishSource": "New apps show up here as they launch on Miden."
   },
+  "exploreSearch": {
+    "message": "Rechercher des dApps",
+    "englishSource": "Search dApps"
+  },
+  "exploreResults": {
+    "message": "Résultats",
+    "englishSource": "Results"
+  },
+  "exploreNoResultsTitle": {
+    "message": "Aucun résultat",
+    "englishSource": "No results"
+  },
+  "exploreNoResultsDescription": {
+    "message": "Essayez un autre nom ou collez l’URL d’une dApp.",
+    "englishSource": "Try another name, or paste a dApp's URL."
+  },
+  "exploreForkchoiceFaucetTagline": {
+    "message": "Obtenez des jetons testnet pour les swaps",
+    "englishSource": "Get testnet tokens for swap"
+  },
   "minimize": {
     "message": "Réduire",
     "englishSource": "Minimize"
