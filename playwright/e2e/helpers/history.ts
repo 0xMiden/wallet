@@ -14,8 +14,8 @@
  *      completion — and renders it TRIMMED (`HashShortView`: first 7 + '...' +
  *      last 4). Asserting one against the other is a guaranteed false failure, so
  *      every helper here is explicit about which id it deals in.
- *   2. The untrimmed hash lives in an `sr-only <input>` that `CopyButton` renders
- *      as a SIBLING of the trimmed button, so it is only addressable through a
+ *   2. The untrimmed hash lives in an `sr-only <input>` that `CopyChip` renders
+ *      as a SIBLING of the trimmed Pill button, so it is only addressable through a
  *      container testid (`DetailRow`'s `testId`), never through the chip itself.
  *
  * Everything that waits here either reaches its postcondition or throws naming
@@ -566,12 +566,12 @@ export async function openHistoryDetails(wallet: HistoryWallet, rowId: string): 
 /**
  * The FULL, untruncated value behind a detail row's hash/address chip.
  *
- * `HashChip` renders a trimmed `<button>` plus an `sr-only <input value={hash}>`
- * as siblings inside `CopyButton`, so the whole value is only reachable by
- * scoping to the row container — which is exactly what `DetailRow`'s `testId` is
- * for. Throws rather than returning '' when the row or the input is missing,
- * because an empty string would compare "not equal" against a real hash and read
- * as a product bug.
+ * `HashChip`/`AddressChip` render a trimmed Pill button plus an `sr-only
+ * <input value={hash}>` as SIBLINGS (via `CopyChip`), so the whole value is only
+ * reachable by scoping to the row container — which is exactly what `DetailRow`'s
+ * `testId` is for. Throws rather than returning '' when the row or the input is
+ * missing, because an empty string would compare "not equal" against a real hash
+ * and read as a product bug.
  */
 export async function readDetailRowFullValue(
   page: Page,
@@ -590,7 +590,7 @@ export async function readDetailRowFullValue(
   if (count !== 1) {
     throw new Error(
       `readDetailRowFullValue: detail row "${rowTestId}" holds ${count} sr-only inputs, expected exactly 1 ` +
-        `(the CopyButton field carrying the untruncated value). Row text: ${JSON.stringify(
+        `(the CopyChip field carrying the untruncated value). Row text: ${JSON.stringify(
           (await row.textContent()) ?? ''
         )}`
     );
