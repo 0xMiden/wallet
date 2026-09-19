@@ -135,9 +135,8 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
       secondary={{ label: t('back'), onPress: onGoBack }}
     >
       <DetailCard>
-        {/* The solver spread is a DIFFERENT cost from the network fee below; without this note
-            the only fee word on the screen described the provider margin and read as the whole
-            price, so it rides along as the Rate row's own sub-line. */}
+        {/* The solver spread rides along as this row's own sub-line, since it explains the
+            rate figure above it. */}
         <DetailRow
           label={t('rate')}
           sub={rate ? t('swapSolverFeeNote', { percent: `${Math.round(SOLVER_MARGIN * 100)}%` }) : undefined}
@@ -146,6 +145,8 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
           {rate}
         </DetailRow>
         {networkFee && (
+          // Kept as its own row so the solver spread noted above isn't read as the whole price
+          // of the swap — the two are different costs.
           <DetailRow label={t('networkFeeMax')} sub={t('networkFeeEstimateNote')}>
             {networkFee}
           </DetailRow>
