@@ -56,18 +56,19 @@ describe('SelectImportTypeScreen', () => {
     expect(screen.getAllByRole('button')).toHaveLength(2);
   });
 
-  it('draws each choice as a fill card with no border', () => {
-    renderComponent();
-
-    screen.getAllByRole('button').forEach(button => {
-      expect(button).toHaveClass('bg-fill', 'rounded-2xl', 'p-4');
-      expect(button.className.split(/\s+/).some(c => /^border(-|$)/.test(c))).toBe(false);
-    });
+  it('draws the choices as navigating rows in one grey group, on the step layout', () => {
+    render(<SelectImportTypeScreen />);
+    const [seed, file] = screen.getAllByRole('button');
+    expect(seed!.parentElement).toHaveClass('bg-fill', 'rounded-2xl');
+    expect(seed!.parentElement).toContainElement(file!);
+    expect(screen.getByRole('heading', { level: 1, name: 'chooseImportType' })).toBeInTheDocument();
+    expect(screen.getByTestId('import-type-seed-phrase')).toBe(seed);
+    expect(screen.getByTestId('import-type-wallet-file')).toBe(file);
   });
 
-  it('renders an arrow icon for each option', () => {
-    const { container } = renderComponent();
-    expect(container.querySelectorAll('svg')).toHaveLength(2);
+  it('gives each row a leading icon and a trailing chevron', () => {
+    render(<SelectImportTypeScreen />);
+    screen.getAllByRole('button').forEach(row => expect(row.querySelectorAll('svg').length).toBeGreaterThanOrEqual(2));
   });
 
   it('invokes onSubmit with SeedPhrase when the seed-phrase option is clicked', () => {
