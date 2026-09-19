@@ -5,7 +5,7 @@
  * `wallet-page.ts` can be reused for it:
  *
  *   Unlock (locked)            `unlock-password`   → `#forgot-password`
- *   ForgotPasswordInfo         (no testid at all)  → "Sign Out"
+ *   ForgotPasswordInfo         `forgot-password-info` → `sign-out-button`
  *   ForgotPassword host        `onboarding-welcome`→ `#import-link`
  *     └ ImportSeedPhrase       `import-seed-phrase`
  *     └ CreatePassword         `create-password-input`
@@ -35,12 +35,8 @@ export const RECOVERY_ERROR_TESTID = 'onboarding-recovery-error';
 /** `Unlock.tsx` password-form subtitle for a rejected password (`incorrectPassword` in en.json). */
 const INCORRECT_PASSWORD_SUBTITLE = 'Incorrect password. Try again.';
 
-/**
- * `ForgotPasswordInfo.tsx`'s only forward control. `Button` renders its `title`
- * prop as the button's text (components/Button.tsx), so the accessible name is
- * the sole stable hook on a screen that carries no `data-testid`.
- */
-const SIGN_OUT_BUTTON = 'Sign Out';
+/** The Sign out button on `ForgotPasswordInfo`, by its own test id rather than its copy. */
+const SIGN_OUT_BUTTON_TEST_ID = 'sign-out-button';
 
 /**
  * The seed-phrase warning on `ForgotPasswordInfo` (`forgotPasswordSecondDescription`).
@@ -74,7 +70,7 @@ export async function openForgotPasswordFlow(wallet: ForgotPasswordDriver): Prom
   // `#seed-phrase-input-N`).
   await page.locator('#forgot-password').click({ timeout: 15_000 });
 
-  const signOut = page.getByRole('button', { name: SIGN_OUT_BUTTON });
+  const signOut = page.getByTestId(SIGN_OUT_BUTTON_TEST_ID);
   await signOut.waitFor({ timeout: 15_000 });
 
   // The interstitial exists to warn that signing out is irreversible without the
