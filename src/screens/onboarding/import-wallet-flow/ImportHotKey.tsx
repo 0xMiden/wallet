@@ -4,7 +4,9 @@ import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import { Button, ButtonVariant } from 'components/Button';
-import { Input } from 'components/Input';
+import { Notice } from 'components/ui/Notice';
+import { TextAction } from 'components/ui/TextAction';
+import { TextField } from 'components/ui/TextField';
 import { encodePrivateKeyPair, parsePrivateKeyPair } from 'lib/miden/guardian/private-key-pair';
 import { useScreenshotGuard } from 'lib/mobile/screenshot-guard';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
@@ -12,6 +14,8 @@ import { isMobile } from 'lib/platform';
 import { decodeQrImage } from 'lib/qr/image-decoder';
 import { isScanAvailable, scanQRCode } from 'lib/qr/scanner';
 import { ScanQrDrawer } from 'screens/send-flow/ScanQrDrawer';
+
+import { OnboardingStepLayout } from '../common/OnboardingStepLayout';
 
 export interface ImportHotKeyScreenProps {
   className?: string;
@@ -99,24 +103,45 @@ export const ImportHotKeyScreen: React.FC<ImportHotKeyScreenProps> = ({
   };
 
   return (
-    <div
-      className={classNames(
-        'flex-1 min-h-0 overflow-y-auto flex flex-col items-center bg-app-bg text-ink px-4 pt-6',
-        className
-      )}
+    <OnboardingStepLayout
       data-testid="import-hot-key"
+      title={t('importHotKeyTitle')}
+      description={t('importHotKeyDescription')}
+      footer={
+        <Button
+          className="max-w-none"
+          data-testid="import-hot-key-submit"
+          title={t('continue')}
+          disabled={!isGuardReady || !pair || busy || submitting}
+          onClick={() => {
+            if (!pair || busy || submitting) return;
+            generation.current += 1;
+            onSubmit?.(encodePrivateKeyPair(pair));
+            setHotKey('');
+            setEvmKey('');
+          }}
+        />
+      }
     >
-      <h1 className="text-2xl font-semibold">{t('importHotKeyTitle')}</h1>
-      <p className="mt-2 text-sm text-center">{t('importHotKeyDescription')}</p>
       {isGuardReady && (
-        <div className="w-full flex flex-col gap-4 mt-6">
+        <div className={classNames('flex flex-col gap-2.5', className)}>
+          {/* Continue is the step's one primary action, so the ways to bring the keys in are secondary. */}
           {!manual && (
             <>
-              <Button title={t('scanQrTitle')} onClick={scan} disabled={!isScanAvailable() || busy || submitting} />
-              {!isScanAvailable() && <p className="text-sm text-text-secondary-token">{t('keyCameraUnavailable')}</p>}
+              <Button
+                className="max-w-none"
+                variant={ButtonVariant.Secondary}
+                title={t('scanQrTitle')}
+                onClick={scan}
+                disabled={!isScanAvailable() || busy || submitting}
+              />
+              {!isScanAvailable() && (
+                <p className="px-1 font-sans text-[13px] leading-[17px] text-muted">{t('keyCameraUnavailable')}</p>
+              )}
             </>
           )}
           <Button
+            className="max-w-none"
             title={t('uploadQrImage')}
             variant={ButtonVariant.Secondary}
             onClick={() => fileRef.current?.click()}
@@ -136,17 +161,14 @@ export const ImportHotKeyScreen: React.FC<ImportHotKeyScreenProps> = ({
               if (file) upload(file);
             }}
           />
-          <Button
-            title={t(manual ? 'showQrCode' : 'enterKeysManually')}
-            variant={ButtonVariant.Secondary}
-            onClick={toggleManual}
-            disabled={submitting}
-          />
+          <TextAction onClick={toggleManual} disabled={submitting} className="-mx-1 self-start">
+            {t(manual ? 'showQrCode' : 'enterKeysManually')}
+          </TextAction>
           {manual && (
             <>
-              <label htmlFor="hot-key-input">{t('midenHotPrivateKey')}</label>
-              <Input
+              <TextField
                 id="hot-key-input"
+                label={t('midenHotPrivateKey')}
                 value={hotKey}
                 type="password"
                 autoComplete="off"
@@ -159,9 +181,9 @@ export const ImportHotKeyScreen: React.FC<ImportHotKeyScreenProps> = ({
                   setErrorKey('');
                 }}
               />
-              <label htmlFor="evm-key-input">{t('evmPrivateKey')}</label>
-              <Input
+              <TextField
                 id="evm-key-input"
+                label={t('evmPrivateKey')}
                 value={evmKey}
                 type="password"
                 autoComplete="off"
@@ -177,36 +199,22 @@ export const ImportHotKeyScreen: React.FC<ImportHotKeyScreenProps> = ({
             </>
           )}
           {pair && (
-            <p role="status" className="text-sm">
+            <Notice tone="positive" role="status">
               {t('privateKeyPairReady')}
-            </p>
+            </Notice>
           )}
         </div>
       )}
       {(errorKey || (manual && (hotKey || evmKey) && !pair)) && (
-        <p role="alert" className="text-status-negative text-sm mt-4">
+        <Notice tone="negative" role="alert">
           {t(errorKey || 'importHotKeyInvalid')}
-        </p>
+        </Notice>
       )}
       {isErrorProp && (
-        <p role="alert" className="text-status-negative text-sm mt-4">
+        <Notice tone="negative" role="alert">
           {t('importHotKeyError')}
-        </p>
+        </Notice>
       )}
-      <div className="mt-auto w-full shrink-0 py-6">
-        <Button
-          data-testid="import-hot-key-submit"
-          title={t('continue')}
-          disabled={!isGuardReady || !pair || busy || submitting}
-          onClick={() => {
-            if (!pair || busy || submitting) return;
-            generation.current += 1;
-            onSubmit?.(encodePrivateKeyPair(pair));
-            setHotKey('');
-            setEvmKey('');
-          }}
-        />
-      </div>
       {isGuardReady && (
         <ScanQrDrawer
           open={cameraOpen}
@@ -216,6 +224,6 @@ export const ImportHotKeyScreen: React.FC<ImportHotKeyScreenProps> = ({
           onError={setErrorKey}
         />
       )}
-    </div>
+    </OnboardingStepLayout>
   );
 };
