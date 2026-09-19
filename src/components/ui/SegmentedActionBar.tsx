@@ -50,7 +50,9 @@ const Segment: FC<SegmentProps> = ({ item, active, onSelect }) => {
         transition={motionTokens.highlight}
         {...motionTokens.press}
         className={cn(
-          'flex h-12 min-w-0 items-center justify-center overflow-hidden rounded-full',
+          // `group` drives the raised pill's pressed shadow; no overflow clip, or it would cut the
+          // pill's shadow off at the segment's edge.
+          'group flex h-12 min-w-0 items-center justify-center rounded-full',
           'text-text-primary-token transition-colors duration-200',
           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary/30',
           active ? 'w-28 flex-none px-2.5 max-[359px]:w-24 max-[359px]:px-2' : 'flex-1 px-0'
@@ -95,15 +97,12 @@ export const SegmentedActionBar: FC<SegmentedActionBarProps> = ({ items, activeI
   };
 
   return (
-    // The 48px segments set the height. 4px above them keeps the row snug under the status bar (the
-    // strip's top edge is the safe-area line; nothing else pads it); 8px below them and a hairline
-    // rule mirror the bottom nav's top rule, dividing the row from the content under it.
+    // No band of its own: the row sits on the page. The 48px segments set the height; 4px above them
+    // keeps it snug under the status bar, and 8px below them (room for the raised pill's shadow) and
+    // a hairline rule, like the bottom nav's top rule, divide it from the content under it.
     <div
       role="tablist"
-      className={cn(
-        'flex items-center gap-1 overflow-hidden border-b border-hairline bg-fill px-3 pt-1 pb-2',
-        className
-      )}
+      className={cn('flex items-center gap-1 overflow-hidden border-b border-hairline px-3 pt-1 pb-2', className)}
     >
       {/* The white pill slides between segments on the shared Highlight primitive; its layoutId is
           scoped to this bar, so two mounted bars never trade pills. */}
@@ -113,7 +112,7 @@ export const SegmentedActionBar: FC<SegmentedActionBarProps> = ({ items, activeI
         click={false}
         exitDelay={0}
         transition={motionTokens.highlight}
-        className="inset-0 rounded-full bg-white shadow-[0_1px_2px_rgba(0,0,0,0.04)]"
+        className="inset-0 rounded-full bg-raised shadow-raised transition-shadow group-active:shadow-raised-pressed"
       >
         {items.map(item => (
           <Segment key={item.id} item={item} active={item.id === activeId} onSelect={handleSelect} />

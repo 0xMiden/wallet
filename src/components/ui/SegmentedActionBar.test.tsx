@@ -86,9 +86,10 @@ describe('SegmentedActionBar — exports & structure', () => {
     renderBar();
 
     const tablist = screen.getByRole('tablist');
-    // The grey strip, snug under the status bar: 4px above the 48px segments, 8px below them, and a
-    // hairline rule on its bottom edge like the bottom nav's top rule. No fixed height pads it.
-    expect(tablist).toHaveClass('bg-fill', 'px-3', 'gap-1', 'pt-1', 'pb-2', 'border-b', 'border-hairline');
+    // No band of its own: it sits on the page, snug under the status bar (4px above the 48px
+    // segments, 8px below), with a hairline rule on its bottom edge like the bottom nav's top rule.
+    expect(tablist).toHaveClass('px-3', 'gap-1', 'pt-1', 'pb-2', 'border-b', 'border-hairline');
+    expect(tablist.className).not.toMatch(/(^|\s)bg-/);
     expect(tablist.className).not.toMatch(/(^|\s)(h-\d+|pt-[2-9]|py-)/);
 
     const tabs = screen.getAllByRole('tab');
@@ -154,15 +155,18 @@ describe('SegmentedActionBar — active vs inactive rendering', () => {
     expect(pillIn(getTab('Receive'))).toBeNull();
   });
 
-  it('keeps the white, fully round pill, via the class rather than an inline radius', () => {
+  it('draws the active pill as a raised, fully round bubble that sinks while pressed', () => {
     renderBar({ activeId: 'send' });
 
     const activeTab = getTab('Send');
-    expect(activeTab).toHaveClass('rounded-full');
+    expect(activeTab).toHaveClass('rounded-full', 'group');
     expect(activeTab.style.borderRadius).toBe('');
+    // No clip on the segment, or it would cut the pill's shadow off.
+    expect(activeTab).not.toHaveClass('overflow-hidden');
 
     const pill = pillIn(activeTab)!;
-    expect(pill).toHaveClass('inset-0', 'rounded-full', 'bg-white');
+    expect(pill).toHaveClass('inset-0', 'rounded-full', 'bg-raised', 'shadow-raised');
+    expect(pill).toHaveClass('group-active:shadow-raised-pressed');
     expect(pill.style.borderRadius).toBe('');
   });
 
