@@ -60,6 +60,14 @@ describe('NetworksSettings', () => {
     expect(screen.getByTestId('networks-localnet').parentElement).toBe(testnet.parentElement);
   });
 
+  it('renders through SubPageLayout, the group straight in its body', () => {
+    render(<NetworksSettings />);
+
+    const body = screen.getByTestId('networks-settings').querySelector('[data-slot="body"]')!;
+    expect(body).toHaveClass('px-4', 'overflow-y-auto');
+    expect(body.firstElementChild).toHaveClass('bg-fill', 'rounded-2xl');
+  });
+
   it('renders the Miden logo on the left of every network row', () => {
     render(<NetworksSettings />);
 
