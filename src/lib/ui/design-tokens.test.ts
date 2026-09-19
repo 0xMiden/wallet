@@ -297,6 +297,16 @@ describe('action colours', () => {
     }
   });
 
+  // The tab sets the colour with `text-action-*`; a hex baked into the glyph would override it.
+  it.each(['wallet', 'send-new', 'receive-new', 'earn', 'convert'])(
+    'draws the %s action glyph in currentColor',
+    icon => {
+      const svg = fs.readFileSync(path.join(__dirname, `../../app/icons/v2/${icon}.svg`), 'utf8');
+      expect(svg).toContain('currentColor');
+      expect(svg.replace(/xmlns="[^"]*"/, '')).not.toMatch(/#[0-9a-f]{3,8}\b/i);
+    }
+  );
+
   it.each(ACTION_CARD)('maps action-%s and its tint to Tailwind colors', action => {
     expect(config).toContain(`'action-${action}': 'var(--action-${action})'`);
     expect(config).toContain(`'action-${action}-tint': 'var(--action-${action}-tint)'`);
