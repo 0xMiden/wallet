@@ -145,7 +145,7 @@ export const SendAmount: React.FC<SendAmountProps> = ({
               >
                 <Pill
                   onClick={() => onAmountChange(formatBalance(token.balance))}
-                  className="text-accent-send"
+                  className="text-accent-send-ink"
                   data-testid="send-amount-max"
                 >
                   {t('max')}
@@ -200,10 +200,10 @@ export const SendAmount: React.FC<SendAmountProps> = ({
                       hapticLight();
                       onReceive();
                     }}
-                    className="flex items-center gap-0.5 font-heading text-sm font-bold text-accent-send"
+                    className="flex items-center gap-0.5 font-heading text-sm font-bold text-accent-send-ink"
                   >
                     {t('receive')}
-                    <Icon name={IconName.ChevronRightLucide} size="xs" className="text-accent-send" />
+                    <Icon name={IconName.ChevronRightLucide} size="xs" className="text-accent-send-ink" />
                   </button>
                 </div>
               </Card>
