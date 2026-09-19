@@ -24,6 +24,7 @@ import { PromptCard } from './PromptCard';
 import { PromptCarousel } from './PromptCarousel';
 import { SearchInput } from './SearchInput';
 import { SegmentedActionBar } from './SegmentedActionBar';
+import { SegmentedControl } from './SegmentedControl';
 import { Skeleton } from './Skeleton';
 import { Sparkline } from './Sparkline';
 import { Spinner } from './Spinner';
@@ -60,6 +61,7 @@ describe('components/ui barrel', () => {
     PromptCarousel,
     AssetListItem,
     SegmentedActionBar,
+    SegmentedControl,
     BottomNav,
     TabHeader,
     TabHeaderAction,
