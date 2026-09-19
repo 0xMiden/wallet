@@ -4,6 +4,10 @@ import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
 import { useBackWithFallback } from 'app/hooks/useBackWithFallback';
+import { ReactComponent as GroupAboutIcon } from 'app/icons/settings/group-about.svg';
+import { ReactComponent as GroupDeveloperIcon } from 'app/icons/settings/group-developer.svg';
+import { ReactComponent as GroupPreferencesIcon } from 'app/icons/settings/group-preferences.svg';
+import { ReactComponent as GroupSecurityIcon } from 'app/icons/settings/group-security.svg';
 import { Icon, IconName } from 'app/icons/v2';
 import AddressBook from 'app/templates/AddressBook';
 import DAppDrawerSettings from 'app/templates/DAppDrawerSettings';
@@ -119,12 +123,15 @@ type Tab = {
 
 type TabGroup = {
   titleI18nKey: string;
+  /** The group's coloured 16px glyph, shown in a `SectionHeader`'s 32px circle. */
+  Icon: ImportedSVGComponent;
   tabs: Tab[];
 };
 
 const TAB_GROUPS: TabGroup[] = [
   {
     titleI18nKey: 'preferences',
+    Icon: GroupPreferencesIcon,
     tabs: [
       {
         slug: 'general-settings',
@@ -148,6 +155,7 @@ const TAB_GROUPS: TabGroup[] = [
   },
   {
     titleI18nKey: 'security',
+    Icon: GroupSecurityIcon,
     tabs: [
       {
         slug: 'reveal-seed-phrase',
@@ -199,6 +207,7 @@ const TAB_GROUPS: TabGroup[] = [
   },
   {
     titleI18nKey: 'developer',
+    Icon: GroupDeveloperIcon,
     tabs: [
       {
         slug: 'advanced-settings',
@@ -218,6 +227,7 @@ const TAB_GROUPS: TabGroup[] = [
   },
   {
     titleI18nKey: 'about',
+    Icon: GroupAboutIcon,
     tabs: [
       {
         slug: PRIVACY_POLICY_URL,
@@ -518,8 +528,11 @@ const Settings: FC<SettingsProps> = ({ tabSlug, rootScrollTop: savedRootScrollTo
             {tabGroups.map(group => (
               <section key={group.titleI18nKey}>
                 {/* h2: the only heading above these is the page title the header
-                    renders as h1. */}
-                <SectionHeader>{t(group.titleI18nKey)}</SectionHeader>
+                    renders as h1. `lg` + the group's own coloured glyph: these are
+                    page-level section titles, not the plain 13px list-group label. */}
+                <SectionHeader size="lg" icon={<group.Icon />}>
+                  {t(group.titleI18nKey)}
+                </SectionHeader>
                 <ListGroup>
                   {group.tabs.map(tab => {
                     const isExternal = tab.linksOutsideOfWallet;
