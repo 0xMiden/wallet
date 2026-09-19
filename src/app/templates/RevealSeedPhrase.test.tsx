@@ -24,6 +24,8 @@ const mockRevealMnemonic = jest.fn();
 const mockHasHardwareProtector = jest.fn();
 const mockHapticLight = jest.fn();
 const mockGoBack = jest.fn();
+const mockNavigate = jest.fn();
+let mockHistoryPosition = 1;
 const mockCopy = jest.fn();
 let mockCopied = false;
 let mockIsMobile = false;
@@ -95,7 +97,7 @@ jest.mock('components/Button', () => ({
 
 jest.mock('app/icons/v2', () => ({
   Icon: ({ name }: { name?: string }) => <span data-testid="icon" data-name={name} />,
-  IconName: { CheckboxCircleFill: 'CheckboxCircleFill', FileCopy: 'FileCopy' }
+  IconName: { CheckboxCircleFill: 'CheckboxCircleFill', FileCopy: 'FileCopy', EyeOff: 'EyeOff' }
 }));
 
 jest.mock('components/PageHeader', () => ({
@@ -181,8 +183,17 @@ jest.mock('lib/ui/useCopyToClipboard', () => ({
   default: () => ({ fieldRef: { current: null }, copy: mockCopy, copied: mockCopied })
 }));
 
+// The warning's Close and back go through useBackWithFallback, which reads live
+// history: pop when there is an entry to pop, else route to the Settings root.
 jest.mock('lib/woozie', () => ({
-  goBack: () => mockGoBack()
+  goBack: () => mockGoBack(),
+  navigate: (...args: unknown[]) => mockNavigate(...args),
+  HistoryAction: { Push: 'push', Replace: 'replace' },
+  createLocationState: () => ({
+    historyPosition: mockHistoryPosition,
+    href: 'http://localhost/#/settings/reveal-seed-phrase'
+  }),
+  listen: () => () => undefined
 }));
 
 // ---------------------------------------------------------------------------
@@ -206,6 +217,7 @@ describe('RevealSeedPhrase', () => {
     mockSeedStatus = 'stored';
     mockCopied = false;
     mockIsMobile = false;
+    mockHistoryPosition = 1;
     mockHasHardwareProtector.mockResolvedValue(false);
     mockRevealMnemonic.mockResolvedValue('alpha beta gamma delta');
   });
@@ -256,6 +268,20 @@ describe('RevealSeedPhrase', () => {
   const buttonWithText = (container: HTMLElement, text: string) =>
     Array.from(container.querySelectorAll('button')).find(b => b.textContent === text);
 
+  // The page opens on the privacy warning; View moves on to the auth gate.
+  const clickView = async (container: HTMLElement) => {
+    await act(async () => {
+      buttonWithText(container, 'view')!.click();
+    });
+    await flush();
+  };
+
+  const renderAndView = async () => {
+    const container = await render();
+    await clickView(container);
+    return container;
+  };
+
   const typePassword = async (container: HTMLElement, value: string) => {
     const input = container.querySelector('input[name="password"]') as HTMLInputElement;
     const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')!.set!;
@@ -300,7 +326,7 @@ describe('RevealSeedPhrase', () => {
         finishReveal = resolve;
       })
     );
-    const container = await render();
+    const container = await renderAndView();
     mockSeedStatus = 'removed';
     await act(async () => {
       testRoot?.render(<RevealSeedPhrase />);
@@ -312,21 +338,101 @@ describe('RevealSeedPhrase', () => {
     expect(container.querySelector('[role="status"]')?.textContent).toBe('seedPhraseRemoved');
   });
 
-  it('renders nothing until the hardware-protector check resolves', async () => {
+  // -------------------------------------------------------------------------
+  // Warning step: the page's first screen, before any secret is asked for.
+  // -------------------------------------------------------------------------
+  it('opens on the warning, with View disabled until the hardware-protector check resolves', async () => {
     const container = renderNoFlush();
-    // hasHardwareProtector === null -> component returns null.
-    expect(container.textContent).toBe('');
+    expect(buttonWithText(container, 'view')!.disabled).toBe(true);
     await flush();
     await flush();
+    expect(buttonWithText(container, 'view')!.disabled).toBe(false);
+  });
+
+  it.each([false, true])('shows the warning first and asks for nothing yet (hardware: %s)', async hasHw => {
+    mockHasHardwareProtector.mockResolvedValue(hasHw);
+    const container = await render();
+
+    expect(container.querySelector('[data-testid="nh-title"]')!.textContent).toBe('recoveryPhrase');
+    // PageHeader has no horizontal padding of its own; the page supplies it.
+    expect(container.querySelector('[data-testid="nav-header"]')).toHaveClass('px-4');
+    expect(container.querySelector('[data-name="EyeOff"]')).toBeTruthy();
+    expect(container.textContent).toContain('viewThisInPrivatePlace');
+    expect(container.textContent).toContain('anyoneWithRecoveryPhrase');
+    expect(container.textContent).toContain('pleaseWriteDownRecoveryPhrase');
+    expect(buttonWithText(container, 'close')).toBeTruthy();
+    expect(buttonWithText(container, 'view')).toBeTruthy();
+
+    // No auth prompt, no password drawer, and (the auto-close effect must not
+    // mistake "no secret yet" for "secret expired") no navigation.
+    expect(mockRevealMnemonic).not.toHaveBeenCalled();
+    expect(container.querySelector('[data-testid="drawer"]')).toBeNull();
+    expect(mockGoBack).not.toHaveBeenCalled();
+    expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  it('puts Close beside View in one padded row', async () => {
+    const container = await render();
+    const close = buttonWithText(container, 'close')!;
+    const view = buttonWithText(container, 'view')!;
+    expect(close.parentElement).toBe(view.parentElement);
+    expect(close.parentElement).toHaveClass('flex', 'gap-2.5', 'px-4');
+  });
+
+  it.each(['close', 'back'])('returns to Settings via %s on the warning', async control => {
+    const container = await render();
+    const target =
+      control === 'close'
+        ? buttonWithText(container, 'close')!
+        : container.querySelector<HTMLButtonElement>('[data-testid="nh-back"]')!;
+
+    await act(async () => {
+      target.click();
+    });
+
+    expect(mockGoBack).toHaveBeenCalledTimes(1);
+    expect(mockRevealMnemonic).not.toHaveBeenCalled();
+  });
+
+  it('routes to the Settings root from the warning when the page was opened cold', async () => {
+    mockHistoryPosition = 0;
+    const container = await render();
+
+    await act(async () => {
+      buttonWithText(container, 'close')!.click();
+    });
+
+    expect(mockGoBack).not.toHaveBeenCalled();
+    expect(mockNavigate).toHaveBeenCalledWith('/settings', 'replace');
+  });
+
+  it('keeps the warning on screen while the biometric prompt is pending', async () => {
+    mockHasHardwareProtector.mockResolvedValue(true);
+    mockRevealMnemonic.mockReturnValue(new Promise<string>(() => undefined));
+    const container = await renderAndView();
+
+    expect(mockRevealMnemonic).toHaveBeenCalledWith(undefined);
+    expect(container.textContent).toContain('viewThisInPrivatePlace');
+    expect(buttonWithText(container, 'view')!.disabled).toBe(true);
+    expect(mockGoBack).not.toHaveBeenCalled();
+  });
+
+  it('moves from the warning to the password drawer on View for a password-backed vault', async () => {
+    mockHasHardwareProtector.mockResolvedValue(false);
+    const container = await renderAndView();
+
+    expect(container.textContent).not.toContain('viewThisInPrivatePlace');
+    expect(container.querySelector('[data-testid="drawer"]')!.getAttribute('data-open')).toBe('true');
+    expect(mockGoBack).not.toHaveBeenCalled();
   });
 
   // -------------------------------------------------------------------------
   // Hardware-backed success path -> revealed view.
   // -------------------------------------------------------------------------
-  it('auto-reveals the seed phrase via hardware unlock and shows the capitalized word grid', async () => {
+  it('reveals the seed phrase via hardware unlock after View and shows the capitalized word grid', async () => {
     mockHasHardwareProtector.mockResolvedValue(true);
     mockRevealMnemonic.mockResolvedValue('alpha beta gamma delta');
-    const container = await render();
+    const container = await renderAndView();
 
     expect(mockRevealMnemonic).toHaveBeenCalledWith(undefined);
     expect(mockSetSecret).toHaveBeenCalledWith('alpha beta gamma delta');
@@ -355,7 +461,7 @@ describe('RevealSeedPhrase', () => {
   it('shows the "copied" state (checkmark icon + copied label)', async () => {
     mockHasHardwareProtector.mockResolvedValue(true);
     mockCopied = true;
-    const container = await render();
+    const container = await renderAndView();
 
     expect(container.textContent).toContain('copied');
     expect(container.textContent).not.toContain('copyToClipboard');
@@ -364,7 +470,7 @@ describe('RevealSeedPhrase', () => {
 
   it('hides the phrase (haptic + clear secret + goBack) via the Hide button', async () => {
     mockHasHardwareProtector.mockResolvedValue(true);
-    const container = await render();
+    const container = await renderAndView();
 
     const hideBtn = buttonWithText(container, 'hideRecoveryPhrase') as HTMLButtonElement;
     mockGoBack.mockClear();
@@ -380,7 +486,7 @@ describe('RevealSeedPhrase', () => {
 
   it('runs handleHide from the revealed-view PageHeader back button', async () => {
     mockHasHardwareProtector.mockResolvedValue(true);
-    const container = await render();
+    const container = await renderAndView();
 
     mockGoBack.mockClear();
     mockSetSecret.mockClear();
@@ -398,7 +504,7 @@ describe('RevealSeedPhrase', () => {
   it('shows the auth-error view and goes back when hardware unlock rejects', async () => {
     mockHasHardwareProtector.mockResolvedValue(true);
     mockRevealMnemonic.mockRejectedValue(new Error('biometric failed'));
-    const container = await render();
+    const container = await renderAndView();
 
     expect(mockSetSecret).not.toHaveBeenCalledWith(expect.stringContaining('alpha'));
     expect(container.querySelector('[data-testid="alert"]')!.textContent).toBe('biometric failed');
@@ -419,7 +525,7 @@ describe('RevealSeedPhrase', () => {
   it('reveals the seed phrase via the desktop password drawer', async () => {
     mockIsMobile = false;
     mockHasHardwareProtector.mockResolvedValue(false);
-    const container = await render();
+    const container = await renderAndView();
 
     // Password drawer (not passcode) is open with the password title.
     expect(container.querySelector('[data-testid="drawer"]')!.getAttribute('data-open')).toBe('true');
@@ -449,7 +555,7 @@ describe('RevealSeedPhrase', () => {
     mockIsMobile = false;
     mockHasHardwareProtector.mockResolvedValue(false);
     mockRevealMnemonic.mockRejectedValue(new Error('wrong password'));
-    const container = await render();
+    const container = await renderAndView();
 
     await typePassword(container, 'bad-password');
     const cont = buttonWithText(container, 'continue') as HTMLButtonElement;
@@ -465,7 +571,7 @@ describe('RevealSeedPhrase', () => {
 
   it('closes the desktop drawer (goBack) via onOpenChange(false); onOpenChange(true) is a no-op', async () => {
     mockHasHardwareProtector.mockResolvedValue(false);
-    const container = await render();
+    const container = await renderAndView();
 
     // onOpenChange(true) must NOT trigger close/goBack.
     mockGoBack.mockClear();
@@ -483,7 +589,7 @@ describe('RevealSeedPhrase', () => {
 
   it('goes back from the drawer-view PageHeader back button', async () => {
     mockHasHardwareProtector.mockResolvedValue(false);
-    const container = await render();
+    const container = await renderAndView();
 
     mockGoBack.mockClear();
     await act(async () => {
@@ -498,7 +604,7 @@ describe('RevealSeedPhrase', () => {
   it('reveals via the mobile passcode numpad (onChange clears errors, onSubmit reveals)', async () => {
     mockIsMobile = true;
     mockHasHardwareProtector.mockResolvedValue(false);
-    const container = await render();
+    const container = await renderAndView();
 
     // Passcode entry, not a password field.
     expect(container.querySelector('input[name="password"]')).toBeFalsy();
@@ -521,7 +627,7 @@ describe('RevealSeedPhrase', () => {
     mockIsMobile = true;
     mockHasHardwareProtector.mockResolvedValue(false);
     mockRevealMnemonic.mockRejectedValue(new Error('wrong passcode'));
-    const container = await render();
+    const container = await renderAndView();
 
     await act(async () => {
       (container.querySelector('[data-testid="passcode-submit"]') as HTMLButtonElement).click();
