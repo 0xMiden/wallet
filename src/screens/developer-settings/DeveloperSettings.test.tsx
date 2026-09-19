@@ -79,8 +79,10 @@ jest.mock('lib/miden-chain/effective-endpoints', () => {
   };
 });
 
-jest.mock('components/Checkbox', () => ({
-  Checkbox: ({ value }: { value: boolean }) => <span data-testid="checkbox" data-checked={String(value)} />
+jest.mock('components/ui/Checkbox', () => ({
+  CheckboxIndicator: ({ checked }: { checked: boolean }) => (
+    <span data-testid="checkbox" data-checked={String(checked)} />
+  )
 }));
 
 type HealthStatus = 'idle' | 'pending' | 'reachable' | 'error';

@@ -3,7 +3,7 @@ import React, { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Button, ButtonVariant } from 'components/Button';
-import { Checkbox } from 'components/Checkbox';
+import { CheckboxIndicator } from 'components/ui/Checkbox';
 import { ListGroup } from 'components/ui/ListGroup';
 import { ListRow } from 'components/ui/ListRow';
 import { SegmentedControl, SegmentedControlItem } from 'components/ui/SegmentedControl';
@@ -317,7 +317,7 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
               presetName: CUSTOM_PRESET
             }))
           }
-          trailing={<Checkbox value={form.allowNoGuardian} />}
+          trailing={<CheckboxIndicator checked={form.allowNoGuardian} />}
         />
       </ListGroup>
     </SubPageLayout>

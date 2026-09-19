@@ -37,13 +37,20 @@ const BANNED = [
   'lib/ui/button',
   'lib/ui/badge',
   'components/EmptyState',
+  'components/Checkbox',
   'components/flow/FlowDetails',
   'components/NavigationHeader',
   'components/CircleButton',
   'components/NavButton',
   'react-modal'
 ];
-const ALLOWED = ['components/ui/Button', 'components/Button', 'components/ui/EmptyState', 'components/ui/DetailCard'];
+const ALLOWED = [
+  'components/ui/Button',
+  'components/Button',
+  'components/ui/EmptyState',
+  'components/ui/DetailCard',
+  'components/ui/Checkbox'
+];
 const ATOMS = ['app/atoms/Alert', '../atoms/FormField'];
 
 /** One import per line, so a report's line number names the specifier it is about. */
@@ -84,11 +91,12 @@ describe('design-system import bans', () => {
     expect(found.get(1)?.message).toContain('components/ui/Button');
     expect(found.get(2)?.message).toContain('components/ui/Pill');
     expect(found.get(3)?.message).toContain('components/ui/EmptyState');
-    expect(found.get(4)?.message).toContain('components/ui/DetailCard');
-    expect(found.get(5)?.message).toContain('components/PageHeader');
-    expect(found.get(6)?.message).toContain('components/ui/IconButton');
+    expect(found.get(4)?.message).toContain('components/ui/Checkbox');
+    expect(found.get(5)?.message).toContain('components/ui/DetailCard');
+    expect(found.get(6)?.message).toContain('components/PageHeader');
     expect(found.get(7)?.message).toContain('components/ui/IconButton');
-    expect(found.get(8)?.message).toContain('lib/ui/drawer');
+    expect(found.get(8)?.message).toContain('components/ui/IconButton');
+    expect(found.get(9)?.message).toContain('lib/ui/drawer');
   }, 60_000);
 
   it('lets an allow-listed atoms importer keep its atoms imports but not the retired modules', () => {

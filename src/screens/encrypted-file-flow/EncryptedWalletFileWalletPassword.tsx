@@ -6,8 +6,8 @@ import { useTranslation } from 'react-i18next';
 import Alert from 'app/atoms/Alert';
 import { IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
-import { Checkbox } from 'components/Checkbox';
 import { PasscodeEntry } from 'components/PasscodeEntry';
+import { CheckboxIndicator } from 'components/ui/Checkbox';
 import { IconButton } from 'components/ui/IconButton';
 import { SubPageSection } from 'components/ui/SubPageLayout';
 import { TextField, TextFieldElement } from 'components/ui/TextField';
@@ -172,10 +172,12 @@ const EncryptedWalletFileWalletPassword: React.FC<EncryptedWalletFileWalletPassw
 
       <button
         type="button"
+        role="checkbox"
+        aria-checked={confirmed}
         className="flex items-start gap-x-2 px-1 text-left"
         onClick={() => setConfirmed(!confirmed)}
       >
-        <Checkbox id="help-us" value={confirmed} />
+        <CheckboxIndicator checked={confirmed} />
         <span className="cursor-pointer font-sans text-sm text-ink">{t('encryptedWalletFileConfirmation')}</span>
       </button>
 
