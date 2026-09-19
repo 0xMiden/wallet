@@ -146,23 +146,33 @@ describe('ActivityRow', () => {
 
     it('applies the positive amount color', () => {
       renderRow({ amount: { value: '+5', direction: 'positive' } });
-      expect(screen.getByText('+5').className).toContain('text-status-positive');
+      expect(screen.getByText('+5').className).toContain('text-positive-ink');
     });
 
     it('applies the negative amount color', () => {
       renderRow({ amount: { value: '-5', direction: 'negative' } });
-      expect(screen.getByText('-5').className).toContain('text-status-negative');
+      expect(screen.getByText('-5').className).toContain('text-negative-ink');
     });
 
     it('applies the explicit neutral amount color', () => {
       renderRow({ amount: { value: '5', direction: 'neutral' } });
-      expect(screen.getByText('5').className).toContain('text-text-primary-token');
+      expect(screen.getByText('5').className).toContain('text-ink');
     });
 
     it('defaults to the neutral amount color when direction is undefined', () => {
       renderRow({ amount: { value: '7' } });
-      expect(screen.getByText('7').className).toContain('text-text-primary-token');
+      expect(screen.getByText('7').className).toContain('text-ink');
     });
+
+    it.each(['positive', 'negative'] as const)(
+      'inks a %s amount with the AA status ink, never the raw status fill (#90BA89 was 2.19:1)',
+      direction => {
+        renderRow({ amount: { value: '9', direction } });
+        const className = screen.getByText('9').className;
+        expect(className).toContain(`text-${direction}-ink`);
+        expect(className).not.toMatch(/text-status-/);
+      }
+    );
   });
 
   // A batch claim reads "+20 A, +10 B" on one line. The line is finite and the
@@ -183,7 +193,7 @@ describe('ActivityRow', () => {
       expect(amount.textContent).toBe('+20 AAA, +1 T0, +2 T1');
       // Extras inherit the primary's direction colour — a claim's secondary
       // assets arrived too, so rendering them neutral would read as "unchanged".
-      expect(screen.getByText('+1').className).toContain('text-status-positive');
+      expect(screen.getByText('+1').className).toContain('text-positive-ink');
       expect(screen.queryByTestId('row-amount-extra-overflow')).toBeNull();
     });
 

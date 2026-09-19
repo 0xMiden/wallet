@@ -74,6 +74,9 @@ describe.each([':root', '.dark'] as const)('design tokens in %s', selector => {
     ['positive-ink', 'positive-tint'],
     ['pending-ink', 'pending-tint'],
     ['negative-ink', 'negative-tint'],
+    // Signed amounts in Activity rows and detail cards, which sit on `fill`.
+    ['positive-ink', 'fill'],
+    ['negative-ink', 'fill'],
     // StatusBadge's neutral tone (cancelled, reclaimed, checking).
     ['ink', 'fill-pressed']
   ])('%s on %s reads at 4.5:1 or better', (text, surface) => {

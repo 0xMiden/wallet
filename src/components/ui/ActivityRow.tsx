@@ -73,10 +73,12 @@ export interface ActivityRowProps {
   entryKey?: string;
 }
 
+// The status inks, not the raw status fills: #90BA89 was 2.19:1 on white. On the row's `fill` card
+// these read 4.59 / 4.61:1 light and 7.05 / 6.00:1 dark (`lib/ui/design-tokens.test.ts`).
 const AMOUNT_COLOR: Record<ActivityAmountDirection, string> = {
-  positive: 'text-status-positive',
-  negative: 'text-status-negative',
-  neutral: 'text-text-primary-token'
+  positive: 'text-positive-ink',
+  negative: 'text-negative-ink',
+  neutral: 'text-ink'
 };
 
 const DISPLAY_DECIMAL_PLACES = 3;
