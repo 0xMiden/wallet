@@ -123,6 +123,14 @@
           },
           {
             "group": [
+              "components/Checkbox",
+              "**/components/Checkbox"
+            ],
+            "caseSensitive": true,
+            "message": "components/Checkbox was retired by the design system (skills/miden-wallet-frontend/references/design-system.md). Use components/ui/Checkbox (CheckboxRow, CheckboxIndicator)."
+          },
+          {
+            "group": [
               "components/EmptyState",
               "**/components/EmptyState"
             ],
