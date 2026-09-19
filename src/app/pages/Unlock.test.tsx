@@ -175,8 +175,21 @@ jest.mock('components/Input', () => ({
 }));
 
 jest.mock('components/Numpad', () => ({
-  Numpad: ({ onDigit, onDelete }: { onDigit: (d: string) => void; onDelete: () => void }) => (
+  Numpad: ({
+    onDigit,
+    onDelete,
+    onBiometric
+  }: {
+    onDigit: (d: string) => void;
+    onDelete: () => void;
+    onBiometric?: () => void;
+  }) => (
     <div data-testid="numpad">
+      {onBiometric && (
+        <button type="button" data-testid="numpad-biometric" onClick={onBiometric}>
+          bio
+        </button>
+      )}
       {['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'].map(d => (
         <button key={d} type="button" data-testid={`digit-${d}`} onClick={() => onDigit(d)}>
           {d}
@@ -506,6 +519,37 @@ describe('Unlock — mobile passcode numpad', () => {
     expect(screen.getByText(/unlockPasswordErrorDelay/)).toBeInTheDocument();
   });
 
+  it('draws the shared passcode screen with the keypad docked at the bottom', async () => {
+    await renderUnlock();
+
+    const root = screen.getByTestId('unlock-passcode');
+    expect(root).toContainElement(screen.getByTestId('passcode-screen-layout'));
+    expect(screen.getByTestId('passcode-keypad-dock')).toContainElement(screen.getByTestId('numpad'));
+    // Forgot passcode is a text action under the dots, not beside the keys.
+    const forgot = root.querySelector('#forgot-password') as HTMLButtonElement;
+    expect(forgot).toHaveClass('text-accent-tint-ink');
+    expect(screen.getByTestId('passcode-keypad-dock')).not.toContainElement(forgot);
+  });
+
+  it('has no biometric key when the device holds no biometric key', async () => {
+    await renderUnlock();
+
+    expect(screen.queryByTestId('numpad-biometric')).not.toBeInTheDocument();
+  });
+
+  it('shakes the dots and shows the error line in negative-ink on a wrong passcode', async () => {
+    mockUnlock.mockRejectedValue(new Error('nope'));
+    const { container } = await renderUnlock();
+
+    expect(screen.getByTestId('passcode-dots')).not.toHaveAttribute('data-shake');
+    type(container, '111111');
+    await advance(600);
+
+    expect(screen.getByTestId('passcode-dots')).toHaveAttribute('data-shake', 'true');
+    expect(screen.getByRole('status')).toHaveTextContent('incorrectPasscode');
+    expect(screen.getByRole('status')).toHaveClass('text-negative-ink');
+  });
+
   it('routes forgot-passcode to the reset info screen', async () => {
     const { container } = await renderUnlock();
 
@@ -626,6 +670,23 @@ describe('Unlock — hardware unlock on mount', () => {
     expect(mockHasPasswordProtector).toHaveBeenCalledTimes(1);
     expect(screen.getByTestId('unlock-passcode')).toBeInTheDocument();
     expect(screen.queryByText('biometricUnlockRequired')).not.toBeInTheDocument();
+  });
+
+  it('offers a biometric key on the keypad when the biometric unlock was cancelled', async () => {
+    mockIsMobile = true;
+    mockBioHasKey.mockResolvedValue(true);
+    mockUnlock.mockRejectedValueOnce(new Error('cancelled'));
+    mockHasPasswordProtector.mockResolvedValue(true);
+
+    await renderUnlock();
+
+    const key = screen.getByTestId('numpad-biometric');
+    // Tapping it retries the same hardware unlock (no passcode argument).
+    mockUnlock.mockResolvedValueOnce(undefined);
+    fireEvent.click(key);
+    await flushMicro();
+    expect(mockUnlock).toHaveBeenLastCalledWith();
+    expect(mockNavigate).toHaveBeenCalledWith('/');
   });
 
   it('swallows a password-protector check error and still shows the fallback UI', async () => {
