@@ -3,9 +3,8 @@ import React, { FC, useMemo, useState } from 'react';
 import clsx from 'clsx';
 import { useTranslation } from 'react-i18next';
 
-import { IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
-import { CircleButton } from 'components/CircleButton';
+import { PageHeader } from 'components/PageHeader';
 import { TokenLogo } from 'components/TokenLogo';
 import { gaslessEarnWithdrawalToMiden } from 'lib/epoch';
 import { toAdaptiveFixed } from 'lib/i18n/numbers';
@@ -76,23 +75,16 @@ const EarnWithdrawReview: FC<EarnWithdrawReviewProps> = ({ positionId }) => {
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-app-bg font-inter" data-testid="earn-withdraw-review-page">
-      <header className="shrink-0 border-b border-rule-default px-4 pb-4 pt-5">
-        <div className="flex min-w-0 items-center gap-3">
-          <CircleButton
-            icon={IconName.ChevronLeft}
-            onClick={goBack}
-            className="h-10 w-10 bg-gray-25 text-heading-gray hover:bg-gray-50 focus:bg-gray-50"
-            size="md"
-            aria-label={t('back')}
-          />
-          <h1 className="min-w-0 truncate font-heading text-[26px] font-bold leading-none text-heading-gray">
-            {position.protocol} &bull; {position.asset}
-          </h1>
+      <PageHeader
+        className="shrink-0 px-4"
+        title={`${position.protocol} • ${position.asset}`}
+        onBack={goBack}
+        actions={
           <span className="shrink-0 rounded-full bg-[#DDD4CE] px-3 py-1.5 text-xs font-medium leading-none text-heading-gray">
             {position.asset} on {position.network}
           </span>
-        </div>
-      </header>
+        }
+      />
 
       <div className="min-h-0 flex-1 overflow-y-auto no-scrollbar">
         <div className={clsx('flex flex-col px-6 pt-6')}>

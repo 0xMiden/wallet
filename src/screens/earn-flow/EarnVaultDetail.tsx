@@ -4,9 +4,8 @@ import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 import { Area, AreaChart, Tooltip, YAxis } from 'recharts';
 
-import { IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
-import { CircleButton } from 'components/CircleButton';
+import { PageHeader } from 'components/PageHeader';
 import { hapticSelection } from 'lib/mobile/haptics';
 import { ChartContainer } from 'lib/ui/charts';
 import { goBack, navigate } from 'lib/woozie';
@@ -31,23 +30,16 @@ const EarnVaultDetail: FC<EarnVaultDetailProps> = ({ vaultId }) => {
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-app-bg font-inter" data-testid="earn-vault-detail-page">
-      <header className="shrink-0 border-b border-rule-default px-4 pb-4 pt-5">
-        <div className="flex min-w-0 items-center gap-3">
-          <CircleButton
-            icon={IconName.ChevronLeft}
-            onClick={goBack}
-            className="h-10 w-10 bg-gray-25 text-heading-gray hover:bg-gray-50 focus:bg-gray-50"
-            size="md"
-            aria-label={t('back')}
-          />
-          <h1 className="min-w-0 truncate font-heading text-[26px] font-bold leading-none text-heading-gray">
-            {vault.protocol} &bull; {vault.asset}
-          </h1>
+      <PageHeader
+        className="shrink-0 px-4"
+        title={`${vault.protocol} • ${vault.asset}`}
+        onBack={goBack}
+        actions={
           <span className="shrink-0 rounded-full bg-[#DDD4CE] px-3 py-1.5 text-xs font-medium leading-none text-heading-gray">
             {t('earnAssetOnNetwork', { asset: vault.asset, network: vault.network })}
           </span>
-        </div>
-      </header>
+        }
+      />
 
       <div className="flex-1 overflow-y-auto">
         <div className="flex min-h-full flex-col px-4 pb-8 pt-8">

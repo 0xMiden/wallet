@@ -16,6 +16,14 @@ const mockAccount: { publicKey: string; evmAddress?: string } = {
 };
 let mockPositions: EarnPosition[] = [];
 
+// `PageHeader` (real, unmocked below) calls `useTranslation` for its back
+// button's accessible name; without this the un-initialized react-i18next
+// instance warns on every render and `t('back')` falls back to the key.
+// Mocking it keeps that fallback deterministic instead of implicit.
+jest.mock('react-i18next', () => ({
+  useTranslation: () => ({ t: (key: string) => key })
+}));
+
 jest.mock('lib/miden/front', () => ({
   useAccount: () => mockAccount
 }));
@@ -48,15 +56,8 @@ jest.mock('./useEarnPositions', () => ({
 }));
 
 jest.mock('app/icons/v2', () => ({
+  Icon: () => null,
   IconName: { ChevronLeft: 'ChevronLeft' }
-}));
-
-jest.mock('components/CircleButton', () => ({
-  CircleButton: ({ onClick }: { onClick?: () => void }) => (
-    <button type="button" aria-label="Back" onClick={onClick}>
-      Back
-    </button>
-  )
 }));
 
 jest.mock('components/Button', () => ({
@@ -130,7 +131,7 @@ describe('EarnWithdrawReview', () => {
     expect(screen.getByText('earnFullPositionGasless')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'withdraw' })).toBeEnabled();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+    fireEvent.click(screen.getByRole('button', { name: 'back' }));
     expect(goBack).toHaveBeenCalledTimes(1);
   });
 

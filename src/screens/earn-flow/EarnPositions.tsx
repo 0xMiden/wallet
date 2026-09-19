@@ -4,7 +4,7 @@ import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
-import { CircleButton } from 'components/CircleButton';
+import { PageHeader } from 'components/PageHeader';
 import { hapticLight } from 'lib/mobile/haptics';
 import { goBack, navigate } from 'lib/woozie';
 
@@ -25,20 +25,7 @@ const EarnPositions: FC = () => {
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-app-bg font-inter" data-testid="earn-positions-page">
-      <header className="shrink-0 border-b border-rule-default px-4 pb-4 pt-5">
-        <div className="flex items-center gap-3">
-          <CircleButton
-            icon={IconName.ChevronLeft}
-            onClick={goBack}
-            className="h-10 w-10 bg-gray-25 text-heading-gray hover:bg-gray-50 focus:bg-gray-50"
-            size="md"
-            aria-label={t('back')}
-          />
-          <h1 className="font-heading text-[26px] font-bold leading-none text-heading-gray">
-            {t('earnPositionsTitle')}
-          </h1>
-        </div>
-      </header>
+      <PageHeader className="shrink-0 px-4" title={t('earnPositionsTitle')} onBack={goBack} />
 
       <div className="flex-1 overflow-y-auto">
         <div className="flex flex-col px-4 pb-8 pt-4">

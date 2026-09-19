@@ -28,8 +28,8 @@ jest.mock('components/ui/Spinner', () => ({
   Spinner: () => <div data-testid="spinner" />
 }));
 
-jest.mock('components/ScreenHeader', () => ({
-  ScreenHeader: ({ title, onClose }: { title: string; onClose?: () => void }) => (
+jest.mock('components/PageHeader', () => ({
+  PageHeader: ({ title, onClose }: { title: string; onClose?: () => void }) => (
     <header>
       {title}
       <button type="button" aria-label="close" onClick={onClose} />
