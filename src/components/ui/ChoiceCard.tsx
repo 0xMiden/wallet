@@ -114,10 +114,7 @@ function ChoiceCardOption<T extends string>({ item, selected, focusable, onSelec
       )}
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
         <span className="flex min-w-0 items-start gap-2">
-          <span
-            id={titleId}
-            className="min-w-0 flex-1 font-heading text-[17px] leading-[22px] font-extrabold text-ink group-disabled:text-muted"
-          >
+          <span id={titleId} className="min-w-0 flex-1 text-row-title text-ink group-disabled:text-muted">
             {item.title}
           </span>
           {/* Top right of the card, beside the radio mark: a tag, not a header strip. */}
@@ -128,7 +125,7 @@ function ChoiceCardOption<T extends string>({ item, selected, focusable, onSelec
           )}
         </span>
         {item.subtitle && (
-          <span id={subtitleId} className="font-sans text-[13px] leading-[17px] text-muted">
+          <span id={subtitleId} className="text-caption text-muted">
             {item.subtitle}
           </span>
         )}
