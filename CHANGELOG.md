@@ -51,6 +51,7 @@
 - [FEATURE][all] Settings now has an optional seed phrase removal flow. It removes the phrase and Guardian recovery keys from local storage after backup verification. Daily signing keys remain. Guardian recovery actions accept temporary seed input without saving the phrase again. Account creation after removal is not yet supported.
 - [FEATURE][all] Guardian rotation and everyday key replacement are now offered on every Guardian account, including one imported from an everyday key only. When the wallet holds no local cold key, the action prompts for the seed phrase, derives the cold key against the account's on-chain cold signer, and keeps it in memory only for that one transaction.
 - [FEATURE][all] Show an in-wallet notification when a newer wallet version is detected, with the update summary and the action needed to apply it.
+- [FEATURE][all] Settings → About has a Support link to the Miden support site.
 
 ### Fixes
 
