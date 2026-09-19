@@ -41,7 +41,7 @@
  *     "New contact" button opens `/contacts/new`, which returns to the list on
  *     save. A contact row opens `/contacts/<address>`; Delete sits in that page's
  *     Edit mode and goes through `useConfirm()`, i.e. the app-wide
- *     ConfirmationModal. The wallet's own accounts are listed under
+ *     confirm sheet. The wallet's own accounts are listed under
  *     `address-book-account-*` and are not links, so they are never mistaken for
  *     a contact here.
  */

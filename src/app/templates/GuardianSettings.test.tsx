@@ -512,7 +512,7 @@ it('says Not connected, not Checking, for an account with no activated hot key',
 it('nests the section headings under the guardian name rather than beside it', () => {
   render(<GuardianSettings />);
 
-  // The rendered outline is h1 (Settings' NavigationHeader) → h2 (guardian name)
+  // The rendered outline is h1 (Settings' PageHeader) → h2 (guardian name)
   // → h3 (these two). Promoting them to h2 put them on a level with the name they
   // sit under, which is what a screen reader's heading list shows.
   expect(screen.getByText('about').tagName).toBe('H3');
