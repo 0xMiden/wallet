@@ -4728,6 +4728,14 @@
     "message": "Arama etkinliği",
     "englishSource": "Search activity"
   },
+  "activityFilters": {
+    "message": "Etkinlik filtreleri",
+    "englishSource": "Activity filters"
+  },
+  "chartTimeframe": {
+    "message": "Grafik zaman aralığı",
+    "englishSource": "Chart timeframe"
+  },
   "evmConnectTestWalletBody": {
     "message": "Bu köprü, Ethereum Sepolia üzerinde çalışır. Gerçek fon içeren bir cüzdanı bağlamayınız. Yeni bir cüzdan oluşturun ve içine yalnızca Sepolia ETH yatırın.",
     "englishSource": "This bridge runs on Ethereum Sepolia. Do not connect a wallet that holds real funds. Create a fresh wallet and fund it with Sepolia ETH only."

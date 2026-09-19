@@ -4728,6 +4728,14 @@
     "message": "Activité de recherche",
     "englishSource": "Search activity"
   },
+  "activityFilters": {
+    "message": "Filtres d'activité",
+    "englishSource": "Activity filters"
+  },
+  "chartTimeframe": {
+    "message": "Période du graphique",
+    "englishSource": "Chart timeframe"
+  },
   "evmConnectTestWalletBody": {
     "message": "Ce pont fonctionne sur Ethereum Sepolia. Ne connectez pas de portefeuille contenant de véritables fonds. Créez un nouveau portefeuille et approvisionnez-le uniquement en ETH Sepolia.",
     "englishSource": "This bridge runs on Ethereum Sepolia. Do not connect a wallet that holds real funds. Create a fresh wallet and fund it with Sepolia ETH only."

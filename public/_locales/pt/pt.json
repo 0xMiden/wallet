@@ -1069,6 +1069,8 @@
   "qrNetworkCaption": "Miden $network$",
   "activityRejectExplanation": "Ocultar esta transferência da seção “Atividade” neste dispositivo? Isso não devolve fundos ao remetente nem exclui o “note”. Você pode restaurar transferências ocultas na seção “Atividade”.",
   "activitySearch": "Atividade de pesquisa",
+  "activityFilters": "Filtros de atividade",
+  "chartTimeframe": "Período do gráfico",
   "evmConnectTestWalletBody": "Esta ponte opera na Ethereum Sepolia. Não conecte uma carteira que contenha fundos reais. Crie uma carteira nova e deposite nela apenas ETH da Sepolia.",
   "activityAcceptTransfer": "Aceitar transferência",
   "activityDateUnavailable": "Data indisponível",

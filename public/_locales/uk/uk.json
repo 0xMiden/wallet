@@ -1069,6 +1069,8 @@
   "qrNetworkCaption": "Miden $network$",
   "activityRejectExplanation": "Приховати цей переказ у розділі «Активність» на цьому пристрої? Це не повертає кошти відправнику та не видаляє запис «note». Ви можете відновити приховані перекази в розділі «Активність».",
   "activitySearch": "Активність пошуку",
+  "activityFilters": "Фільтри активності",
+  "chartTimeframe": "Період графіка",
   "evmConnectTestWalletBody": "Цей міст працює на Ethereum Sepolia. Не підключайте гаманець, на якому зберігаються реальні кошти. Створіть новий гаманець і поповніть його виключно ETH мережі Sepolia.",
   "activityAcceptTransfer": "Прийняти переказ",
   "activityDateUnavailable": "Дата недоступна",

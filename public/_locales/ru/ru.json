@@ -1069,6 +1069,8 @@
   "qrNetworkCaption": "Miden $network$",
   "activityRejectExplanation": "Скрыть этот перевод из раздела «Активность» на этом устройстве? Это не приводит к возврату средств отправителю и не удаляет запись «note». Вы можете восстановить скрытые переводы в разделе «Активность».",
   "activitySearch": "Активность поиска",
+  "activityFilters": "Фильтры активности",
+  "chartTimeframe": "Период графика",
   "evmConnectTestWalletBody": "Этот мост работает на Ethereum Sepolia. Не подключайте кошелек, в котором хранятся реальные средства. Создайте новый кошелек и пополните его исключительно токенами Sepolia ETH.",
   "activityAcceptTransfer": "Принять перевод",
   "activityDateUnavailable": "Дата отсутствует",

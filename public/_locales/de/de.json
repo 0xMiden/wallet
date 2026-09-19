@@ -1069,6 +1069,8 @@
   "qrNetworkCaption": "Miden $network$",
   "activityRejectExplanation": "Diese Überweisung in „Aktivität“ auf diesem Gerät ausblenden? Dadurch werden keine Gelder an den Absender zurücküberwiesen und die „note“ wird nicht gelöscht. Sie können ausgeblendete Überweisungen in „Aktivität“ wiederherstellen.",
   "activitySearch": "Suchaktivität",
+  "activityFilters": "Aktivitätsfilter",
+  "chartTimeframe": "Diagrammzeitraum",
   "evmConnectTestWalletBody": "Diese Bridge läuft auf Ethereum Sepolia. Verbinden Sie keine Wallet, die echtes Geld enthält. Erstellen Sie eine neue Wallet und laden Sie diese ausschließlich mit Sepolia-ETH auf.",
   "activityAcceptTransfer": "Überweisung akzeptieren",
   "activityDateUnavailable": "Datum nicht verfügbar",
