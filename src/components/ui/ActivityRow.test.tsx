@@ -146,12 +146,12 @@ describe('ActivityRow', () => {
 
     it('applies the positive amount color', () => {
       renderRow({ amount: { value: '+5', direction: 'positive' } });
-      expect(screen.getByText('+5').className).toContain('text-positive-ink');
+      expect(screen.getByText('+5').className).toContain('text-positive-tint-ink');
     });
 
     it('applies the negative amount color', () => {
       renderRow({ amount: { value: '-5', direction: 'negative' } });
-      expect(screen.getByText('-5').className).toContain('text-negative-ink');
+      expect(screen.getByText('-5').className).toContain('text-negative-tint-ink');
     });
 
     it('applies the explicit neutral amount color', () => {
@@ -165,11 +165,11 @@ describe('ActivityRow', () => {
     });
 
     it.each(['positive', 'negative'] as const)(
-      'inks a %s amount with the AA status ink, never the raw status fill (#90BA89 was 2.19:1)',
+      'inks a %s amount with the badge palette ink, never the raw status fill (#90BA89 was 2.19:1)',
       direction => {
         renderRow({ amount: { value: '9', direction } });
         const className = screen.getByText('9').className;
-        expect(className).toContain(`text-${direction}-ink`);
+        expect(className).toContain(`text-${direction}-tint-ink`);
         expect(className).not.toMatch(/text-status-/);
       }
     );
@@ -193,7 +193,7 @@ describe('ActivityRow', () => {
       expect(amount.textContent).toBe('+20 AAA, +1 T0, +2 T1');
       // Extras inherit the primary's direction colour — a claim's secondary
       // assets arrived too, so rendering them neutral would read as "unchanged".
-      expect(screen.getByText('+1').className).toContain('text-positive-ink');
+      expect(screen.getByText('+1').className).toContain('text-positive-tint-ink');
       expect(screen.queryByTestId('row-amount-extra-overflow')).toBeNull();
     });
 

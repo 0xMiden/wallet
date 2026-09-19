@@ -73,11 +73,12 @@ export interface ActivityRowProps {
   entryKey?: string;
 }
 
-// The status inks, not the raw status fills: #90BA89 was 2.19:1 on white. On the row's `fill` card
-// these read 4.59 / 4.61:1 light and 7.05 / 6.00:1 dark (`lib/ui/design-tokens.test.ts`).
+// The status badge's sage and clay inks, so an amount and the badge under it speak one palette.
+// Never the raw status fills (#90BA89 was 2.19:1 on white): on the row's `fill` card these read
+// 5.62 / 5.56:1 light and 8.38 / 7.30:1 dark (`lib/ui/design-tokens.test.ts`).
 const AMOUNT_COLOR: Record<ActivityAmountDirection, string> = {
-  positive: 'text-positive-ink',
-  negative: 'text-negative-ink',
+  positive: 'text-positive-tint-ink',
+  negative: 'text-negative-tint-ink',
   neutral: 'text-ink'
 };
 
