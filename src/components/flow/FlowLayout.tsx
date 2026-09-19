@@ -19,6 +19,11 @@ export interface FlowLayoutProps {
   onClose?: () => void;
   /** Focus the title on mount, for screens that replace another in place. */
   focusTitleOnMount?: boolean;
+  /**
+   * The flow's first page is a tab root (Send's recipient step): its title is the tab's, drawn at
+   * `text-title-tab` in the same 60px row as TabHeader's, not a pushed page's navigation bar.
+   */
+  tabRoot?: boolean;
   children: React.ReactNode;
   /** The page's CTAs, pinned to the bottom. */
   footer: React.ReactNode;
@@ -35,6 +40,7 @@ export const FlowLayout: React.FC<FlowLayoutProps> = ({
   onBack,
   onClose,
   focusTitleOnMount,
+  tabRoot = false,
   children,
   footer
 }) => {
@@ -48,15 +54,22 @@ export const FlowLayout: React.FC<FlowLayoutProps> = ({
 
   return (
     <div ref={rootRef} className="flex h-full min-h-0 flex-1 flex-col bg-app-bg px-6">
-      <PageHeader
-        title={title}
-        onBack={onBack}
-        onClose={onClose}
-        actions={titleAccessory}
-        focusTitleOnMount={focusTitleOnMount}
-        backTestId="flow-back"
-        closeTestId="flow-close"
-      />
+      {tabRoot ? (
+        <header className="flex h-15 shrink-0 items-center justify-between gap-3">
+          <h1 className="min-w-0 truncate text-title-tab text-ink">{title}</h1>
+          {titleAccessory && <div className="flex shrink-0 items-center gap-2">{titleAccessory}</div>}
+        </header>
+      ) : (
+        <PageHeader
+          title={title}
+          onBack={onBack}
+          onClose={onClose}
+          actions={titleAccessory}
+          focusTitleOnMount={focusTitleOnMount}
+          backTestId="flow-back"
+          closeTestId="flow-close"
+        />
+      )}
 
       <div className="no-scrollbar flex min-h-0 flex-1 flex-col overflow-y-auto pt-2">{children}</div>
 
