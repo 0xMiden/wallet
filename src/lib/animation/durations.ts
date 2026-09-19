@@ -15,9 +15,7 @@ export const durations = {
   /** A step swap inside one page: the `Navigator` flows and onboarding (`pageStepTransition`) */
   pageStep: 0.15,
   /** One pass of a looping shimmer (`presets.shimmer`) */
-  shimmer: 1.2,
-  /** One breath of a looping status pulse (`presets.pulse`) */
-  pulse: 1.6
+  shimmer: 1.2
 } as const;
 
 export type DurationName = keyof typeof durations;
