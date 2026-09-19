@@ -128,7 +128,10 @@ const DAppCard: FC<{
             <span className="text-sm text-accent-orange">
               <AddressShortView address={accountId} />
             </span>
-            <CopyButton text={accountId} className="p-1 rounded-sm">
+            <CopyButton
+              text={accountId}
+              className="p-1 rounded-sm hover:bg-gray-100 transition-colors ease-hover duration-150"
+            >
               {copied =>
                 copied ? (
                   <Icon name={IconName.Checkmark} className="w-3! h-3! text-text-muted" />

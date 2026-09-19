@@ -162,10 +162,18 @@ describe('DAppSettings', () => {
     expect(screen.getAllByTestId('addr-short')).toHaveLength(2);
     expect(screen.getAllByTestId('addr-short')[0]).toHaveTextContent(ACCOUNT_ID);
 
-    // CopyButton is wired with the accountId as its copy text, and a tap target matching the
-    // neighboring explorer link's (`p-1 rounded-sm`).
+    // CopyButton is wired with the accountId as its copy text, and a tap target + hover matching
+    // the neighboring explorer link's (`p-1 rounded-sm hover:bg-gray-100 transition-colors
+    // ease-hover duration-150`).
     expect(screen.getAllByTestId('copy-btn')[0]).toHaveAttribute('data-copy-text', ACCOUNT_ID);
-    expect(screen.getAllByTestId('copy-btn')[0]).toHaveClass('p-1', 'rounded-sm');
+    expect(screen.getAllByTestId('copy-btn')[0]).toHaveClass(
+      'p-1',
+      'rounded-sm',
+      'hover:bg-gray-100',
+      'transition-colors',
+      'ease-hover',
+      'duration-150'
+    );
 
     // UponRequest → permissionUponRequest; Auto → permissionAutomatic.
     expect(screen.getByText('permissionUponRequest')).toBeInTheDocument();
