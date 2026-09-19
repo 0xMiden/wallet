@@ -155,7 +155,9 @@ jest.mock('components/Button', () => {
       ReactLib.createElement(
         'button',
         {
-          type: type ?? 'submit',
+          // Match the real Button's own default (type="button") so this only reads
+          // "submit" when the caller passes it explicitly, not as a mock fallback.
+          type: type ?? 'button',
           'data-testid': 'submit-button',
           'data-loading': String(Boolean(isLoading)),
           disabled: Boolean(disabled)
@@ -511,6 +513,11 @@ describe('submit button + error caption (file loaded)', () => {
     const { container } = renderScreen();
     uploadViaInput(container, 'wallet.json', { mode: 'load', content: VALID_WALLET_JSON });
     expect(screen.getByTestId('submit-button')).toBeEnabled();
+  });
+
+  it('pins type="submit" (the canonical Button defaults to type="button")', () => {
+    renderScreen();
+    expect(screen.getByTestId('submit-button')).toHaveAttribute('type', 'submit');
   });
 
   it('keeps submit disabled when the form is invalid even with a file loaded', () => {

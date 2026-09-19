@@ -135,6 +135,9 @@ describe('EditMidenFaucetId', () => {
     // No success message and no error before any interaction.
     expect(screen.queryByText('faucetIdUpdated')).not.toBeInTheDocument();
     expect(screen.queryByTestId('error-faucetId')).not.toBeInTheDocument();
+    // FormSubmitButton defaulted to type="submit"; the canonical Button defaults to
+    // type="button", so the caller has to pin it explicitly.
+    expect(screen.getByTestId('submit-btn')).toHaveAttribute('type', 'submit');
   });
 
   it('autofocuses the faucet-id input on mount (useLayoutEffect)', () => {
