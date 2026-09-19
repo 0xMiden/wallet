@@ -2,7 +2,7 @@ import React from 'react';
 
 import { render, screen, fireEvent, act } from '@testing-library/react';
 
-import { pageStepFadeOffset, pageStepTransition } from 'lib/animation';
+import { pageStepFadeOffset, pageStepTransition, reducedMotionTransition } from 'lib/animation';
 
 import { OnboardingFlow } from './navigator';
 import { ImportType, OnboardingStep, OnboardingType, WalletType } from './types';
@@ -609,7 +609,7 @@ describe('OnboardingFlow — motion variants (reduced motion & direction)', () =
     mockPlatform.isMobile = mobile;
     mockReduceMotion = true;
     renderFlow({ step: OnboardingStep.BackupSeedPhrase });
-    expect(mockMotion.step.transition).toEqual({ duration: 0.001 });
+    expect(mockMotion.step.transition).toEqual(reducedMotionTransition);
     expect(mockMotion.step.variants.initialState).toEqual({ x: 0, opacity: 0 });
     expect(mockMotion.step.variants.exitState).toEqual({ x: 0, opacity: 0 });
   });

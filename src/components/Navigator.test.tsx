@@ -2,7 +2,7 @@ import React from 'react';
 
 import { act, render, renderHook, screen } from '@testing-library/react';
 
-import { pageStepOffset, pageStepTransition } from 'lib/animation';
+import { pageStepOffset, pageStepPresentOffset, pageStepTransition, reducedMotionTransition } from 'lib/animation';
 
 import {
   DefaultAnimationConfig,
@@ -324,12 +324,17 @@ describe('Navigator component', () => {
     mockIsMobile = mobile;
     mockReduceMotion = true;
     renderNavigator({ animationDuration: 0.5 });
-    expect(mockMotionCapture.props.transition).toEqual({ duration: 0.001, when: 'beforeChildren' });
+    expect(mockMotionCapture.props.transition).toEqual({ ...reducedMotionTransition, when: 'beforeChildren' });
   });
 
   it('nudges a pushed step in by pageStepOffset, from the right forward and the left back', () => {
     expect(DefaultAnimationConfig.pushInitialPosition.x).toBe(pageStepOffset);
     expect(DefaultAnimationConfig.pushBackInitialPosition.x).toBe(`-${pageStepOffset}`);
+  });
+
+  it('presents a step from pageStepPresentOffset below and dismisses it back there', () => {
+    expect(DefaultAnimationConfig.presentInitialPosition.y).toBe(pageStepPresentOffset);
+    expect(DefaultAnimationConfig.presentExitPosition.y).toBe(pageStepPresentOffset);
   });
 
   describe('animation variants (default config)', () => {

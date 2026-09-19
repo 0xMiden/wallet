@@ -2,7 +2,7 @@ import React from 'react';
 
 import { render, screen, fireEvent } from '@testing-library/react';
 
-import { presets, springs } from 'lib/animation';
+import { presets, reducedMotionTransition, springs } from 'lib/animation';
 import { hapticMedium } from 'lib/mobile/haptics';
 
 import { Toggle } from './Toggle';
@@ -213,7 +213,7 @@ describe('Toggle', () => {
       mockReduceMotion = true;
       render(<Toggle data-testid="toggle" />);
 
-      expect(JSON.parse(getThumb().getAttribute('data-transition') as string)).toEqual({ duration: 0.001 });
+      expect(JSON.parse(getThumb().getAttribute('data-transition') as string)).toEqual(reducedMotionTransition);
     });
 
     it('disables layout animation and uses a zero-duration transition on the extension', () => {

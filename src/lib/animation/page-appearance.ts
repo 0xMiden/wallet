@@ -4,12 +4,6 @@ import { durations } from './durations';
 import { easings } from './easings';
 import { resolveTransition } from './use-motion';
 
-export const pageAppearance: Transition = {
-  type: 'tween',
-  duration: 0.12,
-  ease: 'easeOut'
-};
-
 // Stacked page slide. The page that comes in moves from the right edge.
 // The page below it moves a quarter of its width to the left and gets a
 // light dim, so the two pages read as one stack. A pop plays the same
@@ -44,6 +38,10 @@ export const pageStepOffset = '8%';
 
 // How far an onboarding step drifts while it fades. Negated going back.
 export const pageStepFadeOffset = '1vw';
+
+// How far a `Navigator` step presented over the flow (`animationIn: 'present'`)
+// rises from while it fades in, and sinks back to while it fades out.
+export const pageStepPresentOffset = '25vw';
 
 /**
  * The step transition for this platform and motion preference. Steps animate

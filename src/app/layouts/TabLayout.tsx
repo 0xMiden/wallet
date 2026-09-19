@@ -19,8 +19,7 @@ import { Icon, IconName } from 'app/icons/v2';
 import HomeSwipeContainer from 'app/layouts/HomeSwipeContainer';
 import { PageActiveContext, usePageActive } from 'app/layouts/page-active';
 import { BottomNav, BottomNavItem, SegmentedActionBar } from 'components/ui';
-import { useMotion } from 'lib/animation';
-import { pageAppearance } from 'lib/animation/page-appearance';
+import { usePreset } from 'lib/animation';
 import { isSwapEnabled } from 'lib/feature-flags';
 import { hapticSelection } from 'lib/mobile/haptics';
 import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
@@ -189,12 +188,12 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
 
   const dockedBar = useRef<DockedNavBarHandle>(null);
 
-  // The fade plays once, when the layout mounts. A tab change swaps panes
-  // with no animation, like a native tab bar.
+  // The `fade` preset plays once, when the layout mounts. A tab change swaps
+  // panes with no animation, like a native tab bar.
   const reduce = useReducedMotion();
-  const appearance = useMotion(pageAppearance);
+  const fade = usePreset('fade');
   const appear = !reduce && !isReturningFromWebview();
-  const initial = appear ? { opacity: 0 } : false;
+  const initial = appear ? (fade.initial ?? false) : false;
 
   const tabs = [
     {
@@ -341,8 +340,8 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
       <motion.div
         className="flex-1 min-h-0 relative"
         initial={initial}
-        animate={{ opacity: 1 }}
-        transition={appearance}
+        animate={fade.animate}
+        transition={fade.transition}
       >
         {panes.map(id => (
           <TabPane key={id} id={id} active={id === activeTab}>

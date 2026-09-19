@@ -3,7 +3,7 @@ import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 
 import { Button as LegacyPathButton, ButtonVariant as LegacyPathButtonVariant } from 'components/Button';
-import { presets, springs } from 'lib/animation';
+import { presets, reducedMotionTransition, springs } from 'lib/animation';
 import { hapticLight } from 'lib/mobile/haptics';
 
 import { Button, ButtonVariant } from './Button';
@@ -260,7 +260,7 @@ describe('Button', () => {
       render(<Button />);
 
       expect(motionProp('while-tap')).toEqual(presets.press.whileTap);
-      expect(motionProp('transition')).toEqual({ duration: 0.001 });
+      expect(motionProp('transition')).toEqual(reducedMotionTransition);
     });
 
     it.each([

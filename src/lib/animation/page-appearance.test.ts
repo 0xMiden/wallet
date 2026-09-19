@@ -4,11 +4,13 @@ import {
   pageSlideEntrance,
   pageStepFadeOffset,
   pageStepOffset,
+  pageStepPresentOffset,
   pageStepTransition,
   resolvePageStepTransition
 } from './page-appearance';
+import { reducedMotionTransition } from './use-motion';
 
-const INSTANT = { duration: 0.001 };
+const INSTANT = reducedMotionTransition;
 
 describe('lib/animation/page-appearance', () => {
   it('slides a stacked page over durations.page on the standard curve', () => {
@@ -21,9 +23,10 @@ describe('lib/animation/page-appearance', () => {
     expect(pageStepTransition).toEqual({ type: 'tween', duration: durations.pageStep, ease: easings.standard });
   });
 
-  it('names how far a step travels: an 8% nudge for Navigator, a 1vw drift for onboarding', () => {
+  it('names how far a step travels: an 8% nudge for Navigator, a 1vw drift for onboarding, 25vw for a presented step', () => {
     expect(pageStepOffset).toBe('8%');
     expect(pageStepFadeOffset).toBe('1vw');
+    expect(pageStepPresentOffset).toBe('25vw');
   });
 
   describe('resolvePageStepTransition', () => {
