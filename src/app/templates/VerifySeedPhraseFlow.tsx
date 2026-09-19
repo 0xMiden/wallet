@@ -7,10 +7,12 @@ import Alert from 'app/atoms/Alert';
 import { Icon, IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
 import { PasscodeEntry } from 'components/PasscodeEntry';
+import { AnimatedCopyIcon, CopyLabel } from 'components/ui/CopyFeedback';
 import { Hero } from 'components/ui/Hero';
 import { Pill } from 'components/ui/Pill';
 import { SubPageLayout, SubPageSection } from 'components/ui/SubPageLayout';
 import { TextField } from 'components/ui/TextField';
+import { COPY_FEEDBACK_MS } from 'lib/animation/copy';
 import { Vault } from 'lib/miden/back/vault';
 import { useMidenContext } from 'lib/miden/front';
 import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
@@ -48,7 +50,7 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean }> = ({ remove = false }) => {
   const [hasHardwareProtector, setHasHardwareProtector] = useState<boolean | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
-  const { fieldRef, copy, copied } = useCopyToClipboard();
+  const { fieldRef, copy, copied } = useCopyToClipboard(COPY_FEEDBACK_MS);
 
   // Block screenshots/recordings while the phrase is revealed (#417). The
   // phrase is only rendered once the guard reports the screen is protected.
@@ -356,11 +358,13 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean }> = ({ remove = false }) => {
               {!remove && (
                 <Pill
                   className="mt-3 self-start"
-                  icon={<Icon name={copied ? IconName.CheckboxCircleFill : IconName.FileCopy} size="xs" />}
+                  icon={<AnimatedCopyIcon copied={copied} className="h-full w-full" />}
                   onClick={copy}
                   data-testid="verify-seed-copy"
                 >
-                  {t(copied ? 'copied' : 'copyToClipboard')}
+                  <CopyLabel copied={copied} copiedLabel={t('copied')}>
+                    {t('copyToClipboard')}
+                  </CopyLabel>
                 </Pill>
               )}
             </>
