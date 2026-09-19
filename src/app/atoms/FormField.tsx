@@ -14,11 +14,8 @@ import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import CleanButton from 'app/atoms/CleanButton';
-import CopyButton from 'app/atoms/CopyButton';
-import { ReactComponent as CopyIcon } from 'app/icons/copy.svg';
 import { ReactComponent as EyeClosedIcon } from 'app/icons/eye-closed-bold.svg';
 import { blurHandler, checkedHandler, focusHandler } from 'lib/ui/inputHandlers';
-import useCopyToClipboard from 'lib/ui/useCopyToClipboard';
 
 import usePasswordToggle from './usePasswordToggle.hook';
 
@@ -44,7 +41,6 @@ interface FormFieldProps extends FormFieldAttrs {
   fieldWrapperBottomMargin?: boolean;
   labelPaddingClassName?: string;
   dropdownInner?: ReactNode;
-  copyable?: boolean;
   labelClassName?: string;
   labelDescriptionClassName?: string;
 }
@@ -79,7 +75,6 @@ const FormField = forwardRef<FormFieldRef, FormFieldProps>(
       autoComplete = 'off',
       fieldWrapperBottomMargin = true,
       labelPaddingClassName = '',
-      copyable,
       labelClassName,
       labelDescriptionClassName,
       ...rest
@@ -92,8 +87,6 @@ const FormField = forwardRef<FormFieldRef, FormFieldProps>(
     const [passwordInputType, TogglePasswordIcon] = usePasswordToggle();
     const isPasswordInput = type === 'password';
     const inputType = isPasswordInput ? passwordInputType : type;
-
-    const { copy } = useCopyToClipboard();
 
     const [localValue, setLocalValue] = useState(value ?? defaultValue ?? '');
     const [focused, setFocused] = useState(false);
@@ -224,7 +217,6 @@ const FormField = forwardRef<FormFieldRef, FormFieldProps>(
           />
 
           <Cleanable cleanable={cleanable} handleCleanClick={handleCleanClick} />
-          <Copyable value={value} copy={copy} cleanable={cleanable} copyable={copyable} />
         </div>
         <ErrorCaption errorCaption={errorCaption} />
       </div>
@@ -292,32 +284,6 @@ interface CleanableProps {
 
 const Cleanable: React.FC<CleanableProps> = ({ cleanable, handleCleanClick }) =>
   cleanable ? <CleanButton onClick={handleCleanClick} /> : null;
-
-interface CopyableProps {
-  value: React.ReactNode;
-  copy: () => void;
-  cleanable: React.ReactNode;
-  copyable: React.ReactNode;
-}
-
-const Copyable: React.FC<CopyableProps> = ({ copy, cleanable, value, copyable }) =>
-  copyable ? (
-    <CopyButton
-      style={{
-        position: 'absolute',
-        bottom: cleanable ? '3px' : '0px',
-        right: cleanable ? '30px' : '5px'
-      }}
-      text={value as string}
-      type="link"
-    >
-      <CopyIcon
-        style={{ verticalAlign: 'inherit' }}
-        className={classNames('h-4 ml-1 w-auto inline', 'stroke-orange stroke-2')}
-        onClick={() => copy()}
-      />
-    </CopyButton>
-  ) : null;
 
 interface ErrorCaptionProps {
   errorCaption: React.ReactNode;
