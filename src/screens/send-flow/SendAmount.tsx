@@ -9,6 +9,7 @@ import { Button, ButtonVariant } from 'components/Button';
 import { NetworkChip } from 'components/NetworkChip';
 import { TokenLogo } from 'components/TokenLogo';
 import { Pill } from 'components/ui';
+import { Card } from 'components/ui/Card';
 import { useMotion } from 'lib/animation';
 import { durations } from 'lib/animation/durations';
 import { easings } from 'lib/animation/easings';
@@ -183,10 +184,7 @@ export const SendAmount: React.FC<SendAmountProps> = ({
             transition={transition}
           >
             <div className="pt-4">
-              <div
-                data-testid="send-fee-notice"
-                className="flex items-start gap-3 rounded-2xl border border-border-subtle px-4 py-3"
-              >
+              <Card padding="row" data-testid="send-fee-notice" className="flex items-start gap-3">
                 <Icon
                   name={IconName.InformationFill}
                   size="xs"
@@ -208,7 +206,7 @@ export const SendAmount: React.FC<SendAmountProps> = ({
                     <Icon name={IconName.ChevronRightLucide} size="xs" className="text-accent-send" />
                   </button>
                 </div>
-              </div>
+              </Card>
             </div>
           </motion.div>
         )}

@@ -4,6 +4,7 @@ import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import { Button, ButtonVariant } from 'components/Button';
+import { Card } from 'components/ui/Card';
 import { fetchTokenMetadata } from 'lib/miden/metadata/fetch';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { formatAmount } from 'lib/shared/format';
@@ -96,7 +97,7 @@ export const TransactionAssetView: React.FC<TransactionAssetViewProps> = ({ view
         <span className="text-text-muted text-xs mb-2 self-start">{t('declaredBySiteVerifying')}</span>
       )}
 
-      <div className="flex flex-col border border-gray-100 rounded-2xl mb-4 w-full p-4">
+      <Card padding="tile" className="mb-4 flex w-full flex-col">
         {view.account && (
           <div
             className={`flex flex-row w-full items-center justify-between border-gray-100 ${
@@ -162,7 +163,7 @@ export const TransactionAssetView: React.FC<TransactionAssetViewProps> = ({ view
             ))}
           </div>
         )}
-      </div>
+      </Card>
 
       <div className="flex flex-col w-full border-b border-gray-100 pb-4">
         <div className="flex flex-row w-full items-center justify-between pb-1">

@@ -56,6 +56,15 @@ describe('SelectImportTypeScreen', () => {
     expect(screen.getAllByRole('button')).toHaveLength(2);
   });
 
+  it('draws each choice as a fill card with no border', () => {
+    renderComponent();
+
+    screen.getAllByRole('button').forEach(button => {
+      expect(button).toHaveClass('bg-fill', 'rounded-2xl', 'p-4');
+      expect(button.className.split(/\s+/).some(c => /^border(-|$)/.test(c))).toBe(false);
+    });
+  });
+
   it('renders an arrow icon for each option', () => {
     const { container } = renderComponent();
     expect(container.querySelectorAll('svg')).toHaveLength(2);

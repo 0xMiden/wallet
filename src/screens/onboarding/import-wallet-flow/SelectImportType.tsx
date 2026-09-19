@@ -3,6 +3,7 @@ import React, { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { ReactComponent as ArrowRightIcon } from 'app/icons/arrow-right.svg';
+import { CardButton } from 'components/ui/Card';
 
 import { ImportType } from '../types';
 
@@ -46,13 +47,13 @@ export const SelectImportTypeScreen = ({ onSubmit }: SelectImportTypeScreenProps
       </div>
       <div className="flex flex-col gap-3 w-full pb-4">
         {ImportTypeOptions.map(option => (
-          <button
-            type="button"
+          <CardButton
+            padding="tile"
             key={option.id}
             // The E2E harness drives this step; matching on translated titles
             // would tie the suite to copy in whichever locale the build carries.
             data-testid={`import-type-${option.id}`}
-            className="flex flex-col border border-border-card w-full p-4 rounded-xl text-left hover:bg-fill-pressed transition-colors"
+            className="flex w-full flex-col"
             onClick={() => onSubmit?.(option.id)}
           >
             <div className="flex flex-row justify-between items-center">
@@ -60,7 +61,7 @@ export const SelectImportTypeScreen = ({ onSubmit }: SelectImportTypeScreenProps
               <ArrowRightIcon fill="currentColor" height={'16px'} width={'16px'} className="flex-shrink-0 ml-2" />
             </div>
             <p className="text-xs text-text-muted mt-1">{option.description}</p>
-          </button>
+          </CardButton>
         ))}
       </div>
     </div>

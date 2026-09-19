@@ -102,6 +102,11 @@ describe('EarnPositions', () => {
     const region = screen.getByRole('region', { name: 'earnPositionsRegionLabel' });
     const cards = within(region).getAllByRole('button');
     expect(cards).toHaveLength(EARN_DATA.positions.length);
+    // Each card is the shared fill card, never an outlined one.
+    cards.forEach(card => {
+      expect(card).toHaveClass('bg-fill', 'rounded-2xl');
+      expect(card.className.split(/\s+/).some(c => /^border(-|$)/.test(c))).toBe(false);
+    });
 
     // ProviderLogo + trailing sr-only chevron Icon appear once per card.
     expect(within(region).getAllByTestId('provider-logo')).toHaveLength(EARN_DATA.positions.length);
