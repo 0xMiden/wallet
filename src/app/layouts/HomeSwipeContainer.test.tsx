@@ -261,6 +261,12 @@ function settleAt(x: number) {
   mockX = x;
 }
 
+/** Land the track where the last `animate` call was taking it, as a finished animation would. */
+function finishAnimations() {
+  const target = mockAnimate.mock.calls[mockAnimate.mock.calls.length - 1]?.[1];
+  if (typeof target === 'number') settleAt(target);
+}
+
 /** The release in flight, asserting there is one. */
 function releaseInFlight(): MockRelease {
   const animation = mockReleases[mockReleases.length - 1];
@@ -420,6 +426,75 @@ describe('HomeSwipeContainer', () => {
       render(<HomeSwipeContainer />);
       measure(300);
       expect(mockAnimate).toHaveBeenCalledWith(mockMotionValue, -0, expect.anything());
+    });
+  });
+
+  describe('while another tab is showing', () => {
+    // TabLayout keeps the Home pane mounted, hidden, while Explore, Activity or
+    // Settings shows, and this component reads the live route. None of those
+    // routes is a home page, and treating them as Overview slid the hidden track
+    // there, so coming back showed Overview and then slid to the page the bar named.
+    it('holds the track on its page instead of sliding it to Overview', () => {
+      mockPathname = '/send';
+      const { rerender } = render(<HomeSwipeContainer />);
+      measure(300);
+      settleAt(-300);
+      mockAnimate.mockClear();
+      mockMotionSet.mockClear();
+
+      mockPathname = '/history';
+      act(() => {
+        rerender(<HomeSwipeContainer />);
+      });
+
+      expect(mockAnimate).not.toHaveBeenCalledWith(mockMotionValue, -0, expect.anything());
+      expect(mockMotionSet).not.toHaveBeenCalledWith(-0);
+    });
+
+    it('shows the page again without a slide when the route comes back to it', () => {
+      mockPathname = '/send';
+      const { rerender } = render(<HomeSwipeContainer />);
+      measure(300);
+      settleAt(-300);
+      mockPathname = '/history';
+      act(() => {
+        rerender(<HomeSwipeContainer />);
+      });
+      finishAnimations();
+      mockAnimate.mockClear();
+
+      mockPathname = '/send';
+      act(() => {
+        rerender(<HomeSwipeContainer />);
+      });
+
+      expect(mockAnimate).not.toHaveBeenCalled();
+      expect(mockX).toBe(-300);
+    });
+
+    it('swaps straight to Overview when Home is chosen from another tab', () => {
+      mockPathname = '/receive';
+      const { rerender } = render(<HomeSwipeContainer />);
+      measure(300);
+      settleAt(-600);
+      mockPathname = '/history';
+      act(() => {
+        rerender(<HomeSwipeContainer />);
+      });
+      finishAnimations();
+      mockAnimate.mockClear();
+      mockMotionSet.mockClear();
+
+      mockPathname = '/';
+      act(() => {
+        rerender(<HomeSwipeContainer />);
+      });
+
+      // The pane was hidden, so the change is a tab swap: no slide across the
+      // pages in between as it appears.
+      expect(mockAnimate).not.toHaveBeenCalled();
+      expect(mockMotionSet).toHaveBeenLastCalledWith(-0);
+      expect(mockX).toBe(-0);
     });
   });
 
