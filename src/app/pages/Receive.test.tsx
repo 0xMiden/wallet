@@ -198,25 +198,32 @@ describe('Receive - Address', () => {
     expect(full?.textContent).toBe('test-account-123');
   });
 
-  it('shows "copied" for a beat after tapping the address, then reverts to the truncated address', async () => {
+  it('rolls the address to "copied" and morphs the glyph to a check for a beat, then reverts', async () => {
     jest.useFakeTimers({ doNotFake: ['queueMicrotask'] });
     const container = await renderReceive();
     const copyButton = container.querySelector('[data-testid="receive-copy-address"]')!;
 
     // The address is a full-width 44px pill on `fill`, aligned with the notice and actions.
     expect(copyButton).toHaveClass('h-11', 'w-full', 'rounded-full', 'bg-fill', 'text-ink');
-    expect(copyButton.textContent).toBe('test-acc');
+    // The shared CopyButton: the animated glyph leads, the address label rolls to "copied".
+    const label = () => copyButton.querySelector('[data-copy-label] [data-present="true"]');
+    const glyph = () => copyButton.querySelector('[data-copy-icon] [data-present="true"]');
+    expect(copyButton.querySelector('[aria-live]')!.firstElementChild).toHaveAttribute('data-copy-icon');
+    expect(label()?.textContent).toBe('test-acc');
+    expect(glyph()).toHaveAttribute('data-copy-state', 'idle');
 
     await act(async () => {
       fireEvent.click(copyButton);
     });
     expect(mockClipboardWrite).toHaveBeenCalledWith({ string: 'test-account-123' });
-    expect(copyButton.textContent).toBe('copied');
+    expect(label()?.textContent).toBe('copied');
+    expect(glyph()).toHaveAttribute('data-copy-state', 'copied');
 
     act(() => {
       jest.advanceTimersByTime(1500);
     });
-    expect(copyButton.textContent).toBe('test-acc');
+    expect(label()?.textContent).toBe('test-acc');
+    expect(glyph()).toHaveAttribute('data-copy-state', 'idle');
 
     jest.useRealTimers();
   });
