@@ -2,9 +2,9 @@ import React from 'react';
 
 import { useTranslation } from 'react-i18next';
 
-import { ActivitySpinner } from 'app/atoms/ActivitySpinner';
 import { Button, ButtonVariant } from 'components/Button';
 import { ScreenHeader } from 'components/ScreenHeader';
+import { Spinner } from 'components/ui/Spinner';
 import { IBridgedReceiveExtraInputs } from 'lib/miden/db/types';
 import { openExternalUrl } from 'lib/mobile/external-browser';
 import { TransactionHeroIcon } from 'screens/generating-transaction/components';
@@ -22,7 +22,12 @@ export const EvmBridgeDepositStatus: React.FC<EvmBridgeDepositStatusProps> = ({ 
   const { t } = useTranslation();
   const { row, loaded } = useTransactionRow(txId);
 
-  if (!loaded || !row) return <ActivitySpinner />;
+  if (!loaded || !row)
+    return (
+      <div className="flex h-[21px] w-full items-center justify-center pt-8">
+        <Spinner />
+      </div>
+    );
 
   const inputs = row.extraInputs as IBridgedReceiveExtraInputs;
   const failed = inputs.phase === 'failed';

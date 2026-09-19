@@ -4,9 +4,9 @@ import { Directory, Encoding, Filesystem } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
 import { useTranslation } from 'react-i18next';
 
-import { ActivitySpinner } from 'app/atoms/ActivitySpinner';
 import { Icon, IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
+import { Spinner } from 'components/ui/Spinner';
 import { CURRENT_BACKUP_FORMAT_VERSION, parseImportedAccountBackupFailure } from 'lib/miden/backup-file';
 import { useMidenContext } from 'lib/miden/front';
 import { deriveKey, encrypt, encryptJson, generateKey, generateSalt } from 'lib/miden/passworder';
@@ -219,7 +219,9 @@ const ExportFileComplete: React.FC<ExportFileCompleteProps> = ({ filePassword, f
           aria-live="polite"
           className="flex flex-col w-full items-center justify-center flex-1 gap-y-4"
         >
-          <ActivitySpinner />
+          <div className="flex h-[21px] w-full items-center justify-center pt-8">
+            <Spinner />
+          </div>
           <p className="text-base text-heading-gray">{t('encryptedWalletFileExporting')}</p>
         </div>
       </div>

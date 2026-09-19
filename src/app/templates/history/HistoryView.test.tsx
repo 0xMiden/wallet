@@ -15,11 +15,6 @@ jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
 }));
 
-// ActivitySpinner is the initial-loading placeholder; stub it to a marker.
-jest.mock('app/atoms/ActivitySpinner', () => ({
-  ActivitySpinner: () => <div data-testid="activity-spinner" />
-}));
-
 // Icon: expose the requested glyph name + className so buildRowProps' icon
 // selection (and the white-fill classes) can be asserted.
 jest.mock('app/icons/v2', () => ({
@@ -82,7 +77,9 @@ jest.mock('components/ui', () => ({
     >
       {icon}
     </div>
-  )
+  ),
+  // The initial-loading placeholder; stub it to a marker.
+  Spinner: () => <div data-testid="activity-spinner" />
 }));
 
 // EmptyState: minimal stand-in — a heading for the title plus the same `icon`
@@ -228,7 +225,7 @@ const baseProps = {
 };
 
 describe('HistoryView empty state', () => {
-  it('renders the ActivitySpinner while initially loading with no entries', () => {
+  it('renders the loading Spinner while initially loading with no entries', () => {
     render(<HistoryView {...baseProps} entries={[]} initialLoading />);
     expect(screen.getByTestId('activity-spinner')).toBeInTheDocument();
   });
