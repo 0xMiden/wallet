@@ -221,7 +221,8 @@ const TAB_GROUPS: TabGroup[] = [
         slug: 'advanced-settings',
         titleI18nKey: 'advancedSettings',
         Component: AdvancedSettings,
-        testID: SettingsSelectors.AdvancedSettingsButton
+        testID: SettingsSelectors.AdvancedSettingsButton,
+        rendersSubPageLayout: true
       },
       {
         // Distinct slug: the connected-dApps list page owns '/settings/dapps'
