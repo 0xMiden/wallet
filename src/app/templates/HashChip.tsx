@@ -1,7 +1,5 @@
 import React, { FC } from 'react';
 
-import { useTranslation } from 'react-i18next';
-
 import HashShortView from 'app/atoms/HashShortView';
 import { CopyChip } from 'components/ui/CopyChip';
 import { cn } from 'lib/ui/util';
@@ -27,6 +25,11 @@ const DEFAULT_CLASS_NAME = 'min-w-0 text-ink font-sans text-sm font-normal';
  * A copyable, trimmed hash: the Pill-with-copy (`CopyChip`) built around a `HashShortView`.
  * `className` is merged after the neutral default via `cn`, so a caller's own color/weight/size
  * (e.g. SwapDetail's bold secondary-token styling) still wins.
+ *
+ * No `aria-label`: the trimmed hash IS the chip's accessible name (an `aria-label` would replace
+ * it, so a screen reader would hear "Copy to clipboard, button" instead of the value), and
+ * `CopyChip`'s own `aria-live` region already announces "Copied" on tap — a label wired to the
+ * copied state would announce it a second time.
  */
 const HashChip: FC<HashChipProps> = ({
   hash,
@@ -37,26 +40,17 @@ const HashChip: FC<HashChipProps> = ({
   displayName,
   className,
   'data-testid': dataTestId
-}) => {
-  const { t } = useTranslation();
-
-  return (
-    <CopyChip
-      text={hash}
-      className={cn(DEFAULT_CLASS_NAME, className)}
-      data-testid={dataTestId}
-      aria-label={copied => (copied ? t('copiedHash') : t('copyHashToClipboard'))}
-    >
-      <HashShortView
-        hash={hash}
-        trimHash={trimHash}
-        trimAfter={trimAfter}
-        firstCharsCount={firstCharsCount}
-        lastCharsCount={lastCharsCount}
-        displayName={displayName}
-      />
-    </CopyChip>
-  );
-};
+}) => (
+  <CopyChip text={hash} className={cn(DEFAULT_CLASS_NAME, className)} data-testid={dataTestId}>
+    <HashShortView
+      hash={hash}
+      trimHash={trimHash}
+      trimAfter={trimAfter}
+      firstCharsCount={firstCharsCount}
+      lastCharsCount={lastCharsCount}
+      displayName={displayName}
+    />
+  </CopyChip>
+);
 
 export default HashChip;

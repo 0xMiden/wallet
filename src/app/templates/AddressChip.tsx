@@ -1,7 +1,5 @@
 import React, { FC } from 'react';
 
-import { useTranslation } from 'react-i18next';
-
 import AddressShortView from 'app/atoms/AddressShortView';
 import { CopyChip } from 'components/ui/CopyChip';
 import { cn } from 'lib/ui/util';
@@ -24,20 +22,16 @@ const DEFAULT_CLASS_NAME = 'min-w-0 text-muted font-sans text-xs font-medium lea
  * A copyable, trimmed address: the Pill-with-copy (`CopyChip`) built around an
  * `AddressShortView`. `className` is merged after the neutral default via `cn`, so a caller's own
  * color/weight/size still wins.
+ *
+ * No `aria-label`: the trimmed address/name IS the chip's accessible name (an `aria-label` would
+ * replace it, so a screen reader would hear "Copy to clipboard, button" instead of the value),
+ * and `CopyChip`'s own `aria-live` region already announces "Copied" on tap — a label wired to
+ * the copied state would announce it a second time.
  */
-const AddressChip: FC<AddressChipProps> = ({ address, displayName, trim, className, 'data-testid': dataTestId }) => {
-  const { t } = useTranslation();
-
-  return (
-    <CopyChip
-      text={address}
-      className={cn(DEFAULT_CLASS_NAME, className)}
-      data-testid={dataTestId}
-      aria-label={copied => (copied ? t('copiedHash') : t('copyHashToClipboard'))}
-    >
-      <AddressShortView address={address} displayName={displayName} trim={trim} />
-    </CopyChip>
-  );
-};
+const AddressChip: FC<AddressChipProps> = ({ address, displayName, trim, className, 'data-testid': dataTestId }) => (
+  <CopyChip text={address} className={cn(DEFAULT_CLASS_NAME, className)} data-testid={dataTestId}>
+    <AddressShortView address={address} displayName={displayName} trim={trim} />
+  </CopyChip>
+);
 
 export default AddressChip;
