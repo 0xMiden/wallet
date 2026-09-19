@@ -61,6 +61,16 @@ function renderRecipient(overrides: Partial<SelectRecipientProps> = {}) {
 }
 
 describe('SelectRecipient', () => {
+  it('titles the step as the tab, with the entry below it on one row of pills that never wraps', () => {
+    renderRecipient();
+    const title = screen.getByRole('heading', { level: 1 });
+    expect(title).toHaveClass('text-title-tab');
+    expect(screen.getByTestId('send-recipient-input')).toHaveClass('text-hero-name');
+    const pills = screen.getByTestId('send-address-book').parentElement;
+    expect(pills).toHaveClass('overflow-x-auto');
+    expect(pills).not.toHaveClass('flex-wrap');
+  });
+
   it('hides the network selector before an address is entered', () => {
     renderRecipient();
 

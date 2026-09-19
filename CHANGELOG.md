@@ -8,6 +8,7 @@
 - [FEATURE][all] Advanced Settings can export the current account as a CLI-compatible `.mac` file after password, passcode, or device-security confirmation. The flow warns that the file grants access to the account's funds and requires an explicit acknowledgement before saving or sharing it (#537).
 ### Changes
 
+- [CHANGE][all] Send's first page is titled like the other tabs, its address field fits two lines on a small phone and Paste, Address Book and Scan stay on one row.
 - [CHANGE][all] Explore is reorganised like an app store: featured app, categories, grouped lists and recents, with the tab bars' bouncy motion. Search moves to a header button as on Activity: it narrows the apps as you type and opens a typed or pasted URL.
 - [CHANGE][all] Home's five actions and their flows share the account card palette: each tab's icon and its flow's accent are the same brand colour, and text in that colour uses a darker shade of it.
 - [CHANGE][all] Text across the app uses one named type scale, so titles, labels, values and body copy match everywhere.
