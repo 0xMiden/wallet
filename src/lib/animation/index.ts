@@ -10,7 +10,6 @@ export {
   pageSlideDim,
   pageStepTransition,
   pageStepOffset,
-  pageStepFadeOffset,
   pageStepPresentOffset,
   resolvePageStepTransition
 } from './page-appearance';
