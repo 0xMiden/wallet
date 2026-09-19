@@ -84,10 +84,10 @@ export const BackUpSeedPhraseScreen: React.FC<BackUpSeedPhraseScreenProps> = ({
           ))}
       </article>
 
-      <div className="flex gap-2 w-full text-heading-gray">
+      <div className="flex gap-2.5 w-full text-heading-gray">
         <Button
           size="sm"
-          className="w-1/2"
+          className="flex-1"
           variant={ButtonVariant.Ghost}
           title={t(isWordsVisible ? 'hide' : 'show')}
           iconLeft={isWordsVisible ? IconName.EyeOff : IconName.Eye}
@@ -95,7 +95,7 @@ export const BackUpSeedPhraseScreen: React.FC<BackUpSeedPhraseScreenProps> = ({
         />
         <Button
           size="sm"
-          className="w-1/2"
+          className="flex-1"
           variant={ButtonVariant.Ghost}
           title={t(isCopied ? 'copied' : 'copyToClipboard')}
           iconLeft={isCopied ? IconName.CheckboxCircleFill : IconName.FileCopy}

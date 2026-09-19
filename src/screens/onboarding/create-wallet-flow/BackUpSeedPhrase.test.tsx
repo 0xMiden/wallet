@@ -187,6 +187,20 @@ describe('BackUpSeedPhraseScreen', () => {
       // Continue keeps the plain lg CTA anatomy: no manual text-size override.
       expect(screen.getByTestId('btn-continue').getAttribute('data-classname')).toBeFalsy();
     });
+
+    it("gives the show/copy row buttons equal flex-1 shares instead of a fixed w-1/2 (so a longer ru/uk label doesn't overflow at 320px), 10px apart", () => {
+      renderComponent();
+      const show = screen.getByTestId('btn-show');
+      const copy = screen.getByTestId('btn-copyToClipboard');
+      expect(show).toHaveAttribute('data-classname', 'flex-1');
+      expect(copy).toHaveAttribute('data-classname', 'flex-1');
+      expect(show.getAttribute('data-classname')).not.toMatch(/w-1\/2/);
+      expect(copy.getAttribute('data-classname')).not.toMatch(/w-1\/2/);
+
+      // The row wrapper holding both buttons sets the 10px gap between them.
+      expect(show.parentElement).toBe(copy.parentElement);
+      expect(show.parentElement).toHaveClass('gap-2.5');
+    });
   });
 
   describe('words visibility toggle', () => {
