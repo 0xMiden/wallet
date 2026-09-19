@@ -42,7 +42,10 @@ const TOKENS = [
   'accent-tint-ink',
   'positive-ink',
   'pending-ink',
-  'negative-ink'
+  'negative-ink',
+  'positive-tint',
+  'pending-tint',
+  'negative-tint'
 ];
 
 describe.each([':root', '.dark'] as const)('design tokens in %s', selector => {
@@ -66,9 +69,25 @@ describe.each([':root', '.dark'] as const)('design tokens in %s', selector => {
     ['accent-tint-ink', 'accent-tint'],
     ['positive-ink', 'page'],
     ['pending-ink', 'page'],
-    ['negative-ink', 'page']
+    ['negative-ink', 'page'],
+    // StatusBadge: the ink on its own opaque tint, so the badge reads the same on `page` and `fill`.
+    ['positive-ink', 'positive-tint'],
+    ['pending-ink', 'pending-tint'],
+    ['negative-ink', 'negative-tint'],
+    // StatusBadge's neutral tone (cancelled, reclaimed, checking).
+    ['ink', 'fill-pressed']
   ])('%s on %s reads at 4.5:1 or better', (text, surface) => {
     expect(contrast(vRequired(text), vRequired(surface))).toBeGreaterThanOrEqual(4.5);
+  });
+
+  // The measured ratios, pinned so a token edit that erodes the margin shows up in review.
+  it.each([
+    ['positive-ink', 'positive-tint', { ':root': 4.61, '.dark': 5.64 }],
+    ['pending-ink', 'pending-tint', { ':root': 4.83, '.dark': 5.11 }],
+    ['negative-ink', 'negative-tint', { ':root': 4.62, '.dark': 5.5 }],
+    ['ink', 'fill-pressed', { ':root': 8.4, '.dark': 13.11 }]
+  ] as const)('status badge %s on %s measures as documented', (text, surface, ratios) => {
+    expect(contrast(vRequired(text), vRequired(surface))).toBeCloseTo(ratios[selector], 2);
   });
 
   it('keeps white CTA labels at 3:1 on the brand orange (19px bold is large text)', () => {
