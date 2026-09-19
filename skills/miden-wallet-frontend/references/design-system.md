@@ -114,6 +114,9 @@ tops. 8, 10, 20, 22 and 24px are retired.
 Flat: separation comes from `fill` and hairlines. Shadows only on sheets, the floating nav and a
 segmented control's thumb.
 
+Cards and row cards are `fill` with no border; borders never outline a card; hairlines only divide
+rows inside a group.
+
 ### Screen sizes
 
 Designed at 360px wide (extension popup, small Android), verified at 402 × 874 (iPhone), 375 × 667
@@ -141,6 +144,7 @@ CTA never do. The CTA clears the home indicator on iOS.
 | List row | `ListRow` | 64px: leading 40px avatar or 30px icon circle, 16px title over a 13px `muted` subtitle, trailing value, toggle, check or chevron. A row that navigates has a chevron. | `CardItem`, `ListItem`, `MenuItem`, local rows |
 | Section label | `SectionHeader` | 13px Inter bold `muted`, sentence case, 8px above its group, 4px inset. A page-level section title is 20px 800. Optional `icon` draws it `aria-hidden` in a 32px `bg-fill` circle before the label; `size="lg"` swaps the label to 18px Nunito extrabold `ink` (Settings' coloured group headers). | ~40 hand-styled headings, uppercase labels |
 | Detail card | `DetailCard` + `DetailRow` | `fill`, 16px radius, hairlines between rows; 14px `muted` label, 15px value right; addresses stacked, in full, with an `accent-tint-ink` "Copy". | `FlowDetails`, history `DetailCard`, `lib/ui/DetailCard`, `ReviewRow`, local detail rows |
+| Card | `Card`, `CardButton` | `fill`, 16px radius, no border, on `page`; cards in a list are separated by space (12px), never by an outline. `padding`: `row` (16 × 12px, 64px with a 40px icon: an Activity row), `tile` (16px: an Explore app, a position, an option), `none` (content that pads itself). `CardButton` is one tap target: `button`, tap haptic, `press` motion, `fill-pressed` when pressed, `accent` focus ring. `asChild` draws the surface onto a child that is its own element (a layout-animated row, an `article`). Anything drawn inside a card sits on `page` (an icon tile, a neutral icon circle), since grey on `fill` disappears. | outlined `rounded-2xl border bg-white` cards: Activity rows and pending transfers, Explore app cards, earn position cards, the send fee notice, dApp approval and settings cards, import-type choices |
 | Hero | `Hero` | Centered: 88px avatar or 64px status circle, then the hero value or name, then a 14px `muted` line. On a contact page the name is in the header and the avatar stands alone. | `ReviewAmount`, per-screen heroes |
 | Pill | `Pill` | 32px on `fill` with `ink`; selected: `accent-tint` with `accent-tint-ink`; 16px icon slot; status pills 24px with a dot and a word. | `lib/ui/badge`, seed-word `Chip`, history's `StatusPill` (now a wrapper over it), `AccountTypeBadge`, `PriceChangeBadge`, ad-hoc pills |
 | Network chip | `NetworkChip` | A `Pill` in the network's own tint, logo unchanged. | — |
