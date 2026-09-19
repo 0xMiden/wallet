@@ -37,8 +37,8 @@
     }
   },
   "balanceCardTotalBalance": {
-    "message": "Total Balance",
-    "englishSource": "Total Balance"
+    "message": "Total balance",
+    "englishSource": "Total balance"
   },
   "balanceCardDeltaPill": {
     "message": "$absolute$ ($percentage$)",
@@ -52,18 +52,17 @@
       }
     }
   },
-  "balanceCardAccount": {
-    "message": "Address: $number$",
-    "englishSource": "Address: $number$",
-    "placeholders": {
-      "number": {
-        "content": "$1"
-      }
-    }
-  },
   "balanceCardAccountOptions": {
     "message": "Account options",
     "englishSource": "Account options"
+  },
+  "balanceCardCopyAddress": {
+    "message": "Copy address",
+    "englishSource": "Copy address"
+  },
+  "balanceCardAddressCopied": {
+    "message": "Address copied",
+    "englishSource": "Address copied"
   },
   "dappSwitcherLoading": {
     "message": "Loading…",

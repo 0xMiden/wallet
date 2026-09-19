@@ -38,7 +38,7 @@
   },
   "balanceCardTotalBalance": {
     "message": "Toplam Bakiye",
-    "englishSource": "Total Balance"
+    "englishSource": "Total balance"
   },
   "balanceCardDeltaPill": {
     "message": "$absolute$ ($percentage$)",
@@ -52,18 +52,17 @@
       }
     }
   },
-  "balanceCardAccount": {
-    "message": "Adres: $number$",
-    "englishSource": "Address: $number$",
-    "placeholders": {
-      "number": {
-        "content": "$1"
-      }
-    }
-  },
   "balanceCardAccountOptions": {
     "message": "Hesap seçenekleri",
     "englishSource": "Account options"
+  },
+  "balanceCardCopyAddress": {
+    "message": "Adresi kopyala",
+    "englishSource": "Copy address"
+  },
+  "balanceCardAddressCopied": {
+    "message": "Adres kopyalandı",
+    "englishSource": "Address copied"
   },
   "dappSwitcherLoading": {
     "message": "Yükleniyor…",
