@@ -1,7 +1,7 @@
 import type { CdpSession } from './cdp-bridge';
 import type { EmulatorControl } from './emulator-control';
 import type { TimelineRecorder } from '../../harness/timeline-recorder';
-import type { GuardianAuthInfo, WalletPage } from '../../helpers/wallet-page';
+import type { GuardianAuthInfo, WalletPage, SendTokensParams } from '../../helpers/wallet-page';
 
 const DEFAULT_PASSWORD = 'Password123!';
 const SYNC_WAIT_MS = 3_500;
@@ -344,12 +344,7 @@ export class AndroidWalletPage implements WalletPage {
 
   // ── Send Flow ─────────────────────────────────────────────────────────────
 
-  async sendTokens(params: {
-    recipientAddress: string;
-    amount: string;
-    isPrivate: boolean;
-    tokenSymbol?: string;
-  }): Promise<void> {
+  async sendTokens(params: SendTokensParams): Promise<void> {
     await this.navigateTo('/send');
     await this.pollForSelector('[data-testid="send-flow"]', 15_000);
 

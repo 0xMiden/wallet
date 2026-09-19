@@ -1,7 +1,7 @@
 import type { CdpSession } from './cdp-bridge';
 import type { SimulatorControl } from './simulator-control';
 import type { TimelineRecorder } from '../../harness/timeline-recorder';
-import type { GuardianAuthInfo, WalletPage } from '../../helpers/wallet-page';
+import type { GuardianAuthInfo, WalletPage, SendTokensParams } from '../../helpers/wallet-page';
 
 const DEFAULT_PASSWORD = '123456';
 const SYNC_WAIT_MS = 3_500;
@@ -771,17 +771,7 @@ export class IosWalletPage implements WalletPage {
    * Execute the full v0-UI send flow: SelectRecipient → SelectAmount(+token) →
    * ReviewTransaction. Every step is driven by React DOM buttons via CDP.
    */
-  async sendTokens(params: {
-    recipientAddress: string;
-    amount: string;
-    isPrivate: boolean;
-    /**
-     * Optional token symbol (e.g. "TST"). When set, picks that token's row from
-     * the token sub-screen. Default: first non-MIDEN row — fine when only one
-     * fundable token exists.
-     */
-    tokenSymbol?: string;
-  }): Promise<void> {
+  async sendTokens(params: SendTokensParams): Promise<void> {
     // v0-UI order: recipient → amount(+token) → review.
     await this.navigateTo('/send');
     await this.pollForSelector('[data-testid="send-flow"]', 15_000);
