@@ -19,7 +19,9 @@ import { PromptCard } from './PromptCard';
 import { PromptCarousel } from './PromptCarousel';
 import { SearchInput } from './SearchInput';
 import { SegmentedActionBar } from './SegmentedActionBar';
+import { Skeleton } from './Skeleton';
 import { Sparkline } from './Sparkline';
+import { Spinner } from './Spinner';
 import { TabHeader, TabHeaderAction } from './TabHeader';
 
 // vaul (the drawer primitive AccountsDrawer pulls in) walks the DOM on load;
@@ -49,7 +51,9 @@ describe('components/ui barrel', () => {
     SearchInput,
     Sparkline,
     ActivityRow,
-    EmptyState
+    EmptyState,
+    Spinner,
+    Skeleton
   } as const;
 
   it('re-exports every component under its own name, tied to the source module', () => {

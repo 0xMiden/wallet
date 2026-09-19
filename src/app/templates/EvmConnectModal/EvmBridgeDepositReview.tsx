@@ -3,6 +3,7 @@ import React from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { ReviewAmount, ReviewLayout, ReviewRow } from 'components/review';
+import { Skeleton } from 'components/ui/Skeleton';
 import { BridgeRoute } from 'screens/send-flow/types';
 
 export interface EvmBridgeDepositReviewProps {
@@ -84,7 +85,7 @@ export const EvmBridgeDepositReview: React.FC<EvmBridgeDepositReviewProps> = ({
       <ReviewRow label={t('route')} value={`${routeLabel} ${arrivalLabel}`} />
 
       <ReviewRow label={t('youReceive')}>
-        {youReceiveLoading ? <div className="h-7 w-32 animate-pulse rounded bg-heading-gray/10" /> : youReceiveLabel}
+        {youReceiveLoading ? <Skeleton className="h-7 w-32" /> : youReceiveLabel}
       </ReviewRow>
     </ReviewLayout>
   );

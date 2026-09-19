@@ -9,6 +9,7 @@ import { Button, ButtonVariant } from 'components/Button';
 import { FlowDetailRow, FlowDetails } from 'components/flow/FlowDetails';
 import { NetworkChip } from 'components/NetworkChip';
 import { TokenLogo } from 'components/TokenLogo';
+import { Skeleton } from 'components/ui/Skeleton';
 import { initiateB2AggBridge } from 'lib/agglayer/b2agg';
 import { EVM_AGGLAYER_NETWORK_ID } from 'lib/agglayer/b2agg/constant';
 import { confirmSensitiveAction } from 'lib/biometric';
@@ -433,11 +434,7 @@ export const ReviewTransaction: React.FC = () => {
             <>
               <FlowDetailRow label={t('route')}>{`${routeLabel} ${arrivalLabel}`}</FlowDetailRow>
               <FlowDetailRow label={t('youReceive')}>
-                {youReceiveLoading ? (
-                  <div className="h-6 w-28 animate-pulse rounded bg-heading-gray/10" />
-                ) : (
-                  youReceiveLabel
-                )}
+                {youReceiveLoading ? <Skeleton className="h-6 w-28" /> : youReceiveLabel}
               </FlowDetailRow>
             </>
           ) : (
