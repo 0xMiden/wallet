@@ -120,15 +120,23 @@ jest.mock('components/Button', () => ({
   )
 }));
 
-const mockTrackEvent = jest.fn();
-jest.mock('lib/analytics', () => {
-  const React2 = require('react');
-  return {
-    CustomRpsContext: React2.createContext(undefined),
-    AnalyticsEventCategory: { ButtonPress: 'ButtonPress' },
-    useAnalytics: () => ({ trackEvent: mockTrackEvent })
-  };
-});
+// `lib/analytics` itself is NOT mocked: `ConfirmSubmitButton`'s `useAnalytics()` call has to
+// really read `CustomRpsContext` via `useContext` to prove it sees the Provider value
+// `ConfirmDAppForm` renders around it (the bug this covers: a `useAnalytics()` call made
+// directly in `ConfirmDAppForm`'s own body runs before that Provider exists in the tree and
+// would silently read `rpc: undefined` instead). Only the lowest-level network call
+// (`sendTrackEvent`) and the local-storage-backed `useAnalyticsState` are stubbed, so the real
+// `useAnalytics` → `useAnalyticsNetwork` → `useContext(CustomRpsContext)` chain runs for real.
+const mockSendTrackEvent = jest.fn();
+jest.mock('lib/analytics/use-analytics-state.hook', () => ({
+  sendTrackEvent: (...args: unknown[]) => mockSendTrackEvent(...args),
+  sendPageEvent: jest.fn(),
+  sendPerformanceEvent: jest.fn(),
+  useAnalyticsState: () => ({
+    analyticsState: { enabled: true, userId: 'test-user' },
+    setAnalyticsState: jest.fn()
+  })
+}));
 
 // `TransactionAssetView` owns its own pixel-level rendering (asset rows, note
 // counts, storage warning) and is unit-tested in TransactionAssetView.test.tsx.
@@ -409,10 +417,14 @@ describe('connect payload', () => {
         'balance'
       ])
     );
-    // The analytics tracking Button itself used to own is now wired by hand at
-    // the call site: a click still reports a ButtonPress against the confirm
-    // action's own testid.
-    expect(mockTrackEvent).toHaveBeenCalledWith(
+    // The analytics tracking Button itself used to own is now wired by hand in
+    // `ConfirmSubmitButton`, rendered inside `CustomRpsContext.Provider`: a click reports a
+    // ButtonPress against the confirm action's own testid, AND the real `useAnalyticsNetwork()`
+    // context read carries through as the `rpc` argument — 'TODO' (the Provider's value), not
+    // `undefined`, which is exactly what regresses if the hook call moves outside the Provider.
+    expect(mockSendTrackEvent).toHaveBeenCalledWith(
+      'test-user',
+      'TODO',
       ConfirmPageSelectors.ConnectAction_ConnectButton,
       'ButtonPress',
       undefined

@@ -456,9 +456,38 @@ const CustomTransactionContent: React.FC<{
 
 export default ConfirmPage;
 
+// Rendered inside `CustomRpsContext.Provider` (see `ConfirmDAppForm`'s return), so its own
+// `useAnalytics()` call reads that Provider's value. Calling `useAnalytics()` in
+// `ConfirmDAppForm` itself would not: the Provider is created as part of what
+// `ConfirmDAppForm` returns, so a hook call in its own body runs before that Provider exists
+// in the tree and would instead see whatever context sits above `ConfirmDAppForm` — which is
+// exactly the bug this component exists to avoid.
+const ConfirmSubmitButton: FC<{
+  title: React.ReactNode;
+  testId: string;
+  isLoading: boolean;
+  onConfirmClick: () => void;
+}> = ({ title, testId, isLoading, onConfirmClick }) => {
+  const { trackEvent } = useAnalytics();
+  return (
+    <Button
+      type="button"
+      variant={ButtonVariant.Primary}
+      className="w-full"
+      isLoading={isLoading}
+      onClick={() => {
+        trackEvent(testId, AnalyticsEventCategory.ButtonPress, undefined);
+        onConfirmClick();
+      }}
+      data-testid={testId}
+    >
+      {title}
+    </Button>
+  );
+};
+
 const ConfirmDAppForm: FC = () => {
   const { t } = useTranslation();
-  const { trackEvent } = useAnalytics();
   const {
     getDAppPayload,
     confirmDAppPermission,
@@ -779,19 +808,12 @@ const ConfirmDAppForm: FC = () => {
           </div>
 
           <div className="w-1/2 pl-2">
-            <Button
-              type="button"
-              variant={ButtonVariant.Primary}
-              className="w-full"
+            <ConfirmSubmitButton
+              title={content.confirmActionTitle}
+              testId={content.confirmActionTestID}
               isLoading={confirming}
-              onClick={() => {
-                trackEvent(content.confirmActionTestID, AnalyticsEventCategory.ButtonPress, undefined);
-                handleConfirmClick();
-              }}
-              data-testid={content.confirmActionTestID}
-            >
-              {content.confirmActionTitle}
-            </Button>
+              onConfirmClick={handleConfirmClick}
+            />
           </div>
         </div>
       </div>
