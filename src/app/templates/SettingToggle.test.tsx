@@ -9,7 +9,7 @@ import SettingToggle from './SettingToggle';
 // swap the child for a plain checkbox that echoes the props SettingToggle
 // forwards — letting us assert `checked`, `name`, `onChange` and `testID`
 // without touching native/SDK code. (Sibling tests mock child deps the same
-// way, e.g. MenuItem stubs `lib/woozie`'s Link.)
+// way, e.g. stubbing `lib/woozie`'s Link.)
 jest.mock('app/atoms/ToggleSwitch', () => ({
   __esModule: true,
   default: ({

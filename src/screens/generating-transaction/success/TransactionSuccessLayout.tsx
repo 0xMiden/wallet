@@ -222,7 +222,7 @@ export const TransactionSuccessLayout: FC<TransactionSuccessLayoutProps> = ({
   // navigation and no live region — so the outcome of the transaction the user
   // just authorized was never announced. The view they were on unmounts, which
   // drops focus to `<body>`; moving it to the title both names the new screen
-  // and puts the user at the top of it. Same shape as NavigationHeader's
+  // and puts the user at the top of it. Same shape as PageHeader's
   // `focusTitleOnMount`, and this layout only ever mounts on that transition.
   useEffect(() => {
     titleRef.current?.focus();

@@ -36,11 +36,6 @@ const AdvancedSettings: FC = () => {
   return (
     <div className="flex justify-center py-6">
       <div className="flex flex-col w-[328px] gap-y-4">
-        {/* <Link to={'/settings/networks'}>
-          <ListItem title="Networks" subtitle={uiNetwork?.name} iconRight={IconName.ChevronRight} />
-        </Link>
-
-        <hr className="bg-grey-100" /> */}
         <div className="mt-2 flex flex-col">
           <ul className="flex flex-col gap-y-4">
             {listItems.map((item, index) => (

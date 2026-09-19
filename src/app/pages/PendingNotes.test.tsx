@@ -85,7 +85,7 @@ describe('PendingNotes back affordance', () => {
   });
 
   it('horizontally insets the header (px-4) so it lines up with the px-4 body (#460)', () => {
-    // The PendingTab body is `px-4`; NavigationHeader carries its own `px-4`
+    // The PendingTab body is `px-4`; the PageHeader is given the same `px-4`
     // inset, so the back arrow + title line up with every row below.
     render(<PendingNotes />);
 

@@ -141,8 +141,8 @@ describe('EarnPositions', () => {
     fireEvent.click(screen.getByRole('button', { name: 'back' }));
 
     expect(mockGoBack).toHaveBeenCalledTimes(1);
-    // PageHeader's IconButton buzzes on every tap, unlike the old hand-rolled
-    // CircleButton usage here, which never wired haptics into the back button.
+    // PageHeader's IconButton buzzes on every tap, unlike the hand-rolled round
+    // back button this page used to have, which never wired haptics into it.
     expect(mockHapticLight).toHaveBeenCalledTimes(1);
     expect(mockNavigate).not.toHaveBeenCalled();
   });

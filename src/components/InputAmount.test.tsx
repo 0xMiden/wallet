@@ -5,7 +5,7 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { InputAmount } from './InputAmount';
 
 // Mock the Icon barrel used for the toggle-currency arrow, mirroring how
-// sibling component tests (e.g. CardItem.test.tsx) stub it so we don't pull in
+// sibling component tests (e.g. AmountInput.test.tsx) stub it so we don't pull in
 // the SVG re-export barrel.
 jest.mock('app/icons/v2', () => ({
   Icon: ({ name, fill, size, className }: any) => (
