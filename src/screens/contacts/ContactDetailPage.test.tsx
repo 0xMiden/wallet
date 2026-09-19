@@ -81,6 +81,21 @@ it('shows the full address, network and date, and sends to the contact', () => {
   expect(screen.getByTestId('contact-send').className).not.toMatch(/rounded-full|text-base|font-semibold/);
 });
 
+it('copies the full address with the shared copy action, which rolls to Copied', async () => {
+  const { Clipboard } = jest.requireMock('@capacitor/clipboard');
+  render(<ContactDetailPage address="0xpaul" />);
+
+  const copy = screen.getByTestId('contact-copy-address');
+  expect(screen.getByTestId('contact-address')).toContainElement(copy);
+
+  await act(async () => {
+    fireEvent.click(copy);
+  });
+
+  expect(Clipboard.write).toHaveBeenCalledWith({ string: '0xpaul' });
+  expect(copy.querySelector('[data-copy-label] [data-present="true"]')).toHaveTextContent('copied');
+});
+
 it('shows Miden for a Miden contact and sends without a network', () => {
   render(<ContactDetailPage address="mtst1alice" />);
 
