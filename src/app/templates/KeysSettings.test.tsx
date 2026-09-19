@@ -13,8 +13,9 @@ import KeysSettings from './KeysSettings';
 // Mocks.
 //
 // KeysSettings is a thin router surface: it derives which key-management rows
-// to show from the current account's `type` / `hotPublicKey`, renders a button
-// per visible row, and (for guardians) appends a divider + GuardianReplaceHotKey.
+// to show from the current account's `type` / `hotPublicKey`, renders them as
+// ListRows in one ListGroup on the shared SubPageLayout, and (for guardians)
+// appends the GuardianReplaceHotKey section.
 // Every collaborator is stubbed so the only code exercised (and measured) is
 // KeysSettings.tsx itself.
 // ---------------------------------------------------------------------------
@@ -24,16 +25,14 @@ jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
 }));
 
-// Icon reaches into the SVG barrel; render a marker exposing its `name` so the
-// chevron per row is assertable without pulling in real icon assets.
 jest.mock('app/icons/v2', () => ({
   Icon: ({ name }: { name: string }) => <span data-testid="icon" data-name={name} />,
-  IconName: { ChevronRightLucide: 'chevron-right-lucide' }
+  IconName: { ChevronLeft: 'chevron-left', Close: 'close' }
 }));
 
 // GuardianReplaceHotKey drives a full cold-signed rotation flow with its own
 // native/store collaborators. Replace it with a marker so the guardian-only
-// branch (`{isGuardian && <hr/><GuardianReplaceHotKey/>}`) is observable in
+// branch (`{isGuardian && <GuardianReplaceHotKey/>}`) is observable in
 // isolation.
 jest.mock('app/templates/GuardianReplaceHotKey', () => ({
   __esModule: true,
@@ -43,7 +42,8 @@ jest.mock('app/templates/GuardianReplaceHotKey', () => ({
 // `navigate` (woozie) and `hapticLight` (native haptics) are the two side
 // effects of `openPage`; stub both as spies.
 jest.mock('lib/woozie', () => ({
-  navigate: jest.fn()
+  navigate: jest.fn(),
+  Link: () => null
 }));
 
 jest.mock('lib/mobile/haptics', () => ({
@@ -99,15 +99,13 @@ describe('KeysSettings — row visibility', () => {
     // Guardian-gated rows hidden.
     expect(screen.queryByText('revealHotKey')).not.toBeInTheDocument();
     expect(screen.queryByText('rotateGuardian')).not.toBeInTheDocument();
-    // No divider / GuardianReplaceHotKey for non-guardians.
+    // No GuardianReplaceHotKey for non-guardians.
     expect(screen.queryByTestId('guardian-replace-hot-key')).not.toBeInTheDocument();
-    expect(document.querySelector('hr')).toBeNull();
 
-    // Exactly one row → one button → one chevron icon.
+    // Exactly one row → one button → one chevron.
     const buttons = screen.getAllByRole('button');
     expect(buttons).toHaveLength(1);
-    const icon = screen.getByTestId('icon');
-    expect(icon).toHaveAttribute('data-name', 'chevron-right-lucide');
+    expect(buttons[0]!.querySelector('[data-slot="chevron"]')).not.toBeNull();
   });
 
   it('renders one paired reveal row plus guardian rotation for an activated guardian', () => {
@@ -121,8 +119,8 @@ describe('KeysSettings — row visibility', () => {
     // `isGuardian` → true.
     expect(screen.getByText('rotateGuardian')).toBeInTheDocument();
 
-    // Guardian block: divider + GuardianReplaceHotKey rendered.
-    expect(document.querySelector('hr')).not.toBeNull();
+    // Guardian block: GuardianReplaceHotKey rendered, with no rule above it.
+    expect(document.querySelector('hr')).toBeNull();
     expect(screen.getByTestId('guardian-replace-hot-key')).toBeInTheDocument();
 
     // The paired reveal and rotation each have one row.
@@ -185,6 +183,44 @@ describe('KeysSettings — row visibility', () => {
     expect(screen.queryByText('rotateGuardian')).not.toBeInTheDocument();
     expect(screen.queryByTestId('guardian-replace-hot-key')).not.toBeInTheDocument();
     expect(screen.getAllByRole('button')).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Shared layout.
+// ---------------------------------------------------------------------------
+describe('KeysSettings — layout', () => {
+  it('renders through SubPageLayout: the rows as ListRows in one ListGroup, then the rotation section', () => {
+    mockState.currentAccount = { type: WalletType.Guardian, hotPublicKey: 'hot_pk_1', coldPublicKey: 'cold_pk_1' };
+
+    render(<KeysSettings />);
+
+    const page = screen.getByTestId('keys-settings');
+    const body = page.querySelector('[data-slot="body"]')!;
+    expect(body).toHaveClass('px-4', 'gap-5', 'overflow-y-auto');
+
+    const reveal = screen.getByTestId('keys-reveal-private-key');
+    const rotate = screen.getByTestId('keys-rotate-guardian');
+    // One ListGroup on the shared fill holds both rows.
+    expect(reveal.parentElement).toBe(rotate.parentElement);
+    expect(reveal.parentElement).toHaveClass('bg-fill', 'rounded-2xl');
+    // Rows are ListRows: the shared 16px title and a trailing chevron.
+    expect(reveal.querySelector('[data-slot="title"]')).toHaveTextContent('revealPrivateKey');
+    expect(rotate.querySelector('[data-slot="chevron"]')).not.toBeNull();
+    // The rotation section follows as a sibling section of the body, 20px below.
+    expect(screen.getByTestId('guardian-replace-hot-key').parentElement).toBe(body);
+    // No page footer: rotation is a section action, not the page's CTA.
+    expect(page.querySelector('[data-slot="footer"]')).toBeNull();
+  });
+
+  it('renders no empty group when no row applies', () => {
+    mockState.currentAccount = { type: WalletType.OffChain };
+    mockState.seedPhraseStatus = 'removed';
+
+    render(<KeysSettings />);
+
+    expect(screen.queryAllByRole('button')).toHaveLength(0);
+    expect(document.querySelector('.bg-fill')).toBeNull();
   });
 });
 
