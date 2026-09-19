@@ -1,5 +1,7 @@
 import { Dispatch, SetStateAction, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
+import { mutate } from 'swr';
+
 import { isExtension } from 'lib/platform';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
 import { useRetryableSWR } from 'lib/swr';
@@ -97,6 +99,20 @@ export async function fetchFromStorage<T = unknown>(key: string): Promise<T | nu
   } else {
     return null;
   }
+}
+
+/**
+ * Reads storage keys into the SWR cache before any `useStorage` / `usePassiveStorage` asks for them.
+ * Both hooks suspend while their key is uncached, and a suspension hides everything up to the nearest
+ * Suspense boundary, so a key first read by a component that mounts late should be preloaded.
+ */
+export async function preloadStorage(keys: string[]): Promise<void> {
+  await Promise.all(
+    keys.map(async key => {
+      const value = await fetchFromStorage(key);
+      await mutate(key, value, { revalidate: false });
+    })
+  );
 }
 
 export async function putToStorage<T = any>(key: string, value: T) {
