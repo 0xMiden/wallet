@@ -17,6 +17,7 @@ import { Card, CardButton } from './Card';
 import { ChoiceCardGroup } from './ChoiceCard';
 import { CopyButton } from './CopyButton';
 import { CopyChip } from './CopyChip';
+import { AnimatedCopyIcon, CopyLabel } from './CopyFeedback';
 import { EmptyState } from './EmptyState';
 import { IconButton } from './IconButton';
 import * as UI from './index';
@@ -59,6 +60,8 @@ describe('components/ui barrel', () => {
     BalanceCard,
     CopyButton,
     CopyChip,
+    AnimatedCopyIcon,
+    CopyLabel,
     PromptCard,
     PromptCarousel,
     AssetListItem,
