@@ -47,10 +47,7 @@ export const SegmentedActionBar: FC<SegmentedActionBarProps> = ({
   };
 
   return (
-    <div
-      role="tablist"
-      className={classNames('flex h-16 items-center gap-1 overflow-hidden bg-gray-25 px-3', className)}
-    >
+    <div role="tablist" className={classNames('flex h-16 items-center gap-1 overflow-hidden bg-fill px-3', className)}>
       {items.map(item => {
         const isActive = item.id === activeId;
         return (

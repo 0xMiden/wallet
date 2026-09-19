@@ -108,7 +108,7 @@ describe('AccountsDrawer', () => {
       button => {
         expect(button.className).toContain('rounded-2xl');
         expect(button.className).not.toContain('rounded-xl');
-        expect(button.className).toContain('hover:bg-button-secondary-hover');
+        expect(button.className).toContain('hover:bg-fill-pressed');
         expect(button.className).not.toContain('#ECEAE7');
         expect(button.className).not.toContain('#3f3f3f');
       }

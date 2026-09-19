@@ -37,14 +37,14 @@ describe('ActivityRow', () => {
 
     expect(screen.getByTestId('glyph')).toBeTruthy();
     expect(screen.getByText('Sent MIDEN')).toBeTruthy();
-    // default iconBg = 'bg-gray-50'
-    expect(container.querySelector('.bg-gray-50')).not.toBeNull();
+    // default iconBg = 'bg-fill'
+    expect(container.querySelector('.bg-fill')).not.toBeNull();
   });
 
   it('renders the icon tile round, not the retired square token', () => {
     const { container } = renderRow();
 
-    expect(container.querySelector('.bg-gray-50')?.className).toContain('rounded-full');
+    expect(container.querySelector('.bg-fill')?.className).toContain('rounded-full');
     expect(container.querySelector('.rounded-10')).toBeNull();
   });
 
@@ -68,7 +68,7 @@ describe('ActivityRow', () => {
     const { container } = renderRow({ iconBg: 'bg-receive-green', className: 'my-extra-class' });
 
     expect(container.querySelector('.bg-receive-green')).not.toBeNull();
-    expect(container.querySelector('.bg-gray-50')).toBeNull();
+    expect(container.querySelector('.bg-fill')).toBeNull();
     expect(container.querySelector('.my-extra-class')).not.toBeNull();
   });
 

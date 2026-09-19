@@ -62,7 +62,7 @@ export const Alert: React.FC<AlertProps> = ({
       </div>
 
       {canDismiss && (
-        <button type="button" className="absolute -top-1 -right-3 bg-gray-50 rounded-full shadow">
+        <button type="button" className="absolute -top-1 -right-3 bg-fill rounded-full shadow">
           <Icon name={IconName.Close} fill={colors.grey[800]} size="sm" />
         </button>
       )}

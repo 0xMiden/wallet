@@ -31,7 +31,7 @@ export const GuardianTransitionHero: FC<GuardianTransitionHeroProps> = ({
   if (variant === 'review') {
     return (
       <div data-testid="guardian-transition-hero" className={`w-full ${className}`}>
-        <div className="flex min-h-[5.5rem] flex-col items-center justify-center rounded-3xl bg-surface-interactive px-4 py-4">
+        <div className="flex min-h-[5.5rem] flex-col items-center justify-center rounded-3xl bg-fill px-4 py-4">
           {/* `text-heading-gray`, matching the "New Guardian" chip below rather
               than `text-text-muted`: the two chips sit one above the other, and
               the muted token is 2.3:1 on this white pill in light mode while the
@@ -70,7 +70,7 @@ export const GuardianTransitionHero: FC<GuardianTransitionHeroProps> = ({
   return (
     <div
       data-testid="guardian-transition-hero"
-      className={`w-full rounded-2xl bg-surface-interactive px-4 py-8 flex flex-col items-center ${className}`}
+      className={`w-full rounded-2xl bg-fill px-4 py-8 flex flex-col items-center ${className}`}
     >
       <span className="px-3 py-1 rounded-lg bg-white text-sm font-medium text-heading-gray">{previousLabel}</span>
       <h2 className="mt-3 text-3xl font-semibold font-heading text-heading-gray text-center break-all">

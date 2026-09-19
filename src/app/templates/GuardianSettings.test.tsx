@@ -374,7 +374,7 @@ it('renders the checking pill with the auto-flipping neutral tokens, needing no 
 
   const pill = screen.getByRole('status');
   expect(pill).toHaveTextContent('guardianCheckingLabel');
-  expect(pill).toHaveClass('bg-gray-50', 'text-heading-gray');
+  expect(pill).toHaveClass('bg-fill', 'text-heading-gray');
 });
 
 it('keeps the OFFLINE pill readable in both themes', () => {

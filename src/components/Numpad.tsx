@@ -15,7 +15,7 @@ export interface NumpadProps {
 const DIGITS = ['1', '2', '3', '4', '5', '6', '7', '8', '9'];
 
 const keyClass =
-  'size-23 rounded-2xl bg-gray-25 text-heading-gray font-heading text-[34px] font-extrabold flex items-center justify-center select-none transition-transform duration-100 ease-out active:scale-90 motion-reduce:transition-none motion-reduce:active:scale-100';
+  'size-23 rounded-2xl bg-fill text-heading-gray font-heading text-[34px] font-extrabold flex items-center justify-center select-none transition-transform duration-100 ease-out active:scale-90 motion-reduce:transition-none motion-reduce:active:scale-100';
 
 export const Numpad: React.FC<NumpadProps> = ({ onDigit, onDelete, className }) => {
   const { t } = useTranslation();

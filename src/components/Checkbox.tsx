@@ -21,7 +21,7 @@ const propsForStatus = {
     border: 'border-0'
   },
   disabled: {
-    backgroundColor: 'bg-gray-50',
+    backgroundColor: 'bg-fill',
     border: 'border-0'
   }
 };

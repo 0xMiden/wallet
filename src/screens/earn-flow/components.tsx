@@ -38,7 +38,7 @@ export const MetricCard: FC<{ label: string; value: string; valueClassName?: str
   valueClassName,
   className
 }) => (
-  <div className={classNames('flex py-3 flex-col items-center justify-center rounded-10 bg-gray-25 px-10', className)}>
+  <div className={classNames('flex py-3 flex-col items-center justify-center rounded-10 bg-fill px-10', className)}>
     <div className="text-center text-[10px] font-semibold uppercase leading-none text-gray-secondary">{label}</div>
     <div className={classNames('mt-1 text-center text-sm font-bold leading-none text-black', valueClassName)}>
       {value}

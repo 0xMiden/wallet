@@ -26,7 +26,7 @@ describe('DetailSection', () => {
 
     const heading = screen.getByRole('heading', { level: 2, name: 'Transfer Details' });
     expect(heading).toHaveClass('font-sans', 'text-[13px]', 'font-bold', 'text-muted');
-    expect(heading).not.toHaveClass('rounded-full', 'bg-gray-50');
+    expect(heading).not.toHaveClass('rounded-full', 'bg-fill');
 
     const section = container.querySelector('section')!;
     expect(section).not.toHaveClass('font-heading');

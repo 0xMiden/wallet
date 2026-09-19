@@ -43,7 +43,7 @@ describe('FlowLayout', () => {
     );
 
     const back = screen.getByTestId('flow-back');
-    expect(back).not.toHaveClass('bg-surface-nav-button');
+    expect(back).not.toHaveClass('bg-fill');
     expect(back).not.toHaveClass('bg-fill');
     expect(back).toHaveClass('text-ink');
     expect(back).not.toHaveClass('text-accent-send');

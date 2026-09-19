@@ -144,7 +144,7 @@ function buildRowProps(
   const isFailed = !isCancelled && (icon === 'FAILED' || entry.message === 'Transaction failed');
 
   let iconNode: React.ReactNode;
-  let iconBg = 'bg-gray-50';
+  let iconBg = 'bg-fill';
   let amountDirection: 'positive' | 'negative' | 'neutral' = 'neutral';
 
   // Glyphs mirror the home action-bar logos (Send / Receive / Earn / Swap),

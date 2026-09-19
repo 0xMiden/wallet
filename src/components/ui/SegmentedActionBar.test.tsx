@@ -68,7 +68,7 @@ describe('SegmentedActionBar — exports & structure', () => {
     expect(tablist).toBeTruthy();
     // Base layout classes always present on the container.
     expect(tablist.className).toContain('h-16');
-    expect(tablist.className).toContain('bg-gray-25');
+    expect(tablist.className).toContain('bg-fill');
 
     const tabs = screen.getAllByRole('tab');
     expect(tabs).toHaveLength(3);

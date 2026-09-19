@@ -130,7 +130,7 @@ const DAppCard: FC<{
             </span>
             <CopyButton
               text={accountId}
-              className="p-1 rounded-sm hover:bg-gray-100 transition-colors ease-hover duration-150"
+              className="p-1 rounded-sm hover:bg-fill-pressed transition-colors ease-hover duration-150"
             >
               {copied =>
                 copied ? (
@@ -145,7 +145,7 @@ const DAppCard: FC<{
                 href={explorerAccountUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="p-1 hover:bg-gray-100 rounded-sm transition-colors ease-hover duration-150"
+                className="p-1 hover:bg-fill-pressed rounded-sm transition-colors ease-hover duration-150"
               >
                 <ExternalLinkSmallIcon className="w-3 h-3 text-text-muted" />
               </a>

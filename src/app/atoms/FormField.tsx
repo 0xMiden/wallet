@@ -172,7 +172,7 @@ const FormField = forwardRef<FormFieldRef, FormFieldProps>(
               getInnerClassName(isPasswordInput, extraInner),
               errorCaption ? 'border-red-500' : 'border-gray-100',
               secretBannerDisplayed ? 'border border-border-light' : 'border',
-              'bg-gray-25 focus:bg-transparent',
+              'bg-fill focus:bg-transparent',
               // text-black maps to --color-text-primary → black in light,
               // white in dark. Without this the <input> inherits the browser
               // default (pure black), which renders the masked password dots

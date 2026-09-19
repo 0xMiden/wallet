@@ -53,7 +53,7 @@ export function PrivateKeyPair({ payload }: { payload: string }) {
                 value={field.value}
                 rows={3}
                 spellCheck={false}
-                className="w-full resize-none rounded-lg bg-surface-input p-3 font-sans text-sm text-text-primary-token focus-visible:outline focus-visible:outline-2"
+                className="w-full resize-none rounded-lg bg-fill p-3 font-sans text-sm text-text-primary-token focus-visible:outline focus-visible:outline-2"
               />
             </div>
           ))}

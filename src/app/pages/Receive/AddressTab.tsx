@@ -138,7 +138,7 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
             <CopyButton
               text={address}
               data-testid="receive-copy-address"
-              className="w-full rounded-full! text-center py-5 bg-surface-interactive hover:bg-surface-interactive"
+              className="w-full rounded-full! text-center py-5 bg-fill hover:bg-fill"
             >
               {copied => (
                 <span className="text-base font-heading font-bold text-heading-gray">

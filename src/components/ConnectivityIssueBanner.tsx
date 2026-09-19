@@ -206,7 +206,7 @@ export const ConnectivityIssueBanner: FC<ConnectivityIssueBannerProps> = ({ clas
         <button
           type="button"
           onClick={onCta}
-          className="text-xs font-medium text-primary-500 px-2 py-1 rounded-md hover:bg-gray-100"
+          className="text-xs font-medium text-primary-500 px-2 py-1 rounded-md hover:bg-fill-pressed"
         >
           {t(view.ctaKey)}
         </button>
@@ -215,7 +215,7 @@ export const ConnectivityIssueBanner: FC<ConnectivityIssueBannerProps> = ({ clas
         type="button"
         onClick={onDismiss}
         aria-label={t('close')}
-        className="flex size-8 shrink-0 items-center justify-center rounded-md opacity-50 hover:bg-gray-100 hover:opacity-100"
+        className="flex size-8 shrink-0 items-center justify-center rounded-md opacity-50 hover:bg-fill-pressed hover:opacity-100"
       >
         <Icon name={IconName.Close} size="sm" fill="currentColor" />
       </button>

@@ -79,7 +79,7 @@ export const DappTile: FC<DappTileProps> = ({
       onClick={handleClick}
       // `w-full` ensures the button fills its grid cell so favicons
       // line up at consistent horizontal positions across tiles.
-      className="flex w-full flex-col items-center gap-1.5 rounded-2xl p-2 active:bg-gray-100"
+      className="flex w-full flex-col items-center gap-1.5 rounded-2xl p-2 active:bg-fill-pressed"
       aria-label={accessibleLabel}
       data-testid="dapp-tile"
       data-dapp-url={url}

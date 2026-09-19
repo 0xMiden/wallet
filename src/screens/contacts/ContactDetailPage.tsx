@@ -168,7 +168,7 @@ const ContactView: React.FC<ContactViewProps> = ({ contact, onBack, onDeleted })
               void remove();
             }}
             data-testid="contact-delete"
-            className="mt-2 h-12 w-full rounded-full bg-surface-interactive font-heading text-base font-bold text-status-negative"
+            className="mt-2 h-12 w-full rounded-full bg-fill font-heading text-base font-bold text-status-negative"
           >
             {t('deleteContact')}
           </button>

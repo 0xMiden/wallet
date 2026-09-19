@@ -110,7 +110,7 @@ const ExportFilePassword: React.FC<ExportFilePasswordProps> = ({
         />
 
         <div className="w-full items-center flex flex-col gap-y-4 flex-1 pt-4">
-          <p className="text-sm leading-[130%] text-center bg-gray-25 rounded-10 px-8 py-2">
+          <p className="text-sm leading-[130%] text-center bg-fill rounded-10 px-8 py-2">
             {t('enterPasswordToEncrypt')}
           </p>
           <div className="w-full flex flex-col gap-y-4">

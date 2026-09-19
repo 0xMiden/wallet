@@ -215,7 +215,7 @@ const Toolbar: FC<ToolbarProps> = ({
         {navigationStyle === 'back' && isBackButtonAvailable && (
           <Button
             variant={ButtonVariant.Ghost}
-            className="h-12 w-12 max-w-none shrink-0 rounded-xl border-0 bg-surface-interactive p-3 text-primary-500 hover:bg-surface-interactive"
+            className="h-12 w-12 max-w-none shrink-0 rounded-xl border-0 bg-fill p-3 text-primary-500 hover:bg-fill"
             onClick={step ? onStepBack : onBack}
             data-testid={PageLayoutSelectors.BackButton}
           >

@@ -136,7 +136,7 @@ describe('MetricCard', () => {
     const { container } = render(<MetricCard label="Label" value="Value" />);
 
     const card = container.firstChild as HTMLElement;
-    expect(card).toHaveClass('bg-gray-25');
+    expect(card).toHaveClass('bg-fill');
 
     const valueEl = screen.getByText('Value');
     // Base value classes are always present; no valueClassName was supplied.
@@ -151,7 +151,7 @@ describe('MetricCard', () => {
 
     const card = container.firstChild as HTMLElement;
     expect(card).toHaveClass('my-card');
-    expect(card).toHaveClass('bg-gray-25');
+    expect(card).toHaveClass('bg-fill');
 
     const valueEl = screen.getByText('+$24.50');
     expect(valueEl).toHaveClass('text-status-positive');

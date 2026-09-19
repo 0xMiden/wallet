@@ -62,7 +62,7 @@ const AdvancedSettings: FC = () => {
           type="button"
           onClick={handleCopy}
           disabled={!publicKey}
-          className="flex items-center cursor-pointer hover:bg-gray-25 disabled:opacity-40 disabled:cursor-not-allowed"
+          className="flex items-center cursor-pointer hover:bg-fill-pressed disabled:opacity-40 disabled:cursor-not-allowed"
         >
           <Icon name={copied ? IconName.Checkmark : IconName.Copy} className={clsx('w-5 h-5 p-1 stroke-black')} />
         </button>

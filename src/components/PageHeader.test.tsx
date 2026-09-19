@@ -23,7 +23,7 @@ it('puts back, title, actions and close in one 52px row', () => {
   expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Address Book');
   expect(header).toHaveTextContent('edit');
 
-  expect(screen.getByTestId('page-back')).not.toHaveClass('bg-surface-nav-button');
+  expect(screen.getByTestId('page-back')).not.toHaveClass('bg-fill');
   expect(screen.getByTestId('page-back')).toHaveClass('h-11', 'w-11');
 
   fireEvent.click(screen.getByTestId('page-back'));

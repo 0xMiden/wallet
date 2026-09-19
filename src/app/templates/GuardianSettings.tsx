@@ -189,7 +189,7 @@ const GuardianSettings: FC = () => {
   return (
     <div className="flex min-h-full w-full flex-col">
       <div className="flex flex-col items-center pt-1">
-        <div className="flex h-16 min-w-16 max-w-full items-center justify-center overflow-hidden rounded-xl bg-surface-interactive px-3">
+        <div className="flex h-16 min-w-16 max-w-full items-center justify-center overflow-hidden rounded-xl bg-fill px-3">
           {logoEntry ? (
             <logoEntry.Logo
               data-testid="guardian-operator-logo"
@@ -211,7 +211,7 @@ const GuardianSettings: FC = () => {
             and "checking" resolves to "online" the moment the first sync
             lands), and a bare div announces nothing when it does. Polite, not
             assertive — it must not interrupt whatever is being read. */}
-        {/* "Checking" uses the auto-flipping neutral tokens (`bg-gray-50` /
+        {/* "Checking" uses the auto-flipping neutral tokens (`bg-fill` /
             `text-heading-gray`) already used elsewhere on this page, so it
             needs no `dark:` pairing of its own — unlike the red/green states,
             which use the fixed palette and therefore do. */}
@@ -233,7 +233,7 @@ const GuardianSettings: FC = () => {
                   : // Both neutral states share the auto-flipping tokens: neither is
                     // a fault, and "not connected" is resolved by activating the
                     // device key, which the app prompts for elsewhere.
-                    'bg-gray-50 text-heading-gray'
+                    'bg-fill text-heading-gray'
             )}
           >
             <span
@@ -274,7 +274,7 @@ const GuardianSettings: FC = () => {
             headings skipped h2" fix belonged to the Settings root list, where
             there was genuinely no h2 to be subordinate to; promoting these gave
             the page three sibling h2s and flattened a correct outline. */}
-        <h3 className="inline-block rounded-full bg-gray-25 px-3 py-1 text-sm font-semibold text-heading-gray">
+        <h3 className="inline-block rounded-full bg-fill px-3 py-1 text-sm font-semibold text-heading-gray">
           {t('about')}
         </h3>
         <p className="mt-2 text-sm leading-5 text-heading-gray">
@@ -295,7 +295,7 @@ const GuardianSettings: FC = () => {
       <hr className="my-3 border-border-faint" />
 
       <section className="pb-4">
-        <h3 className="inline-block rounded-full bg-gray-25 px-3 py-1 text-sm font-semibold text-heading-gray">
+        <h3 className="inline-block rounded-full bg-fill px-3 py-1 text-sm font-semibold text-heading-gray">
           {t('details')}
         </h3>
         <DetailCard className="mt-2">

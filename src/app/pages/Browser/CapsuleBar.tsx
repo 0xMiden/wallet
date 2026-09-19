@@ -215,7 +215,7 @@ export const CapsuleBar: FC<CapsuleBarProps> = ({
             }}
             aria-label={t('minimize')}
             data-testid="dapp-capsule-minimize"
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-white/10"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full hover:bg-fill-pressed"
           >
             <Icon name={IconName.ArrowDown} size="sm" className="text-black dark:text-white" fill="currentColor" />
           </button>
@@ -229,7 +229,7 @@ export const CapsuleBar: FC<CapsuleBarProps> = ({
           onClick={handleReload}
           aria-label={t('reload')}
           data-testid="dapp-capsule-reload"
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-white/10"
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full hover:bg-fill-pressed"
         >
           <Icon name={IconName.Refresh} size="sm" className="text-black dark:text-white" fill="currentColor" />
         </button>
@@ -240,7 +240,7 @@ export const CapsuleBar: FC<CapsuleBarProps> = ({
           onClick={handleClose}
           aria-label={t('close')}
           data-testid="dapp-capsule-close"
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-white/10"
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full hover:bg-fill-pressed"
         >
           <Icon name={IconName.Close} size="sm" className="text-black dark:text-white" fill="currentColor" />
         </button>
@@ -258,7 +258,7 @@ export const CapsuleBar: FC<CapsuleBarProps> = ({
             }}
             aria-label={t('switchDapps')}
             data-testid="dapp-capsule-switcher"
-            className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-white/10"
+            className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-full hover:bg-fill-pressed"
           >
             <div className="flex h-5 w-5 items-center justify-center rounded-md border-[1.5px] border-black dark:border-white">
               <span className="text-[10px] font-bold leading-none text-black dark:text-white">{tabsCount}</span>
@@ -277,7 +277,7 @@ export const CapsuleBar: FC<CapsuleBarProps> = ({
             }}
             aria-label={t('dappActionsSheet')}
             data-testid="dapp-capsule-actions"
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-white/10"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full hover:bg-fill-pressed"
           >
             <Icon name={IconName.More} size="sm" className="text-black dark:text-white" fill="currentColor" />
           </button>

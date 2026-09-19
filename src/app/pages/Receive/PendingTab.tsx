@@ -213,7 +213,7 @@ const PendingSummary: React.FC<PendingSummaryProps> = ({
   return (
     <div className="flex-1 min-h-0 overflow-y-auto">
       <div className="w-full mx-auto py-2 px-6 flex flex-col min-h-full">
-        <div className="bg-surface-interactive rounded-10 px-4 py-3">
+        <div className="bg-fill rounded-10 px-4 py-3">
           <p className="text-[10px] text-center text-black font-heading font-semibold leading-snug">
             {t('pendingNotesInfo')}
           </p>
@@ -362,7 +362,7 @@ const AssetSummaryRow: React.FC<AssetSummaryRowProps> = ({
           {t('notesUnresolved', { count: needsAttentionCount })}
         </div>
       ) : (
-        <div className="mt-3 w-full rounded-full bg-surface-interactive py-2 text-center text-base font-heading font-semibold text-black opacity-60">
+        <div className="mt-3 w-full rounded-full bg-fill py-2 text-center text-base font-heading font-semibold text-black opacity-60">
           {t('incomingTransfersCount', { count: notes.length })}
         </div>
       )}
@@ -440,7 +440,7 @@ const AssetPendingDetail: React.FC<AssetPendingDetailProps> = ({
         )}
         <div className="w-full mx-auto pt-6 px-6 flex flex-col">
           <div className="flex flex-col items-center">
-            <div className="inline-flex items-center px-3 py-1 rounded-5 bg-surface-interactive text-[10px] font-bold tracking-[0.08em] uppercase text-text-primary-token">
+            <div className="inline-flex items-center px-3 py-1 rounded-5 bg-fill text-[10px] font-bold tracking-[0.08em] uppercase text-text-primary-token">
               <span>{name}</span>
               <span className="mx-2 text-heading-gray">•</span>
               <span>{t('incomingCount', { count: notes.length })}</span>
@@ -504,7 +504,7 @@ const AssetPendingDetail: React.FC<AssetPendingDetailProps> = ({
             onClick={handleClaimGroup}
             disabled={!canClaimAllGroup}
             className={classNames(
-              'w-full rounded-2xl bg-surface-interactive py-3.5 text-base font-bold text-accent-primary',
+              'w-full rounded-2xl bg-fill py-3.5 text-base font-bold text-accent-primary',
               'hover:bg-grey-50 transition-colors',
               !canClaimAllGroup && 'opacity-50 cursor-not-allowed'
             )}
