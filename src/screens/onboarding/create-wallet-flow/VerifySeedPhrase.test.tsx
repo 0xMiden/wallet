@@ -115,14 +115,25 @@ describe('VerifySeedPhraseScreen', () => {
   });
 
   describe('rendering', () => {
-    it('renders one chip per seed word and forwards root props / className', () => {
-      render(<VerifySeedPhraseScreen seedPhrase={SEED} id="my-root" className="extra-class" />);
+    it('renders one chip per seed word on the step layout, Continue pinned in its footer', () => {
+      render(<VerifySeedPhraseScreen seedPhrase={SEED} />);
 
       expect(screen.getAllByTestId(/^verify-quiz-word-\d+$/)).toHaveLength(12);
+      expect(screen.getByTestId('verify-seed-phrase')).toBeInTheDocument();
+      expect(screen.getByRole('heading', { level: 1, name: 'verifySeedPhrase' })).toBeInTheDocument();
+      expect(screen.getByTestId('continue').closest('[data-slot="footer"]')).not.toBeNull();
+    });
 
-      const root = screen.getByTestId('verify-seed-phrase');
-      expect(root).toHaveAttribute('id', 'my-root');
-      expect(root).toHaveClass('extra-class');
+    it('embeds without a frame or heading when the host draws the page (showIntro false)', () => {
+      render(<VerifySeedPhraseScreen seedPhrase={SEED} showIntro={false} data-testid="embedded" />);
+      expect(screen.getByTestId('embedded')).toBeInTheDocument();
+      expect(screen.queryByRole('heading', { level: 1 })).not.toBeInTheDocument();
+      expect(screen.getByTestId('continue').closest('[data-slot="footer"]')).toBeNull();
+    });
+
+    it('colours the step prompt with the status inks', () => {
+      render(<VerifySeedPhraseScreen seedPhrase={SEED} />);
+      expect(screen.getByTestId('verify-seed-prompt')).toHaveClass('text-ink');
     });
 
     it('starts with no words selected and the continue button disabled', () => {
