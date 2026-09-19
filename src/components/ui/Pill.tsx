@@ -54,7 +54,10 @@ export interface PillProps {
   selected?: boolean;
   disabled?: boolean;
   className?: string;
-  /** `'status'` for a static pill whose content changes while it is on screen (a live status). */
+  /**
+   * `'status'` for a static pill whose content changes while it is on screen (a live status). The
+   * pill then also says `aria-live="polite"` outright, for screen readers that ignore the implicit one.
+   */
   role?: 'status';
   'aria-label'?: string;
   'data-testid'?: string;
@@ -172,7 +175,13 @@ export const Pill: React.FC<PillProps> = ({
 
   if (!onClick) {
     return (
-      <span className={classes} role={role} aria-label={ariaLabel} data-testid={dataTestId}>
+      <span
+        className={classes}
+        role={role}
+        aria-live={role === 'status' ? 'polite' : undefined}
+        aria-label={ariaLabel}
+        data-testid={dataTestId}
+      >
         {content}
       </span>
     );
