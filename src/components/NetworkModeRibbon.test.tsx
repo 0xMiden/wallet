@@ -106,17 +106,15 @@ describe('NetworkModeRibbon', () => {
     expect(ribbon()).toHaveClass('pointer-events-auto');
   });
 
-  it('adapts to the bar: on its tab row when docked, in the pill’s corner when floating', () => {
+  it('sits deep in the corner, the word centred on the visible stretch of the band', () => {
+    // Docked: centreline x + y = 50 from the screen's corner, the word at (25, 25), its midpoint.
     const { unmount } = render(<NetworkModeRibbon docked />);
-    // Anchored to the bar's own bottom padding, so it follows the bar wherever the bar goes.
-    expect(band()).toHaveClass(
-      '-right-[78.5px]',
-      'bottom-[calc(max(0.5rem,calc(var(--app-safe-bottom,max(16px,env(safe-area-inset-bottom)))-16px))+29px)]'
-    );
+    expect(band()).toHaveClass('-right-[75px]', 'bottom-[18px]');
     unmount();
 
+    // Floating: x + y = 44 inside the pill's 24px radius, the word at (22, 22).
     render(<NetworkModeRibbon docked={false} />);
-    expect(band()).toHaveClass('-right-[76px]', 'bottom-[17px]');
+    expect(band()).toHaveClass('-right-[78px]', 'bottom-[15px]');
   });
 
   it('is a solid brand band with white text (6.3:1 on #9F4518, 6.5:1 on devnet slate), in both themes', () => {
