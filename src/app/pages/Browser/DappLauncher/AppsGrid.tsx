@@ -17,9 +17,10 @@ import React, { type FC, useState } from 'react';
 
 import { motion } from 'framer-motion';
 
+import { CardButton } from 'components/ui/Card';
 import { useSprings } from 'lib/animation';
 import { getExploreGridDapps, type FeaturedDapp } from 'lib/dapp-browser';
-import { hapticLight } from 'lib/mobile/haptics';
+import { cn } from 'lib/ui/util';
 
 interface AppsGridProps {
   onOpen: (url: string) => void;
@@ -36,25 +37,24 @@ const AppCard: FC<AppCardProps> = ({ dapp, onOpen }) => {
 
   const showFallback = !dapp.icon || iconBroken;
 
-  const handleClick = () => {
-    hapticLight();
-    onOpen(dapp.url);
-  };
-
   return (
-    <button
-      type="button"
-      onClick={handleClick}
-      className="flex flex-col items-center gap-3 rounded-2xl border border-hairline bg-white p-4 text-left active:opacity-90"
+    <CardButton
+      padding="tile"
+      onClick={() => onOpen(dapp.url)}
+      className="flex flex-col items-center gap-3"
       aria-label={dapp.name}
       data-testid="dapp-grid-card"
       data-dapp-url={dapp.url}
     >
+      {/* On `page`, so the tile stays visible on the card's `fill`. */}
       <motion.div
         layoutId={`dapp-favicon-${dapp.url}`}
         transition={springs.morph}
-        className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-xl"
-        style={{ background: showFallback ? dapp.brandColor : 'rgba(0,0,0,0.04)' }}
+        className={cn(
+          'flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-xl',
+          !showFallback && 'bg-page'
+        )}
+        style={showFallback ? { background: dapp.brandColor } : undefined}
         aria-hidden="true"
       >
         {showFallback ? (
@@ -85,7 +85,7 @@ const AppCard: FC<AppCardProps> = ({ dapp, onOpen }) => {
         )}
         <span className="font-heading text-xs font-medium leading-snug text-muted">{dapp.shortDescription}</span>
       </div>
-    </button>
+    </CardButton>
   );
 };
 
