@@ -52,6 +52,11 @@ const PageLayer: FC<PageLayerProps> = ({ layerKey, location, slide, revealed, an
   // and a later push must not pull it back under the new page.
   const uncovering = useRef(false);
   if (present) uncovering.current = false;
+  // AnimatePresence unmounts leaving layers together, once every one is done, and a covered layer is
+  // not done until the slide page above it goes. A layer that has finished leaving renders nothing
+  // until then, so a later push to its page never finds a second copy of that page in the DOM.
+  const [gone, setGone] = useState(false);
+  if (present && gone) setGone(false);
 
   let layerMotion: LayerMotion = 'still';
   switch (true) {
@@ -68,11 +73,12 @@ const PageLayer: FC<PageLayerProps> = ({ layerKey, location, slide, revealed, an
   if (layerMotion === 'uncover') uncovering.current = true;
 
   useLayoutEffect(() => {
+    if (gone) return;
     mounted.add(layerKey);
     return () => {
       mounted.delete(layerKey);
     };
-  }, [mounted, layerKey]);
+  }, [mounted, layerKey, gone]);
 
   useLayoutEffect(() => {
     ref.current?.toggleAttribute('inert', !present);
@@ -81,8 +87,12 @@ const PageLayer: FC<PageLayerProps> = ({ layerKey, location, slide, revealed, an
   // A covered layer stays until the slide page above it goes. An uncovering
   // layer waits for its own slide out. Any other absent layer goes at once.
   useEffect(() => {
-    if (!present && layerMotion === 'still') remove?.();
+    if (present || layerMotion !== 'still') return;
+    setGone(true);
+    remove?.();
   }, [present, layerMotion, remove]);
+
+  if (gone) return null;
 
   let initial: false | TargetAndTransition = false;
   let animate: TargetAndTransition = restTarget;
@@ -114,7 +124,9 @@ const PageLayer: FC<PageLayerProps> = ({ layerKey, location, slide, revealed, an
       animate={animate}
       transition={transition}
       onAnimationComplete={() => {
-        if (!present && layerMotion === 'uncover') remove?.();
+        if (present || layerMotion !== 'uncover') return;
+        setGone(true);
+        remove?.();
       }}
     >
       <LocationProvider snapshot={location}>
