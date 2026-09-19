@@ -96,8 +96,6 @@
   "versionLabel": "バージョン：$version$",
   "resetPermissionsConfirmation": "「\n $origin$」のアクセス権をリセットしてもよろしいですか？",
   "clickToRevealField": "クリックしてこのフィールドを表示する",
-  "copiedHash": "コピーしました。",
-  "copyHashToClipboard": "クリップボードにコピー",
   "accounts": "勘定科目",
   "cardColor": "カードの色",
   "lock": "ロック",

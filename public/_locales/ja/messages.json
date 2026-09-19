@@ -531,14 +531,6 @@
     "message": "クリックしてこのフィールドを表示する",
     "englishSource": "Click to reveal this field"
   },
-  "copiedHash": {
-    "message": "コピーしました。",
-    "englishSource": "Copied."
-  },
-  "copyHashToClipboard": {
-    "message": "クリップボードにコピー",
-    "englishSource": "Copy to clipboard"
-  },
   "accounts": {
     "message": "勘定科目",
     "englishSource": "Accounts"

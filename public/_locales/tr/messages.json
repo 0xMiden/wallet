@@ -531,14 +531,6 @@
     "message": "Bu alanı görüntülemek için tıklayın",
     "englishSource": "Click to reveal this field"
   },
-  "copiedHash": {
-    "message": "Kopyalandı.",
-    "englishSource": "Copied."
-  },
-  "copyHashToClipboard": {
-    "message": "Panoya kopyala",
-    "englishSource": "Copy to clipboard"
-  },
   "accounts": {
     "message": "Hesaplar",
     "englishSource": "Accounts"

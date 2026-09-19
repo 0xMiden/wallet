@@ -531,14 +531,6 @@
     "message": "Натисніть, щоб розгорнути це поле",
     "englishSource": "Click to reveal this field"
   },
-  "copiedHash": {
-    "message": "Скопійовано.",
-    "englishSource": "Copied."
-  },
-  "copyHashToClipboard": {
-    "message": "Скопіювати до буфера обміну",
-    "englishSource": "Copy to clipboard"
-  },
   "accounts": {
     "message": "Рахунки",
     "englishSource": "Accounts"

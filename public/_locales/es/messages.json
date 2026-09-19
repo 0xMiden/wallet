@@ -531,14 +531,6 @@
     "message": "Haz clic para mostrar este campo",
     "englishSource": "Click to reveal this field"
   },
-  "copiedHash": {
-    "message": "Copiado.",
-    "englishSource": "Copied."
-  },
-  "copyHashToClipboard": {
-    "message": "Copiar al portapapeles",
-    "englishSource": "Copy to clipboard"
-  },
   "accounts": {
     "message": "Cuentas",
     "englishSource": "Accounts"

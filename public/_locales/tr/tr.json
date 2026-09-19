@@ -96,8 +96,6 @@
   "versionLabel": "sürüm: $version$",
   "resetPermissionsConfirmation": "\n $origin$için izinleri sıfırlamak istediğinizden emin misiniz?",
   "clickToRevealField": "Bu alanı görüntülemek için tıklayın",
-  "copiedHash": "Kopyalandı.",
-  "copyHashToClipboard": "Panoya kopyala",
   "accounts": "Hesaplar",
   "cardColor": "Kart Rengi",
   "lock": "Kilit",

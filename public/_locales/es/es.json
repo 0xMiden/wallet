@@ -96,8 +96,6 @@
   "versionLabel": "versión: $version$",
   "resetPermissionsConfirmation": "¿Estás seguro de que quieres restablecer los permisos de\n $origin$?",
   "clickToRevealField": "Haz clic para mostrar este campo",
-  "copiedHash": "Copiado.",
-  "copyHashToClipboard": "Copiar al portapapeles",
   "accounts": "Cuentas",
   "cardColor": "Color de la tarjeta",
   "lock": "Cerrar con llave",

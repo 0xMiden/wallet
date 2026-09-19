@@ -96,8 +96,6 @@
   "versionLabel": "версія: $version$",
   "resetPermissionsConfirmation": "Ви впевнені, що хочете скинути права доступу для\n $origin$?",
   "clickToRevealField": "Натисніть, щоб розгорнути це поле",
-  "copiedHash": "Скопійовано.",
-  "copyHashToClipboard": "Скопіювати до буфера обміну",
   "accounts": "Рахунки",
   "cardColor": "Колір картки",
   "lock": "Замок",

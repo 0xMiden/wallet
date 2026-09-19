@@ -96,8 +96,6 @@
   "versionLabel": "버전: $version$",
   "resetPermissionsConfirmation": "\n $origin$의 권한을 재설정하시겠습니까?",
   "clickToRevealField": "이 필드를 보려면 클릭하세요",
-  "copiedHash": "복사했습니다.",
-  "copyHashToClipboard": "클립보드에 복사",
   "accounts": "계정",
   "cardColor": "카드 색상",
   "lock": "잠금",

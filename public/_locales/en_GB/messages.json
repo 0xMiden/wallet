@@ -531,14 +531,6 @@
     "message": "Click to reveal this field",
     "englishSource": "Click to reveal this field"
   },
-  "copiedHash": {
-    "message": "Copied.",
-    "englishSource": "Copied."
-  },
-  "copyHashToClipboard": {
-    "message": "Copy to clipboard",
-    "englishSource": "Copy to clipboard"
-  },
   "accounts": {
     "message": "Accounts",
     "englishSource": "Accounts"

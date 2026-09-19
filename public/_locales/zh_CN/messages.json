@@ -531,14 +531,6 @@
     "message": "点击显示此字段",
     "englishSource": "Click to reveal this field"
   },
-  "copiedHash": {
-    "message": "已复制。",
-    "englishSource": "Copied."
-  },
-  "copyHashToClipboard": {
-    "message": "复制到剪贴板",
-    "englishSource": "Copy to clipboard"
-  },
   "accounts": {
     "message": "账户",
     "englishSource": "Accounts"
