@@ -7,8 +7,9 @@ page-transition models and about 30 section-title styles.
 
 Direction: **crisp and left-aligned** (chosen 2026-09-19 over a centered and a tray-based
 direction). Visual reference: the screens page (Bread Screens artifact, direction B) and the Bread
-design system page. Rows marked *planned* do not exist yet; the migration order at the end says
-when each lands. Until a row lands, do not add a new instance of anything it replaces.
+design system page. Rows marked *planned* do not exist yet; until one lands, do not add a new
+instance of anything it replaces. Every other row has landed, and its "Replaces" column names what
+was deleted (or, where marked, what still has callers to migrate).
 
 ## Rules
 
@@ -20,8 +21,11 @@ when each lands. Until a row lands, do not add a new instance of anything it rep
    **Radix Primitives**; sheets stay on vaul. Pull a component with the shadcn CLI
    (`components.json` points it at `src/components/ui` and `lib/ui/util`'s `cn`), then restyle it to
    these tokens: never keep shadcn's default theme variables or colors.
-3. `src/app/atoms`, `lib/ui/button`, `lib/ui/badge` and every component listed under "Replaces" are
-   frozen: fix bugs in them, migrate their callers, then delete them.
+3. `src/app/atoms` and every component still listed under "Replaces" are frozen: fix bugs in them,
+   migrate their callers, then delete them. `.eslintrc` enforces it: `no-restricted-imports` bans
+   each deleted module's path (with a message naming its replacement), and
+   `@typescript-eslint/no-restricted-imports` bans `app/atoms` for every file outside the allow-list
+   of existing importers in its `overrides`. A file that stops importing atoms leaves that list.
 4. Motion goes through `lib/animation`: a named preset, or a named spring for anything the presets
    do not cover. No literal duration, easing, stiffness or cubic-bezier in a component.
 5. Every animation respects reduced motion. Presets do this for you; a CSS animation needs a
@@ -54,9 +58,9 @@ Two fills replace six (`gray-25`, `gray-50`, `surface-input`, `surface-interacti
 
 | Token | Light | Dark | Use |
 | --- | --- | --- | --- |
-| `accent` | #E77537 | #E77537 | Primary CTA fill, selected state, focus ring, header text actions. White on it is 3.0:1: labels on it are 19px bold or larger. |
+| `accent` | #E77537 | #E77537 | Primary CTA fill, selected state, focus ring. White on it is 3.0:1: labels on it are 19px bold or larger. Never text: #E77537 is 2.64:1 on `fill` and 3.0:1 on white. |
 | `accent-tint` | #FDEEE5 | #3A2418 | Selected pill fill. |
-| `accent-tint-ink` | #A84A18 | #F2A57A | Text on `accent-tint` (5.1:1). |
+| `accent-tint-ink` | #A84A18 | #F2A57A | Text on `accent-tint` (5.1:1), and every text action: Copy, Edit, See all, a header's text action. |
 | `positive` / `positive-ink` | #90BA89 / #3D7A34 | #90BA89 / #90BA89 | Fill / text for success. |
 | `pending` / `pending-ink` | #E85D2F / #B8451A | #E85D2F / #F08B57 | Fill / text for in progress. |
 | `negative` / `negative-ink` | #FF5500 / #C63A00 | #C51A0A / #FF7A4D | Fill / text for errors and destructive actions. |
@@ -84,7 +88,8 @@ Nunito (`font-heading`) for titles, values and buttons; Inter (`font-sans`) for 
 
 ### Spacing and sizes
 
-A 4px grid. Page margin 16px on every page, header and sheet. 20px between sections.
+A 4px grid. Page margin 16px on every page, header and sheet. 20px between sections. Two buttons
+side by side sit 10px apart (`gap-2.5`), each `flex-1`.
 
 | Element | Height |
 | --- | --- |
@@ -120,38 +125,40 @@ CTA never do. The CTA clears the home indicator on iOS.
 
 | Element | Canonical (`components/ui`) | Anatomy | Replaces |
 | --- | --- | --- | --- |
-| Primary action | `Button` | 52px pill. `primary`: `accent`, white 19px label. `secondary`: `fill`, `ink` label. `destructive`: `fill`, `negative-ink` label. `sm`: 36px, 15px label. Loading swaps the label for the spinner, width held. One `primary` per screen; two side by side are 10px apart. | `components/Button` (moves), `lib/ui/button`, `FormSubmitButton`, `FormSecondaryButton`, raw CTA buttons |
+| Primary action | `Button` (`components/ui/Button`; `components/Button` re-exports it) | 52px pill. `primary`: `accent`, white 19px label. `secondary`: `fill`, `ink` label. `destructive`: `fill`, `negative-ink` label. `sm`: 36px, 15px label. Loading swaps the label for the spinner, width held. One `primary` per screen; two side by side are 10px apart. `lib/ui/button`, `FormSubmitButton`, `FormSecondaryButton`, raw CTA buttons |
 | Icon button | `IconButton` | Header: a bare 24px glyph in a 44px hit area, `ink`. Sheet and overlay: a 32px circle on `fill`, `muted` glyph. | `NavButton`, `CircleButton`, ad-hoc round buttons |
-| Pushed page header | `PageHeader` | 52px row: bare chevron, 20px title left beside it, then actions (orange text such as "Edit", or an `IconButton`), close last. No divider; a hairline appears once content scrolls under it. | `NavigationHeader`, `ScreenHeader`, earn headers, the round back buttons and grey title bars |
+| Pushed page header | `PageHeader` (`components/PageHeader`) | 52px row: bare chevron, 20px title left beside it, then actions (an `accent-tint-ink` text action such as "Edit", a `Pill`, or an `IconButton`), close last. No divider; a hairline appears once content scrolls under it. No horizontal padding of its own: it takes the page's, so a caller in an unpadded parent passes `className="px-4"`. | `NavigationHeader`, `ScreenHeader`, the earn headers (vault, position, positions, withdraw, deposit), the round back buttons and grey title bars |
 | Tab root header | `TabHeader` | 28px title left, bare 24px icon actions right, search swaps in at 36px. No grey bar under it. | the 4px grey rule |
 | Flow frame | `FlowLayout` | `PageHeader` + scrolling body + pinned CTA. | hand-built frames |
 | Top action bar | `SegmentedActionBar` | Ahmad's, unchanged. | — |
 | Segmented control | `SegmentedControl` on Radix ToggleGroup (*planned*) | Pill track on `fill`, `page` thumb, `indicator` motion. | `TabPicker`, `TabSwitcher` |
 | Search | `SearchInput` | 44px pill on `fill`, no border, 16px glyph, left-aligned 16px text, clear button; a 1.5px `accent` ring while focused. | `SearchField`, `SearchAssetField` |
-| Text field | `TextField` (*planned*) | 13px bold `muted` label above; single-line 52px pill or multi-line 16px-radius box on `fill`; trailing pills (Paste, Scan) on `page` inside the field; error: `negative` ring and a `negative-ink` message. | `Input`, `FormField`, ad-hoc inputs |
+| Text field | `TextField` | 13px bold `muted` label above; single-line 52px pill or multi-line 16px-radius box on `fill`; trailing pills (Paste, Scan) on `page` inside the field; error: `negative` ring and a `negative-ink` message. | `TextArea`; still to migrate: `Input`, atoms `FormField`, ad-hoc inputs |
 | Entry | `AmountInput`, recipient entry | Centered 48px amount with a 22px unit, 15px `muted` fiat line, token and Max pills; recipient entry 30px, 24px once it holds an address. | — |
-| Toggle | `Toggle` on Radix Switch | 51 × 31, `accent` when on. | `ToggleSwitch`, `SettingToggle` |
-| Checkbox | `Checkbox` on Radix Checkbox | 22px, 6px radius, `accent` when checked. | atoms `Checkbox`, `FormCheckbox` |
-| List group | `ListGroup` (*planned*) | 16px radius on `fill`; hairlines between rows, inset past the leading visual. | ad-hoc stacks |
-| List row | `ListRow` (*planned*) | 64px: leading 40px avatar or 30px icon circle, 16px title over a 13px `muted` subtitle, trailing value, toggle, check or chevron. A row that navigates has a chevron. | `CardItem`, `ListItem`, `MenuItem`, ~20 local rows |
-| Section label | `SectionHeader` (*planned*) | 13px Inter bold `muted`, sentence case, 8px above its group, 4px inset. A page-level section title is 20px 800. Optional `icon` draws it `aria-hidden` in a 32px `bg-fill` circle before the label; `size="lg"` swaps the label to 18px Nunito extrabold `ink` (Settings' coloured group headers). | ~40 hand-styled headings, uppercase labels |
-| Detail card | `DetailCard` + `DetailRow` | `fill`, 16px radius, hairlines between rows; 14px `muted` label, 15px value right; addresses stacked, in full, with an orange "Copy". | `FlowDetails` (renamed), history `DetailCard`, `ReviewRow`, local detail rows |
-| Hero | `Hero` (*planned*) | Centered: 88px avatar or 64px status circle, then the hero value or name, then a 14px `muted` line. On a contact page the name is in the header and the avatar stands alone. | per-screen heroes |
-| Pill | `Pill` | 32px on `fill` with `ink`; selected: `accent-tint` with `accent-tint-ink`; 16px icon slot; status pills 24px with a dot and a word. | `lib/ui/badge`, `StatusPill`, seed-word `Chip`, ad-hoc pills |
+| Toggle | `Toggle` on Radix Switch (*planned*) | 51 × 31, `accent` when on. Until then `components/Toggle` (on the `press` preset) is the one to use. | `ToggleSwitch`, `SettingToggle` |
+| Checkbox | `Checkbox` on Radix Checkbox (*planned*) | 22px, 6px radius, `accent` when checked. Until then `components/Checkbox`. | atoms `Checkbox`, `FormCheckbox` |
+| List group | `ListGroup` | 16px radius on `fill`; hairlines between rows, inset past the leading visual. | ad-hoc stacks |
+| List row | `ListRow` | 64px: leading 40px avatar or 30px icon circle, 16px title over a 13px `muted` subtitle, trailing value, toggle, check or chevron. A row that navigates has a chevron. | `CardItem`, `ListItem`, `MenuItem`, local rows |
+| Section label | `SectionHeader` | 13px Inter bold `muted`, sentence case, 8px above its group, 4px inset. A page-level section title is 20px 800. Optional `icon` draws it `aria-hidden` in a 32px `bg-fill` circle before the label; `size="lg"` swaps the label to 18px Nunito extrabold `ink` (Settings' coloured group headers). | ~40 hand-styled headings, uppercase labels |
+| Detail card | `DetailCard` + `DetailRow` | `fill`, 16px radius, hairlines between rows; 14px `muted` label, 15px value right; addresses stacked, in full, with an `accent-tint-ink` "Copy". | `FlowDetails`, history `DetailCard`, `lib/ui/DetailCard`, `ReviewRow`, local detail rows |
+| Hero | `Hero` | Centered: 88px avatar or 64px status circle, then the hero value or name, then a 14px `muted` line. On a contact page the name is in the header and the avatar stands alone. | `ReviewAmount`, per-screen heroes |
+| Pill | `Pill` | 32px on `fill` with `ink`; selected: `accent-tint` with `accent-tint-ink`; 16px icon slot; status pills 24px with a dot and a word. | `lib/ui/badge`, seed-word `Chip`, history's `StatusPill` (now a wrapper over it), `AccountTypeBadge`, `PriceChangeBadge`, ad-hoc pills |
 | Network chip | `NetworkChip` | A `Pill` in the network's own tint, logo unchanged. | — |
 | Avatar | `Avatar` | Round: image, initials or icon; 24 / 40 / 88px; a network badge on the corner for `0x` contacts. Contact colors come from the address hash. | ad-hoc icon circles; Activity's square icons become round |
-| Empty state | `EmptyState` | On `fill`, 16px radius: 56px icon circle on `page`, 17px title, 14px `muted` body, a 36px `secondary` button. | ad-hoc "No …" lines |
-| Sheet | `Drawer` (vaul) | 28px top corners, 36 × 5 handle, 20px title left, 32px ✕ right, 16px margin; one decision per sheet; CTA pinned. | react-modal, custom overlays |
-| Confirm / alert | `useConfirm` / `useAlert` as sheets with Radix AlertDialog semantics | Title, one sentence, a `destructive` or `primary` button over a `secondary` Cancel. | `ConfirmationModal`, `AlertModal` |
-| Spinner | `Spinner` | 0.9s ring, `accent` on `fill`. | atoms `Spinner`, `ActivitySpinner` |
-| Skeleton | `Skeleton` | `fill` blocks shaped like the content. | ad-hoc `animate-pulse` |
-| Menu, tooltip | `DropdownMenu`, `Tooltip` on Radix (*planned*) | — | overflow menus, tippy.js |
-| Copy | `CopyButton` | Orange text action in a detail row; a `Pill` with copy for hashes. | atoms `CopyButton`, `AddressChip`, `HashChip`, raw clipboard calls |
+| Empty state | `EmptyState` | On `fill`, 16px radius: 56px icon circle on `page`, 17px title, 14px `muted` body, a 36px `secondary` button. | `components/EmptyState` (moved), ad-hoc "No …" lines |
+| Sheet | `Drawer` (vaul) | 28px top corners, 36 × 5 handle, 20px title left, 32px ✕ right, 16px margin; one decision per sheet; CTA pinned. | `CustomModal`, `ModalWithTitle`, custom overlays; the react-modal dependency goes last |
+| Confirm / alert | `useConfirm` / `useAlert` (`lib/ui/dialog`), rendered by `AlertSheet` with Radix AlertDialog semantics | Title, one sentence, a `destructive` or `primary` button over a `secondary` Cancel. | `ConfirmationModal`, `AlertModal` |
+| Spinner | `Spinner` | 0.9s ring, `accent` on `fill`. | atoms `Spinner`, `ActivitySpinner`, `CircularProgress` |
+| Skeleton | `Skeleton` | `fill` blocks shaped like the content (`inverse` on a colored surface); tests find it by `data-slot="skeleton"`. | `lib/ui/skeleton`, ad-hoc `animate-pulse` |
+| Menu, tooltip | `DropdownMenu`, `Tooltip` on Radix (*planned*) | Until then `components/Tooltip` stays on tippy.js. | overflow menus, tippy.js |
+| Copy | `CopyButton`, `CopyChip` | `CopyButton`: an `accent-tint-ink` text action in a detail row. `CopyChip`: a `Pill` with copy for hashes and addresses (`AddressChip` and `HashChip` are thin wrappers over it). | atoms `CopyButton`, raw clipboard calls |
 
 ## Motion
 
-Presets live in `lib/animation/presets.ts` (*planned*) and resolve through `useMotion`, so reduced
-motion is handled once. The app root sets `<MotionConfig reducedMotion="user">`.
+Presets live in `lib/animation/presets.ts` and are read through `usePreset(name)` (or
+`resolvePreset(name, reduce)` where a hook cannot be called), so reduced motion is handled once:
+every transition becomes `reducedMotionTransition` (an instant tween, still firing completion
+callbacks). The app root sets `<MotionConfig reducedMotion="user">`.
 
 | Preset | Motion | Replaces |
 | --- | --- | --- |
@@ -159,10 +166,20 @@ motion is handled once. The app root sets `<MotionConfig reducedMotion="user">`.
 | `reveal` | height 0↔auto + opacity, `springs.standard` | three reveals with three curves |
 | `pop` | in from opacity 0 / scale 0.92, out to scale 0.96, `springs.snappy` | six pops |
 | `sheet` | y 24 + scale 0.96 + opacity, `springs.sheetPresent`, `fade` backdrop | dApp confirm, switcher, peek card, seed warning |
-| `page` | incoming page from the right, the page beneath to −24% and dimmed | four page-transition models |
+| `page` | incoming page from the right over `durations.page` (0.34s) on `easings.standard`; the page beneath to `pageSlideParallax` (−24%) under a `pageSlideDim` dim (`FullScreenPage`, `MobilePageLayers`) | four page-transition models |
 | `press` | `whileTap` scale 0.96, `springs.snappy` | `Button` (inline 800/35), `Toggle` (700/30), CSS `active:scale-*` |
 | `indicator` | shared `layoutId`, `springs.pill` | token detail tabs, `TabPicker` |
 | `shimmer` | 1.2s linear loop, still under reduced motion | two pending-activity runners |
+
+A step inside one page (the `Navigator` flows: send, swap, bridge deposit, encrypted file; and the
+onboarding steps) is not a page push: its `AnimatePresence` runs in `mode="wait"`, so the leaving
+step is gone before the next mounts and there is no page beneath to park. It swaps on
+`pageStepTransition` (`durations.pageStep`, 0.15s, on the page's curve): a `Navigator` push comes
+in from `pageStepOffset` (8%) on the right and from the left going back, a presented step rises
+from `pageStepPresentOffset` (25vw), and an onboarding step fades with a `pageStepFadeOffset`
+(1vw) drift. `resolvePageStepTransition(reduce, animate)` makes it instant under reduced motion and
+a zero-length swap off mobile. A page that fades in (`FullScreenPage` with `entrance="fade"`, a
+slide page that cannot slide, and `TabLayout` on mount) uses `fade`.
 
 ## Ahmad's screens (anchor, small fixes)
 
@@ -189,14 +206,17 @@ caller of what it replaces and deletes the retired component.
 7. **Detail cards and heroes**.
 8. **Inputs**: `TextField`.
 9. **Pills, avatars, spinner, skeleton, copy**.
-10. **Sheets and overlays**: confirmations as sheets, react-modal and tippy.js removed.
+10. **Sheets and overlays**: confirmations as sheets, react-modal removed; tippy.js stays until the
+    Radix `Tooltip` lands.
 11. **Page transitions**: one `page` model for `FullScreenPage`, `MobilePageLayers`, `Navigator`
     and onboarding.
 12. **Anchor fixes** for Ahmad's screens, reviewed with him.
 
 ## Keeping it consistent
 
-- `no-restricted-imports` bans `app/atoms/*`, `lib/ui/button`, `lib/ui/badge` and each retired
-  component as its PR lands.
+- `no-restricted-imports` in `.eslintrc` bans every retired module (its message names the
+  replacement) and new importers of `app/atoms` (existing importers are allow-listed in its
+  `overrides`); `src/lib/ui/restricted-imports.test.ts` proves both fire. Add a module to the ban
+  in the PR that deletes it.
 - A reviewer rejects a new local header, row, pill, section label, color literal or inline
   transition that this document covers.

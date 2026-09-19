@@ -20,21 +20,23 @@ Build wallet UI by extending the established system instead of copying legacy or
 
 | Need | Use |
 | --- | --- |
-| Existing wallet control or display | Current feature, then `src/components/ui` |
-| Primary wallet CTA | `src/components/Button` |
+| Existing wallet control or display | The canonical component in `src/components/ui` ([design system](references/design-system.md)) |
+| Primary wallet CTA | `src/components/ui/Button` (`components/Button` re-exports it) |
 | Drawer, dialog, or compact generic primitive | Existing `src/lib/ui` convention |
-| New style | Tailwind + `cn()` + semantic token |
-| Component state, layout, gesture, or enter/exit motion | Framer Motion + reduced-motion-aware springs |
-| Simple status effect | Tailwind or `tw-animate-css` utility |
+| Pushed page header | `components/PageHeader`, with `className="px-4"` in an unpadded parent |
+| New style | Tailwind + `cn()` + a design-system token (`page`, `fill`, `ink`, `muted`, …) |
+| Component state, layout, gesture, or enter/exit motion | Framer Motion + a `lib/animation` preset (`usePreset`) or named spring |
+| Simple status effect | A Tailwind utility with a `motion-reduce:` variant |
 | Root, platform, library, or cross-tree style | `src/main.css` |
 
 ## Required Rules
 
-- Do not extend `src/app/atoms` for new UI; it is maintenance-only.
+- Do not extend `src/app/atoms` for new UI; it is maintenance-only, and ESLint rejects a new importer of it or of any retired module.
 - Use semantic theme tokens. Existing hardcoded colors and redundant `dark:` variants are not precedent.
 - Do not add component-specific classes or keyframes to `src/main.css`.
-- Use `useMotion`, `useSprings`, or `resolveTransition` with `lib/animation/springs`; do not inline spring physics.
+- Use a `lib/animation` preset (`usePreset`, `resolvePreset`) or a named spring through `useMotion`, `useSprings`, or `resolveTransition`; do not inline durations, easings or spring physics.
 - Use native interactive elements where possible. Otherwise provide keyboard activation, visible focus, and an accessible name.
+- Text actions (Copy, Edit, See all, a header's text action) are `text-accent-tint-ink`; the brand orange is too light for text.
 - Localize user-facing text, use v2 icons, and add the established mobile haptic for meaningful interaction.
 - Isolate platform behavior through `lib/platform`; preserve mobile safe areas and native navbar ownership.
 
