@@ -13,6 +13,7 @@ import { AssetListItem } from './AssetListItem';
 import { Avatar } from './Avatar';
 import { BalanceCard } from './BalanceCard';
 import { BottomNav } from './BottomNav';
+import { Card, CardButton } from './Card';
 import { CopyButton } from './CopyButton';
 import { CopyChip } from './CopyChip';
 import { EmptyState } from './EmptyState';
@@ -67,7 +68,9 @@ describe('components/ui barrel', () => {
     IconButton,
     Spinner,
     Skeleton,
-    TextField
+    TextField,
+    Card,
+    CardButton
   } as const;
 
   it('re-exports every component under its own name, tied to the source module', () => {
