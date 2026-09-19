@@ -1089,6 +1089,7 @@
   "ethereumSepolia": "Ethereum Sepolia",
   "shareAddressText": "Mon adresse Miden $network$ (jetons de test uniquement) : $address$",
   "networkModeBanner": "Vous utilisez Bread sur Miden $network$",
+  "networkModeStripLabel": "$network$ — à propos de ce réseau",
   "activityRestoreTransfers": "Restaurer",
   "activityHiddenNotesError": "Impossible d'enregistrer les transferts masqués. Veuillez réessayer.",
   "activityRejectTransfer": "Refuser",

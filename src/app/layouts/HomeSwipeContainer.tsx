@@ -7,6 +7,7 @@ import Explore from 'app/pages/Explore';
 import { Receive } from 'app/pages/Receive';
 import { resolveTransition, springToLinearEasing, springs } from 'lib/animation';
 import { isSwapEnabled } from 'lib/feature-flags';
+import { hapticSelection } from 'lib/mobile/haptics';
 import { boostRefreshRate } from 'lib/mobile/high-refresh-rate';
 import { useNavbarHidden } from 'lib/mobile/useNavbarHidden';
 import { navigate, useLocation } from 'lib/woozie';
@@ -22,7 +23,7 @@ import { SwapFlow } from 'screens/swap-flow/SwapManager';
  *
  * Pathname is the source of truth for which page is centered — the
  * SegmentedActionBar in TabLayout reads the same path and stays in sync
- * via its framer-motion layoutId pill.
+ * via its sliding Highlight pill.
  *
  * Earn ships unconditionally; only the Swap (isSwapEnabled) pane is
  * feature-gated and can be absent. Track length, page widths and the index
@@ -312,11 +313,15 @@ const HomeSwipeContainer: FC = () => {
   const handleDragEnd = () => {
     // snapToPage already chose the page and is already animating toward it; this
     // only syncs the route so pathname stays the source of truth for the
-    // SegmentedActionBar pill and back handling.
+    // SegmentedActionBar pill and back handling. A swipe that lands on another
+    // page is a tab switch, so it buzzes once, like a tap on the bar does; the
+    // bar itself only buzzes for taps, so the two never double up.
     const newIdx = dragTargetIdxRef.current;
     if (newIdx === null || newIdx === activeIdx) return;
     const target = pages[newIdx];
-    if (target) navigate(target.path);
+    if (!target) return;
+    hapticSelection();
+    navigate(target.path);
   };
 
   // Drag constraints clamp the track to its valid x-range, with a small
@@ -378,6 +383,31 @@ const HomeSwipeContainer: FC = () => {
    * than tracked with a flag, so it also catches a second tap interrupting this
    * very animation, and any future path that leaves the track adrift.
    */
+  /**
+   * Puts the track's transform back after framer resets it to measure layout.
+   *
+   * A draggable node is measured on every layout commit anywhere in the tree (the
+   * tab bars' sliding pill and icon pop, a SegmentedControl), and framer clears
+   * its transform to `none` to take the reading. It then re-renders the track only
+   * if that render isn't deduped against one already scheduled at the same frame
+   * timestamp — and when the measurement lands in the frame the slide last
+   * rendered, it is. The track then sat at `none`, which is Overview, under an
+   * action bar naming another page: for a frame mid-slide, or until the next
+   * route change when the slide had just settled.
+   *
+   * Restored in a microtask, so after every node has been measured untransformed
+   * and before the frame paints. Only a transform still at `none` is touched: if
+   * framer re-rendered the track itself, its value stands.
+   */
+  const restoreAfterLayoutMeasure = () => {
+    queueMicrotask(() => {
+      const track = trackRef.current;
+      const current = x.get();
+      if (!track || track.style.transform !== 'none' || current === 0) return;
+      track.style.transform = `translateX(${current}px)`;
+    });
+  };
+
   const landAfterInterruptedRelease = () => {
     requestAnimationFrame(() => {
       if (isReleaseRunning() || !width) return;
@@ -425,6 +455,7 @@ const HomeSwipeContainer: FC = () => {
           draggedRef.current = true;
         }}
         onDragEnd={handleDragEnd}
+        onBeforeLayoutMeasure={restoreAfterLayoutMeasure}
       >
         {pages.map(page => (
           <div key={page.id} className="h-full shrink-0" style={{ width: `${100 / pages.length}%` }}>

@@ -133,8 +133,9 @@ jest.mock('framer-motion', () => ({
 // clickable buttons plus a synthetic "unknown id" button so the layout's
 // route-lookup guard branches are all reachable.
 jest.mock('components/ui', () => ({
-  BottomNav: ({ items, activeId, onChange, docked }: any) => (
+  BottomNav: ({ items, activeId, onChange, docked, corner }: any) => (
     <div data-testid="bottom-nav" data-active={activeId} data-docked={String(!!docked)}>
+      <div data-testid="bottom-nav-corner">{corner}</div>
       {items.map((it: any) => (
         <button
           key={it.id}
@@ -150,8 +151,8 @@ jest.mock('components/ui', () => ({
       </button>
     </div>
   ),
-  SegmentedActionBar: ({ items, activeId, onChange, layoutId }: any) => (
-    <div data-testid="action-bar" data-active={activeId} data-layout-id={layoutId}>
+  SegmentedActionBar: ({ items, activeId, onChange }: any) => (
+    <div data-testid="action-bar" data-active={activeId}>
       {items.map((it: any) => (
         <button key={it.id} data-testid={`action-${it.id}`} onClick={() => onChange(it.id)}>
           {it.label}
@@ -161,6 +162,13 @@ jest.mock('components/ui', () => ({
         unknown
       </button>
     </div>
+  )
+}));
+
+// The ribbon has its own suite; here it only has to land in the bar's corner, told which bar it is on.
+jest.mock('components/NetworkModeRibbon', () => ({
+  NetworkModeRibbon: ({ docked }: { docked: boolean }) => (
+    <div data-testid="network-mode-ribbon" data-docked={String(docked)} />
   )
 }));
 
@@ -277,7 +285,8 @@ describe('TabLayout — action bar visibility (showActionBar)', () => {
     mockLocation.pathname = '/send';
     renderLayout();
     expect(screen.getByTestId('action-bar')).toBeInTheDocument();
-    expect(screen.getByTestId('action-bar')).toHaveAttribute('data-layout-id', 'tab-layout-action-fill');
+    // Nothing pads the row down from the top of the pane: the bar's own 4px is the whole gap.
+    expect(screen.getByTestId('action-bar').parentElement!.className).toBe('shrink-0 relative z-10');
     expect(screen.getByTestId('home-swipe')).toBeInTheDocument();
     expect(screen.queryByTestId('child-content')).toBeNull();
   });
@@ -340,6 +349,23 @@ describe('TabLayout — tabs list composition', () => {
     mockHasUnclaimed.value = false;
     renderLayout();
     expect(screen.getByTestId('nav-activity')).toHaveAttribute('data-dot', 'false');
+  });
+});
+
+describe('TabLayout — network corner ribbon', () => {
+  it.each([
+    ['mobile (docked)', true],
+    ['extension/desktop (floating)', false]
+  ])('puts the network ribbon in the bottom nav’s corner on %s', (_label, mobile) => {
+    mockPlatform.isMobile = mobile;
+    renderLayout();
+    expect(screen.getByTestId('bottom-nav-corner')).toContainElement(screen.getByTestId('network-mode-ribbon'));
+    expect(screen.getByTestId('network-mode-ribbon')).toHaveAttribute('data-docked', String(mobile));
+  });
+
+  it('shows no banner above the tabs', () => {
+    renderLayout();
+    expect(screen.queryByTestId('network-mode-banner')).not.toBeInTheDocument();
   });
 });
 

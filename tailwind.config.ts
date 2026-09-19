@@ -174,6 +174,7 @@ export default {
         fill: 'var(--ds-fill)',
         'fill-pressed': 'var(--ds-fill-pressed)',
         hairline: 'var(--ds-hairline)',
+        raised: 'var(--ds-raised)',
         ink: 'var(--ds-ink)',
         muted: 'var(--ds-muted)',
         'accent-tint': 'var(--ds-accent-tint)',
@@ -221,6 +222,11 @@ export default {
       boxShadow: {
         'xs-white': '0 0 0 1px rgba(255, 255, 255, 0.05)',
         'top-light': '0 -1px 2px 0 rgba(0, 0, 0, 0.1)',
+        // Design system elevation: a raised, clicky bubble (the tab bars' active pill) and its pressed
+        // state; theme-aware through the CSS vars. `ribbon` lifts the network sash off the bar.
+        raised: 'var(--ds-shadow-raised)',
+        'raised-pressed': 'var(--ds-shadow-raised-pressed)',
+        ribbon: '0 1px 2px rgba(0, 0, 0, 0.18), 0 2px 6px rgba(0, 0, 0, 0.12)',
         outline: isDevnet ? '0 0 0 3px rgba(114, 134, 160, 0.5)' : '0 0 0 3px rgba(231, 117, 55, 0.5)'
       },
       // Custom border radius

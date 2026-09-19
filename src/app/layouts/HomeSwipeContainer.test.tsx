@@ -53,6 +53,8 @@ let mockLastDragControlsProp: unknown = null;
 // Framer calls `onDragStart` once a pointer has travelled far enough to drag, and
 // only then. It is the one signal that tells a swipe's release from a tap's.
 let mockLastDragStart: (() => void) | null = null;
+// Framer notifies this before it resets the track's transform to measure layout.
+let mockLastBeforeLayoutMeasure: (() => void) | null = null;
 
 // framer-motion: `motion.div` -> passthrough div (drag props stripped so React
 // doesn't warn/attempt to render them). `animate`/`useMotionValue` are stubbed.
@@ -63,6 +65,7 @@ jest.mock('framer-motion', () => {
       children,
       onDragEnd,
       onDragStart,
+      onBeforeLayoutMeasure,
       dragConstraints,
       // strip non-DOM / framer-only props
       drag,
@@ -76,6 +79,7 @@ jest.mock('framer-motion', () => {
     } = props;
     if (onDragEnd) mockLastDragEnd = onDragEnd;
     if (onDragStart) mockLastDragStart = onDragStart;
+    if (onBeforeLayoutMeasure) mockLastBeforeLayoutMeasure = onBeforeLayoutMeasure;
     if (dragConstraints !== undefined) mockLastDragConstraints = dragConstraints;
     if (dragTransition) mockLastModifyTarget = dragTransition.modifyTarget;
     if (dragControls !== undefined) mockLastDragControlsProp = dragControls;
@@ -108,6 +112,12 @@ jest.mock('lib/animation', () => ({
   // the component actually branches on it.
   resolveTransition: (_reduceMotion: boolean, transition: unknown) => transition,
   springToLinearEasing: (...args: [unknown, { distance: number }]) => mockSpringToLinearEasing(...args)
+}));
+
+// A swipe that lands on another page is a tab switch and buzzes once.
+const mockHapticSelection = jest.fn();
+jest.mock('lib/mobile/haptics', () => ({
+  hapticSelection: (...args: unknown[]) => mockHapticSelection(...args)
 }));
 
 jest.mock('lib/mobile/high-refresh-rate', () => ({
@@ -233,6 +243,7 @@ beforeEach(() => {
   mockLastModifyTarget = null;
   mockLastDragControlsProp = null;
   mockLastDragStart = null;
+  mockLastBeforeLayoutMeasure = null;
   mockRoCallback = null;
   mockSwapEnabled.value = true;
   mockReduceMotion.value = false;
@@ -541,6 +552,33 @@ describe('HomeSwipeContainer', () => {
       settleAt(-600);
       release(-300); // velocity +375 -> projected +112.5
       expect(mockNavigate).toHaveBeenCalledWith('/send');
+    });
+
+    it('buzzes once when the swipe lands on another page, as a tap on the bar does', () => {
+      mockPathname = '/'; // index 0
+      render(<HomeSwipeContainer />);
+      measure(300);
+      release(-300);
+      expect(mockHapticSelection).toHaveBeenCalledTimes(1);
+      // The buzz and the route change are the same switch.
+      expect(mockHapticSelection.mock.invocationCallOrder[0]).toBeLessThan(mockNavigate.mock.invocationCallOrder[0]!);
+    });
+
+    it('stays silent when the swipe snaps back to the same page', () => {
+      mockPathname = '/send'; // index 1
+      render(<HomeSwipeContainer />);
+      measure(300);
+      settleAt(-300);
+      release(-310);
+      expect(mockHapticSelection).not.toHaveBeenCalled();
+    });
+
+    it('stays silent at either end, where there is no page to switch to', () => {
+      mockPathname = '/'; // index 0 (first)
+      render(<HomeSwipeContainer />);
+      measure(300);
+      release(300);
+      expect(mockHapticSelection).not.toHaveBeenCalled();
     });
 
     it('stays put when the flick is too weak to project past the threshold', () => {
@@ -902,6 +940,68 @@ describe('HomeSwipeContainer', () => {
       // the track still moving. Reading it as "mid-transition" cost the first tap
       // on every field after a flick — the keyboard needed a second tap.
       expect(pointerDown(getByTestId('swap-amount-input'), 'touch').defaultPrevented).toBe(false);
+    });
+  });
+
+  describe('a layout measurement elsewhere in the tree', () => {
+    /**
+     * What framer does to the track whenever any `layout` node commits (the tab
+     * bars' pill, icon pop, a SegmentedControl): announce the measurement, reset
+     * the transform to `none` so the boxes beneath read untransformed, measure.
+     * It then re-renders the track only if that render isn't deduped against one
+     * already made at the same frame timestamp, and on WebKit it often is.
+     */
+    function measureLayout(track: HTMLElement) {
+      mockLastBeforeLayoutMeasure?.();
+      track.style.transform = 'none';
+    }
+
+    it('puts the track back on its page after framer resets it to measure', async () => {
+      mockPathname = '/send';
+      const { getByTestId } = render(<HomeSwipeContainer />);
+      measure(300);
+      settleAt(-300);
+      const track = getByTestId('page-send').parentElement?.parentElement as HTMLElement;
+      track.style.transform = 'translateX(-300px)';
+
+      measureLayout(track);
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      // Left at `none`, the track showed Overview under a bar naming Send — for a
+      // frame mid-slide, or for good when the reset landed as the slide settled.
+      expect(track.style.transform).toBe('translateX(-300px)');
+    });
+
+    it('leaves the transform alone when framer re-rendered it itself', async () => {
+      mockPathname = '/send';
+      const { getByTestId } = render(<HomeSwipeContainer />);
+      measure(300);
+      settleAt(-300);
+      const track = getByTestId('page-send').parentElement?.parentElement as HTMLElement;
+
+      measureLayout(track);
+      track.style.transform = 'translateX(-299px)';
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      expect(track.style.transform).toBe('translateX(-299px)');
+    });
+
+    it('keeps `none` on Overview, where it is the resting transform', async () => {
+      mockPathname = '/';
+      const { getByTestId } = render(<HomeSwipeContainer />);
+      measure(300);
+      const track = getByTestId('page-explore').parentElement?.parentElement as HTMLElement;
+
+      measureLayout(track);
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      expect(track.style.transform).toBe('none');
     });
   });
 

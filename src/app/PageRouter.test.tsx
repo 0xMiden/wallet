@@ -242,16 +242,18 @@ beforeEach(() => {
   mockSwapEnabled.value = true;
 });
 
-describe('app/PageRouter — network banner (#875)', () => {
-  it('mounts the network banner above every routed page', () => {
+describe('app/PageRouter — no network banner', () => {
+  // The wallet names its test network on the bottom nav's corner ribbon (TabLayout); only the dApp
+  // confirm window keeps the full-width banner.
+  it('renders no banner above a routed page', () => {
     renderAt('/', { ready: true, hydrated: true });
-    const banner = screen.getByTestId('network-mode-banner');
-    expect(banner.compareDocumentPosition(screen.getByTestId('explore'))).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(screen.getByTestId('explore')).toBeInTheDocument();
+    expect(screen.queryByTestId('network-mode-banner')).not.toBeInTheDocument();
   });
 
-  it('mounts the network banner on pre-ready screens too', () => {
+  it('renders no banner above pre-ready screens either', () => {
     renderAt('/reset-required');
-    expect(screen.getByTestId('network-mode-banner')).toBeInTheDocument();
+    expect(screen.queryByTestId('network-mode-banner')).not.toBeInTheDocument();
   });
 });
 

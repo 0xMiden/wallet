@@ -1089,6 +1089,7 @@
   "ethereumSepolia": "Ethereum Sepolia",
   "shareAddressText": "Meine Adresse auf Miden $network$ (nur Test-Token): $address$",
   "networkModeBanner": "Sie nutzen Bread auf Miden $network$",
+  "networkModeStripLabel": "$network$ – über dieses Netzwerk",
   "activityRestoreTransfers": "Wiederherstellen",
   "activityHiddenNotesError": "Versteckte Überweisungen konnten nicht gespeichert werden. Bitte versuchen Sie es erneut.",
   "activityRejectTransfer": "Ablehnen",
