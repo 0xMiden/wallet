@@ -90,6 +90,17 @@ describe('TransactionSummaryBadge component', () => {
   });
 
   it.each([
+    [undefined, 'var(--action-send)'],
+    ['var(--action-swap)', 'var(--action-swap)']
+  ])('fills the arrow circle in the flow action colour (%s)', async (fillForArrow, expected) => {
+    const { container, root } = await renderInto(
+      <TransactionSummaryBadge lhs="a" rhs="b" fillForArrow={fillForArrow} />
+    );
+    expect(container.querySelector('rect')?.style.fill).toBe(expected);
+    act(() => root.unmount());
+  });
+
+  it.each([
     ['lhs null', null, 'rhs'],
     ['lhs undefined', undefined, 'rhs'],
     ['lhs false', false, 'rhs'],
