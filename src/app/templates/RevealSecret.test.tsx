@@ -7,10 +7,10 @@ import { SeedPhraseStatus } from 'lib/shared/types';
 
 import RevealSecret from './RevealSecret';
 
-// Keep the REAL AccountBanner so we exercise the integration between
-// RevealSecret and AccountBanner — the original bug was RevealSecret
-// rendering AccountBanner without an `account` prop, which AccountBanner
-// then dereferenced (`account!.name`) and crashed on for standard accounts.
+// The private-key reveal names its account in a real ListRow. It used to be an
+// AccountBanner rendered without an `account` prop, which crashed on
+// `account!.name` for standard accounts; the regression test below still reads
+// the account name off the page.
 
 const mockAccount = { name: 'My Test Account', publicKey: 'mtst1qtestaddress0000' };
 const mockWalletState: { seedPhraseStatus: SeedPhraseStatus } = { seedPhraseStatus: 'stored' };
@@ -266,13 +266,40 @@ describe('RevealSecret', () => {
   };
 
   // Regression: a standard (non-Guardian) account reaches reveal='private-key',
-  // the only branch that renders <AccountBanner>. Before the fix the banner was
-  // rendered without an `account` prop and threw
-  // "Cannot read properties of undefined (reading 'name')" on mount.
-  it('renders the current account in the private-key reveal banner without crashing', async () => {
+  // the only branch that names the account. The old banner was rendered without
+  // an `account` prop and threw "Cannot read properties of undefined (reading
+  // 'name')" on mount.
+  it('names the current account in a list row on the private-key reveal', async () => {
     const container = await renderReveal('private-key');
-    expect(container.textContent).toContain('My Test Account');
+    const row = container.querySelector('[data-testid="reveal-secret-account"]')!;
+    expect(row.querySelector('[data-slot="title"]')).toHaveTextContent('My Test Account');
+    expect(row.parentElement).toHaveClass('bg-fill', 'rounded-2xl');
     expect(buttonWithText(container, 'continue')).toBeTruthy();
+  });
+
+  it('renders through SubPageLayout with Continue pinned in its footer', async () => {
+    const container = await renderReveal('private-key');
+
+    const page = container.querySelector('[data-testid="reveal-secret"]')!;
+    const body = page.querySelector('[data-slot="body"]')!;
+    const footer = page.querySelector('[data-slot="footer"]')!;
+    expect(body).toHaveClass('px-4', 'gap-5', 'overflow-y-auto');
+    // The page action sits in the footer, outside the scrolling body.
+    expect(footer).toContainElement(buttonWithText(container, 'continue')!);
+    expect(body).not.toContainElement(buttonWithText(container, 'continue')!);
+    // The password is the shared TextField: its 13px muted label names the field.
+    const password = container.querySelector<HTMLInputElement>('#reveal-secret-password')!;
+    expect(password.closest('div.bg-fill')).not.toBeNull();
+    expect(container.querySelector('label[for="reveal-secret-password"]')).toHaveTextContent('password');
+  });
+
+  it('keeps the header frame while the protector check is pending, with no body or footer yet', async () => {
+    mockHasHardwareProtector.mockReturnValue(new Promise(() => undefined));
+    const container = await renderReveal('private-key');
+
+    const page = container.querySelector('[data-testid="reveal-secret"]')!;
+    expect(page.querySelector('[data-slot="body"]')!.childElementCount).toBe(0);
+    expect(page.querySelector('[data-slot="footer"]')).toBeNull();
   });
 
   it('renders the seed-phrase reveal (no account banner) without crashing', async () => {
