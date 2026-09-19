@@ -88,10 +88,10 @@ describe('ConfirmationScreen', () => {
       expect(screen.queryByTestId('onboarding-confirmation-submit')).not.toBeInTheDocument();
     });
 
-    it('forwards extra props onto the inner div while creating', () => {
-      renderComponent({ creating: true, id: 'creating-panel' });
+    it('puts its test id on the creating panel', () => {
+      renderComponent({ creating: true, 'data-testid': 'creating-panel' });
 
-      expect(document.getElementById('creating-panel')).toBeInTheDocument();
+      expect(screen.getByTestId('creating-panel')).toHaveTextContent('creatingYourWallet');
     });
   });
 
@@ -101,11 +101,11 @@ describe('ConfirmationScreen', () => {
       expect(screen.getByTestId('onboarding-confirmation')).toBeInTheDocument();
     });
 
-    it('renders the hero illustration svg with the fixed width sizing', () => {
+    it('renders the hero illustration, decorative and capped at 220px', () => {
       const { container } = renderComponent();
       const svg = container.querySelector('svg');
-      expect(svg).toBeInTheDocument();
-      expect(svg).toHaveStyle({ width: '240px' });
+      expect(svg).toHaveClass('max-w-[220px]');
+      expect(svg).toHaveAttribute('aria-hidden', 'true');
     });
 
     it('renders the translated ready heading and reminder copy', () => {
@@ -157,9 +157,11 @@ describe('ConfirmationScreen', () => {
       expect(screen.getByTestId('onboarding-confirmation-submit')).toHaveAttribute('data-loading', 'false');
     });
 
-    it('forwards extra props onto the confirmation container', () => {
-      renderComponent({ id: 'confirmation-root' });
-      expect(document.getElementById('confirmation-root')).toBe(screen.getByTestId('onboarding-confirmation'));
+    it('draws the outcome hero with the reminders and pins the CTA in the footer', () => {
+      renderComponent();
+      expect(screen.getByRole('heading', { level: 1 })).toHaveClass('text-2xl', 'font-black');
+      expect(screen.getByText('recoveryPhraseDailyReminder').closest('[role="note"]')).not.toBeNull();
+      expect(screen.getByTestId('onboarding-confirmation-submit').closest('[data-slot="footer"]')).not.toBeNull();
     });
   });
 
