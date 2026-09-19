@@ -398,29 +398,41 @@ body[data-hide-navbar]::after {
     --accent-primary: #e77537;
     --accent-primary-hover: #c95a21;
     /* Action colours: each of Home's five actions takes one account card colour, and that one
-     * colour is both the tab's icon and its flow's accent (back arrows, chevrons, links, selected
-     * states), so the two can never drift. The primary CTA stays --accent-primary. Tints are the
-     * action colour at 12% pre-blended over the page, solid like the other fills; `.dark`
-     * re-declares only the tints, since the card colours it points at already flip. */
+     * brand colour is both the tab's icon and its flow's accent (glyphs, borders, selected states),
+     * so the two can never drift. It is never darkened for contrast: text in an action's colour
+     * uses its `-ink`, a darker shade (lighter in dark mode) that reads at 4.5:1 on `page`, `fill`
+     * and the tint, like `accent-tint-ink` does for the brand orange. The primary CTA stays
+     * --accent-primary. Tints are the action colour at 12% pre-blended over the page, solid like
+     * the other fills; `.dark` re-declares only the tints and inks, since the card colours the
+     * action colours point at already flip. */
     --action-overview: var(--card-orange);
     --action-send: var(--card-blue);
     --action-receive: var(--card-green);
     --action-earn: var(--card-slate);
     --action-swap: var(--card-purple);
-    --action-overview-tint: #f4eae5;
-    --action-send-tint: #ebeef0;
-    --action-receive-tint: #eceeeb;
-    --action-earn-tint: #ededef;
-    --action-swap-tint: #eeedf0;
+    --action-overview-tint: #fceee7;
+    --action-send-tint: #eceff2;
+    --action-receive-tint: #eff1ee;
+    --action-earn-tint: #efeef0;
+    --action-swap-tint: #f0eef2;
+    --action-overview-ink: #a95528;
+    --action-send-ink: #566f83;
+    --action-receive-ink: #60715c;
+    --action-earn-ink: #6d697b;
+    --action-swap-ink: #746682;
     /* Each flow's accent is its tab's action colour. */
     --accent-send: var(--action-send);
     --accent-send-tint: var(--action-send-tint);
+    --accent-send-ink: var(--action-send-ink);
     --accent-receive: var(--action-receive);
     --accent-receive-tint: var(--action-receive-tint);
+    --accent-receive-ink: var(--action-receive-ink);
     --accent-earn: var(--action-earn);
     --accent-earn-tint: var(--action-earn-tint);
+    --accent-earn-ink: var(--action-earn-ink);
     --accent-swap: var(--action-swap);
     --accent-swap-tint: var(--action-swap-tint);
+    --accent-swap-ink: var(--action-swap-ink);
     /* Network chips: each network's own soft tint in Bread's warm palette; its logo stays as-is. */
     --network-miden-tint: #fff3ec;
     --network-miden-border: #f7d6c2;
@@ -533,8 +545,14 @@ body[data-hide-navbar]::after {
     --action-overview-tint: #32241d;
     --action-send-tint: #272b2d;
     --action-receive-tint: #2a2c2a;
-    --action-earn-tint: #272729;
+    --action-earn-tint: #242426;
     --action-swap-tint: #2d2b2f;
+    /* Dark mode's brand colours already read at 4.5:1 as text, all but the slate. */
+    --action-overview-ink: var(--action-overview);
+    --action-send-ink: var(--action-send);
+    --action-receive-ink: var(--action-receive);
+    --action-earn-ink: #8d8a9a;
+    --action-swap-ink: var(--action-swap);
     --network-miden-tint: #3a2418;
     --network-miden-border: #5c3622;
     --network-miden-text: #f2a57a;
