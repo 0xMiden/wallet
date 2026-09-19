@@ -128,6 +128,7 @@
 - [CHANGE][all] Bottom tab bar: same size and spacing as before, 24px icons in ink (muted when inactive), and the active tab's pill is a raised white bubble with a soft shadow that sinks when pressed. It slides between tabs on a bouncier spring with one small overshoot, the new tab's icon pops, a pressed tab dips, and every real tab switch buzzes once. Reduced motion moves the pill instantly with no pop or press scale.
 - [CHANGE][all] Overview action bar: no grey band any more, the row sits on the page under a hairline rule, and the active pill is a raised white bubble with a soft shadow that sinks when pressed. The pill slides on the same bouncy spring as the bottom bar, the new segment's icon pops, a pressed segment dips, and swiping between the home pages now buzzes once per page change, like a tap on the bar.
 - [CHANGE][all] The test network is named on a corner ribbon, a solid brand-colour sash with white TESTNET (or DEVNET, LOCALNET) lettering across the bottom tab bar's lower-right corner, instead of a banner across the top of every screen; nothing shows on mainnet. It sits over the bar without changing its size or taking space from the tabs, and tapping it opens the same explanation sheet. The dApp confirmation window keeps its banner, where the network matters for what you sign.
+- [CHANGE][all] The theme picker, Developer settings pickers and Earn chart timeframes use the shared segmented control, and the old tab picker is removed.
 
 ## 1.16.1 (2026-09-15)
 
