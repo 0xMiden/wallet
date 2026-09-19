@@ -148,7 +148,7 @@ export const PromptCard: FC<PromptCardProps> = ({
         type="button"
         onClick={handleAction}
         disabled={actionDisabled}
-        className="shrink-0 rounded-full bg-accent-primary px-3 py-1.5 text-xs font-semibold text-pure-white disabled:cursor-not-allowed disabled:opacity-50"
+        className="shrink-0 rounded-full bg-accent-primary px-3 py-1.5 text-badge font-semibold text-pure-white disabled:cursor-not-allowed disabled:opacity-50"
       >
         {actionLabel}
       </button>
@@ -260,14 +260,14 @@ export const PromptCard: FC<PromptCardProps> = ({
                 <Icon name={hero.icon} size="xs" fill="currentColor" />
               </motion.span>
             </span>
-            <span className="font-heading text-xl font-extrabold text-ink">{hero.label}</span>
+            <span className="text-title-page text-ink">{hero.label}</span>
           </div>
-          {hero.subLabel && <span className="text-xs font-normal text-text-tertiary-token">{hero.subLabel}</span>}
+          {hero.subLabel && <span className="text-caption text-text-tertiary-token">{hero.subLabel}</span>}
         </motion.div>
       ) : (
         <Lockup className="flex flex-col gap-1 min-w-0 flex-1 text-left text-ink">
-          <div className={classNames('text-base font-bold font-heading leading-tight truncate')}>{title}</div>
-          {body && <div className="text-xs font-normal line-clamp-2">{body}</div>}
+          <div className="text-row-title truncate">{title}</div>
+          {body && <div className="text-caption line-clamp-2">{body}</div>}
         </Lockup>
       )}
       {onDismiss && !hero ? (

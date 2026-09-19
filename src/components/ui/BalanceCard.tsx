@@ -168,7 +168,7 @@ export const BalanceCard: FC<BalanceCardProps> = ({
       <div className={classNames('relative px-4 pt-4 pb-4', onMore && 'pointer-events-none')}>
         {/* Every text on the card is the full-strength card ink: hierarchy comes from size and
             weight, since any translucent ink falls under 4.5:1 on the lighter card colors. */}
-        <div data-testid="balance-card-label" className="font-sans text-[13px] font-bold leading-[17px]">
+        <div data-testid="balance-card-label" className="text-label">
           {t('balanceCardTotalBalance')}
         </div>
 
@@ -180,16 +180,13 @@ export const BalanceCard: FC<BalanceCardProps> = ({
               <span
                 ref={textRef}
                 style={{ fontSize: `${fontSizeRem}rem` }}
-                className="font-heading font-extrabold leading-none whitespace-nowrap"
+                className="text-display leading-none whitespace-nowrap"
               >
                 {/* eslint-disable-next-line i18next/no-literal-string -- balance-mask glyphs / pre-formatted zero value, not translatable copy */}
                 {isHidden ? '••••••' : isZero ? '$0.00' : amount}
               </span>
               {/* The entry pattern's unit: 22px beside the amount, on its baseline. */}
-              <span
-                data-testid="balance-card-currency"
-                className="shrink-0 font-heading text-[22px] font-bold leading-none"
-              >
+              <span data-testid="balance-card-currency" className="shrink-0 text-entry-unit leading-none">
                 {currency}
               </span>
             </div>
@@ -229,7 +226,7 @@ export const BalanceCard: FC<BalanceCardProps> = ({
         )}
       >
         {accountName && (
-          <span data-testid="balance-card-account-name" className="min-w-0 truncate font-sans text-[13px] font-bold">
+          <span data-testid="balance-card-account-name" className="min-w-0 truncate text-label">
             {accountName}
           </span>
         )}
@@ -247,7 +244,7 @@ export const BalanceCard: FC<BalanceCardProps> = ({
               // (gap, centering, truncate) has to live on an inner span that's the actual parent
               // of the address and icon — putting it on the button's own `className` above has no
               // effect on that layout, since the button's only direct child is that aria-live wrapper.
-              <span className="flex min-w-0 items-center gap-1.5 font-sans text-[13px] font-bold leading-none">
+              <span className="flex min-w-0 items-center gap-1.5 text-label leading-none">
                 <span className="truncate">{accountNumber}</span>
                 {/* The `!` on the size classes is load-bearing: <Icon> injects a default `md`
                     (w-6 h-6) size class that, under Tailwind v4's scale-ordered output, otherwise

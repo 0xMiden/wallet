@@ -155,15 +155,12 @@ export const ActivityRow: FC<ActivityRowProps> = ({
           {icon}
         </div>
 
-        <div className="flex flex-col text-ink leading-tight dark:text-pure-white">
-          <span data-testid={testId && `${testId}-title`} className="font-heading text-base font-bold">
+        <div className="flex flex-col text-ink dark:text-pure-white">
+          <span data-testid={testId && `${testId}-title`} className="text-row-title">
             {title}
           </span>
           {subtitle && (
-            <span
-              data-testid={testId && `${testId}-subtitle`}
-              className="font-heading text-xs text-muted font-medium leading-[100%]"
-            >
+            <span data-testid={testId && `${testId}-subtitle`} className="text-caption text-muted">
               {subtitle}
             </span>
           )}
@@ -172,10 +169,7 @@ export const ActivityRow: FC<ActivityRowProps> = ({
 
       <div className="flex flex-col items-end gap-1">
         {amount && (
-          <span
-            data-testid={testId && `${testId}-amount`}
-            className="font-heading text-sm font-bold leading-tight text-right"
-          >
+          <span data-testid={testId && `${testId}-amount`} className="text-value text-right">
             {amount.value !== '' && (
               <span className={AMOUNT_COLOR[amount.direction ?? 'neutral']}>{formatDisplayAmount(amount.value)}</span>
             )}
@@ -210,7 +204,7 @@ export const ActivityRow: FC<ActivityRowProps> = ({
           </span>
         )}
         {status && <StatusBadge status={status} data-testid={testId && `${testId}-status`} />}
-        {timestamp && <span className="text-[10px] text-gray-secondary font-regular">{timestamp}</span>}
+        {timestamp && <span className="text-caption text-muted">{timestamp}</span>}
       </div>
     </motion.div>
   );
