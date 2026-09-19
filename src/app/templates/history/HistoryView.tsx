@@ -390,7 +390,7 @@ const HistoryView = memo<HistoryViewProps>(
     if (noEntries) {
       if (initialLoading)
         return (
-          <div className="flex justify-center pt-8">
+          <div className="flex h-8 justify-center pt-5">
             <Spinner />
           </div>
         );

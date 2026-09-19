@@ -212,7 +212,7 @@ const ExportFileComplete: React.FC<ExportFileCompleteProps> = ({ filePassword, f
           aria-live="polite"
           className="flex flex-col w-full items-center justify-center flex-1 gap-y-4"
         >
-          <div className="flex justify-center pt-8">
+          <div className="flex h-8 justify-center pt-5">
             <Spinner />
           </div>
           <p className="text-base text-heading-gray">{t('encryptedWalletFileExporting')}</p>
