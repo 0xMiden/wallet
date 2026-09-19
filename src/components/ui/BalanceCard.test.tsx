@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 
 import { hapticLight } from 'lib/mobile/haptics';
 
@@ -16,15 +16,21 @@ jest.mock('app/icons/v2', () => ({
   ),
   IconName: {
     CopyNew: 'CopyNew',
+    Checkmark: 'Checkmark',
     MidenLogo: 'MidenLogo',
     SettingsNew: 'SettingsNew',
     Edit: 'Edit'
   }
 }));
 
-jest.mock('app/atoms/CopyButton', () => ({
-  __esModule: true,
-  default: ({ children }: { children: React.ReactNode }) => <button type="button">{children}</button>
+// The canonical CopyButton is used for real (not stubbed) here — it wraps `children` in its own
+// `<span aria-live>`, which is exactly the structure the account row's layout has to survive (see
+// "keeps the label and icon laid out..." below), so a stub that just re-parents `children`
+// straight under a `<button>` would hide that class of bug. Mock only what the real component
+// needs: the clipboard write and the tap haptic (haptic mocked below, same as before).
+const mockClipboardWrite = jest.fn().mockResolvedValue(undefined);
+jest.mock('@capacitor/clipboard', () => ({
+  Clipboard: { write: (...args: unknown[]) => mockClipboardWrite(...args) }
 }));
 
 jest.mock('lib/mobile/haptics', () => ({
@@ -195,6 +201,35 @@ describe('BalanceCard states, delta, and interactions', () => {
     expect(document.querySelector('[data-name="Edit"]')).toBeNull();
   });
 
+  it('keeps the label and icon laid out (flex, gap, centered, truncating) even though CopyButton wraps them in its own aria-live span', () => {
+    // Renders the REAL CopyButton (not a stub): it wraps `children` in `<span aria-live>`, so the
+    // flex/gap/truncate classes only do anything if BalanceCard puts them on a span that's the
+    // ACTUAL parent of the label and icon, not on CopyButton's own `className` (which lands on
+    // the outer <button>, one level above that wrapper, and has no effect on the layout inside).
+    render(<BalanceCard accountNumber="mtst1aqg...940z" amount="$123.45" onMore={jest.fn()} />);
+
+    const label = screen.getByText('balanceCardAccount');
+    const flexParent = label.parentElement!;
+    expect(flexParent).toHaveClass('flex', 'items-center', 'gap-1', 'min-w-0');
+    expect(label).toHaveClass('truncate');
+    // The icon is the flex parent's other child, laid out beside the label by that same flex row.
+    expect(flexParent.children).toHaveLength(2);
+    expect(flexParent.children[1]!.getAttribute('data-name')).toBe('CopyNew');
+  });
+
+  it('swaps the copy glyph for a checkmark while the account id is copied', async () => {
+    render(<BalanceCard accountNumber="mtst1aqg...940z" accountId="mtst1aqgfullaccountid940z" amount="$123.45" />);
+
+    expect(screen.getByText('balanceCardAccount').nextElementSibling?.getAttribute('data-name')).toBe('CopyNew');
+
+    await act(async () => {
+      fireEvent.click(screen.getByText('balanceCardAccount'));
+    });
+
+    expect(mockClipboardWrite).toHaveBeenCalledWith({ string: 'mtst1aqgfullaccountid940z' });
+    expect(screen.getByText('balanceCardAccount').nextElementSibling?.getAttribute('data-name')).toBe('Checkmark');
+  });
+
   // A role=button container presents its children as decoration, so the balance and the copy
   // control disappeared for assistive tech and one focusable button sat inside another. The
   // options target is a real button under the content instead, which also brings native keyboard
@@ -225,11 +260,13 @@ describe('BalanceCard states, delta, and interactions', () => {
     expect(screen.getByText('balanceCardAccount').closest('.pointer-events-auto')).not.toBeNull();
   });
 
-  it('does not open the account options when the address is copied', () => {
+  it('does not open the account options when the address is copied', async () => {
     const onMore = jest.fn();
     render(<BalanceCard accountNumber="mtst1aqg...940z" amount="$123.45" onMore={onMore} />);
 
-    fireEvent.click(screen.getByText('balanceCardAccount'));
+    await act(async () => {
+      fireEvent.click(screen.getByText('balanceCardAccount'));
+    });
 
     expect(onMore).not.toHaveBeenCalled();
   });
