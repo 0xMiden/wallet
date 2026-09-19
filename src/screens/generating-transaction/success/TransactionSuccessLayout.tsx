@@ -5,9 +5,8 @@ import { useTranslation } from 'react-i18next';
 
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import { Button, ButtonVariant } from 'components/Button';
-import { ACCENT_CLASSES, FlowAccent } from 'components/flow/accent';
-import { FlowDetailRow, FlowDetails } from 'components/flow/FlowDetails';
 import { FlowLayout } from 'components/flow/FlowLayout';
+import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import { ITransaction } from 'lib/miden/db/types';
 import { resolveDisplayMetadata } from 'lib/miden/metadata/resolve';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
@@ -139,35 +138,31 @@ export const SuccessSummaryPill: FC<{ lhs?: ReactNode; rhs?: ReactNode; separato
 }) => <TransactionSummaryBadge lhs={lhs} rhs={rhs} separator={separator} className="mt-1" />;
 
 /** Key/value receipt rows, as the shared compact details card. Renders nothing when there are no rows. */
-export const ReceiptRows: FC<{ rows: ReceiptRow[]; className?: string; accent?: FlowAccent }> = ({
-  rows,
-  className,
-  accent = 'brand'
-}) => {
+export const ReceiptRows: FC<{ rows: ReceiptRow[]; className?: string }> = ({ rows, className }) => {
   if (rows.length === 0) return null;
 
   return (
-    <FlowDetails className={classNames('w-full', className)}>
+    <DetailCard className={classNames('w-full', className)}>
       {rows.map(row => (
-        <FlowDetailRow key={row.label} label={row.label} sub={row.subValue} stacked={row.stacked}>
+        <DetailRow key={row.label} label={row.label} sub={row.subValue} stacked={row.stacked}>
           {row.onClick ? (
             <button
               type="button"
               aria-label={row.actionLabel}
               onClick={row.onClick}
-              className={classNames(
-                'min-w-0 bg-transparent p-0 text-right font-heading font-bold underline-offset-2 hover:underline',
-                ACCENT_CLASSES[accent].text
-              )}
+              // `accent-tint-ink` — same as `DetailRow`'s own inline action — is the
+              // accent pair that actually clears 4.5:1 on `fill`; the flow's own
+              // accent (e.g. `accent-send`) sat at ~2:1 here.
+              className="min-w-0 bg-transparent p-0 text-right font-heading font-bold text-accent-tint-ink underline-offset-2 hover:underline"
             >
               {row.value}
             </button>
           ) : (
             row.value
           )}
-        </FlowDetailRow>
+        </DetailRow>
       ))}
-    </FlowDetails>
+    </DetailCard>
   );
 };
 
