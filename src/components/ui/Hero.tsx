@@ -43,18 +43,12 @@ export const Hero: React.FC<HeroProps> = ({
 }) => (
   <div data-testid={dataTestId} className={cn('flex w-full flex-col items-center', className)}>
     {visual}
-    {value !== undefined && (
-      <div className="mt-4 text-center font-heading text-[32px] leading-9 font-black text-ink">{value}</div>
-    )}
+    {value !== undefined && <div className="mt-4 text-center text-hero-value text-ink">{value}</div>}
     {name !== undefined && (
-      <h2
-        ref={nameRef}
-        className="mt-4 w-full text-center font-heading text-2xl leading-7 font-black text-ink outline-none"
-        {...nameProps}
-      >
+      <h2 ref={nameRef} className="mt-4 w-full text-center text-hero-name text-ink outline-none" {...nameProps}>
         {name}
       </h2>
     )}
-    {subtitle !== undefined && <p className="mt-1 text-center text-sm text-muted">{subtitle}</p>}
+    {subtitle !== undefined && <p className="mt-1 text-center text-body-sm text-muted">{subtitle}</p>}
   </div>
 );

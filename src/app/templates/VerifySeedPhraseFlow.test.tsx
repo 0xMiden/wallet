@@ -211,7 +211,7 @@ describe('VerifySeedPhraseFlow', () => {
     expect(footer).toContainElement(screen.getByText('close'));
     expect(footer).toContainElement(screen.getByText('continue'));
     // The privacy note is the shared Hero, not a hand-styled heading.
-    expect(screen.getByRole('heading', { level: 2, name: 'viewThisInPrivatePlace' })).toHaveClass('text-2xl');
+    expect(screen.getByRole('heading', { level: 2, name: 'viewThisInPrivatePlace' })).toHaveClass('text-hero-name');
     expect(screen.getByText('anyoneWithRecoveryPhrase')).toHaveClass('text-muted');
 
     clickText('continue');

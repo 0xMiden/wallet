@@ -121,7 +121,7 @@ describe('EarnFlowHeader', () => {
     expect(header).toHaveClass('h-13', 'px-4', 'shrink-0');
     // No bespoke divider or 26px title: the page header draws neither.
     expect(header).not.toHaveClass('border-b');
-    expect(screen.getByRole('heading', { level: 1 })).toHaveClass('text-xl', 'font-extrabold');
+    expect(screen.getByRole('heading', { level: 1 })).toHaveClass('text-title-page');
   });
 
   it('shows the "asset on network" label as a neutral Pill in the header actions', () => {

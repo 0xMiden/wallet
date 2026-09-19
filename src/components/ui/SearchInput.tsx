@@ -85,15 +85,14 @@ export const SearchInput: FC<SearchInputProps> = ({
         autoCorrect={inputMode === 'url' ? 'off' : undefined}
         spellCheck={inputMode === 'url' ? false : undefined}
         className={classNames(
-          // 16px text: anything smaller makes iOS zoom the page on focus. `font-sans` because
-          // Preflight sets `font: inherit` and a query can be an address, which reads badly in the
-          // rounded display face.
-          'h-full w-full min-w-0 bg-transparent font-sans text-base font-medium text-ink outline-none',
+          // `text-body`: 16px, since anything smaller makes iOS zoom the page on focus, and Inter,
+          // since a query can be an address, which reads badly in the rounded display face.
+          'h-full w-full min-w-0 bg-transparent text-body text-ink outline-none',
           size === 'sm' ? 'pl-9' : 'pl-11',
           // Room for the clear button only while it shows.
           value ? 'pr-11' : 'pr-4',
-          // #503 — the placeholder reads as a hint, lighter than typed text.
-          'placeholder:font-normal placeholder:text-muted'
+          // #503 — the placeholder reads as a hint, `muted` against the typed `ink`.
+          'placeholder:text-muted'
         )}
       />
       {/* #503 — clear (X) affordance to erase the input, shown only when non-empty. */}

@@ -65,7 +65,7 @@ const container = cva('flex items-center gap-1 py-1', {
 const segment = cva(
   [
     // `group` drives the bubble's pressed shadow; no overflow clip, or it would cut the shadow off.
-    'group flex items-center justify-center rounded-full font-heading font-bold leading-none whitespace-nowrap',
+    'group flex items-center justify-center rounded-full text-pill whitespace-nowrap',
     'transition-colors duration-200 motion-reduce:transition-none',
     'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary/30',
     'disabled:cursor-default disabled:opacity-50'
@@ -73,8 +73,8 @@ const segment = cva(
   {
     variants: {
       size: {
-        sm: 'h-8 px-3 text-sm',
-        md: 'h-10 px-4 text-sm'
+        sm: 'h-8 px-3',
+        md: 'h-10 px-4'
       },
       layout: {
         scroll: 'shrink-0',

@@ -73,7 +73,7 @@ const Segment: FC<SegmentProps> = ({ item, active, onSelect }) => {
           <motion.span
             key={`${item.id}-label`}
             layout="position"
-            className="relative whitespace-nowrap font-heading text-sm font-bold leading-none max-[359px]:text-xs"
+            className="relative whitespace-nowrap text-pill max-[359px]:text-badge"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={motionTokens.label}

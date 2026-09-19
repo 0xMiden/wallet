@@ -67,35 +67,32 @@ export interface PillProps {
 }
 
 // Literal class strings, so Tailwind generates them.
-const pillVariants = cva(
-  'relative inline-flex max-w-full items-center rounded-full border font-heading font-bold leading-none',
-  {
-    variants: {
-      size: {
-        // Semibold: at 20px the bold face reads heavier than the row title beside it.
-        xs: 'h-5 gap-1 px-2 text-xs font-semibold',
-        sm: 'h-6 gap-1 px-2 text-xs',
-        md: 'h-8 gap-1.5 px-3 text-sm'
-      } satisfies Record<PillSize, string>,
-      tone: {
-        neutral: 'border-transparent bg-fill text-ink',
-        word: 'border-transparent bg-fill text-ink',
-        selected: 'border-transparent bg-accent-tint text-accent-tint-ink',
-        // Opaque tints from the activity icon family (sage, sand, clay), each with its own ink: a
-        // translucent wash took the surface's color with it and fell under 4.5:1 on `fill`. On
-        // their own tint the inks measure 5.41 / 5.33 / 5.17 light and 7.36 / 6.91 / 6.55 dark,
-        // on any surface (`lib/ui/design-tokens.test.ts`).
-        positive: 'border-transparent bg-positive-tint text-positive-tint-ink',
-        warning: 'border-transparent bg-pending-tint text-pending-tint-ink',
-        negative: 'border-transparent bg-negative-tint text-negative-tint-ink',
-        inactive: 'border-transparent bg-fill-pressed text-ink',
-        plain: 'border-transparent',
-        inverse: 'border-transparent bg-surface-balance-pill text-surface-balance-fg'
-      } satisfies Record<PillTone, string>
-    },
-    defaultVariants: { size: 'md', tone: 'neutral' }
-  }
-);
+const pillVariants = cva('relative inline-flex max-w-full items-center rounded-full border', {
+  variants: {
+    size: {
+      // Semibold: at 20px the bold face reads heavier than the row title beside it.
+      xs: 'h-5 gap-1 px-2 text-badge font-semibold',
+      sm: 'h-6 gap-1 px-2 text-badge',
+      md: 'h-8 gap-1.5 px-3 text-pill'
+    } satisfies Record<PillSize, string>,
+    tone: {
+      neutral: 'border-transparent bg-fill text-ink',
+      word: 'border-transparent bg-fill text-ink',
+      selected: 'border-transparent bg-accent-tint text-accent-tint-ink',
+      // Opaque tints from the activity icon family (sage, sand, clay), each with its own ink: a
+      // translucent wash took the surface's color with it and fell under 4.5:1 on `fill`. On
+      // their own tint the inks measure 5.41 / 5.33 / 5.17 light and 7.36 / 6.91 / 6.55 dark,
+      // on any surface (`lib/ui/design-tokens.test.ts`).
+      positive: 'border-transparent bg-positive-tint text-positive-tint-ink',
+      warning: 'border-transparent bg-pending-tint text-pending-tint-ink',
+      negative: 'border-transparent bg-negative-tint text-negative-tint-ink',
+      inactive: 'border-transparent bg-fill-pressed text-ink',
+      plain: 'border-transparent',
+      inverse: 'border-transparent bg-surface-balance-pill text-surface-balance-fg'
+    } satisfies Record<PillTone, string>
+  },
+  defaultVariants: { size: 'md', tone: 'neutral' }
+});
 
 /**
  * The leading glyph's box, so every icon in a pill is the same size.

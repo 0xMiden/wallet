@@ -68,7 +68,7 @@ describe('TextField — sizes and anatomy', () => {
 
   it('keeps field text at 16px so iOS does not zoom on focus', () => {
     render(<TextField value="" onChange={jest.fn()} />);
-    expect(screen.getByRole('textbox').className).toContain('text-base');
+    expect(screen.getByRole('textbox')).toHaveClass('text-body');
   });
 
   it('defaults a multiline field to 2 rows and honours a caller override', () => {

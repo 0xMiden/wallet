@@ -34,10 +34,10 @@ describe('DetailRow', () => {
     const label = screen.getByText('Network');
     // Inter, not the ancestor's Nunito: `DetailSection` (history) wraps its
     // cards in `font-heading`, and the label must stay Inter under it.
-    expect(label).toHaveClass('font-sans', 'text-muted', 'text-sm');
+    expect(label).toHaveClass('text-body-sm', 'text-muted');
 
     const value = screen.getByText('Miden');
-    expect(value).toHaveClass('text-ink', 'text-[15px]', 'font-bold');
+    expect(value).toHaveClass('text-value', 'text-ink');
   });
 
   it('does not break an unstacked value, which is always short', () => {

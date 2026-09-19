@@ -97,9 +97,9 @@ export interface SubPageSectionProps {
   title?: React.ReactNode;
   /** The label's heading level: `h2` under the page title, `h3` under a hero's own `h2`. */
   titleAs?: 'h2' | 'h3';
-  /** `muted` copy under the label, above the section's content. */
+  /** A `muted` paragraph under the label, above the section's content (`text-body`). */
   description?: React.ReactNode;
-  /** `muted` copy under the content, such as what a toggle above it does. */
+  /** `muted` secondary copy under the content, such as what a toggle above it does (`text-body-sm`). */
   footnote?: React.ReactNode;
   children?: React.ReactNode;
   /** Layout only (margins). */
@@ -107,8 +107,9 @@ export interface SubPageSectionProps {
   'data-testid'?: string;
 }
 
-/** Explanatory copy on a sub-page: 14px `muted`, inset 4px like the section label above it. */
-const noteClass = 'px-1 font-sans text-sm leading-5 text-muted';
+/** Copy on a sub-page, inset 4px like the section label above it: a description is a paragraph
+ * (`text-body`), a footnote under a control is secondary (`text-body-sm`), both `muted`. */
+const noteClass = 'px-1 text-muted';
 
 /**
  * One section of a sub-page: an optional label, optional explanatory copy, then its content (a
@@ -125,8 +126,8 @@ export const SubPageSection: React.FC<SubPageSectionProps> = ({
 }) => (
   <section data-testid={dataTestId} className={cn('flex flex-col', className)}>
     {title && <SectionHeader as={titleAs}>{title}</SectionHeader>}
-    {description && <div className={cn(noteClass, 'pb-3')}>{description}</div>}
+    {description && <div className={cn(noteClass, 'text-body pb-3')}>{description}</div>}
     {children}
-    {footnote && <div className={cn(noteClass, 'pt-2')}>{footnote}</div>}
+    {footnote && <div className={cn(noteClass, 'text-body-sm pt-2')}>{footnote}</div>}
   </section>
 );

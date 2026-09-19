@@ -142,12 +142,12 @@ export const ListRow = React.forwardRef<HTMLButtonElement, ListRowProps>(functio
         )
       )}
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span data-slot="title" className="truncate font-heading text-base leading-5 font-bold text-ink">
+        <span data-slot="title" className="truncate text-row-title text-ink">
           {title}
         </span>
-        {subtitle && <span className="truncate font-sans text-[13px] leading-[17px] text-muted">{subtitle}</span>}
+        {subtitle && <span className="truncate text-caption text-muted">{subtitle}</span>}
       </span>
-      {value !== undefined && <span className="shrink-0 font-sans text-sm font-semibold text-muted">{value}</span>}
+      {value !== undefined && <span className="shrink-0 text-body-sm text-muted">{value}</span>}
       {trailing !== undefined && <span className="flex shrink-0 items-center">{trailing}</span>}
       {checked && (
         <span

@@ -99,7 +99,7 @@ export const TextField = forwardRef<TextFieldElement, TextFieldProps>(
 
     const fieldClassName = cn(
       // 16px minimum: anything smaller makes iOS zoom the page on focus.
-      'w-full min-w-0 resize-none bg-transparent font-sans text-base text-ink outline-none',
+      'w-full min-w-0 resize-none bg-transparent text-body text-ink outline-none',
       'placeholder:text-muted',
       className
     );
@@ -111,7 +111,7 @@ export const TextField = forwardRef<TextFieldElement, TextFieldProps>(
     return (
       <div className={cn('flex w-full flex-col gap-1.5', containerClassName)}>
         {label && (
-          <label htmlFor={fieldId} className="font-sans text-[13px] leading-[17px] font-bold text-muted">
+          <label htmlFor={fieldId} className="text-label text-muted">
             {label}
           </label>
         )}
@@ -150,16 +150,11 @@ export const TextField = forwardRef<TextFieldElement, TextFieldProps>(
         </div>
 
         {error ? (
-          <p
-            id={errorId}
-            role="alert"
-            data-testid={errorTestId}
-            className="text-[13px] leading-[17px] text-negative-ink"
-          >
+          <p id={errorId} role="alert" data-testid={errorTestId} className="text-caption text-negative-ink">
             {error}
           </p>
         ) : hint ? (
-          <p id={hintId} className="text-[13px] leading-[17px] text-muted">
+          <p id={hintId} className="text-caption text-muted">
             {hint}
           </p>
         ) : null}

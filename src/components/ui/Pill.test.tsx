@@ -85,7 +85,7 @@ it('sizes small pills for status badges', () => {
     </Pill>
   );
 
-  expect(screen.getByTestId('pill')).toHaveClass('h-6', 'px-2', 'text-xs', 'text-positive-tint-ink');
+  expect(screen.getByTestId('pill')).toHaveClass('h-6', 'px-2', 'text-badge', 'text-positive-tint-ink');
 });
 
 it('puts a status pill on its opaque tint, not a translucent wash of the status color', () => {
@@ -256,13 +256,13 @@ describe('variants', () => {
 
   it('defaults to the neutral tone at the md size', () => {
     render(<Pill data-testid="pill">A</Pill>);
-    expect(screen.getByTestId('pill')).toHaveClass('bg-fill', 'text-ink', 'h-8', 'px-3', 'text-sm');
+    expect(screen.getByTestId('pill')).toHaveClass('bg-fill', 'text-ink', 'h-8', 'px-3', 'text-pill');
   });
 
   it.each([
-    ['xs', ['h-5', 'gap-1', 'px-2', 'text-xs', 'font-semibold'], ['-ml-0.5', 'h-3', 'w-3']],
-    ['sm', ['h-6', 'gap-1', 'px-2', 'text-xs'], ['-ml-0.5', 'h-3.5', 'w-3.5']],
-    ['md', ['h-8', 'gap-1.5', 'px-3', 'text-sm'], ['-ml-1', 'h-4', 'w-4']]
+    ['xs', ['h-5', 'gap-1', 'px-2', 'text-badge', 'font-semibold'], ['-ml-0.5', 'h-3', 'w-3']],
+    ['sm', ['h-6', 'gap-1', 'px-2', 'text-badge'], ['-ml-0.5', 'h-3.5', 'w-3.5']],
+    ['md', ['h-8', 'gap-1.5', 'px-3', 'text-pill'], ['-ml-1', 'h-4', 'w-4']]
   ] as const)('sizes the %s pill and its icon box', (size, pillClasses, iconClasses) => {
     render(
       <Pill data-testid="pill" size={size} icon={<svg data-testid="glyph" />}>

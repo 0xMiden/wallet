@@ -95,7 +95,7 @@ describe('DappLauncher', () => {
 
     expect(sectionIds()).toEqual(['featured', 'helper-tools', 'games', 'recents']);
     expect(screen.getByTestId('explore-section-featured')).toHaveAttribute('data-kind', 'featured');
-    expect(screen.getByRole('heading', { level: 2, name: 'exploreFeatured' })).toHaveClass('text-xl', 'font-extrabold');
+    expect(screen.getByRole('heading', { level: 2, name: 'exploreFeatured' })).toHaveClass('text-title-page');
     expect(screen.getByTestId('explore-featured-card')).toHaveAttribute('data-dapp-url', 'https://faucet.example/');
     expect(within(screen.getByTestId('explore-section-helper-tools')).getAllByTestId('dapp-grid-card')).toHaveLength(1);
     expect(within(screen.getByTestId('explore-section-games')).getByTestId('dapp-tile')).toHaveAttribute(

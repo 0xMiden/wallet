@@ -133,7 +133,7 @@ describe('ExportFilePassword', () => {
     expect(screen.getByLabelText('password')).toBe(passwordInput);
     expect(passwordInput.parentElement).toHaveClass('bg-fill', 'rounded-full');
     // The explanation is the section's muted 14px copy, not a grey chip.
-    expect(screen.getByText('enterPasswordToEncrypt')).toHaveClass('text-sm', 'text-muted');
+    expect(screen.getByText('enterPasswordToEncrypt')).toHaveClass('text-body', 'text-muted');
     // The eye toggle is a named, non-submitting IconButton.
     expect(passwordEyeBtn).toHaveAttribute('type', 'button');
     expect(passwordEyeBtn).toHaveAccessibleName('show');

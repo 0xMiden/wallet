@@ -37,7 +37,7 @@ export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElemen
 
 const buttonVariants = cva(
   [
-    'relative flex shrink-0 items-center justify-center gap-x-2 rounded-full px-4 font-heading font-extrabold',
+    'relative flex shrink-0 items-center justify-center gap-x-2 rounded-full px-4',
     'cursor-pointer select-none outline-none transition-colors duration-150 ease-hover',
     'focus-visible:ring-2 focus-visible:ring-accent-primary focus-visible:ring-offset-2 focus-visible:ring-offset-page',
     'disabled:cursor-default'
@@ -54,8 +54,8 @@ const buttonVariants = cva(
           'border border-hairline bg-transparent text-ink hover:bg-fill disabled:bg-transparent disabled:text-muted'
       },
       size: {
-        lg: 'h-13 w-full max-w-92.5 text-[19px] leading-6',
-        sm: 'h-9 text-[15px] leading-5'
+        lg: 'h-13 w-full max-w-92.5 text-cta',
+        sm: 'h-9 text-cta-sm'
       }
     },
     defaultVariants: {
