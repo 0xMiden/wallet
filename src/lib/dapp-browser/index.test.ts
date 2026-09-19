@@ -57,8 +57,8 @@ jest.mock('@capacitor/filesystem', () => ({
 }));
 
 import * as categoryData from './category-data';
-import * as exploreCatalog from './explore-catalog';
 import * as dappSession from './dapp-session';
+import * as exploreCatalog from './explore-catalog';
 import * as faviconCache from './favicon-cache';
 import * as featuredDapps from './featured-dapps';
 import * as barrel from './index';
