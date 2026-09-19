@@ -110,6 +110,12 @@ jest.mock('lib/animation', () => ({
   springToLinearEasing: (...args: [unknown, { distance: number }]) => mockSpringToLinearEasing(...args)
 }));
 
+// A swipe that lands on another page is a tab switch and buzzes once.
+const mockHapticSelection = jest.fn();
+jest.mock('lib/mobile/haptics', () => ({
+  hapticSelection: (...args: unknown[]) => mockHapticSelection(...args)
+}));
+
 jest.mock('lib/mobile/high-refresh-rate', () => ({
   boostRefreshRate: (...args: unknown[]) => mockBoostRefreshRate(...args)
 }));
@@ -541,6 +547,33 @@ describe('HomeSwipeContainer', () => {
       settleAt(-600);
       release(-300); // velocity +375 -> projected +112.5
       expect(mockNavigate).toHaveBeenCalledWith('/send');
+    });
+
+    it('buzzes once when the swipe lands on another page, as a tap on the bar does', () => {
+      mockPathname = '/'; // index 0
+      render(<HomeSwipeContainer />);
+      measure(300);
+      release(-300);
+      expect(mockHapticSelection).toHaveBeenCalledTimes(1);
+      // The buzz and the route change are the same switch.
+      expect(mockHapticSelection.mock.invocationCallOrder[0]).toBeLessThan(mockNavigate.mock.invocationCallOrder[0]!);
+    });
+
+    it('stays silent when the swipe snaps back to the same page', () => {
+      mockPathname = '/send'; // index 1
+      render(<HomeSwipeContainer />);
+      measure(300);
+      settleAt(-300);
+      release(-310);
+      expect(mockHapticSelection).not.toHaveBeenCalled();
+    });
+
+    it('stays silent at either end, where there is no page to switch to', () => {
+      mockPathname = '/'; // index 0 (first)
+      render(<HomeSwipeContainer />);
+      measure(300);
+      release(300);
+      expect(mockHapticSelection).not.toHaveBeenCalled();
     });
 
     it('stays put when the flick is too weak to project past the threshold', () => {

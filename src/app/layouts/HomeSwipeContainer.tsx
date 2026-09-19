@@ -7,6 +7,7 @@ import Explore from 'app/pages/Explore';
 import { Receive } from 'app/pages/Receive';
 import { resolveTransition, springToLinearEasing, springs } from 'lib/animation';
 import { isSwapEnabled } from 'lib/feature-flags';
+import { hapticSelection } from 'lib/mobile/haptics';
 import { boostRefreshRate } from 'lib/mobile/high-refresh-rate';
 import { useNavbarHidden } from 'lib/mobile/useNavbarHidden';
 import { navigate, useLocation } from 'lib/woozie';
@@ -22,7 +23,7 @@ import { SwapFlow } from 'screens/swap-flow/SwapManager';
  *
  * Pathname is the source of truth for which page is centered — the
  * SegmentedActionBar in TabLayout reads the same path and stays in sync
- * via its framer-motion layoutId pill.
+ * via its sliding Highlight pill.
  *
  * Earn ships unconditionally; only the Swap (isSwapEnabled) pane is
  * feature-gated and can be absent. Track length, page widths and the index
@@ -312,11 +313,15 @@ const HomeSwipeContainer: FC = () => {
   const handleDragEnd = () => {
     // snapToPage already chose the page and is already animating toward it; this
     // only syncs the route so pathname stays the source of truth for the
-    // SegmentedActionBar pill and back handling.
+    // SegmentedActionBar pill and back handling. A swipe that lands on another
+    // page is a tab switch, so it buzzes once, like a tap on the bar does; the
+    // bar itself only buzzes for taps, so the two never double up.
     const newIdx = dragTargetIdxRef.current;
     if (newIdx === null || newIdx === activeIdx) return;
     const target = pages[newIdx];
-    if (target) navigate(target.path);
+    if (!target) return;
+    hapticSelection();
+    navigate(target.path);
   };
 
   // Drag constraints clamp the track to its valid x-range, with a small

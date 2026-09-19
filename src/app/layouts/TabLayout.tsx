@@ -274,7 +274,7 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
   };
 
   // SegmentedActionBar already no-ops re-taps on the active segment and
-  // fires the selection haptic itself.
+  // fires the selection haptic itself; a swipe buzzes in HomeSwipeContainer.
   const handleActionChange = (id: string) => {
     const to = ACTION_ROUTES[id];
     if (to && to !== pathname) navigate(to);
@@ -303,12 +303,7 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
   panesRef.current[activeTab] = showActionBar ? (
     <>
       <div className="shrink-0 relative z-10">
-        <SegmentedActionBar
-          items={actionItems}
-          activeId={activeAction}
-          onChange={handleActionChange}
-          layoutId="tab-layout-action-fill"
-        />
+        <SegmentedActionBar items={actionItems} activeId={activeAction} onChange={handleActionChange} />
       </div>
       <div className="flex-1 min-h-0 flex flex-col">
         <HomeSwipeContainer />
