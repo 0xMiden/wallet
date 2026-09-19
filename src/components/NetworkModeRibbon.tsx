@@ -13,19 +13,20 @@ export interface NetworkModeRibbonProps {
 }
 
 /*
- * Geometry. The ribbon adapts to the bar, never the reverse. The band is 200 x 14px, rotated -45deg
- * about its centre, so its centre is the word's centre. Measured from the bar's bottom-right corner
- * (x leftwards, y up), "TESTNET" (10px, 0.06em: 48.6 x 7.1px) reaches (48.6 + 7.1) / (2 * sqrt(2)) =
- * 19.7px either side of that centre on each axis.
+ * Geometry: a classic corner sash that only just clips the corner. The band is 200 x 14px, rotated
+ * -45deg about its centre, and its centreline is x + y = c, measured from the corner (x leftwards,
+ * y up). The corner box clips it where it meets the right and bottom edges, (0, c) and (c, 0), and a
+ * rounded screen corner or pill radius trims both ends by the same amount (both are symmetric about
+ * the diagonal), so the visible stretch is centred on (c/2, c/2). The band's own centre, and so the
+ * word, sits exactly there.
  *
- * - Docked: centre at x = 21.5, y = pb + 36, where pb is the bar's bottom padding
- *   (max(8px, --app-safe-bottom - 16px); 18px on an iPhone, whose bar is 83px). On an iPhone 17 Pro
- *   the band's inner edge (x + y = 65.6) stays outside the 55pt screen corner's cut, so the whole
- *   sash is visible; the word runs x 1.8..41.2, y 34.3..73.7, level with the top of the home
- *   indicator's zone; the band's outer edge clears the popped Settings gear by 2.8pt (0.1pt on a
- *   375pt iPhone, where the tabs sit 4pt further right).
- * - Floating: the 72px pill (24px radius), centre at (24, 24): the band's inner edge (38.1) is
- *   outside the corner arc's cut (14.1), and it clears the popped gear by 12.9pt.
+ * "TESTNET" (10px, 0.06em: 48.6 x 7.1px) is fully inside a 55pt screen corner (iPhone 17 Pro) from
+ * c = 47.5, inside a 44pt corner (375pt iPhones) from 44, and inside the floating pill's 24px radius
+ * from 42.5.
+ * - Docked: c = 50, word centre (25, 25) from the bar's bottom-right corner, which is the screen's.
+ *   The word spans x and y 5.3..44.7; the band clears the popped Settings gear by 22pt (iPhone 17
+ *   Pro) and 21pt (375pt).
+ * - Floating: c = 44, word centre (22, 22); inside the pill's corner, 17pt clear of the gear.
  */
 const band = cva(
   // `primary-orange-dark` is the build's brand ramp: #9F4518 (white on it 6.3:1), slate #4E5F73 on
@@ -34,10 +35,10 @@ const band = cva(
   {
     variants: {
       docked: {
-        // right: 21.5 - 100; bottom: pb + 36 - 7.
-        true: '-right-[78.5px] bottom-[calc(max(0.5rem,calc(var(--app-safe-bottom,max(16px,env(safe-area-inset-bottom)))-16px))+29px)]',
-        // right: 24 - 100; bottom: 24 - 7.
-        false: '-right-[76px] bottom-[17px]'
+        // right: 25 - 100; bottom: 25 - 7.
+        true: '-right-[75px] bottom-[18px]',
+        // right: 22 - 100; bottom: 22 - 7.
+        false: '-right-[78px] bottom-[15px]'
       }
     }
   }
