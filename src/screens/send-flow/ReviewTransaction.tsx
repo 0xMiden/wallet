@@ -49,9 +49,9 @@ import { useEpochQuote } from './useEpochQuote';
  * Owns the whole transaction-creation pipeline: the send form at `/send` only
  * collects recipient/amount/token and hands them over via query params (plus a
  * send-draft for back-restore — see `send-draft.ts`). Rendered outside
- * TabLayout via FullScreenPage, so there is no tab bar; back is the
- * ScreenHeader's back button (or hardware back via MobileBackBridge on
- * mobile).
+ * TabLayout via FullScreenPage, so there is no tab bar; back is
+ * SendStepLayout's (FlowLayout's) PageHeader back button (or hardware back via
+ * MobileBackBridge on mobile).
  */
 export const ReviewTransaction: React.FC = () => {
   const { t } = useTranslation();
