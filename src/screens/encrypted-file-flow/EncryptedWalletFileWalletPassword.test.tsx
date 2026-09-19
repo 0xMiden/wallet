@@ -54,8 +54,10 @@ jest.mock('lib/miden/front', () => {
   };
 });
 
-jest.mock('components/Checkbox', () => ({
-  Checkbox: ({ value }: { value: boolean }) => <span data-testid="checkbox" data-checked={String(!!value)} />
+jest.mock('components/ui/Checkbox', () => ({
+  CheckboxIndicator: ({ checked }: { checked: boolean }) => (
+    <span data-testid="checkbox" data-checked={String(!!checked)} />
+  )
 }));
 
 jest.mock('components/Button', () => ({
@@ -172,6 +174,11 @@ describe('EncryptedWalletFileWalletPassword', () => {
     expect(screen.getByText('encryptedWalletFileDescription')).toHaveClass('text-body', 'text-muted');
     // The confirmation row does not submit anything by itself.
     expect(screen.getByTestId('checkbox').closest('button')).toHaveAttribute('type', 'button');
+    // It is a checkbox to assistive tech, reporting its state.
+    const confirmation = screen.getByRole('checkbox', { name: 'encryptedWalletFileConfirmation' });
+    expect(confirmation).toHaveAttribute('aria-checked', 'false');
+    fireEvent.click(confirmation);
+    expect(confirmation).toHaveAttribute('aria-checked', 'true');
   });
 
   it('renders nothing while the hardware-protector check is pending', () => {

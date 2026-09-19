@@ -39,11 +39,14 @@ describe('ChooseProtectionScreen', () => {
     expect(screen.getByTestId('onboarding-choose-protection')).toBeInTheDocument();
   });
 
-  it('renders the protected illustration svg with the fixed width sizing', () => {
+  it('renders the illustration in the body and both choices pinned in the step footer', () => {
     const { container } = renderComponent();
     const svg = container.querySelector('svg');
-    expect(svg).toBeInTheDocument();
-    expect(svg).toHaveStyle({ width: '278px' });
+    expect(svg).toHaveClass('max-w-[278px]');
+    expect(svg).toHaveAttribute('aria-hidden', 'true');
+    expect(screen.getByRole('heading', { level: 1 })).toHaveClass('text-[28px]');
+    const buttons = screen.getAllByRole('button');
+    buttons.forEach(b => expect(b.closest('[data-slot="footer"]')).not.toBeNull());
   });
 
   it('renders the translated heading copy', () => {

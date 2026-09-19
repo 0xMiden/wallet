@@ -1017,7 +1017,7 @@
   },
   "importWallet": {
     "message": "Импортировать кошелек",
-    "englishSource": "Import Wallet"
+    "englishSource": "Import wallet"
   },
   "importWithKeyInstead": {
     "message": "Импортировать с ключом вместо этого",
@@ -2001,7 +2001,7 @@
   },
   "chooseImportType": {
     "message": "Выберите тип импорта",
-    "englishSource": "Choose Your Import Type"
+    "englishSource": "Choose your import type"
   },
   "chooseImportTypeDescription": {
     "message": "Восстановите общественный баланс с помощью фразы из 12 слов. Чтобы восстановить частные средства, загрузите зашифрованный файл резервной копии.",
@@ -2009,7 +2009,7 @@
   },
   "importWithSeedPhrase": {
     "message": "Импорт с исходной фразой",
-    "englishSource": "Import with Seed Phrase"
+    "englishSource": "Import with seed phrase"
   },
   "importWithSeedPhraseDescription": {
     "message": "Используйте существующую фразу восстановления из 12 слов. Вы также можете импортировать кошельки от других поставщиков кошельков.",
@@ -2017,7 +2017,7 @@
   },
   "importWithEncryptedWalletFile": {
     "message": "Импорт с зашифрованным файлом кошелька",
-    "englishSource": "Import with Encrypted Wallet File"
+    "englishSource": "Import with encrypted wallet file"
   },
   "importWithEncryptedWalletFileDescription": {
     "message": "Загрузите зашифрованный файл кошелька, чтобы безопасно импортировать свою учетную запись. Ваши данные остаются конфиденциальными, в цепочке хранится только хешированная информация.",
@@ -2049,7 +2049,7 @@
   },
   "useFaceIdOrBiometric": {
     "message": "Используйте Face ID или биометрическую аутентификацию",
-    "englishSource": "Use FaceID or Biometric"
+    "englishSource": "Use Face ID or biometrics"
   },
   "setUpYourPasscode": {
     "message": "Установите пароль",
@@ -2261,11 +2261,11 @@
   },
   "enterYourWalletSeedPhrase": {
     "message": "Введите 12-словное выражение «Seed phrase» вашего кошелька.",
-    "englishSource": "Enter your wallet's 12-word Seed phrase."
+    "englishSource": "Enter your wallet's 12-word seed phrase."
   },
   "onlyMidenSeedPhrasesAreSupported": {
     "message": "Поддерживаются только фразы Miden Seed.",
-    "englishSource": "Only Miden Seed phrases are supported."
+    "englishSource": "Only Miden seed phrases are supported."
   },
   "yourWalletIsReady": {
     "message": "Ваш <highlight>кошелек</highlight> готов!",
@@ -3014,7 +3014,7 @@
   },
   "chooseRecoveryMethod": {
     "message": "Настроить восстановление учетной записи",
-    "englishSource": "Set Up Account Recovery"
+    "englishSource": "Set up account recovery"
   },
   "chooseRecoveryMethodDescription": {
     "message": "Выберите способ восстановления учетной записи на случай потери доступа.",
@@ -3030,7 +3030,7 @@
   },
   "fullyPrivateRecovery": {
     "message": "Полностью приватный",
-    "englishSource": "Fully Private"
+    "englishSource": "Fully private"
   },
   "fullyPrivateRecoveryDescription": {
     "message": "Только локальное хранение: никто, кроме вас, не увидит состояние вашего счета, но функции восстановления нет — в случае потери устройства ваши средства будут безвозвратно утрачены.",

@@ -41,17 +41,31 @@ jest.mock('lib/woozie', () => ({
 
 // `app/icons/v2` — replace the SVG barrel with a lightweight marker exposing the
 // only `IconName` member the component references.
-jest.mock('app/icons/v2', () => ({
-  Icon: (props: { name?: string }) => <span data-testid="icon" data-name={props.name} />,
-  IconName: { ChevronRight: 'ChevronRight' }
-}));
-
 // `Button` — render the title and forward the click / tabIndex so the primary
 // "get started" wiring can be verified. A `btn-<title>` test id makes the CTA
 // addressable.
 jest.mock('components/Button', () => ({
-  Button: ({ title, onClick, tabIndex }: { title: string; onClick?: () => void; tabIndex?: number }) => (
-    <button data-testid={`btn-${title}`} data-tabindex={String(tabIndex)} onClick={onClick}>
+  ButtonVariant: { Primary: 'primary', Secondary: 'secondary' },
+  Button: ({
+    title,
+    onClick,
+    tabIndex,
+    id,
+    variant
+  }: {
+    title: string;
+    onClick?: () => void;
+    tabIndex?: number;
+    id?: string;
+    variant?: string;
+  }) => (
+    <button
+      id={id}
+      data-testid={`btn-${title}`}
+      data-tabindex={String(tabIndex)}
+      data-variant={variant ?? 'primary'}
+      onClick={onClick}
+    >
       {title}
     </button>
   )
@@ -81,11 +95,14 @@ describe('WelcomeScreen', () => {
     expect(screen.getByTestId('onboarding-welcome')).toBeInTheDocument();
   });
 
-  it('renders the bread logo svg with the fixed width sizing', () => {
+  it('renders the bread logo and the hero on the shared layout, the actions pinned in its footer', () => {
     const { container } = renderComponent();
-    const svg = container.querySelector('svg');
-    expect(svg).toBeInTheDocument();
-    expect(svg).toHaveStyle({ width: '130px' });
+    expect(container.querySelector('svg')).toHaveClass('w-[120px]');
+    expect(screen.getByRole('heading', { level: 1 })).toHaveClass('font-heading', 'text-ink');
+    expect(screen.getByText('breadWalletDescription')).toHaveClass('text-muted');
+    const footer = screen.getByTestId('btn-getStarted').parentElement;
+    expect(footer).toHaveAttribute('data-slot', 'footer');
+    expect(footer).toContainElement(document.getElementById('import-link'));
   });
 
   it('renders the translated heading copy across its spans', () => {
@@ -108,12 +125,12 @@ describe('WelcomeScreen', () => {
     expect(button).toHaveAttribute('data-tabindex', '0');
   });
 
-  it('renders the recover-account link with the chevron icon', () => {
+  it('renders recover-account as the secondary button under Get started', () => {
     renderComponent();
     const link = document.getElementById('import-link');
-    expect(link).toBeInTheDocument();
     expect(link).toHaveTextContent('recoverYourAccount');
-    expect(screen.getByTestId('icon')).toHaveAttribute('data-name', 'ChevronRight');
+    expect(link).toHaveAttribute('data-variant', 'secondary');
+    expect(screen.getByTestId('btn-getStarted')).toHaveAttribute('data-variant', 'primary');
   });
 
   it('invokes onSubmit with "select-wallet-type" when get-started is clicked', () => {
@@ -125,21 +142,18 @@ describe('WelcomeScreen', () => {
     expect(onSubmit).toHaveBeenCalledWith('select-wallet-type');
   });
 
-  it('fires the haptic and onSubmit with "select-import-type" when recover is clicked', () => {
+  it('calls onSubmit with "select-import-type" when recover is clicked (the Button owns the haptic)', () => {
     const onSubmit = jest.fn();
     renderComponent({ onSubmit });
 
     fireEvent.click(document.getElementById('import-link')!);
-    expect(hapticLight).toHaveBeenCalledTimes(1);
     expect(onSubmit).toHaveBeenCalledTimes(1);
     expect(onSubmit).toHaveBeenCalledWith('select-import-type');
   });
 
-  it('still fires the haptic on recover even without an onSubmit handler', () => {
+  it('does not throw on recover without an onSubmit handler', () => {
     renderComponent();
-
     expect(() => fireEvent.click(document.getElementById('import-link')!)).not.toThrow();
-    expect(hapticLight).toHaveBeenCalledTimes(1);
   });
 
   it('does not throw when get-started is clicked without an onSubmit handler', () => {
@@ -153,24 +167,6 @@ describe('WelcomeScreen', () => {
 
     expect(onSubmit).not.toHaveBeenCalled();
     expect(hapticLight).not.toHaveBeenCalled();
-  });
-
-  it('applies the mobile top-padding (pt-8) on the button column when on mobile', () => {
-    mockPlatform.isMobile = true;
-    renderComponent();
-
-    const column = screen.getByTestId('btn-getStarted').parentElement;
-    expect(column).toHaveClass('pt-8');
-    expect(column).not.toHaveClass('pt-6');
-  });
-
-  it('applies the desktop top-padding (pt-6) on the button column when not on mobile', () => {
-    mockPlatform.isMobile = false;
-    renderComponent();
-
-    const column = screen.getByTestId('btn-getStarted').parentElement;
-    expect(column).toHaveClass('pt-6');
-    expect(column).not.toHaveClass('pt-8');
   });
 });
 
@@ -192,6 +188,6 @@ describe('WelcomeScreen developer unlock', () => {
   it('prevents text selection on the logo tap target', () => {
     renderComponent();
     const logo = screen.getByTestId('onboarding-bread-logo');
-    expect(logo).toHaveStyle({ userSelect: 'none' });
+    expect(logo).toHaveClass('select-none');
   });
 });

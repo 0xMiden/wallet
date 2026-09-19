@@ -1017,7 +1017,7 @@
   },
   "importWallet": {
     "message": "Імпортувати гаманець",
-    "englishSource": "Import Wallet"
+    "englishSource": "Import wallet"
   },
   "importWithKeyInstead": {
     "message": "Імпортувати за допомогою ключа",
@@ -2001,7 +2001,7 @@
   },
   "chooseImportType": {
     "message": "Виберіть тип імпорту",
-    "englishSource": "Choose Your Import Type"
+    "englishSource": "Choose your import type"
   },
   "chooseImportTypeDescription": {
     "message": "Відновіть суспільний баланс своєю фразою з 12 слів. Щоб відновити приватні кошти, завантажте зашифрований файл резервної копії.",
@@ -2009,7 +2009,7 @@
   },
   "importWithSeedPhrase": {
     "message": "Імпорт із початковою фразою",
-    "englishSource": "Import with Seed Phrase"
+    "englishSource": "Import with seed phrase"
   },
   "importWithSeedPhraseDescription": {
     "message": "Використовуйте існуючу фразу відновлення з 12 слів. Ви також можете імпортувати гаманці від інших постачальників гаманців.",
@@ -2017,7 +2017,7 @@
   },
   "importWithEncryptedWalletFile": {
     "message": "Імпорт із зашифрованим файлом гаманця",
-    "englishSource": "Import with Encrypted Wallet File"
+    "englishSource": "Import with encrypted wallet file"
   },
   "importWithEncryptedWalletFileDescription": {
     "message": "Завантажте зашифрований файл гаманця, щоб безпечно імпортувати свій обліковий запис. Ваші дані залишаються конфіденційними, лише хешована інформація зберігається в мережі",
@@ -2049,7 +2049,7 @@
   },
   "useFaceIdOrBiometric": {
     "message": "Використовуйте Face ID або біометричну аутентифікацію",
-    "englishSource": "Use FaceID or Biometric"
+    "englishSource": "Use Face ID or biometrics"
   },
   "setUpYourPasscode": {
     "message": "Налаштуйте свій пароль",
@@ -2261,11 +2261,11 @@
   },
   "enterYourWalletSeedPhrase": {
     "message": "Введіть 12-слівний вираз відновлення (Seed phrase) вашого гаманця.",
-    "englishSource": "Enter your wallet's 12-word Seed phrase."
+    "englishSource": "Enter your wallet's 12-word seed phrase."
   },
   "onlyMidenSeedPhrasesAreSupported": {
     "message": "Підтримуються лише фрази Miden Seed.",
-    "englishSource": "Only Miden Seed phrases are supported."
+    "englishSource": "Only Miden seed phrases are supported."
   },
   "yourWalletIsReady": {
     "message": "Ваш <highlight>гаманець</highlight> готовий!",
@@ -3014,7 +3014,7 @@
   },
   "chooseRecoveryMethod": {
     "message": "Налаштувати відновлення облікового запису",
-    "englishSource": "Set Up Account Recovery"
+    "englishSource": "Set up account recovery"
   },
   "chooseRecoveryMethodDescription": {
     "message": "Виберіть спосіб відновлення доступу до облікового запису на випадок, якщо ви його втратите.",
@@ -3030,7 +3030,7 @@
   },
   "fullyPrivateRecovery": {
     "message": "Повністю приватний",
-    "englishSource": "Fully Private"
+    "englishSource": "Fully private"
   },
   "fullyPrivateRecoveryDescription": {
     "message": "Тільки локальний режим: ніхто, крім вас, не бачить ваш стан, але відновлення неможливе — у разі втрати пристрою ваші кошти будуть безповоротно втрачені.",

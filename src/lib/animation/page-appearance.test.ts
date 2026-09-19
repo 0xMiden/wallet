@@ -2,7 +2,6 @@ import { durations } from './durations';
 import { easings } from './easings';
 import {
   pageSlideEntrance,
-  pageStepFadeOffset,
   pageStepOffset,
   pageStepPresentOffset,
   pageStepTransition,
@@ -23,9 +22,8 @@ describe('lib/animation/page-appearance', () => {
     expect(pageStepTransition).toEqual({ type: 'tween', duration: durations.pageStep, ease: easings.standard });
   });
 
-  it('names how far a step travels: an 8% nudge for Navigator, a 1vw drift for onboarding, 25vw for a presented step', () => {
+  it('names how far a step travels: an 8% nudge for Navigator, 25vw for a presented step', () => {
     expect(pageStepOffset).toBe('8%');
-    expect(pageStepFadeOffset).toBe('1vw');
     expect(pageStepPresentOffset).toBe('25vw');
   });
 

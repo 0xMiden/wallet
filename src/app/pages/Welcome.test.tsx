@@ -2018,6 +2018,35 @@ describe('Welcome — back navigation', () => {
     expect(mockNavigate).toHaveBeenCalledWith('/');
   });
 
+  it('offers the header back on every step it can step back from', async () => {
+    await renderWelcome();
+    await setHash('#select-import-type');
+    expect(mockFlowProps.current.canGoBack).toBe(true);
+    await setHash('#import-from-seed');
+    expect(mockFlowProps.current.canGoBack).toBe(true);
+  });
+
+  it('offers back on Confirmation only for a file restore, the one step back that exists there', async () => {
+    await renderWelcome();
+    await stageFileRestore();
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    await setHash('#confirmation');
+    expect(currentStep()).toBe(OnboardingStep.Confirmation);
+    expect(mockFlowProps.current.canGoBack).toBe(true);
+  });
+
+  it('hides back on Confirmation for a wallet being created from a seed', async () => {
+    await renderWelcome();
+    await dispatch({ id: 'select-import-type' });
+    await setHash('#select-import-type');
+    await dispatch({ id: 'import-from-seed' });
+    await setHash('#import-from-seed');
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    await setHash('#confirmation');
+    expect(currentStep()).toBe(OnboardingStep.Confirmation);
+    expect(mockFlowProps.current.canGoBack).toBe(false);
+  });
+
   it('returns a rejected file restore to file selection instead of stranding it on Confirmation', async () => {
     await renderWelcome();
     await stageFileRestore();

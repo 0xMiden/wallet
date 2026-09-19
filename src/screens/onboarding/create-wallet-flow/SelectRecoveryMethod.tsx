@@ -1,11 +1,12 @@
 import React, { useMemo } from 'react';
 
-import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import { Button } from 'components/Button';
+import { ChoiceCardGroup, ChoiceCardItem } from 'components/ui/ChoiceCard';
 import { Pill } from 'components/ui/Pill';
 
+import { OnboardingStepLayout } from '../common/OnboardingStepLayout';
 import { WalletType } from '../types';
 
 export type RecoveryOption = {
@@ -13,18 +14,18 @@ export type RecoveryOption = {
   title: string;
   description: string;
   isDefault?: boolean;
-  isLast?: boolean;
 };
 
-export interface SelectRecoveryMethodScreenProps extends Omit<React.ButtonHTMLAttributes<HTMLDivElement>, 'onSubmit'> {
+export interface SelectRecoveryMethodScreenProps {
   onSubmit?: (payload: WalletType) => void;
   options?: RecoveryOption[];
+  'data-testid'?: string;
 }
 
 export const SelectRecoveryMethodScreen = ({
   onSubmit,
   options: optionsProp,
-  ...props
+  'data-testid': dataTestId
 }: SelectRecoveryMethodScreenProps) => {
   const { t } = useTranslation();
   const defaultOptions: RecoveryOption[] = useMemo(
@@ -38,8 +39,7 @@ export const SelectRecoveryMethodScreen = ({
       {
         id: WalletType.OffChain,
         title: t('fullyPrivateRecovery'),
-        description: t('fullyPrivateRecoveryDescription'),
-        isLast: true
+        description: t('fullyPrivateRecoveryDescription')
       }
     ],
     [t]
@@ -51,40 +51,25 @@ export const SelectRecoveryMethodScreen = ({
     onSubmit?.(selected);
   };
 
+  const items: ChoiceCardItem<WalletType>[] = options.map(option => ({
+    id: option.id,
+    title: option.title,
+    subtitle: option.description,
+    badge: option.isDefault ? (
+      <Pill size="xs" tone="selected" data-testid="default-badge">
+        {t('default')}
+      </Pill>
+    ) : undefined
+  }));
+
   return (
-    <div className="flex-1 flex flex-col items-center bg-transparent pt-6 h-full px-4 text-ink gap-6" {...props}>
-      <div className="flex flex-col items-center gap-2">
-        <h1 className="font-semibold text-2xl lh-title">{t('chooseRecoveryMethod')}</h1>
-        <p className="text-xs text-center lh-title px-4">{t('chooseRecoveryMethodDescription')}</p>
-      </div>
-      <div className="flex flex-col">
-        {options.map(option => (
-          <div
-            key={option.id}
-            className={classNames('flex flex-col p-4 rounded-lg cursor-pointer bg-white', {
-              'mb-2': !option.isLast,
-              'mb-8': option.isLast,
-              'opacity-50': selected !== option.id
-            })}
-            onClick={() => setSelected(option.id)}
-          >
-            <div className="flex flex-row justify-between items-center">
-              <div className="flex items-center gap-2">
-                <h2 className="font-medium text-base">{option.title}</h2>
-                {option.isDefault && (
-                  <Pill size="sm" tone="selected" data-testid="default-badge">
-                    {t('default')}
-                  </Pill>
-                )}
-              </div>
-            </div>
-            <p className="text-grey-600">{option.description}</p>
-          </div>
-        ))}
-      </div>
-      <div className="flex flex-col gap-2 self-center w-full mt-auto">
-        <Button title={t('continue')} onClick={handleContinue} />
-      </div>
-    </div>
+    <OnboardingStepLayout
+      data-testid={dataTestId}
+      title={t('chooseRecoveryMethod')}
+      description={t('chooseRecoveryMethodDescription')}
+      footer={<Button className="max-w-none" title={t('continue')} onClick={handleContinue} />}
+    >
+      <ChoiceCardGroup items={items} value={selected} onChange={setSelected} aria-label={t('chooseRecoveryMethod')} />
+    </OnboardingStepLayout>
   );
 };

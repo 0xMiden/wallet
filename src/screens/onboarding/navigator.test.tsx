@@ -2,8 +2,9 @@ import React from 'react';
 
 import { render, screen, fireEvent, act } from '@testing-library/react';
 
-import { pageStepFadeOffset, pageStepTransition, reducedMotionTransition } from 'lib/animation';
+import { pageSlideDim, pageSlideEntrance, pageSlideParallax, presets, reducedMotionTransition } from 'lib/animation';
 
+import { onboardingStepDimVariants, onboardingStepVariants } from './common/OnboardingStepLayer';
 import { OnboardingFlow } from './navigator';
 import { ImportType, OnboardingStep, OnboardingType, WalletType } from './types';
 
@@ -51,13 +52,16 @@ jest.mock('framer-motion', () => {
       mockMotion.presences.push(presence);
       return R.createElement(R.Fragment, null, children);
     },
+    PresenceContext: R.createContext(null),
     motion: new Proxy(
       {},
       {
         get:
           () =>
-          ({ children, initial, animate, exit, transition, variants, ...rest }: any) => {
-            if (variants) mockMotion.step = { initial, animate, exit, transition, variants };
+          ({ children, initial, animate, exit, transition, variants, custom, ...rest }: any) => {
+            // The step layer (not its dim) is the element that carries the layer marker.
+            if (variants && rest['data-onboarding-step-layer'])
+              mockMotion.step = { initial, animate, exit, transition, variants, custom };
             return R.createElement('div', rest, children);
           }
       }
@@ -77,17 +81,6 @@ jest.mock('lib/platform', () => ({
 let mockAllowNoGuardian = false;
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
   getEffectiveAllowNoGuardian: () => mockAllowNoGuardian
-}));
-
-// `Button` (bottom "back" nav) — surface title, variant and the onClick wiring.
-jest.mock('components/Button', () => ({
-  Button: ({ title, onClick, variant, className }: any) =>
-    require('react').createElement(
-      'button',
-      { 'data-testid': 'back-button', 'data-variant': variant, 'data-classname': className, onClick },
-      title
-    ),
-  ButtonVariant: { Primary: 'Primary', Secondary: 'Secondary' }
 }));
 
 // `ProgressIndicator` — expose currentStep / steps / className as data attrs so
@@ -168,26 +161,18 @@ describe('OnboardingFlow — per-step rendering, header & back-button visibility
     renderFlow({ step: OnboardingStep.Welcome });
     expect(screen.getByTestId('screen-welcome')).toBeInTheDocument();
     expect(progress()).not.toBeInTheDocument();
-    expect(screen.queryByTestId('back-button')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('onboarding-back')).not.toBeInTheDocument();
     expect(document.querySelector('[data-onboarding-root="true"]')).toBeInTheDocument();
   });
 
-  const headerNoBack: Array<[OnboardingStep, string]> = [
+  // Every step after Welcome carries the header's back chevron: steps whose own footer used to hold
+  // a Back button and steps (protection, passcode, guardian) that had no way back at all.
+  const headerWithBack: Array<[OnboardingStep, string]> = [
     [OnboardingStep.NetworkNotice, 'screen-network-notice'],
     [OnboardingStep.ChooseProtection, 'screen-choose-protection'],
     [OnboardingStep.SetupPasscode, 'screen-setup-passcode'],
     [OnboardingStep.SetupBiometric, 'screen-setup-biometric'],
     [OnboardingStep.ChooseGuardian, 'screen-choose-guardian'],
-    [OnboardingStep.Confirmation, 'screen-confirmation']
-  ];
-  it.each(headerNoBack)('renders %s with a header but no back button', (step, testid) => {
-    renderFlow({ step });
-    expect(screen.getByTestId(testid)).toBeInTheDocument();
-    expect(progress()).toBeInTheDocument();
-    expect(screen.queryByTestId('back-button')).not.toBeInTheDocument();
-  });
-
-  const headerWithBack: Array<[OnboardingStep, string]> = [
     [OnboardingStep.BackupSeedPhrase, 'screen-backup-seed'],
     [OnboardingStep.VerifySeedPhrase, 'screen-verify-seed'],
     [OnboardingStep.SelectImportType, 'screen-select-import-type'],
@@ -196,16 +181,25 @@ describe('OnboardingFlow — per-step rendering, header & back-button visibility
     [OnboardingStep.CreatePassword, 'screen-create-password'],
     [OnboardingStep.SelectRecoveryMethod, 'screen-select-recovery'],
     [OnboardingStep.ImportSelectRecoveryMethod, 'screen-import-recovery'],
-    [OnboardingStep.SelectTransactionType, 'screen-select-transaction']
+    [OnboardingStep.SelectTransactionType, 'screen-select-transaction'],
+    [OnboardingStep.Confirmation, 'screen-confirmation']
   ];
-  it.each(headerWithBack)('renders %s with a header and a back button', (step, testid) => {
+  it.each(headerWithBack)('renders %s with the header, its progress and a back chevron', (step, testid) => {
     // Use Import so the mobile-independent create-shortening doesn't interfere.
     renderFlow({ step, onboardingType: OnboardingType.Import });
     expect(screen.getByTestId(testid)).toBeInTheDocument();
     expect(progress()).toBeInTheDocument();
-    const back = screen.getByTestId('back-button');
-    expect(back).toHaveTextContent('back');
-    expect(back).toHaveAttribute('data-variant', 'Secondary');
+    const back = screen.getByTestId('onboarding-back');
+    expect(back).toHaveAccessibleName('back');
+    // No second, footer Back button under the step any more.
+    expect(screen.queryAllByRole('button', { name: 'back' })).toHaveLength(1);
+  });
+
+  it('hides the chevron where the host says the step cannot be left (a wallet being created)', () => {
+    const onAction = jest.fn();
+    renderFlow({ step: OnboardingStep.Confirmation, canGoBack: false, onAction });
+    expect(progress()).toBeInTheDocument();
+    expect(screen.queryByTestId('onboarding-back')).not.toBeInTheDocument();
   });
 
   it('renders an empty screen (default switch case) with a back button for an unmapped step', () => {
@@ -214,7 +208,7 @@ describe('OnboardingFlow — per-step rendering, header & back-button visibility
     expect(document.querySelector('[data-testid^="screen-"]')).toBeNull();
     // Header still shows (not Welcome) and the back button shows (not excluded).
     expect(progress()).toBeInTheDocument();
-    expect(screen.getByTestId('back-button')).toBeInTheDocument();
+    expect(screen.getByTestId('onboarding-back')).toBeInTheDocument();
   });
 });
 
@@ -451,13 +445,13 @@ describe('OnboardingFlow — back navigation', () => {
     const onAction = jest.fn();
     renderFlow({ step: OnboardingStep.BackupSeedPhrase, onboardingType: OnboardingType.Import, onAction });
 
-    fireEvent.click(screen.getByTestId('back-button'));
+    fireEvent.click(screen.getByTestId('onboarding-back'));
     expect(onAction).toHaveBeenLastCalledWith({ id: 'back' });
   });
 
   it('back button does not throw when onAction is omitted', () => {
     renderFlow({ step: OnboardingStep.BackupSeedPhrase, onboardingType: OnboardingType.Import });
-    expect(() => fireEvent.click(screen.getByTestId('back-button'))).not.toThrow();
+    expect(() => fireEvent.click(screen.getByTestId('onboarding-back'))).not.toThrow();
   });
 });
 
@@ -499,7 +493,7 @@ describe('OnboardingFlow — progress computation', () => {
     renderFlow({ step: OnboardingStep.ChooseProtection, onboardingType: OnboardingType.Create });
     expect(progress()).toHaveAttribute('data-steps', '3');
     expect(progress()).toHaveAttribute('data-current', '0');
-    expect(progress()).toHaveAttribute('data-classname', 'opacity-0');
+    expect(progress()!.getAttribute('data-classname')).toContain('opacity-0');
   });
 
   it('unmapped step (import flow) yields a null position rendered as 1 and hidden', () => {
@@ -507,7 +501,7 @@ describe('OnboardingFlow — progress computation', () => {
     renderFlow({ step: OnboardingStep.SelectTransactionType, onboardingType: OnboardingType.Import });
     expect(progress()).toHaveAttribute('data-steps', '4');
     expect(progress()).toHaveAttribute('data-current', '1'); // currentStep ?? 1
-    expect(progress()).toHaveAttribute('data-classname', 'opacity-0');
+    expect(progress()!.getAttribute('data-classname')).toContain('opacity-0');
   });
 
   it('unmapped step in the shortened create flow keeps a null (hidden) position', () => {
@@ -515,12 +509,12 @@ describe('OnboardingFlow — progress computation', () => {
     renderFlow({ step: OnboardingStep.SelectTransactionType, onboardingType: OnboardingType.Create });
     expect(progress()).toHaveAttribute('data-steps', '3');
     expect(progress()).toHaveAttribute('data-current', '1');
-    expect(progress()).toHaveAttribute('data-classname', 'opacity-0');
+    expect(progress()!.getAttribute('data-classname')).toContain('opacity-0');
   });
 
   it('a mapped step shows the indicator (no opacity-0 class)', () => {
     renderFlow({ step: OnboardingStep.ImportFromSeed, onboardingType: OnboardingType.Import });
-    expect(progress()).toHaveAttribute('data-classname', '');
+    expect(progress()!.getAttribute('data-classname')).not.toContain('opacity-0');
   });
 
   it('resets the progress override when the top-level step changes', () => {
@@ -559,7 +553,7 @@ describe('OnboardingFlow — motion variants (reduced motion & direction)', () =
 
     // Forward branch already evaluated on mount; clicking back flips direction
     // to 'backward' and re-renders, evaluating the backward variant branch.
-    fireEvent.click(screen.getByTestId('back-button'));
+    fireEvent.click(screen.getByTestId('onboarding-back'));
     expect(onAction).toHaveBeenLastCalledWith({ id: 'back' });
     expect(screen.getByTestId('screen-backup-seed')).toBeInTheDocument();
   });
@@ -573,44 +567,52 @@ describe('OnboardingFlow — motion variants (reduced motion & direction)', () =
     expect(onAction).toHaveBeenLastCalledWith({ id: 'choose-protection' });
   });
 
-  it('swaps one step at a time: every presence waits for the leaving step', () => {
+  it('crosses steps like pages: the step presence keeps both, handing the leaving one the direction', () => {
     renderFlow({ step: OnboardingStep.BackupSeedPhrase });
-    expect(mockMotion.presences.length).toBeGreaterThan(0);
-    for (const presence of mockMotion.presences) expect(presence).toEqual({ mode: 'wait', initial: false });
-    expect(mockMotion.step).toMatchObject({ initial: 'initialState', animate: 'animateState', exit: 'exitState' });
+    // The header's presence still swaps one at a time; the steps' presence runs both at once.
+    expect(mockMotion.presences).toContainEqual({ mode: 'wait', initial: false });
+    expect(mockMotion.presences).toContainEqual({ initial: false, custom: 'forward' });
+    expect(mockMotion.step).toMatchObject({ initial: 'enter', animate: 'center', exit: 'exit', custom: 'forward' });
+    expect(mockMotion.step.variants).toBe(onboardingStepVariants);
   });
 
-  it('on mobile, fades a step in from the right on the page step transition going forward', () => {
+  it('on mobile, moves on the page preset: in from the right, the step beneath to the parallax', () => {
     mockPlatform.isMobile = true;
     renderFlow({ step: OnboardingStep.BackupSeedPhrase });
-    expect(mockMotion.step.transition).toEqual(pageStepTransition);
-    expect(mockMotion.step.variants).toEqual({
-      initialState: { x: pageStepFadeOffset, opacity: 0 },
-      animateState: { x: 0, opacity: 1 },
-      exitState: { x: `-${pageStepFadeOffset}`, opacity: 0 }
-    });
+    expect(mockMotion.step.transition).toEqual(presets.page.transition);
+    expect(onboardingStepVariants.enter).toBeInstanceOf(Function);
+    const enter = onboardingStepVariants.enter as (d: string) => object;
+    const exit = onboardingStepVariants.exit as (d: string) => object;
+    expect(enter('forward')).toEqual({ x: presets.page.initial?.x });
+    expect(exit('forward')).toEqual({ x: pageSlideParallax });
+    const dimExit = onboardingStepDimVariants.exit as (d: string) => object;
+    expect(dimExit('forward')).toEqual({ opacity: pageSlideDim });
   });
 
-  it('mirrors the drift going back', () => {
+  it('mirrors the move going back: uncovered from beneath, the leaving step out to the right', () => {
     mockPlatform.isMobile = true;
     renderFlow({ step: OnboardingStep.BackupSeedPhrase, onAction: jest.fn() });
-    fireEvent.click(screen.getByTestId('back-button'));
-    expect(mockMotion.step.variants.initialState).toEqual({ x: `-${pageStepFadeOffset}`, opacity: 0 });
-    expect(mockMotion.step.variants.exitState).toEqual({ x: pageStepFadeOffset, opacity: 0 });
+    fireEvent.click(screen.getByTestId('onboarding-back'));
+    expect(mockMotion.step.custom).toBe('backward');
+    expect(mockMotion.presences).toContainEqual({ initial: false, custom: 'backward' });
+    const enter = onboardingStepVariants.enter as (d: string) => object;
+    const exit = onboardingStepVariants.exit as (d: string) => object;
+    const dimEnter = onboardingStepDimVariants.enter as (d: string) => object;
+    expect(enter('backward')).toEqual({ x: pageSlideParallax });
+    expect(exit('backward')).toEqual({ x: presets.page.exit?.x });
+    expect(dimEnter('backward')).toEqual({ opacity: pageSlideDim });
   });
 
   it('swaps steps at once off mobile, on the same curve', () => {
     mockPlatform.isMobile = false;
     renderFlow({ step: OnboardingStep.BackupSeedPhrase });
-    expect(mockMotion.step.transition).toEqual({ ...pageStepTransition, duration: 0 });
+    expect(mockMotion.step.transition).toEqual({ ...pageSlideEntrance, duration: 0 });
   });
 
-  it.each([true, false])('makes the swap instant and still under reduced motion (mobile: %s)', mobile => {
+  it.each([true, false])('makes the move instant under reduced motion (mobile: %s)', mobile => {
     mockPlatform.isMobile = mobile;
     mockReduceMotion = true;
     renderFlow({ step: OnboardingStep.BackupSeedPhrase });
     expect(mockMotion.step.transition).toEqual(reducedMotionTransition);
-    expect(mockMotion.step.variants.initialState).toEqual({ x: 0, opacity: 0 });
-    expect(mockMotion.step.variants.exitState).toEqual({ x: 0, opacity: 0 });
   });
 });

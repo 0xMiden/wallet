@@ -1,13 +1,11 @@
 import React, { useRef } from 'react';
 
-import clsx from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import { ReactComponent as BreadLogo } from 'app/icons/brand/new-bread.svg';
-import { Icon, IconName } from 'app/icons/v2';
-import { Button } from 'components/Button';
+import { Button, ButtonVariant } from 'components/Button';
+import { SubPageLayout } from 'components/ui/SubPageLayout';
 import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
-import { isMobile } from 'lib/platform';
 import { navigate } from 'lib/woozie';
 
 export interface WelcomeScreenProps extends Omit<React.ButtonHTMLAttributes<HTMLDivElement>, 'onSubmit'> {
@@ -36,47 +34,46 @@ export const WelcomeScreen = ({ onSubmit }: WelcomeScreenProps) => {
   };
 
   return (
-    <div className="bg-app-bg max-w-full h-full overflow-y-auto" data-testid="onboarding-welcome">
-      <div className="min-h-full flex flex-col items-center px-6">
-        <div className="flex-1 flex flex-col items-center justify-center w-full py-8">
-          <div
-            data-testid="onboarding-bread-logo"
-            onClick={handleLogoTap}
-            className="cursor-default"
-            style={{ userSelect: 'none', WebkitUserSelect: 'none', WebkitTouchCallout: 'none' }}
-          >
-            <BreadLogo style={{ width: 130, height: 'auto' }} />
-          </div>
-          <h1 className="text-7xl font-bold font-heading text-ink text-center mt-4 leading-[99%] tracking-tight">
-            <span className="block">{t('welcome')}</span>
-            <span className="block">
-              {t('toLowercase')} <span className="">{t('midenWallet')}</span>
-            </span>
-          </h1>
-          <p className="text-xl leading-[130%] text-ink font-medium text-center mt-4">{t('breadWalletDescription')}</p>
-        </div>
-        <div className={clsx('w-full flex flex-col items-center gap-3 pb-6 shrink-0', isMobile() ? 'pt-8' : 'pt-6')}>
+    <SubPageLayout
+      data-testid="onboarding-welcome"
+      footerLayout="stack"
+      footer={
+        <>
           <Button
             tabIndex={0}
+            className="max-w-none"
             data-testid="onboarding-get-started"
             title={t('getStarted')}
             onClick={() => onSubmit?.('select-wallet-type')}
           />
-          <button
+          {/* The second way in, as the secondary action under the primary one (Button brings the haptic). */}
+          <Button
             id="import-link"
+            className="max-w-none"
+            variant={ButtonVariant.Secondary}
             data-testid="onboarding-recover-account"
-            type="button"
-            className="flex items-center justify-center gap-1 py-3 text-sm font-medium text-text-tertiary-token"
-            onClick={() => {
-              hapticLight();
-              onSubmit?.('select-import-type');
-            }}
-          >
-            {t('recoverYourAccount')}
-            <Icon name={IconName.ChevronRight} size="xs" className="p-0.5" />
-          </button>
+            title={t('recoverYourAccount')}
+            onClick={() => onSubmit?.('select-import-type')}
+          />
+        </>
+      }
+    >
+      <div className="my-auto flex flex-col items-center py-8 text-center">
+        <div
+          data-testid="onboarding-bread-logo"
+          onClick={handleLogoTap}
+          className="cursor-default select-none [-webkit-touch-callout:none]"
+        >
+          <BreadLogo className="h-auto w-[120px]" />
         </div>
+        <h1 className="mt-6 font-heading text-[40px] leading-[44px] font-black tracking-[-0.5px] text-ink">
+          <span className="block">{t('welcome')}</span>
+          <span className="block">
+            {t('toLowercase')} {t('midenWallet')}
+          </span>
+        </h1>
+        <p className="mt-3 max-w-80 font-sans text-base leading-6 text-muted">{t('breadWalletDescription')}</p>
       </div>
-    </div>
+    </SubPageLayout>
   );
 };
