@@ -1,7 +1,6 @@
 import React, { FC, useCallback, useEffect, useRef, useState, memo } from 'react';
 
 import BigNumber from 'bignumber.js';
-import clsx from 'clsx';
 import { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 
@@ -14,6 +13,7 @@ import { GuardianTransitionHero } from 'components/GuardianTransitionHero';
 import { PageHeader } from 'components/PageHeader';
 import { DetailRow } from 'components/ui/DetailCard';
 import { Spinner } from 'components/ui/Spinner';
+import { StatusBadge } from 'components/ui/StatusBadge';
 import { earnWithdrawalRetryKind } from 'lib/epoch/earn-withdraw-policy';
 import { getAdaptiveDecimalPlaces, toAdaptiveFixed } from 'lib/i18n/numbers';
 import {
@@ -73,13 +73,10 @@ import { TransactionFailureCard } from './TransactionFailureCard';
 import TransactionIcon, { getTransactionIconBackgroundColor } from './TransactionIcon';
 import { ExternalLinkValue, StatusPill } from './TransactionStatus';
 import {
-  BRIDGE_STATUS_LABEL_KEY,
   bridgeInRowDisplay,
   bridgeRowDisplay,
   bridgeStatusOf,
-  EARN_WITHDRAW_STATUS_LABEL_KEY,
   earnWithdrawAmountFields,
-  earnWithdrawToneOf,
   formatBridgeOutputAmount,
   formatDate,
   isBridgeInEntry,
@@ -149,59 +146,6 @@ const BridgeHeroAmounts: FC<{ entry: IHistoryEntry }> = ({ entry }) => {
       <Icon name={IconName.ArrowRight} size="md" className="mx-0.5 shrink-0 self-center" />
       <span className="min-w-0 text-ink">{displayedOutAmount}</span>
       <span className="min-w-0 text-text-muted">{outSymbol}</span>
-    </div>
-  );
-};
-
-/** Pending/Confirmed/Failed for a bridge, derived from the route's own lifecycle. */
-const BridgeStatusPill: FC<{ entry: IHistoryEntry }> = ({ entry }) => {
-  const { t } = useTranslation();
-  const status = bridgeStatusOf(entry);
-  const tone =
-    status === 'confirmed'
-      ? 'bg-status-positive/15 text-status-positive'
-      : status === 'failed'
-        ? 'bg-status-negative/15 text-status-negative'
-        : 'bg-status-pending/15 text-status-pending';
-  return (
-    <div className={clsx('flex items-center gap-1.5 rounded-5 px-3 py-1', tone)}>
-      <span className="h-1.5 w-1.5 rounded-full bg-current" />
-      <span className="text-xs font-medium">{t(BRIDGE_STATUS_LABEL_KEY[status])}</span>
-    </div>
-  );
-};
-
-/** Pending/Confirmed/Failed pill for a Smart Deposit's solver-fulfilled lending leg (`epochStatus`). */
-const EarnDepositStatusPill: FC<{ status: NonNullable<IEarnDepositExtraInputs['epochStatus']> }> = ({ status }) => {
-  const { t } = useTranslation();
-  const toneClass =
-    status === 'confirmed'
-      ? 'bg-status-positive/15 text-status-positive'
-      : status === 'failed'
-        ? 'bg-status-negative/15 text-status-negative'
-        : 'bg-status-pending/15 text-status-pending';
-  return (
-    <div className={clsx('flex items-center gap-1.5 rounded-5 px-3 py-1', toneClass)}>
-      <span className="h-1.5 w-1.5 rounded-full bg-current" />
-      <span className="text-xs font-medium">{t(status)}</span>
-    </div>
-  );
-};
-
-/** Redeeming/Delivering/Received/Failed pill for a Smart Withdraw, mirroring `BridgeStatusPill`. */
-const EarnWithdrawStatusPill: FC<{ phase: IEarnWithdrawExtraInputs['phase'] }> = ({ phase }) => {
-  const { t } = useTranslation();
-  const tone = earnWithdrawToneOf(phase);
-  const toneClass =
-    tone === 'confirmed'
-      ? 'bg-status-positive/15 text-status-positive'
-      : tone === 'failed'
-        ? 'bg-status-negative/15 text-status-negative'
-        : 'bg-status-pending/15 text-status-pending';
-  return (
-    <div className={clsx('flex items-center gap-1.5 rounded-5 px-3 py-1', toneClass)}>
-      <span className="h-1.5 w-1.5 rounded-full bg-current" />
-      <span className="text-xs font-medium">{t(EARN_WITHDRAW_STATUS_LABEL_KEY[phase])}</span>
     </div>
   );
 };
@@ -756,13 +700,20 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
               )}
               <div className="mt-2">
                 {isBridge ? (
-                  <BridgeStatusPill entry={entry} />
+                  // Pending/Confirmed/Failed, derived from the route's own lifecycle.
+                  <StatusBadge size="md" live status={bridgeStatusOf(entry)} data-testid="history-status-pill" />
                 ) : isEarnWithdraw && earnWithdraw ? (
-                  <EarnWithdrawStatusPill phase={earnWithdraw.phase} />
+                  // Redeeming/Delivering/Received/Failed: each phase is a status of its own.
+                  <StatusBadge size="md" live status={earnWithdraw.phase} data-testid="history-status-pill" />
                 ) : isEarnDeposit && earnDeposit && entry.status === ITransactionStatus.Completed ? (
                   // Miden note landed - the pill tracks the solver-fulfilled
                   // lending leg instead of the (long-settled) Miden tx status.
-                  <EarnDepositStatusPill status={earnDeposit.epochStatus ?? 'pending'} />
+                  <StatusBadge
+                    size="md"
+                    live
+                    status={earnDeposit.epochStatus ?? 'pending'}
+                    data-testid="history-status-pill"
+                  />
                 ) : (
                   <StatusPill status={entry.status} isCancelled={entry.isCancelled} testId="history-status-pill" />
                 )}
