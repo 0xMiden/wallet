@@ -9,6 +9,7 @@ import { Button, ButtonVariant } from 'components/Button';
 import { NetworkChip } from 'components/NetworkChip';
 import { TokenLogo } from 'components/TokenLogo';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
+import { Hero } from 'components/ui/Hero';
 import { Skeleton } from 'components/ui/Skeleton';
 import { initiateB2AggBridge } from 'lib/agglayer/b2agg';
 import { EVM_AGGLAYER_NETWORK_ID } from 'lib/agglayer/b2agg/constant';
@@ -394,18 +395,14 @@ export const ReviewTransaction: React.FC = () => {
           </div>
         }
       >
-        {/* The amount is the page's large text, in the same place as on the amount step. */}
-        <div className="mt-3 flex items-center gap-3" data-testid="review-amount">
-          <TokenLogo symbol={token?.name ?? ''} size="md" />
-          <span className="font-heading text-5xl leading-none font-bold text-heading-gray">
-            {amount} {token?.name ?? ''}
-          </span>
-        </div>
-        {fiatValue !== undefined && (
-          <span className="mt-2 font-heading text-base font-bold text-gray">
-            {t('approxFiatValue', { value: approxFiatAmount(fiatValue) })}
-          </span>
-        )}
+        {/* The amount is the page's hero, in the same place as on the amount step. */}
+        <Hero
+          data-testid="review-amount"
+          className="mt-3"
+          visual={<TokenLogo symbol={token?.name ?? ''} size="2xl" />}
+          value={`${amount} ${token?.name ?? ''}`}
+          subtitle={fiatValue !== undefined ? t('approxFiatValue', { value: approxFiatAmount(fiatValue) }) : undefined}
+        />
 
         <DetailCard className="mt-6">
           {/* The full address, never truncated: this is the last look before funds move. */}
