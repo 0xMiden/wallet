@@ -1,7 +1,7 @@
 /**
  * An app's icon on Explore: a 12px-radius tile holding the app's image, or its initial on a tint.
  *
- * The tint comes from the app's url through the same hash and palette as contact avatars, so an
+ * The tint comes from the app's host through the same hash and palette as contact avatars, so an
  * app keeps its color on every visit and two apps rarely share one. With `morph`, the tile carries
  * the `dapp-favicon-${url}` layoutId that `<CapsuleBar>` shares, so opening the app morphs this
  * tile into the capsule (see `BrowserScreen`'s `LayoutGroup id="dapp-browser"`).
@@ -55,9 +55,18 @@ const letterVariants = cva('font-heading font-extrabold text-pure-white', {
   defaultVariants: { size: 'tile' }
 });
 
-/** The color behind an app's initial: stable per url. */
+/**
+ * The color behind an app's initial: stable per host, so the same app keeps its color whichever
+ * path or trailing slash it was opened with.
+ */
 export function appTint(url: string): string {
-  return tintForAddress(url);
+  let host = url;
+  try {
+    host = new URL(url).hostname.replace(/^www\./, '');
+  } catch {
+    // Not a full URL: hash it as given.
+  }
+  return tintForAddress(host);
 }
 
 /** The initial of an app's name, or of its url when it has no name. */
