@@ -92,6 +92,9 @@ describe('BottomNav — exports & structure', () => {
     expect(nav).toHaveClass('rounded-3xl', 'px-2');
     expect(nav.className).toContain('shadow-[');
     expect(nav).not.toHaveClass('border-t');
+    // 56px of tabs and nothing else: no vertical padding, no safe-area padding (it floats clear of
+    // the edge on its wrapper's own margin).
+    expect(nav.className).not.toMatch(/(^|\s)(pt-|pb-|py-)/);
   });
 
   it('docks edge to edge with a hairline top rule and the safe-area padding when `docked`', () => {
@@ -99,7 +102,10 @@ describe('BottomNav — exports & structure', () => {
 
     const nav = container.querySelector('nav')!;
     expect(nav).toHaveClass('w-full', 'border-t', 'border-hairline', 'bg-page');
-    expect(nav.className).toContain('pb-[max(0.5rem,calc(var(--app-safe-bottom');
+    // Exactly the bottom inset, with an 8px floor where there is none; no top padding.
+    expect(nav).toHaveClass('pb-[max(8px,env(safe-area-inset-bottom))]');
+    expect(nav.className).not.toMatch(/(^|\s)(pt-|py-)/);
+    expect(nav.className).not.toContain('--app-safe-bottom');
     expect(nav).not.toHaveClass('rounded-3xl');
     expect(nav.className).not.toContain('shadow-');
   });
@@ -119,11 +125,11 @@ describe('BottomNav — exports & structure', () => {
 });
 
 describe('BottomNav — sizing shared with the action bar', () => {
-  it('gives every tab a 64px-tall hit area and a 24px icon', () => {
+  it('gives every tab a 56px-tall hit area (the bar’s content height) and a 24px icon', () => {
     renderNav();
 
     for (const label of ['Home', 'Activity', 'Settings']) {
-      expect(getTab(label)).toHaveClass('h-16', 'w-15', 'shrink-0');
+      expect(getTab(label)).toHaveClass('h-14', 'w-15', 'shrink-0');
       expect(iconOf(getTab(label))).toHaveClass('size-6', '[&>svg]:size-6');
     }
   });
@@ -132,8 +138,8 @@ describe('BottomNav — sizing shared with the action bar', () => {
     renderNav();
 
     const pill = pillIn(getTab('Home'))!;
-    // 64px tab minus inset-y-2 (8px) top and bottom = 48px; 60px minus inset-x-0.5 = 56px.
-    expect(pill).toHaveClass('inset-y-2', 'inset-x-0.5', 'rounded-full', 'bg-fill');
+    // 56px tab minus inset-y-1 (4px) top and bottom = 48px; 60px minus inset-x-0.5 = 56px.
+    expect(pill).toHaveClass('inset-y-1', 'inset-x-0.5', 'rounded-full', 'bg-fill');
     expect(pill).toHaveStyle({ position: 'absolute' });
   });
 });
