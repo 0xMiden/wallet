@@ -5,18 +5,25 @@ import { cva } from 'class-variance-authority';
 import { hapticLight, hapticSelection } from 'lib/mobile/haptics';
 import { cn } from 'lib/ui/util';
 
-/** Height and type scale. `sm` is the 24px status pill; `md` (32px) is every other chip, badge and action. */
-export type PillSize = 'sm' | 'md';
+/**
+ * Height and type scale. `xs` (20px) is the compact status badge in dense rows; `sm` (24px) is the
+ * status pill in detail headers; `md` (32px) is every other chip, badge and action.
+ */
+export type PillSize = 'xs' | 'sm' | 'md';
 
 /**
  * What the pill says about its content:
  * - `neutral` — the default quiet chip, `fill` with `ink`.
  * - `selected` — chosen, `accent-tint` with `accent-tint-ink`.
  * - `word` — a seed word: same quiet fill as `neutral`, named for where it's used.
- * - `positive` / `warning` / `negative` — status, meant for `size="sm"` with `dot`.
+ * - `positive` / `warning` / `negative` — status, on an opaque tint with its ink.
+ * - `inactive` — a status that is neither good nor bad (cancelled, reclaimed, checking):
+ *   `fill-pressed` with `ink`, so it still shows on a `fill` card.
  * - `plain` — no colors, for a caller that brings its own (e.g. a network's chip).
+ *
+ * A status is usually rendered through `StatusBadge`, which picks the tone and label for you.
  */
-export type PillTone = 'neutral' | 'selected' | 'word' | 'positive' | 'warning' | 'negative' | 'plain';
+export type PillTone = 'neutral' | 'selected' | 'word' | 'positive' | 'warning' | 'negative' | 'inactive' | 'plain';
 
 export interface PillProps {
   children: React.ReactNode;
@@ -24,7 +31,7 @@ export interface PillProps {
   icon?: React.ReactNode;
   size?: PillSize;
   tone?: PillTone;
-  /** A small leading status dot in the pill's own ink color (`currentColor`). */
+  /** A small 6px leading dot in the pill's own ink color (`currentColor`). */
   dot?: boolean;
   /** Makes the pill a button, with a tap haptic. */
   onClick?: () => void;
@@ -39,6 +46,11 @@ export interface PillProps {
   selected?: boolean;
   disabled?: boolean;
   className?: string;
+  /**
+   * `'status'` for a static pill whose content changes while it is on screen (a live status). The
+   * pill then also says `aria-live="polite"` outright, for screen readers that ignore the implicit one.
+   */
+  role?: 'status';
   'aria-label'?: string;
   'data-testid'?: string;
 }
@@ -49,20 +61,23 @@ const pillVariants = cva(
   {
     variants: {
       size: {
+        // Semibold: at 20px the bold face reads heavier than the row title beside it.
+        xs: 'h-5 gap-1 px-2 text-xs font-semibold',
         sm: 'h-6 gap-1 px-2 text-xs',
         md: 'h-8 gap-1.5 px-3 text-sm'
-      },
+      } satisfies Record<PillSize, string>,
       tone: {
         neutral: 'border-transparent bg-fill text-ink',
         word: 'border-transparent bg-fill text-ink',
         selected: 'border-transparent bg-accent-tint text-accent-tint-ink',
-        // 10%, not 15%: at 15% the ink dropped under 4.5:1 on `page` in light mode (measured
-        // 4.39/4.52/4.69 for negative/pending/positive). 10% clears AA on `page` (4.65/4.79/4.85
-        // measured) but NOT on `fill` (4.11/4.24/4.33 measured, still under 4.5) — status pills must
-        // sit on `page`, not stack inside a `fill` container.
-        positive: 'border-transparent bg-status-positive/10 text-positive-ink',
-        warning: 'border-transparent bg-status-pending/10 text-pending-ink',
-        negative: 'border-transparent bg-status-negative/10 text-negative-ink',
+        // Opaque tints from the activity icon family (sage, sand, clay), each with its own ink: a
+        // translucent wash took the surface's color with it and fell under 4.5:1 on `fill`. On
+        // their own tint the inks measure 5.41 / 5.33 / 5.17 light and 7.36 / 6.91 / 6.55 dark,
+        // on any surface (`lib/ui/design-tokens.test.ts`).
+        positive: 'border-transparent bg-positive-tint text-positive-tint-ink',
+        warning: 'border-transparent bg-pending-tint text-pending-tint-ink',
+        negative: 'border-transparent bg-negative-tint text-negative-tint-ink',
+        inactive: 'border-transparent bg-fill-pressed text-ink',
         plain: 'border-transparent'
       } satisfies Record<PillTone, string>
     },
@@ -80,9 +95,10 @@ const pillVariants = cva(
 const pillIconVariants = cva('flex shrink-0 items-center justify-center [&>svg]:h-full [&>svg]:w-full', {
   variants: {
     size: {
+      xs: '-ml-0.5 h-3 w-3',
       sm: '-ml-0.5 h-3.5 w-3.5',
       md: '-ml-1 h-4 w-4'
-    }
+    } satisfies Record<PillSize, string>
   },
   defaultVariants: { size: 'md' }
 });
@@ -106,6 +122,7 @@ export const Pill: React.FC<PillProps> = ({
   selected,
   disabled,
   className,
+  role,
   'aria-label': ariaLabel,
   'data-testid': dataTestId
 }) => {
@@ -131,7 +148,13 @@ export const Pill: React.FC<PillProps> = ({
 
   if (!onClick) {
     return (
-      <span className={classes} aria-label={ariaLabel} data-testid={dataTestId}>
+      <span
+        className={classes}
+        role={role}
+        aria-live={role === 'status' ? 'polite' : undefined}
+        aria-label={ariaLabel}
+        data-testid={dataTestId}
+      >
         {content}
       </span>
     );

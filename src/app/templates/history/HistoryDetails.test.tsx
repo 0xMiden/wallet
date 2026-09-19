@@ -2476,7 +2476,7 @@ describe('HistoryDetails', () => {
       });
       await renderAndLoad({ transactionId: 'bridge-in' });
 
-      expect(screen.getByText('bridgeFailed')).toBeInTheDocument();
+      expect(screen.getByTestId('history-status-pill')).toHaveTextContent('failed');
       expect(screen.getByText('The Epoch bridge intent failed.')).toBeInTheDocument();
     });
   });
@@ -2749,6 +2749,16 @@ describe('HistoryDetails earn-deposit', () => {
 
     expect(screen.queryByTestId('status-pill')).toBeNull();
     expect(document.body.textContent).toContain(label);
+  });
+
+  it('draws the lending leg as the live md StatusBadge in the detail header', async () => {
+    setMockRow(earnDepositTx({ epochStatus: 'failed' }));
+    await renderAndLoad();
+
+    const badge = screen.getByTestId('history-status-pill');
+    expect(badge).toHaveTextContent('failed');
+    expect(badge).toHaveAttribute('role', 'status');
+    expect(badge).toHaveClass('h-6', 'bg-negative-tint', 'text-negative-tint-ink');
   });
 
   it('falls back to the Miden status pill until the collateral note lands', async () => {

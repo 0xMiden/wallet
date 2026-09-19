@@ -16,6 +16,9 @@ export type { CopyChipProps } from './CopyChip';
 export { Pill } from './Pill';
 export type { PillProps, PillSize, PillTone } from './Pill';
 
+export { StatusBadge } from './StatusBadge';
+export type { Status, StatusBadgeProps, StatusBadgeSize, StatusTone } from './StatusBadge';
+
 export { PromptCard } from './PromptCard';
 export type { PromptCardHero, PromptCardProps, PromptCardStatus, PromptCardVariant } from './PromptCard';
 
@@ -41,7 +44,7 @@ export { Sparkline } from './Sparkline';
 export type { SparklineProps } from './Sparkline';
 
 export { ActivityRow } from './ActivityRow';
-export type { ActivityRowProps, ActivityAmountDirection, ActivityStatusTone } from './ActivityRow';
+export type { ActivityRowProps, ActivityAmountDirection } from './ActivityRow';
 
 export { EmptyState } from './EmptyState';
 export type { EmptyStateProps, EmptyStateSecondaryAction } from './EmptyState';

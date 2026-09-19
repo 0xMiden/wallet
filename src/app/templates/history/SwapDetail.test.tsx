@@ -212,15 +212,15 @@ describe('SwapDetail status line', () => {
   const status = () => screen.getByTestId('swap-order-status');
 
   it.each([
-    ['active', 1000n, 0n, 'orderStatusActive', 'text-status-pending'],
-    ['active', 1000n, 400n, 'orderStatusPartiallyFilled', 'text-status-pending'],
-    ['filled', 1000n, 1000n, 'orderStatusFilled', 'text-status-positive'],
+    ['active', 1000n, 0n, 'orderStatusActive', 'bg-pending-tint'],
+    ['active', 1000n, 400n, 'orderStatusPartiallyFilled', 'bg-pending-tint'],
+    ['filled', 1000n, 1000n, 'orderStatusFilled', 'bg-positive-tint'],
     // A settle-tagged expiry bundle is how most partial fills end, so "Filled"
     // in green over a 40% fill is the single most misleading thing this line
     // could say.
-    ['filled', 1000n, 400n, 'orderStatusPartiallyFilled', 'text-status-pending'],
-    ['reclaimed', 1000n, 0n, 'orderStatusReclaimed', 'text-text-secondary-token'],
-    ['reclaimed', 1000n, 400n, 'orderStatusPartiallyFilledReclaimed', 'text-text-secondary-token']
+    ['filled', 1000n, 400n, 'orderStatusPartiallyFilled', 'bg-pending-tint'],
+    ['reclaimed', 1000n, 0n, 'orderStatusReclaimed', 'bg-fill-pressed'],
+    ['reclaimed', 1000n, 400n, 'orderStatusPartiallyFilledReclaimed', 'bg-fill-pressed']
   ])('labels %s with %s filled as %s in %s', (orderState, requested, filled, label, tone) => {
     renderDetail({
       orderState: orderState as 'active' | 'filled' | 'reclaimed',
@@ -237,7 +237,9 @@ describe('SwapDetail status line', () => {
   it('distinguishes a lineage still loading from one that never answered', () => {
     renderDetail({ orderState: null, trackingLoading: true });
     expect(status().textContent).toBe('loading');
-    expect(status()).toHaveClass('text-text-tertiary-token');
+    expect(status()).toHaveClass('bg-fill-pressed', 'text-ink');
+    // The order's state changes under the reader while the lineage resolves.
+    expect(status()).toHaveAttribute('role', 'status');
 
     renderDetail({ orderState: null, trackingLoading: false });
     expect(screen.getAllByTestId('swap-order-status')[1]!.textContent).toBe('trackingUnavailable');
@@ -277,6 +279,11 @@ describe('SwapDetail note rows', () => {
   it('shows a pending row only while the order can still be matched', () => {
     const { unmount } = renderDetail({ orderState: 'active' });
     expect(screen.getByText('swapOpenFill')).toBeInTheDocument();
+    // The open fill carries the compact pending badge, not bare orange text.
+    const openFill = screen.getByText('swapOpenFill').closest('[role="status"]');
+    const badge = openFill?.querySelector('.bg-pending-tint');
+    expect(badge).toHaveTextContent('pending');
+    expect(badge).toHaveClass('h-5', 'text-pending-tint-ink');
     unmount();
 
     renderDetail({ orderState: 'filled' });

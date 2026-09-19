@@ -12,11 +12,8 @@ import {
   bridgeInRowDisplay,
   bridgeRowDisplay,
   bridgeStatusOf,
-  EARN_DEPOSIT_STATUS_LABEL_KEY,
-  EARN_WITHDRAW_STATUS_LABEL_KEY,
   earnDepositSettlementOf,
   earnWithdrawAmountFields,
-  earnWithdrawToneOf,
   fontColorForType,
   formatBridgeOutputAmount,
   formatDate,
@@ -658,23 +655,6 @@ describe('earn withdraw helpers', () => {
   it('passes a non-numeric amount through unchanged', () => {
     expect(formatEarnWithdrawAmount('not-a-number')).toBe('not-a-number');
   });
-
-  it('maps each phase to a bridge status tone', () => {
-    expect(earnWithdrawToneOf('redeeming')).toBe('pending');
-    expect(earnWithdrawToneOf('delivering')).toBe('pending');
-    expect(earnWithdrawToneOf('received')).toBe('confirmed');
-    expect(earnWithdrawToneOf('failed')).toBe('failed');
-    expect(earnWithdrawToneOf(undefined)).toBe('pending');
-  });
-
-  it('has a label key for every phase', () => {
-    expect(EARN_WITHDRAW_STATUS_LABEL_KEY).toEqual({
-      redeeming: 'earnWithdrawStatusRedeeming',
-      delivering: 'earnWithdrawStatusDelivering',
-      received: 'received',
-      failed: 'failed'
-    });
-  });
 });
 
 describe('earnWithdrawAmountFields', () => {
@@ -752,13 +732,5 @@ describe('earn deposit settlement helpers', () => {
     expect(earnDepositSettlementOf(bridgeEntry({ txType: 'earn-deposit', earnDepositStatus: 'failed' }))).toBe(
       'failed'
     );
-  });
-
-  it('reuses the shared status label keys (no new i18n keys)', () => {
-    expect(EARN_DEPOSIT_STATUS_LABEL_KEY).toEqual({
-      pending: 'pending',
-      confirmed: 'confirmed',
-      failed: 'failed'
-    });
   });
 });

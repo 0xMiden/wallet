@@ -25,6 +25,17 @@ function luminance(hex: string): number {
   return 0.2126 * channels[0]! + 0.7152 * channels[1]! + 0.0722 * channels[2]!;
 }
 
+function hue(hex: string): number {
+  const match = hex.replace('#', '').match(/../g);
+  if (!match || match.length < 3) throw new Error(`not a hex color: ${hex}`);
+  const [r = 0, g = 0, b = 0] = match.map(c => parseInt(c, 16) / 255);
+  const max = Math.max(r, g, b);
+  const d = max - Math.min(r, g, b);
+  if (d === 0) return 0;
+  const h = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  return (h * 60 + 360) % 360;
+}
+
 function contrast(a: string, b: string): number {
   const sorted = [luminance(a), luminance(b)].sort((x, y) => y - x);
   const [hi, lo] = [sorted[0]!, sorted[1]!];
@@ -42,7 +53,13 @@ const TOKENS = [
   'accent-tint-ink',
   'positive-ink',
   'pending-ink',
-  'negative-ink'
+  'negative-ink',
+  'positive-tint',
+  'pending-tint',
+  'negative-tint',
+  'positive-tint-ink',
+  'pending-tint-ink',
+  'negative-tint-ink'
 ];
 
 describe.each([':root', '.dark'] as const)('design tokens in %s', selector => {
@@ -66,9 +83,37 @@ describe.each([':root', '.dark'] as const)('design tokens in %s', selector => {
     ['accent-tint-ink', 'accent-tint'],
     ['positive-ink', 'page'],
     ['pending-ink', 'page'],
-    ['negative-ink', 'page']
+    ['negative-ink', 'page'],
+    // StatusBadge: the ink on its own opaque tint, so the badge reads the same on `page` and `fill`.
+    ['positive-tint-ink', 'positive-tint'],
+    ['pending-tint-ink', 'pending-tint'],
+    ['negative-tint-ink', 'negative-tint'],
+    // Signed amounts in Activity rows and detail cards, on `fill` cards and on the page.
+    ['positive-tint-ink', 'fill'],
+    ['negative-tint-ink', 'fill'],
+    ['positive-tint-ink', 'page'],
+    ['negative-tint-ink', 'page'],
+    // StatusBadge's neutral tone (cancelled, reclaimed, checking).
+    ['ink', 'fill-pressed']
   ])('%s on %s reads at 4.5:1 or better', (text, surface) => {
     expect(contrast(vRequired(text), vRequired(surface))).toBeGreaterThanOrEqual(4.5);
+  });
+
+  // The measured ratios, pinned so a token edit that erodes the margin shows up in review.
+  it.each([
+    ['positive-tint-ink', 'positive-tint', { ':root': 5.41, '.dark': 7.36 }],
+    ['pending-tint-ink', 'pending-tint', { ':root': 5.33, '.dark': 6.91 }],
+    ['negative-tint-ink', 'negative-tint', { ':root': 5.17, '.dark': 6.55 }],
+    ['ink', 'fill-pressed', { ':root': 8.4, '.dark': 13.11 }]
+  ] as const)('status badge %s on %s measures as documented', (text, surface, ratios) => {
+    expect(contrast(vRequired(text), vRequired(surface))).toBeCloseTo(ratios[selector], 2);
+  });
+
+  // Pending used to share its orange-red with negative. The two tones must now sit apart in hue
+  // (a sand and a clay), so the color agrees with the word instead of blurring into it.
+  it('keeps the pending and negative badge inks at least 20 degrees apart in hue', () => {
+    const diff = Math.abs(hue(vRequired('pending-tint-ink')) - hue(vRequired('negative-tint-ink')));
+    expect(Math.min(diff, 360 - diff)).toBeGreaterThanOrEqual(20);
   });
 
   it('keeps white CTA labels at 3:1 on the brand orange (19px bold is large text)', () => {

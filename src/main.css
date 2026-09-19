@@ -482,6 +482,15 @@ body[data-hide-navbar]::after {
     --ds-raised: #ffffff;
     --ds-shadow-raised: 0 0 0 1px rgba(63, 63, 63, 0.06), 0 1px 2px rgba(0, 0, 0, 0.06), 0 2px 8px rgba(0, 0, 0, 0.08);
     --ds-shadow-raised-pressed: 0 0 0 1px rgba(63, 63, 63, 0.06), 0 1px 1px rgba(0, 0, 0, 0.05);
+    /* Status badge tones, drawn from the activity icon family (sage #99ac94 for received): opaque
+     * fills and their own inks, so a badge holds 4.5:1 on `page` and on `fill` alike. The inks
+     * also color signed amounts. `--ds-*-ink` stay as they are for errors and destructive text. */
+    --ds-positive-tint: #e8eee5;
+    --ds-positive-tint-ink: #4f6549;
+    --ds-pending-tint: #f4ecdc;
+    --ds-pending-tint-ink: #7a5b26;
+    --ds-negative-tint: #f6e5e1;
+    --ds-negative-tint-ink: #9b4638;
   }
 
   .dark {
@@ -581,5 +590,11 @@ body[data-hide-navbar]::after {
     --ds-positive-ink: #90ba89;
     --ds-pending-ink: #f08b57;
     --ds-negative-ink: #ff7a4d;
+    --ds-positive-tint: #28302a;
+    --ds-positive-tint-ink: #b2c4ac;
+    --ds-pending-tint: #3a3222;
+    --ds-pending-tint-ink: #d8bc86;
+    --ds-negative-tint: #3d2724;
+    --ds-negative-tint-ink: #e7a193;
   }
 }

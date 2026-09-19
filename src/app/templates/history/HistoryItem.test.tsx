@@ -87,20 +87,7 @@ jest.mock('./transactionUtils', () => ({
   isFaucetRequest: jest.fn(() => false),
   isBridgeInEntry: jest.fn(() => false),
   isEarnWithdrawEntry: (entry: { txType?: string }) => entry.txType === 'earn-withdraw',
-  earnWithdrawToneOf: (phase?: string) =>
-    phase === 'received' ? 'confirmed' : phase === 'failed' ? 'failed' : 'pending',
-  EARN_WITHDRAW_STATUS_LABEL_KEY: {
-    redeeming: 'earnWithdrawStatusRedeeming',
-    delivering: 'earnWithdrawStatusDelivering',
-    received: 'received',
-    failed: 'failed'
-  },
-  earnDepositSettlementOf: (entry: { earnDepositStatus?: string }) => entry.earnDepositStatus ?? 'pending',
-  EARN_DEPOSIT_STATUS_LABEL_KEY: {
-    pending: 'pending',
-    confirmed: 'confirmed',
-    failed: 'failed'
-  }
+  earnDepositSettlementOf: (entry: { earnDepositStatus?: string }) => entry.earnDepositStatus ?? 'pending'
 }));
 
 const mockIsMobile = isMobile as jest.MockedFunction<typeof isMobile>;
@@ -169,9 +156,9 @@ describe('HistoryItem', () => {
     expect(screen.getByTestId('addr')).toHaveAttribute('data-trim', 'false');
     expect(screen.getByTestId('addr')).toHaveTextContent('0xsender');
 
-    // Positive amount, receive-green class, token symbol.
+    // Positive amount in the positive ink, token symbol.
     const amount = screen.getByText('+123');
-    expect(amount).toHaveClass('text-receive-green');
+    expect(amount).toHaveClass('text-positive-tint-ink');
     expect(screen.getByText('MIDEN')).toBeInTheDocument();
 
     // Cancel button present with selector testid + label.
@@ -231,8 +218,8 @@ describe('HistoryItem', () => {
     // Not receive => "to" label, negative amount, red class.
     expect(screen.getByText(/t:to/)).toBeInTheDocument();
     const amount = screen.getByText('-456');
-    expect(amount).toHaveClass('text-[#DC2626]');
-    expect(amount).not.toHaveClass('text-receive-green');
+    expect(amount).toHaveClass('text-negative-tint-ink');
+    expect(amount).not.toHaveClass('text-positive-tint-ink');
 
     // isMobile() true => trim=true.
     expect(screen.getByTestId('addr')).toHaveAttribute('data-trim', 'true');
@@ -333,14 +320,14 @@ describe('HistoryItem', () => {
   // A Smart Deposit's summary row surfaces the Sepolia lending leg while it is
   // still unsettled — the row itself is Completed the moment the Miden
   // collateral note lands, which would otherwise read as fully done.
-  it('shows the lending-leg status dot on a pending Smart Deposit', () => {
+  it('shows the lending-leg status badge on a pending Smart Deposit', () => {
     const entry = makeEntry({ txType: 'earn-deposit', earnDepositStatus: 'pending', message: 'Depositing' });
 
     render(<HistoryItem entry={entry} />);
 
     const chip = screen.getByTestId('earn-deposit-status');
     expect(chip).toHaveTextContent('t:pending');
-    expect(chip.className).toContain('text-status-pending');
+    expect(chip).toHaveClass('bg-pending-tint', 'text-pending-tint-ink', 'h-5');
   });
 
   it('defaults an unstamped lending leg to pending', () => {
@@ -355,7 +342,7 @@ describe('HistoryItem', () => {
 
     const chip = screen.getByTestId('earn-deposit-status');
     expect(chip).toHaveTextContent('t:failed');
-    expect(chip.className).toContain('text-status-negative');
+    expect(chip).toHaveClass('bg-negative-tint', 'text-negative-tint-ink');
   });
 
   it('renders no chip once the lending leg is confirmed', () => {

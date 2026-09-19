@@ -182,6 +182,12 @@ export default {
         'positive-ink': 'var(--ds-positive-ink)',
         'pending-ink': 'var(--ds-pending-ink)',
         'negative-ink': 'var(--ds-negative-ink)',
+        'positive-tint': 'var(--ds-positive-tint)',
+        'pending-tint': 'var(--ds-pending-tint)',
+        'negative-tint': 'var(--ds-negative-tint)',
+        'positive-tint-ink': 'var(--ds-positive-tint-ink)',
+        'pending-tint-ink': 'var(--ds-pending-tint-ink)',
+        'negative-tint-ink': 'var(--ds-negative-tint-ink)',
         'border-button': 'var(--color-border-button)',
         // Balance card surface — signature royal blue, distinct from system surfaces.
         'surface-balance': 'var(--surface-balance)',

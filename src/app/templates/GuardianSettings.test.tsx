@@ -405,16 +405,14 @@ it('keeps the status pill readable in both themes', () => {
   mockGetGuardianLastSyncAt.mockReturnValue(Date.now());
   render(<GuardianSettings />);
 
-  // green-700 is the darkest shade that existed and reaches only 4.34:1 on the
-  // green-50 fill, short of AA for text this size; green-800 (#1F5C33) is 7.34:1.
-  // The palette entry is additive and this pill is its only consumer, so without
-  // this assertion dropping either the shade or the class would leave
-  // `text-green-800` compiling to nothing, with the ink silently inherited.
-  const pill = screen.getByText('online').closest('div');
-  expect(pill).toHaveClass('text-green-800', 'dark:text-green-300');
+  // The shared StatusBadge: the sage ink on its own opaque tint, 5.41:1 light
+  // and 7.36:1 dark (`lib/ui/design-tokens.test.ts`), with no per-pill palette.
+  const pill = screen.getByRole('status');
+  expect(pill).toHaveTextContent('online');
+  expect(pill).toHaveClass('bg-positive-tint', 'text-positive-tint-ink');
 });
 
-it('renders the checking pill with the auto-flipping neutral tokens, needing no dark: pairing', () => {
+it('renders the checking pill in the pending badge tone: something is in flight', () => {
   // The default mock state: no outage, no sync landed yet this session. The
   // "Last sync" row shares the same text, so the pill is identified by its
   // `role="status"` rather than by the label alone.
@@ -422,20 +420,18 @@ it('renders the checking pill with the auto-flipping neutral tokens, needing no 
 
   const pill = screen.getByRole('status');
   expect(pill).toHaveTextContent('guardianCheckingLabel');
-  expect(pill).toHaveClass('bg-fill', 'text-ink');
+  expect(pill).toHaveClass('bg-pending-tint', 'text-pending-tint-ink');
 });
 
 it('keeps the OFFLINE pill readable in both themes', () => {
-  // Same failure mode as the online case, and the one that matters more: red-300
-  // exists only because this pill needs it (tailwind-colors.js), and
-  // `theme.colors` replaces Tailwind's palette rather than extending it — so
-  // dropping the shade leaves `dark:text-red-300` compiling to nothing and the
-  // ink inherited, on the state the user is being warned about.
+  // The state the user is being warned about: the clay ink on its own tint,
+  // 5.17:1 light and 6.55:1 dark.
   mockIsGuardianSyncOutage.mockReturnValue(true);
   render(<GuardianSettings />);
 
-  const pill = screen.getByText('guardianOfflineLabel').closest('div');
-  expect(pill).toHaveClass('text-red-700', 'dark:text-red-300');
+  const pill = screen.getByRole('status');
+  expect(pill).toHaveTextContent('guardianOfflineLabel');
+  expect(pill).toHaveClass('bg-negative-tint', 'text-negative-tint-ink');
 });
 
 // An operator that ANSWERS and still rejects this device clears the outage flag
