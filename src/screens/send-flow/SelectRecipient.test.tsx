@@ -87,7 +87,7 @@ describe('SelectRecipient', () => {
     // Both pills are the app's shared Pill, so they are the same height, padding and type
     // scale as every other chip (the network chip beside them included).
     for (const label of ['addressBook', 'Scan QR Code']) {
-      expect(screen.getByText(label).closest('button')).toHaveClass('h-8', 'px-3', 'rounded-full', 'text-sm');
+      expect(screen.getByText(label).closest('button')).toHaveClass('h-8', 'px-3', 'rounded-full', 'text-pill');
     }
   });
 

@@ -68,10 +68,7 @@ describe('Drawer', () => {
     );
 
     const title = screen.getByRole('heading', { name: 'Settings' });
-    expect(title.className).toContain('text-[20px]');
-    expect(title.className).toContain('leading-[26px]');
-    expect(title.className).toContain('font-extrabold');
-    expect(title.className).toContain('font-heading');
+    expect(title).toHaveClass('text-title-page');
     expect(title.className).toContain('text-left');
     expect(title.className).toContain('text-ink');
   });

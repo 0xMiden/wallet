@@ -119,7 +119,7 @@ describe('SubPageLayout', () => {
 });
 
 describe('SubPageSection', () => {
-  it('labels the section, then its description, content and footnote in muted 14px', () => {
+  it('labels the section, then its muted description, content and footnote', () => {
     render(
       <SubPageSection title="Rotate device key" description="What it does" footnote="Small print" data-testid="s">
         <button type="button">Rotate</button>
@@ -129,11 +129,12 @@ describe('SubPageSection', () => {
     const section = screen.getByTestId('s');
     expect(section.tagName).toBe('SECTION');
     expect(within(section).getByRole('heading', { level: 2, name: 'Rotate device key' })).toHaveClass(
-      'text-[13px]',
+      'text-label',
       'text-muted'
     );
-    expect(screen.getByText('What it does')).toHaveClass('text-sm', 'text-muted', 'font-sans');
-    expect(screen.getByText('Small print')).toHaveClass('text-sm', 'text-muted');
+    // A description is a paragraph (body); a footnote under a control is secondary copy.
+    expect(screen.getByText('What it does')).toHaveClass('text-body', 'text-muted');
+    expect(screen.getByText('Small print')).toHaveClass('text-body-sm', 'text-muted');
 
     const order = Array.from(section.querySelectorAll('h2, div, button')).map(el => el.textContent);
     expect(order.indexOf('What it does')).toBeLessThan(order.indexOf('Rotate'));

@@ -60,7 +60,7 @@ export const CopyButton: React.FC<CopyButtonProps> = ({
       // plain `clsx` leaves both classes in the string, with the winner decided by Tailwind's
       // compiled order rather than the caller's intent (the same class of bug `Pill` had for
       // border color).
-      className={cn('shrink-0 font-heading text-sm font-bold text-accent-tint-ink disabled:opacity-50', className)}
+      className={cn('shrink-0 text-action text-accent-tint-ink disabled:opacity-50', className)}
     >
       {/* `aria-live` so "Copied" is announced even though nothing moves focus — the tap that
           triggers it already has the user's attention, but a screen reader user tabbing past

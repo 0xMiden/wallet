@@ -58,7 +58,7 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
           ref={titleRef}
           tabIndex={focusTitleOnMount ? -1 : undefined}
           // Clamped, not truncated: a long German title keeps its second line instead of an ellipsis.
-          className="line-clamp-2 min-w-0 flex-1 font-heading text-xl leading-tight font-extrabold break-words text-ink outline-none"
+          className="line-clamp-2 min-w-0 flex-1 text-title-page break-words text-ink outline-none"
         >
           {title}
         </h1>

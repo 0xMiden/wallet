@@ -99,7 +99,7 @@ export function AlertSheet({
         <div className="px-4 pt-6 pb-4">
           <DrawerTitle>{title}</DrawerTitle>
           {hasDescription && (
-            <div id={descriptionId} className="mt-2 text-base leading-6 text-muted">
+            <div id={descriptionId} className="mt-2 text-body text-muted">
               {children}
             </div>
           )}

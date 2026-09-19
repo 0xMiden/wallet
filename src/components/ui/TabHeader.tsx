@@ -100,7 +100,7 @@ export const TabHeader: FC<TabHeaderProps> = ({ title, actions, search }) => {
           <motion.h1
             key="title"
             data-testid="tab-header-title"
-            className="min-w-0 truncate font-heading text-[28px] font-extrabold leading-9 tracking-[-0.5px] text-ink"
+            className="min-w-0 truncate text-title-tab text-ink"
             initial={{ opacity: 0, x: -6 }}
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: -6 }}

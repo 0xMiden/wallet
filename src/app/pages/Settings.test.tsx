@@ -408,7 +408,7 @@ describe('Settings page — root menu (non-guardian)', () => {
     // Settings' group headers are the `lg` SectionHeader variant, not the plain
     // 13px muted list-group label: 18px Nunito extrabold `ink`.
     const heading = screen.getByRole('heading', { level: 2, name: 'preferences' });
-    expect(heading).toHaveClass('text-ink', 'text-lg', 'font-extrabold', 'font-heading');
+    expect(heading).toHaveClass('text-ink', 'text-title-section');
     const row = screen.getByTestId('row-generalSettings');
     expect(row.parentElement).toHaveClass('bg-fill', 'rounded-2xl');
     screen.getAllByTestId(/^row-/).forEach(r => expect(r).toHaveAttribute('data-chevron', 'true'));

@@ -17,14 +17,14 @@ describe('Hero', () => {
 
     const value = screen.getByText('5 MDN');
     expect(value.tagName).toBe('DIV');
-    expect(value).toHaveClass('text-[32px]', 'font-black', 'text-ink');
+    expect(value).toHaveClass('text-hero-value', 'text-ink');
   });
 
   it('renders the hero name as an h2 at 24px/900', () => {
     render(<Hero visual={<span />} name="Transaction Complete!" />);
 
     const name = screen.getByRole('heading', { level: 2, name: 'Transaction Complete!' });
-    expect(name).toHaveClass('text-2xl', 'font-black', 'text-ink');
+    expect(name).toHaveClass('text-hero-name', 'text-ink');
   });
 
   it('renders neither value nor name when both are omitted', () => {
@@ -37,7 +37,7 @@ describe('Hero', () => {
   it('renders a muted subtitle under the value', () => {
     render(<Hero visual={<span />} value="5 MDN" subtitle="≈ $10.00" />);
 
-    expect(screen.getByText('≈ $10.00')).toHaveClass('text-muted', 'text-sm');
+    expect(screen.getByText('≈ $10.00')).toHaveClass('text-muted', 'text-body-sm');
   });
 
   it('omits the subtitle when not provided', () => {
@@ -53,7 +53,7 @@ describe('Hero', () => {
 
     const subtitle = screen.getByText('0');
     expect(subtitle.tagName).toBe('P');
-    expect(subtitle).toHaveClass('text-muted', 'text-sm');
+    expect(subtitle).toHaveClass('text-muted', 'text-body-sm');
   });
 
   it('does not typecheck with both value and name — a hero draws only one at a time', () => {

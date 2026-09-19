@@ -299,7 +299,7 @@ describe('TokenDetail', () => {
     // `2xl` is TokenLogo's step for the design system's 88px hero avatar.
     expect(logo).toHaveAttribute('data-size', '2xl');
     // Hero value: 32px Nunito black.
-    expect(within(hero).getByText('12.50')).toHaveClass('text-[32px]', 'font-black', 'text-ink');
+    expect(within(hero).getByText('12.50')).toHaveClass('text-hero-value', 'text-ink');
     expect(within(hero).getByText('$25000.00')).toHaveClass('text-muted');
   });
 
@@ -376,7 +376,7 @@ describe('TokenDetail', () => {
       ['token-detail-activity', 'recentActivity']
     ] as const) {
       const heading = within(screen.getByTestId(section)).getByRole('heading', { level: 2, name: key });
-      expect(heading).toHaveClass('text-muted', 'font-bold');
+      expect(heading).toHaveClass('text-muted', 'text-label');
       expect(heading).not.toHaveClass('uppercase');
       expect(heading).not.toHaveClass('text-center');
       // The English copy itself is sentence case: only the first word is capitalised.

@@ -56,7 +56,7 @@ const noticeInkVariants = cva('', {
   defaultVariants: { tone: 'neutral' }
 });
 
-const noticeBodyVariants = cva('font-sans text-[13px] leading-[17px]', {
+const noticeBodyVariants = cva('text-caption', {
   variants: {
     tone: {
       // `muted` on `fill` is 4.7:1.
@@ -100,10 +100,7 @@ export const Notice: React.FC<NoticeProps> = ({
     )}
     <div className="flex min-w-0 flex-col gap-0.5">
       {title && (
-        <span
-          data-slot="title"
-          className={cn('font-sans text-[13px] leading-[17px] font-bold', noticeInkVariants({ tone }))}
-        >
+        <span data-slot="title" className={cn('text-label', noticeInkVariants({ tone }))}>
           {title}
         </span>
       )}

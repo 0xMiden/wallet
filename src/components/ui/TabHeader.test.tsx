@@ -83,8 +83,7 @@ describe('TabHeader — structure & title', () => {
     const heading = screen.getByRole('heading', { level: 1, name: 'Activity' });
     expect(heading.tagName).toBe('H1');
     expect(heading.textContent).toBe('Activity');
-    expect(heading.className).toContain('font-heading');
-    expect(heading.className).toContain('font-extrabold');
+    expect(heading).toHaveClass('text-title-tab', 'text-ink');
     expect(heading.className).toContain('text-ink');
     expect(heading.className).not.toContain('dark:text-pure-white');
   });

@@ -109,7 +109,7 @@ it('draws contacts as one fill group with hairlines inset past the avatar', () =
 it('draws the rows and labels with the shared list components', () => {
   render(<AddressBook />);
 
-  expect(screen.getByRole('heading', { level: 2, name: 'contacts' })).toHaveClass('text-muted', 'text-[13px]');
+  expect(screen.getByRole('heading', { level: 2, name: 'contacts' })).toHaveClass('text-muted', 'text-label');
   const contact = screen.getByTestId('address-book-contact-0xzed');
   expect(contact.querySelector('[data-slot="chevron"]')).not.toBeNull();
   expect(screen.getByTestId('address-book-account-mtst1mine').querySelector('[data-slot="chevron"]')).toBeNull();

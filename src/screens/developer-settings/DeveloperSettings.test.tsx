@@ -408,10 +408,10 @@ describe('DeveloperSettings', () => {
     expect(screen.getByTestId('dev-endpoints-reset-defaults')).toHaveAttribute('data-variant', 'secondary');
     // The warning is a labelled section with muted copy, not a hand-painted card.
     expect(screen.getByRole('heading', { name: 'developerSettingsWarningTitle' })).toHaveClass('text-muted');
-    expect(screen.getByText('developerSettingsWarning')).toHaveClass('text-sm', 'text-muted');
+    expect(screen.getByText('developerSettingsWarning')).toHaveClass('text-body', 'text-muted');
     // Every URL is the shared TextField, labelled, at 16px so iOS does not zoom.
     expect(screen.getByLabelText('devEndpointRpc')).toBe(screen.getByTestId('dev-endpoint-rpcUrl'));
-    expect(screen.getByTestId('dev-endpoint-rpcUrl')).toHaveClass('text-base');
+    expect(screen.getByTestId('dev-endpoint-rpcUrl')).toHaveClass('text-body');
     // The no-guardian option is a ListRow in a group.
     expect(screen.getByTestId('dev-allow-no-guardian').parentElement).toHaveClass('bg-fill', 'rounded-2xl');
   });

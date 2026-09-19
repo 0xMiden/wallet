@@ -94,7 +94,7 @@ function DrawerContent({ className, overlayClassName, children, hideHandle = tru
           // (--keyboard-height, see lib/mobile/keyboard-inset.ts) ourselves
           // (env() and the var are 0 on extension/Android). The transition runs
           // in sync with the native keyboard slide.
-          'fixed inset-x-0 bottom-0 z-50 flex max-h-[80vh] flex-col rounded-t-[28px] bg-surface-solid text-sm outline-none',
+          'fixed inset-x-0 bottom-0 z-50 flex max-h-[80vh] flex-col rounded-t-[28px] bg-surface-solid text-body-sm outline-none',
           'pb-[max(env(safe-area-inset-bottom),var(--keyboard-height,0px))] transition-[padding-bottom] duration-[250ms] ease-out',
           className
         )}
@@ -139,7 +139,7 @@ function DrawerTitle({ className, children, ...props }: React.HTMLAttributes<HTM
   return (
     <VaulDrawer.Title
       data-slot="drawer-title"
-      className={cn('text-left text-[20px] font-extrabold font-heading leading-[26px] text-ink', className)}
+      className={cn('text-left text-title-page text-ink', className)}
       {...props}
     >
       {children}
@@ -151,7 +151,7 @@ function DrawerDescription({ className, ...props }: React.HTMLAttributes<HTMLPar
   return (
     <VaulDrawer.Description
       data-slot="drawer-description"
-      className={cn('text-sm text-text-muted', className)}
+      className={cn('text-body-sm text-muted', className)}
       {...props}
     />
   );

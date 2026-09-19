@@ -129,7 +129,7 @@ describe('DAppDrawerSettings', () => {
     const row = screen.getByText('dAppsInteraction').closest('label')!;
     expect(row).toHaveAttribute('for', 'dAppEnabled');
     expect(row.parentElement).toHaveClass('bg-fill', 'rounded-2xl');
-    expect(screen.getByText('dAppsToggleDescription')).toHaveClass('text-sm', 'text-muted');
+    expect(screen.getByText('dAppsToggleDescription')).toHaveClass('text-body-sm', 'text-muted');
   });
 
   it('wires useStorage with the DAppEnabled key defaulting to enabled and useRetryableSWR with the sessions loader', () => {
