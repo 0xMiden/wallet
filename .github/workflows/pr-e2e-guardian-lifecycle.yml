@@ -64,8 +64,9 @@ jobs:
   # wired into pr-e2e-local.yml), switch/recovery scenarios need a SECOND,
   # distinct-keypair guardian ("B", :3001) to switch/recover TO — brought up
   # via the `guardian-switch` compose profile (docker-compose.local.yml).
-  # The specs are live (seven guardian-*.spec.ts files), picked up via
-  # playwright.guardian.config.ts's `**/guardian-*.spec.ts` testMatch.
+  # The specs are live (18 guardian-*.spec.ts files: 14 under tests/ and 4 under
+  # tests/resilience/), picked up via playwright.guardian.config.ts's recursive
+  # `**/guardian-*.spec.ts` testMatch.
   # guardian-lifecycle-e2e-gate is the stable required-check name.
   # #615: guardian-recovery.spec.ts:65 flaked ~10% of executions (~11 failures /
   # ~110 real runs, 2026-08-04 -> 2026-08-12) since the spec landed — there was
@@ -82,8 +83,11 @@ jobs:
     name: guardian-lifecycle-e2e (chrome)
     needs: select-guardian-e2e
     if: needs.select-guardian-e2e.outputs.run == 'true'
-    # 2 vCPUs is adequate here — see the measurements in pr-e2e-earn.yml.
-    runs-on: warp-ubuntu-latest-arm64-2x
+    # 8 vCPUs, deliberately: measured 40 min here on 8 vCPU x64 against 76m35s on a 2 vCPU
+    # arm64 runner (warm cache), and the 120-minute ceiling below exists for the COLD build
+    # case, which no one has timed on 2 vCPU. The suite is workers:1 over 18 spec files, so
+    # the only way to cut this wall clock is sharding it across jobs, not shrinking the box.
+    runs-on: warp-ubuntu-latest-x64-8x
     # Stress scenarios (kill/reopen, guardian-fault injection, A->B->A repeat)
     # are heavier than the Tier-2 happy-path spec; sized like the other
     # dedicated single-purpose e2e jobs (swap/earn/bridge-guardian) rather
