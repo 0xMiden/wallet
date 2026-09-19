@@ -3903,6 +3903,14 @@
     "message": "İlgili bölümlere bakınız",
     "englishSource": "See connected"
   },
+  "noConnectedDApps": {
+    "message": "Bağlı dApp yok",
+    "englishSource": "No connected dApps"
+  },
+  "noConnectedDAppsDescription": {
+    "message": "Bu hesaba bağladığınız dApp'ler burada görünür.",
+    "englishSource": "dApps you connect to this account show up here."
+  },
   "transferDetails": {
     "message": "Transfer Ayrıntıları",
     "englishSource": "Transfer Details"

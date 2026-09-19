@@ -881,6 +881,8 @@
   "permissionAutomatic": "Автоматичний",
   "dAppsToggleDescription": "Увімкніть або вимкніть підключення до DApp та відображення балансу.",
   "seeConnected": "Див. пов’язані матеріали",
+  "noConnectedDApps": "Немає підключених dApp",
+  "noConnectedDAppsDescription": "Тут з’являться dApp, які ви підключите до цього облікового запису.",
   "transferDetails": "Деталі переказу",
   "advancedDetails": "Додаткова інформація",
   "options": "Параметри",

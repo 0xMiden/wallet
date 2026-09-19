@@ -881,6 +881,8 @@
   "permissionAutomatic": "Automatique",
   "dAppsToggleDescription": "Activez ou désactivez ce bouton pour activer ou désactiver les connexions aux DApps et l'affichage du solde.",
   "seeConnected": "Voir les articles liés",
+  "noConnectedDApps": "Aucune dApp connectée",
+  "noConnectedDAppsDescription": "Les dApps que vous connectez à ce compte apparaissent ici.",
   "transferDetails": "Détails du virement",
   "advancedDetails": "Informations détaillées",
   "options": "Options",

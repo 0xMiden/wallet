@@ -881,6 +881,8 @@
   "permissionAutomatic": "Automatic",
   "dAppsToggleDescription": "Toggle to enable or disable DApp connections and balance visibility.",
   "seeConnected": "See connected",
+  "noConnectedDApps": "No connected dApps",
+  "noConnectedDAppsDescription": "dApps you connect to this account show up here.",
   "transferDetails": "Transfer Details",
   "advancedDetails": "Advanced details",
   "options": "Options",

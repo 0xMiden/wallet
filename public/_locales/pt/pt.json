@@ -881,6 +881,8 @@
   "permissionAutomatic": "Automático",
   "dAppsToggleDescription": "Ative ou desative as conexões com DApps e a visibilidade do saldo.",
   "seeConnected": "Veja também",
+  "noConnectedDApps": "Nenhuma dApp conectada",
+  "noConnectedDAppsDescription": "As dApps que você conectar a esta conta aparecem aqui.",
   "transferDetails": "Detalhes da transferência",
   "advancedDetails": "Detalhes avançados",
   "options": "Opções",

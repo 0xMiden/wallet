@@ -881,6 +881,8 @@
   "permissionAutomatic": "Otomatik",
   "dAppsToggleDescription": "DApp bağlantılarını ve bakiye görünürlüğünü etkinleştirmek veya devre dışı bırakmak için bu düğmeyi değiştirin.",
   "seeConnected": "İlgili bölümlere bakınız",
+  "noConnectedDApps": "Bağlı dApp yok",
+  "noConnectedDAppsDescription": "Bu hesaba bağladığınız dApp'ler burada görünür.",
   "transferDetails": "Transfer Ayrıntıları",
   "advancedDetails": "Gelişmiş ayrıntılar",
   "options": "Seçenekler",

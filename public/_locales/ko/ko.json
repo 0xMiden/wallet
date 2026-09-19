@@ -881,6 +881,8 @@
   "permissionAutomatic": "자동",
   "dAppsToggleDescription": "토글을 사용하여 DApp 연결 및 잔액 표시 기능을 켜거나 끄세요.",
   "seeConnected": "관련 내용 보기",
+  "noConnectedDApps": "연결된 dApp이 없습니다",
+  "noConnectedDAppsDescription": "이 계정에 연결한 dApp이 여기에 표시됩니다.",
   "transferDetails": "이적 상세 정보",
   "advancedDetails": "상세 정보",
   "options": "옵션",

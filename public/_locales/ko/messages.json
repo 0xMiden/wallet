@@ -3903,6 +3903,14 @@
     "message": "관련 내용 보기",
     "englishSource": "See connected"
   },
+  "noConnectedDApps": {
+    "message": "연결된 dApp이 없습니다",
+    "englishSource": "No connected dApps"
+  },
+  "noConnectedDAppsDescription": {
+    "message": "이 계정에 연결한 dApp이 여기에 표시됩니다.",
+    "englishSource": "dApps you connect to this account show up here."
+  },
   "transferDetails": {
     "message": "이적 상세 정보",
     "englishSource": "Transfer Details"

@@ -3903,6 +3903,14 @@
     "message": "Див. пов’язані матеріали",
     "englishSource": "See connected"
   },
+  "noConnectedDApps": {
+    "message": "Немає підключених dApp",
+    "englishSource": "No connected dApps"
+  },
+  "noConnectedDAppsDescription": {
+    "message": "Тут з’являться dApp, які ви підключите до цього облікового запису.",
+    "englishSource": "dApps you connect to this account show up here."
+  },
   "transferDetails": {
     "message": "Деталі переказу",
     "englishSource": "Transfer Details"

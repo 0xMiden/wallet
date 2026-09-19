@@ -881,6 +881,8 @@
   "permissionAutomatic": "Automatisch",
   "dAppsToggleDescription": "Schalten Sie den Schalter um, um DApp-Verbindungen und die Anzeige des Guthabens zu aktivieren oder zu deaktivieren.",
   "seeConnected": "Siehe dazu",
+  "noConnectedDApps": "Keine verbundenen dApps",
+  "noConnectedDAppsDescription": "dApps, die Sie mit diesem Konto verbinden, erscheinen hier.",
   "transferDetails": "Überweisungsdetails",
   "advancedDetails": "Erweiterte Details",
   "options": "Optionen",
