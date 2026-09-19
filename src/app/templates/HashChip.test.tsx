@@ -5,10 +5,13 @@ import { render, screen } from '@testing-library/react';
 import HashChip from './HashChip';
 
 // HashChip is a thin composition over the canonical CopyChip: it wires a HashShortView as its
-// `children` and forwards `text`/`className`/`data-testid`/`aria-label`, merging in its own
-// neutral default className. CopyChip is stubbed to a prop-recording marker so every forwarded
-// value is asserted precisely, without dragging in the clipboard hook stack (already covered by
-// CopyChip.test.tsx).
+// `children` and forwards `text`/`className`/`data-testid`, merging in its own neutral default
+// className. CopyChip is stubbed to a prop-recording marker so every forwarded value is asserted
+// precisely, without dragging in the clipboard hook stack (already covered by CopyChip.test.tsx —
+// including the accessible-name-falls-back-to-content behavior the "no aria-label" test below
+// depends on: this file can only prove HashChip doesn't pass one, not that CopyChip then uses the
+// content as the name, since the stub here renders `children` under a plain `<div>` regardless of
+// what `aria-label` would have done).
 const mockCopyChipProps = jest.fn();
 const mockHashShortViewProps = jest.fn();
 
@@ -96,11 +99,15 @@ describe('HashChip', () => {
     expect(mockCopyChipProps.mock.calls[0][0]['data-testid']).toBe('hash-chip-el');
   });
 
-  it('computes aria-label from copiedHash/copyHashToClipboard by the copied state', () => {
+  it('passes no aria-label, so the visible value stays the accessible name', () => {
+    // An `aria-label` REPLACES an element's accessible name, so passing one here would make a
+    // screen reader hear "Copy to clipboard, button" instead of the hash — and double the
+    // "Copied" announcement against CopyChip's own `aria-live` region. See
+    // CopyChip.test.tsx's `'falls back to the visible content as the accessible name when no
+    // aria-label is given'` for proof the fallback actually produces the right name once this
+    // component (correctly) supplies none.
     render(<HashChip hash="hashy" />);
 
-    const ariaLabel = mockCopyChipProps.mock.calls[0][0]['aria-label'] as (copied: boolean) => string;
-    expect(ariaLabel(false)).toBe('copyHashToClipboard');
-    expect(ariaLabel(true)).toBe('copiedHash');
+    expect(mockCopyChipProps.mock.calls[0][0]['aria-label']).toBeUndefined();
   });
 });

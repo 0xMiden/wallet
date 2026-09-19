@@ -127,6 +127,15 @@ it('does not flip to the checkmark when the clipboard write rejects', async () =
   expect(screen.getByTestId('chip').querySelector('[data-name="checkmark"]')).not.toBeInTheDocument();
 });
 
+it('falls back to the visible content as the accessible name when no aria-label is given', () => {
+  // `AddressChip`/`HashChip` (the only real callers) pass no `aria-label` — the trimmed
+  // address/hash they render as `children` IS the chip's accessible name. An `aria-label` would
+  // replace it, so a screen reader would hear "Copy to clipboard, button" instead of the value.
+  render(<CopyChip text="0xabc123">0xab…c123</CopyChip>);
+
+  expect(screen.getByRole('button', { name: '0xab…c123' })).toBeInTheDocument();
+});
+
 it('forwards a static aria-label', () => {
   render(
     <CopyChip text="0xabc123" aria-label="copy the address">
