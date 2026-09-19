@@ -13,8 +13,8 @@ jest.mock('use-force-update', () => ({
   default: () => forceUpdate
 }));
 
-// Isolate the component from the Spinner subtree (CircularProgress / brand
-// colors); we only care about this file's behavior.
+// Isolate the component from the canonical Spinner's own rendering (SVG ring,
+// reduced-motion class); we only care about this file's behavior.
 jest.mock('components/ui/Spinner', () => ({
   Spinner: () => <div data-testid="spinner" />
 }));

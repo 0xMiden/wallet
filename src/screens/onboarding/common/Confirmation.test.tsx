@@ -19,7 +19,7 @@ jest.mock('react-i18next', () => ({
   Trans: ({ i18nKey }: { i18nKey: string }) => <>{i18nKey}</>
 }));
 
-// `Spinner` — replace the animated CircularProgress atom with a simple marker
+// `Spinner` — replace the canonical, animated Spinner with a simple marker
 // so the "creating" branch can be asserted without pulling in its rendering.
 jest.mock('components/ui/Spinner', () => ({
   Spinner: () => <div data-testid="spinner" />
