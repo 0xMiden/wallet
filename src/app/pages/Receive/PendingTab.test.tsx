@@ -241,6 +241,8 @@ describe('PendingTab — DetailNoteRow treatment (#456)', () => {
     const row = screen.getByTestId('detail-note-row');
     expect(within(row).getByText('noteUnavailable')).toBeInTheDocument();
     expect(within(row).queryByTestId('claim-button')).not.toBeInTheDocument();
+    // The placeholder spacer matches the 36px sm buttons' height (was h-8/32px).
+    expect(row.querySelector('.w-20')).toHaveClass('h-9');
   });
 
   it('renders the Claim button (no error text) for a plain pending note', () => {

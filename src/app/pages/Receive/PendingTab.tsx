@@ -703,7 +703,7 @@ const DetailNoteRow: React.FC<DetailNoteRowProps> = ({
             title={t('claiming')}
           />
         ) : (
-          <div className="w-20 h-8 shrink-0" />
+          <div className="w-20 h-9 shrink-0" />
         )}
       </div>
       {(isRetriable || isFailed) && (
