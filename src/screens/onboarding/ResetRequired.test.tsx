@@ -20,7 +20,7 @@ jest.mock('app/icons/v2', () => ({
 }));
 
 // `PageHeader` — surface just the title so the header wiring is assertable
-// without dragging in `NavButton` / the real icon set.
+// without dragging in `IconButton` / the real icon set.
 jest.mock('components/PageHeader', () => ({
   PageHeader: ({ title, className }: { title: string; className?: string }) => (
     <div data-testid="nav-header" className={className}>

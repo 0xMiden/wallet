@@ -21,7 +21,7 @@ jest.mock('react-i18next', () => ({
 }));
 
 // `./components` transitively pulls in the `app/icons/v2` SVG barrel plus the
-// `CircleButton`/`TokenLogo` widgets. Stub `EarnFlowHeader` to a probe that
+// `IconButton`/`TokenLogo` widgets. Stub `EarnFlowHeader` to a probe that
 // surfaces which vault the page resolved (`data-vault-id`) so we can prove the
 // found-vault vs. default-vault branch without rendering the real header.
 jest.mock('./components', () => ({

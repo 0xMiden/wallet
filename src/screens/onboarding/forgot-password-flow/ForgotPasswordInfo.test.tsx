@@ -20,7 +20,7 @@ jest.mock('app/icons/v2', () => ({
 }));
 
 // `PageHeader` — surface the title and the close handler so the header
-// wiring is assertable without dragging in `NavButton` / the real icon set.
+// wiring is assertable without dragging in `IconButton` / the real icon set.
 jest.mock('components/PageHeader', () => ({
   PageHeader: ({ title, onClose, className }: { title: string; onClose?: () => void; className?: string }) => (
     <div data-testid="nav-header" className={className}>

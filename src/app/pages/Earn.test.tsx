@@ -11,7 +11,7 @@ import Earn from './Earn';
 
 // Stub the two child widgets pulled in from `screens/earn-flow/components`.
 // The real `EarnSummaryPanel` / `ProviderLogo` drag in the Aave `?url` SVG
-// import plus `components/CircleButton` / `components/TokenLogo` chrome that is
+// import plus `components/ui/IconButton` / `components/TokenLogo` chrome that is
 // irrelevant to `Earn.tsx`'s own wiring. Rendering them as probes keeps the
 // coverage scoped to this page while still letting us assert the props it
 // forwards (summary + titleId to the panel, protocol to the logo). This mirrors
