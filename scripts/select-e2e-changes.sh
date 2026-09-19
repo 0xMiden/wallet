@@ -59,7 +59,7 @@ while IFS= read -r path; do
     case "$path" in
       .github/workflows/pr-e2e-guardian-lifecycle.yml | \
       playwright.guardian.config.ts | \
-      playwright/e2e/tests/guardian-*.spec.ts | \
+      playwright/e2e/tests/*guardian-*.spec.ts | \
       src/screens/onboarding/*)
         selected=true
         ;;
