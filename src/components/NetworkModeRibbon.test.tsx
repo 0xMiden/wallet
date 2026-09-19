@@ -4,7 +4,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react';
 
 import { hapticLight } from 'lib/mobile/haptics';
 
-import { NetworkModeStrip } from './NetworkModeStrip';
+import { NetworkModeRibbon } from './NetworkModeRibbon';
 
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -34,7 +34,7 @@ jest.mock('lib/miden-chain/networks-config', () => {
 });
 const { mockBuild } = jest.requireMock<{ mockBuild: { network: string } }>('lib/miden-chain/networks-config');
 
-// The real sheet, so opening from the strip and closing with mobile back are exercised end to end;
+// The real sheet, so opening from the ribbon and closing with mobile back are exercised end to end;
 // only its platform edges are stubbed.
 const mockBack: { handler: (() => boolean | void) | null } = { handler: null };
 jest.mock('lib/mobile/useMobileBackHandler', () => ({
@@ -54,10 +54,10 @@ jest.mock('lib/ui/drawer', () => ({
   DrawerFooter: ({ children }: { children: React.ReactNode }) => <div>{children}</div>
 }));
 
-const strip = () => screen.getByTestId('network-mode-strip');
-const pill = () => strip().firstElementChild as HTMLElement;
+const ribbon = () => screen.getByTestId('network-mode-ribbon');
+const band = () => screen.getByTestId('network-mode-ribbon-band');
 
-describe('NetworkModeStrip', () => {
+describe('NetworkModeRibbon', () => {
   beforeEach(() => {
     mockNetworkKey = 'testnet';
     mockBuild.network = 'testnet';
@@ -65,61 +65,88 @@ describe('NetworkModeStrip', () => {
     jest.mocked(hapticLight).mockClear();
   });
 
-  it.each(['testnet', 'devnet', 'localnet'] as const)('shows the effective network’s name (%s)', key => {
-    mockNetworkKey = key;
-    render(<NetworkModeStrip />);
+  it.each(['testnet', 'devnet', 'localnet'] as const)(
+    'writes the effective network’s name along the band (%s)',
+    key => {
+      mockNetworkKey = key;
+      render(<NetworkModeRibbon docked />);
 
-    expect(strip()).toHaveTextContent(key);
-  });
+      expect(ribbon()).toHaveTextContent(key);
+      expect(band()).toContainElement(ribbon());
+    }
+  );
 
   it('renders nothing on mainnet', () => {
     mockNetworkKey = null;
-    const { container } = render(<NetworkModeStrip />);
+    const { container } = render(<NetworkModeRibbon docked />);
 
     expect(container).toBeEmptyDOMElement();
   });
 
   it('is named for what it opens, starting with the visible network name', () => {
-    render(<NetworkModeStrip />);
+    render(<NetworkModeRibbon docked />);
 
-    expect(screen.getByRole('button', { name: 'networkModeStripLabel:testnet' })).toBe(strip());
-    expect(strip()).toHaveAttribute('aria-haspopup', 'dialog');
-    expect(strip()).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByRole('button', { name: 'networkModeStripLabel:testnet' })).toBe(ribbon());
+    expect(ribbon()).toHaveAttribute('aria-haspopup', 'dialog');
+    expect(ribbon()).toHaveAttribute('aria-expanded', 'false');
   });
 
-  it('is a compact, fully round pill in the accent tint inside a 44px target', () => {
-    render(<NetworkModeStrip />);
+  it('is a 45° sash, out of flow, in uppercase bold 10px letter-spaced type that ellipsizes', () => {
+    render(<NetworkModeRibbon docked />);
 
-    expect(strip()).toHaveClass('h-11', 'min-w-0', 'max-w-full', 'items-end', 'pb-1');
-    expect(pill()).toHaveClass('h-6', 'text-xs', 'font-bold', 'rounded-full', 'max-w-full');
-    expect(pill()).toHaveClass('bg-accent-tint', 'text-accent-tint-ink');
-    // Truncates rather than pushing the tabs: the name's span ellipsizes.
-    expect(pill().querySelector('.truncate')).toHaveTextContent('testnet');
+    expect(band()).toHaveClass('absolute', '-rotate-45', 'h-3', 'w-[200px]');
+    expect(ribbon()).toHaveClass('uppercase', 'font-extrabold', 'text-[10px]', 'tracking-[0.06em]', 'truncate');
+    expect(ribbon()).toHaveClass('max-w-[58px]');
+  });
+
+  it('takes taps on the word only: the band lets them through to the tabs underneath', () => {
+    render(<NetworkModeRibbon docked />);
+
+    expect(band()).toHaveClass('pointer-events-none');
+    expect(ribbon()).toHaveClass('pointer-events-auto');
+  });
+
+  it('sits above the home indicator zone when docked, and in the pill’s corner when floating', () => {
+    const { unmount } = render(<NetworkModeRibbon docked />);
+    expect(band()).toHaveClass('-right-[75px]');
+    expect(band().className).toContain(
+      'bottom-[calc(var(--app-safe-bottom,max(16px,env(safe-area-inset-bottom)))+16.5px)]'
+    );
+    unmount();
+
+    render(<NetworkModeRibbon docked={false} />);
+    expect(band()).toHaveClass('-right-[78px]', 'bottom-4');
+  });
+
+  it('is the accent tint with its ink (5.1:1)', () => {
+    render(<NetworkModeRibbon docked />);
+
+    expect(band()).toHaveClass('bg-accent-tint', 'text-accent-tint-ink');
   });
 
   it('turns slate on a devnet build, following the brand ramp', () => {
     mockBuild.network = 'devnet';
-    render(<NetworkModeStrip />);
+    render(<NetworkModeRibbon docked />);
 
-    expect(pill()).toHaveClass('bg-primary-orange-lighter', 'text-primary-orange-dark');
-    expect(pill()).not.toHaveClass('bg-accent-tint');
+    expect(band()).toHaveClass('bg-primary-orange-lighter', 'text-primary-orange-dark');
+    expect(band()).not.toHaveClass('bg-accent-tint');
   });
 
   it('opens the explanation sheet on tap, with one light haptic', () => {
-    render(<NetworkModeStrip />);
+    render(<NetworkModeRibbon docked />);
     expect(screen.queryByTestId('network-mode-sheet')).not.toBeInTheDocument();
 
-    fireEvent.click(strip());
+    fireEvent.click(ribbon());
 
     expect(screen.getByTestId('network-mode-sheet')).toBeInTheDocument();
     expect(screen.getByRole('heading')).toHaveTextContent('networkModeBanner:testnet');
-    expect(strip()).toHaveAttribute('aria-expanded', 'true');
+    expect(ribbon()).toHaveAttribute('aria-expanded', 'true');
     expect(hapticLight).toHaveBeenCalledTimes(1);
   });
 
   it('closes the sheet on mobile back', () => {
-    render(<NetworkModeStrip />);
-    fireEvent.click(strip());
+    render(<NetworkModeRibbon docked />);
+    fireEvent.click(ribbon());
 
     let consumed: boolean | void = undefined;
     act(() => {
@@ -128,12 +155,12 @@ describe('NetworkModeStrip', () => {
 
     expect(consumed).toBe(true);
     expect(screen.queryByTestId('network-mode-sheet')).not.toBeInTheDocument();
-    expect(strip()).toHaveAttribute('aria-expanded', 'false');
+    expect(ribbon()).toHaveAttribute('aria-expanded', 'false');
   });
 
   it('closes the sheet on "I understand"', () => {
-    render(<NetworkModeStrip />);
-    fireEvent.click(strip());
+    render(<NetworkModeRibbon docked />);
+    fireEvent.click(ribbon());
 
     fireEvent.click(screen.getByTestId('network-mode-sheet-cta'));
 

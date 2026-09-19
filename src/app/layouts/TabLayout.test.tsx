@@ -133,9 +133,9 @@ jest.mock('framer-motion', () => ({
 // clickable buttons plus a synthetic "unknown id" button so the layout's
 // route-lookup guard branches are all reachable.
 jest.mock('components/ui', () => ({
-  BottomNav: ({ items, activeId, onChange, docked, accessory }: any) => (
+  BottomNav: ({ items, activeId, onChange, docked, corner }: any) => (
     <div data-testid="bottom-nav" data-active={activeId} data-docked={String(!!docked)}>
-      <div data-testid="bottom-nav-accessory">{accessory}</div>
+      <div data-testid="bottom-nav-corner">{corner}</div>
       {items.map((it: any) => (
         <button
           key={it.id}
@@ -165,9 +165,11 @@ jest.mock('components/ui', () => ({
   )
 }));
 
-// The strip has its own suite; here it only has to land in the bar's accessory slot.
-jest.mock('components/NetworkModeStrip', () => ({
-  NetworkModeStrip: () => <div data-testid="network-mode-strip" />
+// The ribbon has its own suite; here it only has to land in the bar's corner, told which bar it is on.
+jest.mock('components/NetworkModeRibbon', () => ({
+  NetworkModeRibbon: ({ docked }: { docked: boolean }) => (
+    <div data-testid="network-mode-ribbon" data-docked={String(docked)} />
+  )
 }));
 
 const mockNavigate = navigate as jest.Mock;
@@ -348,14 +350,15 @@ describe('TabLayout — tabs list composition', () => {
   });
 });
 
-describe('TabLayout — network strip', () => {
+describe('TabLayout — network corner ribbon', () => {
   it.each([
     ['mobile (docked)', true],
     ['extension/desktop (floating)', false]
-  ])('puts the network strip in the bottom nav’s accessory slot on %s', (_label, mobile) => {
+  ])('puts the network ribbon in the bottom nav’s corner on %s', (_label, mobile) => {
     mockPlatform.isMobile = mobile;
     renderLayout();
-    expect(screen.getByTestId('bottom-nav-accessory')).toContainElement(screen.getByTestId('network-mode-strip'));
+    expect(screen.getByTestId('bottom-nav-corner')).toContainElement(screen.getByTestId('network-mode-ribbon'));
+    expect(screen.getByTestId('network-mode-ribbon')).toHaveAttribute('data-docked', String(mobile));
   });
 
   it('shows no banner above the tabs', () => {

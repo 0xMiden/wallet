@@ -18,7 +18,7 @@ import { useHasUnclaimedNotes } from 'app/hooks/useHasUnclaimedNotes';
 import { Icon, IconName } from 'app/icons/v2';
 import HomeSwipeContainer from 'app/layouts/HomeSwipeContainer';
 import { PageActiveContext, usePageActive } from 'app/layouts/page-active';
-import { NetworkModeStrip } from 'components/NetworkModeStrip';
+import { NetworkModeRibbon } from 'components/NetworkModeRibbon';
 import { BottomNav, BottomNavItem, SegmentedActionBar } from 'components/ui';
 import { usePreset } from 'lib/animation';
 import { isSwapEnabled } from 'lib/feature-flags';
@@ -167,13 +167,14 @@ const DockedNavBar = forwardRef<DockedNavBarHandle, DockedNavBarProps>(({ items,
         scrollHidden && 'translate-y-full'
       )}
     >
-      {/* The test network is named in the bar's right corner, not a banner above every page. */}
+      {/* The test network is named on a ribbon across the bar's lower-right corner, drawn over the
+          tabs, rather than in a banner above every page. */}
       <BottomNav
         items={items}
         activeId={activeId}
         onChange={onChange}
         docked={isMobile()}
-        accessory={<NetworkModeStrip />}
+        corner={<NetworkModeRibbon docked={isMobile()} />}
       />
     </div>
   );
