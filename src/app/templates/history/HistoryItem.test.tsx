@@ -333,14 +333,14 @@ describe('HistoryItem', () => {
   // A Smart Deposit's summary row surfaces the Sepolia lending leg while it is
   // still unsettled — the row itself is Completed the moment the Miden
   // collateral note lands, which would otherwise read as fully done.
-  it('shows the lending-leg status dot on a pending Smart Deposit', () => {
+  it('shows the lending-leg status badge on a pending Smart Deposit', () => {
     const entry = makeEntry({ txType: 'earn-deposit', earnDepositStatus: 'pending', message: 'Depositing' });
 
     render(<HistoryItem entry={entry} />);
 
     const chip = screen.getByTestId('earn-deposit-status');
     expect(chip).toHaveTextContent('t:pending');
-    expect(chip.className).toContain('text-status-pending');
+    expect(chip).toHaveClass('bg-pending-tint', 'text-pending-ink', 'h-5');
   });
 
   it('defaults an unstamped lending leg to pending', () => {
@@ -355,7 +355,7 @@ describe('HistoryItem', () => {
 
     const chip = screen.getByTestId('earn-deposit-status');
     expect(chip).toHaveTextContent('t:failed');
-    expect(chip.className).toContain('text-status-negative');
+    expect(chip).toHaveClass('bg-negative-tint', 'text-negative-ink');
   });
 
   it('renders no chip once the lending leg is confirmed', () => {

@@ -124,10 +124,7 @@ export const PendingActivityCard = ({ item, onAccept, onReject }: PendingActivit
               symbol: note.metadata.symbol,
               direction: 'positive'
             }}
-            status={{
-              label: claimed ? t('activityTransferClaimed') : t('pending'),
-              tone: claimed ? 'confirmed' : 'pending'
-            }}
+            status={claimed ? 'claimed' : 'pending'}
           />
           <motion.span
             aria-hidden

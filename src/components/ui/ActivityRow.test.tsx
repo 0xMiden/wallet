@@ -19,7 +19,7 @@ jest.mock('react-i18next', () => ({
   })
 }));
 
-const baseStatus = { label: 'Confirmed', tone: 'confirmed' as const };
+const baseStatus = 'confirmed' as const;
 
 const renderRow = (props: Partial<React.ComponentProps<typeof ActivityRow>> = {}) =>
   render(<ActivityRow icon={<svg data-testid="glyph" />} title="Sent MIDEN" status={baseStatus} {...props} />);
@@ -99,7 +99,7 @@ describe('ActivityRow', () => {
   it('omits the amount block entirely when no amount is passed', () => {
     renderRow();
     // No amount span present; only the status label text
-    expect(screen.getByText('Confirmed')).toBeTruthy();
+    expect(screen.getByText('confirmed')).toBeTruthy();
     expect(screen.queryByText('0')).toBeNull();
   });
 
@@ -252,30 +252,32 @@ describe('ActivityRow', () => {
     });
   });
 
-  describe('status tone styling', () => {
+  describe('status badge', () => {
     it.each([
-      ['confirmed', 'bg-status-positive', 'text-status-positive'],
-      ['pending', 'bg-status-pending', 'text-status-pending'],
-      ['failed', 'bg-status-negative', 'text-status-negative']
-    ] as const)('renders the %s tone dot and text classes', (tone, dotClass, textClass) => {
-      const { container } = renderRow({ status: { label: tone, tone } });
+      ['confirmed', 'bg-positive-tint', 'text-positive-ink'],
+      ['pending', 'bg-pending-tint', 'text-pending-ink'],
+      ['failed', 'bg-negative-tint', 'text-negative-ink'],
+      ['cancelled', 'bg-fill-pressed', 'text-ink'],
+      ['reclaimed', 'bg-fill-pressed', 'text-ink']
+    ] as const)('draws %s as the compact StatusBadge on its own tint', (status, tint, ink) => {
+      renderRow({ status, testId: 'row' });
 
-      expect(container.querySelector(`.${dotClass}`)).not.toBeNull();
-      // status label span carries the text tone class
-      expect(screen.getByText(tone).className).toContain(textClass);
+      const badge = screen.getByTestId('row-status');
+      expect(badge).toHaveTextContent(status);
+      // The 20px `sm` badge, never bare colored text on the row's `fill`.
+      expect(badge).toHaveClass('h-5', 'rounded-full', tint, ink);
+      expect(badge.className).not.toMatch(/text-status-/);
     });
 
-    it('greys out a cancelled row', () => {
-      const { container } = renderRow({ status: { label: 'Cancelled', tone: 'cancelled' } });
-
-      expect(container.querySelector('.bg-gray-400')).not.toBeNull();
-      expect(screen.getByText('Cancelled').className).toContain('text-gray-500');
+    it('is not a live region: a list of rows must not announce every change', () => {
+      renderRow({ status: 'pending', testId: 'row' });
+      expect(screen.queryByRole('status')).toBeNull();
     });
 
-    it('omits the status line entirely when no status is passed', () => {
-      render(<ActivityRow icon={<svg />} title="Sent MIDEN" />);
+    it('omits the status badge entirely when no status is passed', () => {
+      render(<ActivityRow icon={<svg />} title="Sent MIDEN" testId="row" />);
 
-      expect(screen.queryByText('Confirmed')).toBeNull();
+      expect(screen.queryByTestId('row-status')).toBeNull();
     });
   });
 

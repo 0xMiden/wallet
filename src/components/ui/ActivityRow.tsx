@@ -10,11 +10,12 @@ import { getAdaptiveDecimalPlaces } from 'lib/i18n/numbers';
 import { hapticLight } from 'lib/mobile/haptics';
 import { cn } from 'lib/ui/util';
 
+import { Status, StatusBadge } from './StatusBadge';
+
 /** Extra batch-claim assets rendered inline before the row collapses to a count. */
 const EXTRA_ASSET_PREVIEW_COUNT = 2;
 
 export type ActivityAmountDirection = 'positive' | 'negative' | 'neutral';
-export type ActivityStatusTone = 'confirmed' | 'pending' | 'failed' | 'cancelled';
 
 export interface ActivityRowProps {
   /** Glyph rendered inside the colored square. Pass a white-stroked SVG; it is forced to 16x16. */
@@ -45,10 +46,8 @@ export interface ActivityRowProps {
      */
     extra?: { key: string; value: string; symbol?: string }[];
   };
-  status?: {
-    label: string;
-    tone: ActivityStatusTone;
-  };
+  /** The row's status, drawn as a `sm` `StatusBadge` under the amount. */
+  status?: Status;
   /** Right-aligned relative time (e.g. "Just now") — alternative to `status`. */
   timestamp?: string;
   onClick?: () => void;
@@ -78,20 +77,6 @@ const AMOUNT_COLOR: Record<ActivityAmountDirection, string> = {
   positive: 'text-status-positive',
   negative: 'text-status-negative',
   neutral: 'text-text-primary-token'
-};
-
-const STATUS_DOT: Record<ActivityStatusTone, string> = {
-  confirmed: 'bg-status-positive',
-  pending: 'bg-status-pending',
-  failed: 'bg-status-negative',
-  cancelled: 'bg-gray-400'
-};
-
-const STATUS_TEXT: Record<ActivityStatusTone, string> = {
-  confirmed: 'text-status-positive',
-  pending: 'text-status-pending',
-  failed: 'text-status-negative',
-  cancelled: 'text-gray-500'
 };
 
 const DISPLAY_DECIMAL_PLACES = 3;
@@ -182,7 +167,7 @@ export const ActivityRow: FC<ActivityRowProps> = ({
         </div>
       </div>
 
-      <div className="flex flex-col items-end gap-0.5">
+      <div className="flex flex-col items-end gap-1">
         {amount && (
           <span
             data-testid={testId && `${testId}-amount`}
@@ -221,18 +206,7 @@ export const ActivityRow: FC<ActivityRowProps> = ({
             )}
           </span>
         )}
-        {status && (
-          <span
-            data-testid={testId && `${testId}-status`}
-            className={classNames(
-              'flex items-center gap-1 text-[10px] font-normal leading-none',
-              STATUS_TEXT[status.tone]
-            )}
-          >
-            <span className={classNames('w-1.5 h-1.5 rounded-full', STATUS_DOT[status.tone])} />
-            {status.label}
-          </span>
-        )}
+        {status && <StatusBadge status={status} data-testid={testId && `${testId}-status`} />}
         {timestamp && <span className="text-[10px] text-gray-secondary font-regular">{timestamp}</span>}
       </div>
     </motion.div>

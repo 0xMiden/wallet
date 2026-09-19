@@ -58,7 +58,7 @@ jest.mock('components/ui', () => ({
       direction?: string;
       extra?: { key: string; value: string; symbol?: string }[];
     };
-    status: { label: string; tone: string };
+    status: string;
     onClick?: () => void;
     className?: string;
   }) => (
@@ -74,8 +74,7 @@ jest.mock('components/ui', () => ({
       // Flattened as `key:value symbol|…` so both the contents AND the order
       // (the row renders them unsorted, first-seen) are assertable.
       data-amount-extra={(amount?.extra ?? []).map(l => `${l.key}:${l.value} ${l.symbol ?? ''}`).join('|')}
-      data-status-label={status.label}
-      data-status-tone={status.tone}
+      data-status={status}
       data-clickable={onClick ? 'yes' : 'no'}
       onClick={onClick}
     >
@@ -295,7 +294,7 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
     const row = rowByTitle('bridgeRowTitle');
     expect(iconNameIn(row)).toBe('Close');
     expect(row).toHaveAttribute('data-iconbg', 'bg-status-negative');
-    expect(row).toHaveAttribute('data-status-tone', 'failed');
+    expect(row).toHaveAttribute('data-status', 'failed');
   });
 
   // One render exercising every icon/title/subtitle/amount/status branch.
@@ -461,8 +460,7 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
     expect(row).toHaveAttribute('data-amount-value', '+2');
     expect(row).toHaveAttribute('data-amount-symbol', 'USDC');
     expect(row).toHaveAttribute('data-amount-direction', 'positive');
-    expect(row).toHaveAttribute('data-status-label', 'earnWithdrawStatusDelivering');
-    expect(row).toHaveAttribute('data-status-tone', 'pending');
+    expect(row).toHaveAttribute('data-status', 'delivering');
   });
 
   it('renders a position deposit with the Earn glyph and a negative amount', () => {
@@ -492,8 +490,7 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
     expect(row).toHaveAttribute('data-amount-value', '+100');
     expect(row).toHaveAttribute('data-amount-symbol', 'MDN');
     expect(row).toHaveAttribute('data-amount-direction', 'positive');
-    expect(row).toHaveAttribute('data-status-tone', 'confirmed');
-    expect(row).toHaveAttribute('data-status-label', 'confirmed');
+    expect(row).toHaveAttribute('data-status', 'confirmed');
   });
 
   it('sizes the faucet glyph the same as a sent/received row', () => {
@@ -516,8 +513,7 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
     expect(row).toHaveAttribute('data-subtitle', 'to: mtst1_…address');
     expect(row).toHaveAttribute('data-amount-value', '5');
     expect(row).toHaveAttribute('data-amount-direction', 'neutral');
-    expect(row).toHaveAttribute('data-status-tone', 'failed');
-    expect(row).toHaveAttribute('data-status-label', 'failed');
+    expect(row).toHaveAttribute('data-status', 'failed');
   });
 
   it('renders the failed-by-message row (no subtitle, no amount)', () => {
@@ -526,7 +522,7 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
     expect(row.querySelector('svg')).not.toBeNull();
     expect(row).toHaveAttribute('data-subtitle', '');
     expect(row).toHaveAttribute('data-amount-value', '');
-    expect(row).toHaveAttribute('data-status-tone', 'failed');
+    expect(row).toHaveAttribute('data-status', 'failed');
   });
 
   it('renders a user-cancelled row with grey styling and a cancelled status, even for a bridge', () => {
@@ -564,8 +560,7 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
       // render the grey cancelled treatment.
       expect(row).toHaveAttribute('data-title', 'cancelled');
       expect(row).toHaveAttribute('data-iconbg', 'bg-gray-400');
-      expect(row).toHaveAttribute('data-status-tone', 'cancelled');
-      expect(row).toHaveAttribute('data-status-label', 'cancelled');
+      expect(row).toHaveAttribute('data-status', 'cancelled');
       expect(row.querySelector('svg')).not.toBeNull();
     }
   });
@@ -589,8 +584,7 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
     expect(row).toHaveAttribute('data-subtitle', 'to: mtst1l…core');
     expect(row).toHaveAttribute('data-amount-value', '-20');
     expect(row).toHaveAttribute('data-amount-direction', 'negative');
-    expect(row).toHaveAttribute('data-status-tone', 'pending');
-    expect(row).toHaveAttribute('data-status-label', 'pending');
+    expect(row).toHaveAttribute('data-status', 'pending');
   });
 
   it('renders the full swap row: swap title, DEX subtitle, requested-side amount', () => {
@@ -603,7 +597,7 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
     expect(row).toHaveAttribute('data-amount-symbol', 'ETH');
     expect(row).toHaveAttribute('data-amount-direction', 'neutral');
     // Processing transaction → pending pill.
-    expect(row).toHaveAttribute('data-status-tone', 'pending');
+    expect(row).toHaveAttribute('data-status', 'pending');
   });
 
   it('renders the mint row with no subtitle and a positive amount', () => {
@@ -988,10 +982,10 @@ describe('HistoryView Guardian switch audit trail', () => {
     for (const row of screen.getAllByTestId('activity-row')) {
       expect(row).toHaveAttribute('data-subtitle', 'old.example → new.example');
     }
-    expect(screen.getAllByTestId('activity-row')[0]).toHaveAttribute('data-status-tone', 'pending');
-    expect(screen.getAllByTestId('activity-row')[1]).toHaveAttribute('data-status-tone', 'pending');
-    expect(screen.getAllByTestId('activity-row')[2]).toHaveAttribute('data-status-tone', 'confirmed');
-    expect(screen.getAllByTestId('activity-row')[3]).toHaveAttribute('data-status-tone', 'failed');
+    expect(screen.getAllByTestId('activity-row')[0]).toHaveAttribute('data-status', 'pending');
+    expect(screen.getAllByTestId('activity-row')[1]).toHaveAttribute('data-status', 'pending');
+    expect(screen.getAllByTestId('activity-row')[2]).toHaveAttribute('data-status', 'confirmed');
+    expect(screen.getAllByTestId('activity-row')[3]).toHaveAttribute('data-status', 'failed');
     for (const row of screen.getAllByTestId('activity-row').slice(0, 3)) {
       expect(row).toHaveAttribute('data-iconbg', 'bg-[#777487]');
       expect(row.querySelector('svg')).not.toBeNull();
@@ -1008,6 +1002,27 @@ describe('HistoryView Guardian switch audit trail', () => {
     render(<HistoryView {...baseProps} entries={[entry]} fullHistory />);
 
     expect(screen.getByTestId('activity-row')).toHaveAttribute('data-subtitle', 'unknown → destination.example');
+  });
+});
+
+// A completed swap row is the one trace of the whole order, so its badge follows settlement.
+describe('HistoryView swap settlement status', () => {
+  it.each([
+    ['pending', 'pending'],
+    ['reclaimed', 'reclaimed'],
+    [undefined, 'confirmed']
+  ] as const)('reads %s settlement as the %s status', (swapSettlement, status) => {
+    const entry = makeEntry({
+      txType: 'swap',
+      token: 'MDN',
+      requestedToken: 'ETH',
+      requestedAmount: '0.5',
+      amount: '10',
+      message: 'swap settled',
+      swapSettlement
+    });
+    render(<HistoryView {...baseProps} entries={[entry]} fullHistory />);
+    expect(screen.getByTestId('activity-row')).toHaveAttribute('data-status', status);
   });
 });
 
@@ -1029,48 +1044,41 @@ describe('HistoryView earn-deposit status chip', () => {
 
   it('reads pending while the lending leg is unsettled', () => {
     const row = renderDeposit({ earnDepositStatus: 'pending' });
-    expect(row).toHaveAttribute('data-status-label', 'pending');
-    expect(row).toHaveAttribute('data-status-tone', 'pending');
+    expect(row).toHaveAttribute('data-status', 'pending');
   });
 
   it('defaults an unstamped leg to pending rather than Confirmed', () => {
     const row = renderDeposit();
-    expect(row).toHaveAttribute('data-status-label', 'pending');
-    expect(row).toHaveAttribute('data-status-tone', 'pending');
+    expect(row).toHaveAttribute('data-status', 'pending');
   });
 
   it('reads failed when the lending leg failed', () => {
     const row = renderDeposit({ earnDepositStatus: 'failed' });
-    expect(row).toHaveAttribute('data-status-label', 'failed');
-    expect(row).toHaveAttribute('data-status-tone', 'failed');
+    expect(row).toHaveAttribute('data-status', 'failed');
   });
 
   it('falls through to Confirmed once the lending leg settles', () => {
     const row = renderDeposit({ earnDepositStatus: 'confirmed' });
-    expect(row).toHaveAttribute('data-status-label', 'confirmed');
-    expect(row).toHaveAttribute('data-status-tone', 'confirmed');
+    expect(row).toHaveAttribute('data-status', 'confirmed');
   });
 
   it('lets a Miden-side failure win over a pending lending leg', () => {
     // The earn-deposit branch is checked AFTER cancelled/failed/pending, so the
     // real failure is what the user sees.
     const row = renderDeposit({ transactionIcon: 'FAILED', earnDepositStatus: 'pending' });
-    expect(row).toHaveAttribute('data-status-label', 'failed');
-    expect(row).toHaveAttribute('data-status-tone', 'failed');
+    expect(row).toHaveAttribute('data-status', 'failed');
   });
 
   it('lets a cancellation win over a pending lending leg', () => {
     const entry = makeEntry({ txType: 'earn-deposit', message: 'Depositing', isCancelled: true });
     render(<HistoryView {...baseProps} entries={[entry]} fullHistory />);
     const row = rowByTitle('cancelled');
-    expect(row).toHaveAttribute('data-status-label', 'cancelled');
-    expect(row).toHaveAttribute('data-status-tone', 'cancelled');
+    expect(row).toHaveAttribute('data-status', 'cancelled');
   });
 
   it('lets a still-processing row win over the lending leg', () => {
     const row = renderDeposit({ type: HistoryEntryType.PendingTransaction, earnDepositStatus: 'failed' });
-    expect(row).toHaveAttribute('data-status-label', 'pending');
-    expect(row).toHaveAttribute('data-status-tone', 'pending');
+    expect(row).toHaveAttribute('data-status', 'pending');
   });
   // date-fns THROWS on an Invalid Date, so one unusable timestamp used to take
   // the whole list down rather than just its own row. `Number.isFinite` alone is
