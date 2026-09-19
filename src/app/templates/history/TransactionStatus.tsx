@@ -6,68 +6,6 @@ import { useTranslation } from 'react-i18next';
 import { Icon, IconName } from 'app/icons/v2';
 import { ITransactionStatus } from 'lib/miden/db/types';
 
-/** History section with the compact rounded label used by the transaction detail design. */
-export const DetailCard: FC<{ title?: string; children: React.ReactNode }> = ({ title, children }) => (
-  <section className="font-heading">
-    {title && (
-      <div
-        // `gray-50` + `heading-gray` rather than a literal #F1F1F1 with `text-gray`:
-        // gray-50 is that same near-white in light and flips on its own, so the
-        // `dark:` override is no longer needed, and #808080 ink was 3.51:1 on the
-        // light chip. Same treatment as the StatusPill below.
-        className="inline-flex rounded-full bg-gray-50 px-2.5 py-1 text-sm font-bold leading-4 text-heading-gray"
-      >
-        {title}
-      </div>
-    )}
-    <div className={classNames(title && 'mt-2')}>{children}</div>
-  </section>
-);
-
-/** Simple key/value row separated from its sibling by a subtle rule. */
-export const DetailRow: FC<{
-  label: string;
-  value?: string;
-  badge?: string;
-  icon?: React.ReactNode;
-  isLast?: boolean;
-  children?: React.ReactNode;
-  /**
-   * Optional E2E hook on the row root. Scoping to the ROW (not the value) is what
-   * makes the full, untrimmed hash reachable: `HashChip` renders a trimmed
-   * `<button>` next to a sibling `sr-only` `<input>` holding the whole value
-   * (CopyButton), so only a container testid can address both.
-   */
-  testId?: string;
-}> = ({ label, value, badge, icon, isLast, children, testId }) => (
-  <div
-    data-testid={testId}
-    className={classNames(
-      'flex min-h-14 items-center justify-between gap-4 px-2 py-5',
-      !isLast && 'border-b border-border-light'
-    )}
-  >
-    <div className="flex shrink-0 items-center gap-3">
-      {icon}
-      <span className="text-sm font-semibold text-heading-gray">{label}</span>
-    </div>
-    {children ? (
-      <div className="flex min-w-0 items-center justify-end text-right">{children}</div>
-    ) : badge ? (
-      <span
-        // Alert's Warning pair, which flips, instead of a literal cream fill with
-        // #CC5200 ink: that was 4.03:1 at 14px and neither half had a dark
-        // counterpart, so the chip stayed cream on the dark receipt.
-        className="rounded-full bg-yellow-50 dark:bg-yellow-600/20 px-3 py-1 text-sm font-medium text-heading-gray"
-      >
-        {badge}
-      </span>
-    ) : (
-      <span className="min-w-0 text-right text-sm font-medium text-heading-gray">{value}</span>
-    )}
-  </div>
-);
-
 export const ExternalLinkValue: FC<{
   displayValue: React.ReactNode;
   // Undefined when no explorer is configured for the effective network (e.g. a

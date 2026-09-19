@@ -80,6 +80,7 @@
 - [CHANGE][all] One `EmptyState` for every "nothing here" message: a `fill` card with a 56px icon circle, title and optional body, and an optional secondary action. Contacts' empty list, the pending-notes summary, the Activity list and the QR scanner's no-camera state now share it.
 - [CHANGE][all] One `Skeleton` loading block for the wallet: the send review "you receive" row, the bridge route fee, the amount field, the EVM bridge deposit review and the home balance card now share it instead of five separate ad-hoc `animate-pulse` divs.
 - [CHANGE][all] Detail cards (send review, the transaction receipt, a contact's address) share one look: a warm fill with hairline dividers between rows, and a row's inline action (Edit, Copy) is always a readable orange instead of sometimes taking the flow's own color, which was too faint to read as text.
+- [CHANGE][all] History (transaction details, swap details, bridge claim, the failure/cancelled card) moves onto the same compact detail-card look as the rest of the wallet, kept under a small pill title where one is shown; value text no longer carries its own stray styling, and the failure card's message and its "Show full error" toggle read as one card body instead of two.
 
 ## 1.16.1 (2026-09-15)
 

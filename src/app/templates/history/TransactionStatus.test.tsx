@@ -4,7 +4,7 @@ import { render, screen } from '@testing-library/react';
 
 import { ITransactionStatus } from 'lib/miden/db/types';
 
-import { ExternalLinkValue, StatusPill, DetailCard, DetailRow } from './DetailCard';
+import { ExternalLinkValue, StatusPill } from './TransactionStatus';
 
 // Pull the mocked enum back in with the same shape the component sees.
 
@@ -50,47 +50,6 @@ it('mocks ITransactionStatus with the real ordinals', () => {
   expect(actual.ITransactionStatus.GeneratingTransaction).toBe(1);
   expect(actual.ITransactionStatus.Completed).toBe(2);
   expect(actual.ITransactionStatus.Failed).toBe(3);
-});
-
-describe('DetailCard and DetailRow', () => {
-  it('renders a compact pill title without a bordered card shell', () => {
-    const { container } = render(
-      <DetailCard title="Transfer Details">
-        <span>content</span>
-      </DetailCard>
-    );
-
-    const section = container.querySelector('section')!;
-    expect(section).toHaveClass('font-heading');
-    expect(section).not.toHaveClass('border', 'rounded-10', 'bg-white');
-    expect(screen.getByText('Transfer Details')).toHaveClass('inline-flex', 'rounded-full', 'bg-gray-50');
-    expect(screen.getByText('content').parentElement).toHaveClass('mt-2');
-  });
-
-  it('renders simple key/value rows with only an inter-row rule', () => {
-    const { container } = render(
-      <>
-        <DetailRow label="Date" value="20 Jan 2026" />
-        <DetailRow label="From" isLast>
-          <span>Account 1</span>
-        </DetailRow>
-      </>
-    );
-
-    const rows = Array.from(container.children) as HTMLElement[];
-    expect(rows[0]).toHaveClass('border-b', 'border-border-light', 'px-2', 'py-5');
-    expect(rows[1]).not.toHaveClass('border-b');
-    expect(screen.getByText('Date')).toHaveClass('font-semibold');
-    expect(screen.getByText('20 Jan 2026')).toHaveClass('text-right');
-    expect(screen.getByText('Account 1').parentElement).toHaveClass('justify-end', 'text-right');
-  });
-
-  it('supports the existing icon and badge row variants', () => {
-    render(<DetailRow label="Status" icon={<span data-testid="row-icon" />} badge="Active" isLast />);
-
-    expect(screen.getByTestId('row-icon')).toBeInTheDocument();
-    expect(screen.getByText('Active')).toHaveClass('rounded-full', 'bg-yellow-50');
-  });
 });
 
 describe('ExternalLinkValue', () => {
@@ -173,7 +132,7 @@ describe('StatusPill', () => {
     expect(pill(container)).toHaveClass('bg-gray-400', 'text-pure-white');
   });
 
-  it('inks a cancellation for its own grey fill rather than inheriting the failure pill\u2019s', () => {
+  it('inks a cancellation for its own grey fill rather than inheriting the failure pill’s', () => {
     // A user cancellation is recorded as a failure (`cancel.ts`), so it is BOTH
     // Failed and cancelled — the ink ternary has to branch on muted first or this
     // pill gets the failure pill's ink. grey #737373 is the one fill that wants
