@@ -51,7 +51,11 @@ export const PasscodeScreen: React.FC<PasscodeScreenProps> = ({
       className={cn('min-h-full flex flex-col items-center px-4', action ? 'pb-2' : 'pb-5')}
       data-testid="passcode-screen-layout"
     >
-      <div className="flex flex-col items-center w-full shrink-0 pt-12 [@media(max-height:720px)]:pt-6">
+      {/* The leftover height splits 3:2 above the prompt and below the keypad, so prompt and keypad
+          sit as one group a little below centre: the keys stay in thumb reach without a tall gap
+          under the dots. */}
+      <div className="flex-[3] min-h-6" data-testid="passcode-top-space" />
+      <div className="flex flex-col items-center w-full shrink-0" data-testid="passcode-header">
         <h1 className="font-heading text-2xl leading-7 font-black text-ink text-center">{title}</h1>
         <p
           role="status"
@@ -65,7 +69,7 @@ export const PasscodeScreen: React.FC<PasscodeScreenProps> = ({
         </p>
         <PasscodeDots className="mt-7" filled={filled} length={length} errorKey={errorKey} />
       </div>
-      <div className="mt-auto w-full shrink-0 pt-6" data-testid="passcode-keypad-dock">
+      <div className="w-full shrink-0 pt-12 [@media(max-height:720px)]:pt-8" data-testid="passcode-keypad-dock">
         <Numpad onDigit={onDigit} onDelete={onDelete} onBiometric={onBiometric} biometricLabel={biometricLabel} />
         {action && (
           <div className="mt-2 flex justify-center" data-testid="passcode-screen-action">
@@ -73,6 +77,7 @@ export const PasscodeScreen: React.FC<PasscodeScreenProps> = ({
           </div>
         )}
       </div>
+      <div className="flex-[2]" data-testid="passcode-bottom-space" />
     </div>
   </div>
 );
