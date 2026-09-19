@@ -212,7 +212,7 @@ function mockLayoutPage(testId: string) {
 
 jest.mock('app/templates/GeneralSettings', () => ({
   __esModule: true,
-  default: () => <div data-testid="general-settings" />
+  default: mockLayoutPage('general-settings')
 }));
 
 jest.mock('app/templates/AddressBook', () => ({ __esModule: true, default: () => <div data-testid="address-book" /> }));
@@ -620,14 +620,15 @@ describe('Settings page — root menu (non-guardian)', () => {
     expect(screen.getByTestId('nav-header')).toHaveAttribute('data-focus-title', 'true');
   });
 
-  it('keeps the display face on the sub-page body', () => {
-    // Removing this class was once used to get Inter into RevealSecret's secret
-    // textareas — Preflight sets `font: inherit` on form controls, so they were
-    // picking up the display face. That fix restyled all twelve routed Settings
-    // screens to fix two fields; the textareas ask for `font-sans` themselves.
+  it('wraps a SubPageLayout page in no blanket display face', () => {
+    // The host's old padded body set `font-heading` on everything under it, which
+    // is how RevealSecret's secret textareas once inherited the display face.
+    // A page on the shared layout gets none: its components (ListRow titles,
+    // SectionHeader, TextField, Button) carry the type the spec gives them, and
+    // body copy is Inter.
     const { container } = render(<Settings tabSlug="general-settings" />);
 
-    expect(container.querySelector('.font-heading')).not.toBeNull();
+    expect(container.querySelector('.font-heading')).toBeNull();
   });
 
   // Both platforms, because the previous shape of this had to special-case them:

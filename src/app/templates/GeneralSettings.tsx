@@ -3,6 +3,9 @@ import React, { FC, useCallback, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { TabPicker } from 'components/TabPicker';
+import { ListGroup } from 'components/ui/ListGroup';
+import { ListRow } from 'components/ui/ListRow';
+import { SubPageLayout, SubPageSection } from 'components/ui/SubPageLayout';
 import { isMobile } from 'lib/platform';
 import type { ThemeSetting } from 'lib/settings/constants';
 import {
@@ -73,40 +76,50 @@ const GeneralSettings: FC = () => {
   }, []);
 
   return (
-    <div className="w-full flex flex-col gap-y-6" data-testid="general-settings">
-      <div className="flex items-center justify-between gap-x-4" data-testid={GeneralSettingsSelectors.ThemeSelector}>
-        <span className="font-medium text-base leading-[130%] text-ink">{t('theme')}</span>
-        <TabPicker className="flex-shrink-0" tabs={themeTabs} onTabChange={handleThemeTabChange} />
-      </div>
+    <SubPageLayout data-testid="general-settings">
+      <SubPageSection>
+        <ListGroup>
+          <ListRow
+            title={t('theme')}
+            trailing={<TabPicker className="shrink-0" tabs={themeTabs} onTabChange={handleThemeTabChange} />}
+            data-testid={GeneralSettingsSelectors.ThemeSelector}
+          />
+          {mobile && (
+            <SettingToggle
+              checked={hapticEnabled}
+              onChange={handleHapticChange}
+              name="hapticFeedbackEnabled"
+              testID={GeneralSettingsSelectors.HapticFeedbackToggle}
+              title={t('hapticFeedback')}
+            />
+          )}
+        </ListGroup>
+      </SubPageSection>
 
-      {mobile && (
-        <SettingToggle
-          checked={hapticEnabled}
-          onChange={handleHapticChange}
-          name="hapticFeedbackEnabled"
-          testID={GeneralSettingsSelectors.HapticFeedbackToggle}
-          title={t('hapticFeedback')}
-        />
-      )}
+      <SubPageSection footnote={t('delegateProofSettingsDescription')}>
+        <ListGroup>
+          <SettingToggle
+            checked={delegateEnabled}
+            onChange={handleDelegateChange}
+            name="delegateEnabled"
+            testID={GeneralSettingsSelectors.DelegateToggle}
+            title={t('delegateProofSettings')}
+          />
+        </ListGroup>
+      </SubPageSection>
 
-      <SettingToggle
-        checked={delegateEnabled}
-        onChange={handleDelegateChange}
-        name="delegateEnabled"
-        testID={GeneralSettingsSelectors.DelegateToggle}
-        title={t('delegateProofSettings')}
-        description={t('delegateProofSettingsDescription')}
-      />
-
-      <SettingToggle
-        checked={consumeEnabled}
-        onChange={handleAutoConsumeChange}
-        name="autoConsumeEnabled"
-        testID={GeneralSettingsSelectors.AutoConsumeToggle}
-        title={t('autoConsumeSettings')}
-        description={t('autoConsumeSettingsDescription')}
-      />
-    </div>
+      <SubPageSection footnote={t('autoConsumeSettingsDescription')}>
+        <ListGroup>
+          <SettingToggle
+            checked={consumeEnabled}
+            onChange={handleAutoConsumeChange}
+            name="autoConsumeEnabled"
+            testID={GeneralSettingsSelectors.AutoConsumeToggle}
+            title={t('autoConsumeSettings')}
+          />
+        </ListGroup>
+      </SubPageSection>
+    </SubPageLayout>
   );
 };
 
