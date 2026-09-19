@@ -116,6 +116,134 @@ button:disabled,
   --default-font-family: var(--font-sans);
 }
 
+/**
+ * Type scale. One utility per text role, each setting family, size, line-height and weight
+ * together, so a role is one class and never a hand-assembled `font-heading text-[15px] font-bold`.
+ * Colour stays separate (`text-ink`, `text-muted`, ...). Nunito (`--font-heading`) carries titles,
+ * values and button labels; Inter (`--font-sans`) carries body copy, labels and captions. See
+ * skills/miden-wallet-frontend/references/design-system.md (Foundations, Type).
+ *
+ * Weight, line-height and tracking read Tailwind's own `--tw-*` variables first, the way its
+ * `text-xl` reads `--tw-leading`: a `leading-none` or `font-semibold` modifier then wins whatever
+ * order the stylesheet emits the two classes in. The names are registered with tailwind-merge in
+ * `lib/ui/type-styles.ts` so `cn()` keeps them beside a colour class.
+ */
+@utility text-display {
+  font-family: var(--font-heading);
+  font-size: 48px;
+  line-height: var(--tw-leading, 52px);
+  font-weight: var(--tw-font-weight, 800);
+}
+@utility text-entry {
+  font-family: var(--font-heading);
+  font-size: 48px;
+  line-height: var(--tw-leading, 56px);
+  font-weight: var(--tw-font-weight, 800);
+}
+@utility text-title-tab {
+  font-family: var(--font-heading);
+  font-size: 28px;
+  line-height: var(--tw-leading, 36px);
+  font-weight: var(--tw-font-weight, 800);
+  letter-spacing: var(--tw-tracking, -0.5px);
+}
+@utility text-hero-value {
+  font-family: var(--font-heading);
+  font-size: 32px;
+  line-height: var(--tw-leading, 36px);
+  font-weight: var(--tw-font-weight, 900);
+}
+@utility text-hero-name {
+  font-family: var(--font-heading);
+  font-size: 24px;
+  line-height: var(--tw-leading, 28px);
+  font-weight: var(--tw-font-weight, 900);
+}
+@utility text-title-page {
+  font-family: var(--font-heading);
+  font-size: 20px;
+  line-height: var(--tw-leading, 26px);
+  font-weight: var(--tw-font-weight, 800);
+}
+@utility text-title-section {
+  font-family: var(--font-heading);
+  font-size: 18px;
+  line-height: var(--tw-leading, 24px);
+  font-weight: var(--tw-font-weight, 800);
+}
+@utility text-cta {
+  font-family: var(--font-heading);
+  font-size: 19px;
+  line-height: var(--tw-leading, 24px);
+  font-weight: var(--tw-font-weight, 800);
+}
+@utility text-cta-sm {
+  font-family: var(--font-heading);
+  font-size: 15px;
+  line-height: var(--tw-leading, 20px);
+  font-weight: var(--tw-font-weight, 800);
+}
+@utility text-row-title {
+  font-family: var(--font-heading);
+  font-size: 16px;
+  line-height: var(--tw-leading, 20px);
+  font-weight: var(--tw-font-weight, 700);
+}
+@utility text-value {
+  font-family: var(--font-heading);
+  font-size: 15px;
+  line-height: var(--tw-leading, 20px);
+  font-weight: var(--tw-font-weight, 700);
+}
+@utility text-action {
+  font-family: var(--font-heading);
+  font-size: 14px;
+  line-height: var(--tw-leading, 20px);
+  font-weight: var(--tw-font-weight, 700);
+}
+@utility text-pill {
+  font-family: var(--font-heading);
+  font-size: 14px;
+  line-height: var(--tw-leading, 1);
+  font-weight: var(--tw-font-weight, 700);
+}
+@utility text-badge {
+  font-family: var(--font-heading);
+  font-size: 12px;
+  line-height: var(--tw-leading, 1);
+  font-weight: var(--tw-font-weight, 700);
+}
+@utility text-body {
+  font-family: var(--font-sans);
+  font-size: 16px;
+  line-height: var(--tw-leading, 24px);
+  font-weight: var(--tw-font-weight, 400);
+}
+@utility text-body-strong {
+  font-family: var(--font-sans);
+  font-size: 16px;
+  line-height: var(--tw-leading, 24px);
+  font-weight: var(--tw-font-weight, 600);
+}
+@utility text-body-sm {
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: var(--tw-leading, 20px);
+  font-weight: var(--tw-font-weight, 400);
+}
+@utility text-label {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: var(--tw-leading, 17px);
+  font-weight: var(--tw-font-weight, 700);
+}
+@utility text-caption {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: var(--tw-leading, 17px);
+  font-weight: var(--tw-font-weight, 400);
+}
+
 /* Force Inter as the inherited default. Tailwind v4's preflight should set this
  * via --default-font-family, but the @config + JS-theme path doesn't reliably
  * populate it, so pin it explicitly here. */
