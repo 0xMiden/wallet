@@ -3607,6 +3607,50 @@
     "message": "Soziales",
     "englishSource": "Social"
   },
+  "categoryGames": {
+    "message": "Spiele",
+    "englishSource": "Games"
+  },
+  "categoryNfts": {
+    "message": "NFTs",
+    "englishSource": "NFTs"
+  },
+  "categoryLearn": {
+    "message": "Lernen",
+    "englishSource": "Learn"
+  },
+  "exploreCategoriesLabel": {
+    "message": "Kategorien",
+    "englishSource": "Categories"
+  },
+  "exploreFeatured": {
+    "message": "Empfohlen",
+    "englishSource": "Featured"
+  },
+  "exploreHelperTools": {
+    "message": "Hilfsprogramme",
+    "englishSource": "Helper tools"
+  },
+  "exploreOpen": {
+    "message": "Öffnen",
+    "englishSource": "Open"
+  },
+  "exploreSeeAll": {
+    "message": "Alle anzeigen",
+    "englishSource": "See all"
+  },
+  "exploreShowLess": {
+    "message": "Weniger anzeigen",
+    "englishSource": "Show less"
+  },
+  "exploreComingSoonTitle": {
+    "message": "Bald auf Miden",
+    "englishSource": "Coming soon to Miden"
+  },
+  "exploreComingSoonDescription": {
+    "message": "Neue Apps erscheinen hier, sobald sie auf Miden starten.",
+    "englishSource": "New apps show up here as they launch on Miden."
+  },
   "minimize": {
     "message": "Minimieren",
     "englishSource": "Minimize"

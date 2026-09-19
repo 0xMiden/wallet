@@ -3607,6 +3607,50 @@
     "message": "Соціальне",
     "englishSource": "Social"
   },
+  "categoryGames": {
+    "message": "Ігри",
+    "englishSource": "Games"
+  },
+  "categoryNfts": {
+    "message": "NFT",
+    "englishSource": "NFTs"
+  },
+  "categoryLearn": {
+    "message": "Навчання",
+    "englishSource": "Learn"
+  },
+  "exploreCategoriesLabel": {
+    "message": "Категорії",
+    "englishSource": "Categories"
+  },
+  "exploreFeatured": {
+    "message": "Рекомендоване",
+    "englishSource": "Featured"
+  },
+  "exploreHelperTools": {
+    "message": "Допоміжні інструменти",
+    "englishSource": "Helper tools"
+  },
+  "exploreOpen": {
+    "message": "Відкрити",
+    "englishSource": "Open"
+  },
+  "exploreSeeAll": {
+    "message": "Переглянути все",
+    "englishSource": "See all"
+  },
+  "exploreShowLess": {
+    "message": "Згорнути",
+    "englishSource": "Show less"
+  },
+  "exploreComingSoonTitle": {
+    "message": "Незабаром у Miden",
+    "englishSource": "Coming soon to Miden"
+  },
+  "exploreComingSoonDescription": {
+    "message": "Нові застосунки з’являтимуться тут, щойно вони запрацюють у Miden.",
+    "englishSource": "New apps show up here as they launch on Miden."
+  },
   "minimize": {
     "message": "Згорнути",
     "englishSource": "Minimize"

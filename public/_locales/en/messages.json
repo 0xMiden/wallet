@@ -3607,6 +3607,50 @@
     "message": "Social",
     "englishSource": "Social"
   },
+  "categoryGames": {
+    "message": "Games",
+    "englishSource": "Games"
+  },
+  "categoryNfts": {
+    "message": "NFTs",
+    "englishSource": "NFTs"
+  },
+  "categoryLearn": {
+    "message": "Learn",
+    "englishSource": "Learn"
+  },
+  "exploreCategoriesLabel": {
+    "message": "Categories",
+    "englishSource": "Categories"
+  },
+  "exploreFeatured": {
+    "message": "Featured",
+    "englishSource": "Featured"
+  },
+  "exploreHelperTools": {
+    "message": "Helper tools",
+    "englishSource": "Helper tools"
+  },
+  "exploreOpen": {
+    "message": "Open",
+    "englishSource": "Open"
+  },
+  "exploreSeeAll": {
+    "message": "See all",
+    "englishSource": "See all"
+  },
+  "exploreShowLess": {
+    "message": "Show less",
+    "englishSource": "Show less"
+  },
+  "exploreComingSoonTitle": {
+    "message": "Coming soon to Miden",
+    "englishSource": "Coming soon to Miden"
+  },
+  "exploreComingSoonDescription": {
+    "message": "New apps show up here as they launch on Miden.",
+    "englishSource": "New apps show up here as they launch on Miden."
+  },
   "minimize": {
     "message": "Minimize",
     "englishSource": "Minimize"

@@ -3607,6 +3607,50 @@
     "message": "Społeczność",
     "englishSource": "Social"
   },
+  "categoryGames": {
+    "message": "Gry",
+    "englishSource": "Games"
+  },
+  "categoryNfts": {
+    "message": "NFT",
+    "englishSource": "NFTs"
+  },
+  "categoryLearn": {
+    "message": "Nauka",
+    "englishSource": "Learn"
+  },
+  "exploreCategoriesLabel": {
+    "message": "Kategorie",
+    "englishSource": "Categories"
+  },
+  "exploreFeatured": {
+    "message": "Polecane",
+    "englishSource": "Featured"
+  },
+  "exploreHelperTools": {
+    "message": "Narzędzia pomocnicze",
+    "englishSource": "Helper tools"
+  },
+  "exploreOpen": {
+    "message": "Otwórz",
+    "englishSource": "Open"
+  },
+  "exploreSeeAll": {
+    "message": "Zobacz wszystko",
+    "englishSource": "See all"
+  },
+  "exploreShowLess": {
+    "message": "Pokaż mniej",
+    "englishSource": "Show less"
+  },
+  "exploreComingSoonTitle": {
+    "message": "Wkrótce w Miden",
+    "englishSource": "Coming soon to Miden"
+  },
+  "exploreComingSoonDescription": {
+    "message": "Nowe aplikacje pojawią się tutaj, gdy tylko wystartują w Miden.",
+    "englishSource": "New apps show up here as they launch on Miden."
+  },
   "minimize": {
     "message": "Zminimalizuj",
     "englishSource": "Minimize"
