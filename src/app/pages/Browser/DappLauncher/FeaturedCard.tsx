@@ -86,7 +86,9 @@ export const FeaturedCard: FC<FeaturedCardProps> = ({ item, onOpen, morph = fals
           >
             {item.name}
           </AppName>
-          <span className="line-clamp-2 font-sans text-sm leading-[18px] text-muted">{item.tagline}</span>
+          <span className="line-clamp-2 font-sans text-sm leading-[18px] text-muted">
+            {item.taglineKey ? t(item.taglineKey) : item.tagline}
+          </span>
         </span>
         <Pill tone="selected" className="shrink-0">
           {t('exploreOpen')}
