@@ -30,8 +30,8 @@ export interface AlertSheetProps {
  * nothing, because the question needs an answer. The caller owns `open`.
  *
  * It opens above every other layer (drawers 50 < native navbar 60 < dApp confirm 70 < this), since
- * a confirmation is usually asked from inside a drawer, and it leaves body styles to the sheet
- * beneath it (`noBodyStyles`).
+ * a confirmation is usually asked from inside a drawer, and it leaves the Safari body pin to the
+ * sheet beneath it (`noBodyStyles`; see `Drawer` for what that does not cover).
  */
 export function AlertSheet({
   open,
