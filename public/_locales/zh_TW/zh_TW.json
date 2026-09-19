@@ -1145,5 +1145,6 @@
   "editContact": "編輯聯絡人",
   "deleteContact": "刪除聯絡人",
   "saveContact": "儲存",
-  "contactAdded": "新增時間"
+  "contactAdded": "新增時間",
+  "guardianCardMeta": "營運方：$operator$ · $location$"
 }

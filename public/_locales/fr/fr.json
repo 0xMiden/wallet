@@ -1145,5 +1145,6 @@
   "editContact": "Modifier le contact",
   "deleteContact": "Supprimer le contact",
   "saveContact": "Enregistrer",
-  "contactAdded": "Ajouté"
+  "contactAdded": "Ajouté",
+  "guardianCardMeta": "Exploité par $operator$ · $location$"
 }
