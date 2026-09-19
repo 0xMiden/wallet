@@ -144,7 +144,7 @@ describe('OpenSidePanel', () => {
   it('draws the outcome as the shared hero with Open wallet pinned in the footer', async () => {
     await render();
 
-    expect(testContainer!.querySelector('h1')).toHaveClass('text-2xl', 'font-black');
+    expect(testContainer!.querySelector('h1')).toHaveClass('text-hero-name');
     expect(testContainer!.querySelector('[data-slot="footer"] button')).toHaveTextContent(/open/i);
   });
 
