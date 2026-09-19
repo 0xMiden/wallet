@@ -62,8 +62,6 @@ interface SwapDetailProps {
    * a navigation the receipt would never call.
    */
   onOpenPendingNotes?: () => void;
-  /** Leaves the receipt. Nothing about the order is cancelled. */
-  onDismiss: () => void;
 }
 
 interface SwapNoteRowProps {
@@ -252,8 +250,7 @@ export const SwapDetail: FC<SwapDetailProps> = ({
   approximateUsdAmount,
   fromAccount,
   showActions,
-  onOpenPendingNotes,
-  onDismiss
+  onOpenPendingNotes
 }) => {
   const { t } = useTranslation();
   const progressTransition = useMotion(springs.standard);
@@ -455,24 +452,17 @@ export const SwapDetail: FC<SwapDetailProps> = ({
         </section>
       </div>
 
-      {showActions && (
+      {/* The receipt is left via the page's own back button, not a dismiss
+          control here - there is no other action once an order has reached
+          the DEX, so the only thing this bar ever offers is the claim route. */}
+      {showActions && onOpenPendingNotes && (
         <div className="shrink-0 space-y-3 pb-4 pt-3">
-          {onOpenPendingNotes && (
-            <Button
-              variant={ButtonVariant.Primary}
-              title={t('swapOpenPendingNotes')}
-              onClick={onOpenPendingNotes}
-              className="max-w-none"
-            />
-          )}
-          {/* Always present. It dismisses the receipt - an order that already
-              reached the DEX has no cancel path, so it must not borrow the
-              destructive Cancel label, and there is no order state in which
-              "leave this screen" stops being available. Deriving it from the
-              order state instead left a filled receipt with no button at all,
-              and promoted this one into the primary slot the instant a fill
-              landed, under a finger already reaching for the other button. */}
-          <Button variant={ButtonVariant.Secondary} title={t('close')} onClick={onDismiss} className="max-w-none" />
+          <Button
+            variant={ButtonVariant.Primary}
+            title={t('swapOpenPendingNotes')}
+            onClick={onOpenPendingNotes}
+            className="max-w-none"
+          />
         </div>
       )}
     </div>

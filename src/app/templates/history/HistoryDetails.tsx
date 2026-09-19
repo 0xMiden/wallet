@@ -693,14 +693,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
 
   return (
     <PageLayout hideToolbar>
-      {/* A swap receipt is reachable from the swap flow itself, so it keeps a
-          close-to-home affordance alongside the ordinary back button. */}
-      <PageHeader
-        className="px-4"
-        title={t('transaction')}
-        onBack={goBack}
-        onClose={entry?.txType === 'swap' ? () => navigate('/') : undefined}
-      />
+      <PageHeader className="px-4" title={t('transaction')} onBack={goBack} />
       <div className="flex flex-1 flex-col min-h-0 px-4">
         {loadError ? (
           <div className="flex-1 flex flex-col items-center justify-center p-4">
@@ -731,7 +724,6 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
             fromAccount={<AccountDisplay address={entry.address} account={account} allAccounts={allAccounts} />}
             showActions={!isPending && !canRetry}
             onOpenPendingNotes={receipt.offerClaimRoute ? () => navigate('/pending-notes') : undefined}
-            onDismiss={goBack}
           />
         ) : (
           <div className="flex-1 flex min-w-0 flex-col overflow-y-auto overflow-x-hidden">
