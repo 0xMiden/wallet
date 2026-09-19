@@ -133,6 +133,7 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
 
   return (
     <SendStepLayout
+      tabRoot
       title={t('sendTo')}
       footer={
         <Button
@@ -145,13 +146,13 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
         />
       }
     >
-      <div className="relative mt-3">
+      <div className="relative mt-1">
         {recipientName && (
           <div className="mb-2 flex items-center gap-3">
             <span data-testid="send-recipient-avatar" className="flex shrink-0">
               <ContactAvatar address={address} name={recipientName} />
             </span>
-            <span data-testid="send-recipient-name" className="font-heading text-2xl font-bold text-ink">
+            <span data-testid="send-recipient-name" className="text-hero-name text-ink">
               {recipientName}
             </span>
           </div>
@@ -164,9 +165,11 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
           className={clsx(
             'font-heading w-full resize-none overflow-hidden bg-transparent outline-none',
             'transition-[height] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none',
-            'text-[40px] font-bold leading-tight wrap-break-word',
-            'text-ink caret-accent-send',
-            error ? 'text-red-500' : 'text-ink'
+            // Below the tab title, never above it: 24px holds the placeholder to two lines on a
+            // 375pt phone, and a pasted address wraps to three.
+            'text-hero-name font-bold wrap-break-word placeholder:text-muted/70',
+            'caret-accent-send',
+            error ? 'text-negative-tint-ink' : 'text-ink'
           )}
           value={address}
           onChange={onAddressChange}
@@ -186,7 +189,7 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
 
       <AnimatePresence initial={false}>
         {error && (
-          <motion.p key="error" className="overflow-hidden text-sm text-red-500" {...reveal}>
+          <motion.p key="error" className="overflow-hidden text-body-sm text-negative-tint-ink" {...reveal}>
             <span className="block pt-2">{t(`${error}`)}</span>
           </motion.p>
         )}
@@ -207,13 +210,19 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
         )}
       </AnimatePresence>
 
-      <div className={clsx('mt-2', recentRecipients.length > 0 ? 'pb-6' : 'pb-4')}>
+      <div className={clsx('mt-3', recentRecipients.length > 0 ? 'pb-6' : 'pb-4')}>
         {/* The pills swap as one set, never one by one: the current set fades
             out, then the next fades in. Removing Paste/Scan while Address Book
             slid over and relabelled itself raced three animations against
             each other. */}
         <AnimatePresence initial={false} mode="wait">
-          <motion.div key={pillSet} className="flex flex-wrap items-start gap-2" {...pillSwap}>
+          <motion.div
+            key={pillSet}
+            // One row that never wraps: on a narrow phone it scrolls sideways, bleeding past the
+            // page's 24px gutter so the cut pill says there is more.
+            className="no-scrollbar -mx-6 flex items-start gap-2 overflow-x-auto px-6 [&>*]:shrink-0"
+            {...pillSwap}
+          >
             {pillSet === 'add' ? (
               <Pill
                 icon={<SendAddressBookIcon data-testid="send-address-book-icon" />}
@@ -255,7 +264,7 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
             data-testid="send-recent-recipients"
             {...reveal}
           >
-            <h2 className="text-gray text-xl font-heading font-bold">{t('recent')}</h2>
+            <h2 className="text-title-section text-ink">{t('recent')}</h2>
             <ul className="mt-1 flex flex-col">
               {recentRecipients.map((recipient, index) => (
                 <li key={recipient.address}>
@@ -268,7 +277,7 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
                     }}
                     className={clsx(
                       'flex w-full items-center gap-3 py-3 text-left',
-                      index > 0 && 'border-t border-rule-default'
+                      index > 0 && 'border-t border-hairline'
                     )}
                   >
                     <ContactAvatar
@@ -277,12 +286,12 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
                       network={recipient.chain === 'miden' ? 'miden' : 'ethereum'}
                     />
                     <span className="flex min-w-0 flex-col gap-0.5">
-                      <span className="truncate text-base font-bold text-ink">
+                      <span className="truncate text-row-title text-ink">
                         {recipient.name ?? truncateAddress(recipient.address)}
                       </span>
                       {/* The address once: with no saved name the line above already shows it, so
                           this line names the network instead. */}
-                      <span className="truncate text-xs text-text-muted">
+                      <span className="truncate text-caption text-muted">
                         {recipient.name
                           ? truncateAddress(recipient.address)
                           : recipient.chain === 'miden'

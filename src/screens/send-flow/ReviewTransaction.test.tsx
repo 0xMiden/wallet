@@ -75,7 +75,7 @@ jest.mock('./SendStepLayout', () => ({
   )
 }));
 jest.mock('components/NetworkChip', () => ({
-  NetworkChip: ({ label }: any) => <span data-testid="network-chip">{label}</span>
+  NetworkLogo: ({ kind }: any) => <span data-testid="network-logo" data-kind={kind} />
 }));
 
 jest.mock('components/ui/DetailCard', () => ({
@@ -359,7 +359,9 @@ describe('ReviewTransaction — rendering', () => {
 
     expect(screen.getByRole('heading', { level: 1, name: 'reviewDetails' })).toBeInTheDocument();
     expect(screen.getByTestId('back-btn')).toBeInTheDocument();
-    expect(screen.getByTestId('network-chip')).toHaveTextContent('miden');
+    // The network is a plain value with its mark, not a chip; the fee has no inline note.
+    expect(screen.getByTestId('network-logo')).toHaveAttribute('data-kind', 'miden');
+    expect(screen.queryByText('networkFeeEstimateNote')).not.toBeInTheDocument();
     // Both the amount and its fiat subtitle live inside the review-amount hero —
     // scoping to it is what proves they render together, not just somewhere on the page.
     const hero = within(screen.getByTestId('review-amount'));
@@ -371,8 +373,10 @@ describe('ReviewTransaction — rendering', () => {
 
     // Seeding effect ran -> recallDate seeded -> capitalized relative
     // label + reclaim note both present.
-    await waitFor(() => expect(screen.getByTestId('row-note')).toBeInTheDocument());
-    expect(screen.getByTestId('row-note').textContent).toBe('recallReturnsNote');
+    // The reclaim reassurance is one caption under the card, not a note in the expiration row.
+    await waitFor(() => expect(screen.getByTestId('review-recall-note')).toBeInTheDocument());
+    expect(screen.getByTestId('review-recall-note').textContent).toBe('recallReturnsNote');
+    expect(screen.queryByTestId('row-note')).not.toBeInTheDocument();
     expect(screen.getByText(/^In .+/)).toBeInTheDocument();
     // Relative blocks-until-recall — no block height involved (#308).
     expect(dateTimeToRecallBlocksMock).toHaveBeenCalledWith(expect.any(Date));
@@ -527,7 +531,7 @@ describe('ReviewTransaction — onSubmit', () => {
     render(<ReviewTransaction />);
     await flush();
     // Wait until the recall blocks have been seeded.
-    await waitFor(() => expect(screen.getByTestId('row-note')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByTestId('review-recall-note')).toBeInTheDocument());
 
     await clickSubmit();
 
@@ -566,7 +570,7 @@ describe('ReviewTransaction — onSubmit', () => {
     isExtensionMock.mockReturnValue(true);
     render(<ReviewTransaction />);
     await flush();
-    await waitFor(() => expect(screen.getByTestId('row-note')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByTestId('review-recall-note')).toBeInTheDocument());
 
     await clickSubmit();
 
