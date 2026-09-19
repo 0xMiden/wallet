@@ -277,6 +277,8 @@ const ForgotPassword: FC = () => {
       isLoading={isLoading}
       recoveryError={recoveryError}
       guardianProbe={guardianProbe.state}
+      // Confirmation restores the wallet; there is no step to go back to from it.
+      canGoBack={step !== OnboardingStep.Confirmation}
       onAction={onAction}
     />
   );

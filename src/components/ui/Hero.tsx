@@ -22,6 +22,8 @@ export type HeroProps = HeroContentProps & {
   'data-testid'?: string;
   /** Ref for the `name` heading, e.g. to move focus there on mount so an outcome is announced. */
   nameRef?: React.Ref<HTMLHeadingElement>;
+  /** The `name` heading's level: `h2` under a page header's title, `h1` on a screen with no header. */
+  nameAs?: 'h1' | 'h2';
   /** Extra attributes for the `name` heading, e.g. `tabIndex={-1}` alongside `nameRef`. */
   nameProps?: Omit<React.HTMLAttributes<HTMLHeadingElement>, 'className' | 'children'>;
 };
@@ -39,15 +41,16 @@ export const Hero: React.FC<HeroProps> = ({
   className,
   'data-testid': dataTestId,
   nameRef,
-  nameProps
+  nameProps,
+  nameAs: NameTag = 'h2'
 }) => (
   <div data-testid={dataTestId} className={cn('flex w-full flex-col items-center', className)}>
     {visual}
     {value !== undefined && <div className="mt-4 text-center text-hero-value text-ink">{value}</div>}
     {name !== undefined && (
-      <h2 ref={nameRef} className="mt-4 w-full text-center text-hero-name text-ink outline-none" {...nameProps}>
+      <NameTag ref={nameRef} className="mt-4 w-full text-center text-hero-name text-ink outline-none" {...nameProps}>
         {name}
-      </h2>
+      </NameTag>
     )}
     {subtitle !== undefined && <p className="mt-1 text-center text-body-sm text-muted">{subtitle}</p>}
   </div>

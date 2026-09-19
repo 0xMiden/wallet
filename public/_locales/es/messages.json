@@ -1770,7 +1770,7 @@
   },
   "verifySeedPhrase": {
     "message": "Comprueba Seed Phrase",
-    "englishSource": "Verify Seed Phrase"
+    "englishSource": "Verify seed phrase"
   },
   "faucetPromptTitle": {
     "message": "Recarga tu monedero",
@@ -2041,7 +2041,7 @@
   },
   "continueImport": {
     "message": "Continuar importando",
-    "englishSource": "Continue Import"
+    "englishSource": "Continue import"
   },
   "chooseHowToProtect": {
     "message": "Elige cómo quieres proteger tu cartera",
@@ -2268,8 +2268,8 @@
     "englishSource": "Only Miden seed phrases are supported."
   },
   "yourWalletIsReady": {
-    "message": "¡Tu <highlight>monedero</highlight> ya está listo!",
-    "englishSource": "Your <highlight>Wallet</highlight> is ready!"
+    "message": "¡Tu monedero ya está listo!",
+    "englishSource": "Your wallet is ready!"
   },
   "recoveryPhraseSevenDayReminder": {
     "message": "Anota tu frase de recuperación en un plazo de 7 días para proteger tu monedero por completo.",
@@ -2409,7 +2409,7 @@
   },
   "resetRequired": {
     "message": "Es necesario restablecer el monedero",
-    "englishSource": "Wallet Reset Required"
+    "englishSource": "Wallet reset required"
   },
   "resetRequiredDescription": {
     "message": "Miden Testnet ha actualizado los ID de cuenta a bech32 para mejorar tu experiencia. Para seguir utilizando tu monedero, restaura los datos desde un archivo de copia de seguridad o desde seed phrase, o crea uno nuevo.",
@@ -2421,11 +2421,11 @@
   },
   "reset": {
     "message": "Restablecer monedero",
-    "englishSource": "Reset Wallet"
+    "englishSource": "Reset wallet"
   },
   "forgotPassword": {
     "message": "¿Has olvidado la contraseña?",
-    "englishSource": "Forgot Password?"
+    "englishSource": "Forgot password?"
   },
   "forgotPasswordDescription": {
     "message": "Si has olvidado tu contraseña, debes cerrar sesión y volver a importar tu cuenta. A continuación, podrás crear una nueva contraseña.",
@@ -2449,7 +2449,7 @@
   },
   "signOut": {
     "message": "Cerrar sesión",
-    "englishSource": "Sign Out"
+    "englishSource": "Sign out"
   },
   "twitter": {
     "message": "X (Twitter)",
@@ -3928,7 +3928,7 @@
   },
   "unlockWallet": {
     "message": "Desbloquear la cartera",
-    "englishSource": "Unlock Wallet"
+    "englishSource": "Unlock wallet"
   },
   "unlockWalletDescription": {
     "message": "Con el «seed phrase», siempre podrás recuperar tu cuenta pública. Elige a continuación cómo desbloquear rápidamente tu monedero.",

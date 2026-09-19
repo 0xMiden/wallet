@@ -498,7 +498,7 @@
   "verifyStepWrong": "Bu, konunun ilk ve son sözü değil — onlara tekrar dokunun",
   "enterYourWalletSeedPhrase": "Cüzdanınızın 12 kelimelik “Seed phrase”sini girin.",
   "onlyMidenSeedPhrasesAreSupported": "Yalnızca Miden Seed ifadeleri desteklenmektedir.",
-  "yourWalletIsReady": "<highlight>Cüzdanınız</highlight> hazır!",
+  "yourWalletIsReady": "Cüzdanınız hazır!",
   "recoveryPhraseSevenDayReminder": "Cüzdanınızı tam anlamıyla güvence altına almak için kurtarma ifadesini 7 gün içinde bir yere yazın.",
   "recoveryPhraseDailyReminder": "Ana ekranda size her gün hatırlatma göndereceğiz.",
   "openWallet": "Cüzdanı aç",

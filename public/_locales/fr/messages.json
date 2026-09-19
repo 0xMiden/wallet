@@ -1770,7 +1770,7 @@
   },
   "verifySeedPhrase": {
     "message": "Vérifier Seed Phrase",
-    "englishSource": "Verify Seed Phrase"
+    "englishSource": "Verify seed phrase"
   },
   "faucetPromptTitle": {
     "message": "Rechargez votre portefeuille",
@@ -2041,7 +2041,7 @@
   },
   "continueImport": {
     "message": "Continuer l'importation",
-    "englishSource": "Continue Import"
+    "englishSource": "Continue import"
   },
   "chooseHowToProtect": {
     "message": "Choisissez la manière dont vous souhaitez protéger votre portefeuille",
@@ -2268,8 +2268,8 @@
     "englishSource": "Only Miden seed phrases are supported."
   },
   "yourWalletIsReady": {
-    "message": "Votre <highlight>portefeuille</highlight> est prêt !",
-    "englishSource": "Your <highlight>Wallet</highlight> is ready!"
+    "message": "Votre portefeuille est prêt !",
+    "englishSource": "Your wallet is ready!"
   },
   "recoveryPhraseSevenDayReminder": {
     "message": "Notez votre phrase de récupération dans les 7 jours afin de sécuriser pleinement votre portefeuille.",
@@ -2409,7 +2409,7 @@
   },
   "resetRequired": {
     "message": "Réinitialisation du portefeuille requise",
-    "englishSource": "Wallet Reset Required"
+    "englishSource": "Wallet reset required"
   },
   "resetRequiredDescription": {
     "message": "Le réseau de test Miden est désormais compatible avec les identifiants de compte bech32 afin d’améliorer votre expérience. Pour continuer à utiliser votre portefeuille, veuillez le restaurer à partir d’un fichier de sauvegarde ou de seed phrase, ou en créer un nouveau.",
@@ -2421,11 +2421,11 @@
   },
   "reset": {
     "message": "Réinitialiser le portefeuille",
-    "englishSource": "Reset Wallet"
+    "englishSource": "Reset wallet"
   },
   "forgotPassword": {
     "message": "Mot de passe oublié ?",
-    "englishSource": "Forgot Password?"
+    "englishSource": "Forgot password?"
   },
   "forgotPasswordDescription": {
     "message": "Si vous avez oublié votre mot de passe, vous devez vous déconnecter puis réimporter votre compte. Vous pourrez ensuite créer un nouveau mot de passe.",
@@ -2449,7 +2449,7 @@
   },
   "signOut": {
     "message": "Se déconnecter",
-    "englishSource": "Sign Out"
+    "englishSource": "Sign out"
   },
   "twitter": {
     "message": "X (Twitter)",
@@ -3928,7 +3928,7 @@
   },
   "unlockWallet": {
     "message": "Déverrouiller le portefeuille",
-    "englishSource": "Unlock Wallet"
+    "englishSource": "Unlock wallet"
   },
   "unlockWalletDescription": {
     "message": "Grâce à l'seed phrasee, vous pouvez à tout moment restaurer votre compte public. Choisissez ci-dessous la méthode qui vous permettra de déverrouiller rapidement votre portefeuille.",

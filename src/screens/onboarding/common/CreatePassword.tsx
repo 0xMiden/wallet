@@ -4,9 +4,12 @@ import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import { MIN_PASSWORD_LENGTH, PRIVACY_POLICY_URL, STRONG_PASSWORD_LENGTH, TERMS_OF_USE_URL } from 'app/constants';
-import { Icon, IconName } from 'app/icons/v2';
+import { IconName } from 'app/icons/v2';
 import { Button } from 'components/Button';
-import { Input } from 'components/Input';
+import { IconButton } from 'components/ui/IconButton';
+import { TextField, TextFieldElement } from 'components/ui/TextField';
+
+import { OnboardingStepLayout } from './OnboardingStepLayout';
 
 export interface PasswordValidation {
   minChar: boolean;
@@ -20,8 +23,9 @@ const uppercaseLowercaseMixtureRegx = /(?=.*[a-z])(?=.*[A-Z])/;
 const lettersNumbersMixtureRegx = /(?=.*\d)(?=.*[A-Za-z])/;
 const specialCharacterRegx = /[!@#$%^&*()_+\-=\]{};':"\\|,.<>?]/;
 
-export interface CreatePasswordScreenProps extends Omit<React.ButtonHTMLAttributes<HTMLDivElement>, 'onSubmit'> {
+export interface CreatePasswordScreenProps {
   onSubmit?: (password: string) => void;
+  'data-testid'?: string;
 }
 
 export const PasswordStrengthIndicator = ({
@@ -47,44 +51,44 @@ export const PasswordStrengthIndicator = ({
 
     return t('8chars1number');
   }, [validationChecks, t]);
+  // The bars take a status fill (never text): red, amber, then green as the password strengthens.
   const validationColor = useMemo(() => {
     if (validationChecks === 5) {
-      return 'bg-green-500';
+      return 'bg-status-positive';
     }
     if (validationChecks >= 3) {
-      return 'bg-yellow-500';
+      return 'bg-status-pending';
     }
 
     if (validationChecks === 2) {
-      return 'bg-red-500';
+      return 'bg-status-negative';
     }
 
-    return 'bg-gray-100';
+    return 'bg-fill-pressed';
   }, [validationChecks]);
 
-  // TODO: show strength indicator if password is more than 0 characters
   return (
-    <div className="h-4 text-xs">
+    <div className="min-h-[17px] px-1 font-sans text-[13px] leading-[17px] text-muted">
       {password.length > 0 ? (
-        <div className="flex flex-row justify-between items-center">
-          <div className="flex flex-row gap-x-2">
+        <div className="flex flex-row items-center justify-between gap-3">
+          <div className="flex flex-row gap-x-1.5" aria-hidden="true">
             {[2, 3, 5].map(check => (
               <div
                 key={`check-${check}`}
-                className={`h-1 w-10 rounded-md ${validationChecks >= check ? validationColor : 'bg-gray-100'}`}
+                className={`h-1 w-10 rounded-full ${validationChecks >= check ? validationColor : 'bg-fill-pressed'}`}
               />
             ))}
           </div>
-          <p className="text-xs text-text-muted">{validationMessage}</p>
+          <p>{validationMessage}</p>
         </div>
       ) : (
-        <p className="text-xs text-text-muted">{t('minimumCharsWithAtLeast')}</p>
+        <p>{t('minimumCharsWithAtLeast')}</p>
       )}
     </div>
   );
 };
 
-export const CreatePasswordScreen: React.FC<CreatePasswordScreenProps> = ({ className, onSubmit, ...props }) => {
+export const CreatePasswordScreen: React.FC<CreatePasswordScreenProps> = ({ onSubmit, 'data-testid': dataTestId }) => {
   const { t } = useTranslation();
   const [password, setPassword] = useState('');
   const [verifyPassword, setVerifyPassword] = useState('');
@@ -97,9 +101,9 @@ export const CreatePasswordScreen: React.FC<CreatePasswordScreenProps> = ({ clas
     specialChar: false,
     strongPasswordLength: false
   });
-  const verifyPasswordRef = useRef<HTMLInputElement>(null);
+  const verifyPasswordRef = useRef<TextFieldElement>(null);
 
-  const onPasswordChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const onPasswordChange = (e: React.ChangeEvent<TextFieldElement>) => {
     setPassword(e.target.value);
   };
 
@@ -118,7 +122,7 @@ export const CreatePasswordScreen: React.FC<CreatePasswordScreenProps> = ({ clas
     [passwordValidation, password, verifyPassword]
   );
 
-  const handleTabKey = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
+  const handleTabKey = useCallback((e: React.KeyboardEvent<TextFieldElement>) => {
     if (e.key === 'Tab') {
       e.preventDefault();
       verifyPasswordRef.current?.focus();
@@ -140,7 +144,7 @@ export const CreatePasswordScreen: React.FC<CreatePasswordScreenProps> = ({ clas
   }, []);
 
   const handleEnterKey = useCallback(
-    (e: React.KeyboardEvent<HTMLInputElement>) => {
+    (e: React.KeyboardEvent<TextFieldElement>) => {
       if (e.key === 'Enter') {
         e.preventDefault();
         if (isValidPassword && onSubmit) {
@@ -151,85 +155,93 @@ export const CreatePasswordScreen: React.FC<CreatePasswordScreenProps> = ({ clas
     [isValidPassword, onPasswordSubmit, onSubmit]
   );
 
+  const passwordsMatch = isValidPassword && password === verifyPassword;
+  const passwordsDiffer = verifyPassword.length >= password.length && password !== verifyPassword;
+
   return (
-    <div className={classNames('flex flex-col flex-1', 'bg-app-bg gap-y-6 px-4 pt-10 text-ink', className)} {...props}>
-      <div className="flex flex-col items-center text-ink gap-1">
-        <header className="font-heading text-[2rem] leading-none font-bold">{t('createPassword')}</header>
-        <p className="text-base leading-none text-center font-normal">{t('createPasswordDescription')}</p>
-      </div>
-
-      <article className="w-full justify-center items-center flex flex-col gap-y-6">
-        <div className="flex flex-col gap-y-2 w-full">
-          <Input
-            data-testid="create-password-input"
-            type={isPasswordVisible ? 'text' : 'password'}
-            label={t('password')}
-            value={password}
-            placeholder={t('enterPassword')}
-            icon={
-              <button className="flex-1" onClick={onPasswordVisibilityToggle}>
-                <Icon name={isPasswordVisible ? IconName.EyeOff : IconName.Eye} fill="currentColor" />
-              </button>
-            }
-            onChange={onPasswordChange}
-            onKeyDown={handleTabKey}
-          />
-          <PasswordStrengthIndicator password={password} validation={passwordValidation} />
-        </div>
-
-        <div className="flex flex-col gap-y-2 w-full">
-          <Input
-            data-testid="create-password-verify-input"
-            ref={verifyPasswordRef}
-            type={isVerifyPasswordVisible ? 'text' : 'password'}
-            label={t('verifyPassword')}
-            value={verifyPassword}
-            placeholder={t('enterPasswordAgain')}
-            icon={
-              <button className="flex-1" onClick={onVerifyPasswordVisibilityToggle}>
-                <Icon name={isVerifyPasswordVisible ? IconName.EyeOff : IconName.Eye} fill="currentColor" />
-              </button>
-            }
-            onChange={e => setVerifyPassword(e.target.value)}
-            onKeyDown={handleEnterKey}
-          />
-          <p
-            className={classNames(
-              'h-4 text-green-500 text-xs',
-              isValidPassword && password === verifyPassword ? 'block' : 'hidden'
-            )}
-          >
-            {t('itsAMatch')}
+    <OnboardingStepLayout
+      data-testid={dataTestId}
+      title={t('createPassword')}
+      description={t('createPasswordDescription')}
+      footer={
+        <>
+          {/* Links in running copy take the text-action ink, never the brand orange or an underline. */}
+          <p className="px-1 text-center font-sans text-[13px] leading-[17px] text-muted">
+            {t('byProceeding')}{' '}
+            <a target="_blank" href={TERMS_OF_USE_URL} className="font-bold text-accent-tint-ink" rel="noreferrer">
+              {t('termsOfUsage')}
+            </a>{' '}
+            {t('andWord')}{' '}
+            <a target="_blank" href={PRIVACY_POLICY_URL} className="font-bold text-accent-tint-ink" rel="noreferrer">
+              {t('privacyPolicy')}
+            </a>
+            .
           </p>
-          <p
-            className={classNames(
-              'h-4 text-red-500 text-xs',
-              verifyPassword.length >= password.length && password !== verifyPassword ? 'block' : 'hidden'
-            )}
-          >
-            {t('passwordsDoNotMatch')}
-          </p>
-        </div>
-      </article>
-      <div className="flex flex-col gap-2 self-center w-full mt-auto">
-        <p className="text-text-muted text-xs text-center px-4">
-          {t('byProceeding')}{' '}
-          <a target="_blank" href={TERMS_OF_USE_URL} className="underline" rel="noreferrer">
-            {t('termsOfUsage')}
-          </a>{' '}
-          {t('andWord')}{' '}
-          <a target="_blank" href={PRIVACY_POLICY_URL} className="underline" rel="noreferrer">
-            {t('privacyPolicy')}
-          </a>
-          .
-        </p>
-        <Button
-          data-testid="create-password-submit"
-          title={t('continue')}
-          disabled={!isValidPassword}
-          onClick={onPasswordSubmit}
+          <Button
+            className="max-w-none"
+            data-testid="create-password-submit"
+            title={t('continue')}
+            disabled={!isValidPassword}
+            onClick={onPasswordSubmit}
+          />
+        </>
+      }
+    >
+      <div className="flex flex-col gap-2">
+        <TextField
+          data-testid="create-password-input"
+          type={isPasswordVisible ? 'text' : 'password'}
+          label={t('password')}
+          value={password}
+          placeholder={t('enterPassword')}
+          trailing={
+            <IconButton
+              icon={isPasswordVisible ? IconName.EyeOff : IconName.Eye}
+              label={t(isPasswordVisible ? 'hide' : 'show')}
+              onClick={onPasswordVisibilityToggle}
+            />
+          }
+          onChange={onPasswordChange}
+          onKeyDown={handleTabKey}
         />
+        <PasswordStrengthIndicator password={password} validation={passwordValidation} />
       </div>
-    </div>
+
+      <div className="flex flex-col gap-2">
+        <TextField
+          data-testid="create-password-verify-input"
+          ref={verifyPasswordRef}
+          type={isVerifyPasswordVisible ? 'text' : 'password'}
+          label={t('verifyPassword')}
+          value={verifyPassword}
+          placeholder={t('enterPasswordAgain')}
+          trailing={
+            <IconButton
+              icon={isVerifyPasswordVisible ? IconName.EyeOff : IconName.Eye}
+              label={t(isVerifyPasswordVisible ? 'hide' : 'show')}
+              onClick={onVerifyPasswordVisibilityToggle}
+            />
+          }
+          onChange={e => setVerifyPassword(e.target.value)}
+          onKeyDown={handleEnterKey}
+        />
+        <p
+          className={classNames(
+            'min-h-[17px] px-1 font-sans text-[13px] leading-[17px] text-positive-ink',
+            passwordsMatch ? 'block' : 'hidden'
+          )}
+        >
+          {t('itsAMatch')}
+        </p>
+        <p
+          className={classNames(
+            'min-h-[17px] px-1 font-sans text-[13px] leading-[17px] text-negative-ink',
+            passwordsDiffer ? 'block' : 'hidden'
+          )}
+        >
+          {t('passwordsDoNotMatch')}
+        </p>
+      </div>
+    </OnboardingStepLayout>
   );
 };

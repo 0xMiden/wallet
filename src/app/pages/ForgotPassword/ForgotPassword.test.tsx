@@ -239,6 +239,15 @@ describe('ForgotPassword', () => {
     expect(flow(container).getAttribute('data-step')).toBe(OnboardingStep.Confirmation);
   });
 
+  it('offers the header back on every step but Confirmation', async () => {
+    const { container } = renderPage();
+    await dispatch({ id: 'create-password' });
+    expect(flow(container).getAttribute('data-step')).toBe(OnboardingStep.CreatePassword);
+    expect(captured.props?.canGoBack).toBe(true);
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    expect(captured.props?.canGoBack).toBe(false);
+  });
+
   it('unknown action id: default branch is a no-op', async () => {
     const { container } = renderPage();
     await dispatch({ id: 'totally-unknown' });

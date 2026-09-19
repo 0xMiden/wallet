@@ -1770,7 +1770,7 @@
   },
   "verifySeedPhrase": {
     "message": "Sprawdź stronę Seed Phrase",
-    "englishSource": "Verify Seed Phrase"
+    "englishSource": "Verify seed phrase"
   },
   "faucetPromptTitle": {
     "message": "Doładuj portfel",
@@ -2041,7 +2041,7 @@
   },
   "continueImport": {
     "message": "Kontynuuj importowanie",
-    "englishSource": "Continue Import"
+    "englishSource": "Continue import"
   },
   "chooseHowToProtect": {
     "message": "Wybierz, w jaki sposób chcesz zabezpieczyć swój portfel",
@@ -2268,8 +2268,8 @@
     "englishSource": "Only Miden seed phrases are supported."
   },
   "yourWalletIsReady": {
-    "message": "Twój <highlight>portfel</highlight> jest gotowy!",
-    "englishSource": "Your <highlight>Wallet</highlight> is ready!"
+    "message": "Twój portfel jest gotowy!",
+    "englishSource": "Your wallet is ready!"
   },
   "recoveryPhraseSevenDayReminder": {
     "message": "Aby w pełni zabezpieczyć swój portfel, zapisz frazę odzyskiwania w ciągu 7 dni.",
@@ -2409,7 +2409,7 @@
   },
   "resetRequired": {
     "message": "Konieczne jest zresetowanie portfela",
-    "englishSource": "Wallet Reset Required"
+    "englishSource": "Wallet reset required"
   },
   "resetRequiredDescription": {
     "message": "Sieć testowa Miden przeszła na identyfikatory kont w formacie bech32 w celu poprawy komfortu użytkowania. Aby nadal korzystać z portfela, przywróć dane z pliku kopii zapasowej lub z witryny seed phrase albo utwórz nowy portfel.",
@@ -2421,11 +2421,11 @@
   },
   "reset": {
     "message": "Zresetuj portfel",
-    "englishSource": "Reset Wallet"
+    "englishSource": "Reset wallet"
   },
   "forgotPassword": {
     "message": "Nie pamiętasz hasła?",
-    "englishSource": "Forgot Password?"
+    "englishSource": "Forgot password?"
   },
   "forgotPasswordDescription": {
     "message": "Jeśli zapomniałeś hasła, musisz się wylogować i ponownie zaimportować swoje konto. Następnie będziesz mógł ustawić nowe hasło.",
@@ -2449,7 +2449,7 @@
   },
   "signOut": {
     "message": "Wyloguj się",
-    "englishSource": "Sign Out"
+    "englishSource": "Sign out"
   },
   "twitter": {
     "message": "X (Twitter)",
@@ -3928,7 +3928,7 @@
   },
   "unlockWallet": {
     "message": "Odblokuj portfel",
-    "englishSource": "Unlock Wallet"
+    "englishSource": "Unlock wallet"
   },
   "unlockWalletDescription": {
     "message": "Dzięki funkcji „seed phrase” zawsze możesz przywrócić swoje konto publiczne. Wybierz poniżej sposób na szybkie odblokowanie portfela.",

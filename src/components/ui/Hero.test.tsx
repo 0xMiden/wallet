@@ -87,3 +87,12 @@ describe('Hero', () => {
     expect(container.firstChild).toHaveClass('mt-3');
   });
 });
+
+describe('Hero — name level', () => {
+  it('draws the name as an h2 by default and as an h1 on a screen with no header', () => {
+    const { rerender } = render(<Hero visual={<span />} name="Ready" />);
+    expect(screen.getByRole('heading', { level: 2, name: 'Ready' })).toBeInTheDocument();
+    rerender(<Hero visual={<span />} name="Ready" nameAs="h1" />);
+    expect(screen.getByRole('heading', { level: 1, name: 'Ready' })).toHaveClass('text-hero-name');
+  });
+});

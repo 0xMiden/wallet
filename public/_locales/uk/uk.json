@@ -498,7 +498,7 @@
   "verifyStepWrong": "Це ще не все — натисніть на них ще раз",
   "enterYourWalletSeedPhrase": "Введіть 12-слівний вираз відновлення (Seed phrase) вашого гаманця.",
   "onlyMidenSeedPhrasesAreSupported": "Підтримуються лише фрази Miden Seed.",
-  "yourWalletIsReady": "Ваш <highlight>гаманець</highlight> готовий!",
+  "yourWalletIsReady": "Ваш гаманець готовий!",
   "recoveryPhraseSevenDayReminder": "Запишіть свою фразу відновлення протягом 7 днів, щоб повністю захистити свій гаманець.",
   "recoveryPhraseDailyReminder": "Ми щодня нагадуватимемо вам про це на головному екрані.",
   "openWallet": "Відкрити гаманець",

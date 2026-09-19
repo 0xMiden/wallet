@@ -498,7 +498,7 @@
   "verifyStepWrong": "這還不是最終定論——再點一下它們",
   "enterYourWalletSeedPhrase": "請輸入您的錢包的 12 個單詞的「Seed phrase」。",
   "onlyMidenSeedPhrasesAreSupported": "僅支援 Miden Seed 的短語。",
-  "yourWalletIsReady": "您的 <highlight>錢包</highlight> 已準備就緒！",
+  "yourWalletIsReady": "您的 錢包 已準備就緒！",
   "recoveryPhraseSevenDayReminder": "請在 7 天內將您的恢復短語記錄下來，以確保錢包的安全無虞。",
   "recoveryPhraseDailyReminder": "我們會每天在主畫面提醒您。",
   "openWallet": "打開錢包",

@@ -1770,7 +1770,7 @@
   },
   "verifySeedPhrase": {
     "message": "Seed Phrase adresini doğrulayın",
-    "englishSource": "Verify Seed Phrase"
+    "englishSource": "Verify seed phrase"
   },
   "faucetPromptTitle": {
     "message": "Cüzdanınıza para yatırın",
@@ -2041,7 +2041,7 @@
   },
   "continueImport": {
     "message": "İçe Aktarmaya Devam Et",
-    "englishSource": "Continue Import"
+    "englishSource": "Continue import"
   },
   "chooseHowToProtect": {
     "message": "Cüzdanınızı nasıl korumak istediğinizi seçin",
@@ -2268,8 +2268,8 @@
     "englishSource": "Only Miden seed phrases are supported."
   },
   "yourWalletIsReady": {
-    "message": "<highlight>Cüzdanınız</highlight> hazır!",
-    "englishSource": "Your <highlight>Wallet</highlight> is ready!"
+    "message": "Cüzdanınız hazır!",
+    "englishSource": "Your wallet is ready!"
   },
   "recoveryPhraseSevenDayReminder": {
     "message": "Cüzdanınızı tam anlamıyla güvence altına almak için kurtarma ifadesini 7 gün içinde bir yere yazın.",
@@ -2409,7 +2409,7 @@
   },
   "resetRequired": {
     "message": "Cüzdanın Sıfırlanması Gerekiyor",
-    "englishSource": "Wallet Reset Required"
+    "englishSource": "Wallet reset required"
   },
   "resetRequiredDescription": {
     "message": "Miden Testnet, kullanıcı deneyiminizi iyileştirmek amacıyla bech32 hesap kimliklerine geçiş yapmıştır. Cüzdanınızı kullanmaya devam etmek için lütfen bir yedekleme dosyasından veya seed phrase adresinden geri yükleme yapın ya da yeni bir cüzdan oluşturun.",
@@ -2421,11 +2421,11 @@
   },
   "reset": {
     "message": "Cüzdanı Sıfırla",
-    "englishSource": "Reset Wallet"
+    "englishSource": "Reset wallet"
   },
   "forgotPassword": {
     "message": "Şifrenizi mi unuttunuz?",
-    "englishSource": "Forgot Password?"
+    "englishSource": "Forgot password?"
   },
   "forgotPasswordDescription": {
     "message": "Şifrenizi unuttuysanız, oturumunuzu kapatıp hesabınızı yeniden içe aktarmanız gerekir. Ardından yeni bir şifre oluşturabilirsiniz.",
@@ -2449,7 +2449,7 @@
   },
   "signOut": {
     "message": "Oturumu Kapat",
-    "englishSource": "Sign Out"
+    "englishSource": "Sign out"
   },
   "twitter": {
     "message": "X (Twitter)",
@@ -3928,7 +3928,7 @@
   },
   "unlockWallet": {
     "message": "Cüzdanın Kilidini Aç",
-    "englishSource": "Unlock Wallet"
+    "englishSource": "Unlock wallet"
   },
   "unlockWalletDescription": {
     "message": "seed phrase ile genel hesabınızı her zaman geri yükleyebilirsiniz. Cüzdanınızın kilidini hızlı bir şekilde nasıl açacağınızı aşağıdan seçin.",

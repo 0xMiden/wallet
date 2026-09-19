@@ -161,12 +161,13 @@ describe('BackUpSeedPhraseScreen', () => {
       expect(screen.getByTestId('btn-continue')).toBeInTheDocument();
     });
 
-    it('merges a custom className and spreads arbitrary div props onto the root', () => {
-      renderComponent({ className: 'my-custom-class', 'data-testid': 'backup-root' } as never);
+    it('renders on the step layout: a 28px title, the words in the body and Continue pinned', () => {
+      renderComponent({ 'data-testid': 'backup-root' });
       const root = screen.getByTestId('backup-root');
-      expect(root).toHaveClass('my-custom-class');
-      // Base classes from the component are preserved alongside the override.
       expect(root).toHaveClass('flex', 'flex-col', 'bg-app-bg');
+      expect(screen.getByRole('heading', { level: 1, name: 'backUpYourWallet' })).toBeInTheDocument();
+      expect(screen.getByTestId('btn-continue').closest('[data-slot="footer"]')).not.toBeNull();
+      expect(screen.getByText('backUpWalletInstructions').closest('[data-slot="step-heading"]')).not.toBeNull();
     });
 
     it('renders the three control buttons (show, copy, continue)', () => {
@@ -184,8 +185,8 @@ describe('BackUpSeedPhraseScreen', () => {
       expect(copy).toHaveAttribute('data-size', 'sm');
       expect(show.getAttribute('data-classname')).not.toMatch(/\bh-8\b|\btext-xs\b/);
       expect(copy.getAttribute('data-classname')).not.toMatch(/\bh-8\b|\btext-xs\b/);
-      // Continue keeps the plain lg CTA anatomy: no manual text-size override.
-      expect(screen.getByTestId('btn-continue').getAttribute('data-classname')).toBeFalsy();
+      // Continue keeps the plain lg CTA anatomy, only spanning the pinned footer.
+      expect(screen.getByTestId('btn-continue').getAttribute('data-classname')).toBe('max-w-none');
     });
 
     it("gives the show/copy row buttons equal flex-1 shares instead of a fixed w-1/2 (so a longer ru/uk label doesn't overflow at 320px), 10px apart", () => {

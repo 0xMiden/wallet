@@ -25,6 +25,8 @@ export const SubPageHeaderProvider: React.FC<{ value: SubPageHeaderConfig; child
 }) => <SubPageHeaderContext.Provider value={value}>{children}</SubPageHeaderContext.Provider>;
 
 export interface SubPageLayoutProps extends SubPageHeaderConfig {
+  /** A close button at the header's right, for a page that is dismissed rather than popped. */
+  onClose?: () => void;
   /** The page's sections, 20px apart. */
   children: React.ReactNode;
   /** Right side of the header row, e.g. an orange text action. */
@@ -56,6 +58,7 @@ export const SubPageLayout: React.FC<SubPageLayoutProps> = ({
   headerActions,
   footer,
   footerLayout = 'row',
+  onClose,
   'data-testid': dataTestId,
   ...header
 }) => {
@@ -66,11 +69,12 @@ export const SubPageLayout: React.FC<SubPageLayoutProps> = ({
 
   return (
     <div data-testid={dataTestId} className="flex min-h-0 flex-1 flex-col bg-app-bg">
-      {(title !== undefined || onBack) && (
+      {(title !== undefined || onBack || onClose) && (
         <PageHeader
           className="px-4"
           title={title}
           onBack={onBack}
+          onClose={onClose}
           actions={headerActions}
           focusTitleOnMount={focusTitleOnMount}
         />

@@ -387,9 +387,6 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean }> = ({ remove = false }) => {
           seedPhrase={words}
           showIntro={false}
           onSubmit={onComplete}
-          // The onboarding screen brings its own 16px gutter and top padding; cancel them here
-          // so it lines up with the section above instead of doubling the page margin.
-          className="-mx-4 min-h-0 pt-0!"
           data-testid="verify-seed-phrase-prompt-flow"
         />
       )}

@@ -1,14 +1,19 @@
 import React from 'react';
 
-import { Trans, useTranslation } from 'react-i18next';
+import { useTranslation } from 'react-i18next';
 
 import { ReactComponent as ConfirmationHero } from 'app/icons/onboarding/confirmation-illustrantion.svg';
+import { Icon, IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
+import { Hero } from 'components/ui/Hero';
+import { Notice } from 'components/ui/Notice';
 import { Spinner } from 'components/ui/Spinner';
+import { SubPageLayout } from 'components/ui/SubPageLayout';
 
 const MAX_BIOMETRIC_ATTEMPTS = 3;
 
-export interface ConfirmationScreenProps extends React.ButtonHTMLAttributes<HTMLDivElement> {
+export interface ConfirmationScreenProps {
+  'data-testid'?: string;
   isLoading?: boolean;
   biometricAttempts?: number;
   biometricError?: string | null;
@@ -30,7 +35,6 @@ export interface ConfirmationScreenProps extends React.ButtonHTMLAttributes<HTML
 }
 
 export const ConfirmationScreen: React.FC<ConfirmationScreenProps> = ({
-  className,
   isLoading,
   biometricAttempts = 0,
   biometricError,
@@ -38,7 +42,7 @@ export const ConfirmationScreen: React.FC<ConfirmationScreenProps> = ({
   creating = false,
   onSubmit,
   onSwitchToPassword,
-  ...props
+  'data-testid': dataTestId
 }) => {
   const { t } = useTranslation();
 
@@ -51,98 +55,101 @@ export const ConfirmationScreen: React.FC<ConfirmationScreenProps> = ({
   // otherwise the user sees "Your wallet is ready" before it actually is.
   if (creating) {
     return (
-      <div className="w-full h-full pt-11.5">
-        <div {...props} className="flex flex-col items-center justify-center h-full gap-y-4 bg-app-bg w-full px-6">
-          <Spinner />
-          <p className="text-text-muted text-sm">{t('creatingYourWallet')}</p>
-        </div>
+      <div
+        data-testid={dataTestId}
+        className="flex h-full w-full flex-col items-center justify-center gap-y-4 bg-app-bg px-4 text-center"
+      >
+        <Spinner />
+        <p className="font-sans text-[15px] leading-[22px] text-muted">{t('creatingYourWallet')}</p>
       </div>
     );
   }
 
-  // Nothing on this screen may call the wallet ready while it reports a failure.
   const hasFailure = hasError || hasRecoveryError;
   const primaryButtonTitle = hasFailure ? t('retry') : t('openWallet');
 
   return (
-    <div {...props} className="bg-app-bg max-w-full h-full overflow-hidden" data-testid="onboarding-confirmation">
-      <div className="min-h-full flex flex-col items-center px-6 pb-8">
-        <div className="flex-1 flex flex-col items-center justify-center w-full text-center py-8">
-          <ConfirmationHero style={{ width: 240, height: 'auto' }} />
-          <h1 className="mt-6 text-5xl font-bold font-heading text-ink leading-[100%] tracking-tight">
-            {hasFailure ? (
-              t('smthWentWrong')
-            ) : (
-              <Trans i18nKey="yourWalletIsReady" components={{ highlight: <span className="text-primary-500" /> }} />
-            )}
-          </h1>
-          {!hasFailure && (
-            <>
-              {/* TODO: Wrap in a single class and then have child components */}
-              <p className="mt-3 text-lg font-heading font-medium text-ink leading-[130%]">
-                {t('recoveryPhraseSevenDayReminder')}
-              </p>
-              <p className="mt-4 rounded-full bg-fill px-4 py-2 text-sm font-medium text-ink">
-                {t('recoveryPhraseDailyReminder')}
-              </p>
-            </>
-          )}
-
-          {hasFailure && (
-            // One failure is one announcement, even when it is also a counted biometric attempt.
-            <div role="alert" className="mt-4">
-              {hasRecoveryError && (
-                <p className="text-red-500 text-sm mb-2 select-text" data-testid="onboarding-recovery-error">
-                  {recoveryError}
-                </p>
-              )}
-              {hasError && (
-                <>
-                  <p className="text-red-500 text-sm mb-2">{t('biometricFailed')}</p>
-                  {!showPasswordFallback && (
-                    <p className="text-text-muted text-xs">
-                      {t('biometricAttemptsRemaining', { count: MAX_BIOMETRIC_ATTEMPTS - biometricAttempts })}
-                    </p>
-                  )}
-                </>
-              )}
-            </div>
-          )}
-        </div>
-
-        <div className="w-full flex flex-col items-center gap-y-3 shrink-0">
-          {showPasswordFallback ? (
-            <>
-              <Button
-                tabIndex={0}
-                title={t('continueWithPassword')}
-                className="self-center"
-                onClick={onSwitchToPassword}
-                disabled={isLoading}
-              />
-              <Button
-                tabIndex={0}
-                title={t('tryBiometricAgain')}
-                variant={ButtonVariant.Secondary}
-                className="self-center"
-                onClick={onSubmit}
-                isLoading={isLoading}
-                disabled={isLoading}
-              />
-            </>
-          ) : (
+    <SubPageLayout
+      data-testid="onboarding-confirmation"
+      footerLayout="stack"
+      footer={
+        showPasswordFallback ? (
+          <>
             <Button
               tabIndex={0}
-              title={primaryButtonTitle}
-              className="self-center w-full"
+              title={t('continueWithPassword')}
+              className="max-w-none"
+              onClick={onSwitchToPassword}
+              disabled={isLoading}
+            />
+            <Button
+              tabIndex={0}
+              title={t('tryBiometricAgain')}
+              variant={ButtonVariant.Secondary}
+              className="max-w-none"
               onClick={onSubmit}
               isLoading={isLoading}
               disabled={isLoading}
-              data-testid="onboarding-confirmation-submit"
             />
-          )}
-        </div>
+          </>
+        ) : (
+          <Button
+            tabIndex={0}
+            title={primaryButtonTitle}
+            className="max-w-none"
+            onClick={onSubmit}
+            isLoading={isLoading}
+            disabled={isLoading}
+            data-testid="onboarding-confirmation-submit"
+          />
+        )
+      }
+    >
+      <div className="my-auto flex flex-col items-center gap-4 py-6 text-center">
+        <Hero
+          nameAs="h1"
+          visual={<ConfirmationHero aria-hidden="true" className="h-auto w-full max-w-[220px]" />}
+          name={hasFailure ? t('smthWentWrong') : t('yourWalletIsReady')}
+          subtitle={
+            hasFailure ? undefined : (
+              // Held to a readable measure and balanced, so the sentence breaks into two even lines.
+              <span className="mx-auto block max-w-[300px] text-balance">{t('recoveryPhraseSevenDayReminder')}</span>
+            )
+          }
+        />
+        {/* The daily reminder is a fact about Home, not a warning: one quiet caption line, not a panel. */}
+        {!hasFailure && (
+          <p
+            className="flex max-w-[300px] items-start justify-center gap-1.5 text-caption text-muted"
+            data-testid="onboarding-confirmation-reminder"
+          >
+            <Icon name={IconName.Calendar} size="xs" className="mt-px shrink-0" />
+            <span className="text-balance">{t('recoveryPhraseDailyReminder')}</span>
+          </p>
+        )}
+
+        {hasFailure && (
+          <Notice tone="negative" role="alert" className="text-left">
+            <span className="flex flex-col gap-1">
+              {hasRecoveryError && (
+                <span className="select-text" data-testid="onboarding-recovery-error">
+                  {recoveryError}
+                </span>
+              )}
+              {hasError && (
+                <>
+                  <span>{t('biometricFailed')}</span>
+                  {!showPasswordFallback && (
+                    <span className="text-muted">
+                      {t('biometricAttemptsRemaining', { count: MAX_BIOMETRIC_ATTEMPTS - biometricAttempts })}
+                    </span>
+                  )}
+                </>
+              )}
+            </span>
+          </Notice>
+        )}
       </div>
-    </div>
+    </SubPageLayout>
   );
 };

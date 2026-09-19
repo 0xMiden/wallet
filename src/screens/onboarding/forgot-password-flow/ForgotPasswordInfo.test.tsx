@@ -16,7 +16,8 @@ jest.mock('react-i18next', () => ({
 
 // Icon barrel — expose only the `IconName` members the screen references.
 jest.mock('app/icons/v2', () => ({
-  IconName: { Lock: 'Lock' }
+  IconName: { Lock: 'Lock' },
+  Icon: ({ name }: { name: string }) => <span data-testid={`icon-${name}`} />
 }));
 
 // `PageHeader` — surface the title and the close handler so the header
@@ -28,37 +29,6 @@ jest.mock('components/PageHeader', () => ({
       <button data-testid="nav-header-close" onClick={onClose}>
         close
       </button>
-    </div>
-  )
-}));
-
-// `Message` — echo every prop the screen threads through as data attributes /
-// text so each one can be asserted individually.
-jest.mock('components/Message', () => ({
-  Message: ({
-    title,
-    description,
-    secondDescription,
-    icon,
-    descriptionClasses,
-    className
-  }: {
-    title: string;
-    description: string;
-    secondDescription?: string;
-    icon: string;
-    descriptionClasses?: string;
-    className?: string;
-  }) => (
-    <div
-      data-testid="message"
-      data-icon={icon}
-      data-description-classes={descriptionClasses}
-      data-classname={className}
-    >
-      <span data-testid="message-title">{title}</span>
-      <span data-testid="message-description">{description}</span>
-      <span data-testid="message-second-description">{secondDescription}</span>
     </div>
   )
 }));
@@ -92,16 +62,15 @@ describe('ForgotPasswordInfo', () => {
     expect(screen.getByTestId('nav-header')).toHaveClass('px-4');
   });
 
-  it('renders the Message with the forgot-password copy, lock icon and description sizing', () => {
+  it('explains under a lone lock hero, in ink then muted copy, with Sign out pinned in the footer', () => {
     renderComponent();
 
-    const message = screen.getByTestId('message');
-    expect(screen.getByTestId('message-title')).toHaveTextContent('forgotPassword');
-    expect(screen.getByTestId('message-description')).toHaveTextContent('forgotPasswordDescription');
-    expect(screen.getByTestId('message-second-description')).toHaveTextContent('forgotPasswordSecondDescription');
-    expect(message).toHaveAttribute('data-icon', 'Lock');
-    expect(message).toHaveAttribute('data-description-classes', 'text-sm');
-    expect(message).toHaveAttribute('data-classname', 'flex-1');
+    expect(screen.getByText('forgotPasswordDescription')).toHaveClass('text-ink');
+    expect(screen.getByText('forgotPasswordSecondDescription')).toHaveClass('text-muted');
+    expect(screen.getByTestId('icon-Lock')).toBeInTheDocument();
+    expect(screen.getByTestId('sign-out-button').closest('[data-slot="footer"]')).not.toBeNull();
+    // The header names the page; the body does not repeat it.
+    expect(screen.getAllByText('forgotPassword')).toHaveLength(1);
   });
 
   it('renders the primary sign-out button', () => {
@@ -109,7 +78,7 @@ describe('ForgotPasswordInfo', () => {
 
     const button = screen.getByTestId('sign-out-button');
     expect(button).toHaveTextContent('signOut');
-    expect(button).toHaveAttribute('data-variant', 'Primary');
+    expect(button).not.toHaveAttribute('data-variant');
   });
 
   it('invokes onClose when the header close control is clicked', () => {
