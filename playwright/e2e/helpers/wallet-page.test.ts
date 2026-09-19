@@ -15,9 +15,15 @@ function makePage(): Page {
 /**
  * `appearOnWait` models rows that have not committed when the drawer opens and arrive while the
  * helper waits. That is the real timing the stress driver hits, and the only way to tell a waiting
- * gate from a bare point-in-time count.
+ * gate from a bare point-in-time count. `waitForError`/`countError` model the OTHER way each read
+ * fails - a closed page, a destroyed execution context - which is the only way to prove the reason
+ * reaches the caller instead of being swallowed into "found 0".
  */
-function makeSendPage(tokenIds: string[], appearOnWait: string[] = []): { page: Page; clickedTokenIds: string[] } {
+function makeSendPage(
+  tokenIds: string[],
+  opts: { appearOnWait?: string[]; waitForError?: string; countError?: string } = {}
+): { page: Page; clickedTokenIds: string[] } {
+  const appearOnWait = opts.appearOnWait ?? [];
   const present = new Set(tokenIds);
   const clickedTokenIds: string[] = [];
   const noopLocator = {
@@ -44,9 +50,13 @@ function makeSendPage(tokenIds: string[], appearOnWait: string[] = []): { page: 
       const match = selector.match(/^\[data-token-id=(.+)\]$/);
       const tokenId = JSON.parse(match?.[1] ?? '""') as string;
       return {
-        count: jest.fn(async () => (present.has(tokenId) ? 1 : 0)),
+        count: jest.fn(async () => {
+          if (opts.countError !== undefined) throw new Error(opts.countError);
+          return present.has(tokenId) ? 1 : 0;
+        }),
         first: () => ({
           waitFor: jest.fn(async () => {
+            if (opts.waitForError !== undefined) throw new Error(opts.waitForError);
             if (appearOnWait.includes(tokenId)) present.add(tokenId);
           })
         }),
@@ -229,7 +239,7 @@ describe('ChromeWalletPage exact token selection', () => {
   });
 
   it('waits for a row that commits after the drawer opens', async () => {
-    const { page, clickedTokenIds } = makeSendPage([], ['faucet-late']);
+    const { page, clickedTokenIds } = makeSendPage([], { appearOnWait: ['faucet-late'] });
     const wallet = new ChromeWalletPage(page, 'test');
 
     await wallet.sendTokens({
@@ -240,6 +250,27 @@ describe('ChromeWalletPage exact token selection', () => {
     });
 
     expect(clickedTokenIds).toEqual(['faucet-late']);
+  });
+
+  it('names why the wait failed instead of reporting an empty row set', async () => {
+    const closed = 'Target page, context or browser has been closed';
+    const { page, clickedTokenIds } = makeSendPage([], { waitForError: closed });
+    const wallet = new ChromeWalletPage(page, 'test');
+
+    await expect(
+      wallet.sendTokens({ recipientAddress: 'account-b', amount: '1', isPrivate: false, tokenId: 'faucet-a' })
+    ).rejects.toThrow(closed);
+    expect(clickedTokenIds).toEqual([]);
+  });
+
+  it('names why the count failed even when the row attached', async () => {
+    const destroyed = 'Execution context was destroyed';
+    const { page } = makeSendPage(['faucet-a'], { countError: destroyed });
+    const wallet = new ChromeWalletPage(page, 'test');
+
+    await expect(
+      wallet.sendTokens({ recipientAddress: 'account-b', amount: '1', isPrivate: false, tokenId: 'faucet-a' })
+    ).rejects.toThrow(destroyed);
   });
 
   it('fails instead of falling back when the requested token id is absent', async () => {

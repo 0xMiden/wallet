@@ -2424,16 +2424,27 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
       // The wait above is on the search INPUT; the rows render from store state that can arrive
       // later. `count()` is a point-in-time read, so without this the stress driver aborts a whole
       // run on the one lap where the rows have not committed yet. The count stays as the
-      // uniqueness check, which is what owns the message below.
+      // uniqueness check, which owns the message below.
+      //
+      // Both reads keep their REASON. Playwright also rejects for a closed page or a destroyed
+      // execution context, and collapsing those into "found 0" points the reader at the faucet id
+      // instead of the teardown that actually happened.
+      const failures: string[] = [];
+      const noteFailure = (stage: string, e: unknown) =>
+        failures.push(`${stage}: ${e instanceof Error ? e.message : String(e)}`);
       await exactToken
         .first()
         .waitFor({ state: 'attached', timeout: STEP_TIMEOUT_MS })
-        .catch(() => {});
-      const exactTokenCount = await exactToken.count().catch(() => 0);
+        .catch(e => noteFailure('wait', e));
+      const exactTokenCount = await exactToken.count().catch(e => {
+        noteFailure('count', e);
+        return 0;
+      });
       if (exactTokenCount !== 1) {
         throw new Error(
           `WalletPage.sendTokens: expected exactly one token row for faucet ID "${params.tokenId}", ` +
-            `but found ${exactTokenCount}`
+            `but found ${exactTokenCount}` +
+            (failures.length > 0 ? ` (${failures.join('; ')})` : '')
         );
       }
       await exactToken.locator('[data-testid^="send-token-"]').first().click({ timeout: STEP_TIMEOUT_MS });
