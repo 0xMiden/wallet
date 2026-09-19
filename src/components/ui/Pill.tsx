@@ -1,22 +1,31 @@
 import React from 'react';
 
 import { cva } from 'class-variance-authority';
+import { motion } from 'framer-motion';
 
+import { usePreset } from 'lib/animation';
 import { hapticLight, hapticSelection } from 'lib/mobile/haptics';
 import { cn } from 'lib/ui/util';
 
-/** Height and type scale. `sm` is the 24px status pill; `md` (32px) is every other chip, badge and action. */
-export type PillSize = 'sm' | 'md';
+/**
+ * Height and type scale. `xs` (20px) is the compact status badge in dense rows; `sm` (24px) is the
+ * status pill in detail headers; `md` (32px) is every other chip, badge and action.
+ */
+export type PillSize = 'xs' | 'sm' | 'md';
 
 /**
  * What the pill says about its content:
  * - `neutral` — the default quiet chip, `fill` with `ink`.
  * - `selected` — chosen, `accent-tint` with `accent-tint-ink`.
  * - `word` — a seed word: same quiet fill as `neutral`, named for where it's used.
- * - `positive` / `warning` / `negative` — status, meant for `size="sm"` with `dot`.
+ * - `positive` / `warning` / `negative` — status, on an opaque tint with its ink, meant for `dot`.
+ * - `inactive` — a status that is neither good nor bad (cancelled, reclaimed, checking):
+ *   `fill-pressed` with `ink`, so it still shows on a `fill` card.
  * - `plain` — no colors, for a caller that brings its own (e.g. a network's chip).
+ *
+ * A status is usually rendered through `StatusBadge`, which picks the tone and label for you.
  */
-export type PillTone = 'neutral' | 'selected' | 'word' | 'positive' | 'warning' | 'negative' | 'plain';
+export type PillTone = 'neutral' | 'selected' | 'word' | 'positive' | 'warning' | 'negative' | 'inactive' | 'plain';
 
 export interface PillProps {
   children: React.ReactNode;
@@ -24,8 +33,12 @@ export interface PillProps {
   icon?: React.ReactNode;
   size?: PillSize;
   tone?: PillTone;
-  /** A small leading status dot in the pill's own ink color (`currentColor`). */
-  dot?: boolean;
+  /**
+   * A small 6px leading status dot in the pill's own ink color (`currentColor`). `'pulse'` makes
+   * it breathe on the `pulse` preset, for an operation still in flight; it holds still under
+   * reduced motion.
+   */
+  dot?: boolean | 'pulse';
   /** Makes the pill a button, with a tap haptic. */
   onClick?: () => void;
   /**
@@ -49,20 +62,23 @@ const pillVariants = cva(
   {
     variants: {
       size: {
+        // Semibold: at 20px the bold face crowds the dot and reads heavier than the row title.
+        xs: 'h-5 gap-1 px-2 text-xs font-semibold',
         sm: 'h-6 gap-1 px-2 text-xs',
         md: 'h-8 gap-1.5 px-3 text-sm'
-      },
+      } satisfies Record<PillSize, string>,
       tone: {
         neutral: 'border-transparent bg-fill text-ink',
         word: 'border-transparent bg-fill text-ink',
         selected: 'border-transparent bg-accent-tint text-accent-tint-ink',
-        // 10%, not 15%: at 15% the ink dropped under 4.5:1 on `page` in light mode (measured
-        // 4.39/4.52/4.69 for negative/pending/positive). 10% clears AA on `page` (4.65/4.79/4.85
-        // measured) but NOT on `fill` (4.11/4.24/4.33 measured, still under 4.5) — status pills must
-        // sit on `page`, not stack inside a `fill` container.
-        positive: 'border-transparent bg-status-positive/10 text-positive-ink',
-        warning: 'border-transparent bg-status-pending/10 text-pending-ink',
-        negative: 'border-transparent bg-status-negative/10 text-negative-ink',
+        // Opaque tints, not a translucent status color: a 10% wash took the surface's color with it
+        // and fell under 4.5:1 on `fill` (4.11-4.33 measured). On their own tint the inks measure
+        // 4.61 / 4.83 / 4.62 light and 5.64 / 5.11 / 5.50 dark, on any surface
+        // (`lib/ui/design-tokens.test.ts`).
+        positive: 'border-transparent bg-positive-tint text-positive-ink',
+        warning: 'border-transparent bg-pending-tint text-pending-ink',
+        negative: 'border-transparent bg-negative-tint text-negative-ink',
+        inactive: 'border-transparent bg-fill-pressed text-ink',
         plain: 'border-transparent'
       } satisfies Record<PillTone, string>
     },
@@ -80,12 +96,32 @@ const pillVariants = cva(
 const pillIconVariants = cva('flex shrink-0 items-center justify-center [&>svg]:h-full [&>svg]:w-full', {
   variants: {
     size: {
+      xs: '-ml-0.5 h-3 w-3',
       sm: '-ml-0.5 h-3.5 w-3.5',
       md: '-ml-1 h-4 w-4'
-    }
+    } satisfies Record<PillSize, string>
   },
   defaultVariants: { size: 'md' }
 });
+
+const DOT_CLASS = 'h-1.5 w-1.5 shrink-0 rounded-full bg-current';
+
+/**
+ * The in-flight dot: breathes on the `pulse` preset, holds still under reduced motion (the
+ * preset drops its loop). `data-pulsing` says which, for tests and for inspecting a device.
+ */
+const PulsingDot: React.FC = () => {
+  const pulse = usePreset('pulse');
+  return (
+    <motion.span
+      aria-hidden="true"
+      className={DOT_CLASS}
+      data-pulsing={pulse.animate ? 'true' : 'false'}
+      animate={pulse.animate}
+      transition={pulse.transition}
+    />
+  );
+};
 
 /**
  * The app's pill: one height, padding and type scale for every chip, badge, label and small
@@ -123,7 +159,7 @@ export const Pill: React.FC<PillProps> = ({
 
   const content = (
     <>
-      {dot && <span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full bg-current" />}
+      {dot === 'pulse' ? <PulsingDot /> : dot && <span aria-hidden="true" className={DOT_CLASS} />}
       {icon && <span className={pillIconVariants({ size })}>{icon}</span>}
       <span className="min-w-0 truncate">{children}</span>
     </>
