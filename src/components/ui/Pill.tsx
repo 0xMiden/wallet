@@ -3,7 +3,9 @@ import React from 'react';
 import { cva } from 'class-variance-authority';
 import { motion } from 'framer-motion';
 
-import { usePreset } from 'lib/animation';
+// The module, not the `lib/animation` barrel: many suites stub the barrel with only the springs
+// they use, and every Pill would then lose its dot.
+import { usePreset } from 'lib/animation/presets';
 import { hapticLight, hapticSelection } from 'lib/mobile/haptics';
 import { cn } from 'lib/ui/util';
 
