@@ -477,6 +477,11 @@ body[data-hide-navbar]::after {
     --ds-positive-ink: #3d7a34;
     --ds-pending-ink: #b8451a;
     --ds-negative-ink: #c63a00;
+    /* A raised, clicky bubble (tab bars' active pill): white, a hairline ring so it holds on white,
+     * and a soft drop. Pressed sinks it: a tighter, lighter shadow. */
+    --ds-raised: #ffffff;
+    --ds-shadow-raised: 0 0 0 1px rgba(63, 63, 63, 0.06), 0 1px 2px rgba(0, 0, 0, 0.06), 0 2px 8px rgba(0, 0, 0, 0.08);
+    --ds-shadow-raised-pressed: 0 0 0 1px rgba(63, 63, 63, 0.06), 0 1px 1px rgba(0, 0, 0, 0.05);
   }
 
   .dark {
@@ -563,6 +568,12 @@ body[data-hide-navbar]::after {
     --ds-fill: #262422;
     --ds-fill-pressed: #33302d;
     --ds-hairline: rgba(255, 255, 255, 0.09);
+    /* A drop shadow barely reads on #191919, so dark raises the bubble with the lighter fill, a
+     * lit top edge and a faint ring. */
+    --ds-raised: #262422;
+    --ds-shadow-raised:
+      inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 0 0 1px rgba(255, 255, 255, 0.06), 0 1px 2px rgba(0, 0, 0, 0.5);
+    --ds-shadow-raised-pressed: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 0 0 1px rgba(255, 255, 255, 0.06);
     --ds-ink: #ffffff;
     --ds-muted: #a8a29c;
     --ds-accent-tint: #3a2418;

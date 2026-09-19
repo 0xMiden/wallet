@@ -111,8 +111,16 @@ tops. 8, 10, 20, 22 and 24px are retired.
 
 ### Elevation
 
-Flat: separation comes from `fill` and hairlines. Shadows only on sheets, the floating nav and a
-segmented control's thumb.
+Flat: separation comes from `fill` and hairlines. Shadows only on sheets, the floating nav, a
+segmented control's thumb and a raised bubble.
+
+| Token | Light | Dark | Use |
+| --- | --- | --- | --- |
+| `raised` (surface) + `shadow-raised` | white, 1px ring at 6%, 0 1 2 / 6% + 0 2 8 / 8% drop | `fill`, lit 1px top edge, 1px ring at 6%, a tight dark drop | The active bubble of an interactive toggle: the top action bar's pill and the bottom nav's highlight. |
+| `shadow-raised-pressed` | ring + 0 1 1 / 5% | ring + a dimmer top edge | The same bubble while pressed (with the press scale): it sinks. |
+| `shadow-ribbon` | 0 1 2 / 18% + 0 2 6 / 12% | same | The test-network corner ribbon, so it reads as wrapping over the bar. |
+
+Raised is only for interactive toggles and bubbles. Cards, list groups and detail cards stay flat.
 
 Cards and row cards are `fill` with no border; borders never outline a card; hairlines only divide
 rows inside a group.
