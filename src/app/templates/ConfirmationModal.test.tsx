@@ -92,9 +92,14 @@ describe('ConfirmationModal', () => {
     expect(cancel).toHaveTextContent('cancel');
     expect(ok).toHaveTextContent('ok');
 
-    // The secondary (cancel) button keeps its right-margin class and the submit
-    // button is forced to type="button" so it doesn't submit an outer form.
-    expect(cancel).toHaveClass('mr-3');
+    // Both buttons share an equal flex-1 row (10px apart) instead of the old
+    // default-width pair in a `flex justify-end` row, which spilled Cancel out
+    // of the ~400px modal card; the confirm button is forced to type="button"
+    // so it doesn't submit an outer form.
+    expect(cancel).toHaveClass('flex-1');
+    expect(ok).toHaveClass('flex-1');
+    expect(cancel.parentElement).toHaveClass('flex', 'gap-2.5');
+    expect(cancel.parentElement).not.toHaveClass('justify-end');
     expect(ok).toHaveAttribute('data-type', 'button');
   });
 
