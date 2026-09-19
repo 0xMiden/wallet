@@ -180,25 +180,22 @@ it('renders the OpenZeppelin mark in the design-system Hero, the name once, and 
   expect(pill).toHaveTextContent('online');
 });
 
-// Every other provider (no `Mark` on its GUARDIAN_LOGOS entry) keeps the
-// original wordmark-in-a-tile hero layout untouched by the OpenZeppelin
-// brand-kit work.
-it('keeps the wordmark-tile hero layout for a provider with no Mark', () => {
+// A provider with no standalone mark (Lambda Class) gets its wordmark scaled onto the SAME brand
+// tile, so every provider's hero reads alike, as it does on the picker's cards.
+it('draws a wordmark-only provider on the same brand tile in the hero', () => {
   mockGuardianOptionForEndpoint.mockReturnValue({
-    id: 'gateway',
-    name: 'Gateway One',
-    operatedBy: 'Gateway Provider',
+    id: 'lambda-class',
+    name: 'Lambda One',
+    operatedBy: 'Lambda Provider',
     location: 'EU-WEST'
   });
   render(<GuardianSettings />);
 
   const logo = screen.getByTestId('guardian-operator-logo');
-  expect(logo).toBeInTheDocument();
-  // The legacy grey tile, not the OpenZeppelin brand-kit tile.
-  expect(logo.parentElement).toHaveClass('bg-fill');
-  expect(logo.parentElement).not.toHaveClass('bg-pure-white');
+  expect(logo).toHaveClass('w-full');
+  expect(logo.parentElement).toHaveClass('bg-pure-white', 'size-22', 'rounded-full');
 
-  expect(screen.getByRole('heading', { name: 'Gateway One' })).toBeInTheDocument();
+  expect(screen.getByRole('heading', { name: 'Lambda One' })).toBeInTheDocument();
 });
 
 it('shows the offline pill while the sync loop reports a guardian outage', () => {

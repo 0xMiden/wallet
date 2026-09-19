@@ -1,6 +1,5 @@
 import React, { FC, useEffect, useState, useSyncExternalStore } from 'react';
 
-import clsx from 'clsx';
 import { Trans, useTranslation } from 'react-i18next';
 
 import {
@@ -8,9 +7,8 @@ import {
   guardianOptionForEndpoint,
   useCurrentGuardianEndpoint
 } from 'app/hooks/useCurrentGuardianEndpoint';
-import { GUARDIAN_LOGOS, guardianLogoColorClass } from 'app/icons/guardian-operator-logs';
-import { ReactComponent as GuardianAvatar } from 'app/icons/onboarding/guardian-avatar.svg';
 import { Button } from 'components/Button';
+import { GuardianLogoTile } from 'components/GuardianLogoTile';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import { Hero } from 'components/ui/Hero';
 import { StatusBadge } from 'components/ui/StatusBadge';
@@ -89,7 +87,6 @@ const GuardianSettings: FC = () => {
   }, [currentEndpoint]);
 
   const option = guardianOptionForEndpoint(currentEndpoint);
-  const logoEntry = option ? GUARDIAN_LOGOS[option.id] : undefined;
   const guardianName = option?.name ?? (currentEndpoint ? t('customGuardian') : t('loading'));
   const provider = option?.operatedBy ?? (currentEndpoint ? t('customGuardian') : t('loading'));
   const region = option?.location ?? t('unknown');
@@ -196,10 +193,6 @@ const GuardianSettings: FC = () => {
   // this account still cannot rely on it, and you need to act". The causes
   // differ, but no copy in the design distinguishes them, and inventing a string
   // here would cost a 14-locale re-translation cycle (see the ledger's F-136).
-  //
-  // Extracted from the hero markup below so it renders identically whether
-  // the hero is the Mark-in-a-circle layout (Hero) or the legacy
-  // wordmark-tile layout — one pill, two possible parents.
   const statusPill = currentEndpoint && (
     <StatusBadge
       size="md"
@@ -235,40 +228,11 @@ const GuardianSettings: FC = () => {
         />
       }
     >
+      {/* The provider's logo on the same brand tile the guardian picker's cards draw, at hero size,
+          then its name once and the status pill. */}
       <div className="flex flex-col items-center pt-1">
-        {logoEntry?.Mark ? (
-          // OpenZeppelin ships a standalone colour mark (see GuardianLogoEntry),
-          // so its hero drops the wordmark-tile layout for the design-system
-          // Hero: the mark centred in an 88px circle, the provider name as the
-          // Hero title (replacing the wordmark-plus-repeated-name pairing
-          // below), and the same status pill underneath.
-          <>
-            <Hero
-              visual={
-                <div className="flex h-22 w-22 items-center justify-center rounded-full border border-hairline bg-pure-white dark:bg-grey-800">
-                  <logoEntry.Mark data-testid="guardian-operator-logo" className="h-10 w-auto" />
-                </div>
-              }
-              name={guardianName}
-            />
-            {statusPill}
-          </>
-        ) : (
-          <>
-            <div className="flex h-16 min-w-16 max-w-full items-center justify-center overflow-hidden rounded-xl bg-fill px-3">
-              {logoEntry ? (
-                <logoEntry.Logo
-                  data-testid="guardian-operator-logo"
-                  className={clsx('h-12 w-auto max-w-48', guardianLogoColorClass(logoEntry))}
-                />
-              ) : (
-                <GuardianAvatar data-testid="guardian-avatar" className="h-14 w-14" />
-              )}
-            </div>
-            <h2 className="mt-2 break-all text-center text-hero-name text-ink">{guardianName}</h2>
-            {statusPill}
-          </>
-        )}
+        <Hero visual={<GuardianLogoTile guardianId={option?.id} size="hero" />} name={guardianName} />
+        {statusPill}
       </div>
 
       {/* `h3`, subordinate to the guardian name's h2 above: these are sections
