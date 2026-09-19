@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { Button, ButtonVariant } from 'components/Button';
 import { PageHeader } from 'components/PageHeader';
 import { TokenLogo } from 'components/TokenLogo';
+import { Pill } from 'components/ui/Pill';
 import { gaslessEarnWithdrawalToMiden } from 'lib/epoch';
 import { toAdaptiveFixed } from 'lib/i18n/numbers';
 import { useAccount } from 'lib/miden/front';
@@ -80,9 +81,9 @@ const EarnWithdrawReview: FC<EarnWithdrawReviewProps> = ({ positionId }) => {
         title={`${position.protocol} • ${position.asset}`}
         onBack={goBack}
         actions={
-          <span className="shrink-0 rounded-full bg-[#DDD4CE] px-3 py-1.5 text-xs font-medium leading-none text-heading-gray">
-            {position.asset} on {position.network}
-          </span>
+          <Pill className="shrink-0">
+            {t('earnAssetOnNetwork', { asset: position.asset, network: position.network })}
+          </Pill>
         }
       />
 
