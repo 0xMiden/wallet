@@ -94,8 +94,10 @@ jest.mock('lib/miden/metadata/utils', () => ({
 }));
 
 const mockAssessOutgoingSpendingLimitDetails = jest.fn();
+const mockHasSpendingLimits = jest.fn((..._args: unknown[]) => Promise.resolve(false));
 jest.mock('lib/miden/spending-limits/queue', () => ({
-  assessOutgoingSpendingLimitDetails: (...args: unknown[]) => mockAssessOutgoingSpendingLimitDetails(...args)
+  assessOutgoingSpendingLimitDetails: (...args: unknown[]) => mockAssessOutgoingSpendingLimitDetails(...args),
+  hasSpendingLimits: (...args: unknown[]) => mockHasSpendingLimits(...args)
 }));
 
 jest.mock('lib/i18n/numbers', () => ({

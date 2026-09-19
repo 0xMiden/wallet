@@ -620,8 +620,10 @@ describe('transaction payload', () => {
       fireEvent.click(screen.getByRole('button', { name: 'authenticate-limit' }));
     });
 
+    // The deep-equality call above already pins all four arguments, so the UI-minted id cannot be
+    // among them. (The previous `not.toContain` line here could not fail either way: the id would
+    // have travelled as an object property, which toContain's element match never inspects.)
     await waitFor(() => expect(ctx.confirmDAppTransaction).toHaveBeenCalledWith('req-1', true, true, true));
-    expect(ctx.confirmDAppTransaction.mock.calls[0]).not.toContain('ui-only-authorization');
   });
 
   it('denies an over-limit transaction when strict authentication is cancelled', async () => {

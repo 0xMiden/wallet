@@ -111,8 +111,10 @@ jest.mock('lib/miden/metadata/utils', () => ({
 }));
 
 const mockAssessOutgoingSpendingLimitDetails = jest.fn();
+const mockHasSpendingLimits = jest.fn((..._args: unknown[]) => Promise.resolve(false));
 jest.mock('lib/miden/spending-limits/queue', () => ({
-  assessOutgoingSpendingLimitDetails: (...args: unknown[]) => mockAssessOutgoingSpendingLimitDetails(...args)
+  assessOutgoingSpendingLimitDetails: (...args: unknown[]) => mockAssessOutgoingSpendingLimitDetails(...args),
+  hasSpendingLimits: (...args: unknown[]) => mockHasSpendingLimits(...args)
 }));
 
 const mockRequestConfirmation = jest.fn();
@@ -334,17 +336,35 @@ describe('dApp send approval: spending-limit authorization stays inside the wall
     expect(mockInitiateSendTransaction).not.toHaveBeenCalled();
   });
 
+  type SendRequestWithForgedAuthorization = Parameters<typeof requestSendTransaction>[1] & {
+    spendingLimitAuthenticated: boolean;
+    transaction: { spendingLimitAuthorization: { id: string } };
+  };
+
   it('does not trust authorization-shaped fields supplied by the dApp', async () => {
-    mockAssessOutgoingSpendingLimitDetails.mockResolvedValue(undefined);
+    // Differential against the test above: same breach, same approval without strict
+    // authentication, same expected refusal - the ONLY delta is the authorization-shaped fields
+    // planted on the dApp's request. Identical outcome is the assertion. Keep it even though it
+    // mirrors its neighbour: it is what fails if someone later wires `req.spendingLimitAuthenticated`
+    // into the decision.
+    //
+    // The enclosing beforeEach supplies a BREACHING assessment and it must stay: with no breach,
+    // authorizationForDappSend returns at its first guard and this test passes without ever
+    // reaching the trust boundary it is named for.
     mockRequestConfirmation.mockResolvedValue({ confirmed: true, delegate: false });
     mockInitiateSendTransaction.mockResolvedValue('tx-1');
-    const request = sendRequest('faucet-6dp', '1500000') as any;
+    const request = sendRequest('faucet-6dp', '1500000') as SendRequestWithForgedAuthorization;
+    // Planted on the dApp's own request object, which is the only thing an attacker controls. The
+    // decision is taken from the wallet's confirmation result, and that result withholds
+    // `spendingLimitAuthenticated`, so the send must be refused rather than authorized.
     request.spendingLimitAuthenticated = true;
     request.transaction.spendingLimitAuthorization = { id: 'attacker-controlled' };
 
-    await requestSendTransaction(DAPP_ORIGIN, request, 'session-1');
+    await expect(requestSendTransaction(DAPP_ORIGIN, request, 'session-1')).rejects.toThrow(
+      MidenDAppErrorType.NotGranted
+    );
 
-    expect(mockInitiateSendTransaction.mock.calls[0]![7]).toBeUndefined();
+    expect(mockInitiateSendTransaction).not.toHaveBeenCalled();
   });
 
   it('returns stable retry guidance when the atomic insertion detects a policy race', async () => {

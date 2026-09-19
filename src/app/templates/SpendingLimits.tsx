@@ -75,7 +75,16 @@ const mergeAssets = (
 const initialValue = (value: bigint | undefined, decimals: number): string =>
   value === undefined ? '' : formatSpendingLimitInput(value, decimals);
 
-/** Format a base-unit limit as a canonical decimal input value without precision loss. */
+/**
+ * Format a base-unit limit as a canonical decimal input value without precision loss.
+ *
+ * Deliberately NOT delegated to `lib/i18n/numbers`, although that module formats the same shape.
+ * The repo ships an automatic manual mock for it (`__mocks__/lib/i18n/numbers.ts`) whose
+ * `stringToBigInt` rounds through `parseFloat`, so a limit codec routed through that module is
+ * either untested or tested against a stand-in that cannot represent the precision a limit needs.
+ * The display formatter and the limit codec have different contracts; keeping them apart is the
+ * point, not an oversight.
+ */
 export function formatSpendingLimitInput(value: bigint, decimals: number): string {
   if (!Number.isInteger(decimals) || decimals < 0 || decimals > 255 || value < 0n) {
     throw new RangeError('Invalid spending limit');

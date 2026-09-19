@@ -1,7 +1,12 @@
-import { SendTransaction } from '../db/types';
+import { SendTransaction, Transaction } from '../db/types';
 import { spendingLimits, transactions } from '../repo';
 import { NoteTypeEnum } from '../types';
-import { assessOutgoingSpendingLimit, assessOutgoingSpendingLimitDetails, queueOutgoingTransaction } from './queue';
+import {
+  assessOutgoingSpendingLimit,
+  assessOutgoingSpendingLimitDetails,
+  queueOutgoingCustomTransaction,
+  queueOutgoingTransaction
+} from './queue';
 import { PersistedSpendingLimit, SpendingLimitAuthorization, SpendingLimitAuthorizationRequiredError } from './types';
 
 const NOW = 2_000_000;
@@ -102,6 +107,10 @@ describe('queueOutgoingTransaction', () => {
 
     await queueOutgoingTransaction(outgoing(100n, 'candidate'), undefined, NOW);
 
+    // Assert the row exists BEFORE asserting its shape: `.not.toHaveProperty` on an absent row
+    // resolves undefined and passes, which is the same result as the insert never happening. This
+    // is also the only test of the exact boundary proposedTotal === limit.
+    await expect(transactions.get('candidate')).resolves.toMatchObject({ amount: 100n });
     expect(await transactions.get('candidate')).not.toHaveProperty('spendingLimitAuthorizationId');
   });
 
@@ -143,9 +152,28 @@ describe('queueOutgoingTransaction', () => {
     }
   });
 
+  it('reads history through the initiatedAt index rather than the whole table', async () => {
+    await spendingLimits.put(config());
+    const where = jest.spyOn(transactions, 'where');
+
+    try {
+      await queueOutgoingTransaction(outgoing(20n, 'candidate'), undefined, NOW);
+      // The scan runs inside the rw lock on `transactions`, so an unbounded read is backpressure
+      // on the write path that grows with total wallet history. Only the widest window matters.
+      expect(where).toHaveBeenCalledWith('initiatedAt');
+    } finally {
+      where.mockRestore();
+    }
+  });
+
   it('turns a history read failure into a fail-closed policy error', async () => {
     await spendingLimits.put(config());
-    const read = jest.spyOn(transactions, 'toArray').mockRejectedValueOnce(new Error('history offline'));
+    // Targets `where`, not `toArray`: the history read is a bounded range scan over the
+    // `initiatedAt` index, so a spy on the table's own toArray no longer intercepts it and this
+    // fail-closed contract would pass while testing nothing.
+    const read = jest.spyOn(transactions, 'where').mockImplementationOnce(() => {
+      throw new Error('history offline');
+    });
 
     try {
       await expect(queueOutgoingTransaction(outgoing(20n, 'candidate'), undefined, NOW)).rejects.toThrow(
@@ -219,5 +247,72 @@ describe('queueOutgoingTransaction', () => {
       assessment: { breaches: [{ spent: 60n, proposedTotal: 120n, limit: 100n }] }
     });
     await expect(transactions.get('raced')).resolves.toBeUndefined();
+  });
+});
+
+describe('queueOutgoingCustomTransaction', () => {
+  const custom = (totals: { faucetId: string; amount: bigint }[]) => {
+    const transaction = new Transaction('account-a', new Uint8Array([1]), undefined, undefined, undefined, totals);
+    transaction.id = 'candidate';
+    transaction.initiatedAt = NOW;
+    return { ...transaction, spentAssetTotals: totals };
+  };
+
+  it('queues a custom transaction whose simulated spend is under the limit', async () => {
+    await spendingLimits.put(config());
+
+    await queueOutgoingCustomTransaction(custom([{ faucetId: 'faucet-a', amount: 100n }]), undefined, NOW);
+
+    await expect(transactions.get('candidate')).resolves.toMatchObject({ spentAssetTotals: [{ amount: 100n }] });
+  });
+
+  it('refuses an over-limit custom transaction that carries no authorization', async () => {
+    await spendingLimits.put(config());
+
+    await expect(
+      queueOutgoingCustomTransaction(custom([{ faucetId: 'faucet-a', amount: 101n }]), undefined, NOW)
+    ).rejects.toBeInstanceOf(SpendingLimitAuthorizationRequiredError);
+    await expect(transactions.get('candidate')).resolves.toBeUndefined();
+  });
+
+  it('admits an over-limit custom transaction bound to a matching authorization', async () => {
+    await spendingLimits.put(config());
+
+    await queueOutgoingCustomTransaction(
+      custom([{ faucetId: 'faucet-a', amount: 101n }]),
+      authorization({ amount: 101n }),
+      NOW
+    );
+
+    await expect(transactions.get('candidate')).resolves.toMatchObject({
+      spendingLimitAuthorizationId: 'authorization-1'
+    });
+  });
+
+  it('refuses outright when two faucets breach at once', async () => {
+    await spendingLimits.put(config());
+    await spendingLimits.put(config({ faucetId: 'faucet-b' }));
+
+    // One one-time credential binds to exactly one (account, faucet, amount), so two breaches
+    // cannot be authorized in a single step and the request is refused rather than half-allowed.
+    await expect(
+      queueOutgoingCustomTransaction(
+        custom([
+          { faucetId: 'faucet-a', amount: 101n },
+          { faucetId: 'faucet-b', amount: 101n }
+        ]),
+        authorization({ amount: 101n }),
+        NOW
+      )
+    ).rejects.toThrow(/more than one spending limit/i);
+    await expect(transactions.get('candidate')).resolves.toBeUndefined();
+  });
+
+  it('ignores faucets that have no configured limit', async () => {
+    await spendingLimits.put(config());
+
+    await queueOutgoingCustomTransaction(custom([{ faucetId: 'faucet-unlimited', amount: 10_000n }]), undefined, NOW);
+
+    await expect(transactions.get('candidate')).resolves.toBeDefined();
   });
 });

@@ -21,6 +21,16 @@ const mockWithUnlocked = jest.fn(async (fn: (ctx: unknown) => unknown) =>
   })
 );
 
+// dapp.ts assesses a custom request's simulated outgoing value against the spending-limit policy
+// before raising a sheet, so this suite stands that module in. `false` is "no limit configured",
+// which is what every case here assumes.
+const mockHasSpendingLimits = jest.fn((..._args: unknown[]) => Promise.resolve(false));
+const mockAssessOutgoingSpendingLimitDetails = jest.fn((..._args: unknown[]) => Promise.resolve(undefined));
+jest.mock('lib/miden/spending-limits/queue', () => ({
+  assessOutgoingSpendingLimitDetails: (...args: unknown[]) => mockAssessOutgoingSpendingLimitDetails(...args),
+  hasSpendingLimits: (...args: unknown[]) => mockHasSpendingLimits(...args)
+}));
+
 jest.mock('lib/miden/back/store', () => ({
   store: {
     getState: () => ({ currentAccount: { publicKey: 'miden-account-1' }, status: 'Ready' })

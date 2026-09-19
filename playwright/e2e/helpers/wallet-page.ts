@@ -2463,7 +2463,7 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
         tokenId: string;
         metadata: { symbol: string; decimals: number; name?: string };
       };
-      type ExistingLimit = { faucetId: string; revision: string };
+      type ExistingLimit = { faucetId: string; revision: string; asset: { symbol: string } };
       type TestStore = {
         getState(): {
           currentAccount: { publicKey: string } | null;
@@ -2492,7 +2492,12 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
       if (balance === undefined) {
         throw new Error(`configureSpendingLimitForTest found no ${input.tokenSymbol} balance row`);
       }
-      const existing = (await state.listSpendingLimits(accountId)).find(row => row.faucetId === balance.tokenId);
+      // Match the saved configuration by the asset it was saved for, not by faucet id.
+      // `saveSpendingLimit` canonicalizes the faucet id before it stores the row, so
+      // `listSpendingLimits` hands back the canonical form while `balance.tokenId` is the raw
+      // balance form; a raw `===` misses, the revision goes in as undefined, and the optimistic
+      // concurrency guard then refuses every save after the first with a conflict.
+      const existing = (await state.listSpendingLimits(accountId)).find(row => row.asset.symbol === input.tokenSymbol);
       await state.saveSpendingLimit(
         {
           accountId,

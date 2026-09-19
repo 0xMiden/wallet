@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.16.2 (TBD)
+
+### Features
+
+- [FEATURE][all] Configurable spending limits. Settings > Spending limits sets a rolling 24-hour and/or 7-day cap per account and token; raising or removing a cap needs the same strict authentication as spending over one. A transfer that would cross a cap is stopped at review with the amount, the overage and when the allowance next frees up, and can be sent only after a one-time authentication that is bound to that exact transfer and cannot be replayed. Wallet sends, swaps, bridged sends, Earn deposits and dApp-requested transfers - including dApp custom transactions, whose value is read from the approval-time dry run - are all counted and all enforced at a single point, so two transfers started at once cannot both spend the same remaining allowance. Limits and spend history are stored only on this installation and are removed when app data is reset.
+
 ## 1.16.1 (2026-09-15)
 
 ### Changes

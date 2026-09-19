@@ -15,12 +15,7 @@ export const createSpendingLimitAuthorization = (
   makeId: () => string = uuid
 ): SpendingLimitAuthorization => {
   const validated = parseSpendingLimitAssessment(assessment);
-  if (
-    validated.breaches.length === 0 ||
-    !Number.isSafeInteger(issuedAt) ||
-    issuedAt < validated.assessedAt ||
-    makeId === undefined
-  ) {
+  if (validated.breaches.length === 0 || !Number.isSafeInteger(issuedAt) || issuedAt < validated.assessedAt) {
     throw new SpendingLimitPolicyUnavailableError('Spending limit policy is unavailable: invalid authorization');
   }
   const id = makeId();

@@ -22,6 +22,7 @@ import {
   EarnWithdrawTransaction,
   IBridgedSendNoteParams,
   IBridgeProvider,
+  IConsumedAssetTotal,
   ITransaction,
   ITransactionStatus,
   ReplaceHotKeyTransaction,
@@ -34,7 +35,7 @@ import {
 import { assertValidRecallBlocks, toNoteTypeString } from '../helpers';
 import { sameWalletAccountId } from '../sdk/helpers';
 import { withWasmClientLock } from '../sdk/miden-client';
-import { queueOutgoingTransaction } from '../spending-limits/queue';
+import { queueOutgoingCustomTransaction, queueOutgoingTransaction } from '../spending-limits/queue';
 import { SpendingLimitAuthorization } from '../spending-limits/types';
 import { ConsumableNote, NoteTypeEnum, NoteType as NoteTypeString } from '../types';
 
@@ -44,11 +45,27 @@ export const requestCustomTransaction = async (
   inputNoteIds?: string[],
   importNotes?: string[],
   delegateTransaction?: boolean,
-  recipientAccountId?: string
+  recipientAccountId?: string,
+  /** Per-faucet value leaving the account, from the approval-time dry run. */
+  spentAssetTotals?: IConsumedAssetTotal[],
+  spendingLimitAuthorization?: SpendingLimitAuthorization
 ): Promise<string> => {
   const byteArray = new Uint8Array(Buffer.from(transactionRequestBytes, 'base64'));
-  const transaction = new Transaction(accountId, byteArray, inputNoteIds, delegateTransaction, recipientAccountId);
-  await Repo.transactions.add(transaction);
+  const transaction = new Transaction(
+    accountId,
+    byteArray,
+    inputNoteIds,
+    delegateTransaction,
+    recipientAccountId,
+    spentAssetTotals
+  );
+  // A custom request that moves nothing is not a spend, so it keeps the plain insert. One that
+  // does goes through the same chokepoint as every other outgoing transaction.
+  if (spentAssetTotals !== undefined && spentAssetTotals.length > 0) {
+    await queueOutgoingCustomTransaction({ ...transaction, spentAssetTotals }, spendingLimitAuthorization);
+  } else {
+    await Repo.transactions.add(transaction);
+  }
 
   if (importNotes) {
     for (const noteBytes of importNotes) {

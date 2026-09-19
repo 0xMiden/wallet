@@ -789,8 +789,12 @@ export class IosWalletPage implements WalletPage {
         `  return row.metadata.symbol === input.tokenSymbol; ` +
         `}); ` +
         `if (!balance) throw new Error('configureSpendingLimitForTest found no ' + input.tokenSymbol + ' balance row'); ` +
+        // Matched by asset, not faucet id: saveSpendingLimit canonicalizes the faucet id before
+        // storing, so listSpendingLimits returns the canonical form while balance.tokenId is the
+        // raw one, and a raw compare sends observedRevision in as undefined on every save after
+        // the first - which the optimistic concurrency guard refuses as a conflict.
         `var existing = (await state.listSpendingLimits(accountId)).find(function (row) { ` +
-        `  return row.faucetId === balance.tokenId; ` +
+        `  return row.asset.symbol === input.tokenSymbol; ` +
         `}); ` +
         `var draft = { accountId: accountId, faucetId: balance.tokenId, asset: balance.metadata }; ` +
         `if (input.dailyLimitBaseUnits !== undefined) draft.dailyLimit = BigInt(input.dailyLimitBaseUnits); ` +

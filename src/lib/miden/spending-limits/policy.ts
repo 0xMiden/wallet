@@ -13,7 +13,22 @@ import { ITransaction, ITransactionStatus, ITransactionType } from '../db/types'
 const DAY_SECONDS = 24 * 60 * 60;
 const WEEK_SECONDS = 7 * DAY_SECONDS;
 
-const OUTGOING_TYPES: ReadonlySet<ITransactionType> = new Set(['send', 'swap', 'bridged-send', 'earn-deposit']);
+/**
+ * The widest rolling window the policy can assess, so the oldest row that can change a verdict.
+ * Exported because the history read is bounded by it: anything older is excluded here anyway.
+ */
+export const MAX_WINDOW_SECONDS = WEEK_SECONDS;
+
+const OUTGOING_TYPES: ReadonlySet<ITransactionType> = new Set([
+  'send',
+  'swap',
+  'bridged-send',
+  'earn-deposit',
+  // A dApp custom request moves value too. It carries opaque request bytes and so has no
+  // top-level faucet or amount; `spentAssetTotals` is what makes it countable. An older execute
+  // row without those totals contributes nothing, which is what it did before.
+  'execute'
+]);
 // Failed rows stay reserved because a local failure can happen after submission;
 // reconciliation, not optimistic exclusion, is the safe authority on whether value moved.
 const INCLUDED_STATUSES: ReadonlySet<ITransactionStatus> = new Set([
@@ -62,6 +77,26 @@ const validateProposal = (config: SpendingLimitConfiguration, proposal: Proposed
   if (!Number.isSafeInteger(proposal.now) || proposal.now < 0) throw unavailable('assessment time is invalid');
 };
 
+/**
+ * Whether `row` moves value under `faucetId`, and how much.
+ *
+ * The two answers are kept apart on purpose. "This row is about another asset" is a skip, while
+ * "this row is about this asset but states no usable amount" must stay FATAL - collapsing them
+ * into one `undefined` silently drops a row that could be hiding spend. `amount` is `unknown`
+ * because it comes back from storage, so the caller's `typeof !== 'bigint'` guard is what
+ * actually validates it, not the declared row type.
+ */
+const rowSpendUnderFaucet = (row: ITransaction, faucetId: string): { amount: unknown } | undefined => {
+  // An execute row's value is opaque in `requestBytes`, so the approval-time dry run records it
+  // per faucet instead. Checked first: such a row has no top-level faucet to match on.
+  if (row.spentAssetTotals !== undefined) {
+    const total = row.spentAssetTotals.find(entry => sameSpendingLimitIdentity(entry.faucetId, faucetId));
+    return total === undefined ? undefined : { amount: total.amount };
+  }
+  if (row.faucetId === undefined || !sameSpendingLimitIdentity(row.faucetId, faucetId)) return undefined;
+  return { amount: row.amount };
+};
+
 const matchingSpendEntries = (
   rows: readonly ITransaction[],
   config: SpendingLimitConfiguration,
@@ -69,19 +104,27 @@ const matchingSpendEntries = (
 ): SpendEntry[] => {
   const entries: SpendEntry[] = [];
   for (const row of rows) {
-    if (
-      !sameSpendingLimitIdentity(row.accountId, config.accountId) ||
-      row.faucetId === undefined ||
-      !sameSpendingLimitIdentity(row.faucetId, config.faucetId)
-    )
-      continue;
+    if (!sameSpendingLimitIdentity(row.accountId, config.accountId)) continue;
     if (!OUTGOING_TYPES.has(row.type) || row.restoredFromBackup === true) continue;
-    if (!INCLUDED_STATUSES.has(row.status)) throw unavailable('matching transaction status is invalid');
-    if (typeof row.amount !== 'bigint' || row.amount < 0n) throw unavailable('matching transaction amount is invalid');
-    if (!Number.isSafeInteger(row.initiatedAt) || row.initiatedAt < 0 || row.initiatedAt > now) {
+    const spend = rowSpendUnderFaucet(row, config.faucetId);
+    if (spend === undefined) continue;
+    // A row that cannot be placed in time cannot be judged in or out of the window, so it stays
+    // fatal. Everything below this line is about rows whose timestamp we can trust.
+    if (!Number.isSafeInteger(row.initiatedAt) || row.initiatedAt < 0) {
       throw unavailable('matching transaction timestamp is invalid');
     }
-    entries.push({ amount: row.amount, initiatedAt: row.initiatedAt });
+    // Fail closed on data that could HIDE spend, not on data that cannot affect the result. A row
+    // older than the widest window contributes to no assessment, so a malformed status or amount
+    // on it must not make the account permanently unspendable.
+    if (row.initiatedAt < now - MAX_WINDOW_SECONDS) continue;
+    if (!INCLUDED_STATUSES.has(row.status)) throw unavailable('matching transaction status is invalid');
+    if (typeof spend.amount !== 'bigint' || spend.amount < 0n)
+      throw unavailable('matching transaction amount is invalid');
+    // A wall clock set ahead and then corrected leaves rows stamped in the future, and those satisfy
+    // every window filter. Counting such a row at `now` keeps its value charged against the user
+    // while letting it expire on schedule; refusing to assess at all bought no safety and bricked
+    // the account for as long as the skew lasted.
+    entries.push({ amount: spend.amount, initiatedAt: Math.min(row.initiatedAt, now) });
   }
   return entries.sort((left, right) => left.initiatedAt - right.initiatedAt);
 };

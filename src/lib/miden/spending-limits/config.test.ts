@@ -220,8 +220,42 @@ describe('spending-limit configuration', () => {
       dailyLimit: '100',
       revision: 'revision-2'
     });
+
+    // Enumerate the states serialization PERMITS, and let anything else fail. The previous
+    // assertions here - `queued.status === 'fulfilled'` equals `inserted !== undefined`, and an
+    // expected amount computed from `inserted` itself - held under either ordering AND under no
+    // ordering at all, so removing the rw transaction from saveSpendingLimit left them green.
+    // A torn interleaving (a row admitted against the old 50 cap, or a rejection that still
+    // inserted) matches neither row below.
     const inserted = await transactions.get('candidate');
-    expect(queued.status === 'fulfilled').toBe(inserted !== undefined);
-    expect(inserted?.amount).toBe(inserted === undefined ? undefined : 80n);
+    const stored = await spendingLimits.get(['account-a', 'faucet-a']);
+    expect([
+      // The save committed first, so the queue assessed 80 against the raised cap and admitted it.
+      { queued: 'fulfilled', amount: 80n, dailyLimit: '100' },
+      // The queue read the old 50 cap first, so 80 breached and nothing was written.
+      { queued: 'rejected', amount: undefined, dailyLimit: '100' }
+    ]).toContainEqual({ queued: queued.status, amount: inserted?.amount, dailyLimit: stored?.dailyLimit });
+  });
+
+  it('admits a transaction the raised limit allows once the save has committed', async () => {
+    await spendingLimits.put({
+      accountId: 'account-a',
+      faucetId: 'faucet-a',
+      dailyLimit: '50',
+      asset: { symbol: 'MIDEN', decimals: 8 },
+      revision: 'revision-1',
+      createdAt: NOW - 100,
+      updatedAt: NOW - 50
+    });
+    const transaction = new SendTransaction('account-a', 80n, 'account-b', 'faucet-a', NoteTypeEnum.Public);
+    transaction.id = 'candidate';
+    transaction.initiatedAt = NOW;
+
+    // The deterministic half of the race above: 80 is over the old cap and under the new one, so
+    // this can only pass if the queue re-reads the policy rather than caching the pre-save value.
+    await save(draft({ dailyLimit: 100n, weeklyLimit: undefined }), 'revision-1', true, 'revision-2');
+    await queueOutgoingTransaction(transaction, undefined, NOW);
+
+    await expect(transactions.get('candidate')).resolves.toMatchObject({ amount: 80n });
   });
 });

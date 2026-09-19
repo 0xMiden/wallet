@@ -176,8 +176,9 @@ describe('assessSpendingLimit', () => {
     ['non-bigint proposed amount', [row()], { amount: 1 as unknown as bigint, now: NOW }],
     ['negative assessment time', [row()], { amount: 1n, now: -1 }],
     ['fractional assessment time', [row()], { amount: 1n, now: 1.5 }],
-    ['future row', [row({ initiatedAt: NOW + 1 })], { amount: 1n, now: NOW }],
     ['negative row amount', [row({ amount: -1n })], { amount: 1n, now: NOW }],
+    // Stays fatal, unlike a row naming a DIFFERENT faucet, which is merely skipped: this row is
+    // about the configured asset, so an unusable amount could be hiding spend.
     ['missing row amount', [row({ amount: undefined })], { amount: 1n, now: NOW }],
     ['unknown row status', [malformedRow('status', 99)], { amount: 1n, now: NOW }],
     ['non-integer row timestamp', [row({ initiatedAt: 1.5 })], { amount: 1n, now: NOW }]
@@ -189,6 +190,71 @@ describe('assessSpendingLimit', () => {
         ...proposal
       })
     ).toThrow(SpendingLimitPolicyUnavailableError);
+  });
+
+  // Both cases below were previously fatal. Failing closed is for data that could HIDE spend; a
+  // row that cannot affect the outcome, and a row already charged against the user, are neither.
+  it('charges a future-dated row at the assessment time instead of refusing to assess', () => {
+    const assessment = assessSpendingLimit(config, [row({ initiatedAt: NOW + DAY, amount: 90n })], {
+      accountId: config.accountId,
+      faucetId: config.faucetId,
+      amount: 20n,
+      now: NOW
+    });
+
+    // Counted, so it still breaches the 100 daily cap - a clock correction must not buy allowance.
+    // `resetAt` is the assertion that can actually fail: charging the row at NOW retires it one
+    // day from NOW, whereas leaving the future stamp alone would hold it in the rolling window
+    // until NOW + 2 days. Asserting only the breach passes with or without the clamp.
+    expect(assessment.breaches).toMatchObject([{ period: '24h', spent: 90n, proposedTotal: 110n, resetAt: NOW + DAY }]);
+  });
+
+  it('ignores a malformed row that is older than the widest window', () => {
+    const stale = malformedRow('status', 99);
+    stale.initiatedAt = NOW - WEEK - 1;
+
+    const assessment = assessSpendingLimit(config, [stale], {
+      accountId: config.accountId,
+      faucetId: config.faucetId,
+      amount: 20n,
+      now: NOW
+    });
+
+    // One corrupt historical row must not make the account permanently unspendable.
+    expect(assessment.breaches).toEqual([]);
+  });
+
+  it('counts a dApp custom row through its recorded per-faucet totals', () => {
+    const custom = row({ type: 'execute', faucetId: undefined, amount: undefined });
+    custom.spentAssetTotals = [
+      { faucetId: 'faucet-other', amount: 5n },
+      { faucetId: config.faucetId, amount: 90n }
+    ];
+
+    const assessment = assessSpendingLimit(config, [custom], {
+      accountId: config.accountId,
+      faucetId: config.faucetId,
+      amount: 20n,
+      now: NOW
+    });
+
+    // Without these totals an execute row has no faucet or amount at all, so the policy could not
+    // see it as a spend - which is what made a custom request a way around a configured cap.
+    expect(assessment.breaches).toMatchObject([{ period: '24h', spent: 90n, proposedTotal: 110n }]);
+  });
+
+  it('ignores a custom row whose totals name only other faucets', () => {
+    const custom = row({ type: 'execute', faucetId: undefined, amount: undefined });
+    custom.spentAssetTotals = [{ faucetId: 'faucet-other', amount: 900n }];
+
+    const assessment = assessSpendingLimit(config, [custom], {
+      accountId: config.accountId,
+      faucetId: config.faucetId,
+      amount: 20n,
+      now: NOW
+    });
+
+    expect(assessment.breaches).toEqual([]);
   });
 
   it('fails closed when the proposal does not match the configuration identity', () => {

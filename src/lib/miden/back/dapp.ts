@@ -74,6 +74,7 @@ import { importedNoteIds, releaseNoteIds } from 'lib/miden/note-quarantine';
 import { createSpendingLimitAuthorization } from 'lib/miden/spending-limits/authorization';
 import {
   assessOutgoingSpendingLimitDetails,
+  hasSpendingLimits,
   type SpendingLimitAssessmentDetails
 } from 'lib/miden/spending-limits/queue';
 import {
@@ -108,6 +109,7 @@ import { getCurrentMidenNetwork } from './safe-network';
 import { simulateCustomTransaction } from './simulate-custom-tx';
 import { store, withUnlocked } from './store';
 import { startTransactionProcessing } from './transaction-processor';
+import { IConsumedAssetTotal } from '../db/types';
 import { getBech32AddressFromAccountId, sameWalletAccountId } from '../sdk/helpers';
 import { assertWasmHoldCurrent, withWasmClientLock, type WasmLockHold } from '../sdk/miden-client';
 import { resolvePublicKeyCommitments } from '../sdk/resolve-public-key-commitments';
@@ -1527,6 +1529,7 @@ export function buildCustomTxConfirmPayload(args: {
   sourcePublicKey: string;
   transactionMessages: string[];
   customTransaction: MidenCustomTransaction;
+  spendingLimitDetails?: SpendingLimitAssessmentDetails;
 }): MidenDAppTransactionPayload {
   const { customTransaction: tx } = args;
   return {
@@ -1537,6 +1540,11 @@ export function buildCustomTxConfirmPayload(args: {
     sourcePublicKey: args.sourcePublicKey,
     transactionMessages: args.transactionMessages,
     preview: null,
+    ...(args.spendingLimitDetails !== undefined &&
+      args.spendingLimitDetails.assessment.breaches.length > 0 && {
+        spendingLimitAssessment: toSerializedSpendingLimitAssessment(args.spendingLimitDetails.assessment),
+        spendingLimitAsset: args.spendingLimitDetails.asset
+      }),
     txKind: 'custom',
     requestBytes: tx.transactionRequest,
     importNotes: tx.importNotes,
@@ -1591,6 +1599,36 @@ const authorizationForDappSend = (
   if (details === undefined || details.assessment.breaches.length === 0) return undefined;
   if (strictlyAuthenticated !== true) throw new Error(MidenDAppErrorType.NotGranted);
   return createSpendingLimitAuthorization(details.assessment);
+};
+
+/**
+ * Spending-limit state for a dApp CUSTOM request, or a refusal.
+ *
+ * A custom request states its value only through the dry run, so an unknown `outgoing` is refused
+ * whenever the account has any limit configured - otherwise "make the simulation fail" is the
+ * bypass. More than one breached faucet is also refused: a one-time authorization binds to exactly
+ * one (account, faucet, amount), so two breaches cannot be authorized in one step.
+ */
+const customSpendingLimitState = async (
+  accountId: string,
+  outgoing: IConsumedAssetTotal[] | undefined
+): Promise<{ totals: IConsumedAssetTotal[]; details?: SpendingLimitAssessmentDetails }> => {
+  if (outgoing === undefined) {
+    if (await hasSpendingLimits(accountId)) throw new Error(MidenDAppErrorType.NotGranted);
+    return { totals: [] };
+  }
+
+  const breaching: SpendingLimitAssessmentDetails[] = [];
+  for (const total of outgoing) {
+    const details = await assessOutgoingSpendingLimitDetails({
+      accountId,
+      faucetId: total.faucetId,
+      amount: total.amount
+    });
+    if (details !== undefined && details.assessment.breaches.length > 0) breaching.push(details);
+  }
+  if (breaching.length > 1) throw new Error(MidenDAppErrorType.NotGranted);
+  return { totals: outgoing, details: breaching[0] };
 };
 
 const assertDappSendStillAuthorized = async (
@@ -1729,13 +1767,24 @@ const generatePromisifyTransaction = async (
     return;
   }
 
+  // The effects go in front of the user BEFORE either sheet is raised, because the mobile/desktop
+  // sheet cannot ask for them itself — see `formatSimulatedCustomEffects`. Hoisted above the
+  // platform split because the spending-limit gate below needs the dry run's outgoing totals on
+  // BOTH paths: a custom request moves value too, and before this it reached the queue with no
+  // assessment at all, which made "send it as a custom transaction" the way around a cap.
+  const simulatedEffects = await withUnlocked(async () => formatSimulatedCustomEffects(customTransaction));
+
+  let customLimit: { totals: IConsumedAssetTotal[]; details?: SpendingLimitAssessmentDetails };
+  try {
+    customLimit = await customSpendingLimitState(customTransaction.address, simulatedEffects.outgoing);
+  } catch (e) {
+    reject(e instanceof Error ? e : new Error(MidenDAppErrorType.NotGranted));
+    return;
+  }
+
   // On mobile/desktop, use confirmation store to request user approval
   if (!isExtension()) {
     dappDebug('[DApp] Non-extension requesting transaction confirmation');
-
-    // The effects go in front of the user BEFORE the sheet is raised, because
-    // this sheet cannot ask for them itself — see `formatSimulatedCustomEffects`.
-    const simulatedEffects = await withUnlocked(async () => formatSimulatedCustomEffects(customTransaction));
 
     const result = await dappConfirmationStore.requestConfirmation({
       id,
@@ -1748,7 +1797,11 @@ const generatePromisifyTransaction = async (
       privateDataPermission: dApp.privateDataPermission,
       allowedPrivateData: dApp.allowedPrivateData,
       existingPermission: true,
-      transactionMessages: [...transactionMessages, ...simulatedEffects],
+      transactionMessages: [...transactionMessages, ...simulatedEffects.messages],
+      ...(customLimit.details !== undefined && {
+        spendingLimitAssessment: customLimit.details.assessment,
+        spendingLimitAsset: customLimit.details.asset
+      }),
       sourcePublicKey: req.sourcePublicKey
     });
 
@@ -1768,7 +1821,9 @@ const generatePromisifyTransaction = async (
           inputNoteIds,
           importNotes,
           delegateFromConfirmation(result),
-          recipientAddress || undefined
+          recipientAddress || undefined,
+          customLimit.totals,
+          authorizationForDappSend(customLimit.details, result.spendingLimitAuthenticated)
         );
       });
       // Same reason as the extension branch below: the dry run above quarantined
@@ -1793,8 +1848,9 @@ const generatePromisifyTransaction = async (
       networkRpc,
       appMeta: dApp.appMeta,
       sourcePublicKey: req.sourcePublicKey,
-      transactionMessages,
-      customTransaction
+      transactionMessages: [...transactionMessages, ...simulatedEffects.messages],
+      customTransaction,
+      spendingLimitDetails: customLimit.details
     }),
     handleSimulate: makeSimulateHandler(id, customTransaction),
     onDecline: () => {
@@ -1814,7 +1870,9 @@ const generatePromisifyTransaction = async (
                 inputNoteIds,
                 importNotes,
                 confirmReq.delegate,
-                recipientAddress || undefined
+                recipientAddress || undefined,
+                customLimit.totals,
+                authorizationForDappSend(customLimit.details, confirmReq.spendingLimitAuthenticated)
               );
             });
             // The transaction is queued and will consume these notes —
@@ -2766,7 +2824,17 @@ async function formatCustomTransactionPreview(payload: MidenCustomTransaction): 
  * throws — a preview that fails must not take down the request that a user could
  * still legitimately decline.
  */
-async function formatSimulatedCustomEffects(payload: MidenCustomTransaction): Promise<string[]> {
+/**
+ * Effects of a custom request's dry run: the lines the approval sheet renders, and the per-faucet
+ * value LEAVING the account that the spending-limit policy needs.
+ *
+ * `outgoing` is undefined when the dry run produced no summary. That is "unknown value", not
+ * "no value": admitting such a request unassessed would make a deliberately unsimulatable request
+ * the way around a configured cap.
+ */
+async function formatSimulatedCustomEffects(
+  payload: MidenCustomTransaction
+): Promise<{ messages: string[]; outgoing?: IConsumedAssetTotal[] }> {
   try {
     const { summaryBytes, error } = await simulateCustomTransaction({
       address: payload.address,
@@ -2806,10 +2874,15 @@ async function formatSimulatedCustomEffects(payload: MidenCustomTransaction): Pr
       effects.push('Changes this account’s stored data');
     }
 
-    return ['Simulated effects:', ...effects];
+    return {
+      messages: ['Simulated effects:', ...effects],
+      outgoing: view.outgoing.map(asset => ({ faucetId: asset.faucetId, amount: asset.amount }))
+    };
   } catch (e: any) {
     console.error('Failed to simulate a custom transaction for approval', e);
-    return ['This transaction could not be simulated, so its effects are unknown.', `Reason, ${consentReason(e)}`];
+    return {
+      messages: ['This transaction could not be simulated, so its effects are unknown.', `Reason, ${consentReason(e)}`]
+    };
   }
 }
 
