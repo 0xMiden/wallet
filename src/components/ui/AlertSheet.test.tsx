@@ -128,6 +128,7 @@ describe('AlertSheet', () => {
               Delete contact
             </button>
           )}
+          <input data-testid="elsewhere" aria-label="elsewhere" />
           <AlertSheet open={open} title="Delete contact" actionLabel="Delete" onAction={jest.fn()} onCancel={jest.fn()}>
             Are you sure?
           </AlertSheet>
@@ -159,11 +160,32 @@ describe('AlertSheet', () => {
       rerender(<Harness open />);
       expect(trigger).not.toHaveFocus();
 
+      const focusSpy = jest.spyOn(trigger, 'focus');
       const sheet = screen.getByRole('alertdialog');
       rerender(<Harness open={false} />);
       finishSlideOut(sheet);
       await closeAutoFocus();
       expect(trigger).toHaveFocus();
+      // Without scrolling the page to it.
+      expect(focusSpy).toHaveBeenCalledWith({ preventScroll: true });
+    });
+
+    it('leaves focus where it is when something else took it while the sheet slid out', async () => {
+      const { rerender } = render(<Harness open={false} />);
+      const trigger = screen.getByTestId('trigger');
+      trigger.focus();
+      rerender(<Harness open />);
+
+      const sheet = screen.getByRole('alertdialog');
+      rerender(<Harness open={false} />);
+      // Say, the page navigated to under the closing sheet autofocuses its input.
+      const elsewhere = screen.getByTestId('elsewhere');
+      elsewhere.focus();
+      finishSlideOut(sheet);
+      await closeAutoFocus();
+
+      expect(elsewhere).toHaveFocus();
+      expect(trigger).not.toHaveFocus();
     });
 
     it('skips the return quietly when that element is gone by the time the sheet closes', async () => {
