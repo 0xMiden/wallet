@@ -15,11 +15,12 @@ jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
 }));
 
-// Icon: expose the requested glyph name + className so buildRowProps' icon
-// selection (and the white-fill classes) can be asserted.
+// Icon: expose the requested glyph name + size + className so buildRowProps'
+// icon selection (the white-fill classes, and that every row asks for the
+// same glyph size) can be asserted.
 jest.mock('app/icons/v2', () => ({
-  Icon: ({ name, className }: { name: string; className?: string }) => (
-    <span data-testid="icon" data-name={name} data-classname={className ?? ''} />
+  Icon: ({ name, size, className }: { name: string; size?: string; className?: string }) => (
+    <span data-testid="icon" data-name={name} data-size={size ?? ''} data-classname={className ?? ''} />
   ),
   IconName: {
     Faucet: 'Faucet',
@@ -493,6 +494,16 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
     expect(row).toHaveAttribute('data-amount-direction', 'positive');
     expect(row).toHaveAttribute('data-status-tone', 'confirmed');
     expect(row).toHaveAttribute('data-status-label', 'confirmed');
+  });
+
+  it('sizes the faucet glyph the same as a sent/received row', () => {
+    renderFull();
+    const faucetSize = within(rowByTitle('faucetRequestTitle')).getByTestId('icon').getAttribute('data-size');
+    const receivedSize = within(rowByTitle('Received')).getByTestId('icon').getAttribute('data-size');
+    const sentSize = within(rowByTitle('Sent')).getByTestId('icon').getAttribute('data-size');
+    expect(faucetSize).toBe('sm');
+    expect(faucetSize).toBe(receivedSize);
+    expect(faucetSize).toBe(sentSize);
   });
 
   it('renders the failed-by-icon row with neutral amount and underscore address', () => {

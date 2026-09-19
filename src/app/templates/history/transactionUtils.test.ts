@@ -1,4 +1,6 @@
 import { format } from 'date-fns';
+import fs from 'fs';
+import path from 'path';
 
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
 import { getSwapTokenByFaucetId } from 'lib/miden/swap/tokens';
@@ -308,7 +310,7 @@ describe('fontColorForType', () => {
 
   it('falls back to the faucet color for any other type', () => {
     expect(fontColorForType('faucet' as any)).toBe(TRANSACTION_COLORS.faucet);
-    expect(fontColorForType('anything-else' as any)).toBe('#891DB1');
+    expect(fontColorForType('anything-else' as any)).toBe('#CCA4B8');
   });
 });
 
@@ -317,8 +319,21 @@ describe('TRANSACTION_COLORS', () => {
     expect(TRANSACTION_COLORS).toEqual({
       send: '#91ACC1',
       receive: '#99AC94',
-      faucet: '#891DB1'
+      faucet: '#CCA4B8'
     });
+  });
+
+  // Regression guard for the mismatched-purple bug: TransactionIcon draws the
+  // faucet circle from this JS constant (not the `--tx-faucet` CSS var), so
+  // the two must stay byte-for-byte in sync or the Activity row and the
+  // detail hero drift apart again.
+  it('matches the --tx-faucet token in main.css', () => {
+    const css = fs.readFileSync(path.join(__dirname, '../../../main.css'), 'utf8');
+    const matches = [...css.matchAll(/--tx-faucet:\s*(#[0-9a-fA-F]{6});/g)].map(m => m[1]!.toUpperCase());
+    // Declared once for :root and once for .dark — both must exist and agree.
+    expect(matches).toHaveLength(2);
+    expect(matches[0]).toBe(TRANSACTION_COLORS.faucet);
+    expect(matches[1]).toBe(TRANSACTION_COLORS.faucet);
   });
 });
 
