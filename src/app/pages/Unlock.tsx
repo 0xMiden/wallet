@@ -275,16 +275,14 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
             title={t('tryAgain')}
             variant={ButtonVariant.Primary}
             onClick={onRetryHardwareUnlock}
-            className="w-full justify-center mb-3"
-            style={{ fontSize: '16px', lineHeight: '24px', padding: '12px 0px' }}
+            className="w-full mb-3"
           />
           <Button
             id="reset-wallet"
             title={t('resetWallet')}
             variant={ButtonVariant.Ghost}
             onClick={onForgotPasswordClick}
-            className="w-full justify-center"
-            style={{ fontSize: '16px', lineHeight: '24px', padding: '12px 0px' }}
+            className="w-full"
           />
         </div>
       </SimplePageLayout>
