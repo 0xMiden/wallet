@@ -264,9 +264,9 @@ describe('ActivityRow', () => {
 
   describe('status badge', () => {
     it.each([
-      ['confirmed', 'bg-positive-tint', 'text-positive-ink'],
-      ['pending', 'bg-pending-tint', 'text-pending-ink'],
-      ['failed', 'bg-negative-tint', 'text-negative-ink'],
+      ['confirmed', 'bg-positive-tint', 'text-positive-tint-ink'],
+      ['pending', 'bg-pending-tint', 'text-pending-tint-ink'],
+      ['failed', 'bg-negative-tint', 'text-negative-tint-ink'],
       ['cancelled', 'bg-fill-pressed', 'text-ink'],
       ['reclaimed', 'bg-fill-pressed', 'text-ink']
     ] as const)('draws %s as the compact StatusBadge on its own tint', (status, tint, ink) => {

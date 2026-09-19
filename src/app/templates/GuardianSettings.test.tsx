@@ -405,14 +405,14 @@ it('keeps the status pill readable in both themes', () => {
   mockGetGuardianLastSyncAt.mockReturnValue(Date.now());
   render(<GuardianSettings />);
 
-  // The shared StatusBadge: the positive ink on its own opaque tint, 4.61:1 light
-  // and 5.64:1 dark (`lib/ui/design-tokens.test.ts`), with no per-pill palette.
+  // The shared StatusBadge: the sage ink on its own opaque tint, 5.41:1 light
+  // and 7.36:1 dark (`lib/ui/design-tokens.test.ts`), with no per-pill palette.
   const pill = screen.getByRole('status');
   expect(pill).toHaveTextContent('online');
-  expect(pill).toHaveClass('bg-positive-tint', 'text-positive-ink');
+  expect(pill).toHaveClass('bg-positive-tint', 'text-positive-tint-ink');
 });
 
-it('renders the checking pill in the neutral badge tone, which flips with the theme', () => {
+it('renders the checking pill in the pending badge tone: something is in flight', () => {
   // The default mock state: no outage, no sync landed yet this session. The
   // "Last sync" row shares the same text, so the pill is identified by its
   // `role="status"` rather than by the label alone.
@@ -420,18 +420,18 @@ it('renders the checking pill in the neutral badge tone, which flips with the th
 
   const pill = screen.getByRole('status');
   expect(pill).toHaveTextContent('guardianCheckingLabel');
-  expect(pill).toHaveClass('bg-fill-pressed', 'text-ink');
+  expect(pill).toHaveClass('bg-pending-tint', 'text-pending-tint-ink');
 });
 
 it('keeps the OFFLINE pill readable in both themes', () => {
-  // The state the user is being warned about: the negative ink on its own tint,
-  // 4.62:1 light and 5.50:1 dark.
+  // The state the user is being warned about: the clay ink on its own tint,
+  // 5.17:1 light and 6.55:1 dark.
   mockIsGuardianSyncOutage.mockReturnValue(true);
   render(<GuardianSettings />);
 
   const pill = screen.getByRole('status');
   expect(pill).toHaveTextContent('guardianOfflineLabel');
-  expect(pill).toHaveClass('bg-negative-tint', 'text-negative-ink');
+  expect(pill).toHaveClass('bg-negative-tint', 'text-negative-tint-ink');
 });
 
 // An operator that ANSWERS and still rejects this device clears the outage flag

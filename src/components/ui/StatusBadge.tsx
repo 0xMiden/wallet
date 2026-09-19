@@ -81,7 +81,7 @@ export const STATUS_BADGE: Record<Status, { labelKey: string; tone: StatusTone }
   online: { labelKey: 'online', tone: 'positive' },
   offline: { labelKey: 'guardianOfflineLabel', tone: 'negative' },
   needsAttention: { labelKey: 'guardianNeedsAttentionLabel', tone: 'negative' },
-  checking: { labelKey: 'guardianCheckingLabel', tone: 'neutral' },
+  checking: { labelKey: 'guardianCheckingLabel', tone: 'pending' },
   notConnected: { labelKey: 'guardianNotConnectedLabel', tone: 'neutral' }
 };
 
@@ -98,10 +98,10 @@ const PILL_SIZE: Record<StatusBadgeSize, PillSize> = {
 };
 
 /**
- * A transaction's or an operation's status: a dot and a word on the status's own opaque tint, so
- * it reads at 4.5:1 or better on `page` and on a `fill` card in both themes. The dot of a status
- * still in flight pulses (held still under reduced motion). Built on `Pill`: `sm` is its 20px
- * `xs` size, `md` its 24px `sm` size.
+ * A transaction's or an operation's status: the word alone, no dot, on the status's own opaque
+ * tint from the activity icon palette (sage, sand, clay, or the pressed fill), so it reads at
+ * 4.5:1 or better on `page` and on a `fill` card in both themes. Built on `Pill`: `sm` is its
+ * 20px `xs` size, `md` its 24px `sm` size.
  */
 export const StatusBadge: React.FC<StatusBadgeProps> = ({
   status,
@@ -116,7 +116,6 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({
     <Pill
       size={PILL_SIZE[size]}
       tone={PILL_TONE[tone]}
-      dot={tone === 'pending' ? 'pulse' : true}
       role={live ? 'status' : undefined}
       className={className}
       data-testid={dataTestId}

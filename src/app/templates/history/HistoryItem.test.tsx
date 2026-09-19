@@ -327,7 +327,7 @@ describe('HistoryItem', () => {
 
     const chip = screen.getByTestId('earn-deposit-status');
     expect(chip).toHaveTextContent('t:pending');
-    expect(chip).toHaveClass('bg-pending-tint', 'text-pending-ink', 'h-5');
+    expect(chip).toHaveClass('bg-pending-tint', 'text-pending-tint-ink', 'h-5');
   });
 
   it('defaults an unstamped lending leg to pending', () => {
@@ -342,7 +342,7 @@ describe('HistoryItem', () => {
 
     const chip = screen.getByTestId('earn-deposit-status');
     expect(chip).toHaveTextContent('t:failed');
-    expect(chip).toHaveClass('bg-negative-tint', 'text-negative-ink');
+    expect(chip).toHaveClass('bg-negative-tint', 'text-negative-tint-ink');
   });
 
   it('renders no chip once the lending leg is confirmed', () => {

@@ -1,11 +1,7 @@
 import React from 'react';
 
 import { cva } from 'class-variance-authority';
-import { motion } from 'framer-motion';
 
-// The module, not the `lib/animation` barrel: many suites stub the barrel with only the springs
-// they use, and every Pill would then lose its dot.
-import { usePreset } from 'lib/animation/presets';
 import { hapticLight, hapticSelection } from 'lib/mobile/haptics';
 import { cn } from 'lib/ui/util';
 
@@ -20,7 +16,7 @@ export type PillSize = 'xs' | 'sm' | 'md';
  * - `neutral` — the default quiet chip, `fill` with `ink`.
  * - `selected` — chosen, `accent-tint` with `accent-tint-ink`.
  * - `word` — a seed word: same quiet fill as `neutral`, named for where it's used.
- * - `positive` / `warning` / `negative` — status, on an opaque tint with its ink, meant for `dot`.
+ * - `positive` / `warning` / `negative` — status, on an opaque tint with its ink.
  * - `inactive` — a status that is neither good nor bad (cancelled, reclaimed, checking):
  *   `fill-pressed` with `ink`, so it still shows on a `fill` card.
  * - `plain` — no colors, for a caller that brings its own (e.g. a network's chip).
@@ -35,12 +31,8 @@ export interface PillProps {
   icon?: React.ReactNode;
   size?: PillSize;
   tone?: PillTone;
-  /**
-   * A small 6px leading status dot in the pill's own ink color (`currentColor`). `'pulse'` makes
-   * it breathe on the `pulse` preset, for an operation still in flight; it holds still under
-   * reduced motion.
-   */
-  dot?: boolean | 'pulse';
+  /** A small 6px leading dot in the pill's own ink color (`currentColor`). */
+  dot?: boolean;
   /** Makes the pill a button, with a tap haptic. */
   onClick?: () => void;
   /**
@@ -69,7 +61,7 @@ const pillVariants = cva(
   {
     variants: {
       size: {
-        // Semibold: at 20px the bold face crowds the dot and reads heavier than the row title.
+        // Semibold: at 20px the bold face reads heavier than the row title beside it.
         xs: 'h-5 gap-1 px-2 text-xs font-semibold',
         sm: 'h-6 gap-1 px-2 text-xs',
         md: 'h-8 gap-1.5 px-3 text-sm'
@@ -78,13 +70,13 @@ const pillVariants = cva(
         neutral: 'border-transparent bg-fill text-ink',
         word: 'border-transparent bg-fill text-ink',
         selected: 'border-transparent bg-accent-tint text-accent-tint-ink',
-        // Opaque tints, not a translucent status color: a 10% wash took the surface's color with it
-        // and fell under 4.5:1 on `fill` (4.11-4.33 measured). On their own tint the inks measure
-        // 4.61 / 4.83 / 4.62 light and 5.64 / 5.11 / 5.50 dark, on any surface
-        // (`lib/ui/design-tokens.test.ts`).
-        positive: 'border-transparent bg-positive-tint text-positive-ink',
-        warning: 'border-transparent bg-pending-tint text-pending-ink',
-        negative: 'border-transparent bg-negative-tint text-negative-ink',
+        // Opaque tints from the activity icon family (sage, sand, clay), each with its own ink: a
+        // translucent wash took the surface's color with it and fell under 4.5:1 on `fill`. On
+        // their own tint the inks measure 5.41 / 5.33 / 5.17 light and 7.36 / 6.91 / 6.55 dark,
+        // on any surface (`lib/ui/design-tokens.test.ts`).
+        positive: 'border-transparent bg-positive-tint text-positive-tint-ink',
+        warning: 'border-transparent bg-pending-tint text-pending-tint-ink',
+        negative: 'border-transparent bg-negative-tint text-negative-tint-ink',
         inactive: 'border-transparent bg-fill-pressed text-ink',
         plain: 'border-transparent'
       } satisfies Record<PillTone, string>
@@ -110,25 +102,6 @@ const pillIconVariants = cva('flex shrink-0 items-center justify-center [&>svg]:
   },
   defaultVariants: { size: 'md' }
 });
-
-const DOT_CLASS = 'h-1.5 w-1.5 shrink-0 rounded-full bg-current';
-
-/**
- * The in-flight dot: breathes on the `pulse` preset, holds still under reduced motion (the
- * preset drops its loop). `data-pulsing` says which, for tests and for inspecting a device.
- */
-const PulsingDot: React.FC = () => {
-  const pulse = usePreset('pulse');
-  return (
-    <motion.span
-      aria-hidden="true"
-      className={DOT_CLASS}
-      data-pulsing={pulse.animate ? 'true' : 'false'}
-      animate={pulse.animate}
-      transition={pulse.transition}
-    />
-  );
-};
 
 /**
  * The app's pill: one height, padding and type scale for every chip, badge, label and small
@@ -167,7 +140,7 @@ export const Pill: React.FC<PillProps> = ({
 
   const content = (
     <>
-      {dot === 'pulse' ? <PulsingDot /> : dot && <span aria-hidden="true" className={DOT_CLASS} />}
+      {dot && <span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full bg-current" />}
       {icon && <span className={pillIconVariants({ size })}>{icon}</span>}
       <span className="min-w-0 truncate">{children}</span>
     </>

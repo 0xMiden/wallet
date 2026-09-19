@@ -9,26 +9,14 @@ jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => `t:${key}` })
 }));
 
-let mockReduceMotion: boolean | null = false;
-jest.mock('framer-motion', () => ({
-  ...jest.requireActual('framer-motion'),
-  useReducedMotion: () => mockReduceMotion
-}));
-
-beforeEach(() => {
-  mockReduceMotion = false;
-});
-
 const STATUSES = Object.keys(STATUS_BADGE) as Status[];
 
 const TONE_CLASSES = {
-  positive: ['bg-positive-tint', 'text-positive-ink'],
-  pending: ['bg-pending-tint', 'text-pending-ink'],
-  negative: ['bg-negative-tint', 'text-negative-ink'],
+  positive: ['bg-positive-tint', 'text-positive-tint-ink'],
+  pending: ['bg-pending-tint', 'text-pending-tint-ink'],
+  negative: ['bg-negative-tint', 'text-negative-tint-ink'],
   neutral: ['bg-fill-pressed', 'text-ink']
 } as const;
-
-const dotOf = (badge: HTMLElement) => badge.querySelector('[aria-hidden="true"]');
 
 describe('StatusBadge', () => {
   it.each([
@@ -52,7 +40,7 @@ describe('StatusBadge', () => {
     ['online', 'online', 'positive'],
     ['offline', 'guardianOfflineLabel', 'negative'],
     ['needsAttention', 'guardianNeedsAttentionLabel', 'negative'],
-    ['checking', 'guardianCheckingLabel', 'neutral'],
+    ['checking', 'guardianCheckingLabel', 'pending'],
     ['notConnected', 'guardianNotConnectedLabel', 'neutral']
   ] as const)('%s reads "%s" in the %s tone', (status, labelKey, tone) => {
     render(<StatusBadge status={status} data-testid="badge" />);
@@ -60,8 +48,6 @@ describe('StatusBadge', () => {
 
     expect(badge).toHaveTextContent(`t:${labelKey}`);
     expect(badge).toHaveClass(...TONE_CLASSES[tone]);
-    // The word is the accessible name; the dot is decoration.
-    expect(dotOf(badge)).toHaveClass('h-1.5', 'w-1.5', 'rounded-full', 'bg-current');
   });
 
   it('covers every status in the table above', () => {
@@ -98,25 +84,12 @@ describe('StatusBadge', () => {
     });
   });
 
-  describe('pending pulse', () => {
-    it.each(STATUSES.filter(status => STATUS_BADGE[status].tone === 'pending'))(
-      'pulses the %s dot when motion is allowed',
-      status => {
-        render(<StatusBadge status={status} data-testid="badge" />);
-        expect(dotOf(screen.getByTestId('badge'))).toHaveAttribute('data-pulsing', 'true');
-      }
-    );
-
-    it('holds the pending dot still under reduced motion', () => {
-      mockReduceMotion = true;
-      render(<StatusBadge status="pending" data-testid="badge" />);
-      expect(dotOf(screen.getByTestId('badge'))).toHaveAttribute('data-pulsing', 'false');
-    });
-
-    it.each(STATUSES.filter(status => STATUS_BADGE[status].tone !== 'pending'))('never pulses %s', status => {
-      render(<StatusBadge status={status} data-testid="badge" />);
-      expect(dotOf(screen.getByTestId('badge'))).not.toHaveAttribute('data-pulsing');
-    });
+  it.each(STATUSES)('draws %s as the word alone, with no dot', status => {
+    render(<StatusBadge status={status} data-testid="badge" />);
+    const badge = screen.getByTestId('badge');
+    expect(badge.querySelector('[aria-hidden="true"]')).toBeNull();
+    expect(badge.querySelector('.rounded-full.bg-current')).toBeNull();
+    expect(badge.children).toHaveLength(1);
   });
 
   describe('live', () => {
