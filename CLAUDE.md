@@ -95,7 +95,10 @@ Fix (already in place — keep it): every app vite config (`vite.{mobile,extensi
 
 ### Tailwind auto-flipping tokens
 Many tokens in `tailwind.config.ts` map to CSS vars in `src/main.css` and auto-flip with theme. Do NOT add `dark:` variants on these — it overrides the auto-flip with a worse value:
-- `text-black`, `bg-white`, `bg-gray-25/50/100`, `text-heading-gray`
+- the design-system tokens `bg-page`, `bg-fill`, `bg-fill-pressed`, `border-hairline`, `text-ink`, `text-muted`, `accent-tint(-ink)`, `*-ink` status text
+- legacy `bg-white`, `bg-gray-100`, `black` (overlays only; text is `text-ink`)
+
+`gray-25`, `gray-50`, `surface-input`, `surface-interactive`, `surface-nav-button`, `button-secondary(-hover)` and `heading-gray` are removed: use `fill` / `fill-pressed` / `ink`.
 
 Add `dark:` only on fixed-palette colors (`grey.*` custom palette, `pure-white`, `pure-black`) or SVG `fill={...}` props (check `document.documentElement.classList.contains('dark')` at render).
 
