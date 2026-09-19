@@ -4,7 +4,7 @@ import { render, screen } from '@testing-library/react';
 
 import { ITransactionStatus } from 'lib/miden/db/types';
 
-import { ExternalLinkValue, StatusPill } from './TransactionStatus';
+import { ExternalLinkValue, StatusPill, transactionStatusOf } from './TransactionStatus';
 
 // Pull the mocked enum back in with the same shape the component sees.
 
@@ -131,7 +131,7 @@ describe('StatusPill', () => {
     const { container } = render(<StatusPill status={ITransactionStatus.Completed} swapSettlement="reclaimed" />);
 
     expect(pill(container)).toHaveTextContent('t:reclaimed');
-    expect(pill(container)).toHaveClass('bg-fill', 'text-ink');
+    expect(pill(container)).toHaveClass('bg-fill-pressed', 'text-ink');
   });
 
   it("inks a cancellation for the neutral pill rather than inheriting the failure pill's tone", () => {
@@ -141,7 +141,7 @@ describe('StatusPill', () => {
     const { container } = render(<StatusPill status={ITransactionStatus.Failed} isCancelled />);
 
     expect(pill(container)).toHaveTextContent('t:cancelled');
-    expect(pill(container)).toHaveClass('bg-fill', 'text-ink');
+    expect(pill(container)).toHaveClass('bg-fill-pressed', 'text-ink');
     expect(pill(container)).not.toHaveClass('text-negative-ink');
     expect(dot(container)).toHaveClass('bg-current');
   });
@@ -181,5 +181,31 @@ describe('StatusPill', () => {
 
     const { container: generating } = render(<StatusPill status={ITransactionStatus.GeneratingTransaction} />);
     expect(pill(generating)).toHaveTextContent('t:inProgress');
+  });
+
+  it('is the 24px md StatusBadge, a live region because the status changes on screen', () => {
+    const { container } = render(<StatusPill status={ITransactionStatus.Queued} testId="history-status-pill" />);
+
+    expect(pill(container)).toHaveClass('h-6', 'bg-pending-tint', 'text-pending-ink');
+    expect(screen.getByRole('status')).toBe(screen.getByTestId('history-status-pill'));
+    // In flight: the dot breathes.
+    expect(dot(container)).toHaveAttribute('data-pulsing');
+  });
+});
+
+describe('transactionStatusOf', () => {
+  it.each([
+    [{ status: ITransactionStatus.Completed }, 'confirmed'],
+    [{ status: ITransactionStatus.Failed }, 'failed'],
+    [{ status: ITransactionStatus.Queued }, 'inProgress'],
+    [{ status: ITransactionStatus.GeneratingTransaction }, 'inProgress'],
+    [{}, 'inProgress'],
+    [{ status: ITransactionStatus.Failed, isCancelled: true }, 'cancelled'],
+    [{ status: ITransactionStatus.Completed, swapSettlement: 'pending' as const }, 'pending'],
+    [{ status: ITransactionStatus.Completed, swapSettlement: 'reclaimed' as const }, 'reclaimed'],
+    [{ status: ITransactionStatus.Failed, swapSettlement: 'pending' as const }, 'failed'],
+    [{ status: ITransactionStatus.Completed, isCancelled: true, swapSettlement: 'reclaimed' as const }, 'cancelled']
+  ])('maps %o to %s', (input, expected) => {
+    expect(transactionStatusOf(input)).toBe(expected);
   });
 });
