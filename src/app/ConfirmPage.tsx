@@ -13,6 +13,7 @@ import Unlock from 'app/pages/Unlock';
 import { Button, ButtonVariant } from 'components/Button';
 import { NetworkModeBanner } from 'components/NetworkModeBanner';
 import { SpendingLimitChallenge } from 'components/SpendingLimitChallenge';
+import { Card } from 'components/ui/Card';
 import { Spinner } from 'components/ui/Spinner';
 import { AnalyticsEventCategory, CustomRpsContext, useAnalytics } from 'lib/analytics';
 import { getAllUncompletedTransactions } from 'lib/miden/activity';
@@ -128,21 +129,15 @@ const OpaqueSignatureWarning: React.FC<{ rawValue: string }> = ({ rawValue }) =>
  * is asking, so it carries an E2E hook.
  */
 const RequestOriginBanner: FC<{ origin: string; children: React.ReactNode }> = ({ origin, children }) => (
-  <div
-    className={classNames(
-      'text-sm text-left text-ink',
-      'flex w-full gap-x-3 items-center p-4',
-      'border border-gray-100 rounded-2xl mb-4'
-    )}
-  >
-    <Icon name={IconName.Globe} fill="currentColor" size="md" />
-    <div className="flex flex-col">
+  <Card padding="tile" className="mb-4 flex w-full items-center gap-x-3">
+    <Icon name={IconName.Globe} fill="currentColor" size="md" className="text-ink" />
+    <div className="flex flex-col text-left text-sm text-ink">
       <Name className="font-semibold" data-testid="confirm-request-origin">
         {origin}
       </Name>
       {children}
     </div>
-  </div>
+  </Card>
 );
 
 /**

@@ -8,6 +8,7 @@ import { useNetworkFeeEstimate } from 'app/hooks/useNetworkFeeEstimate';
 import { Button, ButtonVariant } from 'components/Button';
 import { SpendingLimitChallenge } from 'components/SpendingLimitChallenge';
 import { TokenLogo } from 'components/TokenLogo';
+import { Card } from 'components/ui/Card';
 import { getEarnCollateralFaucetId, MIDEN_USDC_DECIMALS, openEarnPosition } from 'lib/epoch';
 import { stringToBigInt, toAdaptiveFixed } from 'lib/i18n/numbers';
 import { useAccount } from 'lib/miden/front';
@@ -210,7 +211,7 @@ const DepositProjection: FC<{ vault: EarnVault; amount: number }> = ({ vault, am
 
   return (
     <div className="mt-8 pb-4">
-      <div className="rounded-10 border border-[#EFEFF2] bg-white py-4 px-5 ">
+      <Card padding="tile">
         <div className="h-22">
           <ChartContainer config={{ projected: { color: CHART_GREEN } }} className="h-full w-full aspect-auto">
             <AreaChart data={chartData} margin={{ top: 12, right: 8, left: 8, bottom: 0 }}>
@@ -249,7 +250,7 @@ const DepositProjection: FC<{ vault: EarnVault; amount: number }> = ({ vault, am
             ))}
           </div>
         </div>
-      </div>
+      </Card>
 
       <div className="mt-4 space-y-6">
         <DetailRow label={t('earnCollateralLabel')} value={t('earnCollateralValue')} />

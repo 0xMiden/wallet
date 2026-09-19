@@ -1,9 +1,9 @@
 import React, { FC } from 'react';
 
-import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
+import { CardButton } from 'components/ui/Card';
 import { hapticLight } from 'lib/mobile/haptics';
 import { navigate } from 'lib/woozie';
 import { EarnSummaryPanel, ProviderLogo } from 'screens/earn-flow/components';
@@ -71,14 +71,11 @@ const PositionCard: FC<{ position: EarnPosition }> = ({ position }) => {
   const { t } = useTranslation();
 
   return (
-    <button
-      type="button"
+    <CardButton
+      padding="tile"
       data-testid={`earn-position-card-${position.id}`}
-      onClick={() => {
-        hapticLight();
-        navigate(`/earn/positions/${position.id}`);
-      }}
-      className={classNames('shrink-0 rounded-2xl border border-[#EFEFF2] bg-white px-4 py-4 text-left')}
+      onClick={() => navigate(`/earn/positions/${position.id}`)}
+      className="shrink-0"
     >
       <div className="flex items-center gap-10">
         <div className="flex min-w-0 items-center gap-2">
@@ -96,7 +93,7 @@ const PositionCard: FC<{ position: EarnPosition }> = ({ position }) => {
       <div className="mt-2 text-xs font-bold leading-none text-green-500">
         {position.rewards} &bull; {position.age}
       </div>
-    </button>
+    </CardButton>
   );
 };
 

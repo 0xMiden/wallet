@@ -116,6 +116,8 @@ describe('SendAmount', () => {
     const props = renderAmount({ error: 'insufficientFeeAsset' });
 
     expect(screen.getByTestId('send-fee-notice')).toHaveTextContent('insufficientFeeAsset');
+    expect(screen.getByTestId('send-fee-notice')).toHaveClass('bg-fill', 'rounded-2xl');
+    expect(screen.getByTestId('send-fee-notice')).not.toHaveClass('border');
     expect(screen.getByTestId('send-amount-input')).toHaveAttribute('data-invalid', 'false');
     fireEvent.click(screen.getByTestId('send-fee-notice-receive'));
     expect(props.onReceive).toHaveBeenCalledTimes(1);
