@@ -386,11 +386,26 @@ describe('Settings page — root menu (non-guardian)', () => {
   it('draws each group as a section label over a fill group whose rows all show a chevron', () => {
     render(<Settings tabSlug={null} />);
 
+    // Settings' group headers are the `lg` SectionHeader variant, not the plain
+    // 13px muted list-group label: 18px Nunito extrabold `ink`.
     const heading = screen.getByRole('heading', { level: 2, name: 'preferences' });
-    expect(heading).toHaveClass('text-muted', 'text-[13px]');
+    expect(heading).toHaveClass('text-ink', 'text-lg', 'font-extrabold', 'font-heading');
     const row = screen.getByTestId('row-generalSettings');
     expect(row.parentElement).toHaveClass('bg-fill', 'rounded-2xl');
     screen.getAllByTestId(/^row-/).forEach(r => expect(r).toHaveAttribute('data-chevron', 'true'));
+  });
+
+  it('shows each group header with its coloured glyph in a 32px circle', () => {
+    render(<Settings tabSlug={null} />);
+
+    ['preferences', 'security', 'developer', 'about'].forEach(key => {
+      const heading = screen.getByRole('heading', { level: 2, name: key });
+      // The icon circle is `heading`'s sibling, both under the icon+label wrapper.
+      const glyphCircle = heading.previousElementSibling;
+      expect(glyphCircle).toHaveAttribute('aria-hidden', 'true');
+      expect(glyphCircle).toHaveClass('h-8', 'w-8', 'rounded-full', 'bg-fill');
+      expect(glyphCircle?.querySelector('svg')).toBeInTheDocument();
+    });
   });
 
   it('passes the per-item testID through to menu items', () => {
