@@ -53,7 +53,7 @@ export const AccountsDrawer: FC<AccountsDrawerProps> = ({ open, onOpenChange }) 
 
         <div className="flex flex-col gap-4 px-4 pb-6">
           <div className="flex flex-col gap-2">
-            <span className="text-base font-bold font-heading uppercase  text-grey-400">{t('cardColor')}</span>
+            <span className="px-1 text-label text-muted">{t('cardColor')}</span>
             <div className="flex items-center justify-between">
               {CARD_COLORS.map(color => {
                 const isSelected = color === selectedCardColor;
@@ -85,7 +85,7 @@ export const AccountsDrawer: FC<AccountsDrawerProps> = ({ open, onOpenChange }) 
             className={classNames(
               'flex w-full items-center justify-center gap-2 rounded-2xl px-4 py-4',
               'bg-fill',
-              'font-heading text-base font-bold text-gray-secondary dark:text-pure-white',
+              'text-row-title text-gray-secondary dark:text-pure-white',
               'transition-colors hover:bg-fill-pressed'
             )}
           >
@@ -99,7 +99,7 @@ export const AccountsDrawer: FC<AccountsDrawerProps> = ({ open, onOpenChange }) 
             className={classNames(
               'flex w-full items-center justify-center gap-2 rounded-2xl px-4 py-4',
               'bg-fill',
-              'text-sm font-semibold text-gray-secondary dark:text-pure-white',
+              'text-row-title text-gray-secondary dark:text-pure-white',
               'transition-colors hover:bg-fill-pressed'
             )}
           >

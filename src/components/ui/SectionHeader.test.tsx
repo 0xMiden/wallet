@@ -8,7 +8,7 @@ it('is a 13px bold muted h2, 8px above its group and inset 4px', () => {
   render(<SectionHeader>My accounts</SectionHeader>);
 
   const heading = screen.getByRole('heading', { level: 2, name: 'My accounts' });
-  expect(heading).toHaveClass('font-sans', 'text-[13px]', 'font-bold', 'text-muted');
+  expect(heading).toHaveClass('text-label', 'text-muted');
   expect(heading.parentElement).toHaveClass('px-1', 'pb-2');
 });
 
@@ -37,21 +37,21 @@ it('renders an icon aria-hidden in a 32px bg-fill circle before the label, defau
 
   // Adding `icon` alone does not switch the label off its default `sm` style.
   const heading = screen.getByRole('heading', { level: 2, name: 'Security' });
-  expect(heading).toHaveClass('font-sans', 'text-[13px]', 'font-bold', 'text-muted');
+  expect(heading).toHaveClass('text-label', 'text-muted');
 });
 
 it('the lg size is an 18px Nunito extrabold ink heading, for a page-level section title', () => {
   render(<SectionHeader size="lg">Settings</SectionHeader>);
 
   const heading = screen.getByRole('heading', { level: 2, name: 'Settings' });
-  expect(heading).toHaveClass('font-heading', 'text-lg', 'font-extrabold', 'text-ink');
+  expect(heading).toHaveClass('text-title-section', 'text-ink');
 });
 
 it('the xl size is the 20px extrabold ink section title of a tab root', () => {
   render(<SectionHeader size="xl">Featured</SectionHeader>);
 
   const heading = screen.getByRole('heading', { level: 2, name: 'Featured' });
-  expect(heading).toHaveClass('font-heading', 'text-xl', 'leading-[26px]', 'font-extrabold', 'text-ink');
+  expect(heading).toHaveClass('text-title-page', 'text-ink');
 });
 
 it('has no icon circle when icon is omitted', () => {

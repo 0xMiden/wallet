@@ -169,7 +169,7 @@ describe('EncryptedWalletFileWalletPassword', () => {
     expect(input.parentElement).toHaveClass('bg-fill', 'rounded-full');
     expect(screen.getByRole('button', { name: 'show' })).toHaveAttribute('type', 'button');
     // The explanation is 14px muted section copy.
-    expect(screen.getByText('encryptedWalletFileDescription')).toHaveClass('text-sm', 'text-muted');
+    expect(screen.getByText('encryptedWalletFileDescription')).toHaveClass('text-body', 'text-muted');
     // The confirmation row does not submit anything by itself.
     expect(screen.getByTestId('checkbox').closest('button')).toHaveAttribute('type', 'button');
   });

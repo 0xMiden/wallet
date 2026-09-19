@@ -153,20 +153,48 @@ Contrast of the brand colour as a glyph, light (dark is 3.37:1 or better everywh
 
 ### Type
 
-Nunito (`font-heading`) for titles, values and buttons; Inter (`font-sans`) for body and labels.
+Every piece of text takes one **type style**: a utility that sets family, size, line-height and
+weight together (`@utility` in `src/main.css`, listed in `lib/ui/type-styles.ts`). Colour is a
+separate class (`text-ink`, `text-muted`, `text-accent-tint-ink`...). Never assemble a role by hand
+(`font-heading text-[15px] leading-6 font-bold`): name it. `src/components/ui/type-scale-guard.test.ts`
+fails a shared component that does.
 
-| Role | Style | Where |
-| --- | --- | --- |
-| Tab title | 28px / 36, 800, −0.5px | `TabHeader`, tab roots only |
-| Page title | **20px / 26, 800, left** | `PageHeader` |
-| Sheet title | 20px / 26, 800, left | `DrawerTitle` |
-| Hero value | 32px / 36, 900 | amounts on review and receipt |
-| Hero name | 24px / 28, 900 | outcome and empty heroes |
-| Entry | 30–48px, 800–900 | recipient and amount entry |
-| Row title, value | 16px / 20, 700 | `ListRow`, `DetailRow` values (15px) |
-| Body | 16px / 24, Inter 400 | paragraphs, inputs (never below 16px: iOS zooms) |
-| Subtitle, label | 13px / 17, Inter 400; labels 700 | row subtitles; section labels in sentence case |
-| CTA label | 19px, 800 | `Button` lg |
+**Which face, and why.** Nunito (`--font-heading`) is the voice of the wallet: anything the eye
+lands on first or reads as a figure, so titles, amounts and values, and every button label. Its
+rounded, heavy shapes are what make a number or a title feel like Miden, and they hold up at 800
+to 900. Inter (`--font-sans`) is for reading: paragraphs, labels, captions and anything typed.
+It stays legible at 13px where Nunito closes up, keeps addresses and long sentences even, and is
+what inputs render (16px, or iOS zooms on focus). The rule of thumb: if it is a thing the user
+reads as a sentence or a label, Inter; if it is a name, a number or a thing they tap, Nunito.
+
+| Type style | Face | Size / line | Weight | Where |
+| --- | --- | --- | --- | --- |
+| `text-display` | Nunito | 48 / 52 | 800 | The balance on the balance card (scaled down inline to fit, `leading-none`) |
+| `text-entry` | Nunito | 48 / 56 | 800 | Amount and recipient entry |
+| `text-entry-unit` | Nunito | 22 / 28 | 700 | The unit beside an entry or the balance ("USD") |
+| `text-title-tab` | Nunito | 28 / 36, −0.5px | 800 | `TabHeader`, tab roots only |
+| `text-hero-value` | Nunito | 32 / 36 | 900 | `Hero` value: amounts on review and receipt |
+| `text-hero-name` | Nunito | 24 / 28 | 900 | `Hero` name, outcome and passcode titles |
+| `text-title-page` | Nunito | 20 / 26 | 800 | `PageHeader`, `DrawerTitle`, `AlertSheet`, `SectionHeader` `xl` |
+| `text-title-section` | Nunito | 18 / 24 | 800 | `SectionHeader` `lg`, `EmptyState` title |
+| `text-cta` | Nunito | 19 / 24 | 800 | `Button` `lg` |
+| `text-cta-sm` | Nunito | 15 / 20 | 800 | `Button` `sm` |
+| `text-row-title` | Nunito | 16 / 20 | 700 | `ListRow`, Activity and asset row titles, a row's price |
+| `text-value` | Nunito | 15 / 20 | 700 | `DetailRow` values, Activity row amounts |
+| `text-action` | Nunito | 14 / 20 | 700 | Text actions: Copy, Edit, See all, "Learn more" (`accent-tint-ink`) |
+| `text-pill` | Nunito | 14 / 1 | 700 | `Pill` `md`, `SegmentedControl`, the top action bar |
+| `text-badge` | Nunito | 12 / 1 | 700 | `Pill` `sm` and `xs` (`xs` adds `font-semibold`), `StatusBadge` |
+| `text-body` | Inter | 16 / 24 | 400 | Paragraphs (a `SubPageSection` description, an alert's sentence), inputs |
+| `text-body-strong` | Inter | 16 / 24 | 600 | Emphasis inside body copy (`<b>` in a translation) — never the heading face |
+| `text-body-sm` | Inter | 14 / 20 | 400 | Secondary copy: `DetailRow` labels, the `Hero` line, `EmptyState` body, a footnote under a control, a list row's trailing setting |
+| `text-label` | Inter | 13 / 17 | 700 | Section labels (`SectionHeader`), field labels, `Notice` titles, balance card labels |
+| `text-caption` | Inter | 13 / 17 | 400 | Row subtitles, `Notice` body, field hints and errors, a `DetailRow` sub-line |
+
+Weight and line-height are read through Tailwind's `--tw-font-weight` and `--tw-leading`, so a
+modifier (`font-semibold`, `leading-none`) applies whatever order the stylesheet emits it in; use
+one only where the table says so. A different size is not a modifier: it is a new role, added here,
+in `main.css` and in `lib/ui/type-styles.ts` together. `cn()` knows the names (tailwind-merge
+otherwise reads `text-value` as a colour and drops it beside `text-ink`).
 
 ### Spacing and sizes
 
@@ -218,29 +246,29 @@ CTA never do. The CTA clears the home indicator on iOS.
 
 | Element | Canonical (`components/ui`) | Anatomy | Replaces |
 | --- | --- | --- | --- |
-| Primary action | `Button` (`components/ui/Button`; `components/Button` re-exports it) | 52px pill. `primary`: `accent`, white 19px label. `secondary`: `fill`, `ink` label. `destructive`: `fill`, `negative-ink` label. `sm`: 36px, 15px label. Loading swaps the label for the spinner, width held. One `primary` per screen; two side by side are 10px apart. `lib/ui/button`, `FormSubmitButton`, `FormSecondaryButton`, raw CTA buttons |
+| Primary action | `Button` (`components/ui/Button`; `components/Button` re-exports it) | 52px pill. `primary`: `accent`, white `text-cta` label. `secondary`: `fill`, `ink` label. `destructive`: `fill`, `negative-ink` label. `sm`: 36px, `text-cta-sm` label. Loading swaps the label for the spinner, width held. One `primary` per screen; two side by side are 10px apart. `lib/ui/button`, `FormSubmitButton`, `FormSecondaryButton`, raw CTA buttons |
 | Icon button | `IconButton` | Header: a bare 24px glyph in a 44px hit area, `ink`. Sheet and overlay: a 32px circle on `fill`, `muted` glyph. | `NavButton`, `CircleButton`, ad-hoc round buttons |
 | Pushed page header | `PageHeader` (`components/PageHeader`) | 52px row: bare chevron, 20px title left beside it, then actions (an `accent-tint-ink` text action such as "Edit", a `Pill`, or an `IconButton`), close last. No divider; a hairline appears once content scrolls under it. No horizontal padding of its own: it takes the page's, so a caller in an unpadded parent passes `className="px-4"`. | `NavigationHeader`, `ScreenHeader`, the earn headers (vault, position, positions, withdraw, deposit), the round back buttons and grey title bars |
-| Tab root header | `TabHeader` | 28px title left, bare 24px icon actions right, search swaps in at 36px. No grey bar under it. | the 4px grey rule |
+| Tab root header | `TabHeader` | `text-title-tab` title left, bare 24px icon actions right, search swaps in at 36px. No grey bar under it. | the 4px grey rule |
 | Flow frame | `FlowLayout` | `PageHeader` + scrolling body + pinned CTA. | hand-built frames |
 | Top action bar | `SegmentedActionBar` | Ahmad's, unchanged. Shares the segmented control's bubble, motion hooks and `Highlight`, not its markup: only the selected segment shows its label, and every segment resizes on the same spring as the bubble. | — |
 | Segmented control | `SegmentedControl` | One choice out of a few, drawn like the tab bars (see below). `items` (`id`, label, optional icon, count, `disabled`, test id), controlled `value`/`onChange`; `size` `sm` 32px or `md` 40px; `layout` `scroll` (natural-width items in a row that scrolls sideways and keeps the selection in view: filters) or `fill` (equal-width segments across the width: timeframes, a few settings choices); `role` `radiogroup` (default) or `tablist` when each item opens its own panel. | the Activity filter pills, the token detail and earn timeframe rows, `TabPicker` (theme, developer endpoint preset and network id) |
 | Search | `SearchInput` | 44px pill on `fill`, no border, 16px glyph, left-aligned 16px text, clear button; a 1.5px `accent` ring while focused. | `SearchField`, `SearchAssetField` |
-| Text field | `TextField` | 13px bold `muted` label above; single-line 52px pill or multi-line 16px-radius box on `fill`; trailing pills (Paste, Scan) on `page` inside the field; error: `negative` ring and a `negative-ink` message. | `TextArea`; still to migrate: `Input`, atoms `FormField`, ad-hoc inputs |
+| Text field | `TextField` | `text-label` `muted` label above; `text-body` text; single-line 52px pill or multi-line 16px-radius box on `fill`; trailing pills (Paste, Scan) on `page` inside the field; error: `negative` ring and a `negative-ink` message. | `TextArea`; still to migrate: `Input`, atoms `FormField`, ad-hoc inputs |
 | Entry | `AmountInput`, recipient entry | Centered 48px amount with a 22px unit, 15px `muted` fiat line, token and Max pills; recipient entry 30px, 24px once it holds an address. | — |
 | Toggle | `Toggle` on Radix Switch (*planned*) | 51 × 31, `accent` when on. Until then `components/Toggle` (on the `press` preset) is the one to use. | `ToggleSwitch`, `SettingToggle` |
 | Checkbox | `Checkbox` on Radix Checkbox (*planned*) | 22px, 6px radius, `accent` when checked. Until then `components/Checkbox`. | atoms `Checkbox`, `FormCheckbox` |
 | List group | `ListGroup` | 16px radius on `fill`; hairlines between rows, inset past the leading visual. | ad-hoc stacks |
-| List row | `ListRow` | 64px: leading 40px avatar or 30px icon circle, 16px title over a 13px `muted` subtitle, trailing value, toggle, check or chevron. A row that navigates has a chevron. | `CardItem`, `ListItem`, `MenuItem`, local rows |
-| Section label | `SectionHeader` | 13px Inter bold `muted`, sentence case, 8px above its group, 4px inset. A page-level section title is 20px 800. Optional `icon` draws it `aria-hidden` in a 32px `bg-fill` circle before the label; `size="lg"` swaps the label to 18px Nunito extrabold `ink` (Settings' coloured group headers). | ~40 hand-styled headings, uppercase labels |
-| Detail card | `DetailCard` + `DetailRow` | `fill`, 16px radius, hairlines between rows; 14px `muted` label, 15px value right; addresses stacked, in full, with an `accent-tint-ink` "Copy". | `FlowDetails`, history `DetailCard`, `lib/ui/DetailCard`, `ReviewRow`, local detail rows |
+| List row | `ListRow` | 64px: leading 40px avatar or 30px icon circle, `text-row-title` over a `text-caption` `muted` subtitle, trailing value, toggle, check or chevron. A row that navigates has a chevron. | `CardItem`, `ListItem`, `MenuItem`, local rows |
+| Section label | `SectionHeader` | `text-label` `muted`, sentence case, 8px above its group, 4px inset. `size="xl"`: a tab root's section title, `text-title-page` `ink`. Optional `icon` draws it `aria-hidden` in a 32px `bg-fill` circle before the label; `size="lg"` swaps the label to `text-title-section` `ink` (Settings' coloured group headers). | ~40 hand-styled headings, uppercase labels |
+| Detail card | `DetailCard` + `DetailRow` | `fill`, 16px radius, hairlines between rows; `text-body-sm` `muted` label, `text-value` `ink` value right; addresses stacked, in full, with an `accent-tint-ink` "Copy". | `FlowDetails`, history `DetailCard`, `lib/ui/DetailCard`, `ReviewRow`, local detail rows |
 | Card | `Card`, `CardButton` | `fill`, 16px radius, no border, on `page`; cards in a list are separated by space (12px), never by an outline. `padding`: `row` (16 × 12px, 64px with a 40px icon: an Activity row), `tile` (16px: an Explore app, a position, an option), `none` (content that pads itself). `CardButton` is one tap target: `button`, tap haptic, `press` motion, `fill-pressed` when pressed, `accent` focus ring. `asChild` draws the surface onto a child that is its own element (a layout-animated row, an `article`). Anything drawn inside a card sits on `page` (an icon tile, a neutral icon circle), since grey on `fill` disappears. | outlined `rounded-2xl border bg-white` cards: Activity rows and pending transfers, Explore app cards, earn position cards, the send fee notice, dApp approval and settings cards, import-type choices |
-| Hero | `Hero` | Centered: 88px avatar or 64px status circle, then the hero value or name, then a 14px `muted` line. On a contact page the name is in the header and the avatar stands alone. | `ReviewAmount`, per-screen heroes |
+| Hero | `Hero` | Centered: 88px avatar or 64px status circle, then the `text-hero-value` or `text-hero-name`, then a `text-body-sm` `muted` line. On a contact page the name is in the header and the avatar stands alone. | `ReviewAmount`, per-screen heroes |
 | Pill | `Pill` | 32px on `fill` with `ink`; selected: `accent-tint` with `accent-tint-ink` (a multi-select chip or a tag; a single choice in a row is a `SegmentedControl`); 16px icon slot. Status tones (`positive`, `warning`, `negative` on their opaque tints; `inactive` on `fill-pressed` with `ink`) are for `StatusBadge`, which picks them. | `lib/ui/badge`, seed-word `Chip`, `AccountTypeBadge`, `PriceChangeBadge`, ad-hoc pills |
 | Status badge | `StatusBadge` (on `Pill`) | The status word alone, no dot, on the status's tint: positive (confirmed, claimed, received, filled, online) sage, pending (pending, in progress, redeeming, delivering, open, checking) sand, negative (failed, offline, needs attention) clay, each `*-tint` with its `*-tint-ink`; neutral (cancelled, reclaimed, unavailable, not connected) `fill-pressed` with `ink`. `sm`: 20px, 12px semibold, in rows (Activity, pending transfers, the swap fill list). `md`: 24px, 12px bold, in detail headers. A closed `status` set maps each state to its i18n label and tone; a new state is added there. `live` adds `role="status"` where the status changes on screen (detail headers, the swap order line, the guardian pill); never in a list. | the Activity row's dot and 10px colored text, history's `StatusPill` (now a wrapper that maps a transaction row to a status), the bridge and earn detail pills, the legacy summary rows' dots, the swap order's colored line and pending text, the guardian's red/green pill |
 | Network chip | `NetworkChip` | A `Pill` in the network's own tint, logo unchanged. | — |
 | Avatar | `Avatar` | Round: image, initials or icon; 24 / 40 / 88px; a network badge on the corner for `0x` contacts. Contact colors come from the address hash. | ad-hoc icon circles; Activity's square icons become round |
-| Empty state | `EmptyState` | On `fill`, 16px radius: 56px icon circle on `page`, 17px title, 14px `muted` body, a 36px `secondary` button. | `components/EmptyState` (moved), ad-hoc "No …" lines |
+| Empty state | `EmptyState` | On `fill`, 16px radius: 56px icon circle on `page`, `text-title-section` title, `text-body-sm` `muted` body, a 36px `secondary` button. | `components/EmptyState` (moved), ad-hoc "No …" lines |
 | Sheet | `Drawer` (vaul) | 28px top corners, 36 × 5 handle, 20px title left, 32px ✕ right, 16px margin; one decision per sheet; CTA pinned. | `CustomModal`, `ModalWithTitle`, custom overlays; the react-modal dependency goes last |
 | Confirm / alert | `useConfirm` / `useAlert` (`lib/ui/dialog`), rendered by `AlertSheet` with Radix AlertDialog semantics | Title, one sentence, a `destructive` or `primary` button over a `secondary` Cancel. | `ConfirmationModal`, `AlertModal` |
 | Spinner | `Spinner` | 0.9s ring, `accent` on `fill`. | atoms `Spinner`, `ActivitySpinner`, `CircularProgress` |
@@ -336,5 +364,7 @@ caller of what it replaces and deletes the retired component.
   replacement) and new importers of `app/atoms` (existing importers are allow-listed in its
   `overrides`); `src/lib/ui/restricted-imports.test.ts` proves both fire. Add a module to the ban
   in the PR that deletes it.
-- A reviewer rejects a new local header, row, pill, section label, color literal or inline
+- `src/components/ui/type-scale-guard.test.ts` fails a shared component that sets a family,
+  size or arbitrary line-height by hand instead of a type style.
+- A reviewer rejects a new local header, row, pill, section label, color literal, type style or inline
   transition that this document covers.

@@ -45,8 +45,8 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
         <Icon name={icon} fill="currentColor" size="md" />
       </div>
       <div className="flex flex-col items-center gap-1">
-        <h3 className="font-heading text-[17px] font-extrabold leading-tight text-ink">{title}</h3>
-        {description && <p className="text-sm leading-tight text-muted">{description}</p>}
+        <h3 className="text-title-section text-ink">{title}</h3>
+        {description && <p className="text-body-sm text-muted">{description}</p>}
       </div>
       {secondaryAction && (
         <Button

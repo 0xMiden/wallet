@@ -6,13 +6,13 @@ import { cn } from 'lib/ui/util';
 
 const headingVariants = cva('min-w-0 truncate', {
   variants: {
-    /** `sm`: 13px bold `muted` (default, the spec label). `lg`: 18px Nunito extrabold `ink`, for a
-     * page-level section title such as Settings' coloured group headers. `xl`: the spec's 20px / 26
-     * extrabold `ink` section title of a tab root, such as Explore's. */
+    /** `sm`: `text-label` `muted` (default, the spec's section label). `lg`: `text-title-section`
+     * `ink`, for a page-level section title such as Settings' coloured group headers. `xl`:
+     * `text-title-page` `ink`, the section title of a tab root, such as Explore's. */
     size: {
-      sm: 'font-sans text-[13px] leading-[17px] font-bold text-muted',
-      lg: 'font-heading text-lg font-extrabold text-ink',
-      xl: 'font-heading text-xl leading-[26px] font-extrabold text-ink'
+      sm: 'text-label text-muted',
+      lg: 'text-title-section text-ink',
+      xl: 'text-title-page text-ink'
     }
   },
   defaultVariants: { size: 'sm' }
@@ -35,7 +35,7 @@ export interface SectionHeaderProps extends VariantProps<typeof headingVariants>
   'data-testid'?: string;
 }
 
-/** The label over a `ListGroup`: 13px bold `muted`, 8px above its group, inset 4px. */
+/** The label over a `ListGroup`: `text-label` `muted`, 8px above its group, inset 4px. */
 export const SectionHeader: React.FC<SectionHeaderProps> = ({
   children,
   as: Heading = 'h2',

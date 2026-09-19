@@ -82,22 +82,15 @@ describe('Button', () => {
     it('is a 52px full-width pill with the 19px extra-bold Nunito label by default', () => {
       render(<Button />);
 
-      expect(screen.getByRole('button')).toHaveClass(
-        'h-13',
-        'rounded-full',
-        'w-full',
-        'font-heading',
-        'text-[19px]',
-        'font-extrabold'
-      );
+      expect(screen.getByRole('button')).toHaveClass('h-13', 'rounded-full', 'w-full', 'text-cta');
     });
 
     it('is a 36px pill with a 15px label at size sm', () => {
       render(<Button size="sm" />);
 
       const button = screen.getByRole('button');
-      expect(button).toHaveClass('h-9', 'rounded-full', 'text-[15px]');
-      expect(button).not.toHaveClass('h-13', 'w-full', 'text-[19px]');
+      expect(button).toHaveClass('h-9', 'rounded-full', 'text-cta-sm');
+      expect(button).not.toHaveClass('h-13', 'w-full', 'text-cta');
     });
 
     it('lets className set layout on top of the size', () => {

@@ -178,7 +178,7 @@ describe('GeneralSettings', () => {
     );
 
     // Descriptions are the muted 14px section footnote.
-    expect(screen.getByText('delegateProofSettingsDescription')).toHaveClass('text-sm', 'text-muted');
+    expect(screen.getByText('delegateProofSettingsDescription')).toHaveClass('text-body-sm', 'text-muted');
     // No page footer: every setting applies as it is changed.
     expect(page.querySelector('[data-slot="footer"]')).toBeNull();
   });

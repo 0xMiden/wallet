@@ -72,14 +72,14 @@ describe('StatusBadge', () => {
     it('sm (the default) is the 20px row badge with 12px semibold text', () => {
       render(<StatusBadge status="confirmed" data-testid="badge" />);
       const badge = screen.getByTestId('badge');
-      expect(badge).toHaveClass('h-5', 'px-2', 'gap-1', 'text-xs', 'font-semibold', 'rounded-full');
+      expect(badge).toHaveClass('h-5', 'px-2', 'gap-1', 'text-badge', 'font-semibold', 'rounded-full');
       expect(badge).not.toHaveClass('font-bold');
     });
 
     it('md is the 24px detail-header pill', () => {
       render(<StatusBadge status="confirmed" size="md" data-testid="badge" />);
       const badge = screen.getByTestId('badge');
-      expect(badge).toHaveClass('h-6', 'px-2', 'gap-1', 'text-xs', 'font-bold', 'rounded-full');
+      expect(badge).toHaveClass('h-6', 'px-2', 'gap-1', 'text-badge', 'rounded-full');
       expect(badge).not.toHaveClass('h-5');
     });
   });

@@ -76,7 +76,7 @@ describe('SearchInput — container & input classes', () => {
     render(<SearchInput value="" onChange={jest.fn()} />);
     const input = getInput();
 
-    expect(input.className).toContain('text-base');
+    expect(input).toHaveClass('text-body');
     expect(input.className).not.toContain('text-center');
     expect(input.className).toContain('outline-none');
   });
@@ -241,10 +241,10 @@ describe('SearchInput — clear button & placeholder hint (#503)', () => {
     expect(getInput().className).not.toContain('pr-4');
   });
 
-  it('styles the placeholder as a hint, lighter than the typed text', () => {
+  it("styles the placeholder as a muted hint at the typed text's weight", () => {
     render(<SearchInput value="" onChange={jest.fn()} placeholder="Search for tokens" />);
     const input = getInput();
-    expect(input.className).toContain('placeholder:font-normal');
+    expect(input).toHaveClass('placeholder:text-muted');
     // must NOT match the bold weight of a real value
     expect(input.className).not.toContain('placeholder:font-bold');
   });

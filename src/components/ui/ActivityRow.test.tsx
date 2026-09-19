@@ -57,11 +57,11 @@ describe('ActivityRow', () => {
     expect(subtitle.className).not.toContain('opacity-50');
   });
 
-  it('renders the timestamp in the gray-secondary token, not a raw hex literal', () => {
+  it('renders the timestamp as a muted caption, not a raw hex literal', () => {
     render(<ActivityRow icon={<svg />} title="Sent MIDEN" timestamp="Just now" />);
 
     const timestamp = screen.getByText('Just now');
-    expect(timestamp.className).toContain('text-gray-secondary');
+    expect(timestamp).toHaveClass('text-caption', 'text-muted');
     expect(timestamp.className).not.toContain('text-[#8E8E93]');
   });
 

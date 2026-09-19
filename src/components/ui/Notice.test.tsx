@@ -51,8 +51,8 @@ it.each<[NoticeTone, string, string, string]>([
   expect(notice).toHaveClass(surface);
   expect(notice).toHaveAttribute('data-tone', tone);
   expect(notice.querySelector('[data-slot="icon"]')).toHaveClass(ink);
-  expect(notice.querySelector('[data-slot="title"]')).toHaveClass(ink, 'font-bold', 'text-[13px]');
-  expect(notice.querySelector('[data-slot="body"]')).toHaveClass(body, 'text-[13px]');
+  expect(notice.querySelector('[data-slot="title"]')).toHaveClass(ink, 'text-label');
+  expect(notice.querySelector('[data-slot="body"]')).toHaveClass(body, 'text-caption');
 });
 
 it('takes an alert role for something that just went wrong', () => {
