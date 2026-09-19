@@ -29,15 +29,35 @@ jest.mock('app/atoms/AddressShortView', () => ({
   default: ({ address }: { address: string }) => <span data-testid="addr-short">{address}</span>
 }));
 
-// `CopyButton` reaches into analytics / tippy / haptics; stub it to a marker
-// that surfaces the `text` it would copy plus its children.
-jest.mock('app/atoms/CopyButton', () => ({
+// The canonical CopyButton does its own clipboard write internally (covered by its own test
+// suite); stub it to a marker that surfaces the `text` it would copy plus its children, and
+// records every call's props so a dedicated test below can invoke the render-function `children`
+// directly to assert the copied-state icon swap.
+const mockCopyButtonProps = jest.fn();
+jest.mock('components/ui/CopyButton', () => ({
   __esModule: true,
-  default: ({ text, children }: { text: string; children?: React.ReactNode }) => (
-    <button data-testid="copy-btn" data-copy-text={text}>
-      {children}
-    </button>
-  )
+  CopyButton: (props: {
+    text: string;
+    children?: React.ReactNode | ((copied: boolean) => React.ReactNode);
+    className?: string;
+  }) => {
+    mockCopyButtonProps(props);
+    return (
+      <button data-testid="copy-btn" data-copy-text={props.text} className={props.className}>
+        {typeof props.children === 'function' ? props.children(false) : props.children}
+      </button>
+    );
+  }
+}));
+
+// `Icon`/`IconName` mocked the same way `components/ui/BalanceCard.test.tsx` does, so the
+// copied-state checkmark is identifiable by a stable `data-name` without pulling in the real SVG
+// registry.
+jest.mock('app/icons/v2', () => ({
+  Icon: ({ name, className }: { name: string; className?: string }) => (
+    <span data-testid="icon" data-name={name} className={className} />
+  ),
+  IconName: { Checkmark: 'checkmark' }
 }));
 
 // `lib/miden/front` is a barrel over the SDK; mock only the two members used.
@@ -142,14 +162,31 @@ describe('DAppSettings', () => {
     expect(screen.getAllByTestId('addr-short')).toHaveLength(2);
     expect(screen.getAllByTestId('addr-short')[0]).toHaveTextContent(ACCOUNT_ID);
 
-    // CopyButton is wired with the accountId as its copy text.
+    // CopyButton is wired with the accountId as its copy text, and a tap target matching the
+    // neighboring explorer link's (`p-1 rounded-sm`).
     expect(screen.getAllByTestId('copy-btn')[0]).toHaveAttribute('data-copy-text', ACCOUNT_ID);
+    expect(screen.getAllByTestId('copy-btn')[0]).toHaveClass('p-1', 'rounded-sm');
 
     // UponRequest → permissionUponRequest; Auto → permissionAutomatic.
     expect(screen.getByText('permissionUponRequest')).toBeInTheDocument();
     expect(screen.getByText('permissionAutomatic')).toBeInTheDocument();
     // The static permission chip renders once per card.
     expect(screen.getAllByText('permissionLabel')).toHaveLength(2);
+  });
+
+  it('swaps the copy glyph for a checkmark while the account id is copied', () => {
+    render(<DAppSettings />);
+
+    // Not yet copied: the copy glyph renders, no checkmark.
+    expect(screen.getAllByTestId('copy-btn')[0]!.querySelector('[data-name="checkmark"]')).not.toBeInTheDocument();
+
+    // CopyButton's `children` render-function is invoked by the stub with `copied=false`; render
+    // it again with `copied=true` (the state a real click flips to, covered by
+    // CopyButton.test.tsx) to assert DAppSettings' own render function swaps the icon.
+    const renderChildren = mockCopyButtonProps.mock.calls[0][0].children as (copied: boolean) => React.ReactNode;
+    const { container } = render(<>{renderChildren(true)}</>);
+
+    expect(container.querySelector('[data-name="checkmark"]')).toBeInTheDocument();
   });
 
   it('builds the explorer link from the accountId prefix before the underscore', () => {
