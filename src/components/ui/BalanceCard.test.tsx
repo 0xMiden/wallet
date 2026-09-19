@@ -194,13 +194,22 @@ describe('BalanceCard states, delta, and interactions', () => {
     expect(pill.querySelector('[data-name^="Arrow"]')).toBeNull();
   });
 
-  it('uses the card-ink hairline for the footer rule, with no dashed divider or darker strip', () => {
+  it('keeps the brand card color and puts the small text on a local scrim, never tinting the whole card', () => {
     const { container } = render(<BalanceCard accountNumber={ADDRESS} amount="$123.45" />);
 
-    expect(container.querySelector('.border-surface-balance-rule')).not.toBeNull();
-    expect(container.querySelector('.border-dashed')).toBeNull();
+    // The card itself is the bare brand color, with no scrim or darker variant of it.
+    const card = container.firstElementChild;
+    expect(card).toHaveClass('bg-card-slate');
+    expect(card?.className).not.toContain('scrim');
     expect(container.querySelector('[class*="-deep"]')).toBeNull();
-    expect(container.querySelector('[class*="#FFFFFF4D"]')).toBeNull();
+    expect(container.querySelector('.border-dashed')).toBeNull();
+
+    // The footer is a band of the scrim; the label's scrim is a short gradient at the top only.
+    expect(screen.getByTestId('balance-card-footer')).toHaveClass('bg-surface-balance-scrim');
+    const labelScrim = screen.getByTestId('balance-card-label-scrim');
+    expect(labelScrim).toHaveAttribute('aria-hidden');
+    expect(labelScrim).toHaveClass('pointer-events-none', 'top-0', 'h-[72px]');
+    expect(labelScrim.className).toContain('var(--surface-balance-scrim)_40px');
   });
 
   it('draws the label as a 13px bold sentence-case label in the full-strength card ink', () => {
