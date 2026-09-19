@@ -4,9 +4,11 @@ import { useTranslation } from 'react-i18next';
 
 import { Button, ButtonVariant } from 'components/Button';
 import { Checkbox } from 'components/Checkbox';
-import { Input } from 'components/Input';
-import { PageHeader } from 'components/PageHeader';
 import { TabPicker } from 'components/TabPicker';
+import { ListGroup } from 'components/ui/ListGroup';
+import { ListRow } from 'components/ui/ListRow';
+import { SubPageLayout, SubPageSection } from 'components/ui/SubPageLayout';
+import { TextField } from 'components/ui/TextField';
 import { clearSyncFuseForEndpointChange } from 'lib/miden/front/sync-fuse';
 import { resetStorageDestructive } from 'lib/miden/reset';
 import {
@@ -70,7 +72,7 @@ const HealthNote: React.FC<HealthNoteProps> = ({ url, kind }) => {
   const status = useEndpointHealth(url, kind);
   if (status === 'idle') return null;
 
-  const color = status === 'reachable' ? 'text-green-600' : status === 'error' ? 'text-red-500' : 'text-text-muted';
+  const color = status === 'reachable' ? 'text-positive-ink' : status === 'error' ? 'text-negative-ink' : 'text-muted';
   const labelKey =
     status === 'pending'
       ? 'devEndpointChecking'
@@ -78,7 +80,7 @@ const HealthNote: React.FC<HealthNoteProps> = ({ url, kind }) => {
         ? 'devEndpointReachable'
         : 'devEndpointNoResponse';
 
-  return <p className={`text-xs mt-1 ${color}`}>{t(labelKey)}</p>;
+  return <p className={`px-1 font-sans text-[13px] leading-[17px] ${color}`}>{t(labelKey)}</p>;
 };
 
 export interface DeveloperSettingsProps {
@@ -204,27 +206,57 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
 
   const handleResetToDefaults = () => setForm(buildDefaultOverrideFor(getEffectiveNetworkName()));
 
+  const actionButton = 'flex-1 max-w-none';
+
   return (
-    <div className="flex flex-col h-full min-h-0 bg-app-bg">
-      <PageHeader title={t('developerSettingsTitle')} onBack={() => goBack()} className="mx-4 shrink-0" />
-      <div className="flex-1 min-h-0 overflow-y-auto px-4 pt-4 flex flex-col gap-5">
-        <div className="w-full bg-fill rounded-10 px-4 py-3">
-          <div className="text-base font-bold font-heading leading-tight text-ink">
-            {t('developerSettingsWarningTitle')}
-          </div>
-          <div className="text-xs mt-1 text-text-muted">{t('developerSettingsWarning')}</div>
-        </div>
+    <SubPageLayout
+      title={t('developerSettingsTitle')}
+      onBack={() => goBack()}
+      data-testid="developer-settings"
+      footerLayout="stack"
+      footer={
+        readOnly ? (
+          // Destructive: it wipes the wallet and starts onboarding over.
+          <Button
+            className={actionButton}
+            variant={ButtonVariant.Destructive}
+            title={t('devEndpointResetAndReonboard')}
+            data-testid="dev-endpoints-reset"
+            onClick={handleReset}
+          />
+        ) : (
+          <>
+            <Button
+              className={actionButton}
+              variant={ButtonVariant.Primary}
+              title={t('devEndpointSaveContinue')}
+              isLoading={saving}
+              data-testid="dev-endpoints-save"
+              onClick={handleSave}
+            />
+            <Button
+              className={actionButton}
+              variant={ButtonVariant.Secondary}
+              title={t('devEndpointResetDefaults')}
+              data-testid="dev-endpoints-reset-defaults"
+              onClick={handleResetToDefaults}
+            />
+          </>
+        )
+      }
+    >
+      <SubPageSection title={t('developerSettingsWarningTitle')} description={t('developerSettingsWarning')} />
 
-        {!readOnly && (
-          <div className="flex flex-col gap-2">
-            <span className="text-sm font-medium text-ink">{t('devEndpointPreset')}</span>
-            <TabPicker tabs={presetTabs} onTabChange={applyPreset} />
-          </div>
-        )}
+      {!readOnly && (
+        <SubPageSection title={t('devEndpointPreset')}>
+          <TabPicker tabs={presetTabs} onTabChange={applyPreset} />
+        </SubPageSection>
+      )}
 
+      <SubPageSection className="gap-4">
         {FIELDS.map(field => (
-          <div key={field.key} className="flex flex-col">
-            <Input
+          <div key={field.key} className="flex flex-col gap-1">
+            <TextField
               label={t(field.labelKey)}
               data-testid={`dev-endpoint-${field.key}`}
               value={form[field.key]}
@@ -233,83 +265,48 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
               autoCorrect="off"
               spellCheck={false}
               disabled={readOnly}
-              inputClassName="font-mono text-xs select-text"
+              className="font-mono select-text"
               onChange={e => setField(field.key, e.target.value)}
             />
             <HealthNote url={form[field.key]} kind={field.health} />
           </div>
         ))}
+      </SubPageSection>
 
-        <div className="flex flex-col gap-2">
-          <span className="text-sm font-medium text-ink">{t('devEndpointNetworkId')}</span>
-          <TabPicker
-            tabs={NETWORK_ID_OPTIONS.map(network => ({
-              id: network,
-              title: capitalize(network),
-              active: form.networkName === network
-            }))}
-            onTabChange={
-              readOnly
-                ? undefined
-                : index => {
-                    const network = NETWORK_ID_OPTIONS[index];
-                    if (network) setForm(prev => ({ ...prev, networkName: network, presetName: CUSTOM_PRESET }));
-                  }
-            }
-          />
-        </div>
-
-        <button
-          type="button"
-          disabled={readOnly}
-          data-testid="dev-allow-no-guardian"
-          onClick={
+      <SubPageSection title={t('devEndpointNetworkId')}>
+        <TabPicker
+          tabs={NETWORK_ID_OPTIONS.map(network => ({
+            id: network,
+            title: capitalize(network),
+            active: form.networkName === network
+          }))}
+          onTabChange={
             readOnly
               ? undefined
-              : () =>
-                  setForm(prev => ({
-                    ...prev,
-                    allowNoGuardian: !prev.allowNoGuardian,
-                    presetName: CUSTOM_PRESET
-                  }))
+              : index => {
+                  const network = NETWORK_ID_OPTIONS[index];
+                  if (network) setForm(prev => ({ ...prev, networkName: network, presetName: CUSTOM_PRESET }));
+                }
           }
-          className="flex items-center justify-between gap-3 text-left"
-        >
-          <span className="text-sm font-medium text-ink">{t('devAllowNoGuardian')}</span>
-          <Checkbox value={form.allowNoGuardian} />
-        </button>
-      </div>
+        />
+      </SubPageSection>
 
-      <div className="px-4 pb-8 pt-4 mt-auto flex flex-col items-center gap-3">
-        {readOnly ? (
-          <Button
-            className="w-full justify-center"
-            variant={ButtonVariant.Secondary}
-            title={t('devEndpointResetAndReonboard')}
-            data-testid="dev-endpoints-reset"
-            onClick={handleReset}
-          />
-        ) : (
-          <>
-            <Button
-              className="w-full justify-center"
-              variant={ButtonVariant.Primary}
-              title={t('devEndpointSaveContinue')}
-              isLoading={saving}
-              data-testid="dev-endpoints-save"
-              onClick={handleSave}
-            />
-            <Button
-              className="w-full justify-center"
-              variant={ButtonVariant.Ghost}
-              title={t('devEndpointResetDefaults')}
-              data-testid="dev-endpoints-reset-defaults"
-              onClick={handleResetToDefaults}
-            />
-          </>
-        )}
-      </div>
-    </div>
+      <ListGroup>
+        <ListRow
+          title={t('devAllowNoGuardian')}
+          disabled={readOnly}
+          data-testid="dev-allow-no-guardian"
+          onClick={() =>
+            setForm(prev => ({
+              ...prev,
+              allowNoGuardian: !prev.allowNoGuardian,
+              presetName: CUSTOM_PRESET
+            }))
+          }
+          trailing={<Checkbox value={form.allowNoGuardian} />}
+        />
+      </ListGroup>
+    </SubPageLayout>
   );
 };
 
