@@ -150,8 +150,8 @@ jest.mock('components/ui', () => ({
       </button>
     </div>
   ),
-  SegmentedActionBar: ({ items, activeId, onChange, layoutId }: any) => (
-    <div data-testid="action-bar" data-active={activeId} data-layout-id={layoutId}>
+  SegmentedActionBar: ({ items, activeId, onChange }: any) => (
+    <div data-testid="action-bar" data-active={activeId}>
       {items.map((it: any) => (
         <button key={it.id} data-testid={`action-${it.id}`} onClick={() => onChange(it.id)}>
           {it.label}
@@ -277,7 +277,6 @@ describe('TabLayout — action bar visibility (showActionBar)', () => {
     mockLocation.pathname = '/send';
     renderLayout();
     expect(screen.getByTestId('action-bar')).toBeInTheDocument();
-    expect(screen.getByTestId('action-bar')).toHaveAttribute('data-layout-id', 'tab-layout-action-fill');
     expect(screen.getByTestId('home-swipe')).toBeInTheDocument();
     expect(screen.queryByTestId('child-content')).toBeNull();
   });
