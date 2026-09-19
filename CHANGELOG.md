@@ -67,6 +67,7 @@
 - [FIX][all] Show the missing EVM key error when an imported key pair is incomplete. Update tests for seed phrase removal, key-pair import, and recovery signing.
 - [FIX][all] Seed phrase removal now deletes and verifies the recovery secret stored under its commitment. Recovery actions exclude the seed input wait from transaction expiry.
 - [FIX][all] Importing a wallet from an everyday (hot) key no longer fails on a fresh install. The key was parsed before any client had loaded the SDK's WASM module, so the parse threw inside the SDK and was reported as an invalid paste; the import now loads the module first.
+- [FIX][all] Faucet requests in Activity use an icon that matches the other transaction types.
 
 ### Changes
 
