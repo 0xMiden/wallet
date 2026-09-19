@@ -4,12 +4,12 @@ import { Directory, Filesystem } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
 import { useTranslation } from 'react-i18next';
 
-import CopyButton from 'app/atoms/CopyButton';
 import FormField from 'app/atoms/FormField';
 import { Icon, IconName } from 'app/icons/v2';
 import EvmConnectModal from 'app/templates/EvmConnectModal';
 import { QRCode, type QRCodeHandle } from 'components/QRCode';
 import { TestNetworkWarning } from 'components/TestNetworkWarning';
+import { CopyButton } from 'components/ui/CopyButton';
 import { isBridgeDepositEnabled } from 'lib/feature-flags';
 import { getTestNetworkNameKey } from 'lib/miden-chain/effective-endpoints';
 import { hapticLight } from 'lib/mobile/haptics';
@@ -140,9 +140,11 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
               data-testid="receive-copy-address"
               className="w-full rounded-full! text-center py-5 bg-surface-interactive hover:bg-surface-interactive"
             >
-              <span className="text-base font-heading font-bold text-heading-gray">
-                {truncateAddress(address, false, 16, 8)}
-              </span>
+              {copied => (
+                <span className="text-base font-heading font-bold text-heading-gray">
+                  {copied ? t('copied') : truncateAddress(address, false, 16, 8)}
+                </span>
+              )}
             </CopyButton>
             {/* Test-funds warning sits before the share and bridge actions:
                 the funding decision point named in #875. */}
