@@ -18,7 +18,7 @@ export interface NetworkModeSheetProps {
 
 /**
  * The test-network explanation (#875): no value, no real funds, and resets that never carry over to
- * Mainnet. Opened from the network strip in the bottom nav and from the dApp confirm window's
+ * Mainnet. Opened from the corner ribbon on the bottom nav and from the dApp confirm window's
  * banner; the caller owns `open`. Renders nothing on mainnet.
  */
 export const NetworkModeSheet: FC<NetworkModeSheetProps> = ({ open, onOpenChange }) => {

@@ -243,7 +243,7 @@ beforeEach(() => {
 });
 
 describe('app/PageRouter — no network banner', () => {
-  // The wallet names its test network in the bottom nav's strip (TabLayout); only the dApp
+  // The wallet names its test network on the bottom nav's corner ribbon (TabLayout); only the dApp
   // confirm window keeps the full-width banner.
   it('renders no banner above a routed page', () => {
     renderAt('/', { ready: true, hydrated: true });

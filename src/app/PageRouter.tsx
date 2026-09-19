@@ -453,7 +453,7 @@ const PageRouter: FC = () => {
       </MobilePageLayers>
     );
 
-  // The wallet names its test network in the bottom nav's strip (TabLayout), not in a banner
+  // The wallet names its test network on the bottom nav's corner ribbon (TabLayout), not in a banner
   // above every page; the page takes the full height.
   return <div className="relative flex h-full min-h-0 w-full flex-col">{layered}</div>;
 };

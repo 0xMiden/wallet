@@ -10,7 +10,7 @@ export interface SlotRect {
 // that matches DappActive's layout:
 //   - FALLBACK_CAPSULE_HEIGHT (145): safe-area-inset-top (~62) + the
 //     capsule's drag handle + content row (83). Nothing tops the page above
-//     it: the test network is named in the bottom nav's strip, not a banner.
+//     it: the test network is named on the bottom nav's corner ribbon, not a banner.
 //   - FALLBACK_BOTTOM_GUTTER (34): safe-area-inset-bottom on devices
 //     with a home indicator. Subtract the bottom safe area directly as
 //     a constant instead of trying to derive it from live CSS.

@@ -86,7 +86,7 @@ jest.mock('lib/ui/drawer', () => ({
   )
 }));
 
-/** The sheet with its open state owned the way the strip and the banner own it. */
+/** The sheet with its open state owned the way the ribbon and the banner own it. */
 const Harness: React.FC<{ initialOpen?: boolean }> = ({ initialOpen = true }) => {
   const [open, setOpen] = useState(initialOpen);
   return (

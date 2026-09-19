@@ -26,27 +26,27 @@ export interface BottomNavProps {
    *  mobile.html) into the device's bottom inset, with an 8px floor of its own,
    *  so the bar's background runs under the home indicator and the items hug it. */
   docked?: boolean;
-  /** Rendered at the bar's right edge, beside the last tab and outside every tab's hit area (the
-   *  test-network strip). It gets whatever width the tabs leave and must truncate to fit it. */
-  accessory?: ReactNode;
+  /** Drawn over the bar's lower-right corner, taking no layout space (the test-network ribbon). It
+   *  sits in a box clipped to the bar's own shape that lets taps through; whatever it renders
+   *  decides which of its parts take taps (`pointer-events-auto`). */
+  corner?: ReactNode;
   className?: string;
 }
 
 // The bar is 64px of content, the height of every tab; docked, the safe-area padding sits below it.
-const bar = cva('flex items-center bg-page', {
+const bar = cva('relative flex items-center bg-page', {
   variants: {
     docked: {
-      true: 'w-full px-1 pb-[max(0.5rem,calc(var(--app-safe-bottom,max(16px,env(safe-area-inset-bottom)))-16px))] border-t border-hairline',
+      true: 'w-full px-4 pb-[max(0.5rem,calc(var(--app-safe-bottom,max(16px,env(safe-area-inset-bottom)))-16px))] border-t border-hairline',
       false: 'rounded-3xl px-2 shadow-[0_4px_12px_rgba(0,0,0,0.08),0_12px_40px_rgba(0,0,0,0.15)]'
     }
   }
 });
 
-// Docked, the tabs share the width the accessory leaves; floating, they sit side by side.
+// Docked, the tabs share the full width; floating, they sit side by side.
 const tabRow = cva('flex items-center', {
   variants: {
     docked: {
-      // No `min-w-0`: the row keeps its tabs' full width and the accessory shrinks instead.
       true: 'flex-1 justify-around',
       false: 'gap-2'
     }
@@ -101,7 +101,7 @@ const BottomNavTab: FC<BottomNavTabProps> = ({ item, active, onSelect }) => {
   );
 };
 
-export const BottomNav: FC<BottomNavProps> = ({ items, activeId, onChange, docked = false, accessory, className }) => {
+export const BottomNav: FC<BottomNavProps> = ({ items, activeId, onChange, docked = false, corner, className }) => {
   const motionTokens = useTabBarMotion();
 
   return (
@@ -124,12 +124,15 @@ export const BottomNav: FC<BottomNavProps> = ({ items, activeId, onChange, docke
           ))}
         </Highlight>
       </div>
-      {/* The accessory gets the row's top 48px (pt-1 above a 44px target): docked on a device with
-          a home indicator, the bar's bottom padding is the inset minus 16px, so the row's bottom
-          16px lies inside the indicator's gesture zone and a target there would compete with it. */}
-      {/* `empty:hidden`: an accessory that renders nothing (the strip on mainnet) leaves no gap. */}
-      {accessory && (
-        <div className="flex min-w-0 shrink items-start self-stretch pt-1 pl-1 empty:hidden">{accessory}</div>
+      {/* Over the tabs, in the bar's own shape (`rounded-[inherit]` clips it to the floating pill's
+          radius), and transparent to taps outside whatever the corner content opts in. */}
+      {corner && (
+        <div
+          data-slot="bottom-nav-corner"
+          className="pointer-events-none absolute inset-0 overflow-hidden rounded-[inherit]"
+        >
+          {corner}
+        </div>
       )}
     </nav>
   );

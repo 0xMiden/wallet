@@ -275,33 +275,46 @@ describe('BottomNav — four destinations', () => {
   });
 });
 
-describe('BottomNav — accessory', () => {
-  it('renders the accessory after the tabs, outside every tab', () => {
-    const { container } = renderNav({ accessory: <button type="button">Testnet</button> });
+describe('BottomNav — corner overlay', () => {
+  it('draws the corner over the bar, clipped to its shape and transparent to taps, taking no layout space', () => {
+    const { container } = renderNav({ corner: <button type="button">Testnet</button> });
 
-    const strip = screen.getByRole('button', { name: 'Testnet' });
-    const tabs = ['Home', 'Activity', 'Settings'].map(getTab);
-    tabs.forEach(tab => expect(tab).not.toContainElement(strip));
-    expect(tabs[2]!.compareDocumentPosition(strip)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
-    // Its wrapper is the one that shrinks, so the tabs keep their width.
-    expect(strip.parentElement).toHaveClass('min-w-0', 'shrink');
-    // It keeps to the row's top 48px, clear of the home indicator's gesture zone.
-    expect(strip.parentElement).toHaveClass('self-stretch', 'items-start', 'pt-1');
-    expect(strip.parentElement!.parentElement).toBe(container.querySelector('nav'));
+    const nav = container.querySelector('nav')!;
+    const ribbon = screen.getByRole('button', { name: 'Testnet' });
+    const box = ribbon.parentElement!;
+    expect(nav).toHaveClass('relative');
+    expect(box).toHaveAttribute('data-slot', 'bottom-nav-corner');
+    expect(box).toHaveClass('pointer-events-none', 'absolute', 'inset-0', 'overflow-hidden', 'rounded-[inherit]');
+    // Out of flow: the nav's only in-flow child is still the tab row, so the tabs keep their widths.
+    const inFlow = Array.from(nav.children).filter(child => !child.classList.contains('absolute'));
+    expect(inFlow).toHaveLength(1);
+    expect(inFlow[0]).toHaveClass('flex', 'gap-2');
+    ['Home', 'Activity', 'Settings'].map(getTab).forEach(tab => {
+      expect(tab).not.toContainElement(ribbon);
+      expect(tab).toHaveClass('w-15');
+    });
   });
 
-  it('collapses the slot when the accessory renders nothing (the strip on mainnet)', () => {
-    const Nothing = () => null;
-    const { container } = renderNav({ accessory: <Nothing /> });
+  it('spreads docked tabs across the full width, as without a corner', () => {
+    const { container } = renderNav({ docked: true, corner: <span /> });
 
-    const slot = container.querySelector('nav')!.children[1]!;
-    expect(slot).toBeEmptyDOMElement();
-    expect(slot).toHaveClass('empty:hidden');
+    expect(container.querySelector('nav')).toHaveClass('px-4');
+    expect(container.querySelector('nav')!.firstElementChild).toHaveClass('flex-1', 'justify-around');
   });
 
-  it('renders no accessory slot without one', () => {
+  it('keeps every tab tappable with a corner drawn over them', () => {
+    const onChange = jest.fn();
+    renderNav({ onChange, corner: <button type="button">Testnet</button> });
+
+    fireEvent.click(getTab('Settings'));
+
+    expect(onChange).toHaveBeenCalledWith('settings');
+  });
+
+  it('renders no corner box without one', () => {
     const { container } = renderNav();
 
+    expect(container.querySelector('[data-slot="bottom-nav-corner"]')).toBeNull();
     expect(container.querySelector('nav')!.children).toHaveLength(1);
   });
 });
