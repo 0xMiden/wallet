@@ -46,7 +46,11 @@ jest.mock('components/Button', () => ({
 
 jest.mock('../HashChip', () => ({
   __esModule: true,
-  default: ({ hash }: { hash: string }) => <span data-testid="hash-chip">{hash}</span>
+  default: ({ hash, className }: { hash: string; className?: string }) => (
+    <span data-testid="hash-chip" className={className}>
+      {hash}
+    </span>
+  )
 }));
 
 jest.mock('components/ui/DetailCard', () => ({
@@ -278,6 +282,20 @@ describe('SwapDetail note rows', () => {
 
     renderDetail({ orderState: 'filled' });
     expect(screen.queryByText('swapOpenFill')).not.toBeInTheDocument();
+  });
+
+  it('shows fill and reclaim note ids in the muted ink that clears 4.5:1 on the chip fill', () => {
+    renderDetail({
+      settledTransactions: [consume()],
+      reclaimedTransactions: [consume({ id: 'reclaim-1', noteIds: ['0xnote9'] })]
+    });
+
+    const chips = screen.getAllByTestId('hash-chip').filter(chip => /^0xnote[19]$/.test(chip.textContent ?? ''));
+    expect(chips).toHaveLength(2);
+    chips.forEach(chip => {
+      expect(chip).toHaveClass('text-muted');
+      expect(chip).not.toHaveClass('text-text-secondary-token');
+    });
   });
 
   it('only denies that anything was bundled when the fill is actually known', () => {

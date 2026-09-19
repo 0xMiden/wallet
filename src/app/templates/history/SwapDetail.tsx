@@ -152,12 +152,7 @@ const SwapNoteRow = memo(function SwapNoteRow({
               </p>
             )}
             {displayNoteIds.map(displayNoteId => (
-              <HashChip
-                key={displayNoteId}
-                hash={displayNoteId}
-                trimHash
-                className="mt-1 max-w-full text-text-secondary-token"
-              />
+              <HashChip key={displayNoteId} hash={displayNoteId} trimHash className="mt-1 max-w-full text-muted" />
             ))}
           </div>
         </div>
@@ -175,12 +170,7 @@ const SwapNoteRow = memo(function SwapNoteRow({
           </div>
           <div className="min-w-0 text-right">
             {displayNoteIds.map(displayNoteId => (
-              <HashChip
-                key={displayNoteId}
-                hash={displayNoteId}
-                trimHash
-                className="max-w-full text-text-secondary-token"
-              />
+              <HashChip key={displayNoteId} hash={displayNoteId} trimHash className="max-w-full text-muted" />
             ))}
           </div>
         </div>
