@@ -152,45 +152,46 @@ jest.mock('components/PageHeader', () => ({
   )
 }));
 
-// MenuItem stub surfaces every prop the page wires up so we can assert routing
-// intent (slug), external-link flag, per-item testID, right-hand label and the
-// click handler.
-jest.mock('app/templates/MenuItem', () => ({
-  __esModule: true,
-  default: ({
-    slug,
-    titleI18nKey,
-    testID,
-    linksOutsideOfWallet,
-    rightText,
-    onClick
+// ListRow stub surfaces every prop the page wires up so we can assert routing
+// intent (route or external link), per-item testID, trailing value, chevron and
+// the click handler.
+jest.mock('components/ui/ListRow', () => ({
+  ListRow: ({
+    title,
+    to,
+    href,
+    value,
+    chevron,
+    onClick,
+    'data-testid': dataTestId
   }: {
-    slug?: string;
-    titleI18nKey: string;
-    testID?: string;
-    linksOutsideOfWallet?: boolean;
-    rightText?: string;
+    title: string;
+    to?: string;
+    href?: string;
+    value?: string;
+    chevron?: boolean;
     onClick?: () => void;
+    'data-testid'?: string;
   }) => (
     <button
       type="button"
-      data-testid={`menuitem-${titleI18nKey}`}
-      data-selector={testID}
-      data-slug={slug === undefined ? 'undefined' : String(slug)}
-      data-external={String(!!linksOutsideOfWallet)}
-      data-righttext={rightText === undefined ? 'undefined' : String(rightText)}
-      // The real MenuItem produces exactly one hapticLight per tap on every
+      data-testid={`row-${title}`}
+      data-selector={dataTestId}
+      data-slug={String(to ?? href)}
+      data-external={String(href !== undefined)}
+      data-righttext={value === undefined ? 'undefined' : String(value)}
+      data-chevron={String(chevron ?? Boolean(to || href))}
+      // The real ListRow produces exactly one hapticLight per tap on every
       // branch: the external anchor and the <button> call it directly, and the
-      // routed <Link> gets one from woozie's Link (Link.tsx). MenuItem's own unit
-      // test mocks Link and so sees none on that branch — don't take that as the
-      // product behaviour. The mock has to buzz, or a caller adding its own —
-      // which the recovery-phrase row did, buzzing twice — is invisible here.
+      // routed <Link> gets one from woozie's Link (Link.tsx). The mock has to
+      // buzz, or a caller adding its own — which the recovery-phrase row once
+      // did, buzzing twice — is invisible here.
       onClick={() => {
         hapticLight();
         onClick?.();
       }}
     >
-      {titleI18nKey}
+      {title}
     </button>
   )
 }));
@@ -285,8 +286,8 @@ describe('Settings page — root menu (non-guardian)', () => {
       mockWalletState.seedPhraseStatus = status;
       render(<Settings tabSlug={null} />);
 
-      expect(screen.queryByTestId('menuitem-recoveryPhrase')).not.toBeInTheDocument();
-      expect(screen.queryByTestId('menuitem-removeSeedPhrase')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('row-recoveryPhrase')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('row-removeSeedPhrase')).not.toBeInTheDocument();
     }
   );
 
@@ -322,14 +323,14 @@ describe('Settings page — root menu (non-guardian)', () => {
 
   it('removes the recovery phrase settings when the seed status changes', () => {
     const view = render(<Settings tabSlug={null} />);
-    expect(screen.getByTestId('menuitem-recoveryPhrase')).toBeInTheDocument();
-    expect(screen.getByTestId('menuitem-removeSeedPhrase')).toBeInTheDocument();
+    expect(screen.getByTestId('row-recoveryPhrase')).toBeInTheDocument();
+    expect(screen.getByTestId('row-removeSeedPhrase')).toBeInTheDocument();
 
     mockWalletState.seedPhraseStatus = 'removed';
     view.rerender(<Settings tabSlug={null} />);
 
-    expect(screen.queryByTestId('menuitem-recoveryPhrase')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('menuitem-removeSeedPhrase')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('row-recoveryPhrase')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('row-removeSeedPhrase')).not.toBeInTheDocument();
   });
 
   it('renders the settings header and version footer', () => {
@@ -360,39 +361,64 @@ describe('Settings page — root menu (non-guardian)', () => {
   it('renders preference / security / developer menu items but hides guardian-only entries', () => {
     render(<Settings tabSlug={null} />);
 
-    expect(screen.getByTestId('menuitem-generalSettings')).toBeInTheDocument();
-    expect(screen.getByTestId('menuitem-addressBook')).toBeInTheDocument();
-    expect(screen.getByTestId('menuitem-language')).toBeInTheDocument();
-    expect(screen.getByTestId('menuitem-recoveryPhrase')).toBeInTheDocument();
-    expect(screen.getByTestId('menuitem-keys')).toBeInTheDocument();
-    expect(screen.getByTestId('menuitem-encryptedWalletFile')).toBeInTheDocument();
-    expect(screen.getByTestId('menuitem-advancedSettings')).toBeInTheDocument();
-    expect(screen.getByTestId('menuitem-authorizedDApps')).toBeInTheDocument();
+    expect(screen.getByTestId('row-generalSettings')).toBeInTheDocument();
+    expect(screen.getByTestId('row-addressBook')).toBeInTheDocument();
+    expect(screen.getByTestId('row-language')).toBeInTheDocument();
+    expect(screen.getByTestId('row-recoveryPhrase')).toBeInTheDocument();
+    expect(screen.getByTestId('row-keys')).toBeInTheDocument();
+    expect(screen.getByTestId('row-encryptedWalletFile')).toBeInTheDocument();
+    expect(screen.getByTestId('row-advancedSettings')).toBeInTheDocument();
+    expect(screen.getByTestId('row-authorizedDApps')).toBeInTheDocument();
 
     // Guardian-gated entry absent for a non-guardian account.
-    expect(screen.queryByTestId('menuitem-guardianSettings')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('row-guardianSettings')).not.toBeInTheDocument();
+  });
+
+  it('draws each group as a section label over a fill group whose rows all show a chevron', () => {
+    render(<Settings tabSlug={null} />);
+
+    // Settings' group headers are the `lg` SectionHeader variant, not the plain
+    // 13px muted list-group label: 18px Nunito extrabold `ink`.
+    const heading = screen.getByRole('heading', { level: 2, name: 'preferences' });
+    expect(heading).toHaveClass('text-ink', 'text-lg', 'font-extrabold', 'font-heading');
+    const row = screen.getByTestId('row-generalSettings');
+    expect(row.parentElement).toHaveClass('bg-fill', 'rounded-2xl');
+    screen.getAllByTestId(/^row-/).forEach(r => expect(r).toHaveAttribute('data-chevron', 'true'));
+  });
+
+  it('shows each group header with its coloured glyph in a 32px circle', () => {
+    render(<Settings tabSlug={null} />);
+
+    ['preferences', 'security', 'developer', 'about'].forEach(key => {
+      const heading = screen.getByRole('heading', { level: 2, name: key });
+      // The icon circle is `heading`'s sibling, both under the icon+label wrapper.
+      const glyphCircle = heading.previousElementSibling;
+      expect(glyphCircle).toHaveAttribute('aria-hidden', 'true');
+      expect(glyphCircle).toHaveClass('h-8', 'w-8', 'rounded-full', 'bg-fill');
+      expect(glyphCircle?.querySelector('svg')).toBeInTheDocument();
+    });
   });
 
   it('passes the per-item testID through to menu items', () => {
     render(<Settings tabSlug={null} />);
 
-    expect(screen.getByTestId('menuitem-generalSettings')).toHaveAttribute('data-selector', 'Settings/GeneralButton');
+    expect(screen.getByTestId('row-generalSettings')).toHaveAttribute('data-selector', 'Settings/GeneralButton');
   });
 
   it('links each preference menu item to its routed settings page', () => {
     render(<Settings tabSlug={null} />);
 
-    expect(screen.getByTestId('menuitem-generalSettings')).toHaveAttribute('data-slug', '/settings/general-settings');
-    expect(screen.getByTestId('menuitem-addressBook')).toHaveAttribute('data-slug', '/settings/address-book');
-    expect(screen.getByTestId('menuitem-language')).toHaveAttribute('data-slug', '/settings/language');
-    expect(screen.getByTestId('menuitem-keys')).toHaveAttribute('data-slug', '/settings/keys');
-    expect(screen.getByTestId('menuitem-encryptedWalletFile')).toHaveAttribute(
+    expect(screen.getByTestId('row-generalSettings')).toHaveAttribute('data-slug', '/settings/general-settings');
+    expect(screen.getByTestId('row-addressBook')).toHaveAttribute('data-slug', '/settings/address-book');
+    expect(screen.getByTestId('row-language')).toHaveAttribute('data-slug', '/settings/language');
+    expect(screen.getByTestId('row-keys')).toHaveAttribute('data-slug', '/settings/keys');
+    expect(screen.getByTestId('row-encryptedWalletFile')).toHaveAttribute(
       'data-slug',
       '/settings/encrypted-wallet-file'
     );
-    expect(screen.getByTestId('menuitem-advancedSettings')).toHaveAttribute('data-slug', '/settings/advanced-settings');
+    expect(screen.getByTestId('row-advancedSettings')).toHaveAttribute('data-slug', '/settings/advanced-settings');
     // Distinct slug: '/settings/dapps' belongs to the connected-dApps list page.
-    expect(screen.getByTestId('menuitem-authorizedDApps')).toHaveAttribute('data-slug', '/settings/dapp-settings');
+    expect(screen.getByTestId('row-authorizedDApps')).toHaveAttribute('data-slug', '/settings/dapp-settings');
   });
 
   it('renders the encrypted wallet export flow on its routed settings page', () => {
@@ -404,8 +430,8 @@ describe('Settings page — root menu (non-guardian)', () => {
   it('renders the about group as external links with the canonical URLs and no testID', () => {
     render(<Settings tabSlug={null} />);
 
-    const privacy = screen.getByTestId('menuitem-privacyPolicy');
-    const tos = screen.getByTestId('menuitem-termsOfService');
+    const privacy = screen.getByTestId('row-privacyPolicy');
+    const tos = screen.getByTestId('row-termsOfService');
 
     expect(privacy).toHaveAttribute('data-external', 'true');
     // Literals, not the imported constants: comparing production against the same
@@ -431,11 +457,11 @@ describe('Settings page — root menu (non-guardian)', () => {
   it('renders a discoverable "Send feedback" row in the about group as a button (no route, keyboard-accessible)', () => {
     render(<Settings tabSlug={null} />);
 
-    const feedback = screen.getByTestId('menuitem-sendFeedback');
+    const feedback = screen.getByTestId('row-sendFeedback');
     expect(feedback).toBeInTheDocument();
     expect(feedback).toHaveAttribute('data-selector', 'Settings/SendFeedbackButton');
-    // Not an external anchor and no route slug → the real MenuItem takes the
-    // `onClick && !slug` branch and renders a focusable <button>.
+    // Not an external anchor and no route → the real ListRow renders a
+    // focusable <button>.
     expect(feedback).toHaveAttribute('data-external', 'false');
     expect(feedback).toHaveAttribute('data-slug', 'undefined');
   });
@@ -443,7 +469,7 @@ describe('Settings page — root menu (non-guardian)', () => {
   it('opens the feedback form via the external browser (native webview on mobile / new tab on desktop) when clicked', () => {
     render(<Settings tabSlug={null} />);
 
-    fireEvent.click(screen.getByTestId('menuitem-sendFeedback'));
+    fireEvent.click(screen.getByTestId('row-sendFeedback'));
 
     expect(mockOpenExternalUrl).toHaveBeenCalledTimes(1);
     expect(mockOpenExternalUrl).toHaveBeenCalledWith({
@@ -456,14 +482,14 @@ describe('Settings page — root menu (non-guardian)', () => {
     mockGetCurrentLocale.mockReturnValue('en-US');
     render(<Settings tabSlug={null} />);
 
-    expect(screen.getByTestId('menuitem-language')).toHaveAttribute('data-righttext', 'English');
+    expect(screen.getByTestId('row-language')).toHaveAttribute('data-righttext', 'English');
   });
 
   it('falls back to the raw base locale when there is no label mapping', () => {
     mockGetCurrentLocale.mockReturnValue('xx-YY');
     render(<Settings tabSlug={null} />);
 
-    expect(screen.getByTestId('menuitem-language')).toHaveAttribute('data-righttext', 'xx');
+    expect(screen.getByTestId('row-language')).toHaveAttribute('data-righttext', 'xx');
   });
 
   it('keeps the header out of the scroll region so the only back affordance stays reachable', () => {
@@ -599,14 +625,14 @@ describe('Settings page — root menu (non-guardian)', () => {
 
     expect(screen.getByTestId('nav-title')).toHaveTextContent('generalSettings');
     expect(screen.getByTestId('general-settings')).toBeInTheDocument();
-    expect(screen.queryByTestId('menuitem-generalSettings')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('row-generalSettings')).not.toBeInTheDocument();
   });
 
   it('replaces an unknown slug with the Settings root route so the footer is restored', () => {
     render(<Settings tabSlug="does-not-exist" />);
 
     expect(mockNavigate).toHaveBeenCalledWith('/settings', 'replace');
-    expect(screen.queryByTestId('menuitem-generalSettings')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('row-generalSettings')).not.toBeInTheDocument();
   });
 });
 
@@ -615,7 +641,7 @@ describe('Settings page — guardian account', () => {
     setAccount({ type: 'guardian' });
     render(<Settings tabSlug={null} />);
 
-    const row = screen.getByTestId('menuitem-guardianSettings');
+    const row = screen.getByTestId('row-guardianSettings');
     // Was a drawer opened by an onClick; now a route, so it has to carry a slug
     // (and a selector, without which the ButtonPress fires unnamed).
     expect(row).toHaveAttribute('data-slug', '/settings/guardian-settings');
@@ -627,7 +653,7 @@ describe('Settings page — guardian account', () => {
     setAccount({ type: 'guardian' });
     render(<Settings tabSlug={null} />);
 
-    expect(screen.getByTestId('menuitem-guardianSettings')).toBeInTheDocument();
+    expect(screen.getByTestId('row-guardianSettings')).toBeInTheDocument();
   });
 
   it('titles the guardian settings page the same as the row that opens it', () => {
@@ -656,7 +682,7 @@ describe('Settings page — seed phrase warning overlay', () => {
   it('shows the warning overlay when the recovery phrase item is clicked', () => {
     render(<Settings tabSlug={null} />);
 
-    fireEvent.click(screen.getByTestId('menuitem-recoveryPhrase'));
+    fireEvent.click(screen.getByTestId('row-recoveryPhrase'));
 
     expect(mockHapticLight).toHaveBeenCalledTimes(1);
     expect(screen.getByText('viewThisInPrivatePlace')).toBeInTheDocument();
@@ -668,7 +694,7 @@ describe('Settings page — seed phrase warning overlay', () => {
   // and a light together.
   it('closes the overlay via the Close button with a single haptic and no navigation', () => {
     render(<Settings tabSlug={null} />);
-    fireEvent.click(screen.getByTestId('menuitem-recoveryPhrase'));
+    fireEvent.click(screen.getByTestId('row-recoveryPhrase'));
 
     fireEvent.click(screen.getByTestId('btn-close'));
 
@@ -680,7 +706,7 @@ describe('Settings page — seed phrase warning overlay', () => {
 
   it('navigates to reveal-seed-phrase via the View button with a single haptic', () => {
     render(<Settings tabSlug={null} />);
-    fireEvent.click(screen.getByTestId('menuitem-recoveryPhrase'));
+    fireEvent.click(screen.getByTestId('row-recoveryPhrase'));
 
     fireEvent.click(screen.getByTestId('btn-view'));
 
@@ -694,7 +720,7 @@ describe('Settings page — seed phrase warning overlay', () => {
     mockReduceMotion = true;
     render(<Settings tabSlug={null} />);
 
-    fireEvent.click(screen.getByTestId('menuitem-recoveryPhrase'));
+    fireEvent.click(screen.getByTestId('row-recoveryPhrase'));
 
     expect(screen.getByText('viewThisInPrivatePlace')).toBeInTheDocument();
   });
@@ -707,7 +733,7 @@ describe('Settings page — active tab routing', () => {
     expect(screen.getByTestId('reveal-seed-flow')).toBeInTheDocument();
     // Own-layout pages render neither the header nor the root menu.
     expect(screen.queryByTestId('nav-header')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('menuitem-generalSettings')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('row-generalSettings')).not.toBeInTheDocument();
   });
 
   it('renders a standard tab with a navigation header wired to goBack', () => {
@@ -758,7 +784,7 @@ describe('Settings page — active tab routing', () => {
     // Every tab's slug resolves to an active tab now, external ones included
     // whose Component renders nothing under the navigation header.
     expect(screen.getByTestId('nav-title')).toHaveTextContent('privacyPolicy');
-    expect(screen.queryByTestId('menuitem-generalSettings')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('row-generalSettings')).not.toBeInTheDocument();
   });
 
   it('reveals the private key for a non-guardian account', () => {
@@ -804,14 +830,14 @@ describe('Settings page — developer endpoints row', () => {
     render(<Settings tabSlug={null} />);
 
     await waitFor(() => expect(mockIsEndpointOverrideActive).toHaveBeenCalled());
-    expect(screen.queryByTestId('menuitem-devEndpointsRow')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('row-devEndpointsRow')).not.toBeInTheDocument();
   });
 
   it('appears in the developer group, linked to /settings/network-endpoints, once an override is active', async () => {
     mockShowDevEndpoints.value = true;
     render(<Settings tabSlug={null} />);
 
-    const row = await screen.findByTestId('menuitem-devEndpointsRow');
+    const row = await screen.findByTestId('row-devEndpointsRow');
     expect(row).toHaveAttribute('data-slug', '/settings/network-endpoints');
   });
 });
@@ -841,7 +867,7 @@ describe('Settings page — mobile body attribute effects', () => {
 
     expect(document.body.hasAttribute('data-drawer-open')).toBe(false);
 
-    fireEvent.click(screen.getByTestId('menuitem-recoveryPhrase'));
+    fireEvent.click(screen.getByTestId('row-recoveryPhrase'));
     expect(document.body.hasAttribute('data-drawer-open')).toBe(true);
 
     // Unmounting while the overlay is still open exercises the cleanup path.
@@ -853,7 +879,7 @@ describe('Settings page — mobile body attribute effects', () => {
     mockIsMobile = true;
     render(<Settings tabSlug={null} />);
 
-    fireEvent.click(screen.getByTestId('menuitem-recoveryPhrase'));
+    fireEvent.click(screen.getByTestId('row-recoveryPhrase'));
     expect(document.body.hasAttribute('data-drawer-open')).toBe(true);
 
     fireEvent.click(screen.getByTestId('btn-close'));
@@ -864,7 +890,7 @@ describe('Settings page — mobile body attribute effects', () => {
     mockIsMobile = false;
     render(<Settings tabSlug={null} />);
 
-    fireEvent.click(screen.getByTestId('menuitem-recoveryPhrase'));
+    fireEvent.click(screen.getByTestId('row-recoveryPhrase'));
 
     expect(document.body.hasAttribute('data-edge-to-edge')).toBe(false);
     expect(document.body.hasAttribute('data-drawer-open')).toBe(false);
