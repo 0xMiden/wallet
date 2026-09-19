@@ -26,7 +26,7 @@ export interface AlertSheetProps {
  * A confirmation or an alert as a bottom sheet, with Radix AlertDialog semantics
  * (skills/miden-wallet-frontend/references/design-system.md, "Confirm / alert"): the sheet is an
  * `alertdialog` named by its title and described by its sentence; focus lands on Cancel (or on
- * the only action); Escape cancels (or acknowledges an alert); a drag or a press outside does
+ * the only action) and returns on close to whatever had it before; Escape cancels (or acknowledges an alert); a drag or a press outside does
  * nothing, because the question needs an answer. The caller owns `open`.
  *
  * It opens above every other layer (drawers 50 < native navbar 60 < dApp confirm 70 < this), since
@@ -49,6 +49,10 @@ export function AlertSheet({
   const descriptionId = useId();
   const actionRef = useRef<HTMLButtonElement>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
+  // Radix Dialog returns focus on close to its `Dialog.Trigger`, and these sheets are opened
+  // imperatively (`useConfirm`) with no trigger, so focus would drop to <body>. Remember what had
+  // focus when the sheet opened and give it back instead.
+  const returnFocusRef = useRef<HTMLElement | null>(null);
   const hasDescription = children !== undefined && children !== null && children !== '';
 
   useHideDappBubblesWhileOpen(open);
@@ -74,7 +78,14 @@ export function AlertSheet({
         overlayClassName="z-80"
         onOpenAutoFocus={event => {
           event.preventDefault();
+          returnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
           (cancelRef.current ?? actionRef.current)?.focus();
+        }}
+        onCloseAutoFocus={event => {
+          event.preventDefault();
+          // A detached element ignores focus(), so a trigger gone by now is simply skipped.
+          returnFocusRef.current?.focus();
+          returnFocusRef.current = null;
         }}
         onEscapeKeyDown={event => {
           event.preventDefault();
