@@ -27,6 +27,8 @@ export type Status =
   | 'filled'
   | 'partiallyFilled'
   | 'partiallyFilledReclaimed'
+  // Its own word, not `reclaimed`: several locales translate the order's state differently
+  | 'orderReclaimed'
   | 'loading'
   | 'unavailable'
   // The guardian's connection
@@ -73,6 +75,7 @@ export const STATUS_BADGE: Record<Status, { labelKey: string; tone: StatusTone }
   // A partial fill is still an order in progress, or one that delivered only part of the request.
   partiallyFilled: { labelKey: 'orderStatusPartiallyFilled', tone: 'pending' },
   partiallyFilledReclaimed: { labelKey: 'orderStatusPartiallyFilledReclaimed', tone: 'neutral' },
+  orderReclaimed: { labelKey: 'orderStatusReclaimed', tone: 'neutral' },
   loading: { labelKey: 'loading', tone: 'neutral' },
   unavailable: { labelKey: 'trackingUnavailable', tone: 'neutral' },
   online: { labelKey: 'online', tone: 'positive' },
