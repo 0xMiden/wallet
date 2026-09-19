@@ -472,8 +472,8 @@ describe('TokenDetail', () => {
     });
 
     it.each([
-      [3.2, 'text-positive-ink', '+3.2'],
-      [-1.5, 'text-negative-ink', '-1.5'],
+      [3.2, 'text-positive-tint-ink', '+3.2'],
+      [-1.5, 'text-negative-tint-ink', '-1.5'],
       // Rounds to 0.0 as shown, so neutral and unsigned rather than a red "-0.0%".
       [-0.04, 'text-ink', '0.0'],
       [0, 'text-ink', '0.0']
