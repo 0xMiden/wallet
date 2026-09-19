@@ -2,6 +2,7 @@ import type { CdpSession } from './cdp-bridge';
 import type { SimulatorControl } from './simulator-control';
 import type { TimelineRecorder } from '../../harness/timeline-recorder';
 import type { GuardianAuthInfo, WalletPage, SendTokensParams } from '../../helpers/wallet-page';
+import { buildBalanceTotalScript } from '../../helpers/balance-script';
 
 const DEFAULT_PASSWORD = '123456';
 const SYNC_WAIT_MS = 3_500;
@@ -518,43 +519,20 @@ export class IosWalletPage implements WalletPage {
   async getBalance(tokenSymbol?: string): Promise<number> {
     await this.navigateHome();
     await sleep(1_000);
-    // Reads consumed balances from the Zustand store. useSyncTrigger updates
-    // the store every 3s on mobile.
+    // Reads consumed balances from the Zustand store. useSyncTrigger updates the store every 3s
+    // on mobile.
     //
     // IMPORTANT: unlike Chrome's getBalance (which reads
-    // chrome.storage.local.miden_sync_data.notes to count
-    // pending-but-unconsumed notes too), this method returns 0 until notes
-    // are actually consumed. Mobile has no chrome.storage equivalent. Both
-    // platforms auto-consume ONLY notes from the well-known MIDEN faucet;
-    // E2E tests use a CUSTOM faucet, so iOS specs need to call
-    // claimAllNotes() before waiting on a positive balance.
-    // `tokenSymbol` is honoured, and on a fee-charging chain it MATTERS: the wallet now also
-    // holds the native asset it was funded with, so an unfiltered total goes positive as soon
-    // as THAT lands. A spec that waits on it and then acts on the test token opened its send
-    // before the test token existed, and failed on a missing `send-token-<SYM>` row.
-    const wanted = tokenSymbol === undefined ? '' : tokenSymbol.toUpperCase();
-    return this.cdp.eval<number>(
-      `var s = window.__TEST_STORE__; ` +
-        `if (!s) return 0; ` +
-        `var st = s.getState(); ` +
-        `var want = ${JSON.stringify(wanted)}; ` +
-        `var total = 0; ` +
-        `var balances = st.balances || {}; ` +
-        `for (var k in balances) { ` +
-        `  var list = balances[k]; ` +
-        `  if (!Array.isArray(list)) continue; ` +
-        `  for (var i = 0; i < list.length; i++) { ` +
-        `    var t = list[i]; ` +
-        `    if (want) { ` +
-        `      var sym = (t.metadata && t.metadata.symbol) ? String(t.metadata.symbol).toUpperCase() : ''; ` +
-        `      if (sym !== want) continue; ` +
-        `    } ` +
-        `    var amt = parseFloat(String(t.amount != null ? t.amount : (t.balance != null ? t.balance : '0'))); ` +
-        `    if (amt > 0) total += amt; ` +
-        `  } ` +
-        `} ` +
-        `return total;`
-    );
+    // chrome.storage.local.miden_sync_data.notes to count pending-but-unconsumed notes too), this
+    // returns 0 until notes are actually consumed. Mobile has no chrome.storage equivalent. Both
+    // platforms auto-consume ONLY notes from the well-known MIDEN faucet; E2E tests use a CUSTOM
+    // faucet, so iOS specs need claimAllNotes() before waiting on a positive balance.
+    //
+    // `tokenSymbol` is honoured, and on a fee-charging chain it MATTERS: the wallet now also holds
+    // the native asset it was funded with, so an unfiltered total goes positive as soon as THAT
+    // lands. A spec that waits on it and then acts on the test token opened its send before the
+    // test token existed, and failed on a missing `send-token-<SYM>` row.
+    return this.cdp.eval<number>(buildBalanceTotalScript(tokenSymbol));
   }
 
   async triggerSync(): Promise<void> {
