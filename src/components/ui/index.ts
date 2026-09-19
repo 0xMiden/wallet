@@ -8,10 +8,13 @@ export { BalanceCard } from './BalanceCard';
 export type { BalanceCardProps, BalanceDeltaDirection } from './BalanceCard';
 
 export { CopyButton } from './CopyButton';
-export type { CopyButtonProps } from './CopyButton';
+export type { CopyButtonIcon, CopyButtonProps } from './CopyButton';
 
 export { CopyChip } from './CopyChip';
 export type { CopyChipProps } from './CopyChip';
+
+export { AnimatedCopyIcon, CopyLabel } from './CopyFeedback';
+export type { AnimatedCopyIconProps, CopyLabelProps } from './CopyFeedback';
 
 export { Pill } from './Pill';
 export type { PillProps, PillSize, PillTone } from './Pill';
