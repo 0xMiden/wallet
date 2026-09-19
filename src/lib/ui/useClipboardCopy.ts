@@ -23,13 +23,18 @@ export function useClipboardCopy(text: string) {
   // into a dead closure.
   const mountedRef = useRef(true);
 
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    // Also runs on a remount (React 18 Strict Mode's dev-only mount→unmount→remount, or a real
+    // remount under the same hook call some other way) — without this, the cleanup below leaves
+    // `mountedRef.current` stuck `false` forever after the first unmount, so a `copy()` that
+    // resolves after the remount would wrongly take the "unmounted" early return and never show
+    // feedback, even though the component is back on screen.
+    mountedRef.current = true;
+    return () => {
       mountedRef.current = false;
       clearTimeout(timerRef.current);
-    },
-    []
-  );
+    };
+  }, []);
 
   const copy = async () => {
     try {
