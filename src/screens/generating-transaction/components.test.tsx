@@ -38,9 +38,15 @@ describe('TransactionHeroIcon size', () => {
   });
 
   it('scales the processing spinner ring with the icon size', () => {
-    render(<TransactionHeroIcon state="processing" size={96} />);
+    const { rerender } = render(<TransactionHeroIcon state="processing" />);
 
-    // FlowSpinner derives its stroke from `size`; a 52px ring is the pre-existing large size.
-    expect(screen.getByTestId('flow-spinner')).toBeInTheDocument();
+    // FlowSpinner sizes its wrapper via `style.width`/`height` from its own `size` prop — the
+    // 35px ring at the default 64px circle, matching HERO_ICON_SPINNER_SIZE.
+    expect(screen.getByTestId('flow-spinner')).toHaveStyle({ width: '35px', height: '35px' });
+
+    rerender(<TransactionHeroIcon state="processing" size={96} />);
+
+    // 52px is the pre-existing large-size ring.
+    expect(screen.getByTestId('flow-spinner')).toHaveStyle({ width: '52px', height: '52px' });
   });
 });
