@@ -719,7 +719,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
             </p>
           </div>
         ) : entry === null ? (
-          <div className="flex h-[21px] w-full items-center justify-center pt-8">
+          <div className="flex justify-center pt-8">
             <Spinner />
           </div>
         ) : entry.txType === 'swap' && requestedToken ? (
