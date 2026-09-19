@@ -1769,8 +1769,8 @@
     "englishSource": "No contacts found"
   },
   "verifySeedPhrase": {
-    "message": "Verify Seed Phrase",
-    "englishSource": "Verify Seed Phrase"
+    "message": "Verify seed phrase",
+    "englishSource": "Verify seed phrase"
   },
   "faucetPromptTitle": {
     "message": "Fund your wallet",
@@ -2040,8 +2040,8 @@
     "englishSource": "Enter the password you set when exporting your wallet. This will decrypt the file and restore access."
   },
   "continueImport": {
-    "message": "Continue Import",
-    "englishSource": "Continue Import"
+    "message": "Continue import",
+    "englishSource": "Continue import"
   },
   "chooseHowToProtect": {
     "message": "Choose how you want to protect your wallet",
@@ -2408,8 +2408,8 @@
     "englishSource": "Generate Transactions\nLocally"
   },
   "resetRequired": {
-    "message": "Wallet Reset Required",
-    "englishSource": "Wallet Reset Required"
+    "message": "Wallet reset required",
+    "englishSource": "Wallet reset required"
   },
   "resetRequiredDescription": {
     "message": "Miden Testnet has upgraded to bech32 account IDs to improve your experience. To keep using your wallet, please restore from a backup file or seed phrase, or create a new one.",
@@ -2420,12 +2420,12 @@
     "englishSource": "We’re sorry for the inconvenience."
   },
   "reset": {
-    "message": "Reset Wallet",
-    "englishSource": "Reset Wallet"
+    "message": "Reset wallet",
+    "englishSource": "Reset wallet"
   },
   "forgotPassword": {
-    "message": "Forgot Password?",
-    "englishSource": "Forgot Password?"
+    "message": "Forgot password?",
+    "englishSource": "Forgot password?"
   },
   "forgotPasswordDescription": {
     "message": "If you've forgotten your password, you need to sign out and re-import your account. After that, you can create a new password.",
@@ -2448,8 +2448,8 @@
     "englishSource": "Reset Wallet"
   },
   "signOut": {
-    "message": "Sign Out",
-    "englishSource": "Sign Out"
+    "message": "Sign out",
+    "englishSource": "Sign out"
   },
   "twitter": {
     "message": "X (Twitter)",
@@ -3927,8 +3927,8 @@
     "englishSource": "Passwords can be insecure. Use biometric authentication instead."
   },
   "unlockWallet": {
-    "message": "Unlock Wallet",
-    "englishSource": "Unlock Wallet"
+    "message": "Unlock wallet",
+    "englishSource": "Unlock wallet"
   },
   "unlockWalletDescription": {
     "message": "With the seed phrase, you can always restore your public account. Choose below how to quickly unlock your wallet.",

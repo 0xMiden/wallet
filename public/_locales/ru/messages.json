@@ -1770,7 +1770,7 @@
   },
   "verifySeedPhrase": {
     "message": "Перейдите по ссылке Seed Phrase",
-    "englishSource": "Verify Seed Phrase"
+    "englishSource": "Verify seed phrase"
   },
   "faucetPromptTitle": {
     "message": "Пополнить кошелек",
@@ -2041,7 +2041,7 @@
   },
   "continueImport": {
     "message": "Продолжить импорт",
-    "englishSource": "Continue Import"
+    "englishSource": "Continue import"
   },
   "chooseHowToProtect": {
     "message": "Выберите, как вы хотите защитить свой кошелек",
@@ -2409,7 +2409,7 @@
   },
   "resetRequired": {
     "message": "Требуется сброс настроек кошелька",
-    "englishSource": "Wallet Reset Required"
+    "englishSource": "Wallet reset required"
   },
   "resetRequiredDescription": {
     "message": "Тестовая сеть Miden перешла на идентификаторы учетных записей в формате bech32 для улучшения удобства использования. Чтобы продолжить пользоваться кошельком, восстановите его из файла резервной копии или с сайта seed phrase либо создайте новый.",
@@ -2421,11 +2421,11 @@
   },
   "reset": {
     "message": "Сбросить настройки кошелька",
-    "englishSource": "Reset Wallet"
+    "englishSource": "Reset wallet"
   },
   "forgotPassword": {
     "message": "Забыли пароль?",
-    "englishSource": "Forgot Password?"
+    "englishSource": "Forgot password?"
   },
   "forgotPasswordDescription": {
     "message": "Если вы забыли пароль, вам необходимо выйти из системы и повторно импортировать свою учетную запись. После этого вы сможете установить новый пароль.",
@@ -2449,7 +2449,7 @@
   },
   "signOut": {
     "message": "Выйти",
-    "englishSource": "Sign Out"
+    "englishSource": "Sign out"
   },
   "twitter": {
     "message": "X (Twitter)",
@@ -3928,7 +3928,7 @@
   },
   "unlockWallet": {
     "message": "Разблокировать кошелек",
-    "englishSource": "Unlock Wallet"
+    "englishSource": "Unlock wallet"
   },
   "unlockWalletDescription": {
     "message": "С помощью «seed phrase» вы всегда сможете восстановить свой публичный аккаунт. Выберите ниже способ быстрой разблокировки кошелька.",

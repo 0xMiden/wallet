@@ -1770,7 +1770,7 @@
   },
   "verifySeedPhrase": {
     "message": "驗證 Seed Phrase",
-    "englishSource": "Verify Seed Phrase"
+    "englishSource": "Verify seed phrase"
   },
   "faucetPromptTitle": {
     "message": "為您的錢包充值",
@@ -2041,7 +2041,7 @@
   },
   "continueImport": {
     "message": "繼續匯入",
-    "englishSource": "Continue Import"
+    "englishSource": "Continue import"
   },
   "chooseHowToProtect": {
     "message": "選擇您希望如何保護您的錢包",
@@ -2409,7 +2409,7 @@
   },
   "resetRequired": {
     "message": "需要重設錢包",
-    "englishSource": "Wallet Reset Required"
+    "englishSource": "Wallet reset required"
   },
   "resetRequiredDescription": {
     "message": "Miden 測試網已升級至 bech32 帳戶 ID，以提升您的使用體驗。若要繼續使用您的錢包，請從備份檔案或 seed phrase 還原，或建立一個新的錢包。",
@@ -2421,11 +2421,11 @@
   },
   "reset": {
     "message": "重設錢包",
-    "englishSource": "Reset Wallet"
+    "englishSource": "Reset wallet"
   },
   "forgotPassword": {
     "message": "忘記密碼了嗎？",
-    "englishSource": "Forgot Password?"
+    "englishSource": "Forgot password?"
   },
   "forgotPasswordDescription": {
     "message": "如果您忘記了密碼，請先登出並重新匯入您的帳戶。之後，您即可設定新密碼。",
@@ -2449,7 +2449,7 @@
   },
   "signOut": {
     "message": "登出",
-    "englishSource": "Sign Out"
+    "englishSource": "Sign out"
   },
   "twitter": {
     "message": "X（Twitter）",
@@ -3928,7 +3928,7 @@
   },
   "unlockWallet": {
     "message": "解鎖錢包",
-    "englishSource": "Unlock Wallet"
+    "englishSource": "Unlock wallet"
   },
   "unlockWalletDescription": {
     "message": "透過「seed phrase」，您隨時都能還原您的公開帳戶。請從以下選項中選擇，快速解鎖您的錢包。",
