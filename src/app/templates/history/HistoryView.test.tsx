@@ -126,35 +126,16 @@ jest.mock('./HistoryItem', () => ({
 // isFaucetRequest: pure predicate driven off a test-only `__faucet` marker so
 // each entry can opt into the faucet branch independently.
 jest.mock('./transactionUtils', () => ({
-  BRIDGE_STATUS_LABEL_KEY: {
-    pending: 'pending',
-    confirmed: 'confirmed',
-    failed: 'bridgeFailed'
-  },
   isFaucetRequest: jest.fn((entry: { __faucet?: boolean }) => Boolean(entry.__faucet)),
   isBridgeInEntry: jest.fn(() => false),
   bridgeInRowDisplay: jest.fn(),
   bridgeRowDisplay: jest.fn(),
-  // Smart Withdraw rows: mirror the real predicate / tone map / label map so the
-  // earn branch of `buildRowProps` is exercised with realistic values.
+  // Smart Withdraw rows: mirror the real predicate so the earn branch of
+  // `buildRowProps` is exercised with realistic values.
   isEarnWithdrawEntry: jest.fn((entry: { txType?: string }) => entry.txType === 'earn-withdraw'),
-  earnWithdrawToneOf: jest.fn((phase?: string) =>
-    phase === 'received' ? 'confirmed' : phase === 'failed' ? 'failed' : 'pending'
-  ),
-  EARN_WITHDRAW_STATUS_LABEL_KEY: {
-    redeeming: 'earnWithdrawStatusRedeeming',
-    delivering: 'earnWithdrawStatusDelivering',
-    received: 'received',
-    failed: 'failed'
-  },
   // Smart Deposit settlement: mirror the real helper (unstamped ⇒ pending) so
   // the earn-deposit status branch is exercised with realistic values.
-  earnDepositSettlementOf: jest.fn((entry: { earnDepositStatus?: string }) => entry.earnDepositStatus ?? 'pending'),
-  EARN_DEPOSIT_STATUS_LABEL_KEY: {
-    pending: 'pending',
-    confirmed: 'confirmed',
-    failed: 'failed'
-  }
+  earnDepositSettlementOf: jest.fn((entry: { earnDepositStatus?: string }) => entry.earnDepositStatus ?? 'pending')
 }));
 
 const mockBridgeRowDisplay = bridgeRowDisplay as jest.MockedFunction<typeof bridgeRowDisplay>;

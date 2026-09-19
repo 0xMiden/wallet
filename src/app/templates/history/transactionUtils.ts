@@ -6,7 +6,6 @@ import { getAdaptiveDecimalPlaces, toAdaptiveFixed } from 'lib/i18n/numbers';
 import {
   IEarnDepositExtraInputs,
   IEarnWithdrawExtraInputs,
-  IEarnWithdrawPhase,
   ITransaction,
   ITransactionStatus,
   ITransactionType
@@ -195,13 +194,6 @@ export const bridgeStatusOf = (entry: IHistoryEntry): BridgeStatus => {
   return entry.bridgeEpochStatus ?? 'pending';
 };
 
-/** i18n key for each bridge status (shared by the summary row + full Activity row). */
-export const BRIDGE_STATUS_LABEL_KEY: Record<BridgeStatus, string> = {
-  pending: 'pending',
-  confirmed: 'confirmed',
-  failed: 'bridgeFailed'
-};
-
 export interface BridgeRowDisplay {
   inSymbol: string;
   outSymbol: string;
@@ -265,21 +257,6 @@ export const formatEarnWithdrawAmount = (human: string): string => {
   return n.decimalPlaces(getAdaptiveDecimalPlaces(n), BigNumber.ROUND_DOWN).toFixed();
 };
 
-/** Map each withdraw phase to the row status-chip tone (reuses the bridge tones). */
-export const earnWithdrawToneOf = (phase: IEarnWithdrawPhase | undefined): BridgeStatus => {
-  if (phase === 'received') return 'confirmed';
-  if (phase === 'failed') return 'failed';
-  return 'pending';
-};
-
-/** i18n key for each withdraw phase status chip. */
-export const EARN_WITHDRAW_STATUS_LABEL_KEY: Record<IEarnWithdrawPhase, string> = {
-  redeeming: 'earnWithdrawStatusRedeeming',
-  delivering: 'earnWithdrawStatusDelivering',
-  received: 'received',
-  failed: 'failed'
-};
-
 /** The amount/symbol pair an `earn-withdraw` row (and its detail hero) displays. */
 export interface EarnWithdrawAmountFields {
   amount?: string;
@@ -327,13 +304,6 @@ export type EarnDepositSettlement = NonNullable<IEarnDepositExtraInputs['epochSt
  */
 export const earnDepositSettlementOf = (entry: IHistoryEntry): EarnDepositSettlement =>
   entry.earnDepositStatus ?? 'pending';
-
-/** i18n key per deposit settlement state (reuses the shared status labels). */
-export const EARN_DEPOSIT_STATUS_LABEL_KEY: Record<EarnDepositSettlement, string> = {
-  pending: 'pending',
-  confirmed: 'confirmed',
-  failed: 'failed'
-};
 
 export const fontColorForType = (type: ITransactionType): string => {
   return type === 'send' ? 'text-send-blue' : type === 'consume' ? 'text-receive-green' : TRANSACTION_COLORS.faucet;

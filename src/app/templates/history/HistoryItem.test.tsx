@@ -87,20 +87,7 @@ jest.mock('./transactionUtils', () => ({
   isFaucetRequest: jest.fn(() => false),
   isBridgeInEntry: jest.fn(() => false),
   isEarnWithdrawEntry: (entry: { txType?: string }) => entry.txType === 'earn-withdraw',
-  earnWithdrawToneOf: (phase?: string) =>
-    phase === 'received' ? 'confirmed' : phase === 'failed' ? 'failed' : 'pending',
-  EARN_WITHDRAW_STATUS_LABEL_KEY: {
-    redeeming: 'earnWithdrawStatusRedeeming',
-    delivering: 'earnWithdrawStatusDelivering',
-    received: 'received',
-    failed: 'failed'
-  },
-  earnDepositSettlementOf: (entry: { earnDepositStatus?: string }) => entry.earnDepositStatus ?? 'pending',
-  EARN_DEPOSIT_STATUS_LABEL_KEY: {
-    pending: 'pending',
-    confirmed: 'confirmed',
-    failed: 'failed'
-  }
+  earnDepositSettlementOf: (entry: { earnDepositStatus?: string }) => entry.earnDepositStatus ?? 'pending'
 }));
 
 const mockIsMobile = isMobile as jest.MockedFunction<typeof isMobile>;
