@@ -21,6 +21,14 @@ export interface TabHeaderProps {
     value: string;
     onChange: (value: string) => void;
     placeholder: string;
+    /** Enter / the keyboard's go key, e.g. to open a typed URL. */
+    onSubmit?: () => void;
+    /** Escape, e.g. to close the search. */
+    onEscape?: () => void;
+    /** `'url'` for a field that also takes a URL (URL keyboard, go key, no autocorrect). */
+    inputMode?: 'text' | 'url' | 'search';
+    /** Test id of the field's input. */
+    'data-testid'?: string;
   };
 }
 
@@ -30,12 +38,15 @@ export interface TabHeaderProps {
  * search icon while search is open) and sets `aria-pressed`, so this action always reads as a
  * toggle rather than a one-shot button.
  */
-export const TabHeaderAction: FC<{ label: string; icon: IconName; active?: boolean; onClick: () => void }> = ({
-  label,
-  icon,
-  active = false,
-  onClick
-}) => <IconButton icon={icon} label={label} active={active} onClick={onClick} />;
+export const TabHeaderAction: FC<{
+  label: string;
+  icon: IconName;
+  active?: boolean;
+  onClick: () => void;
+  'data-testid'?: string;
+}> = ({ label, icon, active = false, onClick, 'data-testid': dataTestId }) => (
+  <IconButton icon={icon} label={label} active={active} onClick={onClick} data-testid={dataTestId} />
+);
 
 /**
  * Header for top-level tab pages (Activity, Explore): page title on the
@@ -78,6 +89,10 @@ export const TabHeader: FC<TabHeaderProps> = ({ title, actions, search }) => {
               value={search.value}
               onChange={search.onChange}
               placeholder={search.placeholder}
+              onSubmit={search.onSubmit}
+              onEscape={search.onEscape}
+              inputMode={search.inputMode}
+              data-testid={search['data-testid']}
               autoFocus
             />
           </motion.div>
