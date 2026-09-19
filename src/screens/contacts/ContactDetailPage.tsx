@@ -1,12 +1,12 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useState } from 'react';
 
-import { Clipboard } from '@capacitor/clipboard';
 import { useTranslation } from 'react-i18next';
 
 import { useBackWithFallback } from 'app/hooks/useBackWithFallback';
 import { Button, ButtonVariant } from 'components/Button';
 import { ContactAvatar } from 'components/contacts/ContactAvatar';
 import { FlowLayout } from 'components/flow/FlowLayout';
+import { CopyButton } from 'components/ui/CopyButton';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import { Hero } from 'components/ui/Hero';
 import { Pill } from 'components/ui/Pill';
@@ -23,8 +23,6 @@ import { NetworkField } from 'screens/send-flow/NetworkField';
 import { contactNetwork } from './contact-network';
 import { ADDRESS_BOOK_PATH } from './contact-paths';
 import { ContactNameInput } from './ContactNameInput';
-
-const COPIED_FEEDBACK_MS = 1500;
 
 // The app's locale ids use an underscore (`en_US`); `Intl` wants a BCP 47 tag and throws on one.
 function formatAddedDate(addedAt: number): string {
@@ -55,9 +53,6 @@ const ContactView: React.FC<ContactViewProps> = ({ contact, onBack, onDeleted })
   const [network, setNetwork] = useState<BridgeNetworkId | undefined>(bridgeNetwork?.id);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string>();
-  const [copied, setCopied] = useState(false);
-  const copiedTimer = useRef<ReturnType<typeof setTimeout>>();
-  useEffect(() => () => clearTimeout(copiedTimer.current), []);
 
   const trimmedName = name.trim();
   const changed = trimmedName !== contact.name || (kind === 'ethereum' && network !== contact.network);
@@ -67,17 +62,6 @@ const ContactView: React.FC<ContactViewProps> = ({ contact, onBack, onDeleted })
     setNetwork(bridgeNetwork?.id);
     setError(undefined);
     setEditing(true);
-  };
-
-  const copyAddress = async () => {
-    try {
-      await Clipboard.write({ string: contact.address });
-      setCopied(true);
-      clearTimeout(copiedTimer.current);
-      copiedTimer.current = setTimeout(() => setCopied(false), COPIED_FEEDBACK_MS);
-    } catch {
-      // Nothing to report: the address is on screen in full to copy by hand.
-    }
   };
 
   const save = async () => {
@@ -198,13 +182,9 @@ const ContactView: React.FC<ContactViewProps> = ({ contact, onBack, onDeleted })
     >
       {avatar}
       <DetailCard className="mt-4">
-        <DetailRow
-          label={t('address')}
-          stacked
-          action={{ label: copied ? t('copied') : t('copy'), onClick: () => void copyAddress() }}
-          data-testid="contact-address"
-        >
-          <span className="font-sans font-semibold">{contact.address}</span>
+        <DetailRow label={t('address')} stacked data-testid="contact-address">
+          <span className="min-w-0 font-sans font-semibold">{contact.address}</span>
+          <CopyButton text={contact.address} data-testid="contact-copy-address" />
         </DetailRow>
         <DetailRow label={t('network')} data-testid="contact-network">
           {bridgeNetwork?.name ?? t('miden')}
