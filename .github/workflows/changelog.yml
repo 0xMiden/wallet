@@ -10,9 +10,13 @@ on:
   pull_request:
     types: [opened, reopened, synchronize, labeled, unlabeled]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 jobs:
   changelog:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-slim
     steps:
       - name: Checkout code
         uses: actions/checkout@main

@@ -9,6 +9,10 @@ on:
       - 'mw-**'
       - 'feat/**'
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
   # Required by .github/actions/inject-linked-web-sdk-pr's sticky comment
