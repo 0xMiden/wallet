@@ -131,7 +131,7 @@ export const NewContactPage: React.FC = () => {
             disabled={!canSave}
             isLoading={saving}
             data-testid="address-book-add-contact"
-            className="w-full max-w-none rounded-full text-base font-semibold"
+            className="w-full max-w-none"
           />
         }
       >

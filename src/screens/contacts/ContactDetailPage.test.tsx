@@ -76,6 +76,9 @@ it('shows the full address, network and date, and sends to the contact', () => {
 
   fireEvent.click(screen.getByTestId('contact-send'));
   expect(navigateMock).toHaveBeenCalledWith('/send?to=0xpaul&network=sepolia');
+
+  // Was `w-full max-w-none rounded-full text-base font-semibold`.
+  expect(screen.getByTestId('contact-send').className).not.toMatch(/rounded-full|text-base|font-semibold/);
 });
 
 it('shows Miden for a Miden contact and sends without a network', () => {
@@ -90,6 +93,8 @@ it('renames a contact from edit mode', async () => {
   fireEvent.click(screen.getByTestId('contact-edit'));
   expect(screen.getByRole('heading')).toHaveTextContent('editContact');
   expect(screen.getByTestId('contact-save')).toBeDisabled();
+  // Was `w-full max-w-none rounded-full text-base font-semibold`.
+  expect(screen.getByTestId('contact-save').className).not.toMatch(/rounded-full|text-base|font-semibold/);
 
   fireEvent.change(screen.getByTestId('address-book-name-input'), { target: { value: ' Paul Graham ' } });
   await act(async () => {

@@ -73,6 +73,8 @@ const typeAddress = (value: string) => {
 it('saves a 0x contact with its network and goes back', async () => {
   render(<NewContactPage />);
   expect(screen.getByTestId('address-book-add-contact')).toBeDisabled();
+  // Was `w-full max-w-none rounded-full text-base font-semibold`.
+  expect(screen.getByTestId('address-book-add-contact').className).not.toMatch(/rounded-full|text-base|font-semibold/);
 
   typeAddress(` ${EVM} `);
   expect(screen.getByTestId('new-contact-network-sepolia')).toBeInTheDocument();
