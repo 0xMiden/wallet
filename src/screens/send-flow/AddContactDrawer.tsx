@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 
 import { Button, ButtonVariant } from 'components/Button';
 import { ContactAvatar } from 'components/contacts/ContactAvatar';
+import { TextField } from 'components/ui/TextField';
 import { useContacts } from 'lib/miden/front';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 import { detectAddressChain, isValidRecipientAddress } from 'utils/miden';
@@ -90,27 +91,24 @@ const SheetBody: React.FC<SheetBodyProps> = ({ address, initialNetwork, onSaved 
         testIdPrefix="add-contact"
       />
 
-      <label className="flex flex-col gap-2">
-        <span className="text-sm text-text-muted">{t('name')}</span>
-        <input
-          value={name}
-          onChange={event => {
-            setName(event.target.value);
-            setError(undefined);
-          }}
-          placeholder={t('contactNamePlaceholder')}
-          maxLength={NAME_MAX_LENGTH}
-          autoFocus
-          autoCapitalize="words"
-          autoCorrect="off"
-          enterKeyHint="done"
-          data-testid="address-book-name-input"
-          className="h-14 w-full rounded-2xl bg-surface-input px-4 font-heading text-lg font-bold text-heading-gray outline-none placeholder:font-medium placeholder:text-text-muted"
-        />
-      </label>
+      <TextField
+        label={t('name')}
+        value={name}
+        onChange={event => {
+          setName(event.target.value);
+          setError(undefined);
+        }}
+        placeholder={t('contactNamePlaceholder')}
+        maxLength={NAME_MAX_LENGTH}
+        autoFocus
+        autoCapitalize="words"
+        autoCorrect="off"
+        enterKeyHint="done"
+        data-testid="address-book-name-input"
+      />
 
       {error && (
-        <p role="alert" className="-mt-2 text-sm text-status-negative">
+        <p role="alert" className="-mt-2 text-sm text-negative-ink">
           {error}
         </p>
       )}

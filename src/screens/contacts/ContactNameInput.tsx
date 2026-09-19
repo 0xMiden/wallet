@@ -2,10 +2,9 @@ import React from 'react';
 
 import { useTranslation } from 'react-i18next';
 
-export const CONTACT_NAME_MAX_LENGTH = 50;
+import { TextField } from 'components/ui/TextField';
 
-export const CONTACT_FIELD_CLASS =
-  'w-full rounded-2xl bg-surface-input px-4 font-heading text-lg font-bold text-heading-gray outline-none placeholder:font-medium placeholder:text-text-muted';
+export const CONTACT_NAME_MAX_LENGTH = 50;
 
 interface ContactNameInputProps {
   value: string;
@@ -18,20 +17,17 @@ export const ContactNameInput: React.FC<ContactNameInputProps> = ({ value, onCha
   const { t } = useTranslation();
 
   return (
-    <label className="flex flex-col gap-2">
-      <span className="text-sm text-text-muted">{t('name')}</span>
-      <input
-        value={value}
-        onChange={event => onChange(event.target.value)}
-        placeholder={t('contactNamePlaceholder')}
-        maxLength={CONTACT_NAME_MAX_LENGTH}
-        autoFocus={autoFocus}
-        autoCapitalize="words"
-        autoCorrect="off"
-        enterKeyHint="done"
-        data-testid="address-book-name-input"
-        className={`h-14 ${CONTACT_FIELD_CLASS}`}
-      />
-    </label>
+    <TextField
+      label={t('name')}
+      value={value}
+      onChange={event => onChange(event.target.value)}
+      placeholder={t('contactNamePlaceholder')}
+      maxLength={CONTACT_NAME_MAX_LENGTH}
+      autoFocus={autoFocus}
+      autoCapitalize="words"
+      autoCorrect="off"
+      enterKeyHint="done"
+      data-testid="address-book-name-input"
+    />
   );
 };

@@ -4,6 +4,7 @@ import { Clipboard } from '@capacitor/clipboard';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 
 import { isMobile } from 'lib/platform';
+import { isScanAvailable } from 'lib/qr';
 
 import { NewContactPage } from './NewContactPage';
 
@@ -45,7 +46,7 @@ jest.mock('screens/send-flow/bridge-networks', () => ({
 }));
 jest.mock('screens/send-flow/ScanQrDrawer', () => ({ ScanQrDrawer: () => null }));
 jest.mock('lib/platform', () => ({ isMobile: jest.fn(() => false) }));
-jest.mock('lib/qr', () => ({ isScanAvailable: () => false, scanQRCode: jest.fn() }));
+jest.mock('lib/qr', () => ({ isScanAvailable: jest.fn(() => false), scanQRCode: jest.fn() }));
 jest.mock('@capacitor/clipboard', () => ({ Clipboard: { read: jest.fn() } }));
 jest.mock('utils/miden', () => ({
   detectAddressChain: (a: string) => (a.startsWith('0x') ? 'ethereum' : 'miden'),
@@ -59,6 +60,7 @@ beforeEach(() => {
   backMock.mockReset();
   contactsMock.mockReturnValue([{ name: 'Alice', address: 'mtst1goodalice' }]);
   (isMobile as jest.Mock).mockReturnValue(false);
+  (isScanAvailable as jest.Mock).mockReturnValue(false);
   (Clipboard.read as jest.Mock).mockReset();
 });
 
@@ -152,4 +154,56 @@ it('fills the address from a successful paste, with no error', async () => {
 
   expect(screen.getByTestId('address-book-address-input')).toHaveValue(EVM);
   expect(screen.queryByTestId('contact-address-error')).not.toBeInTheDocument();
+});
+
+describe('TextField layout', () => {
+  it('labels the address and name fields', () => {
+    render(<NewContactPage />);
+
+    expect(screen.getByLabelText('address')).toBe(screen.getByTestId('address-book-address-input'));
+    expect(screen.getByLabelText('name')).toBe(screen.getByTestId('address-book-name-input'));
+  });
+
+  it('puts Paste and Scan inside the address field, next to the textarea, when both are available', () => {
+    (isMobile as jest.Mock).mockReturnValue(true);
+    (isScanAvailable as jest.Mock).mockReturnValue(true);
+    render(<NewContactPage />);
+
+    // The field box is the textarea's own container: the pills sit in it (the trailing
+    // slot), not in a row below the field.
+    const fieldBox = screen.getByTestId('address-book-address-input').parentElement!;
+    expect(fieldBox).toContainElement(screen.getByTestId('contact-paste'));
+    expect(fieldBox).toContainElement(screen.getByTestId('contact-scan'));
+  });
+
+  it('renders neither pill when paste and scan are both unavailable', () => {
+    render(<NewContactPage />);
+
+    expect(screen.queryByTestId('contact-paste')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('contact-scan')).not.toBeInTheDocument();
+  });
+
+  it('hides the pills once the field has an address', () => {
+    (isMobile as jest.Mock).mockReturnValue(true);
+    (isScanAvailable as jest.Mock).mockReturnValue(true);
+    render(<NewContactPage />);
+
+    typeAddress('mtst1goodbob');
+    expect(screen.queryByTestId('contact-paste')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('contact-scan')).not.toBeInTheDocument();
+  });
+
+  it("shows an invalid address in the field's error slot, announced and tied to the field", () => {
+    render(<NewContactPage />);
+    typeAddress('mtst1bad');
+
+    const field = screen.getByTestId('address-book-address-input');
+    const alert = screen.getByRole('alert');
+    expect(alert).toBe(screen.getByTestId('contact-address-error'));
+    expect(alert).toHaveTextContent('invalidAddress');
+    // Below the field box, not inside it, and referenced by the field.
+    expect(field.parentElement).not.toContainElement(alert);
+    expect(field).toHaveAttribute('aria-invalid', 'true');
+    expect(field).toHaveAttribute('aria-describedby', alert.id);
+  });
 });

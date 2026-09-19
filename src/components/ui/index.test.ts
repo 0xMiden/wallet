@@ -23,6 +23,7 @@ import { Skeleton } from './Skeleton';
 import { Sparkline } from './Sparkline';
 import { Spinner } from './Spinner';
 import { TabHeader, TabHeaderAction } from './TabHeader';
+import { TextField } from './TextField';
 
 // vaul (the drawer primitive AccountsDrawer pulls in) walks the DOM on load;
 // jsdom lacks the layout APIs it probes, so stub it to a passthrough. This
@@ -53,7 +54,8 @@ describe('components/ui barrel', () => {
     ActivityRow,
     EmptyState,
     Spinner,
-    Skeleton
+    Skeleton,
+    TextField
   } as const;
 
   it('re-exports every component under its own name, tied to the source module', () => {
@@ -66,9 +68,22 @@ describe('components/ui barrel', () => {
     });
   });
 
-  it('exposes each re-export as a renderable React component (function type)', () => {
+  // A plain function component (typeof === 'function') renders directly; a React.forwardRef
+  // component is instead an object tagged with this $$typeof — both render. `value` is `unknown`
+  // so the check works uniformly across the record's differently-typed components, with no `as`.
+  const isRenderableComponent = (value: unknown): boolean => {
+    if (typeof value === 'function') return true;
+    return (
+      typeof value === 'object' &&
+      value !== null &&
+      '$$typeof' in value &&
+      value.$$typeof === Symbol.for('react.forward_ref')
+    );
+  };
+
+  it('exposes each re-export as a renderable React component (function, or a forwardRef object)', () => {
     Object.values(EXPECTED_COMPONENTS).forEach(component => {
-      expect(typeof component).toBe('function');
+      expect(isRenderableComponent(component)).toBe(true);
     });
   });
 
