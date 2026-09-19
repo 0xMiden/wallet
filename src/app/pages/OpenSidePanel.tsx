@@ -2,10 +2,10 @@ import React, { FC, useEffect, useState } from 'react';
 
 import { Trans, useTranslation } from 'react-i18next';
 
-import Spinner from 'app/atoms/Spinner/Spinner';
 import { IconName } from 'app/icons/v2';
 import { Button } from 'components/Button';
 import { Message } from 'components/Message';
+import { Spinner } from 'components/ui/Spinner';
 import { closeOnboardingTab, openSidePanelToWallet } from 'lib/extension/side-panel-handoff';
 import { useMidenContext } from 'lib/miden/front';
 import { navigate } from 'lib/woozie';

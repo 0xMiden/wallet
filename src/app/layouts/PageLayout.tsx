@@ -4,12 +4,12 @@ import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import DocBg from 'app/a11y/DocBg';
-import Spinner from 'app/atoms/Spinner/Spinner';
 import { useAppEnv } from 'app/env';
 import ErrorBoundary from 'app/ErrorBoundary';
 import { Icon, IconName } from 'app/icons/v2';
 import ContentContainer from 'app/layouts/ContentContainer';
 import { Button, ButtonVariant } from 'components/Button';
+import { Spinner } from 'components/ui/Spinner';
 import { isDesktop, isMobile } from 'lib/platform';
 import { PropsWithChildren } from 'lib/props-with-children';
 import { goBack, HistoryAction, navigate, useLocation } from 'lib/woozie';

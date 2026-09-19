@@ -2,9 +2,9 @@ import React from 'react';
 
 import { Trans, useTranslation } from 'react-i18next';
 
-import Spinner from 'app/atoms/Spinner/Spinner';
 import { ReactComponent as ConfirmationHero } from 'app/icons/onboarding/confirmation-illustrantion.svg';
 import { Button, ButtonVariant } from 'components/Button';
+import { Spinner } from 'components/ui/Spinner';
 
 const MAX_BIOMETRIC_ATTEMPTS = 3;
 
