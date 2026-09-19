@@ -1770,7 +1770,7 @@
   },
   "verifySeedPhrase": {
     "message": "Confira Seed Phrase",
-    "englishSource": "Verify Seed Phrase"
+    "englishSource": "Verify seed phrase"
   },
   "faucetPromptTitle": {
     "message": "Recarregue sua carteira",
@@ -2041,7 +2041,7 @@
   },
   "continueImport": {
     "message": "Continuar importação",
-    "englishSource": "Continue Import"
+    "englishSource": "Continue import"
   },
   "chooseHowToProtect": {
     "message": "Escolha como você quer proteger sua carteira",
@@ -2409,7 +2409,7 @@
   },
   "resetRequired": {
     "message": "É necessário redefinir a carteira",
-    "englishSource": "Wallet Reset Required"
+    "englishSource": "Wallet reset required"
   },
   "resetRequiredDescription": {
     "message": "A Miden Testnet atualizou os IDs de conta para o formato bech32 a fim de melhorar sua experiência. Para continuar usando sua carteira, restaure-a a partir de um arquivo de backup ou do site seed phrase, ou crie uma nova.",
@@ -2421,11 +2421,11 @@
   },
   "reset": {
     "message": "Redefinir carteira",
-    "englishSource": "Reset Wallet"
+    "englishSource": "Reset wallet"
   },
   "forgotPassword": {
     "message": "Esqueceu a senha?",
-    "englishSource": "Forgot Password?"
+    "englishSource": "Forgot password?"
   },
   "forgotPasswordDescription": {
     "message": "Se você esqueceu sua senha, é preciso sair da conta e importar-a novamente. Depois disso, você poderá criar uma nova senha.",
@@ -2449,7 +2449,7 @@
   },
   "signOut": {
     "message": "Sair",
-    "englishSource": "Sign Out"
+    "englishSource": "Sign out"
   },
   "twitter": {
     "message": "X (Twitter)",
@@ -3928,7 +3928,7 @@
   },
   "unlockWallet": {
     "message": "Desbloquear a carteira",
-    "englishSource": "Unlock Wallet"
+    "englishSource": "Unlock wallet"
   },
   "unlockWalletDescription": {
     "message": "Com o seed phrase, você sempre pode restaurar sua conta pública. Escolha abaixo como desbloquear rapidamente sua carteira.",

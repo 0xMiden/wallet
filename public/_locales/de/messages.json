@@ -1770,7 +1770,7 @@
   },
   "verifySeedPhrase": {
     "message": "Seed Phrase überprüfen",
-    "englishSource": "Verify Seed Phrase"
+    "englishSource": "Verify seed phrase"
   },
   "faucetPromptTitle": {
     "message": "Geld auf Ihre Geldbörse laden",
@@ -2041,7 +2041,7 @@
   },
   "continueImport": {
     "message": "Fahren Sie mit dem Import fort",
-    "englishSource": "Continue Import"
+    "englishSource": "Continue import"
   },
   "chooseHowToProtect": {
     "message": "Entscheiden Sie, wie Sie Ihr Portemonnaie schützen möchten",
@@ -2409,7 +2409,7 @@
   },
   "resetRequired": {
     "message": "Wallet muss zurückgesetzt werden",
-    "englishSource": "Wallet Reset Required"
+    "englishSource": "Wallet reset required"
   },
   "resetRequiredDescription": {
     "message": "Das Miden-Testnetz ist auf bech32-Konto-IDs umgestellt worden, um Ihre Benutzererfahrung zu verbessern. Um Ihre Wallet weiterhin nutzen zu können, stellen Sie sie bitte aus einer Sicherungsdatei oder unter seed phrase wieder her oder erstellen Sie eine neue.",
@@ -2421,11 +2421,11 @@
   },
   "reset": {
     "message": "Wallet zurücksetzen",
-    "englishSource": "Reset Wallet"
+    "englishSource": "Reset wallet"
   },
   "forgotPassword": {
     "message": "Passwort vergessen?",
-    "englishSource": "Forgot Password?"
+    "englishSource": "Forgot password?"
   },
   "forgotPasswordDescription": {
     "message": "Wenn Sie Ihr Passwort vergessen haben, müssen Sie sich abmelden und Ihr Konto erneut importieren. Danach können Sie ein neues Passwort festlegen.",
@@ -2449,7 +2449,7 @@
   },
   "signOut": {
     "message": "Abmelden",
-    "englishSource": "Sign Out"
+    "englishSource": "Sign out"
   },
   "twitter": {
     "message": "X (Twitter)",
@@ -3928,7 +3928,7 @@
   },
   "unlockWallet": {
     "message": "Wallet entsperren",
-    "englishSource": "Unlock Wallet"
+    "englishSource": "Unlock wallet"
   },
   "unlockWalletDescription": {
     "message": "Mit dem „seed phrase“ können Sie Ihr öffentliches Konto jederzeit wiederherstellen. Wählen Sie unten aus, wie Sie Ihre Wallet schnell entsperren möchten.",

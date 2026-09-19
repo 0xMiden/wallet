@@ -1770,7 +1770,7 @@
   },
   "verifySeedPhrase": {
     "message": "Seed Phrase を確認してください",
-    "englishSource": "Verify Seed Phrase"
+    "englishSource": "Verify seed phrase"
   },
   "faucetPromptTitle": {
     "message": "ウォレットに資金を入金する",
@@ -2041,7 +2041,7 @@
   },
   "continueImport": {
     "message": "インポートを続行する",
-    "englishSource": "Continue Import"
+    "englishSource": "Continue import"
   },
   "chooseHowToProtect": {
     "message": "お財布をどのように保護するかをお選びください",
@@ -2409,7 +2409,7 @@
   },
   "resetRequired": {
     "message": "ウォレットのリセットが必要です",
-    "englishSource": "Wallet Reset Required"
+    "englishSource": "Wallet reset required"
   },
   "resetRequiredDescription": {
     "message": "Miden Testnetでは、ユーザーの利便性向上のため、アカウントIDをbech32形式にアップグレードしました。ウォレットを引き続きご利用いただくには、バックアップファイルまたはseed phraseから復元するか、新しいウォレットを作成してください。",
@@ -2421,11 +2421,11 @@
   },
   "reset": {
     "message": "ウォレットをリセットする",
-    "englishSource": "Reset Wallet"
+    "englishSource": "Reset wallet"
   },
   "forgotPassword": {
     "message": "パスワードをお忘れですか？",
-    "englishSource": "Forgot Password?"
+    "englishSource": "Forgot password?"
   },
   "forgotPasswordDescription": {
     "message": "パスワードをお忘れの場合は、一度ログアウトしてからアカウントを再度インポートする必要があります。その後、新しいパスワードを設定することができます。",
@@ -2449,7 +2449,7 @@
   },
   "signOut": {
     "message": "ログアウト",
-    "englishSource": "Sign Out"
+    "englishSource": "Sign out"
   },
   "twitter": {
     "message": "X（Twitter）",
@@ -3928,7 +3928,7 @@
   },
   "unlockWallet": {
     "message": "ウォレットのロックを解除",
-    "englishSource": "Unlock Wallet"
+    "englishSource": "Unlock wallet"
   },
   "unlockWalletDescription": {
     "message": "seed phrase なら、いつでもパブリックアカウントを復元できます。ウォレットのロックを素早く解除する方法については、以下から選択してください。",

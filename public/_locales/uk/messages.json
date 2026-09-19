@@ -1770,7 +1770,7 @@
   },
   "verifySeedPhrase": {
     "message": "Перевірте Seed Phrase",
-    "englishSource": "Verify Seed Phrase"
+    "englishSource": "Verify seed phrase"
   },
   "faucetPromptTitle": {
     "message": "Поповнити гаманець",
@@ -2041,7 +2041,7 @@
   },
   "continueImport": {
     "message": "Продовжити імпорт",
-    "englishSource": "Continue Import"
+    "englishSource": "Continue import"
   },
   "chooseHowToProtect": {
     "message": "Виберіть, як саме ви хочете захистити свій гаманець",
@@ -2409,7 +2409,7 @@
   },
   "resetRequired": {
     "message": "Необхідно скинути налаштування гаманця",
-    "englishSource": "Wallet Reset Required"
+    "englishSource": "Wallet reset required"
   },
   "resetRequiredDescription": {
     "message": "Мережа Miden Testnet перейшла на ідентифікатори облікових записів у форматі bech32 з метою покращення вашого досвіду користування. Щоб і надалі користуватися гаманцем, будь ласка, відновіть дані з файлу резервної копії або за адресою seed phrase, або створіть новий гаманець.",
@@ -2421,11 +2421,11 @@
   },
   "reset": {
     "message": "Скинути налаштування гаманця",
-    "englishSource": "Reset Wallet"
+    "englishSource": "Reset wallet"
   },
   "forgotPassword": {
     "message": "Забули пароль?",
-    "englishSource": "Forgot Password?"
+    "englishSource": "Forgot password?"
   },
   "forgotPasswordDescription": {
     "message": "Якщо ви забули пароль, вам потрібно вийти з облікового запису та заново імпортувати його. Після цього ви зможете створити новий пароль.",
@@ -2449,7 +2449,7 @@
   },
   "signOut": {
     "message": "Вийти",
-    "englishSource": "Sign Out"
+    "englishSource": "Sign out"
   },
   "twitter": {
     "message": "X (Twitter)",
@@ -3928,7 +3928,7 @@
   },
   "unlockWallet": {
     "message": "Розблокувати гаманець",
-    "englishSource": "Unlock Wallet"
+    "englishSource": "Unlock wallet"
   },
   "unlockWalletDescription": {
     "message": "За допомогою «seed phrase» ви завжди зможете відновити свій публічний обліковий запис. Оберіть нижче спосіб швидкого розблокування гаманця.",
