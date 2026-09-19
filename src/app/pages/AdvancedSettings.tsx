@@ -2,6 +2,7 @@ import React, { FC, useCallback, useEffect, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
+import { CopyButton } from 'components/ui/CopyButton';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import { ListGroup } from 'components/ui/ListGroup';
 import { ListRow } from 'components/ui/ListRow';
@@ -9,7 +10,6 @@ import { SubPageLayout, SubPageSection } from 'components/ui/SubPageLayout';
 import { useAccount } from 'lib/miden/front';
 import { getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import { resolvePublicKeyCommitments } from 'lib/miden/sdk/resolve-public-key-commitments';
-import useCopyToClipboard from 'lib/ui/useCopyToClipboard';
 import { navigate } from 'lib/woozie';
 import { WalletType } from 'screens/onboarding/types';
 
@@ -17,7 +17,6 @@ const AdvancedSettings: FC = () => {
   const { t } = useTranslation();
   const walletAccount = useAccount();
   const [publicKey, setPublicKey] = useState<string | null>(null);
-  const { fieldRef, copy, copied } = useCopyToClipboard();
   const isGuardianAccount = walletAccount.type === WalletType.Guardian;
 
   const fetchPublicKey = useCallback(async () => {
@@ -41,12 +40,6 @@ const AdvancedSettings: FC = () => {
     fetchPublicKey();
   }, [fetchPublicKey]);
 
-  // No haptic here: DetailRow's action fires one on every tap.
-  const handleCopy = useCallback(() => {
-    if (!publicKey) return;
-    copy();
-  }, [publicKey, copy]);
-
   // No haptic here: ListRow fires one on every tap.
   const handleExportAccountFile = useCallback(() => {
     navigate('/settings/export-account-file');
@@ -61,13 +54,10 @@ const AdvancedSettings: FC = () => {
     <SubPageLayout data-testid="advanced-settings">
       <SubPageSection>
         <DetailCard>
-          <DetailRow
-            label={t('accountPublicKey')}
-            data-testid="advanced-public-key"
-            // Offered only once there is a key to copy.
-            action={publicKey ? { label: t(copied ? 'copied' : 'copy'), onClick: handleCopy } : undefined}
-          >
+          <DetailRow label={t('accountPublicKey')} data-testid="advanced-public-key">
             <span className="font-mono text-sm select-text">{truncatedPublicKey}</span>
+            {/* Offered only once there is a key to copy. */}
+            {publicKey && <CopyButton text={publicKey} data-testid="advanced-copy-public-key" />}
           </DetailRow>
         </DetailCard>
       </SubPageSection>
@@ -93,8 +83,6 @@ const AdvancedSettings: FC = () => {
           )}
         </ListGroup>
       </SubPageSection>
-
-      <input ref={fieldRef} value={publicKey ?? ''} readOnly className="sr-only" tabIndex={-1} />
     </SubPageLayout>
   );
 };
