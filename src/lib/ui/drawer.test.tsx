@@ -188,7 +188,9 @@ describe('Drawer', () => {
       expect(document.body.style.cssText).toContain('black');
     });
 
-    it('leaves the body alone with noBodyStyles, so a sheet stacked on another does not undo its styles', () => {
+    it('does not paint the body black on open with noBodyStyles', () => {
+      // Open only: vaul's scale cleanup still resets body.style.background 500ms after close,
+      // noBodyStyles or not. What noBodyStyles protects for a sheet beneath is the Safari pin.
       render(
         <Drawer open noBodyStyles>
           <DrawerContent>

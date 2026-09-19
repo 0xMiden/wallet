@@ -35,9 +35,12 @@ interface DrawerProps {
    */
   dismissible?: boolean;
   /**
-   * Leave `<body>` styles alone. vaul pins the body (Safari) and paints it black behind the scaled
-   * app, then restores both when ANY sheet closes, so a sheet opened over another sheet passes this
-   * to avoid undoing the one still open beneath it.
+   * Skip vaul's Safari body pin and its black body paint on open. vaul keeps the pinned body's
+   * previous position in one module-level slot and restores it when ANY sheet closes, so a sheet
+   * opened over another sheet passes this to leave the pin of the one beneath in place. That pin
+   * is all it protects: vaul's scale cleanup (`useScaleBackground`) still resets
+   * `body.style.background` 500ms after this sheet closes, with no `noBodyStyles` guard, so on the
+   * extension a sheet closing over an open drawer still clears that drawer's black background.
    */
   noBodyStyles?: boolean;
 }
