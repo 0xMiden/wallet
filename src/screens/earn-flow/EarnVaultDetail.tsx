@@ -6,6 +6,7 @@ import { Area, AreaChart, Tooltip, YAxis } from 'recharts';
 
 import { Button, ButtonVariant } from 'components/Button';
 import { PageHeader } from 'components/PageHeader';
+import { Pill } from 'components/ui/Pill';
 import { hapticSelection } from 'lib/mobile/haptics';
 import { ChartContainer } from 'lib/ui/charts';
 import { goBack, navigate } from 'lib/woozie';
@@ -35,9 +36,7 @@ const EarnVaultDetail: FC<EarnVaultDetailProps> = ({ vaultId }) => {
         title={`${vault.protocol} • ${vault.asset}`}
         onBack={goBack}
         actions={
-          <span className="shrink-0 rounded-full bg-[#DDD4CE] px-3 py-1.5 text-xs font-medium leading-none text-heading-gray">
-            {t('earnAssetOnNetwork', { asset: vault.asset, network: vault.network })}
-          </span>
+          <Pill className="shrink-0">{t('earnAssetOnNetwork', { asset: vault.asset, network: vault.network })}</Pill>
         }
       />
 

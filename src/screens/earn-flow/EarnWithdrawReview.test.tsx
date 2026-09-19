@@ -125,6 +125,9 @@ describe('EarnWithdrawReview', () => {
 
     expect(screen.getByTestId('earn-withdraw-review-page')).toBeInTheDocument();
     expect(screen.getByRole('heading')).toHaveTextContent('Aave • USDC');
+    // The network pill goes through the same translation key as EarnVaultDetail's,
+    // rather than a hard-coded "{asset} on {network}" English string.
+    expect(screen.getByText('earnAssetOnNetwork')).toBeInTheDocument();
     expect(screen.getByText('42.25')).toBeInTheDocument();
     expect(screen.getByTestId('token-logo')).toHaveTextContent('USDC');
     expect(screen.getByText('Aave (Sepolia) -> Miden')).toBeInTheDocument();
