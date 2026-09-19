@@ -2,9 +2,9 @@ import React from 'react';
 
 import { useTranslation } from 'react-i18next';
 
-import { Icon, IconName } from 'app/icons/v2';
 import { useClipboardCopy } from 'lib/ui/useClipboardCopy';
 
+import { AnimatedCopyIcon } from './CopyFeedback';
 import { Pill, PillSize } from './Pill';
 
 export interface CopyChipProps {
@@ -26,8 +26,8 @@ export interface CopyChipProps {
  * A Pill that copies `text` to the clipboard on tap: the hash/address chip variant of `Copy`
  * (`CopyButton` is the orange text-action variant for a detail row). Built on the same
  * `useClipboardCopy` hook as `CopyButton`, so both read from one clipboard/feedback
- * implementation. `Pill`'s own tap handler fires the haptic, so this hook is never asked to fire
- * one itself.
+ * implementation, and the same copy glyph → check morph (`AnimatedCopyIcon`). `Pill`'s own tap
+ * handler fires the haptic, so this hook is never asked to fire one itself.
  */
 export const CopyChip: React.FC<CopyChipProps> = ({
   text,
@@ -45,7 +45,8 @@ export const CopyChip: React.FC<CopyChipProps> = ({
       <Pill
         size={size}
         tone="neutral"
-        icon={<Icon name={copied ? IconName.Checkmark : IconName.CopyNew} />}
+        // Fills the Pill's own glyph box; the morph is the one every copy control shares.
+        icon={<AnimatedCopyIcon copied={copied} className="h-full w-full" />}
         onClick={() => void copy()}
         className={className}
         aria-label={typeof ariaLabel === 'function' ? ariaLabel(copied) : ariaLabel}
