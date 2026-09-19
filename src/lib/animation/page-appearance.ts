@@ -21,7 +21,8 @@ export const pageSlideParallax = '-24%';
 export const pageSlideDim = 0.08;
 
 // A step swap inside one page: the `Navigator` flows (send, swap, wallet file,
-// bridge deposit) and onboarding. Their AnimatePresence runs in `mode="wait"`,
+// bridge deposit). Onboarding's steps move like pushed pages instead
+// (`OnboardingStepLayer`, on the `page` preset). Their AnimatePresence runs in `mode="wait"`,
 // so the leaving step is gone before the next one mounts: two steps are never
 // on screen together and there is no page beneath to park at
 // `pageSlideParallax`. A step keeps the page model's direction and curve
@@ -35,9 +36,6 @@ export const pageStepTransition: Transition = {
 
 // How far a `Navigator` step comes in from. Negated going back.
 export const pageStepOffset = '8%';
-
-// How far an onboarding step drifts while it fades. Negated going back.
-export const pageStepFadeOffset = '1vw';
 
 // How far a `Navigator` step presented over the flow (`animationIn: 'present'`)
 // rises from while it fades in, and sinks back to while it fades out.

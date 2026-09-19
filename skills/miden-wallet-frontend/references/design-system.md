@@ -319,15 +319,19 @@ The bottom nav, the top action bar and every `SegmentedControl` move alike, thro
   reports nothing. Arrow keys, Home and End move focus and the selection together.
 - **Reduced motion.** The bubble moves instantly, nothing pops, a press does not scale.
 
-A step inside one page (the `Navigator` flows: send, swap, bridge deposit, encrypted file; and the
-onboarding steps) is not a page push: its `AnimatePresence` runs in `mode="wait"`, so the leaving
+A step inside one page (the `Navigator` flows: send, swap, bridge deposit, encrypted file) is not a
+page push: its `AnimatePresence` runs in `mode="wait"`, so the leaving
 step is gone before the next mounts and there is no page beneath to park. It swaps on
 `pageStepTransition` (`durations.pageStep`, 0.15s, on the page's curve): a `Navigator` push comes
 in from `pageStepOffset` (8%) on the right and from the left going back, a presented step rises
-from `pageStepPresentOffset` (25vw), and an onboarding step fades with a `pageStepFadeOffset`
-(1vw) drift. `resolvePageStepTransition(reduce, animate)` makes it instant under reduced motion and
+from `pageStepPresentOffset` (25vw). `resolvePageStepTransition(reduce, animate)` makes it instant under reduced motion and
 a zero-length swap off mobile. A page that fades in (`FullScreenPage` with `entrance="fade"`, a
 slide page that cannot slide, and `TabLayout` on mount) uses `fade`.
+
+Onboarding's steps move like pushed pages (`OnboardingStepLayer`): both steps are on screen while
+they cross, in one grid cell. Forward, the new step comes in from the `page` preset's right edge
+while the old one parks at `pageSlideParallax` under `pageSlideDim`; back is the mirror. The leaving
+step is `aria-hidden` and takes no pointer. Only mobile animates; reduced motion is instant.
 
 ## Ahmad's screens (anchor, small fixes)
 
