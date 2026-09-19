@@ -383,6 +383,31 @@ const HomeSwipeContainer: FC = () => {
    * than tracked with a flag, so it also catches a second tap interrupting this
    * very animation, and any future path that leaves the track adrift.
    */
+  /**
+   * Puts the track's transform back after framer resets it to measure layout.
+   *
+   * A draggable node is measured on every layout commit anywhere in the tree (the
+   * tab bars' sliding pill and icon pop, a SegmentedControl), and framer clears
+   * its transform to `none` to take the reading. It then re-renders the track only
+   * if that render isn't deduped against one already scheduled at the same frame
+   * timestamp — and when the measurement lands in the frame the slide last
+   * rendered, it is. The track then sat at `none`, which is Overview, under an
+   * action bar naming another page: for a frame mid-slide, or until the next
+   * route change when the slide had just settled.
+   *
+   * Restored in a microtask, so after every node has been measured untransformed
+   * and before the frame paints. Only a transform still at `none` is touched: if
+   * framer re-rendered the track itself, its value stands.
+   */
+  const restoreAfterLayoutMeasure = () => {
+    queueMicrotask(() => {
+      const track = trackRef.current;
+      const current = x.get();
+      if (!track || track.style.transform !== 'none' || current === 0) return;
+      track.style.transform = `translateX(${current}px)`;
+    });
+  };
+
   const landAfterInterruptedRelease = () => {
     requestAnimationFrame(() => {
       if (isReleaseRunning() || !width) return;
@@ -430,6 +455,7 @@ const HomeSwipeContainer: FC = () => {
           draggedRef.current = true;
         }}
         onDragEnd={handleDragEnd}
+        onBeforeLayoutMeasure={restoreAfterLayoutMeasure}
       >
         {pages.map(page => (
           <div key={page.id} className="h-full shrink-0" style={{ width: `${100 / pages.length}%` }}>
