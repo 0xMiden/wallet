@@ -8,6 +8,7 @@ import { useTranslation } from 'react-i18next';
 import { springs, useMotion } from 'lib/animation';
 import { getAdaptiveDecimalPlaces } from 'lib/i18n/numbers';
 import { hapticLight } from 'lib/mobile/haptics';
+import { cn } from 'lib/ui/util';
 
 /** Extra batch-claim assets rendered inline before the row collapses to a count. */
 const EXTRA_ASSET_PREVIEW_COUNT = 2;
@@ -51,6 +52,10 @@ export interface ActivityRowProps {
   /** Right-aligned relative time (e.g. "Just now") — alternative to `status`. */
   timestamp?: string;
   onClick?: () => void;
+  /**
+   * Layout, or the surface a `Card asChild` draws onto the row. Merged with `cn`, so a card's
+   * padding replaces the row's own `py-4` instead of fighting it.
+   */
   className?: string;
   /**
    * Optional E2E hook. The component destructures its props (no rest spread), so
@@ -149,7 +154,7 @@ export const ActivityRow: FC<ActivityRowProps> = ({
       data-entry-key={entryKey}
       role={onClick ? 'button' : undefined}
       onClick={onClick ? handleClick : undefined}
-      className={classNames('w-full flex items-center py-4 justify-between', onClick && 'cursor-pointer', className)}
+      className={cn('w-full flex items-center py-4 justify-between', onClick && 'cursor-pointer', className)}
     >
       <div className="flex items-center gap-2">
         <div

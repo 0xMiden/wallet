@@ -1,10 +1,10 @@
 import React, { FC } from 'react';
 
-import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
 import { PageHeader } from 'components/PageHeader';
+import { CardButton } from 'components/ui/Card';
 import { hapticLight } from 'lib/mobile/haptics';
 import { goBack, navigate } from 'lib/woozie';
 
@@ -69,14 +69,11 @@ const EarnPositionDetailCard: FC<{ position: EarnPosition }> = ({ position }) =>
   const { t } = useTranslation();
 
   return (
-    <button
-      type="button"
+    <CardButton
+      padding="tile"
       data-testid={`earn-position-card-${position.id}`}
-      onClick={() => {
-        hapticLight();
-        navigate(`/earn/positions/${position.id}`);
-      }}
-      className={classNames('w-full rounded-2xl border border-[#EFEFF2] bg-white px-4 py-6 text-left')}
+      onClick={() => navigate(`/earn/positions/${position.id}`)}
+      className="w-full"
     >
       <div className="flex items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-2">
@@ -103,7 +100,7 @@ const EarnPositionDetailCard: FC<{ position: EarnPosition }> = ({ position }) =>
       </div>
 
       <Icon name={IconName.ChevronRightLucide} className="sr-only" fill="none" />
-    </button>
+    </CardButton>
   );
 };
 

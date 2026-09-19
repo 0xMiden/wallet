@@ -44,7 +44,8 @@ jest.mock('components/ui', () => ({
     subtitle,
     amount,
     status,
-    onClick
+    onClick,
+    className
   }: {
     icon: React.ReactNode;
     iconBg?: string;
@@ -58,9 +59,11 @@ jest.mock('components/ui', () => ({
     };
     status: { label: string; tone: string };
     onClick?: () => void;
+    className?: string;
   }) => (
     <div
       data-testid="activity-row"
+      className={className}
       data-title={title}
       data-subtitle={subtitle ?? ''}
       data-iconbg={iconBg ?? ''}
@@ -78,6 +81,8 @@ jest.mock('components/ui', () => ({
       {icon}
     </div>
   ),
+  // The real card, so the surface it draws onto each row is asserted as rendered.
+  Card: jest.requireActual('components/ui/Card').Card,
   // The initial-loading placeholder; stub it to a marker.
   Spinner: () => <div data-testid="activity-spinner" />
 }));
@@ -600,10 +605,30 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
     expect(row).toHaveAttribute('data-amount-direction', 'positive');
   });
 
+  it('renders every row on the shared fill card, with no border', () => {
+    renderFull();
+    const rows = screen.getAllByTestId('activity-row');
+    expect(rows.length).toBeGreaterThan(0);
+    rows.forEach(row => {
+      expect(row).toHaveClass('bg-fill', 'rounded-2xl', 'px-4', 'py-3');
+      expect(row.className.split(/\s+/).some(c => /^border(-|$)/.test(c))).toBe(false);
+      expect(row).not.toHaveClass('bg-white');
+    });
+  });
+
+  it('gives a tappable row pressed feedback and leaves a plain row without it', () => {
+    renderFull();
+    expect(rowByTitle('Received')).toHaveClass('active:bg-fill-pressed');
+    expect(rowByTitle('')).not.toHaveClass('active:bg-fill-pressed');
+  });
+
   it('renders the default row (unknown icon, empty title, no amount, not clickable)', () => {
     renderFull();
     const row = rowByTitle('');
     expect(iconNameIn(row)).toBe('More');
+    // On `page` with an `ink` glyph, so the circle stays visible on the card's `fill`.
+    expect(row).toHaveAttribute('data-iconbg', 'bg-page');
+    expect(within(row).getByTestId('icon')).toHaveAttribute('data-classname', 'text-ink');
     expect(row).toHaveAttribute('data-amount-value', '');
     // No txId → onClick is undefined.
     expect(row).toHaveAttribute('data-clickable', 'no');

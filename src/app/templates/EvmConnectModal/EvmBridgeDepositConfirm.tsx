@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 
 import { Button, ButtonVariant } from 'components/Button';
 import { PageHeader } from 'components/PageHeader';
+import { Card } from 'components/ui/Card';
 
 interface EvmBridgeDepositConfirmProps {
   amount: string;
@@ -49,13 +50,13 @@ export const EvmBridgeDepositConfirm: React.FC<EvmBridgeDepositConfirmProps> = (
             <p className="text-sm text-text-tertiary-token">{t('bridgeDepositSubheading')}</p>
           </div>
 
-          <div className="mt-4 rounded-xl border border-border-light bg-white py-1 px-4">
+          <Card padding="row" className="mt-4">
             <ConfirmRow label={t('amount')} value={`${amount || '0'} ${tokenSymbol}`} />
             {receiveLabel && <ConfirmRow label={t('bridgeDepositYouReceive')} value={receiveLabel} />}
             <ConfirmRow label={t('from')} value="Sepolia" />
             <ConfirmRow label={t('to')} value={`Miden · ${midenAccountName}`} />
             <ConfirmRow label={t('bridgeDepositBridgeOption')} value={routeLabel} isLast />
-          </div>
+          </Card>
 
           <div className="mt-5 rounded-2xl bg-fill px-6 py-4 text-[#5A3F0A]">
             <p className="text-xs font-bold uppercase tracking-[0.12em]">{t('bridgeDepositApprovingTitle')}</p>

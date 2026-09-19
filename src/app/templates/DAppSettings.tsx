@@ -8,6 +8,7 @@ import { ReactComponent as CloseIcon } from 'app/icons/close.svg';
 import { ReactComponent as CopySmallIcon } from 'app/icons/copy-small.svg';
 import { ReactComponent as ExternalLinkSmallIcon } from 'app/icons/external-link-small.svg';
 import { Icon, IconName } from 'app/icons/v2';
+import { Card } from 'components/ui/Card';
 import { CopyButton } from 'components/ui/CopyButton';
 import { useMidenContext, useAccount } from 'lib/miden/front';
 import { MidenDAppSession, MidenDAppSessions } from 'lib/miden/types';
@@ -96,7 +97,7 @@ const DAppCard: FC<{
   const explorerAccountUrl = getExplorerAccountUrl(explorerHash);
 
   return (
-    <div className="border border-border-card rounded-10 mb-4 bg-white">
+    <Card padding="none" className="mb-4">
       {/* Header */}
       <div className="flex justify-between items-center border-b border-border-card px-4 py-3">
         <span className="text-[14px] font-medium text-ink">{hostname}</span>
@@ -164,6 +165,6 @@ const DAppCard: FC<{
           </div>
         </div>
       </div>
-    </div>
+    </Card>
   );
 };
