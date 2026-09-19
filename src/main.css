@@ -445,24 +445,23 @@ body[data-hide-navbar]::after {
     /* Balance card surface — neutral graphite grey. */
     --surface-balance: #6f6f6f;
     --surface-balance-fg: #ffffff;
-    --surface-balance-fg-muted: rgba(255, 255, 255, 0.55);
     --surface-balance-rule: rgba(255, 255, 255, 0.18);
+    /* The balance card's change pill: a darker well of the card's own color, so it suits every
+     * card color. At 0.24 the pill's white 14px text is 4.5:1 even on the brand orange. */
+    --surface-balance-pill: rgba(0, 0, 0, 0.24);
     --surface-balance-positive: #4ade80;
     --surface-balance-handle: #b2b2b2;
 
     /* Balance-card color options (AccountsDrawer picker). Blue/green/purple
-     * get lighter variants in dark mode; slate/orange stay fixed. */
+     * get lighter variants in dark mode; slate/orange stay fixed. These five are BRAND colors:
+     * never shift them for contrast. The card solves readability with type size and weight
+     * (amount, currency) and a darker well (change pill), see BalanceCard and the contrast
+     * test in design-tokens.test.ts. */
     --card-slate: #777386;
     --card-orange: #e77537;
     --card-blue: #607c92;
     --card-green: #778c72;
     --card-purple: #847595;
-    /* Second tone — card bottom strip (same value in both themes). */
-    --card-slate-deep: #777386;
-    --card-orange-deep: #bd5d29;
-    --card-blue-deep: #405565;
-    --card-green-deep: #50634c;
-    --card-purple-deep: #5d5368;
 
     /* Design system, direction B (skills/miden-wallet-frontend/references/design-system.md).
      * Prefixed so a copied shadcn primitive can never redefine them. */
@@ -557,8 +556,10 @@ body[data-hide-navbar]::after {
     /* Balance card surface — keep same graphite grey in dark mode. */
     --surface-balance: #6f6f6f;
     --surface-balance-fg: #ffffff;
-    --surface-balance-fg-muted: rgba(255, 255, 255, 0.55);
     --surface-balance-rule: rgba(255, 255, 255, 0.18);
+    /* The balance card's change pill: a darker well of the card's own color, so it suits every
+     * card color. At 0.24 the pill's white 14px text is 4.5:1 even on the brand orange. */
+    --surface-balance-pill: rgba(0, 0, 0, 0.24);
     --surface-balance-positive: #4ade80;
     --surface-balance-handle: #b2b2b2;
 
@@ -567,11 +568,6 @@ body[data-hide-navbar]::after {
     --card-blue: #91acc1;
     --card-green: #a8bba3;
     --card-purple: #beacd2;
-    --card-slate-deep: #777386;
-    --card-orange-deep: #bd5d29;
-    --card-blue-deep: #405565;
-    --card-green-deep: #50634c;
-    --card-purple-deep: #5d5368;
 
     --ds-page: #191919;
     --ds-fill: #262422;

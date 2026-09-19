@@ -32,6 +32,10 @@ was deleted (or, where marked, what still has callers to migrate).
    `motion-reduce:` variant.
 6. Text meets 4.5:1 on the surface it sits on (3:1 for 19px bold and larger, icons and control
    edges) in both themes. A new color pair is checked before it ships.
+7. The five card colours are brand colours; never shift them for contrast, and never tint them with
+   a scrim. Solve readability with type size and weight or a darker well (see Card colours). Brand
+   fidelity wins over rule 6 for the card surface itself; the balance card's 13px label and footer
+   are the one accepted exception to rule 6 (see Card colours).
 
 ## Foundations
 
@@ -72,6 +76,37 @@ Two fills replace six (`gray-25`, `gray-50`, `surface-input`, `surface-interacti
 A status is a word or an icon plus its color, never color alone. A status word is never bare
 colored text: it is a `StatusBadge`. The raw fills (#90BA89, #E85D2F, #FF5500, #C51A0A) are
 2.2–3.5:1 on white and never carry text.
+
+### Card colours
+
+The account card colours are brand colours. Their values are fixed; readability on them comes
+from the text, never from the colour.
+
+| Token | Light | Dark | White text on it (light) |
+| --- | --- | --- | --- |
+| `card-slate` | #777386 | #777386 | 4.58:1 |
+| `card-orange` | #E77537 | #E77537 | 3.00:1 |
+| `card-blue` | #607C92 | #91ACC1 | 4.38:1 |
+| `card-green` | #778C72 | #A8BBA3 | 3.63:1 |
+| `card-purple` | #847595 | #BEACD2 | 4.23:1 |
+
+Dark mode paints the card at 50% over `page`, where white is 5.6:1 or better on every colour.
+In light mode the bare colours reach only 3.0:1. The balance card stays the plain colour, with its
+footer set off by a `surface-balance-rule` hairline, and each text sits as follows:
+
+| Text | Size | Needs | Sits on | Weakest (orange, light) |
+| --- | --- | --- | --- | --- |
+| Amount | 40-56px extrabold | 3:1 | the bare colour | 3.00:1 |
+| Currency | 22px bold | 3:1 | the bare colour | 3.00:1 |
+| Label ("Total balance") | 13px bold | 4.5:1 | the bare colour | 3.00:1 (below 4.5:1, accepted) |
+| Account name and address | 13px bold | 4.5:1 | the bare colour, under the hairline | 3.00:1 (below 4.5:1, accepted) |
+| Change pill | 14px | 4.5:1 | `surface-balance-pill` (black 24%) | 4.87:1 |
+
+The label and footer keep the plain brand colour by choice: in light mode they pass 4.5:1 on slate
+only (4.58:1) and fall under it on blue, purple, green and orange; in dark mode they pass on every
+colour. Large text on a card colour may never drop below 18.66px bold or 24px regular, since the
+orange has no margin above 3:1. `design-tokens.test.ts` pins the brand values, the amount and
+currency at 3:1 and the change pill at 4.5:1.
 
 ### Type
 

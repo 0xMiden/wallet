@@ -273,3 +273,13 @@ describe('variants', () => {
     expect(screen.getByTestId('glyph').parentElement).toHaveClass('shrink-0', ...iconClasses);
   });
 });
+
+it('draws an inverse pill as a darker well of the colored surface under it, in that surface’s ink', () => {
+  render(
+    <Pill data-testid="pill" tone="inverse">
+      0.00 (0.00%)
+    </Pill>
+  );
+
+  expect(screen.getByTestId('pill')).toHaveClass('bg-surface-balance-pill', 'text-surface-balance-fg');
+});

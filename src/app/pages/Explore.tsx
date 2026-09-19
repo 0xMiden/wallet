@@ -337,6 +337,7 @@ const HomeOverview: FC<HomeOverviewProps> = ({
           <BalanceCard
             accountNumber={truncateAddress(address, false, 8)}
             accountId={address}
+            accountName={account.name}
             // Gap 16: until real prices have loaded, every token falls back to the
             // $1 default, so the "USD total" would be a fabricated number equal to
             // the raw token count. When no prices are available (feed down or still

@@ -1,6 +1,8 @@
 import fs from 'fs';
 import path from 'path';
 
+import { CARD_COLORS } from 'lib/settings/constants';
+
 const css = fs.readFileSync(path.join(__dirname, '../../main.css'), 'utf8');
 const config = fs.readFileSync(path.join(__dirname, '../../../tailwind.config.ts'), 'utf8');
 
@@ -184,5 +186,72 @@ describe('legacy ink', () => {
 
   it('still routes the legacy black through that aliased var', () => {
     expect(config).toMatch(/\bblack: 'var\(--color-text-primary\)'/);
+  });
+});
+
+/** `#rrggbb` or `rgba(r, g, b, a)` as [r, g, b, alpha]. */
+function rgba(value: string): [number, number, number, number] {
+  const fn = value.match(/rgba\(\s*(\d+),\s*(\d+),\s*(\d+),\s*([\d.]+)\s*\)/);
+  if (fn) return [Number(fn[1]), Number(fn[2]), Number(fn[3]), Number(fn[4])];
+  const hex = value.replace('#', '').match(/../g);
+  if (!hex || hex.length < 3) throw new Error(`not a color: ${value}`);
+  return [parseInt(hex[0]!, 16), parseInt(hex[1]!, 16), parseInt(hex[2]!, 16), 1];
+}
+
+/** `top` painted over the opaque `bottom`, as the browser composites it (sRGB). */
+function over(top: string, bottom: string): string {
+  const [r, g, b, a] = rgba(top);
+  const [br, bg, bb] = rgba(bottom);
+  return `#${[r * a + br * (1 - a), g * a + bg * (1 - a), b * a + bb * (1 - a)]
+    .map(c => Math.round(c).toString(16).padStart(2, '0'))
+    .join('')}`;
+}
+
+// The five card colors are BRAND colors: they never shift for contrast. Readability on them comes
+// from the type instead, and this pins both halves of that rule.
+describe('card colors are the brand colors', () => {
+  const BRAND: Record<string, string> = {
+    slate: '#777386',
+    orange: '#e77537',
+    blue: '#607c92',
+    green: '#778c72',
+    purple: '#847595'
+  };
+  const vars = themeVars(':root');
+
+  it.each(Object.entries(BRAND))('light %s is exactly %s', (color, hex) => {
+    expect(vars[`card-${color}`]?.toLowerCase()).toBe(hex);
+  });
+});
+
+// The Home balance card draws its text in `surface-balance-fg` on the account's card color. Light
+// mode paints the card solid; dark mode paints it at 50% over the page (`dark:bg-card-*\/50` on
+// `app-bg`). What each text needs depends on its size (WCAG 1.4.3):
+// - the amount (40-56px extrabold) and the currency (22px bold) are large text: 3:1 on the bare
+//   color. White on the brand orange is 3.0:1, which is why they may never shrink below 18.66px bold.
+// - the label and the footer (13px bold) sit on the bare color too, by choice: the card keeps its
+//   plain brand color, so in light mode they fall under 4.5:1 on every color but slate. Not pinned.
+// - the change pill (14px) is small text: 4.5:1 on `surface-balance-pill` over the color.
+describe.each([':root', '.dark'] as const)('balance card ink on every card color in %s', selector => {
+  const vars = themeVars(selector);
+  const need = (name: string): string => {
+    const value = vars[name];
+    if (!value) throw new Error(`--${name} not defined in ${selector}`);
+    return value;
+  };
+  // What the text actually sits on: the solid color in light mode, half of it over the page in dark.
+  const card = (color: string): string => {
+    const [r, g, b] = rgba(need(`card-${color}`));
+    return selector === ':root' ? need(`card-${color}`) : over(`rgba(${r}, ${g}, ${b}, 0.5)`, need('color-app-bg'));
+  };
+
+  it.each(CARD_COLORS)('%s carries the large amount and currency at 3:1 on the bare color', color => {
+    expect(contrast(need('surface-balance-fg'), card(color))).toBeGreaterThanOrEqual(3);
+  });
+
+  it.each(CARD_COLORS)('%s carries the change pill at 4.5:1', color => {
+    expect(
+      contrast(need('surface-balance-fg'), over(need('surface-balance-pill'), card(color)))
+    ).toBeGreaterThanOrEqual(4.5);
   });
 });

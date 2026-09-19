@@ -20,10 +20,21 @@ export type PillSize = 'xs' | 'sm' | 'md';
  * - `inactive` — a status that is neither good nor bad (cancelled, reclaimed, checking):
  *   `fill-pressed` with `ink`, so it still shows on a `fill` card.
  * - `plain` — no colors, for a caller that brings its own (e.g. a network's chip).
+ * - `inverse` — on a colored surface (the balance card): a darker well of that surface with its
+ *   white ink, so it suits every card color and never brings a status hue of its own.
  *
  * A status is usually rendered through `StatusBadge`, which picks the tone and label for you.
  */
-export type PillTone = 'neutral' | 'selected' | 'word' | 'positive' | 'warning' | 'negative' | 'inactive' | 'plain';
+export type PillTone =
+  | 'neutral'
+  | 'selected'
+  | 'word'
+  | 'positive'
+  | 'warning'
+  | 'negative'
+  | 'inactive'
+  | 'plain'
+  | 'inverse';
 
 export interface PillProps {
   children: React.ReactNode;
@@ -78,7 +89,8 @@ const pillVariants = cva(
         warning: 'border-transparent bg-pending-tint text-pending-tint-ink',
         negative: 'border-transparent bg-negative-tint text-negative-tint-ink',
         inactive: 'border-transparent bg-fill-pressed text-ink',
-        plain: 'border-transparent'
+        plain: 'border-transparent',
+        inverse: 'border-transparent bg-surface-balance-pill text-surface-balance-fg'
       } satisfies Record<PillTone, string>
     },
     defaultVariants: { size: 'md', tone: 'neutral' }
