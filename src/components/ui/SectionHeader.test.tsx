@@ -47,6 +47,13 @@ it('the lg size is an 18px Nunito extrabold ink heading, for a page-level sectio
   expect(heading).toHaveClass('font-heading', 'text-lg', 'font-extrabold', 'text-ink');
 });
 
+it('the xl size is the 20px extrabold ink section title of a tab root', () => {
+  render(<SectionHeader size="xl">Featured</SectionHeader>);
+
+  const heading = screen.getByRole('heading', { level: 2, name: 'Featured' });
+  expect(heading).toHaveClass('font-heading', 'text-xl', 'leading-[26px]', 'font-extrabold', 'text-ink');
+});
+
 it('has no icon circle when icon is omitted', () => {
   render(<SectionHeader>My accounts</SectionHeader>);
   expect(document.querySelector('.bg-fill')).not.toBeInTheDocument();

@@ -7,10 +7,12 @@ import { cn } from 'lib/ui/util';
 const headingVariants = cva('min-w-0 truncate', {
   variants: {
     /** `sm`: 13px bold `muted` (default, the spec label). `lg`: 18px Nunito extrabold `ink`, for a
-     * page-level section title such as Settings' coloured group headers. */
+     * page-level section title such as Settings' coloured group headers. `xl`: the spec's 20px / 26
+     * extrabold `ink` section title of a tab root, such as Explore's. */
     size: {
       sm: 'font-sans text-[13px] leading-[17px] font-bold text-muted',
-      lg: 'font-heading text-lg font-extrabold text-ink'
+      lg: 'font-heading text-lg font-extrabold text-ink',
+      xl: 'font-heading text-xl leading-[26px] font-extrabold text-ink'
     }
   },
   defaultVariants: { size: 'sm' }
