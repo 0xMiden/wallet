@@ -39,6 +39,18 @@ jobs:
           node scripts/check-native-prover-pin.mjs --self-test
           node scripts/check-native-prover-pin.mjs
 
+  e2e-selector:
+    name: E2E selector
+    # The selector decides whether the Earn and Guardian suites run at all, and a wrong
+    # answer is invisible: the suite is skipped and its required gate still reports success.
+    # Its test is pure bash over a path list, so it needs no checkout of node_modules.
+    runs-on: ubuntu-slim
+    steps:
+      - name: Check Out Code
+        uses: actions/checkout@v3
+      - name: Check E2E suite selector
+        run: bash scripts/select-e2e-changes.test.sh
+
   translations:
     name: Update Translation Files
     runs-on: ubuntu-latest
