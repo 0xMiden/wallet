@@ -233,3 +233,40 @@ it('does not fire while disabled', () => {
   expect(onClick).not.toHaveBeenCalled();
   expect(screen.getByTestId('pill')).toBeDisabled();
 });
+
+describe('variants', () => {
+  it.each([
+    ['neutral', ['bg-fill', 'text-ink', 'border-transparent']],
+    ['word', ['bg-fill', 'text-ink', 'border-transparent']],
+    ['selected', ['bg-accent-tint', 'text-accent-tint-ink', 'border-transparent']],
+    ['positive', ['bg-status-positive/10', 'text-positive-ink', 'border-transparent']],
+    ['warning', ['bg-status-pending/10', 'text-pending-ink', 'border-transparent']],
+    ['negative', ['bg-status-negative/10', 'text-negative-ink', 'border-transparent']],
+    ['plain', ['border-transparent']]
+  ] as const)('gives the %s tone its colors', (tone, classes) => {
+    render(
+      <Pill data-testid="pill" tone={tone}>
+        A
+      </Pill>
+    );
+    expect(screen.getByTestId('pill')).toHaveClass(...classes);
+  });
+
+  it('defaults to the neutral tone at the md size', () => {
+    render(<Pill data-testid="pill">A</Pill>);
+    expect(screen.getByTestId('pill')).toHaveClass('bg-fill', 'text-ink', 'h-8', 'px-3', 'text-sm');
+  });
+
+  it.each([
+    ['sm', ['h-6', 'gap-1', 'px-2', 'text-xs'], ['-ml-0.5', 'h-3.5', 'w-3.5']],
+    ['md', ['h-8', 'gap-1.5', 'px-3', 'text-sm'], ['-ml-1', 'h-4', 'w-4']]
+  ] as const)('sizes the %s pill and its icon box', (size, pillClasses, iconClasses) => {
+    render(
+      <Pill data-testid="pill" size={size} icon={<svg data-testid="glyph" />}>
+        A
+      </Pill>
+    );
+    expect(screen.getByTestId('pill')).toHaveClass('rounded-full', 'border', ...pillClasses);
+    expect(screen.getByTestId('glyph').parentElement).toHaveClass('shrink-0', ...iconClasses);
+  });
+});

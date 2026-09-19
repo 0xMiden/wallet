@@ -1,5 +1,7 @@
 import React from 'react';
 
+import { cva } from 'class-variance-authority';
+
 import { hapticLight, hapticSelection } from 'lib/mobile/haptics';
 import { cn } from 'lib/ui/util';
 
@@ -42,10 +44,31 @@ export interface PillProps {
 }
 
 // Literal class strings, so Tailwind generates them.
-const SIZE_CLASSES: Record<PillSize, string> = {
-  sm: 'h-6 gap-1 px-2 text-xs',
-  md: 'h-8 gap-1.5 px-3 text-sm'
-};
+const pillVariants = cva(
+  'relative inline-flex max-w-full items-center rounded-full border font-heading font-bold leading-none',
+  {
+    variants: {
+      size: {
+        sm: 'h-6 gap-1 px-2 text-xs',
+        md: 'h-8 gap-1.5 px-3 text-sm'
+      },
+      tone: {
+        neutral: 'border-transparent bg-fill text-ink',
+        word: 'border-transparent bg-fill text-ink',
+        selected: 'border-transparent bg-accent-tint text-accent-tint-ink',
+        // 10%, not 15%: at 15% the ink dropped under 4.5:1 on `page` in light mode (measured
+        // 4.39/4.52/4.69 for negative/pending/positive). 10% clears AA on `page` (4.65/4.79/4.85
+        // measured) but NOT on `fill` (4.11/4.24/4.33 measured, still under 4.5) — status pills must
+        // sit on `page`, not stack inside a `fill` container.
+        positive: 'border-transparent bg-status-positive/10 text-positive-ink',
+        warning: 'border-transparent bg-status-pending/10 text-pending-ink',
+        negative: 'border-transparent bg-status-negative/10 text-negative-ink',
+        plain: 'border-transparent'
+      } satisfies Record<PillTone, string>
+    },
+    defaultVariants: { size: 'md', tone: 'neutral' }
+  }
+);
 
 /**
  * The leading glyph's box, so every icon in a pill is the same size.
@@ -54,23 +77,15 @@ const SIZE_CLASSES: Record<PillSize, string> = {
  * passed straight in renders 0x0 unless something gives it a size (the `Icon` component brings
  * its own, a bare SVG does not).
  */
-const ICON_CLASSES: Record<PillSize, string> = {
-  sm: '-ml-0.5 flex h-3.5 w-3.5 shrink-0 items-center justify-center [&>svg]:h-full [&>svg]:w-full',
-  md: '-ml-1 flex h-4 w-4 shrink-0 items-center justify-center [&>svg]:h-full [&>svg]:w-full'
-};
-
-const TONE_CLASSES: Record<Exclude<PillTone, 'plain'>, string> = {
-  neutral: 'border-transparent bg-fill text-ink',
-  word: 'border-transparent bg-fill text-ink',
-  selected: 'border-transparent bg-accent-tint text-accent-tint-ink',
-  // 10%, not 15%: at 15% the ink dropped under 4.5:1 on `page` in light mode (measured
-  // 4.39/4.52/4.69 for negative/pending/positive). 10% clears AA on `page` (4.65/4.79/4.85
-  // measured) but NOT on `fill` (4.11/4.24/4.33 measured, still under 4.5) — status pills must
-  // sit on `page`, not stack inside a `fill` container.
-  positive: 'border-transparent bg-status-positive/10 text-positive-ink',
-  warning: 'border-transparent bg-status-pending/10 text-pending-ink',
-  negative: 'border-transparent bg-status-negative/10 text-negative-ink'
-};
+const pillIconVariants = cva('flex shrink-0 items-center justify-center [&>svg]:h-full [&>svg]:w-full', {
+  variants: {
+    size: {
+      sm: '-ml-0.5 h-3.5 w-3.5',
+      md: '-ml-1 h-4 w-4'
+    }
+  },
+  defaultVariants: { size: 'md' }
+});
 
 /**
  * The app's pill: one height, padding and type scale for every chip, badge, label and small
@@ -94,17 +109,13 @@ export const Pill: React.FC<PillProps> = ({
   'aria-label': ariaLabel,
   'data-testid': dataTestId
 }) => {
-  const toneClasses = tone === 'plain' ? 'border-transparent' : TONE_CLASSES[tone];
-
   // `cn` (tailwind-merge), not `clsx`: a caller's own border/background/text utility in
   // `className` has to REPLACE the tone default it conflicts with, not just coexist with it —
   // plain `clsx` leaves both classes in the string, and Tailwind v4's compiled order (alphabetical
   // by utility name) can then pick the tone default over the caller's class regardless of
   // argument order, e.g. `border-network-miden-border` losing to `border-transparent`.
   const classes = cn(
-    'relative inline-flex max-w-full items-center rounded-full border font-heading font-bold leading-none',
-    SIZE_CLASSES[size],
-    toneClasses,
+    pillVariants({ size, tone }),
     onClick && !disabled && 'cursor-pointer',
     disabled && 'opacity-50',
     className
@@ -113,7 +124,7 @@ export const Pill: React.FC<PillProps> = ({
   const content = (
     <>
       {dot && <span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full bg-current" />}
-      {icon && <span className={ICON_CLASSES[size]}>{icon}</span>}
+      {icon && <span className={pillIconVariants({ size })}>{icon}</span>}
       <span className="min-w-0 truncate">{children}</span>
     </>
   );
