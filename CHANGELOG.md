@@ -79,6 +79,7 @@
 - [CHANGE][all] Tab root headers (Activity, Explore) drop the grey rule under the title, and their header actions become bare icon buttons instead of grey circles; sheet titles are smaller and left-aligned, sheets get a bigger top radius and a smaller handle, and a sheet now opens and closes instantly under reduced motion.
 - [CHANGE][all] Lists share one set of components: a grey 16px group, 64px rows (56px without a second line) with the title over a muted subtitle and a trailing value, check or chevron, and dividers that start after the row's avatar or icon; section labels are 13px bold and sentence case. The address book is the first screen on them.
 - [CHANGE][all] Settings: each section is a sentence-case label over a grey group of rows with dividers and a chevron (Language shows its current value beside it), in place of the round section icons, large headings and bare rows; the Networks page lists networks the same way with a check on the active one.
+- [CHANGE][all] Settings sections get their coloured icons back: each group heading again shows its round icon (security, preferences, about, developer) beside a larger title, over the grey row groups.
 
 ## 1.16.1 (2026-09-15)
 
