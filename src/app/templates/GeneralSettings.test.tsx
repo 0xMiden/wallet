@@ -52,35 +52,13 @@ jest.mock('lib/settings/theme', () => ({
   setTheme: jest.fn()
 }));
 
-// `TabPicker` reaches into framer-motion / uuid / SVG icons. Render each tab as
-// a plain button exposing its id, active flag and index-driven onTabChange, plus
-// a dedicated out-of-range trigger so the `if (!next) return` guard is testable.
-jest.mock('components/TabPicker', () => ({
-  TabPicker: ({
-    tabs,
-    onTabChange
-  }: {
-    tabs: { id: string; title: string; active: boolean }[];
-    onTabChange: (index: number) => void;
-  }) => (
-    <div data-testid="tab-picker">
-      {tabs.map((tab, index) => (
-        <button
-          key={tab.id}
-          type="button"
-          data-testid={tab.id}
-          data-active={String(tab.active)}
-          onClick={() => onTabChange(index)}
-        >
-          {tab.title}
-        </button>
-      ))}
-      <button type="button" data-testid="tab-invalid" onClick={() => onTabChange(999)}>
-        invalid
-      </button>
-    </div>
-  )
-}));
+// The theme picker is the real shared SegmentedControl; only its haptic is stubbed.
+jest.mock('lib/mobile/haptics', () => ({ hapticSelection: jest.fn() }));
+
+// jsdom has no scrollIntoView; the control keeps its selection in view with it.
+beforeAll(() => {
+  HTMLElement.prototype.scrollIntoView = jest.fn();
+});
 
 // `SettingToggle` wraps `ToggleSwitch` (analytics / haptics). Render a plain
 // controlled checkbox exposing checked/onChange/name plus the title so every
@@ -141,9 +119,9 @@ describe('GeneralSettings', () => {
     expect(screen.getByText('themeDark')).toBeInTheDocument();
 
     // `active: themeSetting === opt` — only the system tab is active initially.
-    expect(screen.getByTestId('theme-system')).toHaveAttribute('data-active', 'true');
-    expect(screen.getByTestId('theme-light')).toHaveAttribute('data-active', 'false');
-    expect(screen.getByTestId('theme-dark')).toHaveAttribute('data-active', 'false');
+    expect(screen.getByTestId('theme-system')).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByTestId('theme-light')).toHaveAttribute('aria-checked', 'false');
+    expect(screen.getByTestId('theme-dark')).toHaveAttribute('aria-checked', 'false');
   });
 
   it('renders the delegate and auto-consume toggles (both with descriptions) and hides haptic on non-mobile', () => {
@@ -193,7 +171,7 @@ describe('GeneralSettings', () => {
     // The theme is a ListRow with the picker trailing, sharing a group with the haptic switch.
     const themeRow = screen.getByTestId(GeneralSettingsSelectors.ThemeSelector);
     expect(themeRow.querySelector('[data-slot="title"]')).toHaveTextContent('theme');
-    expect(themeRow).toContainElement(screen.getByTestId('tab-picker'));
+    expect(themeRow).toContainElement(screen.getByRole('radiogroup', { name: 'theme' }));
     expect(themeRow.parentElement).toHaveClass('bg-fill', 'rounded-2xl');
     expect(themeRow.parentElement).toContainElement(
       screen.getByTestId(`${GeneralSettingsSelectors.HapticFeedbackToggle}-row`)
@@ -220,9 +198,9 @@ describe('GeneralSettings', () => {
 
     render(<GeneralSettings />);
 
-    expect(screen.getByTestId('theme-system')).toHaveAttribute('data-active', 'false');
-    expect(screen.getByTestId('theme-light')).toHaveAttribute('data-active', 'false');
-    expect(screen.getByTestId('theme-dark')).toHaveAttribute('data-active', 'true');
+    expect(screen.getByTestId('theme-system')).toHaveAttribute('aria-checked', 'false');
+    expect(screen.getByTestId('theme-light')).toHaveAttribute('aria-checked', 'false');
+    expect(screen.getByTestId('theme-dark')).toHaveAttribute('aria-checked', 'true');
   });
 
   it('selecting the light theme tab persists it and updates the active tab', () => {
@@ -233,8 +211,8 @@ describe('GeneralSettings', () => {
     expect(mockSetTheme).toHaveBeenCalledTimes(1);
     expect(mockSetTheme).toHaveBeenCalledWith('light');
     // Local state updated -> the light tab is now active, system is not.
-    expect(screen.getByTestId('theme-light')).toHaveAttribute('data-active', 'true');
-    expect(screen.getByTestId('theme-system')).toHaveAttribute('data-active', 'false');
+    expect(screen.getByTestId('theme-light')).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByTestId('theme-system')).toHaveAttribute('aria-checked', 'false');
   });
 
   it('selecting the dark theme tab persists it', () => {
@@ -243,7 +221,7 @@ describe('GeneralSettings', () => {
     fireEvent.click(screen.getByTestId('theme-dark'));
 
     expect(mockSetTheme).toHaveBeenCalledWith('dark');
-    expect(screen.getByTestId('theme-dark')).toHaveAttribute('data-active', 'true');
+    expect(screen.getByTestId('theme-dark')).toHaveAttribute('aria-checked', 'true');
   });
 
   it('re-selecting the system theme tab persists it', () => {
@@ -254,13 +232,13 @@ describe('GeneralSettings', () => {
     fireEvent.click(screen.getByTestId('theme-system'));
 
     expect(mockSetTheme).toHaveBeenCalledWith('system');
-    expect(screen.getByTestId('theme-system')).toHaveAttribute('data-active', 'true');
+    expect(screen.getByTestId('theme-system')).toHaveAttribute('aria-checked', 'true');
   });
 
-  it('ignores an out-of-range theme index without persisting (the `if (!next) return` guard)', () => {
+  it('ignores a tap on the theme that is already selected', () => {
     render(<GeneralSettings />);
 
-    fireEvent.click(screen.getByTestId('tab-invalid'));
+    fireEvent.click(screen.getByTestId('theme-system'));
 
     expect(mockSetTheme).not.toHaveBeenCalled();
   });
