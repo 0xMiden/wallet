@@ -1,6 +1,5 @@
 import React, { FC, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
 import { useBackWithFallback } from 'app/hooks/useBackWithFallback';
@@ -8,7 +7,6 @@ import { ReactComponent as GroupAboutIcon } from 'app/icons/settings/group-about
 import { ReactComponent as GroupDeveloperIcon } from 'app/icons/settings/group-developer.svg';
 import { ReactComponent as GroupPreferencesIcon } from 'app/icons/settings/group-preferences.svg';
 import { ReactComponent as GroupSecurityIcon } from 'app/icons/settings/group-security.svg';
-import { Icon, IconName } from 'app/icons/v2';
 import AddressBook from 'app/templates/AddressBook';
 import DAppDrawerSettings from 'app/templates/DAppDrawerSettings';
 import DAppSettings from 'app/templates/DAppSettings';
@@ -20,7 +18,6 @@ import LanguageSettings from 'app/templates/LanguageSettings';
 import RevealSecret from 'app/templates/RevealSecret';
 import RevealSeedPhraseFlow from 'app/templates/RevealSeedPhrase';
 import VerifySeedPhraseFlow from 'app/templates/VerifySeedPhraseFlow';
-import { Button, ButtonVariant } from 'components/Button';
 import { PageHeader } from 'components/PageHeader';
 import { ListGroup } from 'components/ui/ListGroup';
 import { ListRow } from 'components/ui/ListRow';
@@ -309,7 +306,6 @@ export async function shouldShowDevEndpointsRow(): Promise<boolean> {
 
 const Settings: FC<SettingsProps> = ({ tabSlug, rootScrollTop: savedRootScrollTop }) => {
   const { t } = useTranslation();
-  const reduceMotion = useReducedMotion();
   const currentAccountType = useWalletStore(s => s.currentAccount?.type);
   const currentAccountHotPublicKey = useWalletStore(s => s.currentAccount?.hotPublicKey);
   const seedPhraseStatus = useWalletStore(s => s.seedPhraseStatus);
@@ -398,7 +394,6 @@ const Settings: FC<SettingsProps> = ({ tabSlug, rootScrollTop: savedRootScrollTo
   const activeTab = useMemo(() => allTabs.find(tab => tab.slug === tabSlug) || null, [allTabs, tabSlug]);
   const handleSubPageBack = useBackWithFallback('/settings');
   const languageLabel = getCurrentLanguageLabel();
-  const [showSeedWarning, setShowSeedWarning] = useState(false);
   // PageRouter owns the root offset because changing between TabLayout and
   // FullScreenPage remounts Settings. Standalone instances keep a local fallback.
   const localRootScrollTop = useRef(0);
@@ -411,8 +406,8 @@ const Settings: FC<SettingsProps> = ({ tabSlug, rootScrollTop: savedRootScrollTo
     if (invalidTab) navigate('/settings', HistoryAction.Replace);
   }, [invalidTab]);
 
-  // On mobile, move parked dApp trays out while the seed-warning overlay or a
-  // settings sub-page owns the screen. The sub-pages need it for the same
+  // On mobile, move parked dApp trays out while a settings sub-page owns the
+  // screen. The sub-pages need it for the same
   // reason the drawers they replaced did: the tray floats above the bottom of
   // the viewport, which is where these screens pin their primary action.
   //
@@ -421,7 +416,7 @@ const Settings: FC<SettingsProps> = ({ tabSlug, rootScrollTop: savedRootScrollTo
   // Setting it here by hand meant a confirmation closing over a settings sub-page (the
   // one in Address Book, say) dropped the count to zero and cleared the flag
   // while this page still wanted it.
-  useHideDappBubblesWhileOpen(showSeedWarning || activeTab !== null);
+  useHideDappBubblesWhileOpen(activeTab !== null);
 
   // Mark Settings as an edge-to-edge page. The list container below
   // adds its own bottom padding so the last item can still scroll above
@@ -438,19 +433,6 @@ const Settings: FC<SettingsProps> = ({ tabSlug, rootScrollTop: savedRootScrollTo
       document.body.removeAttribute('data-edge-to-edge');
     };
   }, [showSettingsRoot]);
-
-  // Neither of these buzzes: both are rendered by `Button`, which fires a
-  // hapticLight on every click. Close buzzed twice and View fired a medium AND a
-  // light on one tap — the same double-fire as the recovery-phrase row, hidden
-  // here because the Button mock in the tests does not haptic.
-  const handleSeedWarningClose = useCallback(() => {
-    setShowSeedWarning(false);
-  }, []);
-
-  const handleSeedWarningView = useCallback(() => {
-    setShowSeedWarning(false);
-    navigate('/settings/reveal-seed-phrase');
-  }, []);
 
   if (invalidTab) return null;
 
@@ -536,20 +518,21 @@ const Settings: FC<SettingsProps> = ({ tabSlug, rootScrollTop: savedRootScrollTo
                 <ListGroup>
                   {group.tabs.map(tab => {
                     const isExternal = tab.linksOutsideOfWallet;
-                    const isSeedPhrase = tab.slug === 'reveal-seed-phrase';
                     // A tab may carry its own onClick (e.g. Send feedback →
                     // openExternalUrl); such rows never route to a /settings page.
-                    const hasCustomClick = isSeedPhrase || !!tab.onClick;
-                    // No `hapticLight()` here: ListRow fires one for every branch
-                    // it renders, so adding one buzzed twice per tap.
-                    const handleClick = isSeedPhrase ? () => setShowSeedWarning(true) : tab.onClick;
+                    // Recovery phrase routes like every other row: its sub-page
+                    // opens on the privacy warning, full screen, so the tab bar
+                    // never covers the warning's buttons.
+                    const hasCustomClick = !!tab.onClick;
                     return (
                       <ListRow
                         key={tab.slug + tab.titleI18nKey}
                         title={t(tab.titleI18nKey)}
                         to={isExternal || hasCustomClick ? undefined : `/settings/${tab.slug}`}
                         href={isExternal ? tab.slug : undefined}
-                        onClick={isExternal ? undefined : handleClick}
+                        // No `hapticLight()` here: ListRow fires one for every branch
+                        // it renders, so adding one buzzed twice per tap.
+                        onClick={isExternal ? undefined : tab.onClick}
                         value={tab.slug === 'language' ? languageLabel : undefined}
                         // Every row opens something: a page, a sheet or a site.
                         chevron
@@ -565,67 +548,6 @@ const Settings: FC<SettingsProps> = ({ tabSlug, rootScrollTop: savedRootScrollTo
           </div>
         )}
       </div>
-
-      {/* Seed phrase warning overlay */}
-      <AnimatePresence>
-        {showSeedWarning && (
-          <motion.div
-            key="seed-warning"
-            className="absolute inset-0 z-50 flex flex-col backdrop-blur-sm"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.3, ease: 'easeInOut' }}
-          >
-            <motion.div
-              className="flex-1 flex flex-col"
-              initial={{ y: reduceMotion ? 0 : 40, opacity: 0 }}
-              animate={{ y: 0, opacity: 1 }}
-              exit={{ y: reduceMotion ? 0 : 40, opacity: 0 }}
-              transition={{ duration: 0.3, ease: 'easeOut' }}
-            >
-              <div className="mt-6 px-4">
-                <div className="bg-fill rounded-2xl px-6 py-8">
-                  <div className="grid grid-cols-2 gap-x-6 gap-y-5 place-items-center">
-                    {Array.from({ length: 12 }).map((_, i) => (
-                      <div key={i} className="h-1.5 rounded-full bg-fill-pressed" style={{ width: 144 }} />
-                    ))}
-                  </div>
-                </div>
-
-                <div className="mt-4 bg-white rounded-xl p-4 text-center">
-                  <p className="text-sm text-ink">{t('pleaseWriteDownRecoveryPhrase')}</p>
-                </div>
-              </div>
-
-              <div className="mt-auto pt-6 pb-6 flex flex-col items-center text-center bg-white rounded-t-2xl">
-                <div className="flex flex-col px-6 items-center">
-                  <div className="w-10 h-10 rounded-sm bg-primary-500 flex items-center justify-center mb-4">
-                    <Icon name={IconName.EyeOff} size="md" fill="white" />
-                  </div>
-
-                  <h3 className="text-base font-medium text-ink mb-1">{t('viewThisInPrivatePlace')}</h3>
-                  <p className="text-sm text-ink mb-8 font-medium">{t('anyoneWithRecoveryPhrase')}</p>
-                </div>
-                <div className="flex gap-4 w-full px-4">
-                  <Button
-                    className="flex-1 justify-center"
-                    variant={ButtonVariant.Secondary}
-                    title={t('close')}
-                    onClick={handleSeedWarningClose}
-                  />
-                  <Button
-                    className="flex-1 justify-center"
-                    variant={ButtonVariant.Primary}
-                    title={t('view')}
-                    onClick={handleSeedWarningView}
-                  />
-                </div>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
     </>
   );
 };
