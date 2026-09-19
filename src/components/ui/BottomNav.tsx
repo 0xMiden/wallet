@@ -1,16 +1,18 @@
 import React, { FC, ReactNode } from 'react';
 
-import classNames from 'clsx';
+import { cva } from 'class-variance-authority';
 import { motion } from 'framer-motion';
 
-import { springs, useMotion } from 'lib/animation';
+import { Highlight, HighlightItem } from 'components/ui/animate/highlight';
+import { useTabBarMotion, useTabIconPop } from 'lib/animation';
+import { cn } from 'lib/ui/util';
 
 export interface BottomNavItem {
   id: string;
   label: string;
   icon: ReactNode;
   iconActive?: ReactNode;
-  /** Renders a small red notification dot on the icon (e.g. unclaimed notes). */
+  /** Renders a small notification dot on the icon (e.g. unclaimed notes). */
   showDot?: boolean;
 }
 
@@ -24,71 +26,105 @@ export interface BottomNavProps {
    *  mobile.html) into the device's bottom inset, with an 8px floor of its own,
    *  so the bar's background runs under the home indicator and the items hug it. */
   docked?: boolean;
+  /** Rendered at the bar's right edge, beside the last tab and outside every tab's hit area (the
+   *  test-network strip). It gets whatever width the tabs leave and must truncate to fit it. */
+  accessory?: ReactNode;
   className?: string;
 }
 
-// One pill shared by every tab: Framer's layoutId slides it from the old
-// active icon to the new one instead of fading a bubble out and another in.
-const PILL_LAYOUT_ID = 'bottom-nav-pill';
+// The bar is 64px of content, the height of every tab; docked, the safe-area padding sits below it.
+const bar = cva('flex items-center bg-page', {
+  variants: {
+    docked: {
+      true: 'w-full px-1 pb-[max(0.5rem,calc(var(--app-safe-bottom,max(16px,env(safe-area-inset-bottom)))-16px))] border-t border-hairline',
+      false: 'rounded-3xl px-2 shadow-[0_4px_12px_rgba(0,0,0,0.08),0_12px_40px_rgba(0,0,0,0.15)]'
+    }
+  }
+});
 
-export const BottomNav: FC<BottomNavProps> = ({ items, activeId, onChange, docked = false, className }) => {
-  const pillTransition = useMotion(springs.pill);
-  // Re-taps on the active tab are forwarded too: the owner decides whether
-  // they navigate (e.g. Home tap on /send returns to Overview) and owns the
-  // haptic so no-op taps don't buzz.
-  const handleSelect = (id: string) => {
-    onChange(id);
-  };
+// Docked, the tabs share the width the accessory leaves; floating, they sit side by side.
+const tabRow = cva('flex items-center', {
+  variants: {
+    docked: {
+      // No `min-w-0`: the row keeps its tabs' full width and the accessory shrinks instead.
+      true: 'flex-1 justify-around',
+      false: 'gap-2'
+    }
+  }
+});
+
+interface BottomNavTabProps {
+  item: BottomNavItem;
+  active: boolean;
+  onSelect: (id: string) => void;
+}
+
+/**
+ * One tab: a 60 x 64 hit area around the 56 x 48 highlight, with a 24px icon that pops when the tab
+ * becomes active. `HighlightItem` (asChild) clones this button, adds the sliding highlight and wraps
+ * the icon, so the whole tab — highlight included — dips when pressed.
+ */
+const BottomNavTab: FC<BottomNavTabProps> = ({ item, active, onSelect }) => {
+  const motionTokens = useTabBarMotion();
+  const pop = useTabIconPop(active);
+  const icon = active && item.iconActive ? item.iconActive : item.icon;
 
   return (
-    <nav
-      // Gutter and gap are sized so four destinations fit a 375px viewport
-      // without overflowing the pill; the previous `px-13.5 gap-8` was tuned
-      // for three and put min-content at ~470px once Settings joined. Purely a
-      // fit constraint — the visual treatment is owned by #803.
-      className={classNames(
-        'flex items-center gap-2 bg-white',
-        docked
-          ? 'w-full justify-around px-4 pt-2 pb-[max(0.5rem,calc(var(--app-safe-bottom,max(16px,env(safe-area-inset-bottom)))-16px))] border-t border-border-subtle'
-          : [
-              'justify-center rounded-3xl px-4 py-2',
-              'shadow-[0_4px_12px_rgba(0,0,0,0.08),0_12px_40px_rgba(0,0,0,0.15)]'
-            ],
-        className
-      )}
-    >
-      {items.map(item => {
-        const isActive = item.id === activeId;
-        const iconNode = isActive && item.iconActive ? item.iconActive : item.icon;
-        return (
-          <button
-            key={item.id}
-            type="button"
-            aria-current={isActive ? 'page' : undefined}
-            aria-label={item.label}
-            onClick={() => handleSelect(item.id)}
-            className={classNames(
-              'flex items-center justify-center p-1',
-              'transition-colors',
-              isActive ? 'text-accent-primary' : 'text-text-primary-token'
-            )}
-          >
-            <span className="relative flex items-center justify-center w-18 h-12">
-              {isActive && (
-                <motion.span
-                  layoutId={PILL_LAYOUT_ID}
-                  className="absolute inset-0 rounded-full bg-fill"
-                  transition={pillTransition}
-                />
-              )}
-              <span className="relative flex items-center justify-center">{iconNode}</span>
-              {item.showDot && (
-                <span aria-hidden className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-status-negative" />
-              )}
-            </span>
-          </button>
-        );
-      })}
+    <HighlightItem value={item.id} asChild as="span" className="flex items-center justify-center">
+      <motion.button
+        type="button"
+        aria-current={active ? 'page' : undefined}
+        aria-label={item.label}
+        onClick={() => onSelect(item.id)}
+        {...motionTokens.press}
+        transition={motionTokens.highlight}
+        className={cn(
+          'flex h-16 w-15 shrink-0 items-center justify-center rounded-full transition-colors',
+          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-primary/30',
+          active ? 'text-ink' : 'text-muted'
+        )}
+      >
+        <motion.span
+          data-pop={pop.phase}
+          animate={pop.animate}
+          transition={pop.transition}
+          onAnimationComplete={pop.onAnimationComplete}
+          className="relative flex size-6 items-center justify-center [&>svg]:size-6"
+        >
+          {icon}
+          {item.showDot && (
+            <span aria-hidden className="absolute -top-0.5 -right-0.5 size-2 rounded-full bg-status-negative" />
+          )}
+        </motion.span>
+      </motion.button>
+    </HighlightItem>
+  );
+};
+
+export const BottomNav: FC<BottomNavProps> = ({ items, activeId, onChange, docked = false, accessory, className }) => {
+  const motionTokens = useTabBarMotion();
+
+  return (
+    <nav className={cn(bar({ docked }), className)}>
+      <div className={tabRow({ docked })}>
+        {/* One highlight shared by every tab slides to the active one. Controlled and click-free:
+            the owner decides whether a tap navigates (and buzzes), and `activeId` follows. */}
+        <Highlight
+          controlledItems
+          value={activeId}
+          click={false}
+          exitDelay={0}
+          transition={motionTokens.highlight}
+          className="inset-x-0.5 inset-y-2 rounded-full bg-fill"
+        >
+          {items.map(item => (
+            // Re-taps on the active tab are forwarded too: the owner decides whether they navigate
+            // (e.g. Home on /send returns to Overview) and owns the haptic, so no-op taps stay silent.
+            <BottomNavTab key={item.id} item={item} active={item.id === activeId} onSelect={onChange} />
+          ))}
+        </Highlight>
+      </div>
+      {accessory && <div className="flex min-w-0 shrink items-center pl-1">{accessory}</div>}
     </nav>
   );
 };
