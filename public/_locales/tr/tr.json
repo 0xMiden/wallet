@@ -1069,6 +1069,8 @@
   "qrNetworkCaption": "Miden $network$",
   "activityRejectExplanation": "Bu aktarımı bu cihazdaki Etkinlik bölümünden gizlemek ister misiniz? Bu işlem, parayı gönderene iade etmez veya note adresini silmez. Gizlenen aktarımları Etkinlik bölümünden geri yükleyebilirsiniz.",
   "activitySearch": "Arama etkinliği",
+  "activityFilters": "Etkinlik filtreleri",
+  "chartTimeframe": "Grafik zaman aralığı",
   "evmConnectTestWalletBody": "Bu köprü, Ethereum Sepolia üzerinde çalışır. Gerçek fon içeren bir cüzdanı bağlamayınız. Yeni bir cüzdan oluşturun ve içine yalnızca Sepolia ETH yatırın.",
   "activityAcceptTransfer": "Aktarımı Kabul Et",
   "activityDateUnavailable": "Tarih mevcut değil",

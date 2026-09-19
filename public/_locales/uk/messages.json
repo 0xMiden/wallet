@@ -4728,6 +4728,14 @@
     "message": "Активність пошуку",
     "englishSource": "Search activity"
   },
+  "activityFilters": {
+    "message": "Фільтри активності",
+    "englishSource": "Activity filters"
+  },
+  "chartTimeframe": {
+    "message": "Період графіка",
+    "englishSource": "Chart timeframe"
+  },
   "evmConnectTestWalletBody": {
     "message": "Цей міст працює на Ethereum Sepolia. Не підключайте гаманець, на якому зберігаються реальні кошти. Створіть новий гаманець і поповніть його виключно ETH мережі Sepolia.",
     "englishSource": "This bridge runs on Ethereum Sepolia. Do not connect a wallet that holds real funds. Create a fresh wallet and fund it with Sepolia ETH only."

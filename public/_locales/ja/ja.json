@@ -1069,6 +1069,8 @@
   "qrNetworkCaption": "Miden $network$",
   "activityRejectExplanation": "このデバイス上の「アクティビティ」からこの送金を非表示にしますか？ これにより、送金者に資金が返還されたり、noteが削除されたりすることはありません。「アクティビティ」では、非表示にした送金を復元することができます。",
   "activitySearch": "検索履歴",
+  "activityFilters": "アクティビティのフィルター",
+  "chartTimeframe": "チャートの期間",
   "evmConnectTestWalletBody": "このブリッジはイーサリアム・セポリア上で動作します。実際の資金を保有しているウォレットを接続しないでください。新しいウォレットを作成し、セポリアETHのみをそのウォレットに入金してください。",
   "activityAcceptTransfer": "送金を受け入れる",
   "activityDateUnavailable": "日付不明",
