@@ -482,6 +482,10 @@ body[data-hide-navbar]::after {
     --ds-raised: #ffffff;
     --ds-shadow-raised: 0 0 0 1px rgba(63, 63, 63, 0.06), 0 1px 2px rgba(0, 0, 0, 0.06), 0 2px 8px rgba(0, 0, 0, 0.08);
     --ds-shadow-raised-pressed: 0 0 0 1px rgba(63, 63, 63, 0.06), 0 1px 1px rgba(0, 0, 0, 0.05);
+    /* Status badge fills: opaque, so the ink on them holds 4.5:1 on `page` and on `fill` alike. */
+    --ds-positive-tint: #eaf4e7;
+    --ds-pending-tint: #fdf1e2;
+    --ds-negative-tint: #feedeb;
   }
 
   .dark {
@@ -581,5 +585,8 @@ body[data-hide-navbar]::after {
     --ds-positive-ink: #90ba89;
     --ds-pending-ink: #f08b57;
     --ds-negative-ink: #ff7a4d;
+    --ds-positive-tint: #233a20;
+    --ds-pending-tint: #42301a;
+    --ds-negative-tint: #4a1d1a;
   }
 }
