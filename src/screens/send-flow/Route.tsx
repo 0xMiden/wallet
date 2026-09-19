@@ -48,7 +48,7 @@ const RouteCard: React.FC<RouteCardProps> = ({ label, selected, onSelect, fee, e
       selected ? ACCENT_CLASSES[accent].border : 'border-[#E8E8E8]'
     )}
   >
-    <div className={clsx('flex flex-1 text-[20px] font-bold', ACCENT_CLASSES[accent].text)}>{label}</div>
+    <div className={clsx('flex flex-1 text-[20px] font-bold', ACCENT_CLASSES[accent].ink)}>{label}</div>
     <span className="h-6 w-px shrink-0 bg-border-card" />
     <div className="flex flex-1 items-center justify-center text-ink font-bold">{fee}</div>
     <span className="h-6 w-px shrink-0 bg-border-card" />
