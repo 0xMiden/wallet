@@ -24,8 +24,8 @@ jest.mock('screens/generating-transaction/useTransactionRow', () => ({
   useTransactionRow: () => mockRowState
 }));
 
-jest.mock('app/atoms/ActivitySpinner', () => ({
-  ActivitySpinner: () => <div data-testid="spinner" />
+jest.mock('components/ui/Spinner', () => ({
+  Spinner: () => <div data-testid="spinner" />
 }));
 
 jest.mock('components/ScreenHeader', () => ({

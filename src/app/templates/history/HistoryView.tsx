@@ -6,12 +6,11 @@ import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import InfiniteScroll from 'react-infinite-scroller';
 
-import { ActivitySpinner } from 'app/atoms/ActivitySpinner';
 import { guardianEndpointDisplayName } from 'app/hooks/useCurrentGuardianEndpoint';
 import { Icon, IconName } from 'app/icons/v2';
 import { ReactComponent as FailedCrossIcon } from 'app/icons/v2/failed-cross.svg';
 import { ReactComponent as SwapIcon } from 'app/icons/v2/swap.svg';
-import { ActivityRow, ActivityRowProps, ActivityStatusTone } from 'components/ui';
+import { ActivityRow, ActivityRowProps, ActivityStatusTone, Spinner } from 'components/ui';
 import { EmptyState } from 'components/ui/EmptyState';
 import { springs, useMotion } from 'lib/animation';
 import { navigate } from 'lib/woozie';
@@ -389,7 +388,12 @@ const HistoryView = memo<HistoryViewProps>(
     const groupedEntries = useMemo(() => groupEntriesByDate(timeline), [timeline]);
 
     if (noEntries) {
-      if (initialLoading) return <ActivitySpinner />;
+      if (initialLoading)
+        return (
+          <div className="flex h-[21px] w-full items-center justify-center pt-8">
+            <Spinner />
+          </div>
+        );
       if (centerEmptyState) {
         return (
           <div className="flex flex-1 items-center justify-center pt-16">

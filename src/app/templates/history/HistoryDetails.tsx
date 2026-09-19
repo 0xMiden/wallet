@@ -5,7 +5,6 @@ import clsx from 'clsx';
 import { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 
-import { ActivitySpinner } from 'app/atoms/ActivitySpinner';
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import { useNetworkFeeEstimate } from 'app/hooks/useNetworkFeeEstimate';
 import { Icon, IconName } from 'app/icons/v2';
@@ -14,6 +13,7 @@ import { Button, ButtonVariant } from 'components/Button';
 import { GuardianTransitionHero } from 'components/GuardianTransitionHero';
 import { PageHeader } from 'components/PageHeader';
 import { DetailRow } from 'components/ui/DetailCard';
+import { Spinner } from 'components/ui/Spinner';
 import { earnWithdrawalRetryKind } from 'lib/epoch/earn-withdraw-policy';
 import { getAdaptiveDecimalPlaces, toAdaptiveFixed } from 'lib/i18n/numbers';
 import {
@@ -719,7 +719,9 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
             </p>
           </div>
         ) : entry === null ? (
-          <ActivitySpinner />
+          <div className="flex h-[21px] w-full items-center justify-center pt-8">
+            <Spinner />
+          </div>
         ) : entry.txType === 'swap' && requestedToken ? (
           <SwapDetail
             entry={entry}

@@ -2,10 +2,10 @@ import React from 'react';
 
 import { useTranslation } from 'react-i18next';
 
-import { ActivitySpinner } from 'app/atoms/ActivitySpinner';
 import { formatEarnWithdrawAmount } from 'app/templates/history/transactionUtils';
 import { Button, ButtonVariant } from 'components/Button';
 import { ScreenHeader } from 'components/ScreenHeader';
+import { Spinner } from 'components/ui/Spinner';
 import { IEarnWithdrawExtraInputs } from 'lib/miden/db/types';
 import { navigate } from 'lib/woozie';
 import { TransactionHeroIcon } from 'screens/generating-transaction/components';
@@ -31,7 +31,12 @@ export const EarnWithdrawStatus: React.FC<EarnWithdrawStatusProps> = ({ txId }) 
   const { row, loaded } = useTransactionRow(txId);
   const onDone = () => navigate('/');
 
-  if (!loaded || !row) return <ActivitySpinner />;
+  if (!loaded || !row)
+    return (
+      <div className="flex h-[21px] w-full items-center justify-center pt-8">
+        <Spinner />
+      </div>
+    );
 
   const inputs: IEarnWithdrawExtraInputs = row.extraInputs;
   const failed = inputs.phase === 'failed';
