@@ -26,8 +26,7 @@ export const CARD_COLOR_BG: Record<CardColor, string> = {
 };
 
 /* The card is one tone: solid in light mode, 50% over the page in dark mode. The five colors are
- * brand colors and never shift for contrast: large text (amount, currency) reads at 3:1 on the bare
- * color, and small text sits on the local scrim or the pill well (lib/ui/design-tokens.test.ts). */
+ * brand colors and never shift for contrast. */
 const CARD_COLOR_SURFACE: Record<CardColor, string> = {
   slate: 'bg-card-slate dark:bg-card-slate/50',
   orange: 'bg-card-orange dark:bg-card-orange/50',
@@ -166,17 +165,9 @@ export const BalanceCard: FC<BalanceCardProps> = ({
           className="absolute inset-0 z-0 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-primary focus-visible:outline-none"
         />
       )}
-      {/* The label's scrim: solid behind the label (which ends 33px down), fading out behind the top
-          of the amount, which is large text and reads on the bare brand color anyway. */}
-      <div
-        aria-hidden
-        data-testid="balance-card-label-scrim"
-        className="pointer-events-none absolute inset-x-0 top-0 h-[72px] bg-[linear-gradient(to_bottom,var(--surface-balance-scrim)_40px,transparent)]"
-      />
       <div className={classNames('relative px-4 pt-4 pb-4', onMore && 'pointer-events-none')}>
         {/* Every text on the card is the full-strength card ink: hierarchy comes from size and
-            weight, since any translucent ink falls under 4.5:1 on the lighter card colors. The small
-            label sits on the scrim above; the amount and currency are large text (3:1). */}
+            weight, since any translucent ink falls under 4.5:1 on the lighter card colors. */}
         <div data-testid="balance-card-label" className="font-sans text-[13px] font-bold leading-[17px]">
           {t('balanceCardTotalBalance')}
         </div>
@@ -229,12 +220,11 @@ export const BalanceCard: FC<BalanceCardProps> = ({
         )}
       </div>
 
-      {/* The footer is a band of the card's scrim: its 13px name and address need 4.5:1, which the
-          bare brand orange and green cannot give white text. */}
+      {/* The footer is the same card, set off by a hairline in the card's ink. */}
       <div
         data-testid="balance-card-footer"
         className={classNames(
-          'relative flex min-h-11 items-center justify-between gap-3 bg-surface-balance-scrim px-4',
+          'relative mx-4 flex min-h-11 items-center justify-between gap-3 border-t border-surface-balance-rule',
           onMore && 'pointer-events-none'
         )}
       >
