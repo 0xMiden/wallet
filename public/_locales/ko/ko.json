@@ -1089,6 +1089,7 @@
   "ethereumSepolia": "이더리움 세폴리아",
   "shareAddressText": "제 Miden $network$ 주소(테스트 토큰 전용): $address$",
   "networkModeBanner": "현재 Miden $network$에서 Bread를 이용 중이십니다",
+  "networkModeStripLabel": "$network$ — 이 네트워크 정보",
   "activityRestoreTransfers": "복원",
   "activityHiddenNotesError": "숨겨진 전송 내역을 저장할 수 없습니다. 다시 시도해 주십시오.",
   "activityRejectTransfer": "거절",

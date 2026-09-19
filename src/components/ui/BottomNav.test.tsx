@@ -285,7 +285,18 @@ describe('BottomNav — accessory', () => {
     expect(tabs[2]!.compareDocumentPosition(strip)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
     // Its wrapper is the one that shrinks, so the tabs keep their width.
     expect(strip.parentElement).toHaveClass('min-w-0', 'shrink');
+    // It keeps to the row's top 48px, clear of the home indicator's gesture zone.
+    expect(strip.parentElement).toHaveClass('self-stretch', 'items-start', 'pt-1');
     expect(strip.parentElement!.parentElement).toBe(container.querySelector('nav'));
+  });
+
+  it('collapses the slot when the accessory renders nothing (the strip on mainnet)', () => {
+    const Nothing = () => null;
+    const { container } = renderNav({ accessory: <Nothing /> });
+
+    const slot = container.querySelector('nav')!.children[1]!;
+    expect(slot).toBeEmptyDOMElement();
+    expect(slot).toHaveClass('empty:hidden');
   });
 
   it('renders no accessory slot without one', () => {

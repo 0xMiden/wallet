@@ -37,14 +37,15 @@ describe('resolveTargetRect', () => {
     });
   });
 
-  it('starts the fallback below the network banner on a test network', () => {
+  it('starts right below the capsule on a test network too: no banner tops the page any more', () => {
+    // The dApp confirm window still has one; the peek tray never shares a page with it.
     mountBanner(44);
 
     expect(resolveTargetRect(null, null)).toEqual({
       x: 0,
-      y: FALLBACK_CAPSULE_HEIGHT + 44,
+      y: FALLBACK_CAPSULE_HEIGHT,
       width: window.innerWidth,
-      height: window.innerHeight - FALLBACK_CAPSULE_HEIGHT - 44 - FALLBACK_BOTTOM_GUTTER
+      height: window.innerHeight - FALLBACK_CAPSULE_HEIGHT - FALLBACK_BOTTOM_GUTTER
     });
   });
 

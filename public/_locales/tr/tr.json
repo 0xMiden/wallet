@@ -1089,6 +1089,7 @@
   "ethereumSepolia": "Ethereum Sepolia",
   "shareAddressText": "Miden $network$ adresim (sadece test tokenleri): $address$",
   "networkModeBanner": "Bread'i Miden $network$ üzerinde kullanıyorsunuz",
+  "networkModeStripLabel": "$network$ — bu ağ hakkında",
   "activityRestoreTransfers": "Geri Yükle",
   "activityHiddenNotesError": "Gizli transferler kaydedilemedi. Lütfen tekrar deneyin.",
   "activityRejectTransfer": "Reddet",

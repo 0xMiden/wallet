@@ -18,6 +18,7 @@ import { useHasUnclaimedNotes } from 'app/hooks/useHasUnclaimedNotes';
 import { Icon, IconName } from 'app/icons/v2';
 import HomeSwipeContainer from 'app/layouts/HomeSwipeContainer';
 import { PageActiveContext, usePageActive } from 'app/layouts/page-active';
+import { NetworkModeStrip } from 'components/NetworkModeStrip';
 import { BottomNav, BottomNavItem, SegmentedActionBar } from 'components/ui';
 import { usePreset } from 'lib/animation';
 import { isSwapEnabled } from 'lib/feature-flags';
@@ -166,7 +167,14 @@ const DockedNavBar = forwardRef<DockedNavBarHandle, DockedNavBarProps>(({ items,
         scrollHidden && 'translate-y-full'
       )}
     >
-      <BottomNav items={items} activeId={activeId} onChange={onChange} docked={isMobile()} />
+      {/* The test network is named in the bar's right corner, not a banner above every page. */}
+      <BottomNav
+        items={items}
+        activeId={activeId}
+        onChange={onChange}
+        docked={isMobile()}
+        accessory={<NetworkModeStrip />}
+      />
     </div>
   );
 });
@@ -292,9 +300,8 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
         ? { height: '100%', width: '100%' }
         : fullPage
           ? { height: '640px', width: '600px' }
-          : // Popup: the body is a fixed 600px, and the router's network banner
-            // (#875) now takes part of it, so fill what remains instead of
-            // hard-coding 600px and clipping the bottom nav.
+          : // Popup: fill the body's fixed 600px from the router's container
+            // rather than hard-coding it.
             { height: '100%', width: '360px' };
 
   // The action bar lives inside the Home pane. A tab change swaps whole

@@ -4826,6 +4826,15 @@
       }
     }
   },
+  "networkModeStripLabel": {
+    "message": "$network$ — про цю мережу",
+    "englishSource": "$network$ — about this network",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
   "activityRestoreTransfers": {
     "message": "Відновити",
     "englishSource": "Restore"
