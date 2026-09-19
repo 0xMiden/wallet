@@ -453,6 +453,40 @@ describe('Settings page — root menu (non-guardian)', () => {
     expect(tos).toHaveAttribute('data-slug', 'https://0xmiden.github.io/wallet/privacy/');
   });
 
+  it('renders a discoverable "Support" row in the about group as a button (no route, keyboard-accessible)', () => {
+    render(<Settings tabSlug={null} />);
+
+    const support = screen.getByTestId('row-support');
+    expect(support).toBeInTheDocument();
+    expect(support).toHaveAttribute('data-selector', 'Settings/SupportButton');
+    // Not an external anchor and no route → the real ListRow renders a
+    // focusable <button>.
+    expect(support).toHaveAttribute('data-external', 'false');
+    expect(support).toHaveAttribute('data-slug', 'undefined');
+  });
+
+  it('opens the support site via the external browser (native webview on mobile / new tab on desktop) when clicked', () => {
+    render(<Settings tabSlug={null} />);
+
+    fireEvent.click(screen.getByTestId('row-support'));
+
+    expect(mockOpenExternalUrl).toHaveBeenCalledTimes(1);
+    expect(mockOpenExternalUrl).toHaveBeenCalledWith({
+      url: 'https://support.miden.xyz/',
+      // Translated via t('support'), unlike FEEDBACK_URL's hard-coded English
+      // title — the i18n mock above returns the key itself.
+      title: 'support'
+    });
+  });
+
+  it('fires exactly one haptic when the Support row is tapped', () => {
+    render(<Settings tabSlug={null} />);
+
+    fireEvent.click(screen.getByTestId('row-support'));
+
+    expect(mockHapticLight).toHaveBeenCalledTimes(1);
+  });
+
   it('renders a discoverable "Send feedback" row in the about group as a button (no route, keyboard-accessible)', () => {
     render(<Settings tabSlug={null} />);
 

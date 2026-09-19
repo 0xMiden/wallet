@@ -1164,6 +1164,10 @@
     "message": "이용약관",
     "englishSource": "Terms of Service"
   },
+  "support": {
+    "message": "지원",
+    "englishSource": "Support"
+  },
   "sendFeedback": {
     "message": "의견 보내기",
     "englishSource": "Send feedback"
