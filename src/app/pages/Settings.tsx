@@ -315,7 +315,8 @@ const HIDDEN_TABS: Tab[] = [
     slug: 'networks',
     titleI18nKey: 'networks',
     Component: NetworksSettings,
-    testID: SettingsSelectors.NetworksButton
+    testID: SettingsSelectors.NetworksButton,
+    rendersSubPageLayout: true
   },
   {
     slug: 'dapps',

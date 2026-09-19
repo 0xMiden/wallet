@@ -268,7 +268,7 @@ jest.mock('./AdvancedSettings', () => ({
 }));
 jest.mock('./Networks', () => ({
   __esModule: true,
-  default: () => <div data-testid="networks-settings" />
+  default: mockLayoutPage('networks-settings')
 }));
 
 const mockNavigate = navigate as jest.Mock;
