@@ -380,9 +380,8 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
       onDelete={handleDelete}
       onBiometric={hasBiometricKey ? onRetryHardwareUnlock : undefined}
       action={
-        // Under the dots rather than beside the keys: it is rarely used and leads toward a wallet
-        // reset, so it stays out of the thumb's path while a code is typed fast, and it sits right
-        // under the error line, which is where the eye already is after a wrong code.
+        // Centred under the keypad, where the iOS lock screen keeps its secondary action: in reach,
+        // but past the last key row, so it is not hit while a code is typed.
         <button
           id="forgot-password"
           type="button"

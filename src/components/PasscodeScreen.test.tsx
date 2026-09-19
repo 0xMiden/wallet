@@ -95,14 +95,43 @@ describe('PasscodeScreen', () => {
     expect(filled).toHaveLength(4);
   });
 
-  it('renders the action under the dots, in the header rather than beside the keys', () => {
+  it('renders the action centred under the keypad, after it in DOM order', () => {
     renderScreen({ action: <button type="button">forgot</button> });
 
+    const forgot = screen.getByRole('button', { name: 'forgot' });
     const header = screen.getByTestId('passcode-screen-layout').firstElementChild as HTMLElement;
-    expect(header).toContainElement(screen.getByRole('button', { name: 'forgot' }));
-    expect(screen.getByTestId('passcode-keypad-dock')).not.toContainElement(
-      screen.getByRole('button', { name: 'forgot' })
+    expect(header).not.toContainElement(forgot);
+    const dock = screen.getByTestId('passcode-keypad-dock');
+    const slot = screen.getByTestId('passcode-screen-action');
+    // The keypad, then the action: the dock's last child, centred, 8px under the last key row.
+    expect(dock.lastElementChild).toBe(slot);
+    expect(dock.firstElementChild).toBe(screen.getByTestId('numpad'));
+    expect(slot).toContainElement(forgot);
+    expect(slot).toHaveClass('flex', 'justify-center', 'mt-2');
+    expect(
+      screen.getByTestId('numpad').compareDocumentPosition(forgot) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+  });
+
+  it('takes the room for the action from the padding under the keypad', () => {
+    const { rerender } = renderScreen();
+    expect(screen.getByTestId('passcode-screen-layout')).toHaveClass('pb-5');
+
+    rerender(
+      <PasscodeScreen
+        title="title"
+        message="message"
+        filled={0}
+        length={6}
+        onDigit={noop}
+        onDelete={noop}
+        action={<button type="button">forgot</button>}
+      />
     );
+    const layout = screen.getByTestId('passcode-screen-layout');
+    expect(layout).toHaveClass('pb-2');
+    expect(layout).not.toHaveClass('pb-5');
+    expect(screen.getByTestId('passcode-keypad-dock')).toHaveClass('mt-auto');
   });
 
   it('forwards keypad presses and the biometric key', () => {
