@@ -289,6 +289,16 @@ describe('action colours', () => {
     expect(root[`accent-${flow}-tint`]).toBe(`var(--action-${flow}-tint)`);
   });
 
+  it.each([
+    ['sent', 'send'],
+    ['received', 'receive'],
+    ['swap', 'swap'],
+    ['earn', 'earn']
+  ])('draws the %s activity icon in the %s action colour', (row, action) => {
+    expect(root[`tx-${row}`]).toBe(`var(--action-${action})`);
+    expect(themeVars('.dark')[`tx-${row}`]).toBeUndefined();
+  });
+
   it('leaves the dark theme no flow accent of its own to drift', () => {
     const dark = themeVars('.dark');
     for (const flow of FLOWS) {
