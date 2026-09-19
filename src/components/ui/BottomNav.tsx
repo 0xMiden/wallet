@@ -77,7 +77,7 @@ export const BottomNav: FC<BottomNavProps> = ({ items, activeId, onChange, docke
               {isActive && (
                 <motion.span
                   layoutId={PILL_LAYOUT_ID}
-                  className="absolute inset-0 rounded-full bg-gray-50"
+                  className="absolute inset-0 rounded-full bg-fill"
                   transition={pillTransition}
                 />
               )}

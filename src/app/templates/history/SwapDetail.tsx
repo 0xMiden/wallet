@@ -294,7 +294,7 @@ export const SwapDetail: FC<SwapDetailProps> = ({
 
           <div
             data-testid="swap-order-hero"
-            className="mt-2 flex min-h-14 w-full items-center justify-center gap-2 rounded-full bg-surface-interactive px-4 font-heading text-2xl font-extrabold text-text-primary-token"
+            className="mt-2 flex min-h-14 w-full items-center justify-center gap-2 rounded-full bg-fill px-4 font-heading text-2xl font-extrabold text-text-primary-token"
           >
             <span className="truncate">{formattedOffered}</span>
             {entry.token && <span className="text-text-secondary-token">{entry.token}</span>}
@@ -370,7 +370,7 @@ export const SwapDetail: FC<SwapDetailProps> = ({
         <section className="mt-6" aria-labelledby="swap-notes-label">
           <div
             id="swap-notes-label"
-            className="inline-flex rounded-full bg-surface-interactive px-2.5 py-1 font-heading text-sm font-bold leading-4 text-text-secondary-token"
+            className="inline-flex rounded-full bg-fill px-2.5 py-1 font-heading text-sm font-bold leading-4 text-text-secondary-token"
           >
             {t('swapNotesBundled')}
           </div>

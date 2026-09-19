@@ -97,9 +97,8 @@ export const TabPicker: React.FC<TabPickerProps> = ({ tabs, className, onTabChan
 
   return (
     <div
-      // bg-gray-50 → var(--color-surface-tertiary): #f3f3f3 in light (matches
-      // the previous fixed bg-grey-50), #333333 in dark.
-      className={classNames('flex rounded-full overflow-hidden p-1', 'bg-gray-50', className)}
+      // bg-fill → var(--ds-fill): #f3f0ec in light, #262422 in dark.
+      className={classNames('flex rounded-full overflow-hidden p-1', 'bg-fill', className)}
       {...props}
     >
       <MotionConfig transition={skipAnimations ? { duration: 0 } : undefined}>

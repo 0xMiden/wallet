@@ -473,7 +473,7 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
             <TransactionSummaryBadge {...transactionSummaryBadgeContent} className="mt-4" />
           )}
 
-          <div className="mt-6 w-full overflow-hidden rounded-2xl bg-surface-interactive">
+          <div className="mt-6 w-full overflow-hidden rounded-2xl bg-fill">
             {steps.map((step, index) => {
               const state = getTransactionStepState(index, activeStepIndex, transactionComplete, hasErrors);
               return (

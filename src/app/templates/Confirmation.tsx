@@ -78,8 +78,8 @@ const Confirmation: FC<ConfirmationProps> = ({ delegated, testId }) => {
                   'h-auto w-full max-w-none px-8 border-0',
                   'rounded-lg',
                   'bg-chip-bg',
-                  'hover:bg-gray-100',
-                  'active:bg-gray-100',
+                  'hover:bg-fill-pressed',
+                  'active:bg-fill-pressed',
                   'font-sans text-black',
                   'font-semibold'
                 )}

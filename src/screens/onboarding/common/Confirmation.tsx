@@ -82,7 +82,7 @@ export const ConfirmationScreen: React.FC<ConfirmationScreenProps> = ({
               <p className="mt-3 text-lg font-heading font-medium text-heading-gray leading-[130%]">
                 {t('recoveryPhraseSevenDayReminder')}
               </p>
-              <p className="mt-4 rounded-full bg-surface-input px-4 py-2 text-sm font-medium text-heading-gray">
+              <p className="mt-4 rounded-full bg-fill px-4 py-2 text-sm font-medium text-heading-gray">
                 {t('recoveryPhraseDailyReminder')}
               </p>
             </>

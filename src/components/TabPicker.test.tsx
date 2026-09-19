@@ -100,13 +100,13 @@ describe('TabPicker — container', () => {
     const { container } = renderPicker();
 
     const root = container.firstChild as HTMLElement;
-    expect(root).toHaveClass('flex', 'rounded-full', 'overflow-hidden', 'p-1', 'bg-gray-50');
+    expect(root).toHaveClass('flex', 'rounded-full', 'overflow-hidden', 'p-1', 'bg-fill');
   });
 
   it('appends a caller-supplied className to the root', () => {
     const { container } = renderPicker({ className: 'my-extra' });
 
-    expect(container.firstChild).toHaveClass('bg-gray-50', 'my-extra');
+    expect(container.firstChild).toHaveClass('bg-fill', 'my-extra');
   });
 
   it('spreads arbitrary HTMLDivElement props onto the root', () => {

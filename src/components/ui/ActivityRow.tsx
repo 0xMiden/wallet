@@ -105,7 +105,7 @@ function formatDisplayAmount(value: string): string {
 
 export const ActivityRow: FC<ActivityRowProps> = ({
   icon,
-  iconBg = 'bg-gray-50',
+  iconBg = 'bg-fill',
   title,
   subtitle,
   amount,

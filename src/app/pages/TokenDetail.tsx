@@ -107,7 +107,7 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
             </button>
             <button
               onClick={() => navigate('/receive')}
-              className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl bg-button-secondary hover:bg-button-secondary-hover text-heading-gray font-semibold text-sm cursor-pointer transition-colors duration-150"
+              className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl bg-fill hover:bg-fill-pressed text-heading-gray font-semibold text-sm cursor-pointer transition-colors duration-150"
             >
               <ReceiveIcon className="w-4 h-4 [&_path]:fill-current" />
               {t('receive')}

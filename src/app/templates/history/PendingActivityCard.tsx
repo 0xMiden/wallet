@@ -161,7 +161,7 @@ export const PendingActivityCard = ({ item, onAccept, onReject }: PendingActivit
               ))}
             </dl>
 
-            <div className={classNames('bg-gray-25 px-4 py-3 text-center text-sm italic', hintTone)}>
+            <div className={classNames('bg-fill px-4 py-3 text-center text-sm italic', hintTone)}>
               <p role={status === 'failed' ? 'alert' : 'status'}>{hint}</p>
               {note.recallableAtMs !== undefined && !claimed && (
                 <p className="mt-1 text-xs text-text-secondary-token">

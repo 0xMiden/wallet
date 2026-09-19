@@ -57,7 +57,7 @@ export const EvmBridgeDepositConfirm: React.FC<EvmBridgeDepositConfirmProps> = (
             <ConfirmRow label={t('bridgeDepositBridgeOption')} value={routeLabel} isLast />
           </div>
 
-          <div className="mt-5 rounded-2xl bg-surface-interactive px-6 py-4 text-[#5A3F0A]">
+          <div className="mt-5 rounded-2xl bg-fill px-6 py-4 text-[#5A3F0A]">
             <p className="text-xs font-bold uppercase tracking-[0.12em]">{t('bridgeDepositApprovingTitle')}</p>
             <p className="mt-2 text-xs leading-none">{t('bridgeDepositApprovingBody', { tokenSymbol })}</p>
           </div>

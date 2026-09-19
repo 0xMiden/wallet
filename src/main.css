@@ -381,8 +381,6 @@ body[data-hide-navbar]::after {
     --color-app-bg: #ffffff;
     --color-surface: #ffffff;
     --color-surface-solid: #ffffff;
-    --color-surface-secondary: #f9f9f9;
-    --color-surface-tertiary: #f3f3f3;
     --color-text-primary: #3f3f3f;
     --color-text-secondary: #484848;
     --color-text-tertiary: rgba(63, 63, 63, 0.4);
@@ -410,8 +408,6 @@ body[data-hide-navbar]::after {
     --accent-earn-tint: #efeef1;
     --accent-swap: #beacd2;
     --accent-swap-tint: #f7f5fa;
-    /* Circular navigation buttons (back, close) */
-    --surface-nav-button: #f9f9f9;
     /* Network chips: each network's own soft tint in Bread's warm palette; its logo stays as-is. */
     --network-miden-tint: #fff3ec;
     --network-miden-border: #f7d6c2;
@@ -424,11 +420,7 @@ body[data-hide-navbar]::after {
     --text-tertiary: #0000009c;
     --text-on-accent: #ffffff;
     --surface-page: #ffffff;
-    --surface-input: #f9f9f9;
-    --surface-interactive: #f6f4f2;
     --surface-inactive: #dcd4c8;
-    --surface-button-secondary: #f9f9f9;
-    --surface-button-secondary-hover: #eceae7;
     --text-gray: #808080;
     --text-gray-secondary: #8e8e93;
     --text-placeholder: #00000047;
@@ -497,8 +489,6 @@ body[data-hide-navbar]::after {
     --color-app-bg: #191919;
     --color-surface: #3f3f3f99;
     --color-surface-solid: #191919;
-    --color-surface-secondary: #3f3f3f99;
-    --color-surface-tertiary: #3f3f3f99;
     --color-text-primary: #ffffff;
     --color-text-secondary: #ffffff;
     --color-text-tertiary: #999999;
@@ -523,7 +513,6 @@ body[data-hide-navbar]::after {
     --accent-earn-tint: #242426;
     --accent-swap: #beacd2;
     --accent-swap-tint: #2d2b2f;
-    --surface-nav-button: #363636;
     --network-miden-tint: #3a2418;
     --network-miden-border: #5c3622;
     --network-miden-text: #f2a57a;
@@ -535,11 +524,7 @@ body[data-hide-navbar]::after {
     --text-tertiary: rgba(255, 255, 255, 0.4);
     --text-on-accent: #ffffff;
     --surface-page: #191919;
-    --surface-input: #363636;
-    --surface-interactive: #363636;
     --surface-inactive: #3f3f3f99;
-    --surface-button-secondary: #484848;
-    --surface-button-secondary-hover: #3f3f3f;
     --text-gray: #e1d8d8;
     --text-gray-secondary: #8e8e93;
     --text-placeholder: #ffffff;

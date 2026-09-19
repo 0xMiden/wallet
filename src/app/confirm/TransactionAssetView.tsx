@@ -210,7 +210,7 @@ export const TransactionAssetView: React.FC<TransactionAssetViewProps> = ({ view
             'w-full mt-2',
             'rounded-4xl hover:rounded-4xl',
             'transition-all duration-200 ease-in-out',
-            'hover:bg-gray-100',
+            'hover:bg-fill-pressed',
             'focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-300',
             'py-4 px-0'
           )}

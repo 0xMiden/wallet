@@ -598,10 +598,10 @@ const Settings: FC<SettingsProps> = ({ tabSlug, rootScrollTop: savedRootScrollTo
               transition={{ duration: 0.3, ease: 'easeOut' }}
             >
               <div className="mt-6 px-4">
-                <div className="bg-gray-25 rounded-2xl px-6 py-8">
+                <div className="bg-fill rounded-2xl px-6 py-8">
                   <div className="grid grid-cols-2 gap-x-6 gap-y-5 place-items-center">
                     {Array.from({ length: 12 }).map((_, i) => (
-                      <div key={i} className="h-1.5 rounded-full bg-gray-50" style={{ width: 144 }} />
+                      <div key={i} className="h-1.5 rounded-full bg-fill-pressed" style={{ width: 144 }} />
                     ))}
                   </div>
                 </div>

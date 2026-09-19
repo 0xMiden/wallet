@@ -43,7 +43,7 @@ const EarnPositions: FC = () => {
                   hapticLight();
                   refetch();
                 }}
-                className="rounded-full bg-gray-25 px-5 py-2.5 text-sm font-bold text-heading-gray hover:bg-gray-50 focus:bg-gray-50"
+                className="rounded-full bg-fill px-5 py-2.5 text-sm font-bold text-heading-gray hover:bg-fill-pressed focus:bg-fill-pressed"
               >
                 {t('retry')}
               </button>

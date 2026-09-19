@@ -44,7 +44,7 @@ interface ActionButtonProps {
 
 const ActionButton: FC<ActionButtonProps> = ({ icon, label, onClick }) => (
   <button type="button" onClick={onClick} className="flex flex-1 flex-col items-center gap-2 px-2 py-2">
-    <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gray-50">
+    <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-fill">
       <Icon name={icon} size="md" className="text-black" fill="currentColor" />
     </div>
     <span className="text-center text-xs font-medium leading-tight text-heading-gray">{label}</span>

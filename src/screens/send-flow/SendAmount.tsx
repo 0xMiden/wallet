@@ -104,7 +104,7 @@ export const SendAmount: React.FC<SendAmountProps> = ({
         onValueChange={(value, _name, values) => onAmountChange(values?.formatted || value || '')}
       />
 
-      <div className="mt-8 rounded-2xl bg-surface-interactive">
+      <div className="mt-8 rounded-2xl bg-fill">
         <div className="flex items-center gap-3 px-4 py-3">
           <button
             type="button"

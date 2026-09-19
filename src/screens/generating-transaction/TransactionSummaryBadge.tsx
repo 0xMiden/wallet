@@ -97,7 +97,7 @@ export const TransactionSummaryBadge: FC<TransactionSummaryBadgeProps> = ({
     // reads as "this whole list → Consumed".
     <div
       className={classNames(
-        'flex w-full items-center justify-center gap-2 rounded-3xl bg-surface-interactive px-4 py-4 text-base',
+        'flex w-full items-center justify-center gap-2 rounded-3xl bg-fill px-4 py-4 text-base',
         className
       )}
     >

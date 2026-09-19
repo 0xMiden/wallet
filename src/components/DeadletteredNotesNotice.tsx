@@ -113,7 +113,7 @@ export const DeadletteredNotesNotice: FC<DeadletteredNotesNoticeProps> = ({ clas
         type="button"
         onClick={onRetry}
         disabled={retrying}
-        className="text-xs font-medium text-primary-500 px-2 py-1 rounded-md hover:bg-gray-100 disabled:opacity-50"
+        className="text-xs font-medium text-primary-500 px-2 py-1 rounded-md hover:bg-fill-pressed disabled:opacity-50"
       >
         {t('connectivityRetry')}
       </button>
