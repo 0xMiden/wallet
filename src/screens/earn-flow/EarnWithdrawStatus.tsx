@@ -33,7 +33,7 @@ export const EarnWithdrawStatus: React.FC<EarnWithdrawStatusProps> = ({ txId }) 
 
   if (!loaded || !row)
     return (
-      <div className="flex h-[21px] w-full items-center justify-center pt-8">
+      <div className="flex justify-center pt-8">
         <Spinner />
       </div>
     );
