@@ -4,6 +4,7 @@ import { cva } from 'class-variance-authority';
 import { motion } from 'framer-motion';
 
 import { Highlight, HighlightItem } from 'components/ui/animate/highlight';
+import { raisedBubbleClassName } from 'components/ui/animate/raised-bubble';
 import { useTabBarMotion, useTabIconPop } from 'lib/animation';
 import { cn } from 'lib/ui/util';
 
@@ -118,7 +119,7 @@ export const BottomNav: FC<BottomNavProps> = ({ items, activeId, onChange, docke
           click={false}
           exitDelay={0}
           transition={motionTokens.highlight}
-          className="inset-1 rounded-full bg-raised shadow-raised transition-shadow group-active:shadow-raised-pressed"
+          className={cn('inset-1', raisedBubbleClassName)}
         >
           {items.map(item => (
             // Re-taps on the active tab are forwarded too: the owner decides whether they navigate
