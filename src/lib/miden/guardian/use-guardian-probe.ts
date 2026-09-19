@@ -39,6 +39,12 @@ export interface GuardianProbeController {
    * Never rejects — detection failing is an expected, recoverable outcome.
    */
   start: (words: readonly string[]) => Promise<GuardianDiscoveryResult | undefined>;
+  /**
+   * Same contract as `start`, for the seed-less import flow: probe the
+   * operators with the pasted HOT secret key's commitment instead of
+   * seed-derived cold keys.
+   */
+  startWithKey: (hotKeyHex: string) => Promise<GuardianDiscoveryResult | undefined>;
   /** Abort any in-flight probe and return to `idle` (e.g. backing out to seed entry). */
   reset: () => void;
 }
@@ -66,38 +72,60 @@ export function useGuardianProbe(): GuardianProbeController {
     setState({ status: 'idle' });
   }, []);
 
-  const start = useCallback(async (words: readonly string[]): Promise<GuardianDiscoveryResult | undefined> => {
-    runToken.current += 1;
-    const token = runToken.current;
+  // Shared run-token / abort / publish scaffolding; `start`/`startWithKey`
+  // differ only in the loader that produces the discovery result.
+  const run = useCallback(
+    async (
+      loader: (signal: AbortSignal) => Promise<GuardianDiscoveryResult>
+    ): Promise<GuardianDiscoveryResult | undefined> => {
+      runToken.current += 1;
+      const token = runToken.current;
 
-    abortController.current?.abort();
-    const controller = new AbortController();
-    abortController.current = controller;
+      abortController.current?.abort();
+      const controller = new AbortController();
+      abortController.current = controller;
 
-    setState({ status: 'probing' });
+      setState({ status: 'probing' });
 
-    try {
-      const [{ discoverGuardianForSeed }, { makeColdSeedDeriver }] = await Promise.all([
-        import('lib/miden/guardian/discover'),
-        import('lib/miden/sdk/derive-seed')
-      ]);
+      try {
+        const result = await loader(controller.signal);
 
-      const result = await discoverGuardianForSeed(makeColdSeedDeriver(toMnemonic(words)), {
-        signal: controller.signal
-      });
-
-      if (token !== runToken.current) return undefined;
-      if (mounted.current) setState({ status: 'done', result });
-      return result;
-    } catch (error) {
-      console.warn('[guardian/probe] Auto-detection failed, falling back to the manual picker:', error);
-      if (token !== runToken.current) return undefined;
-      if (mounted.current) {
-        setState({ status: 'error', message: error instanceof Error ? error.message : String(error) });
+        if (token !== runToken.current) return undefined;
+        if (mounted.current) setState({ status: 'done', result });
+        return result;
+      } catch (error) {
+        console.warn('[guardian/probe] Auto-detection failed, falling back to the manual picker:', error);
+        if (token !== runToken.current) return undefined;
+        if (mounted.current) {
+          setState({ status: 'error', message: error instanceof Error ? error.message : String(error) });
+        }
+        return undefined;
       }
-      return undefined;
-    }
-  }, []);
+    },
+    []
+  );
 
-  return { state, start, reset };
+  const start = useCallback(
+    (words: readonly string[]) =>
+      run(async signal => {
+        const [{ discoverGuardianForSeed }, { makeColdSeedDeriver }] = await Promise.all([
+          import('lib/miden/guardian/discover'),
+          import('lib/miden/sdk/derive-seed')
+        ]);
+        return discoverGuardianForSeed(makeColdSeedDeriver(toMnemonic(words)), { signal });
+      }),
+    [run]
+  );
+
+  const startWithKey = useCallback(
+    (hotKeyHex: string) =>
+      run(async signal => {
+        // No derive-seed import: a pasted key needs no PBKDF2.
+        const { discoverGuardianForHotKey } = await import('lib/miden/guardian/discover');
+        return discoverGuardianForHotKey(hotKeyHex, { signal });
+      }),
+    [run]
+  );
+
+  return { state, start, startWithKey, reset };
 }

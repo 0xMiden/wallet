@@ -375,17 +375,24 @@ describe('Vault.fetchAccounts: not-array throw', () => {
 });
 
 describe('Vault.spawnFromMidenClient: error branches', () => {
-  it('throws PublicError when called with no password and no hardware available', async () => {
+  it('throws when called with no password and no hardware available', async () => {
     // Extension platform → isHardwareSecurityAvailableForVault returns false →
     // spawnFromMidenClient hits `if (!password) throw 'Password is required...'`.
+    // The accounts list must be NON-empty: the empty-list guard now runs first, so
+    // passing [] would land on that throw instead and leave this branch untested.
     (isDesktop as jest.Mock).mockReturnValue(false);
     (isMobile as jest.Mock).mockReturnValue(false);
-    await expect(Vault.spawnFromMidenClient('', VALID_MNEMONIC, [])).rejects.toThrow(PublicError);
+    await expect(
+      Vault.spawnFromMidenClient('', VALID_MNEMONIC, [
+        { publicKey: 'pk-1', name: 'A', isPublic: true, type: WalletType.OnChain, hdIndex: 0 }
+      ])
+    ).rejects.toThrow('Password is required for password-based vault protection');
   });
 
-  it('throws PublicError when walletAccounts is empty after the WASM lock body', async () => {
-    // Password is provided, walletAccounts is [] — the empty-list branch must reject.
-    await expect(Vault.spawnFromMidenClient('pw', VALID_MNEMONIC, [])).rejects.toThrow(PublicError);
+  it('throws when walletAccounts is empty, before anything is written', async () => {
+    await expect(Vault.spawnFromMidenClient('pw', VALID_MNEMONIC, [])).rejects.toThrow(
+      'Encrypted file contains no restorable accounts'
+    );
   });
 });
 

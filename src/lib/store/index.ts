@@ -1,3 +1,4 @@
+import { Buffer } from 'buffer';
 import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
 
@@ -114,6 +115,7 @@ export const useWalletStore = create<WalletStore>()(
         networks: state.networks,
         settings: state.settings,
         ownMnemonic: state.ownMnemonic,
+        seedPhraseStatus: state.seedPhraseStatus,
         isInitialized: true,
         lastSyncedAt: Date.now()
       });
@@ -157,12 +159,25 @@ export const useWalletStore = create<WalletStore>()(
       // State will be synced via StateUpdated notification
     },
 
-    importWalletFromClient: async (password, mnemonic, walletAccounts) => {
+    registerWalletFromHotKey: async (password, keyPairPayload, guardianEndpoint) => {
+      const res = await request({
+        type: WalletMessageType.NewWalletFromHotKeyRequest,
+        password,
+        keyPairPayload,
+        guardianEndpoint
+      });
+      assertResponse(res.type === WalletMessageType.NewWalletFromHotKeyResponse);
+      // State will be synced via StateUpdated notification
+    },
+
+    importWalletFromClient: async (password, mnemonic, walletAccounts, formatVersion, importedAccounts) => {
       const res = await request({
         type: WalletMessageType.ImportFromClientRequest,
         password,
         mnemonic,
-        walletAccounts
+        walletAccounts,
+        formatVersion,
+        importedAccounts
       });
       assertResponse(res.type === WalletMessageType.ImportFromClientResponse);
     },
@@ -242,6 +257,31 @@ export const useWalletStore = create<WalletStore>()(
       }
     },
 
+    removeSeedPhrase: async password => {
+      const res = await request({ type: WalletMessageType.RemoveSeedPhraseRequest, password });
+      assertResponse(res.type === WalletMessageType.RemoveSeedPhraseResponse);
+      const state = await request({ type: WalletMessageType.GetStateRequest });
+      assertResponse(state.type === WalletMessageType.GetStateResponse);
+      get().syncFromBackend(state.state);
+    },
+    provideRecoverySeed: async (transactionId, mnemonic, action) => {
+      const res = await request({
+        type: WalletMessageType.ProvideRecoverySeedRequest,
+        transactionId,
+        mnemonic,
+        action
+      });
+      assertResponse(res.type === WalletMessageType.ProvideRecoverySeedResponse);
+    },
+    prepareRecoveryTransaction: async transactionId => {
+      const res = await request({ type: WalletMessageType.PrepareRecoveryRequest, transactionId });
+      assertResponse(res.type === WalletMessageType.PrepareRecoveryResponse);
+      return { ready: res.ready, coldPublicKey: res.coldPublicKey };
+    },
+    releaseRecoveryAuthorization: async transactionId => {
+      const res = await request({ type: WalletMessageType.ReleaseRecoveryRequest, transactionId });
+      assertResponse(res.type === WalletMessageType.ReleaseRecoveryResponse);
+    },
     revealMnemonic: async password => {
       const res = await request({
         type: WalletMessageType.RevealMnemonicRequest,
@@ -249,6 +289,15 @@ export const useWalletStore = create<WalletStore>()(
       });
       assertResponse(res.type === WalletMessageType.RevealMnemonicResponse);
       return res.mnemonic;
+    },
+
+    exportWalletBackupMaterial: async password => {
+      const res = await request({
+        type: WalletMessageType.ExportWalletBackupMaterialRequest,
+        password
+      });
+      assertResponse(res.type === WalletMessageType.ExportWalletBackupMaterialResponse);
+      return res.material;
     },
 
     revealPrivateKey: async (accountPublicKey, password) => {
@@ -261,6 +310,24 @@ export const useWalletStore = create<WalletStore>()(
       return res.privateKey;
     },
 
+    exportAccountFile: async (accountPublicKey, password) => {
+      const res = await request({
+        type: WalletMessageType.ExportAccountFileRequest,
+        accountPublicKey,
+        password
+      });
+      assertResponse(res.type === WalletMessageType.ExportAccountFileResponse);
+      // Buffer is IMPORTED, never the bare global: on every extension page `public/globals.js`
+      // installs a stub whose `from()` ignores the encoding argument, and the entry points keep it
+      // (`globalThis.Buffer = globalThis.Buffer || Buffer`), so a bare global decode returns an
+      // EMPTY array and the user is handed a 0-byte account file with a success message.
+      // A VIEW over the decoded buffer, not a copy of it, so the array the export screen zeroes is
+      // the only mutable plaintext of the account's auth key this realm holds. The three-argument
+      // form is bounded to this buffer's own region, so Node's shared pool is never exposed.
+      const decoded = Buffer.from(res.accountFileBase64, 'base64');
+      return new Uint8Array(decoded.buffer, decoded.byteOffset, decoded.byteLength);
+    },
+
     revealHotKey: async (accountPublicKey, password) => {
       const res = await request({
         type: WalletMessageType.RevealHotKeyRequest,
@@ -268,7 +335,7 @@ export const useWalletStore = create<WalletStore>()(
         password
       });
       assertResponse(res.type === WalletMessageType.RevealHotKeyResponse);
-      return res.hotPrivateKey;
+      return res.keyPairPayload;
     },
 
     revealGuardianKeys: async (accountPublicKey, password) => {
@@ -385,9 +452,10 @@ export const useWalletStore = create<WalletStore>()(
       return new Uint8Array(Buffer.from(signatureAsHex, 'hex'));
     },
 
-    signWord: async (publicKey, wordHex) => {
+    signWord: async (publicKey, wordHex, transactionId) => {
       const res = await request({
         type: WalletMessageType.SignWordRequest,
+        transactionId,
         publicKey,
         wordHex
       });
@@ -905,6 +973,33 @@ if (process.env.MIDEN_E2E_TEST === 'true') {
       }
     }
   );
+  Reflect.set(globalThis, '__TEST_SIGN_ACCOUNT_WORD__', async (accountPublicKey: string, wordHex: string) => {
+    setTestSyncPaused(true);
+    try {
+      const [{ assertWasmHoldCurrent, getMidenClient, withWasmClientLock }, { resolvePublicKeyCommitments }] =
+        await Promise.all([
+          import('lib/miden/sdk/miden-client'),
+          import('lib/miden/sdk/resolve-public-key-commitments')
+        ]);
+      const publicKeyCommitment = await withWasmClientLock(
+        async hold => {
+          const client = await getMidenClient();
+          assertWasmHoldCurrent(hold, 'e2e-account-sign after the client build');
+          const account = await client.getAccount(accountPublicKey);
+          assertWasmHoldCurrent(hold, 'e2e-account-sign after the account read');
+          if (!account) throw new Error('Account not found');
+
+          const commitments = resolvePublicKeyCommitments(account);
+          if (commitments.length !== 1) throw new Error('Account does not have exactly one signing key');
+          return commitments[0]!.toHex().replace(/^0x/, '');
+        },
+        { label: 'e2e-account-sign' }
+      );
+      return await useWalletStore.getState().signWord(publicKeyCommitment, wordHex);
+    } finally {
+      setTestSyncPaused(false);
+    }
+  });
   // Point the earn (Epoch lending) collateral faucet at a runtime-created test faucet.
   // `openEarnPosition` runs page-side (EarnDepositReview), so the override must be set in
   // THIS (page) realm. The import is LAZY (like the bridge-in hooks) so the Epoch/EVM SDK

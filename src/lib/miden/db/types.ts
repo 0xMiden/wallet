@@ -435,6 +435,9 @@ export interface ITransaction {
   feeAmount?: bigint;
   feeFaucetId?: string;
   requestBytes?: Uint8Array;
+  awaitingRecoverySeed?: boolean;
+  /** Start of the seed input wait, in seconds. */
+  recoverySeedRequestedAt?: number;
   status: ITransactionStatus;
   initiatedAt: number;
   /**

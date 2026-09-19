@@ -10,12 +10,14 @@ import { resolvePublicKeyCommitments } from 'lib/miden/sdk/resolve-public-key-co
 import { hapticLight } from 'lib/mobile/haptics';
 import useCopyToClipboard from 'lib/ui/useCopyToClipboard';
 import { navigate } from 'lib/woozie';
+import { WalletType } from 'screens/onboarding/types';
 
 const AdvancedSettings: FC = () => {
   const { t } = useTranslation();
   const walletAccount = useAccount();
   const [publicKey, setPublicKey] = useState<string | null>(null);
   const { fieldRef, copy, copied } = useCopyToClipboard();
+  const isGuardianAccount = walletAccount.type === WalletType.Guardian;
 
   const fetchPublicKey = useCallback(async () => {
     // Wrap WASM client operations in a lock to prevent concurrent access
@@ -43,6 +45,11 @@ const AdvancedSettings: FC = () => {
     hapticLight();
     copy();
   }, [publicKey, copy]);
+
+  const handleExportAccountFile = useCallback(() => {
+    hapticLight();
+    navigate('/settings/export-account-file');
+  }, []);
 
   // Truncate to a chip-friendly form: 0x + first 6 + ... + last 4.
   // Until the WASM client resolves the key we render a non-breaking space so
@@ -76,6 +83,20 @@ const AdvancedSettings: FC = () => {
           <Icon name={IconName.ChevronRightLucide} className="w-5 h-5 stroke-black" fill="none" />
         </div>
       </button>
+
+      {/* A Guardian account can never be exported: its auth entry is a platform-wrapped hot
+          ciphertext, and the vault refuses it outright. Do not offer the action rather than let
+          the user acknowledge the warning and spend a credential to reach a certain refusal. */}
+      {!isGuardianAccount && (
+        <button type="button" onClick={handleExportAccountFile} className="w-full">
+          <div className="flex items-center justify-between text-heading-gray">
+            <div className="flex flex-col">
+              <span className="font-medium text-base">{t('exportAccountFile')}</span>
+            </div>
+            <Icon name={IconName.ChevronRightLucide} className="w-5 h-5 stroke-black" fill="none" />
+          </div>
+        </button>
+      )}
 
       <input ref={fieldRef} value={publicKey ?? ''} readOnly className="sr-only" />
     </div>

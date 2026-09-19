@@ -6,6 +6,7 @@ import constate from 'constate';
 import { createIntercomClient, IIntercomClient } from 'lib/intercom/client';
 import {
   GuardianSyncStatus,
+  ImportedAccountBackup,
   SignEvmOperation,
   WalletAccount,
   WalletRequest,
@@ -50,13 +51,18 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
 
   // Get actions from Zustand store
   const storeRegisterWallet = useWalletStore(s => s.registerWallet);
+  const storeRegisterWalletFromHotKey = useWalletStore(s => s.registerWalletFromHotKey);
   const storeImportWalletFromClient = useWalletStore(s => s.importWalletFromClient);
   const storeUnlock = useWalletStore(s => s.unlock);
   const storeCreateAccount = useWalletStore(s => s.createAccount);
   const storeUpdateCurrentAccount = useWalletStore(s => s.updateCurrentAccount);
   const storeEditAccountName = useWalletStore(s => s.editAccountName);
+  const removeSeedPhrase = useWalletStore(s => s.removeSeedPhrase);
+  const provideRecoverySeed = useWalletStore(s => s.provideRecoverySeed);
   const storeRevealMnemonic = useWalletStore(s => s.revealMnemonic);
+  const storeExportWalletBackupMaterial = useWalletStore(s => s.exportWalletBackupMaterial);
   const storeRevealPrivateKey = useWalletStore(s => s.revealPrivateKey);
+  const storeExportAccountFile = useWalletStore(s => s.exportAccountFile);
   const storeRevealHotKey = useWalletStore(s => s.revealHotKey);
   const storeRevealGuardianKeys = useWalletStore(s => s.revealGuardianKeys);
   const storeSetGuardianOperatorCommitment = useWalletStore(s => s.setGuardianOperatorCommitment);
@@ -121,9 +127,22 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
     [storeRegisterWallet]
   );
 
+  const registerWalletFromHotKey = useCallback(
+    async (password: string | undefined, keyPairPayload: string, guardianEndpoint?: string) => {
+      await storeRegisterWalletFromHotKey(password, keyPairPayload, guardianEndpoint);
+    },
+    [storeRegisterWalletFromHotKey]
+  );
+
   const importWalletFromClient = useCallback(
-    async (password: string | undefined, mnemonic: string, walletAccounts: WalletAccount[]) => {
-      await storeImportWalletFromClient(password, mnemonic, walletAccounts);
+    async (
+      password: string | undefined,
+      mnemonic: string,
+      walletAccounts: WalletAccount[],
+      formatVersion?: number,
+      importedAccounts?: ImportedAccountBackup[]
+    ) => {
+      await storeImportWalletFromClient(password, mnemonic, walletAccounts, formatVersion, importedAccounts);
     },
     [storeImportWalletFromClient]
   );
@@ -163,11 +182,23 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
     [storeRevealMnemonic]
   );
 
+  const exportWalletBackupMaterial = useCallback(
+    async (password?: string) => storeExportWalletBackupMaterial(password),
+    [storeExportWalletBackupMaterial]
+  );
+
   const revealPrivateKey = useCallback(
     async (accountPublicKey: string, password?: string) => {
       return storeRevealPrivateKey(accountPublicKey, password);
     },
     [storeRevealPrivateKey]
+  );
+
+  const exportAccountFile = useCallback(
+    async (accountPublicKey: string, password?: string) => {
+      return storeExportAccountFile(accountPublicKey, password);
+    },
+    [storeExportAccountFile]
   );
 
   const revealHotKey = useCallback(
@@ -386,12 +417,14 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
 
     // Actions
     registerWallet,
+    registerWalletFromHotKey,
     unlock,
 
     createAccount,
     updateCurrentAccount,
     revealViewKey,
     revealPrivateKey,
+    exportAccountFile,
     revealHotKey,
     revealGuardianKeys,
     setGuardianOperatorCommitment,
@@ -400,6 +433,9 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
     applyUserGuardianEndpoint,
     startGuardianRecovery,
     revealMnemonic,
+    exportWalletBackupMaterial,
+    removeSeedPhrase,
+    provideRecoverySeed,
     removeAccount,
     editAccountName,
     importAccount,

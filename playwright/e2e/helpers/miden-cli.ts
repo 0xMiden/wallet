@@ -2,6 +2,8 @@ import { execSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 
+import { coerce } from 'semver';
+
 import { mintFromPublicFaucet, publicFaucetApiUrl } from './public-faucet';
 import type { CLIRunner } from '../harness/cli-runner';
 import type { CLIInvocation, EnvironmentConfig } from '../harness/types';
@@ -55,6 +57,25 @@ export function isTransientCliError(stderr: string): boolean {
 }
 
 /**
+ * Does `miden-client --version` report exactly the pinned version?
+ *
+ * A substring test is not enough, and the difference is not cosmetic: the node
+ * matches the accept header's PRE-RELEASE LABEL, so a `0.16.0-rc.5` client is
+ * rejected by a stable `0.16.0` node and vice versa. `"miden-client 0.16.0-rc.5"
+ * .includes("0.16.0")` is true, so the guard below used to wave through the one
+ * build it exists to catch - and the run then failed much later, inside a CLI
+ * call, as `cli::client_error … server rejected request` with no mention of a
+ * version. Seen for real against public testnet on 2026-09-18.
+ *
+ * So: pull the whole semver token, prerelease and all, and compare it outright.
+ */
+export function reportedVersionMatches(reported: string, pinned: string): boolean {
+  // `includePrerelease` is the whole point: without it coerce() drops the `-rc.5`
+  // and an rc build reads as the stable pin, which is the bug this guards.
+  return coerce(reported, { includePrerelease: true })?.version === pinned;
+}
+
+/**
  * Resolve the miden-client binary path.
  * 1. MIDEN_CLIENT_BIN env var
  * 2. `miden-client` in PATH
@@ -85,7 +106,7 @@ export function resolveCliPath(): string {
   try {
     const reported = execSync('miden-client --version', { stdio: 'pipe' }).toString().trim();
     const pinned = readPinnedCliVersion();
-    if (!pinned || reported.includes(pinned)) {
+    if (!pinned || reportedVersionMatches(reported, pinned)) {
       return 'miden-client';
     }
     // Under a GIT pin the version field records what the rev builds, and a rev

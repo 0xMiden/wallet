@@ -6,6 +6,9 @@ import FullScreenPage from './FullScreenPage';
 
 const mockMotion = { reduce: false };
 
+let mockIsMobile = true;
+jest.mock('lib/platform', () => ({ isMobile: () => mockIsMobile }));
+
 jest.mock('framer-motion', () => {
   const actual = jest.requireActual<typeof import('framer-motion')>('framer-motion');
   return { ...actual, useReducedMotion: () => mockMotion.reduce };
@@ -13,11 +16,23 @@ jest.mock('framer-motion', () => {
 
 afterEach(() => {
   mockMotion.reduce = false;
+  mockIsMobile = true;
 });
 
-it('shows the page and releases the navbar when the page unmounts', () => {
+it('slides in by default on mobile', () => {
+  const { container } = render(<FullScreenPage>Page</FullScreenPage>);
+  expect(container.firstElementChild).toHaveStyle({ transform: 'translateX(100%)' });
+});
+
+it('keeps the fade by default off mobile, so an unfinished entrance never parks the page off screen', () => {
+  mockIsMobile = false;
+  const { container } = render(<FullScreenPage>Page</FullScreenPage>);
+  expect(container.firstElementChild).not.toHaveStyle({ transform: 'translateX(100%)' });
+});
+
+it('shows a fade page and releases the navbar when the page unmounts', () => {
   const { unmount } = render(
-    <FullScreenPage>
+    <FullScreenPage entrance="fade">
       <span>Page content</span>
     </FullScreenPage>
   );

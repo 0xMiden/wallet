@@ -32,3 +32,7 @@ export function isSwapEnabled(): boolean {
 export function isBridgeDepositEnabled(): boolean {
   return true;
 }
+
+export function isUpdateNotificationsEnabled(): boolean {
+  return process.env.MIDEN_UPDATE_NOTIFICATIONS === 'true';
+}

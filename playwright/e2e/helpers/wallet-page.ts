@@ -1,4 +1,7 @@
 import { expect, type Page } from '@playwright/test';
+import { IS_LOCALNET } from '../config/environments';
+
+import { encodePrivateKeyPair, parsePrivateKeyPair } from '../../../src/lib/miden/guardian/private-key-pair';
 
 import { readTransactionRows } from './history';
 import type { IdbDumpSource } from './idb-dump';
@@ -36,7 +39,7 @@ const SYNC_WAIT_MS = 3_500;
  * runs — at 420s the local suite stopped finishing inside its 75-minute cap, which
  * cost the very diagnostics a failing run exists to produce.
  */
-const LOCAL_STACK_CLAIM_FLOOR_MS = process.env.E2E_NETWORK === 'localhost' ? 240_000 : 0;
+const LOCAL_STACK_CLAIM_FLOOR_MS = IS_LOCALNET ? 240_000 : 0;
 
 /** The budget a claim drain should actually use — see {@link LOCAL_STACK_CLAIM_FLOOR_MS}. */
 const effectiveClaimBudgetMs = (requested: number): number => Math.max(requested, LOCAL_STACK_CLAIM_FLOOR_MS);
@@ -279,6 +282,23 @@ export interface ChromeWalletPageApi extends WalletPage, IdbDumpSource {
    */
   recoverGuardianFromSeed(seed: string, opts: { viaUI: boolean; guardianUrl?: string }): Promise<void>;
   /**
+   * Import a Guardian account with its hot and EVM private key pair — the
+   * seed-less import path. Drives the real screens: Welcome → "Recover your
+   * account" → seed grid → "Import with key instead" link → key paste →
+   * submit → full password step → ImportRecoveryMethod (probe by hot-key
+   * commitment, Guardian pinned) → Continue → Confirmation → submit → home.
+   * Unlike `recoverGuardianFromSeed` this ends WITHOUT a hot-key rotation:
+   * the pasted key IS the working device key, so the gate must never appear.
+   */
+  recoverGuardianFromHotKey(keyPairPayload: string): Promise<void>;
+  /**
+   * Reveal the current Guardian account's hot and EVM private keys through
+   * Settings → Keys → Reveal private key, returning the hot:evm payload.
+   * Extension builds authenticate with the
+   * onboarding password.
+   */
+  revealHotKey(password?: string): Promise<string>;
+  /**
    * Drive a fresh, not-yet-onboarded wallet from the Welcome screen to the
    * ImportSeedPhrase 12-word grid (Welcome → "Recover your account"),
    * stopping there instead of completing the rest of the recovery journey.
@@ -333,6 +353,26 @@ export interface ChromeWalletPageApi extends WalletPage, IdbDumpSource {
   currentGuardianEndpoint(): Promise<string>;
   /** Create another HD account through the E2E-only frontend store hook. */
   createAdditionalAccount(walletType: 'off-chain' | 'guardian'): Promise<{ address: string }>;
+  /** Create a Guardian wallet through every current extension onboarding screen. */
+  createGuardianWalletViaUi(password: string, guardianUrl: string): Promise<string>;
+  /** Import a serialized auth secret through the real account-import page. */
+  importPrivateKey(privateKeyHex: string, name: string): Promise<string>;
+  /** Export a password-encrypted wallet file through the real Settings flow. */
+  exportEncryptedWalletFile(options: {
+    walletPassword: string;
+    filePassword: string;
+    fileName: string;
+  }): Promise<string>;
+  /** Restore a password-encrypted wallet file through the real onboarding flow. */
+  restoreEncryptedWalletFile(options: {
+    backupPath: string;
+    filePassword: string;
+    newWalletPassword: string;
+  }): Promise<void>;
+  /** Resolve exactly one account by its persisted display name. */
+  findAccountByName(name: string): Promise<string>;
+  /** Sign one word with the single-signature key owned by an account. */
+  signAccountWord(accountPublicKey: string, wordHex: string): Promise<string>;
   /** Select an account through the E2E-only frontend store hook. */
   selectAccount(address: string): Promise<void>;
   /**
@@ -971,6 +1011,9 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     await this.page.locator('#import-link').click();
     // The network notice (#875) precedes the import flow too.
     await this.page.getByTestId('onboarding-network-notice-acknowledge').click({ timeout: 15_000 });
+    // Import now asks WHICH credential first; this helper drives the seed-phrase one.
+    await this.page.getByTestId('import-select-type').waitFor({ timeout: 15_000 });
+    await this.page.getByTestId('import-type-seed-phrase').click();
     await this.page.getByTestId('import-seed-phrase').waitFor({ timeout: 15_000 });
   }
 
@@ -1027,6 +1070,86 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     // recovered account always carries requiresHotKeyRotation — see
     // HotKeyRotationGate.tsx.
     await this.completeHotKeyRotation();
+  }
+
+  /**
+   * See the interface doc comment (ChromeWalletPageApi).
+   */
+  async recoverGuardianFromHotKey(keyPairPayload: string): Promise<void> {
+    const pair = parsePrivateKeyPair(keyPairPayload);
+    if (!pair) throw new Error('Invalid private key pair');
+    // Welcome → "Recover your account" → seed grid → the seed-less fork.
+    await this.openImportSeedPhraseScreen();
+    await this.page.getByTestId('import-with-key-link').click();
+
+    await this.page.getByTestId('import-hot-key').waitFor({ timeout: 15_000 });
+    await this.page.getByRole('button', { name: 'Enter keys manually' }).click();
+    await this.page.locator('#hot-key-input').fill(pair.hotPrivateKey);
+    await this.page.locator('#evm-key-input').fill(pair.evmPrivateKey);
+    await this.page.getByTestId('import-hot-key-submit').click();
+
+    // Extension builds always route through the full password step (no
+    // hardware security off mobile/desktop) — same as the seed path.
+    await this.page.getByTestId('create-password-input').waitFor({ timeout: 15_000 });
+    await this.page.getByTestId('create-password-input').fill(PASSWORD);
+    await this.page.getByTestId('create-password-verify-input').fill(PASSWORD);
+    await this.page.getByTestId('create-password-submit').click();
+
+    // ImportRecoveryMethod, Guardian pinned: wait for the hot-key-commitment
+    // probe to reach a terminal state, then accept the detected/default
+    // endpoint as-is.
+    await this.page
+      .getByTestId('guardian-detected')
+      .or(this.page.getByTestId('guardian-not-detected'))
+      .first()
+      .waitFor({ timeout: 30_000 });
+    await this.page.getByTestId('recovery-method-continue').click();
+
+    await this.page.getByTestId('onboarding-confirmation').waitFor({ timeout: 30_000 });
+    await this.page.getByTestId('onboarding-confirmation-submit').click();
+
+    // The pasted key IS the working hot key: the account must come up ready,
+    // with no rotation gate in the way. Wait for the home surface the same way
+    // createWalletViaBypass does, then assert the gate never mounted.
+    await this.page.waitForFunction(
+      () => {
+        const store = (
+          window as unknown as { __TEST_STORE__?: { getState(): { currentAccount?: { publicKey?: string } } } }
+        ).__TEST_STORE__;
+        const pk = store?.getState?.().currentAccount?.publicKey ?? '';
+        if (/^m[a-z]{1,4}1[a-z0-9]+/i.test(pk)) return true;
+        return !!document.querySelector('[data-testid="explore-page"]');
+      },
+      undefined,
+      { timeout: 120_000 }
+    );
+    await expect(
+      this.page.getByTestId('hot-key-rotation-gate'),
+      'a hot-key import must not trigger the rotation gate — the pasted key is the working device key'
+    ).toHaveCount(0);
+  }
+
+  /**
+   * See the interface doc comment (ChromeWalletPageApi).
+   */
+  async revealHotKey(password: string = PASSWORD): Promise<string> {
+    await this.navigateTo('/settings/reveal-hot-key');
+
+    // Extension vaults are password-protected: RevealSecret renders the
+    // password form (`#reveal-secret-password`) and a single Continue button.
+    const passwordField = this.page.locator('#reveal-secret-password');
+    await passwordField.waitFor({ timeout: 20_000 });
+    await passwordField.fill(password);
+    await this.page.getByRole('button', { name: /continue/i }).click();
+
+    await this.page.getByRole('img', { name: 'Private keys QR code' }).waitFor({ timeout: 30_000 });
+    await this.page.getByRole('button', { name: 'Show keys as text' }).click();
+    const hot = await this.page.getByLabel('Miden hot private key').inputValue();
+    const evm = await this.page.getByLabel('EVM private key').inputValue();
+    const pair = parsePrivateKeyPair(`${hot}:${evm}`);
+    if (!pair) throw new Error('Reveal did not return a valid private key pair');
+    await this.navigateHome();
+    return encodePrivateKeyPair(pair);
   }
 
   /**
@@ -1131,6 +1254,147 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
       if (!created?.publicKey) throw new Error('createAdditionalAccount did not add an account');
       return { address: created.publicKey };
     }, walletType);
+  }
+
+  async createGuardianWalletViaUi(password: string, guardianUrl: string): Promise<string> {
+    await suspendScreenCapture(this.page);
+    await this.page.getByTestId('onboarding-welcome').waitFor({ timeout: 60_000 });
+    await this.page.getByTestId('onboarding-get-started').click();
+    await this.page.getByTestId('onboarding-network-notice-acknowledge').click({ timeout: 30_000 });
+
+    await this.page.getByTestId('create-password-input').fill(password);
+    await this.page.getByTestId('create-password-verify-input').fill(password);
+    await this.page.getByTestId('create-password-submit').click();
+
+    const guardian = this.page.locator(`[data-guardian-endpoint="${guardianUrl}"]`);
+    await guardian.waitFor({ timeout: 60_000 });
+    await guardian.click();
+    await this.page.getByTestId('choose-guardian-continue').click();
+    await this.page.getByTestId('onboarding-confirmation-submit').click();
+    await this.page.getByTestId('explore-page').waitFor({ timeout: 120_000 });
+    return this.getAccountAddress();
+  }
+
+  async importPrivateKey(privateKeyHex: string, name: string): Promise<string> {
+    await suspendScreenCapture(this.page);
+    await this.navigateTo('/import-account');
+    await this.page.locator('#importacc-privatekey').fill(privateKeyHex);
+    await this.page.locator('#importacc-name').fill(name);
+    await this.page.getByTestId('import-account-submit').click();
+
+    return this.page
+      .waitForFunction(
+        expectedName => {
+          type Account = { name?: string; publicKey?: string };
+          const store = (window as unknown as { __TEST_STORE__?: { getState(): { currentAccount?: Account | null } } })
+            .__TEST_STORE__;
+          const account = store?.getState?.().currentAccount;
+          return account?.name === expectedName && account.publicKey ? account.publicKey : false;
+        },
+        name,
+        { timeout: 60_000 }
+      )
+      .then(handle => handle.jsonValue() as Promise<string>);
+  }
+
+  async exportEncryptedWalletFile(options: {
+    walletPassword: string;
+    filePassword: string;
+    fileName: string;
+  }): Promise<string> {
+    await suspendScreenCapture(this.page);
+    await this.navigateTo('/settings/encrypted-wallet-file');
+
+    const flow = this.page.getByTestId('encrypted-file-manager-flow');
+    await flow.waitFor({ state: 'attached', timeout: 60_000 });
+    await this.page.locator('input[type="password"]').fill(options.walletPassword);
+    await this.page.getByText('I will not share my Encrypted Wallet File with anyone, including Bread.').click();
+    await this.page.getByRole('button', { name: 'Continue' }).click();
+
+    const inputs = flow.locator('input');
+    await inputs.nth(0).fill(options.fileName);
+    await inputs.nth(1).fill(options.filePassword);
+    await inputs.nth(2).fill(options.filePassword);
+
+    const downloadPromise = this.page.waitForEvent('download', { timeout: 120_000 });
+    await flow.getByRole('button', { name: 'Continue' }).click();
+    const download = await downloadPromise;
+    await flow.getByText('Exported!').waitFor({ timeout: 120_000 });
+
+    if (!this.userDataDir) throw new Error('Encrypted wallet export requires an isolated profile directory');
+    const downloadPath = `${this.userDataDir}/${download.suggestedFilename()}`;
+    await download.saveAs(downloadPath);
+    return downloadPath;
+  }
+
+  async restoreEncryptedWalletFile(options: {
+    backupPath: string;
+    filePassword: string;
+    newWalletPassword: string;
+  }): Promise<void> {
+    await suspendScreenCapture(this.page);
+    await this.page.goto(this.fullpageUrl, { waitUntil: 'domcontentloaded' });
+    await this.page.getByTestId('onboarding-welcome').waitFor({ timeout: 30_000 });
+    await this.page.locator('#import-link').click();
+    await this.page.getByTestId('onboarding-network-notice-acknowledge').click({ timeout: 15_000 });
+    await this.page.getByTestId('import-select-type').waitFor({ timeout: 15_000 });
+    await this.page.getByRole('button', { name: /Import with Encrypted Wallet File/ }).click();
+
+    await this.page.locator('input[type="file"]').setInputFiles(options.backupPath);
+    await this.page.locator('#newwallet-password').fill(options.filePassword);
+    await this.page.getByRole('button', { name: 'Import', exact: true }).click();
+
+    await this.page.getByTestId('create-password-input').waitFor({ timeout: 120_000 });
+    await this.page.getByTestId('create-password-input').fill(options.newWalletPassword);
+    await this.page.getByTestId('create-password-verify-input').fill(options.newWalletPassword);
+    await this.page.getByTestId('create-password-submit').click();
+
+    await this.page.getByTestId('onboarding-confirmation').waitFor({ timeout: 60_000 });
+    await this.page.getByTestId('onboarding-confirmation-submit').click();
+    await this.page.waitForFunction(
+      () => {
+        const store = (
+          window as unknown as {
+            __TEST_STORE__?: { getState(): { accounts?: unknown[]; currentAccount?: { publicKey?: string } | null } };
+          }
+        ).__TEST_STORE__;
+        const state = store?.getState?.();
+        return Boolean(state?.currentAccount?.publicKey) && (state?.accounts?.length ?? 0) > 0;
+      },
+      undefined,
+      { timeout: 120_000 }
+    );
+  }
+
+  async findAccountByName(name: string): Promise<string> {
+    return this.page
+      .waitForFunction(
+        expectedName => {
+          type Account = { name?: string; publicKey?: string };
+          const store = (window as unknown as { __TEST_STORE__?: { getState(): { accounts?: Account[] } } })
+            .__TEST_STORE__;
+          const matches = store?.getState?.().accounts?.filter(account => account.name === expectedName) ?? [];
+          return matches.length === 1 && matches[0]?.publicKey ? matches[0].publicKey : false;
+        },
+        name,
+        { timeout: 30_000 }
+      )
+      .then(handle => handle.jsonValue() as Promise<string>);
+  }
+
+  async signAccountWord(accountPublicKey: string, wordHex: string): Promise<string> {
+    return this.page.evaluate(
+      async ({ account, word }) => {
+        const sign = (
+          globalThis as unknown as {
+            __TEST_SIGN_ACCOUNT_WORD__?: (accountPublicKey: string, wordHex: string) => Promise<string>;
+          }
+        ).__TEST_SIGN_ACCOUNT_WORD__;
+        if (!sign) throw new Error('signAccountWord requires the E2E signing hook');
+        return sign(account, word);
+      },
+      { account: accountPublicKey, word: wordHex }
+    );
   }
 
   async selectAccount(address: string): Promise<void> {
@@ -2564,7 +2828,6 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     // 2. SelectRecipient: fill the recipient address and confirm.
     await sendFlow.getByTestId('send-recipient-input').fill(params.recipientAddress);
     if (params.recipientAddress.trim().startsWith('0x')) {
-      await sendFlow.getByTestId('send-network-selector').click({ timeout: STEP_TIMEOUT_MS });
       await this.page.getByTestId('send-network-sepolia').click({ timeout: STEP_TIMEOUT_MS });
     }
     await sendFlow.getByTestId('send-recipient-confirm').click({ timeout: STEP_TIMEOUT_MS });

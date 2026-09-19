@@ -6,12 +6,19 @@ import { createRoot } from 'react-dom/client';
 import { act } from 'react-dom/test-utils';
 
 import { WalletMessageType, WalletStatus } from 'lib/shared/types';
+import { useWalletStore } from 'lib/store';
 
 import { MidenContextProvider, useMidenContext } from './client';
+
+const mockExportAccountFileRequests: any[] = [];
 
 jest.mock('lib/intercom', () => {
   class MockIntercomClient {
     request = jest.fn(async (req: any) => {
+      if (req.type === WalletMessageType.ExportAccountFileRequest) {
+        mockExportAccountFileRequests.push(req);
+        return { type: WalletMessageType.ExportAccountFileResponse, accountFileBase64: 'BwgJ' };
+      }
       if (req.type === WalletMessageType.GetStateRequest) {
         return {
           type: WalletMessageType.GetStateResponse,
@@ -44,6 +51,13 @@ jest.mock('lib/intercom', () => {
   return { IntercomClient: MockIntercomClient };
 });
 
+// The store reaches the backend through `lib/intercom/client`, not the barrel above, so the
+// barrel mock alone never intercepts a request and an un-mocked client leaves every call
+// pending forever. Both paths share the one mock class above.
+jest.mock('lib/intercom/client', () => ({
+  createIntercomClient: () => new (jest.requireMock('lib/intercom') as any).IntercomClient()
+}));
+
 describe('useMidenContext actions', () => {
   let consoleErrorSpy: jest.SpyInstance;
 
@@ -70,14 +84,101 @@ describe('useMidenContext actions', () => {
     });
 
     expect(container).toBeDefined();
+    await act(async () => root.unmount());
   });
+});
+
+const BackupProbe: React.FC<{ onMaterial: (value: unknown) => void }> = ({ onMaterial }) => {
+  const { exportWalletBackupMaterial, ready } = useMidenContext();
+  React.useEffect(() => {
+    if (ready) void exportWalletBackupMaterial('password').then(onMaterial);
+  }, [exportWalletBackupMaterial, onMaterial, ready]);
+  return null;
+};
+
+it('exposes the authenticated wallet backup snapshot through the React context', async () => {
+  const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
+  const material = { seedPhrase: 'seed', accounts: [], midenClientDbContent: 'db', importedAccounts: [] };
+  const exportWalletBackupMaterial = jest.fn().mockResolvedValue(material);
+  const previousState = useWalletStore.getState();
+  useWalletStore.setState({ status: WalletStatus.Ready, isInitialized: true, exportWalletBackupMaterial });
+  const onMaterial = jest.fn();
+  const container = document.createElement('div');
+  const root = createRoot(container);
+
+  try {
+    await act(async () => {
+      root.render(
+        <MidenContextProvider>
+          <BackupProbe onMaterial={onMaterial} />
+        </MidenContextProvider>
+      );
+    });
+
+    expect(exportWalletBackupMaterial).toHaveBeenCalledWith('password');
+    expect(onMaterial).toHaveBeenCalledWith(material);
+  } finally {
+    await act(async () => root.unmount());
+    useWalletStore.setState({
+      status: previousState.status,
+      isInitialized: previousState.isInitialized,
+      exportWalletBackupMaterial: previousState.exportWalletBackupMaterial
+    });
+    consoleError.mockRestore();
+  }
+});
+
+const ImportProbe: React.FC<{ onComplete: () => void }> = ({ onComplete }) => {
+  const { importWalletFromClient, ready } = useMidenContext();
+  React.useEffect(() => {
+    if (ready) {
+      void importWalletFromClient('password', 'mnemonic', [], 2, [
+        { accountId: 'account-id', publicKeyCommitment: 'a1b2', authScheme: 'falcon', secretKeyHex: '0102' }
+      ]).then(onComplete);
+    }
+  }, [importWalletFromClient, onComplete, ready]);
+  return null;
+};
+
+it('passes versioned imported secrets through the React restore action', async () => {
+  const previousState = useWalletStore.getState();
+  const importedAccounts = [
+    { accountId: 'account-id', publicKeyCommitment: 'a1b2', authScheme: 'falcon' as const, secretKeyHex: '0102' }
+  ];
+  const importWalletFromClient = jest.fn().mockResolvedValue(undefined);
+  useWalletStore.setState({ status: WalletStatus.Ready, isInitialized: true, importWalletFromClient });
+  const onComplete = jest.fn();
+  const container = document.createElement('div');
+  const root = createRoot(container);
+
+  try {
+    await act(async () => {
+      root.render(
+        <MidenContextProvider>
+          <ImportProbe onComplete={onComplete} />
+        </MidenContextProvider>
+      );
+    });
+
+    expect(importWalletFromClient).toHaveBeenCalledWith('password', 'mnemonic', [], 2, importedAccounts);
+    expect(onComplete).toHaveBeenCalledTimes(1);
+  } finally {
+    await act(async () => root.unmount());
+    useWalletStore.setState({
+      status: previousState.status,
+      isInitialized: previousState.isInitialized,
+      importWalletFromClient: previousState.importWalletFromClient
+    });
+  }
 });
 
 const ActionProbe: React.FC = () => {
   const ctx = useMidenContext();
+  const didRun = React.useRef(false);
 
   React.useEffect(() => {
-    if (ctx.ready) {
+    if (ctx.ready && !didRun.current) {
+      didRun.current = true;
       ctx.updateCurrentAccount('pk');
       ctx.updateSettings({ contacts: [] });
       ctx.getAuthSecretKey('k');
@@ -94,9 +195,11 @@ const ActionProbe: React.FC = () => {
 // because the mocked intercom rejects unknown request types.
 const FullActionProbe: React.FC = () => {
   const ctx = useMidenContext() as any;
+  const didRun = React.useRef(false);
 
   React.useEffect(() => {
-    if (!ctx.ready) return;
+    if (!ctx.ready || didRun.current) return;
+    didRun.current = true;
     const swallow = (p: any) => {
       try {
         const r = typeof p === 'function' ? p() : p;
@@ -137,6 +240,49 @@ const FullActionProbe: React.FC = () => {
   return <div data-ready={ctx.ready} />;
 };
 
+// The swallow-everything probe above cannot cover this one: it is the wiring this change adds,
+// so it needs an assertion that goes red when the wrapper forwards to the wrong store action,
+// drops the password, or stops returning what the backend sent.
+let exportPromise: Promise<Uint8Array> | null = null;
+
+const ExportAccountFileProbe: React.FC = () => {
+  const ctx = useMidenContext();
+
+  // Deliberately NOT gated on ctx.ready: the wrapper is a pure forward to the store action and
+  // owes nothing to wallet status, and the gate is what makes the sibling probes above vacuous.
+  React.useEffect(() => {
+    if (!exportPromise) exportPromise = ctx.exportAccountFile('pk', 'pw');
+  }, [ctx]);
+
+  return null;
+};
+
+describe('useMidenContext exportAccountFile', () => {
+  it('forwards the account and password, and returns the bytes the backend sent', async () => {
+    exportPromise = null;
+    mockExportAccountFileRequests.length = 0;
+    const root = createRoot(document.createElement('div'));
+
+    await act(async () => {
+      root.render(
+        <Suspense fallback={null}>
+          <MidenContextProvider>
+            <ExportAccountFileProbe />
+          </MidenContextProvider>
+        </Suspense>
+      );
+    });
+
+    expect(exportPromise).not.toBeNull();
+    const bytes = await exportPromise!;
+
+    expect(mockExportAccountFileRequests).toEqual([
+      { type: WalletMessageType.ExportAccountFileRequest, accountPublicKey: 'pk', password: 'pw' }
+    ]);
+    expect(Array.from(bytes)).toEqual([7, 8, 9]);
+  });
+});
+
 describe('useMidenContext — full callback coverage', () => {
   it('runs every exposed wrapper callback at least once', async () => {
     const container = document.createElement('div');
@@ -151,5 +297,6 @@ describe('useMidenContext — full callback coverage', () => {
       );
     });
     expect(container).toBeDefined();
+    await act(async () => root.unmount());
   });
 });

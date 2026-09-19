@@ -413,15 +413,20 @@ describe('useWalletStore', () => {
 
     it('importWalletFromClient sends correct request', async () => {
       mockRequest.mockResolvedValueOnce({ type: WalletMessageType.ImportFromClientResponse });
+      const importedAccounts = [
+        { accountId: 'account-id', publicKeyCommitment: 'a1b2', authScheme: 'falcon' as const, secretKeyHex: '0102' }
+      ];
 
       const { importWalletFromClient } = useWalletStore.getState();
-      await importWalletFromClient('password123', 'mnemonic words', []);
+      await importWalletFromClient('password123', 'mnemonic words', [], 2, importedAccounts);
 
       expect(mockRequest).toHaveBeenCalledWith({
         type: WalletMessageType.ImportFromClientRequest,
         password: 'password123',
         mnemonic: 'mnemonic words',
-        walletAccounts: []
+        walletAccounts: [],
+        formatVersion: 2,
+        importedAccounts
       });
     });
 
@@ -493,6 +498,60 @@ describe('useWalletStore', () => {
       expect(mockRequest).toHaveBeenCalledWith({
         type: WalletMessageType.RevealPrivateKeyRequest,
         accountPublicKey: 'pk1',
+        password: 'password123'
+      });
+    });
+
+    it('exportAccountFile decodes through the imported Buffer, not the extension page stub', async () => {
+      // Every extension page loads public/globals.js first, which installs a Buffer whose from()
+      // ignores the encoding argument, and the entry points keep it (globalThis.Buffer || Buffer).
+      // Reading the bare global here returns an EMPTY array, so the user is handed a 0-byte account
+      // file with a success message. Jest runs on Node, where the real global hides that entirely.
+      const realBuffer = (globalThis as any).Buffer;
+      (globalThis as any).Buffer = { isBuffer: () => false, from: (a: unknown) => new Uint8Array(a as number) };
+      try {
+        mockRequest.mockResolvedValueOnce({
+          type: WalletMessageType.ExportAccountFileResponse,
+          accountFileBase64: 'BAUG'
+        });
+
+        const { exportAccountFile } = useWalletStore.getState();
+
+        await expect(exportAccountFile('mtst1account', 'password123')).resolves.toEqual(new Uint8Array([4, 5, 6]));
+      } finally {
+        (globalThis as any).Buffer = realBuffer;
+      }
+    });
+
+    it('exportAccountFile decodes the base64 response into bytes', async () => {
+      mockRequest.mockResolvedValueOnce({
+        type: WalletMessageType.ExportAccountFileResponse,
+        accountFileBase64: 'BAUG'
+      });
+
+      const { exportAccountFile } = useWalletStore.getState();
+      const result = await exportAccountFile('mtst1account', 'password123');
+
+      expect(result).toEqual(new Uint8Array([4, 5, 6]));
+      expect(mockRequest).toHaveBeenCalledWith({
+        type: WalletMessageType.ExportAccountFileRequest,
+        accountPublicKey: 'mtst1account',
+        password: 'password123'
+      });
+    });
+
+    it('exportWalletBackupMaterial returns the dedicated snapshot response', async () => {
+      const material = { seedPhrase: 'seed', accounts: [], midenClientDbContent: 'db', importedAccounts: [] };
+      mockRequest.mockResolvedValueOnce({
+        type: WalletMessageType.ExportWalletBackupMaterialResponse,
+        material
+      });
+
+      const result = await useWalletStore.getState().exportWalletBackupMaterial('password123');
+
+      expect(result).toBe(material);
+      expect(mockRequest).toHaveBeenCalledWith({
+        type: WalletMessageType.ExportWalletBackupMaterialRequest,
         password: 'password123'
       });
     });
@@ -1032,9 +1091,16 @@ describe('useWalletStore', () => {
 
     it('importWalletFromClient sends ImportFromClientRequest', async () => {
       mockRequest.mockResolvedValueOnce({ type: WalletMessageType.ImportFromClientResponse });
-      await useWalletStore.getState().importWalletFromClient('pw', 'm', []);
+      const importedAccounts = [
+        { accountId: 'account-id', publicKeyCommitment: 'a1b2', authScheme: 'falcon' as const, secretKeyHex: '0102' }
+      ];
+      await useWalletStore.getState().importWalletFromClient('pw', 'm', [], 2, importedAccounts);
       expect(mockRequest).toHaveBeenCalledWith(
-        expect.objectContaining({ type: WalletMessageType.ImportFromClientRequest })
+        expect.objectContaining({
+          type: WalletMessageType.ImportFromClientRequest,
+          formatVersion: 2,
+          importedAccounts
+        })
       );
     });
 

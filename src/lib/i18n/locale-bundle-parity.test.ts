@@ -96,6 +96,20 @@ describe('runtime locale bundles (the files src/i18n.ts actually renders from)',
     expect(loadFlat(locale)).toEqual(expected);
   });
 
+  it('every en.json SOURCE value is a flat string, not a Chrome message object', () => {
+    // en.json is the FLAT source map i18n.ts installs directly as resources.en.translation. The
+    // Chrome `{ "message": ... }` wrapper belongs only to the GENERATED _locales/<loc>/messages.json.
+    // An object value here does not throw: i18next resolves it through its handle-as-object path and
+    // the screen renders "key '<name> (en)' returned an object instead of string" as its user-facing
+    // copy. A suite that stubs react-i18next with its own map cannot see that, which is exactly how
+    // one shipped. Generation would also double-wrap it as {"message":{"message":...}} and hand the
+    // translator an object for every other locale.
+    const nonString = Object.entries(enSource)
+      .filter(([, value]) => typeof value !== 'string')
+      .map(([key]) => key);
+    expect(nonString).toEqual([]);
+  });
+
   it('every key in the en.json SOURCE reaches en/messages.json', () => {
     // The comparison set for every other test in this file is
     // `Object.keys(en/messages.json)`. So a key added to the hand-authored
