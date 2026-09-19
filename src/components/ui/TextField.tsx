@@ -43,9 +43,11 @@ const fieldVariants = cva('flex w-full bg-fill text-ink transition-shadow durati
       false: 'h-[52px] items-center rounded-full px-4'
     },
     invalid: {
-      // The error ring always shows; the quiet ring only shows once the field has focus.
-      true: 'ring-2 ring-status-negative',
-      false: 'focus-within:ring-2 focus-within:ring-accent-primary'
+      // The error ring always shows; the quiet ring only shows once the field has focus. Both are
+      // inset: a field fills its column edge to edge, so an outer ring is clipped by any scrolling
+      // or overflow-hidden parent (New contact's form cut the ring off at both sides).
+      true: 'ring-2 ring-inset ring-status-negative',
+      false: 'focus-within:ring-2 focus-within:ring-inset focus-within:ring-accent-primary'
     }
   },
   defaultVariants: { multiline: false, invalid: false }
