@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 
 import Alert from 'app/atoms/Alert';
 import FormField from 'app/atoms/FormField';
+import { useBackWithFallback } from 'app/hooks/useBackWithFallback';
 import { Icon, IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
 import { PageHeader } from 'components/PageHeader';
@@ -18,13 +19,15 @@ import { isMobile } from 'lib/platform';
 import { useWalletStore } from 'lib/store';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 import useCopyToClipboard from 'lib/ui/useCopyToClipboard';
-import { goBack } from 'lib/woozie';
 
 import { SEED_STATE_NOTICE } from './seed-state-notice';
 
 type FormData = {
   password: string;
 };
+
+// The page opens on the privacy warning; the auth gate and the words come only after View.
+type Step = 'warning' | 'reveal';
 
 const RevealSeedPhrase: FC = () => {
   const { t } = useTranslation();
@@ -39,6 +42,14 @@ const RevealSeedPhrase: FC = () => {
   );
   const { fieldRef, copy, copied } = useCopyToClipboard();
   const [secret, setSecret] = useSecretState();
+  const [step, setStep] = useState<Step>('warning');
+  // Every exit from this page goes through `leave`, never `goBack()` directly.
+  // Several paths want out at once — a failed biometric reveal's catch, then the
+  // auto-close effect once `finally` clears isSubmitting; Hide and the drawer's
+  // close, which also trip that effect — and `history.go(-1)` settles on a later
+  // task, so each call popped another page (Settings too). The hook fires once
+  // per location, and routes to the Settings root when opened cold.
+  const leave = useBackWithFallback('/settings');
   const [hasHardwareProtector, setHasHardwareProtector] = useState<boolean | null>(null);
   const [showPasswordDrawer, setShowPasswordDrawer] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -63,45 +74,64 @@ const RevealSeedPhrase: FC = () => {
     if (seedStatus && seedStatus !== 'stored') setSecret(null);
   }, [seedStatus, setSecret]);
 
-  // Detect auth type and auto-trigger on mount
+  // Detect the auth type on mount, so View knows which gate to open.
   useEffect(() => {
     if (seedStatus && seedStatus !== 'stored') return;
-    const generation = secretGeneration.current;
-    Vault.hasHardwareProtector().then(hasHw => {
-      setHasHardwareProtector(hasHw);
-      if (hasHw) {
-        // Auto-trigger biometric auth for hardware-backed
-        setIsSubmitting(true);
-        revealMnemonic(undefined)
-          .then(mnemonic => {
-            if (generation === secretGeneration.current) setSecret(mnemonic);
-          })
-          .catch((err: any) => {
-            // Same generation guard the success branch and the password path
-            // (below) already take: a rejection from a superseded request must
-            // not navigate away from the view that replaced it.
-            if (generation !== secretGeneration.current) return;
-            setAuthError(err.message);
-            goBack();
-          })
-          .finally(() => setIsSubmitting(false));
-      } else {
-        // Show password drawer for password-backed
-        setShowPasswordDrawer(true);
-      }
-    });
+    let cancelled = false;
+    Vault.hasHardwareProtector()
+      .then(hasHw => {
+        if (!cancelled) setHasHardwareProtector(hasHw);
+      })
+      .catch(() => {
+        if (!cancelled) setHasHardwareProtector(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // No haptic here: Button fires one on every click.
+  const handleView = useCallback(() => {
+    if (hasHardwareProtector === null || isSubmitting) return;
+    if (!hasHardwareProtector) {
+      // Password-backed: the page moves on to the password drawer.
+      setStep('reveal');
+      setShowPasswordDrawer(true);
+      return;
+    }
+    // Hardware-backed: the biometric prompt runs over the warning, which stays
+    // on screen (View spinning) until the words or the error are ready.
+    const generation = secretGeneration.current;
+    setIsSubmitting(true);
+    revealMnemonic(undefined)
+      .then(mnemonic => {
+        if (generation !== secretGeneration.current) return;
+        setSecret(mnemonic);
+        setStep('reveal');
+      })
+      .catch((err: unknown) => {
+        // Same generation guard the success branch and the password path
+        // (below) already take: a rejection from a superseded request must
+        // not navigate away from the view that replaced it.
+        if (generation !== secretGeneration.current) return;
+        setAuthError(err instanceof Error ? err.message : String(err));
+        setStep('reveal');
+        leave();
+      })
+      .finally(() => setIsSubmitting(false));
+  }, [hasHardwareProtector, isSubmitting, revealMnemonic, setSecret, leave]);
 
   useEffect(() => {
     return () => setSecret(null);
   }, [setSecret]);
 
-  // When secret is cleared (auto-hide after 20s), go back
+  // When secret is cleared (auto-hide after 20s), go back. Not on the warning,
+  // where no secret has been asked for yet.
   useEffect(() => {
-    if (secret === null && hasHardwareProtector !== null && !isSubmitting && !showPasswordDrawer) {
-      goBack();
+    if (step === 'reveal' && secret === null && hasHardwareProtector !== null && !isSubmitting && !showPasswordDrawer) {
+      leave();
     }
-  }, [secret, hasHardwareProtector, isSubmitting, showPasswordDrawer]);
+  }, [step, secret, hasHardwareProtector, isSubmitting, showPasswordDrawer, leave]);
 
   const words = secret ? secret.split(' ') : [];
 
@@ -130,13 +160,13 @@ const RevealSeedPhrase: FC = () => {
   const handleHide = useCallback(() => {
     hapticLight();
     setSecret(null);
-    goBack();
-  }, [setSecret]);
+    leave();
+  }, [setSecret, leave]);
 
   const handlePasswordDrawerClose = useCallback(() => {
     setShowPasswordDrawer(false);
-    goBack();
-  }, []);
+    leave();
+  }, [leave]);
 
   if (seedStatus && seedStatus !== 'stored')
     return (
@@ -148,6 +178,47 @@ const RevealSeedPhrase: FC = () => {
         {t(SEED_STATE_NOTICE[seedStatus])}
       </p>
     );
+
+  if (step === 'warning') {
+    return (
+      <div className="flex flex-col flex-1 min-h-0 bg-app-bg">
+        <PageHeader className="px-4" title={t('recoveryPhrase')} onBack={leave} focusTitleOnMount />
+
+        <div className="flex-1 min-h-0 overflow-y-auto flex flex-col px-4 pt-2">
+          {/* A blurred stand-in for the word grid: the shape of the phrase, none of its words. */}
+          <div aria-hidden="true" className="bg-fill rounded-2xl px-6 py-8">
+            <div className="grid grid-cols-2 gap-x-6 gap-y-5">
+              {Array.from({ length: 12 }).map((_, i) => (
+                <div key={i} className="h-1.5 w-full rounded-full bg-fill-pressed" />
+              ))}
+            </div>
+          </div>
+
+          <p className="mt-4 text-center font-sans text-base text-muted">{t('pleaseWriteDownRecoveryPhrase')}</p>
+
+          <div className="mt-auto flex flex-col items-center pt-8 text-center">
+            <div className="mb-4 flex size-14 items-center justify-center rounded-full bg-accent-primary">
+              <Icon name={IconName.EyeOff} size="md" fill="white" />
+            </div>
+            <h2 className="mb-1 font-heading text-xl font-extrabold text-ink">{t('viewThisInPrivatePlace')}</h2>
+            <p className="font-sans text-base text-muted">{t('anyoneWithRecoveryPhrase')}</p>
+          </div>
+        </div>
+
+        <div className="flex shrink-0 gap-2.5 px-4 pt-6 pb-4">
+          <Button className="flex-1" variant={ButtonVariant.Secondary} title={t('close')} onClick={leave} />
+          <Button
+            className="flex-1"
+            variant={ButtonVariant.Primary}
+            title={t('view')}
+            onClick={handleView}
+            disabled={hasHardwareProtector === null || isSubmitting}
+            isLoading={isSubmitting}
+          />
+        </div>
+      </div>
+    );
+  }
 
   if (hasHardwareProtector === null || (!secret && isSubmitting)) {
     return null;
@@ -216,7 +287,7 @@ const RevealSeedPhrase: FC = () => {
   if (authError) {
     return (
       <div className="flex flex-col flex-1 min-h-0 bg-app-bg">
-        <PageHeader className="px-4" title={t('recoveryPhrase')} onBack={() => goBack()} />
+        <PageHeader className="px-4" title={t('recoveryPhrase')} onBack={leave} />
         <div className="px-4 pt-4">
           <Alert type="error" title={t('error')} description={authError} className="rounded-lg text-ink" />
         </div>
@@ -231,7 +302,7 @@ const RevealSeedPhrase: FC = () => {
 
   return (
     <div className="flex flex-col flex-1 min-h-0 bg-app-bg">
-      <PageHeader className="px-4" title={t('recoveryPhrase')} onBack={() => goBack()} />
+      <PageHeader className="px-4" title={t('recoveryPhrase')} onBack={leave} />
 
       <Drawer
         open={showPasswordDrawer}

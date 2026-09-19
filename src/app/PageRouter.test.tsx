@@ -442,6 +442,19 @@ describe('app/PageRouter — ready tab & full-screen routes', () => {
     expect(screen.queryByTestId('tab-layout')).not.toBeInTheDocument();
   });
 
+  // Recovery phrase used to open a warning overlay on the Settings root, where the
+  // tab bar covered its buttons. It is a routed sub-page now, so it gets the
+  // full-screen layout, which hides the tab bar (FullScreenPage.test.tsx asserts
+  // the `data-hide-navbar` flag it sets).
+  it('/settings/reveal-seed-phrase renders full screen, outside TabLayout', () => {
+    renderAt('/settings/reveal-seed-phrase', ready);
+    const el = screen.getByTestId('settings');
+    expect(screen.getByTestId('full-screen-page')).toContainElement(el);
+    expect(screen.getByTestId('full-screen-page')).toHaveAttribute('data-entrance', 'slide');
+    expect(screen.queryByTestId('tab-layout')).not.toBeInTheDocument();
+    expect(el).toHaveAttribute('data-tab-slug', 'reveal-seed-phrase');
+  });
+
   it('retains the root scroll reference across Settings layout changes', () => {
     const { rerender } = renderAt('/settings', ready);
     const initialRef = mockSettingsProps.mock.lastCall![0].rootScrollTop;
