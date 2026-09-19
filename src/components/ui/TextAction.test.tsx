@@ -17,7 +17,7 @@ describe('TextAction', () => {
     render(<TextAction>Learn more</TextAction>);
     const action = screen.getByRole('button', { name: 'Learn more' });
     expect(action).toHaveAttribute('type', 'button');
-    expect(action).toHaveClass('text-accent-tint-ink', 'min-h-11', 'font-heading', 'font-bold');
+    expect(action).toHaveClass('text-action', 'text-accent-tint-ink', 'min-h-11');
     expect(action.className).not.toMatch(/underline|text-primary-500|text-accent-primary\b/);
   });
 

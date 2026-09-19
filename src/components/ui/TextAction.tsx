@@ -28,7 +28,7 @@ export const TextAction = React.forwardRef<HTMLButtonElement, TextActionProps>(f
         onClick?.(event);
       }}
       className={cn(
-        'inline-flex min-h-11 items-center rounded-full px-1 font-heading text-[15px] leading-5 font-bold text-accent-tint-ink',
+        'inline-flex min-h-11 items-center rounded-full px-1 text-action text-accent-tint-ink',
         'outline-none focus-visible:ring-2 focus-visible:ring-accent-primary disabled:opacity-50',
         className
       )}
