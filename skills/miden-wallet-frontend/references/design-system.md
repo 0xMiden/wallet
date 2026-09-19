@@ -64,10 +64,13 @@ Two fills replace six (`gray-25`, `gray-50`, `surface-input`, `surface-interacti
 | `positive` / `positive-ink` | #90BA89 / #3D7A34 | #90BA89 / #90BA89 | Fill / text for success. |
 | `pending` / `pending-ink` | #E85D2F / #B8451A | #E85D2F / #F08B57 | Fill / text for in progress. |
 | `negative` / `negative-ink` | #FF5500 / #C63A00 | #C51A0A / #FF7A4D | Fill / text for errors and destructive actions. |
+| `positive-tint` / `pending-tint` / `negative-tint` | #EAF4E7 / #FDF1E2 / #FEEDEB | #233A20 / #42301A / #4A1D1A | `StatusBadge` fills. Opaque, so the matching ink reads the same on `page` and `fill`: 4.61 / 4.83 / 4.62:1 light, 5.64 / 5.11 / 5.50:1 dark. |
 | Flow accents | `accent-send` #91ACC1, `accent-receive` #99AC94, `accent-earn` #777487, `accent-swap` #BEACD2 | same | Ahmad's top action bar and each flow's selected states only. Never text or a back chevron: most are under 3:1 on white. |
 | Networks | `network-miden-*`, `network-ethereum-*` | as today | NetworkChip only. |
 
-A status is a word or an icon plus its color, never color alone.
+A status is a word or an icon plus its color, never color alone. A status word is never bare
+colored text: it is a `StatusBadge`. The raw fills (#90BA89, #E85D2F, #FF5500, #C51A0A) are
+2.2–3.5:1 on white and never carry text.
 
 ### Type
 
@@ -97,7 +100,7 @@ side by side sit 10px apart (`gap-2.5`), each `flex-1`.
 | CTA (`Button` lg) | 52px |
 | Compact button (`Button` sm) | 36px |
 | Search, single-line input | 44px / 52px |
-| Pill | 32px (24px status) |
+| Pill | 32px (24px status in a header, 20px status in a row) |
 | List row | 64px (40px avatar); 56px without a subtitle |
 | Touch target | 44px minimum |
 
@@ -154,7 +157,8 @@ CTA never do. The CTA clears the home indicator on iOS.
 | Detail card | `DetailCard` + `DetailRow` | `fill`, 16px radius, hairlines between rows; 14px `muted` label, 15px value right; addresses stacked, in full, with an `accent-tint-ink` "Copy". | `FlowDetails`, history `DetailCard`, `lib/ui/DetailCard`, `ReviewRow`, local detail rows |
 | Card | `Card`, `CardButton` | `fill`, 16px radius, no border, on `page`; cards in a list are separated by space (12px), never by an outline. `padding`: `row` (16 × 12px, 64px with a 40px icon: an Activity row), `tile` (16px: an Explore app, a position, an option), `none` (content that pads itself). `CardButton` is one tap target: `button`, tap haptic, `press` motion, `fill-pressed` when pressed, `accent` focus ring. `asChild` draws the surface onto a child that is its own element (a layout-animated row, an `article`). Anything drawn inside a card sits on `page` (an icon tile, a neutral icon circle), since grey on `fill` disappears. | outlined `rounded-2xl border bg-white` cards: Activity rows and pending transfers, Explore app cards, earn position cards, the send fee notice, dApp approval and settings cards, import-type choices |
 | Hero | `Hero` | Centered: 88px avatar or 64px status circle, then the hero value or name, then a 14px `muted` line. On a contact page the name is in the header and the avatar stands alone. | `ReviewAmount`, per-screen heroes |
-| Pill | `Pill` | 32px on `fill` with `ink`; selected: `accent-tint` with `accent-tint-ink`; 16px icon slot; status pills 24px with a dot and a word. | `lib/ui/badge`, seed-word `Chip`, history's `StatusPill` (now a wrapper over it), `AccountTypeBadge`, `PriceChangeBadge`, ad-hoc pills |
+| Pill | `Pill` | 32px on `fill` with `ink`; selected: `accent-tint` with `accent-tint-ink`; 16px icon slot. Status tones (`positive`, `warning`, `negative` on their opaque tints; `inactive` on `fill-pressed` with `ink`) are for `StatusBadge`, which picks them. | `lib/ui/badge`, seed-word `Chip`, `AccountTypeBadge`, `PriceChangeBadge`, ad-hoc pills |
+| Status badge | `StatusBadge` (on `Pill`) | A 6px dot and the status word on the status's tint: positive, pending and negative take their `*-tint` with `*-ink`; neutral (cancelled, reclaimed, checking) takes `fill-pressed` with `ink`. `sm`: 20px, 12px semibold, in rows (Activity, pending transfers, the swap fill list). `md`: 24px, 12px bold, in detail headers. A closed `status` set maps each state to its i18n label and tone; a new state is added there. In-flight states pulse the dot on the `pulse` preset (still under reduced motion). `live` adds `role="status"` where the status changes on screen (detail headers, the swap order line, the guardian pill); never in a list. | the Activity row's dot and 10px colored text, history's `StatusPill` (now a wrapper that maps a transaction row to a status), the bridge and earn detail pills, the legacy summary rows' dots, the swap order's colored line and pending text, the guardian's red/green pill |
 | Network chip | `NetworkChip` | A `Pill` in the network's own tint, logo unchanged. | — |
 | Avatar | `Avatar` | Round: image, initials or icon; 24 / 40 / 88px; a network badge on the corner for `0x` contacts. Contact colors come from the address hash. | ad-hoc icon circles; Activity's square icons become round |
 | Empty state | `EmptyState` | On `fill`, 16px radius: 56px icon circle on `page`, 17px title, 14px `muted` body, a 36px `secondary` button. | `components/EmptyState` (moved), ad-hoc "No …" lines |
@@ -184,6 +188,7 @@ callbacks). The app root sets `<MotionConfig reducedMotion="user">`.
 | `indicator` | shared `layoutId`, `springs.pill` | token detail tabs, `TabPicker` |
 | `shimmer` | 1.2s linear loop, still under reduced motion | two pending-activity runners |
 | `shake` | x keyframes out and back to rest over `durations.slow`, `easeInOut`; does not run under reduced motion | — (a rejected passcode's dots) |
+| `pulse` | opacity 1 → 0.35 → 1 over `durations.pulse` (1.6s) on `easeInOut`, looping; still under reduced motion | — (the `StatusBadge` in-flight dot) |
 
 A step inside one page (the `Navigator` flows: send, swap, bridge deposit, encrypted file; and the
 onboarding steps) is not a page push: its `AnimatePresence` runs in `mode="wait"`, so the leaving
