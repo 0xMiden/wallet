@@ -179,26 +179,6 @@ export function resolveExploreSections(catalog: ExploreCatalog, filter: ExploreF
 }
 
 /**
- * The url whose icon and name carry the capsule morph `layoutId`s, per section. Only one element
- * per url may hold them (framer-motion merges every holder into one projected box), so the first
- * section to show a url owns its morph and later ones render plainly. Recents never own one.
- */
-export function assignMorphOwners(sections: ResolvedExploreSection[]): Map<string, Set<string>> {
-  const claimed = new Set<string>();
-  const owners = new Map<string, Set<string>>();
-  for (const { section, items } of sections) {
-    const owned = new Set<string>();
-    for (const item of items) {
-      if (claimed.has(item.url)) continue;
-      claimed.add(item.url);
-      owned.add(item.url);
-    }
-    owners.set(section.id, owned);
-  }
-  return owners;
-}
-
-/**
  * The catalog items matching a search query under a chip, each once, in the order the sections
  * show them. An item matches when its name, tagline or host contains every word of the query,
  * ignoring case. An empty query matches nothing: the page shows its sections instead.

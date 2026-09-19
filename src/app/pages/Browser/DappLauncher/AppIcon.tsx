@@ -2,18 +2,14 @@
  * An app's icon on Explore: a 12px-radius tile holding the app's image, or its initial on a tint.
  *
  * The tint comes from the app's host through the same hash and palette as contact avatars, so an
- * app keeps its color on every visit and two apps rarely share one. With `morph`, the tile carries
- * the `dapp-favicon-${url}` layoutId that `<CapsuleBar>` shares, so opening the app morphs this
- * tile into the capsule (see `BrowserScreen`'s `LayoutGroup id="dapp-browser"`).
+ * app keeps its color on every visit and two apps rarely share one.
  */
 
 import React, { type FC, useState } from 'react';
 
 import { cva } from 'class-variance-authority';
-import { motion } from 'framer-motion';
 
 import { tintForAddress } from 'components/contacts/ContactAvatar';
-import { useSprings } from 'lib/animation';
 import { cn } from 'lib/ui/util';
 
 /** `row`: 48px, in a list row. `tile`: 56px, in a row of tiles. `hero`: 72px, on a featured card. */
@@ -81,28 +77,15 @@ export interface AppIconProps {
   icon?: string;
   size?: AppIconSize;
   surface?: AppIconSurface;
-  /** Carry the capsule morph's favicon layoutId. One element per url may. */
-  morph?: boolean;
   className?: string;
 }
 
-export const AppIcon: FC<AppIconProps> = ({
-  url,
-  name,
-  icon,
-  size = 'tile',
-  surface = 'page',
-  morph = false,
-  className
-}) => {
+export const AppIcon: FC<AppIconProps> = ({ url, name, icon, size = 'tile', surface = 'page', className }) => {
   const [broken, setBroken] = useState(false);
-  const springs = useSprings();
   const showLetter = !icon || broken;
 
   return (
-    <motion.span
-      layoutId={morph ? `dapp-favicon-${url}` : undefined}
-      transition={springs.morph}
+    <span
       data-slot="app-icon"
       data-letter={showLetter ? 'true' : undefined}
       aria-hidden="true"
@@ -114,28 +97,16 @@ export const AppIcon: FC<AppIconProps> = ({
       ) : (
         <img src={icon} alt="" className={imageVariants({ size })} onError={() => setBroken(true)} draggable={false} />
       )}
-    </motion.span>
+    </span>
   );
 };
 
 export interface AppNameProps {
-  url: string;
   children: React.ReactNode;
-  /** Carry the capsule morph's name layoutId. Pair it with the icon's `morph`. */
-  morph?: boolean;
   className?: string;
 }
 
-/** An app's name, carrying the capsule morph's `dapp-name-${url}` layoutId when `morph` is set. */
-export const AppName: FC<AppNameProps> = ({ url, children, morph = false, className }) => {
-  const springs = useSprings();
-  return (
-    <motion.span
-      layoutId={morph ? `dapp-name-${url}` : undefined}
-      transition={springs.morph}
-      className={cn('block truncate', className)}
-    >
-      {children}
-    </motion.span>
-  );
-};
+/** An app's name, on one line, truncated. */
+export const AppName: FC<AppNameProps> = ({ children, className }) => (
+  <span className={cn('block truncate', className)}>{children}</span>
+);

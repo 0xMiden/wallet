@@ -2,9 +2,8 @@
  * Whether the launcher has played its entrance reveal this session.
  *
  * The launcher unmounts while a dApp is in the foreground and mounts again when it is closed or
- * minimized, and the capsule then morphs back into the card. Replaying the reveal there would
- * fight that morph, so the reveal plays on the launcher's first mount only. (Tab revisits never
- * remount it: tab panes stay mounted.)
+ * minimized. Replaying the reveal on every return from an app would be noise, so the reveal plays
+ * on the launcher's first mount only. (Tab revisits never remount it: tab panes stay mounted.)
  */
 
 let revealed = false;

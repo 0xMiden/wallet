@@ -19,12 +19,10 @@ import { AppIcon, AppName, appTint } from './AppIcon';
 export interface FeaturedCardProps {
   item: ExploreItem;
   onOpen: (url: string) => void;
-  /** Carry the capsule morph's layoutIds (the first section to show this url does). */
-  morph?: boolean;
   className?: string;
 }
 
-export const FeaturedCard: FC<FeaturedCardProps> = ({ item, onOpen, morph = false, className }) => {
+export const FeaturedCard: FC<FeaturedCardProps> = ({ item, onOpen, className }) => {
   const { t } = useTranslation();
   const { press } = useExploreMotion();
   const category = EXPLORE_FILTERS.find(filter => filter.id === item.category);
@@ -60,15 +58,7 @@ export const FeaturedCard: FC<FeaturedCardProps> = ({ item, onOpen, morph = fals
               aria-hidden="true"
               className="absolute inset-0 bg-linear-to-br from-pure-white/30 via-transparent to-pure-black/15"
             />
-            <AppIcon
-              url={item.url}
-              name={item.name}
-              icon={item.icon}
-              size="hero"
-              surface="fill"
-              morph={morph}
-              className="relative"
-            />
+            <AppIcon url={item.url} name={item.name} icon={item.icon} size="hero" surface="fill" className="relative" />
           </>
         )}
         {category && (
@@ -79,13 +69,7 @@ export const FeaturedCard: FC<FeaturedCardProps> = ({ item, onOpen, morph = fals
       </span>
       <span className="flex w-full items-center gap-3 p-4">
         <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-          <AppName
-            url={item.url}
-            morph={morph}
-            className="font-heading text-[17px] leading-[22px] font-extrabold text-ink"
-          >
-            {item.name}
-          </AppName>
+          <AppName className="font-heading text-[17px] leading-[22px] font-extrabold text-ink">{item.name}</AppName>
           <span className="line-clamp-2 font-sans text-sm leading-[18px] text-muted">
             {item.taglineKey ? t(item.taglineKey) : item.tagline}
           </span>

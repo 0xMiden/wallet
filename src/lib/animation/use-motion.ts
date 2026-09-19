@@ -4,10 +4,9 @@
  * PR-7: when the OS reports `prefers-reduced-motion`, spring transitions
  * across the new dApp browser module collapse to an instant tween. The
  * goal is to kill any bouncy / spring motion but preserve the
- * *structural* transitions (tiles still "morph" into the capsule, the
- * switcher still animates in/out, etc.) so the information hierarchy
- * stays intact for users who can parse motion but find springs
- * overstimulating.
+ * *structural* transitions (the switcher still animates in/out, etc.)
+ * so the information hierarchy stays intact for users who can parse
+ * motion but find springs overstimulating.
  *
  * Every animated component in the new browser stack should route its
  * transitions through these helpers instead of importing from
@@ -25,7 +24,7 @@ import { springs as rawSprings, type SpringName } from './springs';
  * Returns the given transition unchanged unless the user has requested
  * reduced motion, in which case it returns an instant tween.
  *
- * Usage: `<motion.div transition={useMotion(springs.morph)} />`.
+ * Usage: `<motion.div transition={useMotion(springs.standard)} />`.
  */
 export function useMotion(transition: Transition): Transition {
   const reduce = useReducedMotion();
@@ -42,7 +41,7 @@ export function useMotion(transition: Transition): Transition {
  *
  * Usage:
  *   const springs = useSprings();
- *   return <motion.div transition={springs.morph} />;
+ *   return <motion.div transition={springs.standard} />;
  */
 export function useSprings(): typeof rawSprings {
   const reduce = useReducedMotion();

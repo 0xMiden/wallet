@@ -28,7 +28,6 @@ export {
   getExploreCatalog,
   resolveExploreSections,
   searchExploreCatalog,
-  assignMorphOwners,
   type ExploreCatalog,
   type ExploreCategory,
   type ExploreFilter,
