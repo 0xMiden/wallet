@@ -18,6 +18,8 @@
  */
 import type { BrowserContext, Page } from '@playwright/test';
 
+import { acknowledgeNetworkNotice } from './network-notice';
+
 /**
  * A reserved-invalid host, so the fixture page can never accidentally hit the
  * network. `context.route` fulfils it locally; the manifest's https content
@@ -147,7 +149,7 @@ export async function completeSeedImportOnboarding(page: Page, fullpageUrl: stri
   await page.getByTestId('onboarding-welcome').waitFor({ timeout: timeoutMs });
   await page.locator('#import-link').click({ timeout: ACTION_TIMEOUT });
   // The network notice (#875) precedes the import flow.
-  await page.getByTestId('onboarding-network-notice-acknowledge').click({ timeout: ACTION_TIMEOUT });
+  await acknowledgeNetworkNotice(page, ACTION_TIMEOUT);
   // Import now asks WHICH credential first; this helper drives the seed-phrase one.
   await page.getByTestId('import-select-type').waitFor({ timeout: timeoutMs });
   await page.getByTestId('import-type-seed-phrase').click({ timeout: ACTION_TIMEOUT });
