@@ -422,6 +422,10 @@ describe('useWalletStore', () => {
       expect(mockRequest).toHaveBeenCalledWith({
         type: WalletMessageType.ExportAccountFileRequest,
         accountPublicKey: 'mtst1account',
+        password: 'password123'
+      });
+    });
+
     it('exportWalletBackupMaterial returns the dedicated snapshot response', async () => {
       const material = { seedPhrase: 'seed', accounts: [], midenClientDbContent: 'db', importedAccounts: [] };
       mockRequest.mockResolvedValueOnce({
