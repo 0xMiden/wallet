@@ -1017,7 +1017,7 @@
   },
   "importWallet": {
     "message": "Importar carteira",
-    "englishSource": "Import Wallet"
+    "englishSource": "Import wallet"
   },
   "importWithKeyInstead": {
     "message": "Importe com a chave em vez disso",
@@ -2001,7 +2001,7 @@
   },
   "chooseImportType": {
     "message": "Escolha o seu tipo de importação",
-    "englishSource": "Choose Your Import Type"
+    "englishSource": "Choose your import type"
   },
   "chooseImportTypeDescription": {
     "message": "Restaure o equilíbrio público com sua frase de 12 palavras. Para restaurar fundos privados, carregue o arquivo de backup criptografado.",
@@ -2009,7 +2009,7 @@
   },
   "importWithSeedPhrase": {
     "message": "Importar com frase-semente",
-    "englishSource": "Import with Seed Phrase"
+    "englishSource": "Import with seed phrase"
   },
   "importWithSeedPhraseDescription": {
     "message": "Use uma Seed Phrase existente de 12 palavras. Você também pode importar carteiras de outros fornecedores de carteiras.",
@@ -2017,7 +2017,7 @@
   },
   "importWithEncryptedWalletFile": {
     "message": "Importar com arquivo de carteira criptografado",
-    "englishSource": "Import with Encrypted Wallet File"
+    "englishSource": "Import with encrypted wallet file"
   },
   "importWithEncryptedWalletFileDescription": {
     "message": "Carregue seu arquivo de carteira criptografado para importar sua conta com segurança. Seus dados permanecem privados, com apenas informações com hash armazenadas na cadeia",
@@ -2049,7 +2049,7 @@
   },
   "useFaceIdOrBiometric": {
     "message": "Use o Face ID ou a identificação biométrica",
-    "englishSource": "Use FaceID or Biometric"
+    "englishSource": "Use Face ID or biometrics"
   },
   "setUpYourPasscode": {
     "message": "Configure sua senha",
@@ -2261,11 +2261,11 @@
   },
   "enterYourWalletSeedPhrase": {
     "message": "Digite a frase de recuperação (Seed phrase) de 12 palavras da sua carteira.",
-    "englishSource": "Enter your wallet's 12-word Seed phrase."
+    "englishSource": "Enter your wallet's 12-word seed phrase."
   },
   "onlyMidenSeedPhrasesAreSupported": {
     "message": "Só são suportadas frases do Miden Seed.",
-    "englishSource": "Only Miden Seed phrases are supported."
+    "englishSource": "Only Miden seed phrases are supported."
   },
   "yourWalletIsReady": {
     "message": "Sua <highlight>Carteira</highlight> está pronta!",
@@ -3014,7 +3014,7 @@
   },
   "chooseRecoveryMethod": {
     "message": "Configurar a recuperação de conta",
-    "englishSource": "Set Up Account Recovery"
+    "englishSource": "Set up account recovery"
   },
   "chooseRecoveryMethodDescription": {
     "message": "Escolha como deseja recuperar sua conta caso perca o acesso.",
@@ -3030,7 +3030,7 @@
   },
   "fullyPrivateRecovery": {
     "message": "Totalmente privado",
-    "englishSource": "Fully Private"
+    "englishSource": "Fully private"
   },
   "fullyPrivateRecoveryDescription": {
     "message": "Apenas local: ninguém além de você tem acesso ao seu estado, mas não há recuperação; a perda do seu dispositivo resultará na perda definitiva dos seus fundos.",

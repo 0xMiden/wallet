@@ -1017,7 +1017,7 @@
   },
   "importWallet": {
     "message": "匯入錢包",
-    "englishSource": "Import Wallet"
+    "englishSource": "Import wallet"
   },
   "importWithKeyInstead": {
     "message": "請改用金鑰匯入",
@@ -2001,7 +2001,7 @@
   },
   "chooseImportType": {
     "message": "選擇您的匯入類型",
-    "englishSource": "Choose Your Import Type"
+    "englishSource": "Choose your import type"
   },
   "chooseImportTypeDescription": {
     "message": "請使用您的 12 字短語來恢復公開餘額。若要恢復私人餘額，請上傳加密備份檔案。",
@@ -2009,7 +2009,7 @@
   },
   "importWithSeedPhrase": {
     "message": "使用 Seed Phrase 匯入",
-    "englishSource": "Import with Seed Phrase"
+    "englishSource": "Import with seed phrase"
   },
   "importWithSeedPhraseDescription": {
     "message": "請使用現有的 12 字復原短語。您也可以從其他錢包供應商匯入錢包。",
@@ -2017,7 +2017,7 @@
   },
   "importWithEncryptedWalletFile": {
     "message": "透過加密錢包檔案匯入",
-    "englishSource": "Import with Encrypted Wallet File"
+    "englishSource": "Import with encrypted wallet file"
   },
   "importWithEncryptedWalletFileDescription": {
     "message": "上傳您的加密錢包檔案，以安全方式匯入您的帳戶。您的資料將保持私密，僅有經雜湊處理的資訊儲存於區塊鏈上",
@@ -2049,7 +2049,7 @@
   },
   "useFaceIdOrBiometric": {
     "message": "使用 Face ID 或生物識別功能",
-    "englishSource": "Use FaceID or Biometric"
+    "englishSource": "Use Face ID or biometrics"
   },
   "setUpYourPasscode": {
     "message": "設定您的通行碼",
@@ -2261,11 +2261,11 @@
   },
   "enterYourWalletSeedPhrase": {
     "message": "請輸入您的錢包的 12 個單詞的「Seed phrase」。",
-    "englishSource": "Enter your wallet's 12-word Seed phrase."
+    "englishSource": "Enter your wallet's 12-word seed phrase."
   },
   "onlyMidenSeedPhrasesAreSupported": {
     "message": "僅支援 Miden Seed 的短語。",
-    "englishSource": "Only Miden Seed phrases are supported."
+    "englishSource": "Only Miden seed phrases are supported."
   },
   "yourWalletIsReady": {
     "message": "您的 <highlight>錢包</highlight> 已準備就緒！",
@@ -3014,7 +3014,7 @@
   },
   "chooseRecoveryMethod": {
     "message": "設定帳戶復原功能",
-    "englishSource": "Set Up Account Recovery"
+    "englishSource": "Set up account recovery"
   },
   "chooseRecoveryMethodDescription": {
     "message": "請選擇若您無法登入帳戶時，希望如何取回帳戶。",
@@ -3030,7 +3030,7 @@
   },
   "fullyPrivateRecovery": {
     "message": "完全私密",
-    "englishSource": "Fully Private"
+    "englishSource": "Fully private"
   },
   "fullyPrivateRecoveryDescription": {
     "message": "僅限本地使用，除了您自己之外，無人能查看您的狀態，但無法恢復資料；若遺失裝置，您的資金將永久遺失。",

@@ -1016,8 +1016,8 @@
     "englishSource": "Processing..."
   },
   "importWallet": {
-    "message": "Import Wallet",
-    "englishSource": "Import Wallet"
+    "message": "Import wallet",
+    "englishSource": "Import wallet"
   },
   "importWithKeyInstead": {
     "message": "Import with key instead",
@@ -2000,24 +2000,24 @@
     "englishSource": "Recover your account"
   },
   "chooseImportType": {
-    "message": "Choose Your Import Type",
-    "englishSource": "Choose Your Import Type"
+    "message": "Choose your import type",
+    "englishSource": "Choose your import type"
   },
   "chooseImportTypeDescription": {
     "message": "Restore public balance with your 12-word phrase. To restore private balance, upload an encrypted backup file.",
     "englishSource": "Restore public balance with your 12-word phrase. To restore private balance, upload an encrypted backup file."
   },
   "importWithSeedPhrase": {
-    "message": "Import with Seed Phrase",
-    "englishSource": "Import with Seed Phrase"
+    "message": "Import with seed phrase",
+    "englishSource": "Import with seed phrase"
   },
   "importWithSeedPhraseDescription": {
     "message": "Use an existing 12 word recovery phrase. You can also import wallets from other wallet providers.",
     "englishSource": "Use an existing 12 word recovery phrase. You can also import wallets from other wallet providers."
   },
   "importWithEncryptedWalletFile": {
-    "message": "Import with Encrypted Wallet File",
-    "englishSource": "Import with Encrypted Wallet File"
+    "message": "Import with encrypted wallet file",
+    "englishSource": "Import with encrypted wallet file"
   },
   "importWithEncryptedWalletFileDescription": {
     "message": "Upload your encrypted wallet file to securely import your account. Your data remains private, with only hashed information stored on-chain",
@@ -2048,8 +2048,8 @@
     "englishSource": "Choose how you want to protect your wallet"
   },
   "useFaceIdOrBiometric": {
-    "message": "Use FaceID or Biometric",
-    "englishSource": "Use FaceID or Biometric"
+    "message": "Use Face ID or biometrics",
+    "englishSource": "Use Face ID or biometrics"
   },
   "setUpYourPasscode": {
     "message": "Set up your passcode",
@@ -2260,12 +2260,12 @@
     "englishSource": "That's not the first and last word — tap them again"
   },
   "enterYourWalletSeedPhrase": {
-    "message": "Enter your wallet's 12-word Seed phrase.",
-    "englishSource": "Enter your wallet's 12-word Seed phrase."
+    "message": "Enter your wallet's 12-word seed phrase.",
+    "englishSource": "Enter your wallet's 12-word seed phrase."
   },
   "onlyMidenSeedPhrasesAreSupported": {
-    "message": "Only Miden Seed phrases are supported.",
-    "englishSource": "Only Miden Seed phrases are supported."
+    "message": "Only Miden seed phrases are supported.",
+    "englishSource": "Only Miden seed phrases are supported."
   },
   "yourWalletIsReady": {
     "message": "Your <highlight>Wallet</highlight> is ready!",
@@ -3013,8 +3013,8 @@
     "englishSource": "View Details"
   },
   "chooseRecoveryMethod": {
-    "message": "Set Up Account Recovery",
-    "englishSource": "Set Up Account Recovery"
+    "message": "Set up account recovery",
+    "englishSource": "Set up account recovery"
   },
   "chooseRecoveryMethodDescription": {
     "message": "Choose how you want to recover your account if you lose access.",
@@ -3029,8 +3029,8 @@
     "englishSource": "Recommended. Guardian-based recovery for your account, but the guardian operator can see your state."
   },
   "fullyPrivateRecovery": {
-    "message": "Fully Private",
-    "englishSource": "Fully Private"
+    "message": "Fully private",
+    "englishSource": "Fully private"
   },
   "fullyPrivateRecoveryDescription": {
     "message": "Local only, no one sees your state except you but no recovery, losing your device will result in permanent loss of your funds.",
