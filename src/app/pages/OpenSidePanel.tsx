@@ -2,10 +2,11 @@ import React, { FC, useEffect, useState } from 'react';
 
 import { Trans, useTranslation } from 'react-i18next';
 
-import { IconName } from 'app/icons/v2';
+import { Icon, IconName } from 'app/icons/v2';
 import { Button } from 'components/Button';
-import { Message } from 'components/Message';
+import { Hero } from 'components/ui/Hero';
 import { Spinner } from 'components/ui/Spinner';
+import { SubPageLayout } from 'components/ui/SubPageLayout';
 import { closeOnboardingTab, openSidePanelToWallet } from 'lib/extension/side-panel-handoff';
 import { useMidenContext } from 'lib/miden/front';
 import { navigate } from 'lib/woozie';
@@ -64,40 +65,34 @@ const OpenSidePanel: FC = () => {
   // Match the onboarding flow's centered, max-width container (this screen is
   // rendered directly by PageRouter, not inside OnboardingFlow's wrapper).
   return (
-    <div className="flex flex-col bg-app-bg overflow-hidden w-full h-full mx-auto" style={{ maxWidth: 420 }}>
+    <div className="mx-auto flex h-full w-full max-w-[420px] flex-col overflow-hidden bg-app-bg">
       {!ready ? (
-        <div className="flex flex-col flex-1 items-center justify-center gap-y-4 px-6 text-center">
+        <div className="flex flex-1 flex-col items-center justify-center gap-y-4 px-4 text-center">
           <Spinner />
-          <p className="text-text-muted text-sm">{t('creatingYourWallet')}</p>
+          <p className="font-sans text-[15px] leading-[22px] text-muted">{t('creatingYourWallet')}</p>
         </div>
       ) : (
-        <div className="w-full h-full pt-11.5">
-          <div className="flex-1 flex flex-col h-full justify-between gap-y-8 w-full px-6">
-            <div className="flex flex-col items-center grow">
-              <Message
-                icon={IconName.Success}
-                iconSize="3xl"
-                iconClassName="mb-8"
-                title={
-                  <Trans
-                    i18nKey="yourWalletIsReady"
-                    components={{ highlight: <span className="text-primary-500" /> }}
-                  />
-                }
-                description=""
+        <SubPageLayout
+          footer={
+            <Button tabIndex={0} title={t('openWallet')} className="max-w-none" onClick={onOpen} isLoading={opening} />
+          }
+        >
+          <Hero
+            nameAs="h1"
+            className="my-auto py-6"
+            visual={
+              <span className="flex size-16 items-center justify-center rounded-full bg-positive-tint text-positive-tint-ink">
+                <Icon name={IconName.Success} size="lg" aria-hidden="true" />
+              </span>
+            }
+            name={
+              <Trans
+                i18nKey="yourWalletIsReady"
+                components={{ highlight: <span className="text-accent-tint-ink" /> }}
               />
-            </div>
-            <div className="flex flex-col mt-auto items-center gap-y-3 w-full pb-8">
-              <Button
-                tabIndex={0}
-                title={t('openWallet')}
-                className="self-center w-full"
-                onClick={onOpen}
-                isLoading={opening}
-              />
-            </div>
-          </div>
-        </div>
+            }
+          />
+        </SubPageLayout>
       )}
     </div>
   );

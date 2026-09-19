@@ -133,11 +133,19 @@ describe('OpenSidePanel', () => {
     expect(testContainer!.textContent).not.toContain('<highlight>');
   });
 
-  it('styles the highlighted word in a dedicated span', async () => {
+  it('styles the highlighted word in the text-action ink, never the brand orange', async () => {
     await render();
 
-    const highlighted = testContainer!.querySelector('.text-primary-500');
+    const highlighted = testContainer!.querySelector('.text-accent-tint-ink');
     expect(highlighted?.textContent).toBe('Wallet');
+    expect(testContainer!.querySelector('.text-primary-500')).toBeNull();
+  });
+
+  it('draws the outcome as the shared hero with Open wallet pinned in the footer', async () => {
+    await render();
+
+    expect(testContainer!.querySelector('h1')).toHaveClass('text-2xl', 'font-black');
+    expect(testContainer!.querySelector('[data-slot="footer"] button')).toHaveTextContent(/open/i);
   });
 
   it('shows a spinner while the wallet is still being created', async () => {
