@@ -295,6 +295,34 @@ describe('TabHeader — search swap animation', () => {
     expect(screen.queryByTestId('tab-header-search')).toBeNull();
   });
 
+  it('passes submit, Escape, the URL keyboard and a test id through to the field', () => {
+    const onSubmit = jest.fn();
+    const onEscape = jest.fn();
+    render(
+      <TabHeader
+        title="Explore"
+        search={{ ...search, value: 'miden.xyz', onSubmit, onEscape, inputMode: 'url', 'data-testid': 'field' }}
+      />
+    );
+    const input = screen.getByTestId('field');
+    expect(input).toHaveAttribute('inputmode', 'url');
+    expect(input).toHaveAttribute('enterkeyhint', 'go');
+    fireEvent.keyDown(input, { key: 'Enter' });
+    fireEvent.keyDown(input, { key: 'Escape' });
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    expect(onEscape).toHaveBeenCalledTimes(1);
+  });
+
+  it('forwards a test id to a header action', () => {
+    render(
+      <TabHeader
+        title="Explore"
+        actions={<TabHeaderAction label="Search" icon={IconName.Search} onClick={jest.fn()} data-testid="toggle" />}
+      />
+    );
+    expect(screen.getByTestId('toggle')).toHaveAccessibleName('Search');
+  });
+
   it('still autofocuses the search field when it opens', () => {
     render(<TabHeader title="Activity" search={search} />);
 
