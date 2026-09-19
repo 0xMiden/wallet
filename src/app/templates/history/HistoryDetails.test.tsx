@@ -2758,7 +2758,7 @@ describe('HistoryDetails earn-deposit', () => {
     const badge = screen.getByTestId('history-status-pill');
     expect(badge).toHaveTextContent('failed');
     expect(badge).toHaveAttribute('role', 'status');
-    expect(badge).toHaveClass('h-6', 'bg-negative-tint', 'text-negative-ink');
+    expect(badge).toHaveClass('h-6', 'bg-negative-tint', 'text-negative-tint-ink');
   });
 
   it('falls back to the Miden status pill until the collateral note lands', async () => {

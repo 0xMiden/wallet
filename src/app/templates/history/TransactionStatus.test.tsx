@@ -105,15 +105,11 @@ describe('ExternalLinkValue', () => {
 
 describe('StatusPill', () => {
   const pill = (container: HTMLElement) => container.firstChild as HTMLElement;
-  // The dot is the `aria-hidden` leading span the Pill component renders for
-  // `dot`; decorative only, since the label already names the status.
-  const dot = (container: HTMLElement) => pill(container).querySelector('[aria-hidden="true"]') as HTMLElement;
 
-  it('renders the completed variant as a positive-toned pill with a dot', () => {
+  it('renders the completed variant as a positive-toned pill', () => {
     const { container } = render(<StatusPill status={ITransactionStatus.Completed} />);
 
-    expect(pill(container)).toHaveClass('text-positive-ink');
-    expect(dot(container)).toHaveClass('bg-current');
+    expect(pill(container)).toHaveClass('text-positive-tint-ink');
     expect(pill(container)).toHaveTextContent('t:confirmed');
   });
 
@@ -142,8 +138,7 @@ describe('StatusPill', () => {
 
     expect(pill(container)).toHaveTextContent('t:cancelled');
     expect(pill(container)).toHaveClass('bg-fill-pressed', 'text-ink');
-    expect(pill(container)).not.toHaveClass('text-negative-ink');
-    expect(dot(container)).toHaveClass('bg-current');
+    expect(pill(container)).not.toHaveClass('text-negative-tint-ink');
   });
 
   it('lets failure outrank a reported settlement rather than labelling it in red', () => {
@@ -154,23 +149,20 @@ describe('StatusPill', () => {
     const { container } = render(<StatusPill status={ITransactionStatus.Failed} swapSettlement="pending" />);
 
     expect(pill(container)).toHaveTextContent('t:failed');
-    expect(pill(container)).toHaveClass('text-negative-ink');
+    expect(pill(container)).toHaveClass('text-negative-tint-ink');
   });
 
-  it('renders the failed variant as a negative-toned pill with a dot', () => {
+  it('renders the failed variant as a negative-toned pill', () => {
     const { container } = render(<StatusPill status={ITransactionStatus.Failed} />);
 
-    expect(pill(container)).toHaveClass('text-negative-ink');
-    expect(dot(container)).toHaveClass('bg-current');
+    expect(pill(container)).toHaveClass('text-negative-tint-ink');
     expect(pill(container)).toHaveTextContent('t:failed');
   });
 
   it('renders the in-progress (warning) fallback when status is undefined', () => {
     const { container } = render(<StatusPill />);
 
-    expect(pill(container)).toHaveClass('text-pending-ink');
-    // The dot inherits the pill's ink instead of hardcoding a fixed color.
-    expect(dot(container)).toHaveClass('bg-current');
+    expect(pill(container)).toHaveClass('text-pending-tint-ink');
 
     expect(pill(container)).toHaveTextContent('t:inProgress');
   });
@@ -186,10 +178,10 @@ describe('StatusPill', () => {
   it('is the 24px md StatusBadge, a live region because the status changes on screen', () => {
     const { container } = render(<StatusPill status={ITransactionStatus.Queued} testId="history-status-pill" />);
 
-    expect(pill(container)).toHaveClass('h-6', 'bg-pending-tint', 'text-pending-ink');
+    expect(pill(container)).toHaveClass('h-6', 'bg-pending-tint', 'text-pending-tint-ink');
     expect(screen.getByRole('status')).toBe(screen.getByTestId('history-status-pill'));
-    // In flight: the dot breathes.
-    expect(dot(container)).toHaveAttribute('data-pulsing');
+    // The word alone: no dot, in flight or not.
+    expect(pill(container).querySelector('[aria-hidden="true"]')).toBeNull();
   });
 });
 

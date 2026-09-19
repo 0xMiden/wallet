@@ -283,7 +283,7 @@ describe('SwapDetail note rows', () => {
     const openFill = screen.getByText('swapOpenFill').closest('[role="status"]');
     const badge = openFill?.querySelector('.bg-pending-tint');
     expect(badge).toHaveTextContent('pending');
-    expect(badge).toHaveClass('h-5', 'text-pending-ink');
+    expect(badge).toHaveClass('h-5', 'text-pending-tint-ink');
     unmount();
 
     renderDetail({ orderState: 'filled' });
