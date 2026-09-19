@@ -122,7 +122,8 @@ jest.mock('components/Button', () => ({
     onClick,
     type,
     disabled,
-    isLoading
+    isLoading,
+    className
   }: {
     id?: string;
     title?: string;
@@ -130,6 +131,7 @@ jest.mock('components/Button', () => ({
     type?: 'button' | 'submit' | 'reset';
     disabled?: boolean;
     isLoading?: boolean;
+    className?: string;
   }) => (
     <button
       id={id}
@@ -137,6 +139,7 @@ jest.mock('components/Button', () => ({
       onClick={onClick}
       disabled={disabled}
       data-loading={isLoading ? 'true' : 'false'}
+      className={className}
     >
       {title}
     </button>
@@ -573,6 +576,16 @@ describe('Unlock — hardware unlock on mount', () => {
     expect(screen.getByText('biometricUnlockRequired')).toBeInTheDocument();
     expect(screen.getByText('tryAgain')).toBeInTheDocument();
     expect(screen.getByText('resetWallet')).toBeInTheDocument();
+
+    // Both hardware-unlock buttons used to carry an inline style object
+    // (fontSize/lineHeight/padding) fighting the canonical Button anatomy;
+    // only layout (`w-full`, `mb-3`) should remain.
+    const retryBtn = container.querySelector('#retry-biometric') as HTMLButtonElement;
+    const resetBtn = container.querySelector('#reset-wallet') as HTMLButtonElement;
+    expect(retryBtn).toHaveClass('w-full', 'mb-3');
+    expect(retryBtn.className).not.toMatch(/justify-center/);
+    expect(resetBtn).toHaveClass('w-full');
+    expect(resetBtn.className).not.toMatch(/justify-center/);
 
     // Retry succeeds -> setAttempt(1) + navigate('/').
     fireEvent.click(container.querySelector('#retry-biometric') as HTMLButtonElement);
