@@ -40,7 +40,7 @@ import AdvancedSettings from './AdvancedSettings';
 import NetworksSettings from './Networks';
 import { SettingsSelectors } from './Settings.selectors';
 import pkg from '../../../package.json';
-import { FEEDBACK_URL, PRIVACY_POLICY_URL, TERMS_OF_USE_URL } from '../constants';
+import { FEEDBACK_URL, PRIVACY_POLICY_URL, SUPPORT_URL, TERMS_OF_USE_URL } from '../constants';
 
 type SettingsProps = {
   tabSlug?: string | null;
@@ -237,6 +237,17 @@ const TAB_GROUPS: TabGroup[] = [
         titleI18nKey: 'termsOfService',
         Component: () => null,
         linksOutsideOfWallet: true
+      },
+      {
+        // Opens the Miden support site. Not an external <a> because that would
+        // hit the system browser on mobile; the row's onClick is wired up in the
+        // render below (not here) so the in-app webview's title can be
+        // localized via `t('support')` — unlike FEEDBACK_URL's hard-coded
+        // English title, this one is user-facing chrome shown on every locale.
+        slug: 'support',
+        titleI18nKey: 'support',
+        Component: () => null,
+        testID: SettingsSelectors.SupportButton
       },
       {
         // Opens the hosted feedback form. Not an external <a> because that would
@@ -518,12 +529,18 @@ const Settings: FC<SettingsProps> = ({ tabSlug, rootScrollTop: savedRootScrollTo
                 <ListGroup>
                   {group.tabs.map(tab => {
                     const isExternal = tab.linksOutsideOfWallet;
+                    const isSupport = tab.slug === 'support';
                     // A tab may carry its own onClick (e.g. Send feedback →
                     // openExternalUrl); such rows never route to a /settings page.
                     // Recovery phrase routes like every other row: its sub-page
                     // opens on the privacy warning, full screen, so the tab bar
                     // never covers the warning's buttons.
-                    const hasCustomClick = !!tab.onClick;
+                    const hasCustomClick = isSupport || !!tab.onClick;
+                    // Support's webview title needs `t`, which the module-level
+                    // TAB_GROUPS can't reach, so its click is built here.
+                    const handleClick = isSupport
+                      ? () => openExternalUrl({ url: SUPPORT_URL, title: t('support') })
+                      : tab.onClick;
                     return (
                       <ListRow
                         key={tab.slug + tab.titleI18nKey}
@@ -532,7 +549,7 @@ const Settings: FC<SettingsProps> = ({ tabSlug, rootScrollTop: savedRootScrollTo
                         href={isExternal ? tab.slug : undefined}
                         // No `hapticLight()` here: ListRow fires one for every branch
                         // it renders, so adding one buzzed twice per tap.
-                        onClick={isExternal ? undefined : tab.onClick}
+                        onClick={isExternal ? undefined : handleClick}
                         value={tab.slug === 'language' ? languageLabel : undefined}
                         // Every row opens something: a page, a sheet or a site.
                         chevron
