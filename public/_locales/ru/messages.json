@@ -531,14 +531,6 @@
     "message": "Нажмите, чтобы отобразить это поле",
     "englishSource": "Click to reveal this field"
   },
-  "copiedHash": {
-    "message": "Скопировано.",
-    "englishSource": "Copied."
-  },
-  "copyHashToClipboard": {
-    "message": "Скопировать в буфер обмена",
-    "englishSource": "Copy to clipboard"
-  },
   "accounts": {
     "message": "Счета",
     "englishSource": "Accounts"

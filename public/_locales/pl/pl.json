@@ -96,8 +96,6 @@
   "versionLabel": "wersja: $version$",
   "resetPermissionsConfirmation": "Czy na pewno chcesz zresetować uprawnienia dla pliku „\n $origin$”?",
   "clickToRevealField": "Kliknij, aby wyświetlić to pole",
-  "copiedHash": "Skopiowano.",
-  "copyHashToClipboard": "Skopiuj do schowka",
   "accounts": "Konta",
   "cardColor": "Kolor karty",
   "lock": "Zamek",
