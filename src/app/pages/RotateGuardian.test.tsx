@@ -34,24 +34,25 @@ jest.mock('app/layouts/PageLayout', () => ({
 jest.mock('screens/onboarding/common/ChooseGuardian', () => ({
   ChooseGuardianScreen: ({
     onSubmit,
+    onBack,
     currentEndpoint,
     allowCustomEndpoint,
     error
   }: {
     onSubmit: (payload: { guardianId: string; guardianEndpoint: string }) => void;
+    onBack?: () => void;
     currentEndpoint?: string;
     allowCustomEndpoint?: boolean;
     error?: string | null;
   }) => (
     <div data-testid="choose-guardian" data-current={currentEndpoint} data-allow-custom={String(allowCustomEndpoint)}>
-      {/* Stands in for the picker's own h1 (ChooseGuardian.tsx, rendered whenever
-        `hideHeader` is false — and this page does not set it). It makes the "no
-        duplicate heading" test below meaningful: without it that test asserted
-        the absence of a second heading against markup that had none at all, so it
-        would have passed even if the page header had gone back to rendering one.
-        It does NOT prove the route has a heading — ChooseGuardian is mocked, so
-        the real h1 could disappear and this stays green. That belongs in a
-        ChooseGuardian test. */}
+      {/* Stands in for the picker's page mode: given onBack it draws the shared
+        header, the back chevron beside the one h1. */}
+      {onBack && (
+        <button type="button" onClick={onBack}>
+          back
+        </button>
+      )}
       <h1>Choose your Guardian</h1>
       {error ? <span role="alert">{error}</span> : null}
       <button
@@ -110,12 +111,11 @@ it('hands the picker the endpoint the account is actually on, and allows a custo
   expect(screen.getByTestId('page-layout')).toHaveAttribute('data-hide-toolbar', 'true');
 });
 
-it('leaves the page heading to the picker rather than titling the header too', () => {
+it('hands the picker the back action, so the page has one header and one heading', () => {
   render(<RotateGuardian />);
 
-  // Exactly one, and it is the picker's. A title on the header too gave the page
-  // two level-1 headings and two stacked titles; asserting "no headings" instead
-  // would pass just as well if the picker's h1 vanished and left none.
+  // The picker draws the page (header, body and pinned Continue); the route adds no
+  // header of its own, so there is exactly one level-1 heading.
   const headings = screen.getAllByRole('heading', { level: 1 });
   expect(headings).toHaveLength(1);
   expect(headings[0]).toHaveTextContent('Choose your Guardian');
