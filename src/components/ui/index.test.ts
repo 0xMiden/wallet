@@ -27,6 +27,7 @@ import { SegmentedActionBar } from './SegmentedActionBar';
 import { Skeleton } from './Skeleton';
 import { Sparkline } from './Sparkline';
 import { Spinner } from './Spinner';
+import { StatusBadge } from './StatusBadge';
 import { TabHeader, TabHeaderAction } from './TabHeader';
 import { TextField } from './TextField';
 
@@ -51,6 +52,7 @@ describe('components/ui barrel', () => {
     AccountsDrawer,
     Avatar,
     Pill,
+    StatusBadge,
     BalanceCard,
     CopyButton,
     CopyChip,
