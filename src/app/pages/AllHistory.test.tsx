@@ -2,12 +2,42 @@ import React from 'react';
 
 import { fireEvent, render, screen } from '@testing-library/react';
 
-import { hapticSelection } from 'lib/mobile/haptics';
+import { hapticLight, hapticSelection } from 'lib/mobile/haptics';
 
 import AllHistory from './AllHistory';
 
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
+}));
+
+// A single mutable flag drives both mocks below, the same way real
+// `prefers-reduced-motion` drives framer's own `useReducedMotion` AND
+// `lib/animation`'s `useMotion` in production.
+const mockReducedMotion = { value: false };
+
+// The selected filter's fill is a `motion.span` sharing a `layoutId` with the
+// previous selection; render it as a plain span surfacing the id (and the
+// resolved `transition`, stringified, so the reduced-motion swap is
+// assertable) so its presence/position is testable without framer's layout
+// machinery.
+jest.mock('framer-motion', () => ({
+  __esModule: true,
+  motion: {
+    span: ({ children, layout, layoutId, initial, animate, transition, ...props }: any) => (
+      <span data-layout-id={layoutId} data-transition={JSON.stringify(transition)} {...props}>
+        {children}
+      </span>
+    )
+  },
+  useReducedMotion: () => mockReducedMotion.value
+}));
+
+jest.mock('lib/animation', () => ({
+  __esModule: true,
+  springs: { pill: { type: 'spring' } },
+  // Mirrors the real `useMotion`: the spring unchanged, or an instant tween
+  // once reduced motion is on.
+  useMotion: (transition: unknown) => (mockReducedMotion.value ? { duration: 0 } : transition)
 }));
 
 // The dead-letter notice owns its own data (SWR over the note dead-letter
@@ -89,12 +119,25 @@ jest.mock('lib/woozie', () => ({
 
 const getHistory = () => screen.getByTestId('history');
 const getFilterButton = (label: string) => screen.getByRole('button', { name: label });
+// The selected chip's shared fill: a sibling `motion.span` (mocked to a plain
+// span) carrying the layoutId, not a class on the Pill button itself.
+const getFilterIndicator = () => document.querySelector('[data-layout-id="activity-filter-pill"]');
+
+// jsdom does not implement scrollIntoView; install a spy so the
+// keep-selection-in-view effect can run without throwing.
+const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
 
 describe('AllHistory', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockEndpoint.rpcUrl = 'https://rpc-a.example';
     mockPendingMounts.count = 0;
+    mockReducedMotion.value = false;
+    HTMLElement.prototype.scrollIntoView = jest.fn();
+  });
+
+  afterEach(() => {
+    HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
   });
 
   it('renders the activity header, filter chips and search field', () => {
@@ -143,10 +186,63 @@ describe('AllHistory', () => {
     render(<AllHistory />);
 
     expect(getFilterButton('all').getAttribute('aria-pressed')).toBe('true');
-    expect(getFilterButton('all').className).toContain('bg-accent-primary');
+    expect(getFilterButton('all').className).toContain('text-accent-tint-ink');
+    // The shared fill sits behind the active chip, not styled onto it directly.
+    expect(getFilterIndicator()).toHaveClass('bg-accent-tint');
 
     expect(getFilterButton('sent').getAttribute('aria-pressed')).toBe('false');
-    expect(getFilterButton('sent').className).toContain('bg-white');
+    expect(getFilterButton('sent').className).toContain('bg-fill');
+  });
+
+  it('paints the active chip above its shared-fill indicator and never lets it eat taps', () => {
+    render(<AllHistory />);
+
+    // `Pill` is always `position: relative`, so the later-in-DOM, real button
+    // paints over the earlier, absolutely-positioned indicator span — not the
+    // other way around (CSS paints all positioned siblings after all static
+    // ones, regardless of DOM order, unless the button is itself positioned).
+    expect(getFilterButton('all')).toHaveClass('relative');
+    // Belt and suspenders: the indicator itself never intercepts a tap either.
+    expect(getFilterIndicator()).toHaveClass('pointer-events-none');
+  });
+
+  it('renders exactly one shared-fill indicator at a time', () => {
+    render(<AllHistory />);
+    expect(document.querySelectorAll('[data-layout-id="activity-filter-pill"]')).toHaveLength(1);
+
+    fireEvent.click(getFilterButton('sent'));
+    expect(document.querySelectorAll('[data-layout-id="activity-filter-pill"]')).toHaveLength(1);
+  });
+
+  describe('reduced motion', () => {
+    beforeEach(() => {
+      mockReducedMotion.value = true;
+    });
+
+    it('scrolls the selection into view instantly instead of smoothly', () => {
+      render(<AllHistory />);
+
+      expect(HTMLElement.prototype.scrollIntoView).toHaveBeenCalledWith({
+        behavior: 'auto',
+        block: 'nearest',
+        inline: 'nearest'
+      });
+    });
+
+    it('collapses the shared-fill indicator to an instant transition', () => {
+      render(<AllHistory />);
+
+      // The mocked `useMotion` swaps the spring for `{ duration: 0 }` once
+      // reduced motion is on — the same collapse the real helper performs.
+      expect(getFilterIndicator()).toHaveAttribute('data-transition', JSON.stringify({ duration: 0 }));
+    });
+
+    it('still renders exactly one indicator, and it stays untappable', () => {
+      render(<AllHistory />);
+
+      expect(document.querySelectorAll('[data-layout-id="activity-filter-pill"]')).toHaveLength(1);
+      expect(getFilterIndicator()).toHaveClass('pointer-events-none');
+    });
   });
 
   it('changes the active filter and propagates it to History on tap', () => {
@@ -155,18 +251,43 @@ describe('AllHistory', () => {
     fireEvent.click(getFilterButton('received'));
 
     expect(hapticSelection).toHaveBeenCalledTimes(1);
+    expect(hapticLight).not.toHaveBeenCalled();
     expect(getFilterButton('received').getAttribute('aria-pressed')).toBe('true');
     expect(getFilterButton('all').getAttribute('aria-pressed')).toBe('false');
     expect(getHistory().getAttribute('data-filter')).toBe('received');
+
+    // The shared fill moves to the newly-selected chip.
+    expect(getFilterButton('received').className).toContain('text-accent-tint-ink');
+    expect(getFilterButton('all').className).not.toContain('text-accent-tint-ink');
+
+    // The newly-selected chip is scrolled into view.
+    expect(HTMLElement.prototype.scrollIntoView).toHaveBeenCalledWith({
+      behavior: 'smooth',
+      block: 'nearest',
+      inline: 'nearest'
+    });
+  });
+
+  it('scrolls the initially-selected chip into view on mount', () => {
+    render(<AllHistory />);
+
+    expect(HTMLElement.prototype.scrollIntoView).toHaveBeenCalledWith({
+      behavior: 'smooth',
+      block: 'nearest',
+      inline: 'nearest'
+    });
   });
 
   it('ignores a tap on the already-active filter (no haptic, no change)', () => {
     render(<AllHistory />);
 
-    // "all" is active from the start, so tapping it hits the early return.
+    // "all" is active from the start, so tapping it hits the early return —
+    // and `Pill`'s own `haptic="selection"` skips the haptic too, since it
+    // sees `selected` already true.
     fireEvent.click(getFilterButton('all'));
 
     expect(hapticSelection).not.toHaveBeenCalled();
+    expect(hapticLight).not.toHaveBeenCalled();
     expect(getFilterButton('all').getAttribute('aria-pressed')).toBe('true');
     expect(getHistory().getAttribute('data-filter')).toBe('all');
   });
@@ -181,6 +302,7 @@ describe('AllHistory', () => {
     // Second tap on the same (now active) chip returns early.
     fireEvent.click(getFilterButton('faucet'));
     expect(hapticSelection).toHaveBeenCalledTimes(1);
+    expect(hapticLight).not.toHaveBeenCalled();
   });
 
   it('clears the query when the search field closes', () => {

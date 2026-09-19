@@ -5,7 +5,7 @@ import { useTranslation } from 'react-i18next';
 
 import { IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
-import { Chip } from 'components/Chip';
+import { Pill } from 'components/ui/Pill';
 import { useScreenshotGuard } from 'lib/mobile/screenshot-guard';
 
 export interface BackUpSeedPhraseScreenProps extends HTMLAttributes<HTMLDivElement> {
@@ -64,23 +64,23 @@ export const BackUpSeedPhraseScreen: React.FC<BackUpSeedPhraseScreenProps> = ({
       <article className="grid grid-cols-3 gap-2 w-full">
         {isGuardReady &&
           seedPhrase.map((word, index) => (
-            <Chip
-              className="w-26 h-8"
+            <Pill
+              className="w-26 h-8 justify-between"
               key={`seed-word-${index}`}
               data-testid={`seed-word-${index}`}
-              label={
-                <label
-                  className={classNames(
-                    'flex flex-row gap-1 w-full',
-                    'transition duration-300 ease-in-out justify-between',
-                    isWordsVisible ? 'blur-none' : 'blur-sm'
-                  )}
-                >
-                  <p className="text-text-muted select-none pointer-events-none">{`${index + 1}.`}</p>
-                  <p className="flex w-[80%] justify-center">{`${word}`}</p>
-                </label>
-              }
-            />
+              tone="word"
+            >
+              <span
+                className={classNames(
+                  'flex flex-row gap-1 w-full',
+                  'transition duration-300 ease-in-out justify-between motion-reduce:transition-none',
+                  isWordsVisible ? 'blur-none' : 'blur-sm'
+                )}
+              >
+                <span className="text-muted select-none pointer-events-none">{`${index + 1}.`}</span>
+                <span className="flex w-[80%] justify-center">{`${word}`}</span>
+              </span>
+            </Pill>
           ))}
       </article>
 

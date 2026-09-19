@@ -1,33 +1,38 @@
 import React from 'react';
 
-import clsx from 'clsx';
+import { hapticLight, hapticSelection } from 'lib/mobile/haptics';
+import { cn } from 'lib/ui/util';
 
-import { ACCENT_CLASSES, FlowAccent } from 'components/flow/accent';
-import { hapticLight } from 'lib/mobile/haptics';
-
-/** Height and type scale. `sm` labels and badges; `md` chips and tappable actions. */
+/** Height and type scale. `sm` is the 24px status pill; `md` (32px) is every other chip, badge and action. */
 export type PillSize = 'sm' | 'md';
 
 /**
  * What the pill says about its content:
- * - `neutral` — the default quiet chip.
- * - `selected` — chosen, in the flow's accent.
- * - `accent` — a solid accent fill for a standing badge.
- * - `positive` / `warning` / `negative` — status.
+ * - `neutral` — the default quiet chip, `fill` with `ink`.
+ * - `selected` — chosen, `accent-tint` with `accent-tint-ink`.
+ * - `word` — a seed word: same quiet fill as `neutral`, named for where it's used.
+ * - `positive` / `warning` / `negative` — status, meant for `size="sm"` with `dot`.
  * - `plain` — no colors, for a caller that brings its own (e.g. a network's chip).
  */
-export type PillTone = 'neutral' | 'selected' | 'accent' | 'positive' | 'warning' | 'negative' | 'plain';
+export type PillTone = 'neutral' | 'selected' | 'word' | 'positive' | 'warning' | 'negative' | 'plain';
 
 export interface PillProps {
   children: React.ReactNode;
-  /** Leading glyph, sized by the pill. */
+  /** Leading glyph, sized by the pill. Mutually exclusive with `dot` in practice. */
   icon?: React.ReactNode;
   size?: PillSize;
   tone?: PillTone;
-  /** The flow accent used by the `selected` and `accent` tones. */
-  accent?: FlowAccent;
-  /** Makes the pill a button, with the tap haptic. */
+  /** A small leading status dot in the pill's own ink color (`currentColor`). */
+  dot?: boolean;
+  /** Makes the pill a button, with a tap haptic. */
   onClick?: () => void;
+  /**
+   * Which haptic the tap fires: `'light'` (default) for an ordinary action, `'selection'` for a
+   * segmented choice — fired only when the tap actually changes the selection (skipped while
+   * `selected` is already true, so re-tapping the active choice in a group is silent) — or
+   * `false` to fire none and let the caller manage it.
+   */
+  haptic?: 'light' | 'selection' | false;
   /** Reflected as `aria-pressed` on a tappable pill. */
   selected?: boolean;
   disabled?: boolean;
@@ -54,43 +59,50 @@ const ICON_CLASSES: Record<PillSize, string> = {
   md: '-ml-1 flex h-4 w-4 shrink-0 items-center justify-center [&>svg]:h-full [&>svg]:w-full'
 };
 
-const STATUS_CLASSES: Record<'positive' | 'warning' | 'negative', string> = {
-  positive: 'border-transparent bg-status-positive/15 text-status-positive',
-  warning: 'border-transparent bg-status-pending/15 text-status-pending',
-  negative: 'border-transparent bg-status-negative/15 text-status-negative'
+const TONE_CLASSES: Record<Exclude<PillTone, 'plain'>, string> = {
+  neutral: 'border-transparent bg-fill text-ink',
+  word: 'border-transparent bg-fill text-ink',
+  selected: 'border-transparent bg-accent-tint text-accent-tint-ink',
+  // 10%, not 15%: at 15% the ink dropped under 4.5:1 on `page` in light mode (measured
+  // 4.39/4.52/4.69 for negative/pending/positive). 10% clears AA on `page` (4.65/4.79/4.85
+  // measured) but NOT on `fill` (4.11/4.24/4.33 measured, still under 4.5) — status pills must
+  // sit on `page`, not stack inside a `fill` container.
+  positive: 'border-transparent bg-status-positive/10 text-positive-ink',
+  warning: 'border-transparent bg-status-pending/10 text-pending-ink',
+  negative: 'border-transparent bg-status-negative/10 text-negative-ink'
 };
 
 /**
  * The app's pill: one height, padding and type scale for every chip, badge, label and small
- * action. Every tone carries a 1px border, so a selected pill is exactly the size of an
- * unselected one and nothing shifts when it is picked.
+ * action. Every tone reserves the same 1px border box (`border-transparent` unless the tone or
+ * the caller gives it a color), so a selected pill is exactly the size of an unselected one and
+ * nothing shifts when it is picked. Always positioned (`relative`), so a caller that overlays an
+ * absolutely-positioned sibling behind it (e.g. a shared selection indicator) paints under the
+ * pill's own content instead of over it — plain in-flow siblings ignore this.
  */
 export const Pill: React.FC<PillProps> = ({
   children,
   icon,
   size = 'md',
   tone = 'neutral',
-  accent = 'brand',
+  dot,
   onClick,
+  haptic = 'light',
   selected,
   disabled,
   className,
   'aria-label': ariaLabel,
   'data-testid': dataTestId
 }) => {
-  const toneClasses =
-    tone === 'selected'
-      ? clsx(ACCENT_CLASSES[accent].border, ACCENT_CLASSES[accent].tint, 'text-heading-gray')
-      : tone === 'accent'
-        ? clsx('border-transparent text-pure-white', ACCENT_CLASSES[accent].bg)
-        : tone === 'neutral'
-          ? 'border-transparent bg-surface-interactive text-heading-gray'
-          : tone === 'plain'
-            ? undefined
-            : STATUS_CLASSES[tone];
+  const toneClasses = tone === 'plain' ? 'border-transparent' : TONE_CLASSES[tone];
 
-  const classes = clsx(
-    'inline-flex max-w-full items-center rounded-full border font-heading font-bold leading-none',
+  // `cn` (tailwind-merge), not `clsx`: a caller's own border/background/text utility in
+  // `className` has to REPLACE the tone default it conflicts with, not just coexist with it —
+  // plain `clsx` leaves both classes in the string, and Tailwind v4's compiled order (alphabetical
+  // by utility name) can then pick the tone default over the caller's class regardless of
+  // argument order, e.g. `border-network-miden-border` losing to `border-transparent`.
+  const classes = cn(
+    'relative inline-flex max-w-full items-center rounded-full border font-heading font-bold leading-none',
     SIZE_CLASSES[size],
     toneClasses,
     onClick && !disabled && 'cursor-pointer',
@@ -100,6 +112,7 @@ export const Pill: React.FC<PillProps> = ({
 
   const content = (
     <>
+      {dot && <span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full bg-current" />}
       {icon && <span className={ICON_CLASSES[size]}>{icon}</span>}
       <span className="min-w-0 truncate">{children}</span>
     </>
@@ -117,7 +130,11 @@ export const Pill: React.FC<PillProps> = ({
     <button
       type="button"
       onClick={() => {
-        hapticLight();
+        if (haptic === 'light') {
+          hapticLight();
+        } else if (haptic === 'selection' && !selected) {
+          hapticSelection();
+        }
         onClick();
       }}
       disabled={disabled}

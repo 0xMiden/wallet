@@ -2,9 +2,15 @@ import React from 'react';
 
 import { fireEvent, render, screen } from '@testing-library/react';
 
+import { hapticLight, hapticSelection } from 'lib/mobile/haptics';
+
 import { Pill } from './Pill';
 
-jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn() }));
+jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn(), hapticSelection: jest.fn() }));
+
+beforeEach(() => {
+  jest.clearAllMocks();
+});
 
 it('renders a label as static text, with no button semantics', () => {
   render(
@@ -30,7 +36,7 @@ it('sizes a bare SVG icon, which the build leaves without width or height', () =
 it('becomes a button when tappable, and reports its pressed state', () => {
   const onClick = jest.fn();
   render(
-    <Pill data-testid="pill" onClick={onClick} selected accent="send" tone="selected">
+    <Pill data-testid="pill" onClick={onClick} selected tone="selected">
       Sepolia
     </Pill>
   );
@@ -40,7 +46,7 @@ it('becomes a button when tappable, and reports its pressed state', () => {
 
   expect(pill.tagName).toBe('BUTTON');
   expect(pill).toHaveAttribute('aria-pressed', 'true');
-  expect(pill).toHaveClass('border-accent-send', 'bg-accent-send-tint');
+  expect(pill).toHaveClass('bg-accent-tint', 'text-accent-tint-ink');
   expect(onClick).toHaveBeenCalledTimes(1);
 });
 
@@ -53,7 +59,7 @@ it('keeps one geometry per size, whatever the tone', () => {
   const neutral = screen.getByTestId('pill').className;
 
   rerender(
-    <Pill data-testid="pill" tone="selected" accent="send">
+    <Pill data-testid="pill" tone="selected">
       A
     </Pill>
   );
@@ -67,14 +73,151 @@ it('keeps one geometry per size, whatever the tone', () => {
   }
 });
 
-it('sizes small pills for badges', () => {
+it('is always positioned, so an absolutely-positioned sibling behind it paints underneath', () => {
+  render(<Pill data-testid="pill">A</Pill>);
+  expect(screen.getByTestId('pill')).toHaveClass('relative');
+});
+
+it('sizes small pills for status badges', () => {
   render(
     <Pill data-testid="pill" size="sm" tone="positive">
       Earning
     </Pill>
   );
 
-  expect(screen.getByTestId('pill')).toHaveClass('h-6', 'px-2', 'text-xs', 'text-status-positive');
+  expect(screen.getByTestId('pill')).toHaveClass('h-6', 'px-2', 'text-xs', 'text-positive-ink');
+});
+
+it('tints a status pill at 10%, not 15% (15% drops under 4.5:1 in light mode)', () => {
+  render(
+    <Pill data-testid="pill" tone="negative">
+      Failed
+    </Pill>
+  );
+
+  expect(screen.getByTestId('pill')).toHaveClass('bg-status-negative/10');
+  expect(screen.getByTestId('pill')).not.toHaveClass('bg-status-negative/15');
+});
+
+it('renders a leading status dot in the tone’s own ink color', () => {
+  const { container } = render(
+    <Pill size="sm" tone="warning" dot>
+      Pending
+    </Pill>
+  );
+
+  const dot = container.querySelector('[aria-hidden="true"]');
+  expect(dot).toHaveClass('bg-current', 'rounded-full');
+});
+
+it('does not render a dot unless asked', () => {
+  const { container } = render(<Pill tone="positive">Earning</Pill>);
+  expect(container.querySelector('[aria-hidden="true"]')).toBeNull();
+});
+
+it('gives a seed word the same quiet fill as a neutral pill', () => {
+  render(
+    <Pill data-testid="pill" tone="word">
+      apple
+    </Pill>
+  );
+
+  expect(screen.getByTestId('pill')).toHaveClass('bg-fill', 'text-ink');
+});
+
+it('leaves color choices to the caller on a plain pill', () => {
+  render(
+    <Pill data-testid="pill" tone="plain" className="bg-network-miden-tint">
+      Miden
+    </Pill>
+  );
+
+  const pill = screen.getByTestId('pill');
+  expect(pill).not.toHaveClass('bg-fill', 'bg-accent-tint');
+  expect(pill).toHaveClass('bg-network-miden-tint');
+});
+
+it('defaults a plain pill’s border to transparent, so it never shows a stray currentColor ring', () => {
+  render(
+    <Pill data-testid="pill" tone="plain">
+      Miden
+    </Pill>
+  );
+
+  expect(screen.getByTestId('pill')).toHaveClass('border-transparent');
+});
+
+it('lets a caller’s own border color replace the plain-tone default instead of losing to it', () => {
+  render(
+    <Pill data-testid="pill" tone="plain" className="border-network-miden-border">
+      Miden
+    </Pill>
+  );
+
+  const pill = screen.getByTestId('pill');
+  // `border-transparent` and the caller's border color are both "border-color" utilities;
+  // whichever wins in Tailwind's compiled (alphabetical) order would otherwise silently beat
+  // the caller's class regardless of prop order, so only one may be present here.
+  expect(pill).toHaveClass('border-network-miden-border');
+  expect(pill).not.toHaveClass('border-transparent');
+});
+
+describe('haptic', () => {
+  it('fires hapticLight on every tap by default', () => {
+    const onClick = jest.fn();
+    render(
+      <Pill data-testid="pill" onClick={onClick}>
+        Paste
+      </Pill>
+    );
+
+    fireEvent.click(screen.getByTestId('pill'));
+    fireEvent.click(screen.getByTestId('pill'));
+
+    expect(hapticLight).toHaveBeenCalledTimes(2);
+    expect(hapticSelection).not.toHaveBeenCalled();
+    expect(onClick).toHaveBeenCalledTimes(2);
+  });
+
+  it('fires hapticSelection only when the tap actually selects (haptic="selection")', () => {
+    const onClick = jest.fn();
+    const { rerender } = render(
+      <Pill data-testid="pill" onClick={onClick} haptic="selection" selected={false}>
+        received
+      </Pill>
+    );
+
+    fireEvent.click(screen.getByTestId('pill'));
+    expect(hapticSelection).toHaveBeenCalledTimes(1);
+    expect(hapticLight).not.toHaveBeenCalled();
+
+    // Re-tapping an already-selected pill (the caller flips `selected` once it commits the
+    // change) is silent — the equivalent of tapping the already-active filter twice.
+    rerender(
+      <Pill data-testid="pill" onClick={onClick} haptic="selection" selected>
+        received
+      </Pill>
+    );
+    fireEvent.click(screen.getByTestId('pill'));
+
+    expect(hapticSelection).toHaveBeenCalledTimes(1);
+    expect(onClick).toHaveBeenCalledTimes(2);
+  });
+
+  it('fires no haptic at all when haptic is false, leaving it to the caller', () => {
+    const onClick = jest.fn();
+    render(
+      <Pill data-testid="pill" onClick={onClick} haptic={false}>
+        received
+      </Pill>
+    );
+
+    fireEvent.click(screen.getByTestId('pill'));
+
+    expect(hapticLight).not.toHaveBeenCalled();
+    expect(hapticSelection).not.toHaveBeenCalled();
+    expect(onClick).toHaveBeenCalledTimes(1);
+  });
 });
 
 it('does not fire while disabled', () => {

@@ -91,104 +91,81 @@ describe('ExternalLinkValue', () => {
 
 describe('StatusPill', () => {
   const pill = (container: HTMLElement) => container.firstChild as HTMLElement;
-  const dot = (container: HTMLElement) => pill(container).querySelector('div') as HTMLElement;
-  // The leading decoration is a <span> too — the aria-hidden wrapper, and inside
-  // it the v2-icon mock — so the label is identified by NOT being hidden. That
-  // doubles as the assertion that the glyph stays out of the accessibility tree:
-  // it restates the label, and announcing both named the status twice.
-  const label = (container: HTMLElement) =>
-    pill(container).querySelector('span:not([aria-hidden]):not([data-testid="v2-icon"])') as HTMLElement;
+  // The dot is the `aria-hidden` leading span the Pill component renders for
+  // `dot`; decorative only, since the label already names the status.
+  const dot = (container: HTMLElement) => pill(container).querySelector('[aria-hidden="true"]') as HTMLElement;
 
-  it('renders the completed variant as a solid green pill with dark ink and a matching checkmark', () => {
+  it('renders the completed variant as a positive-toned pill with a dot', () => {
     const { container } = render(<StatusPill status={ITransactionStatus.Completed} />);
 
-    // Dark ink, not white: these fills are mid-tone, so white 12px text on them
-    // sits near 2.4:1 — under AA. The icon inherits the same ink.
-    expect(pill(container)).toHaveClass('flex', 'items-center', 'rounded-full', 'bg-tx-received', 'text-pure-black');
-
-    const icon = pill(container).querySelector('[data-testid="v2-icon"]');
-    expect(icon).toHaveAttribute('data-name', 'checkmark');
-    expect(icon).toHaveAttribute('data-fill', 'currentColor');
-
-    const text = label(container);
-    expect(text).toHaveClass('font-semibold');
-    expect(text).toHaveTextContent('t:confirmed');
+    expect(pill(container)).toHaveClass('text-positive-ink');
+    expect(dot(container)).toHaveClass('bg-current');
+    expect(pill(container)).toHaveTextContent('t:confirmed');
   });
 
   it('reports an unsettled swap as pending even though its row is Completed', () => {
-    // A swap row is Completed once the order note exists — the place-order
+    // A swap row is Completed once the order note exists -- the place-order
     // transaction confirmed, the swap itself has not. Reading "Confirmed" there
     // contradicts both the history list and the order status on the receipt.
     const { container } = render(<StatusPill status={ITransactionStatus.Completed} swapSettlement="pending" />);
 
-    expect(label(container)).toHaveTextContent('t:pending');
-    expect(label(container)).not.toHaveTextContent('t:confirmed');
+    expect(pill(container)).toHaveTextContent('t:pending');
+    expect(pill(container)).not.toHaveTextContent('t:confirmed');
   });
 
   it('reports a reclaimed swap as reclaimed, and tones it like a cancellation', () => {
     const { container } = render(<StatusPill status={ITransactionStatus.Completed} swapSettlement="reclaimed" />);
 
-    expect(label(container)).toHaveTextContent('t:reclaimed');
-    expect(pill(container)).toHaveClass('bg-gray-400', 'text-pure-white');
+    expect(pill(container)).toHaveTextContent('t:reclaimed');
+    expect(pill(container)).toHaveClass('bg-fill', 'text-ink');
   });
 
-  it('inks a cancellation for its own grey fill rather than inheriting the failure pill’s', () => {
+  it("inks a cancellation for the neutral pill rather than inheriting the failure pill's tone", () => {
     // A user cancellation is recorded as a failure (`cancel.ts`), so it is BOTH
-    // Failed and cancelled — the ink ternary has to branch on muted first or this
-    // pill gets the failure pill's ink. grey #737373 is the one fill that wants
-    // white (4.74:1; black is 4.43:1, under AA).
+    // Failed and cancelled -- the tone ternary has to branch on muted first or
+    // this pill gets the failure pill's color.
     const { container } = render(<StatusPill status={ITransactionStatus.Failed} isCancelled />);
 
-    expect(label(container)).toHaveTextContent('t:cancelled');
-    expect(pill(container)).toHaveClass('bg-gray-400', 'text-pure-white');
-    expect(pill(container)).not.toHaveClass('text-pure-black');
-    // ...and it wears the neutral dot rather than the failure ✕, which would name
-    // a second outcome the label does not.
-    expect(pill(container).querySelector('[data-testid="v2-icon"]')).toBeNull();
+    expect(pill(container)).toHaveTextContent('t:cancelled');
+    expect(pill(container)).toHaveClass('bg-fill', 'text-ink');
+    expect(pill(container)).not.toHaveClass('text-negative-ink');
     expect(dot(container)).toHaveClass('bg-current');
   });
 
   it('lets failure outrank a reported settlement rather than labelling it in red', () => {
     // A failed swap never placed its order, so it has no settlement to report.
     // Taking the caller's word for one produced a pill reading "Pending" in
-    // failure red — two different outcomes at once, with the actionable one
+    // failure red -- two different outcomes at once, with the actionable one
     // spelled only in colour.
     const { container } = render(<StatusPill status={ITransactionStatus.Failed} swapSettlement="pending" />);
 
-    expect(label(container)).toHaveTextContent('t:failed');
-    expect(pill(container)).toHaveClass('bg-status-negative');
+    expect(pill(container)).toHaveTextContent('t:failed');
+    expect(pill(container)).toHaveClass('text-negative-ink');
   });
 
-  it('renders the failed variant as a solid negative pill whose ink flips with the theme', () => {
+  it('renders the failed variant as a negative-toned pill with a dot', () => {
     const { container } = render(<StatusPill status={ITransactionStatus.Failed} />);
 
-    // status-negative is the one fill that flips with the theme (light #ff5500,
-    // dark #c51a0a) and neither ink clears AA on both, so this is the one pill
-    // that carries a dark: variant: 6.55:1 light, 5.96:1 dark.
-    expect(pill(container)).toHaveClass('bg-status-negative', 'text-pure-black', 'dark:text-pure-white');
-
-    const icon = pill(container).querySelector('[data-testid="v2-icon"]');
-    expect(icon).toHaveAttribute('data-name', 'close');
-    expect(icon).toHaveAttribute('data-fill', 'currentColor');
-
-    expect(label(container)).toHaveTextContent('t:failed');
+    expect(pill(container)).toHaveClass('text-negative-ink');
+    expect(dot(container)).toHaveClass('bg-current');
+    expect(pill(container)).toHaveTextContent('t:failed');
   });
 
-  it('renders the in-progress (blue) fallback when status is undefined', () => {
+  it('renders the in-progress (warning) fallback when status is undefined', () => {
     const { container } = render(<StatusPill />);
 
-    expect(pill(container)).toHaveClass('bg-tx-sent', 'text-pure-black');
-    // The dot inherits the pill's ink instead of hardcoding white.
+    expect(pill(container)).toHaveClass('text-pending-ink');
+    // The dot inherits the pill's ink instead of hardcoding a fixed color.
     expect(dot(container)).toHaveClass('bg-current');
 
-    expect(label(container)).toHaveTextContent('t:inProgress');
+    expect(pill(container)).toHaveTextContent('t:inProgress');
   });
 
   it('treats non-terminal statuses (Queued / GeneratingTransaction) as in-progress', () => {
     const { container: queued } = render(<StatusPill status={ITransactionStatus.Queued} />);
-    expect(label(queued)).toHaveTextContent('t:inProgress');
+    expect(pill(queued)).toHaveTextContent('t:inProgress');
 
     const { container: generating } = render(<StatusPill status={ITransactionStatus.GeneratingTransaction} />);
-    expect(label(generating)).toHaveTextContent('t:inProgress');
+    expect(pill(generating)).toHaveTextContent('t:inProgress');
   });
 });

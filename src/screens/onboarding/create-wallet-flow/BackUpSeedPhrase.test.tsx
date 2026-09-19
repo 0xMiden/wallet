@@ -48,13 +48,21 @@ jest.mock('components/Button', () => ({
   )
 }));
 
-// `components/Chip` renders the seed-word label ReactNode; stub it to a div that
-// simply renders the passed `label` so the inner blur-toggle <label> is present
-// in the DOM for class assertions.
-jest.mock('components/Chip', () => ({
-  Chip: ({ label, className }: { label: React.ReactNode; className?: string }) => (
-    <div data-testid="chip" data-classname={className}>
-      {label}
+// `components/ui/Pill` renders the seed-word content; stub it to a div that
+// simply forwards `children` and `data-testid` so the inner blur-toggle <span>
+// is present in the DOM for class assertions.
+jest.mock('components/ui/Pill', () => ({
+  Pill: ({
+    children,
+    className,
+    'data-testid': dataTestId
+  }: {
+    children: React.ReactNode;
+    className?: string;
+    'data-testid'?: string;
+  }) => (
+    <div data-testid={dataTestId} data-classname={className}>
+      {children}
     </div>
   )
 }));
@@ -129,21 +137,18 @@ describe('BackUpSeedPhraseScreen', () => {
     });
 
     it('renders one chip per seed word with its 1-based index and word', () => {
-      const { container } = renderComponent();
-      const chips = screen.getAllByTestId('chip');
+      renderComponent();
+      const chips = screen.getAllByTestId(/^seed-word-\d+$/);
       expect(chips).toHaveLength(SEED.length);
-
-      const labels = container.querySelectorAll('label');
-      expect(labels).toHaveLength(SEED.length);
-      expect(labels[0]).toHaveTextContent('1.');
-      expect(labels[0]).toHaveTextContent('alpha');
-      expect(labels[SEED.length - 1]).toHaveTextContent(`${SEED.length}.`);
-      expect(labels[SEED.length - 1]).toHaveTextContent('foxtrot');
+      expect(chips[0]).toHaveTextContent('1.');
+      expect(chips[0]).toHaveTextContent('alpha');
+      expect(chips[SEED.length - 1]).toHaveTextContent(`${SEED.length}.`);
+      expect(chips[SEED.length - 1]).toHaveTextContent('foxtrot');
     });
 
     it('renders an empty grid (no chips) when given an empty seed phrase', () => {
       renderComponent({ seedPhrase: [] });
-      expect(screen.queryAllByTestId('chip')).toHaveLength(0);
+      expect(screen.queryAllByTestId(/^seed-word-\d+$/)).toHaveLength(0);
       // The continue CTA is still present.
       expect(screen.getByTestId('btn-continue')).toBeInTheDocument();
     });
@@ -166,35 +171,40 @@ describe('BackUpSeedPhraseScreen', () => {
 
   describe('words visibility toggle', () => {
     it('starts hidden: words are blurred and the toggle shows the "show" affordance', () => {
-      const { container } = renderComponent();
-      const firstLabel = container.querySelector('label')!;
-      expect(firstLabel).toHaveClass('blur-sm');
-      expect(firstLabel).not.toHaveClass('blur-none');
+      renderComponent();
+      const firstChip = screen.getAllByTestId(/^seed-word-\d+$/)[0]!;
+      expect(firstChip.querySelector('.blur-sm, .blur-none')).toHaveClass('blur-sm');
 
       const toggle = screen.getByTestId('btn-show');
       expect(toggle).toHaveAttribute('data-icon', 'ICON_EYE');
     });
 
+    it('respects reduced motion on the blur transition', () => {
+      renderComponent();
+      const firstChip = screen.getAllByTestId(/^seed-word-\d+$/)[0]!;
+      expect(firstChip.querySelector('.blur-sm, .blur-none')).toHaveClass('motion-reduce:transition-none');
+    });
+
     it('reveals the words and flips the toggle label/icon when clicked', () => {
-      const { container } = renderComponent();
+      renderComponent();
 
       fireEvent.click(screen.getByTestId('btn-show'));
 
-      const firstLabel = container.querySelector('label')!;
-      expect(firstLabel).toHaveClass('blur-none');
-      expect(firstLabel).not.toHaveClass('blur-sm');
+      const firstChip = screen.getAllByTestId(/^seed-word-\d+$/)[0]!;
+      expect(firstChip.querySelector('.blur-sm, .blur-none')).toHaveClass('blur-none');
 
       const toggle = screen.getByTestId('btn-hide');
       expect(toggle).toHaveAttribute('data-icon', 'ICON_EYE_OFF');
     });
 
     it('toggles back to hidden on a second click', () => {
-      const { container } = renderComponent();
+      renderComponent();
 
       fireEvent.click(screen.getByTestId('btn-show'));
       fireEvent.click(screen.getByTestId('btn-hide'));
 
-      expect(container.querySelector('label')!).toHaveClass('blur-sm');
+      const firstChip = screen.getAllByTestId(/^seed-word-\d+$/)[0]!;
+      expect(firstChip.querySelector('.blur-sm, .blur-none')).toHaveClass('blur-sm');
       expect(screen.getByTestId('btn-show')).toBeInTheDocument();
     });
   });

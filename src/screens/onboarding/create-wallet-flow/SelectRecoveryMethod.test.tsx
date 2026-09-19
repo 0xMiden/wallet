@@ -25,11 +25,19 @@ jest.mock('components/Button', () => ({
   )
 }));
 
-// `Badge` — echo the variant and className as data attributes so the "default"
-// badge branch is assertable without pulling in class-variance-authority.
-jest.mock('lib/ui/badge', () => ({
-  Badge: ({ variant, className, children }: { variant?: string; className?: string; children?: React.ReactNode }) => (
-    <span data-testid="default-badge" data-variant={variant} data-classname={className}>
+// `Pill` — echo the tone and testid as data attributes so the "default" badge
+// branch is assertable without pulling in the real component's classes.
+jest.mock('components/ui/Pill', () => ({
+  Pill: ({
+    tone,
+    children,
+    'data-testid': dataTestId
+  }: {
+    tone?: string;
+    children?: React.ReactNode;
+    'data-testid'?: string;
+  }) => (
+    <span data-testid={dataTestId} data-tone={tone}>
       {children}
     </span>
   )
@@ -77,8 +85,7 @@ describe('SelectRecoveryMethodScreen', () => {
       const badges = screen.getAllByTestId('default-badge');
       expect(badges).toHaveLength(1);
       expect(badges[0]).toHaveTextContent('default');
-      expect(badges[0]).toHaveAttribute('data-variant', 'default');
-      expect(badges[0]).toHaveAttribute('data-classname', 'bg-primary-500 text-white');
+      expect(badges[0]).toHaveAttribute('data-tone', 'selected');
       // The badge lives inside the Guardian card, not the OffChain card.
       expect(optionCardByTitle('guardianRecovery')).toContainElement(badges[0]!);
     });
