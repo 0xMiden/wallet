@@ -33,6 +33,11 @@ export interface ListRowProps {
   to?: string;
   /** A page outside the wallet, opened in a new tab. */
   href?: string;
+  /**
+   * The id of the control in `trailing` (a switch): the row renders as its `label`, so tapping
+   * anywhere on the row flips it. The control brings its own haptic, so the row adds none.
+   */
+  htmlFor?: string;
   disabled?: boolean;
   /** Layout only (margins). */
   className?: string;
@@ -90,13 +95,14 @@ export const ListRow: React.FC<ListRowProps> = ({
   onClick,
   to,
   href,
+  htmlFor,
   disabled,
   className,
   'aria-label': ariaLabel,
   'data-testid': dataTestId
 }) => {
   const leading: Leading = avatar ? 'avatar' : icon ? 'icon' : 'none';
-  const interactive = Boolean(onClick || to || href);
+  const interactive = Boolean(onClick || to || href || htmlFor);
   const showChevron = chevron ?? Boolean(to || href);
   const classes = cn(rowVariants({ leading, size: subtitle ? 'default' : 'compact', interactive }), className);
 
@@ -158,6 +164,14 @@ export const ListRow: React.FC<ListRowProps> = ({
       >
         {content}
       </a>
+    );
+  }
+
+  if (htmlFor) {
+    return (
+      <label htmlFor={htmlFor} aria-label={ariaLabel} data-testid={dataTestId} className={classes}>
+        {content}
+      </label>
     );
   }
 
