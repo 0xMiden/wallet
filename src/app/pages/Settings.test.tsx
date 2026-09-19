@@ -268,7 +268,7 @@ jest.mock('screens/encrypted-file-flow/EncryptedFileManager', () => ({
 }));
 jest.mock('./AdvancedSettings', () => ({
   __esModule: true,
-  default: () => <div data-testid="advanced-settings" />
+  default: mockLayoutPage('advanced-settings')
 }));
 jest.mock('./ExportAccountFile', () => ({
   __esModule: true,
