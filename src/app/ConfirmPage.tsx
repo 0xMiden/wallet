@@ -7,12 +7,12 @@ import { PrivateDataPermission } from '@miden-sdk/miden-wallet-adapter-base';
 import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
-import Spinner from 'app/atoms/Spinner/Spinner';
 import ErrorBoundary from 'app/ErrorBoundary';
 import ContentContainer from 'app/layouts/ContentContainer';
 import Unlock from 'app/pages/Unlock';
 import { Button, ButtonVariant } from 'components/Button';
 import { NetworkModeBanner } from 'components/NetworkModeBanner';
+import { Spinner } from 'components/ui/Spinner';
 import { AnalyticsEventCategory, CustomRpsContext, useAnalytics } from 'lib/analytics';
 import { getAllUncompletedTransactions } from 'lib/miden/activity';
 import { ITransactionStatus } from 'lib/miden/db/types';

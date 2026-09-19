@@ -2,9 +2,9 @@ import React, { FC, useCallback, useEffect, useRef, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
-import Spinner from 'app/atoms/Spinner/Spinner';
 import { Button } from 'components/Button';
 import { RecoverySeedPrompt } from 'components/RecoverySeedPrompt';
+import { Spinner } from 'components/ui/Spinner';
 import {
   initiateReplaceHotKeyTransaction,
   requestSWTransactionProcessing,

@@ -15,9 +15,8 @@ jest.mock('use-force-update', () => ({
 
 // Isolate the component from the Spinner subtree (CircularProgress / brand
 // colors); we only care about this file's behavior.
-jest.mock('app/atoms/Spinner/Spinner', () => ({
-  __esModule: true,
-  default: () => <div data-testid="spinner" />
+jest.mock('components/ui/Spinner', () => ({
+  Spinner: () => <div data-testid="spinner" />
 }));
 
 // Matches the module-level `DELAY` constant in the source under test.

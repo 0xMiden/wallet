@@ -26,9 +26,8 @@ import en from '../../../public/_locales/en/en.json';
 // `mock`-prefixed so jest's hoisted mock factory may reference it.
 let mockReady = true;
 
-jest.mock('app/atoms/Spinner/Spinner', () => ({
-  __esModule: true,
-  default: () => <div data-testid="spinner" />
+jest.mock('components/ui/Spinner', () => ({
+  Spinner: () => <div data-testid="spinner" />
 }));
 
 jest.mock('app/icons/v2', () => ({

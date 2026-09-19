@@ -89,9 +89,8 @@ jest.mock('app/ErrorBoundary', () => ({
   __esModule: true,
   default: ({ children }: any) => <div data-testid="error-boundary">{children}</div>
 }));
-jest.mock('app/atoms/Spinner/Spinner', () => ({
-  __esModule: true,
-  default: () => <div data-testid="spinner" />
+jest.mock('components/ui/Spinner', () => ({
+  Spinner: () => <div data-testid="spinner" />
 }));
 jest.mock('app/pages/Unlock', () => ({
   __esModule: true,

@@ -21,9 +21,8 @@ jest.mock('react-i18next', () => ({
 
 // `Spinner` — replace the animated CircularProgress atom with a simple marker
 // so the "creating" branch can be asserted without pulling in its rendering.
-jest.mock('app/atoms/Spinner/Spinner', () => ({
-  __esModule: true,
-  default: () => <div data-testid="spinner" />
+jest.mock('components/ui/Spinner', () => ({
+  Spinner: () => <div data-testid="spinner" />
 }));
 
 // `Button` — render the title and forward the click so each handler wiring,
