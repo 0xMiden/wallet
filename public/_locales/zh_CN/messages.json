@@ -1164,6 +1164,10 @@
     "message": "服务条款",
     "englishSource": "Terms of Service"
   },
+  "support": {
+    "message": "支持",
+    "englishSource": "Support"
+  },
   "sendFeedback": {
     "message": "发送反馈",
     "englishSource": "Send feedback"

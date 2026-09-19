@@ -1164,6 +1164,10 @@
     "message": "Kullanım Koşulları",
     "englishSource": "Terms of Service"
   },
+  "support": {
+    "message": "Destek",
+    "englishSource": "Support"
+  },
   "sendFeedback": {
     "message": "Geri bildirim gönder",
     "englishSource": "Send feedback"

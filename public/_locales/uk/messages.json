@@ -1164,6 +1164,10 @@
     "message": "Умови надання послуг",
     "englishSource": "Terms of Service"
   },
+  "support": {
+    "message": "Підтримка",
+    "englishSource": "Support"
+  },
   "sendFeedback": {
     "message": "Надіслати відгук",
     "englishSource": "Send feedback"

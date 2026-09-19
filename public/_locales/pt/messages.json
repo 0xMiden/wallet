@@ -1164,6 +1164,10 @@
     "message": "Termos de Serviço",
     "englishSource": "Terms of Service"
   },
+  "support": {
+    "message": "Suporte",
+    "englishSource": "Support"
+  },
   "sendFeedback": {
     "message": "Enviar comentários",
     "englishSource": "Send feedback"
