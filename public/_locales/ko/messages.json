@@ -4728,6 +4728,14 @@
     "message": "검색 활동",
     "englishSource": "Search activity"
   },
+  "activityFilters": {
+    "message": "활동 필터",
+    "englishSource": "Activity filters"
+  },
+  "chartTimeframe": {
+    "message": "차트 기간",
+    "englishSource": "Chart timeframe"
+  },
   "evmConnectTestWalletBody": {
     "message": "이 브리지는 이더리움 세폴리아(Sepolia)에서 운영됩니다. 실제 자금이 들어 있는 지갑은 연결하지 마십시오. 새로운 지갑을 생성하고 세폴리아 ETH로만 자금을 입금하십시오.",
     "englishSource": "This bridge runs on Ethereum Sepolia. Do not connect a wallet that holds real funds. Create a fresh wallet and fund it with Sepolia ETH only."

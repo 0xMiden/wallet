@@ -160,8 +160,9 @@ jest.mock('recharts', () => ({
 
 // framer-motion: `motion.<tag>` -> a plain <tag> with the framer-only props
 // stripped (so React doesn't warn), keeping the element a real `button` for the
-// pill `Button`. The shared indicator's `layoutId` is surfaced as a data
-// attribute so the test can find the one fill that slides between timeframes.
+// pill `Button`. The timeframe control's bubble `layoutId` is surfaced as a data
+// attribute so the test can find the one bubble that slides between timeframes,
+// and AnimatePresence renders its children as they are.
 jest.mock('framer-motion', () => {
   const ReactActual = jest.requireActual('react');
   // Cached per tag: a fresh component type on every access would remount the element each render.
@@ -172,16 +173,32 @@ jest.mock('framer-motion', () => {
         {
           children,
           layoutId,
+          layoutScroll: _layoutScroll,
           transition: _transition,
           whileTap: _whileTap,
+          initial: _initial,
+          animate: _animate,
+          exit: _exit,
+          onAnimationComplete: _onAnimationComplete,
           ...rest
-        }: { children?: React.ReactNode; layoutId?: string; transition?: unknown; whileTap?: unknown },
+        }: {
+          children?: React.ReactNode;
+          layoutId?: string;
+          layoutScroll?: unknown;
+          transition?: unknown;
+          whileTap?: unknown;
+          initial?: unknown;
+          animate?: unknown;
+          exit?: unknown;
+          onAnimationComplete?: unknown;
+        },
         ref: unknown
       ) => ReactActual.createElement(tag, { ...rest, ref, 'data-layout-id': layoutId }, children)
     );
   return {
     __esModule: true,
     motion: new Proxy({}, { get: (_target, tag: string) => (cache[tag] ??= build(tag)) }),
+    AnimatePresence: ({ children }: { children?: React.ReactNode }) => children,
     useReducedMotion: () => false
   };
 });
@@ -552,7 +569,7 @@ describe('TokenDetail', () => {
       );
 
       // 1H -> covers the `tf === '1H'` branch of formatTooltipTime on re-render.
-      fireEvent.click(screen.getByRole('button', { name: '1H' }));
+      fireEvent.click(screen.getByRole('radio', { name: '1H' }));
       expect(mockHapticSelection).toHaveBeenCalledTimes(1);
       expect(mockUseRetryableSWR).toHaveBeenLastCalledWith(
         ['kline', 'ETH', '1H'],
@@ -561,7 +578,7 @@ describe('TokenDetail', () => {
       );
 
       // 1W -> covers the else branch of formatTooltipTime (dd MMM).
-      fireEvent.click(screen.getByRole('button', { name: '1W' }));
+      fireEvent.click(screen.getByRole('radio', { name: '1W' }));
       expect(mockHapticSelection).toHaveBeenCalledTimes(2);
       expect(mockUseRetryableSWR).toHaveBeenLastCalledWith(
         ['kline', 'ETH', '1W'],
@@ -571,33 +588,35 @@ describe('TokenDetail', () => {
 
       // Every timeframe chip is present.
       for (const tf of ['1H', '1D', '1W', '1M', 'YTD']) {
-        expect(screen.getByRole('button', { name: tf })).toBeInTheDocument();
+        expect(screen.getByRole('radio', { name: tf })).toBeInTheDocument();
       }
     });
 
-    it('marks the active timeframe as the selected pill under the one shared indicator', () => {
+    it('renders the timeframes as the shared segmented control, the selected one on the raised bubble', () => {
       renderPage();
 
-      const pill = (tf: string) => screen.getByTestId(`token-detail-timeframe-${tf}`);
-      const indicatorOf = (tf: string) => pill(tf).parentElement?.querySelector('[data-layout-id]') ?? null;
+      const option = (tf: string) => screen.getByTestId(`token-detail-timeframe-${tf}`);
+      const bubbleIn = (tf: string) => option(tf).querySelector('[data-slot="motion-highlight"]');
 
-      expect(pill('1D')).toHaveAttribute('aria-pressed', 'true');
-      expect(pill('1D')).toHaveClass('text-accent-tint-ink');
-      expect(pill('1W')).toHaveAttribute('aria-pressed', 'false');
-      expect(pill('1W')).toHaveClass('bg-fill', 'text-ink');
-      expect(indicatorOf('1D')).toHaveAttribute('data-layout-id', 'token-detail-timeframe-pill');
-      expect(indicatorOf('1D')).toHaveClass('bg-accent-tint');
-      expect(indicatorOf('1W')).toBeNull();
+      // Equal-width segments across the chart, 32px tall.
+      expect(screen.getByRole('radiogroup', { name: 'chartTimeframe' })).toHaveClass('w-full');
+      expect(option('1D')).toHaveClass('flex-1', 'h-8');
 
-      fireEvent.click(pill('1W'));
+      expect(option('1D')).toHaveAttribute('role', 'radio');
+      expect(option('1D')).toHaveAttribute('aria-checked', 'true');
+      expect(option('1W')).toHaveAttribute('aria-checked', 'false');
+      expect(bubbleIn('1D')).toHaveClass('bg-raised', 'shadow-raised');
+      expect(bubbleIn('1W')).toBeNull();
+
+      fireEvent.click(option('1W'));
 
       expect(mockHapticSelection).toHaveBeenCalledTimes(1);
-      expect(pill('1W')).toHaveAttribute('aria-pressed', 'true');
-      expect(pill('1D')).toHaveAttribute('aria-pressed', 'false');
-      expect(indicatorOf('1W')).toHaveAttribute('data-layout-id', 'token-detail-timeframe-pill');
-      expect(indicatorOf('1D')).toBeNull();
-      // Only ever one indicator, so it slides rather than cross-fading.
-      expect(document.querySelectorAll('[data-layout-id="token-detail-timeframe-pill"]')).toHaveLength(1);
+      expect(option('1W')).toHaveAttribute('aria-checked', 'true');
+      expect(option('1D')).toHaveAttribute('aria-checked', 'false');
+      expect(bubbleIn('1W')).not.toBeNull();
+      expect(bubbleIn('1D')).toBeNull();
+      // One bubble, carried over on the same layoutId, so it slides rather than cross-fading.
+      expect(document.querySelectorAll('[data-slot="motion-highlight"]')).toHaveLength(1);
     });
 
     it('stays silent when the active timeframe is tapped again', () => {

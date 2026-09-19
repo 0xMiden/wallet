@@ -120,7 +120,7 @@ segmented control's thumb and a raised bubble.
 
 | Token | Light | Dark | Use |
 | --- | --- | --- | --- |
-| `raised` (surface) + `shadow-raised` | white, 1px ring at 6%, 0 1 2 / 6% + 0 2 8 / 8% drop | `fill`, lit 1px top edge, 1px ring at 6%, a tight dark drop | The active bubble of an interactive toggle: the top action bar's pill and the bottom nav's highlight. |
+| `raised` (surface) + `shadow-raised` | white, 1px ring at 6%, 0 1 2 / 6% + 0 2 8 / 8% drop | `fill`, lit 1px top edge, 1px ring at 6%, a tight dark drop | The active bubble of an interactive toggle: the top action bar's pill, the bottom nav's highlight and a segmented control's selection. One class string, `raisedBubbleClassName` (`components/ui/animate/raised-bubble`), draws all three. |
 | `shadow-raised-pressed` | ring + 0 1 1 / 5% | ring + a dimmer top edge | The same bubble while pressed (with the press scale): it sinks. |
 | `shadow-ribbon` | 0 1 2 / 18% + 0 2 6 / 12% | same | The test-network corner ribbon, so it reads as wrapping over the bar. |
 
@@ -145,8 +145,8 @@ CTA never do. The CTA clears the home indicator on iOS.
 | Pushed page header | `PageHeader` (`components/PageHeader`) | 52px row: bare chevron, 20px title left beside it, then actions (an `accent-tint-ink` text action such as "Edit", a `Pill`, or an `IconButton`), close last. No divider; a hairline appears once content scrolls under it. No horizontal padding of its own: it takes the page's, so a caller in an unpadded parent passes `className="px-4"`. | `NavigationHeader`, `ScreenHeader`, the earn headers (vault, position, positions, withdraw, deposit), the round back buttons and grey title bars |
 | Tab root header | `TabHeader` | 28px title left, bare 24px icon actions right, search swaps in at 36px. No grey bar under it. | the 4px grey rule |
 | Flow frame | `FlowLayout` | `PageHeader` + scrolling body + pinned CTA. | hand-built frames |
-| Top action bar | `SegmentedActionBar` | Ahmad's, unchanged. | — |
-| Segmented control | `SegmentedControl` on Radix ToggleGroup (*planned*) | Pill track on `fill`, `page` thumb, `indicator` motion. | `TabPicker`, `TabSwitcher` |
+| Top action bar | `SegmentedActionBar` | Ahmad's, unchanged. Shares the segmented control's bubble, motion hooks and `Highlight`, not its markup: only the selected segment shows its label, and every segment resizes on the same spring as the bubble. | — |
+| Segmented control | `SegmentedControl` | One choice out of a few, drawn like the tab bars (see below). `items` (`id`, label, optional icon, count, `disabled`, test id), controlled `value`/`onChange`; `size` `sm` 32px or `md` 40px; `layout` `scroll` (natural-width items in a row that scrolls sideways and keeps the selection in view: filters) or `fill` (equal-width segments across the width: timeframes, a few settings choices); `role` `radiogroup` (default) or `tablist` when each item opens its own panel. | the Activity filter pills, the token detail timeframe pills; still to migrate: `TabPicker`, the earn timeframe rows |
 | Search | `SearchInput` | 44px pill on `fill`, no border, 16px glyph, left-aligned 16px text, clear button; a 1.5px `accent` ring while focused. | `SearchField`, `SearchAssetField` |
 | Text field | `TextField` | 13px bold `muted` label above; single-line 52px pill or multi-line 16px-radius box on `fill`; trailing pills (Paste, Scan) on `page` inside the field; error: `negative` ring and a `negative-ink` message. | `TextArea`; still to migrate: `Input`, atoms `FormField`, ad-hoc inputs |
 | Entry | `AmountInput`, recipient entry | Centered 48px amount with a 22px unit, 15px `muted` fiat line, token and Max pills; recipient entry 30px, 24px once it holds an address. | — |
@@ -158,7 +158,7 @@ CTA never do. The CTA clears the home indicator on iOS.
 | Detail card | `DetailCard` + `DetailRow` | `fill`, 16px radius, hairlines between rows; 14px `muted` label, 15px value right; addresses stacked, in full, with an `accent-tint-ink` "Copy". | `FlowDetails`, history `DetailCard`, `lib/ui/DetailCard`, `ReviewRow`, local detail rows |
 | Card | `Card`, `CardButton` | `fill`, 16px radius, no border, on `page`; cards in a list are separated by space (12px), never by an outline. `padding`: `row` (16 × 12px, 64px with a 40px icon: an Activity row), `tile` (16px: an Explore app, a position, an option), `none` (content that pads itself). `CardButton` is one tap target: `button`, tap haptic, `press` motion, `fill-pressed` when pressed, `accent` focus ring. `asChild` draws the surface onto a child that is its own element (a layout-animated row, an `article`). Anything drawn inside a card sits on `page` (an icon tile, a neutral icon circle), since grey on `fill` disappears. | outlined `rounded-2xl border bg-white` cards: Activity rows and pending transfers, Explore app cards, earn position cards, the send fee notice, dApp approval and settings cards, import-type choices |
 | Hero | `Hero` | Centered: 88px avatar or 64px status circle, then the hero value or name, then a 14px `muted` line. On a contact page the name is in the header and the avatar stands alone. | `ReviewAmount`, per-screen heroes |
-| Pill | `Pill` | 32px on `fill` with `ink`; selected: `accent-tint` with `accent-tint-ink`; 16px icon slot. Status tones (`positive`, `warning`, `negative` on their opaque tints; `inactive` on `fill-pressed` with `ink`) are for `StatusBadge`, which picks them. | `lib/ui/badge`, seed-word `Chip`, `AccountTypeBadge`, `PriceChangeBadge`, ad-hoc pills |
+| Pill | `Pill` | 32px on `fill` with `ink`; selected: `accent-tint` with `accent-tint-ink` (a multi-select chip or a tag; a single choice in a row is a `SegmentedControl`); 16px icon slot. Status tones (`positive`, `warning`, `negative` on their opaque tints; `inactive` on `fill-pressed` with `ink`) are for `StatusBadge`, which picks them. | `lib/ui/badge`, seed-word `Chip`, `AccountTypeBadge`, `PriceChangeBadge`, ad-hoc pills |
 | Status badge | `StatusBadge` (on `Pill`) | The status word alone, no dot, on the status's tint: positive (confirmed, claimed, received, filled, online) sage, pending (pending, in progress, redeeming, delivering, open, checking) sand, negative (failed, offline, needs attention) clay, each `*-tint` with its `*-tint-ink`; neutral (cancelled, reclaimed, unavailable, not connected) `fill-pressed` with `ink`. `sm`: 20px, 12px semibold, in rows (Activity, pending transfers, the swap fill list). `md`: 24px, 12px bold, in detail headers. A closed `status` set maps each state to its i18n label and tone; a new state is added there. `live` adds `role="status"` where the status changes on screen (detail headers, the swap order line, the guardian pill); never in a list. | the Activity row's dot and 10px colored text, history's `StatusPill` (now a wrapper that maps a transaction row to a status), the bridge and earn detail pills, the legacy summary rows' dots, the swap order's colored line and pending text, the guardian's red/green pill |
 | Network chip | `NetworkChip` | A `Pill` in the network's own tint, logo unchanged. | — |
 | Avatar | `Avatar` | Round: image, initials or icon; 24 / 40 / 88px; a network badge on the corner for `0x` contacts. Contact colors come from the address hash. | ad-hoc icon circles; Activity's square icons become round |
@@ -186,9 +186,30 @@ callbacks). The app root sets `<MotionConfig reducedMotion="user">`.
 | `sheet` | y 24 + scale 0.96 + opacity, `springs.sheetPresent`, `fade` backdrop | dApp confirm, switcher, peek card, seed warning |
 | `page` | incoming page from the right over `durations.page` (0.34s) on `easings.standard`; the page beneath to `pageSlideParallax` (−24%) under a `pageSlideDim` dim (`FullScreenPage`, `MobilePageLayers`) | four page-transition models |
 | `press` | `whileTap` scale 0.96, `springs.snappy` | `Button` (inline 800/35), `Toggle` (700/30), CSS `active:scale-*` |
-| `indicator` | shared `layoutId`, `springs.pill` | token detail tabs, `TabPicker` |
+| `indicator` | shared `layoutId`, `springs.pill` | no longer used by a choice row: those are `SegmentedControl`, on the tab-bar motion below |
 | `shimmer` | 1.2s linear loop, still under reduced motion | two pending-activity runners |
 | `shake` | x keyframes out and back to rest over `durations.slow`, `easeInOut`; does not run under reduced motion | — (a rejected passcode's dots) |
+
+### Tab bars and segmented controls
+
+The bottom nav, the top action bar and every `SegmentedControl` move alike, through
+`lib/animation/tab-bar.ts` (`useTabBarMotion`, `useTabIconPop`):
+
+- **Anatomy.** No strip behind the items: they sit on the page. The selected item carries the
+  raised bubble (`bg-raised` + `shadow-raised`, full radius), one bubble per control, drawn by the
+  shared `Highlight` (`components/ui/animate/highlight`) under the item's content. A selected item
+  is `ink`, the others `muted`; a 2px focus ring in `accent-primary` at 30%. A segmented control
+  keeps 4px above and below its items so a scrolling row clips neither the bubble's shadow nor the
+  ring.
+- **Switch.** The bubble slides to the new item on `springs.tabSwitch`, one visible overshoot; its
+  `layoutId` is scoped to the control, so two mounted controls never trade bubbles.
+- **Pop.** The newly selected item's icon (a segmented control's whole content) rises to
+  `iconPopScale` (1.12) on `springs.tabIconPop` and settles on `tabSwitch`. Nothing pops on mount.
+- **Press.** A held item dips to `pressScale` (0.92) on `springs.snappy`, and the bubble sinks to
+  `shadow-raised-pressed`.
+- **Haptic.** `hapticSelection` once per real change; a tap on the selected item is silent and
+  reports nothing. Arrow keys, Home and End move focus and the selection together.
+- **Reduced motion.** The bubble moves instantly, nothing pops, a press does not scale.
 
 A step inside one page (the `Navigator` flows: send, swap, bridge deposit, encrypted file; and the
 onboarding steps) is not a page push: its `AnimatePresence` runs in `mode="wait"`, so the leaving

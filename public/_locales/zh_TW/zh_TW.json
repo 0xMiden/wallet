@@ -1069,6 +1069,8 @@
   "qrNetworkCaption": "Miden $network$",
   "activityRejectExplanation": "要將此轉帳從本裝置的「活動」中隱藏嗎？此操作不會將資金退還給寄件者，也不會刪除該筆note。您可以在「活動」中還原已隱藏的轉帳。",
   "activitySearch": "搜尋活動",
+  "activityFilters": "活動篩選",
+  "chartTimeframe": "圖表時間範圍",
   "evmConnectTestWalletBody": "此橋接服務運行於以太坊 Sepolia 網。請勿連接內含真實資金的錢包。請創建一個全新錢包，並僅存入 Sepolia ETH。",
   "activityAcceptTransfer": "接受轉帳",
   "activityDateUnavailable": "日期不詳",

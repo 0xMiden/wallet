@@ -3,6 +3,7 @@ import React, { FC, ReactNode } from 'react';
 import { motion } from 'framer-motion';
 
 import { Highlight, HighlightItem } from 'components/ui/animate/highlight';
+import { raisedBubbleClassName } from 'components/ui/animate/raised-bubble';
 import { useTabBarMotion, useTabIconPop } from 'lib/animation';
 import { hapticSelection } from 'lib/mobile/haptics';
 import { cn } from 'lib/ui/util';
@@ -112,7 +113,7 @@ export const SegmentedActionBar: FC<SegmentedActionBarProps> = ({ items, activeI
         click={false}
         exitDelay={0}
         transition={motionTokens.highlight}
-        className="inset-0 rounded-full bg-raised shadow-raised transition-shadow group-active:shadow-raised-pressed"
+        className={cn('inset-0', raisedBubbleClassName)}
       >
         {items.map(item => (
           <Segment key={item.id} item={item} active={item.id === activeId} onSelect={handleSelect} />

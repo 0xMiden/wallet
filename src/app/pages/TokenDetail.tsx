@@ -2,7 +2,6 @@ import React, { FC, useRef, useState } from 'react';
 
 import classNames from 'clsx';
 import { format } from 'date-fns';
-import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import { Line, LineChart, Tooltip, YAxis } from 'recharts';
 
@@ -20,8 +19,8 @@ import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import { Hero } from 'components/ui/Hero';
 import { Pill, PillTone } from 'components/ui/Pill';
 import { SectionHeader } from 'components/ui/SectionHeader';
+import { SegmentedControl, SegmentedControlItem } from 'components/ui/SegmentedControl';
 import { Skeleton } from 'components/ui/Skeleton';
-import { usePreset } from 'lib/animation';
 import { toAdaptiveFixed } from 'lib/i18n/numbers';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata, useNetwork } from 'lib/miden/front';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
@@ -43,11 +42,14 @@ const EXPLORER_TITLE = 'Midenscan';
 
 const TIMEFRAMES: Timeframe[] = ['1H', '1D', '1W', '1M', 'YTD'];
 
-const FLAT_LINE_DATA = Array.from({ length: 10 }, () => ({ value: 1 }));
+// Timeframe codes read the same in every language, so they are their own labels.
+const TIMEFRAME_ITEMS: SegmentedControlItem<Timeframe>[] = TIMEFRAMES.map(tf => ({
+  id: tf,
+  label: tf,
+  'data-testid': `token-detail-timeframe-${tf}`
+}));
 
-// One fill shared by every timeframe pill: Framer's layoutId slides it from the old selection to
-// the new one (the Activity filter row's technique).
-const TIMEFRAME_PILL_LAYOUT_ID = 'token-detail-timeframe-pill';
+const FLAT_LINE_DATA = Array.from({ length: 10 }, () => ({ value: 1 }));
 
 // The chart draws in the brand accent through the chart container's `--color-price`, so the line
 // follows the token rather than a hex literal.
@@ -169,7 +171,6 @@ function priceChange(change24h: number): { tone: PillTone; label: string } {
 const PriceChart: FC<{ symbol: string; priceInfo: TokenPriceInfo }> = ({ symbol, priceInfo }) => {
   const { t } = useTranslation();
   const [timeframe, setTimeframe] = useState<Timeframe>('1D');
-  const indicator = usePreset('indicator');
 
   const { data: klineData } = useRetryableSWR(['kline', symbol, timeframe], () => fetchKlineData(symbol, timeframe), {
     dedupingInterval: 30_000,
@@ -235,35 +236,15 @@ const PriceChart: FC<{ symbol: string; priceInfo: TokenPriceInfo }> = ({ symbol,
           </ChartContainer>
         )}
       </div>
-      <div className="mt-3 flex items-center gap-2">
-        {TIMEFRAMES.map(tf => {
-          const isActive = tf === timeframe;
-          return (
-            <div key={tf} className="relative shrink-0">
-              {isActive && (
-                <motion.span
-                  layoutId={TIMEFRAME_PILL_LAYOUT_ID}
-                  className="pointer-events-none absolute inset-0 rounded-full bg-accent-tint"
-                  transition={indicator.transition}
-                />
-              )}
-              <Pill
-                tone={isActive ? 'plain' : 'neutral'}
-                selected={isActive}
-                haptic="selection"
-                onClick={() => setTimeframe(tf)}
-                data-testid={`token-detail-timeframe-${tf}`}
-                className={classNames(
-                  'transition-colors motion-reduce:transition-none',
-                  isActive && 'bg-transparent text-accent-tint-ink'
-                )}
-              >
-                {tf}
-              </Pill>
-            </div>
-          );
-        })}
-      </div>
+      <SegmentedControl
+        items={TIMEFRAME_ITEMS}
+        value={timeframe}
+        onChange={setTimeframe}
+        size="sm"
+        layout="fill"
+        aria-label={t('chartTimeframe')}
+        className="mt-2"
+      />
     </section>
   );
 };

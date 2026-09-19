@@ -4728,6 +4728,14 @@
     "message": "搜索活动",
     "englishSource": "Search activity"
   },
+  "activityFilters": {
+    "message": "活动筛选",
+    "englishSource": "Activity filters"
+  },
+  "chartTimeframe": {
+    "message": "图表时间范围",
+    "englishSource": "Chart timeframe"
+  },
   "evmConnectTestWalletBody": {
     "message": "该桥运行在以太坊 Sepolia 网络上。请勿连接存有真实资金的钱包。请创建一个新的钱包，并仅向其中存入 Sepolia ETH。",
     "englishSource": "This bridge runs on Ethereum Sepolia. Do not connect a wallet that holds real funds. Create a fresh wallet and fund it with Sepolia ETH only."

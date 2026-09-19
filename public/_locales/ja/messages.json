@@ -4728,6 +4728,14 @@
     "message": "検索履歴",
     "englishSource": "Search activity"
   },
+  "activityFilters": {
+    "message": "アクティビティのフィルター",
+    "englishSource": "Activity filters"
+  },
+  "chartTimeframe": {
+    "message": "チャートの期間",
+    "englishSource": "Chart timeframe"
+  },
   "evmConnectTestWalletBody": {
     "message": "このブリッジはイーサリアム・セポリア上で動作します。実際の資金を保有しているウォレットを接続しないでください。新しいウォレットを作成し、セポリアETHのみをそのウォレットに入金してください。",
     "englishSource": "This bridge runs on Ethereum Sepolia. Do not connect a wallet that holds real funds. Create a fresh wallet and fund it with Sepolia ETH only."

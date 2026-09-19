@@ -1069,6 +1069,8 @@
   "qrNetworkCaption": "Miden $network$",
   "activityRejectExplanation": "“将此转账从本设备的‘活动’中隐藏？”此操作不会将资金退还给发件人，也不会删除note。您可以在“活动”中恢复已隐藏的转账。",
   "activitySearch": "搜索活动",
+  "activityFilters": "活动筛选",
+  "chartTimeframe": "图表时间范围",
   "evmConnectTestWalletBody": "该桥运行在以太坊 Sepolia 网络上。请勿连接存有真实资金的钱包。请创建一个新的钱包，并仅向其中存入 Sepolia ETH。",
   "activityAcceptTransfer": "接受转账",
   "activityDateUnavailable": "日期不可用",

@@ -1069,6 +1069,8 @@
   "qrNetworkCaption": "Miden $network$",
   "activityRejectExplanation": "이 기기의 ‘활동’에서 이 전송 내역을 숨기시겠습니까? 이 작업을 수행해도 자금이 발신자에게 반환되거나 ‘note’가 삭제되지는 않습니다. ‘활동’에서 숨겨진 전송 내역을 복원할 수 있습니다.",
   "activitySearch": "검색 활동",
+  "activityFilters": "활동 필터",
+  "chartTimeframe": "차트 기간",
   "evmConnectTestWalletBody": "이 브리지는 이더리움 세폴리아(Sepolia)에서 운영됩니다. 실제 자금이 들어 있는 지갑은 연결하지 마십시오. 새로운 지갑을 생성하고 세폴리아 ETH로만 자금을 입금하십시오.",
   "activityAcceptTransfer": "이체 수락",
   "activityDateUnavailable": "날짜 미확인",
