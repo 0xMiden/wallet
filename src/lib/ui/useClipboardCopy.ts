@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 
 import { Clipboard } from '@capacitor/clipboard';
 
-const COPIED_FEEDBACK_MS = 1500;
+import { COPY_FEEDBACK_MS } from 'lib/animation/copy';
 
 /**
  * Writes `text` to the clipboard via `@capacitor/clipboard` (which ships its own web
@@ -42,7 +42,7 @@ export function useClipboardCopy(text: string) {
       if (!mountedRef.current) return;
       setCopied(true);
       clearTimeout(timerRef.current);
-      timerRef.current = setTimeout(() => setCopied(false), COPIED_FEEDBACK_MS);
+      timerRef.current = setTimeout(() => setCopied(false), COPY_FEEDBACK_MS);
     } catch {
       // Nothing to report — the value stays on screen to copy by hand.
     }
