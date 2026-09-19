@@ -32,6 +32,8 @@ export interface TextFieldProps extends SharedFieldAttrs {
   multiline?: boolean;
   /** Pills (Paste, Scan, a unit, …) inside the field, on `page`. */
   trailing?: ReactNode;
+  /** Single-line only: a short `muted` prefix inside the field before the text, such as a seed word's number. */
+  leading?: ReactNode;
   containerClassName?: string;
   'data-testid'?: string;
 }
@@ -71,6 +73,7 @@ export const TextField = forwardRef<TextFieldElement, TextFieldProps>(
       errorTestId,
       multiline,
       trailing,
+      leading,
       containerClassName,
       className,
       id,
@@ -132,18 +135,25 @@ export const TextField = forwardRef<TextFieldElement, TextFieldProps>(
               {...rest}
             />
           ) : (
-            <input
-              ref={setRef}
-              id={fieldId}
-              value={value}
-              defaultValue={defaultValue}
-              onChange={onChange}
-              aria-invalid={invalid}
-              aria-describedby={describedBy}
-              data-testid={dataTestId}
-              className={fieldClassName}
-              {...rest}
-            />
+            <>
+              {leading && (
+                <span aria-hidden="true" className="mr-2 shrink-0 font-sans text-base text-muted tabular-nums">
+                  {leading}
+                </span>
+              )}
+              <input
+                ref={setRef}
+                id={fieldId}
+                value={value}
+                defaultValue={defaultValue}
+                onChange={onChange}
+                aria-invalid={invalid}
+                aria-describedby={describedBy}
+                data-testid={dataTestId}
+                className={fieldClassName}
+                {...rest}
+              />
+            </>
           )}
 
           {trailingSlot}
