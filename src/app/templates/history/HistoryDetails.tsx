@@ -701,8 +701,8 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
 
   return (
     <PageLayout hideToolbar>
-      {/* A swap receipt is reachable from the swap flow itself, so it keeps the
-          close-to-home affordance the previous ScreenHeader carried. */}
+      {/* A swap receipt is reachable from the swap flow itself, so it keeps a
+          close-to-home affordance alongside the ordinary back button. */}
       <PageHeader
         className="px-4"
         title={t('transaction')}
