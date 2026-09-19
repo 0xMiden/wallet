@@ -3957,11 +3957,11 @@
   },
   "tokenPrice": {
     "message": "토큰 가격",
-    "englishSource": "Token Price"
+    "englishSource": "Token price"
   },
   "tokenInfo": {
     "message": "토큰 정보",
-    "englishSource": "Token Info"
+    "englishSource": "Token info"
   },
   "fungible": {
     "message": "대체 가능",
@@ -3973,7 +3973,7 @@
   },
   "recentActivity": {
     "message": "최근 활동",
-    "englishSource": "Recent Activity"
+    "englishSource": "Recent activity"
   },
   "type": {
     "message": "유형",
