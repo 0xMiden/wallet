@@ -331,7 +331,6 @@
         "src/app/ConfirmPage.tsx",
         "src/app/pages/ImportAccount.tsx",
         "src/app/pages/Receive/AddressTab.tsx",
-        "src/app/pages/RotateGuardianReview.tsx",
         "src/app/templates/AccountBanner.tsx",
         "src/app/templates/AddressChip.tsx",
         "src/app/templates/AdvancedSettings.tsx",

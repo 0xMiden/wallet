@@ -1145,5 +1145,6 @@
   "editContact": "Редагувати контакт",
   "deleteContact": "Видалити контакт",
   "saveContact": "Зберегти",
-  "contactAdded": "Додано"
+  "contactAdded": "Додано",
+  "guardianCardMeta": "Оператор: $operator$ · $location$"
 }

@@ -1145,5 +1145,6 @@
   "editContact": "Edit contact",
   "deleteContact": "Delete contact",
   "saveContact": "Save",
-  "contactAdded": "Added"
+  "contactAdded": "Added",
+  "guardianCardMeta": "Operated by $operator$ · $location$"
 }

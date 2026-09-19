@@ -14,6 +14,7 @@ import { Avatar } from './Avatar';
 import { BalanceCard } from './BalanceCard';
 import { BottomNav } from './BottomNav';
 import { Card, CardButton } from './Card';
+import { ChoiceCardGroup } from './ChoiceCard';
 import { CopyButton } from './CopyButton';
 import { CopyChip } from './CopyChip';
 import { EmptyState } from './EmptyState';
@@ -30,6 +31,7 @@ import { Sparkline } from './Sparkline';
 import { Spinner } from './Spinner';
 import { StatusBadge } from './StatusBadge';
 import { TabHeader, TabHeaderAction } from './TabHeader';
+import { TextAction } from './TextAction';
 import { TextField } from './TextField';
 
 // vaul (the drawer primitive AccountsDrawer pulls in) walks the DOM on load;
@@ -74,7 +76,9 @@ describe('components/ui barrel', () => {
     Skeleton,
     TextField,
     Card,
-    CardButton
+    CardButton,
+    ChoiceCardGroup,
+    TextAction
   } as const;
 
   it('re-exports every component under its own name, tied to the source module', () => {

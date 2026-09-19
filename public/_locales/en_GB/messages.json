@@ -5078,5 +5078,17 @@
   "contactAdded": {
     "message": "Added",
     "englishSource": "Added"
+  },
+  "guardianCardMeta": {
+    "message": "Operated by $operator$ · $location$",
+    "englishSource": "Operated by $operator$ · $location$",
+    "placeholders": {
+      "operator": {
+        "content": "$1"
+      },
+      "location": {
+        "content": "$2"
+      }
+    }
   }
 }
