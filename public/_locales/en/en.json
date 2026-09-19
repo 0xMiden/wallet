@@ -1070,6 +1070,7 @@
   "activityRejectExplanation": "Hide this transfer from Activity on this device? This does not return funds to the sender or delete the note. You can restore hidden transfers in Activity.",
   "activitySearch": "Search activity",
   "activityFilters": "Activity filters",
+  "chartTimeframe": "Chart timeframe",
   "evmConnectTestWalletBody": "This bridge runs on Ethereum Sepolia. Do not connect a wallet that holds real funds. Create a fresh wallet and fund it with Sepolia ETH only.",
   "activityAcceptTransfer": "Accept Transfer",
   "activityDateUnavailable": "Date unavailable",
