@@ -208,7 +208,7 @@ function over(top: string, bottom: string): string {
 }
 
 // The five card colors are BRAND colors: they never shift for contrast. Readability on them comes
-// from the type and a local scrim instead, and this pins both halves of that rule.
+// from the type instead, and this pins both halves of that rule.
 describe('card colors are the brand colors', () => {
   const BRAND: Record<string, string> = {
     slate: '#777386',
@@ -229,8 +229,8 @@ describe('card colors are the brand colors', () => {
 // `app-bg`). What each text needs depends on its size (WCAG 1.4.3):
 // - the amount (40-56px extrabold) and the currency (22px bold) are large text: 3:1 on the bare
 //   color. White on the brand orange is 3.0:1, which is why they may never shrink below 18.66px bold.
-// - the label and the footer (13px bold) are small text: 4.5:1, on `surface-balance-scrim` over
-//   the color, the only place the scrim is painted.
+// - the label and the footer (13px bold) sit on the bare color too, by choice: the card keeps its
+//   plain brand color, so in light mode they fall under 4.5:1 on every color but slate. Not pinned.
 // - the change pill (14px) is small text: 4.5:1 on `surface-balance-pill` over the color.
 describe.each([':root', '.dark'] as const)('balance card ink on every card color in %s', selector => {
   const vars = themeVars(selector);
@@ -247,12 +247,6 @@ describe.each([':root', '.dark'] as const)('balance card ink on every card color
 
   it.each(CARD_COLORS)('%s carries the large amount and currency at 3:1 on the bare color', color => {
     expect(contrast(need('surface-balance-fg'), card(color))).toBeGreaterThanOrEqual(3);
-  });
-
-  it.each(CARD_COLORS)('%s carries the small label and footer at 4.5:1 on the scrim', color => {
-    expect(
-      contrast(need('surface-balance-fg'), over(need('surface-balance-scrim'), card(color)))
-    ).toBeGreaterThanOrEqual(4.5);
   });
 
   it.each(CARD_COLORS)('%s carries the change pill at 4.5:1', color => {

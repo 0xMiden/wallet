@@ -196,7 +196,6 @@ export default {
         'surface-balance-positive': 'var(--surface-balance-positive)',
         'surface-balance-handle': 'var(--surface-balance-handle)',
         'surface-balance-pill': 'var(--surface-balance-pill)',
-        'surface-balance-scrim': 'var(--surface-balance-scrim)',
         // Balance-card color options (AccountsDrawer picker swatches).
         'card-slate': 'var(--card-slate)',
         'card-orange': 'var(--card-orange)',
