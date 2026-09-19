@@ -158,3 +158,17 @@ describe('SubPageSection', () => {
     expect(screen.getByTestId('s').children).toHaveLength(1);
   });
 });
+
+describe('SubPageLayout — close', () => {
+  it('puts a close button in the header for a dismissed page', () => {
+    const onClose = jest.fn();
+    render(
+      <SubPageLayout title="Forgot password" onClose={onClose}>
+        <div />
+      </SubPageLayout>
+    );
+    fireEvent.click(screen.getByTestId('page-close'));
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId('page-back')).not.toBeInTheDocument();
+  });
+});
