@@ -47,7 +47,9 @@ jobs:
     runs-on: ubuntu-slim
     steps:
       - name: Check Out Code
-        uses: actions/checkout@v3
+        # v4, not the v3 the older jobs in this file use: actionlint rejects v3 as too old
+        # to run on GitHub Actions, and a new job should not add to that debt.
+        uses: actions/checkout@v4
       - name: Check E2E suite selector
         run: bash scripts/select-e2e-changes.test.sh
 
