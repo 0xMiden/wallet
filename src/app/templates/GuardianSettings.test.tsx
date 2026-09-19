@@ -153,6 +153,54 @@ it('renders the configured guardian summary and live details', () => {
   expect(screen.getByText('US-EAST')).toBeInTheDocument();
 });
 
+// GUARDIAN_LOGOS['open-zeppelin'] carries a `Mark` (its standalone colour "Z"),
+// which switches the hero from the wordmark-plus-repeated-name tile to the
+// design-system Hero: the mark in a circle, the name once as the Hero title,
+// and the same status pill underneath — see GuardianSettings.tsx's `logoEntry?.Mark`
+// branch.
+it('renders the OpenZeppelin mark in the design-system Hero, the name once, and the status pill', () => {
+  mockGetGuardianLastSyncAt.mockReturnValue(Date.now());
+  render(<GuardianSettings />);
+
+  const mark = screen.getByTestId('guardian-operator-logo');
+  expect(mark).toBeInTheDocument();
+  // The brand-kit tile: pure white in light mode, a dark neutral in dark
+  // mode with a hairline ring for definition — not the grey
+  // `bg-fill` tile every other provider still gets.
+  const tile = mark.parentElement;
+  expect(tile).toHaveClass('bg-pure-white', 'dark:bg-grey-800', 'border-hairline');
+
+  // The name is the Hero title now, not a wordmark tile PLUS a repeated name
+  // below it.
+  expect(screen.getAllByText('Guardian One')).toHaveLength(1);
+  expect(screen.getByRole('heading', { name: 'Guardian One' })).toBeInTheDocument();
+
+  // The status pill survives the layout swap unchanged.
+  const pill = screen.getByRole('status');
+  expect(pill).toHaveTextContent('online');
+});
+
+// Every other provider (no `Mark` on its GUARDIAN_LOGOS entry) keeps the
+// original wordmark-in-a-tile hero layout untouched by the OpenZeppelin
+// brand-kit work.
+it('keeps the wordmark-tile hero layout for a provider with no Mark', () => {
+  mockGuardianOptionForEndpoint.mockReturnValue({
+    id: 'gateway',
+    name: 'Gateway One',
+    operatedBy: 'Gateway Provider',
+    location: 'EU-WEST'
+  });
+  render(<GuardianSettings />);
+
+  const logo = screen.getByTestId('guardian-operator-logo');
+  expect(logo).toBeInTheDocument();
+  // The legacy grey tile, not the OpenZeppelin brand-kit tile.
+  expect(logo.parentElement).toHaveClass('bg-fill');
+  expect(logo.parentElement).not.toHaveClass('bg-pure-white');
+
+  expect(screen.getByRole('heading', { name: 'Gateway One' })).toBeInTheDocument();
+});
+
 it('shows the offline pill while the sync loop reports a guardian outage', () => {
   mockIsGuardianSyncOutage.mockReturnValue(true);
   render(<GuardianSettings />);

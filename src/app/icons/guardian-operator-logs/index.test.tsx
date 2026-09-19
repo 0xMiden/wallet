@@ -18,7 +18,7 @@ describe('GUARDIAN_LOGOS', () => {
     expect(oz).toBeDefined();
     expect(oz.keepBrandColor).toBe(true);
     expect(oz.Mark).toBeDefined();
-    expect(guardianLogoColorClass(oz)).toBe('text-heading-gray');
+    expect(guardianLogoColorClass(oz)).toBe('text-ink');
   });
 
   it("renders OpenZeppelin's light and dark wordmark variants toggled by theme, not one recolored asset", () => {
