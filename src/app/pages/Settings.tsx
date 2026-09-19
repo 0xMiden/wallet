@@ -22,6 +22,7 @@ import { PageHeader } from 'components/PageHeader';
 import { ListGroup } from 'components/ui/ListGroup';
 import { ListRow } from 'components/ui/ListRow';
 import { SectionHeader } from 'components/ui/SectionHeader';
+import { SubPageHeaderProvider } from 'components/ui/SubPageLayout';
 // Imported from the module rather than the `components/ui` barrel: the barrel
 // pulls in siblings that touch `lib/platform` at module scope, which this
 // page's test suite mocks only partially.
@@ -84,6 +85,12 @@ type Tab = {
   Component: React.FC;
   testID?: SettingsSelectors;
   hasOwnLayout?: boolean;
+  /**
+   * The page renders `SubPageLayout` itself (header, scrolling body, pinned footer), taking its
+   * header from the `SubPageHeaderProvider` this host wraps it in. Set per page as it moves onto
+   * the layout; the others still get the host's header and padded body.
+   */
+  rendersSubPageLayout?: boolean;
   rightText?: string;
   linksOutsideOfWallet?: boolean;
   onClick?: () => void;
@@ -175,7 +182,8 @@ const TAB_GROUPS: TabGroup[] = [
         slug: 'keys',
         titleI18nKey: 'keys',
         Component: KeysSettings,
-        testID: SettingsSelectors.KeysButton
+        testID: SettingsSelectors.KeysButton,
+        rendersSubPageLayout: true
       },
       {
         slug: 'encrypted-wallet-file',
@@ -198,7 +206,8 @@ const TAB_GROUPS: TabGroup[] = [
         // the anchor and Link's analytics call, and an absent one became an
         // empty data-testid plus a ButtonPress event with an empty name.
         testID: SettingsSelectors.GuardianSettingsButton,
-        guardianOnly: true
+        guardianOnly: true,
+        rendersSubPageLayout: true
       }
     ]
   },
@@ -272,7 +281,8 @@ const HIDDEN_TABS: Tab[] = [
     titleI18nKey: 'revealPrivateKey',
     Component: RevealPrivateKey,
     requiresSeedPhrase: true,
-    testID: SettingsSelectors.RevealPrivateKeyButton
+    testID: SettingsSelectors.RevealPrivateKeyButton,
+    rendersSubPageLayout: true
   },
   {
     slug: 'reveal-hot-key',
@@ -280,7 +290,8 @@ const HIDDEN_TABS: Tab[] = [
     Component: RevealHotKey,
     testID: SettingsSelectors.RevealHotKeyButton,
     guardianOnly: true,
-    requiresActivatedHotKey: true
+    requiresActivatedHotKey: true,
+    rendersSubPageLayout: true
   },
   {
     slug: 'verify-seed-phrase',
@@ -447,6 +458,25 @@ const Settings: FC<SettingsProps> = ({ tabSlug, rootScrollTop: savedRootScrollTo
 
   if (invalidTab) return null;
 
+  const subPageTitle = activeTab ? t(activeTab.pageTitleI18nKey ?? activeTab.titleI18nKey) : undefined;
+  // As drawers these screens were dialogs, so they took focus and were announced by name. Routes
+  // are not announced and the row that opened them unmounts with the list, dropping focus to
+  // <body>. Skipped for the pages that focus a field themselves — see `ownsInitialFocus`.
+  const focusSubPageTitle = activeTab ? !activeTab.ownsInitialFocus?.() : false;
+
+  if (activeTab?.rendersSubPageLayout) {
+    return (
+      // Keyed on the slug so a sibling-to-sibling move remounts the page, its header's focus
+      // effect re-runs and the new body opens at its top.
+      <SubPageHeaderProvider
+        key={activeTab.slug}
+        value={{ title: subPageTitle, onBack: handleSubPageBack, focusTitleOnMount: focusSubPageTitle }}
+      >
+        <activeTab.Component />
+      </SubPageHeaderProvider>
+    );
+  }
+
   return (
     <>
       {/* Headers sit OUTSIDE the scroll container below: a sub-page's header
@@ -456,14 +486,9 @@ const Settings: FC<SettingsProps> = ({ tabSlug, rootScrollTop: savedRootScrollTo
         !activeTab.hasOwnLayout && (
           <PageHeader
             className="px-4"
-            title={t(activeTab.pageTitleI18nKey ?? activeTab.titleI18nKey)}
+            title={subPageTitle}
             onBack={handleSubPageBack}
-            // As drawers these screens were dialogs, so they took focus and were
-            // announced by name. Routes are not announced and the row that
-            // opened them unmounts with the list, dropping focus to <body>.
-            // Skipped for the pages that focus a field themselves — see
-            // `ownsInitialFocus`.
-            focusTitleOnMount={!activeTab.ownsInitialFocus?.()}
+            focusTitleOnMount={focusSubPageTitle}
             // Prefixed: the scroll container below is a sibling in this same
             // fragment and keys on the slug too, and two siblings sharing a key
             // makes React render both of them.

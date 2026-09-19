@@ -35,11 +35,18 @@ jest.mock('components/Button', () => ({
   Button: (props: any) => {
     fsbHolder.props = props;
     return (
-      <button data-testid="submit" disabled={props.disabled} onClick={props.onClick}>
+      <button
+        data-testid="submit"
+        data-variant={props.variant}
+        data-size={props.size}
+        disabled={props.disabled}
+        onClick={props.onClick}
+      >
         {props.children}
       </button>
     );
-  }
+  },
+  ButtonVariant: { Primary: 'primary', Secondary: 'secondary', Destructive: 'destructive' }
 }));
 
 const mockInitiate = jest.fn();
@@ -135,6 +142,32 @@ describe('GuardianReplaceHotKey — rendering', () => {
     expect(fsbHolder.props.isLoading).toBe(false);
     // No error / success surfaces initially.
     expect(screen.queryByText('hotKeyRotated')).not.toBeInTheDocument();
+  });
+
+  it('renders as a Keys page section: label, muted description, then a compact secondary button', () => {
+    render(<GuardianReplaceHotKey />);
+
+    const section = screen.getByTestId('replace-hot-key-section');
+    expect(section.tagName).toBe('SECTION');
+    // The section label is the shared SectionHeader (an h2), not hand-styled text.
+    expect(screen.getByRole('heading', { level: 2, name: 'replaceHotKey' })).toHaveClass('text-muted', 'text-[13px]');
+    expect(screen.getByText('replaceHotKeyDescription').parentElement).toHaveClass('text-sm', 'text-muted');
+    // One maintenance action on a page of links: secondary, 36px, not the page's primary CTA.
+    expect(screen.getByTestId('submit')).toHaveAttribute('data-variant', 'secondary');
+    expect(screen.getByTestId('submit')).toHaveAttribute('data-size', 'sm');
+    expect(section).toContainElement(screen.getByTestId('submit'));
+  });
+
+  it('shows a failure as an alert in the negative ink', async () => {
+    mockInitiate.mockRejectedValueOnce(new Error('boom'));
+    render(<GuardianReplaceHotKey />);
+
+    await click();
+    await click();
+
+    const alert = screen.getByRole('alert');
+    expect(alert).toHaveTextContent('boom');
+    expect(alert).toHaveClass('text-negative-ink');
   });
 
   it('disables the button when there is no current account', () => {

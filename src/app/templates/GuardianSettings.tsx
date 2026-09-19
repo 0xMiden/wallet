@@ -13,6 +13,7 @@ import { ReactComponent as GuardianAvatar } from 'app/icons/onboarding/guardian-
 import { Button } from 'components/Button';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import { Hero } from 'components/ui/Hero';
+import { SubPageLayout, SubPageSection } from 'components/ui/SubPageLayout';
 import {
   getGuardianLastSyncAt,
   isGuardianLastSyncFresh,
@@ -253,7 +254,20 @@ const GuardianSettings: FC = () => {
   );
 
   return (
-    <div className="flex min-h-full w-full flex-col">
+    <SubPageLayout
+      data-testid="guardian-settings"
+      // Always offered: a rotation is cold-signed, and an account with no local
+      // cold key (seed removed, hot-key-only import) gets a seed phrase prompt
+      // for the one transaction instead of losing the action.
+      footer={
+        <Button
+          className="flex-1 max-w-none"
+          data-testid="rotateGuardian"
+          title={t('rotateGuardian')}
+          onClick={handleRotate}
+        />
+      }
+    >
       <div className="flex flex-col items-center pt-1">
         {logoEntry?.Mark ? (
           // OpenZeppelin ships a standalone colour mark (see GuardianLogoEntry),
@@ -290,39 +304,30 @@ const GuardianSettings: FC = () => {
         )}
       </div>
 
-      <section className="mt-5">
-        {/* `text-ink`, the token the Settings page's own group headings
-            use, rather than `text-muted`: a 14px semibold heading on the `fill`
-            chip needs 4.5:1, not the large-text 3:1, and ink is the strongest pair
-            the design system has there (held to 4.5:1 or better in both themes by
-            design-tokens.test.ts).
-
-            `h3`, subordinate to the guardian name's h2 above: these are sections
-            within the page, not siblings of its subject. The "settings group
-            headings skipped h2" fix belonged to the Settings root list, where
-            there was genuinely no h2 to be subordinate to; promoting these gave
-            the page three sibling h2s and flattened a correct outline. */}
-        <h3 className="inline-block rounded-full bg-fill px-3 py-1 text-sm font-semibold text-ink">{t('about')}</h3>
-        <p className="mt-2 text-sm leading-5 text-ink">
-          <Trans i18nKey="guardianInfoDescription" components={{ b: <span className="font-semibold" /> }} />
-        </p>
+      {/* `h3`, subordinate to the guardian name's h2 above: these are sections
+          within the page, not siblings of its subject. */}
+      <SubPageSection
+        title={t('about')}
+        titleAs="h3"
+        description={
+          <Trans i18nKey="guardianInfoDescription" components={{ b: <span className="font-bold text-ink" /> }} />
+        }
+      >
+        {/* accent-tint-ink, not accent: accent is 3.0:1 on the page, short of AA for 14px text. */}
         <button
           type="button"
           onClick={() => {
             hapticLight();
             setIsInfoOpen(true);
           }}
-          className="mt-2 text-sm font-bold text-primary-500 underline underline-offset-4 decoration-2"
+          className="self-start px-1 font-heading text-sm font-bold text-accent-tint-ink"
         >
           {t('learnMoreAboutGuardian')}
         </button>
-      </section>
+      </SubPageSection>
 
-      <hr className="my-3 border-border-faint" />
-
-      <section className="pb-4">
-        <h3 className="inline-block rounded-full bg-fill px-3 py-1 text-sm font-semibold text-ink">{t('details')}</h3>
-        <DetailCard className="mt-2">
+      <SubPageSection title={t('details')} titleAs="h3">
+        <DetailCard>
           <DetailRow label={t('guardianProvider')}>{provider}</DetailRow>
           <DetailRow label={t('guardianEndpointLabel')} stacked>
             {endpoint}
@@ -330,20 +335,10 @@ const GuardianSettings: FC = () => {
           <DetailRow label={t('guardianRegion')}>{region}</DetailRow>
           <DetailRow label={t('guardianLastSync')}>{lastSync}</DetailRow>
         </DetailCard>
-      </section>
-
-      {/* Always offered: a rotation is cold-signed, and an account with no local
-          cold key (seed removed, hot-key-only import) gets a seed phrase prompt
-          for the one transaction instead of losing the action. */}
-      <Button
-        className="mt-auto mb-6 max-w-none shrink-0"
-        data-testid="rotateGuardian"
-        title={t('rotateGuardian')}
-        onClick={handleRotate}
-      />
+      </SubPageSection>
 
       <GuardianInfoDrawer open={isInfoOpen} onOpenChange={setIsInfoOpen} />
-    </div>
+    </SubPageLayout>
   );
 };
 

@@ -2,7 +2,8 @@ import React, { FC, useCallback, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
-import { Button } from 'components/Button';
+import { Button, ButtonVariant } from 'components/Button';
+import { SubPageSection } from 'components/ui/SubPageLayout';
 import { initiateReplaceHotKeyTransaction, requestSWTransactionProcessing } from 'lib/miden/activity';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import { isExtension } from 'lib/platform';
@@ -14,6 +15,11 @@ import { navigate } from 'lib/woozie';
  * Proactive hot-key rotation. Cold-signed (recovery key); the on-chain proposal
  * swaps the hot signer commitment in-place via update_signers. The seed phrase
  * is NOT required — the cold key derived at create time is already in the vault.
+ *
+ * A section of the Keys page rather than its footer: Keys is a list of places to
+ * go, and this is one maintenance action among them (Guardian accounts only), so
+ * it takes a compact `secondary` button under its own explanation instead of the
+ * page's one primary CTA.
  */
 const GuardianReplaceHotKey: FC = () => {
   const { t } = useTranslation();
@@ -47,24 +53,36 @@ const GuardianReplaceHotKey: FC = () => {
   }, [confirming, currentAccount]);
 
   return (
-    <div className="w-full pb-10">
-      <p className="text-sm text-ink font-medium mb-1">{t('replaceHotKey')}</p>
-      <p className="text-xs text-ink mb-3 select-text">{t('replaceHotKeyDescription')}</p>
-
-      {confirming && <div className="text-xs text-ink mb-3 select-text">{t('replaceHotKeyConfirmation')}</div>}
-
+    <SubPageSection
+      title={t('replaceHotKey')}
+      data-testid="replace-hot-key-section"
+      description={
+        <>
+          <p className="select-text">{t('replaceHotKeyDescription')}</p>
+          {/* Ink, not muted: it is the question the second tap answers. */}
+          {confirming && <p className="mt-2 select-text text-ink">{t('replaceHotKeyConfirmation')}</p>}
+        </>
+      }
+    >
       <Button
         type="button"
+        variant={ButtonVariant.Secondary}
+        size="sm"
         onClick={onClick}
         isLoading={submitting}
         disabled={!currentAccount || submitting}
-        className="w-full"
+        className="self-start"
+        data-testid="replace-hot-key"
       >
         {confirming ? t('confirmReplaceHotKey') : t('replaceHotKey')}
       </Button>
 
-      {error && <div className="mt-3 text-red-600 text-sm font-medium select-text wrap-break-word">{error}</div>}
-    </div>
+      {error && (
+        <p role="alert" className="mt-3 px-1 font-sans text-sm wrap-break-word text-negative-ink select-text">
+          {error}
+        </p>
+      )}
+    </SubPageSection>
   );
 };
 

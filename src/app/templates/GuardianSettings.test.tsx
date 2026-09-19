@@ -567,6 +567,24 @@ it('nests the section headings under the guardian name rather than beside it', (
   expect(screen.getByText('details').tagName).toBe('H3');
 });
 
+it('renders through SubPageLayout: section labels, muted copy, details card, Rotate pinned in the footer', () => {
+  render(<GuardianSettings />);
+
+  const page = screen.getByTestId('guardian-settings');
+  const footer = page.querySelector('[data-slot="footer"]')!;
+  expect(footer).toContainElement(screen.getByRole('button', { name: 'rotateGuardian' }));
+  expect(page.querySelector('[data-slot="body"]')).not.toContainElement(
+    screen.getByRole('button', { name: 'rotateGuardian' })
+  );
+  // Section labels are the shared SectionHeader, not grey chips; no rule between sections.
+  expect(screen.getByText('about')).toHaveClass('text-[13px]', 'text-muted');
+  expect(screen.getByText('about')).not.toHaveClass('bg-gray-25');
+  expect(page.querySelector('hr')).toBeNull();
+  // The explanation is 14px muted section copy; the details sit in the shared DetailCard.
+  expect(screen.getByText('guardianInfoDescription').closest('.text-muted')).toHaveClass('text-sm');
+  expect(screen.getByText('guardianProvider').closest('.rounded-2xl')).toHaveClass('bg-fill');
+});
+
 // Hot-key-only import: no cold key on the account. This guards the CTA's
 // VISIBILITY only, and passes on the base commit by construction - the CTA was
 // never gated on the cold key. The pipeline it fronts (prompt for the seed,
