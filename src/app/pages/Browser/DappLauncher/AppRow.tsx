@@ -49,10 +49,8 @@ export const AppRow: FC<AppRowProps> = ({ item, onOpen }) => {
     >
       <AppIcon url={item.url} name={item.name} icon={item.icon} size="row" surface="fill" />
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <AppName className="font-heading text-[17px] leading-[22px] font-extrabold text-ink">{item.name}</AppName>
-        <span className="truncate font-sans text-[13px] leading-[17px] text-muted">
-          {item.taglineKey ? t(item.taglineKey) : item.tagline}
-        </span>
+        <AppName className="text-title-section text-ink">{item.name}</AppName>
+        <span className="truncate text-caption text-muted">{item.taglineKey ? t(item.taglineKey) : item.tagline}</span>
       </span>
       <Pill tone="selected" className="shrink-0">
         {t('exploreOpen')}
