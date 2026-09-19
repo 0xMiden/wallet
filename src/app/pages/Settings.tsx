@@ -606,7 +606,7 @@ const Settings: FC<SettingsProps> = ({ tabSlug, rootScrollTop: savedRootScrollTo
               </section>
             ))}
 
-            <p className="px-1 font-sans text-[13px] text-muted">{t('settingsVersion', { version: pkg.version })}</p>
+            <p className="px-1 text-caption text-muted">{t('settingsVersion', { version: pkg.version })}</p>
           </div>
         )}
       </div>

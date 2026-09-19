@@ -114,7 +114,7 @@ const DAppSection: FC<{
         </DetailRow>
         <DetailRow label={rowLabel(t('pkhLabel'))}>
           <span>{truncateAddress(accountId, false, 8)}</span>
-          <CopyButton text={accountId} className="shrink-0 font-heading text-sm font-bold" />
+          <CopyButton text={accountId} />
           {explorerAccountUrl && (
             <a
               href={explorerAccountUrl}

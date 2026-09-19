@@ -49,7 +49,7 @@ type GuardianKeysBundle = {
 // the window loses focus, and TextField has no equivalent yet. Only their label
 // and description take the design system's type (13px bold `muted` label,
 // 14px `muted` copy), matching TextField's.
-const secretLabelClassName = 'mb-0 font-sans text-[13px] leading-[17px] font-bold text-muted';
+const secretLabelClassName = 'mb-0 text-label text-muted';
 const secretDescription = (desc: React.ReactNode) => (
   <div className="mb-3 font-sans text-sm leading-5 text-muted">{desc}</div>
 );
