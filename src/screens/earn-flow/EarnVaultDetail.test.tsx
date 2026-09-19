@@ -19,7 +19,7 @@ import EarnVaultDetail from './EarnVaultDetail';
 // props via data-* attributes so we can assert what `EarnVaultDetail` passed
 // (label / value / valueClassName), which is where the audited-branch styling
 // lives.
-// i18n: the component and the shared Button/CircleButton call `useTranslation`.
+// i18n: the component and the shared Button/IconButton call `useTranslation`.
 // Stub it so `t(key)` echoes the key, letting us assert on stable keys instead
 // of translated English.
 jest.mock('react-i18next', () => ({
@@ -52,7 +52,7 @@ jest.mock('lib/woozie', () => ({
 }));
 
 // Haptics wrap the Capacitor plugin. `EarnVaultDetail` calls `hapticSelection`
-// on timeframe taps; the real `Button` / `CircleButton` we render call
+// on timeframe taps; the real `Button` / `IconButton` we render call
 // `hapticLight`. Stub both so no native code is touched.
 jest.mock('lib/mobile/haptics', () => ({
   hapticSelection: jest.fn(),
