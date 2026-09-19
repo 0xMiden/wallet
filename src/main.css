@@ -140,6 +140,12 @@ button:disabled,
   line-height: var(--tw-leading, 56px);
   font-weight: var(--tw-font-weight, 800);
 }
+@utility text-entry-unit {
+  font-family: var(--font-heading);
+  font-size: 22px;
+  line-height: var(--tw-leading, 28px);
+  font-weight: var(--tw-font-weight, 700);
+}
 @utility text-title-tab {
   font-family: var(--font-heading);
   font-size: 28px;

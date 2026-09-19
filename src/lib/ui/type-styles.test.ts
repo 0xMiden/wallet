@@ -23,6 +23,7 @@ const SANS = 'var(--font-sans)';
 const EXPECTED: Record<(typeof TYPE_STYLES)[number], [string, string, string, string]> = {
   display: [HEADING, '48px', '52px', '800'],
   entry: [HEADING, '48px', '56px', '800'],
+  'entry-unit': [HEADING, '22px', '28px', '700'],
   'title-tab': [HEADING, '28px', '36px', '800'],
   'hero-value': [HEADING, '32px', '36px', '900'],
   'hero-name': [HEADING, '24px', '28px', '900'],
