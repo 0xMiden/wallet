@@ -58,7 +58,8 @@ const typeCode = (code: string) => {
 const pressDelete = () => fireEvent.click(screen.getByTestId('numpad-delete'));
 
 /** Count the number of "filled" passcode dots currently rendered. */
-const filledDotCount = (container: HTMLElement) => container.querySelectorAll('div.bg-\\[\\#C7C7CC\\]').length;
+const filledDotCount = (container: HTMLElement) =>
+  container.querySelectorAll('[data-testid="passcode-dot"][data-filled="true"]').length;
 
 const renderComponent = (props: Partial<React.ComponentProps<typeof SetupPasscodeScreen>> = {}) =>
   render(<SetupPasscodeScreen {...props} />);
@@ -89,10 +90,31 @@ describe('SetupPasscodeScreen', () => {
       expect(screen.getByText('createA6DigitCode')).toBeInTheDocument();
     });
 
+    it('draws the shared passcode screen with the keypad docked at the bottom and no biometric key', () => {
+      renderComponent();
+
+      const root = screen.getByTestId('onboarding-setup-passcode');
+      expect(root).toContainElement(screen.getByTestId('passcode-screen-layout'));
+      expect(screen.getByTestId('passcode-keypad-dock')).toContainElement(screen.getByTestId('numpad'));
+      expect(screen.queryByTestId('numpad-biometric')).not.toBeInTheDocument();
+    });
+
+    it('shakes the dots and shows the mismatch in negative-ink', () => {
+      renderComponent();
+
+      typeCode('123456');
+      flushTimers();
+      typeCode('111111');
+      flushTimers();
+
+      expect(screen.getByTestId('passcode-dots')).toHaveAttribute('data-shake', 'true');
+      expect(screen.getByRole('status')).toHaveClass('text-negative-ink');
+    });
+
     it('renders six empty dots and the numpad', () => {
       const { container } = renderComponent();
       // 6 dots total, none filled initially.
-      expect(container.querySelectorAll('div.rounded-full')).toHaveLength(6);
+      expect(container.querySelectorAll('[data-testid="passcode-dot"]')).toHaveLength(6);
       expect(filledDotCount(container)).toBe(0);
       expect(screen.getByTestId('numpad')).toBeInTheDocument();
     });
