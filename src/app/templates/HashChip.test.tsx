@@ -4,21 +4,19 @@ import { render, screen } from '@testing-library/react';
 
 import HashChip from './HashChip';
 
-// HashChip is a thin composition component: it wires a `CopyButton` around a
-// `HashShortView` plus an optional copy `Icon`, forwarding/renaming props to
-// each child. We stub all three children to lightweight markers so we can
-// assert exactly which props HashChip forwards where, and exercise every
-// default-parameter and conditional-render branch.
-
-const mockCopyButtonProps = jest.fn();
+// HashChip is a thin composition over the canonical CopyChip: it wires a HashShortView as its
+// `children` and forwards `text`/`className`/`data-testid`/`aria-label`, merging in its own
+// neutral default className. CopyChip is stubbed to a prop-recording marker so every forwarded
+// value is asserted precisely, without dragging in the clipboard hook stack (already covered by
+// CopyChip.test.tsx).
+const mockCopyChipProps = jest.fn();
 const mockHashShortViewProps = jest.fn();
 
-jest.mock('app/atoms/CopyButton', () => ({
+jest.mock('components/ui/CopyChip', () => ({
   __esModule: true,
-  default: (props: Record<string, unknown>) => {
-    mockCopyButtonProps(props);
-    // Render children so the inner span / HashShortView / Icon end up in the DOM.
-    return <div data-testid="copy-button">{props.children as React.ReactNode}</div>;
+  CopyChip: (props: Record<string, unknown>) => {
+    mockCopyChipProps(props);
+    return <div data-testid="copy-chip">{props.children as React.ReactNode}</div>;
   }
 }));
 
@@ -30,11 +28,8 @@ jest.mock('app/atoms/HashShortView', () => ({
   }
 }));
 
-jest.mock('app/icons/v2', () => ({
-  IconName: { Copy: 'copy' },
-  Icon: (props: { name: string; size?: string; fill?: string; className?: string }) => (
-    <span data-testid="copy-icon" data-name={props.name} data-size={props.size} data-fill={props.fill} />
-  )
+jest.mock('react-i18next', () => ({
+  useTranslation: () => ({ t: (key: string) => key })
 }));
 
 describe('HashChip', () => {
@@ -42,24 +37,17 @@ describe('HashChip', () => {
     jest.clearAllMocks();
   });
 
-  it('renders with default params: button type, xs/black copy icon, and forwards the hash', () => {
-    // No optional props → every defaulted destructure param takes its default
-    // branch (type='button', size='xs', fill='black', copyIcon=true).
+  it('renders CopyChip with the hash as its copy text, and HashShortView as its content', () => {
     const hash = '0xabcdef0123456789';
     render(<HashChip hash={hash} />);
 
-    // CopyButton receives the hash as its `text` and the default `type`.
-    const copyProps = mockCopyButtonProps.mock.calls[0][0];
-    expect(copyProps.text).toBe(hash);
-    expect(copyProps.type).toBe('button');
+    const chipProps = mockCopyChipProps.mock.calls[0][0];
+    expect(chipProps.text).toBe(hash);
+    expect(screen.getByTestId('copy-chip')).toBeInTheDocument();
+    expect(screen.getByTestId('hash-short-view')).toBeInTheDocument();
 
-    // The inner flex wrapper span is present.
-    const { container } = render(<HashChip hash={hash} />);
-    expect(container.querySelector('span.flex.flex-row.items-center')).toBeInTheDocument();
-
-    // HashShortView receives the hash; all trimming props are undefined by default.
-    const hsvProps = mockHashShortViewProps.mock.calls[0][0];
-    expect(hsvProps).toEqual({
+    // Every trimming prop is undefined by default.
+    expect(mockHashShortViewProps.mock.calls[0][0]).toEqual({
       hash,
       trimHash: undefined,
       trimAfter: undefined,
@@ -67,81 +55,21 @@ describe('HashChip', () => {
       lastCharsCount: undefined,
       displayName: undefined
     });
-
-    // The copy Icon is rendered with the default size/fill and the Copy name.
-    const icon = screen.getAllByTestId('copy-icon')[0];
-    expect(icon).toHaveAttribute('data-name', 'copy');
-    expect(icon).toHaveAttribute('data-size', 'xs');
-    expect(icon).toHaveAttribute('data-fill', 'black');
   });
 
-  it('omits the copy icon when copyIcon is false', () => {
-    // The `copyIcon && <Icon />` branch: false → no Icon in the DOM.
-    render(<HashChip hash="0xdeadbeef" copyIcon={false} />);
-
-    expect(screen.queryByTestId('copy-icon')).not.toBeInTheDocument();
-    // HashShortView is still rendered.
-    expect(screen.getByTestId('hash-short-view')).toBeInTheDocument();
-  });
-
-  it('forwards explicit type/size/fill and copyIcon=true, and routes trim + pass-through props', () => {
-    // Provides every optional param so the non-default branch of each default
-    // parameter is taken, and confirms the prop routing:
-    //   - size/fill      -> Icon
-    //   - type           -> CopyButton
-    //   - trim* / displayName -> HashShortView
-    //   - everything else (...rest) -> CopyButton
-    const onClick = jest.fn();
+  it('forwards every trim prop and displayName to HashShortView', () => {
     render(
       <HashChip
         hash="hashy"
-        type="link"
-        size="sm"
-        fill="white"
-        copyIcon
-        className="extra-class"
-        small
-        rounded="base"
-        bgShade={200}
-        textShade={700}
         trimHash={false}
         trimAfter={10}
         firstCharsCount={2}
         lastCharsCount={3}
         displayName="My Wallet"
-        id="chip-id"
-        onClick={onClick}
       />
     );
 
-    // Icon picks up the explicit size/fill.
-    const icon = screen.getByTestId('copy-icon');
-    expect(icon).toHaveAttribute('data-size', 'sm');
-    expect(icon).toHaveAttribute('data-fill', 'white');
-    expect(icon).toHaveAttribute('data-name', 'copy');
-
-    // CopyButton: text + explicit type, plus all the ...rest pass-through props.
-    // Crucially, size/fill/copyIcon and the trim* props are NOT forwarded here
-    // (they were destructured out before `...rest`).
-    const copyProps = mockCopyButtonProps.mock.calls[0][0];
-    expect(copyProps.text).toBe('hashy');
-    expect(copyProps.type).toBe('link');
-    expect(copyProps.className).toBe('extra-class');
-    expect(copyProps.small).toBe(true);
-    expect(copyProps.rounded).toBe('base');
-    expect(copyProps.bgShade).toBe(200);
-    expect(copyProps.textShade).toBe(700);
-    expect(copyProps.id).toBe('chip-id');
-    expect(copyProps.onClick).toBe(onClick);
-    expect(copyProps.size).toBeUndefined();
-    expect(copyProps.fill).toBeUndefined();
-    expect(copyProps.copyIcon).toBeUndefined();
-    expect(copyProps.trimHash).toBeUndefined();
-    expect(copyProps.displayName).toBeUndefined();
-
-    // HashShortView receives the trimming props and the displayName.
-    const hsvProps = mockHashShortViewProps.mock.calls[0][0];
-    expect(hsvProps).toEqual({
+    expect(mockHashShortViewProps.mock.calls[0][0]).toEqual({
       hash: 'hashy',
       trimHash: false,
       trimAfter: 10,
@@ -149,5 +77,30 @@ describe('HashChip', () => {
       lastCharsCount: 3,
       displayName: 'My Wallet'
     });
+  });
+
+  it("merges the neutral default className with a min-w-0 shrink guard before the caller's own className", () => {
+    // Mirrors SwapDetail's real usage: its own font/color classes must land alongside (and, being
+    // last in `cn`, win any conflict with) the neutral default.
+    render(<HashChip hash="hashy" className="font-heading text-base font-semibold" />);
+
+    const chipProps = mockCopyChipProps.mock.calls[0][0];
+    expect(chipProps.className).toContain('min-w-0');
+    expect(chipProps.className).toContain('font-semibold');
+    expect(chipProps.className).not.toContain('font-normal');
+  });
+
+  it('forwards data-testid to CopyChip', () => {
+    render(<HashChip hash="hashy" data-testid="hash-chip-el" />);
+
+    expect(mockCopyChipProps.mock.calls[0][0]['data-testid']).toBe('hash-chip-el');
+  });
+
+  it('computes aria-label from copiedHash/copyHashToClipboard by the copied state', () => {
+    render(<HashChip hash="hashy" />);
+
+    const ariaLabel = mockCopyChipProps.mock.calls[0][0]['aria-label'] as (copied: boolean) => string;
+    expect(ariaLabel(false)).toBe('copyHashToClipboard');
+    expect(ariaLabel(true)).toBe('copiedHash');
   });
 });

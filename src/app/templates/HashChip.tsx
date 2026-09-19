@@ -1,14 +1,33 @@
-import React, { ComponentProps, FC, HTMLAttributes } from 'react';
+import React, { FC } from 'react';
 
-import CopyButton, { CopyButtonProps } from 'app/atoms/CopyButton';
+import { useTranslation } from 'react-i18next';
+
 import HashShortView from 'app/atoms/HashShortView';
-import { Icon, IconName } from 'app/icons/v2';
+import { CopyChip } from 'components/ui/CopyChip';
+import { cn } from 'lib/ui/util';
 
-type HashChipProps = HTMLAttributes<HTMLButtonElement> &
-  ComponentProps<typeof HashShortView> &
-  Pick<ComponentProps<typeof Icon>, 'size' | 'fill' | 'className'> &
-  Pick<CopyButtonProps, 'small' | 'type' | 'bgShade' | 'rounded' | 'textShade'> & { copyIcon?: boolean };
+export interface HashChipProps {
+  hash: string;
+  trimHash?: boolean;
+  trimAfter?: number;
+  firstCharsCount?: number;
+  lastCharsCount?: number;
+  displayName?: string;
+  className?: string;
+  'data-testid'?: string;
+}
 
+// `min-w-0` lets the chip shrink inside a flex row that constrains its width (every call site:
+// history's DetailRow value column, or ExternalLinkValue's row) so Pill's own `truncate` can
+// actually ellipsis a long value instead of forcing the row wider. Without it a flex item defaults
+// to its content's natural width and overflows.
+const DEFAULT_CLASS_NAME = 'min-w-0 text-ink font-sans text-sm font-normal';
+
+/**
+ * A copyable, trimmed hash: the Pill-with-copy (`CopyChip`) built around a `HashShortView`.
+ * `className` is merged after the neutral default via `cn`, so a caller's own color/weight/size
+ * (e.g. SwapDetail's bold secondary-token styling) still wins.
+ */
 const HashChip: FC<HashChipProps> = ({
   hash,
   trimHash,
@@ -16,14 +35,18 @@ const HashChip: FC<HashChipProps> = ({
   firstCharsCount,
   lastCharsCount,
   displayName,
-  type = 'button',
-  size = 'xs',
-  fill = 'black',
-  copyIcon = true,
-  ...rest
-}) => (
-  <CopyButton text={hash} type={type} {...rest}>
-    <span className="flex flex-row items-center">
+  className,
+  'data-testid': dataTestId
+}) => {
+  const { t } = useTranslation();
+
+  return (
+    <CopyChip
+      text={hash}
+      className={cn(DEFAULT_CLASS_NAME, className)}
+      data-testid={dataTestId}
+      aria-label={copied => (copied ? t('copiedHash') : t('copyHashToClipboard'))}
+    >
       <HashShortView
         hash={hash}
         trimHash={trimHash}
@@ -32,9 +55,8 @@ const HashChip: FC<HashChipProps> = ({
         lastCharsCount={lastCharsCount}
         displayName={displayName}
       />
-      {copyIcon && <Icon name={IconName.Copy} size={size} fill={fill} />}
-    </span>
-  </CopyButton>
-);
+    </CopyChip>
+  );
+};
 
 export default HashChip;
