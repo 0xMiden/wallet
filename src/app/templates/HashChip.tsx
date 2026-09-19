@@ -24,7 +24,7 @@ const DEFAULT_CLASS_NAME = 'min-w-0 text-ink font-sans text-sm font-normal';
 /**
  * A copyable, trimmed hash: the Pill-with-copy (`CopyChip`) built around a `HashShortView`.
  * `className` is merged after the neutral default via `cn`, so a caller's own color/weight/size
- * (e.g. SwapDetail's bold secondary-token styling) still wins.
+ * (e.g. SwapDetail's muted note-id chips) still wins.
  *
  * No `aria-label`: the trimmed hash IS the chip's accessible name (an `aria-label` would replace
  * it, so a screen reader would hear "Copy to clipboard, button" instead of the value), and
