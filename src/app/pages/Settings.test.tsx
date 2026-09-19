@@ -218,7 +218,7 @@ jest.mock('app/templates/GeneralSettings', () => ({
 jest.mock('app/templates/AddressBook', () => ({ __esModule: true, default: () => <div data-testid="address-book" /> }));
 jest.mock('app/templates/DAppDrawerSettings', () => ({
   __esModule: true,
-  default: () => <div data-testid="dapp-drawer-settings" />
+  default: mockLayoutPage('dapp-drawer-settings')
 }));
 jest.mock('app/templates/DAppSettings', () => ({
   __esModule: true,
