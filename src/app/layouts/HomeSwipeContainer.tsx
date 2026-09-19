@@ -97,6 +97,11 @@ const HomeSwipeContainer: FC = () => {
   // while it is set `x` is stale and the element's computed transform is the
   // only source of truth for where the track actually is.
   const releaseRef = useRef<Animation | null>(null);
+  // Whether the current touch has dragged. framer runs `modifyTarget` for a tap
+  // too: once a drag has resolved the constraints, its pan session "resumes" them
+  // whenever a pointer lifts without dragging. That release is a tap stopping the
+  // track, not a swipe, and must not be judged as one — see `snapToPage`.
+  const draggedRef = useRef(false);
 
   // Only the Swap pane is feature-gated (isSwapEnabled); every downstream
   // calculation reads `pages`, so dropping a pane can't desync the track
@@ -267,11 +272,17 @@ const HomeSwipeContainer: FC = () => {
     const offset = origin + activeIdx * width;
     const projected = offset + velocity * (VELOCITY_PROJECTION_MS / 1000);
 
+    // A tap lands on the page the route is on. Judged as a swipe, a tap that stops
+    // the track mid-slide reads its distance from that page as a drag toward the
+    // neighbour, and commits there with no route change — a tap just after
+    // choosing Send left the track on Overview under a bar still showing Send.
     let newIdx = activeIdx;
-    if (projected < -width * COMMIT_THRESHOLD && activeIdx < pages.length - 1) {
-      newIdx = activeIdx + 1;
-    } else if (projected > width * COMMIT_THRESHOLD && activeIdx > 0) {
-      newIdx = activeIdx - 1;
+    if (draggedRef.current) {
+      if (projected < -width * COMMIT_THRESHOLD && activeIdx < pages.length - 1) {
+        newIdx = activeIdx + 1;
+      } else if (projected > width * COMMIT_THRESHOLD && activeIdx > 0) {
+        newIdx = activeIdx - 1;
+      }
     }
 
     dragTargetIdxRef.current = newIdx;
@@ -318,6 +329,7 @@ const HomeSwipeContainer: FC = () => {
    * is up, so a focused field with the keyboard open is untouched by this (#481).
    */
   const handlePointerDownCapture = (event: React.PointerEvent) => {
+    draggedRef.current = false;
     const interruptingRelease = isReleaseRunning();
     endRelease(true);
     // A touch that lands mid-transition means "stop", and shouldn't also land on
@@ -344,7 +356,8 @@ const HomeSwipeContainer: FC = () => {
    *
    * Deferred by a frame so framer's own release path has run first: if this
    * gesture was a drag, `snapToPage` has started a release by then and there is
-   * nothing to recover. Phrased as "is the track off its resting position" rather
+   * nothing to recover. So has a tap framer "resumed" through `snapToPage`, which
+   * lands it on this same page. Phrased as "is the track off its resting position" rather
    * than tracked with a flag, so it also catches a second tap interrupting this
    * very animation, and any future path that leaves the track adrift.
    */
@@ -391,6 +404,9 @@ const HomeSwipeContainer: FC = () => {
         // snap is started from inside `snapToPage` and runs on the compositor.
         dragMomentum
         dragTransition={{ power: DRAG_POWER, modifyTarget: snapToPage }}
+        onDragStart={() => {
+          draggedRef.current = true;
+        }}
         onDragEnd={handleDragEnd}
       >
         {pages.map(page => (
