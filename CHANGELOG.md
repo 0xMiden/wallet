@@ -102,7 +102,7 @@
 - [CHANGE][all] The old pop-up modal and its styles are removed now that confirmations are sheets, and with reduced motion on, the extension no longer animates the app shrinking behind an open sheet: it moves there at once.
 - [CHANGE][all] Confirmations name their action instead of "OK" and show it in the destructive style: Delete (a contact), Disconnect (a dApp), Decline (a transfer), Reset Wallet (developer settings) and Reset Extension.
 - [CHANGE][all] Copying a connected app's account id, the receive screen's address, or the balance card's account label now shows a checkmark or "Copied" for a moment, instead of copying with no sign anything happened.
-- [CHANGE][all] Copying now always shows a clear "copied" checkmark or label for a moment: the password field's copy icon, a connected app's account row, the receive screen's address and the balance card's account label all confirm the tap instead of a couple of them copying silently with no sign anything happened. Addresses and transaction hashes shown in transaction history are now small tappable pills with a copy icon and the same "copied" feedback, in place of plain text that gave no indication it could be tapped at all.
+- [CHANGE][all] Addresses and transaction hashes shown in transaction history are now small tappable pills with a copy icon and "copied" feedback, in place of plain text that gave no indication it could be tapped at all.
 
 ## 1.16.1 (2026-09-15)
 
