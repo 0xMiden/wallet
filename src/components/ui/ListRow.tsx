@@ -39,6 +39,20 @@ export interface ListRowProps {
    */
   htmlFor?: string;
   disabled?: boolean;
+  /**
+   * A choice in a `radiogroup` (a tapped row with `checked`): announced as a radio with
+   * `aria-checked` rather than as a pressed toggle, which a single-select list is not.
+   */
+  radio?: boolean;
+  /** Tapped rows only: roving focus in a radiogroup sets it per row. */
+  tabIndex?: number;
+  /** Tapped rows only, e.g. arrow keys moving focus through a radiogroup. */
+  onKeyDown?: React.KeyboardEventHandler<HTMLButtonElement>;
+  /**
+   * Tapped rows only: `false` leaves the tap haptic to the caller, for a row whose tap can be
+   * refused (a second tap on a choice that already left the page).
+   */
+  haptic?: boolean;
   /** Layout only (margins). */
   className?: string;
   'aria-label'?: string;
@@ -83,24 +97,31 @@ const rowVariants = cva(
  * then a trailing value, control, check or chevron. It is a `button` when tapped, the wallet
  * `Link` for a route, an anchor for an outside page, and a plain `div` otherwise.
  */
-export const ListRow: React.FC<ListRowProps> = ({
-  title,
-  subtitle,
-  avatar,
-  icon,
-  value,
-  trailing,
-  checked,
-  chevron,
-  onClick,
-  to,
-  href,
-  htmlFor,
-  disabled,
-  className,
-  'aria-label': ariaLabel,
-  'data-testid': dataTestId
-}) => {
+export const ListRow = React.forwardRef<HTMLButtonElement, ListRowProps>(function ListRow(
+  {
+    title,
+    subtitle,
+    avatar,
+    icon,
+    value,
+    trailing,
+    checked,
+    chevron,
+    onClick,
+    to,
+    href,
+    htmlFor,
+    disabled,
+    radio,
+    tabIndex,
+    onKeyDown,
+    haptic = true,
+    className,
+    'aria-label': ariaLabel,
+    'data-testid': dataTestId
+  },
+  ref
+) {
   const leading: Leading = avatar ? 'avatar' : icon ? 'icon' : 'none';
   const interactive = Boolean(onClick || to || href || htmlFor);
   const showChevron = chevron ?? Boolean(to || href);
@@ -178,13 +199,18 @@ export const ListRow: React.FC<ListRowProps> = ({
   if (onClick) {
     return (
       <button
+        ref={ref}
         type="button"
         onClick={() => {
-          hapticLight();
+          if (haptic) hapticLight();
           onClick();
         }}
+        onKeyDown={onKeyDown}
+        tabIndex={tabIndex}
         disabled={disabled}
-        aria-pressed={checked}
+        role={radio ? 'radio' : undefined}
+        aria-checked={radio ? Boolean(checked) : undefined}
+        aria-pressed={radio ? undefined : checked}
         aria-label={ariaLabel}
         data-testid={dataTestId}
         className={classes}
@@ -199,4 +225,4 @@ export const ListRow: React.FC<ListRowProps> = ({
       {content}
     </div>
   );
-};
+});
