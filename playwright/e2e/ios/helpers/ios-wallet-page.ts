@@ -770,10 +770,43 @@ export class IosWalletPage implements WalletPage {
   // ── Send Flow ─────────────────────────────────────────────────────────────
 
   /**
-   * Execute the full v0-UI send flow: SelectRecipient → SelectAmount(+token) →
-   * ReviewTransaction. Every step is driven by React DOM buttons via CDP.
+   * Save an E2E spending limit through the same store transport the settings UI uses.
    */
-  async sendTokens(params: {
+  async configureSpendingLimitForTest(params: {
+    tokenSymbol: string;
+    dailyLimitBaseUnits?: string;
+    weeklyLimitBaseUnits?: string;
+  }): Promise<{ accountId: string; faucetId: string; decimals: number }> {
+    const input = JSON.stringify(params);
+    return this.stashAndPoll(
+      '__sl_config',
+      `(async function () { ` +
+        `var input = ${input}; var store = window.__TEST_STORE__; ` +
+        `if (!store) throw new Error('configureSpendingLimitForTest requires an E2E build'); ` +
+        `var state = store.getState(); var accountId = state.currentAccount && state.currentAccount.publicKey; ` +
+        `if (!accountId) throw new Error('configureSpendingLimitForTest found no current account'); ` +
+        `var balance = (state.balances[accountId] || []).find(function (row) { ` +
+        `  return row.metadata.symbol === input.tokenSymbol; ` +
+        `}); ` +
+        `if (!balance) throw new Error('configureSpendingLimitForTest found no ' + input.tokenSymbol + ' balance row'); ` +
+        // Matched by asset, not faucet id: saveSpendingLimit canonicalizes the faucet id before
+        // storing, so listSpendingLimits returns the canonical form while balance.tokenId is the
+        // raw one, and a raw compare sends observedRevision in as undefined on every save after
+        // the first - which the optimistic concurrency guard refuses as a conflict.
+        `var existing = (await state.listSpendingLimits(accountId)).find(function (row) { ` +
+        `  return row.asset.symbol === input.tokenSymbol; ` +
+        `}); ` +
+        `var draft = { accountId: accountId, faucetId: balance.tokenId, asset: balance.metadata }; ` +
+        `if (input.dailyLimitBaseUnits !== undefined) draft.dailyLimit = BigInt(input.dailyLimitBaseUnits); ` +
+        `if (input.weeklyLimitBaseUnits !== undefined) draft.weeklyLimit = BigInt(input.weeklyLimitBaseUnits); ` +
+        `await state.saveSpendingLimit(draft, existing && existing.revision, true); ` +
+        `return { accountId: accountId, faucetId: balance.tokenId, decimals: balance.metadata.decimals }; ` +
+        `})()`
+    );
+  }
+
+  /** Drive the real send flow through ReviewTransaction without submitting it. */
+  async prepareSendReview(params: {
     recipientAddress: string;
     amount: string;
     isPrivate: boolean;
@@ -785,22 +818,23 @@ export class IosWalletPage implements WalletPage {
     tokenSymbol?: string;
   }): Promise<void> {
     // v0-UI order: recipient → amount(+token) → review.
+    const sendFlow = '[data-testid="send-flow"]';
     await this.navigateTo('/send');
-    await this.pollForSelector('[data-testid="send-flow"]', 15_000);
+    await this.pollForSelector(sendFlow, 15_000);
 
     // 1. SelectRecipient: fill the recipient address (textarea) and confirm.
     // Confirm is gated on a valid address, so wait for it to enable.
-    await this.fillInput('[data-testid="send-recipient-input"]', params.recipientAddress);
+    await this.fillInput(`${sendFlow} [data-testid="send-recipient-input"]`, params.recipientAddress);
     if (params.recipientAddress.trim().startsWith('0x')) {
       await this.pollForSelector('[data-testid="send-network-sepolia"]', 15_000);
       await this.click('[data-testid="send-network-sepolia"]');
     }
-    await this.clickWhenEnabled('[data-testid="send-recipient-confirm"]', 30_000);
+    await this.clickWhenEnabled(`${sendFlow} [data-testid="send-recipient-confirm"]`, 30_000);
 
     // 2. SelectAmount: open the token sub-screen, pick a token, then fill the
     // amount. The amount Confirm stays disabled until a token is picked.
-    await this.pollForSelector('[data-testid="send-token-selector"]', 15_000);
-    await this.click('[data-testid="send-token-selector"]');
+    await this.pollForSelector(`${sendFlow} [data-testid="send-token-selector"]`, 15_000);
+    await this.click(`${sendFlow} [data-testid="send-token-selector"]`);
 
     // Pick the token row. Prefer the requested symbol; otherwise take the first
     // token row that isn't the selector control, the search box, or MIDEN
@@ -833,12 +867,12 @@ export class IosWalletPage implements WalletPage {
     // Back on SelectAmount after the sub-screen closes. Generous timeout: the
     // single-threaded WASM lock (held by the ~3s sync tick on mobile) can queue
     // the balance reads that gate each screen, so render can lag.
-    await this.pollForSelector('[data-testid="send-amount-input"]', 30_000);
-    await this.fillInput('[data-testid="send-amount-input"]', params.amount);
+    await this.pollForSelector(`${sendFlow} [data-testid="send-amount-input"]`, 30_000);
+    await this.fillInput(`${sendFlow} [data-testid="send-amount-input"]`, params.amount);
     // Confirm is disabled until a token is picked AND the amount validates
     // (both involve balance reads behind the WASM lock); clicking it while still
     // disabled is a silent no-op, so wait for the enabled state.
-    await this.clickWhenEnabled('[data-testid="send-amount-confirm"]', 45_000);
+    await this.clickWhenEnabled(`${sendFlow} [data-testid="send-amount-confirm"]`, 45_000);
 
     // 3. Force the note type. The public/private toggle was removed (private by
     // default); the E2E hook persists the choice across the remaining steps.
@@ -849,6 +883,16 @@ export class IosWalletPage implements WalletPage {
     // on entry (a balance read behind the WASM lock), which can lag well past 15s
     // when a sync tick holds the lock — so poll generously.
     await this.pollForSelector('[data-testid="send-review-submit"]', 45_000);
+  }
+
+  /** Execute the full v0-UI send flow and wait until submission is accepted. */
+  async sendTokens(params: {
+    recipientAddress: string;
+    amount: string;
+    isPrivate: boolean;
+    tokenSymbol?: string;
+  }): Promise<void> {
+    await this.prepareSendReview(params);
     await this.click('[data-testid="send-review-submit"]');
 
     // 5. Treat the submit button detaching as the "submit accepted" signal — the

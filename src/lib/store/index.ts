@@ -7,6 +7,11 @@ import { clearPersistedSeenNoteIds, persistSeenNoteIds } from 'lib/miden/back/no
 import type { IConsumeBridgeInExtraInputs, IEarnWithdrawExtraInputs, ITransaction } from 'lib/miden/db/types';
 import { setTestSyncPaused } from 'lib/miden/front/test-sync-pause';
 import { fetchTokenMetadata } from 'lib/miden/metadata';
+import {
+  parsePersistedSpendingLimit,
+  parseSerializedSpendingLimitAssessment,
+  toSerializedSpendingLimitDraft
+} from 'lib/miden/spending-limits/types';
 import { describeHookError, installSwapTestHooks } from 'lib/miden/swap/test-hooks';
 import { MidenMessageType, MidenState } from 'lib/miden/types';
 import { isExtension } from 'lib/platform';
@@ -380,6 +385,51 @@ export const useWalletStore = create<WalletStore>()(
       }
     },
 
+    listSpendingLimits: async accountId => {
+      const res = await request({
+        type: WalletMessageType.GetSpendingLimitsRequest,
+        accountId
+      });
+      assertResponse(res.type === WalletMessageType.GetSpendingLimitsResponse);
+      return res.configurations.map(parsePersistedSpendingLimit);
+    },
+
+    saveSpendingLimit: async (draft, observedRevision, strictlyAuthenticated) => {
+      const res = await request({
+        type: WalletMessageType.SaveSpendingLimitRequest,
+        draft: toSerializedSpendingLimitDraft(draft),
+        observedRevision,
+        strictlyAuthenticated
+      });
+      assertResponse(res.type === WalletMessageType.SaveSpendingLimitResponse);
+      return res.configuration === undefined ? undefined : parsePersistedSpendingLimit(res.configuration);
+    },
+
+    assessSpendingLimit: async (accountId, faucetId, amount) => {
+      const res = await request({
+        type: WalletMessageType.AssessSpendingLimitRequest,
+        accountId,
+        faucetId,
+        amount: amount.toString()
+      });
+      assertResponse(res.type === WalletMessageType.AssessSpendingLimitResponse);
+      return res.assessment === undefined ? undefined : parseSerializedSpendingLimitAssessment(res.assessment);
+    },
+
+    getStrictAuthenticationProtectors: async () => {
+      const res = await request({ type: WalletMessageType.GetStrictAuthenticationProtectorsRequest });
+      assertResponse(res.type === WalletMessageType.GetStrictAuthenticationProtectorsResponse);
+      return res.protectors;
+    },
+
+    verifyStrictActionAuthentication: async credential => {
+      const res = await request({
+        type: WalletMessageType.VerifyStrictActionAuthenticationRequest,
+        credential
+      });
+      assertResponse(res.type === WalletMessageType.VerifyStrictActionAuthenticationResponse);
+    },
+
     // Signing actions
     signData: async (publicKey, signingInputs) => {
       const res = await request({
@@ -590,12 +640,13 @@ export const useWalletStore = create<WalletStore>()(
       assertResponse(res.type === MidenMessageType.DAppConsumableNotesConfirmationResponse);
     },
 
-    confirmDAppTransaction: async (id, confirmed, delegate) => {
+    confirmDAppTransaction: async (id, confirmed, delegate, spendingLimitAuthenticated) => {
       const res = await request({
         type: MidenMessageType.DAppTransactionConfirmationRequest,
         id,
         confirmed,
-        delegate
+        delegate,
+        ...(spendingLimitAuthenticated === true && { spendingLimitAuthenticated: true as const })
       });
       assertResponse(res.type === MidenMessageType.DAppTransactionConfirmationResponse);
     },
@@ -878,6 +929,50 @@ if (process.env.MIDEN_E2E_TEST === 'true') {
   (globalThis as any).__TEST_STORE__ = useWalletStore;
   (globalThis as any).__TEST_INTERCOM__ = getIntercom();
   installSwapTestHooks();
+  Reflect.set(
+    globalThis,
+    '__TEST_RUN_SPENDING_LIMIT_RACE__',
+    async (input: { recipientAddress: string; faucetId: string; amountBaseUnits: string }) => {
+      const [{ SendTransaction, ITransactionStatus }, { NoteTypeEnum }, { queueOutgoingTransaction, spendsOf }, Repo] =
+        await Promise.all([
+          import('lib/miden/db/types'),
+          import('lib/miden/types'),
+          import('lib/miden/spending-limits/queue'),
+          import('lib/miden/repo')
+        ]);
+      const accountId = useWalletStore.getState().currentAccount?.publicKey;
+      if (accountId === undefined) throw new Error('Spending-limit race hook found no current account');
+      const amount = BigInt(input.amountBaseUnits);
+      const candidates = [
+        new SendTransaction(accountId, amount, input.recipientAddress, input.faucetId, NoteTypeEnum.Public),
+        new SendTransaction(accountId, amount, input.recipientAddress, input.faucetId, NoteTypeEnum.Public)
+      ];
+      const now = Math.floor(Date.now() / 1000);
+      for (const candidate of candidates) {
+        candidate.status = ITransactionStatus.Completed;
+        candidate.completedAt = now;
+      }
+
+      try {
+        const results = await Promise.allSettled(
+          candidates.map(candidate => queueOutgoingTransaction(candidate, spendsOf(candidate)))
+        );
+        const inserted = await Repo.transactions.bulkGet(candidates.map(candidate => candidate.id));
+        return {
+          fulfilledCount: results.filter(result => result.status === 'fulfilled').length,
+          rejectedCount: results.filter(result => result.status === 'rejected').length,
+          insertedCount: inserted.filter(row => row !== undefined).length,
+          rejectionCodes: results.flatMap(result => {
+            if (result.status !== 'rejected') return [];
+            const reason = result.reason as { code?: unknown };
+            return typeof reason?.code === 'string' ? [reason.code] : [];
+          })
+        };
+      } finally {
+        await Repo.transactions.bulkDelete(candidates.map(candidate => candidate.id));
+      }
+    }
+  );
   Reflect.set(globalThis, '__TEST_SIGN_ACCOUNT_WORD__', async (accountPublicKey: string, wordHex: string) => {
     setTestSyncPaused(true);
     try {

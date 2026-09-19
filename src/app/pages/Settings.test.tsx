@@ -218,6 +218,10 @@ jest.mock('app/templates/LanguageSettings', () => ({
   __esModule: true,
   default: () => <div data-testid="language-settings" />
 }));
+jest.mock('app/templates/SpendingLimits', () => ({
+  __esModule: true,
+  default: () => <div data-testid="spending-limits-settings" />
+}));
 jest.mock('app/templates/RevealSecret', () => ({
   __esModule: true,
   default: ({ reveal }: { reveal: string }) => <div data-testid="reveal-secret">{reveal}</div>
@@ -361,6 +365,7 @@ describe('Settings page — root menu (non-guardian)', () => {
     expect(screen.getByTestId('menuitem-language')).toBeInTheDocument();
     expect(screen.getByTestId('menuitem-recoveryPhrase')).toBeInTheDocument();
     expect(screen.getByTestId('menuitem-keys')).toBeInTheDocument();
+    expect(screen.getByTestId('menuitem-spendingLimits')).toBeInTheDocument();
     expect(screen.getByTestId('menuitem-encryptedWalletFile')).toBeInTheDocument();
     expect(screen.getByTestId('menuitem-advancedSettings')).toBeInTheDocument();
     expect(screen.getByTestId('menuitem-authorizedDApps')).toBeInTheDocument();
@@ -382,6 +387,7 @@ describe('Settings page — root menu (non-guardian)', () => {
     expect(screen.getByTestId('menuitem-addressBook')).toHaveAttribute('data-slug', '/settings/address-book');
     expect(screen.getByTestId('menuitem-language')).toHaveAttribute('data-slug', '/settings/language');
     expect(screen.getByTestId('menuitem-keys')).toHaveAttribute('data-slug', '/settings/keys');
+    expect(screen.getByTestId('menuitem-spendingLimits')).toHaveAttribute('data-slug', '/settings/spending-limits');
     expect(screen.getByTestId('menuitem-encryptedWalletFile')).toHaveAttribute(
       'data-slug',
       '/settings/encrypted-wallet-file'
@@ -596,6 +602,14 @@ describe('Settings page — root menu (non-guardian)', () => {
     expect(screen.getByTestId('nav-title')).toHaveTextContent('generalSettings');
     expect(screen.getByTestId('general-settings')).toBeInTheDocument();
     expect(screen.queryByTestId('menuitem-generalSettings')).not.toBeInTheDocument();
+  });
+
+  it('renders spending limits as an account-scoped Security settings page', () => {
+    render(<Settings tabSlug="spending-limits" />);
+
+    expect(screen.getByTestId('nav-title')).toHaveTextContent('spendingLimits');
+    expect(screen.getByTestId('spending-limits-settings')).toBeInTheDocument();
+    expect(screen.queryByTestId('menuitem-spendingLimits')).not.toBeInTheDocument();
   });
 
   it('replaces an unknown slug with the Settings root route so the footer is restored', () => {

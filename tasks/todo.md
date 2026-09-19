@@ -190,16 +190,37 @@ Gates: e2e-bridge-in.yml (IN, iOS) + e2e-bridge.yml (OUT, Chrome), both post-mer
 - WALLETCONNECT_PROJECT_ID is NOT set anywhere (repo/CI/release) -> builds fall back to b54ef53.
   Fragile: any build not manually setting it ships the fallback. Verify the release process sets it.
 - Relay rate-limits bursts of connections on the same projectId/IP (intermittent 403).
-# Issue #821 - in-wallet update notification
 
-- [x] Confirm platform update APIs and current release/build wiring.
-- [x] Write the Superpowers design for platform-authoritative availability plus Miden-owned presentation metadata.
-- [x] Obtain design approval.
-- [x] Write the implementation plan.
-- [ ] Implement with TDD in this worktree.
-- [ ] Run local verification, Review Council, and apply every actionable finding.
-- [ ] Push, open a PR with a standalone `Closes #821`, babysit CI to green, and admin squash-merge.
+# Issue #646 - spending limits
+
+- [x] Record approved product decisions and inspect every outgoing initiation path.
+- [x] Write the implementation design and security invariants.
+- [x] Obtain design approval, then write the TDD implementation plan.
+- [x] Implement the data model, atomic policy, and one-time authorization.
+- [x] Implement validated configuration reads, writes, revision checks, and all runtime transports.
+- [x] Implement strict authentication and Security settings UI.
+- [x] Integrate send, swap, bridge, Earn, and dApp flows.
+- [ ] Run full local gates, Review Council, and fix every actionable finding.
+- [ ] Push a PR with Closes #646, babysit CI, admin squash merge, and verify closure.
 
 ## Review
 
-- Design and implementation plan approved. Implementation and verification pending.
+- Task 1: Dexie 1.7 schema, compound account-and-faucet key, authorization index, and strict bigint-safe codec. 60 focused tests green.
+- Task 2: rolling 24-hour and 7-day assessment with conservative outgoing history and typed fail-closed errors. 79 focused tests green.
+- Task 3: atomic policy recheck, exact one-time two-minute authorization, replay rejection, and all four outgoing initiation routes. 184 focused tests green; TypeScript and scoped lint green.
+- Task 4: validated account-scoped configuration, strict weakening classification, revision conflicts, coherent save-versus-queue serialization, bigint-safe transport, and extension/mobile/desktop/store routing. 408 focused tests green; TypeScript and scoped lint green.
+- Task 5: fail-closed strict authentication with hardware, passcode, and password paths; verify-only vault access; extension/mobile/desktop transport; stale-result suppression; localized retry UI. 520 focused tests green; TypeScript and scoped lint green.
+- Task 6: account-scoped Security settings route, held and configured-zero-balance assets, exact base-unit conversion, unknown-scale guard, strict edit classification, stale-account suppression, and 14 localized bundles with 0 stale keys. 164 focused tests green; TypeScript, scoped lint, i18n lint, and locale parity green.
+- Task 7: structured send and swap preflight challenges, exact one-time authorization threading, draft-preserving cancellation, and race or expiry re-challenge. 530 affected tests green; new spending-limit modules clear the 95% gate at 99.73% statements, 97.29% branches, 100% functions, and 99.73% lines.
+- Task 8: Agglayer, Epoch bridge, and Earn preflight before external work; exact authorization threading through SDK callbacks; structured final-race re-challenge; cancellation and below-limit regression coverage. 110 focused tests, TypeScript, and scoped lint green.
+- Task 9: extension, mobile, and desktop dApp preflight; wallet-owned strict authorization; disconnect and account-switch revalidation; one-shot modal handoff; structured race retry; generalized-send parity. 726 tests across all 37 dApp and confirmation suites, TypeScript, and scoped lint green.
+- Task 10: real testnet iOS and Chrome E2E coverage for settings, over-limit
+  authentication, dApp sends, and atomic concurrent sends. Fresh iOS screenshots
+  verify native per-asset daily and weekly settings plus amount-over, reset, and
+  raise-in-Settings messaging. The iOS run passed with retries disabled in 4.2
+  minutes using the stable 0.16 CLI required by the current testnet node.
+- Task 11: canonical spending-limit identities now bind bare, routed, bech32, and
+  hex account or faucet references to one policy and one history. Five regression
+  assertions failed before the fix; 126 focused policy, settings, and identity
+  tests pass after it, with TypeScript and scoped formatting green.
+- Remaining: full gates, Review Council, and delivery.

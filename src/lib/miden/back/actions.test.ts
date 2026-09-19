@@ -1,4 +1,7 @@
 import { MidenDAppMessageType } from 'lib/adapter/types';
+import { SendTransaction } from 'lib/miden/db/types';
+import { spendingLimits, transactions } from 'lib/miden/repo';
+import { NoteTypeEnum } from 'lib/miden/types';
 import { WalletStatus } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
@@ -39,7 +42,12 @@ import {
   importAccount,
   importMnemonicAccount,
   importFundraiserAccount,
-  importWatchOnlyAccount
+  importWatchOnlyAccount,
+  listSpendingLimits,
+  saveSpendingLimit,
+  assessOutgoingSpendingLimit,
+  getStrictAuthenticationProtectors,
+  verifyStrictActionAuthentication
 } from './actions';
 
 // Create mock vault instance
@@ -132,7 +140,10 @@ jest.mock('lib/miden/back/vault', () => ({
     // Object.values(Vault).forEach(m => m.mockClear()) then throws on it.
     withAccountFileKeyReader: jest.fn((...a: unknown[]) => mockWithAccountFileKeyReader(...a)),
     spawnFromMidenClient: jest.fn(),
-    getCurrentAccountPublicKey: jest.fn()
+    getCurrentAccountPublicKey: jest.fn(),
+    hasHardwareProtector: jest.fn(),
+    hasPasswordProtector: jest.fn(),
+    verifyProtector: jest.fn()
   }
 }));
 
@@ -853,6 +864,120 @@ describe('actions', () => {
 
       expect(mockVault.updateSettings).toHaveBeenCalledWith({ contacts: [] });
       expect(mockSettingsUpdated).toHaveBeenCalledWith(newSettings);
+    });
+  });
+
+  describe('spending limits', () => {
+    it('validates and serializes configuration at the action boundary', async () => {
+      await expect(
+        saveSpendingLimit(
+          {
+            accountId: 'account-a',
+            faucetId: 'faucet-a',
+            dailyLimit: '90',
+            asset: { symbol: 'MIDEN', decimals: 8 }
+          },
+          undefined,
+          true
+        )
+      ).resolves.toMatchObject({ dailyLimit: '90', revision: expect.any(String) });
+
+      await expect(listSpendingLimits('account-a')).resolves.toEqual([
+        expect.objectContaining({ accountId: 'account-a', faucetId: 'faucet-a', dailyLimit: '90' })
+      ]);
+    });
+
+    it('rejects a non-canonical transport amount without writing it', async () => {
+      await expect(
+        saveSpendingLimit(
+          {
+            accountId: 'account-a',
+            faucetId: 'faucet-a',
+            dailyLimit: '090',
+            asset: { symbol: 'MIDEN', decimals: 8 }
+          },
+          undefined,
+          true
+        )
+      ).rejects.toThrow(/policy is unavailable/i);
+      await expect(spendingLimits.count()).resolves.toBe(0);
+    });
+
+    it('returns a serializable preflight assessment from the current transaction history', async () => {
+      const now = Math.floor(Date.now() / 1000);
+      await saveSpendingLimit(
+        {
+          accountId: 'account-a',
+          faucetId: 'faucet-a',
+          dailyLimit: '100',
+          asset: { symbol: 'MIDEN', decimals: 8 }
+        },
+        undefined,
+        true
+      );
+      const previous = new SendTransaction('account-a', 90n, 'account-b', 'faucet-a', NoteTypeEnum.Public);
+      previous.initiatedAt = now - 1;
+      await transactions.add(previous);
+
+      await expect(assessOutgoingSpendingLimit('account-a', 'faucet-a', '20')).resolves.toMatchObject({
+        amount: '20',
+        breaches: [{ period: '24h', overBy: '10' }]
+      });
+    });
+
+    it('reports no assessment when the account has no policy for that faucet', async () => {
+      // The transport must distinguish "no limit configured" from "assessed and fine": the dApp
+      // and UI branches both key off undefined to skip the challenge entirely.
+      await expect(assessOutgoingSpendingLimit('account-a', 'faucet-unconfigured', '20')).resolves.toBeUndefined();
+    });
+
+    it('reports no configuration back when a save removes the last period', async () => {
+      await saveSpendingLimit(
+        {
+          accountId: 'account-a',
+          faucetId: 'faucet-a',
+          dailyLimit: '100',
+          asset: { symbol: 'MIDEN', decimals: 8 }
+        },
+        undefined,
+        true
+      );
+      const stored = await listSpendingLimits('account-a');
+
+      // Clearing every period deletes the record, and the caller needs undefined rather than a
+      // stale row so the settings screen stops showing a limit that no longer exists.
+      await expect(
+        saveSpendingLimit(
+          { accountId: 'account-a', faucetId: 'faucet-a', asset: { symbol: 'MIDEN', decimals: 8 } },
+          stored[0]?.revision,
+          true
+        )
+      ).resolves.toBeUndefined();
+      await expect(listSpendingLimits('account-a')).resolves.toEqual([]);
+    });
+
+    it('rejects a non-canonical preflight proposal amount', async () => {
+      await expect(assessOutgoingSpendingLimit('account-a', 'faucet-a', '020')).rejects.toThrow(
+        /policy is unavailable/i
+      );
+    });
+  });
+
+  describe('strict authentication', () => {
+    it('reports the configured protectors', async () => {
+      const { Vault: MockVault } = jest.requireMock('lib/miden/back/vault');
+      MockVault.hasHardwareProtector.mockResolvedValueOnce(true);
+      MockVault.hasPasswordProtector.mockResolvedValueOnce(false);
+
+      await expect(getStrictAuthenticationProtectors()).resolves.toEqual({ hardware: true, password: false });
+    });
+
+    it('verifies without adopting another vault', async () => {
+      const { Vault: MockVault } = jest.requireMock('lib/miden/back/vault');
+      MockVault.verifyProtector.mockResolvedValueOnce(undefined);
+
+      await expect(verifyStrictActionAuthentication('secret')).resolves.toBeUndefined();
+      expect(MockVault.verifyProtector).toHaveBeenCalledWith('secret');
     });
   });
 

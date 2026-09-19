@@ -58,6 +58,11 @@ async function clearPlatformKeyValueStorage(): Promise<void> {
 export async function clearStorage(clearDb: boolean = true) {
   if (clearDb) {
     await Repo.transactions.clear();
+    // The spend history and the caps computed from it go together. Recovery from the same mnemonic
+    // reproduces the same account ids, so a surviving configuration would key-match the recovered
+    // account and keep enforcing a cap over a total that was just zeroed - and the disclosure copy
+    // promises that resetting app data removes both.
+    await Repo.spendingLimits.clear();
   }
   await clearPlatformKeyValueStorage();
   await resetNativeAssetCache();

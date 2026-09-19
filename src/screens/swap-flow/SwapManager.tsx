@@ -6,12 +6,18 @@ import { useTranslation } from 'react-i18next';
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
 import { Navigator, NavigatorProvider, Route, useNavigator } from 'components/Navigator';
+import { SpendingLimitChallenge } from 'components/SpendingLimitChallenge';
 import { confirmSensitiveAction } from 'lib/biometric';
 import { stringToBigInt } from 'lib/i18n/numbers';
 import { initiateSwapTransaction, requestSWTransactionProcessing } from 'lib/miden/activity';
 import { hasNoFeeAsset, maxSendableNative } from 'lib/miden/fees/spendable';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { accountIdStringToSdk, getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
+import {
+  SpendingLimitAssessment,
+  SpendingLimitAuthorization,
+  spendingLimitAssessmentFromError
+} from 'lib/miden/spending-limits/types';
 import { deriveRequestAmount, getDefaultSwapPair, SwapToken } from 'lib/miden/swap/tokens';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isExtension } from 'lib/platform';
@@ -53,12 +59,18 @@ const SwapManager: React.FC = () => {
   const [showTokenDrawer, setShowTokenDrawer] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [spendingLimitAssessment, setSpendingLimitAssessment] = useState<SpendingLimitAssessment>();
+  const assessSpendingLimit = useWalletStore(state => state.assessSpendingLimit);
 
   const onClose = useCallback(() => navigate('/'), []);
 
   // Handle mobile hardware/swipe back: close the token drawer first, then step
   // back inside the flow, else close it.
   useMobileBackHandler(() => {
+    if (spendingLimitAssessment !== undefined) {
+      setSpendingLimitAssessment(undefined);
+      return true;
+    }
     if (showTokenDrawer) {
       setShowTokenDrawer(false);
       return true;
@@ -69,7 +81,7 @@ const SwapManager: React.FC = () => {
     }
     onClose();
     return true;
-  }, [showTokenDrawer, cardStack.length, goBack, onClose]);
+  }, [spendingLimitAssessment, showTokenDrawer, cardStack.length, goBack, onClose]);
 
   // Reset the leftover completion state on flow entry (see SendManager for the
   // full rationale — entering a swap is a clear "starting a new tx" signal).
@@ -143,6 +155,13 @@ const SwapManager: React.FC = () => {
     [nativeFaucetId, offerBalanceKey, offerBalance, verificationBaseFee, offerToken.decimals]
   );
   const offerAmountValue = Number(offerAmount);
+  const offerAmountBaseUnits = useMemo(() => {
+    try {
+      return stringToBigInt(offerAmount, offerToken.decimals);
+    } catch {
+      return undefined;
+    }
+  }, [offerAmount, offerToken.decimals]);
   const hasOfferAmount = offerAmountValue > 0;
   const offerAmountExceedsBalance = offerAmountValue > offerSpendable;
   const quoteUnavailable = Boolean(swapEta.error);
@@ -213,6 +232,61 @@ const SwapManager: React.FC = () => {
     [selectingSide, offerToken, requestToken]
   );
 
+  const runSwap = useCallback(
+    async (authorization?: SpendingLimitAuthorization) => {
+      if (!publicKey || offerAmountBaseUnits === undefined) return;
+      if (
+        authorization !== undefined &&
+        (authorization.accountId !== publicKey ||
+          authorization.faucetId !== offerToken.faucetId ||
+          authorization.amount !== offerAmountBaseUnits)
+      ) {
+        setSpendingLimitAssessment(undefined);
+        return;
+      }
+      setSubmitting(true);
+      setSubmitError(null);
+      setSpendingLimitAssessment(undefined);
+      try {
+        useWalletStore.getState().setLastCompletedTxHash(null);
+        const commonArguments = [
+          publicKey,
+          offerToken.faucetId,
+          offerAmountBaseUnits,
+          requestToken.faucetId,
+          stringToBigInt(requestAmount, requestToken.decimals),
+          isDelegateProofEnabled(),
+          expirySecondsValue,
+          autoConsume
+        ] as const;
+        const txId =
+          authorization === undefined
+            ? await initiateSwapTransaction(...commonArguments)
+            : await initiateSwapTransaction(...commonArguments, authorization);
+        if (isExtension()) requestSWTransactionProcessing();
+        navigate(`/generating-transaction/${encodeURIComponent(txId)}`, HistoryAction.Replace);
+      } catch (error) {
+        const assessment = spendingLimitAssessmentFromError(error);
+        if (assessment !== undefined) {
+          setSpendingLimitAssessment(assessment);
+        } else {
+          setSubmitError(error instanceof Error ? error.message : String(error));
+        }
+        setSubmitting(false);
+      }
+    },
+    [
+      autoConsume,
+      expirySecondsValue,
+      offerAmountBaseUnits,
+      offerToken.faucetId,
+      publicKey,
+      requestAmount,
+      requestToken.decimals,
+      requestToken.faucetId
+    ]
+  );
+
   const onSubmit = useCallback(async () => {
     if (submitting || !publicKey) return;
     // The review screen's Swap button is not gated by `canProceed`, and the
@@ -237,60 +311,60 @@ const SwapManager: React.FC = () => {
       return;
     }
     setSubmitting(true);
-    // Re-confirm this user-initiated swap with biometrics when enabled (same
-    // app-layer gate as the send flow — see confirmSensitiveAction).
-    if (!(await confirmSensitiveAction('Confirm your swap'))) {
-      setSubmitting(false);
-      return;
-    }
     try {
-      setSubmitError(null);
-      useWalletStore.getState().setLastCompletedTxHash(null);
-
-      const txId = await initiateSwapTransaction(
-        publicKey,
-        offerToken.faucetId,
-        stringToBigInt(offerAmount, offerToken.decimals),
-        requestToken.faucetId,
-        stringToBigInt(requestAmount, requestToken.decimals),
-        isDelegateProofEnabled(),
-        expirySecondsValue,
-        autoConsume
-      );
-
-      // On extension the service worker owns the tx loop — nudge it. On
-      // mobile/desktop the generating-transaction page drives the loop itself.
-      if (isExtension()) {
-        requestSWTransactionProcessing();
+      if (offerAmountBaseUnits === undefined) throw new Error(t('swapInvalidAmounts'));
+      const assessment = await assessSpendingLimit(publicKey, offerToken.faucetId, offerAmountBaseUnits);
+      if (assessment !== undefined && assessment.breaches.length > 0) {
+        setSpendingLimitAssessment(assessment);
+        setSubmitting(false);
+        return;
       }
-
-      // Hand off to the full-screen generating-transaction page, which renders
-      // progress steps + the swap summary badge and observes the tx through to
-      // its success/failure receipt. `Replace` so hardware/gesture back from the
-      // progress page skips the now-stale review screen (mirrors the send flow).
-      navigate(`/generating-transaction/${encodeURIComponent(txId)}`, HistoryAction.Replace);
-    } catch (e) {
-      setSubmitError(e instanceof Error ? e.message : String(e));
+      if (!(await confirmSensitiveAction('Confirm your swap'))) {
+        setSubmitting(false);
+        return;
+      }
+      await runSwap();
+    } catch (error) {
+      setSubmitError(error instanceof Error ? error.message : String(error));
       setSubmitting(false);
     }
   }, [
+    assessSpendingLimit,
+    offerAmountBaseUnits,
     submitting,
     publicKey,
     sameToken,
     offerAmountExceedsBalance,
     offerToken,
-    requestToken,
     offerAmount,
     requestAmount,
-    expirySecondsValue,
-    autoConsume,
     validExpiry,
     // Read by the fee-asset refusal above. Omitted, the re-check would run against
     // the first-render value -- before the balance and base fee resolve -- and admit
     // exactly the swap it exists to stop.
     feeAssetMissing,
+    runSwap,
     t
   ]);
+
+  const handleSpendingLimitResult = useCallback(
+    (authorization: SpendingLimitAuthorization | undefined) => {
+      setSpendingLimitAssessment(undefined);
+      if (authorization !== undefined) void runSwap(authorization);
+    },
+    [runSwap]
+  );
+
+  useEffect(() => {
+    if (
+      spendingLimitAssessment !== undefined &&
+      (spendingLimitAssessment.accountId !== publicKey ||
+        spendingLimitAssessment.faucetId !== offerToken.faucetId ||
+        spendingLimitAssessment.amount !== offerAmountBaseUnits)
+    ) {
+      setSpendingLimitAssessment(undefined);
+    }
+  }, [offerAmountBaseUnits, offerToken.faucetId, publicKey, spendingLimitAssessment]);
 
   const statusMessage = useMemo(() => {
     if (sameToken) return { text: t('swapSameToken'), isError: true };
@@ -389,6 +463,13 @@ const SwapManager: React.FC = () => {
         currentFaucetId={selectingSide === 'offer' ? offerToken.faucetId : requestToken.faucetId}
         onSelect={onTokenSelected}
       />
+      {spendingLimitAssessment !== undefined && (
+        <SpendingLimitChallenge
+          assessment={spendingLimitAssessment}
+          asset={{ symbol: offerToken.symbol, decimals: offerToken.decimals }}
+          onResult={handleSpendingLimitResult}
+        />
+      )}
     </div>
   );
 };

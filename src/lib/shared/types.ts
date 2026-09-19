@@ -1,3 +1,9 @@
+import type { StrictAuthenticationProtectors } from 'lib/auth/strict-action-authentication';
+import type {
+  PersistedSpendingLimit,
+  SerializedSpendingLimitAssessment,
+  SerializedSpendingLimitDraft
+} from 'lib/miden/spending-limits/types';
 import { MidenMessageType, MidenRequest, MidenResponse } from 'lib/miden/types';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/constants';
 import { WalletType } from 'screens/onboarding/types';
@@ -71,6 +77,16 @@ export enum WalletMessageType {
   ImportMnemonicAccountResponse = 'IMPORT_MNEMONIC_ACCOUNT_RESPONSE',
   UpdateSettingsRequest = 'UPDATE_SETTINGS_REQUEST',
   UpdateSettingsResponse = 'UPDATE_SETTINGS_RESPONSE',
+  GetSpendingLimitsRequest = 'GET_SPENDING_LIMITS_REQUEST',
+  GetSpendingLimitsResponse = 'GET_SPENDING_LIMITS_RESPONSE',
+  SaveSpendingLimitRequest = 'SAVE_SPENDING_LIMIT_REQUEST',
+  SaveSpendingLimitResponse = 'SAVE_SPENDING_LIMIT_RESPONSE',
+  AssessSpendingLimitRequest = 'ASSESS_SPENDING_LIMIT_REQUEST',
+  AssessSpendingLimitResponse = 'ASSESS_SPENDING_LIMIT_RESPONSE',
+  GetStrictAuthenticationProtectorsRequest = 'GET_STRICT_AUTHENTICATION_PROTECTORS_REQUEST',
+  GetStrictAuthenticationProtectorsResponse = 'GET_STRICT_AUTHENTICATION_PROTECTORS_RESPONSE',
+  VerifyStrictActionAuthenticationRequest = 'VERIFY_STRICT_ACTION_AUTHENTICATION_REQUEST',
+  VerifyStrictActionAuthenticationResponse = 'VERIFY_STRICT_ACTION_AUTHENTICATION_RESPONSE',
   SignDataRequest = 'SIGN_DATA_REQUEST',
   SignDataResponse = 'SIGN_DATA_RESPONSE',
   SignTransactionRequest = 'SIGN_TRANSACTION_REQUEST',
@@ -784,6 +800,58 @@ export interface UpdateSettingsResponse extends WalletMessageBase {
   type: WalletMessageType.UpdateSettingsResponse;
 }
 
+export interface GetSpendingLimitsRequest extends WalletMessageBase {
+  type: WalletMessageType.GetSpendingLimitsRequest;
+  accountId: string;
+}
+
+export interface GetSpendingLimitsResponse extends WalletMessageBase {
+  type: WalletMessageType.GetSpendingLimitsResponse;
+  configurations: PersistedSpendingLimit[];
+}
+
+export interface SaveSpendingLimitRequest extends WalletMessageBase {
+  type: WalletMessageType.SaveSpendingLimitRequest;
+  draft: SerializedSpendingLimitDraft;
+  observedRevision?: string;
+  strictlyAuthenticated: boolean;
+}
+
+export interface SaveSpendingLimitResponse extends WalletMessageBase {
+  type: WalletMessageType.SaveSpendingLimitResponse;
+  configuration?: PersistedSpendingLimit;
+}
+
+export interface AssessSpendingLimitRequest extends WalletMessageBase {
+  type: WalletMessageType.AssessSpendingLimitRequest;
+  accountId: string;
+  faucetId: string;
+  amount: string;
+}
+
+export interface AssessSpendingLimitResponse extends WalletMessageBase {
+  type: WalletMessageType.AssessSpendingLimitResponse;
+  assessment?: SerializedSpendingLimitAssessment;
+}
+
+export interface GetStrictAuthenticationProtectorsRequest extends WalletMessageBase {
+  type: WalletMessageType.GetStrictAuthenticationProtectorsRequest;
+}
+
+export interface GetStrictAuthenticationProtectorsResponse extends WalletMessageBase {
+  type: WalletMessageType.GetStrictAuthenticationProtectorsResponse;
+  protectors: StrictAuthenticationProtectors;
+}
+
+export interface VerifyStrictActionAuthenticationRequest extends WalletMessageBase {
+  type: WalletMessageType.VerifyStrictActionAuthenticationRequest;
+  credential?: string;
+}
+
+export interface VerifyStrictActionAuthenticationResponse extends WalletMessageBase {
+  type: WalletMessageType.VerifyStrictActionAuthenticationResponse;
+}
+
 export interface SignDataRequest extends WalletMessageBase {
   type: WalletMessageType.SignDataRequest;
   publicKey: string;
@@ -1152,6 +1220,11 @@ export type WalletRequest =
   | ImportMnemonicAccountRequest
   | ConfirmationRequest
   | UpdateSettingsRequest
+  | GetSpendingLimitsRequest
+  | SaveSpendingLimitRequest
+  | AssessSpendingLimitRequest
+  | GetStrictAuthenticationProtectorsRequest
+  | VerifyStrictActionAuthenticationRequest
   | SignDataRequest
   | SignTransactionRequest
   | SignWordRequest
@@ -1222,6 +1295,11 @@ export type WalletResponse =
   | ImportMnemonicAccountResponse
   | ConfirmationResponse
   | UpdateSettingsResponse
+  | GetSpendingLimitsResponse
+  | SaveSpendingLimitResponse
+  | AssessSpendingLimitResponse
+  | GetStrictAuthenticationProtectorsResponse
+  | VerifyStrictActionAuthenticationResponse
   | SignDataResponse
   | SignTransactionResponse
   | SignWordResponse

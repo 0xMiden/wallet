@@ -231,7 +231,7 @@ const FullActionProbe: React.FC = () => {
     swallow(() => ctx.confirmDAppAssets?.('id', true));
     swallow(() => ctx.confirmDAppImportPrivateNote?.('id', true));
     swallow(() => ctx.confirmDAppConsumableNotes?.('id', true));
-    swallow(() => ctx.confirmDAppTransaction?.('id', true, true));
+    swallow(() => ctx.confirmDAppTransaction?.('id', true, true, true));
     swallow(() => ctx.getAllDAppSessions?.());
     swallow(() => ctx.removeDAppSession?.('origin'));
     swallow(() => ctx.resetConfirmation?.());

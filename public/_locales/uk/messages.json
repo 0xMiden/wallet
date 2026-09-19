@@ -5050,5 +5050,89 @@
   "updateNotificationActionFailed": {
     "message": "The update could not be started. Try again.",
     "englishSource": "The update could not be started. Try again."
+  },
+  "spendingLimits": {
+    "message": "Ліміти витрат",
+    "englishSource": "Spending limits"
+  },
+  "spendingLimitDaily": {
+    "message": "Ковзний ліміт за 24 години",
+    "englishSource": "Rolling 24-hour limit"
+  },
+  "spendingLimitWeekly": {
+    "message": "Ковзний ліміт за 7 днів",
+    "englishSource": "Rolling 7-day limit"
+  },
+  "spendingLimitUnknownDecimals": {
+    "message": "Ліміти недоступні, доки не буде отримано метадані про десяткові знаки цього активу.",
+    "englishSource": "Limits are unavailable until this asset's decimal metadata is resolved."
+  },
+  "spendingLimitAuthenticationReason": {
+    "message": "Пройдіть автентифікацію, щоб застосувати зміну, яка послаблює захист цього ліміту витрат.",
+    "englishSource": "Authenticate to apply a change that weakens this spending limit."
+  },
+  "spendingLimitLoadFailed": {
+    "message": "Не вдалося завантажити ліміти витрат. Спробуйте ще раз.",
+    "englishSource": "Spending limits could not be loaded. Try again."
+  },
+  "spendingLimitInvalidAmount": {
+    "message": "Введіть додатну суму з кількістю десяткових знаків не більшою, ніж підтримує цей актив.",
+    "englishSource": "Enter a positive amount with no more decimal places than this asset supports."
+  },
+  "spendingLimitSaveFailed": {
+    "message": "Не вдалося зберегти цей ліміт витрат. Спробуйте ще раз.",
+    "englishSource": "This spending limit could not be saved. Try again."
+  },
+  "spendingLimitLocalDisclosure": {
+    "message": "Ліміти та історія витрат зберігаються лише в цій інсталяції. Скидання даних застосунку або перевстановлення гаманця видаляє їх.",
+    "englishSource": "Limits and spending history are stored only on this installation. Resetting app data or reinstalling the wallet removes them."
+  },
+  "spendingLimitNotOnChain": {
+    "message": "Ці ліміти є локальною перевіркою безпеки, а не обмеженням on-chain. Кожен, хто має прямий доступ до ваших ключів, може їх обійти.",
+    "englishSource": "These limits are a local safety check, not an on-chain restriction. Anyone with direct access to your keys can bypass them."
+  },
+  "spendingLimitNoAssets": {
+    "message": "Немає активів, доступних для налаштування.",
+    "englishSource": "No assets are available to configure."
+  },
+  "spendingLimitSave": {
+    "message": "Зберегти",
+    "englishSource": "Save"
+  },
+  "spendingLimitChallengeTitle": {
+    "message": "Ліміт витрат перевищено",
+    "englishSource": "Spending limit exceeded"
+  },
+  "spendingLimitPeriod24h": {
+    "message": "Останні 24 години",
+    "englishSource": "Past 24 hours"
+  },
+  "spendingLimitPeriod7d": {
+    "message": "Останні 7 днів",
+    "englishSource": "Past 7 days"
+  },
+  "spendingLimitCap": {
+    "message": "Ліміт",
+    "englishSource": "Limit"
+  },
+  "spendingLimitOverBy": {
+    "message": "Перевищення",
+    "englishSource": "Over by"
+  },
+  "spendingLimitResets": {
+    "message": "Знову доступно",
+    "englishSource": "Available again"
+  },
+  "spendingLimitNoAutomaticReset": {
+    "message": "Ця сума сама по собі перевищує ліміт",
+    "englishSource": "This amount exceeds the limit on its own"
+  },
+  "spendingLimitChangeInSettings": {
+    "message": "Щоб збільшити ліміт, відкрийте Налаштування > Ліміти витрат.",
+    "englishSource": "To raise the limit, go to Settings > Spending limits."
+  },
+  "spendingLimitTransactionAuthenticationReason": {
+    "message": "Пройдіть автентифікацію, щоб продовжити цю транзакцію. Це не змінить і не вимкне ваш ліміт витрат.",
+    "englishSource": "Authenticate to continue with this transaction. This does not change or disable your spending limit."
   }
 }

@@ -1,6 +1,6 @@
 /* eslint-disable no-restricted-globals */
 
-import React, { FC, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+import React, { FC, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { SigningInputs, SigningInputsType, Word } from '@miden-sdk/miden-sdk/lazy';
 import { PrivateDataPermission } from '@miden-sdk/miden-wallet-adapter-base';
@@ -13,10 +13,12 @@ import ContentContainer from 'app/layouts/ContentContainer';
 import Unlock from 'app/pages/Unlock';
 import { Button, ButtonVariant } from 'components/Button';
 import { NetworkModeBanner } from 'components/NetworkModeBanner';
+import { SpendingLimitChallenge } from 'components/SpendingLimitChallenge';
 import { CustomRpsContext } from 'lib/analytics';
 import { getAllUncompletedTransactions } from 'lib/miden/activity';
 import { ITransactionStatus } from 'lib/miden/db/types';
 import { useAccount, useMidenContext } from 'lib/miden/front';
+import { parseSerializedSpendingLimitAssessment } from 'lib/miden/spending-limits/types';
 import { MidenDAppPayload } from 'lib/miden/types';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { b64ToU8 } from 'lib/shared/helpers';
@@ -31,13 +33,7 @@ import FormSecondaryButton from './atoms/FormSecondaryButton';
 import FormSubmitButton from './atoms/FormSubmitButton';
 import Name from './atoms/Name';
 import { AdvancedDetails, FoldableField } from './confirm/AdvancedDetails';
-import {
-  declaredRequestToView,
-  executedBytesToView,
-  summaryBytesToView,
-  summaryToView,
-  TxAssetView
-} from './confirm/decode';
+import { declaredRequestToView, simulatedBytesToView, summaryToView, TxAssetView } from './confirm/decode';
 import { TransactionAssetView } from './confirm/TransactionAssetView';
 import { ConfirmPageSelectors } from './ConfirmPage.selectors';
 import { Icon, IconName } from './icons/v2';
@@ -394,15 +390,13 @@ const CustomTransactionContent: React.FC<{
       try {
         const { summaryBytes, executedBytes } = await simulateCustomTransaction(id);
         if (cancelled) return;
-        if (summaryBytes) {
-          setVerifiedView(summaryBytesToView(summaryBytes));
-          return;
-        }
-        // Already-fully-authorized account (every ordinary single-sig one on
-        // web-sdk 0.16): no summary is produced, the dry run returns the executed
-        // transaction instead. Same ground truth — see simulate-custom-tx.ts.
-        if (executedBytes) {
-          setVerifiedView(executedBytesToView(executedBytes));
+        // Summary when authorization is still pending, executed transaction for every ordinary
+        // single-sig account on web-sdk 0.16 - same ground truth either way. The choice lives in
+        // `simulatedBytesToView` so the backend's spending-limit gate decodes it identically;
+        // a second copy of this ladder there once treated every ordinary account as unsimulatable.
+        const view = simulatedBytesToView({ summaryBytes, executedBytes });
+        if (view) {
+          setVerifiedView(view);
           return;
         }
         setSimError(true);
@@ -491,6 +485,17 @@ const ConfirmDAppForm: FC = () => {
   });
   const payload = data!;
   const payloadError = data!.error;
+  const spendingLimitAssessment = useMemo(
+    () =>
+      payload.type === 'transaction' && payload.spendingLimitAssessment !== undefined
+        ? parseSerializedSpendingLimitAssessment(payload.spendingLimitAssessment)
+        : undefined,
+    [payload]
+  );
+  const spendingLimitAsset = payload.type === 'transaction' ? payload.spendingLimitAsset : undefined;
+  if ((spendingLimitAssessment === undefined) !== (spendingLimitAsset === undefined)) {
+    throw new Error('Incomplete spending limit confirmation payload');
+  }
   let requirePrivateDataCheckbox = false;
   let privateDataPermission = PrivateDataPermission.UponRequest;
   if (payload.type === 'connect') {
@@ -502,9 +507,11 @@ const ConfirmDAppForm: FC = () => {
   requirePrivateDataCheckbox = privateDataPermission === PrivateDataPermission.Auto && !isPublicAccount;
   const [isPrivateDataChecked, setIsPrivateDataChecked] = useState(false);
   const delegate = isDelegateProofEnabled();
+  const [showSpendingLimitChallenge, setShowSpendingLimitChallenge] = useState(false);
+  const confirmationInFlightRef = useRef(false);
 
   const onConfirm = useCallback(
-    async (confirmed: boolean) => {
+    async (confirmed: boolean, spendingLimitAuthenticated?: true) => {
       switch (payload.type) {
         case 'connect':
           return confirmDAppPermission(
@@ -516,7 +523,11 @@ const ConfirmDAppForm: FC = () => {
           );
         case 'transaction':
         case 'consume':
-          await confirmDAppTransaction(id, confirmed, delegate);
+          if (spendingLimitAuthenticated === true) {
+            await confirmDAppTransaction(id, confirmed, delegate, true);
+          } else {
+            await confirmDAppTransaction(id, confirmed, delegate);
+          }
           if (confirmed) {
             // The dApp confirm response carries no txId, but the progress page
             // is addressed by one — resolve the active row from the queue.
@@ -559,13 +570,13 @@ const ConfirmDAppForm: FC = () => {
   const [declining, setDeclining] = useSafeState(false);
 
   const confirm = useCallback(
-    async (confirmed: boolean) => {
+    async (confirmed: boolean, spendingLimitAuthenticated?: true) => {
       setError(null);
       try {
         if (confirmed && requirePrivateDataCheckbox && !isPrivateDataChecked) {
           throw new Error(t('confirmError'));
         }
-        await onConfirm(confirmed);
+        await onConfirm(confirmed, spendingLimitAuthenticated);
       } catch (err: any) {
         console.error(err);
 
@@ -578,12 +589,18 @@ const ConfirmDAppForm: FC = () => {
   );
 
   const handleConfirmClick = useCallback(async () => {
-    if (confirming || declining) return;
+    if (confirming || declining || confirmationInFlightRef.current) return;
+    if (spendingLimitAssessment !== undefined && spendingLimitAsset !== undefined) {
+      setShowSpendingLimitChallenge(true);
+      return;
+    }
 
+    confirmationInFlightRef.current = true;
     setConfirming(true);
     await confirm(true);
     setConfirming(false);
-  }, [confirming, declining, setConfirming, confirm]);
+    confirmationInFlightRef.current = false;
+  }, [confirming, declining, setConfirming, confirm, spendingLimitAssessment, spendingLimitAsset]);
 
   const handleDeclineClick = useCallback(async () => {
     if (confirming || declining) return;
@@ -800,6 +817,22 @@ const ConfirmDAppForm: FC = () => {
           </div>
         </div>
       </div>
+      {showSpendingLimitChallenge && spendingLimitAssessment !== undefined && spendingLimitAsset !== undefined && (
+        <SpendingLimitChallenge
+          assessment={spendingLimitAssessment}
+          asset={spendingLimitAsset}
+          onResult={authorization => {
+            setShowSpendingLimitChallenge(false);
+            if (confirmationInFlightRef.current) return;
+            confirmationInFlightRef.current = true;
+            setConfirming(true);
+            void confirm(authorization !== undefined, authorization === undefined ? undefined : true).finally(() => {
+              setConfirming(false);
+              confirmationInFlightRef.current = false;
+            });
+          }}
+        />
+      )}
     </CustomRpsContext.Provider>
   );
 };

@@ -5050,5 +5050,89 @@
   "updateNotificationActionFailed": {
     "message": "The update could not be started. Try again.",
     "englishSource": "The update could not be started. Try again."
+  },
+  "spendingLimits": {
+    "message": "지출 한도",
+    "englishSource": "Spending limits"
+  },
+  "spendingLimitDaily": {
+    "message": "최근 24시간 한도",
+    "englishSource": "Rolling 24-hour limit"
+  },
+  "spendingLimitWeekly": {
+    "message": "최근 7일 한도",
+    "englishSource": "Rolling 7-day limit"
+  },
+  "spendingLimitUnknownDecimals": {
+    "message": "이 자산의 소수 자릿수 메타데이터가 확인될 때까지 한도를 설정할 수 없습니다.",
+    "englishSource": "Limits are unavailable until this asset's decimal metadata is resolved."
+  },
+  "spendingLimitAuthenticationReason": {
+    "message": "이 지출 한도의 보호를 약화하는 변경을 적용하려면 인증하세요.",
+    "englishSource": "Authenticate to apply a change that weakens this spending limit."
+  },
+  "spendingLimitLoadFailed": {
+    "message": "지출 한도를 불러올 수 없습니다. 다시 시도하세요.",
+    "englishSource": "Spending limits could not be loaded. Try again."
+  },
+  "spendingLimitInvalidAmount": {
+    "message": "이 자산이 지원하는 소수 자릿수 이내에서 0보다 큰 금액을 입력하세요.",
+    "englishSource": "Enter a positive amount with no more decimal places than this asset supports."
+  },
+  "spendingLimitSaveFailed": {
+    "message": "이 지출 한도를 저장할 수 없습니다. 다시 시도하세요.",
+    "englishSource": "This spending limit could not be saved. Try again."
+  },
+  "spendingLimitLocalDisclosure": {
+    "message": "한도와 지출 내역은 이 설치 환경에만 저장됩니다. 앱 데이터를 초기화하거나 Wallet을 다시 설치하면 삭제됩니다.",
+    "englishSource": "Limits and spending history are stored only on this installation. Resetting app data or reinstalling the wallet removes them."
+  },
+  "spendingLimitNotOnChain": {
+    "message": "이 한도는 로컬 안전 확인이며 on-chain 제한이 아닙니다. 키에 직접 접근할 수 있는 사람은 이를 우회할 수 있습니다.",
+    "englishSource": "These limits are a local safety check, not an on-chain restriction. Anyone with direct access to your keys can bypass them."
+  },
+  "spendingLimitNoAssets": {
+    "message": "설정할 수 있는 자산이 없습니다.",
+    "englishSource": "No assets are available to configure."
+  },
+  "spendingLimitSave": {
+    "message": "저장",
+    "englishSource": "Save"
+  },
+  "spendingLimitChallengeTitle": {
+    "message": "지출 한도 초과",
+    "englishSource": "Spending limit exceeded"
+  },
+  "spendingLimitPeriod24h": {
+    "message": "지난 24시간",
+    "englishSource": "Past 24 hours"
+  },
+  "spendingLimitPeriod7d": {
+    "message": "지난 7일",
+    "englishSource": "Past 7 days"
+  },
+  "spendingLimitCap": {
+    "message": "한도",
+    "englishSource": "Limit"
+  },
+  "spendingLimitOverBy": {
+    "message": "초과 금액",
+    "englishSource": "Over by"
+  },
+  "spendingLimitResets": {
+    "message": "다시 사용 가능",
+    "englishSource": "Available again"
+  },
+  "spendingLimitNoAutomaticReset": {
+    "message": "이 금액만으로 한도를 초과합니다",
+    "englishSource": "This amount exceeds the limit on its own"
+  },
+  "spendingLimitChangeInSettings": {
+    "message": "한도를 높이려면 설정 > 지출 한도로 이동하세요.",
+    "englishSource": "To raise the limit, go to Settings > Spending limits."
+  },
+  "spendingLimitTransactionAuthenticationReason": {
+    "message": "이 거래를 계속하려면 인증하세요. 이 작업은 지출 한도를 변경하거나 비활성화하지 않습니다.",
+    "englishSource": "Authenticate to continue with this transaction. This does not change or disable your spending limit."
   }
 }

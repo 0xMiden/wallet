@@ -4,6 +4,7 @@
 
 ### Features
 
+- [FEATURE][all] Configurable spending limits. Settings > Spending limits sets a rolling 24-hour and/or 7-day cap per account and token; raising or removing a cap needs the same strict authentication as spending over one. A transfer that would cross a cap is stopped at review with the amount, the overage and when the allowance next frees up, and can be sent only after a one-time authentication that is bound to that exact transfer and cannot be replayed. Wallet sends, swaps, bridged sends, Earn deposits and dApp-requested transfers are all counted and all enforced at a single point. A dApp custom transaction is enforced on the net value the approval-time dry run says leaves the account, offsetting only assets that same request brought in; a request whose effects cannot be attributed to it is refused while a limit is set. Two transfers started at once cannot both spend the same remaining allowance. Limits and spend history are stored only on this installation and are removed when app data is reset.
 - [FEATURE][all] Advanced Settings can export the current account as a CLI-compatible `.mac` file after password, passcode, or device-security confirmation. The flow warns that the file grants access to the account's funds and requires an explicit acknowledgement before saving or sharing it (#537).
 ### Changes
 

@@ -355,8 +355,8 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
   );
 
   const confirmDAppTransaction = useCallback(
-    async (id: string, confirmed: boolean, delegate: boolean) => {
-      await storeConfirmDAppTransaction(id, confirmed, delegate);
+    async (id: string, confirmed: boolean, delegate: boolean, spendingLimitAuthenticated?: true) => {
+      await storeConfirmDAppTransaction(id, confirmed, delegate, spendingLimitAuthenticated);
     },
     [storeConfirmDAppTransaction]
   );

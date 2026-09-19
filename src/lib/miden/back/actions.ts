@@ -3,6 +3,7 @@ import PQueue from 'p-queue';
 
 import { ACCOUNT_NAME_PATTERN } from 'app/defaults';
 import { MidenDAppErrorType, MidenDAppMessageType, MidenDAppRequest, MidenDAppResponse } from 'lib/adapter/types';
+import type { StrictAuthenticationProtectors } from 'lib/auth/strict-action-authentication';
 import { getMessage } from 'lib/i18n';
 import { importAllNotes, retryDeadletteredNotes as drainNoteDeadletter } from 'lib/miden/activity';
 import { getAccountsWriteQueue } from 'lib/miden/back/accounts-write-queue';
@@ -34,6 +35,21 @@ import {
   uninstallRealmKeystore,
   withWasmClientLock
 } from 'lib/miden/sdk/miden-client';
+import {
+  listSpendingLimits as listStoredSpendingLimits,
+  saveSpendingLimit as saveStoredSpendingLimit
+} from 'lib/miden/spending-limits/config';
+import { assessOutgoingSpendingLimit as assessStoredOutgoingSpendingLimit } from 'lib/miden/spending-limits/queue';
+import {
+  PersistedSpendingLimit,
+  SerializedSpendingLimitAssessment,
+  SerializedSpendingLimitDraft,
+  SpendingLimitPolicyUnavailableError,
+  parseSerializedSpendingAmount,
+  parseSerializedSpendingLimitDraft,
+  toPersistedSpendingLimit,
+  toSerializedSpendingLimitAssessment
+} from 'lib/miden/spending-limits/types';
 import { buildSdkSignCallback } from 'lib/miden/transaction/sign-callback';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
 import {
@@ -544,6 +560,54 @@ export function updateSettings(settings: Partial<WalletSettings>) {
     // createCustomNetworksSnapshot(updatedSettings);
     settingsUpdated(updatedSettings);
   });
+}
+
+const serializeSpendingLimit = (
+  configuration: Awaited<ReturnType<typeof listStoredSpendingLimits>>[number]
+): PersistedSpendingLimit => {
+  const persisted = toPersistedSpendingLimit(configuration);
+  if (persisted === undefined) {
+    throw new SpendingLimitPolicyUnavailableError('A stored spending limit has no configured period');
+  }
+  return persisted;
+};
+
+export async function listSpendingLimits(accountId: string): Promise<PersistedSpendingLimit[]> {
+  return (await listStoredSpendingLimits(accountId)).map(serializeSpendingLimit);
+}
+
+export async function saveSpendingLimit(
+  serializedDraft: SerializedSpendingLimitDraft,
+  observedRevision: string | undefined,
+  strictlyAuthenticated: boolean
+): Promise<PersistedSpendingLimit | undefined> {
+  const saved = await saveStoredSpendingLimit(parseSerializedSpendingLimitDraft(serializedDraft), {
+    observedRevision,
+    strictlyAuthenticated
+  });
+  return saved === undefined ? undefined : serializeSpendingLimit(saved);
+}
+
+export async function assessOutgoingSpendingLimit(
+  accountId: string,
+  faucetId: string,
+  serializedAmount: string
+): Promise<SerializedSpendingLimitAssessment | undefined> {
+  const assessment = await assessStoredOutgoingSpendingLimit({
+    accountId,
+    faucetId,
+    amount: parseSerializedSpendingAmount(serializedAmount)
+  });
+  return assessment === undefined ? undefined : toSerializedSpendingLimitAssessment(assessment);
+}
+
+export async function getStrictAuthenticationProtectors(): Promise<StrictAuthenticationProtectors> {
+  const [hardware, password] = await Promise.all([Vault.hasHardwareProtector(), Vault.hasPasswordProtector()]);
+  return { hardware, password };
+}
+
+export async function verifyStrictActionAuthentication(credential?: string): Promise<void> {
+  await Vault.verifyProtector(credential);
 }
 
 export function signTransaction(publicKey: string, signingInputs: string) {

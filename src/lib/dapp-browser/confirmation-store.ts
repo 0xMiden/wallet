@@ -23,6 +23,7 @@
 
 import { PrivateDataPermission, AllowedPrivateData } from '@miden-sdk/miden-wallet-adapter-base';
 
+import type { SpendingLimitAssessment, SpendingLimitAssetSnapshot } from 'lib/miden/spending-limits/types';
 import { DappMetadata } from 'lib/miden/types';
 
 export interface DAppConfirmationRequest {
@@ -57,6 +58,8 @@ export interface DAppConfirmationRequest {
   // Transaction-specific fields
   transactionMessages?: string[];
   sourcePublicKey?: string;
+  spendingLimitAssessment?: SpendingLimitAssessment;
+  spendingLimitAsset?: SpendingLimitAssetSnapshot;
 }
 
 /**
@@ -92,6 +95,7 @@ export interface DAppConfirmationResult {
   privateDataPermission?: PrivateDataPermission;
   // Transaction-specific result
   delegate?: boolean;
+  spendingLimitAuthenticated?: true;
 }
 
 type ConfirmationResolver = (result: DAppConfirmationResult) => void;
