@@ -185,7 +185,7 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean }> = ({ remove = false }) => {
   if (step === 'confirm') {
     return (
       <div className="flex flex-1 min-h-0 flex-col bg-app-bg text-heading-gray">
-        <PageHeader title={t('removeSeedPhrase')} onBack={onExit} />
+        <PageHeader className="px-4" title={t('removeSeedPhrase')} onBack={onExit} />
         <div className="flex flex-1 flex-col justify-center w-full max-w-md mx-auto px-4 py-6 gap-6">
           <p className="text-sm text-center text-heading-gray">{t('removeSeedPhraseConfirmation')}</p>
           {authError && (
@@ -210,7 +210,7 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean }> = ({ remove = false }) => {
   if (step === 'warning') {
     return (
       <div className="flex flex-col flex-1 min-h-0 bg-app-bg">
-        <PageHeader title={t('verifySeedPhrase')} onBack={onExit} />
+        <PageHeader className="px-4" title={t('verifySeedPhrase')} onBack={onExit} />
         <div className="flex-1 flex flex-col">
           <div className="mt-6 px-4">
             <div className="bg-gray-25 rounded-2xl px-6 py-8">
@@ -268,7 +268,7 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean }> = ({ remove = false }) => {
     if (isMobile()) {
       return (
         <div className="flex flex-col flex-1 min-h-0 bg-app-bg">
-          <PageHeader title={t('verifySeedPhrase')} onBack={() => setStep('warning')} />
+          <PageHeader className="px-4" title={t('verifySeedPhrase')} onBack={() => setStep('warning')} />
           <div className="flex-1 flex flex-col px-4 pt-4 pb-6">
             <div className="flex flex-col gap-2 mb-6">
               <h1 className="text-2xl font-semibold text-heading-gray">{t('enterYourPasscode')}</h1>
@@ -288,7 +288,7 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean }> = ({ remove = false }) => {
 
     return (
       <div className="flex flex-col flex-1 min-h-0 bg-app-bg">
-        <PageHeader title={t('verifySeedPhrase')} onBack={() => setStep('warning')} />
+        <PageHeader className="px-4" title={t('verifySeedPhrase')} onBack={() => setStep('warning')} />
         <form className="flex-1 flex flex-col px-4 pt-4 pb-6" onSubmit={handleSubmit(onPasswordSubmit)}>
           <div className="flex flex-col gap-2 mb-6">
             <h1 className="text-2xl font-semibold text-heading-gray">{t('enterPassword')}</h1>
@@ -327,7 +327,7 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean }> = ({ remove = false }) => {
   if (step === 'review' && words.length === 12) {
     return (
       <div className="flex flex-col flex-1 min-h-0 bg-app-bg text-heading-gray">
-        <PageHeader title={t('recoveryPhrase')} onBack={onExit} />
+        <PageHeader className="px-4" title={t('recoveryPhrase')} onBack={onExit} />
         <div className="flex-1 flex flex-col px-4 pt-4 pb-6">
           <p className="text-sm text-black text-center mb-4">
             {t(remove ? 'removeSeedPhraseWriteDown' : 'verifySeedPhraseReviewBody')}
@@ -383,7 +383,7 @@ const VerifySeedPhraseFlow: FC<{ remove?: boolean }> = ({ remove = false }) => {
 
   return (
     <div className="flex flex-col flex-1 min-h-0 bg-app-bg">
-      <PageHeader title={t('verifySeedPhrase')} onBack={() => setStep('review')} />
+      <PageHeader className="px-4" title={t('verifySeedPhrase')} onBack={() => setStep('review')} />
       <div className="px-4 pt-4 text-sm text-black text-center">
         <p>{t('verifyMessagePrefix')}</p>
         <p>

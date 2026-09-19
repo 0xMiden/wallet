@@ -157,7 +157,7 @@ const RevealSeedPhrase: FC = () => {
   if (secret && words.length > 0) {
     return (
       <div className="flex flex-col flex-1 min-h-0 bg-app-bg text-heading-gray">
-        <PageHeader title={t('recoveryPhrase')} onBack={handleHide} />
+        <PageHeader className="px-4" title={t('recoveryPhrase')} onBack={handleHide} />
 
         <div className="flex-1 flex flex-col px-4 pt-4">
           {isGuardReady && (
@@ -216,7 +216,7 @@ const RevealSeedPhrase: FC = () => {
   if (authError) {
     return (
       <div className="flex flex-col flex-1 min-h-0 bg-app-bg">
-        <PageHeader title={t('recoveryPhrase')} onBack={() => goBack()} />
+        <PageHeader className="px-4" title={t('recoveryPhrase')} onBack={() => goBack()} />
         <div className="px-4 pt-4">
           <Alert type="error" title={t('error')} description={authError} className="rounded-lg text-black" />
         </div>
@@ -231,7 +231,7 @@ const RevealSeedPhrase: FC = () => {
 
   return (
     <div className="flex flex-col flex-1 min-h-0 bg-app-bg">
-      <PageHeader title={t('recoveryPhrase')} onBack={() => goBack()} />
+      <PageHeader className="px-4" title={t('recoveryPhrase')} onBack={() => goBack()} />
 
       <Drawer
         open={showPasswordDrawer}

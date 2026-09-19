@@ -219,7 +219,7 @@ export const EncryptedFileManager: React.FC<{}> = () => {
 
       {!isWalletPasswordStep && (
         <>
-          <PageHeader title={t('encryptedWalletFile')} onBack={onClose} />
+          <PageHeader className="px-4" title={t('encryptedWalletFile')} onBack={onClose} />
           <form onSubmit={handleSubmit(onSubmit)} className="flex-1 flex flex-col min-h-0 bg-app-bg">
             <Navigator renderRoute={renderStep} />
           </form>
