@@ -20,9 +20,9 @@ describe('lib/animation/presets', () => {
     mockReduce = false;
   });
 
-  it('exports the eight presets the design system names', () => {
+  it('exports the nine presets the design system names', () => {
     expect([...presetNames].sort()).toEqual(
-      ['fade', 'indicator', 'page', 'pop', 'press', 'reveal', 'sheet', 'shimmer'].sort()
+      ['fade', 'indicator', 'page', 'pop', 'press', 'reveal', 'shake', 'sheet', 'shimmer'].sort()
     );
     expect(Object.keys(presets).sort()).toEqual([...presetNames].sort());
   });
@@ -97,6 +97,16 @@ describe('lib/animation/presets', () => {
       });
       expect(durations.shimmer).toBe(1.2);
     });
+
+    it('shake: x keyframes that start and end at rest, over durations.slow', () => {
+      const x = presets.shake.animate?.x;
+      expect(Array.isArray(x) && x[0] === 0 && x[x.length - 1] === 0).toBe(true);
+      expect(presets.shake.transition).toEqual({
+        type: 'tween',
+        duration: durations.slow,
+        ease: easings.easeInOut
+      });
+    });
   });
 
   describe('resolvePreset', () => {
@@ -105,7 +115,7 @@ describe('lib/animation/presets', () => {
       expect(resolvePreset(null, name)).toBe(presets[name]);
     });
 
-    it.each(presetNames.filter(name => name !== 'shimmer'))(
+    it.each(presetNames.filter(name => name !== 'shimmer' && name !== 'shake'))(
       'makes %s instant under reduced motion and keeps its targets',
       name => {
         const reduced = resolvePreset(true, name);
@@ -119,6 +129,12 @@ describe('lib/animation/presets', () => {
     it('holds shimmer still under reduced motion', () => {
       const reduced = resolvePreset(true, 'shimmer');
       expect(reduced.initial).toBeUndefined();
+      expect(reduced.animate).toBeUndefined();
+      expect(reduced.transition).toEqual(INSTANT);
+    });
+
+    it('does not shake at all under reduced motion', () => {
+      const reduced = resolvePreset(true, 'shake');
       expect(reduced.animate).toBeUndefined();
       expect(reduced.transition).toEqual(INSTANT);
     });
