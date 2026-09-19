@@ -16,8 +16,10 @@ export const ExternalLinkValue: FC<{
   // `min-w-0`: a flex item defaults to its content's natural (max-content) width, which would
   // stop `displayValue` (a HashChip/AddressChip — a Pill whose own `truncate` needs a bounded
   // width to have anything to ellipsis against) from ever actually shrinking below that, no
-  // matter how narrow the row around it is.
-  <div className="flex min-w-0 items-center gap-1 text-sm text-heading-gray font-medium">
+  // matter how narrow the row around it is. `max-w-full` caps the row itself at its parent's
+  // width, so a long value (e.g. a "You (account name)" chip) truncates against that cap instead
+  // of pushing the row wider than the space actually available for it.
+  <div className="flex min-w-0 max-w-full items-center gap-1 text-sm text-heading-gray font-medium">
     {displayValue}
     {href && (
       <a href={href} target="_blank" rel="noreferrer" className="shrink-0">
