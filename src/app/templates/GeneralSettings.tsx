@@ -2,9 +2,9 @@ import React, { FC, useCallback, useMemo, useRef, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
-import { TabPicker } from 'components/TabPicker';
 import { ListGroup } from 'components/ui/ListGroup';
 import { ListRow } from 'components/ui/ListRow';
+import { SegmentedControl, SegmentedControlItem } from 'components/ui/SegmentedControl';
 import { SubPageLayout, SubPageSection } from 'components/ui/SubPageLayout';
 import { isMobile } from 'lib/platform';
 import type { ThemeSetting } from 'lib/settings/constants';
@@ -27,28 +27,18 @@ const GeneralSettings: FC = () => {
   const mobile = isMobile();
 
   const [themeSetting, setThemeSettingState] = useState<ThemeSetting>(() => getThemeSetting());
-  const themeOptions = useMemo<ThemeSetting[]>(() => ['system', 'light', 'dark'], []);
-  const themeTabs = useMemo(
-    () =>
-      themeOptions.map(opt => ({
-        id: `theme-${opt}`,
-        // TabPickerItem destructures `id` OUT before spreading, so the id above never
-        // reaches the DOM; the raw data-testid rides ...props onto the <button>.
-        'data-testid': `theme-${opt}`,
-        title: t(opt === 'system' ? 'themeSystem' : opt === 'light' ? 'themeLight' : 'themeDark'),
-        active: themeSetting === opt
-      })),
-    [t, themeOptions, themeSetting]
+  const themeItems = useMemo<SegmentedControlItem<ThemeSetting>[]>(
+    () => [
+      { id: 'system', label: t('themeSystem'), 'data-testid': 'theme-system' },
+      { id: 'light', label: t('themeLight'), 'data-testid': 'theme-light' },
+      { id: 'dark', label: t('themeDark'), 'data-testid': 'theme-dark' }
+    ],
+    [t]
   );
-  const handleThemeTabChange = useCallback(
-    (index: number) => {
-      const next = themeOptions[index];
-      if (!next) return;
-      setThemeSettingState(next);
-      setTheme(next);
-    },
-    [themeOptions]
-  );
+  const handleThemeChange = useCallback((next: ThemeSetting) => {
+    setThemeSettingState(next);
+    setTheme(next);
+  }, []);
 
   const delegateEnabled = isDelegateProofEnabled();
   const delegateChangingRef = useRef(false);
@@ -81,7 +71,16 @@ const GeneralSettings: FC = () => {
         <ListGroup>
           <ListRow
             title={t('theme')}
-            trailing={<TabPicker className="shrink-0" tabs={themeTabs} onTabChange={handleThemeTabChange} />}
+            trailing={
+              <SegmentedControl
+                items={themeItems}
+                value={themeSetting}
+                onChange={handleThemeChange}
+                size="sm"
+                aria-label={t('theme')}
+                className="shrink-0"
+              />
+            }
             data-testid={GeneralSettingsSelectors.ThemeSelector}
           />
           {mobile && (
