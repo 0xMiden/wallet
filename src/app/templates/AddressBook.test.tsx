@@ -85,6 +85,12 @@ it('shows an empty state with no saved contacts, and opens the new-contact page'
   render(<AddressBook />);
 
   expect(screen.getByTestId('address-book-empty')).toHaveTextContent('noContactsYet');
+  // Was `w-full max-w-none rounded-full bg-fill text-base font-semibold text-ink`
+  // — the Secondary variant already paints bg-fill/text-ink, so hand-painting
+  // them again was redundant on top of fighting the anatomy.
+  expect(screen.getByTestId('address-book-new-contact').className).not.toMatch(
+    /rounded-full|text-base|font-semibold|bg-fill|text-ink/
+  );
   fireEvent.click(screen.getByTestId('address-book-new-contact'));
   expect(navigateMock).toHaveBeenCalledWith('/contacts/new');
 });
