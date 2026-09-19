@@ -159,7 +159,7 @@ describe('ConfirmationScreen', () => {
 
     it('draws the outcome hero with the reminders and pins the CTA in the footer', () => {
       renderComponent();
-      expect(screen.getByRole('heading', { level: 1 })).toHaveClass('text-2xl', 'font-black');
+      expect(screen.getByRole('heading', { level: 1 })).toHaveClass('text-hero-name');
       expect(screen.getByText('recoveryPhraseDailyReminder').closest('[role="note"]')).not.toBeNull();
       expect(screen.getByTestId('onboarding-confirmation-submit').closest('[data-slot="footer"]')).not.toBeNull();
     });

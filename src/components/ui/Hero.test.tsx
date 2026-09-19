@@ -93,6 +93,6 @@ describe('Hero — name level', () => {
     const { rerender } = render(<Hero visual={<span />} name="Ready" />);
     expect(screen.getByRole('heading', { level: 2, name: 'Ready' })).toBeInTheDocument();
     rerender(<Hero visual={<span />} name="Ready" nameAs="h1" />);
-    expect(screen.getByRole('heading', { level: 1, name: 'Ready' })).toHaveClass('text-2xl', 'font-black');
+    expect(screen.getByRole('heading', { level: 1, name: 'Ready' })).toHaveClass('text-hero-name');
   });
 });
