@@ -10,7 +10,7 @@ import { guardianEndpointDisplayName } from 'app/hooks/useCurrentGuardianEndpoin
 import { Icon, IconName } from 'app/icons/v2';
 import { ReactComponent as FailedCrossIcon } from 'app/icons/v2/failed-cross.svg';
 import { ReactComponent as SwapIcon } from 'app/icons/v2/swap.svg';
-import { ActivityRow, ActivityRowProps, ActivityStatusTone, Spinner } from 'components/ui';
+import { ActivityRow, ActivityRowProps, ActivityStatusTone, Card, Spinner } from 'components/ui';
 import { EmptyState } from 'components/ui/EmptyState';
 import { springs, useMotion } from 'lib/animation';
 import { navigate } from 'lib/woozie';
@@ -144,7 +144,8 @@ function buildRowProps(
   const isFailed = !isCancelled && (icon === 'FAILED' || entry.message === 'Transaction failed');
 
   let iconNode: React.ReactNode;
-  let iconBg = 'bg-fill';
+  // `page`, not a grey: the row sits on `fill`, where a grey circle all but disappears.
+  let iconBg = 'bg-page';
   let amountDirection: 'positive' | 'negative' | 'neutral' = 'neutral';
 
   // Glyphs mirror the home action-bar logos (Send / Receive / Earn / Swap),
@@ -192,7 +193,7 @@ function buildRowProps(
     iconBg = earnFailed ? 'bg-[#CC5D5D]' : 'bg-tx-earn';
     amountDirection = 'negative';
   } else {
-    iconNode = <Icon name={IconName.More} size="sm" fill="currentColor" />;
+    iconNode = <Icon name={IconName.More} size="sm" fill="currentColor" className="text-ink" />;
   }
 
   // Swap rows read "Swap {offered} → {requested}" with the venue as the
@@ -456,19 +457,19 @@ const HistoryView = memo<HistoryViewProps>(
                 }
                 const props = buildRowProps(entry, t, tokenId);
                 return (
-                  <ActivityRow
-                    key={entry.key}
-                    entryKey={entry.key}
-                    testId="activity-row"
-                    className="rounded-2xl border border-rule-default bg-white px-3"
-                    icon={props.icon}
-                    iconBg={props.iconBg}
-                    title={props.title}
-                    subtitle={props.subtitle}
-                    amount={props.amount}
-                    status={props.status}
-                    onClick={entry.txId ? () => navigate(`/history-details/${entry.txId}`) : undefined}
-                  />
+                  <Card key={entry.key} asChild padding="row" interactive={Boolean(entry.txId)}>
+                    <ActivityRow
+                      entryKey={entry.key}
+                      testId="activity-row"
+                      icon={props.icon}
+                      iconBg={props.iconBg}
+                      title={props.title}
+                      subtitle={props.subtitle}
+                      amount={props.amount}
+                      status={props.status}
+                      onClick={entry.txId ? () => navigate(`/history-details/${entry.txId}`) : undefined}
+                    />
+                  </Card>
                 );
               })}
             </div>
