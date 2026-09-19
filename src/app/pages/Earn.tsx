@@ -26,14 +26,10 @@ const Earn: FC = () => {
 
           <section className="mt-4" aria-labelledby="earn-positions-title">
             <div className="flex items-center justify-between">
-              <h2 id="earn-positions-title" className="text-xl font-heading font-bold leading-none text-ink">
+              <h2 id="earn-positions-title" className="text-title-page text-ink">
                 {t('earnCurrentPositionsTitle')}
               </h2>
-              <button
-                type="button"
-                onClick={handleSeeAllClick}
-                className="text-xs font-heading font-bold leading-none text-ink"
-              >
+              <button type="button" onClick={handleSeeAllClick} className="text-action text-accent-tint-ink">
                 {t('earnSeeAll')}
               </button>
             </div>
@@ -51,7 +47,7 @@ const Earn: FC = () => {
           </section>
 
           <section className="mt-3" aria-labelledby="earn-vaults-title">
-            <h2 id="earn-vaults-title" className="text-xl font-heading font-bold leading-none text-ink">
+            <h2 id="earn-vaults-title" className="text-title-page text-ink">
               {t('earnVaultsTitle')}
             </h2>
 
@@ -84,7 +80,7 @@ const PositionCard: FC<{ position: EarnPosition }> = ({ position }) => {
             {position.protocol} &bull; {position.asset}
           </div>
         </div>
-        <div className="rounded-full bg-green-100 px-2 py-1 text-xs font-bold font-heading leading-none text-green-500">
+        <div className="rounded-full bg-green-100 px-2 py-1 text-badge text-green-500">
           {position.apy} {t('earnApyLabel')}
         </div>
       </div>

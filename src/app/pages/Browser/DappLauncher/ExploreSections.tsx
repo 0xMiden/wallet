@@ -169,7 +169,7 @@ export const ExploreSections: FC<ExploreSectionsProps> = ({
                           type="button"
                           onClick={() => toggle(section.id)}
                           aria-expanded={isExpanded}
-                          className="-my-2 py-2 font-heading text-sm font-bold text-accent-tint-ink"
+                          className="-my-2 py-2 text-action text-accent-tint-ink"
                         >
                           {t(isExpanded ? 'exploreShowLess' : 'exploreSeeAll')}
                         </button>

@@ -69,8 +69,8 @@ export const FeaturedCard: FC<FeaturedCardProps> = ({ item, onOpen, className })
       </span>
       <span className="flex w-full items-center gap-3 p-4">
         <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-          <AppName className="font-heading text-[17px] leading-[22px] font-extrabold text-ink">{item.name}</AppName>
-          <span className="line-clamp-2 font-sans text-sm leading-[18px] text-muted">
+          <AppName className="text-title-section text-ink">{item.name}</AppName>
+          <span className="line-clamp-2 text-body-sm text-muted">
             {item.taglineKey ? t(item.taglineKey) : item.tagline}
           </span>
         </span>

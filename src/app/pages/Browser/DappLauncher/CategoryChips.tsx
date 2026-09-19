@@ -64,7 +64,7 @@ export const CategoryChips: FC<CategoryChipsProps> = ({ filters, value, onChange
                   transition={motionTokens.highlight}
                   className={cn(
                     'group relative flex h-8 items-center rounded-full px-3.5 whitespace-nowrap',
-                    'font-heading text-sm leading-none font-bold transition-colors',
+                    'text-pill transition-colors',
                     'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-primary/30',
                     active ? 'text-ink' : 'text-muted'
                   )}
