@@ -86,8 +86,10 @@ describe('SegmentedActionBar — exports & structure', () => {
     renderBar();
 
     const tablist = screen.getByRole('tablist');
-    // The look is unchanged: the 64px grey strip.
-    expect(tablist).toHaveClass('h-16', 'bg-fill', 'px-3', 'gap-1');
+    // The grey strip, snug under the status bar: 4px above the 48px segments, 8px below them, and a
+    // hairline rule on its bottom edge like the bottom nav's top rule. No fixed height pads it.
+    expect(tablist).toHaveClass('bg-fill', 'px-3', 'gap-1', 'pt-1', 'pb-2', 'border-b', 'border-hairline');
+    expect(tablist.className).not.toMatch(/(^|\s)(h-\d+|pt-[2-9]|py-)/);
 
     const tabs = screen.getAllByRole('tab');
     expect(tabs).toHaveLength(3);
