@@ -7,8 +7,8 @@
  *
  * Every value comes from `springs`, `durations` and `easings`, so the whole app is tuned from
  * `lib/animation`. Read presets through `usePreset` (or `resolvePreset` where a hook can't be
- * called): under reduced motion every transition collapses to an instant tween, and `shimmer` and
- * `pulse` hold still instead of looping.
+ * called): under reduced motion every transition collapses to an instant tween, and `shimmer`
+ * holds still instead of looping.
  *
  * - `fade`: opacity. Also the backdrop behind a `sheet`.
  * - `reveal`: height 0 <-> auto plus opacity, for disclosure content.
@@ -21,7 +21,6 @@
  * - `shimmer`: a pending runner moving across its track.
  * - `shake`: a horizontal shake that says "wrong" (a rejected passcode). It has no end state
  *   to jump to, so under reduced motion it does not run at all.
- * - `pulse`: a status dot breathing while its operation is in flight (`StatusBadge`).
  */
 
 import { useMemo } from 'react';
@@ -51,8 +50,7 @@ export const presetNames = [
   'press',
   'indicator',
   'shimmer',
-  'shake',
-  'pulse'
+  'shake'
 ] as const;
 
 export type PresetName = (typeof presetNames)[number];
@@ -103,10 +101,6 @@ export const presets: Record<PresetName, MotionPreset> = {
   shake: {
     animate: { x: [0, -10, 10, -8, 8, -4, 4, 0] },
     transition: { type: 'tween', duration: durations.slow, ease: easings.easeInOut }
-  },
-  pulse: {
-    animate: { opacity: [1, 0.35, 1] },
-    transition: { type: 'tween', duration: durations.pulse, ease: easings.easeInOut, repeat: Infinity }
   }
 };
 
@@ -121,8 +115,7 @@ const reducedPresets: Record<PresetName, MotionPreset> = {
   // A loop has no end state to jump to, so it simply does not run.
   shimmer: { transition: resolveTransition(true, presets.shimmer.transition) },
   // Nor does a shake: it starts and ends at rest, so an instant one is no motion at all.
-  shake: { transition: resolveTransition(true, presets.shake.transition) },
-  pulse: { transition: resolveTransition(true, presets.pulse.transition) }
+  shake: { transition: resolveTransition(true, presets.shake.transition) }
 };
 
 /**
