@@ -8,8 +8,15 @@ import { Pill } from './Pill';
 
 jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn(), hapticSelection: jest.fn() }));
 
+let mockReduceMotion: boolean | null = false;
+jest.mock('framer-motion', () => ({
+  ...jest.requireActual('framer-motion'),
+  useReducedMotion: () => mockReduceMotion
+}));
+
 beforeEach(() => {
   jest.clearAllMocks();
+  mockReduceMotion = false;
 });
 
 it('renders a label as static text, with no button semantics', () => {
@@ -88,15 +95,45 @@ it('sizes small pills for status badges', () => {
   expect(screen.getByTestId('pill')).toHaveClass('h-6', 'px-2', 'text-xs', 'text-positive-ink');
 });
 
-it('tints a status pill at 10%, not 15% (15% drops under 4.5:1 in light mode)', () => {
+it('puts a status pill on its opaque tint, not a translucent wash of the status color', () => {
   render(
     <Pill data-testid="pill" tone="negative">
       Failed
     </Pill>
   );
 
-  expect(screen.getByTestId('pill')).toHaveClass('bg-status-negative/10');
-  expect(screen.getByTestId('pill')).not.toHaveClass('bg-status-negative/15');
+  // A translucent wash takes on the surface beneath and fell under 4.5:1 on `fill`.
+  expect(screen.getByTestId('pill')).toHaveClass('bg-negative-tint');
+  expect(screen.getByTestId('pill').className).not.toMatch(/bg-status-negative\//);
+});
+
+it('pulses the dot on request, and holds it still under reduced motion', () => {
+  const { container, unmount } = render(
+    <Pill size="xs" tone="warning" dot="pulse">
+      Pending
+    </Pill>
+  );
+  expect(container.querySelector('[aria-hidden="true"]')).toHaveAttribute('data-pulsing', 'true');
+  unmount();
+
+  mockReduceMotion = true;
+  const reduced = render(
+    <Pill size="xs" tone="warning" dot="pulse">
+      Pending
+    </Pill>
+  );
+  const dot = reduced.container.querySelector('[aria-hidden="true"]');
+  expect(dot).toHaveAttribute('data-pulsing', 'false');
+  expect(dot).toHaveClass('h-1.5', 'w-1.5', 'bg-current', 'rounded-full');
+});
+
+it('never pulses a plain dot', () => {
+  const { container } = render(
+    <Pill tone="positive" dot>
+      Confirmed
+    </Pill>
+  );
+  expect(container.querySelector('[aria-hidden="true"]')).not.toHaveAttribute('data-pulsing');
 });
 
 it('renders a leading status dot in the tone’s own ink color', () => {
@@ -239,9 +276,10 @@ describe('variants', () => {
     ['neutral', ['bg-fill', 'text-ink', 'border-transparent']],
     ['word', ['bg-fill', 'text-ink', 'border-transparent']],
     ['selected', ['bg-accent-tint', 'text-accent-tint-ink', 'border-transparent']],
-    ['positive', ['bg-status-positive/10', 'text-positive-ink', 'border-transparent']],
-    ['warning', ['bg-status-pending/10', 'text-pending-ink', 'border-transparent']],
-    ['negative', ['bg-status-negative/10', 'text-negative-ink', 'border-transparent']],
+    ['positive', ['bg-positive-tint', 'text-positive-ink', 'border-transparent']],
+    ['warning', ['bg-pending-tint', 'text-pending-ink', 'border-transparent']],
+    ['negative', ['bg-negative-tint', 'text-negative-ink', 'border-transparent']],
+    ['inactive', ['bg-fill-pressed', 'text-ink', 'border-transparent']],
     ['plain', ['border-transparent']]
   ] as const)('gives the %s tone its colors', (tone, classes) => {
     render(
@@ -258,6 +296,7 @@ describe('variants', () => {
   });
 
   it.each([
+    ['xs', ['h-5', 'gap-1', 'px-2', 'text-xs', 'font-semibold'], ['-ml-0.5', 'h-3', 'w-3']],
     ['sm', ['h-6', 'gap-1', 'px-2', 'text-xs'], ['-ml-0.5', 'h-3.5', 'w-3.5']],
     ['md', ['h-8', 'gap-1.5', 'px-3', 'text-sm'], ['-ml-1', 'h-4', 'w-4']]
   ] as const)('sizes the %s pill and its icon box', (size, pillClasses, iconClasses) => {
