@@ -142,7 +142,7 @@ const SwapNoteRow = memo(function SwapNoteRow({
           </div>
           <div className="flex min-w-0 flex-col items-end text-right">
             {receivedAmount && (
-              <p className="font-heading text-lg font-semibold text-positive-ink">
+              <p className="font-heading text-lg font-semibold text-positive-tint-ink">
                 {t('swapReceivedAmount', {
                   amount: receivedAmount,
                   symbol: requestedSymbol ? ` ${requestedSymbol}` : ''

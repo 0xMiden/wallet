@@ -158,7 +158,7 @@ describe('HistoryItem', () => {
 
     // Positive amount in the positive ink, token symbol.
     const amount = screen.getByText('+123');
-    expect(amount).toHaveClass('text-positive-ink');
+    expect(amount).toHaveClass('text-positive-tint-ink');
     expect(screen.getByText('MIDEN')).toBeInTheDocument();
 
     // Cancel button present with selector testid + label.
@@ -218,8 +218,8 @@ describe('HistoryItem', () => {
     // Not receive => "to" label, negative amount, red class.
     expect(screen.getByText(/t:to/)).toBeInTheDocument();
     const amount = screen.getByText('-456');
-    expect(amount).toHaveClass('text-negative-ink');
-    expect(amount).not.toHaveClass('text-positive-ink');
+    expect(amount).toHaveClass('text-negative-tint-ink');
+    expect(amount).not.toHaveClass('text-positive-tint-ink');
 
     // isMobile() true => trim=true.
     expect(screen.getByTestId('addr')).toHaveAttribute('data-trim', 'true');
