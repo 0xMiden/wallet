@@ -230,7 +230,8 @@ const TAB_GROUPS: TabGroup[] = [
         slug: 'dapp-settings',
         titleI18nKey: 'authorizedDApps',
         Component: DAppDrawerSettings,
-        testID: SettingsSelectors.DAppsButton
+        testID: SettingsSelectors.DAppsButton,
+        rendersSubPageLayout: true
       }
     ]
   },
