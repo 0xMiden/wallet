@@ -192,22 +192,16 @@ export default {
         // Balance card surface — signature royal blue, distinct from system surfaces.
         'surface-balance': 'var(--surface-balance)',
         'surface-balance-fg': 'var(--surface-balance-fg)',
-        'surface-balance-fg-muted': 'var(--surface-balance-fg-muted)',
         'surface-balance-rule': 'var(--surface-balance-rule)',
         'surface-balance-positive': 'var(--surface-balance-positive)',
         'surface-balance-handle': 'var(--surface-balance-handle)',
-        'surface-balance-divider': '#FFFFFF4D',
+        'surface-balance-pill': 'var(--surface-balance-pill)',
         // Balance-card color options (AccountsDrawer picker swatches).
         'card-slate': 'var(--card-slate)',
         'card-orange': 'var(--card-orange)',
         'card-blue': 'var(--card-blue)',
         'card-green': 'var(--card-green)',
         'card-purple': 'var(--card-purple)',
-        'card-slate-deep': 'var(--card-slate-deep)',
-        'card-orange-deep': 'var(--card-orange-deep)',
-        'card-blue-deep': 'var(--card-blue-deep)',
-        'card-green-deep': 'var(--card-green-deep)',
-        'card-purple-deep': 'var(--card-purple-deep)',
         ...customColors,
         // Override primary from customColors with network-conditional values
         primary: primaryPalette
