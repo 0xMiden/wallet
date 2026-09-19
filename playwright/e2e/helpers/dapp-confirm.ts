@@ -11,9 +11,10 @@
  *
  * The confirm surface has no product-owned selectors other than the two
  * `data-testid`s added alongside this file (`ConfirmPage.tsx`) — the
- * `ConfirmPageSelectors` enum is an ANALYTICS event-name list that
- * `FormSubmitButton` passes to `trackEvent`, never to the DOM. The enum values
- * are reused verbatim as the testids so there is still one name per action.
+ * `ConfirmPageSelectors` enum is an ANALYTICS event-name list that the confirm
+ * button's own `onClick` passes to `trackEvent` by hand, never to the DOM. The
+ * enum values are reused verbatim as the testids so there is still one name
+ * per action.
  */
 import type { BrowserContext, Page } from '@playwright/test';
 
