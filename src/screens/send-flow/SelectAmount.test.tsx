@@ -4,9 +4,16 @@ import { render, screen, fireEvent } from '@testing-library/react';
 
 import { hapticLight } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
+import { PRIMARY_HEX } from 'utils/brand-colors';
 
 import { SelectAmount, SelectAmountProps } from './SelectAmount';
 import { UIToken } from './types';
+
+// Hex -> the `rgb(r, g, b)` form jsdom normalizes an inline `style.backgroundColor` to.
+const asRgb = (hex: string): string => {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgb(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255})`;
+};
 
 // --- i18n: interpolate the `{ value }` option so approxFiatValue is assertable.
 jest.mock('react-i18next', () => ({
@@ -44,7 +51,7 @@ jest.mock('components/Button', () => ({
 
 jest.mock('app/icons/v2', () => ({
   Icon: ({ name }: { name: string }) => <span data-testid="icon" data-name={name} />,
-  IconName: { ChevronDown: 'chevron-down' }
+  IconName: { ChevronDown: 'chevron-down', ChevronRightLucide: 'chevron-right', Globe: 'Globe' }
 }));
 
 // The AmountInput mock forwards every prop we care about and exposes buttons
@@ -411,6 +418,12 @@ describe('SelectAmount', () => {
       expect(screen.getByText('selectAToken')).toBeInTheDocument();
       expect(screen.queryByTestId('token-logo')).not.toBeInTheDocument();
       expect(screen.queryByTestId('confirm-btn')).not.toBeInTheDocument();
+
+      // Avatar's `color` prop, not a `bg-*` className: the circle sits behind an icon, not a
+      // block of layout, so the fill is content, and Avatar applies it as an inline style.
+      const circle = screen.getByText('$').parentElement as HTMLElement;
+      expect(circle.style.backgroundColor).toBe(asRgb('#2F6BED'));
+      expect(circle.className).not.toContain('bg-[#2F6BED]');
     });
 
     it('ignores children in the embedded variant', () => {
@@ -479,6 +492,19 @@ describe('SelectAmount', () => {
 
       expect(screen.getByTestId('ai-token-selector')).toHaveTextContent('$');
       expect(screen.getByText('selectAToken')).toBeInTheDocument();
+
+      const circle = screen.getByText('$').parentElement as HTMLElement;
+      expect(circle.style.backgroundColor).toBe(asRgb(PRIMARY_HEX));
+      expect(circle.className).not.toContain('bg-primary-500');
+    });
+
+    it('colors the destination-network circle via Avatar’s color prop, not a className', () => {
+      renderComponent({ isBridge: true, network: sepolia });
+
+      const globeIcon = screen.getByTestId('ai-token-selector').querySelector('[data-name="Globe"]');
+      const circle = globeIcon?.parentElement as HTMLElement;
+      expect(circle.style.backgroundColor).toBe(asRgb(PRIMARY_HEX));
+      expect(circle.className).not.toContain('bg-primary-500');
     });
   });
 
