@@ -8,6 +8,7 @@
 - [CHANGE][all] Home's five actions and their flows share the account card palette: each tab's icon and its flow's accent are the same brand colour, and text in that colour uses a darker shade of it.
 - [CHANGE][all] Text across the app uses one named type scale, so titles, labels, values and body copy match everywhere.
 - [CHANGE][all] Settings sub-pages, the guardian explainer, Explore, Earn and token detail set their text through the named type scale.
+- [CHANGE][all] Choosing a guardian (onboarding and Rotate Guardian) uses one self-contained card per operator: its logo on a brand tile, name, "Operated by · location" line and a "Current" or "Offline" tag inside the card, an orange ring and check for the choice, and arrow-key selection; Learn more and Use a custom URL are text actions, and Review rotation and Guardian settings share the same layout and logo tile.
 - [CHANGE][mobile] The passcode keypad sits in thumb reach at the bottom of the screen, with larger keys and a Face ID key.
 - [CHANGE][all] Receive fits on one screen with aligned QR, address, notice and actions.
 - [CHANGE][all] The Home balance card keeps its plain brand account colour, with a clearer label, currency and change pill and a hairline above the address footer.
