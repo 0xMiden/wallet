@@ -31,6 +31,15 @@ export type { AssetListItemProps, AssetDeltaDirection } from './AssetListItem';
 export { SegmentedActionBar } from './SegmentedActionBar';
 export type { SegmentedActionBarProps, SegmentedActionBarItem } from './SegmentedActionBar';
 
+export { SegmentedControl } from './SegmentedControl';
+export type {
+  SegmentedControlProps,
+  SegmentedControlItem,
+  SegmentedControlSize,
+  SegmentedControlLayout,
+  SegmentedControlRole
+} from './SegmentedControl';
+
 export { BottomNav } from './BottomNav';
 export type { BottomNavProps, BottomNavItem } from './BottomNav';
 
