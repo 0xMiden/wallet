@@ -199,7 +199,7 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
     {
       id: 'home',
       label: t('home'),
-      icon: <Icon name={IconName.Home} className="w-8 h-8" fill="currentColor" />
+      icon: <Icon name={IconName.Home} className="w-6 h-6" fill="currentColor" />
     },
     // Explore tab is a dApp browser surface — extension popup has no use
     // for it (browser-the-product is already the host), so drop it there.
@@ -209,19 +209,19 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
           {
             id: 'explore',
             label: t('explore'),
-            icon: <Icon name={IconName.Explore} className="w-8 h-8" />
+            icon: <Icon name={IconName.Explore} className="w-6 h-6" />
           }
         ]),
     {
       id: 'activity',
       label: t('activity'),
-      icon: <Icon name={IconName.Activity} className="w-8 h-8" />,
+      icon: <Icon name={IconName.Activity} className="w-6 h-6" />,
       showDot: hasUnclaimedNotes
     },
     {
       id: 'settings',
       label: t('settings'),
-      icon: <Icon name={IconName.Settings} className="w-8 h-8" fill="currentColor" />
+      icon: <Icon name={IconName.Settings} className="w-6 h-6" fill="currentColor" />
     }
   ];
 
