@@ -141,7 +141,8 @@ const TAB_GROUPS: TabGroup[] = [
         slug: 'general-settings',
         titleI18nKey: 'generalSettings',
         Component: GeneralSettings,
-        testID: SettingsSelectors.GeneralButton
+        testID: SettingsSelectors.GeneralButton,
+        rendersSubPageLayout: true
       },
       {
         slug: 'address-book',
@@ -153,7 +154,8 @@ const TAB_GROUPS: TabGroup[] = [
         slug: 'language',
         titleI18nKey: 'language',
         Component: LanguageSettings,
-        testID: SettingsSelectors.LanguageButton
+        testID: SettingsSelectors.LanguageButton,
+        rendersSubPageLayout: true
       }
     ]
   },
@@ -219,7 +221,8 @@ const TAB_GROUPS: TabGroup[] = [
         slug: 'advanced-settings',
         titleI18nKey: 'advancedSettings',
         Component: AdvancedSettings,
-        testID: SettingsSelectors.AdvancedSettingsButton
+        testID: SettingsSelectors.AdvancedSettingsButton,
+        rendersSubPageLayout: true
       },
       {
         // Distinct slug: the connected-dApps list page owns '/settings/dapps'
@@ -305,13 +308,15 @@ const HIDDEN_TABS: Tab[] = [
     ownsInitialFocus: () => true,
     titleI18nKey: 'editMidenFaucetId',
     Component: EditMidenFaucetId,
-    testID: SettingsSelectors.EditMidenFaucetButton
+    testID: SettingsSelectors.EditMidenFaucetButton,
+    rendersSubPageLayout: true
   },
   {
     slug: 'networks',
     titleI18nKey: 'networks',
     Component: NetworksSettings,
-    testID: SettingsSelectors.NetworksButton
+    testID: SettingsSelectors.NetworksButton,
+    rendersSubPageLayout: true
   },
   {
     slug: 'dapps',

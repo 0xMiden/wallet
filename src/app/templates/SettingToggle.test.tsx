@@ -16,13 +16,15 @@ jest.mock('app/atoms/ToggleSwitch', () => ({
     checked,
     onChange,
     name,
+    id,
     testID
   }: {
     checked: boolean;
     onChange: (evt: React.ChangeEvent<HTMLInputElement>) => void;
     name: string;
+    id?: string;
     testID: string;
-  }) => <input type="checkbox" data-testid={testID} data-name={name} checked={checked} onChange={onChange} />
+  }) => <input type="checkbox" id={id} data-testid={testID} data-name={name} checked={checked} onChange={onChange} />
 }));
 
 const baseProps = {
@@ -70,24 +72,16 @@ describe('SettingToggle', () => {
     expect(onChange).toHaveBeenCalledTimes(1);
   });
 
-  it('renders the description span when `description` is provided (truthy branch)', () => {
-    render(<SettingToggle {...baseProps} description="Some helpful description" />);
+  it('is a ListRow labelling its switch, so tapping the title flips it', () => {
+    const onChange = jest.fn();
+    render(<SettingToggle {...baseProps} onChange={onChange} />);
 
-    expect(screen.getByText('Some helpful description')).toBeInTheDocument();
-  });
-
-  it('omits the description span when `description` is undefined (falsy branch)', () => {
-    const { container } = render(<SettingToggle {...baseProps} />);
-
-    // Only the title span renders; the optional description span is absent.
-    const spans = container.querySelectorAll('span');
-    expect(spans).toHaveLength(1);
-    expect(spans[0]).toHaveTextContent('Toggle title');
-  });
-
-  it('omits the description span when `description` is an empty string (falsy branch)', () => {
-    const { container } = render(<SettingToggle {...baseProps} description="" />);
-
-    expect(container.querySelectorAll('span')).toHaveLength(1);
+    const row = screen.getByText('Toggle title').closest('label')!;
+    // The shared row: 16px bold ink title, 56px without a subtitle.
+    expect(screen.getByText('Toggle title')).toHaveAttribute('data-slot', 'title');
+    expect(row).toHaveClass('min-h-14');
+    expect(screen.getByTestId('toggle-test-id')).toHaveAttribute('id', 'toggle-name');
+    fireEvent.click(screen.getByText('Toggle title'));
+    expect(onChange).toHaveBeenCalledTimes(1);
   });
 });

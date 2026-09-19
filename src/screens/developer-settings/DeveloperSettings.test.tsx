@@ -128,44 +128,32 @@ jest.mock('components/PageHeader', () => ({
 }));
 
 jest.mock('components/Button', () => ({
-  ButtonVariant: { Primary: 'primary', Secondary: 'secondary', Ghost: 'ghost' },
+  ButtonVariant: { Primary: 'primary', Secondary: 'secondary', Destructive: 'destructive', Ghost: 'ghost' },
   Button: ({
     title,
     onClick,
     isLoading,
     disabled,
+    variant,
     'data-testid': testId
   }: {
     title?: string;
     onClick?: () => void;
     isLoading?: boolean;
     disabled?: boolean;
+    variant?: string;
     'data-testid'?: string;
   }) => (
-    <button type="button" onClick={onClick} disabled={disabled} data-loading={String(!!isLoading)} data-testid={testId}>
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      data-loading={String(!!isLoading)}
+      data-variant={variant}
+      data-testid={testId}
+    >
       {title}
     </button>
-  )
-}));
-
-jest.mock('components/Input', () => ({
-  Input: ({
-    label,
-    value,
-    onChange,
-    disabled,
-    'data-testid': testId
-  }: {
-    label?: string;
-    value?: string;
-    onChange?: (e: React.ChangeEvent<HTMLInputElement>) => void;
-    disabled?: boolean;
-    'data-testid'?: string;
-  }) => (
-    <label>
-      {label}
-      <input data-testid={testId} value={value} disabled={disabled} onChange={onChange} readOnly={!onChange} />
-    </label>
   )
 }));
 
@@ -427,6 +415,29 @@ describe('DeveloperSettings', () => {
     render(<DeveloperSettings />);
     fireEvent.click(screen.getByRole('button', { name: 'back' }));
     expect(mockGoBack).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders through SubPageLayout: labelled sections, shared fields and the actions pinned in its footer', () => {
+    render(<DeveloperSettings />);
+
+    const page = screen.getByTestId('developer-settings');
+    const footer = page.querySelector('[data-slot="footer"]')!;
+    expect(footer).toContainElement(screen.getByTestId('dev-endpoints-save'));
+    expect(footer).toContainElement(screen.getByTestId('dev-endpoints-reset-defaults'));
+    expect(screen.getByTestId('dev-endpoints-reset-defaults')).toHaveAttribute('data-variant', 'secondary');
+    // The warning is a labelled section with muted copy, not a hand-painted card.
+    expect(screen.getByRole('heading', { name: 'developerSettingsWarningTitle' })).toHaveClass('text-muted');
+    expect(screen.getByText('developerSettingsWarning')).toHaveClass('text-sm', 'text-muted');
+    // Every URL is the shared TextField, labelled, at 16px so iOS does not zoom.
+    expect(screen.getByLabelText('devEndpointRpc')).toBe(screen.getByTestId('dev-endpoint-rpcUrl'));
+    expect(screen.getByTestId('dev-endpoint-rpcUrl')).toHaveClass('text-base');
+    // The no-guardian option is a ListRow in a group.
+    expect(screen.getByTestId('dev-allow-no-guardian').parentElement).toHaveClass('bg-fill', 'rounded-2xl');
+  });
+
+  it('makes the read-only reset destructive, since it wipes the wallet', () => {
+    render(<DeveloperSettings readOnly />);
+    expect(screen.getByTestId('dev-endpoints-reset')).toHaveAttribute('data-variant', 'destructive');
   });
 
   it('renders no health note while idle', () => {

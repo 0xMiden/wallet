@@ -1,6 +1,7 @@
 import React, { FC } from 'react';
 
 import ToggleSwitch from 'app/atoms/ToggleSwitch';
+import { ListRow } from 'components/ui/ListRow';
 
 interface SettingToggleProps {
   checked: boolean;
@@ -8,19 +9,22 @@ interface SettingToggleProps {
   name: string;
   testID: string;
   title: string;
-  description?: string;
 }
 
-const SettingToggle: FC<SettingToggleProps> = ({ checked, onChange, name, testID, title, description }) => {
-  return (
-    <div className="flex flex-col gap-y-2">
-      <label htmlFor={name} className="flex items-center justify-between w-full">
-        <span className="font-medium text-base leading-[130%] text-ink">{title}</span>
-        <ToggleSwitch checked={checked} onChange={onChange} name={name} testID={testID} />
-      </label>
-      {description && <span className="text-xs text-text-muted">{description}</span>}
-    </div>
-  );
-};
+/**
+ * A setting that is a switch: a `ListRow` titled with the setting, the switch trailing, and the
+ * whole row its label, so a tap anywhere on it flips the switch. Goes in a `ListGroup`; what the
+ * setting does belongs in the section's footnote, where it can wrap.
+ *
+ * The switch is still `ToggleSwitch` (a real checkbox, so `data-testid` and `checked` are what the
+ * E2E helpers read) until the design system's Radix `Toggle` lands.
+ */
+const SettingToggle: FC<SettingToggleProps> = ({ checked, onChange, name, testID, title }) => (
+  <ListRow
+    title={title}
+    htmlFor={name}
+    trailing={<ToggleSwitch id={name} checked={checked} onChange={onChange} name={name} testID={testID} />}
+  />
+);
 
 export default SettingToggle;

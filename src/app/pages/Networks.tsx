@@ -3,6 +3,7 @@ import React, { FC } from 'react';
 import { Icon, IconName } from 'app/icons/v2';
 import { ListGroup } from 'components/ui/ListGroup';
 import { ListRow } from 'components/ui/ListRow';
+import { SubPageLayout } from 'components/ui/SubPageLayout';
 import { useNetwork, useSetNetworkId } from 'lib/miden/front';
 import { NETWORKS } from 'lib/miden/networks';
 
@@ -11,7 +12,7 @@ const NetworksSettings: FC = () => {
   const network = useNetwork();
 
   return (
-    <div className="py-4">
+    <SubPageLayout data-testid="networks-settings">
       <ListGroup>
         {NETWORKS.map(item => (
           <ListRow
@@ -24,7 +25,7 @@ const NetworksSettings: FC = () => {
           />
         ))}
       </ListGroup>
-    </div>
+    </SubPageLayout>
   );
 };
 

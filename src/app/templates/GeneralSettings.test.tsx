@@ -42,6 +42,10 @@ jest.mock('lib/settings/helpers', () => ({
   setHapticFeedbackSetting: jest.fn()
 }));
 
+// ListRow's routed branch imports the wallet Link, whose analytics barrel reaches
+// the store; none of these rows route.
+jest.mock('lib/woozie', () => ({ Link: () => null }));
+
 // `setTheme` applies the theme to the document (media queries / class toggles);
 // stub it to a spy so we only assert the intent.
 jest.mock('lib/settings/theme', () => ({
@@ -79,8 +83,9 @@ jest.mock('components/TabPicker', () => ({
 }));
 
 // `SettingToggle` wraps `ToggleSwitch` (analytics / haptics). Render a plain
-// controlled checkbox exposing checked/onChange/name plus title & optional
-// description so every prop and branch of GeneralSettings is assertable.
+// controlled checkbox exposing checked/onChange/name plus the title so every
+// prop and branch of GeneralSettings is assertable. What a setting does is the
+// page's own section footnote, rendered for real.
 jest.mock('./SettingToggle', () => ({
   __esModule: true,
   default: ({
@@ -88,20 +93,17 @@ jest.mock('./SettingToggle', () => ({
     onChange,
     name,
     testID,
-    title,
-    description
+    title
   }: {
     checked: boolean;
     onChange: (evt: React.ChangeEvent<HTMLInputElement>) => void;
     name: string;
     testID: string;
     title: string;
-    description?: string;
   }) => (
-    <div>
+    <div data-testid={`${testID}-row`}>
       <span data-testid={`${testID}-title`}>{title}</span>
       <input type="checkbox" data-testid={testID} name={name} checked={checked} onChange={onChange} />
-      {description ? <span data-testid={`${testID}-desc`}>{description}</span> : null}
     </div>
   )
 }));
@@ -156,10 +158,12 @@ describe('GeneralSettings', () => {
     expect(screen.getByTestId(`${GeneralSettingsSelectors.DelegateToggle}-title`)).toHaveTextContent(
       'delegateProofSettings'
     );
-    // The delegate toggle now carries an explanatory description (local vs
-    // delegated proving), not just a bare label (#478).
-    expect(screen.getByTestId(`${GeneralSettingsSelectors.DelegateToggle}-desc`)).toHaveTextContent(
-      'delegateProofSettingsDescription'
+    // The delegate toggle carries an explanatory description (local vs
+    // delegated proving), not just a bare label (#478): its section's footnote,
+    // right under the group holding the row.
+    const delegateNote = screen.getByText('delegateProofSettingsDescription');
+    expect(delegateNote.closest('section')).toContainElement(
+      screen.getByTestId(`${GeneralSettingsSelectors.DelegateToggle}-row`)
     );
 
     expect(consume).toBeInTheDocument();
@@ -168,13 +172,37 @@ describe('GeneralSettings', () => {
     expect(screen.getByTestId(`${GeneralSettingsSelectors.AutoConsumeToggle}-title`)).toHaveTextContent(
       'autoConsumeSettings'
     );
-    // Auto-consume passes a `description` — its description branch renders.
-    expect(screen.getByTestId(`${GeneralSettingsSelectors.AutoConsumeToggle}-desc`)).toHaveTextContent(
-      'autoConsumeSettingsDescription'
+    const consumeNote = screen.getByText('autoConsumeSettingsDescription');
+    expect(consumeNote.closest('section')).toContainElement(
+      screen.getByTestId(`${GeneralSettingsSelectors.AutoConsumeToggle}-row`)
     );
 
     // Non-mobile: haptic toggle is not rendered.
     expect(screen.queryByTestId(GeneralSettingsSelectors.HapticFeedbackToggle)).not.toBeInTheDocument();
+  });
+
+  it('renders through SubPageLayout: theme and haptics in one group, each described switch in its own', () => {
+    mockIsMobile.mockReturnValue(true);
+    render(<GeneralSettings />);
+
+    const page = screen.getByTestId('general-settings');
+    const body = page.querySelector('[data-slot="body"]')!;
+    expect(body).toHaveClass('px-4', 'gap-5');
+    expect(body.querySelectorAll(':scope > section')).toHaveLength(3);
+
+    // The theme is a ListRow with the picker trailing, sharing a group with the haptic switch.
+    const themeRow = screen.getByTestId(GeneralSettingsSelectors.ThemeSelector);
+    expect(themeRow.querySelector('[data-slot="title"]')).toHaveTextContent('theme');
+    expect(themeRow).toContainElement(screen.getByTestId('tab-picker'));
+    expect(themeRow.parentElement).toHaveClass('bg-fill', 'rounded-2xl');
+    expect(themeRow.parentElement).toContainElement(
+      screen.getByTestId(`${GeneralSettingsSelectors.HapticFeedbackToggle}-row`)
+    );
+
+    // Descriptions are the muted 14px section footnote.
+    expect(screen.getByText('delegateProofSettingsDescription')).toHaveClass('text-sm', 'text-muted');
+    // No page footer: every setting applies as it is changed.
+    expect(page.querySelector('[data-slot="footer"]')).toBeNull();
   });
 
   it('reflects non-default (disabled) toggle states from the helpers', () => {

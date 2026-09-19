@@ -146,3 +146,53 @@ it('does not fire a disabled row', () => {
   expect(onClick).not.toHaveBeenCalled();
   expect(hapticLight).not.toHaveBeenCalled();
 });
+
+it('labels its trailing switch with `htmlFor`, so a tap anywhere on the row flips it', () => {
+  const onChange = jest.fn();
+  render(
+    <ListRow
+      title="Haptic feedback"
+      htmlFor="haptic"
+      trailing={<input id="haptic" type="checkbox" onChange={onChange} />}
+      data-testid="row"
+    />
+  );
+
+  const row = screen.getByTestId('row');
+  expect(row.tagName).toBe('LABEL');
+  expect(row).toHaveAttribute('for', 'haptic');
+  expect(row).toHaveClass('cursor-pointer', 'active:bg-fill-pressed');
+  fireEvent.click(screen.getByText('Haptic feedback'));
+  expect(onChange).toHaveBeenCalledTimes(1);
+  // The switch brings its own haptic; the row adds none.
+  expect(hapticLight).not.toHaveBeenCalled();
+});
+
+it('announces a radio choice as a radio, forwards focus handling, and can leave the haptic to its caller', () => {
+  const ref = React.createRef<HTMLButtonElement>();
+  const onKeyDown = jest.fn();
+  const onClick = jest.fn();
+  render(
+    <ListRow
+      ref={ref}
+      title="English"
+      radio
+      checked
+      tabIndex={0}
+      onKeyDown={onKeyDown}
+      haptic={false}
+      onClick={onClick}
+      data-testid="row"
+    />
+  );
+
+  const row = screen.getByRole('radio', { checked: true });
+  expect(row).toBe(ref.current);
+  expect(row).not.toHaveAttribute('aria-pressed');
+  expect(row).toHaveAttribute('tabindex', '0');
+  fireEvent.keyDown(row, { key: 'ArrowDown' });
+  expect(onKeyDown).toHaveBeenCalledTimes(1);
+  fireEvent.click(row);
+  expect(onClick).toHaveBeenCalledTimes(1);
+  expect(hapticLight).not.toHaveBeenCalled();
+});
