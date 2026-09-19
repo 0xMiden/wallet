@@ -89,12 +89,10 @@ describe('BottomNav — exports & structure', () => {
     const { container } = renderNav();
 
     const nav = container.querySelector('nav')!;
-    expect(nav).toHaveClass('rounded-3xl', 'px-2');
+    // The original floating pill: 8px above and below the 56px tabs, centred, rounded, shadowed.
+    expect(nav).toHaveClass('rounded-3xl', 'px-4', 'py-2', 'justify-center');
     expect(nav.className).toContain('shadow-[');
     expect(nav).not.toHaveClass('border-t');
-    // 56px of tabs and nothing else: no vertical padding, no safe-area padding (it floats clear of
-    // the edge on its wrapper's own margin).
-    expect(nav.className).not.toMatch(/(^|\s)(pt-|pb-|py-)/);
   });
 
   it('docks edge to edge with a hairline top rule and the safe-area padding when `docked`', () => {
@@ -102,10 +100,12 @@ describe('BottomNav — exports & structure', () => {
 
     const nav = container.querySelector('nav')!;
     expect(nav).toHaveClass('w-full', 'border-t', 'border-hairline', 'bg-page');
-    // Exactly the bottom inset, with an 8px floor where there is none; no top padding.
-    expect(nav).toHaveClass('pb-[max(8px,env(safe-area-inset-bottom))]');
-    expect(nav.className).not.toMatch(/(^|\s)(pt-|py-)/);
-    expect(nav.className).not.toContain('--app-safe-bottom');
+    // The original docked geometry: 8px above the tabs, and below them the body's safe-area floor
+    // minus 16px with an 8px floor (18px on an iPhone: 1 + 8 + 56 + 18 = 83px).
+    expect(nav).toHaveClass(
+      'pt-2',
+      'pb-[max(0.5rem,calc(var(--app-safe-bottom,max(16px,env(safe-area-inset-bottom)))-16px))]'
+    );
     expect(nav).not.toHaveClass('rounded-3xl');
     expect(nav.className).not.toContain('shadow-');
   });
@@ -125,21 +125,23 @@ describe('BottomNav — exports & structure', () => {
 });
 
 describe('BottomNav — sizing shared with the action bar', () => {
-  it('gives every tab a 56px-tall hit area (the bar’s content height) and a 24px icon', () => {
+  it('keeps the original 80 x 56 tab (a 72 x 48 pill plus 4px) with a 24px icon', () => {
     renderNav();
 
     for (const label of ['Home', 'Activity', 'Settings']) {
-      expect(getTab(label)).toHaveClass('h-14', 'w-15', 'shrink-0');
+      expect(getTab(label)).toHaveClass('h-14', 'w-20', 'p-1', 'group');
       expect(iconOf(getTab(label))).toHaveClass('size-6', '[&>svg]:size-6');
     }
   });
 
-  it('draws the highlight as a fully round 48px pill on the fill surface', () => {
+  it('draws the highlight as a raised 72 x 48 bubble that sinks while pressed', () => {
     renderNav();
 
     const pill = pillIn(getTab('Home'))!;
-    // 56px tab minus inset-y-1 (4px) top and bottom = 48px; 60px minus inset-x-0.5 = 56px.
-    expect(pill).toHaveClass('inset-y-1', 'inset-x-0.5', 'rounded-full', 'bg-fill');
+    // 80 x 56 tab minus inset-1 (4px) all round = 72 x 48.
+    expect(pill).toHaveClass('inset-1', 'rounded-full', 'bg-raised', 'shadow-raised');
+    expect(pill).toHaveClass('group-active:shadow-raised-pressed');
+    expect(pill).not.toHaveClass('bg-fill');
     expect(pill).toHaveStyle({ position: 'absolute' });
   });
 });
@@ -297,7 +299,7 @@ describe('BottomNav — corner overlay', () => {
     expect(inFlow[0]).toHaveClass('flex', 'gap-2');
     ['Home', 'Activity', 'Settings'].map(getTab).forEach(tab => {
       expect(tab).not.toContainElement(ribbon);
-      expect(tab).toHaveClass('w-15');
+      expect(tab).toHaveClass('w-20');
     });
   });
 
