@@ -498,7 +498,7 @@
   "verifyStepWrong": "Isso não é o que há de melhor — toque neles novamente",
   "enterYourWalletSeedPhrase": "Digite a frase de recuperação (Seed phrase) de 12 palavras da sua carteira.",
   "onlyMidenSeedPhrasesAreSupported": "Só são suportadas frases do Miden Seed.",
-  "yourWalletIsReady": "Sua <highlight>Carteira</highlight> está pronta!",
+  "yourWalletIsReady": "Sua Carteira está pronta!",
   "recoveryPhraseSevenDayReminder": "Anote sua frase de recuperação em até 7 dias para proteger totalmente sua carteira.",
   "recoveryPhraseDailyReminder": "Vamos te lembrar diariamente na tela inicial.",
   "openWallet": "Abrir a carteira",

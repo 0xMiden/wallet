@@ -498,7 +498,7 @@
   "verifyStepWrong": "To nie jest ostatnie słowo — spróbuj jeszcze raz",
   "enterYourWalletSeedPhrase": "Wprowadź 12-wyrazowe hasło „Seed phrase” swojego portfela.",
   "onlyMidenSeedPhrasesAreSupported": "Obsługiwane są wyłącznie frazy typu „Miden Seed”.",
-  "yourWalletIsReady": "Twój <highlight>portfel</highlight> jest gotowy!",
+  "yourWalletIsReady": "Twój portfel jest gotowy!",
   "recoveryPhraseSevenDayReminder": "Aby w pełni zabezpieczyć swój portfel, zapisz frazę odzyskiwania w ciągu 7 dni.",
   "recoveryPhraseDailyReminder": "Będziemy codziennie przypominać Ci o tym na ekranie głównym.",
   "openWallet": "Otwórz portfel",

@@ -498,7 +498,7 @@
   "verifyStepWrong": "Ce n'est pas la fin de l'histoire — cliquez à nouveau dessus",
   "enterYourWalletSeedPhrase": "Saisissez l'Seed phrase de 12 mots de votre portefeuille.",
   "onlyMidenSeedPhrasesAreSupported": "Seules les phrases-clés Miden sont prises en charge.",
-  "yourWalletIsReady": "Votre <highlight>portefeuille</highlight> est prêt !",
+  "yourWalletIsReady": "Votre portefeuille est prêt !",
   "recoveryPhraseSevenDayReminder": "Notez votre phrase de récupération dans les 7 jours afin de sécuriser pleinement votre portefeuille.",
   "recoveryPhraseDailyReminder": "Nous vous le rappellerons chaque jour sur l'écran d'accueil.",
   "openWallet": "Ouvrir le portefeuille",

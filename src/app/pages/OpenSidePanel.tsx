@@ -1,6 +1,6 @@
 import React, { FC, useEffect, useState } from 'react';
 
-import { Trans, useTranslation } from 'react-i18next';
+import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
 import { Button } from 'components/Button';
@@ -85,12 +85,7 @@ const OpenSidePanel: FC = () => {
                 <Icon name={IconName.Success} size="lg" aria-hidden="true" />
               </span>
             }
-            name={
-              <Trans
-                i18nKey="yourWalletIsReady"
-                components={{ highlight: <span className="text-accent-tint-ink" /> }}
-              />
-            }
+            name={t('yourWalletIsReady')}
           />
         </SubPageLayout>
       )}

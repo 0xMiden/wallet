@@ -498,7 +498,7 @@
   "verifyStepWrong": "Это еще не всё — нажмите на них ещё раз",
   "enterYourWalletSeedPhrase": "Введите 12-словное выражение «Seed phrase» вашего кошелька.",
   "onlyMidenSeedPhrasesAreSupported": "Поддерживаются только фразы Miden Seed.",
-  "yourWalletIsReady": "Ваш <highlight>кошелек</highlight> готов!",
+  "yourWalletIsReady": "Ваш кошелек готов!",
   "recoveryPhraseSevenDayReminder": "Запишите свою фразу восстановления в течение 7 дней, чтобы полностью защитить свой кошелек.",
   "recoveryPhraseDailyReminder": "Мы будем ежедневно напоминать вам об этом на главном экране.",
   "openWallet": "Открыть кошелек",

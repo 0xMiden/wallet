@@ -2268,8 +2268,8 @@
     "englishSource": "Only Miden seed phrases are supported."
   },
   "yourWalletIsReady": {
-    "message": "Twój <highlight>portfel</highlight> jest gotowy!",
-    "englishSource": "Your <highlight>Wallet</highlight> is ready!"
+    "message": "Twój portfel jest gotowy!",
+    "englishSource": "Your wallet is ready!"
   },
   "recoveryPhraseSevenDayReminder": {
     "message": "Aby w pełni zabezpieczyć swój portfel, zapisz frazę odzyskiwania w ciągu 7 dni.",

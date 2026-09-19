@@ -498,7 +498,7 @@
   "verifyStepWrong": "That's not the first and last word — tap them again",
   "enterYourWalletSeedPhrase": "Enter your wallet's 12-word seed phrase.",
   "onlyMidenSeedPhrasesAreSupported": "Only Miden seed phrases are supported.",
-  "yourWalletIsReady": "Your <highlight>Wallet</highlight> is ready!",
+  "yourWalletIsReady": "Your wallet is ready!",
   "recoveryPhraseSevenDayReminder": "Write down your recovery phrase within 7 days to fully secure your wallet.",
   "recoveryPhraseDailyReminder": "We'll remind you daily on the home screen.",
   "openWallet": "Open wallet",

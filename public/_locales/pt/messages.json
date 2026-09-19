@@ -2268,8 +2268,8 @@
     "englishSource": "Only Miden seed phrases are supported."
   },
   "yourWalletIsReady": {
-    "message": "Sua <highlight>Carteira</highlight> está pronta!",
-    "englishSource": "Your <highlight>Wallet</highlight> is ready!"
+    "message": "Sua Carteira está pronta!",
+    "englishSource": "Your wallet is ready!"
   },
   "recoveryPhraseSevenDayReminder": {
     "message": "Anote sua frase de recuperação em até 7 dias para proteger totalmente sua carteira.",

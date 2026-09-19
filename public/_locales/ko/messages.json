@@ -2268,8 +2268,8 @@
     "englishSource": "Only Miden seed phrases are supported."
   },
   "yourWalletIsReady": {
-    "message": "<highlight>지갑</highlight>이 준비되었습니다!",
-    "englishSource": "Your <highlight>Wallet</highlight> is ready!"
+    "message": "지갑이 준비되었습니다!",
+    "englishSource": "Your wallet is ready!"
   },
   "recoveryPhraseSevenDayReminder": {
     "message": "지갑을 완벽하게 보호하려면 7일 이내에 복구 문구를 기록해 두세요.",

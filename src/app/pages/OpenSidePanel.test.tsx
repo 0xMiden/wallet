@@ -124,21 +124,13 @@ describe('OpenSidePanel', () => {
     });
   };
 
-  it('renders the ready title without leaking <highlight> markup', async () => {
+  it('titles the page in plain ink, with no highlighted word', async () => {
     await render();
 
     const heading = testContainer!.querySelector('h1');
-    expect(heading?.textContent).toBe('Your Wallet is ready!');
-    // The literal tag would only appear if the string were rendered via plain t().
-    expect(testContainer!.textContent).not.toContain('<highlight>');
-  });
-
-  it('styles the highlighted word in the text-action ink, never the brand orange', async () => {
-    await render();
-
-    const highlighted = testContainer!.querySelector('.text-accent-tint-ink');
-    expect(highlighted?.textContent).toBe('Wallet');
-    expect(testContainer!.querySelector('.text-primary-500')).toBeNull();
+    expect(heading?.textContent).toBe('Your wallet is ready!');
+    expect(heading).toHaveClass('text-ink');
+    expect(heading?.querySelector('span')).toBeNull();
   });
 
   it('draws the outcome as the shared hero with Open wallet pinned in the footer', async () => {
