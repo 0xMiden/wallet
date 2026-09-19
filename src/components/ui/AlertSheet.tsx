@@ -26,7 +26,8 @@ export interface AlertSheetProps {
  * A confirmation or an alert as a bottom sheet, with Radix AlertDialog semantics
  * (skills/miden-wallet-frontend/references/design-system.md, "Confirm / alert"): the sheet is an
  * `alertdialog` named by its title and described by its sentence; focus lands on Cancel (or on
- * the only action) and returns on close to whatever had it before; Escape cancels (or acknowledges an alert); a drag or a press outside does
+ * the only action) and returns on close to whatever had it before, unless something else has
+ * taken it by then; Escape cancels (or acknowledges an alert); a drag or a press outside does
  * nothing, because the question needs an answer. The caller owns `open`.
  *
  * It opens above every other layer (drawers 50 < native navbar 60 < dApp confirm 70 < this), since
@@ -83,8 +84,11 @@ export function AlertSheet({
         }}
         onCloseAutoFocus={event => {
           event.preventDefault();
+          // This runs after the slide-out. Give focus back only if nothing has taken it since (a new
+          // layer, an autofocusing input on a page navigated to), and without scrolling the page.
           // A detached element ignores focus(), so a trigger gone by now is simply skipped.
-          returnFocusRef.current?.focus();
+          const active = document.activeElement;
+          if (active === null || active === document.body) returnFocusRef.current?.focus({ preventScroll: true });
           returnFocusRef.current = null;
         }}
         onEscapeKeyDown={event => {
