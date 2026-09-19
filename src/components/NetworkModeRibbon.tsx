@@ -15,23 +15,25 @@ export interface NetworkModeRibbonProps {
 
 /*
  * Geometry. The band is 200 x 12px, rotated -45deg about its centre, so its centre is the word's
- * centre. Measured from the bar's bottom-right corner (x leftwards, y up), "TESTNET" (10px, 0.06em:
- * 48.6px long, 7.1px caps) reaches (48.6 + 7.1) / (2 * sqrt(2)) = 19.7px either side of that centre
- * on each axis.
+ * centre. Measured from the bar's bottom-right corner (x leftwards, y up), a word of length L and cap
+ * height h reaches (L + h) / (2 * sqrt(2)) either side of that centre on each axis.
  *
- * - Docked: centre at x = 25, y = safe + 22.5, where `safe` is the body's --app-safe-bottom
- *   (max(16px, the bottom inset)): the top of the home indicator's gesture zone on an iPhone. The
- *   word's lowest point is 2.8px above that zone, its right end 5.3px inside the screen edge, and it
- *   stays inside a 55pt screen corner. The band's outer edge clears the popped Settings gear.
- * - Floating: centre at (22, 22), inside the pill's 24px corner radius, clear of the popped gear.
+ * - Docked: "TESTNET" at 10px, 0.06em is 48.6 x 7.1px (19.7px each way). Centre at x = 25,
+ *   y = pb + 22.5, where pb = max(8px, bottom inset) is the bar's own bottom padding, so the word
+ *   rides on the tabs' 56px row: on an iPhone its lowest point is 2.8px above the 34px home
+ *   indicator zone, it stays inside the 55pt screen corner, and the band clears the popped Settings
+ *   gear by 13px.
+ * - Floating: the pill is only 56px tall with a 24px radius and Settings sits 8px from its end, so
+ *   the word drops to 9px (43.7 x 6.4px, 17.7px each way), centred at (20, 20): inside both corner
+ *   arcs, 1.2px clear of the popped gear.
  */
 const band = cva('pointer-events-none absolute flex h-3 w-[200px] -rotate-45 items-center justify-center', {
   variants: {
     docked: {
-      // right: 25 - 100; bottom: safe + 22.5 - 6.
-      true: '-right-[75px] bottom-[calc(var(--app-safe-bottom,max(16px,env(safe-area-inset-bottom)))+16.5px)]',
-      // right: 22 - 100; bottom: 22 - 6.
-      false: '-right-[78px] bottom-4'
+      // right: 25 - 100; bottom: pb + 22.5 - 6.
+      true: '-right-[75px] bottom-[calc(max(8px,env(safe-area-inset-bottom))+16.5px)]',
+      // right: 20 - 100; bottom: 20 - 6.
+      false: '-right-[80px] bottom-3.5'
     },
     // A devnet build is slate throughout (the brand ramp in tailwind.config.ts), and the ribbon
     // follows it; every other build is the accent tint. Both inks clear 4.5:1 on their fill (white
@@ -43,6 +45,19 @@ const band = cva('pointer-events-none absolute flex h-3 w-[200px] -rotate-45 ite
     }
   }
 });
+
+// The word and 3px either side take taps; the cap keeps a long name inside the corner (ellipsis).
+const word = cva(
+  'pointer-events-auto h-full truncate px-[3px] font-heading font-extrabold uppercase leading-3 tracking-[0.06em] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-primary/40',
+  {
+    variants: {
+      docked: {
+        true: 'max-w-[58px] text-[10px]',
+        false: 'max-w-[53px] text-[9px]'
+      }
+    }
+  }
+);
 
 /**
  * The test network's name on a sash across the bottom nav's lower-right corner, drawn over the bar
@@ -80,7 +95,7 @@ export const NetworkModeRibbon: FC<NetworkModeRibbonProps> = ({ docked }) => {
           aria-label={t('networkModeStripLabel', { network })}
           aria-haspopup="dialog"
           aria-expanded={open}
-          className="pointer-events-auto h-full max-w-[58px] truncate px-[3px] font-heading text-[10px] font-extrabold uppercase leading-3 tracking-[0.06em] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-primary/40"
+          className={word({ docked })}
           data-testid="network-mode-ribbon"
         >
           {network}
