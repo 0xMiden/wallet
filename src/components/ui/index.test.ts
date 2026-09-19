@@ -13,6 +13,7 @@ import { AssetListItem } from './AssetListItem';
 import { Avatar } from './Avatar';
 import { BalanceCard } from './BalanceCard';
 import { BottomNav } from './BottomNav';
+import { CopyButton } from './CopyButton';
 import { EmptyState } from './EmptyState';
 import * as UI from './index';
 import { Pill } from './Pill';
@@ -36,6 +37,10 @@ jest.mock('lib/ui/drawer', () => ({
   DrawerTitle: ({ children }: { children: React.ReactNode }) => children
 }));
 
+// CopyButton pulls in the Capacitor clipboard plugin, which reaches native
+// bridges outside jsdom; stub it the same way CopyButton.test.tsx does.
+jest.mock('@capacitor/clipboard', () => ({ Clipboard: { write: jest.fn().mockResolvedValue(undefined) } }));
+
 describe('components/ui barrel', () => {
   // Every runtime (value) export the barrel is expected to forward. Types are
   // compile-time only and never appear on the module object.
@@ -44,6 +49,7 @@ describe('components/ui barrel', () => {
     Avatar,
     Pill,
     BalanceCard,
+    CopyButton,
     PromptCard,
     PromptCarousel,
     AssetListItem,
