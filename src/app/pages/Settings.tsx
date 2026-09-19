@@ -280,7 +280,8 @@ const HIDDEN_TABS: Tab[] = [
     titleI18nKey: 'revealPrivateKey',
     Component: RevealPrivateKey,
     requiresSeedPhrase: true,
-    testID: SettingsSelectors.RevealPrivateKeyButton
+    testID: SettingsSelectors.RevealPrivateKeyButton,
+    rendersSubPageLayout: true
   },
   {
     slug: 'reveal-hot-key',
@@ -288,7 +289,8 @@ const HIDDEN_TABS: Tab[] = [
     Component: RevealHotKey,
     testID: SettingsSelectors.RevealHotKeyButton,
     guardianOnly: true,
-    requiresActivatedHotKey: true
+    requiresActivatedHotKey: true,
+    rendersSubPageLayout: true
   },
   {
     slug: 'verify-seed-phrase',

@@ -5,10 +5,14 @@ import { useTranslation } from 'react-i18next';
 
 import Alert from 'app/atoms/Alert';
 import FormField from 'app/atoms/FormField';
-import AccountBanner from 'app/templates/AccountBanner';
+import { Icon, IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
 import { PasscodeEntry } from 'components/PasscodeEntry';
 import { PrivateKeyPair } from 'components/PrivateKeyPair';
+import { ListGroup } from 'components/ui/ListGroup';
+import { ListRow } from 'components/ui/ListRow';
+import { SubPageLayout, SubPageSection } from 'components/ui/SubPageLayout';
+import { TextField } from 'components/ui/TextField';
 import { Vault } from 'lib/miden/back/vault';
 import { useAccount, useSecretState, useMidenContext } from 'lib/miden/front';
 import { getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
@@ -18,6 +22,7 @@ import { useHideDappBubblesWhileOpen } from 'lib/mobile/useHideDappBubblesWhileO
 import { isMobile } from 'lib/platform';
 import { useWalletStore } from 'lib/store';
 import useCopyToClipboard from 'lib/ui/useCopyToClipboard';
+import { truncateAddress } from 'utils/string';
 
 const SUBMIT_ERROR_TYPE = 'submit-error';
 
@@ -34,6 +39,20 @@ type GuardianKeysBundle = {
   coldPublicKey: string;
   hotPublicKey?: string;
 };
+
+// `font-sans` on every secret field below. Preflight sets `font: inherit` on
+// form controls, so a textarea with no font of its own picks up whatever the
+// page around it sets.
+//
+// The revealed secrets stay on FormField rather than TextField: FormField's
+// `secret` mode blurs the value until the field is tapped and re-blurs it when
+// the window loses focus, and TextField has no equivalent yet. Only their label
+// and description take the design system's type (13px bold `muted` label,
+// 14px `muted` copy), matching TextField's.
+const secretLabelClassName = 'mb-0 font-sans text-[13px] leading-[17px] font-bold text-muted';
+const secretDescription = (desc: React.ReactNode) => (
+  <div className="mb-3 font-sans text-sm leading-5 text-muted">{desc}</div>
+);
 
 const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
   const { t } = useTranslation();
@@ -197,20 +216,16 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
       case 'private-key':
         return {
           name: t('privateKey'),
+          // Which account's key this is: a plain row, like every other account row.
           accountBanner: (
-            <AccountBanner
-              account={account}
-              labelDescription={t('ifYouWantToRevealPrivateKeyFromOtherAccount')}
-              className="mb-6"
-            />
-          ),
-          attention: (
-            <div className="flex flex-col text-left text-ink">
-              <span className="font-medium" style={{ fontSize: '14px', lineHeight: '20px', marginBottom: '4px' }}>
-                {t('doNotSharePrivateKey1')} <br />
-              </span>
-              <span className="text-xs">{t('doNotSharePrivateKey2')}</span>
-            </div>
+            <ListGroup>
+              <ListRow
+                icon={<Icon name={IconName.Wallet} fill="currentColor" size="sm" />}
+                title={account.name}
+                subtitle={truncateAddress(account.publicKey, false, 8)}
+                data-testid="reveal-secret-account"
+              />
+            </ListGroup>
           ),
           fieldDesc: t('privateKeyFieldDescription')
         };
@@ -219,12 +234,11 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
         return {
           name: t('seedPhrase'),
           accountBanner: null,
-          attention: null,
           fieldDesc: (
-            <div className="flex flex-col text-ink text-sm gap-3">
-              <p className="">{t('seedPhraseDescription')}</p>
+            <div className="flex flex-col gap-3">
+              <p>{t('seedPhraseDescription')}</p>
               <p className="font-bold">{t('doNotShareWithAnyone')}</p>
-              <p className="">
+              <p>
                 {t('anyoneCanTakeAssets')} <span className="font-bold">{t('keepSeedPhraseSecret')}</span>
               </p>
             </div>
@@ -235,33 +249,25 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
         return {
           name: t('privateKey'),
           accountBanner: null,
-          attention: null,
-          fieldDesc: <div className="text-ink text-sm">{t('revealHotKeyDescription')}</div>
+          fieldDesc: t('revealHotKeyDescription')
         };
 
       case 'guardian-keys':
         return {
           name: t('coldPrivateKey'),
           accountBanner: null,
-          attention: null,
-          fieldDesc: <div className="text-ink text-sm">{t('guardianKeysRevealDescription')}</div>
+          fieldDesc: t('guardianKeysRevealDescription')
         };
     }
   }, [reveal, t, account]);
 
-  // `font-sans` on every secret field below. Preflight sets `font: inherit` on
-  // form controls, so a textarea with no font of its own picks up whatever the
-  // page sets — and Settings wraps its sub-pages in `font-heading`, which put the
-  // recovery phrase and private keys in a rounded display face. Asked for here
-  // rather than by dropping the wrapper's class, which would restyle all twelve
-  // routed Settings screens to fix these four fields.
   const mainContent = useMemo(() => {
     if (guardianBundle) {
       // Withhold until the native guard reports the screen is protected — an
       // in-progress screen recording would otherwise capture the first frames.
       if (!isGuardReady) return null;
       return (
-        <div className="pt-8 flex flex-col gap-6">
+        <SubPageSection className="gap-5">
           <FormField
             ref={secretFieldRef}
             secret
@@ -269,8 +275,8 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
             rows={3}
             readOnly
             label={t('coldPrivateKey')}
-            labelClassName="text-base/[20px] font-semibold text-ink mb-0"
-            labelDescription={<div className="mb-3">{texts.fieldDesc}</div>}
+            labelClassName={secretLabelClassName}
+            labelDescription={secretDescription(texts.fieldDesc)}
             id="reveal-guardian-cold-private"
             spellCheck={false}
             className="resize-none notranslate font-sans"
@@ -281,7 +287,7 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
             rows={2}
             readOnly
             label={t('coldPublicKeyLabel')}
-            labelClassName="text-base/[20px] font-semibold text-ink mb-0"
+            labelClassName={secretLabelClassName}
             id="reveal-guardian-cold-public"
             spellCheck={false}
             className="resize-none notranslate font-sans"
@@ -293,14 +299,14 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
               rows={2}
               readOnly
               label={t('hotPublicKeyLabel')}
-              labelClassName="text-base/[20px] font-semibold text-ink mb-0"
+              labelClassName={secretLabelClassName}
               id="reveal-guardian-hot-public"
               spellCheck={false}
               className="resize-none notranslate font-sans"
               value={guardianBundle.hotPublicKey}
             />
           )}
-        </div>
+        </SubPageSection>
       );
     }
 
@@ -308,7 +314,7 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
       if (!isGuardReady) return null;
       if (reveal === 'hot-key') return <PrivateKeyPair payload={secret} />;
       return (
-        <div className="pt-8">
+        <SubPageSection>
           <FormField
             ref={secretFieldRef}
             secret
@@ -316,33 +322,30 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
             rows={4}
             readOnly
             label={texts.name}
-            labelClassName="text-base/[20px] font-semibold text-ink mb-t0"
-            labelDescription={<div className="mb-3">{texts.fieldDesc}</div>}
+            labelClassName={secretLabelClassName}
+            labelDescription={secretDescription(texts.fieldDesc)}
             id="reveal-secret-secret"
             spellCheck={false}
             className="resize-none notranslate font-sans"
             value={secret}
           />
-        </div>
+        </SubPageSection>
       );
     }
 
     return (
       <form ref={formRef} onSubmit={handleSubmit(onSubmit)}>
         {hasHardwareProtector ? (
-          <>
-            <p className="text-sm text-ink pt-8 mb-4">
-              {t('revealSecretUnlockDescription', { secretName: texts.name })}
-            </p>
+          <SubPageSection description={t('revealSecretUnlockDescription', { secretName: texts.name })}>
             {errors.password && (
               <Alert
                 type="error"
                 title={t('error')}
                 description={errors.password.message || ''}
-                className="mb-4 rounded-lg text-ink"
+                className="rounded-2xl"
               />
             )}
-          </>
+          </SubPageSection>
         ) : usePasscodeEntry ? (
           <PasscodeEntry
             onSubmit={code => onSubmit({ password: code })}
@@ -351,20 +354,16 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
             subtitle={t('revealSecretPasscodeInputDescription', { secretName: texts.name })}
             disabled={requiresAcknowledge && !privateKeyAcknowledged}
             isSubmitting={isSubmitting}
-            className="pt-8"
           />
         ) : (
-          <FormField
+          <TextField
             {...register('password', { required: t('required') })}
             label={t('password')}
-            labelDescription={t('revealSecretPasswordInputDescription', { secretName: texts.name })}
+            hint={t('revealSecretPasswordInputDescription', { secretName: texts.name })}
+            error={errors.password?.message}
             id="reveal-secret-password"
-            className="font-sans"
             type="password"
-            name="password"
             placeholder="********"
-            errorCaption={errors.password?.message}
-            containerClassName="mb-4 pt-8"
             onChange={e => {
               register('password').onChange(e);
               clearErrors();
@@ -397,49 +396,20 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
 
   if (revealUnavailable) return null;
 
+  // The frame renders while the protector check runs, so the header (and the title
+  // focus that announces the page) is there from the first frame; the body waits.
   if (hasHardwareProtector === null) {
-    return null;
+    return <SubPageLayout data-testid="reveal-secret">{null}</SubPageLayout>;
   }
 
   return (
-    <div className="w-full max-w-sm mx-auto flex flex-col flex-1 min-h-0">
-      {texts.accountBanner}
-
-      {requiresAcknowledge && showButton && (
-        <>
-          <Alert
-            type="warn"
-            title={t('privateKeyRevealWarningTitle')}
-            description={<p>{t('privateKeyRevealWarningBody')}</p>}
-            className="mb-4 rounded-lg"
-          />
-          <label className="mb-4 flex items-start gap-2 text-sm text-ink cursor-pointer select-none">
-            <input
-              type="checkbox"
-              className="mt-0.5"
-              checked={privateKeyAcknowledged}
-              onChange={e => setPrivateKeyAcknowledged(e.target.checked)}
-            />
-            <span>{t('privateKeyRevealAcknowledge')}</span>
-          </label>
-        </>
-      )}
-
-      {reveal === 'hot-key' && showButton && (
-        <Alert
-          type="warn"
-          title={t('hotKeyRevealWarningTitle')}
-          description={<p>{t('hotKeyRevealWarningBody')}</p>}
-          className="mb-4 rounded-lg"
-        />
-      )}
-
-      {mainContent}
-
-      {showButton && !usePasscodeEntry && (
-        <div className="mt-auto pb-8">
+    <SubPageLayout
+      data-testid="reveal-secret"
+      footer={
+        showButton &&
+        !usePasscodeEntry && (
           <Button
-            className="w-full justify-center"
+            className="flex-1 max-w-none"
             variant={ButtonVariant.Primary}
             title={t(hasHardwareProtector ? 'unlock' : 'continue')}
             disabled={
@@ -450,9 +420,42 @@ const RevealSecret: FC<RevealSecretProps> = ({ reveal }) => {
             isLoading={isSubmitting}
             onClick={hasHardwareProtector ? () => onSubmit({ password: '' }) : handleSubmit(onSubmit)}
           />
-        </div>
+        )
+      }
+    >
+      {texts.accountBanner}
+
+      {requiresAcknowledge && showButton && (
+        <SubPageSection>
+          <Alert
+            type="warn"
+            title={t('privateKeyRevealWarningTitle')}
+            description={<p>{t('privateKeyRevealWarningBody')}</p>}
+            className="rounded-2xl"
+          />
+          <label className="mt-3 flex cursor-pointer items-start gap-2 px-1 font-sans text-sm text-ink select-none">
+            <input
+              type="checkbox"
+              className="mt-0.5 accent-accent-primary"
+              checked={privateKeyAcknowledged}
+              onChange={e => setPrivateKeyAcknowledged(e.target.checked)}
+            />
+            <span>{t('privateKeyRevealAcknowledge')}</span>
+          </label>
+        </SubPageSection>
       )}
-    </div>
+
+      {reveal === 'hot-key' && showButton && (
+        <Alert
+          type="warn"
+          title={t('hotKeyRevealWarningTitle')}
+          description={<p>{t('hotKeyRevealWarningBody')}</p>}
+          className="rounded-2xl"
+        />
+      )}
+
+      {mainContent}
+    </SubPageLayout>
   );
 };
 

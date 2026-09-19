@@ -242,7 +242,14 @@ jest.mock('app/templates/LanguageSettings', () => ({
 }));
 jest.mock('app/templates/RevealSecret', () => ({
   __esModule: true,
-  default: ({ reveal }: { reveal: string }) => <div data-testid="reveal-secret">{reveal}</div>
+  default: function MockRevealSecret({ reveal }: { reveal: string }) {
+    const { SubPageLayout } = jest.requireActual('components/ui/SubPageLayout');
+    return (
+      <SubPageLayout data-testid="reveal-secret">
+        <span>{reveal}</span>
+      </SubPageLayout>
+    );
+  }
 }));
 jest.mock('app/templates/RevealSeedPhrase', () => ({
   __esModule: true,
