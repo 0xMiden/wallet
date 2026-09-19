@@ -57,6 +57,14 @@ export const TokenLogo: FC<TokenLogoProps> = ({ symbol, size = 'md', className }
   }
 
   // Decorative, like the known-logo branch above: the symbol is always shown as text beside the
-  // logo, so the image itself names nothing new to a screen reader.
-  return <Avatar size={avatarSize} image="/misc/token-logos/default.svg" className={className} />;
+  // logo, so the image itself names nothing new to a screen reader. The default mark has a
+  // transparent background, so at hero size (which always sits on `page`) it gets a `fill` disc;
+  // without one it floats, unlike every known logo beside it.
+  return (
+    <Avatar
+      size={avatarSize}
+      image="/misc/token-logos/default.svg"
+      className={clsx(size === '2xl' && 'bg-fill', className)}
+    />
+  );
 };
