@@ -20,9 +20,17 @@ interface LayerStack {
   poppedKey: string | null;
   // Keys of every mounted layer, present or retained.
   mounted: Set<string>;
+  // The page on screen. An earlier layer of the same page that is still leaving goes at once, so the
+  // page is never in the DOM twice.
+  pageKey: string;
 }
 
-const LayerStackContext = createContext<LayerStack>({ retain: false, poppedKey: null, mounted: new Set() });
+const LayerStackContext = createContext<LayerStack>({
+  retain: false,
+  poppedKey: null,
+  mounted: new Set(),
+  pageKey: ''
+});
 
 // How a layer moves while another layer slides over or off it.
 // - `still`: no motion. The layer shows or is removed at once.
@@ -32,6 +40,7 @@ const LayerStackContext = createContext<LayerStack>({ retain: false, poppedKey: 
 type LayerMotion = 'still' | 'cover' | 'uncover' | 'reveal';
 
 interface PageLayerProps extends PropsWithChildren {
+  pageKey: string;
   layerKey: string;
   location: LocationState;
   slide: boolean;
@@ -43,18 +52,26 @@ const coveredTarget: TargetAndTransition = { x: pageSlideParallax };
 const restTarget: TargetAndTransition = { x: 0 };
 const uncoverTarget: TargetAndTransition = { x: '100%' };
 
-const PageLayer: FC<PageLayerProps> = ({ layerKey, location, slide, revealed, animated, children }) => {
+const PageLayer: FC<PageLayerProps> = ({ pageKey, layerKey, location, slide, revealed, animated, children }) => {
   const [present, remove] = usePresence();
-  const { retain, poppedKey, mounted } = useContext(LayerStackContext);
+  const { retain, poppedKey, mounted, pageKey: currentPageKey } = useContext(LayerStackContext);
   const ref = useRef<HTMLDivElement>(null);
   const transition = useMotion(pageSlideEntrance);
   // A layer that started to slide out keeps sliding out. It is off screen,
   // and a later push must not pull it back under the new page.
   const uncovering = useRef(false);
   if (present) uncovering.current = false;
+  // AnimatePresence unmounts leaving layers together, once every one is done, and a covered layer is
+  // not done until the slide page above it goes. A layer that has finished leaving renders nothing
+  // until then, so a later push to its page never finds a second copy of that page in the DOM.
+  const [gone, setGone] = useState(false);
+  if (present && gone) setGone(false);
+  const superseded = !present && pageKey === currentPageKey;
 
   let layerMotion: LayerMotion = 'still';
   switch (true) {
+    case superseded:
+      break;
     case present && revealed && animated:
       layerMotion = 'reveal';
       break;
@@ -68,11 +85,12 @@ const PageLayer: FC<PageLayerProps> = ({ layerKey, location, slide, revealed, an
   if (layerMotion === 'uncover') uncovering.current = true;
 
   useLayoutEffect(() => {
+    if (gone) return;
     mounted.add(layerKey);
     return () => {
       mounted.delete(layerKey);
     };
-  }, [mounted, layerKey]);
+  }, [mounted, layerKey, gone]);
 
   useLayoutEffect(() => {
     ref.current?.toggleAttribute('inert', !present);
@@ -81,8 +99,12 @@ const PageLayer: FC<PageLayerProps> = ({ layerKey, location, slide, revealed, an
   // A covered layer stays until the slide page above it goes. An uncovering
   // layer waits for its own slide out. Any other absent layer goes at once.
   useEffect(() => {
-    if (!present && layerMotion === 'still') remove?.();
+    if (present || layerMotion !== 'still') return;
+    setGone(true);
+    remove?.();
   }, [present, layerMotion, remove]);
+
+  if (gone || superseded) return null;
 
   let initial: false | TargetAndTransition = false;
   let animate: TargetAndTransition = restTarget;
@@ -114,7 +136,9 @@ const PageLayer: FC<PageLayerProps> = ({ layerKey, location, slide, revealed, an
       animate={animate}
       transition={transition}
       onAnimationComplete={() => {
-        if (!present && layerMotion === 'uncover') remove?.();
+        if (present || layerMotion !== 'uncover') return;
+        setGone(true);
+        remove?.();
       }}
     >
       <LocationProvider snapshot={location}>
@@ -143,31 +167,40 @@ interface PageEntry {
   // A return left a slide page for this page, which is not one, so this page
   // comes back from under it.
   revealed: boolean;
-  // The page a return left for this one.
+  // The layer a return left for this one.
   poppedKey: string | null;
+  // How many times a return has left each page. AnimatePresence unmounts a layer only once every
+  // leaving layer is done, so a popped layer stays mounted, off screen, for as long as a covered
+  // layer does. A later push to its page must open a new layer: reusing that one read the push as
+  // a return, slid the page beneath out instead of covering it, and kept the old page's state.
+  pops: Record<string, number>;
 }
+
+const layerKeyOf = (pageKey: string, pops: Record<string, number>) => `${pageKey}#${pops[pageKey] ?? 0}`;
 
 const MobilePageLayers: FC<MobilePageLayersProps> = ({ pageKey, slide, location, children }) => {
   const reduce = useReducedMotion();
   const animated = !reduce && !isReturningFromWebview();
   const mounted = useRef(new Set<string>()).current;
-  const [entry, setEntry] = useState<PageEntry>({ key: pageKey, slide, revealed: false, poppedKey: null });
+  const [entry, setEntry] = useState<PageEntry>({ key: pageKey, slide, revealed: false, poppedKey: null, pops: {} });
   if (entry.key !== pageKey) {
     // A return goes back down the stack: the router popped, or the page is still mounted beneath (a close
     // that navigates to it). Only a return plays the Back animation; a push from a slide page to a plain
     // page releases the stack without it.
-    const returning = location.trigger === HistoryAction.Pop || mounted.has(pageKey);
+    const returning = location.trigger === HistoryAction.Pop || mounted.has(layerKeyOf(pageKey, entry.pops));
     setEntry({
       key: pageKey,
       slide,
       revealed: returning && entry.slide && !slide,
-      poppedKey: returning ? entry.key : null
+      poppedKey: returning ? layerKeyOf(entry.key, entry.pops) : null,
+      pops: returning ? { ...entry.pops, [entry.key]: (entry.pops[entry.key] ?? 0) + 1 } : entry.pops
     });
   }
+  const layerKey = layerKeyOf(pageKey, entry.pops);
   const retain = slide && animated;
   const stack = useMemo<LayerStack>(
-    () => ({ retain, poppedKey: entry.poppedKey, mounted }),
-    [retain, entry.poppedKey, mounted]
+    () => ({ retain, poppedKey: entry.poppedKey, mounted, pageKey }),
+    [retain, entry.poppedKey, mounted, pageKey]
   );
 
   return (
@@ -175,8 +208,9 @@ const MobilePageLayers: FC<MobilePageLayersProps> = ({ pageKey, slide, location,
       <LayerStackContext.Provider value={stack}>
         <AnimatePresence initial={false}>
           <PageLayer
-            key={pageKey}
-            layerKey={pageKey}
+            key={layerKey}
+            pageKey={pageKey}
+            layerKey={layerKey}
             location={location}
             slide={slide}
             revealed={entry.key === pageKey && entry.revealed}

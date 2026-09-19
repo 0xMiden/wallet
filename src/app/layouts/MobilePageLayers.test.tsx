@@ -184,3 +184,62 @@ it.each(['reduced motion', 'webview return'])('skips retention for %s', async mo
   await waitFor(() => expect(container.querySelectorAll('[data-page-layer]')).toHaveLength(1));
   expect(screen.getByRole('button')).toHaveTextContent('/settings count 0');
 });
+
+it('covers the page beneath when a push returns to a slide page that was popped earlier', async () => {
+  const settle = () =>
+    act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 600));
+    });
+  const { container, rerender } = render(view('/settings', false, 'tabs'));
+  rerender(view('/settings/guardian', true));
+  await settle();
+  rerender(view('/rotate-guardian', true));
+  await settle();
+  fireEvent.click(screen.getByRole('button', { name: '/rotate-guardian count 0' }));
+
+  // Back to Guardian Settings. The covered root keeps the popped page mounted, off screen.
+  rerender(view('/settings/guardian', true, '/settings/guardian', HistoryAction.Pop));
+  await settle();
+
+  // Rotate again. Guardian Settings is covered, not slid out as if the push were a Back.
+  rerender(view('/rotate-guardian', true));
+  const guardian = container.querySelector('[data-page-layer="/settings/guardian"]');
+  expect(guardian).toHaveStyle({ zIndex: '1' });
+  await settle();
+  expect(guardian).toBeInTheDocument();
+  expect(guardian).toHaveStyle({ transform: 'translateX(-24%)' });
+
+  // The page opens fresh, and it is the only present layer.
+  expect(screen.getByRole('button')).toHaveTextContent('/rotate-guardian count 0');
+  const present = [...container.querySelectorAll('[data-page-layer]')].filter(
+    layer => !layer.hasAttribute('aria-hidden')
+  );
+  expect(present).toHaveLength(1);
+  expect(present[0]).toHaveAttribute('data-page-layer', '/rotate-guardian');
+  expect(present[0]).toHaveStyle({ transform: 'none' });
+});
+
+it('drops a popped page once it has left, so pushing it again while a covered page waits leaves one copy', async () => {
+  const settle = () =>
+    act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 600));
+    });
+  // A reload lands on the sub-page itself, with nothing beneath it.
+  const { container, rerender } = render(view('/settings/general', true));
+  await settle();
+  // Back home and into Settings before the popped page has finished sliding out.
+  rerender(view('/', false, 'tabs', HistoryAction.Pop));
+  rerender(view('/settings', true, '/settings', HistoryAction.Pop));
+  // Open the sub-page again: Settings is now covered and waits under it. The popped copy, still
+  // sliding out, goes at once rather than sitting in the DOM beside the new one.
+  rerender(view('/settings/general', true));
+  expect(container.querySelectorAll('[data-page-layer="/settings/general"]')).toHaveLength(1);
+  await settle();
+
+  const copies = container.querySelectorAll('[data-page-layer="/settings/general"]');
+  expect(copies).toHaveLength(1);
+  expect(copies[0]).not.toHaveAttribute('aria-hidden');
+  expect(copies[0]).toHaveTextContent('/settings/general count 0');
+  expect(container.querySelector('[data-page-layer="/"]')).not.toBeInTheDocument();
+  expect(container.querySelector('[data-page-layer="/settings"]')).toHaveStyle({ transform: 'translateX(-24%)' });
+});
