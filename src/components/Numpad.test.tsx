@@ -10,14 +10,15 @@ import Numpad, { Numpad as NamedNumpad } from './Numpad';
 // Mocks
 // ---------------------------------------------------------------------------
 
-// `app/icons/v2` pulls in SVG assets; stub `Icon` with a marker span and expose
-// `IconName.Backspace` (the only member the component references).
+// `app/icons/v2` pulls in SVG assets; stub `Icon` with a marker span and expose the two members
+// the component references.
 jest.mock('app/icons/v2', () => ({
-  Icon: ({ name, size, className }: any) => (
+  Icon: ({ name, size, className }: { name: string; size?: string; className?: string }) => (
     <span data-testid="icon" data-name={name} data-size={size} className={className} />
   ),
   IconName: {
-    Backspace: 'backspace'
+    Backspace: 'backspace',
+    FaceId: 'face-id'
   }
 }));
 
@@ -124,11 +125,77 @@ describe('Numpad', () => {
     expect(spacer).toBeEmptyDOMElement();
   });
 
+  it('lays out twelve slots with test ids in keypad order: 1-9, spacer, 0, delete', () => {
+    renderNumpad();
+
+    const slots = Array.from(screen.getByTestId('numpad').children).map(el => el.getAttribute('data-testid'));
+    expect(slots).toEqual([
+      'numpad-1',
+      'numpad-2',
+      'numpad-3',
+      'numpad-4',
+      'numpad-5',
+      'numpad-6',
+      'numpad-7',
+      'numpad-8',
+      'numpad-9',
+      'numpad-spacer',
+      'numpad-0',
+      'numpad-delete'
+    ]);
+  });
+
+  it('draws round keys of at least 64px with fill and fill-pressed, digits in the display type', () => {
+    renderNumpad();
+
+    const digit = screen.getByTestId('numpad-5');
+    expect(digit).toHaveClass('rounded-full', 'size-19', '[@media(max-height:720px)]:size-16');
+    expect(digit).toHaveClass('bg-fill', 'active:bg-fill-pressed', 'text-ink', 'font-heading', 'font-extrabold');
+    expect(digit).toHaveClass('text-[32px]');
+  });
+
+  it('gives the bare backspace key the same hit area as a digit', () => {
+    renderNumpad();
+
+    const del = screen.getByTestId('numpad-delete');
+    expect(del).toHaveClass('size-19', '[@media(max-height:720px)]:size-16', 'rounded-full');
+    expect(del).not.toHaveClass('bg-fill');
+  });
+
+  it('keeps the bottom-left slot empty without a biometric handler', () => {
+    renderNumpad();
+
+    expect(screen.queryByTestId('numpad-biometric')).not.toBeInTheDocument();
+    expect(screen.getByTestId('numpad-spacer')).toHaveClass('size-19');
+  });
+
+  it('draws a Face ID key in the bottom-left slot when a biometric handler is given', () => {
+    const onBiometric = jest.fn();
+    renderNumpad({ onBiometric, biometricLabel: 'Unlock with Face ID' });
+
+    expect(screen.queryByTestId('numpad-spacer')).not.toBeInTheDocument();
+    const key = screen.getByRole('button', { name: 'Unlock with Face ID' });
+    expect(key).toBe(screen.getByTestId('numpad-biometric'));
+    expect(key.querySelector('[data-name="face-id"]')).toBeInTheDocument();
+    // Still twelve slots, the biometric key in the tenth.
+    expect(screen.getByTestId('numpad').children[9]).toBe(key);
+
+    fireEvent.click(key);
+    expect(onBiometric).toHaveBeenCalledTimes(1);
+    expect(hapticLight).toHaveBeenCalledTimes(1);
+  });
+
+  it('falls back to the localized biometric label', () => {
+    renderNumpad({ onBiometric: jest.fn() });
+
+    expect(screen.getByRole('button', { name: 'useFaceIdOrBiometric' })).toBeInTheDocument();
+  });
+
   it('applies the base grid classes and merges a custom className onto the container', () => {
     const { container } = renderNumpad({ className: 'custom-class' });
 
     const grid = container.firstElementChild as HTMLElement;
-    expect(grid).toHaveClass('grid', 'grid-cols-3', 'gap-4', 'w-fit', 'mx-auto', 'custom-class');
+    expect(grid).toHaveClass('grid', 'grid-cols-3', 'gap-x-7', 'gap-y-4', 'w-fit', 'mx-auto', 'custom-class');
   });
 
   it('renders without a className without throwing', () => {

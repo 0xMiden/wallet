@@ -19,6 +19,8 @@
  * - `press`: tap feedback for a tappable surface.
  * - `indicator`: a selection indicator shared across options through a `layoutId` the caller sets.
  * - `shimmer`: a pending runner moving across its track.
+ * - `shake`: a horizontal shake that says "wrong" (a rejected passcode). It has no end state
+ *   to jump to, so under reduced motion it does not run at all.
  */
 
 import { useMemo } from 'react';
@@ -39,7 +41,17 @@ export interface MotionPreset {
   transition: Transition;
 }
 
-export const presetNames = ['fade', 'reveal', 'pop', 'sheet', 'page', 'press', 'indicator', 'shimmer'] as const;
+export const presetNames = [
+  'fade',
+  'reveal',
+  'pop',
+  'sheet',
+  'page',
+  'press',
+  'indicator',
+  'shimmer',
+  'shake'
+] as const;
 
 export type PresetName = (typeof presetNames)[number];
 
@@ -85,6 +97,10 @@ export const presets: Record<PresetName, MotionPreset> = {
     initial: { x: '-100%' },
     animate: { x: '100%' },
     transition: { type: 'tween', duration: durations.shimmer, ease: 'linear', repeat: Infinity }
+  },
+  shake: {
+    animate: { x: [0, -10, 10, -8, 8, -4, 4, 0] },
+    transition: { type: 'tween', duration: durations.slow, ease: easings.easeInOut }
   }
 };
 
@@ -97,7 +113,9 @@ const reducedPresets: Record<PresetName, MotionPreset> = {
   press: reduce(presets.press),
   indicator: reduce(presets.indicator),
   // A loop has no end state to jump to, so it simply does not run.
-  shimmer: { transition: resolveTransition(true, presets.shimmer.transition) }
+  shimmer: { transition: resolveTransition(true, presets.shimmer.transition) },
+  // Nor does a shake: it starts and ends at rest, so an instant one is no motion at all.
+  shake: { transition: resolveTransition(true, presets.shake.transition) }
 };
 
 /**

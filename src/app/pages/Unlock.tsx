@@ -8,10 +8,11 @@ import { Icon, IconName } from 'app/icons/v2';
 import SimplePageLayout from 'app/layouts/SimplePageLayout';
 import { Button, ButtonVariant } from 'components/Button';
 import { Input } from 'components/Input';
-import { Numpad } from 'components/Numpad';
+import { PasscodeScreen } from 'components/PasscodeScreen';
 import { useFormAnalytics } from 'lib/analytics';
 import { useLocalStorage, useMidenContext } from 'lib/miden/front';
 import { MidenSharedStorageKey } from 'lib/miden/types';
+import { hapticLight } from 'lib/mobile/haptics';
 import { isDesktop, isExtension, isMobile } from 'lib/platform';
 import { navigate } from 'lib/woozie';
 
@@ -60,6 +61,9 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
   const [hardwareUnlockChecked, setHardwareUnlockChecked] = useState(false);
   // For hardware-only wallets (no password protector), show biometric-only UI
   const [isHardwareOnlyWallet, setIsHardwareOnlyWallet] = useState(false);
+  // Mobile: a biometric-bound hardware key exists, so the keypad offers a Face ID / Touch ID key
+  // that retries the same hardware unlock the mount effect tried first.
+  const [hasBiometricKey, setHasBiometricKey] = useState(false);
 
   // Use ref to prevent double unlock attempts (React 18 Strict Mode runs effects twice)
   const unlockInProgressRef = useRef(false);
@@ -97,6 +101,7 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
           const { hasHardwareKey } = await import('lib/biometric');
           const hasKey = await hasHardwareKey();
           console.log('[Unlock] Mobile hardware key available:', hasKey);
+          setHasBiometricKey(hasKey);
 
           if (hasKey) {
             console.log('[Unlock] Attempting mobile hardware unlock (biometric)...');
@@ -133,6 +138,8 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
   const [password, setPassword] = useState('');
   const [isPasswordVisible, setIsPasswordVisible] = useState(false);
   const [isError, setIsError] = useState(false);
+  // Counts rejected passcodes; each new value shakes the dots once.
+  const [errorCount, setErrorCount] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const isDisabled = useMemo(() => Date.now() - timelock <= lockLevel, [timelock, lockLevel]);
@@ -168,6 +175,7 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
 
         await new Promise(res => setTimeout(res, 300));
         setIsError(true);
+        setErrorCount(count => count + 1);
         setCode('');
         setIsSubmitting(false);
       }
@@ -359,48 +367,34 @@ const Unlock: FC<UnlockProps> = ({ openForgotPasswordInFullPage = false }) => {
       ? t('incorrectPasscode')
       : t('enterYour6DigitCode');
 
-  const subtitleClass = isDisabled || isError ? 'text-red-500' : 'text-gray-secondary';
-
   return (
-    <div className="bg-app-bg h-full overflow-y-auto font-heading select-none" data-testid="unlock-passcode">
-      <div className="min-h-full flex flex-col items-center px-6 pb-8">
-        <div className="flex flex-col items-center w-full mt-8 shrink-0">
-          <h1 className="text-3xl font-extrabold font-heading text-ink text-center leading-[100%] tracking-tight">
-            {t('enterYourPasscode')}
-          </h1>
-          <p className={`text-lg text-center mt-3 ${subtitleClass}`}>{subtitle}</p>
-
-          <div className="flex items-center gap-3.5 mt-6">
-            {Array.from({ length: PASSCODE_LENGTH }).map((_, index) => {
-              const filled = index < code.length;
-              return (
-                <div
-                  key={index}
-                  className={
-                    filled
-                      ? 'w-3.5 h-3.5 rounded-full bg-[#C7C7CC] border-2 border-[#C7C7CC]'
-                      : 'w-3.5 h-3.5 rounded-full border-2 border-[#C7C7CC]'
-                  }
-                />
-              );
-            })}
-          </div>
-        </div>
-
-        <div className="w-full pt-8">
-          <Numpad onDigit={handleDigit} onDelete={handleDelete} />
-        </div>
-
+    <PasscodeScreen
+      data-testid="unlock-passcode"
+      title={t('enterYourPasscode')}
+      message={subtitle}
+      isError={isDisabled || isError}
+      filled={code.length}
+      length={PASSCODE_LENGTH}
+      errorKey={errorCount}
+      onDigit={handleDigit}
+      onDelete={handleDelete}
+      onBiometric={hasBiometricKey ? onRetryHardwareUnlock : undefined}
+      action={
+        // Centred under the keypad, where the iOS lock screen keeps its secondary action: in reach,
+        // but past the last key row, so it is not hit while a code is typed.
         <button
           id="forgot-password"
           type="button"
-          onClick={onForgotPasswordClick}
-          className="mt-4 text-ink text-base font-medium"
+          onClick={() => {
+            hapticLight();
+            onForgotPasswordClick();
+          }}
+          className="min-h-11 px-3 font-heading text-[15px] font-bold text-accent-tint-ink outline-none rounded-full focus-visible:ring-2 focus-visible:ring-accent-primary"
         >
           {t('forgotPasscode')}
         </button>
-      </div>
-    </div>
+      }
+    />
   );
 };
 

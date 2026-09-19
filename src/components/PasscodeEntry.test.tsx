@@ -63,7 +63,8 @@ const typeCode = (code: string) => {
 const pressDelete = () => fireEvent.click(screen.getByTestId('numpad-delete'));
 
 /** Count the number of "filled" passcode dots currently rendered. */
-const filledDotCount = (container: HTMLElement) => container.querySelectorAll('div.bg-\\[\\#C7C7CC\\]').length;
+const filledDotCount = (container: HTMLElement) =>
+  container.querySelectorAll('[data-testid="passcode-dot"][data-filled="true"]').length;
 
 type Props = React.ComponentProps<typeof NamedPasscodeEntry>;
 
@@ -104,7 +105,7 @@ describe('PasscodeEntry', () => {
 
     it('renders six empty dots and the numpad', () => {
       const { container } = renderComponent();
-      expect(container.querySelectorAll('div.rounded-full')).toHaveLength(PASSCODE_LENGTH);
+      expect(container.querySelectorAll('[data-testid="passcode-dot"]')).toHaveLength(PASSCODE_LENGTH);
       expect(filledDotCount(container)).toBe(0);
       expect(screen.getByTestId('numpad')).toBeInTheDocument();
     });
@@ -151,8 +152,8 @@ describe('PasscodeEntry', () => {
     it('renders the default (muted) hint styling with no error', () => {
       renderComponent();
       const status = screen.getByRole('status');
-      expect(status).toHaveClass('text-text-muted');
-      expect(status).not.toHaveClass('text-red-500');
+      expect(status).toHaveClass('text-muted');
+      expect(status).not.toHaveClass('text-negative-ink');
     });
 
     it('forwards a custom className to the root group', () => {
@@ -166,15 +167,15 @@ describe('PasscodeEntry', () => {
       renderComponent({ subtitle: 'Custom subtitle' });
       expect(screen.getByRole('status')).toHaveTextContent('Custom subtitle');
       expect(screen.getByRole('group')).toHaveAttribute('aria-label', 'Custom subtitle');
-      expect(screen.getByRole('status')).toHaveClass('text-text-muted');
+      expect(screen.getByRole('status')).toHaveClass('text-muted');
     });
 
     it('shows the error hint with red styling, taking precedence over the subtitle', () => {
       renderComponent({ subtitle: 'Custom subtitle', error: 'Wrong passcode' });
       const status = screen.getByRole('status');
       expect(status).toHaveTextContent('Wrong passcode');
-      expect(status).toHaveClass('text-red-500');
-      expect(status).not.toHaveClass('text-text-muted');
+      expect(status).toHaveClass('text-negative-ink');
+      expect(status).not.toHaveClass('text-muted');
       // aria-label still derives from subtitle, not the error.
       expect(screen.getByRole('group')).toHaveAttribute('aria-label', 'Custom subtitle');
     });
@@ -184,7 +185,7 @@ describe('PasscodeEntry', () => {
       typeCode('12');
       // Empty-string error is falsy, so digits are NOT cleared.
       expect(filledDotCount(container)).toBe(2);
-      expect(screen.getByRole('status')).toHaveClass('text-text-muted');
+      expect(screen.getByRole('status')).toHaveClass('text-muted');
     });
   });
 
