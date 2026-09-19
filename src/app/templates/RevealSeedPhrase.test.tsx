@@ -481,7 +481,8 @@ describe('RevealSeedPhrase', () => {
 
     expect(mockHapticLight).toHaveBeenCalled();
     expect(mockSetSecret).toHaveBeenCalledWith(null);
-    expect(mockGoBack).toHaveBeenCalled();
+    // Hide clears the secret, which also trips the auto-close effect: one pop, not two.
+    expect(mockGoBack).toHaveBeenCalledTimes(1);
   });
 
   it('runs handleHide from the revealed-view PageHeader back button', async () => {
@@ -501,22 +502,34 @@ describe('RevealSeedPhrase', () => {
   // -------------------------------------------------------------------------
   // Hardware-backed failure path -> auth-error view.
   // -------------------------------------------------------------------------
-  it('shows the auth-error view and goes back when hardware unlock rejects', async () => {
+  it('shows the auth-error view and leaves the page exactly once when hardware unlock rejects', async () => {
     mockHasHardwareProtector.mockResolvedValue(true);
     mockRevealMnemonic.mockRejectedValue(new Error('biometric failed'));
     const container = await renderAndView();
 
     expect(mockSetSecret).not.toHaveBeenCalledWith(expect.stringContaining('alpha'));
     expect(container.querySelector('[data-testid="alert"]')!.textContent).toBe('biometric failed');
-    // goBack fired from the catch (and/or the auto-close effect).
-    expect(mockGoBack).toHaveBeenCalled();
+    // The catch and the auto-close effect both want out; `history.go(-1)` settles on
+    // a later task, so two calls popped two pages (Settings as well as this one).
+    expect(mockGoBack).toHaveBeenCalledTimes(1);
+    expect(mockNavigate).not.toHaveBeenCalled();
 
-    // The error view's PageHeader back button also calls goBack.
-    mockGoBack.mockClear();
+    // The page has already left: its back button must not queue a second pop.
     await act(async () => {
-      (container.querySelector('[data-testid="nh-back"]') as HTMLButtonElement).click();
+      container.querySelector<HTMLButtonElement>('[data-testid="nh-back"]')!.click();
     });
-    expect(mockGoBack).toHaveBeenCalled();
+    expect(mockGoBack).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves to the Settings root exactly once when a cold-opened biometric reveal fails', async () => {
+    mockHistoryPosition = 0;
+    mockHasHardwareProtector.mockResolvedValue(true);
+    mockRevealMnemonic.mockRejectedValue(new Error('biometric failed'));
+    await renderAndView();
+
+    expect(mockGoBack).not.toHaveBeenCalled();
+    expect(mockNavigate).toHaveBeenCalledTimes(1);
+    expect(mockNavigate).toHaveBeenCalledWith('/settings', 'replace');
   });
 
   // -------------------------------------------------------------------------
@@ -580,11 +593,12 @@ describe('RevealSeedPhrase', () => {
     });
     expect(mockGoBack).not.toHaveBeenCalled();
 
-    // onOpenChange(false) -> handlePasswordDrawerClose -> goBack.
+    // onOpenChange(false) -> handlePasswordDrawerClose -> goBack, exactly once even
+    // though closing the drawer also trips the auto-close effect.
     await act(async () => {
       (container.querySelector('[data-testid="drawer-close"]') as HTMLButtonElement).click();
     });
-    expect(mockGoBack).toHaveBeenCalled();
+    expect(mockGoBack).toHaveBeenCalledTimes(1);
   });
 
   it('goes back from the drawer-view PageHeader back button', async () => {
@@ -638,6 +652,25 @@ describe('RevealSeedPhrase', () => {
     expect(mockRevealMnemonic).toHaveBeenCalledWith('123456');
     expect(mockSetSecret).not.toHaveBeenCalledWith('alpha beta gamma delta');
     expect(container.querySelector('[data-testid="passcode-error"]')!.textContent).toBe('wrong passcode');
+  });
+
+  it('leaves the page exactly once when the revealed phrase auto-hides', async () => {
+    mockHasHardwareProtector.mockResolvedValue(true);
+    const container = await renderAndView();
+    expect(buttonWithText(container, 'hideRecoveryPhrase')).toBeTruthy();
+    mockGoBack.mockClear();
+
+    // useSecretState clears the secret after 20s; stand in for that timer.
+    mockSecret = null;
+    await act(async () => {
+      testRoot!.render(<RevealSeedPhrase />);
+    });
+    await act(async () => {
+      testRoot!.render(<RevealSeedPhrase />);
+    });
+
+    expect(mockGoBack).toHaveBeenCalledTimes(1);
+    expect(mockNavigate).not.toHaveBeenCalled();
   });
 
   // -------------------------------------------------------------------------
