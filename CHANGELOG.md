@@ -96,6 +96,7 @@
 - [CHANGE][all] Token detail, the recovery phrase and encrypted-wallet-file screens move onto `PageHeader`, dropping the encrypted-file screen's stray divider under the title.
 - [CHANGE][all] Reset-required, forgot-password and the recovery-seed prompt move onto `PageHeader`, and the now-unused `NavigationHeader` is removed.
 - [CHANGE][all] The bridge deposit screens and developer settings move onto `PageHeader`.
+- [CHANGE][all] The Earn vault, position and withdraw-review/status headers move onto `PageHeader`, gaining haptic feedback on back that the old hand-rolled headers never wired up; the now-unused `ScreenHeader` is removed.
 
 ## 1.16.1 (2026-09-15)
 

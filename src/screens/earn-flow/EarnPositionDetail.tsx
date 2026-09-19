@@ -4,9 +4,8 @@ import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 import { Area, AreaChart, Tooltip, YAxis } from 'recharts';
 
-import { IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
-import { CircleButton } from 'components/CircleButton';
+import { PageHeader } from 'components/PageHeader';
 import { toAdaptiveFixed } from 'lib/i18n/numbers';
 import { hapticLight, hapticSelection } from 'lib/mobile/haptics';
 import { ChartContainer } from 'lib/ui/charts';
@@ -35,20 +34,11 @@ const EarnPositionDetail: FC<EarnPositionDetailProps> = ({ positionId }) => {
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-app-bg font-inter" data-testid="earn-position-detail-page">
-      <header className="shrink-0 border-b border-rule-default px-4 pb-4 pt-5">
-        <div className="flex items-center gap-3">
-          <CircleButton
-            icon={IconName.ChevronLeft}
-            onClick={goBack}
-            className="h-10 w-10 bg-gray-25 text-heading-gray hover:bg-gray-50 focus:bg-gray-50"
-            size="md"
-            aria-label={t('back')}
-          />
-          <h1 className="min-w-0 truncate font-heading text-[26px] font-bold leading-none text-heading-gray">
-            {t('earnPositionHeaderTitle', { protocol: position.protocol, asset: position.asset })}
-          </h1>
-        </div>
-      </header>
+      <PageHeader
+        className="shrink-0 px-4"
+        title={t('earnPositionHeaderTitle', { protocol: position.protocol, asset: position.asset })}
+        onBack={goBack}
+      />
 
       <div className="flex-1 overflow-y-auto">
         <div className="flex flex-col px-4 pb-8 pt-6">
