@@ -112,6 +112,9 @@
 - [FIX][all] Text fields show their whole focus and error outline; on the New contact page it was cut off at the left and right edges.
 - [CHANGE][all] The last grey surfaces and text colors from before the design system move onto its tokens: inputs, cards, secondary buttons and chips sit on the same warm fill (a pressed or hovered one on its darker step), and headings and body text use one ink color instead of two slightly different greys.
 - [CHANGE][all] The earn deposit amount and review screens use the shared page header (a 20px title beside a plain back chevron, with haptic feedback on back, and the "asset on network" label as a pill), the QR scanner shows a denied camera permission as the same empty-state card as a missing camera, and the tab screens fade in on the shared fade.
+- [CHANGE][all] Bottom tab bar restyle: a 64px bar on the page surface (docked: hairline top rule) with 24px icons, ink when active and muted otherwise, and a 48px fully round highlight on the warm fill. The highlight slides between tabs on a bouncier spring with one small overshoot, the new tab's icon pops, a pressed tab dips, and every real tab switch buzzes once. Reduced motion moves the highlight instantly with no pop or press scale.
+- [CHANGE][all] Overview action bar: same look, livelier switch. The white pill slides on the same bouncy spring as the bottom bar, the new segment's icon pops, a pressed segment dips, and swiping between the home pages now buzzes once per page change, like a tap on the bar.
+- [CHANGE][all] The test network is named in a small pill at the bottom tab bar's right corner (Testnet, Devnet or Localnet; nothing on mainnet) instead of a banner across the top of every screen; tapping it opens the same explanation sheet. The dApp confirmation window keeps its banner, where the network matters for what you sign.
 
 ## 1.16.1 (2026-09-15)
 
