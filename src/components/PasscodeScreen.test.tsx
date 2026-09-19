@@ -35,29 +35,31 @@ const renderScreen = (props: Partial<React.ComponentProps<typeof PasscodeScreen>
   );
 
 describe('PasscodeScreen', () => {
-  it('anchors the keypad to the bottom: the free height sits between the header and the keypad', () => {
+  it('groups the prompt and the keypad, splitting the free height 3:2 above and below', () => {
     renderScreen();
 
     const layout = screen.getByTestId('passcode-screen-layout');
     expect(layout).toHaveClass('min-h-full', 'flex', 'flex-col');
-    // The keypad is the layout's last child and `mt-auto` pushes it down to the bottom padding.
+    // Prompt and keypad sit together as one group: the leftover height splits 3:2 above and below.
     const dock = screen.getByTestId('passcode-keypad-dock');
-    expect(layout.lastElementChild).toBe(dock);
-    expect(dock).toHaveClass('mt-auto', 'shrink-0');
+    expect(dock.previousElementSibling).toBe(screen.getByTestId('passcode-header'));
+    expect(layout.lastElementChild).toBe(screen.getByTestId('passcode-bottom-space'));
+    expect(dock).toHaveClass('shrink-0', 'pt-12');
+    expect(screen.getByTestId('passcode-top-space')).toHaveClass('flex-[3]');
+    expect(screen.getByTestId('passcode-bottom-space')).toHaveClass('flex-[2]');
     expect(dock).toContainElement(screen.getByTestId('numpad'));
     // Its last row stays 20px above the body's safe-area padding.
     expect(layout).toHaveClass('pb-5');
     // The header block holds the title, the message and the dots, above the keypad.
-    const header = layout.firstElementChild as HTMLElement;
+    const header = screen.getByTestId('passcode-header');
     expect(header).toContainElement(screen.getByRole('heading', { name: 'title' }));
     expect(header).toContainElement(screen.getByTestId('passcode-dots'));
   });
 
-  it('shrinks the header padding on a short viewport so everything fits without scrolling', () => {
+  it('tightens the gap above the keypad on a short viewport so everything fits without scrolling', () => {
     renderScreen();
 
-    const header = screen.getByTestId('passcode-screen-layout').firstElementChild as HTMLElement;
-    expect(header).toHaveClass('pt-12', '[@media(max-height:720px)]:pt-6');
+    expect(screen.getByTestId('passcode-keypad-dock')).toHaveClass('[@media(max-height:720px)]:pt-8');
   });
 
   it('puts the root test id on the page', () => {
@@ -131,7 +133,7 @@ describe('PasscodeScreen', () => {
     const layout = screen.getByTestId('passcode-screen-layout');
     expect(layout).toHaveClass('pb-2');
     expect(layout).not.toHaveClass('pb-5');
-    expect(screen.getByTestId('passcode-keypad-dock')).toHaveClass('mt-auto');
+    expect(screen.getByTestId('passcode-keypad-dock')).toHaveClass('pt-12');
   });
 
   it('forwards keypad presses and the biometric key', () => {
