@@ -137,7 +137,7 @@ export const TextField = forwardRef<TextFieldElement, TextFieldProps>(
           ) : (
             <>
               {leading && (
-                <span aria-hidden="true" className="mr-2 shrink-0 font-sans text-base text-muted tabular-nums">
+                <span aria-hidden="true" className="mr-2 shrink-0 text-body text-muted tabular-nums">
                   {leading}
                 </span>
               )}

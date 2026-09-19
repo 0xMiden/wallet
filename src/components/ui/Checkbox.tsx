@@ -131,11 +131,11 @@ export const CheckboxRow: React.FC<CheckboxRowProps> = ({
       <motion.span {...motionTokens.press} className="flex min-w-0 flex-1 items-start gap-3.5">
         <CheckboxIndicator checked={checked} className="mt-px" />
         <span className="flex min-w-0 flex-col gap-0.5">
-          <span id={`${id}-title`} className="font-heading text-base leading-5 font-bold text-ink">
+          <span id={`${id}-title`} className="text-row-title text-ink">
             {title}
           </span>
           {description && (
-            <span id={`${id}-description`} className="font-sans text-[13px] leading-[17px] text-muted">
+            <span id={`${id}-description`} className="text-caption text-muted">
               {description}
             </span>
           )}
