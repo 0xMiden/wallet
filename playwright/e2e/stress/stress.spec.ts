@@ -11,7 +11,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-import { assertFundedExactFaucetBalances, runStressDriver, type StressOptions } from './stress-driver';
+import { runStressDriver, type StressOptions } from './stress-driver';
 import { expect, test } from '../fixtures/two-wallets';
 import { hexFaucetToBech32 } from '../helpers/faucet-address';
 import { streamIndexedDBToFile } from '../helpers/idb-dump';
@@ -184,7 +184,12 @@ test.describe('Stress - random send/claim', () => {
     await Promise.all([walletA.refreshBalances(), walletB.refreshBalances()]);
     const initialA = (await walletA.quickBalanceSnapshot({ faucetId })).totalReportable;
     const initialB = (await walletB.quickBalanceSnapshot({ faucetId })).totalReportable;
-    assertFundedExactFaucetBalances(initialA, initialB);
+    // Asserted here rather than behind a helper, so the message can name what actually went wrong:
+    // a zero baseline means either the mint never landed or the hex-to-bech32 conversion produced
+    // an id the wallet does not key balances by, and the conservation check downstream would then
+    // be comparing against nothing.
+    expect(initialA, `exact-faucet baseline unfunded for wallet A (faucetId=${faucetId})`).toBeGreaterThan(0);
+    expect(initialB, `exact-faucet baseline unfunded for wallet B (faucetId=${faucetId})`).toBeGreaterThan(0);
     const initialTotal = initialA + initialB;
 
     console.log(`\n=== INITIAL BALANCES ===\nA=${initialA}\nB=${initialB}\ntotal=${initialTotal}\n`);

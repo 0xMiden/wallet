@@ -1,4 +1,4 @@
-import { assertFundedExactFaucetBalances, runStressDriver, type StressOptions } from './stress-driver';
+import { runStressDriver, type StressOptions } from './stress-driver';
 import type { TimelineRecorder } from '../harness/timeline-recorder';
 import type { ChromeWalletPageApi } from '../helpers/wallet-page';
 
@@ -86,17 +86,4 @@ describe('runStressDriver balance scope', () => {
       expect(snapshotScopes).toEqual(snapshotScopes.map(() => ({ faucetId: TRACKED_FAUCET })));
     }
   );
-});
-
-describe('assertFundedExactFaucetBalances', () => {
-  it('accepts positive exact-faucet balances for both wallets', () => {
-    expect(() => assertFundedExactFaucetBalances(1, 2)).not.toThrow();
-  });
-
-  it.each([
-    [0, 1],
-    [1, 0]
-  ])('rejects an unfunded exact-faucet baseline (%s, %s)', (initialA, initialB) => {
-    expect(() => assertFundedExactFaucetBalances(initialA, initialB)).toThrow('exact faucet');
-  });
 });

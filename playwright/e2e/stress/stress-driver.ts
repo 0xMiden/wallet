@@ -101,14 +101,6 @@ function sleep(ms: number): Promise<void> {
   return new Promise(r => setTimeout(r, ms));
 }
 
-export function assertFundedExactFaucetBalances(initialA: number, initialB: number): void {
-  if (initialA <= 0 || initialB <= 0) {
-    throw new Error(
-      `Stress test exact faucet must fund both wallets before the run ` + `(walletA=${initialA}, walletB=${initialB})`
-    );
-  }
-}
-
 async function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_, reject) => {
