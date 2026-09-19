@@ -38,7 +38,7 @@
   },
   "balanceCardTotalBalance": {
     "message": "총 잔액",
-    "englishSource": "Total Balance"
+    "englishSource": "Total balance"
   },
   "balanceCardDeltaPill": {
     "message": "$absolute$ ($percentage$)",
@@ -52,18 +52,17 @@
       }
     }
   },
-  "balanceCardAccount": {
-    "message": "주소: $number$",
-    "englishSource": "Address: $number$",
-    "placeholders": {
-      "number": {
-        "content": "$1"
-      }
-    }
-  },
   "balanceCardAccountOptions": {
     "message": "계정 설정",
     "englishSource": "Account options"
+  },
+  "balanceCardCopyAddress": {
+    "message": "주소 복사",
+    "englishSource": "Copy address"
+  },
+  "balanceCardAddressCopied": {
+    "message": "주소를 복사했습니다",
+    "englishSource": "Address copied"
   },
   "dappSwitcherLoading": {
     "message": "로딩 중…",

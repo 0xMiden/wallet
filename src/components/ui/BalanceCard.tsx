@@ -9,6 +9,7 @@ import { useCardColor } from 'lib/settings/card-color';
 import { CardColor } from 'lib/settings/constants';
 
 import { CopyButton } from './CopyButton';
+import { Pill } from './Pill';
 import { Skeleton } from './Skeleton';
 
 export type BalanceDeltaDirection = 'positive' | 'negative' | 'neutral';
@@ -24,9 +25,9 @@ export const CARD_COLOR_BG: Record<CardColor, string> = {
   purple: 'bg-card-purple'
 };
 
-/* Two-tone card: the top section is the primary tone — solid in light mode,
- * 50% opacity in dark mode; the bottom strip is the solid second tone. */
-const CARD_COLOR_TOP: Record<CardColor, string> = {
+/* The card is one tone: solid in light mode, 50% over the page in dark mode. Every light value
+ * carries white 13px text at 4.5:1 (see the contrast test in lib/ui/design-tokens.test.ts). */
+const CARD_COLOR_SURFACE: Record<CardColor, string> = {
   slate: 'bg-card-slate dark:bg-card-slate/50',
   orange: 'bg-card-orange dark:bg-card-orange/50',
   blue: 'bg-card-blue dark:bg-card-blue/50',
@@ -34,19 +35,30 @@ const CARD_COLOR_TOP: Record<CardColor, string> = {
   purple: 'bg-card-purple dark:bg-card-purple/50'
 };
 
-const CARD_COLOR_BOTTOM: Record<CardColor, string> = {
-  slate: 'bg-card-slate-deep',
-  orange: 'bg-card-orange-deep',
-  blue: 'bg-card-blue-deep',
-  green: 'bg-card-green-deep',
-  purple: 'bg-card-purple-deep'
-};
+const LEADING_SIGN = /^[+\-\u2212]\s*/;
+
+/**
+ * Which way the change pill points. A change that rounds to zero is neutral whatever the caller
+ * says, so the card never shows an arrow (or a "-0.00") for no movement. Without a direction the
+ * sign of the percentage decides.
+ */
+export function resolveDeltaDirection(delta: {
+  percentage: string;
+  direction?: BalanceDeltaDirection;
+}): BalanceDeltaDirection {
+  const magnitude = Number.parseFloat(delta.percentage.replace(/[^\d.]/g, ''));
+  if (!Number.isFinite(magnitude) || magnitude === 0) return 'neutral';
+  if (delta.direction) return delta.direction;
+  return /^\s*[-\u2212]/.test(delta.percentage) ? 'negative' : 'positive';
+}
 
 export interface BalanceCardProps {
   /** Truncated display label, e.g. `mtst1aqg...940z`. */
   accountNumber: string;
   /** Full account id used when copying to clipboard. Falls back to accountNumber. */
   accountId?: string;
+  /** The account's name, shown in the footer beside its address. */
+  accountName?: string;
   amount: ReactNode;
   currency?: string;
   delta?: {
@@ -105,6 +117,7 @@ function useFitFontSize(maxRem: number, minRem: number, active: boolean) {
 export const BalanceCard: FC<BalanceCardProps> = ({
   accountNumber,
   accountId,
+  accountName,
   amount,
   currency = 'USD',
   delta,
@@ -119,7 +132,9 @@ export const BalanceCard: FC<BalanceCardProps> = ({
   const cardColor = useCardColor();
   const { rowRef, textRef, fontSizeRem } = useFitFontSize(AMOUNT_MAX_REM, AMOUNT_MIN_REM, !isLoading);
 
-  const pillBg = delta?.direction === 'negative' ? 'bg-status-negative' : 'bg-status-positive';
+  const deltaDirection = delta ? resolveDeltaDirection(delta) : 'neutral';
+  // A neutral change carries no sign: the arrow and the sign are how the pill shows direction.
+  const deltaText = (value: string) => (deltaDirection === 'neutral' ? value.replace(LEADING_SIGN, '') : value);
 
   const handleMoreClick = () => {
     if (!onMore) return;
@@ -130,6 +145,7 @@ export const BalanceCard: FC<BalanceCardProps> = ({
     <div
       className={classNames(
         'relative w-full overflow-hidden text-surface-balance-fg rounded-lg-token',
+        CARD_COLOR_SURFACE[cardColor],
         onMore && 'cursor-pointer',
         className
       )}
@@ -149,22 +165,18 @@ export const BalanceCard: FC<BalanceCardProps> = ({
           className="absolute inset-0 z-0 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-primary focus-visible:outline-none"
         />
       )}
-      <div
-        className={classNames(
-          'relative px-3.5 pt-4 pb-3.5',
-          onMore && 'pointer-events-none',
-          CARD_COLOR_TOP[cardColor]
-        )}
-      >
-        <div className="text-sm font-medium text-surface-balance-fg-muted leading-none">
+      <div className={classNames('relative px-4 pt-4 pb-4', onMore && 'pointer-events-none')}>
+        {/* Every text on the card is the full-strength card ink: hierarchy comes from size and
+            weight, since any translucent ink falls under 4.5:1 on the lighter card colors. */}
+        <div data-testid="balance-card-label" className="font-sans text-[13px] font-bold leading-[17px]">
           {t('balanceCardTotalBalance')}
         </div>
 
-        <div ref={rowRef} className="mt-2.5 flex items-end gap-1 leading-none min-w-0">
+        <div ref={rowRef} className="mt-2 flex items-end leading-none min-w-0">
           {isLoading ? (
             <Skeleton tone="inverse" className="h-12 w-48" />
           ) : (
-            <div className="flex items-center gap-0.5 min-w-0">
+            <div className="flex items-baseline gap-1.5 min-w-0">
               <span
                 ref={textRef}
                 style={{ fontSize: `${fontSizeRem}rem` }}
@@ -173,7 +185,11 @@ export const BalanceCard: FC<BalanceCardProps> = ({
                 {/* eslint-disable-next-line i18next/no-literal-string -- balance-mask glyphs / pre-formatted zero value, not translatable copy */}
                 {isHidden ? '••••••' : isZero ? '$0.00' : amount}
               </span>
-              <span className="shrink-0 font-heading text-base font-semibold text-surface-balance-fg-muted">
+              {/* The entry pattern's unit: 22px beside the amount, on its baseline. */}
+              <span
+                data-testid="balance-card-currency"
+                className="shrink-0 font-heading text-[22px] font-bold leading-none"
+              >
                 {currency}
               </span>
             </div>
@@ -181,48 +197,61 @@ export const BalanceCard: FC<BalanceCardProps> = ({
         </div>
 
         {delta && !isLoading && !isHidden && (
-          <div className="mt-3">
-            <span
-              className={classNames(
-                'inline-flex items-center rounded-full px-3 py-1',
-                'font-heading text-sm font-semibold leading-none text-surface-balance-fg',
-                pillBg
-              )}
+          <div className="mt-3 flex">
+            <Pill
+              tone="inverse"
+              data-testid="balance-card-delta"
+              icon={
+                deltaDirection === 'neutral' ? undefined : (
+                  // The `!` beats the default md size <Icon> injects (see the copy glyph below).
+                  <Icon
+                    name={deltaDirection === 'negative' ? IconName.ArrowDown : IconName.ArrowUp}
+                    className="w-4! h-4!"
+                  />
+                )
+              }
             >
-              {t('balanceCardDeltaPill', { absolute: delta.absolute, percentage: delta.percentage })}
-            </span>
+              {t('balanceCardDeltaPill', {
+                absolute: deltaText(delta.absolute),
+                percentage: deltaText(delta.percentage)
+              })}
+            </Pill>
           </div>
         )}
       </div>
 
+      {/* The footer is the same card, set off by a hairline in the card's ink. */}
       <div
         className={classNames(
-          'relative flex items-center justify-between gap-2 py-2 border-t border-dashed px-3.5 border-t-surface-balance-divider',
-          onMore && 'pointer-events-none',
-          CARD_COLOR_BOTTOM[cardColor]
+          'relative mx-4 flex min-h-11 items-center justify-between gap-3 border-t border-surface-balance-rule',
+          onMore && 'pointer-events-none'
         )}
       >
+        {accountName && (
+          <span data-testid="balance-card-account-name" className="min-w-0 truncate font-sans text-[13px] font-bold">
+            {accountName}
+          </span>
+        )}
         {/* The copy control takes its own taps back; it is a sibling of the options button, so a
             copy can no longer also open the options. */}
-        <span className="pointer-events-auto flex min-w-0">
+        <span className={classNames('pointer-events-auto flex min-w-0', accountName ? 'ml-auto' : '-ml-2')}>
           <CopyButton
             text={accountId ?? accountNumber}
-            className={classNames(
-              'min-w-0 text-left',
-              'text-surface-balance-fg hover:bg-transparent active:opacity-80 transition-opacity'
-            )}
+            data-testid="balance-card-copy-address"
+            aria-label={copied => (copied ? t('balanceCardAddressCopied') : t('balanceCardCopyAddress'))}
+            className="-mr-2 flex min-h-11 min-w-0 items-center px-2 text-surface-balance-fg active:opacity-80 transition-opacity"
           >
             {copied => (
               // `CopyButton` wraps `children` in its own `<span aria-live>`, so the flex layout
               // (gap, centering, truncate) has to live on an inner span that's the actual parent
-              // of the label and icon — putting it on the button's own `className` above has no
-              // effect on layout, since the button's only direct child is that aria-live wrapper.
-              <span className="flex min-w-0 items-center gap-1 text-xs font-heading font-bold leading-none tracking-tight">
-                <span className="truncate">{t('balanceCardAccount', { number: accountNumber })}</span>
+              // of the address and icon — putting it on the button's own `className` above has no
+              // effect on that layout, since the button's only direct child is that aria-live wrapper.
+              <span className="flex min-w-0 items-center gap-1.5 font-sans text-[13px] font-bold leading-none">
+                <span className="truncate">{accountNumber}</span>
                 {/* The `!` on the size classes is load-bearing: <Icon> injects a default `md`
                     (w-6 h-6) size class that, under Tailwind v4's scale-ordered output, otherwise
                     wins the cascade. Do not drop the `!`. */}
-                <Icon name={copied ? IconName.Checkmark : IconName.CopyNew} className="w-3.5! h-3.5! shrink-0" />
+                <Icon name={copied ? IconName.Checkmark : IconName.CopyNew} className="w-4! h-4! shrink-0" />
               </span>
             )}
           </CopyButton>

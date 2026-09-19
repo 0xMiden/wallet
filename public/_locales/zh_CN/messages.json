@@ -38,7 +38,7 @@
   },
   "balanceCardTotalBalance": {
     "message": "总余额",
-    "englishSource": "Total Balance"
+    "englishSource": "Total balance"
   },
   "balanceCardDeltaPill": {
     "message": "$absolute$ ($percentage$)",
@@ -52,18 +52,17 @@
       }
     }
   },
-  "balanceCardAccount": {
-    "message": "地址：$number$",
-    "englishSource": "Address: $number$",
-    "placeholders": {
-      "number": {
-        "content": "$1"
-      }
-    }
-  },
   "balanceCardAccountOptions": {
     "message": "账户选项",
     "englishSource": "Account options"
+  },
+  "balanceCardCopyAddress": {
+    "message": "复制地址",
+    "englishSource": "Copy address"
+  },
+  "balanceCardAddressCopied": {
+    "message": "地址已复制",
+    "englishSource": "Address copied"
   },
   "dappSwitcherLoading": {
     "message": "正在加载……",
