@@ -146,3 +146,24 @@ it('does not fire a disabled row', () => {
   expect(onClick).not.toHaveBeenCalled();
   expect(hapticLight).not.toHaveBeenCalled();
 });
+
+it('labels its trailing switch with `htmlFor`, so a tap anywhere on the row flips it', () => {
+  const onChange = jest.fn();
+  render(
+    <ListRow
+      title="Haptic feedback"
+      htmlFor="haptic"
+      trailing={<input id="haptic" type="checkbox" onChange={onChange} />}
+      data-testid="row"
+    />
+  );
+
+  const row = screen.getByTestId('row');
+  expect(row.tagName).toBe('LABEL');
+  expect(row).toHaveAttribute('for', 'haptic');
+  expect(row).toHaveClass('cursor-pointer', 'active:bg-fill-pressed');
+  fireEvent.click(screen.getByText('Haptic feedback'));
+  expect(onChange).toHaveBeenCalledTimes(1);
+  // The switch brings its own haptic; the row adds none.
+  expect(hapticLight).not.toHaveBeenCalled();
+});
