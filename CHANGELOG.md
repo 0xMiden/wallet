@@ -6,7 +6,7 @@
 
 - [CHANGE][mobile] The passcode keypad sits in thumb reach at the bottom of the screen, with larger keys and a Face ID key.
 - [CHANGE][all] Receive fits on one screen with aligned QR, address, notice and actions.
-- [CHANGE][all] The Home balance card's labels, currency, change pill and address are readable on every account colour.
+- [CHANGE][all] The Home balance card's labels, currency, change pill and address are readable on every account colour, which keep their brand values.
 - [CHANGE][all] Transaction details close with the back button only; the extra X and Close button are gone.
 - [CHANGE][all] OpenZeppelin's logo follows its brand kit: official colours and mark, on a white tile.
 - [CHANGE][all] Authorized dApps pages use the shared Settings layout: the dApps switch is a row with its explanation under it, and each connected dApp is a section named after its site, with its origin, network, account and permissions in a grey detail card and a red Disconnect button in place of the unlabelled ✕. With no connected dApps, the page now says so instead of staying blank.
