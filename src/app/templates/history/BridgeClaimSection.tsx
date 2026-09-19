@@ -231,7 +231,7 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
         {destination && (
           <DetailRow label={t('to')}>
             <ExternalLinkValue
-              displayValue={<HashChip hash={destination} trimHash fill="#9E9E9E" className="ml-2" copyIcon={false} />}
+              displayValue={<HashChip hash={destination} trimHash className="ml-2" />}
               href={SEPOLIA_ADDRESS_URL(destination)}
             />
           </DetailRow>
@@ -248,7 +248,7 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
         {isEpoch && fillTxHash && (
           <DetailRow label={t('receivingTx')}>
             <ExternalLinkValue
-              displayValue={<HashChip hash={fillTxHash} trimHash fill="#9E9E9E" className="ml-2" copyIcon={false} />}
+              displayValue={<HashChip hash={fillTxHash} trimHash className="ml-2" />}
               href={SEPOLIA_TX_URL(fillTxHash)}
             />
           </DetailRow>

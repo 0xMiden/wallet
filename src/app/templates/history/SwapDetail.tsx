@@ -156,8 +156,6 @@ const SwapNoteRow = memo(function SwapNoteRow({
                 key={displayNoteId}
                 hash={displayNoteId}
                 trimHash
-                fill="currentColor"
-                copyIcon={false}
                 className="mt-1 max-w-full font-heading text-base font-semibold text-text-secondary-token"
               />
             ))}
@@ -181,8 +179,6 @@ const SwapNoteRow = memo(function SwapNoteRow({
                 key={displayNoteId}
                 hash={displayNoteId}
                 trimHash
-                fill="currentColor"
-                copyIcon={false}
                 className="max-w-full font-heading text-base font-semibold text-text-secondary-token"
               />
             ))}
@@ -216,7 +212,7 @@ const SwapNoteRow = memo(function SwapNoteRow({
  */
 const ExplorerTxValue: FC<{ txId: string; onChain?: boolean }> = ({ txId, onChain = true }) => {
   const explorerUrl = onChain ? getExplorerTxUrl(txId) : undefined;
-  const hash = <HashChip hash={txId} trimHash fill="currentColor" copyIcon={false} />;
+  const hash = <HashChip hash={txId} trimHash />;
 
   return explorerUrl ? <ExternalLinkValue displayValue={hash} href={explorerUrl} /> : hash;
 };
