@@ -32,9 +32,10 @@ was deleted (or, where marked, what still has callers to migrate).
    `motion-reduce:` variant.
 6. Text meets 4.5:1 on the surface it sits on (3:1 for 19px bold and larger, icons and control
    edges) in both themes. A new color pair is checked before it ships.
-7. The five card colours are brand colours; never shift them for contrast. Solve readability with
-   type size and weight or a local scrim (see Card colours). Brand fidelity wins over rule 6 for
-   the card surface itself, never for the text on it.
+7. The five card colours are brand colours; never shift them for contrast, and never tint them with
+   a scrim. Solve readability with type size and weight or a darker well (see Card colours). Brand
+   fidelity wins over rule 6 for the card surface itself; the balance card's 13px label and footer
+   are the one accepted exception to rule 6 (see Card colours).
 
 ## Foundations
 
@@ -90,19 +91,22 @@ from the text, never from the colour.
 | `card-purple` | #847595 | #BEACD2 | 4.23:1 |
 
 Dark mode paints the card at 50% over `page`, where white is 5.6:1 or better on every colour.
-In light mode the bare colours reach only 3.0:1, so the balance card places each text by size:
+In light mode the bare colours reach only 3.0:1. The balance card stays the plain colour, with its
+footer set off by a `surface-balance-rule` hairline, and each text sits as follows:
 
 | Text | Size | Needs | Sits on | Weakest (orange, light) |
 | --- | --- | --- | --- | --- |
 | Amount | 40-56px extrabold | 3:1 | the bare colour | 3.00:1 |
 | Currency | 22px bold | 3:1 | the bare colour | 3.00:1 |
-| Label ("Total balance") | 13px bold | 4.5:1 | `surface-balance-scrim` (black 24%), a gradient solid to 40px and gone by 72px | 4.87:1 |
-| Account name and address | 13px bold | 4.5:1 | `surface-balance-scrim`, the footer band | 4.87:1 |
+| Label ("Total balance") | 13px bold | 4.5:1 | the bare colour | 3.00:1 (below 4.5:1, accepted) |
+| Account name and address | 13px bold | 4.5:1 | the bare colour, under the hairline | 3.00:1 (below 4.5:1, accepted) |
 | Change pill | 14px | 4.5:1 | `surface-balance-pill` (black 24%) | 4.87:1 |
 
-The scrim is local: it sits behind small text only and never tints the card overall. Large text on
-a card colour may never drop below 18.66px bold or 24px regular, since the orange has no margin
-above 3:1. `design-tokens.test.ts` pins the brand values and every pair above.
+The label and footer keep the plain brand colour by choice: in light mode they pass 4.5:1 on slate
+only (4.58:1) and fall under it on blue, purple, green and orange; in dark mode they pass on every
+colour. Large text on a card colour may never drop below 18.66px bold or 24px regular, since the
+orange has no margin above 3:1. `design-tokens.test.ts` pins the brand values, the amount and
+currency at 3:1 and the change pill at 4.5:1.
 
 ### Type
 
