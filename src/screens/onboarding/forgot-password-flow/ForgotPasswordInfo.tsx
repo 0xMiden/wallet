@@ -26,7 +26,7 @@ const ForgotPasswordInfoScreen: FC<ForgotPasswordInfoScreenProps> = ({ onClose, 
         'overflow-hidden relative'
       )}
     >
-      <PageHeader title={t('forgotPassword')} onClose={onClose} />
+      <PageHeader className="px-4" title={t('forgotPassword')} onClose={onClose} />
       <div className="flex flex-col flex-1 p-4 justify-between md:w-[460px] md:mx-auto">
         <div className="flex flex-col grow items-center justify-center">
           <Message
