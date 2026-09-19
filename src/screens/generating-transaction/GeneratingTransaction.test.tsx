@@ -22,8 +22,18 @@ jest.mock('components/Alert', () => ({
   AlertVariant: { Warning: 'Warning' }
 }));
 jest.mock('components/Button', () => ({
-  Button: ({ children, onClick, variant }: { children?: React.ReactNode; onClick?: () => void; variant?: string }) => (
-    <button type="button" data-variant={variant} onClick={onClick}>
+  Button: ({
+    children,
+    onClick,
+    variant,
+    className
+  }: {
+    children?: React.ReactNode;
+    onClick?: () => void;
+    variant?: string;
+    className?: string;
+  }) => (
+    <button type="button" data-variant={variant} className={className} onClick={onClick}>
       {children}
     </button>
   ),
@@ -766,9 +776,11 @@ describe('GeneratingTransaction stage + state rendering', () => {
     );
     expect(doneBtn).toHaveAttribute('data-variant', 'secondary');
     // White would vanish on the light secondary fill; the label is plain text now, styled by
-    // the variant itself (no wrapping span carrying a stray white-text override).
+    // the variant itself (no wrapping span carrying a stray white-text override), and the
+    // className the caller passes carries no color override of its own — className is now
+    // forwarded by the mock, so this actually exercises the real prop.
     expect(doneBtn?.querySelector('span')).toBeNull();
-    expect(doneBtn).not.toHaveClass('text-pure-white');
+    expect(doneBtn?.className ?? '').not.toMatch(/text-pure-white/);
     act(() => root.unmount());
   });
 
