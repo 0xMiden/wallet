@@ -196,7 +196,7 @@ describe('DappLauncher', () => {
     await act(async () => {});
     first.unmount();
 
-    // Back from a dApp: the launcher mounts again, and the capsule morphs home without a reveal.
+    // Back from a dApp: the launcher mounts again, without a reveal.
     render(<DappLauncher onOpen={jest.fn()} catalog={catalog} />);
     expect(screen.getByTestId('explore-section-featured').style.opacity).not.toBe('0');
     expect(screen.getByTestId('explore-section-featured').style.transform).not.toContain('translateY');

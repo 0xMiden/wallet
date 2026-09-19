@@ -17,7 +17,7 @@ import { type IconName } from 'app/icons/v2';
 import { EmptyState } from 'components/ui/EmptyState';
 import { SectionHeader } from 'components/ui/SectionHeader';
 import { exploreSectionVariant, useExploreMotion } from 'lib/animation';
-import { assignMorphOwners, type ExploreItem, type RecentDapp, type ResolvedExploreSection } from 'lib/dapp-browser';
+import { type ExploreItem, type RecentDapp, type ResolvedExploreSection } from 'lib/dapp-browser';
 import { hapticLight } from 'lib/mobile/haptics';
 
 import { AppList } from './AppRow';
@@ -30,12 +30,11 @@ const NONE: ReadonlySet<string> = new Set();
 interface SectionBodyProps {
   resolved: ResolvedExploreSection;
   recents: RecentDapp[];
-  morphUrls: ReadonlySet<string>;
   expanded: boolean;
   onOpen: (url: string) => void;
 }
 
-const SectionBody: FC<SectionBodyProps> = ({ resolved, recents, morphUrls, expanded, onOpen }) => {
+const SectionBody: FC<SectionBodyProps> = ({ resolved, recents, expanded, onOpen }) => {
   const { section, items } = resolved;
 
   switch (section.kind) {
@@ -43,41 +42,28 @@ const SectionBody: FC<SectionBodyProps> = ({ resolved, recents, morphUrls, expan
       if (items.length === 1 && items[0]) {
         return (
           <div className="px-4">
-            <FeaturedCard item={items[0]} onOpen={onOpen} morph={morphUrls.has(items[0].url)} />
+            <FeaturedCard item={items[0]} onOpen={onOpen} />
           </div>
         );
       }
       return (
         <TileRow>
           {items.map(item => (
-            <FeaturedCard
-              key={item.id}
-              item={item}
-              onOpen={onOpen}
-              morph={morphUrls.has(item.url)}
-              className="w-[85%] shrink-0 snap-start"
-            />
+            <FeaturedCard key={item.id} item={item} onOpen={onOpen} className="w-[85%] shrink-0 snap-start" />
           ))}
         </TileRow>
       );
     case 'list':
       return (
         <div className="px-4">
-          <AppList items={visibleListItems(items, section.limit, expanded)} onOpen={onOpen} morphUrls={morphUrls} />
+          <AppList items={visibleListItems(items, section.limit, expanded)} onOpen={onOpen} />
         </div>
       );
     case 'row':
       return (
         <TileRow>
           {items.map(item => (
-            <DappTile
-              key={item.id}
-              url={item.url}
-              name={item.name}
-              icon={item.icon}
-              onOpen={onOpen}
-              morph={morphUrls.has(item.url)}
-            />
+            <DappTile key={item.id} url={item.url} name={item.name} icon={item.icon} onOpen={onOpen} />
           ))}
         </TileRow>
       );
@@ -111,12 +97,6 @@ export interface ExploreSectionsProps {
   firstRevealIndex: number;
   /** Whether a section entering now is part of the page's first reveal (staggered) or a filter (not). */
   staggered: boolean;
-  /**
-   * Whether items carry the capsule morph's layoutIds. Off for search results: a result sharing a
-   * layoutId with the card it replaces would hold that card's exit until a shared-layout hand-off
-   * between the two finished, instead of the sections simply collapsing into the list.
-   */
-  morph?: boolean;
 }
 
 export const ExploreSections: FC<ExploreSectionsProps> = ({
@@ -126,15 +106,13 @@ export const ExploreSections: FC<ExploreSectionsProps> = ({
   onOpen,
   reveal,
   firstRevealIndex,
-  staggered,
-  morph = true
+  staggered
 }) => {
   const { t } = useTranslation();
   const motionTokens = useExploreMotion();
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(NONE);
 
   const shown = sections.filter(({ section }) => section.kind !== 'recents' || recents.length > 0);
-  const owners = assignMorphOwners(shown);
 
   const toggle = (id: string) => {
     hapticLight();
@@ -201,13 +179,7 @@ export const ExploreSections: FC<ExploreSectionsProps> = ({
                     {t(section.titleKey)}
                   </SectionHeader>
                 </div>
-                <SectionBody
-                  resolved={resolved}
-                  recents={recents}
-                  morphUrls={morph ? (owners.get(section.id) ?? NONE) : NONE}
-                  expanded={isExpanded}
-                  onOpen={onOpen}
-                />
+                <SectionBody resolved={resolved} recents={recents} expanded={isExpanded} onOpen={onOpen} />
               </motion.section>
             );
           })

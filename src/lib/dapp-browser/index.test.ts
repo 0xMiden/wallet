@@ -115,7 +115,6 @@ describe('dapp-browser barrel — re-export identity', () => {
     ['getExploreCatalog', exploreCatalog, 'getExploreCatalog'],
     ['resolveExploreSections', exploreCatalog, 'resolveExploreSections'],
     ['searchExploreCatalog', exploreCatalog, 'searchExploreCatalog'],
-    ['assignMorphOwners', exploreCatalog, 'assignMorphOwners'],
     // recent-dapps
     ['getRecentDapps', recentDapps, 'getRecentDapps'],
     ['recordRecentDapp', recentDapps, 'recordRecentDapp'],

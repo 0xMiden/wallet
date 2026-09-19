@@ -1,5 +1,4 @@
 import {
-  assignMorphOwners,
   EXPLORE_CATALOG,
   EXPLORE_FILTERS,
   getExploreCatalog,
@@ -81,16 +80,6 @@ describe('getExploreCatalog', () => {
 
   it('keeps them elsewhere', () => {
     expect(getExploreCatalog(catalog)).toBe(catalog);
-  });
-});
-
-describe('assignMorphOwners', () => {
-  it('gives each url to the first section that shows it', () => {
-    const owners = assignMorphOwners(resolveExploreSections(catalog, 'all'));
-    expect([...(owners.get('featured') ?? [])]).toEqual(['https://faucet.example']);
-    expect([...(owners.get('tools') ?? [])]).toEqual([]);
-    expect([...(owners.get('more') ?? [])]).toEqual(['https://dex.example', 'https://quest.example']);
-    expect([...(owners.get('recents') ?? [])]).toEqual([]);
   });
 });
 

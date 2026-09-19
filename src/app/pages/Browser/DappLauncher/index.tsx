@@ -160,7 +160,7 @@ export const DappLauncher: FC<DappLauncherProps> = ({ onOpen, catalog: catalogPr
         }
       />
 
-      {/* `layoutScroll`, so the sections' layout moves and the capsule morph measure through the scroll. */}
+      {/* `layoutScroll`, so the sections' layout moves measure through the scroll. */}
       <motion.main
         layoutScroll
         className="grow overflow-y-auto pt-2 pb-24"
@@ -180,7 +180,6 @@ export const DappLauncher: FC<DappLauncherProps> = ({ onOpen, catalog: catalogPr
             reveal={reveal}
             firstRevealIndex={FIRST_SECTION_REVEAL}
             staggered={!settled}
-            morph={!searching}
           />
         </div>
       </motion.main>

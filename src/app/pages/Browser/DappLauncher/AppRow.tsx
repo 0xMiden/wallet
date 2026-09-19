@@ -2,8 +2,7 @@
  * App Store-style rows in one grouped card: the app's icon, its name over its tagline, and an Open
  * pill. Each row is one tap target that opens the app; hairlines between rows start after the icon.
  *
- * Not `ListRow`: an Explore row carries the capsule morph's layoutIds on its icon and name, sets the
- * 17px app name, and presses like the rest of Explore.
+ * Not `ListRow`: an Explore row sets the 17px app name and presses like the rest of Explore.
  */
 
 import React, { type FC } from 'react';
@@ -23,10 +22,9 @@ import { AppIcon, AppName } from './AppIcon';
 export interface AppRowProps {
   item: ExploreItem;
   onOpen: (url: string) => void;
-  morph?: boolean;
 }
 
-export const AppRow: FC<AppRowProps> = ({ item, onOpen, morph = false }) => {
+export const AppRow: FC<AppRowProps> = ({ item, onOpen }) => {
   const { t } = useTranslation();
   const { press } = useExploreMotion();
 
@@ -49,15 +47,9 @@ export const AppRow: FC<AppRowProps> = ({ item, onOpen, morph = false }) => {
         'before:absolute before:top-0 before:right-0 before:left-[76px] before:h-px before:bg-hairline first:before:hidden'
       )}
     >
-      <AppIcon url={item.url} name={item.name} icon={item.icon} size="row" surface="fill" morph={morph} />
+      <AppIcon url={item.url} name={item.name} icon={item.icon} size="row" surface="fill" />
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <AppName
-          url={item.url}
-          morph={morph}
-          className="font-heading text-[17px] leading-[22px] font-extrabold text-ink"
-        >
-          {item.name}
-        </AppName>
+        <AppName className="font-heading text-[17px] leading-[22px] font-extrabold text-ink">{item.name}</AppName>
         <span className="truncate font-sans text-[13px] leading-[17px] text-muted">
           {item.taglineKey ? t(item.taglineKey) : item.tagline}
         </span>
@@ -72,14 +64,12 @@ export const AppRow: FC<AppRowProps> = ({ item, onOpen, morph = false }) => {
 export interface AppListProps {
   items: ExploreItem[];
   onOpen: (url: string) => void;
-  /** Urls whose rows carry the capsule morph. */
-  morphUrls: ReadonlySet<string>;
 }
 
-export const AppList: FC<AppListProps> = ({ items, onOpen, morphUrls }) => (
+export const AppList: FC<AppListProps> = ({ items, onOpen }) => (
   <ListGroup>
     {items.map(item => (
-      <AppRow key={item.id} item={item} onOpen={onOpen} morph={morphUrls.has(item.url)} />
+      <AppRow key={item.id} item={item} onOpen={onOpen} />
     ))}
   </ListGroup>
 );

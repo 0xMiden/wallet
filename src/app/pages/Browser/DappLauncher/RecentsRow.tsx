@@ -1,9 +1,6 @@
 /**
  * The dApps the user opened last, as a horizontal row of app tiles, newest first (the provider's
  * `getRecentDapps` already sorts by `lastOpenedAt` desc). The section renders nothing without any.
- *
- * Recents never carry the capsule morph: the same url may sit in a curated section above, which
- * owns it, and a second holder of the layoutId would be drawn at the wrong size.
  */
 
 import React, { type FC } from 'react';
