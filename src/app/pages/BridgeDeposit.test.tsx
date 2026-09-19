@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 
 import { BridgeDeposit } from './BridgeDeposit';
 
@@ -28,7 +28,8 @@ jest.mock('lib/store', () => ({
     select({ currentAccount: { publicKey: 'miden-account' } })
 }));
 
-jest.mock('lib/woozie', () => ({ navigate: jest.fn() }));
+const mockNavigate = jest.fn();
+jest.mock('lib/woozie', () => ({ navigate: (...args: unknown[]) => mockNavigate(...args) }));
 
 jest.mock('lib/mobile/haptics', () => ({ hapticMedium: jest.fn() }));
 
@@ -41,7 +42,14 @@ jest.mock('components/ui/Button', () => ({
 }));
 
 jest.mock('components/PageHeader', () => ({
-  PageHeader: ({ title }: { title: string }) => <div>{title}</div>
+  PageHeader: ({ title, onClose }: { title: string; onClose?: () => void }) => (
+    <div>
+      {title}
+      <button type="button" aria-label="close" onClick={onClose}>
+        close
+      </button>
+    </div>
+  )
 }));
 
 jest.mock('app/templates/EvmConnectModal/EvmBridgeDepositScreen', () => ({
@@ -56,6 +64,14 @@ jest.mock('app/icons/v2', () => ({
 describe('BridgeDeposit (#875)', () => {
   beforeEach(() => {
     mockConnection = { address: undefined, connected: false };
+    mockNavigate.mockClear();
+  });
+
+  it('closes via the header, falling back to /receive with no onClose prop', () => {
+    render(<BridgeDeposit />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'close' }));
+    expect(mockNavigate).toHaveBeenCalledWith('/receive');
   });
 
   it('warns to connect a test wallet only while no EVM wallet is connected', () => {
