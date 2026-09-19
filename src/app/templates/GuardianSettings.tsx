@@ -284,9 +284,7 @@ const GuardianSettings: FC = () => {
                 <GuardianAvatar data-testid="guardian-avatar" className="h-14 w-14" />
               )}
             </div>
-            <h2 className="mt-2 break-all text-center font-heading text-xl font-bold text-ink">
-              {guardianName}
-            </h2>
+            <h2 className="mt-2 break-all text-center font-heading text-xl font-bold text-ink">{guardianName}</h2>
             {statusPill}
           </>
         )}
