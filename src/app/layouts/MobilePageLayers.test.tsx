@@ -218,3 +218,26 @@ it('covers the page beneath when a push returns to a slide page that was popped 
   expect(present[0]).toHaveAttribute('data-page-layer', '/rotate-guardian');
   expect(present[0]).toHaveStyle({ transform: 'none' });
 });
+
+it('drops a popped page once it has left, so pushing it again while a covered page waits leaves one copy', async () => {
+  const settle = () =>
+    act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 600));
+    });
+  // A reload lands on the sub-page itself, with nothing beneath it.
+  const { container, rerender } = render(view('/settings/general', true));
+  await settle();
+  // Back home and into Settings before the popped page has finished sliding out.
+  rerender(view('/', false, 'tabs', HistoryAction.Pop));
+  rerender(view('/settings', true, '/settings', HistoryAction.Pop));
+  // Open the sub-page again: Settings is now covered and waits under it.
+  rerender(view('/settings/general', true));
+  await settle();
+
+  const copies = container.querySelectorAll('[data-page-layer="/settings/general"]');
+  expect(copies).toHaveLength(1);
+  expect(copies[0]).not.toHaveAttribute('aria-hidden');
+  expect(copies[0]).toHaveTextContent('/settings/general count 0');
+  expect(container.querySelector('[data-page-layer="/"]')).not.toBeInTheDocument();
+  expect(container.querySelector('[data-page-layer="/settings"]')).toHaveStyle({ transform: 'translateX(-24%)' });
+});
