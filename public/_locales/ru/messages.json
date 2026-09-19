@@ -2268,8 +2268,8 @@
     "englishSource": "Only Miden seed phrases are supported."
   },
   "yourWalletIsReady": {
-    "message": "Ваш <highlight>кошелек</highlight> готов!",
-    "englishSource": "Your <highlight>Wallet</highlight> is ready!"
+    "message": "Ваш кошелек готов!",
+    "englishSource": "Your wallet is ready!"
   },
   "recoveryPhraseSevenDayReminder": {
     "message": "Запишите свою фразу восстановления в течение 7 дней, чтобы полностью защитить свой кошелек.",

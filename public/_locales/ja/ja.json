@@ -498,7 +498,7 @@
   "verifyStepWrong": "それだけではありません。もう一度タップしてみてください",
   "enterYourWalletSeedPhrase": "ウォレットの12語からなる「Seed phrase」を入力してください。",
   "onlyMidenSeedPhrasesAreSupported": "Miden Seedのフレーズのみがサポートされています。",
-  "yourWalletIsReady": "<highlight>ウォレット</highlight>の準備が完了しました！",
+  "yourWalletIsReady": "ウォレットの準備が完了しました！",
   "recoveryPhraseSevenDayReminder": "ウォレットのセキュリティを万全にするため、7日以内にリカバリーフレーズを書き留めておいてください。",
   "recoveryPhraseDailyReminder": "ホーム画面で毎日お知らせします。",
   "openWallet": "財布を開く",

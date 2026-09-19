@@ -1,8 +1,9 @@
 import React from 'react';
 
-import { Trans, useTranslation } from 'react-i18next';
+import { useTranslation } from 'react-i18next';
 
 import { ReactComponent as ConfirmationHero } from 'app/icons/onboarding/confirmation-illustrantion.svg';
+import { Icon, IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
 import { Hero } from 'components/ui/Hero';
 import { Notice } from 'components/ui/Notice';
@@ -108,19 +109,24 @@ export const ConfirmationScreen: React.FC<ConfirmationScreenProps> = ({
         <Hero
           nameAs="h1"
           visual={<ConfirmationHero aria-hidden="true" className="h-auto w-full max-w-[220px]" />}
-          name={
-            hasFailure ? (
-              t('smthWentWrong')
-            ) : (
-              <Trans
-                i18nKey="yourWalletIsReady"
-                components={{ highlight: <span className="text-accent-tint-ink" /> }}
-              />
+          name={hasFailure ? t('smthWentWrong') : t('yourWalletIsReady')}
+          subtitle={
+            hasFailure ? undefined : (
+              // Held to a readable measure and balanced, so the sentence breaks into two even lines.
+              <span className="mx-auto block max-w-[300px] text-balance">{t('recoveryPhraseSevenDayReminder')}</span>
             )
           }
-          subtitle={hasFailure ? undefined : t('recoveryPhraseSevenDayReminder')}
         />
-        {!hasFailure && <Notice className="text-left">{t('recoveryPhraseDailyReminder')}</Notice>}
+        {/* The daily reminder is a fact about Home, not a warning: one quiet caption line, not a panel. */}
+        {!hasFailure && (
+          <p
+            className="flex max-w-[300px] items-start justify-center gap-1.5 text-caption text-muted"
+            data-testid="onboarding-confirmation-reminder"
+          >
+            <Icon name={IconName.Calendar} size="xs" className="mt-px shrink-0" />
+            <span className="text-balance">{t('recoveryPhraseDailyReminder')}</span>
+          </p>
+        )}
 
         {hasFailure && (
           <Notice tone="negative" role="alert" className="text-left">

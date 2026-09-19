@@ -498,7 +498,7 @@
   "verifyStepWrong": "Eso no es lo único que hay que decir: vuelve a pulsar sobre ellos",
   "enterYourWalletSeedPhrase": "Introduce la frase de recuperación de 12 palabras (Seed phrase) de tu monedero.",
   "onlyMidenSeedPhrasesAreSupported": "Solo se admiten frases clave de Miden.",
-  "yourWalletIsReady": "¡Tu <highlight>monedero</highlight> ya está listo!",
+  "yourWalletIsReady": "¡Tu monedero ya está listo!",
   "recoveryPhraseSevenDayReminder": "Anota tu frase de recuperación en un plazo de 7 días para proteger tu monedero por completo.",
   "recoveryPhraseDailyReminder": "Te lo recordaremos cada día en la pantalla de inicio.",
   "openWallet": "Abrir la cartera",

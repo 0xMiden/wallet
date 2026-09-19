@@ -498,7 +498,7 @@
   "verifyStepWrong": "그게 전부가 아닙니다 — 다시 한 번 탭해 보세요",
   "enterYourWalletSeedPhrase": "지갑의 12단어Seed phrase를 입력하세요.",
   "onlyMidenSeedPhrasesAreSupported": "Miden Seed 구문만 지원됩니다.",
-  "yourWalletIsReady": "<highlight>지갑</highlight>이 준비되었습니다!",
+  "yourWalletIsReady": "지갑이 준비되었습니다!",
   "recoveryPhraseSevenDayReminder": "지갑을 완벽하게 보호하려면 7일 이내에 복구 문구를 기록해 두세요.",
   "recoveryPhraseDailyReminder": "홈 화면에서 매일 알려드리겠습니다.",
   "openWallet": "지갑 열기",

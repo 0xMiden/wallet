@@ -160,7 +160,13 @@ describe('ConfirmationScreen', () => {
     it('draws the outcome hero with the reminders and pins the CTA in the footer', () => {
       renderComponent();
       expect(screen.getByRole('heading', { level: 1 })).toHaveClass('text-hero-name');
-      expect(screen.getByText('recoveryPhraseDailyReminder').closest('[role="note"]')).not.toBeNull();
+      expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('yourWalletIsReady');
+      // The daily reminder is one quiet caption line under the subtitle, not a Notice panel.
+      const reminder = screen.getByTestId('onboarding-confirmation-reminder');
+      expect(reminder).toHaveTextContent('recoveryPhraseDailyReminder');
+      expect(reminder).toHaveClass('text-caption', 'text-muted');
+      expect(reminder.closest('[role="note"]')).toBeNull();
+      expect(screen.getByText('recoveryPhraseSevenDayReminder')).toHaveClass('text-balance');
       expect(screen.getByTestId('onboarding-confirmation-submit').closest('[data-slot="footer"]')).not.toBeNull();
     });
   });

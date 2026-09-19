@@ -498,7 +498,7 @@
   "verifyStepWrong": "Das ist noch nicht das letzte Wort – tippe noch einmal darauf",
   "enterYourWalletSeedPhrase": "Geben Sie die 12-Wort-Seed phrase Ihrer Wallet ein.",
   "onlyMidenSeedPhrasesAreSupported": "Es werden ausschließlich Miden-Seed-Phrasen unterstützt.",
-  "yourWalletIsReady": "Deine <highlight>Wallet</highlight> ist bereit!",
+  "yourWalletIsReady": "Deine Wallet ist bereit!",
   "recoveryPhraseSevenDayReminder": "Notieren Sie sich Ihre Wiederherstellungsphrase innerhalb von 7 Tagen, um Ihre Wallet vollständig zu sichern.",
   "recoveryPhraseDailyReminder": "Wir werden dich täglich auf dem Startbildschirm daran erinnern.",
   "openWallet": "Brieftasche öffnen",

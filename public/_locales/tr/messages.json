@@ -2268,8 +2268,8 @@
     "englishSource": "Only Miden seed phrases are supported."
   },
   "yourWalletIsReady": {
-    "message": "<highlight>Cüzdanınız</highlight> hazır!",
-    "englishSource": "Your <highlight>Wallet</highlight> is ready!"
+    "message": "Cüzdanınız hazır!",
+    "englishSource": "Your wallet is ready!"
   },
   "recoveryPhraseSevenDayReminder": {
     "message": "Cüzdanınızı tam anlamıyla güvence altına almak için kurtarma ifadesini 7 gün içinde bir yere yazın.",

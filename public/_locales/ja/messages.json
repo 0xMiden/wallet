@@ -2268,8 +2268,8 @@
     "englishSource": "Only Miden seed phrases are supported."
   },
   "yourWalletIsReady": {
-    "message": "<highlight>ウォレット</highlight>の準備が完了しました！",
-    "englishSource": "Your <highlight>Wallet</highlight> is ready!"
+    "message": "ウォレットの準備が完了しました！",
+    "englishSource": "Your wallet is ready!"
   },
   "recoveryPhraseSevenDayReminder": {
     "message": "ウォレットのセキュリティを万全にするため、7日以内にリカバリーフレーズを書き留めておいてください。",
