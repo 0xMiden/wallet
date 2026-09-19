@@ -163,6 +163,7 @@ CTA never do. The CTA clears the home indicator on iOS.
 | Spinner | `Spinner` | 0.9s ring, `accent` on `fill`. | atoms `Spinner`, `ActivitySpinner`, `CircularProgress` |
 | Skeleton | `Skeleton` | `fill` blocks shaped like the content (`inverse` on a colored surface); tests find it by `data-slot="skeleton"`. | `lib/ui/skeleton`, ad-hoc `animate-pulse` |
 | Menu, tooltip | `DropdownMenu`, `Tooltip` on Radix (*planned*) | Until then `components/Tooltip` stays on tippy.js. | overflow menus, tippy.js |
+| Passcode keypad | `Numpad` (`components/Numpad`), `PasscodeDots`, `PasscodeScreen` | `Numpad`: twelve slots, 1–9, biometric key or empty, 0, bare backspace; round 76px keys on `fill` (`fill-pressed` held), 32px 800 digits, 28 / 16px gaps, 64px keys with 24 / 12px gaps under 720px of viewport height; `press` motion and the tap haptic on every key. `PasscodeDots`: 14px dots, `hairline` empty and `ink` filled with a pop, the `shake` preset and the error haptic on a rejected code. `PasscodeScreen`: title, message (`negative-ink` for errors) and dots at the top, an optional text action under the dots, the keypad anchored to the bottom 20px above the safe area. Unlock and onboarding draw `PasscodeScreen`; sheets draw `PasscodeEntry` over the same keypad and dots. | the square 92px keys, the unlock and onboarding copies of the dots |
 | Copy | `CopyButton`, `CopyChip` | `CopyButton`: an `accent-tint-ink` text action in a detail row. `CopyChip`: a `Pill` with copy for hashes and addresses (`AddressChip` and `HashChip` are thin wrappers over it). | atoms `CopyButton`, raw clipboard calls |
 
 ## Motion
@@ -182,6 +183,7 @@ callbacks). The app root sets `<MotionConfig reducedMotion="user">`.
 | `press` | `whileTap` scale 0.96, `springs.snappy` | `Button` (inline 800/35), `Toggle` (700/30), CSS `active:scale-*` |
 | `indicator` | shared `layoutId`, `springs.pill` | token detail tabs, `TabPicker` |
 | `shimmer` | 1.2s linear loop, still under reduced motion | two pending-activity runners |
+| `shake` | x keyframes out and back to rest over `durations.slow`, `easeInOut`; does not run under reduced motion | — (a rejected passcode's dots) |
 
 A step inside one page (the `Navigator` flows: send, swap, bridge deposit, encrypted file; and the
 onboarding steps) is not a page push: its `AnimatePresence` runs in `mode="wait"`, so the leaving
