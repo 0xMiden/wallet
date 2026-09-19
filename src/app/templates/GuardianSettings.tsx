@@ -265,7 +265,7 @@ const GuardianSettings: FC = () => {
                 <GuardianAvatar data-testid="guardian-avatar" className="h-14 w-14" />
               )}
             </div>
-            <h2 className="mt-2 break-all text-center font-heading text-xl font-bold text-ink">{guardianName}</h2>
+            <h2 className="mt-2 break-all text-center text-hero-name text-ink">{guardianName}</h2>
             {statusPill}
           </>
         )}
@@ -277,7 +277,7 @@ const GuardianSettings: FC = () => {
         title={t('about')}
         titleAs="h3"
         description={
-          <Trans i18nKey="guardianInfoDescription" components={{ b: <span className="font-bold text-ink" /> }} />
+          <Trans i18nKey="guardianInfoDescription" components={{ b: <span className="text-body-strong text-ink" /> }} />
         }
       >
         {/* accent-tint-ink, not accent: accent is 3.0:1 on the page, short of AA for 14px text. */}
@@ -287,7 +287,7 @@ const GuardianSettings: FC = () => {
             hapticLight();
             setIsInfoOpen(true);
           }}
-          className="self-start px-1 font-heading text-sm font-bold text-accent-tint-ink"
+          className="self-start px-1 text-action text-accent-tint-ink"
         >
           {t('learnMoreAboutGuardian')}
         </button>
