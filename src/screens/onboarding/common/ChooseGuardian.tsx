@@ -265,7 +265,20 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
                       </span>
                     </div>
                   )}
-                  <div className={cn('flex flex-1 items-center justify-center', isOffline && 'opacity-50')}>
+                  <div
+                    className={cn(
+                      'flex flex-1 items-center justify-center',
+                      // The brand-kit tile: pure white in light mode, a dark
+                      // neutral in dark mode, so OpenZeppelin's wordmark (fixed
+                      // black/white text — see GuardianLogoEntry.Mark's
+                      // docstring) always sits on the right background rather
+                      // than whatever the card would otherwise show through.
+                      // Only a provider with brand-kit artwork like this
+                      // carries a `Mark`; every other card is unchanged.
+                      logoEntry?.Mark && 'bg-pure-white dark:bg-grey-800',
+                      isOffline && 'opacity-50'
+                    )}
+                  >
                     {logoEntry ? (
                       <logoEntry.Logo className={clsx(guardianLogoColorClass(logoEntry), logoEntry.paddingXClass)} />
                     ) : (
