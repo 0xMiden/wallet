@@ -33,8 +33,10 @@ export interface ExploreItem {
   type: ExploreItemType;
   category: ExploreCategory;
   name: string;
-  /** One line under the name. */
+  /** One line under the name, in English: the fallback, and what search matches. */
   tagline: string;
+  /** i18n key of the tagline, shown in place of `tagline` when set. */
+  taglineKey?: string;
   url: string;
   /** The app's icon. Without one, the app shows its initial on a tint derived from its url. */
   icon?: string;
@@ -99,8 +101,13 @@ export const EXPLORE_FILTERS: ExploreFilterDescriptor[] = [
   { id: 'learn', labelKey: 'categoryLearn', icon: IconName.File }
 ];
 
-/** A catalog item from a `FEATURED_DAPPS` entry. */
-function fromDapp(id: string, type: ExploreItemType, category: ExploreCategory): ExploreItem[] {
+/** A catalog item from a `FEATURED_DAPPS` entry, with any fields the catalog words differently. */
+function fromDapp(
+  id: string,
+  type: ExploreItemType,
+  category: ExploreCategory,
+  overrides: Partial<Pick<ExploreItem, 'tagline' | 'taglineKey'>> = {}
+): ExploreItem[] {
   return FEATURED_DAPPS.filter(dapp => dapp.id === id).map(dapp => ({
     id: dapp.id,
     type,
@@ -110,12 +117,19 @@ function fromDapp(id: string, type: ExploreItemType, category: ExploreCategory):
     url: dapp.url,
     icon: dapp.icon || undefined,
     brandColor: dapp.brandColor,
-    isExchange: dapp.isExchange
+    isExchange: dapp.isExchange,
+    ...overrides
   }));
 }
 
 export const EXPLORE_CATALOG: ExploreCatalog = {
-  items: [...fromDapp('faucet', 'tool', 'tools'), ...fromDapp('forkchoice-faucet', 'tool', 'tools')],
+  items: [
+    ...fromDapp('faucet', 'tool', 'tools'),
+    ...fromDapp('forkchoice-faucet', 'tool', 'tools', {
+      tagline: 'Get testnet tokens for swap',
+      taglineKey: 'exploreForkchoiceFaucetTagline'
+    })
+  ],
   sections: [
     { id: 'featured', kind: 'featured', titleKey: 'exploreFeatured', itemIds: ['faucet'] },
     { id: 'helper-tools', kind: 'list', titleKey: 'exploreHelperTools', itemIds: ['faucet', 'forkchoice-faucet'] },
@@ -182,4 +196,34 @@ export function assignMorphOwners(sections: ResolvedExploreSection[]): Map<strin
     owners.set(section.id, owned);
   }
   return owners;
+}
+
+/**
+ * The catalog items matching a search query under a chip, each once, in the order the sections
+ * show them. An item matches when its name, tagline or host contains every word of the query,
+ * ignoring case. An empty query matches nothing: the page shows its sections instead.
+ */
+export function searchExploreCatalog(catalog: ExploreCatalog, filter: ExploreFilter, query: string): ExploreItem[] {
+  const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return [];
+
+  const seen = new Set<string>();
+  const matches: ExploreItem[] = [];
+  for (const { items } of resolveExploreSections(catalog, filter)) {
+    for (const item of items) {
+      if (seen.has(item.id)) continue;
+      seen.add(item.id);
+      const haystack = [item.name, item.tagline, hostOf(item.url)].join(' ').toLowerCase();
+      if (words.every(word => haystack.includes(word))) matches.push(item);
+    }
+  }
+  return matches;
+}
+
+function hostOf(url: string): string {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return url;
+  }
 }

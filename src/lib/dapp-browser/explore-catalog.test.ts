@@ -4,6 +4,7 @@ import {
   EXPLORE_FILTERS,
   getExploreCatalog,
   resolveExploreSections,
+  searchExploreCatalog,
   type ExploreCatalog
 } from './explore-catalog';
 
@@ -90,5 +91,31 @@ describe('assignMorphOwners', () => {
     expect([...(owners.get('tools') ?? [])]).toEqual([]);
     expect([...(owners.get('more') ?? [])]).toEqual(['https://dex.example', 'https://quest.example']);
     expect([...(owners.get('recents') ?? [])]).toEqual([]);
+  });
+});
+
+describe('the Forkchoice Faucet', () => {
+  it('keeps its name and is worded as the swap faucet, through an i18n key', () => {
+    const forkchoice = EXPLORE_CATALOG.items.find(item => item.id === 'forkchoice-faucet');
+    expect(forkchoice).toMatchObject({
+      name: 'Forkchoice Faucet',
+      tagline: 'Get testnet tokens for swap',
+      taglineKey: 'exploreForkchoiceFaucetTagline'
+    });
+  });
+});
+
+describe('searchExploreCatalog', () => {
+  it('matches name, tagline or host on every word, ignoring case, each item once', () => {
+    expect(searchExploreCatalog(catalog, 'all', 'FAUCET').map(i => i.id)).toEqual(['faucet']);
+    expect(searchExploreCatalog(catalog, 'all', 'play').map(i => i.id)).toEqual(['quest']);
+    expect(searchExploreCatalog(catalog, 'all', 'dex.example').map(i => i.id)).toEqual(['dex']);
+    expect(searchExploreCatalog(catalog, 'all', 'quest play').map(i => i.id)).toEqual(['quest']);
+    expect(searchExploreCatalog(catalog, 'all', 'quest mint')).toEqual([]);
+  });
+
+  it('stays within the chip, and matches nothing for an empty query', () => {
+    expect(searchExploreCatalog(catalog, 'games', 'faucet')).toEqual([]);
+    expect(searchExploreCatalog(catalog, 'all', '   ')).toEqual([]);
   });
 });

@@ -27,6 +27,7 @@ export {
   EXPLORE_FILTERS,
   getExploreCatalog,
   resolveExploreSections,
+  searchExploreCatalog,
   assignMorphOwners,
   type ExploreCatalog,
   type ExploreCategory,
