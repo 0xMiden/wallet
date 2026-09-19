@@ -63,12 +63,26 @@ describe('QRCode', () => {
       const { container } = render(<QRCode address={ADDRESS} size={200} />);
 
       const outer = container.firstChild as HTMLElement;
-      expect(outer).toHaveClass('bg-pure-white', 'rounded-10', 'p-2');
+      expect(outer).toHaveClass('bg-pure-white', 'rounded-2xl', 'p-2');
 
       const inner = outer.firstChild as HTMLElement;
       expect(inner.tagName).toBe('DIV');
       // Numeric size props become px strings on the DOM node.
       expect(inner).toHaveStyle({ width: '200px', height: '200px' });
+    });
+
+    it('fills its parent as a square when fluid, scaling the SVG instead of drawing at size', () => {
+      const { container } = render(<QRCode address={ADDRESS} size={288} fluid />);
+
+      const outer = container.firstChild as HTMLElement;
+      expect(outer).toHaveClass('w-full');
+
+      const inner = outer.firstChild as HTMLElement;
+      expect(inner).toHaveClass('aspect-square', 'w-full', '[&>svg]:h-full', '[&>svg]:w-full');
+      expect(inner.style.width).toBe('');
+      expect(inner.style.height).toBe('');
+      // `size` is still the rendered resolution (the exported PNG and the SVG's viewBox).
+      expect(ctorOptions()).toMatchObject({ width: 288, height: 288 });
     });
 
     it('constructs the styling instance exactly once with the encoded payload', () => {
@@ -192,6 +206,24 @@ describe('QRCode', () => {
 
       rerender(<QRCode address={ADDRESS} size={200} />);
       expect(container.querySelector('[data-testid="qr-code-caption"]')).toBeNull();
+    });
+
+    it('keeps the caption off screen when showCaption is false, but still captions the export', async () => {
+      mockGetRawData.mockResolvedValue(new Blob(['png-bytes'], { type: 'image/png' }));
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        const ref = React.createRef<QRCodeHandle>();
+        const { container } = render(
+          <QRCode ref={ref} address={ADDRESS} size={200} caption="Miden Testnet" showCaption={false} />
+        );
+
+        expect(container.querySelector('[data-testid="qr-code-caption"]')).toBeNull();
+        // The export still tries to paint the caption strip (jsdom has no canvas to finish it).
+        await ref.current!.getImageBlob();
+        expect(warn).toHaveBeenCalledWith('[QRCode] caption compose unavailable, sharing the raw QR');
+      } finally {
+        warn.mockRestore();
+      }
     });
 
     it('falls back to the raw PNG when the realm has no createImageBitmap', async () => {
