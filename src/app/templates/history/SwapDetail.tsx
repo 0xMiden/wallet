@@ -1,12 +1,12 @@
 import React, { FC, memo } from 'react';
 
-import clsx from 'clsx';
 import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
 import { Button, ButtonVariant } from 'components/Button';
 import { DetailRow } from 'components/ui/DetailCard';
+import { Status, StatusBadge } from 'components/ui/StatusBadge';
 import { springs, useMotion } from 'lib/animation';
 import { SwapOrderState, SwapSettlementTransaction } from 'lib/miden/activity';
 import { ITransactionStatus } from 'lib/miden/db/types';
@@ -180,7 +180,7 @@ const SwapNoteRow = memo(function SwapNoteRow({
             <p className="font-heading text-base font-semibold text-text-secondary-token">{t('swapOpenFill')}</p>
             <p className="text-sm font-medium text-text-tertiary-token">{t('swapMatchingDex')}</p>
           </div>
-          <span className="shrink-0 text-sm font-semibold text-status-pending">{t('pending')}</span>
+          <StatusBadge status="pending" className="shrink-0" />
         </div>
       );
   }
@@ -209,29 +209,16 @@ const ExplorerTxValue: FC<{ txId: string; onChain?: boolean }> = ({ txId, onChai
 // request already matched, and a terminal one can have delivered part of the
 // request and returned the rest. Announcing either as a flat "Filled" overstates
 // what the user got.
-const orderStatusLabel = (state: SwapOrderState | null, trackingLoading: boolean, isPartialFill: boolean): string => {
+const orderStatusOf = (state: SwapOrderState | null, trackingLoading: boolean, isPartialFill: boolean): Status => {
   switch (state) {
     case 'filled':
-      return isPartialFill ? 'orderStatusPartiallyFilled' : 'orderStatusFilled';
+      return isPartialFill ? 'partiallyFilled' : 'filled';
     case 'reclaimed':
-      return isPartialFill ? 'orderStatusPartiallyFilledReclaimed' : 'orderStatusReclaimed';
+      return isPartialFill ? 'partiallyFilledReclaimed' : 'orderReclaimed';
     case 'active':
-      return isPartialFill ? 'orderStatusPartiallyFilled' : 'orderStatusActive';
+      return isPartialFill ? 'partiallyFilled' : 'open';
     case null:
-      return trackingLoading ? 'loading' : 'trackingUnavailable';
-  }
-};
-
-const orderStatusTone = (state: SwapOrderState | null, isPartialFill: boolean): string => {
-  switch (state) {
-    case 'filled':
-      return isPartialFill ? 'text-status-pending' : 'text-status-positive';
-    case 'reclaimed':
-      return 'text-text-secondary-token';
-    case 'active':
-      return 'text-status-pending';
-    case null:
-      return 'text-text-tertiary-token';
+      return trackingLoading ? 'loading' : 'unavailable';
   }
 };
 
@@ -355,13 +342,12 @@ export const SwapDetail: FC<SwapDetailProps> = ({
             )}
           </div>
 
-          <p
+          <StatusBadge
+            status={orderStatusOf(orderState, trackingLoading, isPartialFill)}
+            live
+            className="mt-1"
             data-testid="swap-order-status"
-            className={clsx('mt-1 text-xs font-semibold', orderStatusTone(orderState, isPartialFill))}
-            role="status"
-          >
-            {t(orderStatusLabel(orderState, trackingLoading, isPartialFill))}
-          </p>
+          />
         </section>
 
         <section className="mt-6" aria-labelledby="swap-notes-label">
