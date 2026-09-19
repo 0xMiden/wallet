@@ -156,6 +156,9 @@ export const MidenProvider: FC<PropsWithChildren> = ({ children }) => {
     <WalletStoreProvider>
       <MidenContextProvider>
         <SdkMidenProvider config={sdkConfig}>
+          {/* Prices are public and need no unlock. Fetched only once the wallet turned ready, they
+              landed after Home's first frame, so the balance card showed "$—" and then the total. */}
+          <PriceProvider />
           <ConditionalProviders>{children}</ConditionalProviders>
         </SdkMidenProvider>
       </MidenContextProvider>
@@ -183,7 +186,6 @@ const ConditionalProviders: FC<PropsWithChildren> = ({ children }) => {
       ready ? (
         <TokensMetadataProvider>
           <FiatCurrencyProvider>
-            <PriceProvider />
             {children}
             <SwapSettlementManager />
             <SwapOrderTrackingManager />
