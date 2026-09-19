@@ -48,7 +48,7 @@ jest.mock('./storage', () => ({
 }));
 
 jest.mock('lib/prices', () => ({
-  PriceProvider: () => null
+  PriceProvider: () => <div data-testid="price-provider" />
 }));
 
 jest.mock('components/NoteToastProvider', () => ({
@@ -140,5 +140,15 @@ describe('MidenProvider', () => {
     );
     expect(mockPreloadStorage).toHaveBeenCalledTimes(1);
     expect(mockPreloadStorage).toHaveBeenCalledWith(['tokens_base_metadata', 'fiat_currency']);
+  });
+
+  it('fetches prices while the wallet is still locked, so Home has them on its first frame', async () => {
+    _g.__providerTest.ready = false;
+    const { findByTestId } = render(
+      <MidenProvider>
+        <div>x</div>
+      </MidenProvider>
+    );
+    expect(await findByTestId('price-provider')).toBeDefined();
   });
 });
