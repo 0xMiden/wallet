@@ -10,6 +10,7 @@
 
 - [CHANGE][all] Transaction details close with the back button only; the extra X and Close button are gone.
 - [CHANGE][all] OpenZeppelin's logo follows its brand kit: official colours and mark, on a white tile.
+- [CHANGE][all] Settings security pages share one layout: Keys, Reveal Private Key, Remove seed phrase, Verify seed phrase, Encrypted wallet file and Guardian Settings use the shared header, a 16px margin, grey list groups and section labels, and put their actions in a footer pinned to the bottom. Keys lists Reveal Private Key and Rotate Guardian as rows and gives Rotate device key its own section with a compact button, without the black rule. Remove seed phrase is a red destructive button beside Cancel.
 - [CHANGE][all] Chips, badges and small actions share one `Pill` component (two sizes, one set of tones), so the network chip and the recipient step's Paste, Address Book, Scan and "Add to contacts?" pills are the same height, padding and type scale. Every tone carries a 1px border, so selecting a chip no longer resizes it.
 - [CHANGE][all] Send flow: a recent recipient shows its network as a badge on the avatar instead of a chip on the second line, and the address appears once (an unnamed recipient used to show the same shortened address twice).
 - [CHANGE][all] Contacts get their own avatar: a color and initials derived from the contact, in the address book, the send contact picker and recent recipients, instead of the same orange Miden image for everyone.
