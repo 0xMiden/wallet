@@ -6,6 +6,8 @@ import { fireEvent, waitFor } from '@testing-library/react';
 import { createRoot } from 'react-dom/client';
 import { act } from 'react-dom/test-utils';
 
+import { hapticLight } from 'lib/mobile/haptics';
+
 import { Receive } from './Receive';
 
 // Pending (claimable) notes moved to their own `/pending-notes` page — see
@@ -43,7 +45,14 @@ jest.mock('app/env', () => ({
 
 jest.mock('app/icons/v2', () => ({
   Icon: () => null,
-  IconName: { Add: 'Add', CrossChain: 'CrossChain', Share: 'Share', WarningFill: 'WarningFill' }
+  IconName: {
+    Add: 'Add',
+    Checkmark: 'Checkmark',
+    CopyNew: 'CopyNew',
+    CrossChain: 'CrossChain',
+    Share: 'Share',
+    WarningFill: 'WarningFill'
+  }
 }));
 
 let mockNetworkKey: 'testnet' | 'devnet' | 'localnet' | null = 'testnet';
@@ -157,6 +166,7 @@ describe('Receive - Address', () => {
     mockCopy.mockClear();
     mockClipboardWrite.mockClear();
     mockIsMobile.mockReturnValue(false);
+    jest.mocked(hapticLight).mockClear();
   });
 
   afterEach(async () => {
@@ -193,6 +203,8 @@ describe('Receive - Address', () => {
     const container = await renderReceive();
     const copyButton = container.querySelector('[data-testid="receive-copy-address"]')!;
 
+    // The address is a full-width 44px pill on `fill`, aligned with the notice and actions.
+    expect(copyButton).toHaveClass('h-11', 'w-full', 'rounded-full', 'bg-fill', 'text-ink');
     expect(copyButton.textContent).toBe('test-acc');
 
     await act(async () => {
@@ -209,16 +221,77 @@ describe('Receive - Address', () => {
     jest.useRealTimers();
   });
 
-  it('warns about test funds before the share and bridge actions (#875)', async () => {
+  it('warns about test funds in a warning Notice before the share and bridge actions (#875)', async () => {
     const container = await renderReceive();
 
     const warning = container.querySelector('[data-testid="receive-test-funds-warning"]')!;
-    expect(warning.textContent).toContain('receiveTestFundsTitle');
-    expect(warning.textContent).toContain('receiveTestFundsBody');
+    // The shared Notice: a tinted note on tokens, no dashed border, and the body alone (the
+    // network chip above already says which network).
+    expect(warning).toHaveAttribute('role', 'note');
+    expect(warning).toHaveAttribute('data-tone', 'warning');
+    expect(warning).toHaveClass('bg-status-pending/10', 'rounded-2xl');
+    expect(warning.className).not.toContain('border-dashed');
+    expect(warning.querySelector('[data-slot="body"]')?.textContent).toBe('receiveTestFundsBody:testnet:');
+    expect(warning.querySelector('[data-slot="icon"]')).not.toBeNull();
     const shareButton = Array.from(container.querySelectorAll('button')).find(b => b.textContent === 'share')!;
     const crossChain = container.querySelector('[data-testid="receive-cross-chain"]')!;
     expect(warning.compareDocumentPosition(shareButton)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
     expect(warning.compareDocumentPosition(crossChain)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+  });
+
+  it('renders Share and Cross-chain as rows of one ListGroup, with one haptic per tap', async () => {
+    const container = await renderReceive();
+
+    const actions = container.querySelector('[data-testid="receive-actions"]')!;
+    expect(actions).toHaveClass('rounded-2xl', 'bg-fill');
+    const share = actions.querySelector('[data-testid="receive-share"]')!;
+    const crossChain = actions.querySelector('[data-testid="receive-cross-chain"]')!;
+    expect(share.tagName).toBe('BUTTON');
+    expect(crossChain.tagName).toBe('BUTTON');
+    expect(share.querySelector('[data-slot="title"]')?.textContent).toBe('share');
+    expect(crossChain.querySelector('[data-slot="title"]')?.textContent).toBe('crossChain');
+    // Share opens the system sheet in place; only the cross-chain row goes somewhere.
+    expect(share.querySelector('[data-slot="chevron"]')).toBeNull();
+    expect(crossChain.querySelector('[data-slot="chevron"]')).not.toBeNull();
+    // No label is sized by hand any more (the 40px `text-[2.5rem]` spans).
+    expect(container.querySelector('[class*="text-[2.5rem]"]')).toBeNull();
+
+    await act(async () => {
+      fireEvent.click(crossChain);
+    });
+    expect(hapticLight).toHaveBeenCalledTimes(1);
+  });
+
+  it('names the network in a NetworkChip and keeps the caption to the shared QR image', async () => {
+    const container = await renderReceive();
+
+    expect(container.querySelector('[data-testid="receive-network"]')?.textContent).toBe('qrNetworkCaption:testnet:');
+    expect(mockQRCodeProps).toHaveBeenLastCalledWith(
+      expect.objectContaining({ caption: 'qrNetworkCaption:testnet:', showCaption: false, fluid: true, size: 300 })
+    );
+  });
+
+  it('sizes the QR from the height the layout leaves, square and capped, instead of scrolling', async () => {
+    const container = await renderReceive();
+
+    const slot = container.querySelector('[data-testid="receive-qr-slot"]')!;
+    expect(slot).toHaveClass('relative', 'flex-1', 'min-h-40', 'w-full');
+    const frame = container.querySelector('[data-testid="receive-qr-frame"]')!;
+    expect(frame).toHaveClass('aspect-square', 'h-full', 'max-h-72', 'max-w-full');
+    // The QR block grows into the free height; the notice and actions keep their own.
+    expect(container.querySelector('[data-testid="receive-qr-block"]')).toHaveClass('flex-1');
+    // One column with the 16px gutter, clearing the floating tab bar off mobile.
+    const column = slot.closest('[data-testid="receive-qr-block"]')!.parentElement!;
+    expect(column).toHaveClass('flex', 'flex-col', 'min-h-full', 'px-4', 'pt-4', 'pb-20');
+  });
+
+  it('clears the docked tab bar on mobile', async () => {
+    mockIsMobile.mockReturnValue(true);
+    const container = await renderReceive();
+
+    const column = container.querySelector('[data-testid="receive-qr-block"]')!.parentElement!;
+    expect(column).toHaveClass('pb-18');
+    expect(column).not.toHaveClass('pb-20');
   });
 
   it('does not render a pending tab switcher', async () => {
@@ -270,6 +343,7 @@ describe('Receive - Address', () => {
       // The QR still renders on mainnet; only the test-network copy goes away.
       expect(mockQRCodeProps).toHaveBeenCalled();
       expect(container.querySelector('[data-testid="receive-test-funds-warning"]')).toBeNull();
+      expect(container.querySelector('[data-testid="receive-network"]')).toBeNull();
       expect(mockQRCodeProps.mock.lastCall![0].caption).toBeUndefined();
     });
 
