@@ -203,15 +203,12 @@ export const ScanQrDrawer: React.FC<ScanQrDrawerProps> = ({
           )}
 
           {scanState === 'permission-denied' && (
-            <div data-testid="scan-qr-permission-denied" className="flex flex-col items-center gap-3 py-6">
-              <p className="text-sm text-text-muted">{t('cameraPermissionDenied')}</p>
-              <button
-                type="button"
-                onClick={close}
-                className="rounded-full bg-primary-500 px-6 py-2.5 text-sm font-medium text-pure-white"
-              >
-                {t('close')}
-              </button>
+            <div data-testid="scan-qr-permission-denied" className="w-full">
+              <EmptyState
+                icon={IconName.Lock}
+                title={t('cameraPermissionDenied')}
+                secondaryAction={{ label: t('close'), onClick: close }}
+              />
             </div>
           )}
 
