@@ -17,6 +17,8 @@ import { hexFaucetToBech32 } from '../helpers/faucet-address';
 import { streamIndexedDBToFile } from '../helpers/idb-dump';
 
 const INITIAL_MINT_AMOUNT = 100_000_000_000; // matches mint-and-balance.spec.ts
+/** `midenCli.createFaucet()` default; the mint amount above is in base units. */
+const FAUCET_DECIMALS = 8;
 
 function intEnv(key: string, dflt: number): number {
   const raw = process.env[key];
@@ -178,11 +180,16 @@ test.describe('Stress - random send/claim', () => {
     const initialA = (await walletA.quickBalanceSnapshot({ faucetId })).totalReportable;
     const initialB = (await walletB.quickBalanceSnapshot({ faucetId })).totalReportable;
     // Asserted here rather than behind a helper, so the message can name what actually went wrong:
-    // a zero baseline means either the mint never landed or the hex-to-bech32 conversion produced
+    // a wrong baseline means either the mint never landed or the hex-to-bech32 conversion produced
     // an id the wallet does not key balances by, and the conservation check downstream would then
     // be comparing against nothing.
-    expect(initialA, `exact-faucet baseline unfunded for wallet A (faucetId=${faucetId})`).toBeGreaterThan(0);
-    expect(initialB, `exact-faucet baseline unfunded for wallet B (faucetId=${faucetId})`).toBeGreaterThan(0);
+    //
+    // The EXACT minted amount, not `> 0`: a zero threshold passes for the wrong token, a partial
+    // claim, or a balance that was already there, which is the shape this suite exists to stop
+    // trusting. Fees cannot erode it because they burn the native asset, never the deployed faucet.
+    const expectedPerWallet = INITIAL_MINT_AMOUNT / 10 ** FAUCET_DECIMALS;
+    expect(initialA, `exact-faucet baseline wrong for wallet A (faucetId=${faucetId})`).toBe(expectedPerWallet);
+    expect(initialB, `exact-faucet baseline wrong for wallet B (faucetId=${faucetId})`).toBe(expectedPerWallet);
     const initialTotal = initialA + initialB;
 
     console.log(`\n=== INITIAL BALANCES ===\nA=${initialA}\nB=${initialB}\ntotal=${initialTotal}\n`);
