@@ -170,20 +170,13 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
           <CopyButton
             text={address}
             data-testid="receive-copy-address"
+            label={truncateAddress(address, false, 16, 8)}
+            icon="leading"
+            iconClassName="text-muted"
+            checkClassName="text-positive-ink"
             className="flex h-11 w-full items-center justify-center rounded-full bg-fill px-4 text-ink transition-colors hover:bg-fill-pressed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary"
-          >
-            {copied => (
-              <span className="flex min-w-0 items-center gap-2 font-heading text-base leading-5 font-bold">
-                <Icon
-                  name={copied ? IconName.Checkmark : IconName.CopyNew}
-                  size="xs"
-                  fill={copied ? 'currentColor' : undefined}
-                  className={cn('shrink-0', copied ? 'text-positive-ink' : 'text-muted')}
-                />
-                <span className="truncate">{copied ? t('copied') : truncateAddress(address, false, 16, 8)}</span>
-              </span>
-            )}
-          </CopyButton>
+            contentClassName="gap-2 font-heading text-base leading-5 font-bold"
+          />
         </div>
 
         <div className="mt-5 flex shrink-0 flex-col gap-3">

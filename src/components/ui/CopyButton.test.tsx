@@ -15,8 +15,26 @@ jest.mock('react-i18next', () => ({
 
 jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn() }));
 
+const mockMotion = { reduce: false };
+jest.mock('framer-motion', () => ({
+  ...jest.requireActual('framer-motion'),
+  useReducedMotion: () => mockMotion.reduce
+}));
+
+/** The label that has settled in (not the one rolling out). */
+const presentLabel = (root: HTMLElement) => root.querySelector('[data-copy-label] [data-present="true"]');
+/** The glyph that has settled in (not the one morphing out). */
+const presentGlyph = (root: HTMLElement) => root.querySelector('[data-copy-icon] [data-present="true"]');
+
+const tap = async (el: HTMLElement) => {
+  await act(async () => {
+    fireEvent.click(el);
+  });
+};
+
 beforeEach(() => {
   jest.clearAllMocks();
+  mockMotion.reduce = false;
   mockWrite.mockResolvedValue(undefined);
 });
 
@@ -24,12 +42,10 @@ afterEach(() => {
   jest.useRealTimers();
 });
 
-it('writes the given text to the clipboard on tap, with the tap haptic', async () => {
+it('writes the given text to the clipboard on tap, with exactly one tap haptic', async () => {
   render(<CopyButton text="0xabc123" data-testid="copy" />);
 
-  await act(async () => {
-    fireEvent.click(screen.getByTestId('copy'));
-  });
+  await tap(screen.getByTestId('copy'));
 
   expect(mockWrite).toHaveBeenCalledWith({ string: '0xabc123' });
   expect(hapticLight).toHaveBeenCalledTimes(1);
@@ -43,10 +59,6 @@ it('uses the accent-tint-ink text token (there is no "accent" color)', () => {
 });
 
 it("lets a caller's className replace the default text color instead of losing to it", () => {
-  // `cn` (tailwind-merge), not `clsx`: a caller that wants a different text color (e.g. a card
-  // that paints its own foreground) passes it via `className`, and it must win over the default
-  // `text-accent-tint-ink` rather than both classes landing in the string and the winner being
-  // decided by Tailwind's compiled order (the same class of bug `Pill` had for border color).
   render(<CopyButton text="0xabc123" data-testid="copy" className="text-surface-balance-fg" />);
 
   const button = screen.getByTestId('copy');
@@ -54,77 +66,119 @@ it("lets a caller's className replace the default text color instead of losing t
   expect(button).not.toHaveClass('text-accent-tint-ink');
 });
 
-it('wraps its label in an aria-live region, so "Copied" is announced', () => {
+it('keeps its content in an aria-live region, so "Copied" is announced', () => {
   render(<CopyButton text="0xabc123" data-testid="copy" />);
 
   const live = screen.getByTestId('copy').querySelector('[aria-live="polite"]');
   expect(live).toHaveTextContent('copy');
 });
 
-it('shows "Copy" by default, then "Copied" for a beat after a successful copy', async () => {
-  render(<CopyButton text="0xabc123" />);
+describe('the text action', () => {
+  it('rolls its label from "Copy" to "Copied" after a copy, then back after the feedback window', async () => {
+    jest.useFakeTimers();
+    render(<CopyButton text="0xabc123" data-testid="copy" />);
+    const button = screen.getByTestId('copy');
+    expect(presentLabel(button)).toHaveTextContent(/^copy$/);
 
-  expect(screen.getByText('copy')).toBeInTheDocument();
+    await tap(button);
+    expect(presentLabel(button)).toHaveTextContent('copied');
+    expect(presentLabel(button)).toHaveAttribute('data-copy-state', 'copied');
+    expect(button).toHaveAttribute('data-copied', 'true');
 
-  await act(async () => {
-    fireEvent.click(screen.getByRole('button'));
+    act(() => {
+      jest.advanceTimersByTime(1500);
+    });
+    expect(presentLabel(button)).toHaveTextContent(/^copy$/);
+    expect(button).toHaveAttribute('data-copied', 'false');
   });
 
-  expect(screen.getByText('copied')).toBeInTheDocument();
-  expect(screen.queryByText('copy')).not.toBeInTheDocument();
+  it('hides the label that rolls out from assistive tech', async () => {
+    render(<CopyButton text="0xabc123" data-testid="copy" />);
+    const button = screen.getByTestId('copy');
+
+    await tap(button);
+
+    // Still rolling out right after the tap, and not read while it does.
+    const leaving = button.querySelector('[data-copy-label] [data-present="false"]');
+    expect(leaving).toHaveTextContent(/^copy$/);
+    expect(leaving).toHaveAttribute('aria-hidden', 'true');
+  });
+
+  it('has no glyph unless asked for one', () => {
+    render(<CopyButton text="0xabc123" data-testid="copy" />);
+    expect(screen.getByTestId('copy').querySelector('[data-copy-icon]')).toBeNull();
+  });
 });
 
-it('reverts to "Copy" after the feedback window elapses', async () => {
-  jest.useFakeTimers();
-  render(<CopyButton text="0xabc123" />);
+describe('the glyph', () => {
+  it('morphs the copy mark into a check after a copy, and back after the feedback window', async () => {
+    jest.useFakeTimers();
+    render(<CopyButton text="0xabc123" data-testid="copy" icon="only" aria-label="copy the address" />);
+    const button = screen.getByTestId('copy');
+    expect(presentGlyph(button)).toHaveAttribute('data-copy-state', 'idle');
 
-  await act(async () => {
-    fireEvent.click(screen.getByRole('button'));
+    await tap(button);
+    expect(presentGlyph(button)).toHaveAttribute('data-copy-state', 'copied');
+
+    act(() => {
+      jest.advanceTimersByTime(1500);
+    });
+    expect(presentGlyph(button)).toHaveAttribute('data-copy-state', 'idle');
   });
-  expect(screen.getByText('copied')).toBeInTheDocument();
 
-  act(() => {
-    jest.advanceTimersByTime(1500);
+  it('sits before or after the label', () => {
+    const { rerender } = render(<CopyButton text="0xabc" data-testid="copy" icon="leading" label="addr" />);
+    let row = screen.getByTestId('copy').querySelector('[aria-live]')!;
+    expect(row.firstElementChild).toHaveAttribute('data-copy-icon');
+
+    rerender(<CopyButton text="0xabc" data-testid="copy" icon="trailing" label="addr" />);
+    row = screen.getByTestId('copy').querySelector('[aria-live]')!;
+    expect(row.children[1]).toHaveAttribute('data-copy-icon');
   });
 
-  expect(screen.getByText('copy')).toBeInTheDocument();
+  it('keeps a value label in place with copiedLabel={null}, and still announces "Copied"', async () => {
+    render(<CopyButton text="0xabc" data-testid="copy" icon="trailing" label="0xab…c" copiedLabel={null} />);
+    const button = screen.getByTestId('copy');
+
+    await tap(button);
+
+    expect(presentLabel(button)).toHaveTextContent('0xab…c');
+    expect(presentGlyph(button)).toHaveAttribute('data-copy-state', 'copied');
+    expect(button.querySelector('[aria-live] .sr-only')).toHaveTextContent('copied');
+  });
 });
 
-it('does not flip to "Copied" when the clipboard write rejects', async () => {
+describe('reduced motion', () => {
+  it('swaps instantly: no presence animation, no blur, no rotation', async () => {
+    mockMotion.reduce = true;
+    render(<CopyButton text="0xabc" data-testid="copy" icon="leading" />);
+    const button = screen.getByTestId('copy');
+
+    await tap(button);
+
+    // Exactly one glyph and one label: nothing is left animating out.
+    expect(button.querySelectorAll('[data-copy-icon] [data-copy-state]')).toHaveLength(1);
+    expect(button.querySelectorAll('[data-copy-label] [data-copy-state]')).toHaveLength(1);
+    expect(presentGlyph(button)).toHaveAttribute('data-copy-state', 'copied');
+    expect(presentLabel(button)).toHaveTextContent('copied');
+    for (const el of Array.from(button.querySelectorAll<HTMLElement>('[data-copy-state]'))) {
+      expect(el.style.filter).toBe('');
+      expect(el.style.transform).toBe('');
+    }
+  });
+});
+
+it('shows no success when the clipboard write rejects', async () => {
   mockWrite.mockRejectedValue(new Error('denied'));
-  render(<CopyButton text="0xabc123" />);
+  render(<CopyButton text="0xabc123" data-testid="copy" icon="leading" />);
+  const button = screen.getByTestId('copy');
 
-  await act(async () => {
-    fireEvent.click(screen.getByRole('button'));
-  });
+  await tap(button);
 
-  expect(screen.getByText('copy')).toBeInTheDocument();
-  expect(screen.queryByText('copied')).not.toBeInTheDocument();
-});
-
-it('lets a caller override the label with static children (e.g. an icon)', async () => {
-  render(
-    <CopyButton text="0xabc123">
-      <svg data-testid="copy-icon" />
-    </CopyButton>
-  );
-
-  expect(screen.getByTestId('copy-icon')).toBeInTheDocument();
-  expect(screen.queryByText('copy')).not.toBeInTheDocument();
-});
-
-it('lets a caller swap content on the copied state via a render function', async () => {
-  render(
-    <CopyButton text="0xabc123">{copied => <span data-testid="icon">{copied ? 'check' : 'clip'}</span>}</CopyButton>
-  );
-
-  expect(screen.getByTestId('icon')).toHaveTextContent('clip');
-
-  await act(async () => {
-    fireEvent.click(screen.getByRole('button'));
-  });
-
-  expect(screen.getByTestId('icon')).toHaveTextContent('check');
+  expect(presentLabel(button)).toHaveTextContent(/^copy$/);
+  expect(presentGlyph(button)).toHaveAttribute('data-copy-state', 'idle');
+  expect(button).toHaveAttribute('data-copied', 'false');
+  expect(button.querySelector('[data-copy-state="copied"]')).toBeNull();
 });
 
 it('forwards aria-label and stays disableable', () => {
@@ -136,16 +190,16 @@ it('forwards aria-label and stays disableable', () => {
 
 it('lets a caller compute aria-label from the copied state (e.g. an icon-only button)', async () => {
   render(
-    <CopyButton text="0xabc123" aria-label={copied => (copied ? 'copied the address' : 'copy the address')}>
-      <svg data-testid="copy-icon" />
-    </CopyButton>
+    <CopyButton
+      text="0xabc123"
+      icon="only"
+      aria-label={copied => (copied ? 'copied the address' : 'copy the address')}
+    />
   );
 
   expect(screen.getByRole('button', { name: 'copy the address' })).toBeInTheDocument();
 
-  await act(async () => {
-    fireEvent.click(screen.getByTestId('copy-icon'));
-  });
+  await tap(screen.getByRole('button'));
 
   expect(screen.getByRole('button', { name: 'copied the address' })).toBeInTheDocument();
 });
@@ -162,9 +216,7 @@ it('clears its feedback timer on unmount without throwing', async () => {
   jest.useFakeTimers();
   const { unmount } = render(<CopyButton text="0xabc123" />);
 
-  await act(async () => {
-    fireEvent.click(screen.getByRole('button'));
-  });
+  await tap(screen.getByRole('button'));
 
   expect(() => unmount()).not.toThrow();
 });

@@ -248,46 +248,45 @@ describe('BalanceCard states, delta, and interactions', () => {
     expect(hapticLight).toHaveBeenCalledTimes(1);
   });
 
-  it('renders the new copy icon and no edit glyph: the whole card is the account-options control', () => {
+  // The copy control is the shared CopyButton (rendered for real, not stubbed): the address is its
+  // label and the animated glyph trails it.
+  const copyControl = () => screen.getByTestId('balance-card-copy-address');
+  const presentGlyph = () => copyControl().querySelector('[data-copy-icon] [data-present="true"]');
+
+  it('renders the shared copy glyph after the address and no edit glyph: the whole card is the account-options control', () => {
     render(<BalanceCard accountNumber="mtst1aqg...940z" amount="$123.45" onMore={jest.fn()} />);
 
-    const copyIcon = screen.getByText(ADDRESS).nextElementSibling;
-    expect(copyIcon?.getAttribute('data-name')).toBe('CopyNew');
-    // Guards the load-bearing `!` size override (Icon injects a default md size that otherwise wins).
-    expect(copyIcon?.className).toContain('w-4!');
+    expect(presentGlyph()).toHaveAttribute('data-copy-state', 'idle');
+    expect(presentGlyph()?.querySelector('[data-name="CopyNew"]')).toBeInTheDocument();
+    // 16px, the size the footer used before the shared glyph.
+    expect(copyControl().querySelector('[data-copy-icon]')).toHaveClass('w-4', 'h-4');
 
     expect(document.querySelector('[data-name="Edit"]')).toBeNull();
   });
 
-  it('keeps the label and icon laid out (flex, gap, centered, truncating) even though CopyButton wraps them in its own aria-live span', () => {
-    // Renders the REAL CopyButton (not a stub): it wraps `children` in `<span aria-live>`, so the
-    // flex/gap/truncate classes only do anything if BalanceCard puts them on a span that's the
-    // ACTUAL parent of the label and icon, not on CopyButton's own `className` (which lands on
-    // the outer <button>, one level above that wrapper, and has no effect on the layout inside).
+  it('lays the address out before the glyph in one truncating row, in the footer type', () => {
     render(<BalanceCard accountNumber="mtst1aqg...940z" amount="$123.45" onMore={jest.fn()} />);
 
-    const label = screen.getByText(ADDRESS);
-    const flexParent = label.parentElement!;
-    expect(flexParent).toHaveClass('flex', 'items-center', 'gap-1.5', 'min-w-0');
-    expect(label).toHaveClass('truncate');
-    // The icon is the flex parent's other child, laid out beside the label by that same flex row.
-    expect(flexParent.children).toHaveLength(2);
-    expect(flexParent.children[1]!.getAttribute('data-name')).toBe('CopyNew');
+    const row = copyControl().querySelector('[aria-live="polite"]')!;
+    expect(row).toHaveClass('flex', 'items-center', 'gap-1.5', 'min-w-0', 'text-label');
+    expect(row.children[0]).toHaveAttribute('data-copy-label');
+    expect(screen.getByText(ADDRESS)).toHaveClass('truncate');
+    expect(row.children[1]).toHaveAttribute('data-copy-icon');
   });
 
-  it('swaps the copy glyph for a checkmark while the account id is copied', async () => {
+  it('morphs the copy glyph to a check while the account id is copied, keeping the address in place', async () => {
     render(<BalanceCard accountNumber="mtst1aqg...940z" accountId="mtst1aqgfullaccountid940z" amount="$123.45" />);
-
-    expect(screen.getByText(ADDRESS).nextElementSibling?.getAttribute('data-name')).toBe('CopyNew');
 
     await act(async () => {
       fireEvent.click(screen.getByText(ADDRESS));
     });
 
     expect(mockClipboardWrite).toHaveBeenCalledWith({ string: 'mtst1aqgfullaccountid940z' });
-    expect(screen.getByText(ADDRESS).nextElementSibling?.getAttribute('data-name')).toBe('Checkmark');
+    expect(presentGlyph()).toHaveAttribute('data-copy-state', 'copied');
+    expect(presentGlyph()?.querySelector('[data-name="Checkmark"]')).toBeInTheDocument();
+    expect(screen.getByText(ADDRESS)).toBeInTheDocument();
     // The glyph carries no text, so the state is in the accessible name.
-    expect(screen.getByTestId('balance-card-copy-address')).toHaveAccessibleName('balanceCardAddressCopied');
+    expect(copyControl()).toHaveAccessibleName('balanceCardAddressCopied');
   });
 
   // A role=button container presents its children as decoration, so the balance and the copy

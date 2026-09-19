@@ -97,7 +97,7 @@ jest.mock('components/Button', () => ({
 
 jest.mock('app/icons/v2', () => ({
   Icon: ({ name }: { name?: string }) => <span data-testid="icon" data-name={name} />,
-  IconName: { CheckboxCircleFill: 'CheckboxCircleFill', FileCopy: 'FileCopy', EyeOff: 'EyeOff' }
+  IconName: { Checkmark: 'Checkmark', CopyNew: 'CopyNew', EyeOff: 'EyeOff' }
 }));
 
 jest.mock('components/PageHeader', () => ({
@@ -444,9 +444,9 @@ describe('RevealSeedPhrase', () => {
     expect(container.querySelector('[data-testid="nav-header"]')).toHaveClass('px-4');
     expect(container.textContent).toContain('Alpha');
     expect(container.textContent).toContain('Delta');
-    // Not-yet-copied label + icon.
+    // Not-yet-copied label + the shared copy glyph.
     expect(container.textContent).toContain('copyToClipboard');
-    expect(container.querySelector('[data-name="FileCopy"]')).toBeTruthy();
+    expect(container.querySelector('[data-copy-icon] [data-name="CopyNew"]')).toBeTruthy();
     expect(buttonWithText(container, 'hideRecoveryPhrase')).toBeTruthy();
 
     // Copy button click -> haptic + copy().
@@ -458,14 +458,14 @@ describe('RevealSeedPhrase', () => {
     expect(mockCopy).toHaveBeenCalled();
   });
 
-  it('shows the "copied" state (checkmark icon + copied label)', async () => {
+  it('shows the "copied" state (the shared glyph morphed to a check + the label rolled to copied)', async () => {
     mockHasHardwareProtector.mockResolvedValue(true);
     mockCopied = true;
     const container = await renderAndView();
 
     expect(container.textContent).toContain('copied');
     expect(container.textContent).not.toContain('copyToClipboard');
-    expect(container.querySelector('[data-name="CheckboxCircleFill"]')).toBeTruthy();
+    expect(container.querySelector('[data-copy-icon] [data-name="Checkmark"]')).toBeTruthy();
   });
 
   it('hides the phrase (haptic + clear secret + goBack) via the Hide button', async () => {

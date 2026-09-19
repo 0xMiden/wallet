@@ -74,7 +74,9 @@ it('writes the given text to the clipboard on tap, with the Pill tap haptic (not
   expect(hapticLight).toHaveBeenCalledTimes(1);
 });
 
-it('swaps the leading glyph to a checkmark after a successful copy, then back', async () => {
+const presentGlyph = () => screen.getByTestId('chip').querySelector('[data-copy-icon] [data-present="true"]');
+
+it('leads with the shared animated copy glyph, which morphs to a check after a copy and back', async () => {
   jest.useFakeTimers();
   render(
     <CopyChip text="0xabc123" data-testid="chip">
@@ -82,17 +84,35 @@ it('swaps the leading glyph to a checkmark after a successful copy, then back', 
     </CopyChip>
   );
 
-  expect(screen.getByTestId('chip').querySelector('[data-name="checkmark"]')).not.toBeInTheDocument();
+  expect(presentGlyph()).toHaveAttribute('data-copy-state', 'idle');
+  expect(presentGlyph()?.querySelector('[data-name="copy-new"]')).toBeInTheDocument();
 
   await act(async () => {
     fireEvent.click(screen.getByTestId('chip'));
   });
-  expect(screen.getByTestId('chip').querySelector('[data-name="checkmark"]')).toBeInTheDocument();
+  expect(presentGlyph()).toHaveAttribute('data-copy-state', 'copied');
+  expect(presentGlyph()?.querySelector('[data-name="checkmark"]')).toBeInTheDocument();
 
   act(() => {
     jest.advanceTimersByTime(1500);
   });
-  expect(screen.getByTestId('chip').querySelector('[data-name="checkmark"]')).not.toBeInTheDocument();
+  expect(presentGlyph()).toHaveAttribute('data-copy-state', 'idle');
+});
+
+it('shows no check when the clipboard write rejects', async () => {
+  mockWrite.mockRejectedValue(new Error('denied'));
+  render(
+    <CopyChip text="0xabc123" data-testid="chip">
+      0xab…c123
+    </CopyChip>
+  );
+
+  await act(async () => {
+    fireEvent.click(screen.getByTestId('chip'));
+  });
+
+  expect(presentGlyph()).toHaveAttribute('data-copy-state', 'idle');
+  expect(screen.getByTestId('chip').querySelector('[data-copy-state="copied"]')).toBeNull();
 });
 
 it('announces "Copied" for screen readers without moving focus', async () => {

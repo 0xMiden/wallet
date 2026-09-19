@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 import { useAccount } from 'lib/miden/front';
 import { hapticLight } from 'lib/mobile/haptics';
@@ -45,14 +45,9 @@ jest.mock('lib/woozie', () => ({
   Link: () => null
 }));
 
-// Controllable copy hook: `copy` is a spy and `copied` is a mutable flag so the
-// checkmark-vs-copy icon branch can be driven from the test.
+// The copy action is the shared CopyButton, rendered for real; only the clipboard is stubbed.
 const mockCopy = jest.fn();
-let mockCopied = false;
-jest.mock('lib/ui/useCopyToClipboard', () => ({
-  __esModule: true,
-  default: () => ({ fieldRef: { current: null }, copy: mockCopy, copied: mockCopied })
-}));
+jest.mock('@capacitor/clipboard', () => ({ Clipboard: { write: (...args: unknown[]) => mockCopy(...args) } }));
 
 const mockUseAccount = useAccount as jest.Mock;
 const mockHapticLight = hapticLight as jest.Mock;
@@ -77,7 +72,6 @@ const renderWithResolvedKey = async () => {
 
 beforeEach(() => {
   jest.clearAllMocks();
-  mockCopied = false;
   mockUseAccount.mockReturnValue({ publicKey: 'account-id-1' });
 });
 
@@ -90,7 +84,7 @@ describe('AdvancedSettings (page)', () => {
   });
 
   it('resolves the account public key and displays the truncated chip', async () => {
-    const { container } = await renderWithResolvedKey();
+    await renderWithResolvedKey();
 
     // Client was queried with the wallet account's public key.
     expect(mockGetAccount).toHaveBeenCalledWith('account-id-1');
@@ -99,10 +93,6 @@ describe('AdvancedSettings (page)', () => {
 
     // Truncated chip: 0x + first 6 + ... + last 4.
     expect(screen.getByText('0xabcdef...7890')).toBeInTheDocument();
-
-    // The hidden sr-only input mirrors the full (un-truncated) key.
-    const srInput = container.querySelector('input') as HTMLInputElement;
-    expect(srInput.value).toBe(RESOLVED_KEY);
 
     // The copy action is offered, labelled for the not-yet-copied state.
     expect(queryCopyAction()).toHaveTextContent('copy');
@@ -127,14 +117,21 @@ describe('AdvancedSettings (page)', () => {
     fireEvent.click(queryCopyAction()!);
 
     expect(mockHapticLight).toHaveBeenCalledTimes(1);
-    expect(mockCopy).toHaveBeenCalledTimes(1);
+    // The full, untruncated key, not the chip's short form.
+    expect(mockCopy).toHaveBeenCalledWith({ string: RESOLVED_KEY });
   });
 
-  it('reads Copied while in the copied state', async () => {
-    mockCopied = true;
+  it('rolls the action to Copied after a copy', async () => {
+    mockCopy.mockResolvedValue(undefined);
     await renderWithResolvedKey();
 
-    expect(queryCopyAction()).toHaveTextContent('copied');
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('advanced-copy-public-key'));
+    });
+
+    expect(
+      screen.getByTestId('advanced-copy-public-key').querySelector('[data-copy-label] [data-present="true"]')
+    ).toHaveTextContent('copied');
   });
 
   it('renders a non-breaking-space placeholder and no copy action when the account is not found', async () => {
@@ -156,10 +153,6 @@ describe('AdvancedSettings (page)', () => {
     expect(queryCopyAction()).toBeNull();
     expect(mockHapticLight).not.toHaveBeenCalled();
     expect(mockCopy).not.toHaveBeenCalled();
-
-    // Hidden input falls back to an empty string when there is no key.
-    const srInput = container.querySelector('input') as HTMLInputElement;
-    expect(srInput.value).toBe('');
   });
 
   it('leaves the key unresolved when the account has no public-key commitments', async () => {
