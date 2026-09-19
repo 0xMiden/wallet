@@ -78,7 +78,7 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
 
   return (
     <div className={classNames(containerClass, 'mx-auto overflow-hidden flex flex-col bg-app-bg')}>
-      <PageHeader title={symbol} onBack={handleBack} />
+      <PageHeader className="px-4" title={symbol} onBack={handleBack} />
 
       <div className="flex-1 min-h-0 overflow-y-auto" ref={scrollParentRef}>
         <div className="flex flex-col px-4">
