@@ -255,3 +255,68 @@ describe.each([':root', '.dark'] as const)('balance card ink on every card color
     ).toBeGreaterThanOrEqual(4.5);
   });
 });
+
+/** A custom property's value in a theme, `var(--x)` chains followed: `.dark` sits on the same root
+ * element as `:root`, so it overrides `:root` and an alias declared once resolves per theme. */
+function resolved(selector: ':root' | '.dark', name: string): string {
+  const vars = selector === ':root' ? themeVars(':root') : { ...themeVars(':root'), ...themeVars('.dark') };
+  let value = vars[name];
+  for (let hops = 0; value?.startsWith('var(--') && hops < 5; hops++) value = vars[value.slice(6, -1)];
+  if (!value) throw new Error(`--${name} does not resolve in ${selector}`);
+  return value;
+}
+
+// Home's five actions each take one account card colour; the tab's icon and its flow's accent are
+// that one colour (references/design-system.md, "Action colours").
+const ACTION_CARD = [
+  ['overview', 'orange'],
+  ['send', 'blue'],
+  ['receive', 'green'],
+  ['earn', 'slate'],
+  ['swap', 'purple']
+] as const;
+const FLOWS = ['send', 'receive', 'earn', 'swap'] as const;
+
+describe('action colours', () => {
+  const root = themeVars(':root');
+
+  it.each(ACTION_CARD)('%s is the %s card colour', (action, card) => {
+    expect(root[`action-${action}`]).toBe(`var(--card-${card})`);
+  });
+
+  it.each(FLOWS)('the %s flow accent and its tint alias the action tokens', flow => {
+    expect(root[`accent-${flow}`]).toBe(`var(--action-${flow})`);
+    expect(root[`accent-${flow}-tint`]).toBe(`var(--action-${flow}-tint)`);
+  });
+
+  it('leaves the dark theme no flow accent of its own to drift', () => {
+    const dark = themeVars('.dark');
+    for (const flow of FLOWS) {
+      expect(dark[`accent-${flow}`]).toBeUndefined();
+      expect(dark[`accent-${flow}-tint`]).toBeUndefined();
+    }
+  });
+
+  it.each(ACTION_CARD)('maps action-%s and its tint to Tailwind colors', action => {
+    expect(config).toContain(`'action-${action}': 'var(--action-${action})'`);
+    expect(config).toContain(`'action-${action}-tint': 'var(--action-${action}-tint)'`);
+  });
+});
+
+// Where an action colour draws text or a glyph (back arrows, chevrons, Max, links, route labels,
+// the processing spinner), it sits on `page`, on `fill` or on its own tint. Text needs 4.5:1, which
+// also covers the 3:1 a glyph needs.
+describe.each([':root', '.dark'] as const)('action colour contrast in %s', selector => {
+  const value = (name: string) => resolved(selector, name);
+
+  it.each(ACTION_CARD)('%s tint is the colour at 12%% over the page', action => {
+    const [r, g, b] = rgba(value(`action-${action}`));
+    expect(value(`action-${action}-tint`)).toBe(over(`rgba(${r}, ${g}, ${b}, 0.12)`, value('ds-page')));
+  });
+
+  it.each(ACTION_CARD)('%s reads as text at 4.5:1 on page, fill and its own tint', action => {
+    for (const surface of ['ds-page', 'ds-fill', `action-${action}-tint`]) {
+      expect(contrast(value(`action-${action}`), value(surface))).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+});

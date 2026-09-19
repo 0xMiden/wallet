@@ -397,18 +397,30 @@ body[data-hide-navbar]::after {
     /* Design system tokens (Foundations + Typography + Radius/Spacing) */
     --accent-primary: #e77537;
     --accent-primary-hover: #c95a21;
-    /* Per-action accents: each home action (Send, Receive, Earn, Swap) keeps its
-     * icon color as the highlight color of its own flow: back arrows, chevrons,
-     * links, selected states. The primary CTA stays --accent-primary. Tints are
-     * the accent at 12% pre-blended over the page, solid like the other fills. */
-    --accent-send: #91acc1;
-    --accent-send-tint: #f2f5f8;
-    --accent-receive: #99ac94;
-    --accent-receive-tint: #f3f5f2;
-    --accent-earn: #777487;
-    --accent-earn-tint: #efeef1;
-    --accent-swap: #beacd2;
-    --accent-swap-tint: #f7f5fa;
+    /* Action colours: each of Home's five actions takes one account card colour, and that one
+     * colour is both the tab's icon and its flow's accent (back arrows, chevrons, links, selected
+     * states), so the two can never drift. The primary CTA stays --accent-primary. Tints are the
+     * action colour at 12% pre-blended over the page, solid like the other fills; `.dark`
+     * re-declares only the tints, since the card colours it points at already flip. */
+    --action-overview: var(--card-orange);
+    --action-send: var(--card-blue);
+    --action-receive: var(--card-green);
+    --action-earn: var(--card-slate);
+    --action-swap: var(--card-purple);
+    --action-overview-tint: #f4eae5;
+    --action-send-tint: #ebeef0;
+    --action-receive-tint: #eceeeb;
+    --action-earn-tint: #ededef;
+    --action-swap-tint: #eeedf0;
+    /* Each flow's accent is its tab's action colour. */
+    --accent-send: var(--action-send);
+    --accent-send-tint: var(--action-send-tint);
+    --accent-receive: var(--action-receive);
+    --accent-receive-tint: var(--action-receive-tint);
+    --accent-earn: var(--action-earn);
+    --accent-earn-tint: var(--action-earn-tint);
+    --accent-swap: var(--action-swap);
+    --accent-swap-tint: var(--action-swap-tint);
     /* Network chips: each network's own soft tint in Bread's warm palette; its logo stays as-is. */
     --network-miden-tint: #fff3ec;
     --network-miden-border: #f7d6c2;
@@ -518,14 +530,11 @@ body[data-hide-navbar]::after {
      * derive dark values by inverting text/surface and keeping action/status hues. */
     --accent-primary: #e77537;
     --accent-primary-hover: #c95a21;
-    --accent-send: #91acc1;
-    --accent-send-tint: #272b2d;
-    --accent-receive: #99ac94;
-    --accent-receive-tint: #282b28;
-    --accent-earn: #777487;
-    --accent-earn-tint: #242426;
-    --accent-swap: #beacd2;
-    --accent-swap-tint: #2d2b2f;
+    --action-overview-tint: #32241d;
+    --action-send-tint: #272b2d;
+    --action-receive-tint: #2a2c2a;
+    --action-earn-tint: #272729;
+    --action-swap-tint: #2d2b2f;
     --network-miden-tint: #3a2418;
     --network-miden-border: #5c3622;
     --network-miden-text: #f2a57a;
