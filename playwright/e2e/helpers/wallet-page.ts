@@ -1,10 +1,10 @@
 import { expect, type Page } from '@playwright/test';
-import { IS_LOCALNET } from '../config/environments';
-
-import { encodePrivateKeyPair, parsePrivateKeyPair } from '../../../src/lib/miden/guardian/private-key-pair';
 
 import { readTransactionRows } from './history';
 import type { IdbDumpSource } from './idb-dump';
+import { acknowledgeNetworkNotice } from './network-notice';
+import { encodePrivateKeyPair, parsePrivateKeyPair } from '../../../src/lib/miden/guardian/private-key-pair';
+import { IS_LOCALNET } from '../config/environments';
 import { dumpProveTelemetry } from '../harness/prove-telemetry-probe';
 import { suspendScreenCapture } from '../harness/screen-capture';
 import type { TimelineRecorder } from '../harness/timeline-recorder';
@@ -990,7 +990,7 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     await this.page.getByTestId('onboarding-welcome').waitFor({ timeout: 30_000 });
     await this.page.locator('#import-link').click();
     // The network notice (#875) precedes the import flow too.
-    await this.page.getByTestId('onboarding-network-notice-acknowledge').click({ timeout: 15_000 });
+    await acknowledgeNetworkNotice(this.page, 15_000);
     // Import now asks WHICH credential first; this helper drives the seed-phrase one.
     await this.page.getByTestId('import-select-type').waitFor({ timeout: 15_000 });
     await this.page.getByTestId('import-type-seed-phrase').click();
@@ -1240,7 +1240,7 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     await suspendScreenCapture(this.page);
     await this.page.getByTestId('onboarding-welcome').waitFor({ timeout: 60_000 });
     await this.page.getByTestId('onboarding-get-started').click();
-    await this.page.getByTestId('onboarding-network-notice-acknowledge').click({ timeout: 30_000 });
+    await acknowledgeNetworkNotice(this.page, 30_000);
 
     await this.page.getByTestId('create-password-input').fill(password);
     await this.page.getByTestId('create-password-verify-input').fill(password);
@@ -1316,7 +1316,7 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     await this.page.goto(this.fullpageUrl, { waitUntil: 'domcontentloaded' });
     await this.page.getByTestId('onboarding-welcome').waitFor({ timeout: 30_000 });
     await this.page.locator('#import-link').click();
-    await this.page.getByTestId('onboarding-network-notice-acknowledge').click({ timeout: 15_000 });
+    await acknowledgeNetworkNotice(this.page, 15_000);
     await this.page.getByTestId('import-select-type').waitFor({ timeout: 15_000 });
     await this.page.getByRole('button', { name: /Import with Encrypted Wallet File/ }).click();
 

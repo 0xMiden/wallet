@@ -1,5 +1,6 @@
 import type { BrowserContext, Page } from '@playwright/test';
 
+import { acknowledgeNetworkNotice } from '../e2e/helpers/network-notice';
 import { expect, test } from '../fixtures/extension';
 
 /**
@@ -20,7 +21,7 @@ async function importWallet(extensionContext: BrowserContext, extensionId: strin
   await page.goto(`chrome-extension://${extensionId}/fullpage.html`, { waitUntil: 'domcontentloaded' });
   await page.getByTestId('onboarding-welcome').waitFor({ timeout: 30_000 });
   await page.locator('#import-link').click();
-  await page.getByTestId('onboarding-network-notice-acknowledge').click({ timeout: 15_000 });
+  await acknowledgeNetworkNotice(page, 15_000);
   await page.getByTestId('import-select-type').waitFor({ timeout: 15_000 });
   await page.getByTestId('import-type-seed-phrase').click();
   await page.getByTestId('import-seed-phrase').waitFor({ timeout: 15_000 });
