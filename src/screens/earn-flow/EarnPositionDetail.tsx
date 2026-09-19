@@ -243,7 +243,7 @@ const PositionActions: FC<{
 
   return (
     <div className="mt-16">
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-2 gap-2.5">
         <Button
           data-testid="earn-deposit-more-btn"
           title={t('earnDepositMore')}

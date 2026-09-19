@@ -281,6 +281,11 @@ describe('EarnPositionDetail', () => {
     expect(depositMore.className).not.toMatch(/bg-white|h-14|border-rule-strong|\btext-base\b|\bfont-bold\b/);
     expect(withdraw).toHaveClass('max-w-none');
     expect(withdraw.className).not.toMatch(/h-14|\btext-base\b|\bfont-bold\b/);
+
+    // The spec's 10px gap between the two side-by-side 52px CTAs.
+    expect(depositMore.parentElement).toBe(withdraw.parentElement);
+    expect(depositMore.parentElement).toHaveClass('gap-2.5');
+    expect(depositMore.parentElement).not.toHaveClass('gap-3');
   });
 
   it('falls back to the placeholder position when the id does not match any position', () => {
