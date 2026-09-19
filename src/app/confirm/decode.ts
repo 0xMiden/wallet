@@ -8,7 +8,7 @@ import {
 } from '@miden-sdk/miden-sdk/lazy';
 
 import { splitExecutedOutputNotes } from 'lib/miden/activity/fee-notes';
-import { getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
+import { canonicalWalletAccountId, getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
 import { b64ToU8 } from 'lib/shared/helpers';
 
 export interface AssetAmount {
@@ -61,7 +61,7 @@ function noteAssets(note: { assets(): { fungibleAssets(): any[] } | undefined } 
  * bare Note (the dApp chooses which, mirroring importNoteBytes). Handling only
  * one format would throw for the other and blank the declared incoming assets.
  */
-function importedNoteAssets(b64: string): AssetAmount[] {
+export function importedNoteAssets(b64: string): AssetAmount[] {
   const bytes = b64ToU8(b64);
   try {
     const nf = NoteFile.deserialize(bytes);
@@ -159,23 +159,29 @@ export function simulatedBytesToView(result: {
 }
 
 /**
- * Per-faucet NET value leaving the account, for spending-limit accounting.
+ * Per-faucet value leaving the account, for spending-limit accounting.
  *
- * Two corrections the raw `outgoing` list cannot be used without:
+ * `credit` is the value this request BROUGHT IN and may therefore offset: the assets of the notes
+ * the request itself introduced. It is passed in rather than read from `view.incoming` because
+ * `incoming` is every consumed note, and `importNotes` is dApp-authored - its own comment says the
+ * ids "can name a note the user already holds". Crediting those let a dApp consume a pending 1000
+ * of the user's and send 1050 while only 50 was charged. The caller computes `credit` behind the
+ * wallet's own provenance check, so membership cannot be forged from the request.
  *
- * NET, not gross. `summaryToView` derives outgoing from the account vault delta and nets it
- * through a signed per-faucet map, while `executedBytesToView` lists the assets of every output
- * note. Charging the gross figure would make one cap mean two different things depending on the
- * account type, and would charge a request for a note it hands straight back to itself.
- *
- * ONE ENTRY PER FAUCET. The executed view flat-maps over output notes, so two notes drawing on one
- * faucet arrive as two entries. Downstream each entry is assessed separately, so 60 and 60 would
- * both pass a cap of 100.
+ * ONE ENTRY PER CANONICAL FAUCET. The executed view flat-maps over output notes, so two notes on
+ * one faucet arrive as two entries, and the same faucet can arrive under two spellings. Both
+ * consumers downstream assess each entry independently, so 60 and 60 would each pass a cap of 100.
+ * Folding here rather than at either consumer is what keeps the number the user is shown and the
+ * number the queue enforces the same one.
  */
-export function netOutflowByFaucet(view: TxAssetView): AssetAmount[] {
+export function netOutflowByFaucet(view: TxAssetView, credit: readonly AssetAmount[] = []): AssetAmount[] {
   const signed = new Map<string, bigint>();
-  for (const asset of view.outgoing) signed.set(asset.faucetId, (signed.get(asset.faucetId) ?? 0n) + asset.amount);
-  for (const asset of view.incoming) signed.set(asset.faucetId, (signed.get(asset.faucetId) ?? 0n) - asset.amount);
+  const add = (faucetId: string, amount: bigint) => {
+    const key = canonicalWalletAccountId(faucetId);
+    signed.set(key, (signed.get(key) ?? 0n) + amount);
+  };
+  for (const asset of view.outgoing) add(asset.faucetId, asset.amount);
+  for (const asset of credit) add(asset.faucetId, -asset.amount);
   const outflow: AssetAmount[] = [];
   for (const [faucetId, amount] of signed) if (amount > 0n) outflow.push({ faucetId, amount });
   return outflow;

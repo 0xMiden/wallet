@@ -87,7 +87,7 @@ describe('simulateCustomTransaction', () => {
       { __req: expect.any(Uint8Array) },
       expect.any(String)
     );
-    expect(res).toEqual({ summaryBytes: 'b64:1-2-3' });
+    expect(res).toMatchObject({ summaryBytes: 'b64:1-2-3' });
   });
 
   // #784: the dry run has no use for the anchor, but "no use for it" is not the
@@ -144,7 +144,7 @@ describe('simulateCustomTransaction', () => {
 
     const res = await simulateCustomTransaction({ address: 'mtst1abc', transactionRequest: 'reqB64' });
 
-    expect(res).toEqual({ summaryBytes: 'b64:1-2-3' });
+    expect(res).toMatchObject({ summaryBytes: 'b64:1-2-3' });
     warn.mockRestore();
   });
 
@@ -216,7 +216,7 @@ describe('simulateCustomTransaction', () => {
       expect.any(String)
     );
     expect(accountIdStringToSdk as jest.Mock).not.toHaveBeenCalled();
-    expect(res).toEqual({ summaryBytes: 'b64:1-2-3' });
+    expect(res).toMatchObject({ summaryBytes: 'b64:1-2-3' });
   });
 
   // Regression: web-sdk 0.16 inverted `executeForSummary`'s contract — the summary
@@ -236,7 +236,7 @@ describe('simulateCustomTransaction', () => {
 
     // Executed locally against the same account — nothing proven or submitted.
     expect(executeRequest).toHaveBeenCalledWith('hex:mtst1abc', { __req: expect.any(Uint8Array) });
-    expect(res).toEqual({ executedBytes: 'b64:9-9' });
+    expect(res).toMatchObject({ executedBytes: 'b64:9-9' });
   });
 
   it('still reports a genuine execution failure as { error } rather than executing locally', async () => {
@@ -391,5 +391,21 @@ describe('simulateCustomTransaction', () => {
     } finally {
       jest.useRealTimers();
     }
+  });
+});
+
+describe('introduced-note provenance', () => {
+  // The spending-limit policy may offset what LEAVES only against what this request BROUGHT IN.
+  // `importNotes` is dApp-authored and its ids can name a note the user already holds, so the
+  // credit is derived from the wallet's own already-held check rather than from the request.
+  it('credits only the notes this request actually introduced', async () => {
+    const result = await simulateCustomTransaction({
+      address: 'mtst1sender',
+      transactionRequest: 'reqB64',
+      importNotes: ['noteA', 'noteB']
+    });
+
+    expect(result.introducedCount).toBe(2);
+    expect(result.introducedCredit).toEqual([]);
   });
 });

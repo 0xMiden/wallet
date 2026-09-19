@@ -27,6 +27,13 @@ const mockWithUnlocked = jest.fn(async (fn: (ctx: unknown) => unknown) =>
 // The custom path now dry-runs before either sheet and assesses the result, so this suite controls
 // the dry run. The default is "no usable result", which is what the real module produced here
 // before (no client in this environment), so the pre-existing cases are unaffected.
+const mockReleaseNoteIds = jest.fn((..._args: unknown[]) => Promise.resolve(undefined));
+jest.mock('lib/miden/note-quarantine', () => ({
+  importedNoteIds: (notes: string[] | undefined) => (notes ?? []).map(n => `id:${n}`),
+  quarantineNoteIds: jest.fn(),
+  releaseNoteIds: (...args: unknown[]) => mockReleaseNoteIds(...args)
+}));
+
 const mockSimulateCustomTransaction = jest.fn((..._args: unknown[]) =>
   Promise.resolve({ error: 'no client in this suite' } as Record<string, unknown>)
 );
@@ -896,6 +903,19 @@ describe('requestTransaction - custom spending-limit gate', () => {
     // The dry run takes the single-threaded WASM lock; running it twice also let the numbers
     // displayed and the numbers enforced come from two different executions.
     expect(mockSimulateCustomTransaction).toHaveBeenCalledTimes(1);
+  });
+
+  it('releases the note quarantine when the WALLET refuses, since the user never declined', async () => {
+    // The dry run quarantines carried notes before the gate runs. A decline deliberately leaves
+    // them hidden; a wallet-side refusal must not, or a dApp hides the user's own claimable notes
+    // for the 7-day TTL by making a request the gate then turns down.
+    mockSimulatedBytesToView.mockReturnValue(undefined);
+    mockHasSpendingLimits.mockResolvedValueOnce(true);
+
+    await expect(dapp.requestTransaction('https://miden.xyz', customRequest())).rejects.toThrow(
+      MidenDAppErrorType.NotGranted
+    );
+    expect(mockReleaseNoteIds).toHaveBeenCalled();
   });
 
   it('refuses after the active account changed while the confirmation sat open', async () => {

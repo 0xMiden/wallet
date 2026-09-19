@@ -49,7 +49,10 @@ jest.mock('lib/miden/sdk/helpers', () => ({
   // `{ __faucet }` stubs above. Both must go through this helper (bech32).
   getBech32AddressFromAccountId: jest.fn((id: any) =>
     typeof id === 'string' ? `bech32:${id}` : `bech32:${id.__faucet}`
-  )
+  ),
+  // Collapses the two spellings the fold has to treat as one faucet. `hex:f1` and `f1` are the
+  // same asset written two ways, which is the case a raw-string fold silently misses.
+  canonicalWalletAccountId: jest.fn((id: string) => id.replace(/^hex:/, ''))
 }));
 jest.mock('lib/shared/helpers', () => ({
   b64ToU8: jest.fn((s: string) => new Uint8Array([s.length]))
@@ -457,12 +460,12 @@ describe('simulatedBytesToView', () => {
 });
 
 describe('netOutflowByFaucet', () => {
-  const view = (outgoing: { faucetId: string; amount: bigint }[], incoming: typeof outgoing = []) =>
+  const view = (outgoing: { faucetId: string; amount: bigint }[]) =>
     ({
       account: 'acct',
       outgoing,
-      incoming,
-      inputNotesConsumed: incoming.length,
+      incoming: [],
+      inputNotesConsumed: 0,
       outputNotesCreated: outgoing.length,
       fee: undefined,
       storageChanged: false
@@ -481,32 +484,45 @@ describe('netOutflowByFaucet', () => {
     ).toEqual([{ faucetId: 'f1', amount: 120n }]);
   });
 
-  it('nets what comes back in against what leaves, per faucet', () => {
-    // A request that consumes a carried note and re-emits its value moves nothing on net. The
-    // summary path already reports that; charging the gross figure would make one cap mean two
-    // different things depending on the account type.
-    expect(netOutflowByFaucet(view([{ faucetId: 'f1', amount: 100n }], [{ faucetId: 'f1', amount: 100n }]))).toEqual(
-      []
-    );
-    expect(netOutflowByFaucet(view([{ faucetId: 'f1', amount: 100n }], [{ faucetId: 'f1', amount: 40n }]))).toEqual([
-      { faucetId: 'f1', amount: 60n }
+  it('folds two spellings of one faucet together', () => {
+    // A raw-string fold misses this, and the two consumers downstream would then each see an
+    // amount under the cap while the real total is over it.
+    expect(
+      netOutflowByFaucet(
+        view([
+          { faucetId: 'f1', amount: 60n },
+          { faucetId: 'hex:f1', amount: 60n }
+        ])
+      )
+    ).toEqual([{ faucetId: 'f1', amount: 120n }]);
+  });
+
+  it('credits only what the caller passes, never the consumed notes', () => {
+    // `incoming` is every note consumed, including ones the user already held. Crediting those
+    // let a dApp consume a pending 1000 of the user's and send 1050 for a charge of 50.
+    const consumed = {
+      ...view([{ faucetId: 'f1', amount: 1050n }]),
+      incoming: [{ faucetId: 'f1', amount: 1000n }]
+    };
+
+    expect(netOutflowByFaucet(consumed)).toEqual([{ faucetId: 'f1', amount: 1050n }]);
+    expect(netOutflowByFaucet(consumed, [{ faucetId: 'f1', amount: 1000n }])).toEqual([
+      { faucetId: 'f1', amount: 50n }
     ]);
   });
 
-  it('never reports a negative outflow for a faucet that only came in', () => {
-    expect(netOutflowByFaucet(view([], [{ faucetId: 'f1', amount: 100n }]))).toEqual([]);
+  it('never reports a negative outflow when the credit exceeds what left', () => {
+    expect(netOutflowByFaucet(view([{ faucetId: 'f1', amount: 10n }]), [{ faucetId: 'f1', amount: 99n }])).toEqual([]);
   });
 
   it('keeps distinct faucets apart', () => {
     expect(
       netOutflowByFaucet(
-        view(
-          [
-            { faucetId: 'f1', amount: 50n },
-            { faucetId: 'f2', amount: 30n }
-          ],
-          [{ faucetId: 'f1', amount: 20n }]
-        )
+        view([
+          { faucetId: 'f1', amount: 50n },
+          { faucetId: 'f2', amount: 30n }
+        ]),
+        [{ faucetId: 'f1', amount: 20n }]
       )
     ).toEqual([
       { faucetId: 'f1', amount: 30n },

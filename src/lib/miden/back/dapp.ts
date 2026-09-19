@@ -107,7 +107,7 @@ import { assertValidRecallBlocks, toNoteTypeString, toPersistedNoteType } from '
 import { midenClientProxy } from './miden-client-proxy';
 import { isOperationAbortedError } from './offscreen-codec';
 import { getCurrentMidenNetwork } from './safe-network';
-import { simulateCustomTransaction } from './simulate-custom-tx';
+import { simulateCustomTransaction, type SimulateCustomTxResult } from './simulate-custom-tx';
 import { store, withUnlocked } from './store';
 import { startTransactionProcessing } from './transaction-processor';
 import { IConsumedAssetTotal } from '../db/types';
@@ -1572,13 +1572,18 @@ export function makeSimulateHandler(
     if (req?.type !== MidenMessageType.DAppSimulateTransactionRequest || (req as any).id !== id) {
       return undefined;
     }
+    // Only a SUCCESSFUL dry run is reusable. A timeout or a WASM-lock eviction resolves as
+    // `{ error }`, and caching that would leave the sheet's verified asset view - an anti-phishing
+    // control - permanently unavailable for this confirm id, even once the lock frees.
+    const reusable = simulated?.summaryBytes !== undefined || simulated?.executedBytes !== undefined;
     const { summaryBytes, executedBytes, error } =
-      simulated ??
-      (await simulateCustomTransaction({
-        address: tx.address,
-        transactionRequest: tx.transactionRequest,
-        importNotes: tx.importNotes
-      }));
+      reusable && simulated
+        ? simulated
+        : await simulateCustomTransaction({
+            address: tx.address,
+            transactionRequest: tx.transactionRequest,
+            importNotes: tx.importNotes
+          });
     return { type: MidenMessageType.DAppSimulateTransactionResponse, summaryBytes, executedBytes, error };
   };
 }
@@ -1819,6 +1824,10 @@ const generatePromisifyTransaction = async (
   try {
     customLimit = await customSpendingLimitState(customTransaction.address, simulatedEffects.outgoing);
   } catch (e) {
+    // The dry run above already quarantined the carried notes. This refusal is the WALLET's, not a
+    // user decline, so the notes go back to the claimable list; only a decline earns staying
+    // hidden. Without this a contention refusal hid the user's own notes for the 7-day TTL.
+    await releaseNoteIds(importedNoteIds(customTransaction.importNotes));
     // Through the same mapper as every other limit-observing path: this catch also sees a
     // SpendingLimitPolicyUnavailableError from the configuration read or a malformed record.
     reject(dappSendFailure(e));
@@ -1935,7 +1944,7 @@ const generatePromisifyTransaction = async (
               transactionId
             } as any);
           } catch (e) {
-            reject(new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`));
+            reject(dappSendFailure(e));
           }
         } else {
           decline();
@@ -2049,7 +2058,9 @@ const generatePromisifySendTransaction = async (
       amount: BigInt(req.transaction.amount)
     });
   } catch (e) {
-    reject(new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`));
+    // Through the mapper: the assessment above can raise a policy error from a storage read or a
+    // malformed record, and a malformed REQUEST is the only thing InvalidParams should mean.
+    reject(dappSendFailure(e));
     return;
   }
 
@@ -2881,18 +2892,29 @@ async function formatCustomTransactionPreview(payload: MidenCustomTransaction): 
  * unsimulatable request the way around a configured cap. Decoding only the summary shape put every
  * ordinary single-sig account in that bucket and refused all of their custom transactions.
  *
- * Takes the dry-run result rather than running it, so the request is simulated ONCE and the
- * numbers shown to the signer are by construction the ones assessed, bound into the authorization
- * and stored.
+ * Takes the dry-run result rather than running it, so the request is simulated ONCE.
+ *
+ * The lines the signer reads are the GROSS legs - what leaves and what enters, stated separately,
+ * because that is what a person checking a transaction wants to see. The figure handed to the
+ * spending-limit policy is the NET outflow after crediting only what this request brought in, so
+ * the two are deliberately not the same number and the sheet is the more conservative of them.
  */
-async function formatSimulatedCustomEffects(simulated: {
-  summaryBytes?: string;
-  executedBytes?: string;
-  error?: string;
-}): Promise<{ messages: string[]; outgoing?: IConsumedAssetTotal[] }> {
+async function formatSimulatedCustomEffects(
+  simulated: SimulateCustomTxResult
+): Promise<{ messages: string[]; outgoing?: IConsumedAssetTotal[] }> {
   try {
     const view = simulatedBytesToView(simulated);
     if (!view) throw new Error(simulated.error ?? 'no summary was produced');
+    // The summary arm reports a NETTED vault delta with no note identity, so it has already
+    // credited every consumed note - including ones the wallet already held, which are the user's
+    // own value. When it consumed more notes than this request introduced, that figure understates
+    // the outflow and cannot be corrected here.
+    //
+    // This withholds the POLICY's number, not the sheet's. The effect lines are still shown, still
+    // gross, and still useful to a person reading them; it is only the automated cap that must not
+    // act on a figure it cannot attribute, and it refuses on `outgoing === undefined` already.
+    const attributable =
+      simulated.summaryBytes === undefined || view.inputNotesConsumed <= (simulated.introducedCount ?? 0);
     const movement = async (asset: AssetAmount, direction: 'send' | 'consume') => {
       const metadata = await getTokenMetadata(asset.faucetId);
       const amount = formatAmountSafe(asset.amount, direction, metadata?.decimals, hasKnownScale(metadata));
@@ -2926,7 +2948,12 @@ async function formatSimulatedCustomEffects(simulated: {
     return {
       messages: ['Simulated effects:', ...effects],
       // Netted and folded per faucet: the policy charges what actually leaves, once per asset.
-      outgoing: netOutflowByFaucet(view).map(asset => ({ faucetId: asset.faucetId, amount: asset.amount }))
+      ...(attributable && {
+        outgoing: netOutflowByFaucet(view, simulated.introducedCredit).map(asset => ({
+          faucetId: asset.faucetId,
+          amount: asset.amount
+        }))
+      })
     };
   } catch (e: any) {
     console.error('Failed to simulate a custom transaction for approval', e);
