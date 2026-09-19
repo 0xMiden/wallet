@@ -253,7 +253,7 @@ const PositionActions: FC<{
             hapticLight();
             navigate(`/earn/vaults/${position.vaultId}/deposit`);
           }}
-          className="h-14 max-w-none rounded-full border-rule-strong bg-white text-base font-bold text-accent-primary hover:bg-white focus:bg-white"
+          className="max-w-none"
         />
         <Button
           data-testid="earn-withdraw-btn"
@@ -264,7 +264,7 @@ const PositionActions: FC<{
             hapticLight();
             onWithdraw();
           }}
-          className="h-14 max-w-none rounded-full text-base font-bold"
+          className="max-w-none"
         />
       </div>
     </div>
