@@ -4,9 +4,13 @@ import classNames from 'clsx';
 import { useForm } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
 
-import FormField, { PASSWORD_ERROR_CAPTION } from 'app/atoms/FormField';
 import { Icon, IconName } from 'app/icons/v2';
 import { Button } from 'components/Button';
+import { Card } from 'components/ui/Card';
+import { IconButton } from 'components/ui/IconButton';
+import { Notice } from 'components/ui/Notice';
+import { TextAction } from 'components/ui/TextAction';
+import { TextField } from 'components/ui/TextField';
 import {
   type DecryptedWalletFile,
   isRecord,
@@ -17,6 +21,11 @@ import { decrypt, decryptJson, deriveKey, generateKey } from 'lib/miden/password
 import { importDb } from 'lib/miden/repo';
 import { assertWasmHoldCurrent, getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import { ENCRYPTED_WALLET_FILE_PASSWORD_CHECK, EncryptedWalletFile } from 'screens/shared';
+
+import { OnboardingStepLayout } from '../common/OnboardingStepLayout';
+
+/** react-hook-form's message for an empty password: the field is required, not wrong, so no error line. */
+const PASSWORD_ERROR_CAPTION = 'PASSWORD_ERROR_CAPTION';
 
 interface FormData {
   password?: string;
@@ -290,14 +299,6 @@ export const ImportWalletFileScreen: React.FC<ImportWalletFileScreenProps> = ({ 
     }
   };
 
-  const uploadFileComponent = (): JSX.Element => {
-    return (
-      <button type="button" onClick={onUploadFileClick} className="p-0 bg-transparent border-0 text-blue-500">
-        {t('chooseFromDevice')}
-      </button>
-    );
-  };
-
   const onUploadFileClick = () => {
     walletFileRef.current?.click();
   };
@@ -316,38 +317,46 @@ export const ImportWalletFileScreen: React.FC<ImportWalletFileScreenProps> = ({ 
     pendingRestore?.formatVersion === undefined ? (pendingRestore?.omittedImportedAccountCount ?? 0) : 0;
 
   return (
-    <form
-      className={classNames(
-        'flex-1 h-full',
-        'flex flex-col justify-content items-center gap-y-2',
-        'bg-app-bg text-ink px-4 pt-6',
-        className
-      )}
-      onSubmit={handleSubmit(handleImportSubmit)}
-    >
-      <h1 className="text-2xl font-semibold">{t('importWallet')}</h1>
-      <p className="text-sm text-center mb-6">{t('importWithEncryptedWalletFileDescription')}</p>
-      {walletFile == null ? (
-        <div
-          className={classNames(
-            'p-10',
-            'flex flex-col items-center gap-y-2 mb-6',
-            'border border-dashed border-border-card rounded-2xl',
-            isDragging && 'border-blue-500'
-          )}
-          onDrop={onDropFile}
-          onDragEnter={onDragEnter}
-          onDragLeave={onDragLeave}
-          onDragOver={e => {
-            e.preventDefault();
-          }}
-        >
-          <Icon name={IconName.UploadFile} size="xxl" />
-          <p className="text-sm">
-            {t('dragAndDropFile')} {uploadFileComponent()}
-          </p>
-          <p className="text-sm text-text-muted">{t('jsonFileType')}</p>
-          <div>
+    // The form wraps the whole step so the pinned Import button submits it.
+    <form className={classNames('flex min-h-0 flex-1 flex-col', className)} onSubmit={handleSubmit(handleImportSubmit)}>
+      <OnboardingStepLayout
+        data-testid="import-wallet-file"
+        title={t('importWallet')}
+        description={t('importWithEncryptedWalletFileDescription')}
+        footer={
+          <Button
+            type="submit"
+            isLoading={isSubmitting || isRestoring}
+            className="max-w-none"
+            disabled={isSubmitting || isRestoring || (pendingRestore == null && (!isValid || !walletFile))}
+          >
+            {pendingRestore != null ? t('continueImport') : t('import')}
+          </Button>
+        }
+      >
+        {walletFile == null ? (
+          // A drop target on the shared fill, no dashed outline: a file dragged over it rings it.
+          <div
+            data-testid="wallet-file-dropzone"
+            data-dragging={isDragging || undefined}
+            className={classNames(
+              'flex flex-col items-center gap-2 rounded-2xl bg-fill px-4 py-8 text-center',
+              'transition-shadow duration-150 motion-reduce:transition-none',
+              isDragging && 'ring-2 ring-accent-primary ring-inset'
+            )}
+            onDrop={onDropFile}
+            onDragEnter={onDragEnter}
+            onDragLeave={onDragLeave}
+            onDragOver={e => {
+              e.preventDefault();
+            }}
+          >
+            <span className="flex size-14 items-center justify-center rounded-full bg-page text-ink">
+              <Icon name={IconName.UploadFile} size="md" fill="currentColor" aria-hidden="true" />
+            </span>
+            <p className="font-sans text-[15px] leading-[22px] text-ink">{t('dragAndDropFile')}</p>
+            <p className="font-sans text-[13px] leading-[17px] text-muted">{t('jsonFileType')}</p>
+            <TextAction onClick={onUploadFileClick}>{t('chooseFromDevice')}</TextAction>
             <input
               style={{ display: 'none' }}
               ref={walletFileRef}
@@ -356,63 +365,45 @@ export const ImportWalletFileScreen: React.FC<ImportWalletFileScreenProps> = ({ 
               accept=".json,application/json"
             />
           </div>
-        </div>
-      ) : (
-        <div
-          className={classNames(
-            'flex justify-between items-center',
-            'bg-surface-solid rounded-2xl',
-            'w-full max-w-[360px] py-5 px-3',
-            'mx-auto'
-          )}
-        >
-          <div className="flex">
-            <Icon name={IconName.UploadedFile} size="md" />
-            <div className="flex items-center pl-4">{walletFile.name}</div>
-          </div>
-          <button type="button" onClick={handleClear} aria-label={t('clear')}>
-            <Icon name={IconName.Close} fill="currentColor" size="md" />
-          </button>
-        </div>
-      )}
+        ) : (
+          <Card padding="row" className="flex items-center gap-3">
+            <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-page text-ink">
+              <Icon name={IconName.UploadedFile} size="sm" fill="currentColor" aria-hidden="true" />
+            </span>
+            <span className="min-w-0 flex-1 truncate font-heading text-base leading-5 font-bold text-ink">
+              {walletFile.name}
+            </span>
+            <IconButton icon={IconName.Close} label={t('clear')} onClick={handleClear} />
+          </Card>
+        )}
 
-      {walletFile != null && pendingRestore == null && (
-        <div className="flex flex-col w-full max-w-[360px]">
-          <p className="text-sm text-ink my-3">{t('enterDecryptionPassword')}</p>
-          <FormField
+        {walletFile != null && pendingRestore == null && (
+          <TextField
             {...register('password', {
               required: PASSWORD_ERROR_CAPTION
             })}
             label={t('password')}
+            hint={t('enterDecryptionPassword')}
             id="newwallet-password"
             type="password"
-            name="password"
             placeholder="********"
-            errorCaption={errorCaption}
-            containerClassName="mb-4"
+            error={errorCaption && errorCaption !== PASSWORD_ERROR_CAPTION ? errorCaption : undefined}
           />
-        </div>
-      )}
+        )}
 
-      {pendingRestore != null && (
-        <div className="w-full max-w-[360px] mb-4 rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-500/30 dark:bg-red-500/15 dark:text-red-500">
-          {t('encryptedFileImportedAccountsOmitted', {
-            importedCount: String(omittedImportedCount)
-          })}
-          {importError === 'restore' && <p className="pt-2 font-medium">{t('encryptedWalletFileRestoreFailed')}</p>}
-        </div>
-      )}
-
-      <div className="mt-auto w-full pt-4">
-        <Button
-          type="submit"
-          isLoading={isSubmitting || isRestoring}
-          className="w-full"
-          disabled={isSubmitting || isRestoring || (pendingRestore == null && (!isValid || !walletFile))}
-        >
-          {pendingRestore != null ? t('continueImport') : t('import')}
-        </Button>
-      </div>
+        {pendingRestore != null && (
+          <Notice tone="negative" role="alert">
+            <span className="flex flex-col gap-2">
+              <span>
+                {t('encryptedFileImportedAccountsOmitted', {
+                  importedCount: String(omittedImportedCount)
+                })}
+              </span>
+              {importError === 'restore' && <span className="font-bold">{t('encryptedWalletFileRestoreFailed')}</span>}
+            </span>
+          </Notice>
+        )}
+      </OnboardingStepLayout>
     </form>
   );
 };

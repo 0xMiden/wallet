@@ -351,8 +351,7 @@
         "src/app/templates/SettingToggle.tsx",
         "src/app/templates/VerifySeedPhraseFlow.tsx",
         "src/components/Avatar.tsx",
-        "src/screens/encrypted-file-flow/EncryptedWalletFileWalletPassword.tsx",
-        "src/screens/onboarding/import-wallet-flow/ImportWalletFile.tsx"
+        "src/screens/encrypted-file-flow/EncryptedWalletFileWalletPassword.tsx"
       ],
       "rules": {
         "@typescript-eslint/no-restricted-imports": "off"

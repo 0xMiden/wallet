@@ -24,7 +24,7 @@ import { ImportWalletFileScreen } from './ImportWalletFile';
  *     crypto primitives, and `lib/miden/repo`'s `importDb` are jest.fn()s so we
  *     can trace exactly what the component threads through the decrypt pipeline
  *     and drive the wrong-password / thrown-error / omitted-accounts arms.
- *   - `FormField` / `components/Button` / the v2 icon barrel are thin harnesses
+ *   - `TextField` / `components/Button` / the v2 icon barrel are thin harnesses
  *     that surface only the props under test (errorCaption, disabled, isLoading,
  *     children).
  *   - The global `FileReader` is replaced with a synchronous fake so the
@@ -121,18 +121,21 @@ jest.mock('app/icons/v2', () => ({
   }
 }));
 
-jest.mock('app/atoms/FormField', () => {
+jest.mock('components/ui/TextField', () => {
   const ReactLib = require('react');
   return {
     __esModule: true,
-    PASSWORD_ERROR_CAPTION: 'PASSWORD_ERROR_CAPTION',
-    default: ReactLib.forwardRef(
-      ({ label, errorCaption }: { label?: React.ReactNode; errorCaption?: React.ReactNode }, _ref: unknown) =>
+    TextField: ReactLib.forwardRef(
+      (
+        { label, hint, error }: { label?: React.ReactNode; hint?: React.ReactNode; error?: React.ReactNode },
+        _ref: unknown
+      ) =>
         ReactLib.createElement(
           'div',
           { 'data-testid': 'form-field' },
           ReactLib.createElement('span', { 'data-testid': 'ff-label' }, label),
-          errorCaption ? ReactLib.createElement('div', { 'data-testid': 'ff-error' }, errorCaption) : null
+          hint ? ReactLib.createElement('span', { 'data-testid': 'ff-hint' }, hint) : null,
+          error ? ReactLib.createElement('div', { 'data-testid': 'ff-error' }, error) : null
         )
     )
   };
@@ -232,7 +235,8 @@ const renderScreen = (props: Partial<React.ComponentProps<typeof ImportWalletFil
   render(<ImportWalletFileScreen {...props} />);
 
 const getForm = (container: HTMLElement) => container.querySelector('form') as HTMLFormElement;
-const getDropzone = (container: HTMLElement) => container.querySelector('.border-dashed') as HTMLElement;
+const getDropzone = (container: HTMLElement) =>
+  container.querySelector('[data-testid="wallet-file-dropzone"]') as HTMLElement;
 const getFileInput = (container: HTMLElement) => container.querySelector('input[type="file"]') as HTMLInputElement;
 
 // Upload via the hidden <input>'s change event (exercises `onUploadFile`).
@@ -339,10 +343,10 @@ describe('drag handlers', () => {
   it('highlights the drop zone on drag enter', () => {
     const { container } = renderScreen();
     const dropzone = getDropzone(container);
-    expect(dropzone.className).not.toContain('border-blue-500');
+    expect(dropzone.className).not.toContain('ring-accent-primary');
 
     fireEvent.dragEnter(dropzone);
-    expect(getDropzone(container).className).toContain('border-blue-500');
+    expect(getDropzone(container).className).toContain('ring-accent-primary');
   });
 
   it('drag over is a no-op that prevents the browser default', () => {
@@ -350,16 +354,16 @@ describe('drag handlers', () => {
     fireEvent.dragEnter(getDropzone(container));
     // dragOver just calls preventDefault; highlight stays on.
     fireEvent.dragOver(getDropzone(container));
-    expect(getDropzone(container).className).toContain('border-blue-500');
+    expect(getDropzone(container).className).toContain('ring-accent-primary');
   });
 
   it('clears the highlight on drag leave when leaving to a non-child target', () => {
     const { container } = renderScreen();
     fireEvent.dragEnter(getDropzone(container));
-    expect(getDropzone(container).className).toContain('border-blue-500');
+    expect(getDropzone(container).className).toContain('ring-accent-primary');
 
     fireEvent.dragLeave(getDropzone(container), { relatedTarget: document.body });
-    expect(getDropzone(container).className).not.toContain('border-blue-500');
+    expect(getDropzone(container).className).not.toContain('ring-accent-primary');
   });
 
   it('keeps the highlight when the drag leave goes to a child element', () => {
@@ -374,7 +378,7 @@ describe('drag handlers', () => {
     Object.defineProperty(event, 'relatedTarget', { value: childInput });
     fireEvent(dropzone, event);
 
-    expect(getDropzone(container).className).toContain('border-blue-500');
+    expect(getDropzone(container).className).toContain('ring-accent-primary');
   });
 
   it('loads a dropped JSON file and clears the highlight', () => {
@@ -1053,5 +1057,18 @@ describe('omitted-accounts two-step confirmation', () => {
 
     await waitFor(() => expect(screen.getByTestId('submit-button')).toBeEnabled());
     expect(screen.getByTestId('submit-button')).toHaveTextContent('continueImport');
+  });
+});
+
+describe('design-system layout', () => {
+  it('draws the step layout with a fill drop zone (no dashed outline) and the Import button pinned', () => {
+    const { container } = renderScreen();
+    expect(screen.getByRole('heading', { level: 1, name: 'importWallet' })).toBeInTheDocument();
+    const dropzone = getDropzone(container);
+    expect(dropzone).toHaveClass('bg-fill', 'rounded-2xl');
+    expect(dropzone.className).not.toMatch(/border-dashed/);
+    expect(screen.getByRole('button', { name: 'chooseFromDevice' })).toHaveClass('text-accent-tint-ink');
+    expect(screen.getByTestId('submit-button').closest('[data-slot="footer"]')).not.toBeNull();
+    expect(screen.getByTestId('submit-button')).toHaveAttribute('type', 'submit');
   });
 });
