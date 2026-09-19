@@ -70,7 +70,7 @@ Two fills replace six (`gray-25`, `gray-50`, `surface-input`, `surface-interacti
 | `negative` / `negative-ink` | #FF5500 / #C63A00 | #C51A0A / #FF7A4D | Fill / text for errors and destructive actions. |
 | `positive-tint` / `pending-tint` / `negative-tint` | #E8EEE5 / #F4ECDC / #F6E5E1 | #28302A / #3A3222 / #3D2724 | `StatusBadge` fills, from the activity icon family: sage (received #99AC94), sand and clay. Opaque, so a badge reads the same on `page` and `fill`. |
 | `positive-tint-ink` / `pending-tint-ink` / `negative-tint-ink` | #4F6549 / #7A5B26 / #9B4638 | #B2C4AC / #D8BC86 / #E7A193 | Text on those tints (5.41 / 5.33 / 5.17:1 light, 7.36 / 6.91 / 6.55:1 dark) and signed amounts in Activity rows and detail cards (at least 5.5:1 on `fill` and `page`). `*-ink` above stays for errors and destructive text. |
-| Flow accents | `accent-send`, `accent-receive`, `accent-earn`, `accent-swap` (+ `-tint`) | same | Aliases of the action colours below, so each flow's accent is its tab's colour. |
+| Flow accents | `accent-send`, `accent-receive`, `accent-earn`, `accent-swap` (+ `-tint`, `-ink`) | same | Aliases of the action colours below, so each flow's accent is its tab's colour. Text takes the `-ink`. |
 | Networks | `network-miden-*`, `network-ethereum-*` | as today | NetworkChip only. |
 
 A status is a word or an icon plus its color, never color alone. A status word is never bare
@@ -111,27 +111,45 @@ currency at 3:1 and the change pill at 4.5:1.
 ### Action colours
 
 Home's five actions each take one colour of the account card palette (`card-*`, the AccountsDrawer
-"Card color" picker), and that one colour is both the tab's icon in the top action bar and the
-accent of the tab's flow: back arrows, chevrons, Max, links, the address caret, route cards, the
+"Card color" picker), and that one brand colour is both the tab's icon in the top action bar and the
+accent of the tab's flow: back arrows, chevrons, the address caret, route card borders, the
 processing spinner and the summary arrow. The activity icon squares follow it too (`tx-sent`,
 `tx-received`, `tx-swap`, `tx-earn`); the faucet has no tab and keeps its rose #CCA4B8.
 
-| Tab | Token | Card colour | Light | Dark | Tint light / dark |
-| --- | --- | --- | --- | --- | --- |
-| Overview | `action-overview` | `card-orange` | #A75427 | #E77537 | #F4EAE5 / #32241D |
-| Send | `action-send` | `card-blue` | #566F83 | #91ACC1 | #EBEEF0 / #272B2D |
-| Receive | `action-receive` | `card-green` | #60705B | #A8BBA3 | #ECEEEB / #2A2C2A |
-| Earn | `action-earn` | `card-slate` | #6D697B | #8F8C9C | #EDEDEF / #272729 |
-| Swap | `action-swap` | `card-purple` | #736683 | #BEACD2 | #EEEDF0 / #2D2B2F |
+The action colours are the card colours, so they are brand colours too (rule 7): never darkened for
+contrast. Glyphs, icons and borders take the brand colour, which needs 3:1. Text in an action's
+colour (Max, the Receive link, a route label) takes its `-ink`, a separate darker shade (lighter in
+dark mode) that reads at 4.5:1, the same pattern as `accent-tint-ink` for the brand orange.
 
-- `accent-{send,receive,earn,swap}` and their tints alias `action-*`; a flow never declares its own
-  hex. Change a card colour and its tab, its flow and its activity rows change with it.
-- Every action colour reads as 4.5:1 text on `page`, `fill` and its own tint in both themes
-  (lowest: 4.50 light, on the Overview tint), so it may color text, glyphs and borders. The tint is
-  the colour at 12% over the page, solid.
-- The primary CTA stays `accent` (#E77537) in every flow. Overview's orange is the card's darker
-  brand shade, for icons and text, not a CTA fill.
-- `design-tokens.test.ts` asserts the mapping, the aliases, the tints and the contrast.
+| Tab | Token | Card colour | Light | Dark | Ink light / dark | Tint light / dark |
+| --- | --- | --- | --- | --- | --- | --- |
+| Overview | `action-overview` | `card-orange` | #E77537 | #E77537 | #A95528 / #E77537 | #FCEEE7 / #32241D |
+| Send | `action-send` | `card-blue` | #607C92 | #91ACC1 | #566F83 / #91ACC1 | #ECEFF2 / #272B2D |
+| Receive | `action-receive` | `card-green` | #778C72 | #A8BBA3 | #60715C / #A8BBA3 | #EFF1EE / #2A2C2A |
+| Earn | `action-earn` | `card-slate` | #777386 | #777386 | #6D697B / #8D8A9A | #EFEEF0 / #242426 |
+| Swap | `action-swap` | `card-purple` | #847595 | #BEACD2 | #746682 / #BEACD2 | #F0EEF2 / #2D2B2F |
+
+Contrast of the brand colour as a glyph, light (dark is 3.37:1 or better everywhere):
+
+| Action | On `page` | On `fill` | On its tint | Ink, lowest of the three |
+| --- | --- | --- | --- | --- |
+| Overview | 3.00 | 2.64 | 2.65 | 4.60 |
+| Send | 4.38 | 3.85 | 3.79 | 4.55 |
+| Receive | 3.63 | 3.20 | 3.20 | 4.61 |
+| Earn | 4.58 | 4.04 | 3.96 | 4.59 |
+| Swap | 4.23 | 3.73 | 3.67 | 4.59 |
+
+- `accent-{send,receive,earn,swap}` and their tints and inks alias `action-*`; a flow never declares
+  its own hex. Change a card colour and its tab, its flow and its activity rows change with it.
+- A flow's glyphs sit on `page`, `fill` or its tint, all 3:1 or better. Overview's orange is 3:1 on
+  `page` and the action bar's raised bubble only, so it draws the Overview tab icon and nothing on
+  `fill`.
+- Text never takes the bare action colour: `text-accent-{flow}-ink` (or `ACCENT_CLASSES[flow].ink`),
+  never `text-accent-{flow}`. A chevron that belongs to a text action takes the ink with its label.
+- The tint is the colour at 12% over the page, solid. The primary CTA stays `accent` (#E77537) in
+  every flow.
+- `design-tokens.test.ts` asserts the brand values, the mapping, the aliases, the tints and the
+  contrast of both the colour and its ink.
 
 ### Type
 
