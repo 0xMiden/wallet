@@ -216,11 +216,17 @@ describe('HistoryView empty state', () => {
     expect(screen.getByTestId('activity-spinner')).toBeInTheDocument();
   });
 
-  it('renders the centered empty state when centerEmptyState is set', () => {
-    render(<HistoryView {...baseProps} entries={[]} centerEmptyState />);
+  it('renders the Activity-tab empty state flush under the filters, not vertically centered', () => {
+    const { container } = render(<HistoryView {...baseProps} entries={[]} centerEmptyState />);
     expect(screen.getByText('noOperationsFound')).toBeInTheDocument();
     // Centered variant shows the ArrowUpDown glyph.
     expect(screen.getByTestId('icon')).toHaveAttribute('data-name', 'ArrowUpDown');
+    // Same top offset as the first date group (`pt-4`) — no vertical centering
+    // or oversized spacer (`items-center`/`justify-center`/`pt-16`/`flex-1`).
+    expect(container.querySelector('.pt-4')).not.toBeNull();
+    expect(container.querySelector('.pt-16')).toBeNull();
+    expect(container.querySelector('.items-center')).toBeNull();
+    expect(container.querySelector('.justify-center')).toBeNull();
   });
 
   it('renders the summary (non-full) empty state with the m-4 layout class', () => {

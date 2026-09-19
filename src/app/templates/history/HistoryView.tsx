@@ -385,8 +385,11 @@ const HistoryView = memo<HistoryViewProps>(
           </div>
         );
       if (centerEmptyState) {
+        // Sits right under the filters, at the same top offset the first date
+        // group gets once the list has entries (`pt-4` on the first `dateGroups`
+        // row below) — not vertically centered in the remaining tab height.
         return (
-          <div className="flex flex-1 items-center justify-center pt-16">
+          <div className="flex flex-col pt-4">
             <EmptyState icon={IconName.ArrowUpDown} title={t('noOperationsFound')} className="w-full" />
           </div>
         );
