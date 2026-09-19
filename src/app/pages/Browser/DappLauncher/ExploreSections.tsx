@@ -1,6 +1,7 @@
 /**
  * Renders Explore's catalog sections from config: each section's `kind` picks its layout, and a
- * chip that leaves nothing to show gets a "Coming soon to Miden" state instead.
+ * chip that leaves nothing to show gets a "Coming soon to Miden" state instead, and a search
+ * with no match "No results".
  *
  * Every section rises in with the page's staggered reveal (`useExploreMotion().section`). When a
  * chip changes, sections it hides fade out while the rest close the gap with a layout move on the
@@ -16,13 +17,7 @@ import { type IconName } from 'app/icons/v2';
 import { EmptyState } from 'components/ui/EmptyState';
 import { SectionHeader } from 'components/ui/SectionHeader';
 import { exploreSectionVariant, useExploreMotion } from 'lib/animation';
-import {
-  assignMorphOwners,
-  type ExploreFilter,
-  type ExploreItem,
-  type RecentDapp,
-  type ResolvedExploreSection
-} from 'lib/dapp-browser';
+import { assignMorphOwners, type ExploreItem, type RecentDapp, type ResolvedExploreSection } from 'lib/dapp-browser';
 import { hapticLight } from 'lib/mobile/haptics';
 
 import { AppList } from './AppRow';
@@ -95,14 +90,20 @@ function visibleListItems(items: ExploreItem[], limit: number | undefined, expan
   return expanded || limit === undefined ? items : items.slice(0, limit);
 }
 
+export interface ExploreEmptyState {
+  /** Keys the state, so a different one animates in. */
+  key: string;
+  icon: IconName;
+  title: string;
+  description?: string;
+}
+
 export interface ExploreSectionsProps {
   /** The sections the current chip shows, from `resolveExploreSections`. */
   sections: ResolvedExploreSection[];
   recents: RecentDapp[];
-  /** The current chip, which keys its "coming soon" state. */
-  filter: ExploreFilter;
-  /** The glyph of that state. */
-  emptyIcon: IconName;
+  /** What to show when there are no sections: "coming soon" for a chip, "no results" for a search. */
+  empty: ExploreEmptyState;
   onOpen: (url: string) => void;
   /** Whether sections present on mount play the reveal. */
   reveal: boolean;
@@ -110,17 +111,23 @@ export interface ExploreSectionsProps {
   firstRevealIndex: number;
   /** Whether a section entering now is part of the page's first reveal (staggered) or a filter (not). */
   staggered: boolean;
+  /**
+   * Whether items carry the capsule morph's layoutIds. Off for search results: a result sharing a
+   * layoutId with the card it replaces would hold that card's exit until a shared-layout hand-off
+   * between the two finished, instead of the sections simply collapsing into the list.
+   */
+  morph?: boolean;
 }
 
 export const ExploreSections: FC<ExploreSectionsProps> = ({
   sections,
   recents,
-  filter,
-  emptyIcon,
+  empty,
   onOpen,
   reveal,
   firstRevealIndex,
-  staggered
+  staggered,
+  morph = true
 }) => {
   const { t } = useTranslation();
   const motionTokens = useExploreMotion();
@@ -153,12 +160,12 @@ export const ExploreSections: FC<ExploreSectionsProps> = ({
     <div className="relative flex flex-col gap-5">
       <AnimatePresence initial={reveal} mode="popLayout">
         {shown.length === 0 ? (
-          <motion.div key={`empty-${filter}`} {...sectionMotion(0)} className="px-4">
+          <motion.div key={`empty-${empty.key}`} {...sectionMotion(0)} className="px-4">
             <EmptyState
               data-testid="explore-empty"
-              icon={emptyIcon}
-              title={t('exploreComingSoonTitle')}
-              description={t('exploreComingSoonDescription')}
+              icon={empty.icon}
+              title={empty.title}
+              description={empty.description}
             />
           </motion.div>
         ) : (
@@ -197,7 +204,7 @@ export const ExploreSections: FC<ExploreSectionsProps> = ({
                 <SectionBody
                   resolved={resolved}
                   recents={recents}
-                  morphUrls={owners.get(section.id) ?? NONE}
+                  morphUrls={morph ? (owners.get(section.id) ?? NONE) : NONE}
                   expanded={isExpanded}
                   onOpen={onOpen}
                 />

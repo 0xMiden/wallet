@@ -2,8 +2,8 @@
  * Top-level launcher composition for the embedded dApp browser: Explore, laid out like an app store.
  *
  * Stack (top → bottom):
- *   <TabHeader/>        "Explore" title
- *   <HeroSearch/>       search / paste-a-URL field
+ *   <TabHeader/>        "Explore" title, and a search icon top right that swaps the title for a
+ *                       field, as on Activity: it searches the catalog and opens a typed or pasted URL
  *   <CategoryChips/>    All, Tools, DeFi, Games, NFTs, Learn
  *   <ExploreSections/>  the catalog's sections for the chosen chip (`lib/dapp-browser/explore-catalog`):
  *                       today a featured card, the helper tools list and recents
@@ -13,28 +13,32 @@
  * `<DappActive>`. On its first mount the page reveals itself top to bottom (`useExploreMotion`).
  */
 
-import React, { type FC, useEffect, useMemo, useState } from 'react';
+import React, { type FC, useCallback, useEffect, useMemo, useState } from 'react';
 
 import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
 import { IconName } from 'app/icons/v2';
-import { TabHeader } from 'components/ui';
+import { TabHeader, TabHeaderAction } from 'components/ui';
 import { exploreSectionVariant, useExploreMotion } from 'lib/animation';
 import {
   EXPLORE_FILTERS,
   getExploreCatalog,
   getRecentDapps,
   resolveExploreSections,
+  searchExploreCatalog,
   type ExploreCatalog,
   type ExploreFilter,
-  type RecentDapp
+  type RecentDapp,
+  type ResolvedExploreSection
 } from 'lib/dapp-browser';
+import { hapticLight } from 'lib/mobile/haptics';
+import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 
 import { CategoryChips } from './CategoryChips';
-import { ExploreSections } from './ExploreSections';
-import { HeroSearch } from './HeroSearch';
+import { type ExploreEmptyState, ExploreSections } from './ExploreSections';
 import { hasRevealed, markRevealed } from './reveal-once';
+import { urlForQuery } from './search-url';
 
 interface DappLauncherProps {
   onOpen: (url: string) => void;
@@ -44,10 +48,9 @@ interface DappLauncherProps {
   catalog?: ExploreCatalog;
 }
 
-/** Reveal positions: the search, then the chips, then each section. */
-const SEARCH_REVEAL = 0;
-const CHIPS_REVEAL = 1;
-const FIRST_SECTION_REVEAL = 2;
+/** Reveal positions: the chips, then each section. */
+const CHIPS_REVEAL = 0;
+const FIRST_SECTION_REVEAL = 1;
 
 export const DappLauncher: FC<DappLauncherProps> = ({ onOpen, catalog: catalogProp }) => {
   const { t } = useTranslation();
@@ -55,8 +58,51 @@ export const DappLauncher: FC<DappLauncherProps> = ({ onOpen, catalog: catalogPr
   const [recents, setRecents] = useState<RecentDapp[]>([]);
   const [filter, setFilter] = useState<ExploreFilter>('all');
   const catalog = useMemo(() => catalogProp ?? getExploreCatalog(), [catalogProp]);
-  const sections = useMemo(() => resolveExploreSections(catalog, filter), [catalog, filter]);
-  const emptyIcon = EXPLORE_FILTERS.find(f => f.id === filter)?.icon ?? IconName.Apps;
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const searching = query.trim().length > 0;
+  const results = useMemo(() => searchExploreCatalog(catalog, filter, query), [catalog, filter, query]);
+
+  // While searching, the sections collapse into one results list (or "No results").
+  const sections = useMemo<ResolvedExploreSection[]>(() => {
+    if (!searching) return resolveExploreSections(catalog, filter);
+    if (results.length === 0) return [];
+    const itemIds = results.map(item => item.id);
+    return [{ section: { id: 'search-results', kind: 'list', titleKey: 'exploreResults', itemIds }, items: results }];
+  }, [catalog, filter, searching, results]);
+
+  const empty: ExploreEmptyState = searching
+    ? {
+        key: 'search',
+        icon: IconName.Search,
+        title: t('exploreNoResultsTitle'),
+        description: t('exploreNoResultsDescription')
+      }
+    : {
+        key: filter,
+        icon: EXPLORE_FILTERS.find(f => f.id === filter)?.icon ?? IconName.Apps,
+        title: t('exploreComingSoonTitle'),
+        description: t('exploreComingSoonDescription')
+      };
+
+  // As on Activity: the header's search button opens and closes the field, and closing clears it.
+  const closeSearch = useCallback(() => {
+    setSearchOpen(false);
+    setQuery('');
+  }, []);
+  const toggleSearch = () => (searchOpen ? closeSearch() : setSearchOpen(true));
+  useMobileBackHandler(() => {
+    if (!searchOpen) return false;
+    closeSearch();
+    return true;
+  }, [searchOpen, closeSearch]);
+
+  const submitSearch = () => {
+    const url = urlForQuery(query, results[0]?.url);
+    if (!url) return;
+    hapticLight();
+    onOpen(url);
+  };
 
   // The reveal plays on the first mount of the session only (see `reveal-once.ts`); after that
   // first commit, a section that enters is answering a chip and comes in without the stagger.
@@ -91,7 +137,28 @@ export const DappLauncher: FC<DappLauncherProps> = ({ onOpen, catalog: catalogPr
 
   return (
     <>
-      <TabHeader title={t('explore')} />
+      <TabHeader
+        title={t('explore')}
+        search={{
+          open: searchOpen,
+          value: query,
+          onChange: setQuery,
+          placeholder: t('searchDapps'),
+          onSubmit: submitSearch,
+          onEscape: closeSearch,
+          inputMode: 'url',
+          'data-testid': 'dapp-hero-search'
+        }}
+        actions={
+          <TabHeaderAction
+            label={t('exploreSearch')}
+            icon={IconName.Search}
+            active={searchOpen}
+            onClick={toggleSearch}
+            data-testid="explore-search-toggle"
+          />
+        }
+      />
 
       {/* `layoutScroll`, so the sections' layout moves and the capsule morph measure through the scroll. */}
       <motion.main
@@ -101,24 +168,19 @@ export const DappLauncher: FC<DappLauncherProps> = ({ onOpen, catalog: catalogPr
         data-testid="explore-launcher"
       >
         <div className="flex flex-col gap-5">
-          <div className="flex flex-col gap-3">
-            <motion.div {...revealProps(SEARCH_REVEAL)}>
-              <HeroSearch onSubmit={onOpen} />
-            </motion.div>
-            <motion.div {...revealProps(CHIPS_REVEAL)}>
-              <CategoryChips filters={EXPLORE_FILTERS} value={filter} onChange={setFilter} />
-            </motion.div>
-          </div>
+          <motion.div {...revealProps(CHIPS_REVEAL)}>
+            <CategoryChips filters={EXPLORE_FILTERS} value={filter} onChange={setFilter} />
+          </motion.div>
 
           <ExploreSections
             sections={sections}
             recents={recents}
-            filter={filter}
-            emptyIcon={emptyIcon}
+            empty={empty}
             onOpen={onOpen}
             reveal={reveal}
             firstRevealIndex={FIRST_SECTION_REVEAL}
             staggered={!settled}
+            morph={!searching}
           />
         </div>
       </motion.main>
