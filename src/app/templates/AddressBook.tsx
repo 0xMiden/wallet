@@ -89,7 +89,7 @@ const AddressBook: React.FC = () => {
                       data-testid="address-book-empty"
                       className="flex flex-col items-center gap-1 rounded-2xl bg-fill px-6 py-8 text-center"
                     >
-                      <span className="font-heading text-base font-bold text-ink">{t('noContactsYet')}</span>
+                      <span className="text-row-title text-ink">{t('noContactsYet')}</span>
                       <span className="text-sm text-muted">{t('noContactsYetHint')}</span>
                     </div>
                   )
