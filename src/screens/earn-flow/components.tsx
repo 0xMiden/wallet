@@ -4,31 +4,29 @@ import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import aaveLogoUrl from 'app/icons/earn-provider-logos/aave.svg?url';
-import { IconName } from 'app/icons/v2';
+import { PageHeader } from 'components/PageHeader';
 import { TokenLogo } from 'components/TokenLogo';
-import { IconButton } from 'components/ui/IconButton';
+import { Pill } from 'components/ui/Pill';
 import { goBack } from 'lib/woozie';
 
 import { EarnSummary, EarnVault } from './types';
 
-/** Shared top bar for the vault deposit flow: back button, "{protocol} • {asset}"
- *  title and the "{asset} on {network}" pill. Used by the deposit-amount and
- *  deposit-review pages so their headers stay identical. */
+/** Shared top bar for the vault deposit flow: the `PageHeader` with back, a "{protocol} • {asset}"
+ *  title and the "{asset} on {network}" pill. Used by the deposit-amount and deposit-review pages
+ *  so their headers stay identical, and shaped like the vault and withdraw-review headers. Both
+ *  pages are unpadded, so the header brings the 16px page margin itself. */
 export const EarnFlowHeader: FC<{ vault: EarnVault }> = ({ vault }) => {
   const { t } = useTranslation();
 
   return (
-    <header className="shrink-0 border-b border-rule-default px-4 pb-4 pt-5">
-      <div className="flex min-w-0 items-center gap-3">
-        <IconButton icon={IconName.ChevronLeft} label={t('back')} onClick={goBack} />
-        <h1 className="min-w-0 truncate font-heading text-[26px] font-bold leading-none text-ink">
-          {vault.protocol} &bull; {vault.asset}
-        </h1>
-        <span className="shrink-0 rounded-full bg-[#DDD4CE] px-3 py-1.5 text-xs font-medium leading-none text-ink">
-          {t('earnAssetOnNetwork', { asset: vault.asset, network: vault.network })}
-        </span>
-      </div>
-    </header>
+    <PageHeader
+      className="shrink-0 px-4"
+      title={`${vault.protocol} • ${vault.asset}`}
+      onBack={goBack}
+      actions={
+        <Pill className="shrink-0">{t('earnAssetOnNetwork', { asset: vault.asset, network: vault.network })}</Pill>
+      }
+    />
   );
 };
 
