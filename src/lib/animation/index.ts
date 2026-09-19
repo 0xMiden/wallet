@@ -15,3 +15,12 @@ export {
   resolvePageStepTransition
 } from './page-appearance';
 export { colorTransitionClass } from './interaction-classes';
+export {
+  tabBarMotion,
+  resolveTabBarMotion,
+  useTabBarMotion,
+  useTabIconPop,
+  type TabBarMotion,
+  type TabIconPop,
+  type TabIconPopPhase
+} from './tab-bar';
