@@ -3,12 +3,12 @@ import type { BrowserContext, Page } from '@playwright/test';
 import { expect, test } from '../fixtures/extension';
 
 /**
- * The wallet names its test network in a small strip at the bottom nav's right corner (it used to
- * be a banner above every page). The strip must sit inside the 360x600 extension popup without
- * overlapping any tab, and its explanation sheet (#875) must fit the popup: DrawerContent caps at
- * 80vh, so the notice rows scroll and the CTA stays pinned inside the viewport.
+ * The wallet names its test network on a ribbon across the bottom nav's lower-right corner (it used
+ * to be a banner above every page). The ribbon is drawn over the bar: the tabs keep their layout and
+ * the Settings tab stays tappable under it. Its explanation sheet (#875) must fit the 360x600 popup:
+ * DrawerContent caps at 80vh, so the notice rows scroll and the CTA stays pinned inside the viewport.
  *
- * The strip lives in the tab bar, so this needs a wallet: import one through fullpage onboarding,
+ * The ribbon lives in the tab bar, so this needs a wallet: import one through fullpage onboarding,
  * then open popup.html in a tab at the popup's size, where the app lays out as the popup.
  */
 
@@ -52,18 +52,18 @@ async function openPopup(extensionContext: BrowserContext, extensionId: string, 
     await page.addInitScript(value => localStorage.setItem('locale', value), locale);
   }
   await page.goto(`chrome-extension://${extensionId}/popup.html`, { waitUntil: 'domcontentloaded' });
-  const strip = page.getByTestId('network-mode-strip');
+  const ribbon = page.getByTestId('network-mode-ribbon');
   const unlock = page.getByTestId('unlock-password');
-  await strip.or(unlock).first().waitFor({ timeout: 30_000 });
+  await ribbon.or(unlock).first().waitFor({ timeout: 30_000 });
   if (await unlock.isVisible().catch(() => false)) {
     await page.locator('#unlock-password').fill(PASSWORD);
     await page.locator('#unlock-password').press('Enter');
   }
-  await strip.waitFor({ timeout: 30_000 });
+  await ribbon.waitFor({ timeout: 30_000 });
   return page;
 }
 
-test.describe('Network strip', () => {
+test.describe('Network corner ribbon', () => {
   test.skip(({ browserName }) => browserName !== 'chromium', 'Extension UI only runs in Chromium');
 
   for (const [locale, ctaText] of [
@@ -93,27 +93,43 @@ test.describe('Network strip', () => {
       // No banner tops the wallet any more.
       await expect(page.getByTestId('network-mode-banner')).toHaveCount(0);
 
-      // The strip is inside the bottom nav, right of every tab, and inside the popup.
-      const strip = page.getByTestId('network-mode-strip');
+      // The ribbon is drawn inside the bar's corner, over the tabs, and inside the popup.
+      const ribbon = page.getByTestId('network-mode-ribbon');
       const nav = page.locator('[data-tabbar-footer] nav');
-      const stripBox = (await strip.boundingBox())!;
+      const ribbonBox = (await ribbon.boundingBox())!;
       const navBox = (await nav.boundingBox())!;
-      expect(stripBox.x).toBeGreaterThanOrEqual(navBox.x);
-      expect(stripBox.x + stripBox.width).toBeLessThanOrEqual(navBox.x + navBox.width + 0.5);
-      expect(stripBox.x + stripBox.width).toBeLessThanOrEqual(360);
-      for (const tab of await nav.getByRole('button').all()) {
-        if ((await tab.getAttribute('data-testid')) === 'network-mode-strip') continue;
-        const tabBox = (await tab.boundingBox())!;
-        expect(tabBox.x + tabBox.width).toBeLessThanOrEqual(stripBox.x + 0.5);
-      }
+      expect(ribbonBox.x).toBeGreaterThanOrEqual(navBox.x);
+      expect(ribbonBox.x + ribbonBox.width).toBeLessThanOrEqual(Math.min(navBox.x + navBox.width, 360) + 0.5);
+      expect(ribbonBox.y).toBeGreaterThanOrEqual(navBox.y);
+      expect(ribbonBox.y + ribbonBox.height).toBeLessThanOrEqual(navBox.y + navBox.height + 0.5);
 
-      await strip.click();
+      // It takes no layout space: every tab is the same width, as without it. Settings is the last.
+      const tabs = await nav.locator('button:not([data-testid="network-mode-ribbon"])').all();
+      const widths = await Promise.all(tabs.map(async tab => Math.round((await tab.boundingBox())!.width)));
+      expect(new Set(widths).size).toBe(1);
+      const settings = tabs[tabs.length - 1]!;
+
+      // Taps land where they look like they land: the word opens the sheet, the Settings tab's
+      // centre still hits the Settings tab.
+      const settingsBox = (await settings.boundingBox())!;
+      const hitsSettings = await page.evaluate(
+        ({ x, y }) => document.elementFromPoint(x, y)?.closest('button')?.getAttribute('aria-label') ?? null,
+        { x: settingsBox.x + settingsBox.width / 2, y: settingsBox.y + settingsBox.height / 2 }
+      );
+      expect(hitsSettings).toBe(await settings.getAttribute('aria-label'));
+      const hitsRibbon = await page.evaluate(
+        ({ x, y }) => document.elementFromPoint(x, y)?.closest('button')?.getAttribute('data-testid') ?? null,
+        { x: ribbonBox.x + ribbonBox.width / 2, y: ribbonBox.y + ribbonBox.height / 2 }
+      );
+      expect(hitsRibbon).toBe('network-mode-ribbon');
+
+      await ribbon.click();
       // A test id, not a role: DrawerHeader carries its own close button.
       const cta = page.getByTestId('network-mode-sheet-cta');
       await cta.waitFor({ state: 'visible', timeout: 15_000 });
       // A locale switch that silently fails would run the long-locale case in English.
       await expect(cta).toHaveText(ctaText);
-      await expect(strip).toHaveAttribute('aria-expanded', 'true');
+      await expect(ribbon).toHaveAttribute('aria-expanded', 'true');
       // vaul slides the sheet in over 0.5 s; take the baseline only once it rests.
       await page.getByTestId('network-mode-sheet').evaluate(el => {
         const drawer = el.closest('[data-slot="drawer-content"]');
@@ -143,7 +159,7 @@ test.describe('Network strip', () => {
 
       await cta.click();
       await expect(page.getByTestId('network-mode-sheet')).toHaveCount(0);
-      await expect(strip).toHaveAttribute('aria-expanded', 'false');
+      await expect(ribbon).toHaveAttribute('aria-expanded', 'false');
     });
   }
 });
