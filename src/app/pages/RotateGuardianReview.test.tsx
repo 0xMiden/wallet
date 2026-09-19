@@ -232,10 +232,12 @@ it('renders the current and destination endpoints in the shared transition hero'
   await waitFor(() => expect(screen.getByTestId('rotate-guardian-confirm')).toBeEnabled());
 });
 
-it('uses theme-aware text colors for the rotation warning', async () => {
+it('draws the rotation warning as a warning Notice in theme-aware tokens', async () => {
   render(<RotateGuardianReview />);
 
-  expect(screen.getByText('oldGuardianCantBlockTitle')).toHaveClass('text-ink');
+  const notice = screen.getByText('oldGuardianCantBlockBody').closest('[role="note"]');
+  expect(notice).toHaveAttribute('data-tone', 'warning');
+  expect(screen.getByText('oldGuardianCantBlockTitle')).toHaveClass('text-pending-ink');
   expect(screen.getByText('oldGuardianCantBlockBody')).toHaveClass('text-ink');
   await waitFor(() => expect(screen.getByTestId('rotate-guardian-confirm')).toBeEnabled());
 });
@@ -301,7 +303,7 @@ it('wraps the long guardian error on the mobile hardware-auth path so it is not 
   await waitFor(() => expect(confirm).toBeEnabled());
   fireEvent.click(confirm);
 
-  expect(await screen.findByText(LONG_GUARDIAN_ERROR)).toHaveClass('wrap-break-word');
+  expect((await screen.findByText(LONG_GUARDIAN_ERROR)).closest('[role="alert"]')).toHaveClass('wrap-break-word');
 });
 
 it('password authentication gates the extension flow and retries with fresh authentication', async () => {
@@ -339,7 +341,7 @@ it('invalid credentials and back navigation leave the Guardian unchanged', async
   expect(await screen.findByText('Invalid password')).toBeInTheDocument();
   expect(mockInitiateSwitch).not.toHaveBeenCalled();
 
-  fireEvent.click(screen.getByTestId('auth-back'));
+  fireEvent.click(screen.getByTestId('page-back'));
   expect(await screen.findByTestId('rotate-guardian-confirm')).toBeInTheDocument();
   expect(mockInitiateSwitch).not.toHaveBeenCalled();
 });
@@ -519,6 +521,14 @@ describe('hardware back', () => {
   });
 });
 
+it('lays the review out on the shared sub-page frame: header, details card and pinned Continue', async () => {
+  render(<RotateGuardianReview />);
+  expect(screen.getByRole('heading', { name: 'reviewRotation' })).toBeInTheDocument();
+  expect(screen.getByText('walletKeyHot').closest('.divide-hairline')).not.toBeNull();
+  const confirm = await screen.findByTestId('rotate-guardian-confirm');
+  expect(confirm.closest('[data-slot="footer"]')).not.toBeNull();
+});
+
 it('keeps Continue out of the scroll region so it cannot land below the fold', async () => {
   const { container } = render(<RotateGuardianReview />);
   const confirm = await screen.findByTestId('rotate-guardian-confirm');
@@ -526,7 +536,7 @@ it('keeps Continue out of the scroll region so it cannot land below the fold', a
   // The illustration plus the prominent header cost ~220px of a 600px popup, so
   // a CTA inside the scroller sat below the fold — the user had to scroll to
   // find the only way forward, and a failure could render off-screen entirely.
-  const scroller = container.querySelector('.flex-1.min-h-0.overflow-y-auto');
+  const scroller = container.querySelector('[data-slot="body"]');
   expect(scroller).not.toBeNull();
   expect(scroller!.contains(confirm)).toBe(false);
 });
