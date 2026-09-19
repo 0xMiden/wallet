@@ -440,12 +440,12 @@ body[data-hide-navbar]::after {
     --status-positive: #90ba89;
     --status-pending: #e85d2f;
     --status-negative: #ff5500;
-    /* Activity icon-square hues — mirror the Send/Receive/Earn/Swap action-bar
-     * logo colors (the glyph is rendered white on top of these). */
-    --tx-received: #99ac94;
-    --tx-sent: #91acc1;
-    --tx-swap: #beacd2;
-    --tx-earn: #777487;
+    /* Activity icon squares (a white glyph on top): each kind of row is its action's colour, so a
+     * sent row matches the Send tab. The faucet has no tab and keeps its dusty rose. */
+    --tx-received: var(--action-receive);
+    --tx-sent: var(--action-send);
+    --tx-swap: var(--action-swap);
+    --tx-earn: var(--action-earn);
     --tx-faucet: #cca4b8;
     --rule-default: rgba(63, 63, 63, 0.08);
     --rule-strong: rgba(63, 63, 63, 0.16);
@@ -553,10 +553,6 @@ body[data-hide-navbar]::after {
     --status-positive: #90ba89;
     --status-pending: #e85d2f;
     --status-negative: #c51a0a;
-    --tx-received: #99ac94;
-    --tx-sent: #91acc1;
-    --tx-swap: #beacd2;
-    --tx-earn: #777487;
     --tx-faucet: #cca4b8;
     --rule-default: rgba(255, 255, 255, 0.08);
     --rule-strong: rgba(255, 255, 255, 0.16);
