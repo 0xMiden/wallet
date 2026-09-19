@@ -1,0 +1,185 @@
+/**
+ * The Explore tab's catalog: what it shows and in which sections, as data.
+ *
+ * Explore is laid out like an app store. A section has a `kind` that picks its layout, and holds
+ * items by id; an item has a `type` (what it is) and a `category` (which chip it answers to). Adding
+ * a Miden dApp, a game or an article is an entry in `items` plus an id in a section: the page
+ * renders whatever the config holds, so no layout work is needed.
+ *
+ * - `featured`: a large card with the app's art or brand color, its name, tagline and Open.
+ * - `list`: rows in one grouped card (icon, name, tagline, Open), with "See all" past `limit`.
+ * - `row`: a horizontal row of app tiles, the name under each.
+ * - `recents`: the dApps the user opened last, from `recent-dapps.ts`. Not part of any category.
+ *
+ * The dApp data itself stays in `FEATURED_DAPPS`; the catalog picks from it by id.
+ */
+
+import { IconName } from 'app/icons/v2';
+import { isSwapEnabled } from 'lib/feature-flags';
+
+import { FEATURED_DAPPS } from './featured-dapps';
+
+/** What an item is. Decides nothing about layout; a section's `kind` does that. */
+export type ExploreItemType = 'dapp' | 'tool' | 'game' | 'defi' | 'nft' | 'article';
+
+/** The chip an item answers to. */
+export type ExploreCategory = 'tools' | 'defi' | 'games' | 'nft' | 'learn';
+
+/** A chip: every category, or one of them. */
+export type ExploreFilter = 'all' | ExploreCategory;
+
+export interface ExploreItem {
+  id: string;
+  type: ExploreItemType;
+  category: ExploreCategory;
+  name: string;
+  /** One line under the name. */
+  tagline: string;
+  url: string;
+  /** The app's icon. Without one, the app shows its initial on a tint derived from its url. */
+  icon?: string;
+  /** Artwork for a featured card. Without it, the card shows the brand color behind the icon. */
+  art?: string;
+  brandColor?: string;
+  /** A swap or exchange surface, hidden where the build ships without one (iOS). */
+  isExchange?: boolean;
+}
+
+interface SectionBase {
+  id: string;
+  /** i18n key of the section title. */
+  titleKey: string;
+}
+
+export interface FeaturedSection extends SectionBase {
+  kind: 'featured';
+  itemIds: string[];
+}
+
+export interface ListSection extends SectionBase {
+  kind: 'list';
+  itemIds: string[];
+  /** Rows shown before "See all". Every row when unset. */
+  limit?: number;
+}
+
+export interface RowSection extends SectionBase {
+  kind: 'row';
+  itemIds: string[];
+}
+
+export interface RecentsSection extends SectionBase {
+  kind: 'recents';
+}
+
+export type ExploreSection = FeaturedSection | ListSection | RowSection | RecentsSection;
+
+export type ExploreSectionKind = ExploreSection['kind'];
+
+export interface ExploreCatalog {
+  items: ExploreItem[];
+  sections: ExploreSection[];
+}
+
+export interface ExploreFilterDescriptor {
+  id: ExploreFilter;
+  /** i18n key of the chip label. */
+  labelKey: string;
+  /** Glyph of the chip's "coming soon" state. */
+  icon: IconName;
+}
+
+/** The chips, in order. */
+export const EXPLORE_FILTERS: ExploreFilterDescriptor[] = [
+  { id: 'all', labelKey: 'all', icon: IconName.Apps },
+  { id: 'tools', labelKey: 'categoryTools', icon: IconName.Hammer },
+  { id: 'defi', labelKey: 'categoryDefi', icon: IconName.Coins },
+  { id: 'games', labelKey: 'categoryGames', icon: IconName.Rocket },
+  { id: 'nft', labelKey: 'categoryNfts', icon: IconName.Image },
+  { id: 'learn', labelKey: 'categoryLearn', icon: IconName.File }
+];
+
+/** A catalog item from a `FEATURED_DAPPS` entry. */
+function fromDapp(id: string, type: ExploreItemType, category: ExploreCategory): ExploreItem[] {
+  return FEATURED_DAPPS.filter(dapp => dapp.id === id).map(dapp => ({
+    id: dapp.id,
+    type,
+    category,
+    name: dapp.name,
+    tagline: dapp.shortDescription,
+    url: dapp.url,
+    icon: dapp.icon || undefined,
+    brandColor: dapp.brandColor,
+    isExchange: dapp.isExchange
+  }));
+}
+
+export const EXPLORE_CATALOG: ExploreCatalog = {
+  items: [...fromDapp('faucet', 'tool', 'tools'), ...fromDapp('forkchoice-faucet', 'tool', 'tools')],
+  sections: [
+    { id: 'featured', kind: 'featured', titleKey: 'exploreFeatured', itemIds: ['faucet'] },
+    { id: 'helper-tools', kind: 'list', titleKey: 'exploreHelperTools', itemIds: ['faucet', 'forkchoice-faucet'] },
+    { id: 'recents', kind: 'recents', titleKey: 'recents' }
+  ]
+};
+
+/**
+ * The catalog for this platform. On iOS, where the app ships without a swap surface (App Store
+ * Guideline 3.1.5(iii)), exchange items are dropped so Explore does not promote one. Call at
+ * render time, after Capacitor is initialized.
+ */
+export function getExploreCatalog(catalog: ExploreCatalog = EXPLORE_CATALOG): ExploreCatalog {
+  if (isSwapEnabled()) return catalog;
+  return { ...catalog, items: catalog.items.filter(item => !item.isExchange) };
+}
+
+/** A section with its items resolved and filtered, ready to render. */
+export type ResolvedExploreSection =
+  | { section: FeaturedSection | ListSection | RowSection; items: ExploreItem[] }
+  | { section: RecentsSection; items: [] };
+
+/**
+ * The sections to show under a chip, in config order. Items are looked up by id and filtered to
+ * the chip's category; a section left with no items is dropped. Recents belong to no category, so
+ * they show under "All" only.
+ */
+export function resolveExploreSections(catalog: ExploreCatalog, filter: ExploreFilter): ResolvedExploreSection[] {
+  const byId = new Map(catalog.items.map(item => [item.id, item]));
+  const resolved: ResolvedExploreSection[] = [];
+
+  for (const section of catalog.sections) {
+    if (section.kind === 'recents') {
+      if (filter === 'all') resolved.push({ section, items: [] });
+      continue;
+    }
+    const items = section.itemIds
+      .flatMap(id => {
+        const item = byId.get(id);
+        return item ? [item] : [];
+      })
+      .filter(item => filter === 'all' || item.category === filter);
+    if (items.length > 0) resolved.push({ section, items });
+  }
+
+  return resolved;
+}
+
+/**
+ * The url whose icon and name carry the capsule morph `layoutId`s, per section. Only one element
+ * per url may hold them (framer-motion merges every holder into one projected box), so the first
+ * section to show a url owns its morph and later ones render plainly. Recents never own one.
+ */
+export function assignMorphOwners(sections: ResolvedExploreSection[]): Map<string, Set<string>> {
+  const claimed = new Set<string>();
+  const owners = new Map<string, Set<string>>();
+  for (const { section, items } of sections) {
+    const owned = new Set<string>();
+    for (const item of items) {
+      if (claimed.has(item.url)) continue;
+      claimed.add(item.url);
+      owned.add(item.url);
+    }
+    owners.set(section.id, owned);
+  }
+  return owners;
+}

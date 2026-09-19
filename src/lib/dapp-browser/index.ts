@@ -22,6 +22,22 @@ export {
   type FeaturedDappCategory
 } from './featured-dapps';
 export { CATEGORIES, type CategoryDescriptor } from './category-data';
+export {
+  EXPLORE_CATALOG,
+  EXPLORE_FILTERS,
+  getExploreCatalog,
+  resolveExploreSections,
+  assignMorphOwners,
+  type ExploreCatalog,
+  type ExploreCategory,
+  type ExploreFilter,
+  type ExploreFilterDescriptor,
+  type ExploreItem,
+  type ExploreItemType,
+  type ExploreSection,
+  type ExploreSectionKind,
+  type ResolvedExploreSection
+} from './explore-catalog';
 export { getRecentDapps, recordRecentDapp, forgetRecentDapp, type RecentDapp } from './recent-dapps';
 // PR-6: persistence for cold-bubble restore across app restart.
 export {
