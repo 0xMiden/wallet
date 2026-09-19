@@ -308,7 +308,8 @@ const HIDDEN_TABS: Tab[] = [
     ownsInitialFocus: () => true,
     titleI18nKey: 'editMidenFaucetId',
     Component: EditMidenFaucetId,
-    testID: SettingsSelectors.EditMidenFaucetButton
+    testID: SettingsSelectors.EditMidenFaucetButton,
+    rendersSubPageLayout: true
   },
   {
     slug: 'networks',
