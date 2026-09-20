@@ -66,21 +66,8 @@ jest.mock('app/layouts/PageLayout', () => ({
 }));
 
 jest.mock('components/GuardianTransitionHero', () => ({
-  GuardianTransitionHero: ({
-    previousEndpoint,
-    newEndpoint,
-    variant
-  }: {
-    previousEndpoint?: string;
-    newEndpoint?: string;
-    variant?: string;
-  }) => (
-    <div
-      data-testid="guardian-transition"
-      data-previous={previousEndpoint}
-      data-new={newEndpoint}
-      data-variant={variant}
-    />
+  GuardianTransitionHero: ({ previousEndpoint, newEndpoint }: { previousEndpoint?: string; newEndpoint?: string }) => (
+    <div data-testid="guardian-transition" data-previous={previousEndpoint} data-new={newEndpoint} />
   )
 }));
 
@@ -225,7 +212,6 @@ it('renders the current and destination endpoints in the shared transition hero'
   const hero = screen.getByTestId('guardian-transition');
   expect(hero).toHaveAttribute('data-previous', 'https://old.example');
   expect(hero).toHaveAttribute('data-new', 'https://new.example');
-  expect(hero).toHaveAttribute('data-variant', 'review');
   // The review screen owns its header now (its own PageHeader) instead
   // of PageLayout's toolbar title.
   expect(screen.getByRole('heading', { name: 'reviewRotation' })).toBeInTheDocument();

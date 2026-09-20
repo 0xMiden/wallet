@@ -396,7 +396,6 @@ const RotateGuardianReview: FC = () => {
             newEndpoint={newEndpoint}
             previousLabel={t('currentGuardianLabel')}
             newLabel={t('newGuardianLabel')}
-            variant="review"
           />
         </div>
 
