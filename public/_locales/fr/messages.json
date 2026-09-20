@@ -2648,6 +2648,10 @@
     "message": "Touche « Rotation de l'appareil »",
     "englishSource": "Rotate device key"
   },
+  "newDeviceKey": {
+    "message": "Nouvelle clé d'appareil",
+    "englishSource": "New device key"
+  },
   "replaceHotKeyDescription": {
     "message": "Générer une nouvelle clé (rapide) pour votre appareil et remplacer la clé actuelle sur la chaîne. Utile si vous pensez que votre appareil a été piraté.",
     "englishSource": "Generate a new device (hot) key and replace the current one on-chain. Useful if you suspect your device is compromised."

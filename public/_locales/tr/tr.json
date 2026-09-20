@@ -590,6 +590,7 @@
   "oldGuardianCantBlockTitle": "Eski Guardian’ınız bunu engelleyemez",
   "oldGuardianCantBlockBody": "Rotasyon, cihazınızdaki iki anahtar tarafından onaylanır. Eski Guardian’a yalnızca bildirim gönderilir.",
   "replaceHotKey": "Cihaz tuşunu döndür",
+  "newDeviceKey": "Yeni cihaz anahtarı",
   "replaceHotKeyDescription": "Yeni bir cihaz (hızlı erişim) tuşu oluşturun ve zincir üzerindeki mevcut tuşu bununla değiştirin. Cihazınızın ele geçirildiğinden şüpheleniyorsanız bu işlem yararlı olabilir.",
   "replaceHotKeyConfirmation": "Bu işlem, kurtarma (soğuk) anahtarınızla imzalanmıştır. seed phrase adresiniz gerekmemektedir; bakiyeniz ve hesabınız değişmez. Devam etmek istiyor musunuz?",
   "confirmReplaceHotKey": "Dönüşü onayla",

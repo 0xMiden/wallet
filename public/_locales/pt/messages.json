@@ -2648,6 +2648,10 @@
     "message": "Tecla para girar o dispositivo",
     "englishSource": "Rotate device key"
   },
+  "newDeviceKey": {
+    "message": "Nova chave do dispositivo",
+    "englishSource": "New device key"
+  },
   "replaceHotKeyDescription": {
     "message": "Gere uma nova tecla de atalho (hotkey) para o dispositivo e substitua a atual na cadeia de blocos. Isso é útil caso você suspeite que seu dispositivo tenha sido comprometido.",
     "englishSource": "Generate a new device (hot) key and replace the current one on-chain. Useful if you suspect your device is compromised."

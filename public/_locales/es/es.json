@@ -590,6 +590,7 @@
   "oldGuardianCantBlockTitle": "Tu antiguo Guardian no puede bloquear esto",
   "oldGuardianCantBlockBody": "La rotación se aprueba mediante tus dos claves almacenadas en el dispositivo. Al antiguo Guardian solo se le notifica.",
   "replaceHotKey": "Girar la tecla del dispositivo",
+  "newDeviceKey": "Nueva clave del dispositivo",
   "replaceHotKeyDescription": "Genera una nueva tecla de acceso rápido (hotkey) y sustituye la actual en la cadena de bloques. Resulta útil si sospechas que tu dispositivo ha sido comprometido.",
   "replaceHotKeyConfirmation": "Esto se firma con tu clave de recuperación (en frío). No es necesario introducir tu clave de acceso (seed phrase), y tus fondos y tu cuenta permanecen sin cambios. ¿Deseas continuar?",
   "confirmReplaceHotKey": "Confirmar la rotación",

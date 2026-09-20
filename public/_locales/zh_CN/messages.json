@@ -2648,6 +2648,10 @@
     "message": "旋转设备键",
     "englishSource": "Rotate device key"
   },
+  "newDeviceKey": {
+    "message": "新设备密钥",
+    "englishSource": "New device key"
+  },
   "replaceHotKeyDescription": {
     "message": "生成一个新的设备（热）密钥，并在链上替换当前的密钥。如果您怀疑设备已遭入侵，此操作将非常有用。",
     "englishSource": "Generate a new device (hot) key and replace the current one on-chain. Useful if you suspect your device is compromised."

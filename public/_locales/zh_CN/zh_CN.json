@@ -590,6 +590,7 @@
   "oldGuardianCantBlockTitle": "您的旧 Guardian 无法阻止此操作",
   "oldGuardianCantBlockBody": "轮换需经您设备上的两把密钥批准。旧的Guardian仅会收到通知。",
   "replaceHotKey": "旋转设备键",
+  "newDeviceKey": "新设备密钥",
   "replaceHotKeyDescription": "生成一个新的设备（热）密钥，并在链上替换当前的密钥。如果您怀疑设备已遭入侵，此操作将非常有用。",
   "replaceHotKeyConfirmation": "此操作将使用您的恢复（冷）密钥进行签名。无需提供您的 seed phrase，您的资金和账户均保持不变。继续吗？",
   "confirmReplaceHotKey": "确认旋转",

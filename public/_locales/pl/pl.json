@@ -590,6 +590,7 @@
   "oldGuardianCantBlockTitle": "Twój stary Guardian nie może tego zablokować",
   "oldGuardianCantBlockBody": "Rotacja jest zatwierdzana za pomocą dwóch kluczy przechowywanych na urządzeniu. Stary Guardian otrzymuje jedynie powiadomienie.",
   "replaceHotKey": "Przycisk obracania urządzenia",
+  "newDeviceKey": "Nowy klucz urządzenia",
   "replaceHotKeyDescription": "Utwórz nowy skrót klawiszowy (dla gorących klawiszy) i zastąp nim obecny w łańcuchu bloków. Przydatne, jeśli podejrzewasz, że Twoje urządzenie zostało przejęte.",
   "replaceHotKeyConfirmation": "Zostało to podpisane Twoim kluczem odzyskiwania (kluczem „cold”). Twój klucz „seed phrase” nie jest wymagany, a stan środków i konta pozostaje bez zmian. Czy chcesz kontynuować?",
   "confirmReplaceHotKey": "Potwierdź obrót",

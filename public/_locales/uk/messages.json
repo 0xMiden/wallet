@@ -2648,6 +2648,10 @@
     "message": "Повернути клавішу пристрою",
     "englishSource": "Rotate device key"
   },
+  "newDeviceKey": {
+    "message": "Новий ключ пристрою",
+    "englishSource": "New device key"
+  },
   "replaceHotKeyDescription": {
     "message": "Створити нову комбінацію клавіш (гарячу клавішу) для пристрою та замінити поточну в ланцюжку блоків. Це корисно, якщо ви підозрюєте, що ваш пристрій зламано.",
     "englishSource": "Generate a new device (hot) key and replace the current one on-chain. Useful if you suspect your device is compromised."

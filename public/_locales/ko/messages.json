@@ -2648,6 +2648,10 @@
     "message": "기기 키 회전",
     "englishSource": "Rotate device key"
   },
+  "newDeviceKey": {
+    "message": "새 기기 키",
+    "englishSource": "New device key"
+  },
   "replaceHotKeyDescription": {
     "message": "새로운 기기(핫) 키를 생성하고, 온체인에서 기존 키를 대체합니다. 기기가 해킹당했을 가능성이 있다고 의심될 때 유용합니다.",
     "englishSource": "Generate a new device (hot) key and replace the current one on-chain. Useful if you suspect your device is compromised."

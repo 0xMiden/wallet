@@ -2648,6 +2648,10 @@
     "message": "Gerätetaste drehen",
     "englishSource": "Rotate device key"
   },
+  "newDeviceKey": {
+    "message": "Neuer Geräteschlüssel",
+    "englishSource": "New device key"
+  },
   "replaceHotKeyDescription": {
     "message": "Erstellen Sie einen neuen (Hot-)Key für Ihr Gerät und ersetzen Sie den aktuellen in der Blockchain. Dies ist nützlich, wenn Sie den Verdacht haben, dass Ihr Gerät kompromittiert wurde.",
     "englishSource": "Generate a new device (hot) key and replace the current one on-chain. Useful if you suspect your device is compromised."

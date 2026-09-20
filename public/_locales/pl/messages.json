@@ -2648,6 +2648,10 @@
     "message": "Przycisk obracania urządzenia",
     "englishSource": "Rotate device key"
   },
+  "newDeviceKey": {
+    "message": "Nowy klucz urządzenia",
+    "englishSource": "New device key"
+  },
   "replaceHotKeyDescription": {
     "message": "Utwórz nowy skrót klawiszowy (dla gorących klawiszy) i zastąp nim obecny w łańcuchu bloków. Przydatne, jeśli podejrzewasz, że Twoje urządzenie zostało przejęte.",
     "englishSource": "Generate a new device (hot) key and replace the current one on-chain. Useful if you suspect your device is compromised."

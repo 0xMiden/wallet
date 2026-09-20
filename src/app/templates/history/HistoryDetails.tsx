@@ -9,7 +9,7 @@ import { useNetworkFeeEstimate } from 'app/hooks/useNetworkFeeEstimate';
 import { Icon, IconName } from 'app/icons/v2';
 import PageLayout from 'app/layouts/PageLayout';
 import { Button, ButtonVariant } from 'components/Button';
-import { GuardianTransitionHero } from 'components/GuardianTransitionHero';
+import { GuardianChangeSummary } from 'components/GuardianChangeSummary';
 import { PageHeader } from 'components/PageHeader';
 import { DetailRow } from 'components/ui/DetailCard';
 import { Spinner } from 'components/ui/Spinner';
@@ -356,6 +356,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           tx.type === 'earn-deposit' ? tx.extraInputs : undefined;
         const guardianSwitchExtra: ISwitchGuardianExtraInputs | undefined =
           tx.type === 'switch-guardian' ? tx.extraInputs : undefined;
+        const hotKeyExtra = tx.type === 'replace-hot-key' ? tx.extraInputs : undefined;
         const earnWithdrawFields = earnWithdrawExtra
           ? earnWithdrawAmountFields(earnWithdrawExtra, tx.amount, tokenMetadata)
           : undefined;
@@ -395,6 +396,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           txType: tx.type,
           previousGuardianEndpoint: guardianSwitchExtra?.previousGuardianEndpoint,
           newGuardianEndpoint: guardianSwitchExtra?.newGuardianEndpoint,
+          newHotPublicKey: hotKeyExtra?.newHotPublicKey,
           errorMessage: tx.error,
           rawErrorMessage: tx.rawError,
           isCancelled: isUserCancelledTransaction(tx.error),
@@ -543,6 +545,20 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   const isEarnWithdraw = entry?.txType === 'earn-withdraw' && earnWithdraw !== null;
   const isEarnDeposit = entry?.txType === 'earn-deposit' && earnDeposit !== null;
   const isGuardianSwitch = entry?.txType === 'switch-guardian';
+  // A device-key rotation changes the account's signer, not its co-signer, so it
+  // draws the guardian once. Both are structural Guardian ops: neither moves
+  // value, so neither gets the wallet From/To rows.
+  const isHotKeyRotation = entry?.txType === 'replace-hot-key';
+  const isGuardianOp = isGuardianSwitch || isHotKeyRotation;
+  // The co-signer this row's own account uses. A rotation row carries no
+  // endpoint of its own, and the account record is the same source the guardian
+  // settings hero reads. Matched the same way `AccountDisplay` does - the open
+  // account first, then the rest - since a row can belong to either.
+  const rotationGuardianEndpoint = isHotKeyRotation
+    ? account?.publicKey === entry?.address
+      ? account.guardianEndpoint
+      : allAccounts.find(acc => acc.publicKey === entry?.address)?.guardianEndpoint
+    : undefined;
   // Which way the money moved is a property of the transaction TYPE, not of its
   // display label. `displayMessage` only reads 'Sent' once `completeSendTransaction`
   // stamps it: a send is 'Sending' while queued/building and `cancelTransaction`
@@ -562,7 +578,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
     (entry?.txType !== undefined && OUTBOUND_TRANSFER_TYPES.includes(entry.txType)) || entry?.message === 'Sent';
   const fromAddress = isBridgeOut
     ? entry?.address
-    : isGuardianSwitch
+    : isGuardianOp
       ? undefined
       : isBridgeIn
         ? undefined
@@ -571,7 +587,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           : entry?.secondaryAddress;
   const toAddress = isBridgeOut
     ? undefined
-    : isGuardianSwitch
+    : isGuardianOp
       ? undefined
       : isBridgeIn
         ? entry?.address
@@ -674,12 +690,13 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
             {/* Top Section - bridges and Guardian switches use purpose-built transition heroes. */}
             <div className="flex flex-col items-center justify-center pt-6 pb-5">
               {isGuardianSwitch ? (
-                <GuardianTransitionHero
+                <GuardianChangeSummary
+                  kind="switch"
                   previousEndpoint={entry.previousGuardianEndpoint}
                   newEndpoint={entry.newGuardianEndpoint}
-                  previousLabel={t('from')}
-                  newLabel={t('to')}
                 />
+              ) : isHotKeyRotation ? (
+                <GuardianChangeSummary kind="single" endpoint={rotationGuardianEndpoint} />
               ) : (
                 <>
                   <TransactionIcon entry={entry} size="lg" />
@@ -724,7 +741,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
             <div className="mt-4">
               <SectionDivider color={sectionDividerColor} />
               <div className="mt-5">
-                <DetailSection title={t(isGuardianSwitch ? 'details' : 'transferDetails')}>
+                <DetailSection title={t(isGuardianOp ? 'details' : 'transferDetails')}>
                   <DetailRow label={t('date')}>{formatDate(entry.timestamp)}</DetailRow>
 
                   {isBridgeIn && entry.bridgeInSourceAddress && (
@@ -747,9 +764,16 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                     </DetailRow>
                   )}
 
-                  {isGuardianSwitch && !entry.externalTxId && entry.txId && (
+                  {isGuardianOp && !entry.externalTxId && entry.txId && (
                     <DetailRow label={t('txIdLabel')}>
                       <HashChip hash={entry.txId} trimHash className="ml-2" />
+                    </DetailRow>
+                  )}
+
+                  {/* A rotation's whole subject: the guardian above is unchanged, the key is what moved. */}
+                  {isHotKeyRotation && entry.newHotPublicKey && (
+                    <DetailRow label={t('newDeviceKey')} data-testid="history-detail-new-device-key">
+                      <HashChip hash={entry.newHotPublicKey} trimHash className="ml-2" />
                     </DetailRow>
                   )}
 
