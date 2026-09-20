@@ -59,7 +59,7 @@ const AddressBook: React.FC = () => {
         onChange={setSearchQuery}
         placeholder={t('searchContacts')}
         data-testid="address-book-search"
-        className="mt-1 shrink-0"
+        className="shrink-0"
       />
 
       <div className="flex flex-col gap-6 pt-6 pb-4">

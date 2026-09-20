@@ -96,7 +96,7 @@ const ContactView: React.FC<ContactViewProps> = ({ contact, onBack, onDeleted })
   // hero here is the avatar alone.
   const avatar = (
     <Hero
-      className="pt-6 pb-2"
+      className="pb-2"
       visual={
         <ContactAvatar
           address={contact.address}
