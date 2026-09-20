@@ -176,9 +176,9 @@ describe('DappLauncher', () => {
     // Still a ListRow, with the app's url for the E2E driver and Open as its trailing pill.
     expect(row).toHaveAttribute('data-dapp-url', 'https://faucet.example/');
     expect(row.querySelector('[data-slot="title"]')).toHaveTextContent('Faucet');
-    expect(within(row).getByText('exploreOpen')).toBeInTheDocument();
-    // The Open pill is the affordance, so the row carries no chevron beside it.
-    expect(row.querySelector('[data-slot="chevron"]')).toBeNull();
+    // The row opens the app the way every navigating row says so: a chevron, no tinted pill.
+    expect(within(row).queryByText('exploreOpen')).toBeNull();
+    expect(row.querySelector('[data-slot="chevron"]')).not.toBeNull();
   });
 
   it('filters the sections by category chip, with a selection haptic only when the choice changes', async () => {

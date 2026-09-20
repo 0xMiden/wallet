@@ -2,14 +2,13 @@
  * Explore's app lists, on the same components as the Settings list: a `ListGroup surface="plain"`
  * of `ListRow`s, so the rows sit on the page margin under their section title, divided by
  * full-width hairlines. Each row is one tap target that opens the app: its 40px logo tile, the
- * app's name over its tagline, and the Open pill as the row's trailing element.
+ * app's name over its tagline, and the chevron every navigating row carries.
  */
 
 import React, { type FC } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
-import { Pill } from 'components/ui';
 import { ListGroup } from 'components/ui/ListGroup';
 import { ListRow } from 'components/ui/ListRow';
 import { type ExploreItem } from 'lib/dapp-browser';
@@ -30,13 +29,10 @@ export const AppRow: FC<AppRowProps> = ({ item, onOpen }) => {
       subtitle={item.taglineKey ? t(item.taglineKey) : item.tagline}
       // `page`, not `fill`: a plain group has no surface of its own, so the tile sits on the page.
       avatar={<AppIcon url={item.url} name={item.name} icon={item.icon} size="row" surface="page" />}
-      trailing={
-        <Pill tone="selected" className="shrink-0">
-          {t('exploreOpen')}
-        </Pill>
-      }
-      // The pill is the affordance; a chevron beside it would say the same thing twice.
-      chevron={false}
+      // The row opens the app, so it says so the way every other navigating row does — with the
+      // chevron, not a tinted pill repeating the row's own job. The row navigates through `onClick`
+      // (the dApp browser, not a route), so the chevron is asked for explicitly.
+      chevron
       onClick={() => onOpen(item.url)}
       aria-label={item.name}
       data-testid="dapp-grid-card"
