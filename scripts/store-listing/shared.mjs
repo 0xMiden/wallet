@@ -1,4 +1,6 @@
+import { readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 /**
  * Helpers shared by the three store-listing CLIs.
@@ -43,4 +45,29 @@ export function allStrings(value) {
   if (Array.isArray(value)) return value.flatMap(allStrings);
   if (value && typeof value === 'object') return Object.values(value).flatMap(allStrings);
   return [];
+}
+
+/**
+ * Read and parse a manifest, attributing a failure to the file it came from.
+ *
+ * A bare `JSON.parse` throws a message carrying only a character offset, so with more than one
+ * manifest per CLI the operator cannot tell which file is broken. Each CLI now reads two or three.
+ */
+export async function readJsonFile(filePath, label) {
+  const contents = await readFile(filePath, 'utf8');
+  try {
+    return JSON.parse(contents);
+  } catch (error) {
+    throw new Error(`${label} (${filePath}) is not valid JSON: ${error.message}`);
+  }
+}
+
+/**
+ * Is this module the process entry point?
+ *
+ * `process.argv[1]` is undefined under `node --eval`, in a REPL, and in any in-process import, and
+ * `pathToFileURL(undefined)` throws during module evaluation - before a single export is usable.
+ */
+export function isMainModule(importMetaUrl) {
+  return Boolean(process.argv[1]) && pathToFileURL(process.argv[1]).href === importMetaUrl;
 }

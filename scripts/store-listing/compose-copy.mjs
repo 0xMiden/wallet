@@ -4,7 +4,7 @@ import { pathToFileURL } from 'node:url';
 
 import { format } from 'prettier';
 
-import { allStrings, assert, resolveInside } from './shared.mjs';
+import { allStrings, assert, isMainModule, readJsonFile, resolveInside } from './shared.mjs';
 
 /*
  * The canonical model stores each shared fact once. Store outputs may append
@@ -355,8 +355,8 @@ function renderMarkdown(outputs) {
 
 async function main() {
   const options = parseArguments(process.argv.slice(2));
-  const source = JSON.parse(await readFile(path.resolve(options.source), 'utf8'));
-  const rules = JSON.parse(await readFile(path.resolve(options.rules), 'utf8'));
+  const source = await readJsonFile(path.resolve(options.source), 'Listing copy source');
+  const rules = await readJsonFile(path.resolve(options.rules), 'Store rules');
   const outputs = compose(source, rules);
 
   for (const platformKey of platformKeys) {
@@ -382,7 +382,7 @@ async function main() {
   await writeFile(markdownPath, await format(renderMarkdown(outputs), { ...prettierOptions, parser: 'markdown' }));
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (isMainModule(import.meta.url)) {
   main().catch(error => {
     console.error(`Store listing copy error: ${error.message}`);
     process.exitCode = 1;

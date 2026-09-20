@@ -5,7 +5,7 @@ import { pathToFileURL } from 'node:url';
 import sharp from 'sharp';
 
 import { compose } from './compose-copy.mjs';
-import { allStrings, assert, resolveInside } from './shared.mjs';
+import { allStrings, assert, isMainModule, readJsonFile, resolveInside } from './shared.mjs';
 
 /*
  * This validator treats manifests, copy, raw captures, and rendered files as a
@@ -169,7 +169,18 @@ function validatePromotionalRecommendation(assets, rule) {
     recommendation,
     `${rule.label} must declare recommendations.promotionalScreenshots (use enforcedForThisPackage: false to opt out)`
   );
+  // Truthiness is not a declaration: `{}` and a misspelled field both read as a deliberate opt-out,
+  // which is the same failure one level down. The stance must be stated as a boolean, and the
+  // numbers it is enforced against must exist before anything is compared to them.
+  assert(
+    typeof recommendation.enforcedForThisPackage === 'boolean',
+    `${rule.label} recommendations.promotionalScreenshots.enforcedForThisPackage must be true or false`
+  );
   if (!recommendation.enforcedForThisPackage) return;
+  assert(
+    typeof recommendation.minimumCount === 'number' && typeof recommendation.minimumShortSide === 'number',
+    `${rule.label} enforces promotional screenshots but declares no minimumCount and minimumShortSide`
+  );
 
   const eligible = assets.filter(
     asset =>
@@ -284,17 +295,13 @@ async function validatePackage({ scenes, rules, copy, root, asOf }) {
   }
 }
 
-async function readJson(filePath) {
-  return JSON.parse(await readFile(filePath, 'utf8'));
-}
-
 async function main() {
   const options = parseArguments(process.argv.slice(2));
   const root = path.resolve(options.root);
   const [scenes, rules, copy] = await Promise.all([
-    readJson(path.resolve(options.scenes)),
-    readJson(path.resolve(options.rules)),
-    readJson(path.resolve(options.copy))
+    readJsonFile(path.resolve(options.scenes), 'Scene manifest'),
+    readJsonFile(path.resolve(options.rules), 'Store rules'),
+    readJsonFile(path.resolve(options.copy), 'Listing copy source')
   ]);
 
   await validatePackage({ scenes, rules, copy, root, asOf: options.asOf });
@@ -302,7 +309,7 @@ async function main() {
   console.log(`Store listing package is valid: ${assetCount} assets across ${platformKeys.length} stores.`);
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (isMainModule(import.meta.url)) {
   main().catch(error => {
     console.error(`Store listing validation error: ${error.message}`);
     process.exitCode = 1;

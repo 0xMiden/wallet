@@ -4,7 +4,7 @@ import { pathToFileURL } from 'node:url';
 
 import sharp from 'sharp';
 
-import { assert, resolveInside } from './shared.mjs';
+import { assert, isMainModule, readJsonFile, resolveInside } from './shared.mjs';
 
 /*
  * Store assets are publication inputs, so equal manifests and raw captures
@@ -95,7 +95,14 @@ function gridSvg(width, height, theme) {
 }
 
 function whiteBrandMark(source, theme) {
-  if (!/fill="#e77537"/i.test(source)) return Buffer.from(source);
+  // Assert rather than fall through. An unrecognised mark used to return unchanged, which composites
+  // the orange mark onto the orange frame - invisible, in all 23 assets, with nothing failing:
+  // the validator checks dimensions and alpha, not pixels. A re-export that spells the fill
+  // differently is a build failure, not a silent opt-out.
+  assert(
+    /fill="#e77537"/i.test(source),
+    'Theme brand mark does not use the expected Bread orange fill; update whiteBrandMark for the new mark'
+  );
   // The source mark uses orange outside and white negative space. A sentinel
   // keeps the two replacements independent so the white mark retains orange
   // counters instead of becoming a solid shape.
@@ -348,7 +355,7 @@ async function main() {
   process.stdout.write(`${outputs.join('\n')}\n`);
 }
 
-if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) {
+if (isMainModule(import.meta.url)) {
   main().catch(error => {
     process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
     process.exitCode = 1;
