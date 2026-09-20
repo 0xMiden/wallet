@@ -21,6 +21,7 @@ import { AnimatedCopyIcon, CopyLabel } from './CopyFeedback';
 import { EmptyState } from './EmptyState';
 import { IconButton } from './IconButton';
 import * as UI from './index';
+import { InfoHint } from './InfoHint';
 import { Pill } from './Pill';
 import { PromptCard } from './PromptCard';
 import { PromptCarousel } from './PromptCarousel';
@@ -56,6 +57,7 @@ describe('components/ui barrel', () => {
   const EXPECTED_COMPONENTS = {
     AccountsDrawer,
     Avatar,
+    InfoHint,
     Pill,
     StatusBadge,
     WaveDots,
