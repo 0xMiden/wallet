@@ -19,6 +19,12 @@ jest.mock('react-i18next', () => ({
   })
 }));
 
+// The fee estimate needs a discovered base fee and a balance; pin it so the Max-network-fee
+// row (and its hint) actually render here.
+jest.mock('app/hooks/useNetworkFeeEstimate', () => ({
+  useNetworkFeeEstimate: () => '0.02 MIDEN'
+}));
+
 // Pin SOLVER_MARGIN so the disclosed fee percent is deterministic (0.05 -> 5%).
 // The `SwapToken` type import in the source is erased at compile time, so the
 // mock only needs to supply the runtime `SOLVER_MARGIN` value.
@@ -135,43 +141,66 @@ describe('ReviewSwap', () => {
   describe('rate row', () => {
     const rateRow = () => screen.getByTestId('swap-rate-row');
 
-    it('shows no rate value and no solver-fee note when there is no quote', () => {
+    it('shows no rate value and offers no solver-fee hint when there is no quote', () => {
       renderComponent({ swapEta: undefined });
 
       expect(rateRow()).toHaveTextContent('rate');
+      expect(screen.queryByTestId('swap-rate-info')).not.toBeInTheDocument();
       expect(screen.queryByText(/swapSolverFeeNote/)).not.toBeInTheDocument();
     });
 
     it('shows no rate when the market price is zero (falsy)', () => {
       renderComponent({ swapEta: etaWithRate('0') });
       expect(screen.queryByText(/≈/)).not.toBeInTheDocument();
-      expect(screen.queryByText(/swapSolverFeeNote/)).not.toBeInTheDocument();
+      expect(screen.queryByTestId('swap-rate-info')).not.toBeInTheDocument();
     });
 
     it('shows no rate when the market price is not a number', () => {
       renderComponent({ swapEta: etaWithRate('not-a-number') });
       expect(screen.queryByText(/≈/)).not.toBeInTheDocument();
-      expect(screen.queryByText(/swapSolverFeeNote/)).not.toBeInTheDocument();
+      expect(screen.queryByTestId('swap-rate-info')).not.toBeInTheDocument();
     });
 
     it('shows no rate when the market price is non-finite', () => {
       renderComponent({ swapEta: etaWithRate('Infinity') });
       expect(screen.queryByText(/≈/)).not.toBeInTheDocument();
-      expect(screen.queryByText(/swapSolverFeeNote/)).not.toBeInTheDocument();
+      expect(screen.queryByTestId('swap-rate-info')).not.toBeInTheDocument();
     });
 
-    it('renders a whole-number rate and the solver-fee note when the market price is valid', () => {
+    it('renders a whole-number rate when the market price is valid', () => {
       renderComponent({ swapEta: etaWithRate('2') });
 
       expect(rateRow()).toHaveTextContent('1 IMIDEN ≈ 2 IETH');
-      // Percent is Math.round(0.05 * 100) = 5.
-      expect(screen.getByText('swapSolverFeeNote_5%')).toBeInTheDocument();
     });
 
     it('renders a fractional rate rounded to 4 significant figures', () => {
       renderComponent({ swapEta: etaWithRate('0.333333333') });
       expect(rateRow()).toHaveTextContent('1 IMIDEN ≈ 0.3333 IETH');
+    });
+
+    it('keeps the solver-fee sentence out of the layout until the (i) is tapped', () => {
+      renderComponent({ swapEta: etaWithRate('2') });
+
+      // Percent is Math.round(0.05 * 100) = 5.
+      expect(screen.queryByText('swapSolverFeeNote_5%')).not.toBeInTheDocument();
+      fireEvent.click(screen.getByTestId('swap-rate-info'));
       expect(screen.getByText('swapSolverFeeNote_5%')).toBeInTheDocument();
+    });
+
+    it('names the row the rate hint belongs to', () => {
+      renderComponent({ swapEta: etaWithRate('2') });
+
+      expect(screen.getByTestId('swap-rate-info')).toHaveAttribute('aria-label', 'moreInfoAbout_rate');
+    });
+  });
+
+  describe('network fee row', () => {
+    it('keeps the fee explanation behind its own (i)', () => {
+      renderComponent();
+
+      expect(screen.queryByText('networkFeeEstimateNote')).not.toBeInTheDocument();
+      fireEvent.click(screen.getByTestId('swap-network-fee-info'));
+      expect(screen.getByText('networkFeeEstimateNote')).toBeInTheDocument();
     });
   });
 
@@ -200,23 +229,102 @@ describe('ReviewSwap', () => {
   });
 
   describe('settlement controls', () => {
-    it('renders the expiry in seconds and auto-consume enabled by default', () => {
+    const expiryInput = () => screen.getByTestId('swap-expiry-seconds');
+
+    it('reopens the stored seconds in the coarsest unit that holds them', () => {
       renderComponent();
-      const expiry = screen.getByTestId('swap-expiry-seconds');
+
+      // 120 stored seconds reads back as 2 Minutes, not 120 Seconds.
+      expect(expiryInput()).toHaveValue(2);
+      expect(screen.getByTestId('swap-expiry-unit-minutes')).toHaveAttribute('aria-checked', 'true');
+      expect(screen.getByText('expires')).toBeInTheDocument();
+    });
+
+    it('keeps seconds for a stored value no coarser unit divides', () => {
+      renderComponent({ expirySeconds: '90' });
+
+      expect(expiryInput()).toHaveValue(90);
+      expect(screen.getByTestId('swap-expiry-unit-seconds')).toHaveAttribute('aria-checked', 'true');
+    });
+
+    it('renders auto-consume enabled by default', () => {
+      renderComponent();
       const toggle = screen.getByTestId('swap-auto-consume');
-      expect(expiry).toHaveValue(120);
-      expect(expiry).toHaveClass('[appearance:textfield]');
+
+      expect(expiryInput()).toHaveClass('[appearance:textfield]');
       expect(toggle).toHaveAttribute('data-value', 'true');
       expect(toggle).toHaveClass('!h-8', '!w-16');
-      expect(screen.getByText('expires')).toBeInTheDocument();
       expect(screen.getByText('swapAutoConsume')).toBeInTheDocument();
     });
 
-    it('forwards expiry edits and auto-consume toggles', () => {
+    it('forwards an edit as SECONDS, whatever unit is showing', () => {
       const { props } = renderComponent();
-      fireEvent.change(screen.getByTestId('swap-expiry-seconds'), { target: { value: '300' } });
-      fireEvent.click(screen.getByTestId('swap-auto-consume'));
+
+      fireEvent.change(expiryInput(), { target: { value: '5' } });
+
       expect(props.onExpirySecondsChange).toHaveBeenCalledWith('300');
+    });
+
+    it('re-expresses the same duration when the unit changes, and pushes the seconds up', () => {
+      const { props } = renderComponent();
+
+      fireEvent.click(screen.getByTestId('swap-expiry-unit-hours'));
+
+      // 120s cannot be held in whole hours, so it clamps to this unit's floor.
+      expect(expiryInput()).toHaveValue(1);
+      expect(props.onExpirySecondsChange).toHaveBeenLastCalledWith('3600');
+    });
+
+    it('converts a round value across units without changing the duration', () => {
+      const { props } = renderComponent({ expirySeconds: '7200' });
+
+      expect(expiryInput()).toHaveValue(2);
+      fireEvent.click(screen.getByTestId('swap-expiry-unit-minutes'));
+
+      expect(expiryInput()).toHaveValue(120);
+      expect(props.onExpirySecondsChange).toHaveBeenLastCalledWith('7200');
+    });
+
+    it('refuses a value under the unit floor, with the range named', () => {
+      const { props } = renderComponent({ expirySeconds: '90' });
+
+      fireEvent.change(expiryInput(), { target: { value: '5' } });
+
+      expect(props.onExpirySecondsChange).not.toHaveBeenCalled();
+      expect(expiryInput()).toHaveAttribute('aria-invalid', 'true');
+      expect(screen.getByRole('alert')).toHaveTextContent('swapExpiryRange_30_604800');
+    });
+
+    it('refuses a value over the unit ceiling', () => {
+      const { props } = renderComponent();
+
+      fireEvent.change(expiryInput(), { target: { value: '99999' } });
+
+      expect(props.onExpirySecondsChange).not.toHaveBeenCalled();
+      expect(screen.getByRole('alert')).toHaveTextContent('swapExpiryRange_1_10080');
+    });
+
+    it('refuses an emptied field rather than submitting zero', () => {
+      const { props } = renderComponent();
+
+      fireEvent.change(expiryInput(), { target: { value: '' } });
+
+      expect(props.onExpirySecondsChange).not.toHaveBeenCalled();
+      expect(expiryInput()).toHaveAttribute('aria-invalid', 'true');
+    });
+
+    it('bounds the native input to the unit it is showing', () => {
+      renderComponent();
+
+      expect(expiryInput()).toHaveAttribute('min', '1');
+      expect(expiryInput()).toHaveAttribute('max', '10080');
+    });
+
+    it('forwards auto-consume toggles', () => {
+      const { props } = renderComponent();
+
+      fireEvent.click(screen.getByTestId('swap-auto-consume'));
+
       expect(props.onAutoConsumeChange).toHaveBeenCalledWith(false);
     });
   });
