@@ -74,11 +74,8 @@ const SheetBody: React.FC<SheetBodyProps> = ({ address, initialNetwork, onSaved 
       <div className="flex items-start gap-3 rounded-2xl bg-fill p-4">
         <ContactAvatar address={address} name={trimmedName} network={isEvm ? 'ethereum' : 'miden'} />
         <div className="flex min-w-0 flex-1 flex-col gap-1">
-          <span className="text-sm text-text-muted">{t('address')}</span>
-          <p
-            data-testid="add-contact-address"
-            className="font-heading text-base leading-6 font-bold break-all text-ink"
-          >
+          <span className="text-caption text-muted">{t('address')}</span>
+          <p data-testid="add-contact-address" className="break-all text-value text-ink">
             {address}
           </p>
         </div>
@@ -108,7 +105,7 @@ const SheetBody: React.FC<SheetBodyProps> = ({ address, initialNetwork, onSaved 
       />
 
       {error && (
-        <p role="alert" className="-mt-2 text-sm text-negative-ink">
+        <p role="alert" className="-mt-2 text-body-sm text-negative-ink">
           {error}
         </p>
       )}

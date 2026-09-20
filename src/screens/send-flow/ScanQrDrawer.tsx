@@ -3,8 +3,8 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { IconName } from 'app/icons/v2';
-import { Loader } from 'components/Loader';
 import { EmptyState } from 'components/ui/EmptyState';
+import { Spinner } from 'components/ui/Spinner';
 import { createQrDetector, detectAddressFromFrame } from 'lib/qr/webcam-scanner';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 import useIsMounted from 'lib/ui/useIsMounted';
@@ -190,15 +190,15 @@ export const ScanQrDrawer: React.FC<ScanQrDrawerProps> = ({
 
           {scanState === 'requesting' && (
             <div className="flex flex-col items-center gap-3 py-4">
-              <Loader size="lg" className="text-primary-500" />
-              <p className="text-sm text-text-muted">{t('requestingCamera')}</p>
+              <Spinner size="lg" />
+              <p className="text-body-sm text-muted">{t('requestingCamera')}</p>
             </div>
           )}
 
           {scanState === 'scanning' && (
             <div className="flex flex-col items-center gap-1">
-              <p className="text-sm text-text-muted">{t('pointCameraAtQr')}</p>
-              {invalidScan && <p className="text-sm text-red-500">{t('invalidMidenAddress')}</p>}
+              <p className="text-body-sm text-muted">{t('pointCameraAtQr')}</p>
+              {invalidScan && <p className="text-body-sm text-negative-ink">{t('invalidMidenAddress')}</p>}
             </div>
           )}
 
