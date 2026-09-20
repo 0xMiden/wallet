@@ -156,4 +156,19 @@ describe('SendAmount', () => {
     expect(screen.getByTestId('send-amount-available')).toHaveTextContent('unknownTokenScale');
     expect(screen.getByTestId('send-amount-confirm')).toBeDisabled();
   });
+
+  // The amount step is a PUSHED Navigator step, but it is pushed INSIDE TabLayout, so the docked
+  // bar is still drawn over it at `z-60`, down to the screen edge. Dropping the CTA to the bottom
+  // here put it UNDER the bar, and every click on it was intercepted by the bar's Activity button:
+  // the CTA stayed visible, enabled and stable while e2e clicked at it for 30s (guardian-switch
+  // and send-private both time out on `send-amount-confirm`). The cushion has to clear the bar,
+  // and only `body[data-hide-navbar]` — the fact that the bar is down — may drop it.
+  it('keeps Confirm clear of the docked tab bar', () => {
+    renderAmount();
+
+    const footer = screen.getByTestId('send-amount-confirm').parentElement;
+    expect(footer?.className).toContain('var(--keyboard-height,0px)');
+    expect(footer?.className).not.toContain('pb-4');
+    expect(footer?.getAttribute('data-navbar-cushion')).toBe('true');
+  });
 });

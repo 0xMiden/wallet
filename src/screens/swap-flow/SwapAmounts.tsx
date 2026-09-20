@@ -174,8 +174,8 @@ export const SwapAmounts: React.FC<SwapAmountsProps> = ({
       </div>
 
       {/* The same pinned footer a send step uses, so both flows' buttons sit on one line and ride
-          the keyboard the same way. The swap page is a tab root, so the CTA clears the docked bar. */}
-      <FlowFooter tabBarBelow>
+          the keyboard the same way, and clear the docked bar for as long as it is up. */}
+      <FlowFooter>
         <Button
           title={awaitingAmount ? t('enterAmount') : t('reviewSwap')}
           variant={ButtonVariant.Primary}

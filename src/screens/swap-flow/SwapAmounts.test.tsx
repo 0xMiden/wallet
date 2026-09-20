@@ -366,9 +366,10 @@ describe('SwapAmounts — CTA', () => {
     const sendFooter = screen.getByText('send cta').parentElement;
 
     expect(swapFooter?.className).toBe(sendFooter?.className);
-    // The keyboard-aware cushion, not the old fixed pb-24 with a navbar-cushion tag.
+    // The keyboard-aware cushion, not the old fixed pb-24. It keeps the navbar-cushion tag: the
+    // docked bar draws over the page, so the CTA clears it for as long as it is up.
     expect(swapFooter?.className).toContain('--keyboard-height');
-    expect(swapFooter?.getAttribute('data-navbar-cushion')).toBeNull();
+    expect(swapFooter?.getAttribute('data-navbar-cushion')).toBe('true');
   });
 
   it('asks for an amount first, waits on the quote, then offers the review', () => {

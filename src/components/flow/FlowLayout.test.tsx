@@ -63,7 +63,7 @@ describe('FlowLayout', () => {
     expect(screen.getByRole('banner')).toHaveTextContent('Title');
   });
 
-  it('pins a tab root CTA with the keyboard-aware cushion and no navbar-collapse hook', () => {
+  it('pins a tab root CTA with the keyboard-aware cushion', () => {
     render(
       <FlowLayout tabRoot title="Title" footer={<button>cta</button>}>
         <p>content</p>
@@ -72,10 +72,15 @@ describe('FlowLayout', () => {
 
     const footer = screen.getByText('cta').parentElement;
     expect(footer).toHaveClass('pb-[max(1rem,calc(4rem-var(--keyboard-height,0px)))]');
-    expect(footer?.hasAttribute('data-navbar-cushion')).toBe(false);
   });
 
-  it('drops a pushed page CTA to the bottom, with no tab bar under it to clear', () => {
+  // The docked bar draws over the page at `z-60` and reaches the screen edge, so a CTA at the
+  // bottom is UNDER it. A pushed step is not exempt: Send's amount step is pushed and still lives
+  // inside TabLayout. Dropping it to the bottom on the page's shape alone bet on `data-hide-navbar`
+  // being raised by someone else, and on the frames where that bet lost, the bar swallowed every
+  // click on the CTA (e2e: a visible, enabled, stable button, 30s of intercepted clicks). The
+  // cushion is unconditional now, and `body[data-hide-navbar]` is what collapses it, in CSS.
+  it('keeps a pushed page CTA clear of the docked bar, collapsing only when the bar is down', () => {
     render(
       <FlowLayout title="Title" footer={<button>cta</button>}>
         <p>content</p>
@@ -83,8 +88,8 @@ describe('FlowLayout', () => {
     );
 
     const footer = screen.getByText('cta').parentElement;
-    expect(footer).toHaveClass('pb-4');
-    expect(footer?.className).not.toContain('4rem');
+    expect(footer).toHaveClass('pb-[max(1rem,calc(4rem-var(--keyboard-height,0px)))]');
+    expect(footer?.getAttribute('data-navbar-cushion')).toBe('true');
   });
 
   // The keyboard raises `data-hide-navbar` too, but only after a round trip through two components'
