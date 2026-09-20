@@ -1,4 +1,7 @@
 import { expect, type Page } from '@playwright/test';
+import { IS_LOCALNET } from '../config/environments';
+
+import { encodePrivateKeyPair, parsePrivateKeyPair } from '../../../src/lib/miden/guardian/private-key-pair';
 
 import { readTransactionRows } from './history';
 import type { IdbDumpSource } from './idb-dump';
@@ -36,7 +39,7 @@ const SYNC_WAIT_MS = 3_500;
  * runs — at 420s the local suite stopped finishing inside its 75-minute cap, which
  * cost the very diagnostics a failing run exists to produce.
  */
-const LOCAL_STACK_CLAIM_FLOOR_MS = process.env.E2E_NETWORK === 'localhost' ? 240_000 : 0;
+const LOCAL_STACK_CLAIM_FLOOR_MS = IS_LOCALNET ? 240_000 : 0;
 
 /** The budget a claim drain should actually use — see {@link LOCAL_STACK_CLAIM_FLOOR_MS}. */
 const effectiveClaimBudgetMs = (requested: number): number => Math.max(requested, LOCAL_STACK_CLAIM_FLOOR_MS);
@@ -106,6 +109,20 @@ export type StageTrackedTransactionType = 'switch-guardian' | 'replace-hot-key';
  * Chrome-only specs that reach into Playwright internals use the
  * ChromeWalletPageApi extension below.
  */
+/**
+ * The send-flow parameters every page object accepts.
+ *
+ * Declared once because method parameters compare BIVARIANTLY: a field added to a restated copy
+ * is not flagged against the others, so five hand-synchronised literals would drift silently and
+ * `yarn ts` would not say so.
+ */
+export interface SendTokensParams {
+  recipientAddress: string;
+  amount: string;
+  isPrivate: boolean;
+  tokenSymbol?: string;
+}
+
 export interface WalletPage {
   navigateTo(hash: string): Promise<void>;
   navigateHome(): Promise<void>;
@@ -115,12 +132,7 @@ export interface WalletPage {
   getBalance(tokenSymbol?: string): Promise<number>;
   triggerSync(force?: boolean): Promise<void>;
   claimAllNotes(timeoutMs?: number): Promise<void>;
-  sendTokens(params: {
-    recipientAddress: string;
-    amount: string;
-    isPrivate: boolean;
-    tokenSymbol?: string;
-  }): Promise<void>;
+  sendTokens(params: SendTokensParams): Promise<void>;
   waitForBalanceAbove(
     minBalance: number,
     timeoutMs: number,
@@ -147,6 +159,8 @@ export interface WalletPage {
   getGuardianAuthInfo(accountPublicKey: string): Promise<GuardianAuthInfo>;
 }
 
+export type BalanceSnapshotScope = { symbol: string; faucetId?: never } | { faucetId: string; symbol?: never };
+
 /**
  * Chrome-specific extension of WalletPage. Kept for spec blocks that
  * reach into the Playwright Page directly and for captureStateFrom entries
@@ -156,12 +170,28 @@ export interface ChromeWalletPageApi extends WalletPage, IdbDumpSource {
   readonly page: Page;
   readonly extensionId: string;
   readonly userDataDir: string;
+  configureSpendingLimitForTest(params: {
+    tokenSymbol: string;
+    dailyLimitBaseUnits?: string;
+    weeklyLimitBaseUnits?: string;
+  }): Promise<{ accountId: string; faucetId: string; decimals: number }>;
+  runSpendingLimitRaceForTest(params: {
+    recipientAddress: string;
+    faucetId: string;
+    amountBaseUnits: string;
+  }): Promise<{ fulfilledCount: number; rejectedCount: number; insertedCount: number; rejectionCodes: string[] }>;
+  prepareSendReview(params: SendTokensParams & { tokenId?: string }): Promise<void>;
+  submitSendReview(): Promise<void>;
+  waitForSendSubmissionAccepted(timeoutMs?: number): Promise<void>;
+  authenticateSpendingLimitForTest(password?: string): Promise<void>;
+  cancelSpendingLimitChallenge(): Promise<void>;
   /**
    * The wallet's derived EVM address (`0x…`) — the Epoch earn EVM owner. Chrome
    * only (the earn e2e is Chrome); add to WalletPage + the mobile POMs when earn
    * specs run on device.
    */
   getEvmAddress(): Promise<string>;
+  sendTokens(params: SendTokensParams & { tokenId?: string }): Promise<void>;
   /**
    * Complete the create-wallet flow choosing the Guardian recovery method,
    * pointing the account at `guardianUrl` (a locally-spawned guardian). The
@@ -172,15 +202,13 @@ export interface ChromeWalletPageApi extends WalletPage, IdbDumpSource {
    */
   createGuardianWallet(guardianUrl: string, password?: string): Promise<{ address: string; seedPhrase: string[] }>;
   /** Fast, non-invasive balance + pending-notes + outgoing-tx snapshot. */
-  quickBalanceSnapshot(opts?: { symbol?: string }): Promise<{
+  quickBalanceSnapshot(scope?: BalanceSnapshotScope): Promise<{
     balance: number;
     pendingNotes: Array<{ id: string; amount: number; faucetId: string }>;
     pendingSum: number;
     totalReportable: number;
     pendingTxCount: number;
     latestTxId?: string;
-    /** Rows a SYMBOL scope dropped for having no metadata — see the implementation. */
-    unidentified: number;
     error?: string;
   }>;
   /**
@@ -259,6 +287,23 @@ export interface ChromeWalletPageApi extends WalletPage, IdbDumpSource {
    */
   recoverGuardianFromSeed(seed: string, opts: { viaUI: boolean; guardianUrl?: string }): Promise<void>;
   /**
+   * Import a Guardian account with its hot and EVM private key pair — the
+   * seed-less import path. Drives the real screens: Welcome → "Recover your
+   * account" → seed grid → "Import with key instead" link → key paste →
+   * submit → full password step → ImportRecoveryMethod (probe by hot-key
+   * commitment, Guardian pinned) → Continue → Confirmation → submit → home.
+   * Unlike `recoverGuardianFromSeed` this ends WITHOUT a hot-key rotation:
+   * the pasted key IS the working device key, so the gate must never appear.
+   */
+  recoverGuardianFromHotKey(keyPairPayload: string): Promise<void>;
+  /**
+   * Reveal the current Guardian account's hot and EVM private keys through
+   * Settings → Keys → Reveal private key, returning the hot:evm payload.
+   * Extension builds authenticate with the
+   * onboarding password.
+   */
+  revealHotKey(password?: string): Promise<string>;
+  /**
    * Drive a fresh, not-yet-onboarded wallet from the Welcome screen to the
    * ImportSeedPhrase 12-word grid (Welcome → "Recover your account"),
    * stopping there instead of completing the rest of the recovery journey.
@@ -313,6 +358,26 @@ export interface ChromeWalletPageApi extends WalletPage, IdbDumpSource {
   currentGuardianEndpoint(): Promise<string>;
   /** Create another HD account through the E2E-only frontend store hook. */
   createAdditionalAccount(walletType: 'off-chain' | 'guardian'): Promise<{ address: string }>;
+  /** Create a Guardian wallet through every current extension onboarding screen. */
+  createGuardianWalletViaUi(password: string, guardianUrl: string): Promise<string>;
+  /** Import a serialized auth secret through the real account-import page. */
+  importPrivateKey(privateKeyHex: string, name: string): Promise<string>;
+  /** Export a password-encrypted wallet file through the real Settings flow. */
+  exportEncryptedWalletFile(options: {
+    walletPassword: string;
+    filePassword: string;
+    fileName: string;
+  }): Promise<string>;
+  /** Restore a password-encrypted wallet file through the real onboarding flow. */
+  restoreEncryptedWalletFile(options: {
+    backupPath: string;
+    filePassword: string;
+    newWalletPassword: string;
+  }): Promise<void>;
+  /** Resolve exactly one account by its persisted display name. */
+  findAccountByName(name: string): Promise<string>;
+  /** Sign one word with the single-signature key owned by an account. */
+  signAccountWord(accountPublicKey: string, wordHex: string): Promise<string>;
   /** Select an account through the E2E-only frontend store hook. */
   selectAccount(address: string): Promise<void>;
   /**
@@ -750,41 +815,31 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
    * need an authoritative total (e.g. a conservation assertion) must call
    * refreshBalances() first — unlike getBalance(), which refreshes internally.
    */
-  async quickBalanceSnapshot(opts?: { symbol?: string }): Promise<{
+  async quickBalanceSnapshot(scope?: BalanceSnapshotScope): Promise<{
     balance: number;
     pendingNotes: Array<{ id: string; amount: number; faucetId: string }>;
     pendingSum: number;
     totalReportable: number;
     pendingTxCount: number;
     latestTxId?: string;
-    /**
-     * Rows a SYMBOL scope excluded because they carry no metadata at all.
-     *
-     * `metadata` is attached only when `fetchTokenMetadata` succeeded (`sync-manager.ts`
-     * swallows the failure), so a symbol filter cannot tell "a different token" from "the
-     * token under test, whose metadata call failed this lap" — it drops both. In a strict
-     * conservation identity that reads as value vanishing. Reported rather than guessed at:
-     * a caller asserting an equality can say "metadata missing" instead of "notes lost".
-     */
-    unidentified: number;
     error?: string;
   }> {
     try {
       return await this.page.evaluate(
-        async ({ wanted }) => {
+        async ({ wantedFaucetId, wantedSymbol }) => {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const store = (window as any).__TEST_STORE__;
           const state = store?.getState?.();
           let balance = 0;
-          let unidentified = 0;
           for (const tokenList of Object.values(state?.balances || {}) as unknown[]) {
             if (!Array.isArray(tokenList)) continue;
             for (const token of tokenList) {
-              // Optional SYMBOL scope. Unscoped this sums every asset the account holds,
-              // which silently includes the native fee asset -- so a caller conserving a
-              // total across a fee-charging chain measures its own fees as missing value.
-              if (wanted && token?.metadata?.symbol === undefined) unidentified++;
-              if (wanted && String(token?.metadata?.symbol ?? '').toLowerCase() !== wanted) continue;
+              // A faucet ID isolates one asset even when faucets share a symbol. Unscoped,
+              // this sums every asset the account holds, including the native fee asset.
+              const faucetId = String(token?.tokenId ?? '').toLowerCase();
+              if (wantedFaucetId && faucetId !== wantedFaucetId) continue;
+              const metadata = token?.metadata ?? state?.assetsMetadata?.[String(token?.tokenId ?? '')];
+              if (wantedSymbol && String(metadata?.symbol ?? '').toLowerCase() !== wantedSymbol) continue;
               const amount = parseFloat(String(token.amount ?? token.balance ?? '0'));
               if (amount > 0) balance += amount;
             }
@@ -798,10 +853,12 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
           const pendingNotes: Array<{ id: string; amount: number; faucetId: string }> = [];
           let pendingSum = 0;
           for (const note of notes) {
-            if (wanted && note?.metadata?.symbol === undefined) unidentified++;
-            if (wanted && String(note?.metadata?.symbol ?? '').toLowerCase() !== wanted) continue;
+            const faucetId = String(note?.faucetId ?? '').toLowerCase();
+            if (wantedFaucetId && faucetId !== wantedFaucetId) continue;
+            const metadata = note?.metadata ?? state?.assetsMetadata?.[String(note?.faucetId ?? '')];
+            if (wantedSymbol && String(metadata?.symbol ?? '').toLowerCase() !== wantedSymbol) continue;
             const baseUnits = parseInt(String(note.amountBaseUnits ?? '0'), 10);
-            const decimals = note.metadata?.decimals ?? 8;
+            const decimals = metadata?.decimals ?? 8;
             const amount = baseUnits / Math.pow(10, decimals);
             pendingNotes.push({ id: String(note.id ?? ''), amount, faucetId: String(note.faucetId ?? '') });
             pendingSum += amount;
@@ -832,11 +889,13 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
             pendingSum,
             totalReportable: balance + pendingSum,
             pendingTxCount,
-            latestTxId,
-            unidentified
+            latestTxId
           };
         },
-        { wanted: opts?.symbol?.toLowerCase() }
+        {
+          wantedFaucetId: scope?.faucetId?.toLowerCase(),
+          wantedSymbol: scope?.symbol?.toLowerCase()
+        }
       );
     } catch (e) {
       return {
@@ -845,7 +904,6 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
         pendingSum: 0,
         totalReportable: 0,
         pendingTxCount: 0,
-        unidentified: 0,
         error: e instanceof Error ? e.message : String(e)
       };
     }
@@ -951,6 +1009,9 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     await this.page.locator('#import-link').click();
     // The network notice (#875) precedes the import flow too.
     await this.page.getByTestId('onboarding-network-notice-acknowledge').click({ timeout: 15_000 });
+    // Import now asks WHICH credential first; this helper drives the seed-phrase one.
+    await this.page.getByTestId('import-select-type').waitFor({ timeout: 15_000 });
+    await this.page.getByTestId('import-type-seed-phrase').click();
     await this.page.getByTestId('import-seed-phrase').waitFor({ timeout: 15_000 });
   }
 
@@ -1007,6 +1068,86 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     // recovered account always carries requiresHotKeyRotation — see
     // HotKeyRotationGate.tsx.
     await this.completeHotKeyRotation();
+  }
+
+  /**
+   * See the interface doc comment (ChromeWalletPageApi).
+   */
+  async recoverGuardianFromHotKey(keyPairPayload: string): Promise<void> {
+    const pair = parsePrivateKeyPair(keyPairPayload);
+    if (!pair) throw new Error('Invalid private key pair');
+    // Welcome → "Recover your account" → seed grid → the seed-less fork.
+    await this.openImportSeedPhraseScreen();
+    await this.page.getByTestId('import-with-key-link').click();
+
+    await this.page.getByTestId('import-hot-key').waitFor({ timeout: 15_000 });
+    await this.page.getByRole('button', { name: 'Enter keys manually' }).click();
+    await this.page.locator('#hot-key-input').fill(pair.hotPrivateKey);
+    await this.page.locator('#evm-key-input').fill(pair.evmPrivateKey);
+    await this.page.getByTestId('import-hot-key-submit').click();
+
+    // Extension builds always route through the full password step (no
+    // hardware security off mobile/desktop) — same as the seed path.
+    await this.page.getByTestId('create-password-input').waitFor({ timeout: 15_000 });
+    await this.page.getByTestId('create-password-input').fill(PASSWORD);
+    await this.page.getByTestId('create-password-verify-input').fill(PASSWORD);
+    await this.page.getByTestId('create-password-submit').click();
+
+    // ImportRecoveryMethod, Guardian pinned: wait for the hot-key-commitment
+    // probe to reach a terminal state, then accept the detected/default
+    // endpoint as-is.
+    await this.page
+      .getByTestId('guardian-detected')
+      .or(this.page.getByTestId('guardian-not-detected'))
+      .first()
+      .waitFor({ timeout: 30_000 });
+    await this.page.getByTestId('recovery-method-continue').click();
+
+    await this.page.getByTestId('onboarding-confirmation').waitFor({ timeout: 30_000 });
+    await this.page.getByTestId('onboarding-confirmation-submit').click();
+
+    // The pasted key IS the working hot key: the account must come up ready,
+    // with no rotation gate in the way. Wait for the home surface the same way
+    // createWalletViaBypass does, then assert the gate never mounted.
+    await this.page.waitForFunction(
+      () => {
+        const store = (
+          window as unknown as { __TEST_STORE__?: { getState(): { currentAccount?: { publicKey?: string } } } }
+        ).__TEST_STORE__;
+        const pk = store?.getState?.().currentAccount?.publicKey ?? '';
+        if (/^m[a-z]{1,4}1[a-z0-9]+/i.test(pk)) return true;
+        return !!document.querySelector('[data-testid="explore-page"]');
+      },
+      undefined,
+      { timeout: 120_000 }
+    );
+    await expect(
+      this.page.getByTestId('hot-key-rotation-gate'),
+      'a hot-key import must not trigger the rotation gate — the pasted key is the working device key'
+    ).toHaveCount(0);
+  }
+
+  /**
+   * See the interface doc comment (ChromeWalletPageApi).
+   */
+  async revealHotKey(password: string = PASSWORD): Promise<string> {
+    await this.navigateTo('/settings/reveal-hot-key');
+
+    // Extension vaults are password-protected: RevealSecret renders the
+    // password form (`#reveal-secret-password`) and a single Continue button.
+    const passwordField = this.page.locator('#reveal-secret-password');
+    await passwordField.waitFor({ timeout: 20_000 });
+    await passwordField.fill(password);
+    await this.page.getByRole('button', { name: /continue/i }).click();
+
+    await this.page.getByRole('img', { name: 'Private keys QR code' }).waitFor({ timeout: 30_000 });
+    await this.page.getByRole('button', { name: 'Show keys as text' }).click();
+    const hot = await this.page.getByLabel('Miden hot private key').inputValue();
+    const evm = await this.page.getByLabel('EVM private key').inputValue();
+    const pair = parsePrivateKeyPair(`${hot}:${evm}`);
+    if (!pair) throw new Error('Reveal did not return a valid private key pair');
+    await this.navigateHome();
+    return encodePrivateKeyPair(pair);
   }
 
   /**
@@ -1111,6 +1252,147 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
       if (!created?.publicKey) throw new Error('createAdditionalAccount did not add an account');
       return { address: created.publicKey };
     }, walletType);
+  }
+
+  async createGuardianWalletViaUi(password: string, guardianUrl: string): Promise<string> {
+    await suspendScreenCapture(this.page);
+    await this.page.getByTestId('onboarding-welcome').waitFor({ timeout: 60_000 });
+    await this.page.getByTestId('onboarding-get-started').click();
+    await this.page.getByTestId('onboarding-network-notice-acknowledge').click({ timeout: 30_000 });
+
+    await this.page.getByTestId('create-password-input').fill(password);
+    await this.page.getByTestId('create-password-verify-input').fill(password);
+    await this.page.getByTestId('create-password-submit').click();
+
+    const guardian = this.page.locator(`[data-guardian-endpoint="${guardianUrl}"]`);
+    await guardian.waitFor({ timeout: 60_000 });
+    await guardian.click();
+    await this.page.getByTestId('choose-guardian-continue').click();
+    await this.page.getByTestId('onboarding-confirmation-submit').click();
+    await this.page.getByTestId('explore-page').waitFor({ timeout: 120_000 });
+    return this.getAccountAddress();
+  }
+
+  async importPrivateKey(privateKeyHex: string, name: string): Promise<string> {
+    await suspendScreenCapture(this.page);
+    await this.navigateTo('/import-account');
+    await this.page.locator('#importacc-privatekey').fill(privateKeyHex);
+    await this.page.locator('#importacc-name').fill(name);
+    await this.page.getByTestId('import-account-submit').click();
+
+    return this.page
+      .waitForFunction(
+        expectedName => {
+          type Account = { name?: string; publicKey?: string };
+          const store = (window as unknown as { __TEST_STORE__?: { getState(): { currentAccount?: Account | null } } })
+            .__TEST_STORE__;
+          const account = store?.getState?.().currentAccount;
+          return account?.name === expectedName && account.publicKey ? account.publicKey : false;
+        },
+        name,
+        { timeout: 60_000 }
+      )
+      .then(handle => handle.jsonValue() as Promise<string>);
+  }
+
+  async exportEncryptedWalletFile(options: {
+    walletPassword: string;
+    filePassword: string;
+    fileName: string;
+  }): Promise<string> {
+    await suspendScreenCapture(this.page);
+    await this.navigateTo('/settings/encrypted-wallet-file');
+
+    const flow = this.page.getByTestId('encrypted-file-manager-flow');
+    await flow.waitFor({ state: 'attached', timeout: 60_000 });
+    await this.page.locator('input[type="password"]').fill(options.walletPassword);
+    await this.page.getByText('I will not share my Encrypted Wallet File with anyone, including Bread.').click();
+    await this.page.getByRole('button', { name: 'Continue' }).click();
+
+    const inputs = flow.locator('input');
+    await inputs.nth(0).fill(options.fileName);
+    await inputs.nth(1).fill(options.filePassword);
+    await inputs.nth(2).fill(options.filePassword);
+
+    const downloadPromise = this.page.waitForEvent('download', { timeout: 120_000 });
+    await flow.getByRole('button', { name: 'Continue' }).click();
+    const download = await downloadPromise;
+    await flow.getByText('Exported!').waitFor({ timeout: 120_000 });
+
+    if (!this.userDataDir) throw new Error('Encrypted wallet export requires an isolated profile directory');
+    const downloadPath = `${this.userDataDir}/${download.suggestedFilename()}`;
+    await download.saveAs(downloadPath);
+    return downloadPath;
+  }
+
+  async restoreEncryptedWalletFile(options: {
+    backupPath: string;
+    filePassword: string;
+    newWalletPassword: string;
+  }): Promise<void> {
+    await suspendScreenCapture(this.page);
+    await this.page.goto(this.fullpageUrl, { waitUntil: 'domcontentloaded' });
+    await this.page.getByTestId('onboarding-welcome').waitFor({ timeout: 30_000 });
+    await this.page.locator('#import-link').click();
+    await this.page.getByTestId('onboarding-network-notice-acknowledge').click({ timeout: 15_000 });
+    await this.page.getByTestId('import-select-type').waitFor({ timeout: 15_000 });
+    await this.page.getByRole('button', { name: /Import with Encrypted Wallet File/ }).click();
+
+    await this.page.locator('input[type="file"]').setInputFiles(options.backupPath);
+    await this.page.locator('#newwallet-password').fill(options.filePassword);
+    await this.page.getByRole('button', { name: 'Import', exact: true }).click();
+
+    await this.page.getByTestId('create-password-input').waitFor({ timeout: 120_000 });
+    await this.page.getByTestId('create-password-input').fill(options.newWalletPassword);
+    await this.page.getByTestId('create-password-verify-input').fill(options.newWalletPassword);
+    await this.page.getByTestId('create-password-submit').click();
+
+    await this.page.getByTestId('onboarding-confirmation').waitFor({ timeout: 60_000 });
+    await this.page.getByTestId('onboarding-confirmation-submit').click();
+    await this.page.waitForFunction(
+      () => {
+        const store = (
+          window as unknown as {
+            __TEST_STORE__?: { getState(): { accounts?: unknown[]; currentAccount?: { publicKey?: string } | null } };
+          }
+        ).__TEST_STORE__;
+        const state = store?.getState?.();
+        return Boolean(state?.currentAccount?.publicKey) && (state?.accounts?.length ?? 0) > 0;
+      },
+      undefined,
+      { timeout: 120_000 }
+    );
+  }
+
+  async findAccountByName(name: string): Promise<string> {
+    return this.page
+      .waitForFunction(
+        expectedName => {
+          type Account = { name?: string; publicKey?: string };
+          const store = (window as unknown as { __TEST_STORE__?: { getState(): { accounts?: Account[] } } })
+            .__TEST_STORE__;
+          const matches = store?.getState?.().accounts?.filter(account => account.name === expectedName) ?? [];
+          return matches.length === 1 && matches[0]?.publicKey ? matches[0].publicKey : false;
+        },
+        name,
+        { timeout: 30_000 }
+      )
+      .then(handle => handle.jsonValue() as Promise<string>);
+  }
+
+  async signAccountWord(accountPublicKey: string, wordHex: string): Promise<string> {
+    return this.page.evaluate(
+      async ({ account, word }) => {
+        const sign = (
+          globalThis as unknown as {
+            __TEST_SIGN_ACCOUNT_WORD__?: (accountPublicKey: string, wordHex: string) => Promise<string>;
+          }
+        ).__TEST_SIGN_ACCOUNT_WORD__;
+        if (!sign) throw new Error('signAccountWord requires the E2E signing hook');
+        return sign(account, word);
+      },
+      { account: accountPublicKey, word: wordHex }
+    );
   }
 
   async selectAccount(address: string): Promise<void> {
@@ -1591,77 +1873,20 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
   }
 
   /**
-   * Get the balance for a specific token from the Explore page.
-   * If tokenSymbol is not given, returns the balance of the first token row.
+   * Get the reportable balance for a specific token from the Explore page.
+   * If tokenSymbol is not given, returns the total across all assets.
    * Returns 0 if no matching token found.
    */
-  async getBalance(_tokenSymbol?: string): Promise<number> {
+  async getBalance(tokenSymbol?: string): Promise<number> {
     await this.navigateHome();
     // The evaluate below needs `__TEST_STORE__` with an account on it; wait for
     // that rather than for a second of wall clock (this runs on every poll of
     // waitForBalanceAbove).
     await this.waitForStoreReady(1_000);
-
-    try {
-      // Read balances from the Zustand store (consumed assets) AND from
-      // chrome.storage.local sync data (consumable notes not yet consumed).
-      // The transaction processor auto-consumes notes but may not run in SW.
-      const result = await this.page.evaluate(async () => {
-        const store = (window as any).__TEST_STORE__;
-        if (!store) return { balance: 0, debug: 'no store' };
-        const state = store.getState();
-
-        // Trigger a fresh balance fetch
-        try {
-          if (state.currentAccount?.publicKey && state.fetchBalances) {
-            await state.fetchBalances(state.currentAccount.publicKey, state.assetsMetadata || {});
-          }
-        } catch {}
-
-        const freshState = store.getState();
-        let totalBalance = 0;
-
-        // 1. Read consumed assets from store
-        for (const tokenList of Object.values(freshState.balances || {}) as any[]) {
-          if (!Array.isArray(tokenList)) continue;
-          for (const token of tokenList) {
-            const amount = parseFloat(String(token.amount ?? token.balance ?? '0'));
-            if (amount > 0) {
-              totalBalance += amount;
-            }
-          }
-        }
-
-        // 2. Also check consumable notes from sync data (pending incoming tokens)
-        // These are notes that have been discovered but not yet consumed.
-        try {
-          const storage = await new Promise<any>(resolve => {
-            chrome.storage.local.get(['miden_sync_data'], resolve);
-          });
-          const syncData = storage?.miden_sync_data;
-          if (syncData?.notes?.length > 0) {
-            for (const note of syncData.notes) {
-              const baseUnits = parseInt(note.amountBaseUnits || '0', 10);
-              const decimals = note.metadata?.decimals ?? 8;
-              const noteBalance = baseUnits / Math.pow(10, decimals);
-              if (noteBalance > 0) {
-                totalBalance += noteBalance;
-              }
-            }
-          }
-        } catch {}
-
-        return {
-          balance: totalBalance,
-          debug: `consumed=${totalBalance - 0}, notes pending, total=${totalBalance}`
-        };
-      });
-
-      return typeof result === 'object' ? result.balance : result;
-    } catch (e) {
-      console.log(`[WalletPage.getBalance] Error: ${e}`);
-      return 0;
-    }
+    await this.refreshBalances();
+    const snapshot = await this.quickBalanceSnapshot(tokenSymbol ? { symbol: tokenSymbol.toLowerCase() } : undefined);
+    if (snapshot.error) console.log(`[WalletPage.getBalance] Error: ${snapshot.error}`);
+    return snapshot.totalReportable;
   }
 
   /**
@@ -2433,25 +2658,97 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
 
   // ── Send Flow ─────────────────────────────────────────────────────────────
 
-  /**
-   * Execute the full send flow: SelectToken -> SendDetails -> ReviewTransaction.
-   *
-   * Post-condition: the review screen accepted the submit (its button detached)
-   * and the wallet is not sitting on a rendered error surface. Both are thrown,
-   * not logged — see the comment on step 6.
-   */
-  async sendTokens(params: {
+  async configureSpendingLimitForTest(params: {
+    tokenSymbol: string;
+    dailyLimitBaseUnits?: string;
+    weeklyLimitBaseUnits?: string;
+  }): Promise<{ accountId: string; faucetId: string; decimals: number }> {
+    return this.page.evaluate(async input => {
+      type Balance = {
+        tokenId: string;
+        metadata: { symbol: string; decimals: number; name?: string };
+      };
+      type ExistingLimit = { faucetId: string; revision: string; asset: { symbol: string } };
+      type TestStore = {
+        getState(): {
+          currentAccount: { publicKey: string } | null;
+          balances: Record<string, Balance[]>;
+          listSpendingLimits(accountId: string): Promise<ExistingLimit[]>;
+          saveSpendingLimit(
+            draft: {
+              accountId: string;
+              faucetId: string;
+              asset: { symbol: string; decimals: number; name?: string };
+              dailyLimit?: bigint;
+              weeklyLimit?: bigint;
+            },
+            observedRevision: string | undefined,
+            strictlyAuthenticated: boolean
+          ): Promise<unknown>;
+        };
+      };
+
+      const store = (globalThis as unknown as { __TEST_STORE__?: TestStore }).__TEST_STORE__;
+      if (store === undefined) throw new Error('configureSpendingLimitForTest requires an E2E build');
+      const state = store.getState();
+      const accountId = state.currentAccount?.publicKey;
+      if (accountId === undefined) throw new Error('configureSpendingLimitForTest found no current account');
+      const balance = (state.balances[accountId] ?? []).find(row => row.metadata.symbol === input.tokenSymbol);
+      if (balance === undefined) {
+        throw new Error(`configureSpendingLimitForTest found no ${input.tokenSymbol} balance row`);
+      }
+      // Match the saved configuration by the asset it was saved for, not by faucet id.
+      // `saveSpendingLimit` canonicalizes the faucet id before it stores the row, so
+      // `listSpendingLimits` hands back the canonical form while `balance.tokenId` is the raw
+      // balance form; a raw `===` misses, the revision goes in as undefined, and the optimistic
+      // concurrency guard then refuses every save after the first with a conflict.
+      const existing = (await state.listSpendingLimits(accountId)).find(row => row.asset.symbol === input.tokenSymbol);
+      await state.saveSpendingLimit(
+        {
+          accountId,
+          faucetId: balance.tokenId,
+          asset: balance.metadata,
+          ...(input.dailyLimitBaseUnits === undefined ? {} : { dailyLimit: BigInt(input.dailyLimitBaseUnits) }),
+          ...(input.weeklyLimitBaseUnits === undefined ? {} : { weeklyLimit: BigInt(input.weeklyLimitBaseUnits) })
+        },
+        existing?.revision,
+        true
+      );
+      return { accountId, faucetId: balance.tokenId, decimals: balance.metadata.decimals };
+    }, params);
+  }
+
+  async runSpendingLimitRaceForTest(params: {
     recipientAddress: string;
-    amount: string;
-    isPrivate: boolean;
-    /**
-     * Optional token symbol (e.g. "TST"). When set, picks that token's row
-     * from the SelectToken list. Default: first row — fine when only one
-     * fundable token exists, but not when MIDEN sits at 0 balance above the
-     * real balance row.
-     */
-    tokenSymbol?: string;
-  }): Promise<void> {
+    faucetId: string;
+    amountBaseUnits: string;
+  }): Promise<{ fulfilledCount: number; rejectedCount: number; insertedCount: number; rejectionCodes: string[] }> {
+    return this.page.evaluate(async input => {
+      type RaceResult = {
+        fulfilledCount: number;
+        rejectedCount: number;
+        insertedCount: number;
+        rejectionCodes: string[];
+      };
+      const hook = (
+        globalThis as unknown as {
+          __TEST_RUN_SPENDING_LIMIT_RACE__?: (value: typeof input) => Promise<RaceResult>;
+        }
+      ).__TEST_RUN_SPENDING_LIMIT_RACE__;
+      if (hook === undefined) throw new Error('runSpendingLimitRaceForTest requires an E2E build');
+      return hook(input);
+    }, params);
+  }
+
+  /**
+   * Drive the send flow through ReviewTransaction without submitting it.
+   */
+  /**
+   * `tokenSymbol` picks that token's row from the SelectToken list; the default is the first
+   * non-MIDEN row, which is fine only when one fundable token exists. `tokenId` is the exact
+   * faucet account id the stress suite selects by instead.
+   */
+  async prepareSendReview(params: SendTokensParams & { tokenId?: string }): Promise<void> {
     // 1. Navigate to send. The v0-UI order is recipient → amount(+token) → review.
     await this.navigateTo('/send');
     const sendFlow = this.page.getByTestId('send-flow');
@@ -2466,7 +2763,6 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     // 2. SelectRecipient: fill the recipient address and confirm.
     await sendFlow.getByTestId('send-recipient-input').fill(params.recipientAddress);
     if (params.recipientAddress.trim().startsWith('0x')) {
-      await sendFlow.getByTestId('send-network-selector').click({ timeout: STEP_TIMEOUT_MS });
       await this.page.getByTestId('send-network-sepolia').click({ timeout: STEP_TIMEOUT_MS });
     }
     await sendFlow.getByTestId('send-recipient-confirm').click({ timeout: STEP_TIMEOUT_MS });
@@ -2479,7 +2775,36 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     await sendFlow.getByTestId('send-token-selector').click({ timeout: STEP_TIMEOUT_MS });
     await this.page.getByTestId('send-token-search').waitFor({ timeout: STEP_TIMEOUT_MS });
 
-    if (params.tokenSymbol) {
+    if (params.tokenId) {
+      const exactToken = this.page.locator(`[data-token-id=${JSON.stringify(params.tokenId)}]`);
+      // The wait above is on the search INPUT; the rows render from store state that can arrive
+      // later. `count()` is a point-in-time read, so without this the stress driver aborts a whole
+      // run on the one lap where the rows have not committed yet. The count stays as the
+      // uniqueness check, which owns the message below.
+      //
+      // Both reads keep their REASON. Playwright also rejects for a closed page or a destroyed
+      // execution context, and collapsing those into "found 0" points the reader at the faucet id
+      // instead of the teardown that actually happened.
+      const failures: string[] = [];
+      const noteFailure = (stage: string, e: unknown) =>
+        failures.push(`${stage}: ${e instanceof Error ? e.message : String(e)}`);
+      await exactToken
+        .first()
+        .waitFor({ state: 'attached', timeout: STEP_TIMEOUT_MS })
+        .catch(e => noteFailure('wait', e));
+      const exactTokenCount = await exactToken.count().catch(e => {
+        noteFailure('count', e);
+        return 0;
+      });
+      if (exactTokenCount !== 1) {
+        throw new Error(
+          `WalletPage.sendTokens: expected exactly one token row for faucet ID "${params.tokenId}", ` +
+            `but found ${exactTokenCount}` +
+            (failures.length > 0 ? ` (${failures.join('; ')})` : '')
+        );
+      }
+      await exactToken.locator('[data-testid^="send-token-"]').first().click({ timeout: STEP_TIMEOUT_MS });
+    } else if (params.tokenSymbol) {
       const tokenRow = this.page.getByTestId(`send-token-${params.tokenSymbol}`);
       const symbolRowCount = await tokenRow.count().catch(() => 0);
       if (symbolRowCount > 0) {
@@ -2514,16 +2839,16 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
         ),
       params.isPrivate
     );
+  }
 
-    // 5. ReviewTransaction: submit. Page-scoped — the review page renders
-    // outside the send-flow container now.
-    await this.page.getByTestId('send-review-submit').click({ timeout: STEP_TIMEOUT_MS });
+  async submitSendReview(): Promise<void> {
+    await this.page.getByTestId('send-review-submit').click({ timeout: 30_000 });
+  }
 
-    // 6. Treat the submit button detaching as the "submit accepted" signal — the
-    // send flow navigates to home/completion once the request is dispatched.
+  async waitForSendSubmissionAccepted(timeoutMs = 120_000): Promise<void> {
     const submitAccepted = await this.page
       .getByTestId('send-review-submit')
-      .waitFor({ state: 'detached', timeout: 120_000 })
+      .waitFor({ state: 'detached', timeout: timeoutMs })
       .then(() => true)
       .catch(() => false);
 
@@ -2561,10 +2886,31 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     }
     if (!submitAccepted) {
       throw new Error(
-        `WalletPage.sendTokens: the review screen's submit button was still attached 120s after clicking it, ` +
+        `WalletPage.sendTokens: the review screen's submit button was still attached ${timeoutMs}ms after clicking it, ` +
           `so the send was never dispatched. On-screen text (first 800): ${bodyText.slice(0, 800)}`
       );
     }
+  }
+
+  async authenticateSpendingLimitForTest(password = PASSWORD): Promise<void> {
+    const drawer = this.page.locator('[data-slot="drawer-content"]');
+    await drawer.locator('#strict-action-password').fill(password);
+    await drawer.getByRole('button', { name: 'Continue', exact: true }).click();
+  }
+
+  async cancelSpendingLimitChallenge(): Promise<void> {
+    const drawer = this.page.locator('[data-slot="drawer-content"]');
+    await drawer.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await drawer.waitFor({ state: 'detached' });
+  }
+
+  /**
+   * Execute the full send flow and require the review submission to be accepted.
+   */
+  async sendTokens(params: SendTokensParams & { tokenId?: string }): Promise<void> {
+    await this.prepareSendReview(params);
+    await this.submitSendReview();
+    await this.waitForSendSubmissionAccepted();
   }
 
   /**

@@ -1,6 +1,13 @@
 import { Note, NoteFile, TransactionRequest, TransactionResult, TransactionSummary } from '@miden-sdk/miden-sdk/lazy';
 
-import { declaredRequestToView, executedBytesToView, summaryBytesToView, summaryToView } from './decode';
+import {
+  declaredRequestToView,
+  executedBytesToView,
+  netOutflowByFaucet,
+  simulatedBytesToView,
+  summaryBytesToView,
+  summaryToView
+} from './decode';
 
 // `faucetId()` returns an AccountId object (not a string). Token metadata is
 // cached under the BECH32 faucet address, so the decoders must resolve the id
@@ -42,7 +49,10 @@ jest.mock('lib/miden/sdk/helpers', () => ({
   // `{ __faucet }` stubs above. Both must go through this helper (bech32).
   getBech32AddressFromAccountId: jest.fn((id: any) =>
     typeof id === 'string' ? `bech32:${id}` : `bech32:${id.__faucet}`
-  )
+  ),
+  // Collapses the two spellings the fold has to treat as one faucet. `hex:f1` and `f1` are the
+  // same asset written two ways, which is the case a raw-string fold silently misses.
+  canonicalWalletAccountId: jest.fn((id: string) => id.replace(/^hex:/, ''))
 }));
 jest.mock('lib/shared/helpers', () => ({
   b64ToU8: jest.fn((s: string) => new Uint8Array([s.length]))
@@ -402,5 +412,121 @@ describe('declaredRequestToView', () => {
     const view = declaredRequestToView('reqB64', ['bad']);
     expect(view.incoming).toEqual([]);
     expect(view.inputNotesConsumed).toBe(1);
+  });
+});
+
+describe('simulatedBytesToView', () => {
+  // The dry run produces exactly one of these, decided by the ACCOUNT's authorization state:
+  // a summary while authorization is pending, an executed transaction for every ordinary
+  // single-sig account on 0.16. A consumer that decoded only the summary shape treated every
+  // ordinary account as unsimulatable, which hard-refused their dApp custom transactions.
+  it('decodes the summary when one was produced', () => {
+    (TransactionSummary.deserialize as jest.Mock).mockReturnValueOnce({
+      accountDelta: () => ({
+        id: () => 'acctId',
+        vault: () => ({ addedFungibleAssets: () => [], removedFungibleAssets: () => [fa('fA', 10n)] }),
+        storage: () => ({ isEmpty: () => true })
+      }),
+      inputNotes: () => ({ numNotes: () => 0 }),
+      outputNotes: () => ({ numNotes: () => 1, notes: () => [note([])] })
+    });
+
+    expect(simulatedBytesToView({ summaryBytes: 'sumB64' })?.outgoing).toEqual([
+      { faucetId: 'bech32:fA', amount: 10n }
+    ]);
+  });
+
+  it('falls back to the executed transaction when no summary was produced', () => {
+    // The ordinary single-sig case on 0.16. A consumer that decoded only the summary shape read
+    // this as "unsimulatable" and refused every dApp custom transaction for those accounts.
+    (TransactionResult.deserialize as jest.Mock).mockReturnValueOnce({
+      executedTransaction: () => ({
+        accountId: () => 'acctId',
+        inputNotes: () => ({ numNotes: () => 0, notes: () => [] }),
+        outputNotes: () => ({ numNotes: () => 1, notes: () => [note([fa('fA', 10n)])] }),
+        accountPatch: () => ({ storage: () => ({ isEmpty: () => true }) })
+      })
+    });
+
+    expect(simulatedBytesToView({ executedBytes: 'execB64' })?.outgoing).toEqual([
+      { faucetId: 'bech32:fA', amount: 10n }
+    ]);
+  });
+
+  it('reports undefined only when the dry run produced neither shape', () => {
+    expect(simulatedBytesToView({})).toBeUndefined();
+    expect(simulatedBytesToView({ summaryBytes: undefined, executedBytes: undefined })).toBeUndefined();
+  });
+});
+
+describe('netOutflowByFaucet', () => {
+  const view = (outgoing: { faucetId: string; amount: bigint }[]) =>
+    ({
+      account: 'acct',
+      outgoing,
+      incoming: [],
+      inputNotesConsumed: 0,
+      outputNotesCreated: outgoing.length,
+      fee: undefined,
+      storageChanged: false
+    }) as ReturnType<typeof summaryToView>;
+
+  it('folds several entries on one faucet into a single total', () => {
+    // The executed view flat-maps over output notes, so two notes drawing on one faucet arrive
+    // as two entries. Assessed separately, 60 and 60 would each pass a cap of 100.
+    expect(
+      netOutflowByFaucet(
+        view([
+          { faucetId: 'f1', amount: 60n },
+          { faucetId: 'f1', amount: 60n }
+        ])
+      )
+    ).toEqual([{ faucetId: 'f1', amount: 120n }]);
+  });
+
+  it('folds two spellings of one faucet together', () => {
+    // A raw-string fold misses this, and the two consumers downstream would then each see an
+    // amount under the cap while the real total is over it.
+    expect(
+      netOutflowByFaucet(
+        view([
+          { faucetId: 'f1', amount: 60n },
+          { faucetId: 'hex:f1', amount: 60n }
+        ])
+      )
+    ).toEqual([{ faucetId: 'f1', amount: 120n }]);
+  });
+
+  it('credits only what the caller passes, never the consumed notes', () => {
+    // `incoming` is every note consumed, including ones the user already held. Crediting those
+    // let a dApp consume a pending 1000 of the user's and send 1050 for a charge of 50.
+    const consumed = {
+      ...view([{ faucetId: 'f1', amount: 1050n }]),
+      incoming: [{ faucetId: 'f1', amount: 1000n }]
+    };
+
+    expect(netOutflowByFaucet(consumed)).toEqual([{ faucetId: 'f1', amount: 1050n }]);
+    expect(netOutflowByFaucet(consumed, [{ faucetId: 'f1', amount: 1000n }])).toEqual([
+      { faucetId: 'f1', amount: 50n }
+    ]);
+  });
+
+  it('never reports a negative outflow when the credit exceeds what left', () => {
+    expect(netOutflowByFaucet(view([{ faucetId: 'f1', amount: 10n }]), [{ faucetId: 'f1', amount: 99n }])).toEqual([]);
+  });
+
+  it('keeps distinct faucets apart', () => {
+    expect(
+      netOutflowByFaucet(
+        view([
+          { faucetId: 'f1', amount: 50n },
+          { faucetId: 'f2', amount: 30n }
+        ]),
+        [{ faucetId: 'f1', amount: 20n }]
+      )
+    ).toEqual([
+      { faucetId: 'f1', amount: 30n },
+      { faucetId: 'f2', amount: 30n }
+    ]);
   });
 });

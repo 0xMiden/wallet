@@ -1,11 +1,18 @@
+import { Buffer } from 'buffer';
 import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
 
+import { installFaucetAddressTestHook } from 'lib/e2e/faucet-address';
 import { createIntercomClient, IIntercomClient } from 'lib/intercom/client';
 import { clearPersistedSeenNoteIds, persistSeenNoteIds } from 'lib/miden/back/note-checker-storage';
 import type { IConsumeBridgeInExtraInputs, IEarnWithdrawExtraInputs, ITransaction } from 'lib/miden/db/types';
 import { setTestSyncPaused } from 'lib/miden/front/test-sync-pause';
 import { fetchTokenMetadata } from 'lib/miden/metadata';
+import {
+  parsePersistedSpendingLimit,
+  parseSerializedSpendingLimitAssessment,
+  toSerializedSpendingLimitDraft
+} from 'lib/miden/spending-limits/types';
 import { describeHookError, installSwapTestHooks } from 'lib/miden/swap/test-hooks';
 import { MidenMessageType, MidenState } from 'lib/miden/types';
 import { isExtension } from 'lib/platform';
@@ -109,6 +116,7 @@ export const useWalletStore = create<WalletStore>()(
         networks: state.networks,
         settings: state.settings,
         ownMnemonic: state.ownMnemonic,
+        seedPhraseStatus: state.seedPhraseStatus,
         isInitialized: true,
         lastSyncedAt: Date.now()
       });
@@ -152,12 +160,25 @@ export const useWalletStore = create<WalletStore>()(
       // State will be synced via StateUpdated notification
     },
 
-    importWalletFromClient: async (password, mnemonic, walletAccounts) => {
+    registerWalletFromHotKey: async (password, keyPairPayload, guardianEndpoint) => {
+      const res = await request({
+        type: WalletMessageType.NewWalletFromHotKeyRequest,
+        password,
+        keyPairPayload,
+        guardianEndpoint
+      });
+      assertResponse(res.type === WalletMessageType.NewWalletFromHotKeyResponse);
+      // State will be synced via StateUpdated notification
+    },
+
+    importWalletFromClient: async (password, mnemonic, walletAccounts, formatVersion, importedAccounts) => {
       const res = await request({
         type: WalletMessageType.ImportFromClientRequest,
         password,
         mnemonic,
-        walletAccounts
+        walletAccounts,
+        formatVersion,
+        importedAccounts
       });
       assertResponse(res.type === WalletMessageType.ImportFromClientResponse);
     },
@@ -237,6 +258,31 @@ export const useWalletStore = create<WalletStore>()(
       }
     },
 
+    removeSeedPhrase: async password => {
+      const res = await request({ type: WalletMessageType.RemoveSeedPhraseRequest, password });
+      assertResponse(res.type === WalletMessageType.RemoveSeedPhraseResponse);
+      const state = await request({ type: WalletMessageType.GetStateRequest });
+      assertResponse(state.type === WalletMessageType.GetStateResponse);
+      get().syncFromBackend(state.state);
+    },
+    provideRecoverySeed: async (transactionId, mnemonic, action) => {
+      const res = await request({
+        type: WalletMessageType.ProvideRecoverySeedRequest,
+        transactionId,
+        mnemonic,
+        action
+      });
+      assertResponse(res.type === WalletMessageType.ProvideRecoverySeedResponse);
+    },
+    prepareRecoveryTransaction: async transactionId => {
+      const res = await request({ type: WalletMessageType.PrepareRecoveryRequest, transactionId });
+      assertResponse(res.type === WalletMessageType.PrepareRecoveryResponse);
+      return { ready: res.ready, coldPublicKey: res.coldPublicKey };
+    },
+    releaseRecoveryAuthorization: async transactionId => {
+      const res = await request({ type: WalletMessageType.ReleaseRecoveryRequest, transactionId });
+      assertResponse(res.type === WalletMessageType.ReleaseRecoveryResponse);
+    },
     revealMnemonic: async password => {
       const res = await request({
         type: WalletMessageType.RevealMnemonicRequest,
@@ -244,6 +290,15 @@ export const useWalletStore = create<WalletStore>()(
       });
       assertResponse(res.type === WalletMessageType.RevealMnemonicResponse);
       return res.mnemonic;
+    },
+
+    exportWalletBackupMaterial: async password => {
+      const res = await request({
+        type: WalletMessageType.ExportWalletBackupMaterialRequest,
+        password
+      });
+      assertResponse(res.type === WalletMessageType.ExportWalletBackupMaterialResponse);
+      return res.material;
     },
 
     revealPrivateKey: async (accountPublicKey, password) => {
@@ -256,6 +311,24 @@ export const useWalletStore = create<WalletStore>()(
       return res.privateKey;
     },
 
+    exportAccountFile: async (accountPublicKey, password) => {
+      const res = await request({
+        type: WalletMessageType.ExportAccountFileRequest,
+        accountPublicKey,
+        password
+      });
+      assertResponse(res.type === WalletMessageType.ExportAccountFileResponse);
+      // Buffer is IMPORTED, never the bare global: on every extension page `public/globals.js`
+      // installs a stub whose `from()` ignores the encoding argument, and the entry points keep it
+      // (`globalThis.Buffer = globalThis.Buffer || Buffer`), so a bare global decode returns an
+      // EMPTY array and the user is handed a 0-byte account file with a success message.
+      // A VIEW over the decoded buffer, not a copy of it, so the array the export screen zeroes is
+      // the only mutable plaintext of the account's auth key this realm holds. The three-argument
+      // form is bounded to this buffer's own region, so Node's shared pool is never exposed.
+      const decoded = Buffer.from(res.accountFileBase64, 'base64');
+      return new Uint8Array(decoded.buffer, decoded.byteOffset, decoded.byteLength);
+    },
+
     revealHotKey: async (accountPublicKey, password) => {
       const res = await request({
         type: WalletMessageType.RevealHotKeyRequest,
@@ -263,7 +336,7 @@ export const useWalletStore = create<WalletStore>()(
         password
       });
       assertResponse(res.type === WalletMessageType.RevealHotKeyResponse);
-      return res.hotPrivateKey;
+      return res.keyPairPayload;
     },
 
     revealGuardianKeys: async (accountPublicKey, password) => {
@@ -313,6 +386,51 @@ export const useWalletStore = create<WalletStore>()(
       }
     },
 
+    listSpendingLimits: async accountId => {
+      const res = await request({
+        type: WalletMessageType.GetSpendingLimitsRequest,
+        accountId
+      });
+      assertResponse(res.type === WalletMessageType.GetSpendingLimitsResponse);
+      return res.configurations.map(parsePersistedSpendingLimit);
+    },
+
+    saveSpendingLimit: async (draft, observedRevision, strictlyAuthenticated) => {
+      const res = await request({
+        type: WalletMessageType.SaveSpendingLimitRequest,
+        draft: toSerializedSpendingLimitDraft(draft),
+        observedRevision,
+        strictlyAuthenticated
+      });
+      assertResponse(res.type === WalletMessageType.SaveSpendingLimitResponse);
+      return res.configuration === undefined ? undefined : parsePersistedSpendingLimit(res.configuration);
+    },
+
+    assessSpendingLimit: async (accountId, faucetId, amount) => {
+      const res = await request({
+        type: WalletMessageType.AssessSpendingLimitRequest,
+        accountId,
+        faucetId,
+        amount: amount.toString()
+      });
+      assertResponse(res.type === WalletMessageType.AssessSpendingLimitResponse);
+      return res.assessment === undefined ? undefined : parseSerializedSpendingLimitAssessment(res.assessment);
+    },
+
+    getStrictAuthenticationProtectors: async () => {
+      const res = await request({ type: WalletMessageType.GetStrictAuthenticationProtectorsRequest });
+      assertResponse(res.type === WalletMessageType.GetStrictAuthenticationProtectorsResponse);
+      return res.protectors;
+    },
+
+    verifyStrictActionAuthentication: async credential => {
+      const res = await request({
+        type: WalletMessageType.VerifyStrictActionAuthenticationRequest,
+        credential
+      });
+      assertResponse(res.type === WalletMessageType.VerifyStrictActionAuthenticationResponse);
+    },
+
     // Signing actions
     signData: async (publicKey, signingInputs) => {
       const res = await request({
@@ -335,9 +453,10 @@ export const useWalletStore = create<WalletStore>()(
       return new Uint8Array(Buffer.from(signatureAsHex, 'hex'));
     },
 
-    signWord: async (publicKey, wordHex) => {
+    signWord: async (publicKey, wordHex, transactionId) => {
       const res = await request({
         type: WalletMessageType.SignWordRequest,
+        transactionId,
         publicKey,
         wordHex
       });
@@ -522,12 +641,13 @@ export const useWalletStore = create<WalletStore>()(
       assertResponse(res.type === MidenMessageType.DAppConsumableNotesConfirmationResponse);
     },
 
-    confirmDAppTransaction: async (id, confirmed, delegate) => {
+    confirmDAppTransaction: async (id, confirmed, delegate, spendingLimitAuthenticated) => {
       const res = await request({
         type: MidenMessageType.DAppTransactionConfirmationRequest,
         id,
         confirmed,
-        delegate
+        delegate,
+        ...(spendingLimitAuthenticated === true && { spendingLimitAuthenticated: true as const })
       });
       assertResponse(res.type === MidenMessageType.DAppTransactionConfirmationResponse);
     },
@@ -810,6 +930,77 @@ if (process.env.MIDEN_E2E_TEST === 'true') {
   (globalThis as any).__TEST_STORE__ = useWalletStore;
   (globalThis as any).__TEST_INTERCOM__ = getIntercom();
   installSwapTestHooks();
+  Reflect.set(
+    globalThis,
+    '__TEST_RUN_SPENDING_LIMIT_RACE__',
+    async (input: { recipientAddress: string; faucetId: string; amountBaseUnits: string }) => {
+      const [{ SendTransaction, ITransactionStatus }, { NoteTypeEnum }, { queueOutgoingTransaction, spendsOf }, Repo] =
+        await Promise.all([
+          import('lib/miden/db/types'),
+          import('lib/miden/types'),
+          import('lib/miden/spending-limits/queue'),
+          import('lib/miden/repo')
+        ]);
+      const accountId = useWalletStore.getState().currentAccount?.publicKey;
+      if (accountId === undefined) throw new Error('Spending-limit race hook found no current account');
+      const amount = BigInt(input.amountBaseUnits);
+      const candidates = [
+        new SendTransaction(accountId, amount, input.recipientAddress, input.faucetId, NoteTypeEnum.Public),
+        new SendTransaction(accountId, amount, input.recipientAddress, input.faucetId, NoteTypeEnum.Public)
+      ];
+      const now = Math.floor(Date.now() / 1000);
+      for (const candidate of candidates) {
+        candidate.status = ITransactionStatus.Completed;
+        candidate.completedAt = now;
+      }
+
+      try {
+        const results = await Promise.allSettled(
+          candidates.map(candidate => queueOutgoingTransaction(candidate, spendsOf(candidate)))
+        );
+        const inserted = await Repo.transactions.bulkGet(candidates.map(candidate => candidate.id));
+        return {
+          fulfilledCount: results.filter(result => result.status === 'fulfilled').length,
+          rejectedCount: results.filter(result => result.status === 'rejected').length,
+          insertedCount: inserted.filter(row => row !== undefined).length,
+          rejectionCodes: results.flatMap(result => {
+            if (result.status !== 'rejected') return [];
+            const reason = result.reason as { code?: unknown };
+            return typeof reason?.code === 'string' ? [reason.code] : [];
+          })
+        };
+      } finally {
+        await Repo.transactions.bulkDelete(candidates.map(candidate => candidate.id));
+      }
+    }
+  );
+  Reflect.set(globalThis, '__TEST_SIGN_ACCOUNT_WORD__', async (accountPublicKey: string, wordHex: string) => {
+    setTestSyncPaused(true);
+    try {
+      const [{ assertWasmHoldCurrent, getMidenClient, withWasmClientLock }, { resolvePublicKeyCommitments }] =
+        await Promise.all([
+          import('lib/miden/sdk/miden-client'),
+          import('lib/miden/sdk/resolve-public-key-commitments')
+        ]);
+      const publicKeyCommitment = await withWasmClientLock(
+        async hold => {
+          const client = await getMidenClient();
+          assertWasmHoldCurrent(hold, 'e2e-account-sign after the client build');
+          const account = await client.getAccount(accountPublicKey);
+          assertWasmHoldCurrent(hold, 'e2e-account-sign after the account read');
+          if (!account) throw new Error('Account not found');
+
+          const commitments = resolvePublicKeyCommitments(account);
+          if (commitments.length !== 1) throw new Error('Account does not have exactly one signing key');
+          return commitments[0]!.toHex().replace(/^0x/, '');
+        },
+        { label: 'e2e-account-sign' }
+      );
+      return await useWalletStore.getState().signWord(publicKeyCommitment, wordHex);
+    } finally {
+      setTestSyncPaused(false);
+    }
+  });
   // Point the earn (Epoch lending) collateral faucet at a runtime-created test faucet.
   // `openEarnPosition` runs page-side (EarnDepositReview), so the override must be set in
   // THIS (page) realm. The import is LAZY (like the bridge-in hooks) so the Epoch/EVM SDK
@@ -869,7 +1060,7 @@ if (process.env.MIDEN_E2E_TEST === 'true') {
     const Repo = await import('lib/miden/repo');
     return toEarnWithdrawView(await Repo.transactions.where({ id: txId }).first());
   });
-  // Hex→bech32 faucet-id conversion. iOS E2E needs this to inject
+  // Hex-to-bech32 faucet-id conversion. iOS E2E needs this to inject
   // synthetic metadata for the CLI-deployed test faucet (whose on-chain
   // procedure layout the SDK can't parse, so the real metadata RPC fails
   // and the wallet's `attachMetadataToNotes` hides the consumable note).
@@ -879,24 +1070,12 @@ if (process.env.MIDEN_E2E_TEST === 'true') {
   // Dynamic-import inside the call (used to live here) contended with the
   // wallet's own WASM lock and serialized behind in-flight SDK calls,
   // blowing past the 30s WebDriver execute_async_script budget.
-  void (async () => {
-    try {
-      const sdk = await import('@miden-sdk/miden-sdk/lazy');
-      (globalThis as any).__TEST_HEX_TO_BECH32_FAUCET__ = (
-        hex: string,
-        network: 'testnet' | 'devnet' = 'testnet'
-      ): string => {
-        const id = sdk.AccountId.fromHex(hex);
-        const netId = network === 'devnet' ? sdk.NetworkId.devnet() : sdk.NetworkId.testnet();
-        return sdk.Address.fromAccountId(id, 'BasicWallet').toBech32(netId);
-      };
-    } catch (e) {
-      // E2E-only path; failure here just means the iOS metadata-injection
-      // workaround won't work and we'd hit the original symptom (note
-      // hidden by attachMetadataToNotes filter).
-      console.error('[E2E] Failed to expose __TEST_HEX_TO_BECH32_FAUCET__:', e);
-    }
-  })();
+  void installFaucetAddressTestHook().catch(e => {
+    // E2E-only path; failure here just means the iOS metadata-injection
+    // workaround won't work and we'd hit the original symptom (note
+    // hidden by attachMetadataToNotes filter).
+    console.error('[E2E] Failed to expose __TEST_HEX_TO_BECH32_FAUCET__:', e);
+  });
 
   // Guardian on-chain auth structure (overall threshold + signer set + procedure
   // thresholds + the active guardian-operator commitment) for E2E assertions —

@@ -84,6 +84,7 @@ jest.mock('lib/woozie', () => ({
   useLocation: () => ({ historyPosition: mockHistoryPosition }),
   navigate: (...args: unknown[]) => mockNavigate(...args),
   goBack: () => mockGoBack(),
+  Redirect: ({ to }: { to: string }) => <div data-testid="redirect" data-to={to} />,
   HistoryAction: { Push: 'push', Replace: 'replace' }
 }));
 

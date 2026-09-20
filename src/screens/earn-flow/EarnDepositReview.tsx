@@ -1,4 +1,4 @@
-import React, { FC, useMemo, useState } from 'react';
+import React, { FC, useEffect, useMemo, useState } from 'react';
 
 import clsx from 'clsx';
 import { useTranslation } from 'react-i18next';
@@ -6,14 +6,21 @@ import { Area, AreaChart, ReferenceLine, XAxis, YAxis } from 'recharts';
 
 import { useNetworkFeeEstimate } from 'app/hooks/useNetworkFeeEstimate';
 import { Button, ButtonVariant } from 'components/Button';
+import { SpendingLimitChallenge } from 'components/SpendingLimitChallenge';
 import { TokenLogo } from 'components/TokenLogo';
-import { MIDEN_USDC_DECIMALS, openEarnPosition } from 'lib/epoch';
+import { getEarnCollateralFaucetId, MIDEN_USDC_DECIMALS, openEarnPosition } from 'lib/epoch';
 import { stringToBigInt, toAdaptiveFixed } from 'lib/i18n/numbers';
 import { useAccount } from 'lib/miden/front';
 import { useMidenContext } from 'lib/miden/front/client';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
+import {
+  type SpendingLimitAssessment,
+  type SpendingLimitAuthorization,
+  spendingLimitAssessmentFromError
+} from 'lib/miden/spending-limits/types';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
+import { useWalletStore } from 'lib/store';
 import { ChartContainer } from 'lib/ui/charts';
 import { navigate, useLocation } from 'lib/woozie';
 
@@ -50,10 +57,28 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
   const { signTransaction } = useMidenContext();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [spendingLimitAssessment, setSpendingLimitAssessment] = useState<SpendingLimitAssessment>();
+  const assessSpendingLimit = useWalletStore(state => state.assessSpendingLimit);
+  const amountBaseUnits = useMemo(() => {
+    try {
+      return stringToBigInt(amount.replace(/,/g, ''), MIDEN_USDC_DECIMALS);
+    } catch {
+      return undefined;
+    }
+  }, [amount]);
+  const faucetId = getEarnCollateralFaucetId();
 
-  const handleOpenPosition = async () => {
-    hapticLight();
-    if (isSubmitting) return;
+  const runOpenPosition = async (authorization?: SpendingLimitAuthorization) => {
+    if (amountBaseUnits === undefined) return;
+    if (
+      authorization !== undefined &&
+      (authorization.accountId !== account.publicKey ||
+        authorization.faucetId !== faucetId ||
+        authorization.amount !== amountBaseUnits)
+    ) {
+      setSpendingLimitAssessment(undefined);
+      return;
+    }
     if (!account.evmAddress) {
       setSubmitError(t('earnNoEvmAddress'));
       return;
@@ -62,18 +87,62 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
     setSubmitError(null);
     try {
       await openEarnPosition({
-        amount: stringToBigInt(amount.replace(/,/g, ''), MIDEN_USDC_DECIMALS),
+        amount: amountBaseUnits,
         evmAddress: account.evmAddress,
         senderPublicKey: account.publicKey,
         deps: { signTransaction, guardianProvider: zustandProvider },
-        onRowCreated: txId => navigate(`/generating-transaction-full/${encodeURIComponent(txId)}`)
+        onRowCreated: txId => navigate(`/generating-transaction-full/${encodeURIComponent(txId)}`),
+        spendingLimitAuthorization: authorization
       });
     } catch (e) {
-      setSubmitError(e instanceof Error ? e.message : t('earnFailedToOpenPosition'));
+      const assessment = spendingLimitAssessmentFromError(e);
+      if (assessment !== undefined) {
+        setSpendingLimitAssessment(assessment);
+      } else {
+        setSubmitError(e instanceof Error ? e.message : t('earnFailedToOpenPosition'));
+      }
     } finally {
       setIsSubmitting(false);
     }
   };
+
+  const handleOpenPosition = async () => {
+    hapticLight();
+    if (isSubmitting) return;
+    if (!account.evmAddress) {
+      setSubmitError(t('earnNoEvmAddress'));
+      return;
+    }
+    if (amountBaseUnits === undefined) {
+      setSubmitError(t('earnFailedToOpenPosition'));
+      return;
+    }
+    setIsSubmitting(true);
+    setSubmitError(null);
+    try {
+      const assessment = await assessSpendingLimit(account.publicKey, faucetId, amountBaseUnits);
+      if (assessment !== undefined && assessment.breaches.length > 0) {
+        setSpendingLimitAssessment(assessment);
+        setIsSubmitting(false);
+        return;
+      }
+      await runOpenPosition();
+    } catch (error) {
+      setSubmitError(error instanceof Error ? error.message : t('earnFailedToOpenPosition'));
+      setIsSubmitting(false);
+    }
+  };
+
+  useEffect(() => {
+    if (
+      spendingLimitAssessment !== undefined &&
+      (spendingLimitAssessment.accountId !== account.publicKey ||
+        spendingLimitAssessment.faucetId !== faucetId ||
+        spendingLimitAssessment.amount !== amountBaseUnits)
+    ) {
+      setSpendingLimitAssessment(undefined);
+    }
+  }, [account.publicKey, amountBaseUnits, faucetId, spendingLimitAssessment]);
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-app-bg font-inter" data-testid="earn-deposit-review-page">
@@ -107,6 +176,16 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
           className="w-full max-w-none rounded-full text-base font-semibold"
         />
       </div>
+      {spendingLimitAssessment !== undefined && (
+        <SpendingLimitChallenge
+          assessment={spendingLimitAssessment}
+          asset={{ symbol: depositSymbol, decimals: MIDEN_USDC_DECIMALS }}
+          onResult={authorization => {
+            setSpendingLimitAssessment(undefined);
+            if (authorization !== undefined) void runOpenPosition(authorization);
+          }}
+        />
+      )}
     </div>
   );
 };

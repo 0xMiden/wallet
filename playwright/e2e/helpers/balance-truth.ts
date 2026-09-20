@@ -3,19 +3,14 @@
  *
  * WHY THIS EXISTS
  *
- * `WalletPage.getBalance(_tokenSymbol?)` (wallet-page.ts) has two properties that
- * make it unusable as a correctness oracle, and 60+ assertions in this suite are
- * built on it:
- *
- *   1. It takes a token symbol and **discards it** (the parameter is `_`-prefixed).
- *      It sums every token of every faucet, so a send that credits the WRONG TOKEN
- *      still moves the number.
- *   2. It **adds unconsumed notes** to the balance. A note that was discovered but
- *      never successfully consumed counts as if it were spendable, so a broken
- *      consume still reads as a balance increase.
+ * `WalletPage.getBalance(tokenSymbol?)` (wallet-page.ts) has a property that makes
+ * it unusable as a correctness oracle, and 60+ assertions in this suite are built
+ * on it: it **adds unconsumed notes** to the balance. A note that was discovered but
+ * never successfully consumed counts as if it were spendable, so a broken consume
+ * still reads as a balance increase.
  *
  * Combined with `expect(balance).toBeGreaterThan(0)`, that is an assertion which
- * cannot fail for a wrong-amount, wrong-token, or never-actually-claimed bug.
+ * cannot fail for a wrong-amount or never-actually-claimed bug.
  *
  * These helpers keep the two quantities strictly separate and work in **base units
  * as bigint** — no float division, so a 6-decimal and an 8-decimal token can't
@@ -68,8 +63,13 @@ export function fromBaseUnits(baseUnits: bigint, decimals: number): string {
  * Spendable vault balance for exactly one token symbol, in base units.
  *
  * Reads ONLY the store's `balances` projection (consumed assets actually in the
- * vault) — never the pending-note cache. Symbol match is case-insensitive against
- * each token's own metadata, so it cannot silently pick up a different faucet.
+ * vault) — never the pending-note cache. Symbol match is case-insensitive.
+ *
+ * The symbol resolves from the row's own metadata, falling back to `assetsMetadata`, because a row
+ * carries `metadata` only when `fetchTokenMetadata` succeeded. This MUST agree with
+ * `pendingNoteTotal` below, which already falls back: while they disagreed, a faucet known only to
+ * `assetsMetadata` counted as pending and then vanished from the vault once consumed, so a claim
+ * read as lost value in the very check written to detect lost value.
  *
  * Returns 0n when the symbol is absent, which is a legitimate answer ("you hold
  * none of this"), not an error — assertions should compare against an expected
@@ -80,15 +80,17 @@ export async function vaultBalance(page: Page, symbol: string): Promise<bigint> 
     ({ wanted }) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const state = (window as any).__TEST_STORE__?.getState?.();
+      const meta = state?.assetsMetadata ?? {};
       const out: Array<{ symbol: string; decimals: number; balance: number }> = [];
       for (const tokenList of Object.values(state?.balances ?? {}) as unknown[]) {
         if (!Array.isArray(tokenList)) continue;
         for (const token of tokenList) {
-          const symbolOf = String(token?.metadata?.symbol ?? '');
+          const cached = meta?.[String(token?.tokenId ?? '')];
+          const symbolOf = String(token?.metadata?.symbol ?? cached?.symbol ?? '');
           if (symbolOf.toLowerCase() !== wanted) continue;
           out.push({
             symbol: symbolOf,
-            decimals: Number(token?.metadata?.decimals ?? 0),
+            decimals: Number(token?.metadata?.decimals ?? cached?.decimals ?? 0),
             balance: Number(token?.balance ?? 0)
           });
         }

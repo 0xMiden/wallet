@@ -1,6 +1,5 @@
 import React from 'react';
 
-import BigNumber from 'bignumber.js';
 import clsx from 'clsx';
 import { useTranslation } from 'react-i18next';
 
@@ -8,10 +7,10 @@ import { Icon, IconName } from 'app/icons/v2';
 import { AmountInput } from 'components/AmountInput';
 import { Button, ButtonVariant } from 'components/Button';
 import { TokenLogo } from 'components/TokenLogo';
-import { toAdaptiveFixed } from 'lib/i18n/numbers';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
 
+import { approxFiatAmount, formatBalance } from './amount-format';
 import { BridgeNetwork } from './bridge-networks';
 import { UIToken } from './types';
 
@@ -70,10 +69,6 @@ export interface SelectAmountProps {
  * user who reads that back into the field is over the cap and rejected, with no
  * Max button to fall back on.
  */
-function formatBalance(value: number): string {
-  return toAdaptiveFixed(value, 4, BigNumber.ROUND_DOWN).replace(/\.?0+$/, '');
-}
-
 /** Blue circle used as a placeholder before a token/network is chosen. */
 const PlaceholderCircle: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary-500 text-pure-white">
@@ -210,7 +205,7 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
             DEX tokens carry no fiatPrice, so a "$0.00" line would be misleading. */}
         {scaleIsKnown && token.fiatPrice > 0 && (
           <span className="font-heading text-gray text-base font-bold">
-            {t('approxFiatValue', { value: `$${toAdaptiveFixed(availableFiat)}` })}
+            {t('approxFiatValue', { value: approxFiatAmount(availableFiat) })}
           </span>
         )}
       </>

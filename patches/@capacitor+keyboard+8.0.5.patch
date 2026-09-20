@@ -1,0 +1,18 @@
+diff --git a/node_modules/@capacitor/keyboard/ios/Sources/KeyboardPlugin/Keyboard.m b/node_modules/@capacitor/keyboard/ios/Sources/KeyboardPlugin/Keyboard.m
+index 54a6694..b071371 100644
+--- a/node_modules/@capacitor/keyboard/ios/Sources/KeyboardPlugin/Keyboard.m
++++ b/node_modules/@capacitor/keyboard/ios/Sources/KeyboardPlugin/Keyboard.m
+@@ -231,7 +231,12 @@ - (void)onKeyboardWillShow:(NSNotification *)notification
+ 
+   CGRect rect = [[notification.userInfo valueForKey:UIKeyboardFrameEndUserInfoKey] CGRectValue];
+ 
+-  double height = rect.size.height;
++  // Only the on-screen part of the keyboard frame covers the web view. With a
++  // hardware keyboard attached, iOS still reports the full software keyboard
++  // height but places the frame almost entirely below the screen, leaving just
++  // the input accessory bar visible; using rect.size.height there lifts the
++  // layout by a keyboard that is not showing.
++  double height = MAX(0, MIN(rect.size.height, UIScreen.mainScreen.bounds.size.height - rect.origin.y));
+     
+   if ([self isIPad]) {
+     if (stageManagerOffset > 0) {

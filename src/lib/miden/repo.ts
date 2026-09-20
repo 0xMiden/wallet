@@ -1,9 +1,11 @@
 import Dexie, { Transaction } from 'dexie';
 
 import { ITransaction, ITransactionStatus } from './db/types';
+import { PersistedSpendingLimit } from './spending-limits/types';
 
 export enum Table {
-  Transactions = 'transactions'
+  Transactions = 'transactions',
+  SpendingLimits = 'spendingLimits'
 }
 
 export const db = new Dexie('TridentMain');
@@ -132,7 +134,25 @@ db.version(1.6).stores({
   )
 });
 
+db.version(1.7).stores({
+  [Table.Transactions]: indexes(
+    'id',
+    'accountId',
+    'transactionId',
+    'initiatedAt',
+    'completedAt',
+    'noteId',
+    '*noteIds',
+    'noteDelivery',
+    'extraInputs.destinationAddress',
+    'extraInputs.swapOrderTxId',
+    'spendingLimitAuthorizationId'
+  ),
+  [Table.SpendingLimits]: indexes('[accountId+faucetId]', 'accountId', 'faucetId', 'revision')
+});
+
 export const transactions = db.table<ITransaction, string>(Table.Transactions);
+export const spendingLimits = db.table<PersistedSpendingLimit, [string, string]>(Table.SpendingLimits);
 
 function indexes(...items: string[]) {
   return items.join(',');

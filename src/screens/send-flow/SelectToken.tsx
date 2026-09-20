@@ -62,22 +62,23 @@ export const SelectTokenDrawer: React.FC<SelectTokenDrawerProps> = ({ open, onOp
           />
           <div className="flex flex-col min-h-0 overflow-y-auto no-scrollbar divide-y divide-rule-default">
             {filteredBalances.map(b => (
-              <AssetRow
-                key={b.tokenId}
-                asset={b}
-                tokenPrices={tokenPrices}
-                data-testid={`send-token-${b.metadata.symbol}`}
-                onClick={() =>
-                  onSelectToken({
-                    id: b.tokenId,
-                    name: b.metadata.symbol,
-                    decimals: b.metadata.decimals,
-                    balance: b.balance,
-                    fiatPrice: b.fiatPrice,
-                    scaleIsKnown: hasKnownScale(b.metadata)
-                  })
-                }
-              />
+              <div key={b.tokenId} data-token-id={b.tokenId}>
+                <AssetRow
+                  asset={b}
+                  tokenPrices={tokenPrices}
+                  data-testid={`send-token-${b.metadata.symbol}`}
+                  onClick={() =>
+                    onSelectToken({
+                      id: b.tokenId,
+                      name: b.metadata.symbol,
+                      decimals: b.metadata.decimals,
+                      balance: b.balance,
+                      fiatPrice: b.fiatPrice,
+                      scaleIsKnown: hasKnownScale(b.metadata)
+                    })
+                  }
+                />
+              </div>
             ))}
           </div>
         </div>

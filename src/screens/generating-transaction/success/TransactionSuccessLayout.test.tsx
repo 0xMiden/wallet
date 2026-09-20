@@ -2,7 +2,7 @@ import React from 'react';
 
 import { fireEvent, render, screen } from '@testing-library/react';
 
-import { SuccessDivider, TransactionSuccessLayout } from './TransactionSuccessLayout';
+import { ReceiptRows, TransactionSuccessLayout } from './TransactionSuccessLayout';
 
 /**
  * Covers the two props the Guardian receipt introduced to the shared layout:
@@ -27,17 +27,7 @@ jest.mock('components/Button', () => ({
   ButtonVariant: { Primary: 'primary', Secondary: 'secondary' }
 }));
 
-// Exposes onClose rather than swallowing it: the receipt's header X is one of the
-// two ways out of the screen, and a stub that drops the prop lets the layout stop
-// wiring it without a single test noticing.
-jest.mock('components/ScreenHeader', () => ({
-  ScreenHeader: ({ title, onClose }: { title: string; onClose?: () => void }) => (
-    <div>
-      {title}
-      <button data-testid="header-close" onClick={onClose} />
-    </div>
-  )
-}));
+jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn() }));
 
 jest.mock('lib/mobile/useHideNavbarWhileOpen', () => ({
   useHideNavbarWhileOpen: jest.fn()
@@ -52,13 +42,13 @@ const baseProps = {
 
 const footerLabels = () => screen.getAllByTestId('footer-action').map(button => button.textContent);
 
-it('promotes the body title to h1 when the header carries no title', () => {
+it('titles the page when the receipt passes no header title, so the page always has an h1', () => {
   render(<TransactionSuccessLayout {...baseProps} headerTitle="" />);
 
-  // Every receipt passes an empty header title, so this is the screen's only
-  // heading — as an h2 it left the page with no h1 and the header announcing a
-  // nameless level-1 heading.
-  expect(screen.getByRole('heading', { level: 1, name: 'Transaction Complete!' })).toBeInTheDocument();
+  // The shared flow frame always renders the page title as the h1; an empty header
+  // title falls back to "Success" rather than a nameless heading.
+  expect(screen.getByRole('heading', { level: 1, name: 'success' })).toBeInTheDocument();
+  expect(screen.getByRole('heading', { level: 2, name: 'Transaction Complete!' })).toBeInTheDocument();
 });
 
 it('keeps the body title one level below a titled header', () => {
@@ -67,14 +57,25 @@ it('keeps the body title one level below a titled header', () => {
   expect(screen.getByRole('heading', { level: 2, name: 'Transaction Complete!' })).toBeInTheDocument();
 });
 
-it('draws the receipt divider in a shade that survives both themes', () => {
-  const { container } = render(<SuccessDivider />);
+// The rows are what a receipt actually colours: the layout's frame reads an accent only for a back
+// button it never renders. Asserting the accent HERE, where it has an observable effect, is what
+// pins the plumbing the three receipts rely on - an absence assertion on the layout could not fail.
+it('colours the clickable row value with the flow accent, and brand by default', () => {
+  const row = { label: 'Transaction ID', value: '0xabc', onClick: jest.fn(), actionLabel: 'View on Midenscan' };
+  const { rerender } = render(<ReceiptRows accent="send" rows={[row]} />);
+  expect(screen.getByRole('button', { name: 'View on Midenscan' })).toHaveClass('text-accent-send');
 
-  // Nothing mounted the real divider — GuardianSwitchSuccess stubs it and this
-  // suite never imported it — so it shipped as a literal #F2F2F4 with no dark
-  // counterpart, a bright bar across the dark receipt. `gray-50` is that same
-  // near-white in light and composites to ~#333 in dark.
-  expect(container.firstElementChild).toHaveClass('bg-gray-50');
+  rerender(<ReceiptRows rows={[row]} />);
+  expect(screen.getByRole('button', { name: 'View on Midenscan' })).toHaveClass('text-primary-500');
+});
+
+// One element owns the gap: the card takes its margin from its caller. While an empty spacer sat
+// in front of it as well, the card carried two margin classes and one of them never applied.
+it('leaves the summary-to-card gap to the caller, with one margin class on the card', () => {
+  const { container } = render(<ReceiptRows rows={[{ label: 'Network fee', value: '1 MDN' }]} className="mt-6" />);
+
+  const card = container.firstElementChild!;
+  expect(card.className.match(/\bmt-\d+\b/g)).toEqual(['mt-6']);
 });
 
 it('takes focus on mount so the outcome is announced', () => {
@@ -83,7 +84,7 @@ it('takes focus on mount so the outcome is announced', () => {
   // The receipt replaces the in-progress view in place — no navigation, no live
   // region — so without this the result of the transaction the user just
   // authorized was never announced, and focus sat on the unmounted view's body.
-  const heading = screen.getByRole('heading', { level: 1, name: 'Transaction Complete!' });
+  const heading = screen.getByRole('heading', { level: 2, name: 'Transaction Complete!' });
   expect(heading).toHaveFocus();
   // Focusable, but not a tab stop: -1 is the standard shape for a focus target.
   expect(heading).toHaveAttribute('tabindex', '-1');
@@ -93,7 +94,7 @@ it('renders the green check hero when no custom artwork is supplied', () => {
   render(<TransactionSuccessLayout {...baseProps} />);
 
   // The default hero is decorative, so it is only reachable through the DOM.
-  expect(document.querySelector('svg')).toBeInTheDocument();
+  expect(document.querySelector('.bg-status-positive')).toBeInTheDocument();
   expect(screen.queryByTestId('custom-hero')).not.toBeInTheDocument();
 });
 
@@ -103,7 +104,7 @@ it('replaces the check hero entirely with custom artwork', () => {
   expect(screen.getByTestId('custom-hero')).toBeInTheDocument();
   // A rotation receipt shows robot-and-shield art instead of the check, so the
   // default must not render alongside it.
-  expect(document.querySelector('svg')).not.toBeInTheDocument();
+  expect(document.querySelector('.bg-status-positive')).not.toBeInTheDocument();
 });
 
 it('stacks the primary action above the secondary one by default', () => {
@@ -149,7 +150,7 @@ it("invokes the caller's own handlers from both CTAs and the header close", () =
   // left the layout free to render buttons that do nothing.
   fireEvent.click(screen.getByText('Done'));
   fireEvent.click(screen.getByText('View in Activities'));
-  fireEvent.click(screen.getByTestId('header-close'));
+  fireEvent.click(screen.getByTestId('flow-close'));
 
   expect(primary).toHaveBeenCalledTimes(1);
   expect(secondary).toHaveBeenCalledTimes(1);

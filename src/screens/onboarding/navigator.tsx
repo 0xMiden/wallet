@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 
 import { Button, ButtonVariant } from 'components/Button';
 import { ProgressIndicator } from 'components/ProgressIndicator';
+import type { DecryptedWalletFile } from 'lib/miden/backup-file';
 import { getEffectiveAllowNoGuardian } from 'lib/miden-chain/effective-endpoints';
 import { isMobile } from 'lib/platform';
 
@@ -21,9 +22,12 @@ import { BackUpSeedPhraseScreen } from './create-wallet-flow/BackUpSeedPhrase';
 import { SelectRecoveryMethodScreen } from './create-wallet-flow/SelectRecoveryMethod';
 import { SelectTransactionTypeScreen } from './create-wallet-flow/SelectTransactionType';
 import { VerifySeedPhraseScreen } from './create-wallet-flow/VerifySeedPhrase';
+import { ImportHotKeyScreen } from './import-wallet-flow/ImportHotKey';
 import { ImportRecoveryMethodScreen } from './import-wallet-flow/ImportRecoveryMethod';
 import { ImportSeedPhraseScreen } from './import-wallet-flow/ImportSeedPhrase';
-import { GuardianProbeState, OnboardingAction, OnboardingStep, OnboardingType, WalletType } from './types';
+import { ImportWalletFileScreen } from './import-wallet-flow/ImportWalletFile';
+import { SelectImportTypeScreen } from './import-wallet-flow/SelectImportType';
+import { GuardianProbeState, ImportType, OnboardingAction, OnboardingStep, OnboardingType, WalletType } from './types';
 
 export interface OnboardingFlowProps {
   wordslist: string[];
@@ -47,6 +51,12 @@ export interface OnboardingFlowProps {
   guardianProbe?: GuardianProbeState;
   /** Side panel handoff (Chrome): wallet is being created in the background. */
   confirmCreating?: boolean;
+  /**
+   * The import flow is running on a pasted hot key rather than a seed phrase:
+   * the recovery-method step pins Guardian (a hot key only ever belongs to a
+   * Guardian multisig account).
+   */
+  importViaKey?: boolean;
   onBiometricChange?: (value: boolean) => void;
   onAction?: (action: OnboardingAction) => void;
 }
@@ -56,7 +66,12 @@ const STEP_TO_PROGRESS: Partial<Record<OnboardingStep, number>> = {
   [OnboardingStep.SetupPasscode]: 2,
   [OnboardingStep.SetupBiometric]: 2,
   [OnboardingStep.ChooseGuardian]: 3,
-  [OnboardingStep.ImportFromSeed]: 1,
+  [OnboardingStep.SelectImportType]: 1,
+  // This change inserts the import-type choice at tier 1, so seed entry moves to
+  // tier 2 and the key-paste step, its sibling, moves with it.
+  [OnboardingStep.ImportFromSeed]: 2,
+  [OnboardingStep.ImportFromFile]: 2,
+  [OnboardingStep.ImportFromKey]: 2,
   [OnboardingStep.BackupSeedPhrase]: 1,
   [OnboardingStep.VerifySeedPhrase]: 2,
   [OnboardingStep.CreatePassword]: 3,
@@ -98,6 +113,7 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
   recoveryError = null,
   guardianProbe,
   confirmCreating = false,
+  importViaKey = false,
   onBiometricChange,
   onAction
 }) => {
@@ -154,6 +170,14 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
 
     const onNetworkNoticeSubmit = () => onForwardAction?.({ id: 'network-notice-acknowledge' });
 
+    const onSelectImportTypeSubmit = (payload: ImportType) => {
+      if (payload === ImportType.SeedPhrase) {
+        onForwardAction?.({ id: 'import-from-seed' });
+      } else if (payload === ImportType.WalletFile) {
+        onForwardAction?.({ id: 'import-from-file' });
+      }
+    };
+
     const onBackupSeedPhraseSubmit = () =>
       onForwardAction?.({
         id: 'verify-seed-phrase'
@@ -180,6 +204,9 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
 
     const onImportSeedPhraseSubmit = (seedPhrase: string) =>
       onForwardAction?.({ id: 'import-seed-phrase-submit', payload: seedPhrase });
+
+    const onImportWalletFileSubmit = (payload: DecryptedWalletFile) =>
+      onForwardAction?.({ id: 'import-wallet-file-submit', payload });
 
     const onSelectBiometric = () => onForwardAction?.({ id: 'setup-biometric' });
     const onSelectPasscode = () => onForwardAction?.({ id: 'setup-passcode' });
@@ -227,7 +254,23 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
           />
         );
       case OnboardingStep.ImportFromSeed:
-        return <ImportSeedPhraseScreen wordslist={wordslist} onSubmit={onImportSeedPhraseSubmit} />;
+        return (
+          <ImportSeedPhraseScreen
+            wordslist={wordslist}
+            onSubmit={onImportSeedPhraseSubmit}
+            onImportWithKey={() => onForwardAction?.({ id: 'import-with-key' })}
+          />
+        );
+      case OnboardingStep.ImportFromKey:
+        return (
+          <ImportHotKeyScreen
+            onSubmit={keyPairPayload => onForwardAction?.({ id: 'import-hot-key-submit', payload: keyPairPayload })}
+          />
+        );
+      case OnboardingStep.SelectImportType:
+        return <SelectImportTypeScreen onSubmit={onSelectImportTypeSubmit} />;
+      case OnboardingStep.ImportFromFile:
+        return <ImportWalletFileScreen onSubmit={onImportWalletFileSubmit} />;
       case OnboardingStep.CreatePassword:
         return <CreatePasswordScreen onSubmit={onCreatePasswordSubmit} />;
       case OnboardingStep.SelectRecoveryMethod:
@@ -237,6 +280,7 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
           <ImportRecoveryMethodScreen
             isError={guardianLookupError}
             probe={guardianProbe}
+            guardianOnly={importViaKey}
             onRetryProbe={guardianProbe ? () => onForwardAction?.({ id: 'retry-guardian-probe' }) : undefined}
             onSubmit={payload => onForwardAction?.({ id: 'import-select-recovery-method', payload })}
           />
@@ -275,7 +319,8 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
     // Without this the recovery-method screen keeps rendering the first probe
     // state it saw and freezes on "detecting your guardian".
     guardianProbe,
-    confirmCreating
+    confirmCreating,
+    importViaKey
   ]);
 
   const onBack = () => {

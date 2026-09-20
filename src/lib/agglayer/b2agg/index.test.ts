@@ -170,6 +170,30 @@ describe('initiateB2AggBridge', () => {
     expect(call[7]).toBe(true);
   });
 
+  it('threads the exact spending-limit authorization to atomic row insertion', async () => {
+    const spendingLimitAuthorization = {
+      id: 'authorization-1',
+      accountId: 'mlcl1sender',
+      faucetId: `mlcl1${MIDEN_AGGLAYER_FAUCET_ID.slice(2)}`,
+      amount: 250n,
+      revision: 'revision-1',
+      issuedAt: 100,
+      expiresAt: 220
+    };
+
+    await initiateB2AggBridge({
+      amount: 250n,
+      faucetId: MIDEN_AGGLAYER_FAUCET_ID,
+      destinationAddress: '0x1111111111111111111111111111111111111111',
+      senderPublicKey: 'mlcl1sender',
+      destinationNetwork: 0,
+      spendingLimitAuthorization
+    });
+
+    expect(mockInitiateBridgedSendTransaction.mock.calls[0]![2]).toBe(spendingLimitAuthorization.faucetId);
+    expect(mockInitiateBridgedSendTransaction.mock.calls[0]![9]).toBe(spendingLimitAuthorization);
+  });
+
   // #788 follow-up: the awaited note build parks (the lazy SDK load), and an
   // eviction during it hands the mutex to a successor without stopping this
   // callback. Everything in the hold is write PREP — the request is only built

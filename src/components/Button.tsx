@@ -29,11 +29,11 @@ const propsPerButtonVariant = {
   [ButtonVariant.Primary]: {
     color: 'text-pure-white',
     fontWeight: 'font-bold',
-    disabledColor: 'text-heading-gray',
-    disabledFontWeight: 'font-semibold',
+    disabledColor: 'text-pure-white',
+    disabledFontWeight: 'font-bold',
     backgroundColor: 'bg-primary-500 focus:bg-primary-500',
     hoverBackgroundColor: 'hover:bg-primary-600',
-    disabledBackgroundColor: 'bg-surface-inactive',
+    disabledBackgroundColor: 'bg-primary-disabled dark:bg-primary-disabled-dark',
     iconColor: 'white',
     border: ''
   },
