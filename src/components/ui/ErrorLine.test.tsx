@@ -22,3 +22,9 @@ it('takes layout classes from the caller', () => {
   render(<ErrorLine className="mt-3">Nope</ErrorLine>);
   expect(screen.getByRole('alert')).toHaveClass('mt-3');
 });
+
+it('can be a standing note rather than an alert', () => {
+  render(<ErrorLine role="note">Decimals unknown</ErrorLine>);
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  expect(screen.getByText('Decimals unknown')).toHaveClass('text-negative-ink');
+});

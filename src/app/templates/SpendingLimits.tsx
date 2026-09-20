@@ -233,11 +233,7 @@ const SpendingLimitRow: FC<SpendingLimitRowProps> = ({ accountId, row, isCurrent
         }}
       />
       {/* A standing condition, not something that just went wrong, so it is a note and not an alert. */}
-      {!row.scaleKnown && (
-        <Notice variant="inline" tone="negative">
-          {t('spendingLimitUnknownDecimals')}
-        </Notice>
-      )}
+      {!row.scaleKnown && <ErrorLine role="note">{t('spendingLimitUnknownDecimals')}</ErrorLine>}
       <ErrorLine>{error}</ErrorLine>
       {authenticating ? (
         <StrictActionAuthentication reason={t('spendingLimitAuthenticationReason')} onResult={handleAuthentication} />
