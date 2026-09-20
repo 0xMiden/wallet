@@ -5,16 +5,15 @@ import { useTranslation } from 'react-i18next';
 import { useBackWithFallback } from 'app/hooks/useBackWithFallback';
 import { Button, ButtonVariant } from 'components/Button';
 import { ContactAvatar } from 'components/contacts/ContactAvatar';
-import { FlowLayout } from 'components/flow/FlowLayout';
 import { CopyButton } from 'components/ui/CopyButton';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import { ErrorLine } from 'components/ui/ErrorLine';
 import { Hero } from 'components/ui/Hero';
 import { Pill } from 'components/ui/Pill';
+import { SubPageLayout } from 'components/ui/SubPageLayout';
 import { getCurrentLocale } from 'lib/i18n/core';
 import { useContacts } from 'lib/miden/front';
 import { useFilteredContacts } from 'lib/miden/front/use-filtered-contacts.hook';
-import { hapticLight } from 'lib/mobile/haptics';
 import { WalletContact } from 'lib/shared/types';
 import { useConfirm } from 'lib/ui/dialog';
 import { navigate, Redirect } from 'lib/woozie';
@@ -97,7 +96,6 @@ const ContactView: React.FC<ContactViewProps> = ({ contact, onBack, onDeleted })
   // hero here is the avatar alone.
   const avatar = (
     <Hero
-      className="pb-2"
       visual={
         <ContactAvatar
           address={contact.address}
@@ -111,9 +109,14 @@ const ContactView: React.FC<ContactViewProps> = ({ contact, onBack, onDeleted })
 
   if (editing) {
     return (
-      <FlowLayout
+      <SubPageLayout
+        data-testid="contact-detail"
         title={t('editContact')}
         onBack={() => setEditing(false)}
+        onSubmit={event => {
+          event.preventDefault();
+          void save();
+        }}
         footer={
           <Button
             title={t('saveContact')}
@@ -122,46 +125,37 @@ const ContactView: React.FC<ContactViewProps> = ({ contact, onBack, onDeleted })
             disabled={!trimmedName || !changed || saving}
             isLoading={saving}
             data-testid="contact-save"
-            className="w-full max-w-none"
+            className="flex-1 max-w-none"
           />
         }
       >
-        <form
-          className="flex flex-col gap-5 pb-4"
-          onSubmit={event => {
-            event.preventDefault();
-            void save();
-          }}
-        >
-          {avatar}
-          <ContactNameInput value={name} onChange={setName} autoFocus />
-          <NetworkField
-            chain={kind === 'ethereum' ? 'ethereum' : 'miden'}
-            network={network}
-            onSelect={setNetwork}
-            testIdPrefix="contact"
-          />
-          <ErrorLine className="-mt-2">{error}</ErrorLine>
-          <button
-            type="button"
-            onClick={() => {
-              hapticLight();
-              void remove();
-            }}
-            data-testid="contact-delete"
-            className="mt-2 h-12 w-full rounded-full bg-fill text-row-title text-status-negative"
-          >
-            {t('deleteContact')}
-          </button>
-        </form>
-      </FlowLayout>
+        {avatar}
+        <ContactNameInput value={name} onChange={setName} autoFocus />
+        <NetworkField
+          chain={kind === 'ethereum' ? 'ethereum' : 'miden'}
+          network={network}
+          onSelect={setNetwork}
+          testIdPrefix="contact"
+        />
+        <ErrorLine className="-mt-2">{error}</ErrorLine>
+        {/* The shared destructive button: `fill` with the negative ink, the one shape a
+            destructive action takes anywhere in the wallet. */}
+        <Button
+          title={t('deleteContact')}
+          variant={ButtonVariant.Destructive}
+          onClick={() => void remove()}
+          data-testid="contact-delete"
+          className="w-full max-w-none"
+        />
+      </SubPageLayout>
     );
   }
 
   return (
-    <FlowLayout
+    <SubPageLayout
+      data-testid="contact-detail"
       title={contact.name}
-      titleAccessory={
+      headerActions={
         <Pill onClick={startEditing} data-testid="contact-edit">
           {t('edit')}
         </Pill>
@@ -173,12 +167,12 @@ const ContactView: React.FC<ContactViewProps> = ({ contact, onBack, onDeleted })
           variant={ButtonVariant.Primary}
           onClick={() => navigate(sendToContactPath(contact))}
           data-testid="contact-send"
-          className="w-full max-w-none"
+          className="flex-1 max-w-none"
         />
       }
     >
       {avatar}
-      <DetailCard className="mt-4">
+      <DetailCard>
         <DetailRow label={t('address')} stacked data-testid="contact-address">
           <span className="min-w-0 font-sans font-semibold">{contact.address}</span>
           <CopyButton text={contact.address} data-testid="contact-copy-address" />
@@ -188,7 +182,7 @@ const ContactView: React.FC<ContactViewProps> = ({ contact, onBack, onDeleted })
         </DetailRow>
         {contact.addedAt && <DetailRow label={t('contactAdded')}>{formatAddedDate(contact.addedAt)}</DetailRow>}
       </DetailCard>
-    </FlowLayout>
+    </SubPageLayout>
   );
 };
 
@@ -208,15 +202,13 @@ export const ContactDetailPage: React.FC<{ address: string }> = ({ address }) =>
   if (!contact) return <Redirect to={ADDRESS_BOOK_PATH} />;
 
   return (
-    <div className="flex h-full min-h-0 flex-1 flex-col" data-testid="contact-detail">
-      <ContactView
-        contact={contact}
-        onBack={back}
-        onDeleted={() => {
-          setDeleted(true);
-          back();
-        }}
-      />
-    </div>
+    <ContactView
+      contact={contact}
+      onBack={back}
+      onDeleted={() => {
+        setDeleted(true);
+        back();
+      }}
+    />
   );
 };

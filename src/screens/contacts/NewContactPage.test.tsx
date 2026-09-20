@@ -21,15 +21,7 @@ jest.mock('react-i18next', () => ({
     t: (key: string, params?: Record<string, string>) => (params ? `${key}:${JSON.stringify(params)}` : key)
   })
 }));
-jest.mock('components/flow/FlowLayout', () => ({
-  FlowLayout: ({ title, children, footer }: any) => (
-    <div>
-      <h1>{title}</h1>
-      {children}
-      {footer}
-    </div>
-  )
-}));
+
 jest.mock('components/Button', () => ({
   ButtonVariant: { Primary: 'primary' },
   Button: ({ title, variant: _variant, isLoading: _isLoading, ...rest }: any) => <button {...rest}>{title}</button>
